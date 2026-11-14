@@ -298,8 +298,11 @@ function drawGraph(svg, g, lay) {
         }
         const mx = (best[0].x + best[1].x) / 2, my = (best[0].y + best[1].y) / 2;
         const vertical = Math.abs(best[0].x - best[1].x) < 1;
-        eg.append(s("text", { class: "elabel", x: vertical ? mx + 6 : mx, y: vertical ? my + 4 : my - 6,
-                              "text-anchor": vertical ? "start" : "middle", "paint-order": "stroke",
+        // an edge with a twin running the other way between the same agents puts its label on the other side
+        const twin = g.edges.some((o) => o.source === e.target && o.target === e.source);
+        const left = twin && e.source > e.target;
+        eg.append(s("text", { class: "elabel", x: vertical ? (left ? mx - 6 : mx + 6) : mx, y: vertical ? my + 4 : (left ? my + 14 : my - 6),
+                              "text-anchor": vertical ? (left ? "end" : "start") : "middle", "paint-order": "stroke",
                               stroke: "var(--bg)", "stroke-width": 4, "stroke-linejoin": "round" }, le.labels[0].text));
       }
     }
@@ -503,7 +506,8 @@ async function pageDiagram(main, q) {
     const sg = sig(g);
     if (sg !== S.graphSig) {
       const r = svg.getBoundingClientRect();
-      S.layout = await layoutGraph(g, r.width && r.height ? r.width / Math.max(r.height - 80, 200) : 1.6);
+      const aspect = r.width && r.height ? r.width / Math.max(r.height - 80, 200) : 1.6;
+      S.layout = await layoutGraph(g, g.kind === "wiring" ? aspect * 2.5 : aspect);   // wiring: pack the components side by side
       S.graphSig = sg;
     } else {
       // same structure: keep positions, redraw with new values (label texts may change length slightly)
