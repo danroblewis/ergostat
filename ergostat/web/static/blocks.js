@@ -24,9 +24,11 @@ function blockLayout(g) {
     // feedforward: a sensor the controller reads that measures a disturbance, not the stock
     const ff = g.edges.filter((e) => e.kind === "signal" && e.target === ctl.id).map((e) => byId[e.source])
                       .filter((x) => x && x.measures !== lp.stock && dists.some((d) => d.flow === x.measures));
-    rows.push({ name, lp, ctl, stock, sensors, valves, dists, drains, ff });
+    rows.push({ name, lp, ctl, stock, sensors, valves, dists, drains, ff, system: (stock.systems || ctl.systems || [])[0] || "" });
   }
-  return rows;
+  // the loops of one system together, systems in the order they first appear: the columns read by system
+  const order = [...new Set(rows.map((r) => r.system))];
+  return rows.map((r, i) => [order.indexOf(r.system), i, r]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
 }
 
 function drawBlocks(svg, g) {
@@ -70,7 +72,8 @@ function drawBlocks(svg, g) {
     for (const [dx, dy, t] of signs) gg.append(label(cx + dx, cy + dy, t, "t-label"));
     return gg;
   };
-  if (!rows.length) { svg.replaceChildren(); return null; }   // loops whose parts are not all in view
+  if (!rows.length) { svg.replaceChildren(); return null; }
+  const manySystems = new Set(rows.map((r) => r.system)).size > 1;   // loops whose parts are not all in view
   const cols = Math.min(4, Math.ceil(rows.length / 6)), perCol = Math.ceil(rows.length / cols), colW = X.out + 110;
   rows.forEach((row, i) => {
     const y0 = (i % perCol) * RH + 40, cy = y0 + 50, dx = Math.floor(i / perCol) * colW;
@@ -78,7 +81,11 @@ function drawBlocks(svg, g) {
     const tone = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[st] || "var(--unknown)";
     const loopG = s("g", { class: "block-loop", "data-loop": row.name, transform: dx ? `translate(${dx},0)` : null });
     loopG.append(s("rect", { x: 6, y: y0 - 30, width: X.out + 70, height: RH - 20, rx: 14, fill: "none", stroke: "var(--line)", "stroke-dasharray": "4 4" }));
-    loopG.append(label(18, y0 - 10, row.name, "t-label", "start"), label(18 + row.name.length * 7.4 + 10, y0 - 10, st, "t-sub", "start"));
+    // the system it belongs to, when there are several: a loop among 24 keeps its place
+    const sysTag = manySystems && row.system ? row.system.toUpperCase() + "  " : "";
+    if (sysTag) { const t = label(18, y0 - 10, sysTag, "t-sub sys-tag", "start"); loopG.append(t); }
+    const nx = 18 + sysTag.length * 7.2;
+    loopG.append(label(nx, y0 - 10, row.name, "t-label", "start"), label(nx + row.name.length * 7.4 + 10, y0 - 10, st, "t-sub", "start"));
     loopG.lastChild.style.fill = tone;
     const sp = spText(row.lp);
     const open = row.lp.openLoop;

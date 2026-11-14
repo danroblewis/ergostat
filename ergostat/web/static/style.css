@@ -124,6 +124,7 @@ svg.canvas.dragging { cursor: grabbing; }
 .flowing { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 0.1 14; animation: flow 1.4s linear infinite; opacity: .85; }
 @keyframes flow { to { stroke-dashoffset: -14.1; } }
 .sys-hull rect { fill: var(--system); stroke: var(--system-line); stroke-width: 1.2; stroke-dasharray: 5 4; }
+.block-loop .sys-tag { fill: var(--accent); font-weight: 600; letter-spacing: .04em; }
 .sys-hull text { fill: var(--accent); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; opacity: .8; }
 
 .badge text { fill: var(--ink) !important; font-size: 10.5px; font-weight: 600; }
