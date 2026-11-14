@@ -46,3 +46,4 @@ Work until 2pm.
 - 10:01 round 20: plain crontab one-liners (bare numbers; check skips shell lines; cron badges say when); demo plain-crontab; cold-start review with own cron jobs launched.
 - 10:07 round 21: ergostat snapshot (one offline HTML file); dark block labels; loop hints on Agents page; sawtooth is not saturation. 82 tests.
 - 10:17 round 22 (fourth review, cold start with own cron jobs): a disturbance's agent (the load) drawn in control and wiring; early 'too soon to say why' hint; file order everywhere; event hides runs; twin labels by geometry; docs on names/units. demo_check also opens each snapshot offline. 83 tests.
+- 10:22 tanks: a level meter with the setpoint's tick; labels follow each tick (a stale sensor label fixed); screenshots retaken; third code review launched (since 493879b).
