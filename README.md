@@ -15,7 +15,7 @@ back](docs/screenshots/blocks.png)
 
 More: [the agents and how they reach each other](docs/screenshots/wiring.png),
 [the ladder](docs/screenshots/ladder.png), [a loop's detail with its trend](docs/screenshots/loop-detail.png),
-[dark](docs/screenshots/file-queue-dark.png).
+[dark, two cron one-liners](docs/screenshots/plain-crontab-dark.png).
 
 What was built on 2026-11-14, and what is left to decide: [docs/REPORT-2026-11-14.md](docs/REPORT-2026-11-14.md).
 
