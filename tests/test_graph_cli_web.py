@@ -192,3 +192,23 @@ def test_chat_briefs_claude_with_the_model(repo, tmp_path, monkeypatch):
     args = (tmp_path / "args").read_text()
     assert "--append-system-prompt" in args and "You are this system's Supervisor" in args
     assert 'name = "disk-under-80"' in args and args.rstrip().endswith("add a backup loop")
+
+
+def test_cycles_among_agents_and_whether_a_loop_declares_them(repo):
+    text = repo.path.joinpath("ergostat.toml").read_text().replace('agent = "cleaner"\n\n[[valve]]', 'agent = "decider"\n\n[[valve]]')
+    text += '\n[[agent]]\nname = "decider"\nkind = "rule"\n'
+    repo.write("ergostat.toml", text)
+    from ergostat import model, state
+    from ergostat.store import Project
+    p = Project(model.load(repo.path))
+    g = graph.wiring(p.model, p, state.snapshot(p), p.model.members(None))
+    (cy,) = g["cycles"]
+    assert sorted(cy["agents"]) == ["cleaner", "decider"] and cy["loop"] == "disk-under-80"
+    # two agents that pass events back and forth, with no loop between them
+    m = p.model
+    m.agents["pinger"] = model.Agent("pinger", "program", "true", 1.0, ["pong.*"])
+    m.agents["ponger"] = model.Agent("ponger", "program", "true", 1.0, ["ping.*"])
+    edges = [{"source": "agent:pinger", "target": "agent:ponger", "via": ["event ping.sent"]},
+             {"source": "agent:ponger", "target": "agent:pinger", "via": ["event pong.sent"]}]
+    (loose,) = graph.cycles(m, edges)
+    assert loose["loop"] is None and loose["agents"] == ["pinger", "ponger"]

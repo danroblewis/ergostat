@@ -211,4 +211,39 @@ def wiring(model, project, snap: dict, parts: set[str]) -> dict:
                 for t in types:
                     if fnmatch.fnmatchcase(t, pat):
                         add(a, b, f"event {t}")
-    return {"kind": "wiring", "nodes": nodes, "edges": list(edges.values()), "loops": {}}
+    es = list(edges.values())
+    return {"kind": "wiring", "nodes": nodes, "edges": es, "loops": {}, "cycles": cycles(m, es)}
+
+
+def cycles(model, edges: list[dict], longest: int = 6) -> list[dict]:
+    """The simple cycles among agents in the wiring (each found once, from its first agent by name),
+    and for each the declared loop whose roles its agents fill, if there is one. A cycle no loop
+    accounts for is something running that nobody designed."""
+    nxt: dict[str, list[tuple[str, list[str]]]] = {}
+    for e in edges:
+        nxt.setdefault(e["source"].split(":", 1)[1], []).append((e["target"].split(":", 1)[1], e["via"]))
+    found, seen = [], set()
+
+    def walk(start, node, path, vias):
+        for to, via in nxt.get(node, []):
+            if to == start and len(path) > 1:
+                key = tuple(sorted(path))
+                if key not in seen:
+                    seen.add(key)
+                    found.append((list(path), vias + [via]))
+            elif to not in path and to > start and len(path) < longest:
+                walk(start, to, path + [to], vias + [via])
+    for a in sorted(nxt):
+        walk(a, a, [a], [])
+    out = []
+    for path, vias in found:
+        agents = set(path)
+        loop = None
+        for lp in model.loops():
+            fillers = {p.agent for p in (lp.controller, *(model.sensors[s] for s in lp.sensors),
+                                         *(model.valves[v] for v in lp.valves)) if p.agent}
+            if agents <= fillers:
+                loop = lp.name
+                break
+        out.append({"agents": path, "via": [v[0] if v else "" for v in vias], "loop": loop})
+    return out

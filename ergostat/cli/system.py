@@ -72,6 +72,11 @@ def cmd_system(args) -> int:
             print(f"  [{n['label']} · {n['agentKind']}]  fills " + ", ".join(f"{r['kind']} {r['name']}" for r in n["roles"]))
         for e in g["edges"]:
             print(f"  {e['source'].split(':', 1)[1]} ─▶ {e['target'].split(':', 1)[1]}  {c('via ' + ', '.join(e['via']), 'dim')}")
+        if g.get("cycles"):
+            print(c("\ncycles among the agents", "dim"))
+            for cy in g["cycles"]:
+                ring = " ─▶ ".join(cy["agents"] + [cy["agents"][0]])
+                print(f"  {ring}  " + (c("loop " + cy["loop"], "ok") if cy["loop"] else c("not a declared loop", "warn")))
         return 0
     print(show.system_lines(m, snap, parts))
     return 0

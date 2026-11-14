@@ -352,6 +352,17 @@ function highlightLoop(name) {
   for (const r of document.querySelectorAll(".looprow")) r.classList.toggle("hl", r.dataset.loop === name);
 }
 
+function highlightAgents(names) {
+  const svg = $("svg.canvas");
+  if (!svg) return;
+  const ids = new Set((names || []).map((n) => "agent:" + n));
+  for (const n of svg.querySelectorAll(".node")) n.classList.toggle("dim", !!names && !ids.has(n.dataset.id));
+  for (const e of svg.querySelectorAll(".edge")) {
+    const [a, b] = (e.dataset.nodes || "").split(" ");
+    e.classList.toggle("dim", !!names && !(ids.has(a) && ids.has(b)));
+  }
+}
+
 function legend(view) {
   if (view === "blocks") {
     const row = (sym, text) => [h("span", { class: "sym" }, sym), h("span", {}, text)];
@@ -479,6 +490,15 @@ function renderSide(side, g, view) {
         h("div", { class: "sub" }, `${lp.stock} ${fmt(full.value)} · setpoint ${lp.setpoint}`)));
     }
   } else {
+    if (g.cycles?.length) {
+      side.append(h("h3", {}, `cycles among the agents (${g.cycles.length})`));
+      for (const cy of g.cycles) {
+        side.append(h("div", { class: "looprow", onmouseenter: () => highlightAgents(cy.agents), onmouseleave: () => highlightAgents(null) },
+          h("b", {}, cy.agents.concat(cy.agents[0]).join(" → ")),
+          cy.loop ? h("span", { class: "status s-holding" }, "loop " + cy.loop) : h("span", { class: "status s-open" }, "undeclared"),
+          h("div", { class: "sub" }, cy.loop ? "a declared loop accounts for it" : "something runs in a circle that no loop declares")));
+      }
+    }
     side.append(h("h3", {}, "agents"));
     for (const n of g.nodes) side.append(h("div", { class: "looprow", onclick: () => openAgent(n.label) },
       h("b", {}, n.label), h("span", { class: "pill" }, `rung ${n.rung}`), h("div", { class: "sub" }, n.agentKind)));
