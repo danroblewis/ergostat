@@ -226,7 +226,13 @@ function drawGraph(svg, g, lay) {
   if (g.kind === "control" && S.showHulls) {
     const hulls = s("g", { class: "sys-hull" });
     const taken = [];                                   // label boxes already placed, so overlapping hulls never stack names
+    // a system that contains another is padded more, so nested outlines nest visibly, labels apart
+    const memberIds = {};
+    for (const name of S.status?.systems || []) memberIds[name] = new Set(lay.children.filter((c) => (byId[c.id]?.systems || []).includes(name)).map((c) => c.id));
+    const depth = (name) => Object.entries(memberIds).filter(([o, ids]) => o !== name && ids.size && ids.size < memberIds[name].size &&
+                                                              [...ids].every((x) => memberIds[name].has(x))).length;
     (S.status?.systems || []).forEach((name, si) => {
+      const pad = 22 + 16 * depth(name);
       const hue = (210 + si * 137.5) % 360;          // the golden angle: neighbours never share a colour
       const members = lay.children.filter((c) => (byId[c.id]?.systems || []).includes(name));
       if (!members.length) return;
@@ -252,8 +258,8 @@ function drawGraph(svg, g, lay) {
         c.x < R.x1 && c.x + c.width > R.x && c.y < R.y1 && c.y + c.height > R.y);
       const sets = intrudes ? Object.values(groups) : [all];
       sets.sort((a, b) => b.length - a.length).forEach((bs) => {
-        const x0 = Math.min(...bs.map((b) => b.x)) - 22, y0 = Math.min(...bs.map((b) => b.y)) - 34;
-        const x1 = Math.max(...bs.map((b) => b.x1)) + 22, y1 = Math.max(...bs.map((b) => b.y1)) + 22;
+        const x0 = Math.min(...bs.map((b) => b.x)) - pad, y0 = Math.min(...bs.map((b) => b.y)) - pad - 12;
+        const x1 = Math.max(...bs.map((b) => b.x1)) + pad, y1 = Math.max(...bs.map((b) => b.y1)) + pad;
         const lw = name.length * 8 + 10;
         let lx = x0 + 12;
         for (let i = 0; i < 20 && taken.some((t) => Math.abs(t.y - y0) < 14 && lx < t.x + t.w && lx + lw > t.x); i++) {
