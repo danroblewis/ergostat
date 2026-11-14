@@ -58,6 +58,7 @@ the log and is counted: `--now` prints it, and the status says how many. Give ev
 
 A cron job that prints nothing, or one number, needs no JSON. An agent that fills **one sensor or
 one valve** may print a bare number: the sensor's reading, or what the valve moved (0 is no opening).
+It counts only when the run prints no JSON line, and the last number printed is the one taken.
 The controller such a job fills is implicit in it; it need not say anything.
 
 ```toml
