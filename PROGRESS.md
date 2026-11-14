@@ -38,3 +38,4 @@ Work until 2pm.
 - 08:55 residuals must persist into the recent half of the window; DESIGN §5 rewritten; docs/ai-agents.md + examples/ai-controller.sh (tested with a fake claude); cron in words.
 - 09:02 this-mac demo (real, read only); outlines merge when nothing intrudes; stocks without flows have no residual; scripts/demos.sh; demo_check notes residuals; round 14: the Supervisor for real (a correct change from the brief alone).
 - 09:14 PNG export; round 15 (--json); code review (15 bugs, all fixed: guarded runs, timeouts, cron, finite numbers, lock on run.pid, pooled web, pruning keeps crossings...).
+- 09:16 feedforward in the block view (H is the stock's own sensor); install as a uv tool verified end to end; docs/REPORT-2026-11-14.md; third review launched (designer, cold-start user).
