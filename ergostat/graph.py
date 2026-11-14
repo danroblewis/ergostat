@@ -4,8 +4,6 @@ reaches another). Both are plain data; the web page lays them out and the termin
 
 from __future__ import annotations
 
-import fnmatch
-
 from .state import fmt
 
 
