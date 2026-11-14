@@ -72,8 +72,10 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
                 problems.append(f"agent {name} is failing")
             if a["refused"]:
                 problems.append(f"agent {name} had lines refused")
+        sensed_by = {n: a for n, a in agents.items() for r in a["roles"] if r["kind"] == "sensor" for n in [r["name"]]}
         for name, lp in st["loops"].items():
-            if lp["status"] in ("open", "unknown"):
+            people_only = all(not (sensed_by.get(s) or {}).get("runs_itself") for s in lp["sensors"])
+            if lp["status"] == "open" or (lp["status"] == "unknown" and not people_only):
                 problems.append(f"loop {name} is {lp['status']}")
         url = st["web"]
         for path in ("status", "graph", "graph?view=wiring", "loops", "agents", "events", "items", "residuals"):
