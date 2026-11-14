@@ -31,6 +31,14 @@ ergostat run                               # the agents, in the background, and 
 ergostat                                   # what needs attention
 ```
 
+## Try the demos
+
+```bash
+scripts/demos.sh start        # every demo in ~/ergostat-demos, each with its own page
+scripts/demos.sh list         # which run, which loops are off, and their pages
+scripts/demos.sh stop
+```
+
 ## The model: `ergostat.toml`
 
 ```toml
