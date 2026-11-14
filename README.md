@@ -140,8 +140,9 @@ Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` a
 `ergostat run` serves it at http://127.0.0.1:8781 (the next free port when taken). It opens on the
 control diagram, laid out by ELK: stocks as tanks, flows as pipes through valves (a bow tie) or
 disturbances (a diamond), sensors as gauges, controllers as boxes with their setpoint and status,
-each part tagged with the agent that fills it (a dot by its kind, and its schedule). Loops are coloured by status;
-systems are drawn as outlines that may overlap. The blocks view draws each loop as a classic
+each part tagged with the agent that fills it (a lettered dot by its kind, and its schedule). Loops are coloured by status;
+systems are drawn as outlines that may overlap; an open loop (a timer) has a clock where a feedback
+controller has its Σ; a chain of loops in series folds into rows where one feeds the next. The blocks view draws each loop as a classic
 negative-feedback block diagram (r, Σ, e, C, u, the actuator, the disturbance d joining at the
 plant, y, the sensor H feeding ym back, and feedforward when a controller measures d itself);
 `ergostat system --blocks` prints the same in text.
@@ -159,16 +160,16 @@ returns.
 - `backups`: a sensor program, a rule that listens for `loop.off`, a job that runs on an event, and
   a second loop for the off-site copies.
 - `docs-fresh`: an AI agent (simulated), a decision, and a program; a disturbance that is measured.
-- `deps`: a person as a controller and valve, falling behind: the loop is off, and the merges they
-  make outside the valve show up as a residual.
-- `file-queue`: plain shell scripts on real files; an archiver on cron; an agent that fills no role
-  and acts as a disturbance.
+- `deps`: two loops in series, a person filling the second: the first is at its valve's limit
+  (`max = 2`), the second falls behind, and the work piles up between them.
+- `file-queue`: plain shell scripts on real files; an archiver on cron too slow to hold its loop
+  (the hint says how often it would have to run); a dropper named as the load.
 - `git-hygiene`: real git commands on a scratch repository; a pruner woken only by its own loop's
   crossing (`on = ["loop.off@few-merged-branches"]`).
 - `this-mac`: this machine, measured for real (disk, ~/Downloads, load) and changed by nobody: the
   loops are held by a person with manual valves.
 - `plain-crontab`: two cron jobs as one-liners (`find ... -delete | wc -l`, `du | cut -f1`), no
-  JSON and no scripts.
+  JSON and no scripts; the pruner is an open loop (it deletes by age, whatever the count).
 - `big`: 24 loops in six systems, for the layout.
 - `ops`: several systems together, overlapping.
 
