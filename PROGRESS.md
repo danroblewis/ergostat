@@ -62,3 +62,4 @@ Work until 2pm.
 - 11:48 round 36 (fifth review): parse, export legend, service port/systemd/bootstrap, status alias. 96 tests.
 - 11:56 unit mismatch warnings; run.log rotation; all 10 demos pass; fifth code review launched. 97 tests.
 - 11:57 design SVG export (structure only).
+- 12:03 round 38: fifth code review (9/9 applied); design SVG. 99 tests.
