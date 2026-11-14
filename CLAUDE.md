@@ -4,8 +4,9 @@ Ergostat keeps work going. It is a tool for drawing a control-system boundary ar
 someone wants to keep working, and for designing, seeing and running the control system inside it.
 The settled terms are in `NOTES.md`; read it first.
 
-This project is at the design stage: there is no code and no spec yet. Build only what the owner
-asks for. A question about what a user would want first is a discussion, not a request to build it.
+The design as built is `docs/DESIGN.md`; the CLI review rounds are in
+`docs/cli-rounds.md`. Build only what the owner asks for. A question about what a user would want
+first is a discussion, not a request to build it.
 
 ## Invariants
 
@@ -51,6 +52,10 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
 "machine" for these.
 
 ## Working here
+
+- Python 3.12+, `uv`, the standard library only at runtime; `uv run python -m pytest -q` and
+  `uv run ruff check` before every commit. `scripts/demo_check.py` runs every demo in
+  `~/ergostat-demos/` and checks its pages (with Playwright when installed).
 
 - The repository is local only: no remote, never pushed.
 - Never write an employer's names (systems, services, metrics, labels, ticket types, people) into
