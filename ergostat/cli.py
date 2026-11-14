@@ -223,7 +223,7 @@ def cmd_loop(args) -> int:
     parts = parts_of(args, m)
     if not args.name:
         rows = [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), lp["setpoint"],
-                 fmt(abs(lp["error"])) if lp["error"] else "", m.controllers[n].agent or "-",
+                 fmt(abs(lp["error"])) if lp["error"] and lp["status"] == "off" else "", m.controllers[n].agent or "-",
                  "yes" if lp["observed"] else c("no", "dim")]
                 for n, lp in snap["loops"].items() if n in parts]
         if args.json:
@@ -370,11 +370,13 @@ def cmd_item(args) -> int:
     p = open_project(args)
     if not args.name:
         since = time.time() - parse_duration(args.since, "--since") if args.since else None
-        its = p.events.items(since)
+        its = p.events.items(since, own=args.all)
         if args.json:
             return out_json(its)
         print(table(["ITEM", "EVENTS", "LATEST", "LAST", "FIRST"],
-                    [[i["item"], str(i["n"]), i["latest"], ago(i["last"]), ago(i["first"])] for i in its[:args.n]], "no items"))
+                    [[i["item"], str(i["n"]), i["latest"], ago(i["last"]), ago(i["first"])] for i in its[:args.n]],
+                    "no items yet: an item is what your agents' events are about (\"item\": ...)"
+                    + ("" if args.all else "; --all also lists the parts and agents")))
         return 0
     evs = p.events.query(n=None, item=args.name)
     if not evs:
@@ -667,6 +669,7 @@ def build() -> argparse.ArgumentParser:
     e.add_argument("--follow", "-f", action="store_true")
     i = topic("item", cmd_item, "Events folded by id")
     i.add_argument("-n", type=int, default=30)
+    i.add_argument("--all", action="store_true", help="also the parts and agents ergostat's own events are about")
     topic("residual", cmd_residual, "What the model can't explain")
     for t in PART_TOPICS:
         topic(t, cmd_part, f"The {t}s, or one").set_defaults(fn=cmd_part, topic=t)

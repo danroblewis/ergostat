@@ -84,3 +84,27 @@ $ ergostat loop disk-under-80
    with the owner.)
 10. Agents' output names the part each line is for.
 11. The web app opens on the diagram; colour shows loop status; click a part for its detail.
+
+## Round 5: the real CLI, against the running `ops` demo
+
+**Who:** the SRE again, now with the built tool and four loops running.
+
+```
+$ ergostat                      # one loop off: queue-short, jobs-waiting 38 against <= 20
+$ ergostat loop queue-short     # sensor read 1s ago, controller decided 3s ago, valve opened: it is acting
+$ ergostat system jobs          # the queue loop, and the disk loop (the workers' logs fill the disk)
+$ ergostat agent                # eight agents, sorted by rung; what each fills
+$ ergostat item                 # what the work is about
+```
+
+**Findings (applied):**
+- A loop within its tolerance showed an error next to "holding". The error now shows only when
+  the loop is off; the detail line says "within its tolerance of N".
+- `ergostat item` listed ergostat's own bookkeeping (agents, valves, controllers) as items. Items
+  are now what the agents' own events are about (`database`, `install.md`); `--all` adds the rest.
+- `ergostat system jobs` showing the disk loop is right: the disk is tagged with both systems, and
+  overlapping systems are the point.
+
+**Open:**
+- `agent.started` lines are noise in `ergostat event` for most questions; kept, because the record
+  is raw. A filter (`--type`) answers it.

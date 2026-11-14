@@ -99,7 +99,7 @@ def api(live: Live, path: str, q: dict):
             for e in evs:
                 fields.update(e["data"])
             return {"item": name, "fields": fields, "events": evs[-200:]}
-        return p.events.items()[:200]
+        return p.events.items(own=bool(one("all")))[:200]
     if head == "residuals":
         return snap["residuals"]
     if head == "part":

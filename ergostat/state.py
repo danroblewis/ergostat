@@ -64,15 +64,20 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     m = project.model
     now = now or time.time()
     since = now - window
-    hours = window / 3600.0
+    oldest = min((t for t in (project.events.first_time(), project.measurements.first_time()) if t), default=None)
+    start = max(since, oldest) if oldest else since    # every rate is over the time actually recorded
+    hours = max(now - start, 60.0) / 3600.0
     stocks, flows, loops, residuals = {}, {}, {}, {}
+    full: dict[str, list] = {}
 
     for name in m.stocks:
         v = stock_value(project, name)
-        pts = history(project, name, since)
+        pts = full[name] = history(project, name, start)
+        step = max(1, len(pts) // 80)
         stocks[name] = {**v, "unit": m.stocks[name].unit,
                         "change": (pts[-1][1] - pts[0][1]) if len(pts) >= 2 else None,
-                        "points": pts[-60:], "inflow": 0.0, "outflow": 0.0}
+                        "points": (pts[::step] + ([pts[-1]] if pts and (len(pts) - 1) % step else [])),
+                        "inflow": 0.0, "outflow": 0.0}
 
     # flows known from sensors or valves; a measured flow's reading is a rate per hour
     known: dict[str, float] = {}
@@ -85,7 +90,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                 rate, how = got[1], f"measured by {s.name}"
         valve = m.valve_of(f.name)
         if valve is not None:
-            ops = _openings(project, valve.name, since)
+            ops = _openings(project, valve.name, start)
             opened = {"count": len(ops), "amount": sum(o["data"].get("amount", 0) for o in ops),
                       "last": ops[-1]["time"] if ops else None}
             if rate is None:
@@ -100,7 +105,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     for name, s in stocks.items():
         if s["change"] is None:
             continue
-        pts = s["points"]
+        pts = full[name]
         span = max(pts[-1][0] - pts[0][0], 1e-9) / 3600.0
         explained = 0.0
         for f in m.flows_of(name):

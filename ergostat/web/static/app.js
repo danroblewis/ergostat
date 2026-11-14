@@ -175,12 +175,14 @@ function drawStock(n, w, hgt) {
   let spv = null;
   if (sp) { const m = /(-?\d+(\.\d+)?)/.exec(sp.setpoint); if (m) { spv = +m[1]; top = Math.max(top, spv * 1.25); } }
   const frac = n.value == null ? 0 : Math.max(0, Math.min(1, n.value / top));
+  const T = 24, H = hgt - T - 2;                       // the tank: below the title
   const tone = sp ? ({ off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[sp.status] || "var(--accent)") : "var(--accent)";
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 3, fill: "var(--stock)", stroke: "var(--stock-line)", "stroke-width": 2,
                        "stroke-dasharray": n.outside ? "5 4" : null }));
-  g.append(s("rect", { x: 2, y: 2 + (hgt - 4) * (1 - frac), width: w - 4, height: (hgt - 4) * frac, fill: tone, opacity: 0.13 }));
+  g.append(s("line", { x1: 0, x2: w, y1: T, y2: T, stroke: "var(--line)", "stroke-width": 1 }));
+  g.append(s("rect", { x: 2, y: T + H * (1 - frac), width: w - 4, height: H * frac, fill: tone, opacity: 0.14 }));
   if (spv != null) {
-    const y = 2 + (hgt - 4) * (1 - Math.min(1, spv / top));
+    const y = T + H * (1 - Math.min(1, spv / top));
     g.append(s("line", { x1: 2, x2: w - 2, y1: y, y2: y, stroke: tone, "stroke-width": 1.2, "stroke-dasharray": "3 3", opacity: 0.9 }));
   }
   if (pts.length > 1) {
@@ -189,7 +191,7 @@ function drawStock(n, w, hgt) {
     g.append(s("path", { d, fill: "none", stroke: tone, "stroke-width": 1.4, opacity: 0.8 }));
   }
   g.append(s("text", { x: 10, y: 17, class: "t-label" }, n.label));
-  g.append(s("text", { x: 10, y: 46, class: "t-value" }, n.valueText, s("tspan", { class: "t-unit", dx: 4 }, n.unit || "")));
+  g.append(s("text", { x: 10, y: 50, class: "t-value" }, n.valueText, s("tspan", { class: "t-unit", dx: 4 }, n.unit || "")));
   return g;
 }
 
@@ -596,18 +598,27 @@ async function openAgent(name) {
   showDetail(...kids);
 }
 
-function sparkSvg(points, w, hgt) {
-  const vs = points.map((p) => p[1]), lo = Math.min(...vs), hi = Math.max(...vs);
-  const d = vs.map((v, i) => `${i ? "L" : "M"}${(i / (vs.length - 1)) * (w - 8) + 4},${hgt - 6 - ((v - lo) / ((hi - lo) || 1)) * (hgt - 12)}`).join("");
-  return s("svg", { width: w, height: hgt, class: "spark" }, s("path", { d, fill: "none", stroke: "var(--accent)", "stroke-width": 2 }),
-    s("text", { x: 4, y: 12, fill: "var(--muted)", "font-size": 11 }, fmt(hi)), s("text", { x: 4, y: hgt - 2, fill: "var(--muted)", "font-size": 11 }, fmt(lo)));
+function sparkSvg(points, w, hgt, setpoint = null) {
+  const vs = points.map((p) => p[1]);
+  let lo = Math.min(...vs), hi = Math.max(...vs);
+  if (setpoint != null) { lo = Math.min(lo, setpoint); hi = Math.max(hi, setpoint); }
+  const small = hgt < 50, pad = small ? 3 : 6, left = small ? 2 : 34;
+  const y = (v) => hgt - pad - ((v - lo) / ((hi - lo) || 1)) * (hgt - 2 * pad);
+  const d = vs.map((v, i) => `${i ? "L" : "M"}${left + (i / (vs.length - 1)) * (w - left - 4)},${y(v)}`).join("");
+  const out = s("svg", { width: w, height: hgt, class: "spark" });
+  if (setpoint != null) out.append(s("line", { x1: left, x2: w - 2, y1: y(setpoint), y2: y(setpoint), stroke: "var(--muted)", "stroke-dasharray": "3 3", "stroke-width": 1 }));
+  out.append(s("path", { d, fill: "none", stroke: "var(--accent)", "stroke-width": small ? 1.6 : 2 }));
+  if (!small) out.append(s("text", { x: 0, y: 12, fill: "var(--muted)", "font-size": 11 }, fmt(hi)), s("text", { x: 0, y: hgt - 2, fill: "var(--muted)", "font-size": 11 }, fmt(lo)));
+  return out;
 }
+const setpointOf = (sp) => { const m = /(-?\d+(\.\d+)?)/.exec(sp || ""); return m ? +m[1] : null; };
 
 function eventsTable(evs, compact) {
   return h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
-    evs.slice().reverse().map((e) => h("tr", {}, h("td", { class: "num" }, new Date(e.time * 1000).toLocaleTimeString()), h("td", {}, e.type),
-      compact ? null : h("td", {}, e.item ? h("a", { href: `#/item/${encodeURIComponent(e.item)}` }, e.item) : "–"),
-      h("td", { class: "muted" }, e.source || "–"), h("td", { class: "mono muted" }, JSON.stringify(e.data).slice(0, 90)))));
+    evs.slice().reverse().map((e) => h("tr", {}, h("td", { class: "num nowrap" }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+      h("td", { class: "nowrap" }, e.type),
+      compact ? null : h("td", { class: "nowrap" }, e.item ? h("a", { href: `#/item/${encodeURIComponent(e.item)}` }, e.item) : "–"),
+      h("td", { class: "muted nowrap" }, e.source || "–"), h("td", { class: "mono muted" }, JSON.stringify(e.data).slice(0, 110)))));
 }
 
 /* ------------------------------------------------------------------ the other pages */
@@ -629,7 +640,7 @@ async function pageLoops(main) {
       Object.entries(loops).map(([n, lp]) => h("tr", { class: "click", onclick: () => openLoop(n) },
         h("td", {}, h("b", {}, n)), h("td", {}, statusEl(lp.status)), h("td", {}, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
         h("td", { class: "num" }, lp.setpoint), h("td", { class: "num" }, lp.error ? fmt(lp.error) : ""),
-        h("td", {}, (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 140, 30) : ""), h("td", {}, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
+        h("td", {}, (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 150, 30, setpointOf(lp.setpoint)) : ""), h("td", {}, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
   }
   await tick();
   S.timer = setInterval(tick, 3000);
@@ -661,11 +672,15 @@ async function pageAgents(main) {
 async function pageRecord(main, q) {
   const p = page(main, "Record", "Events as they happen, newest first; items are events folded by id.");
   const filt = h("input", { placeholder: "type, e.g. valve.* or loop.off", value: q.get("type") || "" });
+  const runs = h("input", { type: "checkbox" });
   const box = h("div");
   const items = h("div");
-  p.append(h("div", { style: "display:flex;gap:8px;align-items:center" }, filt, h("button", { onclick: () => tick(true) }, "filter")), h("h2", {}, "events"), box, h("h2", {}, "items"), items);
+  p.append(h("div", { style: "display:flex;gap:12px;align-items:center" }, filt, h("button", { onclick: () => tick(true) }, "filter"),
+                h("label", { class: "muted" }, runs, " show runs (agent.started, agent.ran)")), h("h2", {}, "events"), box, h("h2", {}, "items"), items);
+  runs.addEventListener("change", () => tick());
   async function tick() {
-    const evs = await api("events", { n: 60, ...(filt.value ? { type: filt.value } : {}) });
+    let evs = await api("events", { n: runs.checked ? 60 : 300, ...(filt.value ? { type: filt.value } : {}) });
+    if (!runs.checked && !filt.value) evs = evs.filter((e) => !["agent.started", "agent.ran"].includes(e.type)).slice(-60);
     box.replaceChildren(eventsTable(evs, false));
     const its = await api("items");
     items.replaceChildren(h("table", {}, h("tr", {}, ["item", "events", "latest", "last"].map((x) => h("th", {}, x))),

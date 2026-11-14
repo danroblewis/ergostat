@@ -39,6 +39,9 @@ create index if not exists samples_series on samples(series, time);
 """
 
 
+OWN = ("agent", "valve", "controller", "loop", "ergostat")     # ergostat's own event types
+
+
 def home() -> Path:
     return Path(os.environ.get("ERGOSTAT_HOME") or Path.home() / ".ergostat")
 
@@ -136,18 +139,25 @@ class Events:
         with self._c() as c:
             return [self._row(r) for r in c.execute("select * from events where causedby = ? order by seq", (id,))]
 
-    def items(self, since: float | None = None) -> list[dict]:
-        """Each item: how many events, the first and last, and the latest type."""
-        sql = ("select item, count(*) n, min(time) first, max(time) last, "
+    def items(self, since: float | None = None, own: bool = False) -> list[dict]:
+        """Each item: how many events, the first and last, and the latest type. Items that only
+        ergostat's own events are about (agents, valves, controllers, loops) are left out unless
+        ``own``."""
+        theirs = "sum(case when " + " or ".join(f"type like '{p}.%'" for p in OWN) + " then 0 else 1 end)"
+        sql = ("select item, count(*) n, min(time) first, max(time) last, " + theirs + " theirs, "
                "(select type from events e2 where e2.item = e.item order by seq desc limit 1) latest "
                "from events e where item is not null" + (" and time >= ?" if since else "") +
-               " group by item order by last desc")
+               " group by item" + ("" if own else " having theirs > 0") + " order by last desc")
         with self._c() as c:
             return [dict(r) for r in c.execute(sql, (since,) if since else ())]
 
     def count(self) -> int:
         with self._c() as c:
             return c.execute("select count(*) from events").fetchone()[0]
+
+    def first_time(self) -> float | None:
+        with self._c() as c:
+            return c.execute("select min(time) from events").fetchone()[0]
 
     def last_seq(self) -> int:
         with self._c() as c:
@@ -187,6 +197,10 @@ class Measurements:
     def count(self) -> int:
         with self._c() as c:
             return c.execute("select count(*) from samples").fetchone()[0]
+
+    def first_time(self) -> float | None:
+        with self._c() as c:
+            return c.execute("select min(time) from samples").fetchone()[0]
 
 
 class Project:
