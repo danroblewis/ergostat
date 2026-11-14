@@ -282,3 +282,9 @@ holding); noticed that "under 200" is a strict `< 200` and offered `<= 200`.
 
 **Findings:** none needed applying: the brief (the model, the agent protocol, `check`, `--now`,
 strict bounds) was enough for a correct change on the first try.
+
+## Round 15: a script author, using --json
+
+Every topic, with and without a name, `-s`, `--at`, `system --wiring` and `--blocks`: each prints
+one JSON document, with no terminal colour codes. Nothing to apply. (`system --blocks --json`
+gives the control graph, from which the blocks are drawn.)
