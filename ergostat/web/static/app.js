@@ -580,6 +580,18 @@ function highlightLoop(name) {
 }
 
 function legend(view) {
+  if (view === "blocks") {
+    const row = (sym, text) => [h("span", { class: "sym" }, sym), h("span", {}, text)];
+    return h("div", { class: "legend" },
+      row("r", "the setpoint: what the loop holds"),
+      row("Σ", "compares: r − ym, with signs at each input"),
+      row("e", "the error: how far off it is"),
+      row("C", "the controller, and the agent filling it"),
+      row("u", "its output: how far the actuator (valve) is opened"),
+      row("d", "a disturbance joining at the plant"),
+      row("y", "the plant's output: the stock"),
+      row("H", "the sensor; ym is what it reads"));
+  }
   if (view === "wiring") {
     return h("div", { class: "legend" },
       h("span", { html: '<svg width="26" height="16"><rect x="2" y="2" width="22" height="12" rx="3" fill="var(--panel)" stroke="var(--line)" stroke-width="2"/><rect x="2" y="2" width="4" height="12" rx="2" fill="var(--r4)"/></svg>' }), "an agent, coloured by its rung",
@@ -625,7 +637,7 @@ async function pageDiagram(main, q) {
     h("button", { onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
     h("button", { onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "−"));
   wrap.append(svg, toolbar, zoom);
-  S.legendEl = legend(view);
+  S.legendEl = legend(view);   // blocks, wiring and control each read differently
   const side = h("div", { class: "side" });
   main.append(h("div", { class: "diagram" }, wrap, side));
   panZoom(svg);
@@ -644,7 +656,7 @@ async function pageDiagram(main, q) {
         S.layout = drawBlocks(svg, g);
         if (!S.fitted) { fit(svg, S.layout); S.fitted = true; }
       }
-      renderSide(side, g, "control");
+      renderSide(side, g, "blocks");
       return;
     }
     if (!g.nodes.length) {
@@ -682,7 +694,7 @@ function renderSide(side, g, view) {
   if (st.attention.length > MAX) att.append(h("div", { class: "more" }, `and ${st.attention.length - MAX} more: see Loops and Residuals`));
   side.append(att);
   const loops = Object.entries(g.loops || {});
-  if (view === "control") {
+  if (view === "control" || view === "blocks") {
     side.append(h("h3", {}, `loops (${loops.length})`));
     if (!loops.length) side.append(h("div", { class: "muted" }, "no loops in view"));
     for (const [name, lp] of loops) {
