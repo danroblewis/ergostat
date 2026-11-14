@@ -31,3 +31,4 @@ Work until 2pm.
 - 08:13 time slider and --at; trend chart in loop detail; valve positions (u); block legend; all 7 demos pass demo_check.
 - 08:22 (branch next, in ~/ergostat-wt while an independent reviewer walks the main tree): agent --now and docs/writing-agents.md; cycles among agents (declared or not); on = ["type@item"]; ladder hints on agent cards; DESIGN brought up to date.
 - 08:30 independent review (2 personas, 20 findings): fixed the bugs and most of the rest (see docs/cli-rounds.md round 11); git-hygiene demo (real git); block view signs by direction.
+- 08:38 demo_check runs fresh copies; off-time per loop and a 'sample faster' hint (file-queue's cron archiver); README screenshots.
