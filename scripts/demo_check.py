@@ -64,9 +64,17 @@ def fresh_copy(demo: Path) -> Path:
     return dest
 
 
+def fmt(x) -> str:
+    return f"{x:.3g}" if isinstance(x, float) else str(x)
+
+
+notes: list[str] = []
+
+
 def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
     demo = fresh_copy(demo)
     problems = []
+    notes.clear()
     c = sh("-C", str(demo), "check")
     if c.returncode != 0:
         return [f"check failed: {c.stdout}{c.stderr}"]
@@ -91,6 +99,9 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
             people_only = all(not (sensed_by.get(s) or {}).get("runs_itself") for s in lp["sensors"])
             if lp["status"] == "open" or (lp["status"] == "unknown" and not people_only):
                 problems.append(f"loop {name} is {lp['status']}")
+        res = json.loads(sh("-C", str(demo), "residual", "--json").stdout)
+        notes.extend(f"note: stock {k}: {fmt(v['unexplained'])} unexplained" + (f" ({v['why']})" if v.get("why") else "")
+                     for k, v in res.items() if v.get("significant"))
         url = st["web"]
         for path in ("status", "graph", "graph?view=wiring", "loops", "agents", "events", "items", "residuals", "parts"):
             get(f"{url}/api/{path}")
@@ -113,7 +124,7 @@ def main() -> int:
     bad = 0
     for n in names:
         probs = check(DEMOS / n, a.seconds, a.shots)
-        print(f"{'ok  ' if not probs else 'FAIL'} {n}" + "".join(f"\n       {p}" for p in probs), flush=True)
+        print(f"{'ok  ' if not probs else 'FAIL'} {n}" + "".join(f"\n       {p}" for p in probs + notes), flush=True)
         bad += bool(probs)
     return 1 if bad else 0
 
