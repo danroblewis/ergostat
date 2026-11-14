@@ -577,8 +577,8 @@ function renderSide(side, g, view) {
       for (const cy of g.cycles) {
         side.append(h("div", { class: "looprow", onmouseenter: () => highlightAgents(cy.agents), onmouseleave: () => highlightAgents(null) },
           h("b", {}, cy.agents.concat(cy.agents[0]).join(" → ")),
-          cy.loop ? h("span", { class: "status s-holding" }, "loop " + cy.loop) : h("span", { class: "status s-open" }, "undeclared"),
-          h("div", { class: "sub" }, cy.loop ? "a declared loop accounts for it" : "something runs in a circle that no loop declares")));
+          cy.loop ? null : h("span", { class: "status s-open" }, "undeclared"),
+          h("div", { class: "sub" }, cy.loop ? `the loop ${cy.loop} accounts for it` : "something runs in a circle that no loop declares")));
       }
     }
     side.append(h("h3", {}, `agents in this view (${g.nodes.length})`));
