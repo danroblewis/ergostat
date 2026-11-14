@@ -44,3 +44,4 @@ Work until 2pm.
 - 09:32 page warns when not running; Supervisor brief: existing cron jobs, people's records; README brought up to date, screenshots retaken; second code review launched (on the last hour's changes).
 - 09:42 second code review: 11 findings applied (web pool exit, lock races, reload lock hand-off, measured flow averaging, outlines, history defaults, cron at the clock change); on-call round 18: the valve row sums its last run. 79 tests.
 - 10:01 round 20: plain crontab one-liners (bare numbers; check skips shell lines; cron badges say when); demo plain-crontab; cold-start review with own cron jobs launched.
+- 10:07 round 21: ergostat snapshot (one offline HTML file); dark block labels; loop hints on Agents page; sawtooth is not saturation. 82 tests.
