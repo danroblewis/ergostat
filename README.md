@@ -76,6 +76,7 @@ agent = "disk-cleaner"
 name = "delete-old-files"
 flow = "cleaned"
 agent = "disk-cleaner"
+mode = "auto"    # or advise, or manual (the default when a person fills it)
 
 [[agent]]        # fills roles: person, ai, narrow-ai, decision, program or rule
 name = "disk-cleaner"
@@ -96,7 +97,8 @@ event that triggered it) and prints one JSON object per line, naming the part ea
 {"event": "backup.requested", "item": "database", "data": {}}
 ```
 
-A line naming a part the agent does not fill is refused. How to write one, in shell or Python, and
+A line naming a part the agent does not fill is refused. A person filling a role records it from the
+command line (`ergostat valve NAME --opened N`). How to write one, in shell or Python, and
 try it (`ergostat agent NAME --now`): [docs/writing-agents.md](docs/writing-agents.md). An AI agent
 filling a controller, with `claude -p`: [docs/ai-agents.md](docs/ai-agents.md). When a loop crosses its setpoint ergostat
 records `loop.off` or `loop.holding`, which other agents can listen for (`on`).
@@ -113,6 +115,8 @@ ergostat residual            what the model can't explain
 ergostat stock|flow|valve|sensor|controller|disturbance [NAME]
 ergostat check | run | web | chat
 ergostat projects            every project on this machine, which are running, and their pages
+ergostat help agents         how to write an agent (also: help ai-agents)
+ergostat valve NAME --opened N    a person records what they did (also sensor --read, controller --decided)
 ```
 
 Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` ago, `07:30`) and
@@ -123,12 +127,13 @@ Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` a
 `ergostat run` serves it at http://127.0.0.1:8781 (the next free port when taken). It opens on the
 control diagram, laid out by ELK: stocks as tanks, flows as pipes through valves (a bow tie) or
 disturbances (a diamond), sensors as gauges, controllers as boxes with their setpoint and status,
-each part tagged with the agent that fills it, coloured by its rung. Loops are coloured by status;
+each part tagged with the agent that fills it (a dot by its kind, and its schedule). Loops are coloured by status;
 systems are drawn as outlines that may overlap. The blocks view draws each loop as a classic
 negative-feedback block diagram (r, Σ, e, C, u, the actuator, the disturbance d joining at the
-plant, y, and the sensor H feeding ym back); `ergostat system --blocks` prints the same in text.
+plant, y, the sensor H feeding ym back, and feedforward when a controller measures d itself);
+`ergostat system --blocks` prints the same in text.
 "save SVG" and "PNG" write the diagram as a standalone file. The wiring view draws the agents and how each
-one's output reaches another. Loops, Agents (the ladder), Parts, Record, Residuals and Check show
+one's output reaches another, and lists the cycles among them, declared as loops or not. Loops, Agents (the ladder), Parts, Record, Residuals and Check show
 what the command line shows; the Guide explains the ideas with the system's own parts as examples. The slider in the header looks at any past moment; "back to live"
 returns.
 
