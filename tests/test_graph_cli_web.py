@@ -163,3 +163,32 @@ def test_at_looks_at_a_past_moment(project):
     past = state.snapshot(project, now=now - 300)
     assert past["loops"]["disk-under-80"]["status"] == "holding" and past["stocks"]["disk-used"]["value"] == 70
     assert not past["live"]
+
+
+def test_agent_now_runs_it_once_and_says_what_it_said(repo, project, capsys):
+    repo.write("clean.py", """
+        import json
+        print(json.dumps({"sensor": "disk-usage", "value": 91}))
+        print(json.dumps({"controller": "disk-under-80", "decision": "free 20"}))
+        print(json.dumps({"valve": "delete-old-files", "amount": 20}))
+    """)
+    rc, out = run_cli(repo, "agent", "cleaner", "--now", capsys=capsys)
+    assert rc == 0 and "1 readings, 1 openings, 1 decisions" in out and "disk-usage = 91" in out and "valve.opened" in out
+    assert run_cli(repo, "agent", "nobody", "--now", capsys=capsys)[0] == 2
+
+
+def test_chat_briefs_claude_with_the_model(repo, tmp_path, monkeypatch):
+    import os
+    import subprocess
+    import sys
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    (fake / "claude").write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$CAPTURE"\n')
+    (fake / "claude").chmod(0o755)
+    env = {**os.environ, "PATH": f"{fake}:{os.environ['PATH']}", "CAPTURE": str(tmp_path / "args")}
+    r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(repo.path), "chat", "add a backup loop"],
+                       env=env, capture_output=True, text=True, timeout=60, check=False)
+    assert r.returncode == 0, r.stderr
+    args = (tmp_path / "args").read_text()
+    assert "--append-system-prompt" in args and "You are this system's Supervisor" in args
+    assert 'name = "disk-under-80"' in args and args.rstrip().endswith("add a backup loop")

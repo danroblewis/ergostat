@@ -30,6 +30,7 @@ the system
 
 who does the work
   agent          People, AI agents, decisions, programs and rules, and the roles they fill
+                 (agent NAME --now runs one at once)
 
 what happened
   event          The raw record (--follow to watch)
@@ -98,7 +99,8 @@ def build() -> argparse.ArgumentParser:
     topic("loop", cmd_loop, "The feedback loops, or one, part by part")
     ch = topic("check", cmd_check, "Is the model whole?", named=False)
     ch.add_argument("--example", action="store_true", help="print an example ergostat.toml")
-    topic("agent", cmd_agent, "Who fills which roles, at what rung")
+    ag = topic("agent", cmd_agent, "Who fills which roles, at what rung")
+    ag.add_argument("--now", action="store_true", help="run this agent once, at once (recorded like any run)")
     e = topic("event", cmd_event, "The raw record, or one event with its causes (by id)")
     e.add_argument("-n", type=int, default=30)
     e.add_argument("--type")

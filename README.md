@@ -71,7 +71,8 @@ event that triggered it) and prints one JSON object per line, naming the part ea
 {"event": "backup.requested", "item": "database", "data": {}}
 ```
 
-A line naming a part the agent does not fill is refused. When a loop crosses its setpoint ergostat
+A line naming a part the agent does not fill is refused. How to write one, in shell or Python, and
+try it (`ergostat agent NAME --now`): [docs/writing-agents.md](docs/writing-agents.md). When a loop crosses its setpoint ergostat
 records `loop.off` or `loop.holding`, which other agents can listen for (`on`).
 
 ## The command line

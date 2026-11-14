@@ -30,6 +30,7 @@ from pathlib import Path
 from . import state as st
 
 RUN_TIMEOUT = 300.0
+OWN_TYPES = ("agent.", "loop.", "valve.", "controller.", "model.", "ergostat.")   # no agent may publish these
 LIVE: set = set()          # the runs in progress, so stopping ergostat stops them too
 
 
@@ -135,8 +136,8 @@ class Recorder:
                 return True
         if "event" in line:
             t = str(line["event"])
-            if t.startswith(("agent.", "loop.", "valve.", "controller.")):
-                self.refuse(line, f"{t}: types under agent., loop., valve. and controller. are ergostat's own")
+            if t.startswith(OWN_TYPES):
+                self.refuse(line, f"{t}: types under {', '.join(OWN_TYPES)} are ergostat's own")
                 return True
             ev.add(t, item=line.get("item"), source=self.agent.name, causedby=self.run_id,
                    data=line.get("data") if isinstance(line.get("data"), dict) else {})
