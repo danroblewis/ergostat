@@ -271,6 +271,18 @@ class Runner:
             self.waiting.add(name)
             self.queues[name].put(None)
 
+    def _prune(self) -> None:
+        """Hourly: forget what is older than the model's ``keep`` (default 30 days)."""
+        while not self.stop.is_set():
+            before = time.time() - self.p.model.keep
+            try:
+                gone = self.p.events.prune(before), self.p.measurements.prune(before)
+                if any(gone):
+                    self.say(f"kept {self.p.model.keep / 86400:g} days: forgot {gone[0]} events and {gone[1]} measurements")
+            except Exception as e:
+                self.say(f"pruning: {type(e).__name__}: {e}")
+            self.stop.wait(3600)
+
     def _follow(self, seq: int) -> None:
         """From ``seq``, taken before any thread started, so no event that lands meanwhile is missed."""
         listening = [a for a in self.p.model.agents.values() if a.name in self.queues and a.on]
@@ -291,6 +303,7 @@ class Runner:
             threading.Thread(target=self._work, args=(name,), daemon=True).start()
         threading.Thread(target=self._schedule, daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
+        threading.Thread(target=self._prune, daemon=True).start()
         self.p.events.add("ergostat.started", source=SOURCE, data={"agents": sorted(self.queues), "pid": os.getpid()})
 
     def close(self) -> None:

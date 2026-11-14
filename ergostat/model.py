@@ -152,6 +152,7 @@ class Model:
     controllers: dict[str, Controller] = field(default_factory=dict)
     agents: dict[str, Agent] = field(default_factory=dict)
     systems: dict[str, System] = field(default_factory=dict)
+    keep: float = 30 * 86400.0                 # how long the record is kept (the model's history always)
 
     # ---- lookups
 
@@ -251,10 +252,11 @@ COMMON = {"name", "description", "systems"}
 
 
 def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") -> Model:
-    known = {"name", "stock", "flow", "disturbance", "valve", "sensor", "controller", "agent", "system"}
+    known = {"name", "keep", "stock", "flow", "disturbance", "valve", "sensor", "controller", "agent", "system"}
     if extra := sorted(set(data) - known):
         raise ModelError(f"unknown table {extra[0]!r} (known: {', '.join(sorted(known - {'name'}))})")
-    m = Model(name=str(data.get("name") or default_name), path=path)
+    m = Model(name=str(data.get("name") or default_name), path=path,
+              keep=parse_duration(data["keep"], "keep") if data.get("keep") is not None else 30 * 86400.0)
     seen: dict[str, str] = {}
 
     def rows(key):

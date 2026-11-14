@@ -167,6 +167,11 @@ class Events:
         with self._c() as c:
             return c.execute("select min(time) from events").fetchone()[0]
 
+    def prune(self, before: float) -> int:
+        """Forget events older than ``before``, except the model's history, which is kept whole."""
+        with self._c() as c:
+            return c.execute("delete from events where time < ? and type != 'model.changed'", (before,)).rowcount
+
     def opened(self, valve: str, since: float, until: float | None = None) -> dict:
         """A valve's openings in a span: how many, the amount they moved, and the last one's time."""
         with self._c() as c:
@@ -221,6 +226,29 @@ class Measurements:
             rows = c.execute("select time, value from samples where series = ? and time >= ? and time <= ? order by time",
                              (series, since, until if until is not None else time.time() + 1)).fetchall()
         return [(r[0], r[1]) for r in rows]
+
+    def sampled(self, series: str, since: float, until: float | None = None, points: int = 600) -> list[tuple[float, float]]:
+        """The readings in a span, raw when there are few; otherwise averaged into ``points`` buckets
+        by SQLite, with the first and last readings kept exact (a week of readings every few
+        seconds never reaches Python one by one)."""
+        until = until if until is not None else time.time() + 1
+        with self._c() as c:
+            n = c.execute("select count(*) from samples where series = ? and time >= ? and time <= ?", (series, since, until)).fetchone()[0]
+            if n <= points * 2:
+                return self.range(series, since, until)
+            width = (until - since) / points
+            rows = c.execute("select avg(time), avg(value) from samples where series = ? and time >= ? and time <= ? "
+                             "group by cast((time - ?) / ? as integer) order by 1", (series, since, until, since, width)).fetchall()
+            first = c.execute("select time, value from samples where series = ? and time >= ? order by time limit 1",
+                              (series, since)).fetchone()
+            last = c.execute("select time, value from samples where series = ? and time <= ? order by time desc limit 1",
+                             (series, until)).fetchone()
+        mid = [(r[0], r[1]) for r in rows if first[0] < r[0] < last[0]]
+        return [(first[0], first[1]), *mid, (last[0], last[1])]
+
+    def prune(self, before: float) -> int:
+        with self._c() as c:
+            return c.execute("delete from samples where time < ?", (before,)).rowcount
 
     def series(self) -> list[dict]:
         with self._c() as c:

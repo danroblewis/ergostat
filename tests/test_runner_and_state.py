@@ -192,3 +192,26 @@ def test_a_loop_off_most_of_the_time_is_a_hint_to_sample_faster(project):
     assert 0.8 < snap["loops"]["disk-under-80"]["off_share"] < 0.85
     (hint,) = [h for h in snap["hints"] if h["controller"] == "disk-under-80"]
     assert "off 8" in hint["says"] and "run it more often" in hint["says"]
+
+
+def test_a_week_of_readings_is_sampled_in_sql_and_the_ends_kept_exact(project):
+    import sqlite3
+    t0 = time.time() - 7 * 86400
+    with sqlite3.connect(project.measurements.path) as c:
+        c.executemany("insert into samples(series, time, value) values (?,?,?)",
+                      [("sensor/disk-usage", t0 + i * 5, 50 + (i % 40)) for i in range(120000)])
+    t = time.time()
+    snap = state.snapshot(project, window=8 * 86400)
+    assert time.time() - t < 3
+    pts = state.history(project, "disk-used", t0 - 1)
+    assert len(pts) < 700 and pts[0] == (t0, 50) and pts[-1][1] == 50 + (119999 % 40)
+    assert snap["stocks"]["disk-used"]["value"] == 50 + (119999 % 40)
+
+
+def test_pruning_forgets_old_record_but_not_the_model_history(project):
+    old = time.time() - 100 * 86400
+    project.events.add("x.y.z", at=old)
+    project.events.add("model.changed", at=old, data={"parts": {}, "added": [], "removed": [], "changed": []})
+    project.measurements.add("sensor/disk-usage", 1, at=old)
+    assert project.events.prune(time.time() - 30 * 86400) == 1 and project.measurements.prune(time.time() - 30 * 86400) == 1
+    assert [e["type"] for e in project.events.query(n=None)] == ["model.changed"]

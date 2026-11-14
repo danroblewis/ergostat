@@ -37,7 +37,7 @@ def stock_value(project, stock: str, at: float | None = None) -> dict:
 def history(project, stock: str, since: float, until: float | None = None) -> list[tuple[float, float]]:
     pts = []
     for s in _sensor_for(project.model, stock):
-        pts += project.measurements.range(f"sensor/{s.name}", since, until)
+        pts += project.measurements.sampled(f"sensor/{s.name}", since, until)
     return sorted(pts)
 
 

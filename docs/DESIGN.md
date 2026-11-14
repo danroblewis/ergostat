@@ -49,7 +49,12 @@ connections from many threads deadlocked inside SQLite's file locking).
   indexed by item, type, time and cause. An event's `item` is what it is about; an item is the fold
   of its events.
 - **`measurements.db`**: `samples(series, time, value)`. A sensor's readings are the series
-  `sensor/<name>`.
+  `sensor/<name>`; a valve's position, `valve/<name>`. A long span is averaged into buckets by
+  SQLite (the first and last readings kept exact), so a week of readings never reaches Python one
+  by one.
+- **Keeping**: the top-level `keep = "30d"` (the default) says how long the record is kept; the
+  runner forgets older events and measurements hourly, except the model's history (`model.changed`),
+  which is kept whole.
 
 ergostat's own event types (agents may not publish them): `agent.started`, `agent.ran`,
 `agent.failed`, `agent.refused`, `valve.opened`, `controller.decided`, `loop.off`,

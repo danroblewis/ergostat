@@ -34,6 +34,8 @@ ergostat                                   # what needs attention
 ## The model: `ergostat.toml`
 
 ```toml
+keep = "30d"     # how long the record is kept (the default)
+
 [[stock]]        # what accumulates
 name = "disk-used"
 unit = "%"
