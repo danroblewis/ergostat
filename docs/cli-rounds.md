@@ -188,3 +188,32 @@ $ ergostat system --blocks --at 03:10
   slider in the header and "back to live".
 - The model's history called every agent changed after ergostat itself gained a field (`timeout`).
   Fingerprints now cover only what a part declares (fields that differ from their defaults).
+
+## Round 11: an independent reviewer, two personas (an SRE on the CLI, their manager on the page)
+
+Twenty findings; the ones applied:
+
+- The diagram was cut off on first load and "fit" did nothing: fit now shows everything (the first
+  view keeps labels legible and pans the rest).
+- The side panel mixed two moments (a loop off beside "nothing needs you"): the attention list now
+  comes with the diagram, from the same snapshot.
+- Loops stuck at "unknown" were never flagged: after two minutes of record, they are.
+- `-s` was ignored by the bare status and unknown systems were accepted: both fixed.
+- `--at 25:00` crashed; a moment before the record raised false alarms: validated, and it says
+  the record starts later.
+- Windows claimed more record than existed: residuals and crossings say "the 36m recorded".
+- The block view drew a draining actuator with "+" and left out another agent's inflow: signed by
+  direction, and other agents' inflows are d.
+- Suggestions outranked problems: problems first; suggestions apart (CLI) and folded (page).
+- Python leaked into output (`['host', 'jobs']`, `disturbance True`, counts as strings): the
+  file's words, numbers in JSON, `check --json` has `ok`.
+- `--blocks` with no name listed systems: it draws everything.
+- Tolerance was invisible: setpoints read `<= 24 (±2)`.
+- The model's edits filled the side panel: one line, folded.
+- Rates had no units: `734 %/h`, `1541 h/h`.
+- Phones opened on a 400 px diagram: they open on Loops.
+- Subcommand help was bare: every flag is described.
+- `--exit-code` makes the status exit 1 when something needs attention, for cron.
+- The file-queue "unexplained" residual was real: runs stopped midway by restarts had moved files
+  without saying so. The agents now say each move as they make it, and `docs/writing-agents.md`
+  says to.
