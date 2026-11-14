@@ -47,6 +47,7 @@ class Flow(Part):
     target: str | None = None
     unit: str = ""
     disturbance: bool = False          # an input no valve controls
+    rate: float | None = None          # a disturbance's known rate per hour, when it is declared
     kind = "flow"
 
 
@@ -314,11 +315,14 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
         add(m.flows, Flow(**common(r, w), source=r.get("from"), target=r.get("to"), unit=str(r.get("unit", ""))), "flow")
     for i, r in enumerate(rows("disturbance")):
         w = f"[[disturbance]] #{i + 1}"
-        _take(r, COMMON | {"into", "out_of", "unit"}, w)
+        _take(r, COMMON | {"into", "out_of", "unit", "rate"}, w)
         if bool(r.get("into")) == bool(r.get("out_of")):
             raise ModelError(f"{w} {r['name']}: say which stock it pushes: into = \"...\" or out_of = \"...\"")
+        rate = r.get("rate")
+        if rate is not None and (isinstance(rate, bool) or not isinstance(rate, int | float)):
+            raise ModelError(f"{w} {r['name']}.rate: a number per hour")
         add(m.flows, Flow(**common(r, w), source=r.get("out_of"), target=r.get("into"), unit=str(r.get("unit", "")),
-                          disturbance=True), "disturbance")
+                          disturbance=True, rate=float(rate) if rate is not None else None), "disturbance")
     for i, r in enumerate(rows("valve")):
         w = f"[[valve]] #{i + 1}"
         _take(r, COMMON | {"flow", "agent", "mode"}, w)

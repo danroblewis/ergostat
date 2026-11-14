@@ -227,3 +227,24 @@ def test_a_loop_whose_valve_cannot_keep_up_is_called_saturated(project):
     project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 30, data={})
     (hint,) = [h for h in state.snapshot(project)["hints"] if h["controller"] == "disk-under-80"]
     assert "saturated" in hint["says"] and "more capacity" in hint["says"]
+
+
+def test_a_disturbance_that_would_run_backwards_is_not_hidden(project):
+    t = time.time() - 600
+    project.measurements.add("sensor/disk-usage", 80, at=t)
+    project.measurements.add("sensor/disk-usage", 60, at=t + 300)        # fell 20 with no valve opening
+    r = state.snapshot(project)["residuals"]["disk-used"]
+    assert r["significant"] and "logs-written would have to run backwards" in r["why"]
+
+
+def test_a_disturbance_may_declare_its_rate(repo):
+    from ergostat import model
+    from ergostat.store import Project
+    text = repo.path.joinpath("ergostat.toml").read_text()
+    repo.write("ergostat.toml", text.replace('into = "disk-used"', 'into = "disk-used"\nrate = 12'))
+    p = Project(model.load(repo.path))
+    t = time.time() - 3000
+    p.measurements.add("sensor/disk-usage", 50, at=t)
+    p.measurements.add("sensor/disk-usage", 56, at=t + 1800)             # half an hour at 12/h: explained
+    snap = state.snapshot(p)
+    assert snap["flows"]["logs-written"]["how"] == "declared" and snap["residuals"]["disk-used"]["unexplained"] == 0

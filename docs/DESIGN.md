@@ -19,7 +19,7 @@ One file in the repository, read with the standard library (`tomllib`). Every pa
 |---|---|---|
 | `[[stock]]` | what accumulates | `unit` |
 | `[[flow]]` | what moves a stock | `from`, `to` (a stock; left out: outside the boundary), `unit` |
-| `[[disturbance]]` | a flow no valve controls | `into` or `out_of` |
+| `[[disturbance]]` | a flow no valve controls | `into` or `out_of`; `rate` (per hour) when it is known |
 | `[[valve]]` | where an agent acts, on one flow | `flow`, `agent`, `mode` (auto, advise, manual) |
 | `[[sensor]]` | measures a stock or a flow | `measures`, `agent`, `unit` |
 | `[[controller]]` | holds a stock at a setpoint | `holds`, `setpoint` (`<= 80`, `>= 1`, `== 0`), `tolerance`, `reads` (sensors), `drives` (valves), `agent` |
@@ -93,7 +93,8 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
 - **A flow's rate** (per hour) is its sensor's latest reading, else the amounts its valve opened.
 - **A residual** is a stock's change minus what its known flows explain (valve amounts between the
   first and last reading; measured flows integrated over time). When an unmeasured disturbance
-  pushes that stock, the residual is its estimate; otherwise it is unexplained when larger than
+  pushes that stock, the residual is its estimate (unless it would have to run backwards to explain
+  it: then it is flagged, never clamped); otherwise it is unexplained when larger than
   5% of the flow and twice an ordinary non-zero step between readings (timing at the window's
   edges is noise).
 - **A loop** is open (cannot close), unknown (no reading), holding (within setpoint ± tolerance)

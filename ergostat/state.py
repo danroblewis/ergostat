@@ -81,6 +81,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     known: dict[str, float] = {}
     for f in m.flows.values():
         rate, how, opened = None, None, None
+        if f.rate is not None:
+            rate, how = f.rate, "declared"
         sensors = _sensor_for(m, f.name)
         for s in sensors:
             got = project.measurements.latest(f"sensor/{s.name}", now)
@@ -110,6 +112,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                 if flows[f.name]["openings"] is not None and flows[f.name]["how"].startswith("opened"):
                     # what the valve moved between the first and the last reading
                     explained += sign * project.events.opened(flows[f.name]["valve"], pts[0][0], pts[-1][0])["amount"]
+                elif f.rate is not None:
+                    explained += sign * f.rate * span
                 else:
                     got = moved(project, f.name, pts[0][0], pts[-1][0])
                     explained += sign * (got if got is not None else known[f.name] * span)
@@ -119,13 +123,19 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         steps = sorted(d for a, b in zip(pts, pts[1:], strict=False) if (d := abs(b[1] - a[1])) > 0)
         typical = steps[len(steps) // 2] if len(steps) >= 2 and len(pts) >= 4 else 0.0   # an ordinary step: timing at the edges is noise
         significant = abs(unexplained) > max(1e-9, 0.05 * scale, 2 * typical)
-        if estimated and significant:
-            share = unexplained / len(estimated)
+        share = unexplained / len(estimated) if estimated else 0.0
+        backwards = [f for f in estimated if (1 if f.target == name else -1) * share < 0]
+        if estimated and significant and not backwards:
             for f in estimated:
                 sign = 1 if f.target == name else -1
-                flows[f.name].update(rate=max(0.0, sign * share / span), how=f"estimated from {name}", estimated=True)
+                flows[f.name].update(rate=sign * share / span, how=f"estimated from {name}", estimated=True)
             residuals[name] = {"unexplained": unexplained, "explained": explained, "change": s["change"],
                                "absorbed_by": [f.name for f in estimated], "significant": False, "hours": span}
+        elif estimated and significant:
+            # the disturbance would have to run backwards to explain it: something else is happening
+            residuals[name] = {"unexplained": unexplained, "explained": explained, "change": s["change"],
+                               "absorbed_by": [], "significant": True, "hours": span,
+                               "why": f"{', '.join(f.name for f in backwards)} would have to run backwards to explain it"}
         else:
             residuals[name] = {"unexplained": unexplained, "explained": explained, "change": s["change"],
                                "absorbed_by": [], "significant": significant, "hours": span}
@@ -313,7 +323,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
     for name, r in snap["residuals"].items():
         if r["significant"]:
             out.append({"level": "warn", "what": f"stock {name}", "says": f"changed {fmt(r['change'])}, the known flows explain "
-                        f"{fmt(r['explained'])}: {fmt(r['unexplained'])} unexplained"})
+                        f"{fmt(r['explained'])}: {fmt(r['unexplained'])} unexplained" + (f" ({r['why']})" if r.get("why") else "")})
     return sorted(out, key=lambda a: LEVELS.get(a["level"], 1))
 
 
