@@ -460,3 +460,20 @@ def test_a_plain_program_filling_one_sensor_or_valve_may_print_a_bare_number(rep
     assert p.events.opened("delete-old-files", 0)["amount"] == 12
     r = runner.run_agent(p, p.model.agents["cleaner"])     # fills a controller only now: a bare number is just log
     assert r["readings"] == 0 and r["openings"] == 0
+
+
+def test_a_bare_number_counts_only_when_the_run_said_no_json(repo):
+    from ergostat import model
+    from ergostat.store import Project
+    text = repo.path.joinpath("ergostat.toml").read_text()
+    text = text.replace('name = "disk-usage"\nmeasures = "disk-used"\nagent = "cleaner"',
+                        'name = "disk-usage"\nmeasures = "disk-used"\nagent = "bc"')
+    text += '\n[[agent]]\nname = "bc"\nkind = "program"\ncommand = "echo .50"\n'
+    repo.write("ergostat.toml", text)
+    p = Project(model.load(repo.path))
+    assert runner.run_agent(p, p.model.agents["bc"])["readings"] == 1       # what bc prints is a number too
+    assert p.measurements.latest("sensor/disk-usage")[1] == 0.5
+    # the cleaner now fills a controller and a valve: its JSON lines count, a stray number does not
+    repo.write("clean.py", 'import json\nprint(json.dumps({"valve": "delete-old-files", "amount": 3}))\nprint(2)\n')
+    r = runner.run_agent(p, p.model.agents["cleaner"].__class__(**{**p.model.agents["cleaner"].__dict__, "command": "python3 clean.py"}))
+    assert r["openings"] == 1 and p.events.opened("delete-old-files", 0)["amount"] == 3

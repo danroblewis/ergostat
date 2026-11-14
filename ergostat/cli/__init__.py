@@ -142,6 +142,8 @@ def build() -> argparse.ArgumentParser:
                desc="Write the web page, with everything it shows now, to one HTML file that opens anywhere, offline, "
                     "with no ergostat running: the diagrams to attach to a document or a ticket.")
     sn.add_argument("-o", "--output", metavar="FILE", help="where (default: <name>-<date>-<time>.html here)")
+    sn.add_argument("--with-logs", action="store_true", help="also the end of each agent's log (left out by default: a log may "
+                                                            "hold what should not be sent on)")
     w = topic("web", cmd_web, "Serve the web page only", named=False)
     w.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     chat = sub.add_parser("chat", parents=[common], help="Talk to the Supervisor")

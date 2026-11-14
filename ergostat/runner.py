@@ -90,14 +90,6 @@ def matches(pattern: str, ev: dict) -> bool:
 TYPE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)+$")
 
 
-def _is_number(raw: str) -> bool:
-    try:
-        float(raw)
-        return True
-    except ValueError:
-        return False
-
-
 def _number(v) -> bool:
     import math
     return isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v)
@@ -114,6 +106,8 @@ class Recorder:
         self.bare = measured[0] if len(measured) == 1 else None   # where a bare number goes: a plain program's output
         self.counts = {"readings": 0, "openings": 0, "decisions": 0, "events": 0, "refused": 0, "unread": 0}
         self.unread: list[str] = []
+        self.said = 0                    # JSON lines it printed: an agent that speaks JSON has no bare number
+        self.pending: float | None = None    # the last bare number, taken when the run ends
 
     def refuse(self, line: dict, why: str) -> None:
         self.counts["refused"] += 1
@@ -127,19 +121,39 @@ class Recorder:
 
     def take(self, raw: str) -> bool:
         """True when the line was handled (recorded or refused); False when it goes to the log."""
+        if self.bare:
+            try:
+                self.pending = float(raw)                # `.50` from bc, `007` from printf: a number all the same
+                return False                             # to the log; recorded at the end if nothing spoke JSON
+            except ValueError:
+                pass
         try:
             line = json.loads(raw)
         except ValueError:
             if raw.lstrip().startswith("{"):             # meant for ergostat, but not JSON
                 self.not_read(raw)
             return False
-        if self.bare and isinstance(line, int | float) and not isinstance(line, bool):
-            kind, name = self.bare                   # `du -sm dir | cut -f1`, `find ... -delete -print | wc -l`
-            if kind == "valve" and line == 0:
-                return True                          # nothing moved: no opening
-            line = {kind: name, ("value" if kind == "sensor" else "amount"): line}
         if not isinstance(line, dict):
             return False
+        self.said += 1
+        return self.take_line(line)
+
+    def finish(self) -> str | None:
+        """A plain program's bare number (the last it printed), when it printed no JSON line: the
+        reading of its one sensor, or what its one valve moved (0: no opening). What became of it,
+        for the log."""
+        if not self.bare or self.pending is None or self.said:
+            return None
+        kind, name = self.bare                   # `du -sm dir | cut -f1`, `find ... -delete -print | wc -l`
+        if kind == "valve" and self.pending == 0:
+            return "0: nothing moved, no opening"
+        before = dict(self.counts)
+        self.take_line({kind: name, ("value" if kind == "sensor" else "amount"): self.pending})
+        if self.counts["refused"] > before["refused"]:
+            return f"{self.pending:g}: refused (see ergostat agent {self.agent.name})"
+        return f"{self.pending:g} → {kind} {name}"
+
+    def take_line(self, line: dict) -> bool:
         ev = self.p.events
         for kind in ("sensor", "valve", "controller"):
             if kind not in line:
@@ -197,7 +211,7 @@ class Recorder:
             ev.add(t, item=line.get("item"), source=self.agent.name, causedby=self.run_id, data=line.get("data") or {})
             self.counts["events"] += 1
             return True
-        self.not_read(raw)                                   # an object that names no part and no event
+        self.not_read(json.dumps(line))                      # an object that names no part and no event
         return False
 
 
@@ -281,11 +295,15 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                     try:
                         if not rec.take(raw.strip()):
                             lf.write(raw)
-                        elif rec.bare and _is_number(raw):       # a bare number: the log says what it became
-                            lf.write(f"{raw.strip()}  → {rec.bare[0]} {rec.bare[1]}\n")
                     except Exception as e:                       # one bad line never leaves the run half done
                         crashed = crashed or f"{type(e).__name__}: {e}"
                         rec.refuse({"raw": raw[:200]}, f"could not record it ({type(e).__name__})")
+                try:
+                    became = rec.finish()
+                    if became:
+                        lf.write(f"[ergostat] the bare number {became}\n")
+                except Exception as e:
+                    crashed = crashed or f"{type(e).__name__}: {e}"
             finally:
                 code = p.wait()
                 timer.cancel()

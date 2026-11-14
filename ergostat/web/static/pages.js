@@ -102,8 +102,7 @@ async function pageRecord(main, q) {
                 h("label", { class: "muted" }, runs, " show runs (agent.started, agent.ran)")), h("h2", {}, "events"), box, h("h2", {}, "items"), items);
   runs.addEventListener("change", () => tick());
   async function tick() {
-    let evs = await api("events", { n: runs.checked ? 60 : 300, ...(filt.value ? { type: filt.value } : {}) });
-    if (!runs.checked && !filt.value) evs = evs.filter((e) => !["agent.started", "agent.ran"].includes(e.type)).slice(-60);
+    const evs = await api("events", { n: 60, ...(runs.checked ? { runs: 1 } : {}), ...(filt.value ? { type: filt.value } : {}) });
     box.replaceChildren(eventsTable(evs, false));
     const its = await api("items");
     items.replaceChildren(h("table", {}, h("tr", {}, ["item", "events", "latest", "last"].map((x) => h("th", {}, x))),

@@ -451,3 +451,27 @@ A team lead runs `ergostat --since 7d` on Monday.
   of the window each loop spent off.
 - One model change listed 32 parts on one line: past eight, six and "and N more".
 - Changes older than a day said only the time: they say the day too.
+
+## Round 24: a third code review (the code since round 19)
+
+Nine findings; applied:
+
+- One event holding `<!--<script` swallowed the snapshot's scripts: every `<` in the snapshot's
+  data is written `<`, and `<!--` cannot open in an inlined script.
+- An agent that speaks JSON got fake openings from a stray number (`wc -l`): a bare number is
+  taken only when the run printed no JSON line, and only the last one, at the end of the run.
+- `.50` (from `bc`) and `007` were not taken as numbers: they are read as numbers; the log says
+  what the number became, or that it was refused.
+- A valve moving less than its load, in a loop off between half and nine tenths of the time, was
+  said to keep up: it is said to be behind, getting back only now and then.
+- Items named with `(`, `)`, `!`, `'` or `*` were missing from snapshots: keyed as the page asks.
+- The Record page and `ergostat event` could differ (the page filtered runs after its limit): the
+  server leaves run bookkeeping out the same way (`runs=1` puts it back).
+- A snapshot carried the end of every agent's log: left out unless `--with-logs`.
+- `snapshot --since bogus` went through: refused, as everywhere.
+- A long value could run into the tank's setpoint text, a negative setpoint put its tick off the
+  meter, and a part that gained a badge kept its old label space: the tank is sized for both, the
+  tick is clamped, and the layout is redone when a part's label lines change.
+
+Not applied: a cron time inside the hour the clocks skip in spring does not run that day
+(Vixie cron runs it after the gap); the repeated autumn hour runs twice. Noted, not changed.

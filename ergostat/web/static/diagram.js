@@ -15,7 +15,8 @@ function badgeText(a) { return a ? `${a.kind} · ${a.name}${a.when ? " · " + a.
 function textWidth(t) { return t.length * CH; }
 
 function sig(g) {
-  return JSON.stringify([g.kind, g.nodes.map((n) => n.id).sort(), g.edges.map((e) => e.id).sort()]);
+  // what the layout depends on: the parts, the wires, and how many label lines each part has
+  return JSON.stringify([g.kind, g.nodes.map((n) => `${n.id}:${labelLines(n).length}:${n.agent?.name || ""}`).sort(), g.edges.map((e) => e.id).sort()]);
 }
 
 async function layoutGraph(g, aspect) {
@@ -24,7 +25,10 @@ async function layoutGraph(g, aspect) {
   const nodesInOrder = [...g.nodes].sort((a, b) => rank(a) - rank(b));
   const children = nodesInOrder.map((n) => {
     let [w, hgt] = SIZE[n.kind] || [60, 40];
-    if (n.kind === "stock") w = Math.max(w, textWidth(n.label) + 34);
+    if (n.kind === "stock") {                         // the title, and the value beside the setpoint, all fit
+      const lp = Object.values(g.loops || {}).find((l) => l.stock === n.label);
+      w = Math.max(w, textWidth(n.label) + 34, (n.valueText || "").length * 14 + textWidth(n.unit || "") + textWidth(lp ? lp.setpoint : "") + 44);
+    }
     if (n.kind === "controller") w = Math.max(w, textWidth(n.label) * 1.12 + 120, textWidth("holds " + n.setpoint) + 60);   // the title is bold
     const lines = labelLines(n);
     const node = { id: n.id, width: w, height: hgt, layoutOptions: {} };
@@ -105,7 +109,7 @@ function drawStock(n, w, hgt) {
   g.append(s("rect", { x: mx, y: my, width: mw, height: 4, rx: 2, fill: "var(--line)" }));
   g.append(s("rect", { x: mx, y: my, width: mw * frac, height: 4, rx: 2, fill: tone }));
   if (spv != null) {
-    const sx = mx + mw * Math.min(1, spv / top);
+    const sx = mx + mw * Math.max(0, Math.min(1, spv / top));
     g.append(s("line", { x1: sx, x2: sx, y1: my - 3, y2: my + 7, stroke: "var(--ink)", "stroke-width": 1.6 }, s("title", {}, "setpoint")));
     const sp_ = sp.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").trim();
     g.append(s("text", { x: w - 10, y: 50, class: "t-sub", "text-anchor": "end" }, sp_));

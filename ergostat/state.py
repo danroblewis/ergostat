@@ -299,6 +299,10 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             says = (f"loop {name} was off {off}% of the time: its valve moved {fmt(ours)}/h "
                     f"{'out' if drains else 'in'} while {fmt(load)}/h came {'in' if drains else 'out'}. It is saturated: "
                     f"a valve with more capacity, or less load, not faster sampling")
+        elif load > 0 and ours < 0.95 * load:          # behind, but back now and then: either may help
+            says = (f"loop {name} was off {off}% of the time: its valve moved {fmt(ours)}/h "
+                    f"{'out' if drains else 'in'} while {fmt(load)}/h came {'in' if drains else 'out'}, and the loop got back "
+                    f"only now and then. More capacity, or acting more often ({a.schedule if a else '?'} now)")
         elif a and (a.every or a.cron):
             says = (f"loop {name} was off {off}% of the time though its valve can keep up: its controller runs "
                     f"{a.schedule}; run it more often")

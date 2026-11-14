@@ -101,11 +101,13 @@ def cmd_snapshot(args) -> int:
     from ..web.snapshot import build
     p = open_project(args)
     since = getattr(args, "since", None) or "1h"
+    from ..durations import parse_duration
+    parse_duration(since, "--since")                     # a bad window is refused here, as everywhere
     if getattr(args, "at", None):
         print("a snapshot is of now: --at is not taken", file=sys.stderr)
         return 2
     out = Path(args.output or f"{p.model.name}-{time.strftime('%Y%m%d-%H%M')}.html")
-    html = build(p, since)
+    html = build(p, since, logs=args.with_logs)
     out.write_text(html)
     print(f"{out}  ({len(html) // 1024} KB; open it in a browser, no ergostat needed)")
     return 0

@@ -131,8 +131,9 @@ def api(live: Live, path: str, q: dict):
         return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n]} for n, a in snap["agents"].items()}
     if head == "events":
         after = one("after")
+        skip = () if one("runs") or one("type") else ("agent.started", "agent.ran")   # as `ergostat event`
         return p.events.query(n=int(one("n") or 100), type=one("type"), item=one("item"), source=one("source"),
-                              after_seq=int(after) if after else None)
+                              after_seq=int(after) if after else None, skip=skip)
     if head == "items":
         if name:
             evs = p.events.query(n=None, item=name)

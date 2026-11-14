@@ -20,23 +20,30 @@ def key(path: str, params: dict) -> str:
     return path + ("?" + "&".join(f"{k}={v}" for k, v in kept) if kept else "")
 
 
+def _q(name: str) -> str:
+    """As the page's encodeURIComponent: it leaves !'()* alone."""
+    return quote(name, safe="!'()*")
+
+
 def _requests(project) -> list[tuple[str, dict]]:
     m = project.model
     reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("items", {}), ("residuals", {}),
-                                    ("parts", {}), ("graph", {}), ("events", {"n": 300}), ("events", {"n": 60})]
+                                    ("parts", {}), ("graph", {}), ("events", {"n": 60}), ("events", {"n": 60, "runs": 1})]
     for view in ("control", "wiring"):
         for system in [None, *m.system_names()]:
             reqs.append(("graph", {"view": view, **({"system": system} if system else {})}))
-    reqs += [(f"loops/{quote(n, safe='')}", {}) for n in m.controllers]
-    reqs += [(f"agents/{quote(n, safe='')}", {}) for n in m.agents]
+    reqs += [(f"loops/{_q(n)}", {}) for n in m.controllers]
+    reqs += [(f"agents/{_q(n)}", {}) for n in m.agents]
     for kind, table in m.tables().items():
         for n in table:
             k = "disturbance" if kind == "flow" and getattr(table[n], "disturbance", False) else kind
-            reqs.append((f"part/{k}/{quote(n, safe='')}", {}))
+            reqs.append((f"part/{k}/{_q(n)}", {}))
     return reqs
 
 
-def build(project, since: str = "1h") -> str:
+def build(project, since: str = "1h", logs: bool = False) -> str:
+    """``logs``: the end of each agent's log goes in too (left out by default: a log may hold what
+    should not be sent on)."""
     live = Live(project)
     data: dict = {"projects": []}
     for path, params in _requests(project):
@@ -46,20 +53,24 @@ def build(project, since: str = "1h") -> str:
         except Exception:                      # one part that cannot be answered leaves the rest
             got = None
         if got is not None:
+            if path.startswith("agents/") and not logs:
+                got["log"] = ["(left out of this snapshot: ergostat snapshot --with-logs puts it in)"]
             data[key(path, params)] = got
     for it in (data.get("items") or [])[:40]:
-        got = api(live, f"items/{quote(it['item'], safe='')}", {"since": [since]})
+        got = api(live, f"items/{_q(it['item'])}", {"since": [since]})
         if got is not None:
-            data[f"items/{quote(it['item'], safe='')}"] = got
+            data[f"items/{_q(it['item'])}"] = got
     snap = {"at": time.time(), "since": since, "name": project.model.name, "data": data}
 
     def inline(text: str) -> str:
-        return re.sub(r"</(script)", r"<\\/\1", text, flags=re.I)     # nothing in a script may close it early
+        text = re.sub(r"</(script)", r"<\\/\1", text, flags=re.I)    # nothing in a script may close it early,
+        return text.replace("<!--", "<\\!--")                          # nor open a comment that hides its end
 
     page = (STATIC / "index.html").read_text()
     page = page.replace('<link rel="stylesheet" href="/static/style.css">',
                         "<style>\n" + (STATIC / "style.css").read_text() + "\n</style>")
-    snapshot_js = "window.SNAPSHOT = " + inline(json.dumps(snap, default=str)) + ";"
+    # every < in the data as \u003c: no tag, comment or script end can form inside the script
+    snapshot_js = "window.SNAPSHOT = " + json.dumps(snap, default=str).replace("<", "\\u003c") + ";"
 
     def script(mt: re.Match) -> str:
         body = inline((STATIC / mt.group(1)).read_text())
