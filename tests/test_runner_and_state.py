@@ -192,7 +192,7 @@ def test_a_loop_off_most_of_the_time_is_a_hint_to_sample_faster(project):
     snap = state.snapshot(project)
     assert 0.8 < snap["loops"]["disk-under-80"]["off_share"] < 0.85
     (hint,) = [h for h in snap["hints"] if h["controller"] == "disk-under-80"]
-    assert "off 8" in hint["says"] and ("run it more often" in hint["says"] or "saturated" in hint["says"])
+    assert "off 8" in hint["says"] and "run it more often" in hint["says"]      # back now and then: not saturated
 
 
 def test_a_week_of_readings_is_sampled_in_sql_and_the_ends_kept_exact(project):

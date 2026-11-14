@@ -396,3 +396,8 @@ and wants their control diagram without rewriting them. Modelled as the demo `pl
 - `agent --now` said "a sensor should always read" about a silent controller: a sensor that did
   not read is a warning of its own; other silent roles are noted as fine.
 - The guide has "A job you already have"; the Supervisor's brief says the same.
+- The block view's own labels (loop names, r, d, ym) were black on the dark theme: they take the
+  ink colour. r's label ran into the junction's + sign: the junction moves right of the longest one.
+- The Agents page drew a loop hint as a decision hint (`"" 52% of 0`): it shows what the hint says.
+- A job rotating a log every 2 minutes was called saturated: a sawtooth that gets back under the
+  setpoint is sampling too slowly. Saturated needs the loop off at least 90% of the window.

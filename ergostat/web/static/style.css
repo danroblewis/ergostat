@@ -99,6 +99,7 @@ svg.canvas.dragging { cursor: grabbing; }
 .empty { color: var(--muted); padding: 40px; text-align: center; }
 
 .node text { fill: var(--ink); font-size: 12px; }
+.block-loop text { fill: var(--ink); }
 .node .t-label { font-weight: 600; font-size: 12.5px; }
 .node .t-sub { fill: var(--muted); font-size: 11px; }
 .node .t-value { font-family: var(--mono); font-size: 20px; font-weight: 600; }

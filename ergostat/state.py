@@ -285,7 +285,9 @@ def ladder_hints(project, snap: dict) -> list[dict]:
         load = sum((snap["flows"][f.name]["rate"] or 0) for f in m.flows_of(stock)
                    if f.name not in mine and (f.target == stock if drains else f.source == stock))
         off = round(lp["off_share"] * 100)
-        if load > 0 and ours < 0.95 * load:
+        # saturated: it cannot keep up, so it seldom gets back at all; a loop back now and then (a
+        # sawtooth: a job that empties the stock, too seldom) is sampling too slowly instead
+        if load > 0 and ours < 0.95 * load and lp["off_share"] >= 0.9:
             says = (f"loop {name} was off {off}% of the time: its valve moved {fmt(ours)}/h "
                     f"{'out' if drains else 'in'} while {fmt(load)}/h came {'in' if drains else 'out'}. It is saturated: "
                     f"a valve with more capacity, or less load, not faster sampling")
