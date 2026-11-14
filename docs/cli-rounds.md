@@ -647,3 +647,6 @@ against the stock's, counting a successful run with nothing said as an opening o
 and rotating `run.log`.
 - Afterwards (raised by two reviews): a flow or sensor whose declared `unit` is not its stock's is
   warned by `check` (a valve counting files on a stock in KB). `run.log` is rotated past 5MB.
+- Afterwards (from round 36's notes): "design SVG" exports the structure alone (parts, flows, roles
+  and schedules, setpoints; no values, rates, status, decisions or trends, loop lines neutral),
+  with the legend: the picture for a design document, as the reviewer asked.

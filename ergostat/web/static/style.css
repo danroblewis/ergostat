@@ -118,6 +118,10 @@ svg.canvas.dragging { cursor: grabbing; }
 .edge.action .info { stroke: var(--ctl-line); stroke-width: 1.8; }
 .edge.wire .info { stroke: var(--accent); stroke-width: 1.8; }
 .edge.loop-holding .info { stroke: var(--ok); }
+/* the design picture: the parts and how they connect, nothing that changes from one minute to the next */
+.design .live { display: none; }
+.design .edge .info { stroke: var(--ink) !important; stroke-width: 1.4 !important; }
+.design .edge.info-head, .design .edge .info + .head { fill: var(--ink) !important; }
 .edge.loop-off .info { stroke: var(--bad); stroke-width: 2.2; }
 .edge.loop-open .info { stroke: var(--warn); }
 .edge .elabel { fill: var(--muted); font-size: 11px; }

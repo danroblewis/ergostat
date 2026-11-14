@@ -174,16 +174,16 @@ function drawStock(n, w, hgt) {
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 3, fill: "var(--stock)", stroke: "var(--stock-line)", "stroke-width": 2,
                        "stroke-dasharray": n.outside ? "5 4" : null }));
   g.append(s("line", { x1: 0, x2: w, y1: T, y2: T, stroke: "var(--line)", "stroke-width": 1 }));
-  g.append(s("rect", { x: 2, y: T + H * (1 - frac), width: w - 4, height: H * frac, fill: tone, opacity: 0.14 }));
+  g.append(s("rect", { x: 2, y: T + H * (1 - frac), width: w - 4, height: H * frac, fill: tone, opacity: 0.14, class: "live" }));
   // a meter under the title: the level against the scale, and a tick where the setpoint is
   const mx = 10, mw = w - 20, my = T + 5;
-  g.append(s("rect", { x: mx, y: my, width: mw, height: 4, rx: 2, fill: "var(--line)" }));
-  g.append(s("rect", { x: mx, y: my, width: mw * frac, height: 4, rx: 2, fill: tone }));
+  g.append(s("rect", { x: mx, y: my, width: mw, height: 4, rx: 2, fill: "var(--line)", class: "live" }));
+  g.append(s("rect", { x: mx, y: my, width: mw * frac, height: 4, rx: 2, fill: tone, class: "live" }));
   if (spv != null) {
     const sx = mx + mw * Math.max(0, Math.min(1, spv / top));
-    g.append(s("line", { x1: sx, x2: sx, y1: my - 3, y2: my + 7, stroke: "var(--ink)", "stroke-width": 1.6 }, s("title", {}, "setpoint")));
+    g.append(s("line", { x1: sx, x2: sx, y1: my - 3, y2: my + 7, stroke: "var(--ink)", "stroke-width": 1.6, class: "live" }, s("title", {}, "setpoint")));
     const sp_ = sp.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").trim();
-    g.append(s("text", { x: w - 10, y: 50, class: "t-sub", "text-anchor": "end" }, sp_));
+    g.append(s("text", { x: w - 10, y: 50, class: "t-sub sp-text", "text-anchor": "end" }, sp_));
   }
   if (pts.length > 1) {
     // the trend on one scale with its setpoint, drawn dashed: how far off it ran, not only its shape
@@ -191,12 +191,12 @@ function drawStock(n, w, hgt) {
     const lo = Math.min(...vs, spv ?? Infinity), hi = Math.max(...vs, spv ?? -Infinity);
     const yOf = (v) => hgt - 8 - ((v - lo) / ((hi - lo) || 1)) * 16;
     if (spv != null) g.append(s("line", { x1: 10, x2: w - 10, y1: yOf(spv), y2: yOf(spv), stroke: "var(--ink)", "stroke-width": 0.8,
-                                          "stroke-dasharray": "3 3", opacity: 0.55 }, s("title", {}, "setpoint")));
+                                          "stroke-dasharray": "3 3", opacity: 0.55, class: "live" }, s("title", {}, "setpoint")));
     const d = vs.map((v, i) => `${i ? "L" : "M"}${10 + (i / (vs.length - 1)) * (w - 20)},${yOf(v)}`).join("");
-    g.append(s("path", { d, fill: "none", stroke: tone, "stroke-width": 1.4, opacity: 0.8 }));
+    g.append(s("path", { d, fill: "none", stroke: tone, "stroke-width": 1.4, opacity: 0.8, class: "live" }));
   }
   g.append(s("text", { x: 10, y: 17, class: "t-label" }, n.label));
-  g.append(s("text", { x: 10, y: 50, class: "t-value" }, n.valueText, s("tspan", { class: "t-unit", dx: 4 }, n.unit || "")));
+  g.append(s("text", { x: 10, y: 50, class: "t-value live" }, n.valueText, s("tspan", { class: "t-unit", dx: 4 }, n.unit || "")));
   return g;
 }
 
@@ -252,13 +252,13 @@ function drawController(n, w, hgt) {
     const when = n.decisionAt ? " · " + ago(n.decisionAt) : "";
     const room = Math.floor((w - 24) / 6.2) - when.length;
     const t = n.decision.length > room ? n.decision.slice(0, room - 1) + "…" : n.decision;
-    g.append(s("text", { x: 12, y: 56, class: "t-sub", "font-style": "italic" }, s("title", {}, "last decision: " + n.decision),
+    g.append(s("text", { x: 12, y: 56, class: "t-sub live", "font-style": "italic" }, s("title", {}, "last decision: " + n.decision),
                          "“" + t + "”", s("tspan", { "font-style": "normal" }, when)));
   } else if (n.openLoop) {
     g.append(s("text", { x: 12, y: 56, class: "t-sub" }, OPEN_LOOP));
   }
-  g.append(s("circle", { cx: w - 14, cy: 16, r: 5, fill: tone }));
-  g.append(s("text", { x: w - 24, y: 20, class: "t-sub", "text-anchor": "end", fill: tone }, st));
+  g.append(s("circle", { cx: w - 14, cy: 16, r: 5, fill: tone, class: "live" }));
+  g.append(s("text", { x: w - 24, y: 20, class: "t-sub live", "text-anchor": "end", fill: tone }, st));
   const b = badge(n.agent, w / 2, hgt - 24);
   if (b) g.append(b);
   return g;
@@ -431,7 +431,7 @@ function drawGraph(svg, g, lay) {
       lines.forEach((t, i) => {
         const cx = lb.x + lb.width / 2, y = lb.y + 13 + i * 16;
         if (t === "§badge") { const b = badge(n.agent, cx, y - 11); if (b) ng.append(b); return; }
-        ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: i === 0 ? "t-label" : "t-sub" }, t));
+        ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: i === 0 ? "t-label" : "t-sub live" }, t));   // a reading, a rate
       });
     }
     nodesG.append(ng);
@@ -587,6 +587,8 @@ async function pageDiagram(main, q) {
     h("span", { id: "panhint", class: "muted panhint", hidden: true, title: "drag to pan, or fit to see it whole" }, "more beyond the edge"),
     h("button", { onclick: () => fit(svg, S.layout) }, "fit"),
     h("button", { title: "save the diagram as an SVG file", onclick: () => exportSvg(svg, `${S.status?.name || "ergostat"}-${system || "all"}-${view}.svg`) }, "save SVG"),
+    h("button", { title: "save the parts and how they connect, without live values or status: for a design document",
+                  onclick: () => exportSvg(svg, `${S.status?.name || "ergostat"}-${system || "all"}-${view}-design.svg`, true) }, "design SVG"),
     h("button", { title: "save the diagram as a PNG picture, at twice the size", onclick: () => exportPng(svg, `${S.status?.name || "ergostat"}-${system || "all"}-${view}.svg`) }, "PNG"),
     h("button", { onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
     h("button", { onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "−"));

@@ -162,7 +162,8 @@ The control diagram is the product's main view. Conventions:
   back". With several systems the rows are grouped by system and tagged. The command line prints
   the same in text (`ergostat system --blocks`).
 - **Export**: "save SVG" and "PNG" write a standalone file with a header (project, system, view,
-  when), every style resolved; `ergostat snapshot` writes the whole page and its answers as one
+  when) and, for the control view, a one-line legend, every style resolved; "design SVG" leaves out
+  what changes minute to minute (values, rates, status, decisions, trends) for a design document; `ergostat snapshot` writes the whole page and its answers as one
   HTML file that opens offline (agents' logs only with `--with-logs`).
 
 ## 7. The command line

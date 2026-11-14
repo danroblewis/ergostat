@@ -12,7 +12,7 @@ function standaloneSvg(svg, title) {
   const drop = [];
   src.forEach((el, i) => {
     const cs = getComputedStyle(el), d = dst[i];
-    if (el.classList?.contains("flowing")) drop.push(d);           // the animation does not survive a file
+    if (el.classList?.contains("flowing") || cs.display === "none") drop.push(d);   // nor the animation, nor what is hidden
     // resolved values only, and only what differs from SVG's own defaults: a var() would not survive the file
     const style = STYLE_PROPS.map((p) => [p, cs.getPropertyValue(p)])
       .filter(([p, v]) => v && DEFAULTS[p] !== v && !(p === "font-family" && v === font) && !(p === "font-size" && el.tagName !== "text" && el.tagName !== "tspan"))
@@ -33,7 +33,8 @@ function standaloneSvg(svg, title) {
   clone.setAttribute("style", `font-family:${font}`);
   const bg = getComputedStyle(document.body).backgroundColor, ink = getComputedStyle(document.body).color;
   clone.insertBefore(s("rect", { x: x0, y: y0, width: w, height: hgt, fill: bg }), clone.firstChild);
-  if (foot) clone.append(exportLegend(x0 + pad, y0 + hgt - foot + 14, ink, getComputedStyle(document.body).getPropertyValue("--muted") || ink));
+  if (foot) clone.append(exportLegend(x0 + pad, y0 + hgt - foot + 14, ink, getComputedStyle(document.body).getPropertyValue("--muted") || ink,
+                                      svg.classList.contains("design")));
   if (title) {                                   // a file on its own says what it is and when
     const muted = getComputedStyle(document.body).getPropertyValue("--muted") || ink;
     clone.append(s("text", { x: x0 + pad, y: y0 + 24, style: `fill:${ink};font-size:15px;font-weight:700` }, title[0]),
@@ -50,7 +51,7 @@ function download(blob, name) {
 }
 
 /* the legend of a control diagram, in one row, with colours resolved: a picture on its own in a document */
-function exportLegend(x, y, ink, muted) {
+function exportLegend(x, y, ink, muted, design = false) {
   const css = (v) => getComputedStyle(document.body).getPropertyValue(v).trim() || ink;
   const g = s("g", { style: `font-size:11px;fill:${muted}` });
   const items = [
@@ -65,7 +66,7 @@ function exportLegend(x, y, ink, muted) {
     ["", "agents: " + RUNG_NAMES.map((k, i) => `${RUNG_LETTER[i]} ${k}`).join(" · ")],
   ];
   let cx = x;
-  for (const [icon, text] of items) {
+  for (const [icon, text] of items.filter(([, t]) => !design || !["loop holding", "off"].includes(t))) {
     if (icon) { const ic = s("g", { transform: `translate(${cx},${y})` }); ic.innerHTML = icon; g.append(ic); cx += 26; }
     g.append(s("text", { x: cx, y: y + 1 }, text));
     cx += textWidth(text) + 22;
@@ -80,8 +81,12 @@ function exportTitle() {
           `${S.at || SNAP ? "as of" : "live,"} ${at} · window ${S.since}`];
 }
 
-function exportSvg(svg, name) {
-  const out = standaloneSvg(svg, exportTitle());
+function exportSvg(svg, name, design = false) {
+  if (design) svg.classList.add("design");               // the parts and how they connect: for a document
+  const title = exportTitle();
+  if (design) title[1] = "the design: parts, flows, roles and schedules";
+  const out = standaloneSvg(svg, title);
+  if (design) svg.classList.remove("design");
   if (out) download(new Blob([out.text], { type: "image/svg+xml" }), name);
 }
 
