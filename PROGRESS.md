@@ -59,3 +59,4 @@ Work until 2pm.
 - 11:26 round 33 (control engineer): feedback only from the stock; falling behind vs saturated; slowest stage; longest period that holds; outflow d; == hysteresis. 93 tests.
 - 11:36 round 34: answer/recovery times per loop; pile-up hint for loops in series. 94 tests.
 - 11:38 round 35: valve max per opening. Fifth cold-start review (design-doc SRE) running. 95 tests.
+- 11:48 round 36 (fifth review): parse, export legend, service port/systemd/bootstrap, status alias. 96 tests.
