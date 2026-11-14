@@ -35,3 +35,4 @@ Work until 2pm.
 - 08:39 scale: readings bucketed in SQL, keep = 30d pruning; ergostat projects and the header switcher.
 - 08:41 outlines per connected group; wiring labels on their edges; demos use @item; round 12 (a first agent from the guide).
 - 08:53 second independent review (control engineer, agent developer): e = r − y; saturation vs sampling; hysteresis; strict bounds; backwards disturbances flagged, declared rates; series loops named; strict agent lines; by-hand runs; run history charts; --watch.
+- 08:55 residuals must persist into the recent half of the window; DESIGN §5 rewritten; docs/ai-agents.md + examples/ai-controller.sh (tested with a fake claude); cron in words.
