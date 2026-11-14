@@ -30,8 +30,8 @@ a:hover { text-decoration: underline; }
 .bar { display: flex; align-items: center; gap: 20px; padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 8px; font-size: 15px; }
 .brand .mark { color: var(--accent); display: inline-flex; }
-#project { border: 0; background: transparent; color: var(--muted); padding: 2px 4px; font-size: 14px; }
-.bar nav { display: flex; gap: 4px; flex: 1; flex-wrap: wrap; }
+#project { border: 0; background: transparent; color: var(--muted); padding: 2px 4px; font-size: 14px; max-width: 11em; }
+.bar nav { display: flex; gap: 4px; flex: 1; flex-wrap: nowrap; overflow-x: auto; min-width: 0; }
 .bar nav a { color: var(--muted); padding: 5px 10px; border-radius: 6px; }
 .bar nav a:hover { background: var(--bg); text-decoration: none; color: var(--ink); }
 .bar nav a.on { color: var(--ink); background: var(--bg); font-weight: 600; }

@@ -277,7 +277,19 @@ function drawGraph(svg, g, lay) {
       ah.style.fill = loopSt ? `var(--${loopSt === "holding" ? "ok" : loopSt === "off" ? "bad" : "warn"})`
                              : (e.kind === "action" ? "var(--ctl-line)" : e.kind === "wire" ? "var(--accent)" : "var(--info)");
       eg.append(ah);
-      for (const l of le.labels || []) eg.append(s("text", { class: "elabel", x: l.x + 3, y: l.y + 11 }, l.text));
+      if ((le.labels || []).length) {
+        // on the edge itself: the middle of its longest segment, with a halo to read over the line
+        let best = [pts[0], pts[1]], len = -1;
+        for (let i = 1; i < pts.length; i++) {
+          const d2 = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+          if (d2 > len) { len = d2; best = [pts[i - 1], pts[i]]; }
+        }
+        const mx = (best[0].x + best[1].x) / 2, my = (best[0].y + best[1].y) / 2;
+        const vertical = Math.abs(best[0].x - best[1].x) < 1;
+        eg.append(s("text", { class: "elabel", x: vertical ? mx + 6 : mx, y: vertical ? my + 4 : my - 6,
+                              "text-anchor": vertical ? "start" : "middle", "paint-order": "stroke",
+                              stroke: "var(--bg)", "stroke-width": 4, "stroke-linejoin": "round" }, le.labels[0].text));
+      }
     }
     edgesG.append(eg);
   }
