@@ -66,11 +66,16 @@ def _when(a) -> str:
 
 
 def readings(project, at: float | None = None) -> dict:
+    """Each sensor's latest reading by its name, and each valve's latest position as ``valve/<name>``."""
     out = {}
     for n in project.model.sensors:
         got = project.measurements.latest(f"sensor/{n}", at)
         if got is not None:
             out[n] = got[1]
+    for n in project.model.valves:
+        got = project.measurements.latest(f"valve/{n}", at)
+        if got is not None:
+            out[f"valve/{n}"] = got[1]
     return out
 
 
@@ -105,7 +110,8 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         f, fl = m.flows[n], snap["flows"].get(n, {})
         v = m.valve_of(n)
         glyph = "disturbance" if f.disturbance else "valve"
-        nodes.append(_node(f"flow:{n}", glyph, v.name if v else n, flow=n, rate=fl.get("rate"),
+        pos = readings.get(f"valve/{v.name}") if v else None
+        nodes.append(_node(f"flow:{n}", glyph, v.name if v else n, flow=n, rate=fl.get("rate"), position=pos,
                            rateText=(fmt(fl.get("rate")) + "/h") if fl.get("rate") is not None else "?/h",
                            how=fl.get("how"), estimated=fl.get("estimated", False), mode=v.mode if v else None,
                            agent=agent_of.get(v.name) if v else None, description=(v.description if v else f.description),

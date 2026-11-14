@@ -35,7 +35,8 @@ questions about what is happening from the record (`ergostat`, `ergostat loop`, 
 
 It gets a JSON object on stdin (its roles, the state, its controllers' setpoints and errors, the
 trigger) and prints one JSON object per line: `{"sensor": NAME, "value": N}`,
-`{"valve": NAME, "amount": N}`, `{"controller": NAME, "decision": "..."}`, or
+`{"valve": NAME, "amount": N}` (and/or `"position": N`, how far open it stands),
+`{"controller": NAME, "decision": "..."}`, or
 `{"event": TYPE, "item": ID, "data": {...}}`. It may only name parts it fills. When a loop crosses its
 setpoint ergostat records `loop.off` or `loop.holding` (item: the loop's name), which agents can
 listen for. An event's `item` is what the work is about (`database`, `docs/install.md`).

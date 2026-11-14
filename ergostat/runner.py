@@ -111,6 +111,14 @@ class Recorder:
                     self.counts["readings"] += 1
                     edges(self.p, self.run_id, sensor=name)
                 elif kind == "valve":
+                    if "position" in line:                   # how far it is open: a setting, kept as a measurement
+                        try:
+                            self.p.measurements.add(f"valve/{name}", float(line["position"]))
+                        except (TypeError, ValueError):
+                            self.refuse(line, "position must be a number")
+                            return True
+                        if "amount" not in line:
+                            return True
                     try:
                         amount = float(line.get("amount", 1))
                     except (TypeError, ValueError):

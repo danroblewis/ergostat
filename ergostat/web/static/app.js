@@ -89,7 +89,7 @@ const SIZE = { stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: 
 const CH = 6.7;   // px per character, for label sizes
 
 function labelLines(n) {
-  if (n.kind === "valve") return [n.label, `${n.rateText}${n.mode && n.mode !== "auto" ? " · " + n.mode : ""}`, n.agent ? "§badge" : null].filter(Boolean);
+  if (n.kind === "valve") return [n.label, `${n.position != null ? "open " + fmt(n.position) + " · " : ""}${n.rateText}${n.mode && n.mode !== "auto" ? " · " + n.mode : ""}`, n.agent ? "§badge" : null].filter(Boolean);
   if (n.kind === "disturbance") return [n.label, `${n.rateText}${n.estimated ? " (est.)" : ""}`];
   if (n.kind === "sensor") return [n.label, n.reading != null ? `reads ${n.reading}` : "no reading", n.agent ? "§badge" : null].filter(Boolean);
   return [];
@@ -484,7 +484,7 @@ function drawBlocks(svg, g) {
     // u into the valve(s)
     const v = row.valves[0];
     loopG.append(...line([[X.ctl + cw, cy], [X.valve, cy]], "", "var(--ctl-line)"));
-    loopG.append(label((X.ctl + cw + X.valve) / 2, cy - 8, "u"));
+    loopG.append(label((X.ctl + cw + X.valve) / 2, cy - 8, v?.position != null ? `u = ${fmt(v.position)}` : "u"));
     loopG.append(box(X.valve, cy - 36, vw, 72, v ? v.label : "no valve", v ? `actuator · ${v.rateText}` : "",
                      "var(--panel)", v ? "var(--valve)" : "var(--warn)", v,
                      v?.agent ? label(vw / 2, 60, badgeText(v.agent)) : null));

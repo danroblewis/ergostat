@@ -122,7 +122,8 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     c_ = lp.controller
     ctl = f"[ {name} · {model.agents[c_.agent].kind if c_.agent in model.agents else 'unfilled'} ]"
     v = lp.valves[0] if lp.valves else None
-    vb = f"[ {v} ]" if v else "[ no valve ]"
+    pos = readings.get(f"valve/{v}") if v else None
+    vb = (f"[ {v} ]" if pos is None else f"[ {v} open {fmt(pos)} ]") if v else "[ no valve ]"
     st = snap["stocks"].get(lp.stock, {})
     unit = model.stocks[lp.stock].unit if lp.stock in model.stocks else ""
     sb = f"[ {lp.stock} {fmt(st.get('value'))}{(' ' + unit) if unit else ''} ]"
@@ -131,7 +132,8 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     dists = [f for f in model.flows_of(lp.stock) if f.disturbance and f.target == lp.stock]
     r = f"r: {_sp(c_.setpoint)} "
     e = f"e={fmt(s['error'])}" if s.get("error") is not None else "e"
-    left = f"{r}─▶(Σ)─{e}─▶{ctl}─u─▶{vb}─▶"
+    u = "u" if pos is None else f"u={fmt(pos)}"
+    left = f"{r}─▶(Σ)─{e}─▶{ctl}─{u}─▶{vb}─▶"
     joint = "(+)─▶" if dists else ""
     row = left + joint + sb + "──┬──▶ y"
     sum_at = len(r) + 3                                  # the column of Σ

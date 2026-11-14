@@ -67,7 +67,7 @@ event that triggered it) and prints one JSON object per line, naming the part ea
 ```
 {"sensor": "disk-usage", "value": 71}
 {"controller": "disk-under-80", "decision": "under 80: nothing to do"}
-{"valve": "delete-old-files", "amount": 3.1}
+{"valve": "delete-old-files", "amount": 3.1}          # what it moved; "position": 4 says how far open it stands
 {"event": "backup.requested", "item": "database", "data": {}}
 ```
 

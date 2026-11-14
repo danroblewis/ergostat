@@ -159,3 +159,15 @@ def _child_of_test(pid: int) -> bool:
     import subprocess
     cwd = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], capture_output=True, text=True).stdout
     return "/repo" in cwd and "pytest" in cwd
+
+
+def test_a_valve_position_is_a_setting_kept_as_a_measurement(project, repo):
+    r = run_with(project, repo, """
+        import json
+        print(json.dumps({"valve": "delete-old-files", "position": 3}))
+        print(json.dumps({"valve": "delete-old-files", "position": 4, "amount": 2}))
+    """)
+    assert r["openings"] == 1 and r["refused"] == 0
+    assert project.measurements.latest("valve/delete-old-files")[1] == 4
+    from ergostat import graph
+    assert graph.readings(project)["valve/delete-old-files"] == 4

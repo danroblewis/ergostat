@@ -68,7 +68,8 @@ serves the web page and runs every agent that has a command and is not a person:
   setpoints, values and errors, and the triggering event.
 - **Says** on stdout, one JSON object per line, naming the part:
   `{"sensor": N, "value": x}` (a measurement), `{"valve": N, "amount": x}` (`valve.opened`),
-  `{"controller": N, "decision": "..."}` (`controller.decided`), or
+  `{"valve": N, "position": x}` (how far it is open, a setting kept as the measurement `valve/<name>`;
+  it is u in the block view), `{"controller": N, "decision": "..."}` (`controller.decided`), or
   `{"event": TYPE, "item": ID, "data": {...}}`. Anything else goes to the agent's log.
 - **Discipline**: a line naming a part the agent does not fill, or one of ergostat's own types,
   is refused and recorded as `agent.refused`. Every agent acts only through the roles it fills.
@@ -151,7 +152,6 @@ A slider in the header moves the whole page to a past moment (the API's `at`), w
   approving at a valve is a command (it would be the command line's one write) is the owner's call.
 - **Discovery.** Inferring the system from measurements alone. The record keeps what was declared
   and what was measured apart, so it can be added.
-- **Valve positions and cascades.** A valve's opening is an amount per run; how far open it stands,
-  and a controller setting another's setpoint, are not modelled.
+- **Cascades.** A controller setting another's setpoint is not modelled.
 - **Channels.** The pub/sub topics as their own topic (`ergostat channel`) wait for a scenario
   that needs them.
