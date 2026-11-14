@@ -28,6 +28,7 @@ create index if not exists events_item on events(item, seq);
 create index if not exists events_type on events(type, seq);
 create index if not exists events_time on events(time);
 create index if not exists events_cause on events(causedby);
+create index if not exists events_item_type_time on events(item, type, time);
 """
 MEASUREMENTS = """
 create table if not exists samples (
@@ -162,6 +163,31 @@ class Events:
     def first_time(self) -> float | None:
         with self._c() as c:
             return c.execute("select min(time) from events").fetchone()[0]
+
+    def opened(self, valve: str, since: float, until: float | None = None) -> dict:
+        """A valve's openings in a span: how many, the amount they moved, and the last one's time."""
+        with self._c() as c:
+            r = c.execute("select count(*), coalesce(sum(coalesce(json_extract(data, '$.amount'), 1)), 0), max(time) from events "
+                          "where item = ? and type = 'valve.opened' and time >= ? and time <= ?",
+                          (valve, since, until if until is not None else 1e18)).fetchone()
+        return {"count": r[0], "amount": float(r[1]), "last": r[2]}
+
+    def decided(self, controller: str, since: float) -> list[tuple[str, int]]:
+        """A controller's decisions since then, grouped by their words."""
+        with self._c() as c:
+            return [(r[0] or "", r[1]) for r in c.execute(
+                "select json_extract(data, '$.decision'), count(*) from events "
+                "where item = ? and type = 'controller.decided' and time >= ? group by 1", (controller, since))]
+
+    def runs(self, item: str, since: float) -> dict:
+        """An agent's runs since then, counted by SQLite: runs, failed, and lines refused."""
+        with self._c() as c:
+            rows = c.execute("select type, count(*), sum(coalesce(json_extract(data, '$.refused'), 0)) from events "
+                             "where item = ? and type in ('agent.ran', 'agent.failed') and time >= ? group by type",
+                             (item, since)).fetchall()
+        by = {r[0]: (r[1], r[2] or 0) for r in rows}
+        ran, failed = by.get("agent.ran", (0, 0)), by.get("agent.failed", (0, 0))
+        return {"runs": ran[0] + failed[0], "failed": failed[0], "refused": ran[1] + failed[1]}
 
     def last_seq(self) -> int:
         with self._c() as c:

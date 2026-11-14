@@ -56,10 +56,6 @@ def moved(project, flow: str, t0: float, t1: float) -> float | None:
     return total if any_sensor else None
 
 
-def _openings(project, valve: str, since: float) -> list[dict]:
-    return project.events.query(n=None, type="valve.opened", item=valve, since=since)
-
-
 def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     m = project.model
     now = now or time.time()
@@ -90,9 +86,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                 rate, how = got[1], f"measured by {s.name}"
         valve = m.valve_of(f.name)
         if valve is not None:
-            ops = _openings(project, valve.name, start)
-            opened = {"count": len(ops), "amount": sum(o["data"].get("amount", 0) for o in ops),
-                      "last": ops[-1]["time"] if ops else None}
+            opened = project.events.opened(valve.name, start)
             if rate is None:
                 rate, how = opened["amount"] / hours, f"opened by {valve.name}"
         if rate is not None:
@@ -113,9 +107,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                 sign = 1 if f.target == name else -1
                 if flows[f.name]["openings"] is not None and flows[f.name]["how"].startswith("opened"):
                     # what the valve moved between the first and the last reading
-                    amount = sum(o["data"].get("amount", 0) for o in _openings(project, flows[f.name]["valve"], pts[0][0])
-                                 if o["time"] <= pts[-1][0])
-                    explained += sign * amount
+                    explained += sign * project.events.opened(flows[f.name]["valve"], pts[0][0], pts[-1][0])["amount"]
                 else:
                     got = moved(project, f.name, pts[0][0], pts[-1][0])
                     explained += sign * (got if got is not None else known[f.name] * span)
@@ -167,8 +159,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
 
     agents = {}
     for a in m.agents.values():
-        ran = project.events.query(n=None, item=a.name, type="agent.*", since=since)
-        done = [e for e in ran if e["type"] in ("agent.ran", "agent.failed")]
+        counted = project.events.runs(a.name, since)
         last_any = max(project.events.query(n=1, item=a.name, type="agent.ran") +
                        project.events.query(n=1, item=a.name, type="agent.failed"), key=lambda e: e["seq"], default=None)
         begun = project.events.query(n=1, item=a.name, type="agent.started")
@@ -182,9 +173,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                     if got is None or now - got[0] > STALE_RUNS * a.every:
                         stale.append(r.name)
         agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles],
-                          "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, "runs": len(done),
-                          "failed": sum(1 for e in done if e["type"] == "agent.failed"),
-                          "refused": sum(e["data"].get("refused", 0) for e in done),
+                          "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, **counted,
                           "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),
                           "running_since": running_since}
@@ -199,12 +188,13 @@ def decisions(project, controller: str, since: float) -> dict:
     """What a controller decided in the window, grouped by its words with the numbers taken out:
     how many decisions, and how often each kind came up, commonest first."""
     import re
-    evs = project.events.query(n=None, type="controller.decided", item=controller, since=since)
     kinds: dict[str, int] = {}
-    for e in evs:
-        k = re.sub(r"-?\d+(\.\d+)?", "#", str(e["data"].get("decision", ""))).strip() or "(no words)"
-        kinds[k] = kinds.get(k, 0) + 1
-    return {"count": len(evs), "kinds": sorted(kinds.items(), key=lambda kv: -kv[1])}
+    total = 0
+    for words, n in project.events.decided(controller, since):
+        k = re.sub(r"-?\d+(\.\d+)?", "#", str(words)).strip() or "(no words)"
+        kinds[k] = kinds.get(k, 0) + n
+        total += n
+    return {"count": total, "kinds": sorted(kinds.items(), key=lambda kv: -kv[1])}
 
 
 LADDER_MIN, LADDER_SHARE = 10, 0.8
