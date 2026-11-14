@@ -97,7 +97,7 @@ def _badge(m, name: str | None) -> dict | None:
     if not name or name not in m.agents:
         return None
     a = m.agents[name]
-    return {"name": a.name, "kind": a.kind, "rung": a.rung, "when": _when(a)}
+    return {"name": a.name, "kind": a.kind, "rung": a.rung, "when": _when(a), "schedule": a.schedule}
 
 
 def control(model, snap: dict, parts: set[str], readings: dict | None = None) -> dict:
@@ -110,7 +110,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         for p in t.values():
             if p.agent and p.agent in m.agents:
                 a = m.agents[p.agent]
-                agent_of[p.name] = {"name": a.name, "kind": a.kind, "rung": a.rung, "when": _when(a)}
+                agent_of[p.name] = {"name": a.name, "kind": a.kind, "rung": a.rung, "when": _when(a), "schedule": a.schedule}
 
     in_system = {}
     for sysname in m.system_names():

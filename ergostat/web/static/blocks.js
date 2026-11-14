@@ -52,7 +52,8 @@ function drawBlocks(svg, g) {
     head.style.fill = color;
     return [el, head];
   };
-  const label = (x, y, t, cls = "t-sub", anchor = "middle") => s("text", { x, y, class: cls, "text-anchor": anchor }, t);
+  const label = (x, y, t, cls = "t-sub", anchor = "middle", full = null) =>
+    s("text", { x, y, class: cls, "text-anchor": anchor }, full ? s("title", {}, full) : null, t);
   const box = (x, y, w, hgt, title, sub, fill, stroke, n, extra) => {
     const gg = s("g", { class: "node", transform: `translate(${x},${y})`, "data-id": n?.id || "",
                         onclick: (ev) => { ev.stopPropagation(); if (n) openNode(n); } });
@@ -99,7 +100,7 @@ function drawBlocks(svg, g) {
     }
     loopG.append(box(X.ctl, cy - 36, cw, 72, row.ctl.label, "C · " + (row.ctl.agent ? badgeText(row.ctl.agent) : "unfilled"),
                      "var(--ctl)", "var(--ctl-line)", row.ctl,
-                     row.ctl.decision ? label(cw / 2, 60, "“" + (row.ctl.decision.length > cw / 6.4 - 4 ? row.ctl.decision.slice(0, Math.floor(cw / 6.4) - 5) + "…" : row.ctl.decision) + "”") : null));
+                     row.ctl.decision ? label(cw / 2, 60, "“" + (row.ctl.decision.length > cw / 6.4 - 4 ? row.ctl.decision.slice(0, Math.floor(cw / 6.4) - 5) + "…" : row.ctl.decision) + "”", "t-sub", "middle", row.ctl.decision) : null));
     // u into the valve(s)
     const v = row.valves[0];
     loopG.append(...line([[X.ctl + cw, cy], [X.valve, cy]], "", "var(--ctl-line)"));
@@ -144,7 +145,8 @@ function drawBlocks(svg, g) {
                      "var(--sensor)", se ? "var(--sensor-line)" : "var(--warn)", se));
     if (open) {
       // watched against the setpoint, to judge the loop; not fed back to the controller
-      loopG.append(...line([[sx, fy], [X.r + 4, fy]], "", tone, true));
+      loopG.append(line([[sx, fy], [X.r + 4, fy]], "", tone, true)[0],      // ends in a bar: it goes nowhere
+                   s("path", { d: `M${X.r + 4},${fy - 6} v12`, stroke: tone, "stroke-width": 2 }));
       loopG.append(label(X.r + 10, fy - 8, `ym, watched against r: ${sp} (not fed back)`, "t-sub", "start"));
     } else {
       loopG.append(...line([[sx, fy], [X.sum, fy], [X.sum, cy + 14]], "", tone, true));

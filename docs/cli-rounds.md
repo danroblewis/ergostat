@@ -508,3 +508,25 @@ was about to write a launchd plist by hand, guessing the arguments.
   it. It installs nothing: where it goes is the owner's to decide.
 - `check --example cron` prints a model of two one-liners (a count, and an hourly prune as an open
   loop) that runs as it is, in an empty repository: nothing to write before the first diagram.
+
+## Round 28: a visual design review (an information designer with a control background)
+
+Ten problems; applied:
+
+- Agent kinds were told apart by colour alone, and program/rule and ai/narrow-ai were near twins:
+  six hues apart in both themes, and a letter in every dot (H, A, N, D, P, R), in badges, the
+  wiring view's agents, the ladder and the legend.
+- The first view shrank text to 4-7px on wide systems: it keeps text at 9px or more (a system
+  that fits at 0.7 is shown whole), pans from the left otherwise, and says "more beyond the edge:
+  drag, or fit". The fit leaves room for both toolbars.
+- An exported SVG did not say what it was, carried `var()` attributes, and repeated the font
+  stack on every element (161KB): it has a header (project, system, view, when, window), no
+  leftovers, and styles only where they differ from SVG's defaults (55KB).
+- A trend had its own scale, so 2512 against ≤ 5 looked like 13 against ≤ 4: the trend and the
+  setpoint share a scale, the setpoint dashed.
+- Badges and quotes cut with "…" had nothing to reveal the rest: the full text on hover.
+- The open loop's ym ended in an arrow pointing at nothing: it ends in a bar.
+
+Not applied (noted for later): automatic wrapping of long chains (the wrapped layout detours:
+needs rows broken at stocks), the big demo's block view grouped by system with an overview, and
+drawing another loop's actuator as a coupling rather than as d.

@@ -86,7 +86,7 @@ async function layoutGraph(g, aspect) {
 function badge(a, x, y) {
   if (!a) return null;
   const t = badgeText(a), w = textWidth(t) + 24;
-  return s("g", { class: "badge", transform: `translate(${x - w / 2},${y})` },
+  return s("g", { class: "badge", transform: `translate(${x - w / 2},${y})` }, s("title", {}, `${a.kind} · ${a.name} · ${a.schedule || a.when || "runs by hand"}`),
     s("rect", { width: w, height: 16, rx: 8, fill: "var(--panel)", stroke: "var(--line)", "stroke-width": 1 }),
     rungDot(a.rung, 9, 8),
     s("text", { x: w / 2 + 5, y: 11.5, "text-anchor": "middle" }, t));
@@ -117,8 +117,13 @@ function drawStock(n, w, hgt) {
     g.append(s("text", { x: w - 10, y: 50, class: "t-sub", "text-anchor": "end" }, sp_));
   }
   if (pts.length > 1) {
-    const vs = pts.map((p) => p[1]), lo = Math.min(...vs), hi = Math.max(...vs) || 1;
-    const d = vs.map((v, i) => `${i ? "L" : "M"}${10 + (i / (vs.length - 1)) * (w - 20)},${hgt - 8 - ((v - lo) / ((hi - lo) || 1)) * 16}`).join("");
+    // the trend on one scale with its setpoint, drawn dashed: how far off it ran, not only its shape
+    const vs = pts.map((p) => p[1]);
+    const lo = Math.min(...vs, spv ?? Infinity), hi = Math.max(...vs, spv ?? -Infinity);
+    const yOf = (v) => hgt - 8 - ((v - lo) / ((hi - lo) || 1)) * 16;
+    if (spv != null) g.append(s("line", { x1: 10, x2: w - 10, y1: yOf(spv), y2: yOf(spv), stroke: "var(--ink)", "stroke-width": 0.8,
+                                          "stroke-dasharray": "3 3", opacity: 0.55 }, s("title", {}, "setpoint")));
+    const d = vs.map((v, i) => `${i ? "L" : "M"}${10 + (i / (vs.length - 1)) * (w - 20)},${yOf(v)}`).join("");
     g.append(s("path", { d, fill: "none", stroke: tone, "stroke-width": 1.4, opacity: 0.8 }));
   }
   g.append(s("text", { x: 10, y: 17, class: "t-label" }, n.label));
