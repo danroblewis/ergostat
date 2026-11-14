@@ -42,6 +42,19 @@ trigger) and prints one JSON object per line: `{"sensor": NAME, "value": N}`,
 setpoint ergostat records `loop.off` or `loop.holding` (item: the loop's name), which agents can
 listen for. An event's `item` is what the work is about (`database`, `docs/install.md`).
 
+## Scheduled programs the owner already has
+
+When the owner has cron jobs or other scheduled scripts, read them (`crontab -l`, the scripts
+they run) before modelling: each is an agent with the same `cron` schedule; ask what each holds
+steady (the stock and its setpoint), add a sensor (often one line the script can print), and keep
+the script doing the work as the valve. Never change the owner's crontab; ergostat runs the agents
+itself once they are modelled, so say which cron entries the owner can then remove.
+
+## People
+
+A role a person fills is recorded by them: `ergostat valve NAME --opened N`, `sensor NAME --read V`,
+`controller NAME --decided TEXT`. Tell the owner these when you give them a role.
+
 ## The refactor path
 
 Every role is expected to move down the ladder, from AI agent to decision to program to rule, and

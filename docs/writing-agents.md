@@ -120,6 +120,17 @@ is then still on the record, and the residuals stay honest.
 - The environment has `ERGOSTAT_AGENT`, `ERGOSTAT_RUN` (the run's event id), `ERGOSTAT_PROJECT` and
   `ERGOSTAT_STATE_DIR`.
 
+## When the agent is a person
+
+A person is an agent too (`kind = "person"`, no command): ergostat never runs them. They say what
+they did from the command line, for the roles they fill, checked like any agent's lines:
+
+```
+ergostat valve tidy-downloads --opened 120 --note "cleared old installers"
+ergostat sensor desk-count --read 14
+ergostat controller downloads-tidy --decided "over 500: tidy this weekend"
+```
+
 ## Moving down the ladder
 
 Start with whatever does the job, often an AI agent. When `ergostat` says a controller decided the
