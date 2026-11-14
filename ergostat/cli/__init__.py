@@ -114,6 +114,7 @@ def build() -> argparse.ArgumentParser:
     e.add_argument("--item", help="only events about this item")
     e.add_argument("--source", help="only events from this agent (or ergostat)")
     e.add_argument("--follow", "-f", action="store_true", help="keep printing as events arrive")
+    e.add_argument("--runs", action="store_true", help="also each run's start and end (agent.started, agent.ran), left out by default")
     i = topic("item", cmd_item, "Events folded by id")
     i.add_argument("-n", type=int, default=30, help="how many (default 30)")
     i.add_argument("--all", action="store_true", help="also the parts and agents ergostat's own events are about")

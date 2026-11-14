@@ -90,6 +90,14 @@ def matches(pattern: str, ev: dict) -> bool:
 TYPE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)+$")
 
 
+def _is_number(raw: str) -> bool:
+    try:
+        float(raw)
+        return True
+    except ValueError:
+        return False
+
+
 def _number(v) -> bool:
     import math
     return isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v)
@@ -273,6 +281,8 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                     try:
                         if not rec.take(raw.strip()):
                             lf.write(raw)
+                        elif rec.bare and _is_number(raw):       # a bare number: the log says what it became
+                            lf.write(f"{raw.strip()}  → {rec.bare[0]} {rec.bare[1]}\n")
                     except Exception as e:                       # one bad line never leaves the run half done
                         crashed = crashed or f"{type(e).__name__}: {e}"
                         rec.refuse({"raw": raw[:200]}, f"could not record it ({type(e).__name__})")

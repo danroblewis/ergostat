@@ -17,8 +17,8 @@ def cmd_system(args) -> int:
     p = open_project(args)
     m = p.model
     snap = snap_of(p, args)
-    if args.blocks and not args.name and not args.around:
-        args.all = True                                   # blocks of everything, unless a system is named
+    if (args.blocks or args.wiring) and not args.name and not args.around:
+        args.all = True                                   # blocks or wiring of everything, unless a system is named
     if not args.name and not args.all and not args.around:
         rows = []
         for s in m.system_names():
@@ -117,7 +117,9 @@ def cmd_loop(args) -> int:
         print(f"  off {round(lp['off_share'] * 100)}% of the {human(min(snap['window'], snap['recorded'] or snap['window']))} recorded")
     pts = snap["stocks"].get(lp["stock"], {}).get("points", [])
     if pts:
-        print(f"  {lp['stock']} over {human(snap['window'])}: {show.spark(pts)}")
+        span = pts[-1][0] - pts[0][0] if len(pts) > 1 else 0
+        over = human(span) if span < 0.9 * snap["window"] else human(snap["window"])
+        print(f"  {lp['stock']} over the {over} recorded: {show.spark(pts)}")
     for g in lp["gaps"]:
         print("  " + c("cannot close: " + g, "warn"))
     print()

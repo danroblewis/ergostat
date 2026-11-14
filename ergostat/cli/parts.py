@@ -67,7 +67,7 @@ def cmd_part(args) -> int:
         if x is None:
             print(f"no {topic} {args.name!r}", file=sys.stderr)
             return 2
-        detail = {k: v for k, v in x.__dict__.items() if v not in ("", [], None, False)}
+        detail = {k: v for k, v in x.__dict__.items() if v not in ("", [], None, False) and k != "mode_set"}
         if getattr(x, "disturbance", False):                # say it the way the file does
             detail.pop("disturbance", None)
             if detail.pop("target", None):
@@ -139,6 +139,6 @@ def cmd_part(args) -> int:
              "sensor": ["SENSOR", "MEASURES", "FILLED BY", "LAST READING"],
              "controller": ["CONTROLLER", "HOLDS", "STATUS", "FILLED BY"]}[topic]
     if args.json:
-        return out_json({n: x.__dict__ for n, x in items.items()})
+        return out_json({n: {k: v for k, v in x.__dict__.items() if k != "mode_set"} for n, x in items.items()})
     print(table(heads, rows, f"no {topic}s"))
     return 0

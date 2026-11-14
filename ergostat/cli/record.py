@@ -18,6 +18,9 @@ def event_line(e: dict) -> str:
     src = e.get("source") or "-"
     return f"{c(t, 'dim')}  {e['type']:<20} {e.get('item') or '-':<20} {c(src, 'accent')}{' ' * max(1, 14 - len(src))}{data[:100]}"
 
+RUNS = ("agent.started", "agent.ran")    # the bookkeeping of each run: --runs shows it
+
+
 def cmd_event(args) -> int:
     p = open_project(args)
     if args.name:
@@ -40,7 +43,8 @@ def cmd_event(args) -> int:
     if args.follow:
         sys.stdout.reconfigure(line_buffering=True)        # each line as it comes, into a pipe too
     since = time.time() - parse_duration(args.since, "--since") if args.since else None
-    evs = p.events.query(n=args.n, type=args.type, item=args.item, source=args.source, since=since)
+    skip = () if args.runs or args.type else RUNS
+    evs = p.events.query(n=args.n, type=args.type, item=args.item, source=args.source, since=since, skip=skip)
     if args.json and not args.follow:
         return out_json(evs)
     for e in evs:
@@ -50,7 +54,7 @@ def cmd_event(args) -> int:
     seq = evs[-1]["seq"] if evs else p.events.last_seq()
     try:
         while True:
-            for e in p.events.query(n=None, type=args.type, item=args.item, source=args.source, after_seq=seq):
+            for e in p.events.query(n=None, type=args.type, item=args.item, source=args.source, after_seq=seq, skip=skip):
                 seq = e["seq"]
                 print(json.dumps(e, default=str) if args.json else event_line(e), flush=True)
             time.sleep(0.5)

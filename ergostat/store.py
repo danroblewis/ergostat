@@ -106,10 +106,14 @@ class Events:
         return d
 
     def query(self, *, n: int | None = 100, type: str | None = None, item: str | None = None, source: str | None = None,
-              since: float | None = None, after_seq: int | None = None, until: float | None = None) -> list[dict]:
+              since: float | None = None, after_seq: int | None = None, until: float | None = None,
+              skip: tuple[str, ...] = ()) -> list[dict]:
         """Matching events, oldest first; the newest ``n`` when ``n`` is given. ``type`` may end in
-        ``*``."""
+        ``*``; types in ``skip`` are left out."""
         where, args = [], []
+        if skip:
+            where.append(f"type not in ({','.join('?' * len(skip))})")
+            args.extend(skip)
         if type:
             if type.endswith("*"):
                 where.append("type like ?")

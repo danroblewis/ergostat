@@ -53,6 +53,32 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
     return errs
 
 
+def snapshot_errors(demo: Path) -> list[str]:
+    """The snapshot, opened with every request refused: it must draw and ask for nothing."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return []
+    out = demo.parent / "snapshot.html"
+    r = sh("-C", str(demo), "snapshot", "-o", str(out))
+    if r.returncode != 0:
+        return [f"snapshot failed: {r.stderr}"]
+    errs: list[str] = []
+    with sync_playwright() as p:
+        b = p.chromium.launch()
+        pg = b.new_page(viewport={"width": 1500, "height": 950})
+        pg.on("pageerror", lambda e: errs.append(f"snapshot: {e}"))
+        pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith("file:")
+                 else (errs.append(f"snapshot asked for {rt.request.url}"), rt.abort()))
+        for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "parts", "record", "residuals"):
+            pg.goto(f"file://{out}#/{route}")
+            pg.wait_for_timeout(1200)
+            if route == "diagram" and pg.locator(".node").count() == 0:
+                errs.append("the snapshot's diagram drew no parts")
+        b.close()
+    return errs
+
+
 def fresh_copy(demo: Path) -> Path:
     """The demo's tracked files in a new folder, so a check never shares files (a simulation, a
     working repository) with a copy of the demo that is already running."""
@@ -106,6 +132,7 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
         for path in ("status", "graph", "graph?view=wiring", "loops", "agents", "events", "items", "residuals", "parts"):
             get(f"{url}/api/{path}")
         problems += page_errors(url, shots / demo.name if shots else None)
+        problems += snapshot_errors(demo)
     finally:
         sh("-C", str(demo), "run", "--stop")
     return problems

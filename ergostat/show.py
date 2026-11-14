@@ -81,9 +81,11 @@ def system_lines(model, snap: dict, parts: set[str]) -> str:
         for g in lp.gaps:
             out.append("  " + c("cannot close: " + g, "warn"))
     rest = [f for f in model.flows.values() if f.name in parts and f.name not in covered]
-    if rest:
-        out.append(c("flows outside any loop", "dim"))
-        for f in rest:
+    for title, group in (("disturbances (nothing controls them)", [f for f in rest if f.disturbance]),
+                         ("flows outside any loop", [f for f in rest if not f.disturbance])):
+        if group:
+            out.append(c(title, "dim"))
+        for f in group:
             fl = snap["flows"][f.name]
             sym = "~" if f.disturbance else "⋈"
             end = model.stocks.get(f.target or "") or model.stocks.get(f.source or "")
