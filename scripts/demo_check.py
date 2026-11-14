@@ -17,7 +17,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-DEMOS = Path.home() / "ergostat-demos"
+DEMOS = Path(__file__).resolve().parent.parent / "examples"   # each example, run from a fresh copy
 ERGOSTAT = [sys.executable, "-m", "ergostat"]
 
 

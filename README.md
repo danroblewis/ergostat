@@ -40,7 +40,7 @@ ergostat                                   # what needs attention
 ## Try the demos
 
 ```bash
-scripts/demos.sh start        # every demo in ~/ergostat-demos, each with its own page
+scripts/demos.sh start        # every example in examples/, each with its own page
 scripts/demos.sh list         # which run, which loops are off, and their pages
 scripts/demos.sh stop
 ```
@@ -157,31 +157,14 @@ one's output reaches another, and lists the cycles among them, declared as loops
 what the command line shows; the Guide explains the ideas with the system's own parts as examples. The slider in the header looks at any past moment; "back to live"
 returns.
 
-## Demos
+## Examples
 
-`~/ergostat-demos/` holds eleven repositories:
-
-- `disk-space`: one program measures, decides and cleans (one agent, three roles).
-- `backups`: a sensor program, a rule that listens for `loop.off`, a job that runs on an event, and
-  a second loop for the off-site copies.
-- `docs-fresh`: an AI agent (simulated), a decision, and a program; a disturbance that is measured.
-- `deps`: two loops in series, a person filling the second: the first is at its valve's limit
-  (`max = 2`), the second falls behind, and the work piles up between them.
-- `file-queue`: plain shell scripts on real files; an archiver on cron too slow to hold its loop
-  (the hint says how often it would have to run); a dropper named as the load.
-- `git-hygiene`: real git commands on a scratch repository; a pruner woken only by its own loop's
-  crossing (`on = ["loop.off@few-merged-branches"]`).
-- `this-mac`: this machine, measured for real (disk, ~/Downloads, load) and changed by nobody: the
-  loops are held by a person with manual valves.
-- `plain-crontab`: two cron jobs as one-liners (`find ... -delete | wc -l`, `du | cut -f1`), no
-  JSON and no scripts; the pruner is an open loop (it deletes by age, whatever the count).
-- `talking-scripts`: three ordinary shell scripts that print sentences for people ("cleanup done:
-  removed 12 stale uploads"), unchanged; each agent's `parse` takes the number from its words.
-- `big`: 24 loops in six systems, for the layout.
-- `ops`: several systems together, overlapping.
-
-`scripts/demo_check.py` runs a fresh copy of each one (so it never shares files with a copy already
-running) and checks its pages.
+[`examples/`](examples/) holds twelve whole systems, each in its own folder with a README: start with
+`first-loop` (an inbox kept short, written by hand), then `plain-crontab` (cron one-liners) and
+`talking-scripts` (scripts that print sentences); the rest show loops in series, people filling
+roles, AI agents on the ladder, events between agents, systems at scale, and this machine measured
+for real. `cd examples/<name> && ergostat run` runs one; `scripts/demos.sh start` runs them all, and
+`scripts/demo_check.py` runs a fresh copy of each and checks its pages.
 
 ## Develop
 

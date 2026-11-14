@@ -1,0 +1,86 @@
+# Branch hygiene on a working repository (work/, made on first run): a developer keeps branching and
+# merging; a pruner deletes branches once they are merged. Real git commands, no simulation.
+name = "git-hygiene"
+
+[[system]]
+name = "repo"
+description = "the branches of work/"
+
+[[stock]]
+name = "open-branches"
+unit = "branches"
+systems = ["repo"]
+description = "branches not yet merged into main"
+
+[[stock]]
+name = "merged-branches"
+unit = "branches"
+systems = ["repo"]
+description = "branches merged into main but not deleted"
+
+[[disturbance]]
+name = "branched"
+into = "open-branches"
+description = "the developer starts work on a branch"
+
+[[flow]]
+name = "merged"
+from = "open-branches"
+to = "merged-branches"
+description = "the developer merges a branch into main"
+
+[[flow]]
+name = "pruned"
+from = "merged-branches"
+
+[[sensor]]
+name = "branch-count"
+measures = "open-branches"
+agent = "census"
+
+[[sensor]]
+name = "merged-count"
+measures = "merged-branches"
+agent = "census"
+
+[[controller]]
+name = "few-merged-branches"
+holds = "merged-branches"
+setpoint = "<= 3"
+reads = ["merged-count"]
+drives = ["delete-merged"]
+agent = "pruner"
+description = "merged branches are deleted soon after"
+
+[[valve]]
+name = "delete-merged"
+flow = "pruned"
+agent = "pruner"
+
+[[valve]]
+name = "merge"
+flow = "merged"
+mode = "manual"
+agent = "developer"
+description = "a person merges; the developer program stands in for them here"
+
+[[agent]]
+name = "census"
+kind = "program"
+command = "bin/census.sh"
+every = "3s"
+description = "counts open and merged branches with git"
+
+[[agent]]
+name = "pruner"
+kind = "rule"
+command = "bin/prune.sh"
+on = ["loop.off@few-merged-branches"]
+description = "when too many merged branches pile up, delete all but the newest"
+
+[[agent]]
+name = "developer"
+kind = "program"
+command = "bin/develop.sh"
+every = "4s"
+description = "a program standing in for a developer (in life, a person): branches, commits, merges"
