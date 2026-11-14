@@ -711,3 +711,12 @@ All eight applied:
   the same 40 runs as the command line.
 - The suggestions reopened every few seconds and judged "off" from now: they keep the reader's
   choice and read the moment drawn.
+
+## Round 41: a last visual pass
+
+Applied: the zoom bar has its own background and moves clear of an open side panel; table headers
+and the "holds" cells do not break word by word; numbers in tables use the page's font with
+tabular figures; on a phone the side panel takes the screen, the trend chart fits it and the pan
+hint is left out; the folded chain's joining pipe stays inside its system's outline; system labels
+are brighter in the dark. Not applied: a tighter stock box in the design picture, and wider
+ladder columns for the rungs that are filled.

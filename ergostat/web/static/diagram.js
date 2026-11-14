@@ -145,7 +145,7 @@ function routeCuts(lay, cuts) {
     const row = lay.children.filter((c) => Math.abs(c.y + c.height / 2 - ty) < 160);
     const gapY = ty > sy ? Math.min(...row.map((c) => c.y)) - 26 : Math.max(...lay.children.filter((c) => Math.abs(c.y + c.height / 2 - sy) < 160).map((c) => c.y + c.height)) + 26;
     const turn = Math.max(sx + 18, ...(a.labels || []).map((l) => a.x + l.x + l.width + 12));   // clear of the valve's labels
-    const pts = sy === ty ? [] : [{ x: turn, y: sy }, { x: turn, y: gapY }, { x: tx - 24, y: gapY }, { x: tx - 24, y: ty }];
+    const pts = sy === ty ? [] : [{ x: turn, y: sy }, { x: turn, y: gapY }, { x: tx - 14, y: gapY }, { x: tx - 14, y: ty }];   // inside the outline
     lay.width = Math.max(lay.width, turn + 30);
     lay.edges.push({ id: e.id, sections: [{ startPoint: { x: sx, y: sy }, bendPoints: pts, endPoint: { x: tx, y: ty } }], cut: true });
   }

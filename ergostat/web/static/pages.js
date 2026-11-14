@@ -21,7 +21,7 @@ async function pageLoops(main) {
     box.replaceChildren(h("table", {}, h("tr", {}, ["loop", "status", "holds", "now", "setpoint", "e = r − y", "time off", "back in", "trend", "acted"].map((x) => h("th", {}, x))),
       Object.entries(loops).map(([n, lp]) => h("tr", { class: "click", onclick: () => openLoop(n) },
         h("td", {}, h("b", {}, n), lp.open_loop ? h("span", { class: "muted", title: "acts on its schedule, reads nothing" }, " ⏲ open loop") : null),
-        h("td", {}, statusEl(lp.status)), h("td", {}, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
+        h("td", {}, statusEl(lp.status)), h("td", { class: "nowrap-cell" }, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
         h("td", { class: "num nowrap" }, lp.setpoint + (lp.band || "")),
         h("td", { class: `num s-${lp.status}` }, lp.error != null ? fmt(lp.error) : ""),
         h("td", { class: "num", title: "the share of the window the loop spent off" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : "0%"),

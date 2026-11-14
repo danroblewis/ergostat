@@ -131,7 +131,7 @@ function trendChart(lp, w, hgt) {
   const span = (hi - lo) || 1; lo -= span * 0.08; hi += span * 0.08;
   const x = (t) => pad.l + ((t - t0) / ((t1 - t0) || 1)) * (w - pad.l - pad.r);
   const y = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * (hgt - pad.t - pad.b);
-  const out = s("svg", { width: w, height: hgt, class: "trend" });
+  const out = s("svg", { width: w, height: hgt, class: "trend", viewBox: `0 0 ${w} ${hgt}` });
   // off stretches over the whole window (the server reduces them from every crossing)
   for (const [a, b] of lp.off_stretches || []) {
     const xa = x(Math.max(a, t0)), xb = x(Math.min(b, t1));

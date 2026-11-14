@@ -202,3 +202,19 @@ table.parts td, table.parts th { padding: 3px 8px 3px 0; vertical-align: top; }
 @media (min-width: 900px) {
   body:has(#detail:not([hidden])) #main > .page { max-width: calc(100vw - 450px); }
 }
+
+/* final polish */
+.zoom { background: var(--panel); padding: 6px 8px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+.zoom button { white-space: nowrap; }
+.panhint { background: none; }
+body:has(#detail:not([hidden])) .zoom { right: 456px; }               /* never under the side panel */
+.page table th { white-space: nowrap; }
+.page table td.nowrap-cell { white-space: nowrap; }
+.page table td.num { font-family: inherit; font-variant-numeric: tabular-nums; }
+.detail svg.trend { max-width: 100%; height: auto; }
+@media (max-width: 700px) {
+  .detail { top: 0; height: 100dvh; z-index: 20; }
+  .panhint { display: none; }
+  .page { overflow-x: auto; }
+}
+@media (prefers-color-scheme: dark) { .sys-hull text { opacity: 1; filter: brightness(1.5); } }
