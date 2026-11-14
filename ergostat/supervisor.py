@@ -25,7 +25,9 @@ questions about what is happening from the record (`ergostat`, `ergostat loop`, 
   (`"<= 80"`), reads sensors, drives valves. `[[valve]]` acts on one flow (mode auto, advise or
   manual). Each names the `agent` that fills it.
 - `[[agent]]` fills roles: kind (person, ai, narrow-ai, decision, program, rule), `command`, and
-  `every` or `on` (event types). Prefer the lowest rung that does the job.
+  when it runs: `every = "5m"`, `cron = "0 3 * * *"`, or `on = ["loop.off", ...]` (event types).
+  Prefer the lowest rung that does the job. A person has no command.
+- `[[system]]` names a selection; parts join it with `systems = [...]`. Systems may overlap.
 - A loop is a controller whose sensor measures its stock (or a flow of it) and whose valve acts on
   a flow of it. `ergostat check` says which loops cannot close.
 
@@ -34,7 +36,15 @@ questions about what is happening from the record (`ergostat`, `ergostat loop`, 
 It gets a JSON object on stdin (its roles, the state, its controllers' setpoints and errors, the
 trigger) and prints one JSON object per line: `{"sensor": NAME, "value": N}`,
 `{"valve": NAME, "amount": N}`, `{"controller": NAME, "decision": "..."}`, or
-`{"event": TYPE, "item": ID, "data": {...}}`. It may only name parts it fills.
+`{"event": TYPE, "item": ID, "data": {...}}`. It may only name parts it fills. When a loop crosses its
+setpoint ergostat records `loop.off` or `loop.holding` (item: the loop's name), which agents can
+listen for. An event's `item` is what the work is about (`database`, `docs/install.md`).
+
+## The refactor path
+
+Every role is expected to move down the ladder, from AI agent to decision to program to rule, and
+finally to no work at all. `ergostat` shows hints when a controller decides the same thing most of
+the time; offer the move, with the evidence (`ergostat loop NAME`), and make it only when asked.
 
 ## Rules
 
