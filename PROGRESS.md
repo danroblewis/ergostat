@@ -29,3 +29,4 @@ Work until 2pm.
 - 07:58 docs/DESIGN.md (the design as built); all 7 demos pass scripts/demo_check.py; a start-up race in the event follower fixed (found by a flaky test).
 - 08:05 block view (web + ergostat system --blocks); Parts page; round 9 (misbehaving agents: timeouts, process groups); snapshot 71ms to 15ms (SQL counts, composite index).
 - 08:13 time slider and --at; trend chart in loop detail; valve positions (u); block legend; all 7 demos pass demo_check.
+- 08:22 (branch next, in ~/ergostat-wt while an independent reviewer walks the main tree): agent --now and docs/writing-agents.md; cycles among agents (declared or not); on = ["type@item"]; ladder hints on agent cards; DESIGN brought up to date.
