@@ -530,3 +530,15 @@ Ten problems; applied:
 Not applied (noted for later): automatic wrapping of long chains (the wrapped layout detours:
 needs rows broken at stocks), the big demo's block view grouped by system with an overview, and
 drawing another loop's actuator as a coupling rather than as d.
+
+## Round 29: after a restart, a loop that never came back
+
+Found while retaking screenshots: ops's backup-fresh had been off for 890 (simulated) hours. Its
+policy listens for `loop.off`; the backup its crossing asked for was killed by a restart, the loop
+stayed off, and no crossing ever came again. An event-driven controller whose action is lost
+waits forever; and the killed run was shown as the agent's failure ("exited -9").
+
+- When ergostat starts, every loop already off is said again (`loop.off`, `"still": true`), so
+  what listens for it acts. ops recovered within a second of the restart.
+- A run killed because ergostat itself stopped is noted "stopped with ergostat", never a failure.
+- "acts too late (on on loop.off...)": the schedule is said once.

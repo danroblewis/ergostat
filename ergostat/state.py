@@ -239,7 +239,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                         stale.append(r.name)
         agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles],
                           "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, **counted,
-                          "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),
+                          "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"
+                                                            and (last_any.get("data") or {}).get("note") != "stopped with ergostat"),
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),
                           "running_since": running_since}
 
@@ -307,7 +308,7 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             says = (f"loop {name} was off {off}% of the time though its valve can keep up: its controller runs "
                     f"{a.schedule}; run it more often")
         else:
-            says = f"loop {name} was off {off}% of the time though its valve can keep up: it acts too late (on {a.schedule if a else '?'})"
+            says = f"loop {name} was off {off}% of the time though its valve can keep up: it acts too late ({a.schedule if a else '?'})"
         out.append({"controller": name, "agent": c.agent, "kind": a.kind if a else "", "share": lp["off_share"],
                     "count": 0, "decision": "", "about": "loop", "says": says})
     for c in m.controllers.values():

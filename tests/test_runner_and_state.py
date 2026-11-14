@@ -487,3 +487,17 @@ def test_a_wrong_reading_can_be_set_aside(project):
     assert [v for _, v in gone] == [1.7e9]
     assert max(v for _, v in project.measurements.range("sensor/disk-usage", now - 600)) == 72
     assert project.measurements.forget("sensor/disk-usage", above=1000) == []
+
+
+def test_a_loop_off_at_start_is_said_again_and_a_stop_is_not_a_failure(project):
+    project.measurements.add("sensor/disk-usage", 95.0)
+    r = runner.Runner(project, say=lambda s: None)
+    r.start()
+    try:
+        offs = project.events.query(type="loop.off", item="disk-under-80")
+        assert offs and offs[-1]["data"].get("still")
+    finally:
+        r.close()
+        runner.STOPPING.clear()
+    project.events.add("agent.failed", item="cleaner", source="ergostat", data={"exit": -9, "note": runner.STOPPED_WITH_US})
+    assert not state.snapshot(project)["agents"]["cleaner"]["failing"]

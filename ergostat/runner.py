@@ -33,6 +33,8 @@ from . import state as st
 RUN_TIMEOUT = 300.0
 OWN_TYPES = ("agent.", "loop.", "valve.", "controller.", "model.", "ergostat.")   # no agent may publish these
 LIVE: set = set()          # the runs in progress, so stopping ergostat stops them too
+STOPPING = threading.Event()  # set when ergostat itself stops: a run killed then is not the agent's failure
+STOPPED_WITH_US = "stopped with ergostat"
 
 
 def _kill(p) -> None:
@@ -48,6 +50,7 @@ def _kill(p) -> None:
 
 
 def kill_all() -> None:
+    STOPPING.set()
     for p in list(LIVE):
         _kill(p)
 TICK = 0.25
@@ -311,6 +314,8 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
             if killed.is_set():
                 from .durations import human
                 note = f"stopped after its timeout of {human(agent.timeout)}"
+            elif code != 0 and STOPPING.is_set():
+                note = STOPPED_WITH_US
             elif code != 0:
                 note = f"exited {code}"
     data = {"exit": code, "seconds": round(time.time() - started, 3), **rec.counts, "why": trigger["type"] if trigger else why,
@@ -424,6 +429,13 @@ class Runner:
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         threading.Thread(target=self._prune, daemon=True).start()
         self.p.events.add("ergostat.started", source=SOURCE, data={"agents": sorted(self.queues), "pid": os.getpid()})
+        # a loop off when ergostat starts is said again: what its crossing set off may have been lost
+        # with the last run (a stop, a crash), and an agent listening for loop.off would wait forever
+        from .state import snapshot
+        for name, lp in snapshot(self.p)["loops"].items():
+            if lp["status"] == "off":
+                self.p.events.add("loop.off", item=name, source=SOURCE,
+                                  data={"value": lp["value"], "setpoint": lp["setpoint"], "error": lp["error"], "still": True})
 
     def close(self) -> None:
         self.stop.set()
