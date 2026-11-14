@@ -191,12 +191,17 @@ class Events:
     def runs(self, item: str, since: float, until: float | None = None) -> dict:
         """An agent's runs in a span, counted by SQLite: runs, failed, and lines refused."""
         with self._c() as c:
-            rows = c.execute("select type, count(*), sum(coalesce(json_extract(data, '$.refused'), 0)) from events "
+            rows = c.execute("select type, count(*), "
+                             "sum(case when json_extract(data, '$.why') = 'by hand' then 0 "
+                             "         else coalesce(json_extract(data, '$.refused'), 0) end), "
+                             "sum(case when json_extract(data, '$.why') = 'by hand' then 0 "
+                             "         else coalesce(json_extract(data, '$.unread'), 0) end) from events "
                              "where item = ? and type in ('agent.ran', 'agent.failed') and time >= ? and time <= ? group by type",
                              (item, since, until if until is not None else 1e18)).fetchall()
-        by = {r[0]: (r[1], r[2] or 0) for r in rows}
-        ran, failed = by.get("agent.ran", (0, 0)), by.get("agent.failed", (0, 0))
-        return {"runs": ran[0] + failed[0], "failed": failed[0], "refused": ran[1] + failed[1]}
+        by = {r[0]: (r[1], r[2] or 0, r[3] or 0) for r in rows}
+        ran, failed = by.get("agent.ran", (0, 0, 0)), by.get("agent.failed", (0, 0, 0))
+        # what a run by hand refused or could not read is shown to whoever ran it, not kept as a problem
+        return {"runs": ran[0] + failed[0], "failed": failed[0], "refused": ran[1] + failed[1], "unread": ran[2] + failed[2]}
 
     def last_seq(self) -> int:
         with self._c() as c:

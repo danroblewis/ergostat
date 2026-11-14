@@ -79,7 +79,8 @@ def parts_of(args, m) -> set[str]:
     return m.members(None)
 
 EXAMPLE = '''# ergostat.toml: one loop. disk usage is held under 80% by a program that measures and cleans.
-# (the project's name defaults to its folder's; ./clean.sh is yours to write: see `ergostat agent --help`)
+# (the project's name defaults to its folder's; ./clean.sh is yours to write: see docs/writing-agents.md,
+#  and try it with `ergostat agent disk-cleaner --now`)
 
 [[stock]]
 name = "disk-used"

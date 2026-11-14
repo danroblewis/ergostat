@@ -16,13 +16,21 @@ ergostat in JSON lines.
     "roles": [{"kind": "sensor", "name": "disk-usage"}, {"kind": "controller", "name": "disk-under-80"},
               {"kind": "valve", "name": "delete-old-files"}],
     "state": {"disk-used": 71.2},
-    "controllers": {"disk-under-80": {"holds": "disk-used", "setpoint": "<= 80", "value": 71.2, "error": 0,
+    "controllers": {"disk-under-80": {"holds": "disk-used", "setpoint": "<= 80", "op": "<=", "target": 80,
+                                      "tolerance": 2, "value": 71.2, "error": 0, "status": "holding",
                                       "drives": ["delete-old-files"]}},
     "trigger": null}
    ```
 
-   `trigger` is the event that started the run (for `on`), or null for a scheduled one. Reading
-   stdin is optional.
+   - `trigger` is the event that started the run (for `on`), or null for a scheduled one.
+   - `state` and `value` are the **last recorded readings**, from before this run: measure afresh
+     if you need the present. They are **null** until a first reading exists; check for that.
+   - `error` is **e = r − y**, the control convention: negative when the value is too high,
+     positive when too low, 0 on a one-sided setpoint's satisfied side; null with no reading.
+   - `status` is ergostat's own verdict (holding, off, unknown, open). The `tolerance` is a
+     hysteresis band: off only past the setpoint by more than it, holding again only back within the
+     setpoint.
+   - Reading stdin is optional.
 3. The program prints what happened, one JSON object per line, each naming the part it is for.
    Anything else it prints goes to its log (`ergostat agent NAME` shows the end of it).
 4. Its exit code: not 0 is a failed run, and shows in the status.
@@ -39,7 +47,11 @@ ergostat in JSON lines.
 
 An agent may only name parts it fills; anything else is refused, and the refusal is recorded. The
 event types under `agent.`, `loop.`, `valve.`, `controller.`, `model.` and `ergostat.` are
-ergostat's own. Give events an `item`: what the work is about (`database`, `docs/install.md`), so
+ergostat's own. Also refused: a reading whose `value` is not a number; a valve line with neither
+`amount` nor `position`, or an amount below 0; a decision without words; an event type that is not
+lowercase words joined by dots (`backup.requested`); `data` that is not an object. A line that looks
+meant for ergostat but cannot be read (broken JSON, or an object naming no part and no event) goes to
+the log and is counted: `--now` prints it, and the status says how many. Give events an `item`: what the work is about (`database`, `docs/install.md`), so
 `ergostat item` can fold them.
 
 ## Three small agents
@@ -90,7 +102,8 @@ on = ["loop.off"]
 
 - By hand, without ergostat: `echo '{"roles": [], "state": {}, "controllers": {}, "trigger": null}' | ./agent.sh`
 - Once, through ergostat, recorded like any run: `ergostat agent NAME --now`. It prints what the
-  agent said, what was refused, and the end of its log.
+  agent said, what was refused or not understood, the roles it said nothing for, and this run's log.
+  What a run by hand refuses is shown to you, not kept as a problem in the status.
 - `ergostat check` warns when a command is not found, a part has no agent, or a loop cannot close.
 
 ## Say each action as you take it

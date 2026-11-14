@@ -316,6 +316,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         if a["refused"]:
             out.append({"level": "warn", "what": f"agent {name}", "says": f"{a['refused']} lines refused "
                         f"(a part it does not fill, or one of ergostat's own event types: ergostat event --type agent.refused)"})
+        if a.get("unread"):
+            out.append({"level": "warn", "what": f"agent {name}", "says": f"{a['unread']} lines looked meant for ergostat but "
+                        f"could not be read (broken JSON, or naming no part or event); they are in its log"})
         if a["stale"] and running:
             out.append({"level": "warn", "what": f"agent {name}", "says": f"no recent reading from {', '.join(a['stale'])}"})
     for h in snap.get("hints", []):

@@ -21,6 +21,7 @@ import fnmatch
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -86,75 +87,98 @@ def matches(pattern: str, ev: dict) -> bool:
     return fnmatch.fnmatchcase(ev.get("type", ""), t) and (not item or fnmatch.fnmatchcase(str(ev.get("item") or ""), item))
 
 
+TYPE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)+$")
+
+
+def _number(v) -> bool:
+    return isinstance(v, int | float) and not isinstance(v, bool)
+
+
 class Recorder:
-    """Turns an agent's output lines into measurements and events, refusing what it may not say."""
+    """Turns an agent's output lines into measurements and events, refusing what it may not say or
+    says badly. Lines that look meant for ergostat but cannot be read are counted, never lost quietly."""
 
     def __init__(self, project, agent, run_id: str):
         self.p, self.agent, self.run_id = project, agent, run_id
         self.fills = {(r.kind, r.name) for r in project.model.roles_of(agent.name)}
-        self.counts = {"readings": 0, "openings": 0, "decisions": 0, "events": 0, "refused": 0}
+        self.counts = {"readings": 0, "openings": 0, "decisions": 0, "events": 0, "refused": 0, "unread": 0}
+        self.unread: list[str] = []
 
     def refuse(self, line: dict, why: str) -> None:
         self.counts["refused"] += 1
         self.p.events.add("agent.refused", item=self.agent.name, source=SOURCE, causedby=self.run_id,
                           data={"line": line, "why": why})
 
+    def not_read(self, raw: str) -> None:
+        self.counts["unread"] += 1
+        if len(self.unread) < 5:
+            self.unread.append(raw[:200])
+
     def take(self, raw: str) -> bool:
-        """True when the line was a JSON object meant for ergostat."""
+        """True when the line was handled (recorded or refused); False when it goes to the log."""
         try:
             line = json.loads(raw)
         except ValueError:
+            if raw.lstrip().startswith("{"):             # meant for ergostat, but not JSON
+                self.not_read(raw)
             return False
         if not isinstance(line, dict):
             return False
         ev = self.p.events
         for kind in ("sensor", "valve", "controller"):
-            if kind in line:
-                name = line[kind]
-                if (kind, name) not in self.fills:
-                    self.refuse(line, f"{self.agent.name} does not fill {kind} {name}")
+            if kind not in line:
+                continue
+            name = line[kind]
+            if (kind, name) not in self.fills:
+                self.refuse(line, f"{self.agent.name} does not fill {kind} {name}")
+                return True
+            if kind == "sensor":
+                if not _number(line.get("value")):
+                    self.refuse(line, "a reading needs a number: value")
                     return True
-                if kind == "sensor":
-                    try:
-                        value = float(line["value"])
-                    except (KeyError, TypeError, ValueError):
-                        self.refuse(line, "a reading needs a number: value")
+                self.p.measurements.add(f"sensor/{name}", float(line["value"]))
+                self.counts["readings"] += 1
+                edges(self.p, self.run_id, sensor=name)
+            elif kind == "valve":
+                if "position" not in line and "amount" not in line:
+                    self.refuse(line, "a valve line says amount (what it moved) or position (how far it is open)")
+                    return True
+                if "position" in line:                   # how far it is open: a setting, kept as a measurement
+                    if not _number(line["position"]):
+                        self.refuse(line, "position must be a number")
                         return True
-                    self.p.measurements.add(f"sensor/{name}", value)
-                    self.counts["readings"] += 1
-                    edges(self.p, self.run_id, sensor=name)
-                elif kind == "valve":
-                    if "position" in line:                   # how far it is open: a setting, kept as a measurement
-                        try:
-                            self.p.measurements.add(f"valve/{name}", float(line["position"]))
-                        except (TypeError, ValueError):
-                            self.refuse(line, "position must be a number")
-                            return True
-                        if "amount" not in line:
-                            return True
-                    try:
-                        amount = float(line.get("amount", 1))
-                    except (TypeError, ValueError):
-                        self.refuse(line, "amount must be a number")
+                    self.p.measurements.add(f"valve/{name}", float(line["position"]))
+                if "amount" in line:
+                    if not _number(line["amount"]) or line["amount"] < 0:
+                        self.refuse(line, "amount must be a number, 0 or more (a flow runs one way)")
                         return True
                     ev.add("valve.opened", item=name, source=self.agent.name, causedby=self.run_id,
-                           data={"amount": amount, "flow": self.p.model.valves[name].flow,
+                           data={"amount": float(line["amount"]), "flow": self.p.model.valves[name].flow,
                                  **({"note": line["note"]} if "note" in line else {})})
                     self.counts["openings"] += 1
-                else:
-                    ev.add("controller.decided", item=name, source=self.agent.name, causedby=self.run_id,
-                           data={"decision": str(line.get("decision", "")), **({"why": line["why"]} if "why" in line else {})})
-                    self.counts["decisions"] += 1
-                return True
+            else:
+                if not isinstance(line.get("decision"), str) or not line["decision"].strip():
+                    self.refuse(line, "a decision needs words: decision")
+                    return True
+                ev.add("controller.decided", item=name, source=self.agent.name, causedby=self.run_id,
+                       data={"decision": line["decision"], **({"why": line["why"]} if "why" in line else {})})
+                self.counts["decisions"] += 1
+            return True
         if "event" in line:
-            t = str(line["event"])
+            t = line["event"]
+            if not isinstance(t, str) or not TYPE_NAME.match(t):
+                self.refuse(line, "an event type is lowercase words joined by dots, like backup.requested")
+                return True
             if t.startswith(OWN_TYPES):
                 self.refuse(line, f"{t}: types under {', '.join(OWN_TYPES)} are ergostat's own")
                 return True
-            ev.add(t, item=line.get("item"), source=self.agent.name, causedby=self.run_id,
-                   data=line.get("data") if isinstance(line.get("data"), dict) else {})
+            if "data" in line and not isinstance(line["data"], dict):
+                self.refuse(line, "data must be an object")
+                return True
+            ev.add(t, item=line.get("item"), source=self.agent.name, causedby=self.run_id, data=line.get("data") or {})
             self.counts["events"] += 1
             return True
+        self.not_read(raw)                                   # an object that names no part and no event
         return False
 
 
@@ -223,7 +247,8 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                 note = f"stopped after its timeout of {human(agent.timeout)}"
             elif code != 0:
                 note = f"exited {code}"
-    data = {"exit": code, "seconds": round(time.time() - started, 3), **rec.counts, **({"note": note} if note else {})}
+    data = {"exit": code, "seconds": round(time.time() - started, 3), **rec.counts, "why": trigger["type"] if trigger else why,
+            **({"unread_lines": rec.unread} if rec.unread else {}), **({"note": note} if note else {})}
     project.events.add("agent.ran" if not note else "agent.failed", item=agent.name, source=SOURCE, causedby=begun["id"],
                        data=data)
     return data

@@ -248,3 +248,30 @@ def test_a_disturbance_may_declare_its_rate(repo):
     p.measurements.add("sensor/disk-usage", 56, at=t + 1800)             # half an hour at 12/h: explained
     snap = state.snapshot(p)
     assert snap["flows"]["logs-written"]["how"] == "declared" and snap["residuals"]["disk-used"]["unexplained"] == 0
+
+
+def test_bad_lines_are_refused_and_unreadable_ones_counted(project, repo):
+    r = run_with(project, repo, """
+        import json
+        print(json.dumps({"valve": "delete-old-files"}))                       # neither amount nor position
+        print(json.dumps({"valve": "delete-old-files", "amount": -4}))
+        print(json.dumps({"sensor": "disk-usage", "value": "7"}))               # a string, not a number
+        print(json.dumps({"controller": "disk-under-80"}))                       # no decision
+        print(json.dumps({"event": "spool written"}))                            # not a type name
+        print(json.dumps({"event": "spool.written", "data": [1, 2]}))
+        print('{"sensor": "disk-usage", "value": 1')                            # broken JSON
+        print(json.dumps({"sensr": "disk-usage", "value": 1}))                   # names nothing
+        print("plain text is fine")
+    """)
+    assert r["refused"] == 6 and r["unread"] == 2 and len(r["unread_lines"]) == 2
+    assert not project.measurements.latest("sensor/disk-usage") and not project.events.query(type="valve.opened")
+    snap = state.snapshot(project)
+    assert snap["agents"]["cleaner"]["unread"] == 2
+    assert any("could not be read" in a["says"] for a in state.attention(snap))
+
+
+def test_a_run_by_hand_is_not_kept_as_a_problem(project, repo):
+    repo.write("clean.py", 'import json\nprint(json.dumps({"valve": "nobodys", "amount": 1}))\n')
+    runner.run_agent(project, project.model.agents["cleaner"], why="by hand")
+    assert project.events.query(type="agent.refused")                         # recorded
+    assert state.snapshot(project)["agents"]["cleaner"]["refused"] == 0      # but not a problem

@@ -109,6 +109,10 @@ def run_now(args) -> int:
             got = p.measurements.latest(f"sensor/{s_.name}")
             if got and got[0] >= time.time() - r["seconds"] - 1:
                 print(f"  {c('reading', 'dim')}  {s_.name} = {fmt(got[1])}")
+    if r.get("unread"):
+        print(c(f"{r['unread']} line{'s' if r['unread'] > 1 else ''} not understood (broken JSON, or naming no part or event):", "warn"))
+        for line in r.get("unread_lines", []):
+            print(f"  {line}")
     # the roles it fills that it said nothing for: the likeliest thing missing from a new agent
     decided = {e.get("item") for e in said if e["type"] == "controller.decided"}
     opened = {e.get("item") for e in said if e["type"] == "valve.opened"}
@@ -124,8 +128,10 @@ def run_now(args) -> int:
             silent.append(f"valve {role.name}")
     if silent:
         print(c("said nothing for: " + ", ".join(silent) + " (fine when there was nothing to do; a sensor should always read)", "dim"))
-    tail = log_path(p, a.name).read_text(errors="replace").splitlines()[-5:] if log_path(p, a.name).exists() else []
+    lines = log_path(p, a.name).read_text(errors="replace").splitlines() if log_path(p, a.name).exists() else []
+    starts = [i for i, x in enumerate(lines) if x.startswith("--- ")]
+    tail = lines[starts[-1] + 1:][-12:] if starts else []                 # this run's section only
     if tail:
-        print(c("end of its log", "dim"))
+        print(c("this run's log", "dim"))
         print("\n".join("  " + x for x in tail))
     return 0 if ok else 1
