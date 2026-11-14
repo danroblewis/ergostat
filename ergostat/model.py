@@ -132,9 +132,13 @@ class Controller(Part):
 
     def status(self, value: float, was_off: bool = False) -> str:
         """Off past the setpoint by more than the tolerance; once off, holding again only back
-        within the setpoint itself (the tolerance is a hysteresis band, so a loop near its
-        setpoint does not chatter)."""
-        return "off" if self.violated(value, 0.0 if was_off else self.tolerance) else "holding"
+        within the setpoint itself. The *status* has hysteresis (it does not chatter near the
+        setpoint); the agent's own control law is its own, except for an agent woken by
+        ``loop.off``, for which this band is the control law. For ``==`` "within the setpoint" is
+        half the tolerance: a real value is never exactly the setpoint."""
+        op, _ = self.target()
+        back = self.tolerance / 2 if op == "==" else 0.0
+        return "off" if self.violated(value, back if was_off else self.tolerance) else "holding"
 
     def band_text(self) -> str:
         """The tolerance, on the side it applies: ``(+2)`` for <=, ``(−2)`` for >=, ``(±2)`` for ==."""
@@ -240,15 +244,19 @@ class Model:
         out = []
         for c in self.controllers.values():
             flows = {f.name for f in self.flows_of(c.holds)}
-            # an open loop reads nothing: the sensors on its stock only watch it, to judge it
+            # feedback is a reading of the stock itself (y); a sensor on a flow measures u or d: it feeds
+            # forward, it does not close the loop. An open loop reads nothing: the stock's sensors only watch it
             sensors = [s for s in (self.sensors if c.open_loop else c.reads)
-                       if s in self.sensors and (self.sensors[s].measures == c.holds or self.sensors[s].measures in flows)]
+                       if s in self.sensors and self.sensors[s].measures == c.holds]
             valves = [v for v in c.drives if v in self.valves and self.valves[v].flow in flows]
             gaps = []
             if c.holds not in self.stocks:
                 gaps.append(f"holds {c.holds!r}, which is not a stock")
             if not sensors:
-                gaps.append(f"none of its sensors measures {c.holds} or a flow of it")
+                on_flows = [s for s in c.reads if s in self.sensors and self.sensors[s].measures in flows]
+                gaps.append(f"none of its sensors measures {c.holds} itself" + (
+                    f" ({', '.join(on_flows)} measure{'s' if len(on_flows) == 1 else ''} a flow: that feeds forward, "
+                    f"it does not close the loop)" if on_flows else ""))
             if not valves:
                 gaps.append(f"none of its valves acts on a flow of {c.holds}")
             out.append(Loop(c.name, c, c.holds, sensors, valves, sorted(self.valves[v].flow for v in valves), gaps))
@@ -478,7 +486,7 @@ def check(m: Model) -> list[tuple[str, str]]:
     for v in m.valves.values():
         flows = [f for f in m.flows.values() if f.name == v.flow]
         if flows and not any(v.name in c.drives for c in m.controllers.values()):
-            warn(f"valve {v.name}: no controller drives it (open loop)")
+            warn(f"valve {v.name}: no controller drives it: it acts on its own, nothing feeds back to it")
     for f in m.flows.values():
         if not f.disturbance and m.valve_of(f.name) is None:
             warn(f"flow {f.name}: no valve acts on it; if nothing controls it, declare it a [[disturbance]]")

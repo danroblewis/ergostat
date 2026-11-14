@@ -141,8 +141,10 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     on_stock = [x for x in lp.sensors if model.sensors[x].measures == lp.stock]
     sen = (on_stock or lp.sensors or [None])[0]                       # H: the sensor on the stock itself
     hb = f"[ {sen} reads {fmt(readings.get(sen))} ]" if sen else "[ no sensor ]"
-    # to a loop, any inflow it does not drive is a disturbance: declared ones, and other agents' valves
-    dists = [f for f in model.flows_of(lp.stock) if f.target == lp.stock and f.name not in lp.flows]
+    # to a loop, any flow of its stock it does not drive is a disturbance: declared ones, and other
+    # agents' valves; an inflow joins the plant with +, an outflow with −
+    dists = [f for f in model.flows_of(lp.stock) if f.name not in lp.flows and lp.stock in (f.target, f.source)]
+    dists.sort(key=lambda f: f.target != lp.stock)
     r = f"r: {_sp(c_.setpoint)} "
     e = f"e={fmt(s['error'])}" if s.get("error") is not None else "e"
     u = "u" if pos is None else f"u={fmt(pos)}"
@@ -153,7 +155,8 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     else:
         left = f"{r}─▶(Σ)─{e}─▶{ctl}─{u}─▶{vb}─▶"
     drains = bool(v) and model.flows[model.valves[v].flow].source == lp.stock
-    joint = ("(−)─▶" if drains else "(+)─▶") if (dists or drains) else ""
+    dsign = ("+" if dists[0].target == lp.stock else "−") if dists else ""
+    joint = (f"({'−' if drains else '+'}{dsign})─▶") if (dists or drains) else ""
     row = left + joint + sb + "──┬──▶ y"
     sum_at = len(r) + 3                                  # the column of Σ
     tee = len(row) - len("┬──▶ y")
@@ -166,9 +169,13 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
         source = next((x.name for x in model.loops() if v and v.name in x.valves), None)
         who = f" (u of loop {source}, measured)" if source else f" (valve {v.name} · {v.agent})" if v and v.agent else ""
         lines.append(" " * col + f"d: {d.name}{who} {fmt(rate.get('rate'))}{(' ' + unit) if unit else ''}/h"
-                     + (" (est.)" if rate.get("estimated") else "")
+                     + (" (est.)" if rate.get("estimated") else "") + f" ({dsign})"
                      + (f" +{len(dists) - 1} more" if len(dists) > 1 else ""))
-        lines.append(" " * col + "│")
+        lines.append(" " * (col + 2) + "│")
+    # feedforward: a sensor the controller reads on a disturbance, acting before d shows in e
+    ff = [x for x in c_.reads if x in model.sensors and any(model.sensors[x].measures == d.name for d in dists)]
+    if ff and not lp.open_loop:
+        lines.insert(0, " " * (sum_at + 4) + f"feedforward: {ff[0]} reads {fmt(readings.get(ff[0]))}/h now ─▶ C")
     lines.append(row)
     if lp.open_loop:
         watched = f"ym ─── {hb}◀"

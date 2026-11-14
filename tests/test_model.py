@@ -126,3 +126,19 @@ def test_an_open_loop_reads_nothing_and_is_judged_by_what_watches_its_stock(repo
     assert not w["cycles"]
     repo.write("ergostat.toml", text.replace("open_loop = true\n", 'open_loop = true\nreads = ["disk-usage"]\n'))
     assert any("open_loop reads nothing" in x for _, x in model.check(model.load(repo.path)))
+
+
+def test_an_equal_setpoint_comes_back_within_half_its_tolerance():
+    from ergostat.model import Controller
+    c = Controller(name="c", setpoint="== 50", tolerance=5)
+    assert c.status(56) == "off" and c.status(54) == "holding"
+    assert c.status(53, was_off=True) == "off" and c.status(52.4, was_off=True) == "holding"
+
+
+def test_feedback_is_a_reading_of_the_stock_itself(repo):
+    from ergostat import model
+    text = repo.path.joinpath("ergostat.toml").read_text()
+    text = text.replace('name = "disk-usage"\nmeasures = "disk-used"', 'name = "disk-usage"\nmeasures = "cleaned"')
+    repo.write("ergostat.toml", text)
+    (lp,) = model.load(repo.path).loops()
+    assert not lp.closes and "feeds forward" in lp.gaps[0]

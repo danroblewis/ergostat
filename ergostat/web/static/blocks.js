@@ -17,9 +17,13 @@ function blockLayout(g) {
     const valves = lp.nodes.filter((id) => id.startsWith("flow:")).map((id) => byId[id]).filter(Boolean);
     // to a loop, any inflow it does not drive is a disturbance: declared ones, and other agents' valves
     const mine = new Set(valves.map((v) => v.id));
-    const dists = g.edges.filter((e) => e.kind === "pipe" && e.target === stock.id && !mine.has(e.source)
-                                        && ["disturbance", "valve"].includes(byId[e.source]?.kind))
-                        .map((e) => byId[e.source]);
+    // ...and any outflow it does not drive, which enters the plant's junction with −
+    const dists = [
+      ...g.edges.filter((e) => e.kind === "pipe" && e.target === stock.id && !mine.has(e.source)
+                               && ["disturbance", "valve"].includes(byId[e.source]?.kind)).map((e) => ({ ...byId[e.source], sign: "+" })),
+      ...g.edges.filter((e) => e.kind === "pipe" && e.source === stock.id && !mine.has(e.target)
+                               && ["disturbance", "valve"].includes(byId[e.target]?.kind)).map((e) => ({ ...byId[e.target], sign: "−" })),
+    ];
     const drains = valves.length && g.edges.some((e) => e.kind === "pipe" && e.source === stock.id && e.target === valves[0].id);
     // feedforward: a sensor the controller reads that measures a disturbance, not the stock
     const ff = g.edges.filter((e) => e.kind === "signal" && e.target === ctl.id).map((e) => byId[e.source])
@@ -125,7 +129,7 @@ function drawBlocks(svg, g) {
     if (row.dists.length || row.drains) {
       // the plant's input: the actuator's flow (− when it drains the stock) and any disturbance (+)
       loopG.append(...line([[X.valve + vw, cy], [X.dsum - 14, cy]], "", "var(--pipe)"));
-      loopG.append(sum(X.dsum, cy, [[-22, -16, row.drains ? "−" : "+"], [18, -20, row.dists.length ? "+" : ""]]));
+      loopG.append(sum(X.dsum, cy, [[-22, -16, row.drains ? "−" : "+"], [18, -20, row.dists.length ? row.dists[0].sign : ""]]));
     }
     if (row.dists.length) {
       const d = row.dists[0];
@@ -139,7 +143,7 @@ function drawBlocks(svg, g) {
         // the controller also measures d itself: feedforward, acting before d shows in the error
         const f = row.ff[0], fy = cy - 78, fx = X.ctl + cw / 2;
         loopG.append(...line([[X.dsum, fy], [fx, fy], [fx, cy - 36]], "", "var(--dist)", true));
-        loopG.append(label((fx + X.dsum) / 2, fy - 6, `feedforward: ${f.label} reads ${f.reading ?? "?"}`, "t-sub"));
+        loopG.append(label((fx + X.dsum) / 2, fy - 6, `feedforward: ${f.label} reads ${f.reading ?? "?"} now (d: the window's average)`, "t-sub"));
       }
     }
     if (row.dists.length || row.drains) loopG.append(...line([[X.dsum + 14, cy], [X.stock, cy]], "", "var(--pipe)"));
