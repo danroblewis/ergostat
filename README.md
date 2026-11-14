@@ -125,7 +125,7 @@ each part tagged with the agent that fills it, coloured by its rung. Loops are c
 systems are drawn as outlines that may overlap. The blocks view draws each loop as a classic
 negative-feedback block diagram (r, Σ, e, C, u, the actuator, the disturbance d joining at the
 plant, y, and the sensor H feeding ym back); `ergostat system --blocks` prints the same in text.
-"save SVG" writes the diagram as a standalone file. The wiring view draws the agents and how each
+"save SVG" and "PNG" write the diagram as a standalone file. The wiring view draws the agents and how each
 one's output reaches another. Loops, Agents (the ladder), Parts, Record, Residuals and Check show
 what the command line shows; the Guide explains the ideas with the system's own parts as examples. The slider in the header looks at any past moment; "back to live"
 returns.
