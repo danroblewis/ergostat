@@ -28,7 +28,7 @@ def test_a_loop_without_a_valve_on_its_stock_cannot_close():
 def test_errors_name_what_does_not_resolve():
     m = parse(DISK.replace('measures = "disk-used"', 'measures = "disk-usd"'))
     errors = [msg for lv, msg in model.check(m) if lv == "error"]
-    assert errors == ["sensor disk-usage: 'disk-usd' is neither a stock nor a flow"]
+    assert errors[0].startswith("sensor disk-usage: 'disk-usd' is neither a stock nor a flow; declare it")
 
 
 @pytest.mark.parametrize("bad, says", [

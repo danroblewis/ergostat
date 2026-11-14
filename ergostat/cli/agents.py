@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import time
 
+from .. import model as mdl
 from ..durations import human
 from ..show import ago, c, table
 from ..state import fmt
@@ -76,14 +77,21 @@ def run_now(args) -> int:
     if not a.command or a.kind == "person":
         print(f"{a.name} has no command for ergostat to run" + (" (a person)" if a.kind == "person" else ""), file=sys.stderr)
         return 2
+    errors = [msg for lv, msg in mdl.check(p.model) if lv == "error"]
+    if errors:
+        many = "s" if len(errors) > 1 else ""
+        print(c(f"the model has {len(errors)} error{many} (ergostat check); running it anyway, to try it", "warn"))
     seq = p.events.last_seq()
-    r = run_agent(p, a)
+    began = time.time()
+    r = run_agent(p, a, why="by hand")
     said = p.events.query(n=None, after_seq=seq)
     if args.json:
         return out_json({"run": r, "events": said})
     ok = not r.get("note")
-    print(f"{c('ran', 'ok') if ok else c(r.get('note'), 'bad')} in {r['seconds']}s: {r['readings']} readings, "
-          f"{r['openings']} openings, {r['decisions']} decisions, {r['events']} events" +
+    def n(k, word):
+        return f"{k} {word}" + ("" if k == 1 else "s")
+    print(f"{c('ran', 'ok') if ok else c(r.get('note'), 'bad')} in {r['seconds']}s: {n(r['readings'], 'reading')}, "
+          f"{n(r['openings'], 'opening')}, {n(r['decisions'], 'decision')}, {n(r['events'], 'event')}" +
           (c(f", {r['refused']} refused", "warn") if r["refused"] else ""))
     from .record import event_line
     for e in said:
@@ -94,6 +102,21 @@ def run_now(args) -> int:
             got = p.measurements.latest(f"sensor/{s_.name}")
             if got and got[0] >= time.time() - r["seconds"] - 1:
                 print(f"  {c('reading', 'dim')}  {s_.name} = {fmt(got[1])}")
+    # the roles it fills that it said nothing for: the likeliest thing missing from a new agent
+    decided = {e.get("item") for e in said if e["type"] == "controller.decided"}
+    opened = {e.get("item") for e in said if e["type"] == "valve.opened"}
+    silent = []
+    for role in p.model.roles_of(a.name):
+        if role.kind == "sensor":
+            got = p.measurements.latest(f"sensor/{role.name}")
+            if not got or got[0] < began:
+                silent.append(f"sensor {role.name}")
+        elif role.kind == "controller" and role.name not in decided:
+            silent.append(f"controller {role.name}")
+        elif role.kind == "valve" and role.name not in opened:
+            silent.append(f"valve {role.name}")
+    if silent:
+        print(c("said nothing for: " + ", ".join(silent) + " (fine when there was nothing to do; a sensor should always read)", "dim"))
     tail = log_path(p, a.name).read_text(errors="replace").splitlines()[-5:] if log_path(p, a.name).exists() else []
     if tail:
         print(c("end of its log", "dim"))

@@ -217,3 +217,25 @@ Twenty findings; the ones applied:
 - The file-queue "unexplained" residual was real: runs stopped midway by restarts had moved files
   without saying so. The agents now say each move as they make it, and `docs/writing-agents.md`
   says to.
+
+## Round 12: a first agent, from the guide alone
+
+**Who:** a new user keeping a scratch folder under 10 files, with `docs/writing-agents.md` open.
+They forget to declare the valve's flow, and their script says no decision.
+
+```
+$ ergostat check
+error  valve remove-oldest: flow 'removed' is not a flow; declare it: [[flow]] name = "removed" with from = ... or to = ...
+$ ergostat agent tidy --now
+the model has 1 error (ergostat check); running it anyway, to try it
+ran in 0.03s: 1 reading, 1 opening, 0 decisions, 0 events
+said nothing for: controller scratch-small (fine when there was nothing to do; a sensor should always read)
+```
+
+**Findings (applied):**
+- `check`'s errors said what was wrong, not what to write. Each unresolved reference now names
+  the declaration that fixes it.
+- `--now` ran a broken model silently. It warns, and still runs: trying an agent is the point.
+- `--now` now lists the roles the agent said nothing for: the likeliest thing missing from a new
+  agent.
+- A run by hand was logged as "(schedule)"; it says "(by hand)". "1 readings" is "1 reading".

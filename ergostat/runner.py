@@ -172,12 +172,12 @@ def edges(project, causedby: str | None = None, sensor: str | None = None) -> li
     return out
 
 
-def run_agent(project, agent, trigger: dict | None = None) -> dict:
+def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule") -> dict:
     """One run: start the command, feed it its context, record its lines, and record the run."""
     started = time.time()
     begun = project.events.add("agent.started", item=agent.name, source=SOURCE,
                                causedby=trigger.get("id") if trigger else None,
-                               data={"trigger": trigger["type"] if trigger else "schedule"})
+                               data={"trigger": trigger["type"] if trigger else why})
     rec = Recorder(project, agent, begun["id"])
     log = log_path(project, agent.name)
     env = {**os.environ, "ERGOSTAT_AGENT": agent.name, "ERGOSTAT_RUN": begun["id"], "ERGOSTAT_PROJECT": project.model.name,
@@ -185,7 +185,7 @@ def run_agent(project, agent, trigger: dict | None = None) -> dict:
     code, note = None, ""
     with open(log, "a", encoding="utf-8") as lf:
         lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} "
-                 f"({trigger['type'] if trigger else 'schedule'})\n")
+                 f"({trigger['type'] if trigger else why})\n")
         lf.flush()
         try:
             p = subprocess.Popen(agent.command, shell=True, cwd=project.repo, env=env, stdin=subprocess.PIPE,

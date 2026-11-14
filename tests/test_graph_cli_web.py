@@ -173,7 +173,7 @@ def test_agent_now_runs_it_once_and_says_what_it_said(repo, project, capsys):
         print(json.dumps({"valve": "delete-old-files", "amount": 20}))
     """)
     rc, out = run_cli(repo, "agent", "cleaner", "--now", capsys=capsys)
-    assert rc == 0 and "1 readings, 1 openings, 1 decisions" in out and "disk-usage = 91" in out and "valve.opened" in out
+    assert rc == 0 and "1 reading, 1 opening, 1 decision" in out and "disk-usage = 91" in out and "valve.opened" in out
     assert run_cli(repo, "agent", "nobody", "--now", capsys=capsys)[0] == 2
 
 

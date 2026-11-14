@@ -378,23 +378,27 @@ def check(m: Model) -> list[tuple[str, str]]:
             err(f"{what} {f.name}: it connects nothing: give it from, to, or both")
     for v in m.valves.values():
         if v.flow not in m.flows:
-            err(f"valve {v.name}: flow {v.flow!r} is not a flow")
+            err(f"valve {v.name}: flow {v.flow!r} is not a flow; declare it: [[flow]] name = \"{v.flow}\" "
+                f"with from = (the stock it drains) or to = (the stock it fills)")
         elif m.flows[v.flow].disturbance:
             err(f"valve {v.name}: {v.flow} is a disturbance, which no valve controls; make it a [[flow]]")
     for s in m.sensors.values():
         if s.measures not in m.stocks and s.measures not in m.flows:
-            err(f"sensor {s.name}: {s.measures!r} is neither a stock nor a flow")
+            err(f"sensor {s.name}: {s.measures!r} is neither a stock nor a flow; declare it: [[stock]] name = \"{s.measures}\"")
     for c in m.controllers.values():
         for x in c.reads:
             if x not in m.sensors:
-                err(f"controller {c.name}: reads {x!r}, which is not a sensor")
+                err(f"controller {c.name}: reads {x!r}, which is not a sensor; declare it: [[sensor]] name = \"{x}\" "
+                    f"measures = \"{c.holds}\"")
         for x in c.drives:
             if x not in m.valves:
-                err(f"controller {c.name}: drives {x!r}, which is not a valve")
+                err(f"controller {c.name}: drives {x!r}, which is not a valve; declare it: [[valve]] name = \"{x}\" "
+                    f"flow = (a flow of {c.holds})")
     for t in (m.sensors, m.controllers, m.valves):
         for p in t.values():
             if p.agent and p.agent not in m.agents:
-                err(f"{p.kind} {p.name}: agent {p.agent!r} is not an agent")
+                err(f"{p.kind} {p.name}: agent {p.agent!r} is not an agent; declare it: [[agent]] name = \"{p.agent}\" "
+                    f"with a kind and a command")
             if not p.agent:
                 warn(f"{p.kind} {p.name}: no agent fills it")
     for v in m.valves.values():
