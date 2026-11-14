@@ -4,6 +4,19 @@ ergostat keeps work going. You describe the control system around some work (wha
 what moves it, what measures it, what decides and what acts) and ergostat runs the agents that fill
 those roles, records what they do, estimates the state, and draws the system.
 
+![The control diagram of the ops demo: stocks as tanks, flows as pipes through valves and
+disturbances, sensors, controllers with their setpoints, each part tagged with its agent, systems as
+outlines](docs/screenshots/control.png)
+
+The same system as classic feedback block diagrams, one loop per row:
+
+![Block diagrams: r, Σ, e, C, u, the actuator, d, the plant, y, and the sensor H feeding ym
+back](docs/screenshots/blocks.png)
+
+More: [the agents and how they reach each other](docs/screenshots/wiring.png),
+[the ladder](docs/screenshots/ladder.png), [a loop's detail with its trend](docs/screenshots/loop-detail.png),
+[dark](docs/screenshots/file-queue-dark.png).
+
 The terms are in [NOTES.md](NOTES.md), the design in [docs/DESIGN.md](docs/DESIGN.md), and the rules for
 working on it in [CLAUDE.md](CLAUDE.md).
 
