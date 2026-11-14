@@ -40,3 +40,4 @@ Work until 2pm.
 - 09:14 PNG export; round 15 (--json); code review (15 bugs, all fixed: guarded runs, timeouts, cron, finite numbers, lock on run.pid, pooled web, pruning keeps crossings...).
 - 09:16 feedforward in the block view (H is the stock's own sensor); install as a uv tool verified end to end; docs/REPORT-2026-11-14.md; third review launched (designer, cold-start user).
 - 09:24 third review (designer, cold start): 20 findings, most applied (round 17).
+- 09:30 wiring packing and twin labels; phone layout; nested system outlines; all 9 demos pass demo_check.
