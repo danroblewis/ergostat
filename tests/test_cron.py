@@ -38,7 +38,7 @@ def test_an_agent_takes_a_cron_schedule(repo):
     from ergostat import model
     repo.write("ergostat.toml", repo.path.joinpath("ergostat.toml").read_text().replace('every = "1s"', 'cron = "0 3 * * *"'))
     a = model.load(repo.path).agents["cleaner"]
-    assert a.cron == "0 3 * * *" and a.schedule == "cron 0 3 * * *"
+    assert a.cron == "0 3 * * *" and a.schedule == "daily at 03:00"
     repo.write("ergostat.toml", repo.path.joinpath("ergostat.toml").read_text().replace('"0 3 * * *"', '"0 3 * *"'))
     with pytest.raises(model.ModelError, match="five fields"):
         model.load(repo.path)

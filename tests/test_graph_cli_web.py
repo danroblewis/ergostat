@@ -212,3 +212,24 @@ def test_cycles_among_agents_and_whether_a_loop_declares_them(repo):
              {"source": "agent:ponger", "target": "agent:pinger", "via": ["event pong.sent"]}]
     (loose,) = graph.cycles(m, edges)
     assert loose["loop"] is None and loose["agents"] == ["pinger", "ponger"]
+
+
+def test_the_ai_controller_example_turns_an_answer_into_lines(tmp_path):
+    import os
+    import subprocess
+    from pathlib import Path
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    (fake / "claude").write_text('#!/bin/sh\ncat > /dev/null\n'
+                                 'echo \'Sure. {"decision": "rewrite install.md", "act": true, "amount": 1, "why": "flags changed"}\'\n')
+    (fake / "claude").chmod(0o755)
+    (tmp_path / "prompt.md").write_text("Decide.")
+    ctx = {"roles": [{"kind": "controller", "name": "docs-current"}, {"kind": "valve", "name": "rewrite-page"}],
+           "controllers": {"docs-current": {"setpoint": "<= 3", "value": 5, "error": -2}}, "state": {}, "trigger": None}
+    script = Path(__file__).resolve().parents[1] / "examples" / "ai-controller.sh"
+    r = subprocess.run([str(script), str(tmp_path / "prompt.md")], input=json.dumps(ctx), capture_output=True, text=True,
+                       env={**os.environ, "PATH": f"{fake}:{os.environ['PATH']}"}, timeout=60)
+    lines = [json.loads(x) for x in r.stdout.splitlines()]
+    assert r.returncode == 0, r.stderr
+    assert lines == [{"controller": "docs-current", "decision": "rewrite install.md", "why": "flags changed"},
+                     {"valve": "rewrite-page", "amount": 1.0}]

@@ -22,6 +22,21 @@ SETPOINT = re.compile(r"^\s*(<=|>=|==|<|>|=)\s*(-?\d+(?:\.\d+)?)\s*$")
 NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
+def cron_words(expr: str) -> str:
+    """A cron schedule in plain words when it is a common one; else as written."""
+    common = {"* * * * *": "every minute", "0 * * * *": "every hour", "0 0 * * *": "daily at 00:00"}
+    if expr in common:
+        return common[expr]
+    p = expr.split()
+    if len(p) == 5 and p[0].startswith("*/") and p[1:] == ["*", "*", "*", "*"]:
+        return f"every {p[0][2:]} minutes"
+    if len(p) == 5 and p[0].isdigit() and p[1].isdigit() and p[2:] == ["*", "*", "*"]:
+        return f"daily at {int(p[1]):02d}:{int(p[0]):02d}"
+    if len(p) == 5 and p[0].isdigit() and p[1].isdigit() and p[2:4] == ["*", "*"] and p[4] == "1-5":
+        return f"weekdays at {int(p[1]):02d}:{int(p[0]):02d}"
+    return f"cron {expr}"
+
+
 class ModelError(Exception):
     pass
 
@@ -138,7 +153,7 @@ class Agent:
     def schedule(self) -> str:
         """How it runs, in a few words."""
         from .durations import human
-        parts = ([f"every {human(self.every)}"] if self.every else []) + ([f"cron {self.cron}"] if self.cron else []) + \
+        parts = ([f"every {human(self.every)}"] if self.every else []) + ([cron_words(self.cron)] if self.cron else []) + \
                 ([f"on {', '.join(self.on)}"] if self.on else [])
         return " · ".join(parts)
 

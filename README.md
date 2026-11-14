@@ -87,7 +87,8 @@ event that triggered it) and prints one JSON object per line, naming the part ea
 ```
 
 A line naming a part the agent does not fill is refused. How to write one, in shell or Python, and
-try it (`ergostat agent NAME --now`): [docs/writing-agents.md](docs/writing-agents.md). When a loop crosses its setpoint ergostat
+try it (`ergostat agent NAME --now`): [docs/writing-agents.md](docs/writing-agents.md). An AI agent
+filling a controller, with `claude -p`: [docs/ai-agents.md](docs/ai-agents.md). When a loop crosses its setpoint ergostat
 records `loop.off` or `loop.holding`, which other agents can listen for (`on`).
 
 ## The command line
