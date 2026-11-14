@@ -228,9 +228,9 @@ class Runner:
             self.waiting.add(name)
             self.queues[name].put(None)
 
-    def _follow(self) -> None:
+    def _follow(self, seq: int) -> None:
+        """From ``seq``, taken before any thread started, so no event that lands meanwhile is missed."""
         listening = [a for a in self.p.model.agents.values() if a.name in self.queues and a.on]
-        seq = self.p.events.last_seq()
         while not self.stop.is_set():
             new = self.p.events.query(n=None, after_seq=seq)
             for ev in new:
@@ -243,10 +243,11 @@ class Runner:
     def start(self) -> None:
         from . import history
         history.note(self.p)
+        seq = self.p.events.last_seq()
         for name in self.queues:
             threading.Thread(target=self._work, args=(name,), daemon=True).start()
         threading.Thread(target=self._schedule, daemon=True).start()
-        threading.Thread(target=self._follow, daemon=True).start()
+        threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         self.p.events.add("ergostat.started", source=SOURCE, data={"agents": sorted(self.queues), "pid": os.getpid()})
 
     def close(self) -> None:
