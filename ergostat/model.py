@@ -15,6 +15,7 @@ from pathlib import Path
 from .durations import parse_duration
 
 FILE = "ergostat.toml"
+SHELL_WORDS = {"for", "if", "while", "until", "case", "[", "[[", "{", "(", "!", "test", "exec", "cd", "export", "set"}  # a shell line
 KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")   # the ladder, top to bottom
 RUNG = {k: i for i, k in enumerate(KINDS)}
 MODES = ("auto", "advise", "manual")
@@ -474,6 +475,8 @@ def check(m: Model) -> list[tuple[str, str]]:
             except (ValueError, IndexError):
                 first = ""
             base = m.path.parent if m.path else Path.cwd()
+            if first in SHELL_WORDS or re.match(r"^[A-Za-z_]\w*=", first):   # a shell line, not one program
+                continue
             if not first or not (shutil.which(first) or ("/" in first and (base / first).exists())):
                 warn(f"agent {a.name}: {first or 'its command'} not found" + ("" if "/" in first else " on PATH"))
         if not m.roles_of(a.name):

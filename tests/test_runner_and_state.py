@@ -440,3 +440,23 @@ def test_a_valves_last_opening_is_what_its_last_run_moved(project):
     last = ev.last_opening("delete-old-files")
     assert last["count"] == 3 and last["amount"] == 6.0
     assert ev.last_opening("nothing") is None
+
+
+def test_a_plain_program_filling_one_sensor_or_valve_may_print_a_bare_number(repo):
+    from ergostat import model
+    from ergostat.store import Project
+    text = repo.path.joinpath("ergostat.toml").read_text()
+    text = text.replace('name = "disk-usage"\nmeasures = "disk-used"\nagent = "cleaner"',
+                        'name = "disk-usage"\nmeasures = "disk-used"\nagent = "df"')
+    text = text.replace('name = "delete-old-files"\nflow = "cleaned"\nagent = "cleaner"',
+                        'name = "delete-old-files"\nflow = "cleaned"\nagent = "find"')
+    text += '\n[[agent]]\nname = "df"\nkind = "program"\ncommand = "echo 71.5"\n'
+    text += '\n[[agent]]\nname = "find"\nkind = "program"\ncommand = "printf \'      12\\\\n\'"\n'
+    repo.write("ergostat.toml", text)
+    p = Project(model.load(repo.path))
+    assert runner.run_agent(p, p.model.agents["df"])["readings"] == 1
+    assert p.measurements.latest("sensor/disk-usage")[1] == 71.5
+    assert runner.run_agent(p, p.model.agents["find"])["openings"] == 1
+    assert p.events.opened("delete-old-files", 0)["amount"] == 12
+    r = runner.run_agent(p, p.model.agents["cleaner"])     # fills a controller only now: a bare number is just log
+    assert r["readings"] == 0 and r["openings"] == 0

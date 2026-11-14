@@ -127,8 +127,11 @@ def run_now(args) -> int:
             silent.append(f"controller {role.name}")
         elif role.kind == "valve" and role.name not in opened:
             silent.append(f"valve {role.name}")
-    if silent:
-        print(c("said nothing for: " + ", ".join(silent) + " (fine when there was nothing to do; a sensor should always read)", "dim"))
+    sensors = [x for x in silent if x.startswith("sensor ")]
+    if sensors:
+        print(c("no reading from: " + ", ".join(sensors) + " (a sensor should read every run)", "warn"))
+    if len(silent) > len(sensors):
+        print(c("said nothing for: " + ", ".join(x for x in silent if x not in sensors) + " (fine when there was nothing to do)", "dim"))
     lines = log_path(p, a.name).read_text(errors="replace").splitlines() if log_path(p, a.name).exists() else []
     starts = [i for i, x in enumerate(lines) if x.startswith("--- ")]
     tail = lines[starts[-1] + 1:][-12:] if starts else []                 # this run's section only

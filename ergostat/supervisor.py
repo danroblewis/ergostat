@@ -48,7 +48,9 @@ When the owner has cron jobs or other scheduled scripts, read them (`crontab -l`
 they run) before modelling: each is an agent with the same `cron` schedule; ask what each holds
 steady (the stock and its setpoint), add a sensor (often one line the script can print), and keep
 the script doing the work as the valve. Never change the owner's crontab; ergostat runs the agents
-itself once they are modelled, so say which cron entries the owner can then remove.
+itself once they are modelled, so say which cron entries the owner can then remove. A job that
+fills one sensor or one valve may print a bare number (a reading, or what it moved): often the
+job's own line with `| wc -l` or `| cut -f1` added is the whole agent, no script needed.
 
 ## People
 

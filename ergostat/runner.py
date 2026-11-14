@@ -102,6 +102,8 @@ class Recorder:
     def __init__(self, project, agent, run_id: str):
         self.p, self.agent, self.run_id = project, agent, run_id
         self.fills = {(r.kind, r.name) for r in project.model.roles_of(agent.name)}
+        measured = [f for f in self.fills if f[0] in ("sensor", "valve")]
+        self.bare = measured[0] if len(measured) == 1 else None   # where a bare number goes: a plain program's output
         self.counts = {"readings": 0, "openings": 0, "decisions": 0, "events": 0, "refused": 0, "unread": 0}
         self.unread: list[str] = []
 
@@ -123,6 +125,11 @@ class Recorder:
             if raw.lstrip().startswith("{"):             # meant for ergostat, but not JSON
                 self.not_read(raw)
             return False
+        if self.bare and isinstance(line, int | float) and not isinstance(line, bool):
+            kind, name = self.bare                   # `du -sm dir | cut -f1`, `find ... -delete -print | wc -l`
+            if kind == "valve" and line == 0:
+                return True                          # nothing moved: no opening
+            line = {kind: name, ("value" if kind == "sensor" else "amount"): line}
         if not isinstance(line, dict):
             return False
         ev = self.p.events

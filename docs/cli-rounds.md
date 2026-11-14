@@ -383,3 +383,16 @@ Eleven findings, all applied, each with a test where one could be written:
 - A stop during a run left the agent "running" forever: stopping waits for the killed runs to be
   recorded.
 - `*/5` skipped the repeated hour when the clocks went back: cron steps through real minutes.
+
+## Round 20: a crontab of one-liners (the end goal, from the other side)
+
+A user has scheduled jobs that are plain commands (`find ... -delete`, `du`, a rotate in one `if`)
+and wants their control diagram without rewriting them. Modelled as the demo `plain-crontab`.
+
+- Every job had to print JSON: an agent filling one sensor or one valve may print a bare number,
+  its reading or what it moved (0 is no opening). `wc -l` and `cut -f1` are enough.
+- `check` called `for` and `s=$(...)` missing programs: a line starting with shell syntax is not
+  looked up on PATH.
+- `agent --now` said "a sensor should always read" about a silent controller: a sensor that did
+  not read is a warning of its own; other silent roles are noted as fine.
+- The guide has "A job you already have"; the Supervisor's brief says the same.

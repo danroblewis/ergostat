@@ -54,6 +54,28 @@ meant for ergostat but cannot be read (broken JSON, or an object naming no part 
 the log and is counted: `--now` prints it, and the status says how many. Give events an `item`: what the work is about (`database`, `docs/install.md`), so
 `ergostat item` can fold them.
 
+## A job you already have
+
+A cron job that prints nothing, or one number, needs no JSON. An agent that fills **one sensor or
+one valve** may print a bare number: the sensor's reading, or what the valve moved (0 is no opening).
+The controller such a job fills is implicit in it; it need not say anything.
+
+```toml
+[[agent]]
+name = "du"
+command = "du -k logs/app.log | cut -f1"             # a sensor: its reading
+every = "10m"
+
+[[agent]]
+name = "pruner"
+kind = "rule"
+command = "find scratch -type f -mmin +60 -delete -print | wc -l"   # a valve: files removed
+cron = "0 * * * *"
+```
+
+The command runs in a shell, in the repository, so pipes and `if` work. An agent filling more than
+one sensor or valve says which with JSON lines, as below.
+
 ## Three small agents
 
 A sensor, in shell (it fills one role):
