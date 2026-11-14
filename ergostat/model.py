@@ -71,6 +71,7 @@ class Valve(Part):
     flow: str = ""
     agent: str | None = None
     mode: str = "auto"
+    mode_set: bool = False
     kind = "valve"
 
 
@@ -344,7 +345,8 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
         mode = r.get("mode", "auto")
         if mode not in MODES:
             raise ModelError(f"{w} {r['name']}.mode: one of {', '.join(MODES)}")
-        add(m.valves, Valve(**common(r, w), flow=str(r.get("flow", "")), agent=r.get("agent"), mode=mode), "valve")
+        add(m.valves, Valve(**common(r, w), flow=str(r.get("flow", "")), agent=r.get("agent"), mode=mode,
+                            mode_set="mode" in r), "valve")
     for i, r in enumerate(rows("sensor")):
         w = f"[[sensor]] #{i + 1}"
         _take(r, COMMON | {"measures", "agent", "unit"}, w)
@@ -379,6 +381,9 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
                                     _names(r.get("on"), f"{w}.on"), str(r.get("description", "")),
                                     str(cron) if cron is not None else None,
                                     parse_duration(r["timeout"], f"{w}.timeout") if r.get("timeout") is not None else 300.0)
+    for v in m.valves.values():                       # a valve a person fills is manual unless the file says otherwise
+        if v.agent in m.agents and m.agents[v.agent].kind == "person" and not v.mode_set:
+            v.mode = "manual"
     for i, r in enumerate(rows("system")):
         w = f"[[system]] #{i + 1}"
         _take(r, {"name", "description"}, w)

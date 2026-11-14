@@ -129,7 +129,10 @@ def cmd_projects(args) -> int:
             continue
         state = c("running", "ok") if x["running"] else c("stopped", "dim")
         names = ", ".join(x["off"][:3]) + (f" +{len(x['off']) - 3}" if len(x["off"]) > 3 else "")
-        off = c(f"{len(x['off'])} off: {names}", "bad") if x["off"] else c(f"{x['loops']} holding", "ok") if x["loops"] else "no loops"
+        unknown = f", {len(x.get('unknown', []))} unknown" if x.get("unknown") else ""
+        held = x["loops"] - len(x["off"]) - len(x.get("unknown", []))
+        off = (c(f"{len(x['off'])} off: {names}", "bad") + unknown if x["off"] else
+               (c(f"{held} holding", "ok") if held else "") + (unknown.lstrip(", ") if not held else unknown) if x["loops"] else "no loops")
         rows.append([x["name"], state, off, x["web"] or "", x["repo"]])
     print(table(["PROJECT", "STATE", "LOOPS", "PAGE", "REPOSITORY"], rows, "no projects yet: ergostat run in a repository"))
     return 0

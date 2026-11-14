@@ -233,3 +233,18 @@ def test_the_ai_controller_example_turns_an_answer_into_lines(tmp_path):
     assert r.returncode == 0, r.stderr
     assert lines == [{"controller": "docs-current", "decision": "rewrite install.md", "why": "flags changed"},
                      {"valve": "rewrite-page", "amount": 1.0}]
+
+
+def test_a_person_records_what_they_did(repo, capsys):
+    text = repo.path.joinpath("ergostat.toml").read_text().replace('agent = "cleaner"\n\n[[agent]]', 'agent = "me"\n\n[[agent]]')
+    repo.write("ergostat.toml", text + '\n[[agent]]\nname = "me"\nkind = "person"\n')
+    from ergostat import model
+    from ergostat.store import Project
+    p = Project(model.load(repo.path))
+    assert p.model.valves["delete-old-files"].mode == "manual"           # a person's valve is manual unless said
+    rc, out = run_cli(repo, "valve", "delete-old-files", "--opened", "5", "--note", "cleared /tmp", capsys=capsys)
+    assert rc == 0 and "recorded, as me" in out
+    (e,) = p.events.query(type="valve.opened")
+    assert e["source"] == "me" and e["data"] == {"amount": 5.0, "flow": "cleaned", "note": "cleared /tmp"}
+    assert run_cli(repo, "sensor", "disk-usage", "--read", "50", capsys=capsys)[0] == 2      # filled by a program
+    assert run_cli(repo, "valve", "delete-old-files", "--opened", "-1", capsys=capsys)[0] == 1  # refused, as for any agent

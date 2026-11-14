@@ -87,7 +87,10 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         for s in sensors:
             got = project.measurements.latest(f"sensor/{s.name}", now)
             if got is not None:
-                rate, how = got[1], f"measured by {s.name}"
+                # the average over the window, not the latest reading: one quiet scan is not a stopped flow
+                total = moved(project, f.name, start, now)
+                rate = total / hours if total is not None else got[1]
+                how = f"measured by {s.name}"
         valve = m.valve_of(f.name)
         if valve is not None:
             opened = project.events.opened(valve.name, start, now)

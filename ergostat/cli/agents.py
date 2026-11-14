@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 
@@ -134,4 +135,8 @@ def run_now(args) -> int:
     if tail:
         print(c("this run's log", "dim"))
         print("\n".join("  " + x for x in tail))
-    return 0 if ok else 1
+    if r["refused"]:
+        for e in said:
+            if e["type"] == "agent.refused":
+                print(c("refused: ", "warn") + e["data"]["why"] + f"  {json.dumps(e['data']['line'])[:200]}")
+    return 0 if ok and not r["refused"] else 1

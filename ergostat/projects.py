@@ -28,5 +28,6 @@ def known() -> list[dict]:
         loops = {n: lp["status"] for n, lp in snap["loops"].items()}
         out.append({"name": m.name, "repo": note["repo"], "running": bool(pid), "web": web_url(p) if pid else None,
                     "loops": len(loops), "off": sorted(n for n, s in loops.items() if s in ("off", "open")),
+                    "unknown": sorted(n for n, s in loops.items() if s == "unknown"),
                     "attention": len([a for a in st.attention(snap, bool(pid), m) if a["level"] != "hint"])})
     return out

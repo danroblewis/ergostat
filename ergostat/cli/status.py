@@ -7,7 +7,7 @@ import time
 from .. import model as mdl
 from .. import show
 from .. import state as st
-from ..show import c, table
+from ..show import ago, c, table
 from ..state import fmt
 from .common import EXAMPLE, as_of, open_project, out_json, parts_of, snap_of, window
 
@@ -79,6 +79,10 @@ def status(args) -> int:
             what = [f"+{x}" for x in d["added"]] + [f"-{x}" for x in d["removed"]] + [f"~{x}" for x in d["changed"]]
             print(f"  {time.strftime('%H:%M:%S', time.localtime(e['time']))}  " + "  ".join(what))
         print()
+    if loops and not pid and snap["live"]:
+        last = max((lp["last_read"] for lp in loops.values() if lp.get("last_read")), default=None)
+        if last:
+            print(c(f"not running: these are the last readings, from {ago(last)}; nothing is measuring now", "warn"))
     if loops:
         print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT"],
                     [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), st.setpoint_text(lp)]

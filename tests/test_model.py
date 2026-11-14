@@ -78,3 +78,10 @@ def test_a_system_brings_what_is_attached_to_its_stocks():
 def test_the_ladder_runs_from_person_to_rule():
     assert model.KINDS == ("person", "ai", "narrow-ai", "decision", "program", "rule")
     assert parse(DISK).agents["cleaner"].rung == 4
+
+
+def test_the_guides_shipped_with_ergostat_match_the_docs():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    assert (root / "ergostat/help/agents.md").read_text() == (root / "docs/writing-agents.md").read_text()
+    assert (root / "ergostat/help/ai-agents.md").read_text() == (root / "docs/ai-agents.md").read_text()

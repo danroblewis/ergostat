@@ -12,7 +12,44 @@ from .common import open_project, out_json, parts_of, snap_of, window
 from .record import event_line
 
 
+def record_by_a_person(args) -> int | None:
+    """``valve NAME --opened N``, ``sensor NAME --read V``, ``controller NAME --decided TEXT``: a
+    person says what they did, for a role a person fills. The same lines an agent prints, checked
+    the same way. None when nothing was asked."""
+    said = {"valve": ("opened", "amount"), "sensor": ("read", "value"), "controller": ("decided", "decision")}.get(args.topic)
+    if not said or getattr(args, said[0], None) is None:
+        return None
+    import json
+
+    from ..runner import Recorder
+    p = open_project(args)
+    part = p.model.tables()[args.topic].get(args.name or "")
+    if part is None:
+        print(f"no {args.topic} {args.name!r}", file=sys.stderr)
+        return 2
+    who = p.model.agents.get(part.agent or "")
+    if who is None or who.kind != "person":
+        print(f"{args.topic} {part.name} is filled by {part.agent or 'nobody'}, not a person: its agent says this itself",
+              file=sys.stderr)
+        return 2
+    value = getattr(args, said[0])
+    line = {args.topic: part.name, said[1]: value if said[1] == "decision" else float(value)}
+    if args.topic == "valve" and getattr(args, "note", None):
+        line["note"] = args.note
+    rec = Recorder(p, who, None)
+    rec.take(json.dumps(line))
+    if rec.counts["refused"]:
+        why = p.events.query(n=1, type="agent.refused", item=who.name)[-1]["data"]["why"]
+        print(f"refused: {why}", file=sys.stderr)
+        return 1
+    print(f"recorded, as {who.name}: {args.topic} {part.name} {said[0]} {value}")
+    return 0
+
+
 def cmd_part(args) -> int:
+    done = record_by_a_person(args)
+    if done is not None:
+        return done
     p = open_project(args)
     m = p.model
     snap = snap_of(p, args)

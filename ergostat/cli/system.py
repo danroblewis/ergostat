@@ -93,12 +93,12 @@ def cmd_loop(args) -> int:
     parts = parts_of(args, m)
     if not args.name:
         rows = [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), st.setpoint_text(lp),
-                 fmt(abs(lp["error"])) if lp["error"] and lp["status"] == "off" else "", m.controllers[n].agent or "-",
+                 fmt(lp["error"]) if lp["error"] is not None else "", m.controllers[n].agent or "-",
                  "yes" if lp["observed"] else c("no", "dim")]
                 for n, lp in snap["loops"].items() if n in parts]
         if args.json:
             return out_json({n: lp for n, lp in snap["loops"].items() if n in parts})
-        print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "ERROR", "CONTROLLER AGENT", "ACTED"], rows,
+        print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "E = R − Y", "CONTROLLER AGENT", "ACTED"], rows,
                     "no loops: a loop is a [[controller]] that holds a stock"))
         if rows:
             print(c(f"\nACTED: in the last {human(snap['window'])}, its sensor read and its controller decided or its valve opened", "dim"))

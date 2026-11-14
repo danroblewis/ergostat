@@ -41,6 +41,7 @@ run it
   run            Start the agents here, in the background, with the web page
   web            Serve the web page only
   chat           Talk to the Supervisor, who changes the system for you
+  help agents    How to write an agent (also: help ai-agents)
   projects       Every project on this machine, which run, and their pages
 
 the parts, one at a time
@@ -117,13 +118,24 @@ def build() -> argparse.ArgumentParser:
     i.add_argument("--all", action="store_true", help="also the parts and agents ergostat's own events are about")
     topic("residual", cmd_residual, "What the model can't explain")
     for t in PART_TOPICS:
-        topic(t, cmd_part, f"The {t}s, or one").set_defaults(fn=cmd_part, topic=t)
+        sp = topic(t, cmd_part, f"The {t}s, or one")
+        sp.set_defaults(fn=cmd_part, topic=t)
+        if t == "valve":
+            sp.add_argument("--opened", type=float, metavar="N", help="a person records opening it: what it moved")
+            sp.add_argument("--note", help="with --opened: what was done")
+        if t == "sensor":
+            sp.add_argument("--read", type=float, metavar="V", help="a person records a reading")
+        if t == "controller":
+            sp.add_argument("--decided", metavar="TEXT", help="a person records a decision")
     r = topic("run", cmd_run, "Start the agents (in the background) and the web page", named=False)
     r.add_argument("--foreground", action="store_true", help="stay attached instead of running in the background")
     r.add_argument("--stop", action="store_true", help="stop the ergostat running here, and its agents' runs")
     r.add_argument("--no-web", action="store_true", help="no web page")
     r.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     topic("projects", cmd_projects, "Every project on this machine, and which are running", named=False)
+    hp = sub.add_parser("help", help="Guides: agents (writing one), ai-agents")
+    hp.add_argument("name", nargs="?")
+    hp.set_defaults(fn=cmd_help)
     w = topic("web", cmd_web, "Serve the web page only", named=False)
     w.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     chat = sub.add_parser("chat", parents=[common], help="Talk to the Supervisor")
@@ -131,6 +143,22 @@ def build() -> argparse.ArgumentParser:
     chat.add_argument("--print-prompt", action="store_true", help="print the Supervisor's brief instead of starting it")
     chat.set_defaults(fn=cmd_chat)
     return ap
+
+
+def cmd_help(args) -> int:
+    """``ergostat help [agents|ai-agents]``: the guides, shipped with ergostat."""
+    from pathlib import Path
+    here = Path(__file__).resolve().parent.parent / "help"
+    guides = sorted(p.stem for p in here.glob("*.md"))
+    if not args.name:
+        print(HELP)
+        print("guides: " + ", ".join(f"ergostat help {g}" for g in guides))
+        return 0
+    if args.name not in guides:
+        print(f"no guide {args.name!r}; guides: {', '.join(guides)}", file=sys.stderr)
+        return 2
+    print((here / f"{args.name}.md").read_text(encoding="utf-8"))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
