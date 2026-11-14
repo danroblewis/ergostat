@@ -133,7 +133,9 @@ def run_now(args) -> int:
     sensors = [x for x in silent if x.startswith("sensor ")]
     if sensors:
         print(c("no reading from: " + ", ".join(sensors) + " (a sensor should read every run)", "warn"))
-    if silent and r.get("printed") and "took" not in r and not (r["readings"] or r["openings"] or r["decisions"] or r["events"]):
+    if silent and r.get("printed") and "took" not in r and a.parse and not r["readings"] + r["openings"]:
+        print(c(f"it printed {r['printed']} line{'s' if r['printed'] != 1 else ''}, but none matched its parse ({a.parse})", "warn"))
+    elif silent and r.get("printed") and "took" not in r and not (r["readings"] or r["openings"] or r["decisions"] or r["events"]):
         # it printed, but nothing ergostat could take: the likeliest mistake with a script that talks to people
         print(c(f"it printed {r['printed']} line{'s' if r['printed'] != 1 else ''} but nothing was recorded: print the number "
                 f"alone (`... | wc -l`), JSON lines (ergostat help agents), or give the agent "

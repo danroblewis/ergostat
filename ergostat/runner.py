@@ -113,6 +113,7 @@ class Recorder:
         self.said = 0                    # JSON lines it printed: an agent that speaks JSON has no bare number
         self.printed = 0                 # lines of any kind: a run that printed text but said nothing is told so
         self.parsed_from: str | None = None
+        self.took: float | None = None   # the bare number, once recorded (or 0: nothing moved)
         self.rx = re.compile(agent.parse) if getattr(agent, "parse", None) else None
         self.pending: float | None = None    # the last bare number, taken when the run ends
 
@@ -130,7 +131,7 @@ class Recorder:
         """True when the line was handled (recorded or refused); False when it goes to the log."""
         if raw.strip():
             self.printed += 1
-        if self.bare and self.rx is not None:            # its own text, read by its own pattern
+        if self.bare and self.rx is not None and not raw.lstrip().startswith("{"):   # its own words, by its own pattern
             m = self.rx.search(raw)
             if m:
                 try:
@@ -164,11 +165,13 @@ class Recorder:
             return None
         kind, name = self.bare                   # `du -sm dir | cut -f1`, `find ... -delete -print | wc -l`
         if kind == "valve" and self.pending == 0:
+            self.took = 0.0
             return "0: nothing moved, no opening"
         before = dict(self.counts)
         self.take_line({kind: name, ("value" if kind == "sensor" else "amount"): self.pending})
         if self.counts["refused"] > before["refused"]:
             return f"{self.pending:g}: refused (see ergostat agent {self.agent.name})"
+        self.took = self.pending
         return f"{self.pending:g} → {kind} {name}" + (f" (from \"{self.parsed_from}\")" if self.parsed_from else "")
 
     def take_line(self, line: dict) -> bool:
@@ -336,7 +339,7 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                     crashed = crashed or f"{type(e).__name__}: {e}"
     data = {"exit": code, "seconds": round(time.time() - started, 3), **rec.counts, "why": trigger["type"] if trigger else why,
             **({"unread_lines": rec.unread} if rec.unread else {}), **({"note": note} if note else {}), "printed": rec.printed,
-            **({"took": rec.pending} if rec.bare and rec.pending is not None and not rec.said else {})}
+            **({"took": rec.took} if rec.took is not None else {})}
     failed = bool(note) and note != STOPPED_WITH_US      # cut short by our own stop: not the agent's failure
     project.events.add("agent.failed" if failed else "agent.ran", item=agent.name, source=SOURCE, causedby=begun["id"],
                        data=data)

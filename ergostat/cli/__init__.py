@@ -81,7 +81,7 @@ def build() -> argparse.ArgumentParser:
         f.add_argument("--json", action="store_true", help="output for scripts and agents", **d)
         return f
     common = flags(True)
-    ap = argparse.ArgumentParser(prog="ergostat", add_help=False, parents=[flags(False)])
+    ap = argparse.ArgumentParser(prog="ergostat", add_help=False, parents=[flags(False)], allow_abbrev=False)
     ap.add_argument("-h", "--help", action="store_true")
     ap.add_argument("--version", action="store_true")
     ap.add_argument("--exit-code", action="store_true", help="the status exits 1 when anything needs attention (for cron)")

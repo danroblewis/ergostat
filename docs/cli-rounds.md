@@ -650,3 +650,21 @@ and rotating `run.log`.
 - Afterwards (from round 36's notes): "design SVG" exports the structure alone (parts, flows, roles
   and schedules, setpoints; no values, rates, status, decisions or trends, loop lines neutral),
   with the legend: the picture for a design document, as the reviewer asked.
+
+## Round 38: a fifth code review (rounds 33-37)
+
+Nine findings, all applied:
+
+- The pile-up hint told a starved `>=` loop's feeder to hold back: only a stock kept low can be overfed.
+- A cron sensor was stale every evening outside its hours: staleness walks the schedule run by
+  run from the reading to now (and `--at` uses its own moment).
+- A loop's answer time counted a spell begun before the window and an opening after it came back:
+  neither does now.
+- "Every opening moved 0" was called saturated, and "act at least every 9m" was said to an agent
+  running every 5m: only openings that moved something, only when it runs less often than that.
+- `parse` sent the agent's JSON lines to the log: JSON lines are JSON. `check` warns when an agent
+  with `parse` fills more or fewer than one sensor or valve, and `--now` says when nothing matched.
+- `took` was recorded on failed runs: only when the number was recorded.
+- The export's legend was clipped on narrow diagrams: it wraps to the diagram's width.
+- `--sys` (an abbreviation) hid `status` from the alias: no abbreviations. Disturbances pushing
+  both ways show ± at the junction.

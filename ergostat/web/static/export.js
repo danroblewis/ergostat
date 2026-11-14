@@ -22,7 +22,11 @@ function standaloneSvg(svg, title) {
   });
   for (const f of drop) f.remove();
   clone.querySelector("#viewport").setAttribute("transform", "");
-  const foot = title && svg.querySelector(".k-stock") ? 46 : 0;     // a legend under a control diagram
+  // a legend under a control diagram, wrapped to the diagram's width
+  const legend = title && svg.querySelector(".k-stock")
+    ? exportLegend(0, 0, getComputedStyle(document.body).color, getComputedStyle(document.body).getPropertyValue("--muted") || "#666",
+                   svg.classList.contains("design"), Math.max(360, S.layout.width)) : null;
+  const foot = legend ? legend.h + 24 : 0;
   const pad = 20, head = title ? 34 : 0, w = S.layout.width + pad * 2, hgt = S.layout.height + pad * 2 + head + foot;
   const x0 = (S.layout.ox || 0) - pad, y0 = (S.layout.oy || 0) - pad - head;     // outlines may reach left of or above the nodes
   clone.setAttribute("viewBox", `${x0} ${y0} ${w} ${hgt}`);
@@ -33,8 +37,7 @@ function standaloneSvg(svg, title) {
   clone.setAttribute("style", `font-family:${font}`);
   const bg = getComputedStyle(document.body).backgroundColor, ink = getComputedStyle(document.body).color;
   clone.insertBefore(s("rect", { x: x0, y: y0, width: w, height: hgt, fill: bg }), clone.firstChild);
-  if (foot) clone.append(exportLegend(x0 + pad, y0 + hgt - foot + 14, ink, getComputedStyle(document.body).getPropertyValue("--muted") || ink,
-                                      svg.classList.contains("design")));
+  if (legend) { legend.g.setAttribute("transform", `translate(${x0 + pad},${y0 + hgt - foot + 14})`); clone.append(legend.g); }
   if (title) {                                   // a file on its own says what it is and when
     const muted = getComputedStyle(document.body).getPropertyValue("--muted") || ink;
     clone.append(s("text", { x: x0 + pad, y: y0 + 24, style: `fill:${ink};font-size:15px;font-weight:700` }, title[0]),
@@ -51,7 +54,7 @@ function download(blob, name) {
 }
 
 /* the legend of a control diagram, in one row, with colours resolved: a picture on its own in a document */
-function exportLegend(x, y, ink, muted, design = false) {
+function exportLegend(x, y, ink, muted, design = false, width = 1e9) {
   const css = (v) => getComputedStyle(document.body).getPropertyValue(v).trim() || ink;
   const g = s("g", { style: `font-size:11px;fill:${muted}` });
   const items = [
@@ -65,13 +68,15 @@ function exportLegend(x, y, ink, muted, design = false) {
     [`<path d="M0,-3 H20" style="stroke:${css("--bad")};stroke-width:2"/>`, "off"],
     ["", "agents: " + RUNG_NAMES.map((k, i) => `${RUNG_LETTER[i]} ${k}`).join(" · ")],
   ];
-  let cx = x;
+  let cx = x, cy = y;
   for (const [icon, text] of items.filter(([, t]) => !design || !["loop holding", "off"].includes(t))) {
-    if (icon) { const ic = s("g", { transform: `translate(${cx},${y})` }); ic.innerHTML = icon; g.append(ic); cx += 26; }
-    g.append(s("text", { x: cx, y: y + 1 }, text));
-    cx += textWidth(text) + 22;
+    const need = (icon ? 26 : 0) + text.length * 6.2;
+    if (cx > x && cx + need > x + width) { cx = x; cy += 20; }         // the next row
+    if (icon) { const ic = s("g", { transform: `translate(${cx},${cy})` }); ic.innerHTML = icon; g.append(ic); cx += 26; }
+    g.append(s("text", { x: cx, y: cy + 1 }, text));
+    cx += text.length * 6.2 + 20;
   }
-  return g;
+  return { g, h: cy - y + 20 };
 }
 
 function exportTitle() {

@@ -559,3 +559,34 @@ def test_an_agent_may_take_its_number_from_its_own_words(repo):
     import pytest as _pytest
     with _pytest.raises(model.ModelError):
         model.load(repo.path)
+
+
+def test_an_answer_counts_only_an_opening_while_off_and_a_spell_begun_in_the_window(project):
+    t = time.time() - 3000
+    project.events.add("ergostat.started", source="ergostat", at=t - 2000)
+    project.measurements.add("sensor/disk-usage", 70, at=t)
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t - 1000, data={})       # before the window
+    project.events.add("loop.holding", item="disk-under-80", source="ergostat", at=t + 100, data={})
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 1000, data={})
+    project.events.add("loop.holding", item="disk-under-80", source="ergostat", at=t + 1100, data={})     # back, no opening
+    project.events.add("valve.opened", item="delete-old-files", source="cleaner", at=t + 2000, data={"amount": 1})
+    lp = state.snapshot(project, window=3600)["loops"]["disk-under-80"]
+    assert lp["answers_in"] is None and lp["back_in"] == 100
+
+
+def test_parse_leaves_json_lines_to_json_and_a_failed_run_takes_nothing(repo):
+    from ergostat import model
+    from ergostat.store import Project
+    text = repo.path.joinpath("ergostat.toml").read_text()
+    text = text.replace('name = "disk-usage"\nmeasures = "disk-used"\nagent = "cleaner"',
+                        'name = "disk-usage"\nmeasures = "disk-used"\nagent = "watch"')
+    text = text.replace('name = "delete-old-files"\nflow = "cleaned"\nagent = "cleaner"',
+                        'name = "delete-old-files"\nflow = "cleaned"\nagent = "watch"')
+    text = text.replace('agent = "cleaner"\n\n[[valve]]', 'agent = "watch"\n\n[[valve]]')
+    text += ('\n[[agent]]\nname = "watch"\ncommand = "echo freed 4; echo \'{\\"controller\\": \\"disk-under-80\\", '
+             '\\"decision\\": \\"go\\"}\'"\nparse = "freed (\\\\d+)"\n')
+    repo.write("ergostat.toml", text)
+    m = model.load(repo.path)
+    assert any("parse takes one number" in x for _, x in model.check(m))        # it fills a sensor and a valve
+    p = Project(m)
+    assert runner.run_agent(p, m.agents["watch"])["decisions"] == 1

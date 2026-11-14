@@ -221,9 +221,11 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         opens = sorted(e["time"] for v in lp.valves
                        for e in project.events.query(n=None, type="valve.opened", item=v, since=start, until=now))
         answers = []
-        for t0, _ in episodes + ([(off_from, None)] if off_from is not None and off_from > start else []):
+        for t0, t1 in episodes + ([(off_from, now)] if off_from is not None and off_from > start else []):
+            if t0 <= start:                               # went off before the window: its start is unknown
+                continue
             i = bisect.bisect_left(opens, t0)
-            if i < len(opens):
+            if i < len(opens) and opens[i] < t1:          # an opening while it was off, not after it came back
                 answers.append(opens[i] - t0)
         recoveries = sorted(t1 - t0 for t0, t1 in episodes if t0 > start)
         answers.sort()
@@ -247,12 +249,11 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         running_since = begun[-1]["time"] if begun and (last_any is None or begun[-1]["seq"] > last_any["seq"]) else None
         roles = m.roles_of(a.name)
         stale = []
-        period = _period(a)                               # every, or cron's gap: a reading older than a few is stale
-        if period:
+        if a.every or a.cron:                             # a reading older than a few of its runs is stale
             for r in roles:
                 if r.kind == "sensor":
                     got = project.measurements.latest(f"sensor/{r.name}", now)
-                    if got is None or now - got[0] > STALE_RUNS * period:
+                    if got is None or _missed(a, got[0], now):
                         stale.append(r.name)
         agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles],
                           "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, **counted,
@@ -284,20 +285,39 @@ def decisions(project, controller: str, since: float, until: float | None = None
 LADDER_MIN, LADDER_SHARE = 10, 0.8
 
 
-def _period(agent) -> float | None:
+def _period(agent, now: float | None = None) -> float | None:
     """How often an agent runs, in seconds: its ``every``, or the gap between its next two cron
-    times; None for one that runs on events."""
+    times after ``now``; None for one that runs on events."""
     if agent.every:
         return float(agent.every)
     if agent.cron:
         from .cron import Cron
         try:
             c = Cron(agent.cron)
-            t = c.next_after(time.time())
+            t = c.next_after(now if now is not None else time.time())
             return c.next_after(t) - t
         except Exception:
             return None
     return None
+
+
+def _missed(agent, since: float, now: float) -> bool:
+    """Whether the agent should have run STALE_RUNS times between ``since`` and ``now``: a reading
+    older than that is stale. Cron is walked run by run, so a job idle out of its hours is not."""
+    if agent.every:
+        return now - since > STALE_RUNS * agent.every
+    if agent.cron:
+        from .cron import Cron
+        try:
+            c, t = Cron(agent.cron), since
+            for _ in range(STALE_RUNS):
+                t = c.next_after(t)
+                if t > now:
+                    return False
+            return True
+        except Exception:
+            return False
+    return False
 
 
 def ladder_hints(project, snap: dict) -> list[dict]:
@@ -333,8 +353,8 @@ def ladder_hints(project, snap: dict) -> list[dict]:
         for role, part in (("sensor", (lp["sensors"] or [None])[0]), ("controller", name), ("valve", (lp["valves"] or [None])[0])):
             table = {"sensor": m.sensors, "controller": m.controllers, "valve": m.valves}[role]
             ag = m.agents.get(getattr(table.get(part), "agent", None) or "")
-            if ag is not None and _period(ag):
-                stages[f"its {role} ({ag.name}, {ag.schedule})"] = _period(ag)
+            if ag is not None and _period(ag, snap["at"]):
+                stages[f"its {role} ({ag.name}, {ag.schedule})"] = _period(ag, snap["at"])
         slowest = max(stages, key=stages.get) if stages else None
         if load > 0 and ours < 0.95 * load:
             # falling behind: what went out was less than what came in. Saturated only when each
@@ -343,7 +363,7 @@ def ladder_hints(project, snap: dict) -> list[dict]:
                        for e in project.events.query(n=50, type="valve.opened", item=v, since=since, until=snap["at"])]
             limits = [m.valves[v].max for v in lp["valves"] if m.valves[v].max]
             at_limit = (bool(limits) and len(amounts) >= 3 and sum(a >= limits[0] * 0.999 for a in amounts) >= len(amounts) / 2) or (
-                not limits and len(amounts) >= 3 and len(set(amounts)) == 1)
+                not limits and len(amounts) >= 3 and len(set(amounts)) == 1 and (amounts[0] or 0) > 0)
             says = (f"loop {name} was off {off}% of the time, falling behind: its valve moved {fmt(ours)}/h {way[0]} while "
                     f"{fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "") + ". "
                     + ((f"Its openings ran at its max of {fmt(limits[0])}" if limits else f"Every opening moved {fmt(amounts[0])}")
@@ -359,8 +379,8 @@ def ladder_hints(project, snap: dict) -> list[dict]:
         op, target = c.target()
         if load > 0 and pts and op in ("<=", "<") and slowest:
             room = target - min(v for _, v in pts)
-            if room > 0:
-                needed = room / (load / 3600.0)
+            needed = room / (load / 3600.0) if room > 0 else None
+            if needed is not None and stages[slowest] > needed:     # only when it runs less often than that
                 says += (f". To hold it, it would have to act at least every {human(needed)}"
                          + (" (cron cannot: once a minute is its finest)" if needed < 60 and any(
                              x.cron for x in m.agents.values() if x.name in slowest) else ""))
@@ -372,6 +392,8 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             down_stock = m.flows[f].target
             for down, dl in snap["loops"].items():
                 if down == up or dl["stock"] != down_stock or dl.get("off_share", 0) < 0.5:
+                    continue
+                if m.controllers[down].target()[0] not in ("<=", "<"):   # only a stock kept low can be overfed
                     continue
                 moved = snap["flows"].get(f, {}).get("rate") or 0
                 if moved > 0:

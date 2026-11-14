@@ -157,7 +157,8 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     else:
         left = f"{r}─▶(Σ)─{e}─▶{ctl}─{u}─▶{vb}─▶"
     drains = bool(v) and model.flows[model.valves[v].flow].source == lp.stock
-    dsign = ("+" if dists[0].target == lp.stock else "−") if dists else ""
+    signs = {"+" if d.target == lp.stock else "−" for d in dists}       # disturbances both ways: ±
+    dsign = ("±" if len(signs) > 1 else signs.pop()) if signs else ""
     joint = (f"({'−' if drains else '+'}{dsign})─▶") if (dists or drains) else ""
     row = left + joint + sb + "──┬──▶ y"
     sum_at = len(r) + 3                                  # the column of Σ

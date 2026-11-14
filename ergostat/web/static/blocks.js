@@ -129,7 +129,7 @@ function drawBlocks(svg, g) {
     if (row.dists.length || row.drains) {
       // the plant's input: the actuator's flow (− when it drains the stock) and any disturbance (+)
       loopG.append(...line([[X.valve + vw, cy], [X.dsum - 14, cy]], "", "var(--pipe)"));
-      loopG.append(sum(X.dsum, cy, [[-22, -16, row.drains ? "−" : "+"], [18, -20, row.dists.length ? row.dists[0].sign : ""]]));
+      loopG.append(sum(X.dsum, cy, [[-22, -16, row.drains ? "−" : "+"], [18, -20, row.dists.length ? (new Set(row.dists.map((d) => d.sign)).size > 1 ? "±" : row.dists[0].sign) : ""]]));
     }
     if (row.dists.length) {
       const d = row.dists[0];

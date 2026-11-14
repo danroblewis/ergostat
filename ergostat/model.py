@@ -486,7 +486,8 @@ def check(m: Model) -> list[tuple[str, str]]:
     for s_ in m.sensors.values():
         st = m.stocks.get(s_.measures)
         if s_.unit and st and st.unit and s_.unit != st.unit:
-            warn(f"sensor {s_.name} reads {s_.unit}, but {st.name} is in {st.unit}: its readings are compared with the setpoint as they are")
+            warn(f"sensor {s_.name} reads {s_.unit}, but {st.name} is in {st.unit}: "
+                 f"its readings are compared with the setpoint as they are")
     for c in m.controllers.values():
         if c.open_loop and c.reads:
             warn(f"controller {c.name}: open_loop reads nothing; leave reads out (it reads {', '.join(c.reads)})")
@@ -532,6 +533,10 @@ def check(m: Model) -> list[tuple[str, str]]:
                 continue
             if not first or not (shutil.which(first) or ("/" in first and (base / first).exists())):
                 warn(f"agent {a.name}: {first or 'its command'} not found" + ("" if "/" in first else " on PATH"))
+        measured = [r for r in m.roles_of(a.name) if r.kind in ("sensor", "valve")]
+        if a.parse and len(measured) != 1:
+            warn(f"agent {a.name}: parse takes one number, for one sensor or one valve; it fills {len(measured)}, "
+                 f"so parse is not used (print JSON lines instead)")
         if not m.roles_of(a.name) and not any(f.agent == a.name for f in m.flows.values()):
             out.append(("note", f"agent {a.name}: fills no role" + ("" if a.kind == "person" or not a.command else
                         f"; if it is a load, name it on its disturbance: agent = \"{a.name}\"")))
