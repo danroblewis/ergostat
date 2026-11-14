@@ -676,8 +676,14 @@ function renderSide(side, g, view) {
   if (problems.length > MAX) att.append(h("div", { class: "more" }, `and ${problems.length - MAX} more: see Loops and Residuals`));
   side.append(att);
   if (hints.length) {
-    const d = h("details", { class: "suggest" }, h("summary", {}, `suggestions (${hints.length})`));
-    for (const a of hints) d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", a.says));
+    // open when a loop is off: then the suggestions are the diagnosis, not an aside
+    const anyOff = Object.values(st.loops || {}).some((l) => l.status === "off");
+    const d = h("details", { class: "suggest", open: anyOff ? "" : null }, h("summary", {}, `suggestions (${hints.length})`));
+    for (const a of hints) {
+      const loop = /^loop (\S+)/.exec(a.says)?.[1];
+      d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", a.says, " ",
+        loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(loop); } }, "the evidence") : null));
+    }
     side.append(d);
   }
   const loops = Object.entries(g.loops || {});

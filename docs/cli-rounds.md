@@ -668,3 +668,27 @@ Nine findings, all applied:
 - The export's legend was clipped on narrow diagrams: it wraps to the diagram's width.
 - `--sys` (an abbreviation) hid `status` from the alias: no abbreviations. Disturbances pushing
   both ways show ± at the junction.
+
+## Round 39: what the command line shows, the page shows (a parity review)
+
+Applied:
+
+- The loop's trend shaded only the last 20 crossings and ticked only the last 200 openings, so an
+  hour off 74% looked off for ten minutes: the off stretches come from every crossing, the
+  openings are thinned evenly over the window (the panel says how many of how many), and the
+  crossings say "the newest 20 of 125".
+- The loop panel had none of `loop NAME`'s evidence: it has the controller's description, the
+  answer and recovery sentence, each part with who fills it and what it last did ("opened 35s
+  ago: 38 in 38 openings"), the rates of what it moves, "off by N" on crossings, the one-sided
+  tolerance as everywhere else, the open loop's mark and sentence ("watched against" on its chart),
+  and decisions "alike when only their numbers differ".
+- When a loop is off the suggestions are open (they are the diagnosis), each with a link to its
+  loop's evidence.
+- The sensor panel shows its last reading and age and its last ten readings; the valve panel its
+  `max` and its openings folded by run; the agent panel its durations, refusals, stale readings,
+  the load it causes and its log's path (left out of snapshots without `--with-logs`).
+- In the command line: `system --wiring` says what a load agent fills ("nothing; the load: ...");
+  the `loop` table marks open loops (⏲).
+
+Not applied (noted): the project switcher's counts refresh only on load; the detail panel covers
+the right of the page; Residuals has no refresh.

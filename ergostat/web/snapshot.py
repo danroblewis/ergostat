@@ -55,6 +55,7 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
         if got is not None:
             if path.startswith("agents/") and not logs:
                 got["log"] = ["(left out of this snapshot: ergostat snapshot --with-logs puts it in)"]
+                got.pop("log_path", None)
             data[key(path, params)] = got
     for it in (data.get("items") or [])[:40]:
         got = api(live, f"items/{_q(it['item'])}", {"since": [since]})

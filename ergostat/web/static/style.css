@@ -195,3 +195,6 @@ code { font-family: var(--mono); font-size: 12px; }
   .diagram { grid-template-columns: 1fr; grid-template-rows: minmax(420px, 1fr) auto; }
   .side { border-left: 0; border-top: 1px solid var(--line); }
 }
+.small { font-size: 12px; }
+table.parts { margin: 10px 0; font-size: 12.5px; }
+table.parts td, table.parts th { padding: 3px 8px 3px 0; vertical-align: top; }

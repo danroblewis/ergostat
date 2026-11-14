@@ -74,7 +74,9 @@ def cmd_system(args) -> int:
         return 0
     if args.wiring:
         for n in g["nodes"]:
-            print(f"  [{n['label']} · {n['agentKind']}]  fills " + ", ".join(f"{r['kind']} {r['name']}" for r in n["roles"]))
+            fills = ", ".join(f"{r['kind']} {r['name']}" for r in n["roles"]) or "nothing"
+            load = f"; the load: {', '.join(n['loads'])}" if n.get("loads") else ""
+            print(f"  [{n['label']} · {n['agentKind']}]  fills {fills}{load}")
         for e in g["edges"]:
             print(f"  {e['source'].split(':', 1)[1]} ─▶ {e['target'].split(':', 1)[1]}  {c('via ' + ', '.join(e['via']), 'dim')}")
         if g.get("cycles"):
@@ -92,7 +94,8 @@ def cmd_loop(args) -> int:
     snap = snap_of(p, args)
     parts = parts_of(args, m)
     if not args.name:
-        rows = [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), st.setpoint_text(lp),
+        rows = [[n + (c(" ⏲", "dim") if lp.get("open_loop") else ""), show.status_word(lp["status"]), lp["stock"],
+                 fmt(lp["value"]), st.setpoint_text(lp),
                  fmt(lp["error"]) if lp["error"] is not None else "",
                  f"{round(lp['off_share'] * 100)}%" if lp.get("off_share") else "0%",
                  human(max(lp["back_in"], 1)) if lp.get("back_in") is not None else "-",

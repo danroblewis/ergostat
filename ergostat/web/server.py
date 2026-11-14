@@ -129,10 +129,42 @@ def api(live: Live, path: str, q: dict):
             since = snap["at"] - snap["window"]
             stock_pts = st.history(p, lp["stock"], since, snap["at"])
             step = max(1, len(stock_pts) // 300)
-            openings = [{"time": e["time"], "amount": e["data"].get("amount"), "valve": e["item"]}
-                        for v in lp["valves"] for e in p.events.query(n=200, type="valve.opened", item=v, since=since, until=snap["at"])]
-            return {**lp, "points": stock_pts[::step], "openings": openings, "since": since, "until": snap["at"],
-                    "crossings": p.events.query(n=20, item=name, type="loop.*", since=since, until=snap["at"]),
+            # the whole window, reduced: every opening's time thinned evenly, the off stretches from every crossing
+            openings = sorted(({"time": e["time"], "amount": e["data"].get("amount"), "valve": e["item"]}
+                               for v in lp["valves"] for e in p.events.query(n=None, type="valve.opened", item=v, since=since,
+                                                                               until=snap["at"])), key=lambda o: o["time"])
+            n_open = len(openings)
+            openings = openings[::max(1, n_open // 300)]
+            crossings = p.events.query(n=None, item=name, type="loop.*", until=snap["at"], unvoided=True)
+            stretches, off_from = [], None
+            for e in crossings:
+                if e["type"] == "loop.off" and off_from is None:
+                    off_from = max(e["time"], since)
+                elif e["type"] == "loop.holding" and off_from is not None:
+                    if e["time"] > since:
+                        stretches.append([off_from, e["time"]])
+                    off_from = None
+            if off_from is not None:
+                stretches.append([off_from, snap["at"]])
+            in_window = [e for e in crossings if e["time"] >= since]
+            c = m.controllers[name]
+            agent = lambda a: ({"name": a, "kind": m.agents[a].kind, "rung": m.agents[a].rung}       # noqa: E731
+                               if a in m.agents else None)
+            parts = []
+            for s_ in lp["sensors"]:
+                got = p.measurements.latest(f"sensor/{s_}", snap["at"])
+                parts.append({"kind": "sensor", "name": s_, "agent": agent(m.sensors[s_].agent),
+                              "last": {"time": got[0], "value": got[1]} if got else None})
+            parts.append({"kind": "controller", "name": name, "agent": agent(c.agent), "open_loop": c.open_loop,
+                          "last": lp["last_decision"]})
+            for v in lp["valves"]:
+                parts.append({"kind": "valve", "name": v, "agent": agent(m.valves[v].agent), "mode": m.valves[v].mode,
+                              "max": m.valves[v].max, "last": p.events.last_opening(v)})
+            return {**lp, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
+                    "since": since, "until": snap["at"], "off_stretches": stretches,
+                    "crossings": in_window[-20:], "crossings_total": len(in_window),
+                    "description": c.description, "parts": parts,
+                    "rates": {f: snap["flows"].get(f, {}).get("rate") for f in lp["flows"]},
                     "decisions": st.decisions(p, name, since, snap["at"]),
                     "hints": [h for h in snap["hints"] if h["controller"] == name]}
         return snap["loops"]
@@ -146,7 +178,8 @@ def api(live: Live, path: str, q: dict):
             from ..runner import log_path
             log = log_path(p, name)
             return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:],
-                    "log": _tail(log, 40)}
+                    "log": _tail(log, 40), "log_path": str(log),
+                    "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name]}
         return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n]} for n, a in snap["agents"].items()}
     if head == "events":
         after = one("after")
@@ -202,7 +235,7 @@ def api(live: Live, path: str, q: dict):
         elif kind == "sensor":
             out["now"] = {"readings": p.measurements.range(f"sensor/{pname}", time.time() - snap["window"])[-60:]}
         elif kind == "valve":
-            out["now"] = {"openings": p.events.query(n=20, type="valve.opened", item=pname),
+            out["now"] = {"openings": p.events.query(n=300, type="valve.opened", item=pname),
                           "flow": snap["flows"].get(x.flow)}
         elif kind == "controller":
             out["now"] = {"loop": snap["loops"].get(pname),
