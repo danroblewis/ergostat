@@ -124,7 +124,7 @@ returns.
 
 ## Demos
 
-`~/ergostat-demos/` holds six repositories:
+`~/ergostat-demos/` holds nine repositories:
 
 - `disk-space`: one program measures, decides and cleans (one agent, three roles).
 - `backups`: a sensor program, a rule that listens for `loop.off`, a job that runs on an event, and
@@ -134,6 +134,11 @@ returns.
   make outside the valve show up as a residual.
 - `file-queue`: plain shell scripts on real files; an archiver on cron; an agent that fills no role
   and acts as a disturbance.
+- `git-hygiene`: real git commands on a scratch repository; a pruner woken only by its own loop's
+  crossing (`on = ["loop.off@few-merged-branches"]`).
+- `this-mac`: this machine, measured for real (disk, ~/Downloads, load) and changed by nobody: the
+  loops are held by a person with manual valves.
+- `big`: 24 loops in six systems, for the layout.
 - `ops`: several systems together, overlapping.
 
 `scripts/demo_check.py` runs a fresh copy of each one (so it never shares files with a copy already
