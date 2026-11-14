@@ -442,3 +442,12 @@ the loop is drawn as declared).
   setpoint is written beside the value.
 - A sensor's label could lag its stock ("reads 12" by a tank at 24): a redraw that keeps the
   layout took the labels' text from the layout; it takes it from this tick's data.
+
+## Round 23: the weekly review ("how did our loops do this week?")
+
+A team lead runs `ergostat --since 7d` on Monday.
+
+- The status had no time off per loop, though the page's Loops did: a TIME OFF column, the share
+  of the window each loop spent off.
+- One model change listed 32 parts on one line: past eight, six and "and N more".
+- Changes older than a day said only the time: they say the day too.

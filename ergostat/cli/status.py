@@ -77,15 +77,19 @@ def status(args) -> int:
         for e in ch:
             d = e["data"]
             what = [f"+{x}" for x in d["added"]] + [f"-{x}" for x in d["removed"]] + [f"~{x}" for x in d["changed"]]
-            print(f"  {time.strftime('%H:%M:%S', time.localtime(e['time']))}  " + "  ".join(what))
+            more = f"  and {len(what) - 6} more" if len(what) > 8 else ""
+            when = time.strftime("%a %H:%M" if time.time() - e["time"] > 86400 else "%H:%M:%S", time.localtime(e["time"]))
+            print(f"  {when}  " + "  ".join(what[:6] if more else what) + c(more, "dim"))
         print()
     if loops and not pid and snap["live"]:
         last = max((lp["last_read"] for lp in loops.values() if lp.get("last_read")), default=None)
         if last:
             print(c(f"not running: these are the last readings, from {ago(last)}; nothing is measuring now", "warn"))
     if loops:
-        print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT"],
-                    [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), st.setpoint_text(lp)]
+        print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "TIME OFF"],
+                    [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), st.setpoint_text(lp),
+                      (c(f"{round(lp['off_share'] * 100)}%", "bad" if lp["off_share"] >= 0.5 else "warn") if lp.get("off_share")
+                       else ("0%" if lp.get("observed") else "-"))]
                      for n, lp in loops.items()]))
         print()
     k = counts(p)
