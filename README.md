@@ -97,7 +97,8 @@ event that triggered it) and prints one JSON object per line, naming the part ea
 {"event": "backup.requested", "item": "database", "data": {}}
 ```
 
-A line naming a part the agent does not fill is refused. A person filling a role records it from the
+A job that fills one sensor or one valve may print just a number instead: `du -k app.log | cut -f1`
+is a sensor, `find tmp -mmin +60 -delete -print | wc -l` is a valve. A line naming a part the agent does not fill is refused. A person filling a role records it from the
 command line (`ergostat valve NAME --opened N`). How to write one, in shell or Python, and
 try it (`ergostat agent NAME --now`): [docs/writing-agents.md](docs/writing-agents.md). An AI agent
 filling a controller, with `claude -p`: [docs/ai-agents.md](docs/ai-agents.md). When a loop crosses its setpoint ergostat
@@ -139,7 +140,7 @@ returns.
 
 ## Demos
 
-`~/ergostat-demos/` holds nine repositories:
+`~/ergostat-demos/` holds ten repositories:
 
 - `disk-space`: one program measures, decides and cleans (one agent, three roles).
 - `backups`: a sensor program, a rule that listens for `loop.off`, a job that runs on an event, and
@@ -153,6 +154,8 @@ returns.
   crossing (`on = ["loop.off@few-merged-branches"]`).
 - `this-mac`: this machine, measured for real (disk, ~/Downloads, load) and changed by nobody: the
   loops are held by a person with manual valves.
+- `plain-crontab`: two cron jobs as one-liners (`find ... -delete | wc -l`, `du | cut -f1`), no
+  JSON and no scripts.
 - `big`: 24 loops in six systems, for the layout.
 - `ops`: several systems together, overlapping.
 
