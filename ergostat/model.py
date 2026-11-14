@@ -31,6 +31,10 @@ def cron_words(expr: str) -> str:
     p = expr.split()
     if len(p) == 5 and p[0].startswith("*/") and p[1:] == ["*", "*", "*", "*"]:
         return f"every {p[0][2:]} minutes"
+    if len(p) == 5 and p[0].isdigit() and p[1:] == ["*", "*", "*", "*"]:
+        return f"hourly at :{int(p[0]):02d}"
+    if len(p) == 5 and p[0].isdigit() and p[1].startswith("*/") and p[2:] == ["*", "*", "*"]:
+        return f"every {p[1][2:]} hours at :{int(p[0]):02d}"
     if len(p) == 5 and p[0].isdigit() and p[1].isdigit() and p[2:] == ["*", "*", "*"]:
         return f"daily at {int(p[1]):02d}:{int(p[0]):02d}"
     if len(p) == 5 and p[0].isdigit() and p[1].isdigit() and p[2:4] == ["*", "*"] and p[4] == "1-5":

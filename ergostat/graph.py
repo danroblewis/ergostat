@@ -63,7 +63,16 @@ def _when(a) -> str:
     from .durations import human
     if a.every:
         return human(a.every)
-    if a.cron:
+    if a.cron:                                  # short enough for a badge: "every 2 minutes" is "2m"
+        import re
+
+        from .model import cron_words
+        w = cron_words(a.cron)
+        for pat, rep in ((r"^every minute$", "1m"), (r"^every (\d+) minutes$", r"\1m"), (r"^every hour$", "1h"),
+                         (r"^hourly at (:\d\d)$", r"hourly \1"), (r"^every (\d+) hours at (:\d\d)$", r"\1h \2"),
+                         (r"^daily at (\S+)$", r"daily \1"), (r"^weekdays at (\S+)$", r"weekdays \1")):
+            if re.match(pat, w):
+                return re.sub(pat, rep, w)
         return "cron"
     if a.on:
         return "on " + a.on[0].split("@")[0] + ("…" if len(a.on) > 1 or "@" in a.on[0] else "")

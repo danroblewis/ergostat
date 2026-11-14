@@ -72,3 +72,14 @@ def test_the_hour_the_clocks_repeat_runs_twice(monkeypatch):
     finally:
         monkeypatch.undo()
         _t.tzset()
+
+
+def test_a_cron_schedule_is_short_on_a_badge():
+    from ergostat.graph import _when
+
+    class A:
+        every = on = None
+    for expr, want in (("*/2 * * * *", "2m"), ("15 * * * *", "hourly :15"), ("30 3 * * *", "daily 03:30"), ("0 3 1 * *", "cron")):
+        a = A()
+        a.cron = expr
+        assert _when(a) == want
