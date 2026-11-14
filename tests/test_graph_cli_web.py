@@ -298,3 +298,14 @@ def test_the_page_shares_one_estimate_per_moment(project, monkeypatch):
     for path in ("status", "graph", "loops", "agents"):
         assert server.api(live, path, {}) is not None
     assert len(calls) == 1                                   # four requests of one moment, one estimate
+
+
+def test_text_blocks_draw_an_open_loop_and_disturbances_both_ways(repo, capsys):
+    text = repo.path.joinpath("ergostat.toml").read_text().replace('reads = ["disk-usage"]\n', 'open_loop = true\n')
+    text += '\n[[disturbance]]\nname = "rotations"\nout_of = "disk-used"\n'
+    repo.write("ergostat.toml", text)
+    rc, out = run_cli(repo, "system", "--all", "--blocks", capsys=capsys)
+    assert rc == 0 and "open loop" in out and "t: every 1s" in out
+    assert "(−±)" in out and "not fed back" in out and "(Σ)" not in out
+    rc, out = run_cli(repo, "status", capsys=capsys)                        # the alias
+    assert rc == 0 and "disk-under-80" in out
