@@ -218,3 +218,5 @@ body:has(#detail:not([hidden])) .zoom { right: 456px; }               /* never u
   .page { overflow-x: auto; }
 }
 @media (prefers-color-scheme: dark) { .sys-hull text { opacity: 1; filter: brightness(1.5); } }
+.ladder .rung:not(.empty-rung) { flex: 2 1 200px; }                /* the filled rungs get the room */
+.rung b { overflow-wrap: normal; }
