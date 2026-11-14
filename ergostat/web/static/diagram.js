@@ -7,7 +7,7 @@ const CH = 6.7;   // px per character, for label sizes
 const OPEN_LOOP = "open loop: acts on its schedule, reads nothing";
 
 function labelLines(n) {
-  if (n.kind === "valve") return [n.label, `${n.position != null ? "open " + fmt(n.position) + " · " : ""}${n.rateText}${n.mode && n.mode !== "auto" ? " · " + n.mode : ""}`, n.agent ? "§badge" : null].filter(Boolean);
+  if (n.kind === "valve") return [n.label, `${n.position != null ? "open " + fmt(n.position) + " · " : ""}${n.rateText}${n.max ? ` · ≤ ${fmt(n.max)} a run` : ""}${n.mode && n.mode !== "auto" ? " · " + n.mode : ""}`, n.agent ? "§badge" : null].filter(Boolean);
   if (n.kind === "disturbance") return [n.label, `${n.rateText}${n.estimated ? " (est.)" : ""}`, n.agent ? "§badge" : null].filter(Boolean);
   if (n.kind === "sensor") return [n.label, n.reading != null ? `reads ${n.reading}` : "no reading", n.agent ? "§badge" : null].filter(Boolean);
   return [];
@@ -434,10 +434,11 @@ function drawGraph(svg, g, lay) {
         if (i === 0) { ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-label" }, t)); return; }
         // a reading or a measured rate changes minute to minute (live); a valve's mode and a declared
         // rate are the design, and stay in the design picture
-        const keep = (part) => ["manual", "advise"].includes(part) || (n.kind === "disturbance" && n.how === "declared");
+        const keep = (part) => ["manual", "advise"].includes(part) || part.startsWith("≤ ") || (n.kind === "disturbance" && n.how === "declared");
         const bits = t.split(" · ");
+        // a separator goes with the part before it, so a hidden part takes its dot along
         ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-sub" },
-          bits.map((b, k) => s("tspan", { class: keep(b) ? null : "live" }, (k ? " · " : "") + b))));
+          bits.map((b, k) => s("tspan", { class: keep(b) ? null : "live" }, b + (k < bits.length - 1 ? " · " : "")))));
       });
     }
     nodesG.append(ng);
