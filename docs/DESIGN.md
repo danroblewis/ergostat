@@ -118,6 +118,12 @@ The control diagram is the product's main view. Conventions:
 - **The wiring view** draws agents (coloured by rung, with schedule and roles) and an arrow when
   one agent's output reaches another: through a sensor or valve it hands on, through a stock, or
   through an event type it listens for. It runs top to bottom.
+- **The block view** draws each loop as a classic negative-feedback block diagram, one row per
+  loop: the setpoint r into a summing junction (Σ, + and −), the error e into the controller C, its
+  output u into the actuator (the valve), a second junction where the disturbance d joins, the
+  plant (the stock), its output y, and the sensor H on the feedback path carrying ym back to Σ.
+  Every block names the agent that fills it; the loop's lines take its status colour. The command
+  line prints the same in text (`ergostat system --blocks`).
 - **Export**: "save SVG" writes a standalone file, every style inlined.
 
 ## 7. The command line

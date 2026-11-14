@@ -102,3 +102,53 @@ def spark(points: list[tuple[float, float]], width: int = 24) -> str:
     if hi == lo:
         return bars[3] * len(vals)
     return "".join(bars[int((v - lo) / (hi - lo) * (len(bars) - 1))] for v in vals)
+
+
+def _sp(setpoint: str) -> str:
+    return setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").strip()
+
+
+def block_text(model, snap: dict, readings: dict, name: str) -> str:
+    """One loop as a classic negative-feedback block diagram, in text:
+
+                                               d: logs-written 757/h (est.)
+                                                │
+     r: ≤ 80 ─▶(Σ)─e─▶[ controller ]─u─▶[ valve ]─▶(+)─▶[ stock 65.6 % ]──┬──▶ y
+                ▲−                                                         │
+                └──────────────── ym ────[ sensor reads 65.6 ]◀────────────┘
+    """
+    lp = model.loop(name)
+    s = snap["loops"][name]
+    c_ = lp.controller
+    ctl = f"[ {name} · {model.agents[c_.agent].kind if c_.agent in model.agents else 'unfilled'} ]"
+    v = lp.valves[0] if lp.valves else None
+    vb = f"[ {v} ]" if v else "[ no valve ]"
+    st = snap["stocks"].get(lp.stock, {})
+    unit = model.stocks[lp.stock].unit if lp.stock in model.stocks else ""
+    sb = f"[ {lp.stock} {fmt(st.get('value'))}{(' ' + unit) if unit else ''} ]"
+    sen = lp.sensors[0] if lp.sensors else None
+    hb = f"[ {sen} reads {fmt(readings.get(sen))} ]" if sen else "[ no sensor ]"
+    dists = [f for f in model.flows_of(lp.stock) if f.disturbance and f.target == lp.stock]
+    r = f"r: {_sp(c_.setpoint)} "
+    e = f"e={fmt(s['error'])}" if s.get("error") is not None else "e"
+    left = f"{r}─▶(Σ)─{e}─▶{ctl}─u─▶{vb}─▶"
+    joint = "(+)─▶" if dists else ""
+    row = left + joint + sb + "──┬──▶ y"
+    sum_at = len(r) + 3                                  # the column of Σ
+    tee = len(row) - len("┬──▶ y")
+    lines = []
+    if dists:
+        d = dists[0]
+        rate = snap["flows"].get(d.name, {})
+        col = len(left) + 1
+        lines.append(" " * col + f"d: {d.name} {fmt(rate.get('rate'))}/h" + (" (est.)" if rate.get("estimated") else ""))
+        lines.append(" " * col + "│")
+    lines.append(row)
+    lines.append(" " * sum_at + "▲−" + " " * (tee - sum_at - 2) + "│")
+    mid = " ym "
+    inner = tee - sum_at - 1
+    body = mid + "─" * 4 + hb + "◀"
+    pad = max(inner - len(body), 2)
+    lines.append(" " * sum_at + "└" + "─" * (pad // 2) + body + "─" * (pad - pad // 2) + "┘")
+    head = f"loop {name}  {status_word(s['status'])}"
+    return head + "\n" + "\n".join("  " + x for x in lines)

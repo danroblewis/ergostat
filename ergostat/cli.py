@@ -217,6 +217,14 @@ def cmd_system(args) -> int:
                 for n in g["nodes"] if n["kind"] != "cloud"]
         print(table(["KIND", "PART", "NOW"], rows))
         return 0
+    if args.blocks:
+        loops = [lp.name for lp in m.loops() if lp.name in parts or lp.controller.name in parts]
+        for name in loops:
+            print(show.block_text(m, snap, graph.readings(p), name))
+            print()
+        if not loops:
+            print(c("no loops in this selection", "dim"))
+        return 0
     if args.wiring:
         for n in g["nodes"]:
             print(f"  [{n['label']} · {n['agentKind']}]  fills " + ", ".join(f"{r['kind']} {r['name']}" for r in n["roles"]))
@@ -706,6 +714,7 @@ def build() -> argparse.ArgumentParser:
     s.add_argument("--depth", type=int, default=1, help="how far --around reaches (default 1)")
     s.add_argument("--list", action="store_true", help="the parts as a table")
     s.add_argument("--wiring", action="store_true", help="the agents and how they reach each other")
+    s.add_argument("--blocks", action="store_true", help="each loop as a feedback block diagram")
     s.add_argument("--open", action="store_true", help="open it in the web page")
     topic("loop", cmd_loop, "The feedback loops, or one, part by part")
     ch = topic("check", cmd_check, "Is the model whole?", named=False)

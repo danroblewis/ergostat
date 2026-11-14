@@ -402,6 +402,122 @@ function exportSvg(svg, name) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
+/* ---- the block view: one classic negative-feedback loop per row
+   r ──▶(Σ)──e──▶[ controller ]──u──▶[ valve ]──▶(+)──▶[ stock ]──y──▶
+          ▲−                                       ▲ d                │
+          └──────────────ym──────[ sensor ]◀──────────────────────────┘          */
+function blockLayout(g) {
+  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+  const rows = [];
+  for (const [name, lp] of Object.entries(g.loops)) {
+    const ctl = byId[`controller:${name}`];
+    const stock = byId[`stock:${lp.stock}`];
+    if (!ctl || !stock) continue;
+    const sensors = lp.nodes.filter((id) => id.startsWith("sensor:")).map((id) => byId[id]).filter(Boolean);
+    const valves = lp.nodes.filter((id) => id.startsWith("flow:")).map((id) => byId[id]).filter(Boolean);
+    const dists = g.edges.filter((e) => e.kind === "pipe" && e.target === stock.id && byId[e.source]?.kind === "disturbance")
+                        .map((e) => byId[e.source]);
+    rows.push({ name, lp, ctl, stock, sensors, valves, dists });
+  }
+  return rows;
+}
+
+function drawBlocks(svg, g) {
+  const rows = blockLayout(g);
+  const vp = s("g", { id: "viewport" });
+  // widths from the longest text in any row, so every row lines up and nothing overflows
+  const tw = (t) => (t || "").length * 6.4 + 28;
+  const cw = Math.max(190, ...rows.map((r) => Math.max(tw(r.ctl.label) + 10, tw("C · " + badgeText(r.ctl.agent)))));
+  const vw = Math.max(160, ...rows.map((r) => Math.max(tw(r.valves[0]?.label), tw(badgeText(r.valves[0]?.agent)), tw("actuator · " + (r.valves[0]?.rateText || "")))));
+  const sw = Math.max(160, ...rows.map((r) => Math.max(tw(r.stock.label), tw(`plant · ${r.stock.valueText} ${r.stock.unit || ""}`))));
+  const hw = Math.max(160, ...rows.map((r) => Math.max(tw(r.sensors[0]?.label), tw(`H · reads ${r.sensors[0]?.reading ?? "?"}`))));
+  const X = { r: 30, sum: 130 };
+  X.ctl = X.sum + 70; X.valve = X.ctl + cw + 50; X.dsum = X.valve + vw + 50; X.stock = X.dsum + 50; X.out = X.stock + sw + 60;
+  const RH = 210;
+  const line = (pts, cls, color, dashed) => {
+    const d = pts.map((p, i) => `${i ? "L" : "M"}${p[0]},${p[1]}`).join("");
+    const el = s("path", { d, fill: "none", stroke: color, "stroke-width": 1.8, "stroke-dasharray": dashed ? "5 4" : null, class: cls });
+    const [a, b] = [pts[pts.length - 2], pts[pts.length - 1]];
+    const ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    const head = s("path", { d: `M${b[0] - 8 * Math.cos(ang - 0.45)},${b[1] - 8 * Math.sin(ang - 0.45)} L${b[0]},${b[1]} L${b[0] - 8 * Math.cos(ang + 0.45)},${b[1] - 8 * Math.sin(ang + 0.45)} Z` });
+    head.style.fill = color;
+    return [el, head];
+  };
+  const label = (x, y, t, cls = "t-sub", anchor = "middle") => s("text", { x, y, class: cls, "text-anchor": anchor }, t);
+  const box = (x, y, w, hgt, title, sub, fill, stroke, n, extra) => {
+    const gg = s("g", { class: "node", transform: `translate(${x},${y})`, "data-id": n?.id || "",
+                        onclick: (ev) => { ev.stopPropagation(); if (n) openNode(n); } });
+    gg.append(s("rect", { class: "hit", width: w, height: hgt, rx: 8, fill, stroke, "stroke-width": 2 }));
+    gg.append(label(w / 2, 22, title, "t-label"));
+    if (sub) gg.append(label(w / 2, 40, sub));
+    if (extra) gg.append(extra);
+    return gg;
+  };
+  const sum = (cx, cy, signs) => {
+    const gg = s("g");
+    gg.append(s("circle", { cx, cy, r: 14, fill: "var(--panel)", stroke: "var(--ink)", "stroke-width": 1.8 }));
+    gg.append(s("path", { d: `M${cx - 10},${cy - 10} L${cx + 10},${cy + 10} M${cx + 10},${cy - 10} L${cx - 10},${cy + 10}`, stroke: "var(--ink)", "stroke-width": 1.2 }));
+    for (const [dx, dy, t] of signs) gg.append(label(cx + dx, cy + dy, t, "t-label"));
+    return gg;
+  };
+  rows.forEach((row, i) => {
+    const y0 = i * RH + 40, cy = y0 + 50;
+    const st = row.lp.status || "unknown";
+    const tone = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[st] || "var(--unknown)";
+    const loopG = s("g", { class: "block-loop", "data-loop": row.name });
+    loopG.append(s("rect", { x: 6, y: y0 - 30, width: X.out + 70, height: RH - 20, rx: 14, fill: "none", stroke: "var(--line)", "stroke-dasharray": "4 4" }));
+    loopG.append(label(18, y0 - 10, row.name, "t-label", "start"), label(18 + row.name.length * 7.4 + 10, y0 - 10, st, "t-sub", "start"));
+    loopG.lastChild.style.fill = tone;
+    const sp = row.lp.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").trim();
+    // r and the summing junction
+    loopG.append(label(X.r, cy - 8, "r: " + sp, "t-sub", "start"));
+    loopG.append(...line([[X.r, cy], [X.sum - 14, cy]], "", "var(--ink)"));
+    loopG.append(sum(X.sum, cy, [[-24, -16, "+"], [-16, 32, "−"]]));
+    // e into the controller
+    loopG.append(...line([[X.sum + 14, cy], [X.ctl, cy]], "", tone));
+    const err = row.lp.error;
+    loopG.append(label((X.sum + X.ctl) / 2 + 6, cy - 8, err != null ? `e = ${fmt(err)}` : "e"));
+    loopG.append(box(X.ctl, cy - 36, cw, 72, row.ctl.label, "C · " + (row.ctl.agent ? badgeText(row.ctl.agent) : "unfilled"),
+                     "var(--ctl)", "var(--ctl-line)", row.ctl,
+                     row.ctl.decision ? label(cw / 2, 60, "“" + (row.ctl.decision.length > cw / 6.4 - 4 ? row.ctl.decision.slice(0, Math.floor(cw / 6.4) - 5) + "…" : row.ctl.decision) + "”") : null));
+    // u into the valve(s)
+    const v = row.valves[0];
+    loopG.append(...line([[X.ctl + cw, cy], [X.valve, cy]], "", "var(--ctl-line)"));
+    loopG.append(label((X.ctl + cw + X.valve) / 2, cy - 8, "u"));
+    loopG.append(box(X.valve, cy - 36, vw, 72, v ? v.label : "no valve", v ? `actuator · ${v.rateText}` : "",
+                     "var(--panel)", v ? "var(--valve)" : "var(--warn)", v,
+                     v?.agent ? label(vw / 2, 60, badgeText(v.agent)) : null));
+    // the disturbance joins at the plant's input
+    if (row.dists.length) {
+      loopG.append(...line([[X.valve + vw, cy], [X.dsum - 14, cy]], "", "var(--pipe)"));
+      loopG.append(sum(X.dsum, cy, [[-22, -16, "+"], [18, -20, "+"]]));
+      const d = row.dists[0];
+      loopG.append(...line([[X.dsum, cy - 70], [X.dsum, cy - 14]], "", "var(--dist)"));
+      loopG.append(label(X.dsum + 8, cy - 74, `d: ${d.label} ${d.rateText}${d.estimated ? " (est.)" : ""}`, "t-sub", "start"));
+      loopG.append(...line([[X.dsum + 14, cy], [X.stock, cy]], "", "var(--pipe)"));
+    } else {
+      loopG.append(...line([[X.valve + vw, cy], [X.stock, cy]], "", "var(--pipe)"));
+    }
+    // the plant: the stock
+    loopG.append(box(X.stock, cy - 36, sw, 72, row.stock.label, `plant · ${row.stock.valueText} ${row.stock.unit || ""}`,
+                     "var(--stock)", "var(--stock-line)", row.stock));
+    // y out, and the feedback path through the sensor
+    loopG.append(...line([[X.stock + sw, cy], [X.out + 40, cy]], "", tone));
+    loopG.append(label(X.out + 20, cy - 8, "y"));
+    const se = row.sensors[0];
+    const fy = cy + 90, sw2 = hw, sx = (X.sum + X.out) / 2 - hw / 2;
+    loopG.append(...line([[X.out, cy], [X.out, fy], [sx + sw2, fy]], "", tone, true));
+    loopG.append(box(sx, fy - 30, sw2, 60, se ? se.label : "no sensor", se ? `H · reads ${se.reading ?? "?"}` : "",
+                     "var(--sensor)", se ? "var(--sensor-line)" : "var(--warn)", se));
+    loopG.append(...line([[sx, fy], [X.sum, fy], [X.sum, cy + 14]], "", tone, true));
+    loopG.append(label((X.sum + sx) / 2, fy - 8, "ym"));
+    vp.append(loopG);
+  });
+  svg.replaceChildren(vp);
+  applyView(svg);
+  return { width: X.out + 90, height: rows.length * RH + 30 };
+}
+
 function applyView(svg) {
   const vp = svg.querySelector("#viewport");
   if (vp) vp.setAttribute("transform", `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
@@ -497,6 +613,7 @@ async function pageDiagram(main, q) {
     h("span", { class: "muted" }, "system"), sysSel,
     h("span", { class: "seg" },
       h("button", { class: view === "control" ? "on" : "", onclick: () => go({ view: "control" }) }, "control"),
+      h("button", { class: view === "blocks" ? "on" : "", title: "each loop as a classic feedback block diagram", onclick: () => go({ view: "blocks" }) }, "blocks"),
       h("button", { class: view === "wiring" ? "on" : "", onclick: () => go({ view: "wiring" }) }, "wiring")),
     h("button", { class: S.wrap ? "on" : "", title: "fold a long chain into rows",
                   onclick: () => { S.wrap = !S.wrap; S.graphSig = ""; S.fitted = false; route(); } }, "wrap"),
@@ -515,8 +632,20 @@ async function pageDiagram(main, q) {
 
   async function tick() {
     let g;
-    try { g = await api("graph", { view, system, around }); } catch (e) { return; }
+    try { g = await api("graph", { view: view === "blocks" ? "control" : view, system, around }); } catch (e) { return; }
     S.graph = g;
+    if (view === "blocks") {
+      wrap.querySelector(".empty")?.remove();
+      if (!Object.keys(g.loops || {}).length) {
+        svg.replaceChildren();
+        wrap.append(h("div", { class: "empty" }, "no loops to draw"));
+      } else {
+        S.layout = drawBlocks(svg, g);
+        if (!S.fitted) { fit(svg, S.layout); S.fitted = true; }
+      }
+      renderSide(side, g, "control");
+      return;
+    }
     if (!g.nodes.length) {
       svg.replaceChildren();
       wrap.querySelector(".empty")?.remove();

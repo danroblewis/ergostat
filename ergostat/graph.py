@@ -144,7 +144,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
             members = {f"controller:{n}", f"stock:{lpm.stock}", *(f"sensor:{s}" for s in lpm.sensors),
                        *(f"flow:{f}" for f in lpm.flows)}
             loops[n] = {"status": lp.get("status"), "nodes": sorted(members), "closes": lpm.closes,
-                        "stock": lpm.stock, "setpoint": c.setpoint}
+                        "stock": lpm.stock, "setpoint": c.setpoint, "value": lp.get("value"), "error": lp.get("error")}
     ids = {x["id"] for x in nodes}
     edges = [e for e in edges if e["source"] in ids and e["target"] in ids]
     for e in edges:

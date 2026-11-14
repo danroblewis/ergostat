@@ -78,7 +78,7 @@ records `loop.off` or `loop.holding`, which other agents can listen for (`on`).
 
 ```
 ergostat                     what needs attention
-ergostat system [NAME]       draw a system (--all, --around loop/NAME, --wiring, --list, --open)
+ergostat system [NAME]       draw a system (--all, --around loop/NAME, --blocks, --wiring, --list, --open)
 ergostat loop [NAME]         the loops, or one part by part
 ergostat agent [NAME]        who fills which roles, at what rung
 ergostat event [--follow]    the raw record;  ergostat item [NAME]: events folded by id
@@ -95,8 +95,10 @@ Every topic takes `-s SYSTEM`, `--since 1h` and `--json`.
 control diagram, laid out by ELK: stocks as tanks, flows as pipes through valves (a bow tie) or
 disturbances (a diamond), sensors as gauges, controllers as boxes with their setpoint and status,
 each part tagged with the agent that fills it, coloured by its rung. Loops are coloured by status;
-systems are drawn as outlines that may overlap. "save SVG" writes the diagram as a standalone
-file. The wiring view draws the agents and how each
+systems are drawn as outlines that may overlap. The blocks view draws each loop as a classic
+negative-feedback block diagram (r, Σ, e, C, u, the actuator, the disturbance d joining at the
+plant, y, and the sensor H feeding ym back); `ergostat system --blocks` prints the same in text.
+"save SVG" writes the diagram as a standalone file. The wiring view draws the agents and how each
 one's output reaches another. Loops, Agents (the ladder), Record, Residuals and Check show what the
 command line shows.
 

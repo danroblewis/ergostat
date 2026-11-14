@@ -130,3 +130,10 @@ def test_the_model_history_records_what_changed(repo, project, capsys):
     assert ch["data"]["added"] == ["stock:inodes"] and ch["data"]["changed"] == ["controller:disk-under-80"]
     rc, out = run_cli(repo, "--since", "1h", capsys=capsys)
     assert "1 changes" in out and "+stock:inodes" in out and "~controller:disk-under-80" in out
+
+
+def test_a_loop_as_a_text_block_diagram(repo, project, capsys):
+    project.measurements.add("sensor/disk-usage", 70)
+    rc, out = run_cli(repo, "system", "--all", "--blocks", capsys=capsys)
+    assert rc == 0 and "r: ≤ 80 ─▶(Σ)─e=0─▶[ disk-under-80 · program ]─u─▶[ delete-old-files ]─▶(+)─▶[ disk-used 70 % ]" in out
+    assert "d: logs-written" in out and "▲−" in out and "[ disk-usage reads 70 ]◀" in out
