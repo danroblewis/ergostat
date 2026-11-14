@@ -76,7 +76,12 @@ def system_lines(model, snap: dict, parts: set[str]) -> str:
         sensors = ", ".join(f"({x} · {model.sensors[x].agent or '-'})" for x in lp.sensors) or c("(no sensor)", "warn")
         ctl = f"<{lp.name} {lp.controller.setpoint} · {lp.controller.agent or '-'}>"
         valves = ", ".join(f"⋈ {v} · {model.valves[v].agent or '-'}" for v in lp.valves) or c("⋈ (no valve)", "warn")
-        out.append(f"  {stock} ─▶ {sensors} ─▶ {ctl} ─▶ {valves} ─▶ {c('back to ' + lp.stock, 'dim')}")
+        if lp.open_loop:                                 # watched, not fed back: the controller runs on time
+            a = model.agents.get(lp.controller.agent or "")
+            out.append(f"  ⏲ {a.schedule if a else '?'} ─▶ {ctl} ─▶ {valves} ─▶ {stock} ─▶ {sensors} "
+                       + c("watches it (open loop: nothing fed back)", "dim"))
+        else:
+            out.append(f"  {stock} ─▶ {sensors} ─▶ {ctl} ─▶ {valves} ─▶ {c('back to ' + lp.stock, 'dim')}")
         covered |= set(lp.flows)
         for g in lp.gaps:
             out.append("  " + c("cannot close: " + g, "warn"))
@@ -141,7 +146,12 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     r = f"r: {_sp(c_.setpoint)} "
     e = f"e={fmt(s['error'])}" if s.get("error") is not None else "e"
     u = "u" if pos is None else f"u={fmt(pos)}"
-    left = f"{r}─▶(Σ)─{e}─▶{ctl}─{u}─▶{vb}─▶"
+    if lp.open_loop:                                     # time drives it: nothing compared, nothing fed back
+        a = model.agents.get(c_.agent or "")
+        r = f"t: {a.schedule if a else 'its schedule'} "
+        left = f"{r}─▶{ctl}─{u}─▶{vb}─▶"
+    else:
+        left = f"{r}─▶(Σ)─{e}─▶{ctl}─{u}─▶{vb}─▶"
     drains = bool(v) and model.flows[model.valves[v].flow].source == lp.stock
     joint = ("(−)─▶" if drains else "(+)─▶") if (dists or drains) else ""
     row = left + joint + sb + "──┬──▶ y"
@@ -160,6 +170,14 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
                      + (f" +{len(dists) - 1} more" if len(dists) > 1 else ""))
         lines.append(" " * col + "│")
     lines.append(row)
+    if lp.open_loop:
+        watched = f"ym ─── {hb}◀"
+        pad = max(tee - 2 - len(watched), 2)
+        lines.append(" " * tee + "│")
+        lines.append(" " * 2 + watched + "─" * pad + "┘")
+        lines.append(" " * 2 + f"(watched against r: {_sp(c_.setpoint)}, not fed back)")
+        head = f"loop {name}  {status_word(s['status'])}  open loop"
+        return head + "\n" + "\n".join("  " + x for x in lines)
     lines.append(" " * sum_at + "▲−" + " " * (tee - sum_at - 2) + "│")
     mid = " ym "
     inner = tee - sum_at - 1

@@ -162,7 +162,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         nodes.append(_node(f"controller:{n}", "controller", n, setpoint=f"{c.holds} {c.setpoint}", status=lp.get("status"),
                            error=lp.get("error"), agent=agent_of.get(n), description=c.description,
                            decision=((lp.get("last_decision") or {}).get("data") or {}).get("decision"),
-                           decisionAt=(lp.get("last_decision") or {}).get("time"),
+                           decisionAt=(lp.get("last_decision") or {}).get("time"), openLoop=c.open_loop,
                            systems=in_system.get(n, [])))
         for s in c.reads:
             if s in parts:
@@ -176,7 +176,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
                        *(f"flow:{f}" for f in lpm.flows)}
             loops[n] = {"status": lp.get("status"), "nodes": sorted(members), "closes": lpm.closes,
                         "stock": lpm.stock, "setpoint": c.setpoint, "value": lp.get("value"), "error": lp.get("error"),
-                        "band": lp.get("band", "")}
+                        "band": lp.get("band", ""), "openLoop": c.open_loop}
     ids = {x["id"] for x in nodes}
     edges = [e for e in edges if e["source"] in ids and e["target"] in ids]
     for e in edges:

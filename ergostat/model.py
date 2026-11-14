@@ -97,6 +97,7 @@ class Controller(Part):
     reads: list[str] = field(default_factory=list)      # sensors
     drives: list[str] = field(default_factory=list)     # valves
     agent: str | None = None
+    open_loop: bool = False            # acts on its schedule and reads nothing: a timer, watched but not fed back
     kind = "controller"
 
     def target(self) -> tuple[str, float]:
@@ -189,6 +190,11 @@ class Loop:
     gaps: list[str]                    # why it cannot close; empty when it can
 
     @property
+    def open_loop(self) -> bool:
+        """Acted on by schedule, not by what is read: the sensors watch the stock, nothing feeds back."""
+        return self.controller.open_loop
+
+    @property
     def closes(self) -> bool:
         return not self.gaps
 
@@ -234,8 +240,9 @@ class Model:
         out = []
         for c in self.controllers.values():
             flows = {f.name for f in self.flows_of(c.holds)}
-            sensors = [s for s in c.reads if s in self.sensors and (self.sensors[s].measures == c.holds
-                                                                       or self.sensors[s].measures in flows)]
+            # an open loop reads nothing: the sensors on its stock only watch it, to judge it
+            sensors = [s for s in (self.sensors if c.open_loop else c.reads)
+                       if s in self.sensors and (self.sensors[s].measures == c.holds or self.sensors[s].measures in flows)]
             valves = [v for v in c.drives if v in self.valves and self.valves[v].flow in flows]
             gaps = []
             if c.holds not in self.stocks:
@@ -360,13 +367,16 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
                               unit=str(r.get("unit", ""))), "sensor")
     for i, r in enumerate(rows("controller")):
         w = f"[[controller]] #{i + 1}"
-        _take(r, COMMON | {"holds", "setpoint", "tolerance", "reads", "drives", "agent"}, w)
+        _take(r, COMMON | {"holds", "setpoint", "tolerance", "reads", "drives", "agent", "open_loop"}, w)
+        if not isinstance(r.get("open_loop", False), bool):
+            raise ModelError(f"{w} {r['name']}.open_loop: true or false")
         sp = str(r.get("setpoint", ""))
         if not SETPOINT.match(sp):
             raise ModelError(f"{w} {r['name']}.setpoint: like \"<= 80\", \">= 1\" or \"== 0\"")
         add(m.controllers, Controller(**common(r, w), holds=str(r.get("holds", "")), setpoint=sp,
                                       tolerance=float(r.get("tolerance", 0)), reads=_names(r.get("reads"), f"{w}.reads"),
-                                      drives=_names(r.get("drives"), f"{w}.drives"), agent=r.get("agent")), "controller")
+                                      drives=_names(r.get("drives"), f"{w}.drives"), agent=r.get("agent"),
+                                      open_loop=r.get("open_loop", False)), "controller")
     for i, r in enumerate(rows("agent")):
         w = f"[[agent]] #{i + 1}"
         _take(r, {"name", "kind", "command", "every", "on", "cron", "timeout", "description"}, w)
@@ -445,6 +455,8 @@ def check(m: Model) -> list[tuple[str, str]]:
         if s.measures not in m.stocks and s.measures not in m.flows:
             err(f"sensor {s.name}: {s.measures!r} is neither a stock nor a flow; declare it: [[stock]] name = \"{s.measures}\"")
     for c in m.controllers.values():
+        if c.open_loop and c.reads:
+            warn(f"controller {c.name}: open_loop reads nothing; leave reads out (it reads {', '.join(c.reads)})")
         for x in c.reads:
             if x not in m.sensors:
                 err(f"controller {c.name}: reads {x!r}, which is not a sensor; declare it: [[sensor]] name = \"{x}\" "

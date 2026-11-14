@@ -134,6 +134,7 @@ def cmd_loop(args) -> int:
     d = lp["last_decision"]
     rows.append(["controller", args.name, show.agent_tag(m, ctl.agent),
                  f"decided {ago(d['time'])}: {d['data'].get('decision')}" if d else c(
+                     "open loop: acts on its schedule, reads nothing" if ctl.open_loop else
                      "decides inside its job (says nothing)" if any(m.valves[v].agent == ctl.agent for v in lp["valves"] if v in m.valves)
                      and ctl.agent and p.events.query(n=1, type="valve.opened", source=ctl.agent) else "no decision yet", "dim")])
     for v in lp["valves"] or [None]:

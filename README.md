@@ -72,6 +72,7 @@ setpoint = "<= 80"
 reads = ["disk-usage"]
 drives = ["delete-old-files"]
 agent = "disk-cleaner"
+# open_loop = true  # a timer: acts on its schedule and reads nothing; leave out reads
 
 [[valve]]        # where an agent acts: on one flow
 name = "delete-old-files"

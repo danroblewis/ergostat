@@ -80,16 +80,23 @@ function drawBlocks(svg, g) {
     loopG.append(label(18, y0 - 10, row.name, "t-label", "start"), label(18 + row.name.length * 7.4 + 10, y0 - 10, st, "t-sub", "start"));
     loopG.lastChild.style.fill = tone;
     const sp = spText(row.lp);
-    // r and the summing junction
-    loopG.append(label(X.r, cy - 8, "r: " + sp, "t-sub", "start"));
-    loopG.append(...line([[X.r, cy], [X.sum - 14, cy]], "", "var(--ink)"));
-    loopG.append(sum(X.sum, cy, [[-24, -16, "+"], [-16, 32, "−"]]));
-    // e into the controller
-    loopG.append(...line([[X.sum + 14, cy], [X.ctl, cy]], "", tone));
-    const err = row.lp.error;
-    const eLab = label((X.sum + X.ctl) / 2 + 6, cy - 8, err != null ? `e = ${fmt(err)}` : "e");
-    eLab.style.fill = tone;                                    // coloured by the loop's status, not by e's sign
-    loopG.append(eLab);
+    const open = row.lp.openLoop;
+    if (open) {
+      // an open loop: time drives the controller; nothing is compared, nothing fed back
+      loopG.append(label(X.r, cy - 8, `t: ${row.ctl.agent?.when || "its schedule"}`, "t-sub", "start"));
+      loopG.append(...line([[X.r, cy], [X.ctl, cy]], "", "var(--ink)"));
+    } else {
+      // r and the summing junction
+      loopG.append(label(X.r, cy - 8, "r: " + sp, "t-sub", "start"));
+      loopG.append(...line([[X.r, cy], [X.sum - 14, cy]], "", "var(--ink)"));
+      loopG.append(sum(X.sum, cy, [[-24, -16, "+"], [-16, 32, "−"]]));
+      // e into the controller
+      loopG.append(...line([[X.sum + 14, cy], [X.ctl, cy]], "", tone));
+      const err = row.lp.error;
+      const eLab = label((X.sum + X.ctl) / 2 + 6, cy - 8, err != null ? `e = ${fmt(err)}` : "e");
+      eLab.style.fill = tone;                                    // coloured by the loop's status, not by e's sign
+      loopG.append(eLab);
+    }
     loopG.append(box(X.ctl, cy - 36, cw, 72, row.ctl.label, "C · " + (row.ctl.agent ? badgeText(row.ctl.agent) : "unfilled"),
                      "var(--ctl)", "var(--ctl-line)", row.ctl,
                      row.ctl.decision ? label(cw / 2, 60, "“" + (row.ctl.decision.length > cw / 6.4 - 4 ? row.ctl.decision.slice(0, Math.floor(cw / 6.4) - 5) + "…" : row.ctl.decision) + "”") : null));
@@ -135,8 +142,14 @@ function drawBlocks(svg, g) {
     loopG.append(box(sx, fy - 30, sw2, 60, se ? se.label : "no sensor",
                      se ? `H · reads ${se.reading ?? "?"}${se.agent?.when ? " · every " + se.agent.when.replace(/^on .*/, "event") : ""}` : "",
                      "var(--sensor)", se ? "var(--sensor-line)" : "var(--warn)", se));
-    loopG.append(...line([[sx, fy], [X.sum, fy], [X.sum, cy + 14]], "", tone, true));
-    loopG.append(label((X.sum + sx) / 2, fy - 8, "ym"));
+    if (open) {
+      // watched against the setpoint, to judge the loop; not fed back to the controller
+      loopG.append(...line([[sx, fy], [X.r + 4, fy]], "", tone, true));
+      loopG.append(label(X.r + 10, fy - 8, `ym, watched against r: ${sp} (not fed back)`, "t-sub", "start"));
+    } else {
+      loopG.append(...line([[sx, fy], [X.sum, fy], [X.sum, cy + 14]], "", tone, true));
+      loopG.append(label((X.sum + sx) / 2, fy - 8, "ym"));
+    }
     vp.append(loopG);
   });
   svg.replaceChildren(vp);

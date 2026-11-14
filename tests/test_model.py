@@ -105,3 +105,24 @@ def test_a_disturbance_may_name_the_agent_whose_doing_it_is(repo):
     assert any(e["source"] == "agent:writer" and e["target"] == "agent:cleaner" for e in w["edges"])
     repo.write("ergostat.toml", text.replace('agent = "writer"\n', 'agent = "nobody"\n', 1))
     assert any("nobody" in x for lv, x in model.check(model.load(repo.path)) if lv == "error")
+
+
+def test_an_open_loop_reads_nothing_and_is_judged_by_what_watches_its_stock(repo):
+    from ergostat import graph, model, state
+    from ergostat.store import Project
+    text = repo.path.joinpath("ergostat.toml").read_text().replace('reads = ["disk-usage"]\n', 'open_loop = true\n')
+    repo.write("ergostat.toml", text)
+    m = model.load(repo.path)
+    (lp,) = m.loops()
+    assert lp.open_loop and lp.closes and lp.sensors == ["disk-usage"]          # watched by the stock's sensor
+    p = Project(m)
+    p.measurements.add("sensor/disk-usage", 90.0)
+    snap = state.snapshot(p)
+    assert snap["loops"]["disk-under-80"]["status"] == "off"
+    g = graph.control(m, snap, graph.select(m, None, None, 1))
+    assert not [e for e in g["edges"] if e["kind"] == "signal"]                  # nothing fed back
+    assert g["loops"]["disk-under-80"]["openLoop"]
+    w = graph.wiring(m, p, snap, graph.select(m, None, None, 1))
+    assert not w["cycles"]
+    repo.write("ergostat.toml", text.replace("open_loop = true\n", 'open_loop = true\nreads = ["disk-usage"]\n'))
+    assert any("open_loop reads nothing" in x for _, x in model.check(model.load(repo.path)))

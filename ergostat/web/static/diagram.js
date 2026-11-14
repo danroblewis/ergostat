@@ -4,6 +4,7 @@
 
 const SIZE = { stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [200, 92], agent: [210, 92] };
 const CH = 6.7;   // px per character, for label sizes
+const OPEN_LOOP = "open loop: acts on its schedule, reads nothing";
 
 function labelLines(n) {
   if (n.kind === "valve") return [n.label, `${n.position != null ? "open " + fmt(n.position) + " · " : ""}${n.rateText}${n.mode && n.mode !== "auto" ? " · " + n.mode : ""}`, n.agent ? "§badge" : null].filter(Boolean);
@@ -29,7 +30,8 @@ async function layoutGraph(g, aspect) {
       const lp = Object.values(g.loops || {}).find((l) => l.stock === n.label);
       w = Math.max(w, textWidth(n.label) + 34, (n.valueText || "").length * 14 + textWidth(n.unit || "") + textWidth(lp ? lp.setpoint : "") + 44);
     }
-    if (n.kind === "controller") w = Math.max(w, textWidth(n.label) * 1.12 + 120, textWidth("holds " + n.setpoint) + 60);   // the title is bold
+    if (n.kind === "controller") w = Math.max(w, textWidth(n.label) * 1.12 + 120, textWidth("holds " + n.setpoint) + 60,   // the title is bold
+                                              n.openLoop ? textWidth(OPEN_LOOP) + 30 : 0);
     const lines = labelLines(n);
     const node = { id: n.id, width: w, height: hgt, layoutOptions: {} };
     if (lines.length) {
@@ -167,7 +169,9 @@ function drawController(n, w, hgt) {
   const g = s("g");
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 10, fill: "var(--ctl)", stroke: "var(--ctl-line)", "stroke-width": 2 }));
   g.append(s("circle", { cx: 20, cy: 22, r: 9, fill: "var(--panel)", stroke: "var(--ctl-line)", "stroke-width": 1.6 }));
-  g.append(s("path", { d: "M14,22 h12 M20,16 v12", stroke: "var(--ctl-line)", "stroke-width": 1.4 }));
+  // a comparison (Σ) for a feedback controller; a clock for an open loop, which acts on time alone
+  g.append(s("path", { d: n.openLoop ? "M20,22 v-6 M20,22 l4,3" : "M14,22 h12 M20,16 v12", stroke: "var(--ctl-line)", "stroke-width": 1.4,
+                       "stroke-linecap": "round" }));
   g.append(s("text", { x: 36, y: 20, class: "t-label" }, n.label));
   g.append(s("text", { x: 36, y: 36, class: "t-sub" }, "holds " + n.setpoint));
   if (n.decision) {
@@ -176,6 +180,8 @@ function drawController(n, w, hgt) {
     const t = n.decision.length > room ? n.decision.slice(0, room - 1) + "…" : n.decision;
     g.append(s("text", { x: 12, y: 56, class: "t-sub", "font-style": "italic" }, s("title", {}, "last decision: " + n.decision),
                          "“" + t + "”", s("tspan", { "font-style": "normal" }, when)));
+  } else if (n.openLoop) {
+    g.append(s("text", { x: 12, y: 56, class: "t-sub" }, OPEN_LOOP));
   }
   g.append(s("circle", { cx: w - 14, cy: 16, r: 5, fill: tone }));
   g.append(s("text", { x: w - 24, y: 20, class: "t-sub", "text-anchor": "end", fill: tone }, st));
@@ -464,6 +470,8 @@ function legend(view) {
     row('<path d="M13 2 L22 9 L13 16 L4 9 Z" fill="var(--panel)" stroke="var(--dist)" stroke-width="1.8"/>', "disturbance: nothing controls it"),
     row('<circle cx="13" cy="9" r="7" fill="var(--sensor)" stroke="var(--sensor-line)" stroke-width="1.8"/>', "sensor: measures"),
     row('<rect x="2" y="2" width="22" height="14" rx="4" fill="var(--ctl)" stroke="var(--ctl-line)" stroke-width="1.8"/>', "controller: decides, to hold a setpoint"),
+    Object.values(S.graph?.loops || {}).some((l) => l.openLoop) &&
+      row('<circle cx="13" cy="9" r="7" fill="var(--panel)" stroke="var(--ctl-line)" stroke-width="1.6"/><path d="M13,9 v-5 M13,9 l3,2" stroke="var(--ctl-line)" stroke-width="1.4" stroke-linecap="round"/>', "with a clock: an open loop (acts on time, reads nothing)"),
     row('<path d="M1 9 H25" stroke="var(--ok)" stroke-width="2"/>', "a loop holding (red: off, amber: open)"),
     row('<circle cx="13" cy="9" r="4.5" fill="var(--r4)"/>', "the agent filling a part, its dot by kind:"),
     h("span", {}), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, h("i", { style: `background:${rungColor(i)}` }), k))));
@@ -614,7 +622,7 @@ function renderSide(side, g, view) {
     }
     side.append(h("h3", {}, "the model"), d);
   }
-  side.append(h("h3", {}, "how to read it"), S.legendEl || legend(view));
+  side.append(h("h3", {}, "how to read it"), legend(view));
   side.append(h("h3", {}, "window"), h("div", { class: "muted" }, `rates and changes over the last ${S.since}`));
 }
 

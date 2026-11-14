@@ -484,3 +484,15 @@ and residual on that stock was nonsense, and `--since` could not get past it.
 - `ergostat sensor NAME --forget-above V` (and `--forget-below V`) sets the readings aside: they
   move to their own table, kept, out of every estimate, and `ergostat.forgotten` records what was
   set aside and why. On the reviewer's record, the residual went from −1794679277 to 14.
+
+## Round 26: the timer is not a feedback loop (from the fourth review, left open in round 22)
+
+Most cron jobs act by the clock: `find -mmin +60 -delete` runs whatever the count. Declared with
+`reads`, it was drawn as a closed loop and listed as a cycle among the agents, which it is not.
+
+- A controller may say `open_loop = true` (and no `reads`). Its loop is still judged against its
+  setpoint by the sensors on its stock, which only watch it. The control view draws no signal into
+  the controller and a clock in place of its Σ, with "open loop: acts on its schedule, reads
+  nothing"; the block view has `t: <schedule>` driving C with no Σ, and ym ending in "watched
+  against r, not fed back"; the text views say the same; the wiring view finds no cycle. `check`
+  warns when an open loop also lists `reads`. The plain-crontab pruner is one.
