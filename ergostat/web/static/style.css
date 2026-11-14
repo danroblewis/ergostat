@@ -166,6 +166,16 @@ code { font-family: var(--mono); font-size: 12px; }
 
 @media (max-width: 700px) {
   .bar { gap: 8px 14px; padding: 8px 12px; }
+  .bar nav { -webkit-mask-image: linear-gradient(to right, #000 85%, transparent); mask-image: linear-gradient(to right, #000 85%, transparent); }
+  main { overflow: auto; }
+  .diagram { grid-template-rows: auto auto; flex: none; }
+  .canvas-wrap { display: flex; flex-direction: column; }
+  .toolbar, .zoom { position: static; margin: 8px; box-shadow: none; }
+  .toolbar { order: -1; }
+  .zoom { order: 3; justify-content: flex-end; }
+  svg.canvas { height: 420px; flex: none; }
+  .when input[type=range] { width: 80px; }
+  #atlabel { min-width: 0; }
   .bar nav { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; }
   .bar nav a { white-space: nowrap; }
   .window { margin-left: auto; }
