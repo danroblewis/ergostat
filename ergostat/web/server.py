@@ -111,7 +111,7 @@ def api(live: Live, path: str, q: dict):
             log = log_path(p, name)
             return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-20:],
                     "log": log.read_text(errors="replace").splitlines()[-40:] if log.exists() else []}
-        return snap["agents"]
+        return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n]} for n, a in snap["agents"].items()}
     if head == "events":
         after = one("after")
         return p.events.query(n=int(one("n") or 100), type=one("type"), item=one("item"), source=one("source"),

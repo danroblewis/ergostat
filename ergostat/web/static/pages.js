@@ -39,7 +39,9 @@ async function pageAgents(main) {
         col.append(h("div", { class: "card" + (a.failing ? " failing" : ""), onclick: () => openAgent(name) },
           h("b", {}, name),
           h("div", { class: "muted" }, a.runs_itself ? `${a.runs} runs · ${a.running_since ? "running for " + ago(a.running_since).replace(" ago", "") : (a.last ? ago(a.last.time) : "never ran")}` : (a.kind === "person" ? "a person" : "not run here")),
-          h("div", { class: "roles" }, (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(" · ") || "no roles")));
+          h("div", { class: "roles" }, (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(" · ") || "no roles"),
+          (a.hints || []).map((hint) => h("div", { class: "ladder-hint", title: hint.says },
+            `↘ ${hint.controller}: “${hint.decision}” ${Math.round(hint.share * 100)}% of ${hint.count}: a cheaper rung could fill it`))));
       }
       box.append(col);
     });
