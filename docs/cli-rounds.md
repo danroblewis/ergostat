@@ -268,3 +268,17 @@ Eighteen findings; applied:
   it, not kept in "needs attention". `--now` shows only this run's log.
 - **The git-hygiene demo counted every merge twice** (printf repeated its format); the tool's
   residual had flagged it correctly.
+
+## Round 14: the Supervisor, for real
+
+**Who:** the owner, asking the Supervisor (a real Claude Code session briefed by `ergostat chat`) to
+"add a loop that keeps ~/Desktop under 200 files, measured by the existing meter, held by me with a
+manual valve", in a scratch copy of the `this-mac` demo.
+
+**What it did:** added the stock, a disturbance (files saved to the desktop), an outflow, the
+sensor (one read-only line in the meter), a controller filled by the owner and a manual valve; ran
+`ergostat check` (ok) and `ergostat agent meter --now` (4 readings, nothing refused, every loop
+holding); noticed that "under 200" is a strict `< 200` and offered `<= 200`.
+
+**Findings:** none needed applying: the brief (the model, the agent protocol, `check`, `--now`,
+strict bounds) was enough for a correct change on the first try.
