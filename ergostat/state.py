@@ -122,8 +122,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         unexplained = s["change"] - explained
         estimated = [f for f in m.flows_of(name) if f.disturbance and f.name not in known]
         scale = abs(s["change"]) + abs(explained)
-        steps = sorted(abs(b[1] - a[1]) for a, b in zip(pts, pts[1:], strict=False))
-        typical = steps[len(steps) // 2] if len(steps) >= 3 else 0.0   # a reading's ordinary step: timing at the edges is noise
+        steps = sorted(d for a, b in zip(pts, pts[1:], strict=False) if (d := abs(b[1] - a[1])) > 0)
+        typical = steps[len(steps) // 2] if len(steps) >= 2 and len(pts) >= 4 else 0.0   # an ordinary step: timing at the edges is noise
         significant = abs(unexplained) > max(1e-9, 0.1 * scale, 2 * typical)
         if estimated and significant:
             share = unexplained / len(estimated)
@@ -186,12 +186,49 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                           "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person")}
 
-    return {"at": now, "window": window, "stocks": stocks, "flows": flows, "loops": loops, "residuals": residuals,
+    snap = {"at": now, "window": window, "stocks": stocks, "flows": flows, "loops": loops, "residuals": residuals,
             "agents": agents}
+    snap["hints"] = ladder_hints(project, snap)
+    return snap
 
 
-def attention(snap: dict) -> list[dict]:
-    """What needs the owner, most important first."""
+def decisions(project, controller: str, since: float) -> dict:
+    """What a controller decided in the window, grouped by its words with the numbers taken out:
+    how many decisions, and how often each kind came up, commonest first."""
+    import re
+    evs = project.events.query(n=None, type="controller.decided", item=controller, since=since)
+    kinds: dict[str, int] = {}
+    for e in evs:
+        k = re.sub(r"-?\d+(\.\d+)?", "#", str(e["data"].get("decision", ""))).strip() or "(no words)"
+        kinds[k] = kinds.get(k, 0) + 1
+    return {"count": len(evs), "kinds": sorted(kinds.items(), key=lambda kv: -kv[1])}
+
+
+LADDER_MIN, LADDER_SHARE = 10, 0.8
+
+
+def ladder_hints(project, snap: dict) -> list[dict]:
+    """Roles a cheaper agent could fill: a controller whose agent is a person, an AI agent or a
+    decision, and that decided the same thing at least 80% of at least 10 times in the window."""
+    m = project.model
+    out = []
+    since = snap["at"] - snap["window"]
+    for c in m.controllers.values():
+        a = m.agents.get(c.agent or "")
+        if a is None or a.rung > 3:
+            continue
+        d = decisions(project, c.name, since)
+        if d["count"] >= LADDER_MIN and d["kinds"][0][1] / d["count"] >= LADDER_SHARE:
+            word, n = d["kinds"][0]
+            lower = "a rule" if a.rung >= 2 else "a decision or a rule"
+            out.append({"controller": c.name, "agent": a.name, "kind": a.kind, "share": n / d["count"], "count": d["count"],
+                        "decision": word, "says": f"{a.name} ({a.kind}) decided \"{word}\" {n} of {d['count']} times: "
+                                                  f"{lower} could fill controller {c.name}"})
+    return out
+
+
+def attention(snap: dict, running: bool = True) -> list[dict]:
+    """What needs the owner, most important first. Missing readings count only while running."""
     out = []
     for name, lp in snap["loops"].items():
         if lp["status"] == "off":
@@ -205,8 +242,10 @@ def attention(snap: dict) -> list[dict]:
             out.append({"level": "bad", "what": f"agent {name}", "says": f"its last run failed ({note})"})
         if a["refused"]:
             out.append({"level": "warn", "what": f"agent {name}", "says": f"{a['refused']} lines refused: it named parts it does not fill"})
-        if a["stale"]:
+        if a["stale"] and running:
             out.append({"level": "warn", "what": f"agent {name}", "says": f"no recent reading from {', '.join(a['stale'])}"})
+    for h in snap.get("hints", []):
+        out.append({"level": "hint", "what": f"controller {h['controller']}", "says": h["says"]})
     for name, r in snap["residuals"].items():
         if r["significant"]:
             out.append({"level": "warn", "what": f"stock {name}", "says": f"changed {fmt(r['change'])}, the known flows explain "

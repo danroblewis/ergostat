@@ -60,6 +60,7 @@ examples
   ergostat loop disk-under-80     One loop, part by part
   ergostat agent                  Who fills which roles, at what rung
   ergostat event --follow         Watch events arrive
+  ergostat check --example        An example ergostat.toml to start from
 """
 
 PART_TOPICS = ("stock", "flow", "valve", "sensor", "controller", "disturbance")
@@ -105,8 +106,8 @@ def cmd_status(args) -> int:
     from .runner import running_pid, web_url
     p = open_project(args)
     m, snap = p.model, st.snapshot(p, window(args))
-    att = st.attention(snap)
     pid = running_pid(p)
+    att = st.attention(snap, running=bool(pid))
     if args.json:
         return out_json({"running": bool(pid), "web": web_url(p) if pid else None, "attention": att,
                          "loops": snap["loops"], "counts": counts(p)})
@@ -118,7 +119,8 @@ def cmd_status(args) -> int:
     print()
     if att:
         for a in att:
-            print(f"  {c('●', a['level'])} {a['what']}: {a['says']}")
+            dot = c("○", "accent") if a["level"] == "hint" else c("●", a["level"])
+            print(f"  {dot} {a['what']}: {a['says']}")
     else:
         print(f"  {c('●', 'ok')} nothing needs you")
     print()
@@ -269,6 +271,21 @@ def cmd_loop(args) -> int:
     flows = [f"{f} {fmt(snap['flows'][f]['rate'])}/h" for f in lp["flows"]]
     rows.append(["moves", ", ".join(flows) or "-", "", ""])
     print(table(["PART", "NAME", "FILLED BY", "LAST"], rows))
+    crossings = p.events.query(n=8, item=args.name, type="loop.*", since=time.time() - window(args))
+    if crossings:
+        print(c(f"\ncrossings in {human(snap['window'])}", "dim"))
+        for e in crossings:
+            word = e["type"].split(".", 1)[1]
+            print(f"  {time.strftime('%H:%M:%S', time.localtime(e['time']))}  {show.status_word(word)}  "
+                  f"{lp['stock']} {fmt(e['data'].get('value'))}" + (f", off by {fmt(abs(e['data']['error']))}" if word == "off" else ""))
+    d = st.decisions(p, args.name, time.time() - window(args))
+    if d["count"]:
+        print(c(f"\ndecisions in {human(snap['window'])}: {d['count']}", "dim"))
+        for word, n in d["kinds"][:5]:
+            print(f"  {n:>5}  {word}")
+    for h in snap["hints"]:
+        if h["controller"] == args.name:
+            print(c("\nhint: ", "accent") + h["says"])
     return 0
 
 

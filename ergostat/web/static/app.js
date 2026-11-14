@@ -599,9 +599,8 @@ async function openNode(n) {
 }
 
 async function openLoop(name) {
-  const loops = await api("loops");
-  const lp = loops[name];
-  if (!lp) return;
+  let lp;
+  try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { return; }
   const kids = [h("div", { class: "kind" }, "loop"), h("h2", {}, name, " ", statusEl(lp.status)),
     dl([["holds", `${lp.stock} ${lp.setpoint}` + (lp.tolerance ? ` (± ${lp.tolerance})` : "")], ["now", fmt(lp.value)],
         ["error", lp.error ? fmt(lp.error) : "0"], ["sensors", lp.sensors.join(", ") || "none"], ["valves", lp.valves.join(", ") || "none"],
@@ -609,6 +608,17 @@ async function openLoop(name) {
         ["last decision", lp.last_decision ? `${ago(lp.last_decision.time)}: ${lp.last_decision.data.decision}` : "none"],
         ["last opening", ago(lp.last_opening)], ["cycled", lp.observed ? "yes, in this window" : "not in this window"]])];
   for (const g of lp.gaps || []) kids.push(h("div", { class: "att" }, h("div", {}, h("b", {}, "cannot close: "), g)));
+  for (const hint of lp.hints || []) kids.push(h("div", { class: "att" }, h("div", { class: "hint" }, h("b", {}, "hint: "), hint.says)));
+  if (lp.crossings?.length) {
+    kids.push(h("h3", {}, "crossings"));
+    kids.push(h("table", {}, lp.crossings.slice().reverse().map((e) => h("tr", {},
+      h("td", { class: "num nowrap" }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+      h("td", {}, statusEl(e.type.split(".")[1])), h("td", { class: "num" }, fmt(e.data.value))))));
+  }
+  if (lp.decisions?.count) {
+    kids.push(h("h3", {}, `decisions (${lp.decisions.count})`));
+    kids.push(h("table", {}, lp.decisions.kinds.slice(0, 6).map(([w, n]) => h("tr", {}, h("td", { class: "num" }, n), h("td", {}, w)))));
+  }
   kids.push(h("p", {}, h("a", { href: `#/diagram?around=loop/${encodeURIComponent(name)}` }, "draw this loop alone")));
   showDetail(...kids);
 }

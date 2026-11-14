@@ -23,7 +23,7 @@ def test_around_a_part_selects_its_neighbours(project):
     near = graph.select(project.model, around="valve/delete-old-files")
     assert {"delete-old-files", "cleaned", "disk-used", "disk-under-80"} <= near
     assert graph.select(project.model, around="loop/disk-under-80") == {"disk-under-80", "disk-used", "disk-usage",
-                                                                       "delete-old-files", "cleaned"}
+                                                                       "delete-old-files", "cleaned", "logs-written"}
 
 
 def test_the_wiring_graph_links_agents_through_parts(repo, project):

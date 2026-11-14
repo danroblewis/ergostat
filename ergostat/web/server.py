@@ -59,7 +59,8 @@ def api(live: Live, path: str, q: dict):
     snap = st.snapshot(p, _window(q))
     if head == "status":
         from ..runner import running_pid
-        return {"name": m.name, "running": bool(running_pid(p)), "attention": st.attention(snap), "loops": snap["loops"],
+        running = bool(running_pid(p))
+        return {"name": m.name, "running": running, "attention": st.attention(snap, running), "loops": snap["loops"],
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],
@@ -76,6 +77,13 @@ def api(live: Live, path: str, q: dict):
                  "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)]}
                 for s in m.system_names()]
     if head == "loops":
+        if name:
+            lp = snap["loops"].get(name)
+            if lp is None:
+                return None
+            since = snap["at"] - snap["window"]
+            return {**lp, "crossings": p.events.query(n=20, item=name, type="loop.*", since=since),
+                    "decisions": st.decisions(p, name, since), "hints": [h for h in snap["hints"] if h["controller"] == name]}
         return snap["loops"]
     if head == "agents":
         if name:

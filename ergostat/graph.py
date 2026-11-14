@@ -26,7 +26,9 @@ def select(model, system: str | None = None, around: str | None = None, depth: i
         lp = model.loop(name)
         if lp is None:
             raise KeyError(around)
-        return {lp.stock, lp.controller.name, *lp.sensors, *lp.valves, *lp.flows}
+        others = model.flows_of(lp.stock)                # everything that moves its stock, disturbances too
+        return {lp.stock, lp.controller.name, *lp.sensors, *lp.valves, *lp.flows, *(f.name for f in others),
+                *(v.name for f in others if (v := model.valve_of(f.name)))}
     adj: dict[str, set[str]] = {}
 
     def link(a, b):

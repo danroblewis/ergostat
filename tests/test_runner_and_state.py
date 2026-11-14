@@ -122,3 +122,20 @@ def test_a_residual_no_bigger_than_an_ordinary_step_is_noise(project, repo):
         p.measurements.add("sensor/disk-usage", v, at=t + i * 60)
     r = state.snapshot(p)["residuals"]["disk-used"]
     assert r["unexplained"] == 1 and not r["significant"]
+
+
+def test_a_controller_deciding_the_same_thing_is_a_hint_to_move_down_the_ladder(project, repo):
+    repo.write("ergostat.toml", repo.path.joinpath("ergostat.toml").read_text().replace('kind = "program"', 'kind = "ai"'))
+    from ergostat import model
+    from ergostat.store import Project
+    p = Project(model.load(repo.path))
+    for i in range(12):
+        p.events.add("controller.decided", item="disk-under-80", source="cleaner",
+                     data={"decision": f"under 80 ({60 + i}%): nothing to do" if i < 11 else "over 80: free 20"})
+    d = state.decisions(p, "disk-under-80", 0)
+    assert d["count"] == 12 and d["kinds"][0] == ("under # (#%): nothing to do", 11)
+    snap = state.snapshot(p)
+    (hint,) = snap["hints"]
+    assert hint["controller"] == "disk-under-80" and "a decision or a rule could fill controller disk-under-80" in hint["says"]
+    assert any(a["level"] == "hint" for a in state.attention(snap))
+    assert state.ladder_hints(project, state.snapshot(project)) == []      # a program is low enough already
