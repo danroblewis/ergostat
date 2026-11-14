@@ -17,6 +17,8 @@ More: [the agents and how they reach each other](docs/screenshots/wiring.png),
 [the ladder](docs/screenshots/ladder.png), [a loop's detail with its trend](docs/screenshots/loop-detail.png),
 [dark](docs/screenshots/file-queue-dark.png).
 
+What was built on 2026-11-14, and what is left to decide: [docs/REPORT-2026-11-14.md](docs/REPORT-2026-11-14.md).
+
 The terms are in [NOTES.md](NOTES.md), the design in [docs/DESIGN.md](docs/DESIGN.md), and the rules for
 working on it in [CLAUDE.md](CLAUDE.md).
 
