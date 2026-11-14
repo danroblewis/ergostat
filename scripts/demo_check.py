@@ -1,4 +1,4 @@
-"""Run each demo repository for a while, then check it the way a user would: the model is whole,
+"""Run a fresh copy of each demo repository for a while, then check it the way a user would: the model is whole,
 the agents ran, every API answers, and the page draws with no errors (screenshots with
 Playwright when it is installed).
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -52,7 +53,19 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
     return errs
 
 
+def fresh_copy(demo: Path) -> Path:
+    """The demo's tracked files in a new folder, so a check never shares files (a simulation, a
+    working repository) with a copy of the demo that is already running."""
+    dest = Path(tempfile.mkdtemp(prefix=f"ergostat-check-{demo.name}-")) / demo.name
+    files = subprocess.run(["git", "-C", str(demo), "ls-files"], capture_output=True, text=True, check=True).stdout.split()
+    for f in files:
+        (dest / f).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(demo / f, dest / f)
+    return dest
+
+
 def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
+    demo = fresh_copy(demo)
     problems = []
     c = sh("-C", str(demo), "check")
     if c.returncode != 0:

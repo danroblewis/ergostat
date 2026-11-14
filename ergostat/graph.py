@@ -66,7 +66,7 @@ def _when(a) -> str:
     if a.cron:
         return "cron"
     if a.on:
-        return "on " + a.on[0] + ("…" if len(a.on) > 1 else "")
+        return "on " + a.on[0].split("@")[0] + ("…" if len(a.on) > 1 or "@" in a.on[0] else "")
     return ""
 
 

@@ -119,7 +119,8 @@ returns.
   and acts as a disturbance.
 - `ops`: several systems together, overlapping.
 
-`scripts/demo_check.py` runs each one and checks its pages.
+`scripts/demo_check.py` runs a fresh copy of each one (so it never shares files with a copy already
+running) and checks its pages.
 
 ## Develop
 
