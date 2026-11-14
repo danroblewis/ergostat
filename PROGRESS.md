@@ -14,6 +14,7 @@ Work until 2pm.
 - Web: standard-library HTTP server, one page, ELK.js (vendored) for layout, SVG drawn by us.
 - Default web port 8781.
 - No approvals in v1: a valve's mode is recorded and shown; only programs that act are recorded.
+- Commits on main as checkpoints (the owner asked for the build); nothing pushed, no remote.
 
 ## Log
 
@@ -25,3 +26,4 @@ Work until 2pm.
 - 07:47 round 7 (overnight; is the AI doing anything a rule couldn't): crossings, decisions, ladder hints; cron schedules; SVG export; file-queue demo (shell, real files).
 - 07:55 big demo (24 loops, 6 systems): layout scales; runs were 4-5s each under 24 agents: the run context and the edge detector no longer take full snapshots; controller boxes show the last decision; attention list capped in the side panel.
 - 07:55 round 8 (before/after): model.changed history, live reload of the model, schedules on badges, per-system colours.
+- 08:02 docs/DESIGN.md (the design as built); all 7 demos pass scripts/demo_check.py; a start-up race in the event follower fixed (found by a flaky test).

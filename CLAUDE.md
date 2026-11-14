@@ -56,7 +56,6 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
 - Python 3.12+, `uv`, the standard library only at runtime; `uv run python -m pytest -q` and
   `uv run ruff check` before every commit. `scripts/demo_check.py` runs every demo in
   `~/ergostat-demos/` and checks its pages (with Playwright when installed).
-
 - The repository is local only: no remote, never pushed.
 - Never write an employer's names (systems, services, metrics, labels, ticket types, people) into
   tracked files; use generic stand-ins.
