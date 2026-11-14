@@ -130,7 +130,8 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     st = snap["stocks"].get(lp.stock, {})
     unit = model.stocks[lp.stock].unit if lp.stock in model.stocks else ""
     sb = f"[ ∫ {lp.stock} {fmt(st.get('value'))}{(' ' + unit) if unit else ''} ]"
-    sen = lp.sensors[0] if lp.sensors else None
+    on_stock = [x for x in lp.sensors if model.sensors[x].measures == lp.stock]
+    sen = (on_stock or lp.sensors or [None])[0]                       # H: the sensor on the stock itself
     hb = f"[ {sen} reads {fmt(readings.get(sen))} ]" if sen else "[ no sensor ]"
     # to a loop, any inflow it does not drive is a disturbance: declared ones, and other agents' valves
     dists = [f for f in model.flows_of(lp.stock) if f.target == lp.stock and f.name not in lp.flows]

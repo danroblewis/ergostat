@@ -407,7 +407,8 @@ function legend(view) {
       row("u", "its output: how far the actuator (valve) is opened"),
       row("d", "a disturbance joining at the plant"),
       row("y", "the plant's output: the stock"),
-      row("H", "the sensor; ym is what it reads"));
+      row("H", "the sensor; ym is what it reads"),
+      row("ff", "feedforward: the controller also measures d"));
   }
   if (view === "wiring") {
     return h("div", { class: "legend" },

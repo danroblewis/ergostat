@@ -11,7 +11,9 @@ function blockLayout(g) {
     const ctl = byId[`controller:${name}`];
     const stock = byId[`stock:${lp.stock}`];
     if (!ctl || !stock) continue;
-    const sensors = lp.nodes.filter((id) => id.startsWith("sensor:")).map((id) => byId[id]).filter(Boolean);
+    // H is the sensor on the stock itself; one on a disturbance is feedforward, not feedback
+    const sensors = lp.nodes.filter((id) => id.startsWith("sensor:")).map((id) => byId[id]).filter(Boolean)
+                      .sort((a, b) => (a.measures === lp.stock ? 0 : 1) - (b.measures === lp.stock ? 0 : 1));
     const valves = lp.nodes.filter((id) => id.startsWith("flow:")).map((id) => byId[id]).filter(Boolean);
     // to a loop, any inflow it does not drive is a disturbance: declared ones, and other agents' valves
     const mine = new Set(valves.map((v) => v.id));
@@ -19,7 +21,10 @@ function blockLayout(g) {
                                         && ["disturbance", "valve"].includes(byId[e.source]?.kind))
                         .map((e) => byId[e.source]);
     const drains = valves.length && g.edges.some((e) => e.kind === "pipe" && e.source === stock.id && e.target === valves[0].id);
-    rows.push({ name, lp, ctl, stock, sensors, valves, dists, drains });
+    // feedforward: a sensor the controller reads that measures a disturbance, not the stock
+    const ff = g.edges.filter((e) => e.kind === "signal" && e.target === ctl.id).map((e) => byId[e.source])
+                      .filter((x) => x && x.measures !== lp.stock && dists.some((d) => d.flow === x.measures));
+    rows.push({ name, lp, ctl, stock, sensors, valves, dists, drains, ff });
   }
   return rows;
 }
@@ -101,8 +106,14 @@ function drawBlocks(svg, g) {
       // another loop's actuator is known and measured: say whose it is (the loops are in series)
       const fromLoop = d.kind === "valve" ? Object.entries(g.loops).find(([, l]) => l.nodes.includes(d.id))?.[0] : null;
       const who = fromLoop ? ` (u of loop ${fromLoop}, measured)` : d.kind === "valve" && d.agent ? ` · ${d.agent.name}` : "";
-      loopG.append(...line([[X.dsum, cy - 70], [X.dsum, cy - 14]], "", "var(--dist)"));
+      loopG.append(...line([[X.dsum, cy - (row.ff.length ? 78 : 70)], [X.dsum, cy - 14]], "", "var(--dist)"));
       loopG.append(label(X.dsum - 8, cy - 58, `d: ${d.label}${who} ${d.rateText}${d.estimated ? " (est.)" : ""}${more}`, "t-sub", "end"));
+      if (row.ff.length) {
+        // the controller also measures d itself: feedforward, acting before d shows in the error
+        const f = row.ff[0], fy = cy - 78, fx = X.ctl + cw / 2;
+        loopG.append(...line([[X.dsum, fy], [fx, fy], [fx, cy - 36]], "", "var(--dist)", true));
+        loopG.append(label((fx + X.dsum) / 2, fy - 6, `feedforward: ${f.label} reads ${f.reading ?? "?"}`, "t-sub"));
+      }
     }
     if (row.dists.length || row.drains) loopG.append(...line([[X.dsum + 14, cy], [X.stock, cy]], "", "var(--pipe)"));
     else loopG.append(...line([[X.valve + vw, cy], [X.stock, cy]], "", "var(--pipe)"));
