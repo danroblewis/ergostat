@@ -41,7 +41,7 @@ async function openLoop(name) {
   try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { return; }
   const kids = [h("div", { class: "kind" }, "loop"), h("h2", {}, name, " ", statusEl(lp.status)),
     dl([["holds", `${lp.stock} ${lp.setpoint}` + (lp.tolerance ? ` (± ${lp.tolerance})` : "")], ["now", fmt(lp.value)],
-        ["error", lp.error ? fmt(lp.error) : "0"], ["sensors", lp.sensors.join(", ") || "none"], ["valves", lp.valves.join(", ") || "none"],
+        ["error", lp.error ? fmt(lp.error) : "0"], ["time off", `${Math.round((lp.off_share || 0) * 100)}% of the window`], ["sensors", lp.sensors.join(", ") || "none"], ["valves", lp.valves.join(", ") || "none"],
         ["moves", lp.flows.join(", ") || "none"], ["last reading", ago(lp.last_read)],
         ["last decision", lp.last_decision ? `${ago(lp.last_decision.time)}: ${lp.last_decision.data.decision}` : "none"],
         ["last opening", ago(lp.last_opening)], ["cycled", lp.observed ? "yes, in this window" : "not in this window"]])];

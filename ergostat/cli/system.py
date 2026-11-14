@@ -113,6 +113,8 @@ def cmd_loop(args) -> int:
     print(c("loop ", "dim") + show.loop_line(lp, args.name) + as_of(snap))
     if ctl.description:
         print(c("  " + ctl.description, "dim"))
+    if lp.get("off_share"):
+        print(f"  off {round(lp['off_share'] * 100)}% of the {human(min(snap['window'], snap['recorded'] or snap['window']))} recorded")
     pts = snap["stocks"].get(lp["stock"], {}).get("points", [])
     if pts:
         print(f"  {lp['stock']} over {human(snap['window'])}: {show.spark(pts)}")

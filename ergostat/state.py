@@ -151,13 +151,30 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                         default=None)
         reads = [project.measurements.latest(f"sensor/{s}", now) for s in lp.sensors]
         last_read = max((r[0] for r in reads if r), default=None)
+        # how much of the recorded window the loop spent off, from its crossings
+        crossings = project.events.query(n=None, item=lp.name, type="loop.*", until=now)
+        off_time, off_from = 0.0, None
+        before = [e for e in crossings if e["time"] < start]
+        if before and before[-1]["type"] == "loop.off":
+            off_from = start
+        for e in crossings:
+            if e["time"] < start:
+                continue
+            if e["type"] == "loop.off" and off_from is None:
+                off_from = e["time"]
+            elif e["type"] == "loop.holding" and off_from is not None:
+                off_time += e["time"] - off_from
+                off_from = None
+        if off_from is not None:
+            off_time += now - off_from
+        off_share = off_time / max(now - start, 1.0)
         cycled = bool(last_read and last_read >= since and ((decisions and decisions[-1]["time"] >= since)
                                                            or (last_open and last_open >= since)))
         loops[lp.name] = {"stock": c.holds, "setpoint": c.setpoint, "tolerance": c.tolerance, "value": value,
                           "error": error, "status": status, "gaps": lp.gaps, "sensors": lp.sensors, "valves": lp.valves,
                           "flows": lp.flows, "controller": c.name, "last_read": last_read,
                           "last_decision": decisions[-1] if decisions else None, "last_opening": last_open,
-                          "observed": cycled}
+                          "observed": cycled, "off_share": round(off_share, 3)}
 
     agents = {}
     for a in m.agents.values():
@@ -210,6 +227,16 @@ def ladder_hints(project, snap: dict) -> list[dict]:
     m = project.model
     out = []
     since = snap["at"] - snap["window"]
+    for name, lp in snap["loops"].items():
+        # a loop off most of the time though its agents act: it samples too slowly, or its valve is too small
+        if lp.get("off_share", 0) >= 0.5 and lp["observed"] and snap.get("recorded", 0) >= 600:
+            c = m.controllers[name]
+            a = m.agents.get(c.agent or "")
+            when = a.schedule if a else "?"
+            out.append({"controller": name, "agent": c.agent, "kind": a.kind if a else "", "share": lp["off_share"],
+                        "count": 0, "decision": "",
+                        "says": f"loop {name} was off {round(lp['off_share'] * 100)}% of the time though it acts "
+                                f"(its controller runs {when}): run it more often, or open its valve wider"})
     for c in m.controllers.values():
         a = m.agents.get(c.agent or "")
         if a is None or a.rung > 3:

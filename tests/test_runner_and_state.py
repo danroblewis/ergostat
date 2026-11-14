@@ -178,3 +178,17 @@ def test_on_may_name_an_item_too():
     assert runner.matches("loop.off@backup-*", {"type": "loop.off", "item": "backup-fresh"})
     assert not runner.matches("loop.off@backup-fresh", {"type": "loop.off", "item": "queue-short"})
     assert not runner.matches("loop.*@x", {"type": "valve.opened", "item": "x"})
+
+
+def test_a_loop_off_most_of_the_time_is_a_hint_to_sample_faster(project):
+    t = time.time() - 1200
+    project.events.add("ergostat.started", source="ergostat", at=t)
+    project.measurements.add("sensor/disk-usage", 90, at=t + 10)
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 10, data={})
+    project.events.add("loop.holding", item="disk-under-80", source="ergostat", at=t + 1000, data={})
+    project.measurements.add("sensor/disk-usage", 70, at=t + 1190)
+    project.events.add("controller.decided", item="disk-under-80", source="cleaner", at=t + 1190, data={"decision": "x"})
+    snap = state.snapshot(project)
+    assert 0.8 < snap["loops"]["disk-under-80"]["off_share"] < 0.85
+    (hint,) = [h for h in snap["hints"] if h["controller"] == "disk-under-80"]
+    assert "off 8" in hint["says"] and "run it more often" in hint["says"]
