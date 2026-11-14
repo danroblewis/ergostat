@@ -76,6 +76,11 @@ command = "find scratch -type f -mmin +60 -delete -print | wc -l"   # a valve: f
 cron = "0 * * * *"
 ```
 
+A script that talks to people ("cleaned up 3 old files") need not change either: give its agent
+`parse = "cleaned up (\\d+)"`, a regular expression whose one group is the number; the last line
+that matches is taken (only from a run that ends well). Without it, `agent NAME --now` says when a
+run printed text but nothing was recorded.
+
 The command runs in a shell, in the repository, so pipes and `if` work. An agent filling more than
 one sensor or valve says which with JSON lines, as below.
 

@@ -542,3 +542,20 @@ def test_how_fast_a_loop_answers_is_measured_from_the_record(project):
         project.events.add("loop.holding", item="disk-under-80", source="ergostat", at=t0 + back, data={})
     lp = state.snapshot(project)["loops"]["disk-under-80"]
     assert lp["answers_in"] == 30 and lp["back_in"] == 60 and lp["back_in_slowest"] == 300 and lp["times_off"] == 3
+
+
+def test_an_agent_may_take_its_number_from_its_own_words(repo):
+    from ergostat import model
+    from ergostat.store import Project
+    text = repo.path.joinpath("ergostat.toml").read_text()
+    text = text.replace('name = "delete-old-files"\nflow = "cleaned"\nagent = "cleaner"',
+                        'name = "delete-old-files"\nflow = "cleaned"\nagent = "tidy"')
+    text += '\n[[agent]]\nname = "tidy"\ncommand = "echo starting; echo cleaned up 3 old files in 12s"\nparse = "cleaned up (\\\\d+)"\n'
+    repo.write("ergostat.toml", text)
+    p = Project(model.load(repo.path))
+    r = runner.run_agent(p, p.model.agents["tidy"])
+    assert r["openings"] == 1 and p.events.opened("delete-old-files", 0)["amount"] == 3 and r["printed"] == 2
+    repo.write("ergostat.toml", text.replace('parse = "cleaned up (\\\\d+)"', 'parse = "no group"'))
+    import pytest as _pytest
+    with _pytest.raises(model.ModelError):
+        model.load(repo.path)

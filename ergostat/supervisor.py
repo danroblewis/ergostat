@@ -50,7 +50,8 @@ steady (the stock and its setpoint), add a sensor (often one line the script can
 the script doing the work as the valve. Never change the owner's crontab; ergostat runs the agents
 itself once they are modelled, so say which cron entries the owner can then remove. A job that
 fills one sensor or one valve may print a bare number (a reading, or what it moved): often the
-job's own line with `| wc -l` or `| cut -f1` added is the whole agent, no script needed. A job
+job's own line with `| wc -l` or `| cut -f1` added is the whole agent, no script needed; a script
+that prints a sentence ("cleaned up 3 old files") keeps it, with `parse = "cleaned up (\\d+)"` on its agent. A job
 that acts by the clock whatever it would measure is an open loop: `open_loop = true` on its
 controller, no `reads`; say so to the owner, since a sensor then only watches it.
 

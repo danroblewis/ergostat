@@ -111,6 +111,9 @@ class Recorder:
         self.counts = {"readings": 0, "openings": 0, "decisions": 0, "events": 0, "refused": 0, "unread": 0}
         self.unread: list[str] = []
         self.said = 0                    # JSON lines it printed: an agent that speaks JSON has no bare number
+        self.printed = 0                 # lines of any kind: a run that printed text but said nothing is told so
+        self.parsed_from: str | None = None
+        self.rx = re.compile(agent.parse) if getattr(agent, "parse", None) else None
         self.pending: float | None = None    # the last bare number, taken when the run ends
 
     def refuse(self, line: dict, why: str) -> None:
@@ -125,6 +128,17 @@ class Recorder:
 
     def take(self, raw: str) -> bool:
         """True when the line was handled (recorded or refused); False when it goes to the log."""
+        if raw.strip():
+            self.printed += 1
+        if self.bare and self.rx is not None:            # its own text, read by its own pattern
+            m = self.rx.search(raw)
+            if m:
+                try:
+                    self.pending = float(m.group(1))
+                    self.parsed_from = raw.strip()[:80]
+                except ValueError:
+                    pass
+            return False
         if self.bare:
             try:
                 self.pending = float(raw)                # `.50` from bc, `007` from printf: a number all the same
@@ -155,7 +169,7 @@ class Recorder:
         self.take_line({kind: name, ("value" if kind == "sensor" else "amount"): self.pending})
         if self.counts["refused"] > before["refused"]:
             return f"{self.pending:g}: refused (see ergostat agent {self.agent.name})"
-        return f"{self.pending:g} → {kind} {name}"
+        return f"{self.pending:g} → {kind} {name}" + (f" (from \"{self.parsed_from}\")" if self.parsed_from else "")
 
     def take_line(self, line: dict) -> bool:
         ev = self.p.events
@@ -321,7 +335,8 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                 except Exception as e:
                     crashed = crashed or f"{type(e).__name__}: {e}"
     data = {"exit": code, "seconds": round(time.time() - started, 3), **rec.counts, "why": trigger["type"] if trigger else why,
-            **({"unread_lines": rec.unread} if rec.unread else {}), **({"note": note} if note else {})}
+            **({"unread_lines": rec.unread} if rec.unread else {}), **({"note": note} if note else {}), "printed": rec.printed,
+            **({"took": rec.pending} if rec.bare and rec.pending is not None and not rec.said else {})}
     failed = bool(note) and note != STOPPED_WITH_US      # cut short by our own stop: not the agent's failure
     project.events.add("agent.failed" if failed else "agent.ran", item=agent.name, source=SOURCE, causedby=begun["id"],
                        data=data)

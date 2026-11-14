@@ -161,6 +161,7 @@ class Agent:
     description: str = ""
     cron: str | None = None
     timeout: float = 300.0
+    parse: str | None = None           # a regex with one group: the number in a line of its own text
 
     @property
     def schedule(self) -> str:
@@ -391,7 +392,15 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
                                       open_loop=r.get("open_loop", False)), "controller")
     for i, r in enumerate(rows("agent")):
         w = f"[[agent]] #{i + 1}"
-        _take(r, {"name", "kind", "command", "every", "on", "cron", "timeout", "description"}, w)
+        _take(r, {"name", "kind", "command", "every", "on", "cron", "timeout", "description", "parse"}, w)
+        parse = r.get("parse")
+        if parse is not None:
+            try:
+                rx = re.compile(str(parse))
+            except re.error as e:
+                raise ModelError(f"{w} {r['name']}.parse: not a regular expression ({e})") from None
+            if rx.groups != 1:
+                raise ModelError(f"{w} {r['name']}.parse: one group, around the number: \"cleaned up (\\\\d+)\"")
         kind = r.get("kind", "program")
         if kind not in KINDS:
             raise ModelError(f"{w} {r['name']}.kind: one of {', '.join(KINDS)}")
@@ -408,7 +417,8 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
                                     parse_duration(r.get("every"), f"{w}.every") if r.get("every") is not None else None,
                                     _names(r.get("on"), f"{w}.on"), str(r.get("description", "")),
                                     str(cron) if cron is not None else None,
-                                    parse_duration(r["timeout"], f"{w}.timeout") if r.get("timeout") is not None else 300.0)
+                                    parse_duration(r["timeout"], f"{w}.timeout") if r.get("timeout") is not None else 300.0,
+                                    str(parse) if parse is not None else None)
     for v in m.valves.values():                       # a valve a person fills is manual unless the file says otherwise
         if v.agent in m.agents and m.agents[v.agent].kind == "person" and not v.mode_set:
             v.mode = "manual"

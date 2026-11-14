@@ -107,7 +107,8 @@ event that triggered it) and prints one JSON object per line, naming the part ea
 ```
 
 A job that fills one sensor or one valve may print just a number instead: `du -k app.log | cut -f1`
-is a sensor, `find tmp -mmin +60 -delete -print | wc -l` is a valve. A line naming a part the agent does not fill is refused. A person filling a role records it from the
+is a sensor, `find tmp -mmin +60 -delete -print | wc -l` is a valve; a script that prints a sentence
+keeps it, with `parse = "cleaned up (\\d+)"` on its agent. A line naming a part the agent does not fill is refused. A person filling a role records it from the
 command line (`ergostat valve NAME --opened N`). How to write one, in shell or Python, and
 try it (`ergostat agent NAME --now`): [docs/writing-agents.md](docs/writing-agents.md). An AI agent
 filling a controller, with `claude -p`: [docs/ai-agents.md](docs/ai-agents.md). When a loop crosses its setpoint ergostat
