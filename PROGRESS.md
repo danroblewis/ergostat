@@ -58,3 +58,4 @@ Work until 2pm.
 - 11:20 web snapshot shared across requests (1.5s): 0.6s → ms on big; README shows the folded chain.
 - 11:26 round 33 (control engineer): feedback only from the stock; falling behind vs saturated; slowest stage; longest period that holds; outflow d; == hysteresis. 93 tests.
 - 11:36 round 34: answer/recovery times per loop; pile-up hint for loops in series. 94 tests.
+- 11:38 round 35: valve max per opening. Fifth cold-start review (design-doc SRE) running. 95 tests.
