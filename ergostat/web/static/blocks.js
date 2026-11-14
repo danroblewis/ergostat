@@ -13,7 +13,10 @@ function blockLayout(g) {
     if (!ctl || !stock) continue;
     const sensors = lp.nodes.filter((id) => id.startsWith("sensor:")).map((id) => byId[id]).filter(Boolean);
     const valves = lp.nodes.filter((id) => id.startsWith("flow:")).map((id) => byId[id]).filter(Boolean);
-    const dists = g.edges.filter((e) => e.kind === "pipe" && e.target === stock.id && byId[e.source]?.kind === "disturbance")
+    // to a loop, any inflow it does not drive is a disturbance: declared ones, and other agents' valves
+    const mine = new Set(valves.map((v) => v.id));
+    const dists = g.edges.filter((e) => e.kind === "pipe" && e.target === stock.id && !mine.has(e.source)
+                                        && ["disturbance", "valve"].includes(byId[e.source]?.kind))
                         .map((e) => byId[e.source]);
     rows.push({ name, lp, ctl, stock, sensors, valves, dists });
   }
@@ -90,8 +93,10 @@ function drawBlocks(svg, g) {
       loopG.append(...line([[X.valve + vw, cy], [X.dsum - 14, cy]], "", "var(--pipe)"));
       loopG.append(sum(X.dsum, cy, [[-22, -16, "+"], [18, -20, "+"]]));
       const d = row.dists[0];
+      const more = row.dists.length > 1 ? ` (+${row.dists.length - 1} more)` : "";
+      const who = d.kind === "valve" && d.agent ? ` · ${d.agent.name}` : "";
       loopG.append(...line([[X.dsum, cy - 70], [X.dsum, cy - 14]], "", "var(--dist)"));
-      loopG.append(label(X.dsum + 8, cy - 74, `d: ${d.label} ${d.rateText}${d.estimated ? " (est.)" : ""}`, "t-sub", "start"));
+      loopG.append(label(X.dsum + 8, cy - 74, `d: ${d.label}${who} ${d.rateText}${d.estimated ? " (est.)" : ""}${more}`, "t-sub", "start"));
       loopG.append(...line([[X.dsum + 14, cy], [X.stock, cy]], "", "var(--pipe)"));
     } else {
       loopG.append(...line([[X.valve + vw, cy], [X.stock, cy]], "", "var(--pipe)"));

@@ -129,7 +129,8 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     sb = f"[ {lp.stock} {fmt(st.get('value'))}{(' ' + unit) if unit else ''} ]"
     sen = lp.sensors[0] if lp.sensors else None
     hb = f"[ {sen} reads {fmt(readings.get(sen))} ]" if sen else "[ no sensor ]"
-    dists = [f for f in model.flows_of(lp.stock) if f.disturbance and f.target == lp.stock]
+    # to a loop, any inflow it does not drive is a disturbance: declared ones, and other agents' valves
+    dists = [f for f in model.flows_of(lp.stock) if f.target == lp.stock and f.name not in lp.flows]
     r = f"r: {_sp(c_.setpoint)} "
     e = f"e={fmt(s['error'])}" if s.get("error") is not None else "e"
     u = "u" if pos is None else f"u={fmt(pos)}"
@@ -143,7 +144,10 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
         d = dists[0]
         rate = snap["flows"].get(d.name, {})
         col = len(left) + 1
-        lines.append(" " * col + f"d: {d.name} {fmt(rate.get('rate'))}/h" + (" (est.)" if rate.get("estimated") else ""))
+        v = model.valve_of(d.name)
+        who = f" (valve {v.name} · {v.agent})" if v and v.agent else ""
+        lines.append(" " * col + f"d: {d.name}{who} {fmt(rate.get('rate'))}/h" + (" (est.)" if rate.get("estimated") else "")
+                     + (f" +{len(dists) - 1} more" if len(dists) > 1 else ""))
         lines.append(" " * col + "│")
     lines.append(row)
     lines.append(" " * sum_at + "▲−" + " " * (tee - sum_at - 2) + "│")
