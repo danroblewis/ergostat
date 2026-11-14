@@ -531,6 +531,12 @@ function renderSide(side, g, view) {
   const all = g.attention || st.attention;           // from the same snapshot as the diagram beside it
   const problems = all.filter((a) => a.level !== "hint"), hints = all.filter((a) => a.level === "hint");
   side.replaceChildren();
+  if (S.status && !S.status.running && !S.at) {
+    const last = Math.max(0, ...Object.values(g.loops || {}).map((l) => (S.status.loops[l.controller || ""] || {}).last_read || 0),
+                          ...Object.values(S.status.loops || {}).map((l) => l.last_read || 0));
+    side.append(h("div", { class: "att" }, h("div", { class: "warn" }, h("b", {}, "not running: "),
+      last ? `these are the last readings, from ${ago(last)}; nothing is measuring now` : "nothing has been measured")));
+  }
   side.append(h("h3", {}, "needs attention"));
   const att = h("div", { class: "att" });
   if (!problems.length) att.append(h("div", { class: "ok" }, "nothing needs you"));
