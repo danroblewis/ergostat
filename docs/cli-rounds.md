@@ -320,3 +320,30 @@ Fifteen bugs, most proven with a small script; all applied:
 - The noise floor was taken on averaged readings while the change was raw: it is taken on raw ones.
 - The page opened and closed database connections on every request: requests are served by a
   fixed pool of threads. Agent logs are kept to their last megabyte past five, and read from the end.
+
+## Round 17: a third independent review (a visual designer; a new user starting cold)
+
+Twenty findings; applied:
+
+- A person had no way to record that they acted: `ergostat valve NAME --opened N`, `sensor NAME
+  --read V` and `controller NAME --decided TEXT`, for roles a person fills, checked like any
+  agent's lines. A valve a person fills is manual unless the file says otherwise.
+- The views disagreed on a measured flow (the latest scan said 0): a measured flow's rate is its
+  average over the window.
+- Agent badges coloured by kind clashed with the colours of roles and status: badges are neutral
+  with a dot by kind, and the kinds are in the legend.
+- The setpoint's dashed line struck through the stock's value: it is a marker on the tank's edge.
+- The controller's last decision read as the present: it carries its age.
+- e was never shown on the Loops page and tolerance was written three ways: e = r − y always,
+  coloured by status; one form for tolerance, in the block view too.
+- The status kept saying "holding" after the runner stopped: it says the readings are old and
+  nothing is measuring. `projects` counts unknown loops.
+- A new user had no docs after installing: `ergostat help agents` and `help ai-agents` ship the
+  guides (a test keeps them equal to `docs/`).
+- `--now` exited 0 with lines refused, and cut the reason short: it fails, with each reason whole.
+- The Guide said a controller measures; plurals; the ladder's "move right" and "move down": fixed.
+- Large block views were one tall strip: a column per six loops. A loading message, and one when
+  the server does not answer.
+
+Not applied: nesting overlapping system outlines (overlap is the point of systems), the phone
+layout beyond what round 11 did, and the wiring view's packing.
