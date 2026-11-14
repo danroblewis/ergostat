@@ -51,6 +51,17 @@ def _window(q) -> float:
         return st.WINDOW
 
 
+def _tail(path, n: int) -> list[str]:
+    """The last ``n`` lines of a file, read from its end."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 65536))
+            return f.read().decode(errors="replace").splitlines()[-n:]
+    except OSError:
+        return []
+
+
 def api(live: Live, path: str, q: dict):
     p = live.get()
     m = p.model
@@ -116,7 +127,7 @@ def api(live: Live, path: str, q: dict):
             from ..runner import log_path
             log = log_path(p, name)
             return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:],
-                    "log": log.read_text(errors="replace").splitlines()[-40:] if log.exists() else []}
+                    "log": _tail(log, 40)}
         return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n]} for n, a in snap["agents"].items()}
     if head == "events":
         after = one("after")

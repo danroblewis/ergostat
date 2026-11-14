@@ -1,4 +1,5 @@
 import json
+import os
 import time
 
 from ergostat import runner, state
@@ -335,3 +336,13 @@ def test_the_timeout_runs_while_stdin_is_still_being_written(project, repo):
     r = runner.run_agent(p, p.model.agents["cleaner"].__class__(**{**p.model.agents["cleaner"].__dict__, "command": "sleep 8"}),
                          trigger={"id": "x", "type": "big.event", "data": {"blob": "x" * 300000}})
     assert time.time() - t < 6 and r["note"] == "stopped after its timeout of 1s"
+
+
+def test_one_runner_per_repository_and_a_stale_pid_file_is_not_running(project):
+    runner.pid_file(project).write_text("1")                    # a pid file left by a crash: nobody holds its lock
+    assert runner.running_pid(project) is None
+    assert runner.take_lock(project) and runner.running_pid(project) == os.getpid()
+    assert not runner.take_lock(project)                         # a second runner is refused
+    runner._LOCK.close()
+    runner._LOCK = None
+    assert runner.running_pid(project) is None

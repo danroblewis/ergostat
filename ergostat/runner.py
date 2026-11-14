@@ -222,6 +222,14 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                                data={"trigger": trigger["type"] if trigger else why})
     rec = Recorder(project, agent, begun["id"])
     log = log_path(project, agent.name)
+    try:                                                # a log is kept to its last megabyte once it passes five
+        if log.stat().st_size > 5 * 2**20:
+            with open(log, "rb") as f:
+                f.seek(-2**20, 2)
+                tail = f.read()
+            log.write_bytes(tail[tail.find(b"\n") + 1:])
+    except OSError:
+        pass
     env = {**os.environ, "ERGOSTAT_AGENT": agent.name, "ERGOSTAT_RUN": begun["id"], "ERGOSTAT_PROJECT": project.model.name,
            "ERGOSTAT_STATE_DIR": str(project.dir)}
     code, note = None, ""
@@ -390,12 +398,43 @@ def pid_file(project) -> Path:
     return project.dir / "run.pid"
 
 
-def running_pid(project) -> int | None:
+_LOCK = None     # the open, locked pid file of the runner in this process
+
+
+def take_lock(project) -> bool:
+    """Lock ``run.pid`` for this process's life and write its pid: one runner per repository. A
+    pid file whose lock nobody holds is stale (a crash, a reboot), whatever pid it names."""
+    import fcntl
+    global _LOCK
+    f = open(pid_file(project), "a+")
     try:
-        pid = int(pid_file(project).read_text().strip())
-        os.kill(pid, 0)
-        return pid
-    except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        f.close()
+        return False
+    f.seek(0)
+    f.truncate()
+    f.write(str(os.getpid()))
+    f.flush()
+    _LOCK = f
+    return True
+
+
+def running_pid(project) -> int | None:
+    """The runner's pid, when one holds the lock on ``run.pid``."""
+    import fcntl
+    try:
+        with open(pid_file(project)) as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:                     # held: a runner is there
+                try:
+                    return int(f.read().strip() or 0) or None
+                except ValueError:
+                    return None
+            fcntl.flock(f, fcntl.LOCK_UN)
+            return None                                 # nobody holds it: stale
+    except FileNotFoundError:
         return None
 
 

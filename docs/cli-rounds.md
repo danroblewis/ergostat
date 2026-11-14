@@ -288,3 +288,35 @@ strict bounds) was enough for a correct change on the first try.
 Every topic, with and without a name, `-s`, `--at`, `system --wiring` and `--blocks`: each prints
 one JSON document, with no terminal colour codes. Nothing to apply. (`system --blocks --json`
 gives the control graph, from which the blocks are drawn.)
+
+## Round 16: an independent code review
+
+Fifteen bugs, most proven with a small script; all applied:
+
+- A bad agent line (a list as a name, `NaN`, `Infinity`, an object as an item) raised inside the
+  read loop and left the run half done: no `agent.ran`, the process unwaited, `--now` hung. Reads
+  are guarded, names and items must be strings, numbers finite; the run always ends recorded.
+- The timeout started only after stdin was written, so a large trigger and an agent that does not
+  read stdin dodged it. The timer starts first; stdin is written from its own thread.
+- A cron that never matches (`0 0 31 2 *`), or rarely (`0 0 29 2 *` seen from March), killed the
+  scheduler for every agent. It is refused at load (looking eight years ahead), and a failing
+  schedule stops only its own agent. Day fields with a step (`*/2`) count as unrestricted, as in
+  Vixie cron.
+- One infinite reading made every page's JSON invalid: numbers must be finite.
+- The page reloaded the model into the object the runner was using, unchecked: the page has its
+  own model now.
+- An agent listening on `*` woke itself with its own `agent.*` events: never again.
+- Two disturbances on one stock, in and out, were never estimated: the residual is shared among
+  the ones pushing the way it went.
+- Pruning could forget a loop's last crossing, and with it the hysteresis: each loop's last
+  crossing is kept.
+- The follower thread died on any error (a busy database), silently: it says so and carries on.
+- Two readings at once could record the same crossing twice: crossings are recorded under a lock.
+- A stop during a live reload was lost, and `--stop` said "stopped" without checking: the reload
+  yields to a stop, `--stop` waits and says when a runner did not stop, and no run starts after
+  stopping.
+- The pid file had no lock: a reused pid looked like a runner, and two `--foreground` runners
+  could run at once. `run.pid` is locked for the runner's life; a pid file nobody locks is stale.
+- The noise floor was taken on averaged readings while the change was raw: it is taken on raw ones.
+- The page opened and closed database connections on every request: requests are served by a
+  fixed pool of threads. Agent logs are kept to their last megabyte past five, and read from the end.

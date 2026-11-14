@@ -22,12 +22,13 @@ def cmd_run(args) -> int:
             print("not running")
             return 0
         os.kill(pid, signal.SIGTERM)
-        for _ in range(50):
+        for _ in range(100):
             if not runner.running_pid(p):
-                break
+                print(f"stopped ({pid})")
+                return 0
             time.sleep(0.1)
-        print(f"stopped ({pid})")
-        return 0
+        print(f"{pid} did not stop within 10s; it still holds {runner.pid_file(p)}", file=sys.stderr)
+        return 1
     errors = [msg for lv, msg in mdl.check(p.model) if lv == "error"]
     if errors:
         print("the model has errors; fix them first (ergostat check):", file=sys.stderr)
@@ -47,13 +48,16 @@ def cmd_run(args) -> int:
         print(f"running ({child}) · log {p.dir / 'run.log'}" + (f"\nweb: {runner.web_url(p)}" if runner.web_url(p) else ""))
         print(c("see it: ergostat · stop it: ergostat run --stop", "dim"))
         return 0
-    runner.pid_file(p).write_text(str(os.getpid()))
+    if not runner.take_lock(p):
+        print(f"already running ({runner.running_pid(p)}): one runner per repository", file=sys.stderr)
+        return 1
     stopping = []
     signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
     server = None
     if not args.no_web:                                 # the page first, so its address is known at once
+        from ..store import Project
         from ..web import serve
-        server, url = serve(p, args.port)
+        server, url = serve(Project(mdl.load(p.repo), p.dir), args.port)   # its own model: the page never hands the runner one
         print(f"web: {url}", flush=True)
     r = runner.Runner(p, say=lambda s: print(time.strftime("%H:%M:%S"), s, flush=True))
     r.start()
@@ -87,10 +91,9 @@ def cmd_run(args) -> int:
         server.shutdown()
         server.server_close()
         (p.dir / "web.json").unlink(missing_ok=True)
-    if reload:                                          # the same process, the new model: the pid file stays right
+    if reload and not stopping:                         # the same process, the new model (a stop asked meanwhile wins)
         os.execv(sys.executable, [sys.executable, "-m", "ergostat", "-C", str(p.repo), "run", "--foreground",
                                   *(["--no-web"] if args.no_web else []), *(["--port", str(args.port)] if args.port else [])])
-    runner.pid_file(p).unlink(missing_ok=True)
     return 0
 
 def cmd_web(args) -> int:
