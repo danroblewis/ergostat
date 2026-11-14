@@ -102,7 +102,7 @@ function drawBlocks(svg, g) {
       const fromLoop = d.kind === "valve" ? Object.entries(g.loops).find(([, l]) => l.nodes.includes(d.id))?.[0] : null;
       const who = fromLoop ? ` (u of loop ${fromLoop}, measured)` : d.kind === "valve" && d.agent ? ` · ${d.agent.name}` : "";
       loopG.append(...line([[X.dsum, cy - 70], [X.dsum, cy - 14]], "", "var(--dist)"));
-      loopG.append(label(X.dsum + 8, cy - 74, `d: ${d.label}${who} ${d.rateText}${d.estimated ? " (est.)" : ""}${more}`, "t-sub", "start"));
+      loopG.append(label(X.dsum - 8, cy - 58, `d: ${d.label}${who} ${d.rateText}${d.estimated ? " (est.)" : ""}${more}`, "t-sub", "end"));
     }
     if (row.dists.length || row.drains) loopG.append(...line([[X.dsum + 14, cy], [X.stock, cy]], "", "var(--pipe)"));
     else loopG.append(...line([[X.valve + vw, cy], [X.stock, cy]], "", "var(--pipe)"));
