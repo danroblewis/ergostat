@@ -131,7 +131,9 @@ def cmd_loop(args) -> int:
                      f"read {ago(got[0])}: {fmt(got[1])}" if got else c("no reading yet", "dim")])
     d = lp["last_decision"]
     rows.append(["controller", args.name, show.agent_tag(m, ctl.agent),
-                 f"decided {ago(d['time'])}: {d['data'].get('decision')}" if d else c("no decision yet", "dim")])
+                 f"decided {ago(d['time'])}: {d['data'].get('decision')}" if d else c(
+                     "decides inside its job (says nothing)" if any(m.valves[v].agent == ctl.agent for v in lp["valves"] if v in m.valves)
+                     and ctl.agent and p.events.query(n=1, type="valve.opened", source=ctl.agent) else "no decision yet", "dim")])
     for v in lp["valves"] or [None]:
         if v is None:
             rows.append(["valve", c("none", "warn"), "", ""])
