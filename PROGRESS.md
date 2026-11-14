@@ -49,3 +49,4 @@ Work until 2pm.
 - 10:22 tanks: a level meter with the setpoint's tick; labels follow each tick (a stale sensor label fixed); screenshots retaken; third code review launched (since 493879b).
 - 10:29 round 23 (weekly review: TIME OFF column); round 24 (third code review, 8 of 9 applied). 85 tests.
 - 10:38 round 25: sensor --forget-above/below (wrong readings set aside, recorded). 86 tests.
+- 10:41 round 26: open_loop controllers (timers) drawn honestly in every view; plain-crontab's pruner is one. 87 tests.
