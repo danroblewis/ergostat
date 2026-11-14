@@ -145,7 +145,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             status, error = "unknown", None
         else:
             error = c.error(value)
-            status = "holding" if abs(error) <= c.tolerance else "off"
+            last = project.events.query(n=1, item=lp.name, type="loop.*", until=now)
+            status = c.status(value, was_off=bool(last and last[-1]["type"] == "loop.off"))
         decisions = project.events.query(n=1, type="controller.decided", item=c.name, until=now)
         last_open = max((o["time"] for v in lp.valves for o in project.events.query(n=1, type="valve.opened", item=v, until=now)),
                         default=None)
@@ -170,7 +171,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         off_share = off_time / max(now - start, 1.0)
         cycled = bool(last_read and last_read >= since and ((decisions and decisions[-1]["time"] >= since)
                                                            or (last_open and last_open >= since)))
-        loops[lp.name] = {"stock": c.holds, "setpoint": c.setpoint, "tolerance": c.tolerance, "value": value,
+        loops[lp.name] = {"stock": c.holds, "setpoint": c.setpoint, "tolerance": c.tolerance, "band": c.band_text(), "value": value,
                           "error": error, "status": status, "gaps": lp.gaps, "sensors": lp.sensors, "valves": lp.valves,
                           "flows": lp.flows, "controller": c.name, "last_read": last_read,
                           "last_decision": decisions[-1] if decisions else None, "last_opening": last_open,
@@ -228,15 +229,30 @@ def ladder_hints(project, snap: dict) -> list[dict]:
     out = []
     since = snap["at"] - snap["window"]
     for name, lp in snap["loops"].items():
-        # a loop off most of the time though its agents act: it samples too slowly, or its valve is too small
-        if lp.get("off_share", 0) >= 0.5 and lp["observed"] and snap.get("recorded", 0) >= 600:
-            c = m.controllers[name]
-            a = m.agents.get(c.agent or "")
-            when = a.schedule if a else "?"
-            out.append({"controller": name, "agent": c.agent, "kind": a.kind if a else "", "share": lp["off_share"],
-                        "count": 0, "decision": "",
-                        "says": f"loop {name} was off {round(lp['off_share'] * 100)}% of the time though it acts "
-                                f"(its controller runs {when}): run it more often, or open its valve wider"})
+        # a loop off most of the time though its agents act: first, can its valve keep up with the load
+        # at all (saturation)? only if it can, is it sampling too slowly?
+        if not (lp.get("off_share", 0) >= 0.5 and lp["observed"] and snap.get("recorded", 0) >= 600):
+            continue
+        c = m.controllers[name]
+        a = m.agents.get(c.agent or "")
+        stock = c.holds
+        mine = set(lp["flows"])
+        drains = any(m.flows[f].source == stock for f in mine)
+        ours = sum(snap["flows"][f]["rate"] or 0 for f in mine)
+        load = sum((snap["flows"][f.name]["rate"] or 0) for f in m.flows_of(stock)
+                   if f.name not in mine and (f.target == stock if drains else f.source == stock))
+        off = round(lp["off_share"] * 100)
+        if load > 0 and ours < 0.95 * load:
+            says = (f"loop {name} was off {off}% of the time: its valve moved {fmt(ours)}/h "
+                    f"{'out' if drains else 'in'} while {fmt(load)}/h came {'in' if drains else 'out'}. It is saturated: "
+                    f"a valve with more capacity, or less load, not faster sampling")
+        elif a and (a.every or a.cron):
+            says = (f"loop {name} was off {off}% of the time though its valve can keep up: its controller runs "
+                    f"{a.schedule}; run it more often")
+        else:
+            says = f"loop {name} was off {off}% of the time though its valve can keep up: it acts too late (on {a.schedule if a else '?'})"
+        out.append({"controller": name, "agent": c.agent, "kind": a.kind if a else "", "share": lp["off_share"],
+                    "count": 0, "decision": "", "about": "loop", "says": says})
     for c in m.controllers.values():
         a = m.agents.get(c.agent or "")
         if a is None or a.rung > 3:
@@ -247,7 +263,7 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             lower = "a rule" if a.rung >= 2 else "a decision or a rule"
             word = word.replace("#", "N")
             out.append({"controller": c.name, "agent": a.name, "kind": a.kind, "share": n / d["count"], "count": d["count"],
-                        "decision": word, "says": f"{a.name} ({a.kind}) decided \"{word}\" {n} of {d['count']} times: "
+                        "decision": word, "about": "ladder", "says": f"{a.name} ({a.kind}) decided \"{word}\" {n} of {d['count']} times: "
                                                   f"{lower} could fill controller {c.name}"})
     return out
 
@@ -257,7 +273,7 @@ UNKNOWN_GRACE = 120.0          # a loop with no reading this long after the reco
 
 
 def setpoint_text(lp: dict) -> str:
-    return lp["setpoint"] + (f" (±{fmt(lp['tolerance'])})" if lp.get("tolerance") else "")
+    return lp["setpoint"] + lp.get("band", "")
 
 
 def attention(snap: dict, running: bool = True, model=None) -> list[dict]:

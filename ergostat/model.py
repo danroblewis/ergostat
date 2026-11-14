@@ -83,14 +83,43 @@ class Controller(Part):
         return op, float(m.group(2))
 
     def error(self, value: float) -> float:
-        """How far ``value`` is outside the setpoint (0 when it is satisfied), signed: positive is
-        too high, negative too low."""
+        """e = r − y, the control convention: negative when ``value`` is too high, positive when
+        too low, and 0 on a one-sided setpoint's satisfied side."""
         op, x = self.target()
         if op in ("<=", "<"):
-            return max(0.0, value - x)
+            return min(0.0, x - value)
         if op in (">=", ">"):
-            return min(0.0, value - x)
-        return value - x
+            return max(0.0, x - value)
+        return x - value
+
+    def violated(self, value: float, band: float = 0.0) -> bool:
+        """Outside the setpoint widened by ``band`` on the side that matters; a strict bound
+        (``<``, ``>``) counts the bound itself as outside."""
+        op, x = self.target()
+        if op == "<=":
+            return value > x + band
+        if op == "<":
+            return value >= x + band
+        if op == ">=":
+            return value < x - band
+        if op == ">":
+            return value <= x - band
+        return abs(value - x) > band
+
+    def status(self, value: float, was_off: bool = False) -> str:
+        """Off past the setpoint by more than the tolerance; once off, holding again only back
+        within the setpoint itself (the tolerance is a hysteresis band, so a loop near its
+        setpoint does not chatter)."""
+        return "off" if self.violated(value, 0.0 if was_off else self.tolerance) else "holding"
+
+    def band_text(self) -> str:
+        """The tolerance, on the side it applies: ``(+2)`` for <=, ``(−2)`` for >=, ``(±2)`` for ==."""
+        if not self.tolerance:
+            return ""
+        op, _ = self.target()
+        sign = "+" if op in ("<=", "<") else "−" if op in (">=", ">") else "±"
+        t = self.tolerance
+        return f" ({sign}{int(t) if t == int(t) else t})"
 
 
 @dataclass

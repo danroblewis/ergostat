@@ -506,7 +506,7 @@ function renderSide(side, g, view) {
   if (problems.length > MAX) att.append(h("div", { class: "more" }, `and ${problems.length - MAX} more: see Loops and Residuals`));
   side.append(att);
   if (hints.length) {
-    const d = h("details", { class: "suggest" }, h("summary", {}, `suggestions (${hints.length}): cheaper agents could fill some roles`));
+    const d = h("details", { class: "suggest" }, h("summary", {}, `suggestions (${hints.length})`));
     for (const a of hints) d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", a.says));
     side.append(d);
   }

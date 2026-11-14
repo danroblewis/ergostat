@@ -68,8 +68,14 @@ def context(project, agent, trigger: dict | None) -> dict:
     for c in roles:
         if c.kind == "controller":
             v = values.get(c.holds)
-            ctls[c.name] = {"holds": c.holds, "setpoint": c.setpoint, "value": v, "drives": c.drives,
-                            "error": c.error(v) if v is not None and m.loop(c.name) and m.loop(c.name).closes else None}
+            closes = bool(m.loop(c.name) and m.loop(c.name).closes)
+            last = project.events.query(n=1, item=c.name, type="loop.*")
+            op, target = c.target()
+            ctls[c.name] = {"holds": c.holds, "setpoint": c.setpoint, "op": op, "target": target, "tolerance": c.tolerance,
+                            "value": v, "drives": c.drives,
+                            "error": c.error(v) if v is not None and closes else None,
+                            "status": (c.status(v, bool(last and last[-1]["type"] == "loop.off")) if v is not None and closes
+                                       else "open" if not closes else "unknown")}
     return {"agent": agent.name, "kind": agent.kind, "roles": [{"kind": p.kind, "name": p.name} for p in roles],
             "state": values, "controllers": ctls, "trigger": trigger}
 
@@ -163,9 +169,9 @@ def edges(project, causedby: str | None = None, sensor: str | None = None) -> li
         if value is None:
             continue
         error = lp.controller.error(value)
-        now = "holding" if abs(error) <= lp.controller.tolerance else "off"
         last = project.events.query(n=1, item=lp.name, type="loop.*")
         before = last[0]["type"].split(".", 1)[1] if last else None
+        now = lp.controller.status(value, was_off=before == "off")
         if before != now:
             out.append(project.events.add(f"loop.{now}", item=lp.name, source=SOURCE, causedby=causedby,
                                           data={"value": value, "setpoint": lp.controller.setpoint, "error": error}))

@@ -51,7 +51,7 @@ def test_the_edge_detector_records_a_loop_crossing_its_setpoint_once(project):
     assert runner.edges(project) == []                      # no change, no event
     project.measurements.add("sensor/disk-usage", 90)
     (off,) = runner.edges(project)
-    assert off["type"] == "loop.off" and off["item"] == "disk-under-80" and off["data"]["error"] == 10
+    assert off["type"] == "loop.off" and off["item"] == "disk-under-80" and off["data"]["error"] == -10
 
 
 def test_state_a_loop_is_unknown_holding_or_off(project):
@@ -60,7 +60,7 @@ def test_state_a_loop_is_unknown_holding_or_off(project):
     assert state.snapshot(project)["loops"]["disk-under-80"]["status"] == "holding"
     project.measurements.add("sensor/disk-usage", 83)
     lp = state.snapshot(project)["loops"]["disk-under-80"]
-    assert lp["status"] == "off" and lp["error"] == 3
+    assert lp["status"] == "off" and lp["error"] == -3
 
 
 def test_an_estimated_disturbance_explains_what_the_valve_does_not(project):
@@ -191,7 +191,7 @@ def test_a_loop_off_most_of_the_time_is_a_hint_to_sample_faster(project):
     snap = state.snapshot(project)
     assert 0.8 < snap["loops"]["disk-under-80"]["off_share"] < 0.85
     (hint,) = [h for h in snap["hints"] if h["controller"] == "disk-under-80"]
-    assert "off 8" in hint["says"] and "run it more often" in hint["says"]
+    assert "off 8" in hint["says"] and ("run it more often" in hint["says"] or "saturated" in hint["says"])
 
 
 def test_a_week_of_readings_is_sampled_in_sql_and_the_ends_kept_exact(project):
@@ -215,3 +215,15 @@ def test_pruning_forgets_old_record_but_not_the_model_history(project):
     project.measurements.add("sensor/disk-usage", 1, at=old)
     assert project.events.prune(time.time() - 30 * 86400) == 1 and project.measurements.prune(time.time() - 30 * 86400) == 1
     assert [e["type"] for e in project.events.query(n=None)] == ["model.changed"]
+
+
+def test_a_loop_whose_valve_cannot_keep_up_is_called_saturated(project):
+    t = time.time() - 1200
+    project.events.add("ergostat.started", source="ergostat", at=t)
+    for i, v in enumerate([60, 70, 80, 90, 100]):               # the stock climbs though the valve keeps opening
+        project.measurements.add("sensor/disk-usage", v, at=t + 10 + i * 290)
+        project.events.add("valve.opened", item="delete-old-files", source="cleaner", at=t + 20 + i * 290, data={"amount": 2})
+        project.events.add("controller.decided", item="disk-under-80", source="cleaner", at=t + 20 + i * 290, data={"decision": "free 2"})
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 30, data={})
+    (hint,) = [h for h in state.snapshot(project)["hints"] if h["controller"] == "disk-under-80"]
+    assert "saturated" in hint["says"] and "more capacity" in hint["says"]

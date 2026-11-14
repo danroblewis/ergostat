@@ -49,11 +49,24 @@ def test_names_are_unique_across_parts():
         parse('[[stock]]\nname = "x"\n[[flow]]\nname = "x"\nto = "x"')
 
 
-def test_a_controller_error_is_signed_and_zero_inside_its_setpoint():
+def test_the_error_is_r_minus_y_and_zero_on_the_satisfied_side():
     c = model.Controller(name="c", holds="s", setpoint="<= 80")
-    assert c.error(70) == 0 and c.error(85) == 5
-    assert model.Controller(name="c", holds="s", setpoint=">= 3").error(1) == -2
-    assert model.Controller(name="c", holds="s", setpoint="== 0").error(2) == 2
+    assert c.error(70) == 0 and c.error(85) == -5          # too high: negative, as e = r − y
+    assert model.Controller(name="c", holds="s", setpoint=">= 3").error(1) == 2
+    assert model.Controller(name="c", holds="s", setpoint="== 0").error(2) == -2
+
+
+def test_the_tolerance_is_a_hysteresis_band_on_the_side_that_matters():
+    c = model.Controller(name="c", holds="s", setpoint="<= 10", tolerance=2)
+    assert c.status(11) == "holding" and c.status(13) == "off"           # off only past 10 + 2
+    assert c.status(11, was_off=True) == "off" and c.status(10, was_off=True) == "holding"   # back only at 10
+    assert c.band_text() == " (+2)" and model.Controller(name="c", holds="s", setpoint=">= 1", tolerance=1).band_text() == " (−1)"
+
+
+def test_a_strict_bound_counts_the_bound_as_outside():
+    assert model.Controller(name="c", holds="s", setpoint="< 10").status(10) == "off"
+    assert model.Controller(name="c", holds="s", setpoint="<= 10").status(10) == "holding"
+    assert model.Controller(name="c", holds="s", setpoint="> 0").status(0) == "off"
 
 
 def test_a_system_brings_what_is_attached_to_its_stocks():
