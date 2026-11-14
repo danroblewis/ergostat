@@ -69,3 +69,4 @@ Work until 2pm.
 - 12:43 round 40: sixth code review (8/8). 101 tests.
 - 12:53 valve max on labels; design picture in README; items FIRST; refused link.
 - 12:54 wheel built and installed in a clean venv: blocks, snapshot, help, example all work.
+- 13:08 owner back; round 41 done; all 11 demos pass. 101 tests.
