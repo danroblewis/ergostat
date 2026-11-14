@@ -287,3 +287,14 @@ def test_the_service_text_runs_this_repository_in_the_foreground(project):
     assert plist["KeepAlive"] == {"SuccessfulExit": False}                       # a stop on purpose stays stopped
     unit = service.systemd("t", project.repo, cmd, project.dir)
     assert "Restart=on-failure" in unit and "--foreground" in unit
+
+
+def test_the_page_shares_one_estimate_per_moment(project, monkeypatch):
+    from ergostat.web import server
+    live = server.Live(project)
+    calls = []
+    real = server.st.snapshot
+    monkeypatch.setattr(server.st, "snapshot", lambda *a, **k: calls.append(1) or real(*a, **k))
+    for path in ("status", "graph", "loops", "agents"):
+        assert server.api(live, path, {}) is not None
+    assert len(calls) == 1                                   # four requests of one moment, one estimate
