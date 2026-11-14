@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from .. import graph
+from .. import graph, history
 from .. import model as mdl
 from .. import state as st
 
