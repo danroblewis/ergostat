@@ -162,7 +162,7 @@ def api(live: Live, path: str, q: dict):
             "sensor": [{"name": n, "measures": x.measures, "agent": agent(x.agent), "reading": rd.get(n),
                         "at": (p.measurements.latest(f"sensor/{n}") or (None,))[0]} for n, x in m.sensors.items()],
             "controller": [{"name": n, "holds": x.holds, "setpoint": x.setpoint, "status": snap["loops"][n]["status"],
-                            "agent": agent(x.agent)} for n, x in m.controllers.items()],
+                            "agent": agent(x.agent), "open_loop": x.open_loop} for n, x in m.controllers.items()],
             "system": [{"name": s_, "description": m.systems[s_].description if s_ in m.systems else "", "parts": len(m.members(s_)),
                         "loops": [n for n in snap["loops"] if n in m.members(s_)],
                         "off": [n for n in snap["loops"] if n in m.members(s_) and snap["loops"][n]["status"] in ("off", "open")]}

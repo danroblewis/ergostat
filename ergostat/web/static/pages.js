@@ -136,7 +136,7 @@ async function pageGuide(main) {
   const code = (t) => h("code", {}, t);
   const ex = (list, f, n = 2) => list.slice(0, n).map((x, i) => [i ? ", " : "", f(x)]);
   const sec = (title, ...kids) => p.append(h("section", { class: "guide" }, h("h2", {}, title), ...kids));
-  const stock = parts.stock[0], loop = parts.controller[0];
+  const stock = parts.stock[0], loop = parts.controller.find((x) => !x.open_loop);   // the example of feedback is a feedback loop
   sec("Work is a flow, not a list",
     h("p", {}, "Work is change in the world over time. ergostat does not track tasks; it watches what accumulates and what moves it. ",
       "What accumulates is a ", h("b", {}, "stock"), ": ", ex(parts.stock, (x) => [code(x.name), ` (${fmt(x.value)} ${x.value === 1 && x.unit.endsWith("s") ? x.unit.slice(0, -1) : x.unit})`]) , ". ",
@@ -148,7 +148,10 @@ async function pageGuide(main) {
       "A ", h("b", {}, "valve"), " acts on a flow (", ex(parts.valve, (x) => code(x.name)), "). Nothing changes the world except through a valve."),
     loop ? h("p", {}, "Together they make a ", h("b", {}, "loop"), ": a sensor measures ", code(loop.holds), "; ", code(loop.name),
       " reads it, compares it with its setpoint, and opens a valve when it is off. Its status now: ", statusEl(loop.status), ". ",
-      h("a", { href: "#/diagram?view=blocks" }, "See it as a block diagram"), ".") : null);
+      h("a", { href: "#/diagram?view=blocks" }, "See it as a block diagram"), ".") : null,
+    parts.controller.some((x) => x.open_loop) ? h("p", {}, "An ", h("b", {}, "open loop"), " acts by the clock and reads nothing (",
+      ex(parts.controller.filter((x) => x.open_loop), (x) => code(x.name)), "): a sensor on its stock only watches it, so its status still says ",
+      "whether the timer is enough, but nothing it measures changes what it does. A clock marks it in the diagram.") : null);
   const byRung = {};
   for (const [n, a] of Object.entries(agents)) (byRung[a.rung] ||= []).push(n);
   sec("Agents fill the roles, and move down the ladder",
