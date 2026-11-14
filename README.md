@@ -27,7 +27,8 @@ working on it in [CLAUDE.md](CLAUDE.md).
 ```bash
 uv tool install --force ~/ergostat         # or: uv run ergostat ... from this folder
 cd <your repository>
-ergostat check --example > ergostat.toml   # or: ergostat chat, and describe it to the Supervisor
+ergostat check --example cron > ergostat.toml   # two one-liners that run as they are
+                                           # (--example: one program to write; or ergostat chat, the Supervisor)
 ergostat check                             # is the model whole?
 ergostat run                               # the agents, in the background, and the web page
 ergostat                                   # what needs attention
