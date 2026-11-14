@@ -542,3 +542,15 @@ waits forever; and the killed run was shown as the agent's failure ("exited -9")
   what listens for it acts. ops recovered within a second of the restart.
 - A run killed because ergostat itself stopped is noted "stopped with ergostat", never a failure.
 - "acts too late (on on loop.off...)": the schedule is said once.
+
+## Round 30: a chain of loops, folded where it joins (from round 28's open items)
+
+A chain of loops in series (file-queue, deps) was one strip, five times wider than the window;
+ELK's own wrapping cut it anywhere and sent pipes on long detours.
+
+- The pipe from one loop's valve into the next loop's stock is left out of the layout, so each
+  loop is laid out on its own; the loops are stacked one per row in the model's order (upstream
+  on top), and the pipe is drawn by hand: out of the valve, past its labels, down into the gap
+  above the next row, across, and into the next stock. This happens by itself when the unwrapped
+  diagram would be more than twice as wide as the window allows; the "wrap" button turns it on
+  or off either way.

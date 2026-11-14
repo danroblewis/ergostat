@@ -20,7 +20,16 @@ function sig(g) {
   return JSON.stringify([g.kind, g.nodes.map((n) => `${n.id}:${labelLines(n).length}:${n.agent?.name || ""}`).sort(), g.edges.map((e) => e.id).sort()]);
 }
 
-async function layoutGraph(g, aspect) {
+/* the pipes that join one loop to the next (a valve's flow from one stock into another): left out of
+   a wrapped layout, so each loop's chain is laid out on its own and the chains are packed in rows */
+function couplings(g) {
+  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+  const fromStock = new Set(g.edges.filter((e) => e.kind === "pipe" && e.source.startsWith("stock:")).map((e) => e.target));
+  return g.edges.filter((e) => e.kind === "pipe" && fromStock.has(e.source) && e.target.startsWith("stock:")
+                               && byId[e.source]?.kind === "valve" && !byId[e.target]?.outside);
+}
+
+async function layoutGraph(g, aspect, cut = false) {
   const ORDER = { cloud: 0, disturbance: 1, stock: 2, valve: 3, sensor: 5, controller: 6, agent: 2 };
   const rank = (n) => (n.kind === "cloud" ? (n.id.endsWith(":out") ? 4 : 0) : ORDER[n.kind] ?? 3);
   const nodesInOrder = [...g.nodes].sort((a, b) => rank(a) - rank(b));
@@ -50,7 +59,9 @@ async function layoutGraph(g, aspect) {
     return node;
   });
   const flowNode = new Set(g.nodes.filter((n) => n.kind === "valve" || n.kind === "disturbance").map((n) => n.id));
-  const edges = g.edges.map((e) => {
+  const cuts = cut ? couplings(g) : [];
+  const cutIds = new Set(cuts.map((e) => e.id));
+  const edges = g.edges.filter((e) => !cutIds.has(e.id)).map((e) => {
     let src = e.source, dst = e.target;
     if (e.kind === "pipe") {
       if (flowNode.has(dst)) dst = dst + ":in";
@@ -75,11 +86,67 @@ async function layoutGraph(g, aspect) {
       "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES", "elk.separateConnectedComponents": "true",
       "elk.spacing.componentComponent": "70", "elk.spacing.labelNode": "6", "elk.edgeLabels.placement": "CENTER",
       "elk.layered.cycleBreaking.strategy": "GREEDY", "elk.aspectRatio": String(aspect || 1.6),
-      "elk.layered.wrapping.strategy": S.wrap ? "MULTI_EDGE" : "OFF", "elk.layered.wrapping.additionalEdgeSpacing": "20",
-      "elk.layered.wrapping.correctionFactor": "1.2", "elk.padding": "[top=40,left=40,bottom=40,right=40]",
+      "elk.padding": "[top=40,left=40,bottom=40,right=40]",
     },
   };
-  return elk.layout(graph);
+  const lay = await elk.layout(graph);
+  if (cuts.length) {
+    restack(lay, g);
+    routeCuts(lay, cuts);
+  }
+  return lay;
+}
+
+/* a wrapped layout's chains, one per row, in the model's order (upstream first), each left aligned */
+function restack(lay, g) {
+  const order = Object.fromEntries(g.nodes.map((n, i) => [n.id, i]));
+  const parent = Object.fromEntries(lay.children.map((c) => [c.id, c.id]));
+  const root = (x) => (parent[x] === x ? x : (parent[x] = root(parent[x])));
+  const owner = (p) => (p in parent ? p : p.replace(/:(in|out|ctl)$/, ""));   // a port's node (a cloud's own id ends in :in)
+  for (const e of lay.edges) {
+    const a = owner(e.sources[0]), b = owner(e.targets[0]);
+    if (a in parent && b in parent) parent[root(a)] = root(b);
+  }
+  const comps = {};
+  for (const c of lay.children) (comps[root(c.id)] ||= []).push(c);
+  const groups = Object.values(comps).map((cs) => {
+    const x0 = Math.min(...cs.map((c) => c.x)), y0 = Math.min(...cs.map((c) => c.y - (c.labels?.length ? 0 : 0)));
+    const y1 = Math.max(...cs.map((c) => c.y + c.height + Math.max(0, ...(c.labels || []).map((l) => l.y + l.height - c.height))));
+    // a stock's place in the model orders the rows; clouds and the like come with their chain
+    const first = Math.min(...cs.map((c) => (c.id.startsWith("stock:") ? order[c.id] : 1e9)), ...cs.map((c) => order[c.id] ?? 1e9));
+    return { cs, x0, y0, h: y1 - y0, first, ids: new Set(cs.map((c) => c.id)) };
+  }).sort((a, b) => a.first - b.first);
+  let y = 40, width = 0;
+  for (const gr of groups) {
+    const dx = 40 - gr.x0, dy = y - gr.y0;
+    for (const c of gr.cs) { c.x += dx; c.y += dy; width = Math.max(width, c.x + c.width); }
+    for (const e of lay.edges) {
+      if (!gr.ids.has(owner(e.sources[0]))) continue;
+      for (const sec of e.sections || []) for (const p of [sec.startPoint, sec.endPoint, ...(sec.bendPoints || [])]) { p.x += dx; p.y += dy; }
+      for (const l of e.labels || []) { l.x += dx; l.y += dy; }
+    }
+    y += gr.h + 70;                                   // room between rows for the pipe that joins them
+  }
+  lay.width = width + 40;
+  lay.height = y - 30;
+}
+
+/* each coupling pipe drawn by hand: out of the valve, down into the gap above the next row, across,
+   and into the stock from its left, so the rows read as one chain */
+function routeCuts(lay, cuts) {
+  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
+  for (const e of cuts) {
+    const a = box[e.source], b = box[e.target];
+    if (!a || !b) continue;
+    const sx = a.x + a.width, sy = a.y + a.height / 2, tx = b.x, ty = b.y + b.height / 2;
+    // the gap: just above the highest thing in the target's row, or below the source's when the target is above
+    const row = lay.children.filter((c) => Math.abs(c.y + c.height / 2 - ty) < 160);
+    const gapY = ty > sy ? Math.min(...row.map((c) => c.y)) - 26 : Math.max(...lay.children.filter((c) => Math.abs(c.y + c.height / 2 - sy) < 160).map((c) => c.y + c.height)) + 26;
+    const turn = Math.max(sx + 18, ...(a.labels || []).map((l) => a.x + l.x + l.width + 12));   // clear of the valve's labels
+    const pts = sy === ty ? [] : [{ x: turn, y: sy }, { x: turn, y: gapY }, { x: tx - 24, y: gapY }, { x: tx - 24, y: ty }];
+    lay.width = Math.max(lay.width, turn + 30);
+    lay.edges.push({ id: e.id, sections: [{ startPoint: { x: sx, y: sy }, bendPoints: pts, endPoint: { x: tx, y: ty } }], cut: true });
+  }
 }
 
 /* node shapes, drawn with their top-left at 0,0 */
@@ -501,14 +568,15 @@ async function pageDiagram(main, q) {
     for (const [k, v] of [...p]) if (!v) p.delete(k);
     location.hash = "#/diagram?" + p.toString();
   }
+  const wrapBtn = h("button", { class: S.wrap ? "on" : "", title: "fold a chain of loops into rows, at the pipes between loops",
+                               onclick: () => { S.wrap = !wrapBtn.classList.contains("on"); S.graphSig = ""; S.fitted = false; route(); } }, "wrap");
   const toolbar = h("div", { class: "toolbar" },
     h("span", { class: "muted" }, "system"), sysSel,
     h("span", { class: "seg" },
       h("button", { class: view === "control" ? "on" : "", onclick: () => go({ view: "control" }) }, "control"),
       h("button", { class: view === "blocks" ? "on" : "", title: "each loop as a classic feedback block diagram", onclick: () => go({ view: "blocks" }) }, "blocks"),
       h("button", { class: view === "wiring" ? "on" : "", onclick: () => go({ view: "wiring" }) }, "wiring")),
-    h("button", { class: S.wrap ? "on" : "", title: "fold a long chain into rows",
-                  onclick: () => { S.wrap = !S.wrap; S.graphSig = ""; S.fitted = false; route(); } }, "wrap"),
+    wrapBtn,
     around ? h("span", { class: "pill" }, "around " + around, " ", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); go({ around: "" }); } }, "×")) : null);
   const zoom = h("div", { class: "zoom" },
     h("span", { id: "panhint", class: "muted panhint", hidden: true }, "more beyond the edge: drag, or"),
@@ -560,7 +628,16 @@ async function pageDiagram(main, q) {
     if (sg !== S.graphSig) {
       const r = svg.getBoundingClientRect();
       const aspect = r.width && r.height ? r.width / Math.max(r.height - 80, 200) : 1.6;
-      S.layout = await layoutGraph(g, g.kind === "wiring" ? aspect * 2.5 : aspect);   // wiring: pack the components side by side
+      const asp = g.kind === "wiring" ? aspect * 2.5 : aspect;      // wiring: pack the components side by side
+      // a chain of loops far wider than the window is folded at the pipes between loops, unless told not to
+      let lay = await layoutGraph(g, asp, S.wrap === true && g.kind === "control");
+      S.wrapAuto = false;
+      if (S.wrap == null && g.kind === "control" && couplings(g).length && lay.width / lay.height > 2 * asp) {
+        lay = await layoutGraph(g, asp, true);
+        S.wrapAuto = true;
+      }
+      S.layout = lay;
+      wrapBtn.classList.toggle("on", S.wrap === true || (S.wrap == null && S.wrapAuto));
       S.graphSig = sg;
     } else {
       // same structure: keep positions, redraw with new values (label texts may change length slightly)
