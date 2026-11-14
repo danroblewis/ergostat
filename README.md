@@ -27,7 +27,8 @@ working on it in [CLAUDE.md](CLAUDE.md).
 ## Start
 
 ```bash
-uv tool install --force ~/ergostat         # or: uv run ergostat ... from this folder
+uv tool install git+ssh://git@github.com/danroblewis/ergostat   # private: needs your GitHub SSH key
+# (from a clone: uv tool install --force ./ergostat; update later with: uv tool upgrade ergostat)
 cd <your repository>
 ergostat check --example cron > ergostat.toml   # two one-liners that run as they are
                                            # (--example: one program to write; or ergostat chat, the Supervisor)
