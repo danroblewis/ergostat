@@ -127,6 +127,9 @@ def build() -> argparse.ArgumentParser:
             sp.add_argument("--note", help="with --opened: what was done")
         if t == "sensor":
             sp.add_argument("--read", type=float, metavar="V", help="a person records a reading")
+            sp.add_argument("--forget-above", type=float, metavar="V", help="set aside readings above V (wrong ones: they "
+                                                                          "would skew every rate and residual)")
+            sp.add_argument("--forget-below", type=float, metavar="V", help="set aside readings below V")
         if t == "controller":
             sp.add_argument("--decided", metavar="TEXT", help="a person records a decision")
     r = topic("run", cmd_run, "Start the agents (in the background) and the web page", named=False)

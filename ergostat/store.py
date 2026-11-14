@@ -37,6 +37,12 @@ create table if not exists samples (
   value real not null
 );
 create index if not exists samples_series on samples(series, time);
+create table if not exists forgotten (
+  series text not null,
+  time real not null,
+  value real not null,
+  forgotten_at real not null
+);
 """
 
 
@@ -273,8 +279,32 @@ class Measurements:
         mid = [(r[0], r[1]) for r in rows if first[0] < r[0] < last[0]]
         return [(first[0], first[1]), *mid, (last[0], last[1])]
 
+    def forget(self, series: str, above: float | None = None, below: float | None = None) -> list[tuple[float, float]]:
+        """Set readings aside: those above ``above`` or below ``below``. They are kept in their own
+        table, out of every estimate (a wrong reading poisons rates and residuals for the whole
+        window). Returns what was set aside."""
+        cond, args = [], []
+        if above is not None:
+            cond.append("value > ?")
+            args.append(above)
+        if below is not None:
+            cond.append("value < ?")
+            args.append(below)
+        if not cond:
+            return []
+        where = f"series = ? and ({' or '.join(cond)})"
+        with self._c() as c:
+            c.execute("begin immediate")
+            rows = c.execute(f"select time, value from samples where {where}", (series, *args)).fetchall()
+            c.execute(f"insert into forgotten(series, time, value, forgotten_at) select series, time, value, ? from samples where {where}",
+                      (time.time(), series, *args))
+            c.execute(f"delete from samples where {where}", (series, *args))
+            c.execute("commit")
+        return [(r[0], r[1]) for r in rows]
+
     def prune(self, before: float) -> int:
         with self._c() as c:
+            c.execute("delete from forgotten where time < ?", (before,))
             return c.execute("delete from samples where time < ?", (before,)).rowcount
 
     def series(self) -> list[dict]:

@@ -477,3 +477,13 @@ def test_a_bare_number_counts_only_when_the_run_said_no_json(repo):
     repo.write("clean.py", 'import json\nprint(json.dumps({"valve": "delete-old-files", "amount": 3}))\nprint(2)\n')
     r = runner.run_agent(p, p.model.agents["cleaner"].__class__(**{**p.model.agents["cleaner"].__dict__, "command": "python3 clean.py"}))
     assert r["openings"] == 1 and p.events.opened("delete-old-files", 0)["amount"] == 3
+
+
+def test_a_wrong_reading_can_be_set_aside(project):
+    now = time.time()
+    for i, v in enumerate([70, 71, 1.7e9, 72]):
+        project.measurements.add("sensor/disk-usage", v, at=now - 300 + i * 60)
+    gone = project.measurements.forget("sensor/disk-usage", above=1000)
+    assert [v for _, v in gone] == [1.7e9]
+    assert max(v for _, v in project.measurements.range("sensor/disk-usage", now - 600)) == 72
+    assert project.measurements.forget("sensor/disk-usage", above=1000) == []

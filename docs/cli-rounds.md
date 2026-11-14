@@ -475,3 +475,12 @@ Nine findings; applied:
 
 Not applied: a cron time inside the hour the clocks skip in spring does not run that day
 (Vixie cron runs it after the gap); the repeated autumn hour runs twice. Noted, not changed.
+
+## Round 25: the wrong first reading (from the fourth review, left open in round 22)
+
+A broken first run recorded an age of 1.79 billion seconds; for the rest of the hour every rate
+and residual on that stock was nonsense, and `--since` could not get past it.
+
+- `ergostat sensor NAME --forget-above V` (and `--forget-below V`) sets the readings aside: they
+  move to their own table, kept, out of every estimate, and `ergostat.forgotten` records what was
+  set aside and why. On the reviewer's record, the residual went from −1794679277 to 14.

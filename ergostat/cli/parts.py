@@ -46,8 +46,32 @@ def record_by_a_person(args) -> int | None:
     return 0
 
 
+def forget_readings(args) -> int | None:
+    """``sensor NAME --forget-above V`` / ``--forget-below V``: set wrong readings aside (a broken
+    first run, a unit mix-up). They are kept apart, out of every estimate, and the record says so."""
+    above, below = getattr(args, "forget_above", None), getattr(args, "forget_below", None)
+    if args.topic != "sensor" or (above is None and below is None):
+        return None
+    p = open_project(args)
+    if args.name not in p.model.sensors:
+        print(f"no sensor {args.name!r}", file=sys.stderr)
+        return 2
+    gone = p.measurements.forget(f"sensor/{args.name}", above, below)
+    if not gone:
+        print(f"no reading of {args.name} is {'above ' + fmt(above) if above is not None else ''}"
+              f"{' or ' if above is not None and below is not None else ''}{'below ' + fmt(below) if below is not None else ''}")
+        return 0
+    p.events.add("ergostat.forgotten", item=args.name, source="ergostat",
+                 data={"above": above, "below": below, "count": len(gone), "values": [v for _, v in gone[:20]]})
+    print(f"set aside {len(gone)} reading{'' if len(gone) == 1 else 's'} of {args.name}: "
+          + ", ".join(f"{fmt(v)} ({ago(t)})" for t, v in gone[:5]) + (" ..." if len(gone) > 5 else ""))
+    return 0
+
+
 def cmd_part(args) -> int:
     done = record_by_a_person(args)
+    if done is None:
+        done = forget_readings(args)
     if done is not None:
         return done
     p = open_project(args)
