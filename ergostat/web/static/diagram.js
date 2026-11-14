@@ -223,23 +223,36 @@ function drawGraph(svg, g, lay) {
     const taken = [];                                   // label boxes already placed, so overlapping hulls never stack names
     (S.status?.systems || []).forEach((name, si) => {
       const hue = (210 + si * 137.5) % 360;          // the golden angle: neighbours never share a colour
-      const boxes = lay.children.filter((c) => (byId[c.id]?.systems || []).includes(name)).map((c) => {
+      const members = lay.children.filter((c) => (byId[c.id]?.systems || []).includes(name));
+      if (!members.length) return;
+      const boxOf = (c) => {
         const ls = c.labels || [];      // a node's box, with its labels outside it
         const xs = [c.x, c.x + c.width, ...ls.flatMap((l) => [c.x + l.x, c.x + l.x + l.width])];
         const ys = [c.y, c.y + c.height, ...ls.flatMap((l) => [c.y + l.y, c.y + l.y + l.height])];
-        return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+        return { x: Math.min(...xs), y: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+      };
+      // one outline per connected group of the system's parts, so an outline never encloses parts
+      // outside the system just because they lie between two of its parts
+      const ids = new Set(members.map((c) => c.id));
+      const parent = Object.fromEntries(members.map((c) => [c.id, c.id]));
+      const root = (x) => (parent[x] === x ? x : (parent[x] = root(parent[x])));
+      for (const e of g.edges) if (ids.has(e.source) && ids.has(e.target)) parent[root(e.source)] = root(e.target);
+      const groups = {};
+      for (const c of members) (groups[root(c.id)] ||= []).push(boxOf(c));
+      Object.values(groups).sort((a, b) => b.length - a.length).forEach((bs) => {
+        const x0 = Math.min(...bs.map((b) => b.x)) - 22, y0 = Math.min(...bs.map((b) => b.y)) - 34;
+        const x1 = Math.max(...bs.map((b) => b.x1)) + 22, y1 = Math.max(...bs.map((b) => b.y1)) + 22;
+        const lw = name.length * 8 + 10;
+        let lx = x0 + 12;
+        for (let i = 0; i < 20 && taken.some((t) => Math.abs(t.y - y0) < 14 && lx < t.x + t.w && lx + lw > t.x); i++) {
+          const t = taken.find((t) => Math.abs(t.y - y0) < 14 && lx < t.x + t.w && lx + lw > t.x);
+          lx = t.x + t.w + 12;
+        }
+        taken.push({ x: lx, y: y0, w: lw });
+        hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16,
+                                 style: `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,45%,.45)` }),
+                     s("text", { x: lx, y: y0 + 18, style: `fill:hsl(${hue},55%,42%)` }, name));
       });
-      if (!boxes.length) return;
-      const x0 = Math.min(...boxes.map((b) => b.x)) - 22, y0 = Math.min(...boxes.map((b) => b.y)) - 34;
-      const x1 = Math.max(...boxes.map((b) => b.x + b.width)) + 22, y1 = Math.max(...boxes.map((b) => b.y + b.height)) + 22;
-      const lw = name.length * 8 + 10;
-      let lx = x0 + 12;
-      while (taken.some((t) => Math.abs(t.y - y0) < 14 && lx < t.x + t.w && lx + lw > t.x)) lx += 12;
-      for (const t of taken) if (Math.abs(t.y - y0) < 14 && lx < t.x + t.w && lx + lw > t.x) lx = t.x + t.w + 12;
-      taken.push({ x: lx, y: y0, w: lw });
-      hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16,
-                               style: `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,45%,.45)` }),
-                   s("text", { x: lx, y: y0 + 18, style: `fill:hsl(${hue},55%,42%)` }, name));
     });
     vp.append(hulls);
   }
