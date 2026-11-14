@@ -92,18 +92,28 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
 - **A stock's value** is the latest reading of a sensor that measures it; unmeasured is unknown.
 - **A flow's rate** (per hour) is its sensor's latest reading, else the amounts its valve opened.
 - **A residual** is a stock's change minus what its known flows explain (valve amounts between the
-  first and last reading; measured flows integrated over time). When an unmeasured disturbance
-  pushes that stock, the residual is its estimate (unless it would have to run backwards to explain
-  it: then it is flagged, never clamped); otherwise it is unexplained when larger than
-  5% of the flow and twice an ordinary non-zero step between readings (timing at the window's
-  edges is noise).
-- **A loop** is open (cannot close), unknown (no reading), holding (within setpoint ± tolerance)
-  or off. It cycled when a reading and a decision or opening both fell in the window.
-- **Hints** (the refactor path): a controller filled by a person, an AI agent or a decision that
-  decided the same thing (numbers taken out) at least 80% of at least 10 times could be filled by a
-  lower rung.
-- **Attention**, most important first: loops off, loops open, agents failing, lines refused,
-  missing readings (only while running), hints, unexplained residuals.
+  first and last reading; measured flows integrated over time; declared rates). When an unmeasured
+  disturbance pushes that stock, the residual is its estimate, unless it would have to run
+  backwards to explain it: then it is flagged, never clamped. Otherwise the residual is unexplained
+  when it is larger than 5% of the flow and twice an ordinary non-zero step between readings
+  (timing at the window's edges is noise), and the recent half of the window shows it too, the same
+  way (a one-off long ago in the window is not flagged for an hour).
+- **The error** is e = r − y, the control convention: negative when the value is too high, 0 on a
+  one-sided setpoint's satisfied side.
+- **A loop** is open (cannot close), unknown (no reading), holding, or off. The tolerance is a
+  hysteresis band on the side that matters: off past the setpoint by more than the tolerance,
+  holding again only back within the setpoint itself; a strict bound (`<`, `>`) counts the bound
+  as off. A loop acted when a reading and a decision or opening both fell in the window; its time
+  off is measured from its crossings.
+- **Hints**, apart from the problems:
+  - the refactor path: a controller filled by a person, an AI agent or a decision that decided the
+    same thing (numbers taken out) at least 80% of at least 10 times could be filled by a lower rung;
+  - a loop off at least half the time though it acts: saturated, when its valve moved less than
+    the load (a valve with more capacity, or less load); otherwise its controller samples too
+    slowly (run it more often).
+- **Attention**: problems first (loops off, loops open or unknown past two minutes of record,
+  agents failing, lines refused or unreadable, missing readings while running, unexplained
+  residuals), then the hints. What a run by hand refused is not kept as a problem.
 
 ## 6. The diagram
 
