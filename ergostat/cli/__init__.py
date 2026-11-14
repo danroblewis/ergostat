@@ -24,7 +24,7 @@ usage: ergostat [TOPIC] [NAME] [FLAGS]
   With no topic, ergostat shows what needs attention.
 
 the system
-  system         Draw a system (--wiring for how the agents talk), or list them
+  system         Draw a system (--blocks: each loop as a block diagram; --wiring: how agents talk)
   loop           The feedback loops: what each holds, how far off, each part along it
   check          Is the model whole? Unknown names, loops that cannot close
 
