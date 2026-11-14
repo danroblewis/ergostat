@@ -239,3 +239,32 @@ said nothing for: controller scratch-small (fine when there was nothing to do; a
 - `--now` now lists the roles the agent said nothing for: the likeliest thing missing from a new
   agent.
 - A run by hand was logged as "(schedule)"; it says "(by hand)". "1 readings" is "1 reading".
+
+## Round 13: a second independent review (a control engineer; a developer writing an agent)
+
+Eighteen findings; applied:
+
+- **The error's sign was y − r** while the legend said r − ym. It is e = r − y now, everywhere
+  (status, block view, what agents are given), and documented.
+- **The "off most of the time" hint could not tell saturation from slow sampling.** It now
+  compares the loop's valve flow with the load: "saturated: 466/h out while 902/h came in: a valve
+  with more capacity, or less load", and suggests faster sampling only when the valve can keep up
+  (and never to an event-driven controller).
+- **Tolerance was shown as ± on one-sided setpoints and had no hysteresis** (one loop crossed 90
+  times an hour). It is shown on the side it applies, `(+2)`, and is a hysteresis band: off past
+  r + tol, holding again only within r.
+- **Strict `<` and `>` were treated as `<=` and `>=`.** The bound itself counts as off.
+- **An unmeasured disturbance hid every fault on its stock**, its estimate clamped at zero. An
+  estimate that would have to run backwards is now flagged, and a disturbance can declare a known
+  rate (`rate = 1800` for time passing in the backups demo: its residual went to ~0).
+- **Another loop's output was drawn as an anonymous d.** It is named: "u of loop inbox-empty,
+  measured" (the loops are in series). The plant is marked ∫; H shows its sampling period.
+- **Agents got too little on stdin, and nulls were undocumented.** Each controller now comes with
+  op, target, tolerance and status; the guide says values can be null and are the last recorded.
+- **Bad lines were silently defaulted or dropped.** They are refused (amount or position required,
+  amounts not negative, decisions with words, type names, object data), and lines meant for
+  ergostat that cannot be read are counted and reported by `--now` and the status.
+- **Trial runs left permanent problems.** What a run by hand refuses is shown to the person who ran
+  it, not kept in "needs attention". `--now` shows only this run's log.
+- **The git-hygiene demo counted every merge twice** (printf repeated its format); the tool's
+  residual had flagged it correctly.

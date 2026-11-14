@@ -34,3 +34,4 @@ Work until 2pm.
 - 08:36 demo_check runs fresh copies; off-time per loop and a 'sample faster' hint (file-queue's cron archiver); README screenshots.
 - 08:39 scale: readings bucketed in SQL, keep = 30d pruning; ergostat projects and the header switcher.
 - 08:43 outlines per connected group; wiring labels on their edges; demos use @item; round 12 (a first agent from the guide).
+- 08:58 second independent review (control engineer, agent developer): e = r − y; saturation vs sampling; hysteresis; strict bounds; backwards disturbances flagged, declared rates; series loops named; strict agent lines; by-hand runs; run history charts; --watch.
