@@ -22,14 +22,33 @@ class Live:
     """The project, with its model re-read when the file changes."""
 
     def __init__(self, project):
+        import threading
         self.p = project
         self.mtime = self._mtime()
+        self._lock = threading.Lock()
+        self._snaps: dict = {}
 
     def _mtime(self):
         try:
             return self.p.model.path.stat().st_mtime if self.p.model.path else 0
         except OSError:
             return 0
+
+    def snapshot(self, p, window: float, at: float | None):
+        """The state, shared by the requests of one moment: the page asks for several parts of it
+        every few seconds, and each would otherwise estimate it all again. Kept 1.5s; a past
+        moment (``at``) is kept until the model changes."""
+        key = (window, at, self.mtime)
+        with self._lock:
+            got = self._snaps.get(key)
+            if got and (at is not None or time.time() - got[0] < 1.5):
+                return got[1]
+        snap = st.snapshot(p, window, at)
+        with self._lock:
+            if len(self._snaps) > 32:
+                self._snaps.clear()
+            self._snaps[key] = (time.time(), snap)
+        return snap
 
     def get(self):
         now = self._mtime()
@@ -74,7 +93,7 @@ def api(live: Live, path: str, q: dict):
             at = float(one("at"))
         except ValueError:
             at = None
-    snap = st.snapshot(p, _window(q), at)
+    snap = live.snapshot(p, _window(q), at)
     if head == "status":
         from ..runner import running_pid
         running = bool(running_pid(p))
