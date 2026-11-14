@@ -123,7 +123,8 @@ The control diagram is the product's main view. Conventions:
   bottom); a flow is a pipe; a valve is a bow tie on the pipe (filled: auto, half: advise, open:
   manual); a disturbance is a diamond with a wave; outside the boundary is a cloud; a sensor is a
   gauge; a controller is a box with a summing junction, its setpoint, status and last decision.
-  Every role carries a badge: the agent's kind, name and schedule, coloured by rung.
+  Every role carries a badge: the agent's kind, name and schedule, with a dot coloured by rung (hue
+  is otherwise kept for roles and status).
 - **Lines**: pipes are double lines with moving dots while they flow; measurement is dashed
   (stock to sensor), signal solid (sensor to controller), action purple (controller to valve).
   A loop's lines take its status colour (green holding, red off, amber open).
@@ -148,7 +149,13 @@ The control diagram is the product's main view. Conventions:
 ## 7. The command line
 
 `ergostat agent NAME --now` runs one agent at once, recorded like any run, and prints what it said;
-it is how an agent is tried while it is being written (`docs/writing-agents.md`).
+it is how an agent is tried while it is being written (`docs/writing-agents.md`, shipped as
+`ergostat help agents`).
+
+People fill roles too, and say what they did: `ergostat valve NAME --opened N [--note]`,
+`ergostat sensor NAME --read V`, `ergostat controller NAME --decided TEXT`, only for roles a person
+fills, checked like any agent's lines and recorded as that person. These are records of what was
+done, not changes to the system; a valve a person fills is manual unless the file says otherwise.
 
 
 `ergostat [TOPIC] [NAME] [FLAGS]`; topics are nouns, a name shows one. Bare `ergostat` is the
