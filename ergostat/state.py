@@ -122,7 +122,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         return change, explained, rest, abs(rest) > max(1e-9, 0.05 * (abs(change) + abs(explained)), 2 * typical)
 
     for name, s in stocks.items():
-        if s["change"] is None:
+        if s["change"] is None or not m.flows_of(name):    # no flows declared: a plain measurement, nothing to explain
             continue
         pts = full[name]
         span = max(pts[-1][0] - pts[0][0], 1e-9) / 3600.0

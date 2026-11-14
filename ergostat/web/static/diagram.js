@@ -239,7 +239,14 @@ function drawGraph(svg, g, lay) {
       for (const e of g.edges) if (ids.has(e.source) && ids.has(e.target)) parent[root(e.source)] = root(e.target);
       const groups = {};
       for (const c of members) (groups[root(c.id)] ||= []).push(boxOf(c));
-      Object.values(groups).sort((a, b) => b.length - a.length).forEach((bs) => {
+      // one outline around all of it when that encloses nothing outside the system; else one per group
+      const all = Object.values(groups).flat();
+      const R = { x: Math.min(...all.map((b) => b.x)), y: Math.min(...all.map((b) => b.y)),
+                  x1: Math.max(...all.map((b) => b.x1)), y1: Math.max(...all.map((b) => b.y1)) };
+      const intrudes = lay.children.some((c) => !ids.has(c.id) && byId[c.id]?.kind !== "cloud" &&
+        c.x < R.x1 && c.x + c.width > R.x && c.y < R.y1 && c.y + c.height > R.y);
+      const sets = intrudes ? Object.values(groups) : [all];
+      sets.sort((a, b) => b.length - a.length).forEach((bs) => {
         const x0 = Math.min(...bs.map((b) => b.x)) - 22, y0 = Math.min(...bs.map((b) => b.y)) - 34;
         const x1 = Math.max(...bs.map((b) => b.x1)) + 22, y1 = Math.max(...bs.map((b) => b.y1)) + 22;
         const lw = name.length * 8 + 10;
