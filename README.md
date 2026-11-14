@@ -101,6 +101,7 @@ ergostat event [--follow]    the raw record;  ergostat item [NAME]: events folde
 ergostat residual            what the model can't explain
 ergostat stock|flow|valve|sensor|controller|disturbance [NAME]
 ergostat check | run | web | chat
+ergostat projects            every project on this machine, which are running, and their pages
 ```
 
 Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` ago, `07:30`) and

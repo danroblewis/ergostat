@@ -168,5 +168,6 @@ A slider in the header moves the whole page to a past moment (the API's `at`), w
 - **Cascades.** A controller setting another's setpoint is not modelled.
 - **Channels.** The pub/sub topics as their own topic (`ergostat channel`) wait for a scenario
   that needs them.
-- **Several repositories at once.** Each repository has its own record and page; one page for all
-  of them is not built.
+- **Several repositories at once.** Each repository has its own record and page. `ergostat projects`
+  lists every project on the machine (its record's folder remembers the repository) and the page
+  header switches between running ones; one page drawing all of them together is not built.
