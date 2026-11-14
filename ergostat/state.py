@@ -220,7 +220,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                           "error": error, "status": status, "gaps": lp.gaps, "sensors": lp.sensors, "valves": lp.valves,
                           "flows": lp.flows, "controller": c.name, "last_read": last_read,
                           "last_decision": decisions[-1] if decisions else None, "last_opening": last_open,
-                          "observed": cycled, "off_share": round(off_share, 3)}
+                          "observed": cycled, "off_share": round(off_share, 3), "open_loop": lp.open_loop}
 
     agents = {}
     for a in m.agents.values():
