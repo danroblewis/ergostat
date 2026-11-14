@@ -679,7 +679,12 @@ function renderSide(side, g, view) {
   const att = h("div", { class: "att" });
   if (!problems.length) att.append(h("div", { class: "ok" }, "nothing needs you"));
   const MAX = 6;
-  for (const a of problems.slice(0, MAX)) att.append(h("div", { class: a.level }, h("b", {}, a.what), " ", a.says));
+  // a command the CLI would suggest becomes a link to the same view here
+  const linked = (says) => {
+    const m = /ergostat event --type (\S+?)\)?$/.exec(says);
+    return m ? [says.slice(0, m.index), h("a", { href: `#/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : says;
+  };
+  for (const a of problems.slice(0, MAX)) att.append(h("div", { class: a.level }, h("b", {}, a.what), " ", linked(a.says)));
   if (problems.length > MAX) att.append(h("div", { class: "more" }, `and ${problems.length - MAX} more: see Loops and Residuals`));
   side.append(att);
   if (hints.length) {

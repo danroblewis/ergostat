@@ -111,9 +111,9 @@ async function pageRecord(main, q) {
     const evs = await api("events", { n: 60, ...(runs.checked ? { runs: 1 } : {}), ...(filt.value ? { type: filt.value } : {}) });
     box.replaceChildren(eventsTable(evs, false));
     const its = await api("items");
-    items.replaceChildren(h("table", {}, h("tr", {}, ["item", "events", "latest", "last"].map((x) => h("th", {}, x))),
+    items.replaceChildren(h("table", {}, h("tr", {}, ["item", "events", "latest", "last", "first"].map((x) => h("th", {}, x))),
       its.slice(0, 40).map((i) => h("tr", { class: "click", onclick: () => { location.hash = `#/item/${encodeURIComponent(i.item)}`; } },
-        h("td", {}, h("b", {}, i.item)), h("td", { class: "num" }, i.n), h("td", {}, i.latest), h("td", {}, ago(i.last))))));
+        h("td", {}, h("b", {}, i.item)), h("td", { class: "num" }, i.n), h("td", {}, i.latest), h("td", {}, ago(i.last)), h("td", { class: "muted" }, ago(i.first))))));
   }
   await tick();
   S.timer = setInterval(tick, 3000);
