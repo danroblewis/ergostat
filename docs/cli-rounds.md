@@ -496,3 +496,13 @@ Most cron jobs act by the clock: `find -mmin +60 -delete` runs whatever the coun
   nothing"; the block view has `t: <schedule>` driving C with no Σ, and ym ending in "watched
   against r, not fed back"; the text views say the same; the wiring view finds no cycle. `check`
   warns when an open loop also lists `reads`. The plain-crontab pruner is one.
+
+## Round 27: after the reboot (an SRE puts it on a box for good)
+
+`ergostat run` started a background runner, and nothing started it again after a reboot; the SRE
+was about to write a launchd plist by hand, guessing the arguments.
+
+- `ergostat run --service` prints a launchd agent (macOS) or a systemd user unit (elsewhere) that
+  runs this repository's ergostat in the foreground, with its log and `ERGOSTAT_HOME`, restarted
+  after a crash or a reboot but not after `run --stop`; and says where to save it and how to load
+  it. It installs nothing: where it goes is the owner's to decide.

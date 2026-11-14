@@ -137,6 +137,8 @@ def build() -> argparse.ArgumentParser:
     r.add_argument("--stop", action="store_true", help="stop the ergostat running here, and its agents' runs")
     r.add_argument("--no-web", action="store_true", help="no web page")
     r.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
+    r.add_argument("--service", action="store_true", help="print a launchd agent (macOS) or systemd user unit that keeps it "
+                                                       "running across reboots; prints only, installs nothing")
     topic("projects", cmd_projects, "Every project on this machine, and which are running", named=False)
     hp = sub.add_parser("help", help="Guides: agents (writing one), ai-agents")
     hp.add_argument("name", nargs="?")

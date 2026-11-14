@@ -274,3 +274,16 @@ def test_a_snapshot_survives_html_in_the_record_and_odd_item_names(project):
     assert "<!--<script" not in html and "alert(1)</script>" not in html
     assert '"items/fix(1)"' in html                     # the key the page's encodeURIComponent asks for
     assert html.count("</script>") == html.lower().count("<script")
+
+
+def test_the_service_text_runs_this_repository_in_the_foreground(project):
+    import plistlib
+
+    from ergostat import service
+    cmd = service.command(project.repo, ["--no-web"])
+    assert cmd[-4:] == [str(project.repo), "run", "--foreground", "--no-web"]
+    plist = plistlib.loads(service.launchd("my repo", project.repo, cmd, project.dir).encode())
+    assert plist["ProgramArguments"] == cmd and plist["Label"] == "local.ergostat.my-repo"
+    assert plist["KeepAlive"] == {"SuccessfulExit": False}                       # a stop on purpose stays stopped
+    unit = service.systemd("t", project.repo, cmd, project.dir)
+    assert "Restart=on-failure" in unit and "--foreground" in unit

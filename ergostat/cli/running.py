@@ -29,6 +29,12 @@ def cmd_run(args) -> int:
             time.sleep(0.1)
         print(f"{pid} did not stop within 10s; it still holds {runner.pid_file(p)}", file=sys.stderr)
         return 1
+    if getattr(args, "service", False):
+        from ..service import text
+        body, how = text(p, [*(["--no-web"] if args.no_web else []), *(["--port", str(args.port)] if args.port else [])])
+        print(body, end="")
+        print(c(how, "dim"), file=sys.stderr)
+        return 0
     errors = [msg for lv, msg in mdl.check(p.model) if lv == "error"]
     if errors:
         print("the model has errors; fix them first (ergostat check):", file=sys.stderr)

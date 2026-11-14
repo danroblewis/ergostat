@@ -126,6 +126,7 @@ ergostat help agents         how to write an agent (also: help ai-agents)
 ergostat valve NAME --opened N    a person records what they did (also sensor --read, controller --decided)
 ergostat sensor NAME --forget-above V   set wrong readings aside (also --forget-below); the record says so
 ergostat snapshot            the page, as of now, in one HTML file that opens offline
+ergostat run --service       a launchd agent or systemd unit that keeps it running across reboots (printed only)
 ```
 
 Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` ago, `07:30`) and
