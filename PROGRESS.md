@@ -64,3 +64,4 @@ Work until 2pm.
 - 11:57 design SVG export (structure only).
 - 12:03 round 38: fifth code review (9/9 applied); design SVG. 99 tests.
 - 12:13 demo talking-scripts (parse, max, open loops); 11 demos.
+- 12:25 round 39: parity review applied (panels, whole-window trends, suggestions open). 100 tests.
