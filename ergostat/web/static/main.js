@@ -31,5 +31,6 @@ document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeDet
 (async () => {
   await refreshHeader();
   setInterval(refreshHeader, 3000);
+  if (!location.hash && window.innerWidth < 700) location.hash = "#/loops";   // on a phone, the loops first
   route();
 })();

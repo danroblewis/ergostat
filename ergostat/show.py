@@ -136,7 +136,8 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     e = f"e={fmt(s['error'])}" if s.get("error") is not None else "e"
     u = "u" if pos is None else f"u={fmt(pos)}"
     left = f"{r}─▶(Σ)─{e}─▶{ctl}─{u}─▶{vb}─▶"
-    joint = "(+)─▶" if dists else ""
+    drains = bool(v) and model.flows[model.valves[v].flow].source == lp.stock
+    joint = ("(−)─▶" if drains else "(+)─▶") if (dists or drains) else ""
     row = left + joint + sb + "──┬──▶ y"
     sum_at = len(r) + 3                                  # the column of Σ
     tee = len(row) - len("┬──▶ y")

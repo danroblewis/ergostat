@@ -167,6 +167,7 @@ async function pageCheck(main) {
   const list = h("div", { class: "att" });
   if (!st.check.length) list.append(h("div", { class: "ok" }, "the model is whole"));
   for (const c of st.check) list.append(h("div", { class: c.level === "error" ? "bad" : "" }, h("b", {}, c.level), " ", c.message));
-  p.append(list, h("h2", {}, "counts"), dl(Object.entries(st.counts).map(([k, v]) => [k, String(v)])));
+  p.append(list, h("h2", {}, "counts"), h("table", {}, h("tr", {}, Object.keys(st.counts).map((k) => h("th", {}, k))),
+    h("tr", {}, Object.values(st.counts).map((v) => h("td", { class: "num" }, String(v))))));
 }
 

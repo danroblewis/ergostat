@@ -67,6 +67,9 @@ tr.click:hover td { background: color-mix(in srgb, var(--accent) 5%, var(--panel
 .att .bad { border-left-color: var(--bad); }
 .att .ok { border-left-color: var(--ok); }
 .att .hint { border-left-color: var(--accent); }
+details.suggest, details.changes { margin-top: 10px; font-size: 13px; }
+details.suggest summary, details.changes summary { cursor: pointer; color: var(--accent); }
+details.suggest .hint { padding: 6px 10px; margin-top: 6px; border-left: 3px solid var(--accent); background: var(--bg); border-radius: 6px; }
 .att .more { border-left-color: var(--line); color: var(--muted); }
 .att b { font-weight: 600; }
 
@@ -78,7 +81,7 @@ tr.click:hover td { background: color-mix(in srgb, var(--accent) 5%, var(--panel
 .toolbar .seg button { border-radius: 0; margin-left: -1px; }
 .toolbar .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
 .toolbar .seg button:last-child { border-radius: 0 6px 6px 0; }
-.zoom { position: absolute; bottom: 14px; left: 12px; z-index: 2; display: flex; gap: 4px; }
+.zoom { position: absolute; bottom: 14px; right: 14px; z-index: 2; display: flex; gap: 4px; }
 .legend { font-size: 12px; display: grid; grid-template-columns: 28px auto; gap: 5px 8px; align-items: center; color: var(--muted); }
 .legend svg { display: block; }
 .legend .sym { font-family: var(--mono); font-weight: 700; color: var(--ink); text-align: center; }

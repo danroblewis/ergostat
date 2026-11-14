@@ -51,6 +51,13 @@ def select(model, system: str | None = None, around: str | None = None, depth: i
     return seen
 
 
+def _rate(rate, unit: str) -> str:
+    """``12 jobs/h``; ``?/h`` when unknown."""
+    if rate is None:
+        return "?" + unit
+    return fmt(rate) + (" " if unit != "/h" else "") + unit
+
+
 def _when(a) -> str:
     """An agent's schedule in a word or two, for its badge."""
     from .durations import human
@@ -109,8 +116,10 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         v = m.valve_of(n)
         glyph = "disturbance" if f.disturbance else "valve"
         pos = readings.get(f"valve/{v.name}") if v else None
+        end = m.stocks.get(f.target or "") or m.stocks.get(f.source or "")
+        unit = (end.unit + "/h") if end and end.unit else "/h"
         nodes.append(_node(f"flow:{n}", glyph, v.name if v else n, flow=n, rate=fl.get("rate"), position=pos,
-                           rateText=(fmt(fl.get("rate")) + "/h") if fl.get("rate") is not None else "?/h",
+                           rateText=_rate(fl.get("rate"), unit),
                            how=fl.get("how"), estimated=fl.get("estimated", False), mode=v.mode if v else None,
                            agent=agent_of.get(v.name) if v else None, description=(v.description if v else f.description),
                            systems=in_system.get(n, [])))

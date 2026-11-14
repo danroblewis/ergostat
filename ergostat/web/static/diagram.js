@@ -297,13 +297,14 @@ function applyView(svg) {
   if (vp) vp.setAttribute("transform", `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
 }
 
-function fit(svg, lay) {
+function fit(svg, lay, legible = false) {
   const r = svg.getBoundingClientRect();
   if (!lay || !r.width) return;
-  // fit, but never so small that the labels cannot be read: a wider system is panned
-  const k = Math.max(0.62, Math.min(1.25, Math.min((r.width - 40) / lay.width, (r.height - 90) / lay.height)));
-  const x = lay.width * k < r.width ? (r.width - lay.width * k) / 2 : 20;
-  S.view = { k, x, y: Math.max(56, (r.height - lay.height * k) / 2 + 20) };
+  // the "fit" button shows everything; the first view keeps labels legible, and a bigger system is panned
+  const whole = Math.min(1.25, (r.width - 40) / lay.width, (r.height - 90) / lay.height);
+  const k = legible ? Math.max(0.45, whole) : Math.max(0.08, whole);
+  const fitsW = lay.width * k <= r.width - 20, fitsH = lay.height * k <= r.height - 70;
+  S.view = { k, x: fitsW ? (r.width - lay.width * k) / 2 : 20, y: fitsH ? Math.max(56, (r.height - lay.height * k) / 2 + 20) : 60 };
   applyView(svg);
 }
 
@@ -438,7 +439,7 @@ async function pageDiagram(main, q) {
         wrap.append(h("div", { class: "empty" }, "no loops to draw"));
       } else {
         S.layout = drawBlocks(svg, g);
-        if (!S.fitted) { fit(svg, S.layout); S.fitted = true; }
+        if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
       }
       renderSide(side, g, "blocks");
       return;
@@ -460,7 +461,7 @@ async function pageDiagram(main, q) {
       // same structure: keep positions, redraw with new values (label texts may change length slightly)
     }
     drawGraph(svg, g, S.layout);
-    if (!S.fitted) { fit(svg, S.layout); S.fitted = true; }
+    if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
     renderSide(side, g, view);
   }
   await tick();
@@ -469,14 +470,21 @@ async function pageDiagram(main, q) {
 
 function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
+  const all = g.attention || st.attention;           // from the same snapshot as the diagram beside it
+  const problems = all.filter((a) => a.level !== "hint"), hints = all.filter((a) => a.level === "hint");
   side.replaceChildren();
   side.append(h("h3", {}, "needs attention"));
   const att = h("div", { class: "att" });
-  if (!st.attention.length) att.append(h("div", { class: "ok" }, "nothing needs you"));
+  if (!problems.length) att.append(h("div", { class: "ok" }, "nothing needs you"));
   const MAX = 6;
-  for (const a of st.attention.slice(0, MAX)) att.append(h("div", { class: a.level }, h("b", {}, a.what), " ", a.says));
-  if (st.attention.length > MAX) att.append(h("div", { class: "more" }, `and ${st.attention.length - MAX} more: see Loops and Residuals`));
+  for (const a of problems.slice(0, MAX)) att.append(h("div", { class: a.level }, h("b", {}, a.what), " ", a.says));
+  if (problems.length > MAX) att.append(h("div", { class: "more" }, `and ${problems.length - MAX} more: see Loops and Residuals`));
   side.append(att);
+  if (hints.length) {
+    const d = h("details", { class: "suggest" }, h("summary", {}, `suggestions (${hints.length}): cheaper agents could fill some roles`));
+    for (const a of hints) d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", a.says));
+    side.append(d);
+  }
   const loops = Object.entries(g.loops || {});
   if (view === "control" || view === "blocks") {
     side.append(h("h3", {}, `loops (${loops.length})`));
@@ -504,11 +512,15 @@ function renderSide(side, g, view) {
       h("b", {}, n.label), h("span", { class: "pill" }, `rung ${n.rung}`), h("div", { class: "sub" }, n.agentKind)));
   }
   if (st.changes?.length) {
-    side.append(h("h3", {}, "the model changed"));
+    const last = st.changes[st.changes.length - 1];
+    const n = (c) => c.added.length + c.removed.length + c.changed.length;
+    const d = h("details", { class: "changes" }, h("summary", {}, `the model was edited ${ago(last.time)}`,
+      h("span", { class: "muted" }, ` (${n(last)} part${n(last) === 1 ? "" : "s"}${st.changes.length > 1 ? `, ${st.changes.length} edits` : ""})`)));
     for (const c of st.changes.slice().reverse()) {
       const what = [...c.added.map((x) => "+" + x), ...c.removed.map((x) => "−" + x), ...c.changed.map((x) => "~" + x)];
-      side.append(h("div", { class: "change" }, h("span", { class: "muted num" }, ago(c.time)), " ", what.join("  ")));
+      d.append(h("div", { class: "change" }, h("span", { class: "muted num" }, ago(c.time)), " ", what.join("  ")));
     }
+    side.append(h("h3", {}, "the model"), d);
   }
   side.append(h("h3", {}, "how to read it"), S.legendEl || legend(view));
   side.append(h("h3", {}, "window"), h("div", { class: "muted" }, `rates and changes over the last ${S.since}`));

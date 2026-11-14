@@ -18,7 +18,8 @@ function blockLayout(g) {
     const dists = g.edges.filter((e) => e.kind === "pipe" && e.target === stock.id && !mine.has(e.source)
                                         && ["disturbance", "valve"].includes(byId[e.source]?.kind))
                         .map((e) => byId[e.source]);
-    rows.push({ name, lp, ctl, stock, sensors, valves, dists });
+    const drains = valves.length && g.edges.some((e) => e.kind === "pipe" && e.source === stock.id && e.target === valves[0].id);
+    rows.push({ name, lp, ctl, stock, sensors, valves, dists, drains });
   }
   return rows;
 }
@@ -89,18 +90,20 @@ function drawBlocks(svg, g) {
                      "var(--panel)", v ? "var(--valve)" : "var(--warn)", v,
                      v?.agent ? label(vw / 2, 60, badgeText(v.agent)) : null));
     // the disturbance joins at the plant's input
-    if (row.dists.length) {
+    if (row.dists.length || row.drains) {
+      // the plant's input: the actuator's flow (− when it drains the stock) and any disturbance (+)
       loopG.append(...line([[X.valve + vw, cy], [X.dsum - 14, cy]], "", "var(--pipe)"));
-      loopG.append(sum(X.dsum, cy, [[-22, -16, "+"], [18, -20, "+"]]));
+      loopG.append(sum(X.dsum, cy, [[-22, -16, row.drains ? "−" : "+"], [18, -20, row.dists.length ? "+" : ""]]));
+    }
+    if (row.dists.length) {
       const d = row.dists[0];
       const more = row.dists.length > 1 ? ` (+${row.dists.length - 1} more)` : "";
       const who = d.kind === "valve" && d.agent ? ` · ${d.agent.name}` : "";
       loopG.append(...line([[X.dsum, cy - 70], [X.dsum, cy - 14]], "", "var(--dist)"));
       loopG.append(label(X.dsum + 8, cy - 74, `d: ${d.label}${who} ${d.rateText}${d.estimated ? " (est.)" : ""}${more}`, "t-sub", "start"));
-      loopG.append(...line([[X.dsum + 14, cy], [X.stock, cy]], "", "var(--pipe)"));
-    } else {
-      loopG.append(...line([[X.valve + vw, cy], [X.stock, cy]], "", "var(--pipe)"));
     }
+    if (row.dists.length || row.drains) loopG.append(...line([[X.dsum + 14, cy], [X.stock, cy]], "", "var(--pipe)"));
+    else loopG.append(...line([[X.valve + vw, cy], [X.stock, cy]], "", "var(--pipe)"));
     // the plant: the stock
     loopG.append(box(X.stock, cy - 36, sw, 72, row.stock.label, `plant · ${row.stock.valueText} ${row.stock.unit || ""}`,
                      "var(--stock)", "var(--stock-line)", row.stock));

@@ -79,9 +79,11 @@ def api(live: Live, path: str, q: dict):
         system = one("system") or None
         around = one("around") or None
         sel = graph.select(m, system, around, int(one("depth") or 1))
+        from ..runner import running_pid
+        att = st.attention(snap, bool(running_pid(p)) and snap["live"], m)
         if one("view") == "wiring":
-            return graph.wiring(m, p, snap, sel)
-        return graph.control(m, snap, sel, graph.readings(p, at))
+            return {**graph.wiring(m, p, snap, sel), "attention": att}
+        return {**graph.control(m, snap, sel, graph.readings(p, at)), "attention": att}
     if head == "systems":
         return [{"name": s, "description": m.systems[s].description if s in m.systems else "",
                  "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)]}
