@@ -57,6 +57,10 @@ job's own line with `| wc -l` or `| cut -f1` added is the whole agent, no script
 A role a person fills is recorded by them: `ergostat valve NAME --opened N`, `sensor NAME --read V`,
 `controller NAME --decided TEXT`. Tell the owner these when you give them a role.
 
+A reading that is plainly wrong (a broken first run, a unit mix-up) skews every rate and residual
+for the window: after fixing the agent, set it aside with `ergostat sensor NAME --forget-above V`
+(or `--forget-below V`) and say what you set aside and why.
+
 ## The refactor path
 
 Every role is expected to move down the ladder, from AI agent to decision to program to rule, and
