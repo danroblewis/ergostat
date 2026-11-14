@@ -68,3 +68,4 @@ Work until 2pm.
 - 12:35 switcher refresh, panel room, residuals caption; 11 demos pass; sixth code review launched.
 - 12:43 round 40: sixth code review (8/8). 101 tests.
 - 12:53 valve max on labels; design picture in README; items FIRST; refused link.
+- 12:54 wheel built and installed in a clean venv: blocks, snapshot, help, example all work.
