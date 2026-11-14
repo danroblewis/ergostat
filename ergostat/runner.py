@@ -35,6 +35,7 @@ OWN_TYPES = ("agent.", "loop.", "valve.", "controller.", "model.", "ergostat.") 
 LIVE: set = set()          # the runs in progress, so stopping ergostat stops them too
 STOPPING = threading.Event()  # set when ergostat itself stops: a run killed then is not the agent's failure
 STOPPED_WITH_US = "stopped with ergostat"
+RELOADED = threading.Event()  # this process is a runner restarted in place for a new model, not a fresh start
 
 
 def _kill(p) -> None:
@@ -73,7 +74,7 @@ def context(project, agent, trigger: dict | None) -> dict:
         if c.kind == "controller":
             v = values.get(c.holds)
             closes = bool(m.loop(c.name) and m.loop(c.name).closes)
-            last = project.events.query(n=1, item=c.name, type="loop.*")
+            last = project.events.query(n=1, item=c.name, type="loop.*", unvoided=True)
             op, target = c.target()
             ctls[c.name] = {"holds": c.holds, "setpoint": c.setpoint, "op": op, "target": target, "tolerance": c.tolerance,
                             "value": v, "drives": c.drives,
@@ -237,7 +238,7 @@ def _edges(project, causedby, sensor) -> list[dict]:
         if value is None:
             continue
         error = lp.controller.error(value)
-        last = project.events.query(n=1, item=lp.name, type="loop.*")
+        last = project.events.query(n=1, item=lp.name, type="loop.*", unvoided=True)
         before = last[0]["type"].split(".", 1)[1] if last else None
         now = lp.controller.status(value, was_off=before == "off")
         if before != now:
@@ -301,12 +302,6 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                     except Exception as e:                       # one bad line never leaves the run half done
                         crashed = crashed or f"{type(e).__name__}: {e}"
                         rec.refuse({"raw": raw[:200]}, f"could not record it ({type(e).__name__})")
-                try:
-                    became = rec.finish()
-                    if became:
-                        lf.write(f"[ergostat] the bare number {became}\n")
-                except Exception as e:
-                    crashed = crashed or f"{type(e).__name__}: {e}"
             finally:
                 code = p.wait()
                 timer.cancel()
@@ -318,9 +313,17 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                 note = STOPPED_WITH_US
             elif code != 0:
                 note = f"exited {code}"
+            if code == 0 and not killed.is_set():             # a bare number from a run that finished well, only
+                try:
+                    became = rec.finish()
+                    if became:
+                        lf.write(f"[ergostat] the bare number {became}\n")
+                except Exception as e:
+                    crashed = crashed or f"{type(e).__name__}: {e}"
     data = {"exit": code, "seconds": round(time.time() - started, 3), **rec.counts, "why": trigger["type"] if trigger else why,
             **({"unread_lines": rec.unread} if rec.unread else {}), **({"note": note} if note else {})}
-    project.events.add("agent.ran" if not note else "agent.failed", item=agent.name, source=SOURCE, causedby=begun["id"],
+    failed = bool(note) and note != STOPPED_WITH_US      # cut short by our own stop: not the agent's failure
+    project.events.add("agent.failed" if failed else "agent.ran", item=agent.name, source=SOURCE, causedby=begun["id"],
                        data=data)
     return data
 
@@ -422,20 +425,30 @@ class Runner:
     def start(self) -> None:
         from . import history
         history.note(self.p)
+        STOPPING.clear()
         seq = self.p.events.last_seq()
+        if not RELOADED.is_set():
+            self._still_off()
         for name in self.queues:
             threading.Thread(target=self._work, args=(name,), daemon=True).start()
         threading.Thread(target=self._schedule, daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         threading.Thread(target=self._prune, daemon=True).start()
         self.p.events.add("ergostat.started", source=SOURCE, data={"agents": sorted(self.queues), "pid": os.getpid()})
-        # a loop off when ergostat starts is said again: what its crossing set off may have been lost
-        # with the last run (a stop, a crash), and an agent listening for loop.off would wait forever
+
+
+    def _still_off(self) -> None:
+        """A loop off when ergostat starts is said again: what its crossing set off may have been lost
+        with the last run (a stop, a crash), and an agent listening for loop.off would wait forever.
+        Only on a fresh start (not a reload), only on a recent reading, before any agent runs."""
         from .state import snapshot
-        for name, lp in snapshot(self.p)["loops"].items():
-            if lp["status"] == "off":
-                self.p.events.add("loop.off", item=name, source=SOURCE,
-                                  data={"value": lp["value"], "setpoint": lp["setpoint"], "error": lp["error"], "still": True})
+        with EDGES:
+            snap = snapshot(self.p)
+            for name, lp in snap["loops"].items():
+                fresh = lp.get("last_read") and snap["at"] - lp["last_read"] < 600
+                if lp["status"] == "off" and fresh:
+                    self.p.events.add("loop.off", item=name, source=SOURCE,
+                                      data={"value": lp["value"], "setpoint": lp["setpoint"], "error": lp["error"], "still": True})
 
     def close(self) -> None:
         self.stop.set()
@@ -471,6 +484,7 @@ def take_lock(project) -> bool:
             fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)  # already ours: a no-op that proves it
             os.set_inheritable(f.fileno(), False)
             _LOCK = f
+            RELOADED.set()                               # the same runner, restarted with a new model
             return True
         except OSError:
             pass

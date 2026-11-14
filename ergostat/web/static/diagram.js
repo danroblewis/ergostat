@@ -445,6 +445,12 @@ function drawGraph(svg, g, lay) {
 function applyView(svg) {
   const vp = svg.querySelector("#viewport");
   if (vp) vp.setAttribute("transform", `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
+  // whether some of the diagram lies beyond the edge, after a drag or a zoom too
+  const hint = document.getElementById("panhint"), lay = S.layout, r = svg.getBoundingClientRect();
+  if (hint && lay && r.width) {
+    const k = S.view.k, x0 = S.view.x + (lay.ox || 0) * k, y0 = S.view.y + (lay.oy || 0) * k;
+    hint.hidden = x0 >= -2 && y0 >= -2 && x0 + lay.width * k <= r.width + 2 && y0 + lay.height * k <= r.height + 2;
+  }
 }
 
 function fit(svg, lay, legible = false) {
@@ -457,9 +463,6 @@ function fit(svg, lay, legible = false) {
   const fitsW = lay.width * k <= r.width - 20, fitsH = lay.height * k <= r.height - 120;   // the toolbars: 56 above, 50 below
   const ox = (lay.ox || 0) * k, oy = (lay.oy || 0) * k;
   S.view = { k, x: (fitsW ? (r.width - lay.width * k) / 2 : 20) - ox, y: (fitsH ? Math.max(56, (r.height - lay.height * k) / 2 + 20) : 60) - oy };
-  // the first view is legible, not always whole: say when some of it lies beyond the edge
-  const hint = document.getElementById("panhint");
-  if (hint) hint.hidden = S.view.x + ox + lay.width * k <= r.width + 2 && S.view.y + oy + lay.height * k <= r.height + 2;
   applyView(svg);
 }
 

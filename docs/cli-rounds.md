@@ -561,3 +561,27 @@ ELK's own wrapping cut it anywhere and sent pipes on long detours.
   command (`check --example cron > ergostat.toml`, then `run`) that gives a running loop and a
   diagram with nothing written.
 - "1 loops · 1 stocks": the counts agree with their number.
+
+## Round 32: a fourth code review (rounds 25-31)
+
+Nine findings, all applied:
+
+- Forgetting a wrong reading left the loop "off" (the crossing it caused stayed in the record):
+  the crossings whose value was forgotten are voided with it (listed in `ergostat.forgotten`,
+  left out wherever crossings are read), and the loop is judged again on what remains.
+- Every model reload said "still off" again, and on an old reading: only a fresh start does,
+  only on a reading under ten minutes old, before any agent runs and under the crossing lock.
+- A bare number was recorded from runs that failed, timed out or were killed: only from a run
+  that ended well.
+- Runs cut short by our own stop still counted as failures in `agent` and on the page: they are
+  recorded as runs, noted "stopped with ergostat".
+- An open loop that also listed `reads` was drawn with feedback: an open loop reads nothing.
+- `check --example cron` pruned the repository's own `tmp/`: it keeps to `.ergostat-example/`.
+- A service whose runner found another holding the lock restarted forever: "already running"
+  is not a failure.
+- The systemd unit did not escape `%` or `$`, quoted WorkingDirectory, and did not say a user
+  unit starts at login (`loginctl enable-linger`): all three; and the unit runs this very
+  ergostat, not whichever is first on PATH.
+- The block view's system tag ran into the loop name (measured now); the systems fallback
+  never applied; an open loop's `t:` says the full schedule, as the text view does; the "more
+  beyond the edge" hint follows drags and zooms.

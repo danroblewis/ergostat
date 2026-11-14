@@ -61,8 +61,15 @@ def forget_readings(args) -> int | None:
         print(f"no reading of {args.name} is {'above ' + fmt(above) if above is not None else ''}"
               f"{' or ' if above is not None and below is not None else ''}{'below ' + fmt(below) if below is not None else ''}")
         return 0
+    # the crossings those readings caused go with them: a loop is judged again on what remains
+    values, since = {v for _, v in gone}, min(t for t, _ in gone)
+    loops = [lp.name for lp in p.model.loops() if args.name in lp.sensors]
+    voids = [e["id"] for lp in loops for e in p.events.query(n=None, item=lp, type="loop.*", since=since - 1)
+             if e["data"].get("value") in values]
     p.events.add("ergostat.forgotten", item=args.name, source="ergostat",
-                 data={"above": above, "below": below, "count": len(gone), "values": [v for _, v in gone[:20]]})
+                 data={"above": above, "below": below, "count": len(gone), "values": [v for _, v in gone[:20]], "voids": voids})
+    from ..runner import edges
+    edges(p, None, sensor=args.name)
     print(f"set aside {len(gone)} reading{'' if len(gone) == 1 else 's'} of {args.name}: "
           + ", ".join(f"{fmt(v)} ({ago(t)})" for t, v in gone[:5]) + (" ..." if len(gone) > 5 else ""))
     return 0

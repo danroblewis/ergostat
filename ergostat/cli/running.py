@@ -55,8 +55,9 @@ def cmd_run(args) -> int:
         print(c("see it: ergostat · stop it: ergostat run --stop", "dim"))
         return 0
     if not runner.take_lock(p):
+        # not a failure: what was asked for (a runner here) is so; a service manager must not retry it
         print(f"already running ({runner.running_pid(p)}): one runner per repository", file=sys.stderr)
-        return 1
+        return 0
     stopping = []
     signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
     server = None

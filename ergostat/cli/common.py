@@ -136,7 +136,7 @@ systems = ["host"]
 [[disturbance]]
 name = "files-left"
 into = "tmp-files"
-description = "whatever leaves files in tmp/; nothing here controls it"
+description = "whatever leaves files in .ergostat-example/tmp/ (its own folder: point it at yours when you are ready)"
 
 [[flow]]
 name = "pruned"
@@ -163,12 +163,12 @@ agent = "pruner"
 [[agent]]
 name = "count"
 kind = "program"
-command = "mkdir -p tmp; find tmp -type f | wc -l"
+command = "mkdir -p .ergostat-example/tmp; find .ergostat-example/tmp -type f | wc -l"
 every = "1m"
 
 [[agent]]
 name = "pruner"
 kind = "rule"
-command = "find tmp -type f -mmin +60 -delete -print | wc -l"
+command = "find .ergostat-example/tmp -type f -mmin +60 -delete -print | wc -l"
 cron = "0 * * * *"
 '''

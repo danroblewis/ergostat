@@ -5,16 +5,14 @@ never installed: where it goes and when it is loaded is the owner's to decide.""
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
 
 
 def command(repo: Path, extra: list[str]) -> list[str]:
-    exe = shutil.which("ergostat")
-    head = [exe] if exe else [sys.executable, "-m", "ergostat"]
-    return [*head, "-C", str(repo), "run", "--foreground", *extra]
+    """This very ergostat (the Python running it), not whichever is first on PATH."""
+    return [sys.executable, "-m", "ergostat", "-C", str(repo), "run", "--foreground", *extra]
 
 
 def label(name: str) -> str:
@@ -49,19 +47,28 @@ def launchd(name: str, repo: Path, cmd: list[str], state: Path) -> str:
 
 
 def systemd(name: str, repo: Path, cmd: list[str], state: Path) -> str:
-    def q(a: str) -> str:
+    def pct(a: str) -> str:                     # % starts a specifier everywhere in a unit
+        return a.replace("%", "%%")
+
+    def q(a: str) -> str:                       # ExecStart's words: quoted when needed, $ not expanded
+        a = pct(a).replace("$", "$$")
         return '"' + a.replace("\\", "\\\\").replace('"', '\\"') + '"' if any(c in a for c in ' "\\') else a
-    env = "".join(f"Environment={q(k + '=' + os.environ[k])}\n" for k in ("ERGOSTAT_HOME", "PATH") if k in os.environ)
+
+    def qe(a: str) -> str:                      # an Environment= assignment
+        a = pct(a)
+        return '"' + a.replace("\\", "\\\\").replace('"', '\\"') + '"' if any(c in a for c in ' "\\') else a
+    env = "".join(f"Environment={qe(k + '=' + os.environ[k])}\n" for k in ("ERGOSTAT_HOME", "PATH") if k in os.environ)
+    log = pct(str(state / "run.log"))
     return f"""[Unit]
-Description=ergostat for {name} ({repo})
+Description=ergostat for {pct(name)} ({pct(str(repo))})
 
 [Service]
-WorkingDirectory={q(str(repo))}
+WorkingDirectory={pct(str(repo))}
 ExecStart={" ".join(q(a) for a in cmd)}
 {env}Restart=on-failure
 RestartSec=5
-StandardOutput=append:{state / "run.log"}
-StandardError=append:{state / "run.log"}
+StandardOutput=append:{log}
+StandardError=append:{log}
 
 [Install]
 WantedBy=default.target
@@ -80,5 +87,6 @@ def text(project, extra: list[str]) -> tuple[str, str]:
         return launchd(name, repo, cmd, state), how
     unit = f"ergostat-{label(name).removeprefix('local.ergostat.')}.service"
     how = (f"save it as ~/.config/systemd/user/{unit}, then: systemctl --user enable --now {unit}\n"
-           f"(stop it for good: systemctl --user disable --now {unit})")
+           f"(a user unit starts at login; to start at boot without one: loginctl enable-linger $USER. "
+           f"Stop it for good: systemctl --user disable --now {unit})")
     return systemd(name, repo, cmd, state), how

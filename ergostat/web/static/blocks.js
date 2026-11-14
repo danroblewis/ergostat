@@ -24,7 +24,7 @@ function blockLayout(g) {
     // feedforward: a sensor the controller reads that measures a disturbance, not the stock
     const ff = g.edges.filter((e) => e.kind === "signal" && e.target === ctl.id).map((e) => byId[e.source])
                       .filter((x) => x && x.measures !== lp.stock && dists.some((d) => d.flow === x.measures));
-    rows.push({ name, lp, ctl, stock, sensors, valves, dists, drains, ff, system: (stock.systems || ctl.systems || [])[0] || "" });
+    rows.push({ name, lp, ctl, stock, sensors, valves, dists, drains, ff, system: (stock.systems?.length ? stock.systems : ctl.systems || [])[0] || "" });
   }
   // the loops of one system together, systems in the order they first appear: the columns read by system
   const order = [...new Set(rows.map((r) => r.system))];
@@ -34,6 +34,7 @@ function blockLayout(g) {
 function drawBlocks(svg, g) {
   const rows = blockLayout(g);
   const vp = s("g", { id: "viewport" });
+  svg.replaceChildren(vp);                                // in the page from the start, so text can be measured
   // widths from the longest text in any row, so every row lines up and nothing overflows
   const tw = (t) => (t || "").length * 6.4 + 28;
   const cw = Math.max(190, ...rows.map((r) => Math.max(tw(r.ctl.label) + 10, tw("C · " + badgeText(r.ctl.agent)))));
@@ -82,16 +83,21 @@ function drawBlocks(svg, g) {
     const loopG = s("g", { class: "block-loop", "data-loop": row.name, transform: dx ? `translate(${dx},0)` : null });
     loopG.append(s("rect", { x: 6, y: y0 - 30, width: X.out + 70, height: RH - 20, rx: 14, fill: "none", stroke: "var(--line)", "stroke-dasharray": "4 4" }));
     // the system it belongs to, when there are several: a loop among 24 keeps its place
-    const sysTag = manySystems && row.system ? row.system.toUpperCase() + "  " : "";
-    if (sysTag) { const t = label(18, y0 - 10, sysTag, "t-sub sys-tag", "start"); loopG.append(t); }
-    const nx = 18 + sysTag.length * 7.2;
+    const sysTag = manySystems && row.system ? row.system.toUpperCase() : "";
+    let nx = 18;
+    if (sysTag) {
+      const t = label(18, y0 - 10, sysTag, "t-sub sys-tag", "start");
+      loopG.append(t);
+      vp.append(loopG);                                   // measured where it is drawn, then placed after it
+      nx = 18 + (t.getComputedTextLength?.() || sysTag.length * 8.5) + 10;
+    }
     loopG.append(label(nx, y0 - 10, row.name, "t-label", "start"), label(nx + row.name.length * 7.4 + 10, y0 - 10, st, "t-sub", "start"));
     loopG.lastChild.style.fill = tone;
     const sp = spText(row.lp);
     const open = row.lp.openLoop;
     if (open) {
       // an open loop: time drives the controller; nothing is compared, nothing fed back
-      loopG.append(label(X.r, cy - 8, `t: ${row.ctl.agent?.when || "its schedule"}`, "t-sub", "start"));
+      loopG.append(label(X.r, cy - 8, `t: ${row.ctl.agent?.schedule || row.ctl.agent?.when || "its schedule"}`, "t-sub", "start"));
       loopG.append(...line([[X.r, cy], [X.ctl, cy]], "", "var(--ink)"));
     } else {
       // r and the summing junction

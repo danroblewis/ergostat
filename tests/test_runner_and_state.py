@@ -418,6 +418,7 @@ def test_a_reload_hands_the_lock_on(project):
     finally:
         runner._LOCK.close()
         runner._LOCK = None
+        runner.RELOADED.clear()
 
 
 def test_defaults_filled_in_are_not_model_edits(repo):
@@ -499,5 +500,32 @@ def test_a_loop_off_at_start_is_said_again_and_a_stop_is_not_a_failure(project):
     finally:
         r.close()
         runner.STOPPING.clear()
-    project.events.add("agent.failed", item="cleaner", source="ergostat", data={"exit": -9, "note": runner.STOPPED_WITH_US})
+    import sys
+    repo_cmd = f"{sys.executable} -c 'import time; time.sleep(5)'"
+    a = project.model.agents["cleaner"]
+    slow = a.__class__(**{**a.__dict__, "command": repo_cmd})
+    import threading
+    t = threading.Thread(target=runner.run_agent, args=(project, slow))
+    t.start()
+    time.sleep(0.5)
+    runner.kill_all()                                            # as ergostat's own stop does
+    t.join()
+    runner.STOPPING.clear()
+    last = project.events.query(n=1, item="cleaner", type="agent.*")[-1]
+    assert last["type"] == "agent.ran" and last["data"]["note"] == runner.STOPPED_WITH_US
     assert not state.snapshot(project)["agents"]["cleaner"]["failing"]
+
+
+def test_forgetting_a_reading_forgets_the_crossing_it_caused(project, repo):
+    import subprocess
+    import sys
+    for v in (50.0, 9999.0, 82.0):
+        project.measurements.add("sensor/disk-usage", v)
+        runner.edges(project, None, sensor="disk-usage")
+    assert state.snapshot(project)["loops"]["disk-under-80"]["status"] == "off"      # the 9999 crossed, 82 is in the band
+    env = {**os.environ}
+    r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(repo.path), "sensor", "disk-usage", "--forget-above", "1000"],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr
+    snap = state.snapshot(project)
+    assert snap["loops"]["disk-under-80"]["status"] == "holding" and snap["loops"]["disk-under-80"]["off_share"] < 0.05

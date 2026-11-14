@@ -113,13 +113,16 @@ class Events:
 
     def query(self, *, n: int | None = 100, type: str | None = None, item: str | None = None, source: str | None = None,
               since: float | None = None, after_seq: int | None = None, until: float | None = None,
-              skip: tuple[str, ...] = ()) -> list[dict]:
+              skip: tuple[str, ...] = (), unvoided: bool = False) -> list[dict]:
         """Matching events, oldest first; the newest ``n`` when ``n`` is given. ``type`` may end in
         ``*``; types in ``skip`` are left out."""
         where, args = [], []
         if skip:
             where.append(f"type not in ({','.join('?' * len(skip))})")
             args.extend(skip)
+        if unvoided:                                     # crossings a forgotten reading caused are left out
+            where.append("id not in (select j.value from events f, json_each(f.data, '$.voids') j "
+                         "where f.type = 'ergostat.forgotten')")
         if type:
             if type.endswith("*"):
                 where.append("type like ?")

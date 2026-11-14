@@ -164,7 +164,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
                            decision=((lp.get("last_decision") or {}).get("data") or {}).get("decision"),
                            decisionAt=(lp.get("last_decision") or {}).get("time"), openLoop=c.open_loop,
                            systems=in_system.get(n, [])))
-        for s in c.reads:
+        for s in ([] if c.open_loop else c.reads):        # an open loop reads nothing, whatever it lists
             if s in parts:
                 edges.append(_edge(f"sensor:{s}", f"controller:{n}", "signal"))
         for v in c.drives:

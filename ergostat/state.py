@@ -190,7 +190,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             status, error = "unknown", None
         else:
             error = c.error(value)
-            last = project.events.query(n=1, item=lp.name, type="loop.*", until=now)
+            last = project.events.query(n=1, item=lp.name, type="loop.*", until=now, unvoided=True)
             status = c.status(value, was_off=bool(last and last[-1]["type"] == "loop.off"))
         decisions = project.events.query(n=1, type="controller.decided", item=c.name, until=now)
         last_open = max((o["time"] for v in lp.valves for o in project.events.query(n=1, type="valve.opened", item=v, until=now)),
@@ -198,7 +198,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         reads = [project.measurements.latest(f"sensor/{s}", now) for s in lp.sensors]
         last_read = max((r[0] for r in reads if r), default=None)
         # how much of the recorded window the loop spent off, from its crossings
-        crossings = project.events.query(n=None, item=lp.name, type="loop.*", until=now)
+        crossings = project.events.query(n=None, item=lp.name, type="loop.*", until=now, unvoided=True)
         off_time, off_from = 0.0, None
         before = [e for e in crossings if e["time"] < start]
         if before and before[-1]["type"] == "loop.off":
@@ -239,8 +239,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                         stale.append(r.name)
         agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles],
                           "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, **counted,
-                          "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"
-                                                            and (last_any.get("data") or {}).get("note") != "stopped with ergostat"),
+                          "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),
                           "running_since": running_since}
 
