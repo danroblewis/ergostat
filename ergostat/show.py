@@ -86,7 +86,9 @@ def system_lines(model, snap: dict, parts: set[str]) -> str:
         for f in rest:
             fl = snap["flows"][f.name]
             sym = "~" if f.disturbance else "⋈"
-            rate = f"{fmt(fl['rate'])}/h" if fl["rate"] is not None else "?/h"
+            end = model.stocks.get(f.target or "") or model.stocks.get(f.source or "")
+            unit = f" {end.unit}/h" if end and end.unit else "/h"
+            rate = f"{fmt(fl['rate'])}{unit}" if fl["rate"] is not None else f"?{unit}"
             out.append(f"  {f.source or '○'} ─{sym} {f.name} ({rate}, {fl['how']})─▶ {f.target or '○'}")
     loose = [s for s in model.stocks if s in parts and not any(lp.stock == s for lp in model.loops())]
     if loose:
