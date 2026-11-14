@@ -88,8 +88,12 @@ def cmd_run(args) -> int:
                 except Exception as e:
                     print(f"{mdl.FILE} changed but does not load ({e}); still running the last one", flush=True)
                     continue
-                if any(lv == "error" for lv, _ in mdl.check(fresh)):
-                    print(f"{mdl.FILE} changed but has errors (ergostat check); still running the last one", flush=True)
+                errors = [msg for lv, msg in mdl.check(fresh) if lv == "error"]
+                if errors:                                  # each one, so the log alone is enough to fix it
+                    print(f"{mdl.FILE} changed but has {len(errors)} error{'s' if len(errors) > 1 else ''}; "
+                          f"still running the last one:", flush=True)
+                    for msg in errors:
+                        print(f"  {msg}", flush=True)
                     continue
                 print(f"{mdl.FILE} changed: restarting with it", flush=True)
                 reload = True
