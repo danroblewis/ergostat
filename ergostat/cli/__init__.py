@@ -70,11 +70,11 @@ def build() -> argparse.ArgumentParser:
         """The flags every topic takes; a topic's copy never overwrites what came before the topic."""
         f = argparse.ArgumentParser(add_help=False)
         d = {"default": argparse.SUPPRESS} if suppress else {}
-        f.add_argument("-C", metavar="DIR", **d)
-        f.add_argument("-s", "--system", **d)
-        f.add_argument("--since", **d)
-        f.add_argument("--at", **d, help="look at a past moment: 30m (ago), 07:30, or epoch seconds")
-        f.add_argument("--json", action="store_true", **d)
+        f.add_argument("-C", metavar="DIR", help="run as if in DIR", **d)
+        f.add_argument("-s", "--system", metavar="NAME", help="only the parts in this system", **d)
+        f.add_argument("--since", metavar="TIME", help="the window to look at (10m, 2h, 1d; default 1h)", **d)
+        f.add_argument("--at", metavar="TIME", **d, help="as it was then: 30m (ago), 07:30, or epoch seconds")
+        f.add_argument("--json", action="store_true", help="output for scripts and agents", **d)
         return f
     common = flags(True)
     ap = argparse.ArgumentParser(prog="ergostat", add_help=False, parents=[flags(False)])
@@ -86,7 +86,7 @@ def build() -> argparse.ArgumentParser:
     def topic(name, fn, help, named=True, desc=None):
         sp = sub.add_parser(name, parents=[common], help=help, description=desc or help)
         if named:
-            sp.add_argument("name", nargs="?")
+            sp.add_argument("name", nargs="?", metavar="NAME", help=f"show one {name} in detail (leave out: list them all)")
         sp.set_defaults(fn=fn)
         return sp
     s = topic("system", cmd_system, "Draw a system, or list them",
@@ -104,27 +104,27 @@ def build() -> argparse.ArgumentParser:
     ag = topic("agent", cmd_agent, "Who fills which roles, at what rung")
     ag.add_argument("--now", action="store_true", help="run this agent once, at once (recorded like any run)")
     e = topic("event", cmd_event, "The raw record, or one event with its causes (by id)")
-    e.add_argument("-n", type=int, default=30)
-    e.add_argument("--type")
-    e.add_argument("--item")
-    e.add_argument("--source")
-    e.add_argument("--follow", "-f", action="store_true")
+    e.add_argument("-n", type=int, default=30, help="how many (default 30)")
+    e.add_argument("--type", help="only this type (a glob ending in * matches a prefix: valve.*)")
+    e.add_argument("--item", help="only events about this item")
+    e.add_argument("--source", help="only events from this agent (or ergostat)")
+    e.add_argument("--follow", "-f", action="store_true", help="keep printing as events arrive")
     i = topic("item", cmd_item, "Events folded by id")
-    i.add_argument("-n", type=int, default=30)
+    i.add_argument("-n", type=int, default=30, help="how many (default 30)")
     i.add_argument("--all", action="store_true", help="also the parts and agents ergostat's own events are about")
     topic("residual", cmd_residual, "What the model can't explain")
     for t in PART_TOPICS:
         topic(t, cmd_part, f"The {t}s, or one").set_defaults(fn=cmd_part, topic=t)
     r = topic("run", cmd_run, "Start the agents (in the background) and the web page", named=False)
-    r.add_argument("--foreground", action="store_true")
-    r.add_argument("--stop", action="store_true")
-    r.add_argument("--no-web", action="store_true")
-    r.add_argument("--port", type=int)
+    r.add_argument("--foreground", action="store_true", help="stay attached instead of running in the background")
+    r.add_argument("--stop", action="store_true", help="stop the ergostat running here, and its agents' runs")
+    r.add_argument("--no-web", action="store_true", help="no web page")
+    r.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     w = topic("web", cmd_web, "Serve the web page only", named=False)
-    w.add_argument("--port", type=int)
+    w.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     chat = sub.add_parser("chat", parents=[common], help="Talk to the Supervisor")
-    chat.add_argument("message", nargs="*")
-    chat.add_argument("--print-prompt", action="store_true")
+    chat.add_argument("message", nargs="*", help="what to say first (optional)")
+    chat.add_argument("--print-prompt", action="store_true", help="print the Supervisor's brief instead of starting it")
     chat.set_defaults(fn=cmd_chat)
     return ap
 

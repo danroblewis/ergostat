@@ -507,7 +507,7 @@ function renderSide(side, g, view) {
           h("div", { class: "sub" }, cy.loop ? "a declared loop accounts for it" : "something runs in a circle that no loop declares")));
       }
     }
-    side.append(h("h3", {}, "agents"));
+    side.append(h("h3", {}, `agents in this view (${g.nodes.length})`));
     for (const n of g.nodes) side.append(h("div", { class: "looprow", onclick: () => openAgent(n.label) },
       h("b", {}, n.label), h("span", { class: "pill" }, `rung ${n.rung}`), h("div", { class: "sub" }, n.agentKind)));
   }

@@ -26,7 +26,9 @@ def cmd_agent(args) -> int:
             if not a["runs_itself"]:
                 when = "a person" if a["kind"] == "person" else "not run by ergostat"
             last = a["last"]
-            if a.get("running_since"):
+            if a["kind"] == "person":
+                state_txt = c("–", "dim")
+            elif a.get("running_since"):
                 state_txt = c(f"running for {human(time.time() - a['running_since'])}", "accent")
             else:
                 state_txt = (c("failing", "bad") if a["failing"] else (ago(last["time"]) if last else c("never ran", "dim")))
