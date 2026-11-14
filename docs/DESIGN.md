@@ -118,7 +118,9 @@ The control diagram is the product's main view. Conventions:
   shrinks text below legibility; a bigger system is panned and zoomed.
 - **The wiring view** draws agents (coloured by rung, with schedule and roles) and an arrow when
   one agent's output reaches another: through a sensor or valve it hands on, through a stock, or
-  through an event type it listens for. It runs top to bottom.
+  through an event type it listens for. It runs top to bottom. The cycles among the agents are
+  listed, each with the declared loop that accounts for it; a cycle no loop declares is something
+  running in a circle that nobody designed.
 - **The block view** draws each loop as a classic negative-feedback block diagram, one row per
   loop: the setpoint r into a summing junction (Σ, + and −), the error e into the controller C, its
   output u into the actuator (the valve), a second junction where the disturbance d joins, the
@@ -128,6 +130,10 @@ The control diagram is the product's main view. Conventions:
 - **Export**: "save SVG" writes a standalone file, every style inlined.
 
 ## 7. The command line
+
+`ergostat agent NAME --now` runs one agent at once, recorded like any run, and prints what it said;
+it is how an agent is tried while it is being written (`docs/writing-agents.md`).
+
 
 `ergostat [TOPIC] [NAME] [FLAGS]`; topics are nouns, a name shows one. Bare `ergostat` is the
 status. `system` draws (`--all`, `--around PART`, `--wiring`, `--list`, `--open`); `loop` adds each
@@ -140,9 +146,11 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 ## 8. The web page
 
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
-owner's absence*), read only. Pages: Diagram (with the side panel: attention, loops, model changes,
-legend), Loops, Agents (the ladder, one column per rung), Record (events, with runs hidden by
-default; items), Residuals, Check. Clicking a part opens what `ergostat <topic> <name>` shows.
+owner's absence*), read only. Pages: Diagram (control, blocks and wiring views; the side panel:
+attention, loops or cycles, model changes, legend), Loops, Agents (the ladder, one column per
+rung), Parts (every kind of part, as the command line's part topics), Record (events, with runs
+hidden by default; items), Residuals, Check, and a Guide that explains the ideas with the system's
+own parts as examples. Clicking a part opens what `ergostat <topic> <name>` shows.
 A slider in the header moves the whole page to a past moment (the API's `at`), with
 "back to live". Light and dark themes; usable at phone width.
 
@@ -155,3 +163,5 @@ A slider in the header moves the whole page to a past moment (the API's `at`), w
 - **Cascades.** A controller setting another's setpoint is not modelled.
 - **Channels.** The pub/sub topics as their own topic (`ergostat channel`) wait for a scenario
   that needs them.
+- **Several repositories at once.** Each repository has its own record and page; one page for all
+  of them is not built.
