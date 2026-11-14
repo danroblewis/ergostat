@@ -40,6 +40,11 @@ const RUNG_NAMES = ["person", "ai", "narrow-ai", "decision", "program", "rule"];
 const RUNG_HINT = ["the most general agent", "a universal AI agent", "an AI agent with one job", "a short model call with fixed answers",
                    "deterministic code", "a threshold or a table", "the work designed out"];
 const rungColor = (r) => `var(--r${r})`;
+const RUNG_LETTER = ["H", "A", "N", "D", "P", "R", "–"];   // human, ai, narrow-ai, decision, program, rule, retired
+function rungDot(r, cx, cy, rad = 5.5) {              // the kind's colour, and its letter, so colour is never the only cue
+  return s("g", {}, s("circle", { cx, cy, r: rad, fill: rungColor(r) }),
+    s("text", { x: cx, y: cy + rad * 0.55, "text-anchor": "middle", class: "rung-letter", style: `font-size:${rad * 1.45}px` }, RUNG_LETTER[r] ?? "?"));
+}
 const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "?");
 
 /* a snapshot (`ergostat snapshot`): the answers were taken once and are in the page */

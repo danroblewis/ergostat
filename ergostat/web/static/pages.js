@@ -39,7 +39,7 @@ async function pageAgents(main) {
     const cols = [...RUNG_NAMES, "retired"];
     cols.forEach((k, i) => {
       const filled = Object.values(agents).some((a) => a.rung === i);
-      const col = h("div", { class: "rung" + (filled ? "" : " empty-rung") }, h("h4", {}, h("span", { style: `color:${rungColor(i)}` }, "● "), `${i} ${k}`), h("div", { class: "hint" }, RUNG_HINT[i]));
+      const col = h("div", { class: "rung" + (filled ? "" : " empty-rung") }, h("h4", {}, h("i", { class: "kdot", style: `background:${rungColor(i)}` }, RUNG_LETTER[i]), ` ${i} ${k}`), h("div", { class: "hint" }, RUNG_HINT[i]));
       for (const [name, a] of Object.entries(agents).filter(([, a]) => a.rung === i)) {
         col.append(h("div", { class: "card" + (a.failing ? " failing" : ""), onclick: () => openAgent(name) },
           h("b", {}, name),

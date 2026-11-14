@@ -88,7 +88,7 @@ function badge(a, x, y) {
   const t = badgeText(a), w = textWidth(t) + 24;
   return s("g", { class: "badge", transform: `translate(${x - w / 2},${y})` },
     s("rect", { width: w, height: 16, rx: 8, fill: "var(--panel)", stroke: "var(--line)", "stroke-width": 1 }),
-    s("circle", { cx: 9, cy: 8, r: 4, fill: rungColor(a.rung) }),
+    rungDot(a.rung, 9, 8),
     s("text", { x: w / 2 + 5, y: 11.5, "text-anchor": "middle" }, t));
 }
 
@@ -195,7 +195,8 @@ function drawAgent(n, w, hgt) {
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 10, fill: "var(--panel)", stroke: n.failing ? "var(--bad)" : "var(--line)", "stroke-width": 2 }));
   g.append(s("rect", { width: 6, height: hgt, rx: 3, fill: rungColor(n.rung) }));
   g.append(s("text", { x: 16, y: 20, class: "t-label" }, n.label));
-  g.append(s("text", { x: w - 10, y: 20, class: "t-sub", "text-anchor": "end" }, `rung ${n.rung} · ${n.agentKind}`));
+  g.append(s("text", { x: w - 26, y: 20, class: "t-sub", "text-anchor": "end" }, `rung ${n.rung} · ${n.agentKind}`));
+  g.append(rungDot(n.rung, w - 14, 16, 6.5));
   const when = n.schedule || "";
   g.append(s("text", { x: 16, y: 38, class: "t-sub" }, when + (n.runs ? ` · ${n.runs} runs` : "")));
   [...(n.roles || []).map((r) => `${r.kind} ${r.name}`), ...(n.loads || []).map((d) => `the load: ${d}`)].slice(0, 3)
@@ -379,10 +380,14 @@ function fit(svg, lay, legible = false) {
   if (!lay || !r.width) return;
   // the "fit" button shows everything; the first view keeps labels legible, and a bigger system is panned
   const whole = Math.min(1.25, (r.width - 40) / lay.width, (r.height - 90) / lay.height);
-  const k = legible ? Math.max(0.45, whole) : Math.max(0.08, whole);
-  const fitsW = lay.width * k <= r.width - 20, fitsH = lay.height * k <= r.height - 70;
+  // the first view keeps 11px text at 9px or more on screen; a wider system is panned from its left
+  const k = legible ? (whole >= 0.7 ? whole : 0.8) : Math.max(0.08, whole);   // nearly whole at 0.7: show it whole
+  const fitsW = lay.width * k <= r.width - 20, fitsH = lay.height * k <= r.height - 120;   // the toolbars: 56 above, 50 below
   const ox = (lay.ox || 0) * k, oy = (lay.oy || 0) * k;
   S.view = { k, x: (fitsW ? (r.width - lay.width * k) / 2 : 20) - ox, y: (fitsH ? Math.max(56, (r.height - lay.height * k) / 2 + 20) : 60) - oy };
+  // the first view is legible, not always whole: say when some of it lies beyond the edge
+  const hint = document.getElementById("panhint");
+  if (hint) hint.hidden = S.view.x + ox + lay.width * k <= r.width + 2 && S.view.y + oy + lay.height * k <= r.height + 2;
   applyView(svg);
 }
 
@@ -474,7 +479,7 @@ function legend(view) {
       row('<circle cx="13" cy="9" r="7" fill="var(--panel)" stroke="var(--ctl-line)" stroke-width="1.6"/><path d="M13,9 v-5 M13,9 l3,2" stroke="var(--ctl-line)" stroke-width="1.4" stroke-linecap="round"/>', "with a clock: an open loop (acts on time, reads nothing)"),
     row('<path d="M1 9 H25" stroke="var(--ok)" stroke-width="2"/>', "a loop holding (red: off, amber: open)"),
     row('<circle cx="13" cy="9" r="4.5" fill="var(--r4)"/>', "the agent filling a part, its dot by kind:"),
-    h("span", {}), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, h("i", { style: `background:${rungColor(i)}` }), k))));
+    h("span", {}), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, h("i", { style: `background:${rungColor(i)}` }, RUNG_LETTER[i]), k))));
 }
 
 async function pageDiagram(main, q) {
@@ -501,6 +506,7 @@ async function pageDiagram(main, q) {
                   onclick: () => { S.wrap = !S.wrap; S.graphSig = ""; S.fitted = false; route(); } }, "wrap"),
     around ? h("span", { class: "pill" }, "around " + around, " ", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); go({ around: "" }); } }, "×")) : null);
   const zoom = h("div", { class: "zoom" },
+    h("span", { id: "panhint", class: "muted panhint", hidden: true }, "more beyond the edge: drag, or"),
     h("button", { onclick: () => fit(svg, S.layout) }, "fit"),
     h("button", { title: "save the diagram as an SVG file", onclick: () => exportSvg(svg, `${S.status?.name || "ergostat"}-${system || "all"}-${view}.svg`) }, "save SVG"),
     h("button", { title: "save the diagram as a PNG picture, at twice the size", onclick: () => exportPng(svg, `${S.status?.name || "ergostat"}-${system || "all"}-${view}.svg`) }, "PNG"),

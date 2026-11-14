@@ -4,7 +4,7 @@
   --stock: #fffdf6; --stock-line: #2a2f36; --pipe: #2a2f36; --pipe-in: #f6f5f1; --info: #6b7079;
   --sensor: #e8f1fd; --sensor-line: #2f6fde; --ctl: #f3edfb; --ctl-line: #6a45b8; --valve: #2a2f36;
   --dist: #b7791f; --cloud: #f0eee8; --system: rgba(47, 111, 222, 0.05); --system-line: rgba(47, 111, 222, 0.28);
-  --r0: #a8577e; --r1: #6a45b8; --r2: #8a5fd0; --r3: #2f6fde; --r4: #1f8a5b; --r5: #5f7f2a; --r6: #8a8f98;
+  --r0: #d9480f; --r1: #6d28d9; --r2: #c026d3; --r3: #0e7490; --r4: #2f855a; --r5: #8a6d1c; --r6: #8a8f98;   /* six hues apart, plus a letter */
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: light;
 }
@@ -15,7 +15,7 @@
     --stock: #22252c; --stock-line: #d9d6cf; --pipe: #cfcbc2; --pipe-in: #15171b; --info: #9aa0a9;
     --sensor: #1c2a40; --sensor-line: #6f9cf0; --ctl: #2a2238; --ctl-line: #a98be6; --valve: #d9d6cf;
     --dist: #e0a548; --cloud: #262930; --system: rgba(111, 156, 240, 0.06); --system-line: rgba(111, 156, 240, 0.32);
-    --r0: #d886ad; --r1: #a98be6; --r2: #c0a4f0; --r3: #6f9cf0; --r4: #4fbf8a; --r5: #8cc46a; --r6: #8a8f98;
+    --r0: #ff8a4c; --r1: #a78bfa; --r2: #e879f9; --r3: #22d3ee; --r4: #4fbf8a; --r5: #d4b14a; --r6: #8a8f98;
     color-scheme: dark;
   }
 }
@@ -82,7 +82,8 @@ details.suggest .hint { padding: 6px 10px; margin-top: 6px; border-left: 3px sol
 .toolbar .seg button { border-radius: 0; margin-left: -1px; }
 .toolbar .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
 .toolbar .seg button:last-child { border-radius: 0 6px 6px 0; }
-.zoom { position: absolute; bottom: 14px; right: 14px; z-index: 2; display: flex; gap: 4px; }
+.zoom { position: absolute; bottom: 14px; right: 14px; z-index: 2; display: flex; gap: 4px; align-items: center; }
+.panhint { font-size: 12px; margin-right: 4px; background: var(--bg); padding: 2px 6px; border-radius: 6px; }
 .legend { font-size: 12px; display: grid; grid-template-columns: 28px auto; gap: 5px 8px; align-items: center; color: var(--muted); }
 .legend svg { display: block; }
 .legend .sym { font-family: var(--mono); font-weight: 700; color: var(--ink); text-align: center; }
@@ -127,7 +128,9 @@ svg.canvas.dragging { cursor: grabbing; }
 
 .badge text { fill: var(--ink) !important; font-size: 10.5px; font-weight: 600; }
 .legend .kinds { display: flex; flex-wrap: wrap; gap: 4px 10px; }
-.legend .kinds i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+.kdot, .legend .kinds i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 4px; color: #fff; font: 700 8px/12px system-ui, sans-serif;
+                   text-align: center; font-style: normal; vertical-align: 1px; }
+.badge .rung-letter, .rung-letter { fill: #fff !important; font-weight: 700; font-family: system-ui, sans-serif; }
 
 /* detail panel */
 .detail { position: fixed; top: 56px; right: 0; bottom: 0; width: min(440px, 100vw); background: var(--panel); border-left: 1px solid var(--line); box-shadow: -8px 0 24px rgba(0,0,0,.08); overflow: auto; padding: 16px 18px 40px; z-index: 5; }
