@@ -92,7 +92,12 @@ def api(live: Live, path: str, q: dict):
             if lp is None:
                 return None
             since = snap["at"] - snap["window"]
-            return {**lp, "crossings": p.events.query(n=20, item=name, type="loop.*", since=since, until=snap["at"]),
+            stock_pts = st.history(p, lp["stock"], since, snap["at"])
+            step = max(1, len(stock_pts) // 300)
+            openings = [{"time": e["time"], "amount": e["data"].get("amount"), "valve": e["item"]}
+                        for v in lp["valves"] for e in p.events.query(n=200, type="valve.opened", item=v, since=since, until=snap["at"])]
+            return {**lp, "points": stock_pts[::step], "openings": openings, "since": since, "until": snap["at"],
+                    "crossings": p.events.query(n=20, item=name, type="loop.*", since=since, until=snap["at"]),
                     "decisions": st.decisions(p, name, since, snap["at"]),
                     "hints": [h for h in snap["hints"] if h["controller"] == name]}
         return snap["loops"]
