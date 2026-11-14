@@ -87,7 +87,8 @@ def status(args) -> int:
             print(c(f"not running: these are the last readings, from {ago(last)}; nothing is measuring now", "warn"))
     if loops:
         print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "TIME OFF"],
-                    [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), st.setpoint_text(lp),
+                    [[n + (c(" ⏲", "dim") if lp.get("open_loop") else ""), show.status_word(lp["status"]), lp["stock"],
+                      fmt(lp["value"]), st.setpoint_text(lp),
                       (c(f"{round(lp['off_share'] * 100)}%", "bad" if lp["off_share"] >= 0.5 else "warn") if lp.get("off_share")
                        else ("0%" if lp.get("observed") else "-"))]
                      for n, lp in loops.items()]))
