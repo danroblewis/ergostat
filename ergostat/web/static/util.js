@@ -84,14 +84,22 @@ async function refreshHeader() {
     const sel = $("#project");
     if (!sel.dataset.filled) {
       sel.dataset.filled = "1";
-      sel.replaceChildren(h("option", { value: "" }, st.name));
-      try {
-        for (const p of await api("projects")) {
-          if (p.name === st.name || !p.web) continue;
-          sel.append(h("option", { value: p.web }, `${p.name}${p.off?.length ? " · " + p.off.length + " off" : ""}`));
-        }
-      } catch (e) { /* the list is a convenience */ }
       sel.addEventListener("change", () => { if (sel.value) location.href = sel.value + "/" + location.hash; });
+    }
+    // the other projects, refreshed with the header (not while the list is open): running ones to
+    // switch to, with what is off or unknown; stopped ones shown, not offered
+    if (document.activeElement !== sel && (!S.projectsAt || Date.now() - S.projectsAt > 9000)) {
+      S.projectsAt = Date.now();
+      try {
+        const opts = [h("option", { value: "" }, st.name)];
+        for (const p of await api("projects")) {
+          if (p.name === st.name) continue;
+          const bits = [p.off?.length ? `${p.off.length} off` : "", p.unknown?.length ? `${p.unknown.length} unknown` : "",
+                        p.web ? "" : "stopped"].filter(Boolean);
+          opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "" }, `${p.name}${bits.length ? " · " + bits.join(", ") : ""}`));
+        }
+        sel.replaceChildren(...opts);
+      } catch (e) { if (!sel.options.length) sel.replaceChildren(h("option", { value: "" }, st.name)); }
     }
     const off = Object.values(st.loops).filter((l) => l.status === "off").length;
     const run = $("#running");

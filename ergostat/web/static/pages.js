@@ -124,13 +124,21 @@ async function pageItem(main, name) {
 }
 
 async function pageResiduals(main) {
-  const p = page(main, "Residuals", "For each stock: how much its readings changed in the window, how much its known flows explain, and the rest. A disturbance nothing measures is estimated from the rest; anything left is unexplained, and worth a look.");
-  const r = await api("residuals");
-  p.append(h("table", {}, h("tr", {}, ["stock", "changed", "explained", "unexplained", ""].map((x) => h("th", {}, x))),
-    Object.entries(r).map(([k, v]) => h("tr", {}, h("td", {}, h("b", {}, k)), h("td", { class: "num" }, fmt(v.change)), h("td", { class: "num" }, fmt(v.explained)),
-      h("td", { class: "num" }, fmt(v.unexplained)),
-      h("td", {}, v.significant ? h("span", { class: "s-open status" }, "unexplained") : (v.absorbed_by.length ? `estimated as ${v.absorbed_by.join(", ")}` : h("span", { class: "s-holding status" }, "explained")))))));
-  if (!Object.keys(r).length) p.append(h("p", { class: "muted" }, "no stock has two readings in this window yet"));
+  const p = page(main, "Residuals", "For each stock: how much its readings changed in the window, how much its known flows explain, and the rest. A disturbance nothing measures is estimated from the rest (lumped: it holds every error in the model too); anything left is unexplained, and worth a look.");
+  const cap = h("p", { class: "muted" }), box = h("div");
+  p.append(cap, box);
+  async function tick() {
+    const r = await api("residuals");
+    const st = S.status, recorded = st?.first ? (st.at - st.first) : null, win = st?.window;
+    cap.textContent = win ? (recorded != null && recorded < win * 0.95 ? `over the ${dur(recorded)} recorded (the window is ${dur(win)})` : `over the last ${dur(win)}`) : "";
+    box.replaceChildren(h("table", {}, h("tr", {}, ["stock", "changed", "explained", "unexplained", ""].map((x) => h("th", {}, x))),
+      Object.entries(r).map(([k, v]) => h("tr", {}, h("td", {}, h("b", {}, k)), h("td", { class: "num" }, fmt(v.change)), h("td", { class: "num" }, fmt(v.explained)),
+        h("td", { class: "num" }, fmt(v.unexplained)),
+        h("td", {}, v.significant ? h("span", { class: "s-open status" }, "unexplained") : (v.absorbed_by.length ? `estimated as ${v.absorbed_by.join(", ")}` : h("span", { class: "s-holding status" }, "explained")))))));
+    if (!Object.keys(r).length) box.append(h("p", { class: "muted" }, "no stock has two readings in this window yet"));
+  }
+  await tick();
+  S.timer = setInterval(tick, 5000);
 }
 
 async function pageGuide(main) {

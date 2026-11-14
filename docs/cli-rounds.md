@@ -690,5 +690,6 @@ Applied:
 - In the command line: `system --wiring` says what a load agent fills ("nothing; the load: ...");
   the `loop` table marks open loops (⏲).
 
-Not applied (noted): the project switcher's counts refresh only on load; the detail panel covers
-the right of the page; Residuals has no refresh.
+- Then: the project switcher refreshes with the header (off and unknown loops, stopped projects
+  shown but not offered); a page makes room for the detail panel instead of hiding under it;
+  Residuals says the span it covers ("over the 15m recorded") and refreshes.
