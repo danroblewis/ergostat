@@ -68,7 +68,7 @@ def api(live: Live, path: str, q: dict):
         from ..runner import running_pid
         running = bool(running_pid(p))
         return {"name": m.name, "running": running, "live": snap["live"], "first": p.events.first_time(),
-                "attention": st.attention(snap, running), "loops": snap["loops"],
+                "attention": st.attention(snap, running and snap["live"], m), "loops": snap["loops"],
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],

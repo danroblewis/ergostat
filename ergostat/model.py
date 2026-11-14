@@ -418,7 +418,7 @@ def check(m: Model) -> list[tuple[str, str]]:
             if not first or not (shutil.which(first) or ("/" in first and (base / first).exists())):
                 warn(f"agent {a.name}: {first or 'its command'} not found" + ("" if "/" in first else " on PATH"))
         if not m.roles_of(a.name):
-            warn(f"agent {a.name}: fills no role")
+            out.append(("note", f"agent {a.name}: fills no role; if it changes anything, it is a disturbance"))
         if a.kind in ("person",) and a.command:
             warn(f"agent {a.name}: a person has no command; ergostat never runs it")
         if a.kind not in ("person",) and a.command and a.every is None and not a.on and not a.cron:

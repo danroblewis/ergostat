@@ -9,7 +9,7 @@ from .. import show
 from .. import state as st
 from ..show import c, table
 from ..state import fmt
-from .common import EXAMPLE, as_of, open_project, out_json, snap_of, window
+from .common import EXAMPLE, as_of, open_project, out_json, parts_of, snap_of, window
 
 
 def cmd_status(args) -> int:
@@ -17,22 +17,35 @@ def cmd_status(args) -> int:
     p = open_project(args)
     m, snap = p.model, snap_of(p, args)
     pid = running_pid(p)
-    att = st.attention(snap, running=bool(pid))
+    att = st.attention(snap, running=bool(pid) and snap["live"], model=m)
+    loops = snap["loops"]
+    if args.system:                                       # only what is in that system
+        parts = parts_of(args, m)
+        agents = {x.agent for t in (m.sensors, m.controllers, m.valves) for x in t.values() if x.name in parts}
+        loops = {n: lp for n, lp in loops.items() if n in parts}
+        att = [a for a in att if a["what"].split(" ", 1)[-1] in parts | agents or a["what"] == "the record"]
+    trouble = any(a["level"] in ("bad", "warn") for a in att)
+    code = 1 if (getattr(args, "exit_code", False) and trouble) else 0
     if args.json:
-        return out_json({"running": bool(pid), "web": web_url(p) if pid else None, "attention": att,
-                         "loops": snap["loops"], "counts": counts(p)})
+        out_json({"running": bool(pid), "web": web_url(p) if pid else None, "attention": att,
+                  "loops": loops, "counts": counts(p), "ok": not trouble})
+        return code
     run = c("running", "ok") + (f" · {web_url(p)}" if web_url(p) else "") if pid else c("not running", "warn") + " · start: ergostat run"
     print(f"{c('ergostat', 'bold')} · {m.name} · {run}{as_of(snap)}")
     if not m.stocks and not m.agents:
         print("the model is empty. describe your system with `ergostat chat`.")
         return 0
     print()
-    if att:
-        for a in att:
-            dot = c("○", "accent") if a["level"] == "hint" else c("●", a["level"])
-            print(f"  {dot} {a['what']}: {a['says']}")
-    else:
+    problems = [a for a in att if a["level"] != "hint"]
+    hints = [a for a in att if a["level"] == "hint"]
+    for a in problems:
+        print(f"  {c('●', a['level'])} {a['what']}: {a['says']}")
+    if not problems:
         print(f"  {c('●', 'ok')} nothing needs you")
+    if hints:
+        print(c(f"\n  suggestions ({len(hints)}): ergostat loop NAME shows the evidence", "dim"))
+        for a in hints:
+            print(f"  {c('○', 'accent')} {a['what']}: {a['says']}")
     print()
     if args.since:
         from .. import history
@@ -43,16 +56,15 @@ def cmd_status(args) -> int:
             what = [f"+{x}" for x in d["added"]] + [f"-{x}" for x in d["removed"]] + [f"~{x}" for x in d["changed"]]
             print(f"  {time.strftime('%H:%M:%S', time.localtime(e['time']))}  " + "  ".join(what))
         print()
-    loops = snap["loops"]
     if loops:
         print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT"],
-                    [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), lp["setpoint"]]
+                    [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), st.setpoint_text(lp)]
                      for n, lp in loops.items()]))
         print()
     k = counts(p)
     print(c(f"{k['loops']} loops · {k['stocks']} stocks · {k['flows']} flows · {k['agents']} agents · "
             f"{k['events']} events · {k['measurements']} measurements", "dim"))
-    return 0
+    return code
 
 def counts(p) -> dict:
     m = p.model
@@ -65,13 +77,18 @@ def cmd_check(args) -> int:
         return 0
     p = open_project(args)
     found = mdl.check(p.model)
-    if args.json:
-        return out_json([{"level": lv, "message": msg} for lv, msg in found])
     m = p.model
     errors = [x for x in found if x[0] == "error"]
-    head = (f"{len(m.stocks)} stocks · {len(m.flows)} flows · {len(m.sensors)} sensors · {len(m.controllers)} controllers · "
-            f"{len(m.valves)} valves · {len(m.agents)} agents · {len(m.system_names())} systems")
+    if args.json:
+        return out_json({"ok": not errors, "errors": len(errors), "warnings": len(found) - len(errors),
+                         "found": [{"level": lv, "message": msg} for lv, msg in found]}) or (1 if errors else 0)
+
+    def n(k, word):
+        return f"{k} {word}" + ("" if k == 1 else "s")
+    head = " · ".join([n(len(m.stocks), "stock"), n(len(m.flows), "flow"), n(len(m.sensors), "sensor"),
+                       n(len(m.controllers), "controller"), n(len(m.valves), "valve"), n(len(m.agents), "agent"),
+                       n(len(m.system_names()), "system")])
     print(f"{c('error', 'bad') if errors else c('ok', 'ok')}   {head}")
     for lv, msg in found:
-        print(f"{c(lv, 'bad' if lv == 'error' else 'warn'):<5}  {msg}")
+        print(f"{c(lv, {'error': 'bad', 'warn': 'warn'}.get(lv, 'dim')):<5}  {msg}")
     return 1 if errors else 0

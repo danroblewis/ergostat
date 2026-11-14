@@ -30,7 +30,18 @@ def cmd_part(args) -> int:
         if x is None:
             print(f"no {topic} {args.name!r}", file=sys.stderr)
             return 2
-        detail = {k: v for k, v in x.__dict__.items() if v not in ("", [], None)}
+        detail = {k: v for k, v in x.__dict__.items() if v not in ("", [], None, False)}
+        if getattr(x, "disturbance", False):                # say it the way the file does
+            detail.pop("disturbance", None)
+            if detail.pop("target", None):
+                detail["into"] = x.target
+            if detail.pop("source", None):
+                detail["out_of"] = x.source
+        elif topic == "flow":
+            if "source" in detail:
+                detail["from"] = detail.pop("source")
+            if "target" in detail:
+                detail["to"] = detail.pop("target")
         now = {"stock": snap["stocks"].get(x.name), "flow": snap["flows"].get(x.name),
                "disturbance": snap["flows"].get(x.name)}.get(topic)
         if topic == "sensor":
@@ -45,9 +56,9 @@ def cmd_part(args) -> int:
         print(f"{c(topic, 'dim')} {x.name}" + (f" · {x.description}" if x.description else ""))
         for k, v in detail.items():
             if k not in ("name", "description"):
-                print(f"  {k:<12} {v}")
+                print(f"  {k:<12} {', '.join(v) if isinstance(v, list) else v}")
         if now:
-            print(c("now", "dim"))
+            print(c("recent" if topic in ("valve", "sensor", "controller") else "now", "dim"))
             if topic == "stock":
                 print(f"  value       {fmt(now['value'])} {x.unit}  {show.spark(now['points'])}")
                 print(f"  measured    {ago(now['at']) if now['at'] else 'never'}" + (f" by {now['sensor']}" if now["sensor"] else ""))

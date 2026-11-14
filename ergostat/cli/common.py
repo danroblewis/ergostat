@@ -44,7 +44,10 @@ def at_of(args) -> float | None:
         return None
     import re
     from datetime import datetime, timedelta
+    forms = "a time ago (30m, 2h), a clock time today (07:30; yesterday when it is still to come), or epoch seconds"
     if m := re.fullmatch(r"(\d{1,2}):(\d{2})", v.strip()):
+        if int(m.group(1)) > 23 or int(m.group(2)) > 59:
+            raise DurationError(f"--at {v!r}: not a clock time; give {forms}")
         t = datetime.now().replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)
         if t > datetime.now():
             t -= timedelta(days=1)
@@ -55,7 +58,10 @@ def at_of(args) -> float | None:
             return x
     except ValueError:
         pass
-    return time.time() - parse_duration(v, "--at")
+    try:
+        return time.time() - parse_duration(v, "--at")
+    except DurationError:
+        raise DurationError(f"--at {v!r}: give {forms}") from None
 
 def snap_of(p, args) -> dict:
     return st.snapshot(p, window(args), at_of(args))

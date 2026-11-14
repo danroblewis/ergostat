@@ -49,7 +49,7 @@ def test_the_cli_topics_answer(repo, project, capsys):
     project.measurements.add("sensor/disk-usage", 85)
     rc, out = run_cli(repo, capsys=capsys)
     assert rc == 0 and "not running" in out and "disk-under-80" in out and "off by 5" in out
-    for args, expect in [(["check"], "1 stocks"), (["loop"], "disk-under-80"), (["loop", "disk-under-80"], "FILLED BY"),
+    for args, expect in [(["check"], "1 stock ·"), (["loop"], "disk-under-80"), (["loop", "disk-under-80"], "FILLED BY"),
                          (["agent"], "cleaner"), (["agent", "cleaner"], "fills"), (["system"], "host"),
                          (["system", "host"], "loop disk-under-80"), (["system", "--all", "--wiring"], "cleaner"),
                          (["stock"], "disk-used"), (["valve"], "delete-old-files"), (["disturbance"], "logs-written"),

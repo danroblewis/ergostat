@@ -17,6 +17,8 @@ def cmd_system(args) -> int:
     p = open_project(args)
     m = p.model
     snap = snap_of(p, args)
+    if args.blocks and not args.name and not args.around:
+        args.all = True                                   # blocks of everything, unless a system is named
     if not args.name and not args.all and not args.around:
         rows = []
         for s in m.system_names():
@@ -26,7 +28,10 @@ def cmd_system(args) -> int:
             rows.append([s, (m.systems[s].description if s in m.systems else ""), str(len(mem)), str(len(lps)),
                          c(str(len(off)), "bad") if off else "0"])
         if args.json:
-            return out_json([dict(zip(["system", "description", "parts", "loops", "off"], r, strict=True)) for r in rows])
+            return out_json([{"system": s, "description": m.systems[s].description if s in m.systems else "",
+                              "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)],
+                              "off": [n for n in snap["loops"] if n in m.members(s) and snap["loops"][n]["status"] in ("off", "open")]}
+                             for s in m.system_names()])
         print(table(["SYSTEM", "DESCRIPTION", "PARTS", "LOOPS", "OFF"], rows, "no systems: tag parts with systems = [...]"))
         print(c("\ndraw one: ergostat system NAME · everything: ergostat system --all", "dim"))
         return 0
@@ -87,18 +92,20 @@ def cmd_loop(args) -> int:
     snap = snap_of(p, args)
     parts = parts_of(args, m)
     if not args.name:
-        rows = [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), lp["setpoint"],
+        rows = [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), st.setpoint_text(lp),
                  fmt(abs(lp["error"])) if lp["error"] and lp["status"] == "off" else "", m.controllers[n].agent or "-",
                  "yes" if lp["observed"] else c("no", "dim")]
                 for n, lp in snap["loops"].items() if n in parts]
         if args.json:
             return out_json({n: lp for n, lp in snap["loops"].items() if n in parts})
-        print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "ERROR", "CONTROLLER AGENT", "CYCLED"], rows,
+        print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "ERROR", "CONTROLLER AGENT", "ACTED"], rows,
                     "no loops: a loop is a [[controller]] that holds a stock"))
+        if rows:
+            print(c(f"\nACTED: in the last {human(snap['window'])}, its sensor read and its controller decided or its valve opened", "dim"))
         return 0
     lp = snap["loops"].get(args.name)
     if lp is None:
-        print(f"no loop {args.name!r}", file=sys.stderr)
+        print(f"no loop {args.name!r}; loops: {', '.join(snap['loops']) or 'none'}", file=sys.stderr)
         return 2
     if args.json:
         return out_json(lp)
@@ -129,23 +136,26 @@ def cmd_loop(args) -> int:
             continue
         ops = p.events.query(n=1, type="valve.opened", item=v)
         mode = m.valves[v].mode
-        rows.append(["valve", f"{v} {c('(' + mode + ')', 'dim')}", show.agent_tag(m, m.valves[v].agent),
+        rows.append(["valve", f"{v} {c('(mode ' + mode + ')', 'dim')}", show.agent_tag(m, m.valves[v].agent),
                      f"opened {ago(ops[-1]['time'])}: {fmt(ops[-1]['data'].get('amount'))}" if ops else c("never opened", "dim")])
     flows = [f"{f} {fmt(snap['flows'][f]['rate'])}/h" for f in lp["flows"]]
     rows.append(["moves", ", ".join(flows) or "-", "", ""])
     print(table(["PART", "NAME", "FILLED BY", "LAST"], rows))
-    crossings = p.events.query(n=8, item=args.name, type="loop.*", since=snap["at"] - snap["window"], until=snap["at"])
+    all_crossings = p.events.query(n=None, item=args.name, type="loop.*", since=snap["at"] - snap["window"], until=snap["at"])
+    crossings = all_crossings[-8:]
     if crossings:
-        print(c(f"\ncrossings in {human(snap['window'])}", "dim"))
+        more = f", the newest {len(crossings)} of {len(all_crossings)}" if len(all_crossings) > len(crossings) else ""
+        print(c(f"\ncrossings of its setpoint in {human(min(snap['window'], snap['recorded'] or snap['window']))}{more}", "dim"))
         for e in crossings:
             word = e["type"].split(".", 1)[1]
             print(f"  {time.strftime('%H:%M:%S', time.localtime(e['time']))}  {show.status_word(word)}  "
                   f"{lp['stock']} {fmt(e['data'].get('value'))}" + (f", off by {fmt(abs(e['data']['error']))}" if word == "off" else ""))
     d = st.decisions(p, args.name, snap["at"] - snap["window"], snap["at"])
     if d["count"]:
-        print(c(f"\ndecisions in {human(snap['window'])}: {d['count']}", "dim"))
+        print(c(f"\ndecisions in {human(min(snap['window'], snap['recorded'] or snap['window']))}: {d['count']}, "
+                f"alike when only their numbers differ (N)", "dim"))
         for word, n in d["kinds"][:5]:
-            print(f"  {n:>5}  {word}")
+            print(f"  {n:>5}  {word.replace('#', 'N')}")
     for h in snap["hints"]:
         if h["controller"] == args.name:
             print(c("\nhint: ", "accent") + h["says"])

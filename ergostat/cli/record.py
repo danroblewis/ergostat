@@ -15,7 +15,8 @@ from .common import open_project, out_json, parts_of, snap_of
 def event_line(e: dict) -> str:
     t = time.strftime("%H:%M:%S", time.localtime(e["time"]))
     data = json.dumps(e["data"], separators=(",", ":")) if e["data"] else ""
-    return f"{c(t, 'dim')}  {e['type']:<20} {e.get('item') or '-':<20} {c(e.get('source') or '-', 'accent')}  {data[:100]}"
+    src = e.get("source") or "-"
+    return f"{c(t, 'dim')}  {e['type']:<20} {e.get('item') or '-':<20} {c(src, 'accent')}{' ' * max(1, 14 - len(src))}{data[:100]}"
 
 def cmd_event(args) -> int:
     p = open_project(args)
@@ -99,5 +100,7 @@ def cmd_residual(args) -> int:
         rows.append([k, fmt(r["change"]), fmt(r["explained"]), fmt(r["unexplained"]), verdict])
     print(table(["STOCK", "CHANGED", "EXPLAINED", "UNEXPLAINED", ""], rows,
                 "no stock has two readings in this window yet"))
-    print(c(f"\nover {human(snap['window'])}: what each stock's readings did, against what its known flows explain", "dim"))
+    span = min(snap["window"], snap["recorded"]) if snap.get("recorded") else snap["window"]
+    covered = (f"the {human(span)} recorded" if snap.get("recorded") and snap["recorded"] < snap["window"] - 1 else human(snap["window"]))
+    print(c(f"\nover {covered}: what each stock's readings did, against what its known flows explain", "dim"))
     return 0

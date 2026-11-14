@@ -56,10 +56,11 @@ def agent_tag(model, name: str | None) -> str:
 
 
 def loop_line(lp: dict, name: str) -> str:
+    from .state import setpoint_text
     val = f"{lp['stock']} {fmt(lp['value'])}"
     err = "" if lp["error"] in (None, 0) else (f"  off by {fmt(abs(lp['error']))}" if lp["status"] == "off"
                                                 else f"  within its tolerance of {fmt(lp['tolerance'])}")
-    return f"{name}  {status_word(lp['status'])}  {val}, setpoint {lp['setpoint']}{err}"
+    return f"{name}  {status_word(lp['status'])}  {val}, setpoint {setpoint_text(lp)}{err}"
 
 
 def system_lines(model, snap: dict, parts: set[str]) -> str:

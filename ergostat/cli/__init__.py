@@ -51,6 +51,7 @@ flags
   --since TIME       The window to look at (10m, 2h, 1d; default 1h)
   --at TIME          As it was then: 30m (ago), 07:30, or epoch seconds
   --json             Output for scripts and agents
+  --exit-code        The status exits 1 when something needs attention (for cron)
   -h, --help         Help (also: ergostat TOPIC --help)
   --version          Print the version
 
@@ -79,6 +80,7 @@ def build() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="ergostat", add_help=False, parents=[flags(False)])
     ap.add_argument("-h", "--help", action="store_true")
     ap.add_argument("--version", action="store_true")
+    ap.add_argument("--exit-code", action="store_true", help="the status exits 1 when anything needs attention (for cron)")
     sub = ap.add_subparsers(dest="topic")
 
     def topic(name, fn, help, named=True, desc=None):

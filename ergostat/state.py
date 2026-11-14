@@ -180,7 +180,9 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),
                           "running_since": running_since}
 
-    snap = {"at": now, "live": live, "window": window, "stocks": stocks, "flows": flows, "loops": loops, "residuals": residuals,
+    snap = {"at": now, "live": live, "window": window, "recorded": max(0.0, now - start) if oldest else 0.0,
+            "starts": oldest, "before_record": bool(oldest and now < oldest),
+            "stocks": stocks, "flows": flows, "loops": loops, "residuals": residuals,
             "agents": agents}
     snap["hints"] = ladder_hints(project, snap)
     return snap
@@ -216,21 +218,44 @@ def ladder_hints(project, snap: dict) -> list[dict]:
         if d["count"] >= LADDER_MIN and d["kinds"][0][1] / d["count"] >= LADDER_SHARE:
             word, n = d["kinds"][0]
             lower = "a rule" if a.rung >= 2 else "a decision or a rule"
+            word = word.replace("#", "N")
             out.append({"controller": c.name, "agent": a.name, "kind": a.kind, "share": n / d["count"], "count": d["count"],
                         "decision": word, "says": f"{a.name} ({a.kind}) decided \"{word}\" {n} of {d['count']} times: "
                                                   f"{lower} could fill controller {c.name}"})
     return out
 
 
-def attention(snap: dict, running: bool = True) -> list[dict]:
-    """What needs the owner, most important first. Missing readings count only while running."""
+LEVELS = {"bad": 0, "warn": 1, "hint": 2}
+UNKNOWN_GRACE = 120.0          # a loop with no reading this long after the record starts is a problem
+
+
+def setpoint_text(lp: dict) -> str:
+    return lp["setpoint"] + (f" (±{fmt(lp['tolerance'])})" if lp.get("tolerance") else "")
+
+
+def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
+    """What needs the owner: problems first (bad, then warnings), suggestions (hints) last.
+    Missing readings count only while running."""
+    if snap.get("before_record"):
+        import time as _t
+        return [{"level": "warn", "what": "the record", "says": "this moment is before the record starts "
+                 f"({_t.strftime('%Y-%m-%d %H:%M', _t.localtime(snap['starts']))}): nothing is known then"}]
     out = []
     for name, lp in snap["loops"].items():
         if lp["status"] == "off":
             out.append({"level": "bad", "what": f"loop {name}", "says": f"{lp['stock']} is {fmt(lp['value'])}, "
-                        f"setpoint {lp['setpoint']} (off by {fmt(abs(lp['error']))})"})
+                        f"setpoint {setpoint_text(lp)} (off by {fmt(abs(lp['error']))})"})
         elif lp["status"] == "open":
             out.append({"level": "warn", "what": f"loop {name}", "says": "cannot close: " + "; ".join(lp["gaps"])})
+        elif lp["status"] == "unknown" and running and snap.get("recorded", 0) > UNKNOWN_GRACE:
+            who = ""
+            if model is not None:
+                fillers = [model.sensors[s].agent for s in lp["sensors"] if model.sensors[s].agent in model.agents]
+                kinds = {model.agents[a].kind for a in fillers}
+                who = (" (its sensor is filled by a person, who has reported no reading)" if kinds == {"person"}
+                       else f" (sensor {', '.join(lp['sensors'])})")
+            out.append({"level": "warn", "what": f"loop {name}", "says": f"no reading of {lp['stock']} yet: "
+                        f"the loop cannot tell whether it holds{who}"})
     for name, a in snap["agents"].items():
         if a["failing"]:
             note = (a["last"] or {}).get("data", {}).get("note", "failed")
@@ -246,7 +271,7 @@ def attention(snap: dict, running: bool = True) -> list[dict]:
         if r["significant"]:
             out.append({"level": "warn", "what": f"stock {name}", "says": f"changed {fmt(r['change'])}, the known flows explain "
                         f"{fmt(r['explained'])}: {fmt(r['unexplained'])} unexplained"})
-    return out
+    return sorted(out, key=lambda a: LEVELS.get(a["level"], 1))
 
 
 def fmt(x) -> str:
