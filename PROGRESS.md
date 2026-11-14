@@ -53,3 +53,4 @@ Work until 2pm.
 - 10:43 round 27: run --service (launchd/systemd text). Guide explains open loops. Visual design review launched. 88 tests.
 - 10:51 round 28 (visual review): lettered kind dots, legible first view + 'more beyond the edge', titled lean exports, setpoint on trends. 88 tests.
 - 11:00 round 29: still-off loops re-announced at start; stop-killed runs not failures; block view grouped by system; screenshots retaken. 89 tests.
+- 11:04 round 30: chains of loops fold at their joining pipes (auto when too wide). Fourth code review running.
