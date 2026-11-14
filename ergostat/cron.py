@@ -42,7 +42,8 @@ class Cron:
             raise CronError(f"{expr!r}: {e}") from None
         if 7 in self.sets[4]:
             self.sets[4] = (self.sets[4] - {7}) | {0}
-        self.dom_any, self.dow_any = parts[2] == "*", parts[4] == "*"
+        # as in Vixie cron, a day field starting with * (even */2) counts as unrestricted
+        self.dom_any, self.dow_any = parts[2].startswith("*"), parts[4].startswith("*")
         self.expr = expr
 
     def matches(self, t: datetime) -> bool:
@@ -55,8 +56,18 @@ class Cron:
         return d_ok or w_ok
 
     def next_after(self, ts: float) -> float:
+        """The next matching minute after ``ts``, within eight years (29 February comes every four);
+        whole days that cannot match are skipped."""
         t = datetime.fromtimestamp(ts).replace(second=0, microsecond=0) + timedelta(minutes=1)
-        for _ in range(60 * 24 * 366 * 2):
+        end = t + timedelta(days=366 * 8)
+        mi, hr, dom, mon, dow = self.sets
+        while t < end:
+            day_ok = t.month in mon and (
+                (t.day in dom and (t.isoweekday() % 7) in dow) if (self.dom_any or self.dow_any)
+                else (t.day in dom or (t.isoweekday() % 7) in dow))
+            if not day_ok:
+                t = (t + timedelta(days=1)).replace(hour=0, minute=0)
+                continue
             if self.matches(t):
                 return time.mktime(t.timetuple())
             t += timedelta(minutes=1)

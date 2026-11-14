@@ -371,7 +371,7 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
         if cron is not None:
             from .cron import Cron, CronError
             try:
-                Cron(str(cron))
+                Cron(str(cron)).next_after(__import__("time").time())     # one that never matches is refused here
             except CronError as e:
                 raise ModelError(f"{w} {r['name']}.cron: {e}") from None
         m.agents[r["name"]] = Agent(r["name"], kind, str(r.get("command", "")),

@@ -42,3 +42,15 @@ def test_an_agent_takes_a_cron_schedule(repo):
     repo.write("ergostat.toml", repo.path.joinpath("ergostat.toml").read_text().replace('"0 3 * * *"', '"0 3 * *"'))
     with pytest.raises(model.ModelError, match="five fields"):
         model.load(repo.path)
+
+
+def test_a_day_field_with_a_step_counts_as_unrestricted_as_in_vixie_cron():
+    c = Cron("0 0 */2 * 1")                              # odd days AND Mondays, not either
+    assert not c.matches(at("2026-11-03 00:00")) and not c.matches(at("2026-11-16 00:00")) and c.matches(at("2026-11-09 00:00"))
+
+
+def test_rare_and_impossible_schedules():
+    nxt = datetime.fromtimestamp(Cron("0 0 29 2 *").next_after(at("2028-03-01 00:00").timestamp()))
+    assert nxt == at("2032-02-29 00:00")
+    with pytest.raises(CronError, match="never matches"):
+        Cron("0 0 31 2 *").next_after(at("2026-11-14 00:00").timestamp())

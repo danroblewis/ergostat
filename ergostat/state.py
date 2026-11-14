@@ -117,8 +117,10 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                     got = moved(project, f.name, pts[0][0], pts[-1][0])
                     explained += sign * (got if got is not None else known[f.name] * span)
         rest = change - explained
-        steps = sorted(d for a, b in zip(pts, pts[1:], strict=False) if (d := abs(b[1] - a[1])) > 0)
-        typical = steps[len(steps) // 2] if len(steps) >= 2 and len(pts) >= 4 else 0.0
+        raw = [x for s_ in _sensor_for(m, name) for x in project.measurements.range(f"sensor/{s_.name}", pts[0][0], pts[-1][0])]
+        raw = sorted(raw) if len(raw) <= 5000 else sorted(raw)[:5000]      # the ordinary step of the readings themselves
+        steps = sorted(d for a, b in zip(raw, raw[1:], strict=False) if (d := abs(b[1] - a[1])) > 0)
+        typical = steps[len(steps) // 2] if len(steps) >= 2 and len(raw) >= 4 else 0.0
         return change, explained, rest, abs(rest) > max(1e-9, 0.05 * (abs(change) + abs(explained)), 2 * typical)
 
     for name, s in stocks.items():
@@ -135,14 +137,16 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             _, _, rest2, sig2 = explain(name, recent)
             significant = sig2 and (rest2 > 0) == (unexplained > 0)
         estimated = [f for f in m.flows_of(name) if f.disturbance and f.name not in known]
-        share = unexplained / len(estimated) if estimated else 0.0
-        backwards = [f for f in estimated if (1 if f.target == name else -1) * share < 0]
-        if estimated and not backwards and abs(unexplained) > 1e-9:
-            for f in estimated:
+        # the rest is shared among the unmeasured disturbances that push the way it went
+        able = [f for f in estimated if (1 if f.target == name else -1) * unexplained > 0]
+        backwards = [] if able else estimated
+        share = unexplained / len(able) if able else 0.0
+        if able and abs(unexplained) > 1e-9:
+            for f in able:
                 sign = 1 if f.target == name else -1
                 flows[f.name].update(rate=sign * share / span, how=f"estimated from {name}", estimated=True)
             residuals[name] = {"unexplained": unexplained, "explained": explained, "change": s["change"],
-                               "absorbed_by": [f.name for f in estimated], "significant": False, "hours": span}
+                               "absorbed_by": [f.name for f in able], "significant": False, "hours": span}
         elif estimated and significant:
             # the disturbance would have to run backwards to explain it: something else is happening
             residuals[name] = {"unexplained": unexplained, "explained": explained, "change": s["change"],

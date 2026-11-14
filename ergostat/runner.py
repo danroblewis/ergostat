@@ -91,7 +91,8 @@ TYPE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)+$")
 
 
 def _number(v) -> bool:
-    return isinstance(v, int | float) and not isinstance(v, bool)
+    import math
+    return isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v)
 
 
 class Recorder:
@@ -129,7 +130,7 @@ class Recorder:
             if kind not in line:
                 continue
             name = line[kind]
-            if (kind, name) not in self.fills:
+            if not isinstance(name, str) or (kind, name) not in self.fills:
                 self.refuse(line, f"{self.agent.name} does not fill {kind} {name}")
                 return True
             if kind == "sensor":
@@ -175,6 +176,9 @@ class Recorder:
             if "data" in line and not isinstance(line["data"], dict):
                 self.refuse(line, "data must be an object")
                 return True
+            if line.get("item") is not None and not isinstance(line["item"], str):
+                self.refuse(line, "item must be a string: what the event is about")
+                return True
             ev.add(t, item=line.get("item"), source=self.agent.name, causedby=self.run_id, data=line.get("data") or {})
             self.counts["events"] += 1
             return True
@@ -182,9 +186,17 @@ class Recorder:
         return False
 
 
+EDGES = threading.Lock()      # two readings at once never record the same crossing twice
+
+
 def edges(project, causedby: str | None = None, sensor: str | None = None) -> list[dict]:
     """The edge detector: for each loop whose status changed since it was last recorded, record
     ``loop.off`` or ``loop.holding``. With ``sensor``, only the loops that sensor serves."""
+    with EDGES:
+        return _edges(project, causedby, sensor)
+
+
+def _edges(project, causedby, sensor) -> list[dict]:
     out = []
     for lp in project.model.loops():
         if not lp.closes or (sensor is not None and sensor not in lp.sensors):
@@ -224,24 +236,35 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
         except OSError as e:
             note = f"could not start: {e}"
         else:
-            try:
-                p.stdin.write(json.dumps(context(project, agent, trigger)))
-                p.stdin.close()
-            except OSError:
-                pass
             killed = threading.Event()
 
             def kill():
                 killed.set()
                 _kill(p)
-            timer = threading.Timer(agent.timeout or RUN_TIMEOUT, kill)
+            timer = threading.Timer(agent.timeout or RUN_TIMEOUT, kill)     # before stdin: a full pipe cannot dodge it
+            timer.daemon = True
             timer.start()
-            for raw in p.stdout:
-                if not rec.take(raw.strip()):
-                    lf.write(raw)
-            code = p.wait()
-            timer.cancel()
-            LIVE.discard(p)
+
+            def feed(text: str) -> None:
+                try:
+                    p.stdin.write(text)
+                    p.stdin.close()
+                except (OSError, ValueError):
+                    pass
+            threading.Thread(target=feed, args=(json.dumps(context(project, agent, trigger)),), daemon=True).start()
+            crashed = None                                   # the first line that could not be recorded
+            try:
+                for raw in p.stdout:
+                    try:
+                        if not rec.take(raw.strip()):
+                            lf.write(raw)
+                    except Exception as e:                       # one bad line never leaves the run half done
+                        crashed = crashed or f"{type(e).__name__}: {e}"
+                        rec.refuse({"raw": raw[:200]}, f"could not record it ({type(e).__name__})")
+            finally:
+                code = p.wait()
+                timer.cancel()
+                LIVE.discard(p)
             if killed.is_set():
                 from .durations import human
                 note = f"stopped after its timeout of {human(agent.timeout)}"
@@ -270,6 +293,8 @@ class Runner:
             except queue.Empty:
                 continue
             self.waiting.discard(name)
+            if self.stop.is_set():
+                break
             try:
                 r = run_agent(self.p, agent, trig)
             except Exception as e:                       # one agent failing never stops the rest
@@ -283,7 +308,13 @@ class Runner:
         due: dict[str, float] = {}
         timed = [a for a in self.p.model.agents.values() if a.name in self.queues and a.every]
         crons = {a.name: Cron(a.cron) for a in self.p.model.agents.values() if a.name in self.queues and a.cron}
-        next_cron = {n: c.next_after(time.time()) for n, c in crons.items()}
+        next_cron = {}
+        for n, c in crons.items():
+            try:
+                next_cron[n] = c.next_after(time.time())
+            except Exception as e:
+                self.say(f"{n}: its cron never matches ({e}); it will not run")
+                next_cron[n] = None
         while not self.stop.is_set():
             now = time.monotonic()
             for a in timed:
@@ -291,9 +322,13 @@ class Runner:
                     due[a.name] = now + a.every
                     self._due(a.name)
             wall = time.time()
-            for n, at in next_cron.items():
-                if wall >= at:
-                    next_cron[n] = crons[n].next_after(wall)
+            for n, at in list(next_cron.items()):
+                if at is not None and wall >= at:
+                    try:
+                        next_cron[n] = crons[n].next_after(wall)
+                    except Exception as e:                      # one agent's schedule never stops the others
+                        self.say(f"{n}: its cron no longer matches ({e}); it will not run again")
+                        next_cron[n] = None
                     self._due(n)
             self.stop.wait(TICK)
 
@@ -318,11 +353,17 @@ class Runner:
         """From ``seq``, taken before any thread started, so no event that lands meanwhile is missed."""
         listening = [a for a in self.p.model.agents.values() if a.name in self.queues and a.on]
         while not self.stop.is_set():
-            new = self.p.events.query(n=None, after_seq=seq)
+            try:
+                new = self.p.events.query(n=None, after_seq=seq)
+            except Exception as e:                              # the follower outlives a busy database
+                self.say(f"following events: {type(e).__name__}: {e}")
+                self.stop.wait(1)
+                continue
             for ev in new:
                 seq = ev["seq"]
                 for a in listening:
-                    if ev.get("source") != a.name and any(matches(pat, ev) for pat in a.on):
+                    own = ev.get("source") == a.name or (ev.get("item") == a.name and ev["type"].startswith("agent."))
+                    if not own and any(matches(pat, ev) for pat in a.on):
                         self.queues[a.name].put(ev)
             self.stop.wait(TICK)
 

@@ -168,9 +168,11 @@ class Events:
             return c.execute("select min(time) from events").fetchone()[0]
 
     def prune(self, before: float) -> int:
-        """Forget events older than ``before``, except the model's history, which is kept whole."""
+        """Forget events older than ``before``, except the model's history, which is kept whole, and
+        each loop's last crossing (whether it was off is what its hysteresis needs)."""
         with self._c() as c:
-            return c.execute("delete from events where time < ? and type != 'model.changed'", (before,)).rowcount
+            return c.execute("delete from events where time < ? and type != 'model.changed' and seq not in "
+                             "(select max(seq) from events where type like 'loop.%' group by item)", (before,)).rowcount
 
     def opened(self, valve: str, since: float, until: float | None = None) -> dict:
         """A valve's openings in a span: how many, the amount they moved, and the last one's time."""

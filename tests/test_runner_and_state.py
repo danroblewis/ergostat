@@ -289,3 +289,49 @@ def test_a_one_off_jump_long_ago_in_the_window_is_not_flagged(project, repo):
         p.measurements.add("sensor/disk-usage", v, at=t + i * 290)
     r = state.snapshot(p)["residuals"]["disk-used"]
     assert r["unexplained"] == 20 and not r["significant"]
+
+
+def test_in_and_out_disturbances_share_the_rest_by_direction(repo):
+    from ergostat import model
+    from ergostat.store import Project
+    text = repo.path.joinpath("ergostat.toml").read_text() + '\n[[disturbance]]\nname = "departures"\nout_of = "disk-used"\n'
+    repo.write("ergostat.toml", text)
+    p = Project(model.load(repo.path))
+    t = time.time() - 600
+    p.measurements.add("sensor/disk-usage", 60, at=t)
+    p.measurements.add("sensor/disk-usage", 50, at=t + 300)          # fell 10: departures, not arrivals
+    snap = state.snapshot(p)
+    assert snap["residuals"]["disk-used"]["absorbed_by"] == ["departures"]
+    assert snap["flows"]["departures"]["rate"] > 0 and not snap["residuals"]["disk-used"]["significant"]
+
+
+def test_pruning_keeps_each_loops_last_crossing(project):
+    old = time.time() - 100 * 86400
+    project.events.add("loop.holding", item="disk-under-80", source="ergostat", at=old - 10, data={})
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=old, data={})
+    assert project.events.prune(time.time() - 30 * 86400) == 1
+    assert [e["type"] for e in project.events.query(n=None, type="loop.*")] == ["loop.off"]
+
+
+def test_a_bad_line_never_leaves_a_run_half_done(project, repo):
+    r = run_with(project, repo, """
+        import json
+        print(json.dumps({"sensor": ["x"], "value": 1}))
+        print('{"sensor": "disk-usage", "value": NaN}')
+        print('{"sensor": "disk-usage", "value": Infinity}')
+        print(json.dumps({"event": "x.y", "item": {"a": 1}}))
+        print(json.dumps({"sensor": "disk-usage", "value": 5}))
+    """)
+    assert r["exit"] == 0 and r["refused"] == 4 and r["readings"] == 1 and not runner.LIVE
+    assert project.events.query(type="agent.ran")
+
+
+def test_the_timeout_runs_while_stdin_is_still_being_written(project, repo):
+    repo.write("ergostat.toml", repo.path.joinpath("ergostat.toml").read_text().replace('every = "1s"', 'every = "1s"\ntimeout = "1s"'))
+    from ergostat import model
+    from ergostat.store import Project
+    p = Project(model.load(repo.path))
+    t = time.time()
+    r = runner.run_agent(p, p.model.agents["cleaner"].__class__(**{**p.model.agents["cleaner"].__dict__, "command": "sleep 8"}),
+                         trigger={"id": "x", "type": "big.event", "data": {"blob": "x" * 300000}})
+    assert time.time() - t < 6 and r["note"] == "stopped after its timeout of 1s"
