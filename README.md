@@ -81,6 +81,7 @@ name = "delete-old-files"
 flow = "cleaned"
 agent = "disk-cleaner"
 mode = "auto"    # or advise, or manual (the default when a person fills it)
+# max = 15       # optional: the most one opening can move (its limit: saturation is then exact)
 
 [[agent]]        # fills roles: person, ai, narrow-ai, decision, program or rule
 name = "disk-cleaner"

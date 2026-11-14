@@ -341,11 +341,13 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             # opening moved the same amount (the valve at its limit); else it may be asking too little
             amounts = [e["data"].get("amount") for v in lp["valves"]
                        for e in project.events.query(n=50, type="valve.opened", item=v, since=since, until=snap["at"])]
-            at_limit = len(amounts) >= 3 and len(set(amounts)) == 1
+            limits = [m.valves[v].max for v in lp["valves"] if m.valves[v].max]
+            at_limit = (bool(limits) and len(amounts) >= 3 and sum(a >= limits[0] * 0.999 for a in amounts) >= len(amounts) / 2) or (
+                not limits and len(amounts) >= 3 and len(set(amounts)) == 1)
             says = (f"loop {name} was off {off}% of the time, falling behind: its valve moved {fmt(ours)}/h {way[0]} while "
                     f"{fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "") + ". "
-                    + (f"Every opening moved {fmt(amounts[0])}: the valve is at its limit (saturated); it needs more per run, "
-                       f"or less load" if at_limit else
+                    + ((f"Its openings ran at its max of {fmt(limits[0])}" if limits else f"Every opening moved {fmt(amounts[0])}")
+                   + ": the valve is at its limit (saturated); it needs more per run, or less load" if at_limit else
                        "More per run, or acting more often" + (f" ({slowest} is the slowest stage)" if slowest else "")))
         elif slowest:
             says = (f"loop {name} was off {off}% of the time though its valve keeps up on average: it answers too late; "

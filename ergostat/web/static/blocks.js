@@ -42,7 +42,7 @@ function drawBlocks(svg, g) {
   // widths from the longest text in any row, so every row lines up and nothing overflows
   const tw = (t) => (t || "").length * 6.4 + 28;
   const cw = Math.max(190, ...rows.map((r) => Math.max(tw(r.ctl.label) + 10, tw("C · " + badgeText(r.ctl.agent)))));
-  const vw = Math.max(160, ...rows.map((r) => Math.max(tw(r.valves[0]?.label), tw(badgeText(r.valves[0]?.agent)), tw("actuator · " + (r.valves[0]?.rateText || "")))));
+  const vw = Math.max(160, ...rows.map((r) => Math.max(tw(r.valves[0]?.label), tw(badgeText(r.valves[0]?.agent)), tw("actuator · " + (r.valves[0]?.rateText || "") + (r.valves[0]?.max ? ` · ≤ ${r.valves[0].max} a run` : "")))));
   const sw = Math.max(160, ...rows.map((r) => Math.max(tw(r.stock.label), tw(`plant ∫ · ${r.stock.valueText} ${r.stock.unit || ""}`))));
   const hw = Math.max(160, ...rows.map((r) => Math.max(tw(r.sensors[0]?.label), tw(`H · reads ${r.sensors[0]?.reading ?? "?"} · every ${r.sensors[0]?.agent?.when || ""}`))));
   const spText = (lp) => lp.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").trim() + (lp.band || "");
@@ -122,7 +122,7 @@ function drawBlocks(svg, g) {
     const v = row.valves[0];
     loopG.append(...line([[X.ctl + cw, cy], [X.valve, cy]], "", "var(--ctl-line)"));
     loopG.append(label((X.ctl + cw + X.valve) / 2, cy - 8, v?.position != null ? `u = ${fmt(v.position)}` : "u"));
-    loopG.append(box(X.valve, cy - 36, vw, 72, v ? v.label : "no valve", v ? `actuator · ${v.rateText}` : "",
+    loopG.append(box(X.valve, cy - 36, vw, 72, v ? v.label : "no valve", v ? `actuator · ${v.rateText}${v.max ? ` · ≤ ${fmt(v.max)} a run` : ""}` : "",
                      "var(--panel)", v ? "var(--valve)" : "var(--warn)", v,
                      v?.agent ? label(vw / 2, 60, badgeText(v.agent)) : null));
     // the disturbance joins at the plant's input

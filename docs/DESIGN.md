@@ -20,7 +20,7 @@ One file in the repository, read with the standard library (`tomllib`). Every pa
 | `[[stock]]` | what accumulates | `unit` |
 | `[[flow]]` | what moves a stock | `from`, `to` (a stock; left out: outside the boundary), `unit` |
 | `[[disturbance]]` | a flow no valve controls | `into` or `out_of`; `rate` (per hour) when it is known; `agent`: whose doing it is (a load, drawn on it, never a role) |
-| `[[valve]]` | where an agent acts, on one flow | `flow`, `agent`, `mode` (auto, advise, manual) |
+| `[[valve]]` | where an agent acts, on one flow | `flow`, `agent`, `mode` (auto, advise, manual); `max`: the most one opening moves |
 | `[[sensor]]` | measures a stock or a flow | `measures`, `agent`, `unit` |
 | `[[controller]]` | holds a stock at a setpoint | `holds`, `setpoint` (`<= 80`, `>= 1`, `== 0`), `tolerance`, `reads` (sensors), `drives` (valves), `agent`; `open_loop = true` for a timer that reads nothing (the stock's sensors only watch it) |
 | `[[agent]]` | fills roles | `kind` (person, ai, narrow-ai, decision, program, rule), `command`, `every` / `cron` / `on`, `description` |

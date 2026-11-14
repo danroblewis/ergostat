@@ -142,3 +142,15 @@ def test_feedback_is_a_reading_of_the_stock_itself(repo):
     repo.write("ergostat.toml", text)
     (lp,) = model.load(repo.path).loops()
     assert not lp.closes and "feeds forward" in lp.gaps[0]
+
+
+def test_a_valve_may_declare_the_most_one_opening_moves(repo):
+    import pytest as _pytest
+
+    from ergostat import model
+    text = repo.path.joinpath("ergostat.toml").read_text().replace('flow = "cleaned"', 'flow = "cleaned"\nmax = 5', 1)
+    repo.write("ergostat.toml", text)
+    assert model.load(repo.path).valves["delete-old-files"].max == 5
+    repo.write("ergostat.toml", text.replace("max = 5", "max = 0"))
+    with _pytest.raises(model.ModelError):
+        model.load(repo.path)

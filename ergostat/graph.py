@@ -136,7 +136,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         unit = (end.unit + "/h") if end and end.unit else "/h"
         nodes.append(_node(f"flow:{n}", glyph, v.name if v else n, flow=n, rate=fl.get("rate"), position=pos,
                            rateText=_rate(fl.get("rate"), unit),
-                           how=fl.get("how"), estimated=fl.get("estimated", False), mode=v.mode if v else None,
+                           how=fl.get("how"), estimated=fl.get("estimated", False), mode=v.mode if v else None, max=v.max if v else None,
                            agent=agent_of.get(v.name) if v else _badge(m, f.agent), load=not v and bool(f.agent),
                            description=(v.description if v else f.description),
                            systems=in_system.get(n, [])))

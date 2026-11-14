@@ -618,3 +618,8 @@ off (anti-windup): noted for later.
 - Each loop's dead time and recovery are measured from the record: from going off to its valve's
   first opening ("its valve opens 42s after it goes off"), and to holding again (typical, slowest,
   how many times). `loop NAME` says it; `loop` and the page's Loops have TIME OFF and BACK IN.
+
+## Round 35: an actuator's limit (from round 33's noted concepts)
+
+- A valve may declare `max`, the most one opening moves. Saturation is then exact (its openings
+  ran at the max), and the block views show it (`[ open-update-pr ≤ 2 a run ]`). deps declares it.

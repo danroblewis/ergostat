@@ -78,6 +78,7 @@ class Valve(Part):
     agent: str | None = None
     mode: str = "auto"
     mode_set: bool = field(default=False, metadata={"history": False})   # how it was read, not declared
+    max: float | None = None           # the most it can move in one opening: the actuator's limit
     kind = "valve"
 
 
@@ -362,12 +363,15 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
                           disturbance=True, rate=float(rate) if rate is not None else None, agent=r.get("agent")), "disturbance")
     for i, r in enumerate(rows("valve")):
         w = f"[[valve]] #{i + 1}"
-        _take(r, COMMON | {"flow", "agent", "mode"}, w)
+        _take(r, COMMON | {"flow", "agent", "mode", "max"}, w)
         mode = r.get("mode", "auto")
         if mode not in MODES:
             raise ModelError(f"{w} {r['name']}.mode: one of {', '.join(MODES)}")
+        mx = r.get("max")
+        if mx is not None and (isinstance(mx, bool) or not isinstance(mx, int | float) or mx <= 0):
+            raise ModelError(f"{w} {r['name']}.max: a number above 0, the most one opening moves")
         add(m.valves, Valve(**common(r, w), flow=str(r.get("flow", "")), agent=r.get("agent"), mode=mode,
-                            mode_set="mode" in r), "valve")
+                            mode_set="mode" in r, max=float(mx) if mx is not None else None), "valve")
     for i, r in enumerate(rows("sensor")):
         w = f"[[sensor]] #{i + 1}"
         _take(r, COMMON | {"measures", "agent", "unit"}, w)

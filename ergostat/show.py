@@ -134,7 +134,9 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     ctl = f"[ {name} · {model.agents[c_.agent].kind if c_.agent in model.agents else 'unfilled'} ]"
     v = lp.valves[0] if lp.valves else None
     pos = readings.get(f"valve/{v}") if v else None
-    vb = (f"[ {v} ]" if pos is None else f"[ {v} open {fmt(pos)} ]") if v else "[ no valve ]"
+    mx = model.valves[v].max if v else None
+    lim = f" ≤ {fmt(mx)} a run" if mx else ""
+    vb = (f"[ {v}{lim} ]" if pos is None else f"[ {v} open {fmt(pos)}{lim} ]") if v else "[ no valve ]"
     st = snap["stocks"].get(lp.stock, {})
     unit = model.stocks[lp.stock].unit if lp.stock in model.stocks else ""
     sb = f"[ ∫ {lp.stock} {fmt(st.get('value'))}{(' ' + unit) if unit else ''} ]"
