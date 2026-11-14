@@ -693,3 +693,21 @@ Applied:
 - Then: the project switcher refreshes with the header (off and unknown loops, stopped projects
   shown but not offered); a page makes room for the detail panel instead of hiding under it;
   Residuals says the span it covers ("over the 15m recorded") and refreshes.
+
+## Round 40: a sixth code review (round 39 and after)
+
+All eight applied:
+
+- The talking-scripts demo broke on Linux (GNU `stat -f` prints the file system before failing):
+  GNU's form first, then BSD's.
+- A snapshot without `--with-logs` still carried lines an agent printed that were not understood
+  (in its runs' data): they are taken out everywhere in it.
+- The design SVG kept the wiring view's run counts and hid a valve's mode and a declared rate:
+  only what changes minute to minute is left out.
+- Looking at a past moment, a loop's valve row showed an opening from after it: bounded by the moment.
+- A sensor's "readings in the window" stopped at 60: the real count.
+- The trend shaded the tolerance on both sides of a one-sided setpoint: on the side the status reads.
+- The agent panel's run times were labelled "took" (the recorded number's name): "durations", over
+  the same 40 runs as the command line.
+- The suggestions reopened every few seconds and judged "off" from now: they keep the reader's
+  choice and read the moment drawn.
