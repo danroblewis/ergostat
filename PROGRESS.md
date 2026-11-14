@@ -28,3 +28,4 @@ Work until 2pm.
 - 07:52 round 8 (before/after): model.changed history, live reload of the model, schedules on badges, per-system colours.
 - 07:58 docs/DESIGN.md (the design as built); all 7 demos pass scripts/demo_check.py; a start-up race in the event follower fixed (found by a flaky test).
 - 08:05 block view (web + ergostat system --blocks); Parts page; round 9 (misbehaving agents: timeouts, process groups); snapshot 71ms to 15ms (SQL counts, composite index).
+- 08:13 time slider and --at; trend chart in loop detail; valve positions (u); block legend; all 7 demos pass demo_check.

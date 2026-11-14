@@ -146,6 +146,9 @@ svg.canvas.dragging { cursor: grabbing; }
 .card.failing { border-color: var(--bad); }
 .spark { vertical-align: middle; }
 .nowrap { white-space: nowrap; }
+.guide { max-width: 72ch; }
+.guide p { line-height: 1.6; }
+.guide .legend { margin: 8px 0 12px; }
 .tabs { display: inline-flex; flex-wrap: wrap; }
 .tabs button { border-radius: 0; margin-left: -1px; }
 .tabs button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }

@@ -16,7 +16,7 @@ function h(tag, attrs = {}, ...kids) {
     else if (k === "html") el.innerHTML = v;
     else el.setAttribute(k, v);
   }
-  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   return el;
 }
 function s(tag, attrs = {}, ...kids) {
@@ -24,7 +24,7 @@ function s(tag, attrs = {}, ...kids) {
   for (const [k, v] of Object.entries(attrs || {})) if (v != null && v !== false) {
     if (k.startsWith("on")) el.addEventListener(k.slice(2), v); else el.setAttribute(k, v);
   }
-  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   return el;
 }
 const fmt = (x) => x == null ? "?" : (typeof x === "number" ? (Number.isInteger(x) ? String(x) : (Math.abs(x) < 100 ? x.toPrecision(3).replace(/\.?0+$/, "") : x.toFixed(0))) : String(x));
@@ -78,7 +78,7 @@ async function route() {
   const main = $("#main");
   main.replaceChildren();
   const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/parts": pageParts, "/record": pageRecord,
-                  "/residuals": pageResiduals, "/check": pageCheck };
+                  "/residuals": pageResiduals, "/check": pageCheck, "/guide": pageGuide };
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)));
   return (pages[path] || pageDiagram)(main, q);
 }
@@ -981,6 +981,42 @@ async function pageResiduals(main) {
       h("td", { class: "num" }, fmt(v.unexplained)),
       h("td", {}, v.significant ? h("span", { class: "s-open status" }, "unexplained") : (v.absorbed_by.length ? `estimated as ${v.absorbed_by.join(", ")}` : h("span", { class: "s-holding status" }, "explained")))))));
   if (!Object.keys(r).length) p.append(h("p", { class: "muted" }, "no stock has two readings in this window yet"));
+}
+
+async function pageGuide(main) {
+  const p = page(main, "Guide", "ergostat keeps work going. It treats the work around you as a factory, and runs it as a control system. Here is how to read yours.");
+  const [parts, agents] = [await api("parts"), await api("agents")];
+  const code = (t) => h("code", {}, t);
+  const ex = (list, f, n = 2) => list.slice(0, n).map((x, i) => [i ? ", " : "", f(x)]);
+  const sec = (title, ...kids) => p.append(h("section", { class: "guide" }, h("h2", {}, title), ...kids));
+  const stock = parts.stock[0], loop = parts.controller[0];
+  sec("Work is a flow, not a list",
+    h("p", {}, "Work is change in the world over time. ergostat does not track tasks; it watches what accumulates and what moves it. ",
+      "What accumulates is a ", h("b", {}, "stock"), ": ", ex(parts.stock, (x) => [code(x.name), ` (${fmt(x.value)} ${x.unit})`]) , ". ",
+      "What moves a stock is a ", h("b", {}, "flow"), ", drawn as a pipe. A flow nothing controls is a ", h("b", {}, "disturbance"), ": ",
+      parts.disturbance.length ? ex(parts.disturbance, (x) => code(x.name)) : "you have none declared", "."));
+  sec("Three roles keep it steady",
+    h("p", {}, "A ", h("b", {}, "sensor"), " measures (", ex(parts.sensor, (x) => code(x.name)), "). ",
+      "A ", h("b", {}, "controller"), " decides, to hold a stock at a setpoint (", ex(parts.controller, (x) => [code(x.name), ` holds ${x.holds} ${x.setpoint}`]), "). ",
+      "A ", h("b", {}, "valve"), " acts on a flow (", ex(parts.valve, (x) => code(x.name)), "). Nothing changes the world except through a valve."),
+    loop ? h("p", {}, "Together they make a ", h("b", {}, "loop"), ": ", code(loop.name), " measures ", code(loop.holds),
+      ", compares it with its setpoint, and opens a valve when it is off. Its status now: ", statusEl(loop.status), ". ",
+      h("a", { href: "#/diagram?view=blocks" }, "See it as a block diagram"), ".") : null);
+  const byRung = {};
+  for (const [n, a] of Object.entries(agents)) (byRung[a.rung] ||= []).push(n);
+  sec("Agents fill the roles, and move down the ladder",
+    h("p", {}, "An ", h("b", {}, "agent"), " is whatever acts on your behalf: a person, an AI agent, a decision, a program, a rule. ",
+      "One agent can fill several roles. Every agent is held to the same discipline: measured, bounded, and acting only through the valves you grant."),
+    h("p", {}, "The ladder runs from the most general agent to none at all. Yours: ",
+      [0, 1, 2, 3, 4, 5].filter((r) => byRung[r]).map((r, i) => [i ? "; " : "", h("b", {}, RUNG_NAMES[r]), " ", byRung[r].join(", ")]), ". ",
+      "Every role is expected to move down: start with an AI agent, then a narrower one, a decision, a program, a rule, and finally design the work out. ",
+      h("a", { href: "#/agents" }, "See the ladder"), "."));
+  sec("When the model does not explain it",
+    h("p", {}, "A ", h("b", {}, "residual"), " is what a stock did that its known flows do not explain. An unmeasured disturbance is estimated from it; anything left over is worth a look: ",
+      "it is either a disturbance you have not named, or the plant behaving differently than you think. ", h("a", { href: "#/residuals" }, "Your residuals"), "."));
+  sec("Reading the diagram", legend("control"), h("p", {}, "Systems are outlines around parts that belong together; they may overlap. ",
+    "The wiring view shows the agents and how each one's output reaches another. The slider in the header shows any past moment."));
+  if (!stock) p.append(h("p", { class: "muted" }, "Your model is empty: describe your system with ergostat chat, or start from ergostat check --example."));
 }
 
 async function pageCheck(main) {

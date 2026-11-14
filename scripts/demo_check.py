@@ -41,7 +41,7 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
         pg = b.new_page(viewport={"width": 1500, "height": 950})
         pg.on("pageerror", lambda e: errs.append(str(e)))
         for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "parts", "parts?kind=valve",
-                      "record", "residuals", "check"):
+                      "record", "residuals", "check", "guide"):
             pg.goto(f"{url}/#/{route}")
             pg.wait_for_timeout(1800)
             if shot and route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "agents"):

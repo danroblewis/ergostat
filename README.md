@@ -101,7 +101,7 @@ negative-feedback block diagram (r, Σ, e, C, u, the actuator, the disturbance d
 plant, y, and the sensor H feeding ym back); `ergostat system --blocks` prints the same in text.
 "save SVG" writes the diagram as a standalone file. The wiring view draws the agents and how each
 one's output reaches another. Loops, Agents (the ladder), Parts, Record, Residuals and Check show
-what the command line shows. The slider in the header looks at any past moment; "back to live"
+what the command line shows; the Guide explains the ideas with the system's own parts as examples. The slider in the header looks at any past moment; "back to live"
 returns.
 
 ## Demos
