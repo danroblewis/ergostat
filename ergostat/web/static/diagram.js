@@ -451,6 +451,7 @@ async function pageDiagram(main, q) {
   const zoom = h("div", { class: "zoom" },
     h("button", { onclick: () => fit(svg, S.layout) }, "fit"),
     h("button", { title: "save the diagram as an SVG file", onclick: () => exportSvg(svg, `${S.status?.name || "ergostat"}-${system || "all"}-${view}.svg`) }, "save SVG"),
+    h("button", { title: "save the diagram as a PNG picture, at twice the size", onclick: () => exportPng(svg, `${S.status?.name || "ergostat"}-${system || "all"}-${view}.svg`) }, "PNG"),
     h("button", { onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
     h("button", { onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "−"));
   wrap.append(svg, toolbar, zoom);
