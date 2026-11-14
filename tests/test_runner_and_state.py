@@ -275,3 +275,17 @@ def test_a_run_by_hand_is_not_kept_as_a_problem(project, repo):
     runner.run_agent(project, project.model.agents["cleaner"], why="by hand")
     assert project.events.query(type="agent.refused")                         # recorded
     assert state.snapshot(project)["agents"]["cleaner"]["refused"] == 0      # but not a problem
+
+
+def test_a_one_off_jump_long_ago_in_the_window_is_not_flagged(project, repo):
+    text = repo.path.joinpath("ergostat.toml").read_text()
+    repo.write("ergostat.toml", text.replace("[[disturbance]]", "[[flow]]").replace('into = "disk-used"', 'to = "disk-used"'))
+    from ergostat import model
+    from ergostat.store import Project
+    p = Project(model.load(repo.path))
+    t = time.time() - 3000
+    values = [50, 50, 70, 70, 70, 70, 70, 70, 70, 70]               # one jump, early; flat since
+    for i, v in enumerate(values):
+        p.measurements.add("sensor/disk-usage", v, at=t + i * 290)
+    r = state.snapshot(p)["residuals"]["disk-used"]
+    assert r["unexplained"] == 20 and not r["significant"]

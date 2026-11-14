@@ -100,32 +100,44 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                          "openings": opened, "estimated": False}
 
     # residuals, and the estimated disturbances drawn from them
-    for name, s in stocks.items():
-        if s["change"] is None:
-            continue
-        pts = full[name]
+    def explain(name: str, pts: list) -> tuple[float, float, float, bool]:
+        """Over the readings ``pts``: the change, what the known flows explain, the rest, and
+        whether the rest is more than noise (5% of the flow, and twice an ordinary step)."""
         span = max(pts[-1][0] - pts[0][0], 1e-9) / 3600.0
+        change = pts[-1][1] - pts[0][1]
         explained = 0.0
         for f in m.flows_of(name):
             if f.name in known:
                 sign = 1 if f.target == name else -1
                 if flows[f.name]["openings"] is not None and flows[f.name]["how"].startswith("opened"):
-                    # what the valve moved between the first and the last reading
                     explained += sign * project.events.opened(flows[f.name]["valve"], pts[0][0], pts[-1][0])["amount"]
                 elif f.rate is not None:
                     explained += sign * f.rate * span
                 else:
                     got = moved(project, f.name, pts[0][0], pts[-1][0])
                     explained += sign * (got if got is not None else known[f.name] * span)
-        unexplained = s["change"] - explained
-        estimated = [f for f in m.flows_of(name) if f.disturbance and f.name not in known]
-        scale = abs(s["change"]) + abs(explained)
+        rest = change - explained
         steps = sorted(d for a, b in zip(pts, pts[1:], strict=False) if (d := abs(b[1] - a[1])) > 0)
-        typical = steps[len(steps) // 2] if len(steps) >= 2 and len(pts) >= 4 else 0.0   # an ordinary step: timing at the edges is noise
-        significant = abs(unexplained) > max(1e-9, 0.05 * scale, 2 * typical)
+        typical = steps[len(steps) // 2] if len(steps) >= 2 and len(pts) >= 4 else 0.0
+        return change, explained, rest, abs(rest) > max(1e-9, 0.05 * (abs(change) + abs(explained)), 2 * typical)
+
+    for name, s in stocks.items():
+        if s["change"] is None:
+            continue
+        pts = full[name]
+        span = max(pts[-1][0] - pts[0][0], 1e-9) / 3600.0
+        _, explained, unexplained, significant = explain(name, pts)
+        # a real unexplained flow persists: it shows in the recent half of the window too, the same
+        # way; something that happened once, long ago in the window, is not flagged for an hour
+        mid = pts[0][0] + (pts[-1][0] - pts[0][0]) / 2
+        recent = [p for p in pts if p[0] >= mid]
+        if significant and len(recent) >= 4:
+            _, _, rest2, sig2 = explain(name, recent)
+            significant = sig2 and (rest2 > 0) == (unexplained > 0)
+        estimated = [f for f in m.flows_of(name) if f.disturbance and f.name not in known]
         share = unexplained / len(estimated) if estimated else 0.0
         backwards = [f for f in estimated if (1 if f.target == name else -1) * share < 0]
-        if estimated and significant and not backwards:
+        if estimated and not backwards and abs(unexplained) > 1e-9:
             for f in estimated:
                 sign = 1 if f.target == name else -1
                 flows[f.name].update(rate=sign * share / span, how=f"estimated from {name}", estimated=True)
