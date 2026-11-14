@@ -52,3 +52,4 @@ Work until 2pm.
 - 10:41 round 26: open_loop controllers (timers) drawn honestly in every view; plain-crontab's pruner is one. 87 tests.
 - 10:43 round 27: run --service (launchd/systemd text). Guide explains open loops. Visual design review launched. 88 tests.
 - 10:51 round 28 (visual review): lettered kind dots, legible first view + 'more beyond the edge', titled lean exports, setpoint on trends. 88 tests.
+- 11:00 round 29: still-off loops re-announced at start; stop-killed runs not failures; block view grouped by system; screenshots retaken. 89 tests.
