@@ -170,3 +170,21 @@ $ ergostat event --type agent.refused
 - A timeout killed only the shell, and `run --stop` left runs behind. Each run is its own process
   group; a timeout or a stop kills the group.
 - The refusal note now says what else it can be (one of ergostat's own types) and where to look.
+
+## Round 10: looking back
+
+**Who:** the SRE, the morning after: the queue loop was off for a while overnight; what did it look
+like then?
+
+```
+$ ergostat --at 03:10                 as of 03:10:00 (5h ago): queue-short off, jobs-waiting 48
+$ ergostat loop queue-short --at 03:10
+$ ergostat system --blocks --at 03:10
+```
+
+**Findings (applied):**
+- There was no way to see a past moment. `--at` (`30m` ago, `07:30`, or epoch seconds) estimates
+  the state as it was then, over the window before it; every topic takes it. The web page has a
+  slider in the header and "back to live".
+- The model's history called every agent changed after ergostat itself gained a field (`timeout`).
+  Fingerprints now cover only what a part declares (fields that differ from their defaults).

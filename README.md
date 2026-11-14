@@ -87,7 +87,8 @@ ergostat stock|flow|valve|sensor|controller|disturbance [NAME]
 ergostat check | run | web | chat
 ```
 
-Every topic takes `-s SYSTEM`, `--since 1h` and `--json`.
+Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` ago, `07:30`) and
+`--json`.
 
 ## The web page
 
@@ -99,8 +100,9 @@ systems are drawn as outlines that may overlap. The blocks view draws each loop 
 negative-feedback block diagram (r, Σ, e, C, u, the actuator, the disturbance d joining at the
 plant, y, and the sensor H feeding ym back); `ergostat system --blocks` prints the same in text.
 "save SVG" writes the diagram as a standalone file. The wiring view draws the agents and how each
-one's output reaches another. Loops, Agents (the ladder), Record, Residuals and Check show what the
-command line shows.
+one's output reaches another. Loops, Agents (the ladder), Parts, Record, Residuals and Check show
+what the command line shows. The slider in the header looks at any past moment; "back to live"
+returns.
 
 ## Demos
 

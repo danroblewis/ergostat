@@ -34,6 +34,9 @@ a:hover { text-decoration: underline; }
 .bar nav a { color: var(--muted); padding: 5px 10px; border-radius: 6px; }
 .bar nav a:hover { background: var(--bg); text-decoration: none; color: var(--ink); }
 .bar nav a.on { color: var(--ink); background: var(--bg); font-weight: 600; }
+.when { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.when input[type=range] { width: 160px; accent-color: var(--accent); }
+#atlabel { min-width: 9em; font-variant-numeric: tabular-nums; }
 .window { color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
 select, button, input { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 button { cursor: pointer; }

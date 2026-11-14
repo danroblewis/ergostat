@@ -43,7 +43,7 @@ const rungColor = (r) => `var(--r${r})`;
 const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "?");
 
 async function api(path, params = {}) {
-  const q = new URLSearchParams({ since: S.since, ...params });
+  const q = new URLSearchParams({ since: S.since, ...(S.at ? { at: String(S.at) } : {}), ...params });
   const r = await fetch(`/api/${path}?${q}`);
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return r.json();
@@ -61,6 +61,7 @@ async function refreshHeader() {
     run.className = "pill " + (st.running ? (off ? "bad" : "ok") : "unknown");
     run.textContent = st.running ? (off ? `${off} loop${off > 1 ? "s" : ""} off` : "running") : "not running";
     document.title = `${st.name} · ergostat`;
+    S.first = st.first;
   } catch (e) { /* the server may be restarting */ }
 }
 
@@ -943,6 +944,29 @@ async function pageCheck(main) {
 /* ------------------------------------------------------------------ start */
 
 $("#since").addEventListener("change", (ev) => { S.since = ev.target.value; S.graphSig = ""; route(); });
+
+/* the time slider: the right end is now (live); anywhere else is that moment, over the window before it */
+const WINDOWS = { "10m": 600, "1h": 3600, "6h": 21600, "1d": 86400, "7d": 604800 };
+function sliderSpan() {
+  const now = Date.now() / 1000;
+  const lo = Math.max(now - WINDOWS[S.since] * 3, S.first || now - WINDOWS[S.since]);
+  return [lo, now];
+}
+function showAt() {
+  const label = $("#atlabel"), live = $("#live");
+  if (!S.at) { label.textContent = "live"; live.hidden = true; $("#at").value = 1000; return; }
+  const d = new Date(S.at * 1000);
+  label.textContent = "as of " + d.toLocaleTimeString([], { hour12: false }) + ` (${ago(S.at)})`;
+  live.hidden = false;
+}
+$("#at").addEventListener("input", (ev) => {
+  const [lo, hi] = sliderSpan();
+  const v = +ev.target.value;
+  S.at = v >= 998 ? null : lo + (hi - lo) * (v / 1000);
+  showAt();
+});
+$("#at").addEventListener("change", () => { refreshHeader(); route(); });
+$("#live").addEventListener("click", () => { S.at = null; showAt(); refreshHeader(); route(); });
 window.addEventListener("hashchange", route);
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeDetail(); });
 (async () => {

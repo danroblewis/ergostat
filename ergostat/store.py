@@ -106,7 +106,7 @@ class Events:
         return d
 
     def query(self, *, n: int | None = 100, type: str | None = None, item: str | None = None, source: str | None = None,
-              since: float | None = None, after_seq: int | None = None) -> list[dict]:
+              since: float | None = None, after_seq: int | None = None, until: float | None = None) -> list[dict]:
         """Matching events, oldest first; the newest ``n`` when ``n`` is given. ``type`` may end in
         ``*``."""
         where, args = [], []
@@ -127,6 +127,9 @@ class Events:
         if after_seq is not None:
             where.append("seq > ?")
             args.append(after_seq)
+        if until is not None:
+            where.append("time <= ?")
+            args.append(until)
         sql = "select * from events" + (" where " + " and ".join(where) if where else "")
         with self._c() as c:
             if n is None:
@@ -172,19 +175,20 @@ class Events:
                           (valve, since, until if until is not None else 1e18)).fetchone()
         return {"count": r[0], "amount": float(r[1]), "last": r[2]}
 
-    def decided(self, controller: str, since: float) -> list[tuple[str, int]]:
-        """A controller's decisions since then, grouped by their words."""
+    def decided(self, controller: str, since: float, until: float | None = None) -> list[tuple[str, int]]:
+        """A controller's decisions in a span, grouped by their words."""
         with self._c() as c:
             return [(r[0] or "", r[1]) for r in c.execute(
                 "select json_extract(data, '$.decision'), count(*) from events "
-                "where item = ? and type = 'controller.decided' and time >= ? group by 1", (controller, since))]
+                "where item = ? and type = 'controller.decided' and time >= ? and time <= ? group by 1",
+                (controller, since, until if until is not None else 1e18))]
 
-    def runs(self, item: str, since: float) -> dict:
-        """An agent's runs since then, counted by SQLite: runs, failed, and lines refused."""
+    def runs(self, item: str, since: float, until: float | None = None) -> dict:
+        """An agent's runs in a span, counted by SQLite: runs, failed, and lines refused."""
         with self._c() as c:
             rows = c.execute("select type, count(*), sum(coalesce(json_extract(data, '$.refused'), 0)) from events "
-                             "where item = ? and type in ('agent.ran', 'agent.failed') and time >= ? group by type",
-                             (item, since)).fetchall()
+                             "where item = ? and type in ('agent.ran', 'agent.failed') and time >= ? and time <= ? group by type",
+                             (item, since, until if until is not None else 1e18)).fetchall()
         by = {r[0]: (r[1], r[2] or 0) for r in rows}
         ran, failed = by.get("agent.ran", (0, 0)), by.get("agent.failed", (0, 0))
         return {"runs": ran[0] + failed[0], "failed": failed[0], "refused": ran[1] + failed[1]}
@@ -206,9 +210,10 @@ class Measurements:
             c.execute("insert into samples(series, time, value) values (?,?,?)",
                       (series, at if at is not None else time.time(), float(value)))
 
-    def latest(self, series: str) -> tuple[float, float] | None:
+    def latest(self, series: str, before: float | None = None) -> tuple[float, float] | None:
         with self._c() as c:
-            r = c.execute("select time, value from samples where series = ? order by time desc limit 1", (series,)).fetchone()
+            r = c.execute("select time, value from samples where series = ? and time <= ? order by time desc limit 1",
+                          (series, before if before is not None else 1e18)).fetchone()
         return (r[0], r[1]) if r else None
 
     def range(self, series: str, since: float, until: float | None = None) -> list[tuple[float, float]]:

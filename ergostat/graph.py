@@ -65,10 +65,10 @@ def _when(a) -> str:
     return ""
 
 
-def readings(project) -> dict:
+def readings(project, at: float | None = None) -> dict:
     out = {}
     for n in project.model.sensors:
-        got = project.measurements.latest(f"sensor/{n}")
+        got = project.measurements.latest(f"sensor/{n}", at)
         if got is not None:
             out[n] = got[1]
     return out

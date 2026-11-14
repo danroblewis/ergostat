@@ -22,11 +22,11 @@ def _sensor_for(m, target: str) -> list:
     return [s for s in m.sensors.values() if s.measures == target]
 
 
-def stock_value(project, stock: str) -> dict:
+def stock_value(project, stock: str, at: float | None = None) -> dict:
     m = project.model
     best = None
     for s in _sensor_for(m, stock):
-        got = project.measurements.latest(f"sensor/{s.name}")
+        got = project.measurements.latest(f"sensor/{s.name}", at)
         if got and (best is None or got[0] > best[0]):
             best = (got[0], got[1], s.name)
     if best is None:
@@ -34,10 +34,10 @@ def stock_value(project, stock: str) -> dict:
     return {"value": best[1], "at": best[0], "sensor": best[2]}
 
 
-def history(project, stock: str, since: float) -> list[tuple[float, float]]:
+def history(project, stock: str, since: float, until: float | None = None) -> list[tuple[float, float]]:
     pts = []
     for s in _sensor_for(project.model, stock):
-        pts += project.measurements.range(f"sensor/{s.name}", since)
+        pts += project.measurements.range(f"sensor/{s.name}", since, until)
     return sorted(pts)
 
 
@@ -57,7 +57,9 @@ def moved(project, flow: str, t0: float, t1: float) -> float | None:
 
 
 def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
+    """The state at ``now`` (default: now), over the window before it; a past ``now`` looks back."""
     m = project.model
+    live = now is None
     now = now or time.time()
     since = now - window
     oldest = min((t for t in (project.events.first_time(), project.measurements.first_time()) if t), default=None)
@@ -67,8 +69,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     full: dict[str, list] = {}
 
     for name in m.stocks:
-        v = stock_value(project, name)
-        pts = full[name] = history(project, name, start)
+        v = stock_value(project, name, now)
+        pts = full[name] = history(project, name, start, now)
         step = max(1, len(pts) // 80)
         stocks[name] = {**v, "unit": m.stocks[name].unit,
                         "change": (pts[-1][1] - pts[0][1]) if len(pts) >= 2 else None,
@@ -81,12 +83,12 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         rate, how, opened = None, None, None
         sensors = _sensor_for(m, f.name)
         for s in sensors:
-            got = project.measurements.latest(f"sensor/{s.name}")
+            got = project.measurements.latest(f"sensor/{s.name}", now)
             if got is not None:
                 rate, how = got[1], f"measured by {s.name}"
         valve = m.valve_of(f.name)
         if valve is not None:
-            opened = project.events.opened(valve.name, start)
+            opened = project.events.opened(valve.name, start, now)
             if rate is None:
                 rate, how = opened["amount"] / hours, f"opened by {valve.name}"
         if rate is not None:
@@ -144,10 +146,10 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         else:
             error = c.error(value)
             status = "holding" if abs(error) <= c.tolerance else "off"
-        decisions = project.events.query(n=1, type="controller.decided", item=c.name)
-        last_open = max((o["time"] for v in lp.valves for o in project.events.query(n=1, type="valve.opened", item=v)),
+        decisions = project.events.query(n=1, type="controller.decided", item=c.name, until=now)
+        last_open = max((o["time"] for v in lp.valves for o in project.events.query(n=1, type="valve.opened", item=v, until=now)),
                         default=None)
-        reads = [project.measurements.latest(f"sensor/{s}") for s in lp.sensors]
+        reads = [project.measurements.latest(f"sensor/{s}", now) for s in lp.sensors]
         last_read = max((r[0] for r in reads if r), default=None)
         cycled = bool(last_read and last_read >= since and ((decisions and decisions[-1]["time"] >= since)
                                                            or (last_open and last_open >= since)))
@@ -159,17 +161,17 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
 
     agents = {}
     for a in m.agents.values():
-        counted = project.events.runs(a.name, since)
-        last_any = max(project.events.query(n=1, item=a.name, type="agent.ran") +
-                       project.events.query(n=1, item=a.name, type="agent.failed"), key=lambda e: e["seq"], default=None)
-        begun = project.events.query(n=1, item=a.name, type="agent.started")
+        counted = project.events.runs(a.name, since, now)
+        last_any = max(project.events.query(n=1, item=a.name, type="agent.ran", until=now) +
+                       project.events.query(n=1, item=a.name, type="agent.failed", until=now), key=lambda e: e["seq"], default=None)
+        begun = project.events.query(n=1, item=a.name, type="agent.started", until=now)
         running_since = begun[-1]["time"] if begun and (last_any is None or begun[-1]["seq"] > last_any["seq"]) else None
         roles = m.roles_of(a.name)
         stale = []
         if a.every:
             for r in roles:
                 if r.kind == "sensor":
-                    got = project.measurements.latest(f"sensor/{r.name}")
+                    got = project.measurements.latest(f"sensor/{r.name}", now)
                     if got is None or now - got[0] > STALE_RUNS * a.every:
                         stale.append(r.name)
         agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles],
@@ -178,19 +180,19 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),
                           "running_since": running_since}
 
-    snap = {"at": now, "window": window, "stocks": stocks, "flows": flows, "loops": loops, "residuals": residuals,
+    snap = {"at": now, "live": live, "window": window, "stocks": stocks, "flows": flows, "loops": loops, "residuals": residuals,
             "agents": agents}
     snap["hints"] = ladder_hints(project, snap)
     return snap
 
 
-def decisions(project, controller: str, since: float) -> dict:
+def decisions(project, controller: str, since: float, until: float | None = None) -> dict:
     """What a controller decided in the window, grouped by its words with the numbers taken out:
     how many decisions, and how often each kind came up, commonest first."""
     import re
     kinds: dict[str, int] = {}
     total = 0
-    for words, n in project.events.decided(controller, since):
+    for words, n in project.events.decided(controller, since, until):
         k = re.sub(r"-?\d+(\.\d+)?", "#", str(words)).strip() or "(no words)"
         kinds[k] = kinds.get(k, 0) + n
         total += n
@@ -210,7 +212,7 @@ def ladder_hints(project, snap: dict) -> list[dict]:
         a = m.agents.get(c.agent or "")
         if a is None or a.rung > 3:
             continue
-        d = decisions(project, c.name, since)
+        d = decisions(project, c.name, since, snap["at"])
         if d["count"] >= LADDER_MIN and d["kinds"][0][1] / d["count"] >= LADDER_SHARE:
             word, n = d["kinds"][0]
             lower = "a rule" if a.rung >= 2 else "a decision or a rule"

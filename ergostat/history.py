@@ -4,8 +4,26 @@ back, so a change can be seen before and after."""
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
+
+
+def _declared(obj) -> dict:
+    """What an object declares: its fields that differ from their defaults (so a field added to
+    ergostat later, with a default, is not a change to anyone's model)."""
+    out = {}
+    for f in dataclasses.fields(obj):
+        v = getattr(obj, f.name)
+        default = f.default if f.default is not dataclasses.MISSING else (
+            f.default_factory() if f.default_factory is not dataclasses.MISSING else dataclasses.MISSING)
+        if v != default:
+            out[f.name] = v
+    return out
+
+
+def _hash(obj) -> str:
+    return hashlib.sha256(json.dumps(_declared(obj), sort_keys=True, default=str).encode()).hexdigest()[:10]
 
 
 def fingerprints(model) -> dict[str, str]:
@@ -14,9 +32,9 @@ def fingerprints(model) -> dict[str, str]:
     for t in (model.stocks, model.flows, model.valves, model.sensors, model.controllers):
         for p in t.values():
             kind = "disturbance" if getattr(p, "disturbance", False) else p.kind
-            out[f"{kind}:{p.name}"] = hashlib.sha256(json.dumps(p.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
+            out[f"{kind}:{p.name}"] = _hash(p)
     for a in model.agents.values():
-        out[f"agent:{a.name}"] = hashlib.sha256(json.dumps(a.__dict__, sort_keys=True, default=str).encode()).hexdigest()[:10]
+        out[f"agent:{a.name}"] = _hash(a)
     return out
 
 

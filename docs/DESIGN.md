@@ -132,7 +132,8 @@ The control diagram is the product's main view. Conventions:
 status. `system` draws (`--all`, `--around PART`, `--wiring`, `--list`, `--open`); `loop` adds each
 part along the loop, its crossings and decisions; `agent`, `event` (`--follow`), `item`,
 `residual`; the parts one at a time; `check`, `run`, `web`, `chat`. Every topic takes `-s SYSTEM`,
-`--since`, `--json`. Nothing on the command line changes the system except `run` and `chat`.
+`--since`, `--at` (a past moment: the state is estimated as it was then, over the window before it)
+and `--json`. Nothing on the command line changes the system except `run` and `chat`.
 The review rounds that shaped it are in `docs/cli-rounds.md`.
 
 ## 8. The web page
@@ -141,7 +142,8 @@ Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *
 owner's absence*), read only. Pages: Diagram (with the side panel: attention, loops, model changes,
 legend), Loops, Agents (the ladder, one column per rung), Record (events, with runs hidden by
 default; items), Residuals, Check. Clicking a part opens what `ergostat <topic> <name>` shows.
-Light and dark themes; usable at phone width.
+A slider in the header moves the whole page to a past moment (the API's `at`), with
+"back to live". Light and dark themes; usable at phone width.
 
 ## 9. Not yet
 

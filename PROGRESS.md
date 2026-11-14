@@ -25,5 +25,6 @@ Work until 2pm.
 - 07:41 round 6 (new user, empty repo): state keyed by repo path, missing commands warned; README; scripts/demo_check.py (5/5 demos ok with page checks); arrowheads, flow-sensor readings, residual noise floor.
 - 07:47 round 7 (overnight; is the AI doing anything a rule couldn't): crossings, decisions, ladder hints; cron schedules; SVG export; file-queue demo (shell, real files).
 - 07:55 big demo (24 loops, 6 systems): layout scales; runs were 4-5s each under 24 agents: the run context and the edge detector no longer take full snapshots; controller boxes show the last decision; attention list capped in the side panel.
-- 07:55 round 8 (before/after): model.changed history, live reload of the model, schedules on badges, per-system colours.
-- 08:02 docs/DESIGN.md (the design as built); all 7 demos pass scripts/demo_check.py; a start-up race in the event follower fixed (found by a flaky test).
+- 07:52 round 8 (before/after): model.changed history, live reload of the model, schedules on badges, per-system colours.
+- 07:58 docs/DESIGN.md (the design as built); all 7 demos pass scripts/demo_check.py; a start-up race in the event follower fixed (found by a flaky test).
+- 08:05 block view (web + ergostat system --blocks); Parts page; round 9 (misbehaving agents: timeouts, process groups); snapshot 71ms to 15ms (SQL counts, composite index).

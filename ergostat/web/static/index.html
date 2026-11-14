@@ -14,6 +14,11 @@
   <nav id="nav">
     <a href="#/diagram">Diagram</a><a href="#/loops">Loops</a><a href="#/agents">Agents</a><a href="#/parts">Parts</a><a href="#/record">Record</a><a href="#/residuals">Residuals</a><a href="#/check">Check</a>
   </nav>
+  <span class="when" id="when">
+    <input type="range" id="at" min="0" max="1000" value="1000" title="look at a past moment">
+    <span id="atlabel" class="muted">live</span>
+    <button id="live" hidden>back to live</button>
+  </span>
   <label class="window">window
     <select id="since"><option value="10m">10m</option><option value="1h" selected>1h</option><option value="6h">6h</option><option value="1d">1d</option><option value="7d">7d</option></select>
   </label>

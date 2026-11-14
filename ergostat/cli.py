@@ -50,6 +50,7 @@ flags
   -C DIR             Run as if in DIR
   -s, --system NAME  Only the parts in this system
   --since TIME       The window to look at (10m, 2h, 1d; default 1h)
+  --at TIME          As it was then: 30m (ago), 07:30, or epoch seconds
   --json             Output for scripts and agents
   -h, --help         Help (also: ergostat TOPIC --help)
   --version          Print the version
@@ -91,6 +92,37 @@ def window(args) -> float:
     return parse_duration(args.since, "--since") if args.since else st.WINDOW
 
 
+def at_of(args) -> float | None:
+    """``--at``: a moment in the past, as ``30m`` (that long ago), ``07:30`` (today, or yesterday when
+    that is still to come), or seconds since the epoch. None: now."""
+    v = getattr(args, "at", None)
+    if not v:
+        return None
+    import re
+    from datetime import datetime, timedelta
+    if m := re.fullmatch(r"(\d{1,2}):(\d{2})", v.strip()):
+        t = datetime.now().replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)
+        if t > datetime.now():
+            t -= timedelta(days=1)
+        return t.timestamp()
+    try:
+        x = float(v)
+        if x > 1e9:
+            return x
+    except ValueError:
+        pass
+    return time.time() - parse_duration(v, "--at")
+
+
+def snap_of(p, args) -> dict:
+    return st.snapshot(p, window(args), at_of(args))
+
+
+def as_of(snap: dict) -> str:
+    return "" if snap.get("live", True) else c(f" · as of {time.strftime('%H:%M:%S', time.localtime(snap['at']))} "
+                                               f"({human(time.time() - snap['at'])} ago)", "accent")
+
+
 def parts_of(args, m) -> set[str]:
     if getattr(args, "system", None):
         if args.system not in m.system_names():
@@ -105,14 +137,14 @@ def parts_of(args, m) -> set[str]:
 def cmd_status(args) -> int:
     from .runner import running_pid, web_url
     p = open_project(args)
-    m, snap = p.model, st.snapshot(p, window(args))
+    m, snap = p.model, snap_of(p, args)
     pid = running_pid(p)
     att = st.attention(snap, running=bool(pid))
     if args.json:
         return out_json({"running": bool(pid), "web": web_url(p) if pid else None, "attention": att,
                          "loops": snap["loops"], "counts": counts(p)})
     run = c("running", "ok") + (f" · {web_url(p)}" if web_url(p) else "") if pid else c("not running", "warn") + " · start: ergostat run"
-    print(f"{c('ergostat', 'bold')} · {m.name} · {run}")
+    print(f"{c('ergostat', 'bold')} · {m.name} · {run}{as_of(snap)}")
     if not m.stocks and not m.agents:
         print("the model is empty. describe your system with `ergostat chat`.")
         return 0
@@ -174,7 +206,7 @@ def cmd_check(args) -> int:
 def cmd_system(args) -> int:
     p = open_project(args)
     m = p.model
-    snap = st.snapshot(p, window(args))
+    snap = snap_of(p, args)
     if not args.name and not args.all and not args.around:
         rows = []
         for s in m.system_names():
@@ -196,7 +228,7 @@ def cmd_system(args) -> int:
     except KeyError:
         print(f"no part {args.around!r}", file=sys.stderr)
         return 2
-    g = graph.wiring(m, p, snap, parts) if args.wiring else graph.control(m, snap, parts, graph.readings(p))
+    g = graph.wiring(m, p, snap, parts) if args.wiring else graph.control(m, snap, parts, graph.readings(p, at_of(args)))
     if args.json:
         return out_json(g)
     if args.open:
@@ -220,7 +252,7 @@ def cmd_system(args) -> int:
     if args.blocks:
         loops = [lp.name for lp in m.loops() if lp.name in parts or lp.controller.name in parts]
         for name in loops:
-            print(show.block_text(m, snap, graph.readings(p), name))
+            print(show.block_text(m, snap, graph.readings(p, at_of(args)), name))
             print()
         if not loops:
             print(c("no loops in this selection", "dim"))
@@ -238,7 +270,7 @@ def cmd_system(args) -> int:
 def cmd_loop(args) -> int:
     p = open_project(args)
     m = p.model
-    snap = st.snapshot(p, window(args))
+    snap = snap_of(p, args)
     parts = parts_of(args, m)
     if not args.name:
         rows = [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), lp["setpoint"],
@@ -257,7 +289,7 @@ def cmd_loop(args) -> int:
     if args.json:
         return out_json(lp)
     ctl = m.controllers[args.name]
-    print(c("loop ", "dim") + show.loop_line(lp, args.name))
+    print(c("loop ", "dim") + show.loop_line(lp, args.name) + as_of(snap))
     if ctl.description:
         print(c("  " + ctl.description, "dim"))
     pts = snap["stocks"].get(lp["stock"], {}).get("points", [])
@@ -288,14 +320,14 @@ def cmd_loop(args) -> int:
     flows = [f"{f} {fmt(snap['flows'][f]['rate'])}/h" for f in lp["flows"]]
     rows.append(["moves", ", ".join(flows) or "-", "", ""])
     print(table(["PART", "NAME", "FILLED BY", "LAST"], rows))
-    crossings = p.events.query(n=8, item=args.name, type="loop.*", since=time.time() - window(args))
+    crossings = p.events.query(n=8, item=args.name, type="loop.*", since=snap["at"] - snap["window"], until=snap["at"])
     if crossings:
         print(c(f"\ncrossings in {human(snap['window'])}", "dim"))
         for e in crossings:
             word = e["type"].split(".", 1)[1]
             print(f"  {time.strftime('%H:%M:%S', time.localtime(e['time']))}  {show.status_word(word)}  "
                   f"{lp['stock']} {fmt(e['data'].get('value'))}" + (f", off by {fmt(abs(e['data']['error']))}" if word == "off" else ""))
-    d = st.decisions(p, args.name, time.time() - window(args))
+    d = st.decisions(p, args.name, snap["at"] - snap["window"], snap["at"])
     if d["count"]:
         print(c(f"\ndecisions in {human(snap['window'])}: {d['count']}", "dim"))
         for word, n in d["kinds"][:5]:
@@ -309,7 +341,7 @@ def cmd_loop(args) -> int:
 def cmd_agent(args) -> int:
     p = open_project(args)
     m = p.model
-    snap = st.snapshot(p, window(args))
+    snap = snap_of(p, args)
     if not args.name:
         if args.json:
             return out_json(snap["agents"])
@@ -434,7 +466,7 @@ def cmd_item(args) -> int:
 
 def cmd_residual(args) -> int:
     p = open_project(args)
-    snap = st.snapshot(p, window(args))
+    snap = snap_of(p, args)
     parts = parts_of(args, p.model)
     res = {k: v for k, v in snap["residuals"].items() if k in parts and (not args.name or k == args.name)}
     if args.json:
@@ -455,7 +487,7 @@ def cmd_residual(args) -> int:
 def cmd_part(args) -> int:
     p = open_project(args)
     m = p.model
-    snap = st.snapshot(p, window(args))
+    snap = snap_of(p, args)
     parts = parts_of(args, m)
     topic = args.topic
     if topic == "disturbance":
@@ -693,6 +725,7 @@ def build() -> argparse.ArgumentParser:
         f.add_argument("-C", metavar="DIR", **d)
         f.add_argument("-s", "--system", **d)
         f.add_argument("--since", **d)
+        f.add_argument("--at", **d, help="look at a past moment: 30m (ago), 07:30, or epoch seconds")
         f.add_argument("--json", action="store_true", **d)
         return f
     common = flags(True)

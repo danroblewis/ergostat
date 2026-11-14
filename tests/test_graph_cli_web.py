@@ -141,3 +141,25 @@ def test_a_loop_as_a_text_block_diagram(repo, project, capsys):
     rc, out = run_cli(repo, "system", "--all", "--blocks", capsys=capsys)
     assert rc == 0 and "r: ≤ 80 ─▶(Σ)─e=0─▶[ disk-under-80 · program ]─u─▶[ delete-old-files ]─▶(+)─▶[ disk-used 70 % ]" in out
     assert "d: logs-written" in out and "▲−" in out and "[ disk-usage reads 70 ]◀" in out
+
+
+def test_a_field_added_with_its_default_is_not_a_change(project):
+    from ergostat import history
+    before = history.fingerprints(project.model)
+    project.model.agents["cleaner"].timeout = 300.0          # the default: nothing declared it
+    assert history.fingerprints(project.model) == before
+    project.model.agents["cleaner"].timeout = 30.0
+    assert history.fingerprints(project.model)["agent:cleaner"] != before["agent:cleaner"]
+
+
+def test_at_looks_at_a_past_moment(project):
+    import time as t
+
+    from ergostat import state
+    now = t.time()
+    project.measurements.add("sensor/disk-usage", 70, at=now - 600)
+    project.measurements.add("sensor/disk-usage", 90, at=now - 10)
+    assert state.snapshot(project)["loops"]["disk-under-80"]["status"] == "off"
+    past = state.snapshot(project, now=now - 300)
+    assert past["loops"]["disk-under-80"]["status"] == "holding" and past["stocks"]["disk-used"]["value"] == 70
+    assert not past["live"]
