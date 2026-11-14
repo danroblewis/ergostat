@@ -101,6 +101,15 @@ class Agent:
     every: float | None = None
     on: list[str] = field(default_factory=list)
     description: str = ""
+    cron: str | None = None
+
+    @property
+    def schedule(self) -> str:
+        """How it runs, in a few words."""
+        from .durations import human
+        parts = ([f"every {human(self.every)}"] if self.every else []) + ([f"cron {self.cron}"] if self.cron else []) + \
+                ([f"on {', '.join(self.on)}"] if self.on else [])
+        return " · ".join(parts)
 
     @property
     def rung(self) -> int:
@@ -301,15 +310,23 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
                                       drives=_names(r.get("drives"), f"{w}.drives"), agent=r.get("agent")), "controller")
     for i, r in enumerate(rows("agent")):
         w = f"[[agent]] #{i + 1}"
-        _take(r, {"name", "kind", "command", "every", "on", "description"}, w)
+        _take(r, {"name", "kind", "command", "every", "on", "cron", "description"}, w)
         kind = r.get("kind", "program")
         if kind not in KINDS:
             raise ModelError(f"{w} {r['name']}.kind: one of {', '.join(KINDS)}")
         if r["name"] in m.agents:
             raise ModelError(f"{w} {r['name']}: the name is already used by an agent")
+        cron = r.get("cron")
+        if cron is not None:
+            from .cron import Cron, CronError
+            try:
+                Cron(str(cron))
+            except CronError as e:
+                raise ModelError(f"{w} {r['name']}.cron: {e}") from None
         m.agents[r["name"]] = Agent(r["name"], kind, str(r.get("command", "")),
                                     parse_duration(r.get("every"), f"{w}.every") if r.get("every") is not None else None,
-                                    _names(r.get("on"), f"{w}.on"), str(r.get("description", "")))
+                                    _names(r.get("on"), f"{w}.on"), str(r.get("description", "")),
+                                    str(cron) if cron is not None else None)
     for i, r in enumerate(rows("system")):
         w = f"[[system]] #{i + 1}"
         _take(r, {"name", "description"}, w)
@@ -402,8 +419,8 @@ def check(m: Model) -> list[tuple[str, str]]:
             warn(f"agent {a.name}: fills no role")
         if a.kind in ("person",) and a.command:
             warn(f"agent {a.name}: a person has no command; ergostat never runs it")
-        if a.kind not in ("person",) and a.command and a.every is None and not a.on:
-            warn(f"agent {a.name}: has a command but no every or on, so it never runs")
+        if a.kind not in ("person",) and a.command and a.every is None and not a.on and not a.cron:
+            warn(f"agent {a.name}: has a command but no every, cron or on, so it never runs")
     for s in m.system_names():
         if not m.members(s):
             warn(f"system {s}: selects nothing")

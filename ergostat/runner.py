@@ -202,17 +202,28 @@ class Runner:
                 self.say(f"{name}: {r.get('note') or ''} {r.get('refused') and str(r['refused']) + ' refused' or ''}".strip())
 
     def _schedule(self) -> None:
+        from .cron import Cron
         due: dict[str, float] = {}
         timed = [a for a in self.p.model.agents.values() if a.name in self.queues and a.every]
+        crons = {a.name: Cron(a.cron) for a in self.p.model.agents.values() if a.name in self.queues and a.cron}
+        next_cron = {n: c.next_after(time.time()) for n, c in crons.items()}
         while not self.stop.is_set():
             now = time.monotonic()
             for a in timed:
                 if now >= due.get(a.name, 0):
                     due[a.name] = now + a.every
-                    if a.name not in self.waiting:          # its last scheduled run has not started: skip
-                        self.waiting.add(a.name)
-                        self.queues[a.name].put(None)
+                    self._due(a.name)
+            wall = time.time()
+            for n, at in next_cron.items():
+                if wall >= at:
+                    next_cron[n] = crons[n].next_after(wall)
+                    self._due(n)
             self.stop.wait(TICK)
+
+    def _due(self, name: str) -> None:
+        if name not in self.waiting:                        # its last scheduled run has not started: skip
+            self.waiting.add(name)
+            self.queues[name].put(None)
 
     def _follow(self) -> None:
         listening = [a for a in self.p.model.agents.values() if a.name in self.queues and a.on]

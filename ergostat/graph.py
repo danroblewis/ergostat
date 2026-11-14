@@ -148,7 +148,7 @@ def wiring(model, project, snap: dict, parts: set[str]) -> dict:
     for n in sorted(involved):
         a, s = m.agents[n], snap["agents"].get(n, {})
         nodes.append(_node(f"agent:{n}", "agent", n, agentKind=a.kind, rung=a.rung, roles=s.get("roles", []),
-                           runs=s.get("runs", 0), failing=s.get("failing", False), every=a.every, on=a.on))
+                           runs=s.get("runs", 0), failing=s.get("failing", False), every=a.every, on=a.on, schedule=a.schedule))
     edges = {}
 
     def add(src, dst, via):

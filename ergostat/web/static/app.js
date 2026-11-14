@@ -254,7 +254,7 @@ function drawAgent(n, w, hgt) {
   g.append(s("rect", { width: 6, height: hgt, rx: 3, fill: rungColor(n.rung) }));
   g.append(s("text", { x: 16, y: 20, class: "t-label" }, n.label));
   g.append(s("text", { x: w - 10, y: 20, class: "t-sub", "text-anchor": "end" }, `rung ${n.rung} · ${n.agentKind}`));
-  const when = n.every ? `every ${n.every}s` : (n.on && n.on.length ? `on ${n.on.join(", ")}` : "");
+  const when = n.schedule || "";
   g.append(s("text", { x: 16, y: 38, class: "t-sub" }, when + (n.runs ? ` · ${n.runs} runs` : "")));
   (n.roles || []).slice(0, 3).forEach((r, i) => g.append(s("text", { x: 16, y: 56 + i * 14, class: "t-sub" }, `${r.kind} ${r.name}`)));
   return g;
@@ -364,6 +364,36 @@ function drawGraph(svg, g, lay) {
   if (S.hl) highlightLoop(S.hl);
 }
 
+/* a standalone copy of the diagram: every computed style written inline, framed to the layout */
+const STYLE_PROPS = ["fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap", "stroke-linejoin", "opacity",
+                     "font-family", "font-size", "font-weight", "letter-spacing", "text-transform", "text-anchor"];
+function exportSvg(svg, name) {
+  if (!S.layout) return;
+  const clone = svg.cloneNode(true);
+  const src = svg.querySelectorAll("*"), dst = clone.querySelectorAll("*");
+  src.forEach((el, i) => {
+    const cs = getComputedStyle(el);
+    const style = STYLE_PROPS.map((p) => `${p}:${cs.getPropertyValue(p)}`).join(";");
+    dst[i].setAttribute("style", style + (dst[i].getAttribute("style") ? ";" + dst[i].getAttribute("style") : ""));
+    dst[i].classList?.remove("dim");
+  });
+  for (const f of clone.querySelectorAll(".flowing")) f.remove();          // the animation does not survive a file
+  clone.querySelector("#viewport").setAttribute("transform", "");
+  const pad = 20, w = S.layout.width + pad * 2, hgt = S.layout.height + pad * 2;
+  clone.setAttribute("viewBox", `${-pad} ${-pad} ${w} ${hgt}`);
+  clone.setAttribute("width", w);
+  clone.setAttribute("height", hgt);
+  clone.setAttribute("xmlns", NS);
+  clone.removeAttribute("class");
+  const bg = getComputedStyle(document.body).backgroundColor;
+  clone.insertBefore(s("rect", { x: -pad, y: -pad, width: w, height: hgt, fill: bg }), clone.firstChild);
+  const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" });
+  const a = h("a", { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
 function applyView(svg) {
   const vp = svg.querySelector("#viewport");
   if (vp) vp.setAttribute("transform", `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
@@ -465,6 +495,7 @@ async function pageDiagram(main, q) {
     around ? h("span", { class: "pill" }, "around " + around, " ", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); go({ around: "" }); } }, "×")) : null);
   const zoom = h("div", { class: "zoom" },
     h("button", { onclick: () => fit(svg, S.layout) }, "fit"),
+    h("button", { title: "save the diagram as an SVG file", onclick: () => exportSvg(svg, `${S.status?.name || "ergostat"}-${system || "all"}-${view}.svg`) }, "save SVG"),
     h("button", { onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
     h("button", { onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "−"));
   wrap.append(svg, toolbar, zoom);
@@ -586,7 +617,7 @@ async function openAgent(name) {
   const a = await api(`agents/${encodeURIComponent(name)}`);
   const kids = [h("div", { class: "kind" }, `agent · rung ${a.rung} ${a.kind}`), h("h2", {}, name),
     dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
-        ["runs", a.every ? `every ${a.every}s` : (a.on?.length ? `on ${a.on.join(", ")}` : "not run by ergostat")],
+        ["runs", a.schedule || "not run by ergostat"],
         ["fills", (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || "nothing"],
         ["in window", `${a.runs} runs, ${a.failed} failed`]])];
   kids.push(h("h3", {}, "recent runs"));

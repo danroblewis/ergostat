@@ -180,7 +180,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                     if got is None or now - got[0] > STALE_RUNS * a.every:
                         stale.append(r.name)
         agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles],
-                          "every": a.every, "on": a.on, "runs": len(done),
+                          "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, "runs": len(done),
                           "failed": sum(1 for e in done if e["type"] == "agent.failed"),
                           "refused": sum(e["data"].get("refused", 0) for e in done),
                           "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),

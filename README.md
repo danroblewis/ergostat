@@ -55,7 +55,7 @@ agent = "disk-cleaner"
 name = "disk-cleaner"
 kind = "program"
 command = "./clean.sh"
-every = "5m"     # or: on = ["loop.off", "backup.requested"]
+every = "5m"     # or: cron = "0 3 * * *", or: on = ["loop.off", "backup.requested"]
 ```
 
 ## What an agent's program does
@@ -94,14 +94,26 @@ Every topic takes `-s SYSTEM`, `--since 1h` and `--json`.
 control diagram, laid out by ELK: stocks as tanks, flows as pipes through valves (a bow tie) or
 disturbances (a diamond), sensors as gauges, controllers as boxes with their setpoint and status,
 each part tagged with the agent that fills it, coloured by its rung. Loops are coloured by status;
-systems are drawn as outlines that may overlap. The wiring view draws the agents and how each
+systems are drawn as outlines that may overlap. "save SVG" writes the diagram as a standalone
+file. The wiring view draws the agents and how each
 one's output reaches another. Loops, Agents (the ladder), Record, Residuals and Check show what the
 command line shows.
 
 ## Demos
 
-`~/ergostat-demos/` holds five repositories: `disk-space`, `backups`, `docs-fresh`, `deps` and
-`ops` (all of them together). `scripts/demo_check.py` runs each one and checks its pages.
+`~/ergostat-demos/` holds six repositories:
+
+- `disk-space`: one program measures, decides and cleans (one agent, three roles).
+- `backups`: a sensor program, a rule that listens for `loop.off`, a job that runs on an event, and
+  a second loop for the off-site copies.
+- `docs-fresh`: an AI agent (simulated), a decision, and a program; a disturbance that is measured.
+- `deps`: a person as a controller and valve, falling behind: the loop is off, and the merges they
+  make outside the valve show up as a residual.
+- `file-queue`: plain shell scripts on real files; an archiver on cron; an agent that fills no role
+  and acts as a disturbance.
+- `ops`: several systems together, overlapping.
+
+`scripts/demo_check.py` runs each one and checks its pages.
 
 ## Develop
 

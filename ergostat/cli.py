@@ -281,7 +281,7 @@ def cmd_agent(args) -> int:
             return out_json(snap["agents"])
         rows = []
         for n, a in sorted(snap["agents"].items(), key=lambda kv: (kv[1]["rung"], kv[0])):
-            when = (f"every {human(a['every'])}" if a["every"] else "") + (" on " + ", ".join(a["on"]) if a["on"] else "")
+            when = a["schedule"]
             if not a["runs_itself"]:
                 when = "a person" if a["kind"] == "person" else "not run by ergostat"
             last = a["last"]
@@ -301,8 +301,7 @@ def cmd_agent(args) -> int:
     print(f"{c('agent', 'dim')} {a.name} · rung {a.rung} {a.kind}" + (f" · {a.description}" if a.description else ""))
     if a.command:
         print(f"  command  {a.command}")
-    print("  runs     " + ((f"every {human(a.every)} " if a.every else "") + (f"on {', '.join(a.on)}" if a.on else "")
-                             or "not run by ergostat"))
+    print("  runs     " + (a.schedule or "not run by ergostat"))
     print("  fills    " + (", ".join(f"{r['kind']} {r['name']}" for r in s["roles"]) or "nothing"))
     runs = [e for e in p.events.query(n=200, item=a.name, type="agent.*") if e["type"] in ("agent.ran", "agent.failed")][-8:]
     print()
