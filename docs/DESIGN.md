@@ -62,7 +62,7 @@ only items that other events are about (the user's things); `--all` adds the par
 serves the web page and runs every agent that has a command and is not a person:
 
 - **When**: `every` (a duration), `cron` (five fields, local time), or `on` (event-type globs,
-  never its own events). One run at a time per agent; a scheduled run is skipped while the last one
+  optionally `@item`, never its own events). One run at a time per agent; a scheduled run is skipped while the last one
   still waits.
 - **Given** on stdin: the agent, its roles, every stock's current value, its controllers'
   setpoints, values and errors, and the triggering event.

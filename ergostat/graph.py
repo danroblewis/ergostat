@@ -195,22 +195,23 @@ def wiring(model, project, snap: dict, parts: set[str]) -> dict:
             if v in m.valves and m.valves[v].agent and c.agent:
                 add(c.agent, m.valves[v].agent, f"valve {v}")
     # events one agent published that another listens for (from the record)
-    published: dict[str, set[str]] = {}
+    from .runner import matches
+    published: dict[str, set[tuple[str, str]]] = {}               # agent -> (type, item) it causes
     for ev in project.events.query(n=2000):
         src = ev.get("source")
         if src in involved:
-            published.setdefault(src, set()).add(ev["type"])
+            published.setdefault(src, set()).add((ev["type"], ev.get("item") or ""))
         if src == "ergostat" and ev["type"].startswith("loop.") and ev.get("item") in m.controllers:
             lp = m.loop(ev["item"])
             for s in lp.sensors if lp else []:
                 if m.sensors[s].agent:
-                    published.setdefault(m.sensors[s].agent, set()).add(ev["type"])
+                    published.setdefault(m.sensors[s].agent, set()).add((ev["type"], ev["item"]))
     for b in involved:
         for pat in m.agents[b].on:
-            for a, types in published.items():
-                for t in types:
-                    if fnmatch.fnmatchcase(t, pat):
-                        add(a, b, f"event {t}")
+            for a, kinds in published.items():
+                for t, item in kinds:
+                    if matches(pat, {"type": t, "item": item}):
+                        add(a, b, f"event {t}" + (f"@{item}" if "@" in pat else ""))
     es = list(edges.values())
     return {"kind": "wiring", "nodes": nodes, "edges": es, "loops": {}, "cycles": cycles(m, es)}
 

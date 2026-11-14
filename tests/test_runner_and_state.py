@@ -171,3 +171,10 @@ def test_a_valve_position_is_a_setting_kept_as_a_measurement(project, repo):
     assert project.measurements.latest("valve/delete-old-files")[1] == 4
     from ergostat import graph
     assert graph.readings(project)["valve/delete-old-files"] == 4
+
+
+def test_on_may_name_an_item_too():
+    assert runner.matches("loop.off", {"type": "loop.off", "item": "x"})
+    assert runner.matches("loop.off@backup-*", {"type": "loop.off", "item": "backup-fresh"})
+    assert not runner.matches("loop.off@backup-fresh", {"type": "loop.off", "item": "queue-short"})
+    assert not runner.matches("loop.*@x", {"type": "valve.opened", "item": "x"})

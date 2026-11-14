@@ -7,7 +7,8 @@ ergostat in JSON lines.
 ## The shape of a run
 
 1. ergostat starts the command in the repository, when its schedule says: `every = "5m"`,
-   `cron = "0 3 * * *"`, or `on = ["loop.off"]` (event types it listens for).
+   `cron = "0 3 * * *"`, or `on = ["loop.off"]` (event types it listens for; `loop.off@backup-fresh`
+   listens for one item only, and both sides may be globs).
 2. It writes one JSON object to the program's stdin, then closes it:
 
    ```json

@@ -74,6 +74,12 @@ def context(project, agent, trigger: dict | None) -> dict:
             "state": values, "controllers": ctls, "trigger": trigger}
 
 
+def matches(pattern: str, ev: dict) -> bool:
+    """An ``on`` pattern: an event-type glob, optionally ``@item`` (also a glob): ``loop.off@backup-fresh``."""
+    t, _, item = pattern.partition("@")
+    return fnmatch.fnmatchcase(ev.get("type", ""), t) and (not item or fnmatch.fnmatchcase(str(ev.get("item") or ""), item))
+
+
 class Recorder:
     """Turns an agent's output lines into measurements and events, refusing what it may not say."""
 
@@ -273,7 +279,7 @@ class Runner:
             for ev in new:
                 seq = ev["seq"]
                 for a in listening:
-                    if ev.get("source") != a.name and any(fnmatch.fnmatchcase(ev["type"], pat) for pat in a.on):
+                    if ev.get("source") != a.name and any(matches(pat, ev) for pat in a.on):
                         self.queues[a.name].put(ev)
             self.stop.wait(TICK)
 
