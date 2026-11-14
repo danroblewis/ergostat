@@ -185,7 +185,7 @@ def cmd_system(args) -> int:
     except KeyError:
         print(f"no part {args.around!r}", file=sys.stderr)
         return 2
-    g = graph.wiring(m, p, snap, parts) if args.wiring else graph.control(m, snap, parts)
+    g = graph.wiring(m, p, snap, parts) if args.wiring else graph.control(m, snap, parts, graph.readings(p))
     if args.json:
         return out_json(g)
     if args.open:
@@ -583,7 +583,7 @@ def cmd_chat(args) -> int:
 
 
 EXAMPLE = '''# ergostat.toml: one loop. disk usage is held under 80% by a program that measures and cleans.
-name = "ops"
+# (the project's name defaults to its folder's; ./clean.sh is yours to write: see `ergostat agent --help`)
 
 [[stock]]
 name = "disk-used"

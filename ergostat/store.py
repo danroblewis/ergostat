@@ -46,8 +46,12 @@ def home() -> Path:
     return Path(os.environ.get("ERGOSTAT_HOME") or Path.home() / ".ergostat")
 
 
-def state_dir(project: str) -> Path:
-    d = home() / project
+def state_dir(project: str, repo: Path | None = None) -> Path:
+    """``<home>/<name>-<8 hex of the repository's path>``: two repositories never share a record,
+    even with the same name."""
+    import hashlib
+    key = project if repo is None else f"{project}-{hashlib.sha256(str(repo.resolve()).encode()).hexdigest()[:8]}"
+    d = home() / key
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -208,7 +212,7 @@ class Project:
 
     def __init__(self, model, directory: Path | None = None):
         self.model = model
-        self.dir = directory or state_dir(model.name)
+        self.dir = directory or state_dir(model.name, model.path.parent if model.path else None)
         self.events = Events(self.dir)
         self.measurements = Measurements(self.dir)
 

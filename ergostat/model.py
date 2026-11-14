@@ -387,7 +387,17 @@ def check(m: Model) -> list[tuple[str, str]]:
         for lp in m.loops():
             for g in lp.gaps:
                 warn(f"loop {lp.name}: cannot close: {g}")
+    import shlex
+    import shutil
     for a in m.agents.values():
+        if a.command and a.kind != "person":
+            try:
+                first = shlex.split(a.command)[0]
+            except (ValueError, IndexError):
+                first = ""
+            base = m.path.parent if m.path else Path.cwd()
+            if not first or not (shutil.which(first) or ("/" in first and (base / first).exists())):
+                warn(f"agent {a.name}: {first or 'its command'} not found" + ("" if "/" in first else " on PATH"))
         if not m.roles_of(a.name):
             warn(f"agent {a.name}: fills no role")
         if a.kind in ("person",) and a.command:

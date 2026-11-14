@@ -331,12 +331,12 @@ function drawGraph(svg, g, lay) {
     if (e.kind === "pipe") {
       eg.append(s("path", { d, class: "pipe-out" }), s("path", { d, class: "pipe-in" }));
       if (flowN && flowN.rate > 0) eg.append(s("path", { d, class: "flowing", stroke: dist ? "var(--dist)" : "var(--accent)" }));
-      if (e.arrow) { const ah = arrowHead(pts, "", 12); ah.setAttribute("fill", dist ? "var(--dist)" : "var(--pipe)"); eg.append(ah); }
+      if (e.arrow) { const ah = arrowHead(pts, "head", 12); ah.style.fill = dist ? "var(--dist)" : "var(--pipe)"; eg.append(ah); }
     } else {
       eg.append(s("path", { d, class: "info" }));
-      const ah = arrowHead(pts, "", 7);
-      ah.setAttribute("fill", getComputedStyle(document.documentElement).getPropertyValue(e.kind === "action" ? "--ctl-line" : (e.kind === "wire" ? "--accent" : "--info")));
-      if (loopSt) ah.setAttribute("fill", `var(--${loopSt === "holding" ? "ok" : loopSt === "off" ? "bad" : "warn"})`);
+      const ah = arrowHead(pts, "head", e.kind === "wire" ? 9 : 7);
+      ah.style.fill = loopSt ? `var(--${loopSt === "holding" ? "ok" : loopSt === "off" ? "bad" : "warn"})`
+                             : (e.kind === "action" ? "var(--ctl-line)" : e.kind === "wire" ? "var(--accent)" : "var(--info)");
       eg.append(ah);
       for (const l of le.labels || []) eg.append(s("text", { class: "elabel", x: l.x + 3, y: l.y + 11 }, l.text));
     }

@@ -51,7 +51,18 @@ def select(model, system: str | None = None, around: str | None = None, depth: i
     return seen
 
 
-def control(model, snap: dict, parts: set[str]) -> dict:
+def readings(project) -> dict:
+    out = {}
+    for n in project.model.sensors:
+        got = project.measurements.latest(f"sensor/{n}")
+        if got is not None:
+            out[n] = got[1]
+    return out
+
+
+def control(model, snap: dict, parts: set[str], readings: dict | None = None) -> dict:
+    """``readings``: each sensor's latest value, by name."""
+    readings = readings or {}
     nodes, edges, loops = [], [], {}
     m = model
     agent_of = {}
@@ -95,9 +106,10 @@ def control(model, snap: dict, parts: set[str]) -> dict:
     for n in sorted(x for x in parts if x in m.sensors):
         s = m.sensors[n]
         target = f"stock:{s.measures}" if s.measures in m.stocks else f"flow:{s.measures}"
-        got = snap["stocks"].get(s.measures, {}) if s.measures in m.stocks else {}
+        got = readings.get(n)
+        unit = "/h" if s.measures in m.flows else ""
         nodes.append(_node(f"sensor:{n}", "sensor", n, measures=s.measures, agent=agent_of.get(n), description=s.description,
-                           reading=fmt(got.get("value")) if got else None, systems=in_system.get(n, [])))
+                           reading=(fmt(got) + unit) if got is not None else None, systems=in_system.get(n, [])))
         if (s.measures in stocks_drawn) or (s.measures in flows_drawn):
             edges.append(_edge(target, f"sensor:{n}", "measure"))
     for n in sorted(x for x in parts if x in m.controllers):

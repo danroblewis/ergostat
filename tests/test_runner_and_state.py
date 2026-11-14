@@ -109,3 +109,16 @@ def test_an_agent_on_an_event_runs_when_it_arrives(project, repo):
     assert p.measurements.latest("sensor/disk-usage")[1] == 50
     started = p.events.query(type="agent.started")
     assert started and json.dumps(started[-1]["data"]) == '{"trigger": "disk.check.requested"}'
+
+
+def test_a_residual_no_bigger_than_an_ordinary_step_is_noise(project, repo):
+    text = repo.path.joinpath("ergostat.toml").read_text()
+    repo.write("ergostat.toml", text.replace("[[disturbance]]", "[[flow]]").replace('into = "disk-used"', 'to = "disk-used"'))
+    from ergostat import model
+    from ergostat.store import Project
+    p = Project(model.load(repo.path))
+    t = time.time() - 600
+    for i, v in enumerate([60, 61, 60, 61, 62, 61]):          # steps of 1; one unexplained step overall
+        p.measurements.add("sensor/disk-usage", v, at=t + i * 60)
+    r = state.snapshot(p)["residuals"]["disk-used"]
+    assert r["unexplained"] == 1 and not r["significant"]

@@ -122,7 +122,9 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         unexplained = s["change"] - explained
         estimated = [f for f in m.flows_of(name) if f.disturbance and f.name not in known]
         scale = abs(s["change"]) + abs(explained)
-        significant = abs(unexplained) > max(1e-9, 0.1 * scale)
+        steps = sorted(abs(b[1] - a[1]) for a, b in zip(pts, pts[1:], strict=False))
+        typical = steps[len(steps) // 2] if len(steps) >= 3 else 0.0   # a reading's ordinary step: timing at the edges is noise
+        significant = abs(unexplained) > max(1e-9, 0.1 * scale, 2 * typical)
         if estimated and significant:
             share = unexplained / len(estimated)
             for f in estimated:

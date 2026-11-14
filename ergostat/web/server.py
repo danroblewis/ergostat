@@ -70,7 +70,7 @@ def api(live: Live, path: str, q: dict):
         sel = graph.select(m, system, around, int(one("depth") or 1))
         if one("view") == "wiring":
             return graph.wiring(m, p, snap, sel)
-        return graph.control(m, snap, sel)
+        return graph.control(m, snap, sel, graph.readings(p))
     if head == "systems":
         return [{"name": s, "description": m.systems[s].description if s in m.systems else "",
                  "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)]}

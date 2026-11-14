@@ -108,3 +108,21 @@ $ ergostat item                 # what the work is about
 **Open:**
 - `agent.started` lines are noise in `ergostat event` for most questions; kept, because the record
   is raw. A filter (`--type`) answers it.
+
+## Round 6: a new user, an empty repository
+
+```
+$ ergostat                                  no ergostat.toml here: chat, or check --example
+$ ergostat check --example > ergostat.toml
+$ ergostat check                            warn: agent disk-cleaner: ./clean.sh not found
+$ ergostat                                  not running · start: ergostat run
+```
+
+**Findings (applied):**
+- The record was keyed by the model's name, so a new repository whose example was named "ops"
+  showed another project's 1841 events. The state directory is now `<name>-<hash of the repo's
+  path>`; the example has no name (the folder's is used).
+- `check` did not notice that an agent's command does not exist. It warns now.
+- "No recent reading" was said before anything had run. Missing readings count only while
+  running.
+- `--help` names `check --example` as the place to start without the Supervisor.
