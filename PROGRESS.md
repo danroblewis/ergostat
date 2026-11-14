@@ -48,3 +48,4 @@ Work until 2pm.
 - 10:17 round 22 (fourth review, cold start with own cron jobs): a disturbance's agent (the load) drawn in control and wiring; early 'too soon to say why' hint; file order everywhere; event hides runs; twin labels by geometry; docs on names/units. demo_check also opens each snapshot offline. 83 tests.
 - 10:22 tanks: a level meter with the setpoint's tick; labels follow each tick (a stale sensor label fixed); screenshots retaken; third code review launched (since 493879b).
 - 10:29 round 23 (weekly review: TIME OFF column); round 24 (third code review, 8 of 9 applied). 85 tests.
+- 10:38 round 25: sensor --forget-above/below (wrong readings set aside, recorded). 86 tests.
