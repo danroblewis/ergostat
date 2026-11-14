@@ -133,7 +133,7 @@ def test_the_model_history_records_what_changed(repo, project, capsys):
     (ch,) = [history.note(p)]
     assert ch["data"]["added"] == ["stock:inodes"] and ch["data"]["changed"] == ["controller:disk-under-80"]
     rc, out = run_cli(repo, "--since", "1h", capsys=capsys)
-    assert "1 changes" in out and "+stock:inodes" in out and "~controller:disk-under-80" in out
+    assert "1 change" in out and "+stock:inodes" in out and "~controller:disk-under-80" in out
 
 
 def test_a_loop_as_a_text_block_diagram(repo, project, capsys):

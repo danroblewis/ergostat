@@ -50,7 +50,7 @@ def cmd_status(args) -> int:
     if args.since:
         from .. import history
         ch = history.changes(p, time.time() - window(args))
-        print(c(f"the model, since {args.since} ago: " + (f"{len(ch)} changes" if ch else "no changes"), "dim"))
+        print(c(f"the model, since {args.since} ago: " + (f"{len(ch)} change{'' if len(ch) == 1 else 's'}" if ch else "no changes"), "dim"))
         for e in ch:
             d = e["data"]
             what = [f"+{x}" for x in d["added"]] + [f"-{x}" for x in d["removed"]] + [f"~{x}" for x in d["changed"]]
