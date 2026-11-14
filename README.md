@@ -13,7 +13,8 @@ The same system as classic feedback block diagrams, one loop per row:
 ![Block diagrams: r, Σ, e, C, u, the actuator, d, the plant, y, and the sensor H feeding ym
 back](docs/screenshots/blocks.png)
 
-More: [a chain of loops, folded where one feeds the next](docs/screenshots/chain.png),
+More: [the design picture, for a document](docs/screenshots/design.png),
+[a chain of loops, folded where one feeds the next](docs/screenshots/chain.png),
 [the agents and how they reach each other](docs/screenshots/wiring.png),
 [the ladder](docs/screenshots/ladder.png), [a loop's detail with its trend](docs/screenshots/loop-detail.png),
 [dark, two cron one-liners](docs/screenshots/plain-crontab-dark.png).
