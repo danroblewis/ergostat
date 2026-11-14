@@ -119,20 +119,24 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
 
 The control diagram is the product's main view. Conventions:
 
-- **Shapes**: a stock is a tank (its fill and setpoint line drawn to scale, a trend along the
-  bottom); a flow is a pipe; a valve is a bow tie on the pipe (filled: auto, half: advise, open:
+- **Shapes**: a stock is a tank (a meter under its title with the setpoint's tick, the setpoint
+  written beside the value, a trend along the bottom on one scale with the setpoint, dashed); a flow is a pipe; a valve is a bow tie on the pipe (filled: auto, half: advise, open:
   manual); a disturbance is a diamond with a wave; outside the boundary is a cloud; a sensor is a
-  gauge; a controller is a box with a summing junction, its setpoint, status and last decision.
-  Every role carries a badge: the agent's kind, name and schedule, with a dot coloured by rung (hue
-  is otherwise kept for roles and status).
+  gauge; a controller is a box with a summing junction, its setpoint, status and last decision;
+  an open loop's controller has a clock in place of the junction and draws no signal from a sensor.
+  Every role carries a badge: the agent's kind, name and schedule, with a dot coloured by kind and
+  lettered (H person, A ai, N narrow-ai, D decision, P program, R rule), so colour is never the
+  only cue; a disturbance may carry the badge of the agent whose doing it is.
 - **Lines**: pipes are double lines with moving dots while they flow; measurement is dashed
   (stock to sensor), signal solid (sensor to controller), action purple (controller to valve).
   A loop's lines take its status colour (green holding, red off, amber open).
 - **Layout** (ELK layered, vendored): the plant runs left to right along the pipes (pipes carry the
   highest straightness and direction priority), the feedback path above it; each loop a row.
   Systems are drawn as outlines in their own colours (golden-angle hues), overlapping where they
-  share parts, labels never stacked. A long chain can be folded into rows ("wrap"). Fit never
-  shrinks text below legibility; a bigger system is panned and zoomed.
+  share parts, labels never stacked. A chain of loops in series folds into rows at the pipes that
+  join them (one loop per row, upstream first, the joining pipe routed by hand), by itself when it
+  would be far wider than the window, or with "wrap". The first view keeps text legible (9px or
+  more) and says when more lies beyond the edge; "fit" shows everything.
 - **The wiring view** draws agents (coloured by rung, with schedule and roles) and an arrow when
   one agent's output reaches another: through a sensor or valve it hands on, through a stock, or
   through an event type it listens for. It runs top to bottom. The cycles among the agents are
@@ -142,9 +146,13 @@ The control diagram is the product's main view. Conventions:
   loop: the setpoint r into a summing junction (Σ, + and −), the error e into the controller C, its
   output u into the actuator (the valve), a second junction where the disturbance d joins, the
   plant (the stock), its output y, and the sensor H on the feedback path carrying ym back to Σ.
-  Every block names the agent that fills it; the loop's lines take its status colour. The command
-  line prints the same in text (`ergostat system --blocks`).
-- **Export**: "save SVG" writes a standalone file, every style inlined.
+  Every block names the agent that fills it; the loop's lines take its status colour. An open
+  loop has `t: <schedule>` driving C with no Σ, and ym ends in "watched against r, not fed
+  back". With several systems the rows are grouped by system and tagged. The command line prints
+  the same in text (`ergostat system --blocks`).
+- **Export**: "save SVG" and "PNG" write a standalone file with a header (project, system, view,
+  when), every style resolved; `ergostat snapshot` writes the whole page and its answers as one
+  HTML file that opens offline (agents' logs only with `--with-logs`).
 
 ## 7. The command line
 
@@ -156,6 +164,10 @@ People fill roles too, and say what they did: `ergostat valve NAME --opened N [-
 `ergostat sensor NAME --read V`, `ergostat controller NAME --decided TEXT`, only for roles a person
 fills, checked like any agent's lines and recorded as that person. These are records of what was
 done, not changes to the system; a valve a person fills is manual unless the file says otherwise.
+A plainly wrong reading is set aside with `ergostat sensor NAME --forget-above V` (or
+`--forget-below`): kept apart, out of every estimate, with the crossings it caused, and recorded.
+`ergostat run --service` prints a launchd agent or systemd unit that keeps the runner up; it
+installs nothing.
 
 
 `ergostat [TOPIC] [NAME] [FLAGS]`; topics are nouns, a name shows one. Bare `ergostat` is the
