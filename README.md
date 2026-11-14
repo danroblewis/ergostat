@@ -157,7 +157,7 @@ returns.
 
 ## Demos
 
-`~/ergostat-demos/` holds ten repositories:
+`~/ergostat-demos/` holds eleven repositories:
 
 - `disk-space`: one program measures, decides and cleans (one agent, three roles).
 - `backups`: a sensor program, a rule that listens for `loop.off`, a job that runs on an event, and
@@ -173,6 +173,8 @@ returns.
   loops are held by a person with manual valves.
 - `plain-crontab`: two cron jobs as one-liners (`find ... -delete | wc -l`, `du | cut -f1`), no
   JSON and no scripts; the pruner is an open loop (it deletes by age, whatever the count).
+- `talking-scripts`: three ordinary shell scripts that print sentences for people ("cleanup done:
+  removed 12 stale uploads"), unchanged; each agent's `parse` takes the number from its words.
 - `big`: 24 loops in six systems, for the layout.
 - `ops`: several systems together, overlapping.
 
