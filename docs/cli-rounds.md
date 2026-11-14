@@ -554,3 +554,10 @@ ELK's own wrapping cut it anywhere and sent pipes on long detours.
   above the next row, across, and into the next stock. This happens by itself when the unwrapped
   diagram would be more than twice as wide as the window allows; the "wrap" button turns it on
   or off either way.
+
+## Round 31: the first command in an empty repository
+
+- `ergostat` with no model said to write one: it lists three ways to start, the first a single
+  command (`check --example cron > ergostat.toml`, then `run`) that gives a running loop and a
+  diagram with nothing written.
+- "1 loops · 1 stocks": the counts agree with their number.

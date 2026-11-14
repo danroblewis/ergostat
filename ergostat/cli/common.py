@@ -24,8 +24,10 @@ def open_project(args):
     try:
         m = mdl.load(here)
     except FileNotFoundError:
-        print(f"no {mdl.FILE} here or above {here}.\n"
-              f"describe your system with `ergostat chat`, or write {mdl.FILE} (see `ergostat check --example`).",
+        print(f"no {mdl.FILE} here or above {here}. To start:\n"
+              f"  ergostat check --example cron > {mdl.FILE}   two one-liners that run as they are; then ergostat run\n"
+              f"  ergostat chat                                   describe your system (your crontab too) to the Supervisor\n"
+              f"  ergostat check --example                        one program to write, to start from",
               file=sys.stderr)
         raise SystemExit(2) from None
     except (mdl.ModelError, DurationError) as e:

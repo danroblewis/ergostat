@@ -94,8 +94,9 @@ def status(args) -> int:
                      for n, lp in loops.items()]))
         print()
     k = counts(p)
-    print(c(f"{k['loops']} loops · {k['stocks']} stocks · {k['flows']} flows · {k['agents']} agents · "
-            f"{k['events']} events · {k['measurements']} measurements", "dim"))
+    def n(x, word):
+        return f"{x} {word}{'' if x == 1 else 's'}"
+    print(c(" · ".join(n(k[w + "s"], w) for w in ("loop", "stock", "flow", "agent", "event", "measurement")), "dim"))
     return code
 
 def counts(p) -> dict:
