@@ -143,6 +143,14 @@ svg.canvas.dragging { cursor: grabbing; }
 .nowrap { white-space: nowrap; }
 code { font-family: var(--mono); font-size: 12px; }
 
+@media (max-width: 700px) {
+  .bar { gap: 8px 14px; padding: 8px 12px; }
+  .bar nav { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; }
+  .bar nav a { white-space: nowrap; }
+  .window { margin-left: auto; }
+  .page { padding: 16px; }
+  .page table { display: block; overflow-x: auto; }
+}
 @media (max-width: 900px) {
   .diagram { grid-template-columns: 1fr; grid-template-rows: minmax(420px, 1fr) auto; }
   .side { border-left: 0; border-top: 1px solid var(--line); }

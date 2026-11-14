@@ -124,7 +124,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         scale = abs(s["change"]) + abs(explained)
         steps = sorted(d for a, b in zip(pts, pts[1:], strict=False) if (d := abs(b[1] - a[1])) > 0)
         typical = steps[len(steps) // 2] if len(steps) >= 2 and len(pts) >= 4 else 0.0   # an ordinary step: timing at the edges is noise
-        significant = abs(unexplained) > max(1e-9, 0.1 * scale, 2 * typical)
+        significant = abs(unexplained) > max(1e-9, 0.05 * scale, 2 * typical)
         if estimated and significant:
             share = unexplained / len(estimated)
             for f in estimated:
