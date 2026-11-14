@@ -348,6 +348,20 @@ def ladder_hints(project, snap: dict) -> list[dict]:
                              x.cron for x in m.agents.values() if x.name in slowest) else ""))
         out.append({"controller": name, "agent": c.agent, "kind": a.kind if a else "", "share": lp["off_share"],
                     "count": 0, "decision": "", "about": "loop", "says": says})
+    # upstream action piling up behind a loop that is off: the anti-windup question for loops in series
+    for up, lp in snap["loops"].items():
+        for f in lp["flows"]:
+            down_stock = m.flows[f].target
+            for down, dl in snap["loops"].items():
+                if down == up or dl["stock"] != down_stock or dl.get("off_share", 0) < 0.5:
+                    continue
+                moved = snap["flows"].get(f, {}).get("rate") or 0
+                if moved > 0:
+                    out.append({"controller": up, "agent": m.controllers[up].agent, "kind": "", "share": dl["off_share"],
+                                "count": 0, "decision": "", "about": "loop",
+                                "says": f"loop {up} keeps feeding {down_stock} ({fmt(moved)}/h) while loop {down} is off "
+                                        f"{round(dl['off_share'] * 100)}% of the time: work piles up downstream. Hold {up} back "
+                                        f"while {down} is off (its controller can read {down_stock}, or listen for loop.holding@{down})"})
     for c in m.controllers.values():
         a = m.agents.get(c.agent or "")
         if a is None or a.rung > 3:

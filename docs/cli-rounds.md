@@ -609,3 +609,6 @@ Nine points, seven applied:
 Not applied: the stage delays measured from the record (reading → decision → opening → holding),
 a valve's declared maximum per run, and naming upstream action piling up behind a loop that is
 off (anti-windup): noted for later.
+- Added afterwards (one of the noted concepts): a loop that keeps feeding a stock whose own loop is
+  off half the time or more is named: work piles up downstream; hold it back while the downstream
+  loop is off (the anti-windup question for loops in series). deps shows it.
