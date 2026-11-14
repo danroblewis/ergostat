@@ -7,7 +7,7 @@ $("#since").addEventListener("change", (ev) => { S.since = ev.target.value; S.gr
 /* the time slider: the right end is now (live); anywhere else is that moment, over the window before it */
 const WINDOWS = { "10m": 600, "1h": 3600, "6h": 21600, "1d": 86400, "7d": 604800 };
 function sliderSpan() {
-  const now = Date.now() / 1000;
+  const now = nowS();
   const lo = Math.max(now - WINDOWS[S.since] * 3, S.first || now - WINDOWS[S.since]);
   return [lo, now];
 }
@@ -28,6 +28,10 @@ $("#at").addEventListener("change", () => { refreshHeader(); route(); });
 $("#live").addEventListener("click", () => { S.at = null; showAt(); refreshHeader(); route(); });
 window.addEventListener("hashchange", route);
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeDetail(); });
+if (SNAP) {                                   // one moment, one window: nothing to slide or switch
+  for (const el of [$("#when"), $("#project"), $("#since").closest("label")]) el.style.display = "none";
+  S.since = SNAP.since;
+}
 (async () => {
   await refreshHeader();
   setInterval(refreshHeader, 3000);

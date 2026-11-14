@@ -30,7 +30,7 @@ function s(tag, attrs = {}, ...kids) {
 const fmt = (x) => x == null ? "?" : (typeof x === "number" ? (Number.isInteger(x) ? String(x) : (Math.abs(x) < 100 ? x.toPrecision(3).replace(/\.?0+$/, "") : x.toFixed(0))) : String(x));
 function ago(t) {
   if (!t) return "never";
-  const d = Date.now() / 1000 - t;
+  const d = nowS() - t;
   if (d < 60) return `${Math.max(0, Math.round(d))}s ago`;
   if (d < 3600) return `${Math.round(d / 60)}m ago`;
   if (d < 86400) return `${Math.round(d / 3600)}h ago`;
@@ -42,7 +42,21 @@ const RUNG_HINT = ["the most general agent", "a universal AI agent", "an AI agen
 const rungColor = (r) => `var(--r${r})`;
 const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "?");
 
+/* a snapshot (`ergostat snapshot`): the answers were taken once and are in the page */
+const SNAP = window.SNAPSHOT || null;
+function nowS() { return SNAP ? SNAP.at : Date.now() / 1000; }
+function snapKey(path, params) {
+  const kept = Object.entries(params).filter(([k, v]) => !["since", "at"].includes(k) && v != null && v !== "" && v !== "undefined")
+    .map(([k, v]) => [k, String(v)]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return path + (kept.length ? "?" + kept.map(([k, v]) => `${k}=${v}`).join("&") : "");
+}
+
 async function api(path, params = {}) {
+  if (SNAP) {
+    const k = snapKey(path, params);
+    if (!(k in SNAP.data)) throw new Error(`${path}: not in this snapshot`);
+    return JSON.parse(JSON.stringify(SNAP.data[k]));
+  }
   const q = new URLSearchParams({ since: S.since, ...(S.at ? { at: String(S.at) } : {}), ...params });
   const r = await fetch(`/api/${path}?${q}`);
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
@@ -69,8 +83,9 @@ async function refreshHeader() {
     }
     const off = Object.values(st.loops).filter((l) => l.status === "off").length;
     const run = $("#running");
-    run.className = "pill " + (st.running ? (off ? "bad" : "ok") : "unknown");
-    run.textContent = st.running ? (off ? `${off} loop${off > 1 ? "s" : ""} off` : "running") : "not running";
+    run.className = "pill " + (SNAP ? (off ? "bad" : "unknown") : st.running ? (off ? "bad" : "ok") : "unknown");
+    run.textContent = SNAP ? `snapshot ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? ` · ${off} off` : ""}`
+      : st.running ? (off ? `${off} loop${off > 1 ? "s" : ""} off` : "running") : "not running";
     document.title = `${st.name} · ergostat`;
     S.first = st.first;
   } catch (e) { /* the server may be restarting */ }

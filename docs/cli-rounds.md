@@ -401,3 +401,14 @@ and wants their control diagram without rewriting them. Modelled as the demo `pl
 - The Agents page drew a loop hint as a decision hint (`"" 52% of 0`): it shows what the hint says.
 - A job rotating a log every 2 minutes was called saturated: a sawtooth that gets back under the
   setpoint is sampling too slowly. Saturated needs the loop off at least 90% of the window.
+
+## Round 21: "send me the diagram" (a manager asks for the picture in a ticket)
+
+The engineer had the page open but nothing to send but a screenshot or one SVG; the reader cannot
+click a part, switch to the block view or see the loops.
+
+- `ergostat snapshot [-o FILE] [--since 1h]` writes the page with every answer it would ask for
+  (each view of the whole and of each system, every loop, agent and part, the record, the
+  residuals) into one HTML file, scripts and style inline. It opens offline; the header says it is
+  a snapshot and when; ages are counted from then; the slider, window and project switcher are
+  gone. A view it does not hold (around one part) says so rather than "the server is not answering".

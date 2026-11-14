@@ -248,3 +248,20 @@ def test_a_person_records_what_they_did(repo, capsys):
     assert e["source"] == "me" and e["data"] == {"amount": 5.0, "flow": "cleaned", "note": "cleared /tmp"}
     assert run_cli(repo, "sensor", "disk-usage", "--read", "50", capsys=capsys)[0] == 2      # filled by a program
     assert run_cli(repo, "valve", "delete-old-files", "--opened", "-1", capsys=capsys)[0] == 1  # refused, as for any agent
+
+
+def test_a_snapshot_is_one_file_holding_the_answers_the_page_asks_for(project):
+    import json as _json
+    import re as _re
+
+    from ergostat.web.snapshot import build, key
+    project.measurements.add("sensor/disk-usage", 70.0)
+    html = build(project)
+    assert '<script src="' not in html and '<link rel="stylesheet"' not in html      # nothing fetched
+    assert html.lower().count("<script") == html.lower().count("</script>")          # no script closed early
+    body = _re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1)
+    data = _json.loads(body.replace("<\\/", "</"))["data"]
+    for k in ("status", "graph", "graph?view=control", "graph?system=host&view=wiring", "loops/disk-under-80",
+              "agents/cleaner", "part/valve/delete-old-files", "part/disturbance/logs-written", "projects"):
+        assert k in data, k
+    assert key("graph", {"view": "control", "system": "", "around": "undefined", "since": "1h"}) == "graph?view=control"

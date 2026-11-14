@@ -133,7 +133,8 @@ systems are drawn as outlines that may overlap. The blocks view draws each loop 
 negative-feedback block diagram (r, Σ, e, C, u, the actuator, the disturbance d joining at the
 plant, y, the sensor H feeding ym back, and feedforward when a controller measures d itself);
 `ergostat system --blocks` prints the same in text.
-"save SVG" and "PNG" write the diagram as a standalone file. The wiring view draws the agents and how each
+"save SVG" and "PNG" write the diagram as a standalone file. `ergostat snapshot` writes the whole page, with
+what it shows now, to one HTML file that opens anywhere with no ergostat running (every view, page and part, as of then). The wiring view draws the agents and how each
 one's output reaches another, and lists the cycles among them, declared as loops or not. Loops, Agents (the ladder), Parts, Record, Residuals and Check show
 what the command line shows; the Guide explains the ideas with the system's own parts as examples. The slider in the header looks at any past moment; "back to live"
 returns.

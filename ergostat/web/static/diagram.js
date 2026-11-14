@@ -493,7 +493,7 @@ async function pageDiagram(main, q) {
     let g;
     try { g = await api("graph", { view: view === "blocks" ? "control" : view, system, around }); fails = 0; }
     catch (e) {
-      if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, "the server is not answering: is ergostat still running?")); }
+      if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "this view is not in the snapshot: the whole system and each system are" : "the server is not answering: is ergostat still running?")); }
       return;
     }
     wrap.querySelector(".loading")?.remove();
@@ -541,7 +541,7 @@ function renderSide(side, g, view) {
   const all = g.attention || st.attention;           // from the same snapshot as the diagram beside it
   const problems = all.filter((a) => a.level !== "hint"), hints = all.filter((a) => a.level === "hint");
   side.replaceChildren();
-  if (S.status && !S.status.running && !S.at) {
+  if (S.status && !S.status.running && !S.at && !SNAP) {
     const last = Math.max(0, ...Object.values(g.loops || {}).map((l) => (S.status.loops[l.controller || ""] || {}).last_read || 0),
                           ...Object.values(S.status.loops || {}).map((l) => l.last_read || 0));
     side.append(h("div", { class: "att" }, h("div", { class: "warn" }, h("b", {}, "not running: "),

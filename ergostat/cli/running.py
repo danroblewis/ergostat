@@ -97,6 +97,20 @@ def cmd_run(args) -> int:
                                   *(["--no-web"] if args.no_web else []), *(["--port", str(args.port)] if args.port else [])])
     return 0
 
+def cmd_snapshot(args) -> int:
+    from ..web.snapshot import build
+    p = open_project(args)
+    since = getattr(args, "since", None) or "1h"
+    if getattr(args, "at", None):
+        print("a snapshot is of now: --at is not taken", file=sys.stderr)
+        return 2
+    out = Path(args.output or f"{p.model.name}-{time.strftime('%Y%m%d-%H%M')}.html")
+    html = build(p, since)
+    out.write_text(html)
+    print(f"{out}  ({len(html) // 1024} KB; open it in a browser, no ergostat needed)")
+    return 0
+
+
 def cmd_web(args) -> int:
     from ..web import serve
     p = open_project(args)

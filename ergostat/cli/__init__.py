@@ -13,7 +13,7 @@ from .agents import cmd_agent
 from .common import PART_TOPICS
 from .parts import cmd_part
 from .record import cmd_event, cmd_item, cmd_residual
-from .running import cmd_chat, cmd_projects, cmd_run, cmd_web
+from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
 from .status import cmd_check, cmd_status
 from .system import cmd_loop, cmd_system
 
@@ -136,6 +136,10 @@ def build() -> argparse.ArgumentParser:
     hp = sub.add_parser("help", help="Guides: agents (writing one), ai-agents")
     hp.add_argument("name", nargs="?")
     hp.set_defaults(fn=cmd_help)
+    sn = topic("snapshot", cmd_snapshot, "Write the page, with what it shows now, to one HTML file", named=False,
+               desc="Write the web page, with everything it shows now, to one HTML file that opens anywhere, offline, "
+                    "with no ergostat running: the diagrams to attach to a document or a ticket.")
+    sn.add_argument("-o", "--output", metavar="FILE", help="where (default: <name>-<date>-<time>.html here)")
     w = topic("web", cmd_web, "Serve the web page only", named=False)
     w.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     chat = sub.add_parser("chat", parents=[common], help="Talk to the Supervisor")
