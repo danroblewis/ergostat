@@ -231,11 +231,12 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         running_since = begun[-1]["time"] if begun and (last_any is None or begun[-1]["seq"] > last_any["seq"]) else None
         roles = m.roles_of(a.name)
         stale = []
-        if a.every:
+        period = _period(a)                               # every, or cron's gap: a reading older than a few is stale
+        if period:
             for r in roles:
                 if r.kind == "sensor":
                     got = project.measurements.latest(f"sensor/{r.name}", now)
-                    if got is None or now - got[0] > STALE_RUNS * a.every:
+                    if got is None or now - got[0] > STALE_RUNS * period:
                         stale.append(r.name)
         agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles],
                           "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, **counted,

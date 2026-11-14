@@ -585,3 +585,27 @@ Nine findings, all applied:
 - The block view's system tag ran into the loop name (measured now); the systems fallback
   never applied; an open loop's `t:` says the full schedule, as the text view does; the "more
   beyond the edge" hint follows drags and zooms.
+
+## Round 33: a control engineer's review
+
+Nine points, seven applied:
+
+- A loop whose only sensor measured a flow was "closed", comparing a rate with a level: feedback is
+  a reading of the stock itself; a sensor on a flow feeds forward, and `check` says so.
+- "Saturated" rested on a near-circular test (the estimated load is the stock's change minus the
+  valve): the hint says *falling behind* (out below in, the stock grew by N), and *saturated* only
+  when every opening moved the same amount.
+- "Run it more often" blamed the controller whatever the bottleneck: the slowest stage is named
+  (sensor, controller or valve, by schedule); and the longest period that can hold the setpoint is
+  said (file-queue: 14s; cron cannot).
+- Outflow disturbances were never drawn in the block views: they join the plant with −, both views.
+- `==` with a tolerance never came back to holding: back within half the tolerance.
+- The tolerance was said to stop the loop chattering: it stops the *status* chattering; for an
+  agent woken by `loop.off` it is the control law. An estimated disturbance is lumped (it holds
+  every model error too). A measured flow is the window's average; a latest reading says "now".
+  The text block view shows feedforward, as the page did.
+- A cron sensor's old reading was never called stale: its period is cron's gap.
+
+Not applied: the stage delays measured from the record (reading → decision → opening → holding),
+a valve's declared maximum per run, and naming upstream action piling up behind a loop that is
+off (anti-windup): noted for later.

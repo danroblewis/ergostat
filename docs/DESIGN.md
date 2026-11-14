@@ -90,27 +90,38 @@ serves the web page and runs every agent that has a command and is not a person:
 Over a window (default 1 hour), with every rate taken over the time actually recorded:
 
 - **A stock's value** is the latest reading of a sensor that measures it; unmeasured is unknown.
-- **A flow's rate** (per hour) is its sensor's latest reading, else the amounts its valve opened.
+- **A flow's rate** (per hour) is its sensors' average over the window (each reading covering the
+  time back to the one before; several sensors averaged), else the amounts its valve opened over
+  the window. The latest reading is shown as such ("now") where it is used, as for feedforward.
 - **A residual** is a stock's change minus what its known flows explain (valve amounts between the
   first and last reading; measured flows integrated over time; declared rates). When an unmeasured
   disturbance pushes that stock, the residual is its estimate, unless it would have to run
-  backwards to explain it: then it is flagged, never clamped. Otherwise the residual is unexplained
+  backwards to explain it: then it is flagged, never clamped. Such an estimate is *lumped*: it is
+  the disturbance plus every error in the model (a valve that over-reports, a biased sensor), and
+  one sensor on the stock cannot tell several disturbances apart, so the share among them by
+  direction is a convention, not a measurement. Otherwise the residual is unexplained
   when it is larger than 5% of the flow and twice an ordinary non-zero step between readings
   (timing at the window's edges is noise), and the recent half of the window shows it too, the same
   way (a one-off long ago in the window is not flagged for an hour).
 - **The error** is e = r − y, the control convention: negative when the value is too high, 0 on a
   one-sided setpoint's satisfied side.
-- **A loop** is open (cannot close), unknown (no reading), holding, or off. The tolerance is a
-  hysteresis band on the side that matters: off past the setpoint by more than the tolerance,
-  holding again only back within the setpoint itself; a strict bound (`<`, `>`) counts the bound
-  as off. A loop acted when a reading and a decision or opening both fell in the window; its time
-  off is measured from its crossings.
+- **A loop** is open (cannot close: it needs a sensor on the stock itself, since a sensor on a flow
+  measures u or d and feeds forward), unknown (no reading), holding, or off. The *status* has
+  hysteresis on the side that matters: off past the setpoint by more than the tolerance, holding
+  again only back within the setpoint itself (for `==`, within half the tolerance); a strict bound
+  (`<`, `>`) counts the bound as off. The band filters the alarm, not the agent's own control law,
+  except for an agent woken by `loop.off`, for which the band is the control law (it sets the limit
+  cycle). A loop acted when a reading and a decision or opening both fell in the window; its time
+  off is measured from its crossings, so it is as precise as its sensor's period.
 - **Hints**, apart from the problems:
   - the refactor path: a controller filled by a person, an AI agent or a decision that decided the
     same thing (numbers taken out) at least 80% of at least 10 times could be filled by a lower rung;
-  - a loop off at least half the time though it acts: saturated, when its valve moved less than
-    the load (a valve with more capacity, or less load); otherwise its controller samples too
-    slowly (run it more often).
+  - a loop off at least half the time though it acts: *falling behind* when its valve moved less
+    than the load came in (saturated only when every opening moved the same amount: the valve at
+    its limit); otherwise it answers too late, and the slowest stage (sensor, controller or valve,
+    by its schedule) is named. For a job emptying a stock under an upper setpoint, the longest
+    period that can hold it is said (the room under the setpoint over the load), and when cron
+    cannot run that often.
 - **Attention**: problems first (loops off, loops open or unknown past two minutes of record,
   agents failing, lines refused or unreadable, missing readings while running, unexplained
   residuals), then the hints. What a run by hand refused is not kept as a problem.
