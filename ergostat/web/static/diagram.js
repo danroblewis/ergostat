@@ -100,11 +100,15 @@ function drawStock(n, w, hgt) {
                        "stroke-dasharray": n.outside ? "5 4" : null }));
   g.append(s("line", { x1: 0, x2: w, y1: T, y2: T, stroke: "var(--line)", "stroke-width": 1 }));
   g.append(s("rect", { x: 2, y: T + H * (1 - frac), width: w - 4, height: H * frac, fill: tone, opacity: 0.14 }));
+  // a meter under the title: the level against the scale, and a tick where the setpoint is
+  const mx = 10, mw = w - 20, my = T + 5;
+  g.append(s("rect", { x: mx, y: my, width: mw, height: 4, rx: 2, fill: "var(--line)" }));
+  g.append(s("rect", { x: mx, y: my, width: mw * frac, height: 4, rx: 2, fill: tone }));
   if (spv != null) {
-    // the setpoint: a marker on the tank's right edge, so it never strikes through the value
-    const y = T + H * (1 - Math.min(1, spv / top));
-    g.append(s("path", { d: `M${w},${y} l-9,-5 v10 Z`, fill: tone, opacity: 0.9 }, s("title", {}, "setpoint")));
-    g.append(s("line", { x1: w - 26, x2: w - 9, y1: y, y2: y, stroke: tone, "stroke-width": 1.2, "stroke-dasharray": "2 2" }));
+    const sx = mx + mw * Math.min(1, spv / top);
+    g.append(s("line", { x1: sx, x2: sx, y1: my - 3, y2: my + 7, stroke: "var(--ink)", "stroke-width": 1.6 }, s("title", {}, "setpoint")));
+    const sp_ = sp.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").trim();
+    g.append(s("text", { x: w - 10, y: 50, class: "t-sub", "text-anchor": "end" }, sp_));
   }
   if (pts.length > 1) {
     const vs = pts.map((p) => p[1]), lo = Math.min(...vs), hi = Math.max(...vs) || 1;
@@ -336,7 +340,9 @@ function drawGraph(svg, g, lay) {
                         onclick: (ev) => { ev.stopPropagation(); if (n.kind !== "cloud") openNode(n); } });
     ng.append((DRAW[n.kind] || drawCloud)(n, ln.width, ln.height));
     for (const lb of ln.labels || []) {
-      const lines = lb.text.split("\n");
+      // the text from this tick's data, not the layout's: positions are kept, readings move on
+      const fresh = labelLines(n);
+      const lines = fresh.length ? fresh : lb.text.split("\n");
       lines.forEach((t, i) => {
         const cx = lb.x + lb.width / 2, y = lb.y + 13 + i * 16;
         if (t === "§badge") { const b = badge(n.agent, cx, y - 11); if (b) ng.append(b); return; }

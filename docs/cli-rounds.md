@@ -437,3 +437,8 @@ Thirteen findings; applied:
 Not applied: a way to forget a bad reading (an open question: the record is append-only), and
 marking a controller as not reading its sensor (a time-based job that ignores the measurement:
 the loop is drawn as declared).
+- A tank's level and setpoint did not read at a glance (the setpoint marker hid under the
+  sensor's arrow): a meter under the title shows the level, with a tick at the setpoint, and the
+  setpoint is written beside the value.
+- A sensor's label could lag its stock ("reads 12" by a tank at 24): a redraw that keeps the
+  layout took the labels' text from the layout; it takes it from this tick's data.
