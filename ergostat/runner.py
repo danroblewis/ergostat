@@ -566,6 +566,11 @@ def web_url(project) -> str | None:
 
 def start_background(project, args: list[str]) -> int:
     log = project.dir / "run.log"
+    try:
+        if log.stat().st_size > 5_000_000:              # kept to two: this one and the one before
+            log.replace(log.with_suffix(".log.1"))
+    except OSError:
+        pass
     with open(log, "a") as lf:
         p = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(project.repo), "run", "--foreground", *args],
                              stdout=lf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
