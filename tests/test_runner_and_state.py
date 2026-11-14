@@ -346,3 +346,97 @@ def test_one_runner_per_repository_and_a_stale_pid_file_is_not_running(project):
     runner._LOCK.close()
     runner._LOCK = None
     assert runner.running_pid(project) is None
+
+
+def _with_meters(repo, n):
+    from ergostat import model
+    from ergostat.store import Project
+    text = repo.path.joinpath("ergostat.toml").read_text()
+    for i in range(n):
+        text += f'\n[[sensor]]\nname = "meter{i}"\nmeasures = "cleaned"\nagent = "cleaner"\n'
+    repo.write("ergostat.toml", text)
+    return Project(model.load(repo.path))
+
+
+def test_a_measured_flow_is_averaged_over_the_time_its_readings_cover(repo):
+    p = _with_meters(repo, 1)
+    now = time.time()
+    for k in range(4):                                   # a steady 50/h, read every 2h: still 50/h over the last hour
+        p.measurements.add("sensor/meter0", 50.0, at=now - 7200 * k - 600)
+    assert abs(state.mean_rate(p, "cleaned", now - 3600, now) - 50) < 1e-6
+    snap = state.snapshot(p, window=3600, now=now)
+    assert abs(snap["flows"]["cleaned"]["rate"] - 50) < 1e-6
+
+
+def test_two_sensors_on_one_flow_are_averaged_not_added(repo):
+    p = _with_meters(repo, 2)
+    now = time.time()
+    for i in range(2):
+        for k in range(12):
+            p.measurements.add(f"sensor/meter{i}", 50.0, at=now - 300 * k - 60)
+    assert abs(state.mean_rate(p, "cleaned", now - 3600, now) - 50) < 1e-6
+
+
+def test_a_refused_valve_line_records_nothing(project, repo):
+    r = run_with(project, repo, """
+        import json
+        print(json.dumps({"valve": "delete-old-files", "position": 5, "amount": -1}))
+    """)
+    assert r["refused"] == 1 and project.measurements.latest("valve/delete-old-files") is None
+
+
+def test_a_reader_checking_the_lock_never_stops_a_runner_starting(project):
+    import threading
+    stop = threading.Event()
+
+    def read():
+        while not stop.is_set():
+            runner.running_pid(project)
+    t = threading.Thread(target=read)
+    t.start()
+    try:
+        for _ in range(200):
+            assert runner.take_lock(project)
+            runner._LOCK.close()
+            runner._LOCK = None
+    finally:
+        stop.set()
+        t.join()
+
+
+def test_a_reload_hands_the_lock_on(project):
+    assert runner.take_lock(project)
+    env = runner.keep_lock_across_exec()
+    assert os.get_inheritable(int(env["ERGOSTAT_LOCK_FD"]))
+    kept = os.dup(runner._LOCK.fileno())                  # as execv would: the open file outlives the old process
+    runner._LOCK.close()
+    runner._LOCK = None
+    os.environ["ERGOSTAT_LOCK_FD"] = str(kept)
+    try:
+        assert runner.take_lock(project) and runner._LOCK.fileno() == kept
+        assert runner.running_pid(project) == os.getpid()
+    finally:
+        runner._LOCK.close()
+        runner._LOCK = None
+
+
+def test_defaults_filled_in_are_not_model_edits(repo):
+    from ergostat import history, model
+    a = history.fingerprints(model.load(repo.path))
+    text = repo.path.joinpath("ergostat.toml").read_text().replace('kind = "program"', 'kind = "person"')
+    repo.write("ergostat.toml", text)
+    b = history.fingerprints(model.load(repo.path))
+    assert a["valve:delete-old-files"] == b["valve:delete-old-files"]       # manual by default for a person, not written
+    repo.write("ergostat.toml", text.replace('flow = "cleaned"', 'flow = "cleaned"\nmode = "auto"'))
+    c = history.fingerprints(model.load(repo.path))
+    assert c["valve:delete-old-files"] == a["valve:delete-old-files"]       # writing the default is no change
+
+
+def test_a_valves_last_opening_is_what_its_last_run_moved(project):
+    ev = project.events
+    ev.add("valve.opened", item="delete-old-files", source="cleaner", causedby="run-1", data={"amount": 9.0})
+    for _ in range(3):
+        ev.add("valve.opened", item="delete-old-files", source="cleaner", causedby="run-2", data={"amount": 2.0})
+    last = ev.last_opening("delete-old-files")
+    assert last["count"] == 3 and last["amount"] == 6.0
+    assert ev.last_opening("nothing") is None

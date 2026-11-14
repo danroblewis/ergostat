@@ -14,6 +14,10 @@ def _declared(obj) -> dict:
     ergostat later, with a default, is not a change to anyone's model)."""
     out = {}
     for f in dataclasses.fields(obj):
+        if f.metadata.get("history") is False:
+            continue
+        if f.name == "mode" and getattr(obj, "mode_set", True) is False:   # a default filled in, not written
+            continue
         v = getattr(obj, f.name)
         default = f.default if f.default is not dataclasses.MISSING else (
             f.default_factory() if f.default_factory is not dataclasses.MISSING else dataclasses.MISSING)

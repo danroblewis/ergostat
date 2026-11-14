@@ -229,8 +229,11 @@ function drawGraph(svg, g, lay) {
     // a system that contains another is padded more, so nested outlines nest visibly, labels apart
     const memberIds = {};
     for (const name of S.status?.systems || []) memberIds[name] = new Set(lay.children.filter((c) => (byId[c.id]?.systems || []).includes(name)).map((c) => c.id));
-    const depth = (name) => Object.entries(memberIds).filter(([o, ids]) => o !== name && ids.size && ids.size < memberIds[name].size &&
-                                                              [...ids].every((x) => memberIds[name].has(x))).length;
+    const inside = (o, name) => o !== name && memberIds[o].size && memberIds[o].size < memberIds[name].size &&
+                                [...memberIds[o]].every((x) => memberIds[name].has(x));
+    const depths = {};          // the longest chain of systems inside this one, not how many there are
+    const depth = (name) => (depths[name] ??= Math.max(0, ...Object.keys(memberIds).filter((o) => inside(o, name)).map((o) => 1 + depth(o))));
+    const ext = { x0: 0, y0: 0, x1: 0, y1: 0 };
     (S.status?.systems || []).forEach((name, si) => {
       const pad = 22 + 16 * depth(name);
       const hue = (210 + si * 137.5) % 360;          // the golden angle: neighbours never share a colour
@@ -254,8 +257,8 @@ function drawGraph(svg, g, lay) {
       const all = Object.values(groups).flat();
       const R = { x: Math.min(...all.map((b) => b.x)), y: Math.min(...all.map((b) => b.y)),
                   x1: Math.max(...all.map((b) => b.x1)), y1: Math.max(...all.map((b) => b.y1)) };
-      const intrudes = lay.children.some((c) => !ids.has(c.id) && byId[c.id]?.kind !== "cloud" &&
-        c.x < R.x1 && c.x + c.width > R.x && c.y < R.y1 && c.y + c.height > R.y);
+      const intrudes = lay.children.some((c) => !ids.has(c.id) && byId[c.id]?.kind !== "cloud" &&   // against the outline as drawn
+        c.x < R.x1 + pad && c.x + c.width > R.x - pad && c.y < R.y1 + pad && c.y + c.height > R.y - pad - 12);
       const sets = intrudes ? Object.values(groups) : [all];
       sets.sort((a, b) => b.length - a.length).forEach((bs) => {
         const x0 = Math.min(...bs.map((b) => b.x)) - pad, y0 = Math.min(...bs.map((b) => b.y)) - pad - 12;
@@ -267,12 +270,17 @@ function drawGraph(svg, g, lay) {
           lx = t.x + t.w + 12;
         }
         taken.push({ x: lx, y: y0, w: lw });
+        ext.x0 = Math.min(ext.x0, x0); ext.y0 = Math.min(ext.y0, y0); ext.x1 = Math.max(ext.x1, x1); ext.y1 = Math.max(ext.y1, y1);
         hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16,
                                  style: `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,45%,.45)` }),
                      s("text", { x: lx, y: y0 + 18, style: `fill:hsl(${hue},55%,42%)` }, name));
       });
     });
     vp.append(hulls);
+    // the outlines reach past the laid-out nodes: count them in the size that fit and export use
+    lay.base ||= { width: lay.width, height: lay.height };
+    lay.ox = Math.min(0, ext.x0); lay.oy = Math.min(0, ext.y0);
+    lay.width = Math.max(lay.base.width, ext.x1) - lay.ox; lay.height = Math.max(lay.base.height, ext.y1) - lay.oy;
   }
   const edgesG = s("g");
   for (const le of lay.edges) {
@@ -350,7 +358,8 @@ function fit(svg, lay, legible = false) {
   const whole = Math.min(1.25, (r.width - 40) / lay.width, (r.height - 90) / lay.height);
   const k = legible ? Math.max(0.45, whole) : Math.max(0.08, whole);
   const fitsW = lay.width * k <= r.width - 20, fitsH = lay.height * k <= r.height - 70;
-  S.view = { k, x: fitsW ? (r.width - lay.width * k) / 2 : 20, y: fitsH ? Math.max(56, (r.height - lay.height * k) / 2 + 20) : 60 };
+  const ox = (lay.ox || 0) * k, oy = (lay.oy || 0) * k;
+  S.view = { k, x: (fitsW ? (r.width - lay.width * k) / 2 : 20) - ox, y: (fitsH ? Math.max(56, (r.height - lay.height * k) / 2 + 20) : 60) - oy };
   applyView(svg);
 }
 
@@ -491,11 +500,12 @@ async function pageDiagram(main, q) {
     S.graph = g;
     if (view === "blocks") {
       wrap.querySelector(".empty")?.remove();
-      if (!Object.keys(g.loops || {}).length) {
+      const drawn = Object.keys(g.loops || {}).length ? drawBlocks(svg, g) : null;
+      if (!drawn) {
         svg.replaceChildren();
-        wrap.append(h("div", { class: "empty" }, "no loops to draw"));
+        wrap.append(h("div", { class: "empty" }, "no whole loops to draw here"));
       } else {
-        S.layout = drawBlocks(svg, g);
+        S.layout = drawn;
         if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
       }
       renderSide(side, g, "blocks");

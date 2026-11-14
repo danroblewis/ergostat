@@ -54,3 +54,21 @@ def test_rare_and_impossible_schedules():
     assert nxt == at("2032-02-29 00:00")
     with pytest.raises(CronError, match="never matches"):
         Cron("0 0 31 2 *").next_after(at("2026-11-14 00:00").timestamp())
+
+
+def test_the_hour_the_clocks_repeat_runs_twice(monkeypatch):
+    import time as _t
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    _t.tzset()
+    try:
+        c = Cron("*/5 * * * *")
+        t = datetime(2026, 11, 1, 1, 2).timestamp()       # 01:02 PDT, an hour before the clocks go back
+        steps = []
+        for _ in range(15):
+            n = c.next_after(t)
+            steps.append(n - t)
+            t = n
+        assert steps[0] == 180 and all(s == 300 for s in steps[1:])
+    finally:
+        monkeypatch.undo()
+        _t.tzset()

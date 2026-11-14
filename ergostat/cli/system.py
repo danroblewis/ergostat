@@ -136,10 +136,11 @@ def cmd_loop(args) -> int:
         if v is None:
             rows.append(["valve", c("none", "warn"), "", ""])
             continue
-        ops = p.events.query(n=1, type="valve.opened", item=v)
+        op = p.events.last_opening(v)
         mode = m.valves[v].mode
+        moved = f"{fmt(op['amount'])}" + (f" in {op['count']} openings" if op and op["count"] > 1 else "") if op else ""
         rows.append(["valve", f"{v} {c('(mode ' + mode + ')', 'dim')}", show.agent_tag(m, m.valves[v].agent),
-                     f"opened {ago(ops[-1]['time'])}: {fmt(ops[-1]['data'].get('amount'))}" if ops else c("never opened", "dim")])
+                     f"opened {ago(op['time'])}: {moved}" if op else c("never opened", "dim")])
     flows = [f"{f} {fmt(snap['flows'][f]['rate'])}/h" for f in lp["flows"]]
     rows.append(["moves", ", ".join(flows) or "-", "", ""])
     print(table(["PART", "NAME", "FILLED BY", "LAST"], rows))

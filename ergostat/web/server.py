@@ -198,6 +198,7 @@ def handler(project):
     live = Live(project)
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = 10                                   # an idle browser connection gives its thread back
         def log_message(self, *a):
             pass
 

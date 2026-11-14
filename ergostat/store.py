@@ -182,6 +182,22 @@ class Events:
                           (valve, since, until if until is not None else 1e18)).fetchone()
         return {"count": r[0], "amount": float(r[1]), "last": r[2]}
 
+    def last_opening(self, valve: str) -> dict | None:
+        """A valve's last opening: the run that opened it last, with what that whole run moved (an
+        agent may report each thing it moves as its own line). None when it never opened."""
+        with self._c() as c:
+            last = c.execute("select time, causedby from events where item = ? and type = 'valve.opened' "
+                             "order by time desc, seq desc limit 1", (valve,)).fetchone()
+            if last is None:
+                return None
+            if last[1] is None:
+                amt = c.execute("select coalesce(json_extract(data, '$.amount'), 1) from events where item = ? and "
+                                "type = 'valve.opened' order by time desc, seq desc limit 1", (valve,)).fetchone()
+                return {"time": last[0], "count": 1, "amount": float(amt[0])}
+            r = c.execute("select count(*), coalesce(sum(coalesce(json_extract(data, '$.amount'), 1)), 0) from events "
+                          "where item = ? and type = 'valve.opened' and causedby = ?", (valve, last[1])).fetchone()
+        return {"time": last[0], "count": r[0], "amount": float(r[1])}
+
     def decided(self, controller: str, since: float, until: float | None = None) -> list[tuple[str, int]]:
         """A controller's decisions in a span, grouped by their words."""
         with self._c() as c:

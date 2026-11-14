@@ -4,7 +4,6 @@ and 7 are Sunday. As in cron, when both day fields are restricted, either one ma
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timedelta
 
 FIELDS = (("minute", 0, 59), ("hour", 0, 23), ("day of month", 1, 31), ("month", 1, 12), ("day of week", 0, 7))
@@ -58,17 +57,19 @@ class Cron:
     def next_after(self, ts: float) -> float:
         """The next matching minute after ``ts``, within eight years (29 February comes every four);
         whole days that cannot match are skipped."""
-        t = datetime.fromtimestamp(ts).replace(second=0, microsecond=0) + timedelta(minutes=1)
-        end = t + timedelta(days=366 * 8)
+        x = (int(ts) // 60 + 1) * 60                # in epoch minutes, so an hour the clocks repeat is seen twice
+        end = x + 366 * 8 * 86400
         mi, hr, dom, mon, dow = self.sets
-        while t < end:
+        while x < end:
+            t = datetime.fromtimestamp(x)
             day_ok = t.month in mon and (
                 (t.day in dom and (t.isoweekday() % 7) in dow) if (self.dom_any or self.dow_any)
                 else (t.day in dom or (t.isoweekday() % 7) in dow))
             if not day_ok:
-                t = (t + timedelta(days=1)).replace(hour=0, minute=0)
+                midnight = (t + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                x = max(x + 60, int(midnight.timestamp()) // 60 * 60)
                 continue
             if self.matches(t):
-                return time.mktime(t.timetuple())
-            t += timedelta(minutes=1)
+                return float(x)
+            x += 60
         raise CronError(f"{self.expr!r} never matches")

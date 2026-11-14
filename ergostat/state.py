@@ -41,19 +41,33 @@ def history(project, stock: str, since: float, until: float | None = None) -> li
     return sorted(pts)
 
 
-def moved(project, flow: str, t0: float, t1: float) -> float | None:
-    """How much a measured flow moved between ``t0`` and ``t1``: its readings are rates per hour,
-    each covering the time since the reading before it."""
-    total, any_sensor = 0.0, False
+def mean_rate(project, flow: str, t0: float, t1: float) -> float | None:
+    """A measured flow's average rate per hour between ``t0`` and ``t1``. Each reading is a rate
+    covering the time since the reading before it (the first in the window covers back to ``t0``),
+    and the last one holds until ``t1``. Several sensors on one flow are averaged, not added. None
+    when no sensor has a reading in the window."""
+    rates = []
     for s in _sensor_for(project.model, flow):
-        pts = project.measurements.range(f"sensor/{s.name}", t0 - 3600, t1)
-        prev = None
+        pts = project.measurements.range(f"sensor/{s.name}", t0, t1)
+        pts = [(t, r) for t, r in pts if t0 <= t <= t1]
+        if not pts:
+            continue
+        if t1 - t0 <= 0:
+            rates.append(pts[-1][1])
+            continue
+        total, prev = 0.0, t0
         for t, r in pts:
-            if prev is not None and t > t0:
-                total += r * (t - max(prev, t0)) / 3600.0
+            total += r * (t - prev)
             prev = t
-        any_sensor = any_sensor or bool(pts)
-    return total if any_sensor else None
+        total += pts[-1][1] * (t1 - prev)
+        rates.append(total / (t1 - t0))
+    return sum(rates) / len(rates) if rates else None
+
+
+def moved(project, flow: str, t0: float, t1: float) -> float | None:
+    """How much a measured flow moved between ``t0`` and ``t1`` (its readings are rates per hour)."""
+    r = mean_rate(project, flow, t0, t1)
+    return None if r is None else r * (t1 - t0) / 3600.0
 
 
 def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
@@ -88,8 +102,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             got = project.measurements.latest(f"sensor/{s.name}", now)
             if got is not None:
                 # the average over the window, not the latest reading: one quiet scan is not a stopped flow
-                total = moved(project, f.name, start, now)
-                rate = total / hours if total is not None else got[1]
+                avg = mean_rate(project, f.name, start, now)
+                rate = avg if avg is not None else got[1]
                 how = f"measured by {s.name}"
         valve = m.valve_of(f.name)
         if valve is not None:

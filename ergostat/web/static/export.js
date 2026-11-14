@@ -15,13 +15,14 @@ function standaloneSvg(svg) {
   for (const f of clone.querySelectorAll(".flowing")) f.remove();          // the animation does not survive a file
   clone.querySelector("#viewport").setAttribute("transform", "");
   const pad = 20, w = S.layout.width + pad * 2, hgt = S.layout.height + pad * 2;
-  clone.setAttribute("viewBox", `${-pad} ${-pad} ${w} ${hgt}`);
+  const x0 = (S.layout.ox || 0) - pad, y0 = (S.layout.oy || 0) - pad;     // outlines may reach left of or above the nodes
+  clone.setAttribute("viewBox", `${x0} ${y0} ${w} ${hgt}`);
   clone.setAttribute("width", w);
   clone.setAttribute("height", hgt);
   clone.setAttribute("xmlns", NS);
   clone.removeAttribute("class");
   const bg = getComputedStyle(document.body).backgroundColor;
-  clone.insertBefore(s("rect", { x: -pad, y: -pad, width: w, height: hgt, fill: bg }), clone.firstChild);
+  clone.insertBefore(s("rect", { x: x0, y: y0, width: w, height: hgt, fill: bg }), clone.firstChild);
   return { text: new XMLSerializer().serializeToString(clone), w, hgt };
 }
 

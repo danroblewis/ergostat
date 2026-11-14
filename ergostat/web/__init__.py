@@ -26,20 +26,33 @@ def _free(port: int) -> int:
 
 
 class PooledServer(ThreadingHTTPServer):
-    """Requests served by a fixed pool of threads, so each keeps its database connections instead
-    of opening and closing them for every request (the page polls every few seconds)."""
+    """Requests served by a fixed pool of daemon threads, so each keeps its database connections
+    instead of opening and closing them for every request (the page polls every few seconds), and
+    an idle browser connection never keeps the process from exiting."""
+
+    workers = 24          # browsers open idle connections ahead of time: enough threads that they never starve a request
 
     def __init__(self, *a, **kw):
-        from concurrent.futures import ThreadPoolExecutor
+        import queue
         super().__init__(*a, **kw)
-        self.pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="ergostat-web")
+        self.jobs: queue.Queue = queue.Queue()
+        for i in range(self.workers):
+            threading.Thread(target=self._work, name=f"ergostat-web-{i}", daemon=True).start()
+
+    def _work(self):
+        while True:
+            job = self.jobs.get()
+            if job is None:
+                return
+            self.process_request_thread(*job)
 
     def process_request(self, request, client_address):
-        self.pool.submit(self.process_request_thread, request, client_address)
+        self.jobs.put((request, client_address))
 
     def server_close(self):
         super().server_close()
-        self.pool.shutdown(wait=False, cancel_futures=True)
+        for _ in range(self.workers):
+            self.jobs.put(None)
 
 
 def serve(project, port: int | None = None):

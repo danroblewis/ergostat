@@ -67,6 +67,7 @@ function drawBlocks(svg, g) {
     for (const [dx, dy, t] of signs) gg.append(label(cx + dx, cy + dy, t, "t-label"));
     return gg;
   };
+  if (!rows.length) { svg.replaceChildren(); return null; }   // loops whose parts are not all in view
   const cols = Math.min(4, Math.ceil(rows.length / 6)), perCol = Math.ceil(rows.length / cols), colW = X.out + 110;
   rows.forEach((row, i) => {
     const y0 = (i % perCol) * RH + 40, cy = y0 + 50, dx = Math.floor(i / perCol) * colW;

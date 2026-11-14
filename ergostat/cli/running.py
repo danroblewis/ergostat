@@ -92,6 +92,7 @@ def cmd_run(args) -> int:
         server.server_close()
         (p.dir / "web.json").unlink(missing_ok=True)
     if reload and not stopping:                         # the same process, the new model (a stop asked meanwhile wins)
+        os.environ.update(runner.keep_lock_across_exec())
         os.execv(sys.executable, [sys.executable, "-m", "ergostat", "-C", str(p.repo), "run", "--foreground",
                                   *(["--no-web"] if args.no_web else []), *(["--port", str(args.port)] if args.port else [])])
     return 0

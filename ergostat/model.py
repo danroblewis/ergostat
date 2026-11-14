@@ -71,7 +71,7 @@ class Valve(Part):
     flow: str = ""
     agent: str | None = None
     mode: str = "auto"
-    mode_set: bool = False
+    mode_set: bool = field(default=False, metadata={"history": False})   # how it was read, not declared
     kind = "valve"
 
 

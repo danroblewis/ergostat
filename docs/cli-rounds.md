@@ -347,3 +347,39 @@ Twenty findings; applied:
 
 Not applied: nesting overlapping system outlines (overlap is the point of systems), the phone
 layout beyond what round 11 did, and the wiring view's packing.
+
+## Round 18: on call (a page at 03:00: "the archive loop is off")
+
+The on-call engineer runs `ergostat`, then `ergostat loop archive-under-50`. The status names the
+off loop and why (it samples too slowly, once a minute, for a valve that moves 44 files a run);
+the loop shows 118 crossings in the hour and the evidence. One line misled: the valve "opened 31s
+ago: 1" was the last of 44 files moved by one run.
+
+- The valve row sums its last run: "opened 31s ago: 44 in 44 openings".
+
+## Round 19: a second code review (the code since round 13)
+
+Eleven findings, all applied, each with a test where one could be written:
+
+- An idle browser connection kept the page's pool thread, and `run --stop` waited on it forever:
+  the pool's threads are daemons, a request that never comes is given up after 10s, and there are
+  enough threads that idle connections never starve a request.
+- A page checking whether the runner was up took the pid file's lock for a moment, so a runner
+  starting then thought another held it: starting waits a second for readers, and only a runner
+  holding the lock refuses it.
+- A reload let go of the lock until the new process took it again: the locked file is handed on
+  through `execv`. A file locked but not yet written is read again rather than read as no runner.
+- A measured flow read every two hours averaged to 0 over the last hour, and two sensors on one
+  flow were added: each reading covers the time back to the one before (the first back to the
+  window's start), the last holds until now, and sensors on one flow are averaged.
+- A valve line refused for its amount still recorded its position: the whole line is checked first.
+- System outlines could enclose parts outside the system, and deep ones were clipped in the view
+  and in exports: the test is against the outline as drawn, depth is the longest chain of systems
+  inside, and the outlines count in the diagram's size.
+- A system view whose loops had parts outside it drew nothing at a NaN size: it says there are no
+  whole loops to draw.
+- Upgrading ergostat logged every valve as a model edit (a field that says how the file was read,
+  and the default mode for a valve a person fills, entered the fingerprint): neither does now.
+- A stop during a run left the agent "running" forever: stopping waits for the killed runs to be
+  recorded.
+- `*/5` skipped the repeated hour when the clocks went back: cron steps through real minutes.

@@ -144,15 +144,15 @@ class Recorder:
                 if "position" not in line and "amount" not in line:
                     self.refuse(line, "a valve line says amount (what it moved) or position (how far it is open)")
                     return True
+                if "position" in line and not _number(line["position"]):
+                    self.refuse(line, "position must be a number")
+                    return True
+                if "amount" in line and (not _number(line["amount"]) or line["amount"] < 0):
+                    self.refuse(line, "amount must be a number, 0 or more (a flow runs one way)")
+                    return True
                 if "position" in line:                   # how far it is open: a setting, kept as a measurement
-                    if not _number(line["position"]):
-                        self.refuse(line, "position must be a number")
-                        return True
                     self.p.measurements.add(f"valve/{name}", float(line["position"]))
                 if "amount" in line:
-                    if not _number(line["amount"]) or line["amount"] < 0:
-                        self.refuse(line, "amount must be a number, 0 or more (a flow runs one way)")
-                        return True
                     ev.add("valve.opened", item=name, source=self.agent.name, causedby=self.run_id,
                            data={"amount": float(line["amount"]), "flow": self.p.model.valves[name].flow,
                                  **({"note": line["note"]} if "note" in line else {})})
@@ -291,6 +291,7 @@ class Runner:
         self.stop = threading.Event()
         self.queues = {a.name: queue.Queue() for a in project.model.agents.values() if a.command and a.kind != "person"}
         self.waiting: set[str] = set()
+        self.busy: set[str] = set()       # agents whose run is under way
 
     def _work(self, name: str) -> None:
         agent = self.p.model.agents[name]
@@ -303,11 +304,14 @@ class Runner:
             self.waiting.discard(name)
             if self.stop.is_set():
                 break
+            self.busy.add(name)
             try:
                 r = run_agent(self.p, agent, trig)
             except Exception as e:                       # one agent failing never stops the rest
                 self.say(f"{name}: {type(e).__name__}: {e}")
                 continue
+            finally:
+                self.busy.discard(name)
             if r.get("note") or r.get("refused"):
                 self.say(f"{name}: {r.get('note') or ''} {r.get('refused') and str(r['refused']) + ' refused' or ''}".strip())
 
@@ -389,6 +393,9 @@ class Runner:
     def close(self) -> None:
         self.stop.set()
         kill_all()
+        deadline = time.monotonic() + 5                  # let the killed runs record how they ended
+        while self.busy and time.monotonic() < deadline:
+            time.sleep(0.05)
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
 
 
@@ -403,15 +410,34 @@ _LOCK = None     # the open, locked pid file of the runner in this process
 
 def take_lock(project) -> bool:
     """Lock ``run.pid`` for this process's life and write its pid: one runner per repository. A
-    pid file whose lock nobody holds is stale (a crash, a reboot), whatever pid it names."""
+    pid file whose lock nobody holds is stale (a crash, a reboot), whatever pid it names.
+
+    A process restarted in place (a reload) inherits the locked file through ``ERGOSTAT_LOCK_FD``, so
+    the lock is never let go between the two. A reader's brief shared lock (``running_pid``) is
+    waited out for a moment rather than taken for another runner."""
     import fcntl
     global _LOCK
+    fd = os.environ.pop("ERGOSTAT_LOCK_FD", "")
+    if fd.isdigit():
+        try:
+            f = os.fdopen(int(fd), "a+")
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)  # already ours: a no-op that proves it
+            os.set_inheritable(f.fileno(), False)
+            _LOCK = f
+            return True
+        except OSError:
+            pass
     f = open(pid_file(project), "a+")
-    try:
-        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        f.close()
-        return False
+    deadline = time.monotonic() + 1.0
+    while True:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() > deadline or running_pid(project, wait=False):
+                f.close()
+                return False
+            time.sleep(0.02)
     f.seek(0)
     f.truncate()
     f.write(str(os.getpid()))
@@ -420,22 +446,39 @@ def take_lock(project) -> bool:
     return True
 
 
-def running_pid(project) -> int | None:
-    """The runner's pid, when one holds the lock on ``run.pid``."""
+def keep_lock_across_exec() -> dict:
+    """The environment that hands this process's lock to the program it ``execv``s into."""
+    if _LOCK is None:
+        return {}
+    os.set_inheritable(_LOCK.fileno(), True)
+    return {"ERGOSTAT_LOCK_FD": str(_LOCK.fileno())}
+
+
+def running_pid(project, wait: bool = True) -> int | None:
+    """The runner's pid, when one holds the lock on ``run.pid``. A file locked but still empty (a
+    runner between locking and writing it) is read again for a moment."""
     import fcntl
-    try:
-        with open(pid_file(project)) as f:
-            try:
-                fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            except BlockingIOError:                     # held: a runner is there
+    for _ in range(25 if wait else 1):
+        try:
+            with open(pid_file(project)) as f:
                 try:
-                    return int(f.read().strip() or 0) or None
-                except ValueError:
-                    return None
-            fcntl.flock(f, fcntl.LOCK_UN)
-            return None                                 # nobody holds it: stale
-    except FileNotFoundError:
-        return None
+                    fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except BlockingIOError:                     # held: a runner is there, or another reader
+                    try:
+                        pid = int(f.read().strip() or 0)
+                    except ValueError:
+                        pid = 0
+                    if pid:
+                        return pid
+                    if not wait:
+                        return None
+                    time.sleep(0.02)
+                    continue
+                fcntl.flock(f, fcntl.LOCK_UN)
+                return None                                 # nobody holds it: stale
+        except FileNotFoundError:
+            return None
+    return None
 
 
 def web_url(project) -> str | None:
