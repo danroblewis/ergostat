@@ -454,6 +454,7 @@ function legend(view) {
   const row = (svgTxt, text) => [h("span", { html: `<svg width="26" height="18">${svgTxt}</svg>` }), h("span", {}, text)];
   return h("div", { class: "legend" },
     row('<rect x="2" y="2" width="22" height="14" rx="2" fill="var(--stock)" stroke="var(--stock-line)" stroke-width="2"/>', "stock: what accumulates"),
+    row('<rect x="2" y="7" width="22" height="4" rx="2" fill="var(--line)"/><rect x="2" y="7" width="12" height="4" rx="2" fill="var(--ok)"/><line x1="18" x2="18" y1="4" y2="14" stroke="var(--ink)" stroke-width="1.6"/>', "its level, and the setpoint's tick"),
     row('<path d="M1 9 H25" stroke="var(--pipe)" stroke-width="7"/><path d="M1 9 H25" stroke="var(--pipe-in)" stroke-width="3"/>', "flow: moves a stock"),
     row('<path d="M5 3 L13 9 L5 15 Z M21 3 L13 9 L21 15 Z" fill="var(--valve)"/>', "valve: where an agent acts"),
     row('<path d="M13 2 L22 9 L13 16 L4 9 Z" fill="var(--panel)" stroke="var(--dist)" stroke-width="1.8"/>', "disturbance: nothing controls it"),
