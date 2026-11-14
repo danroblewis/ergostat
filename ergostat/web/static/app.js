@@ -1,0 +1,714 @@
+/* ergostat's page: draws the system with ELK's layered layout and shows what the CLI shows. */
+"use strict";
+
+const $ = (s, el = document) => el.querySelector(s);
+const NS = "http://www.w3.org/2000/svg";
+const elk = new ELK();
+const S = { since: "1h", route: "", graphSig: "", layout: null, view: { x: 0, y: 0, k: 1 }, fitted: false,
+            timer: null, status: null, sel: null, hl: null };
+
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "html") el.innerHTML = v;
+    else el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return el;
+}
+function s(tag, attrs = {}, ...kids) {
+  const el = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v != null && v !== false) {
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v); else el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return el;
+}
+const fmt = (x) => x == null ? "?" : (typeof x === "number" ? (Number.isInteger(x) ? String(x) : (Math.abs(x) < 100 ? x.toPrecision(3).replace(/\.?0+$/, "") : x.toFixed(0))) : String(x));
+function ago(t) {
+  if (!t) return "never";
+  const d = Date.now() / 1000 - t;
+  if (d < 60) return `${Math.max(0, Math.round(d))}s ago`;
+  if (d < 3600) return `${Math.round(d / 60)}m ago`;
+  if (d < 86400) return `${Math.round(d / 3600)}h ago`;
+  return `${Math.round(d / 86400)}d ago`;
+}
+const RUNG_NAMES = ["person", "ai", "narrow-ai", "decision", "program", "rule"];
+const RUNG_HINT = ["the most general agent", "a universal AI agent", "an AI agent with one job", "a short model call with fixed answers",
+                   "deterministic code", "a threshold or a table", "the work designed out"];
+const rungColor = (r) => `var(--r${r})`;
+const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "?");
+
+async function api(path, params = {}) {
+  const q = new URLSearchParams({ since: S.since, ...params });
+  const r = await fetch(`/api/${path}?${q}`);
+  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  return r.json();
+}
+
+/* ------------------------------------------------------------------ header and routing */
+
+async function refreshHeader() {
+  try {
+    const st = await api("status");
+    S.status = st;
+    $("#project").textContent = st.name;
+    const off = Object.values(st.loops).filter((l) => l.status === "off").length;
+    const run = $("#running");
+    run.className = "pill " + (st.running ? (off ? "bad" : "ok") : "unknown");
+    run.textContent = st.running ? (off ? `${off} loop${off > 1 ? "s" : ""} off` : "running") : "not running";
+    document.title = `${st.name} · ergostat`;
+  } catch (e) { /* the server may be restarting */ }
+}
+
+function parseRoute() {
+  const [path, query] = (location.hash.slice(1) || "/diagram").split("?");
+  return { path, q: new URLSearchParams(query || "") };
+}
+
+async function route() {
+  const { path, q } = parseRoute();
+  for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", a.getAttribute("href") === "#" + path.split("/").slice(0, 2).join("/"));
+  clearInterval(S.timer);
+  closeDetail();
+  const main = $("#main");
+  main.replaceChildren();
+  const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord,
+                  "/residuals": pageResiduals, "/check": pageCheck };
+  if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)));
+  return (pages[path] || pageDiagram)(main, q);
+}
+
+/* ------------------------------------------------------------------ the diagram */
+
+const SIZE = { stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [196, 78], agent: [210, 92] };
+const CH = 6.7;   // px per character, for label sizes
+
+function labelLines(n) {
+  if (n.kind === "valve") return [n.label, `${n.rateText}${n.mode && n.mode !== "auto" ? " · " + n.mode : ""}`, n.agent ? "§badge" : null].filter(Boolean);
+  if (n.kind === "disturbance") return [n.label, `${n.rateText}${n.estimated ? " (est.)" : ""}`];
+  if (n.kind === "sensor") return [n.label, n.reading != null ? `reads ${n.reading}` : "no reading", n.agent ? "§badge" : null].filter(Boolean);
+  return [];
+}
+function badgeText(a) { return a ? `${a.kind} · ${a.name}` : ""; }
+function textWidth(t) { return t.length * CH; }
+
+function sig(g) {
+  return JSON.stringify([g.kind, g.nodes.map((n) => n.id).sort(), g.edges.map((e) => e.id).sort()]);
+}
+
+async function layoutGraph(g, aspect) {
+  const ORDER = { cloud: 0, disturbance: 1, stock: 2, valve: 3, sensor: 5, controller: 6, agent: 2 };
+  const rank = (n) => (n.kind === "cloud" ? (n.id.endsWith(":out") ? 4 : 0) : ORDER[n.kind] ?? 3);
+  const nodesInOrder = [...g.nodes].sort((a, b) => rank(a) - rank(b));
+  const children = nodesInOrder.map((n) => {
+    let [w, hgt] = SIZE[n.kind] || [60, 40];
+    if (n.kind === "stock") w = Math.max(w, textWidth(n.label) + 34);
+    if (n.kind === "controller") w = Math.max(w, textWidth(n.label) + 110, textWidth("holds " + n.setpoint) + 60);
+    const lines = labelLines(n);
+    const node = { id: n.id, width: w, height: hgt, layoutOptions: {} };
+    if (lines.length) {
+      const lw = Math.max(...lines.map((l) => l === "§badge" ? textWidth(badgeText(n.agent)) + 18 : textWidth(l))) + 8;
+      node.labels = [{ id: n.id + ":label", text: lines.join("\n"), width: lw, height: lines.length * 16 + 4 }];
+      node.layoutOptions["elk.nodeLabels.placement"] = "OUTSIDE V_BOTTOM H_CENTER";
+    }
+    if (n.kind === "valve" || n.kind === "disturbance") {
+      node.layoutOptions["elk.portConstraints"] = "FIXED_SIDE";
+      node.ports = [
+        { id: n.id + ":in", width: 1, height: 1, layoutOptions: { "elk.port.side": "WEST" } },
+        { id: n.id + ":out", width: 1, height: 1, layoutOptions: { "elk.port.side": "EAST" } },
+        { id: n.id + ":ctl", width: 1, height: 1, layoutOptions: { "elk.port.side": "NORTH" } },
+      ];
+    }
+    return node;
+  });
+  const flowNode = new Set(g.nodes.filter((n) => n.kind === "valve" || n.kind === "disturbance").map((n) => n.id));
+  const edges = g.edges.map((e) => {
+    let src = e.source, dst = e.target;
+    if (e.kind === "pipe") {
+      if (flowNode.has(dst)) dst = dst + ":in";
+      if (flowNode.has(src)) src = src + ":out";
+    } else if (flowNode.has(dst)) dst = dst + ":ctl";
+    else if (flowNode.has(src)) src = src + ":ctl";
+    const out = { id: e.id, sources: [src], targets: [dst], layoutOptions: {} };
+    if (e.kind === "pipe") { out.layoutOptions["elk.layered.priority.straightness"] = "20"; out.layoutOptions["elk.layered.priority.direction"] = "20"; out.layoutOptions["elk.layered.priority.shortness"] = "10"; }
+    if (e.kind === "wire" && e.via && e.via.length) {
+      const t = e.via.slice(0, 2).join(", ") + (e.via.length > 2 ? ` +${e.via.length - 2}` : "");
+      out.labels = [{ id: e.id + ":l", text: t, width: textWidth(t) + 6, height: 14 }];
+    }
+    return out;
+  });
+  const graph = {
+    id: "root", children, edges,
+    layoutOptions: {
+      "elk.algorithm": "layered", "elk.direction": g.kind === "wiring" ? "DOWN" : "RIGHT", "elk.edgeRouting": "ORTHOGONAL",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "64", "elk.spacing.nodeNode": "36", "elk.spacing.edgeNode": "18",
+      "elk.spacing.edgeEdge": "12", "elk.layered.spacing.edgeNodeBetweenLayers": "18",
+      "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX", "elk.layered.crossingMinimization.semiInteractive": "false",
+      "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES", "elk.separateConnectedComponents": "true",
+      "elk.spacing.componentComponent": "70", "elk.spacing.labelNode": "6", "elk.edgeLabels.placement": "CENTER",
+      "elk.layered.cycleBreaking.strategy": "GREEDY", "elk.aspectRatio": String(aspect || 1.6),
+      "elk.layered.wrapping.strategy": S.wrap ? "MULTI_EDGE" : "OFF", "elk.layered.wrapping.additionalEdgeSpacing": "20",
+      "elk.layered.wrapping.correctionFactor": "1.2", "elk.padding": "[top=40,left=40,bottom=40,right=40]",
+    },
+  };
+  return elk.layout(graph);
+}
+
+/* node shapes, drawn with their top-left at 0,0 */
+function badge(a, x, y) {
+  if (!a) return null;
+  const t = badgeText(a), w = textWidth(t) + 14;
+  return s("g", { class: "badge", transform: `translate(${x - w / 2},${y})` },
+    s("rect", { width: w, height: 16, rx: 8, fill: rungColor(a.rung) }),
+    s("text", { x: w / 2, y: 11.5, "text-anchor": "middle" }, t));
+}
+
+function drawStock(n, w, hgt) {
+  const g = s("g");
+  const pts = n.points || [];
+  const sp = S.graph?.loops ? Object.values(S.graph.loops).find((l) => l.stock === n.label) : null;
+  let top = Math.max(...pts.map((p) => p[1]), n.value ?? 0, 1);
+  let spv = null;
+  if (sp) { const m = /(-?\d+(\.\d+)?)/.exec(sp.setpoint); if (m) { spv = +m[1]; top = Math.max(top, spv * 1.25); } }
+  const frac = n.value == null ? 0 : Math.max(0, Math.min(1, n.value / top));
+  const tone = sp ? ({ off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[sp.status] || "var(--accent)") : "var(--accent)";
+  g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 3, fill: "var(--stock)", stroke: "var(--stock-line)", "stroke-width": 2,
+                       "stroke-dasharray": n.outside ? "5 4" : null }));
+  g.append(s("rect", { x: 2, y: 2 + (hgt - 4) * (1 - frac), width: w - 4, height: (hgt - 4) * frac, fill: tone, opacity: 0.13 }));
+  if (spv != null) {
+    const y = 2 + (hgt - 4) * (1 - Math.min(1, spv / top));
+    g.append(s("line", { x1: 2, x2: w - 2, y1: y, y2: y, stroke: tone, "stroke-width": 1.2, "stroke-dasharray": "3 3", opacity: 0.9 }));
+  }
+  if (pts.length > 1) {
+    const vs = pts.map((p) => p[1]), lo = Math.min(...vs), hi = Math.max(...vs) || 1;
+    const d = vs.map((v, i) => `${i ? "L" : "M"}${10 + (i / (vs.length - 1)) * (w - 20)},${hgt - 8 - ((v - lo) / ((hi - lo) || 1)) * 16}`).join("");
+    g.append(s("path", { d, fill: "none", stroke: tone, "stroke-width": 1.4, opacity: 0.8 }));
+  }
+  g.append(s("text", { x: 10, y: 17, class: "t-label" }, n.label));
+  g.append(s("text", { x: 10, y: 46, class: "t-value" }, n.valueText, s("tspan", { class: "t-unit", dx: 4 }, n.unit || "")));
+  return g;
+}
+
+function drawValve(n, w, hgt) {
+  const g = s("g");
+  const c = "var(--valve)";
+  const m = n.mode || "auto";
+  g.append(s("rect", { class: "hit", x: -2, y: -2, width: w + 4, height: hgt + 4, rx: 6, fill: "transparent", stroke: "transparent" }));
+  g.append(s("path", { d: `M4,8 L${w / 2},${hgt / 2} L4,${hgt - 8} Z M${w - 4},8 L${w / 2},${hgt / 2} L${w - 4},${hgt - 8} Z`,
+                       fill: m === "manual" ? "var(--panel)" : c, stroke: c, "stroke-width": 2, "stroke-linejoin": "round" }));
+  if (m === "advise") g.append(s("path", { d: `M${w - 4},8 L${w / 2},${hgt / 2} L${w - 4},${hgt - 8} Z`, fill: "var(--panel)", stroke: c, "stroke-width": 2 }));
+  g.append(s("line", { x1: w / 2, y1: hgt / 2, x2: w / 2, y2: 0, stroke: c, "stroke-width": 2 }));
+  g.append(s("rect", { x: w / 2 - 7, y: -3, width: 14, height: 5, rx: 1.5, fill: c }));
+  return g;
+}
+
+function drawDisturbance(n, w, hgt) {
+  const g = s("g");
+  g.append(s("path", { class: "hit", d: `M${w / 2},2 L${w - 2},${hgt / 2} L${w / 2},${hgt - 2} L2,${hgt / 2} Z`, fill: "var(--panel)", stroke: "var(--dist)", "stroke-width": 2 }));
+  g.append(s("path", { d: `M${w * 0.25},${hgt / 2} q${w * 0.0625},-6 ${w * 0.125},0 t${w * 0.125},0 t${w * 0.125},0 t${w * 0.125},0`, fill: "none", stroke: "var(--dist)", "stroke-width": 2, "stroke-linecap": "round" }));
+  return g;
+}
+
+function drawCloud(n, w, hgt) {
+  const d = `M${w * 0.22},${hgt * 0.82} C${w * 0.02},${hgt * 0.82} ${w * 0.02},${hgt * 0.42} ${w * 0.22},${hgt * 0.45}
+             C${w * 0.22},${hgt * 0.12} ${w * 0.55},${hgt * 0.08} ${w * 0.6},${hgt * 0.32}
+             C${w * 0.7},${hgt * 0.12} ${w * 0.95},${hgt * 0.22} ${w * 0.86},${hgt * 0.5}
+             C${w * 1.02},${hgt * 0.56} ${w * 0.98},${hgt * 0.84} ${w * 0.8},${hgt * 0.82} Z`;
+  return s("g", {}, s("path", { class: "hit", d, fill: "var(--cloud)", stroke: "var(--muted)", "stroke-width": 1.4 }));
+}
+
+function drawSensor(n, w, hgt) {
+  const r = w / 2;
+  return s("g", {},
+    s("circle", { class: "hit", cx: r, cy: r, r: r - 1, fill: "var(--sensor)", stroke: "var(--sensor-line)", "stroke-width": 2 }),
+    s("path", { d: `M${r - 12},${r + 6} A13,13 0 0 1 ${r + 12},${r + 6}`, fill: "none", stroke: "var(--sensor-line)", "stroke-width": 2, "stroke-linecap": "round" }),
+    s("line", { x1: r, y1: r + 6, x2: r + 7, y2: r - 4, stroke: "var(--sensor-line)", "stroke-width": 2.2, "stroke-linecap": "round" }),
+    s("circle", { cx: r, cy: r + 6, r: 2.4, fill: "var(--sensor-line)" }));
+}
+
+function drawController(n, w, hgt) {
+  const st = n.status || "unknown";
+  const tone = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[st] || "var(--unknown)";
+  const g = s("g");
+  g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 10, fill: "var(--ctl)", stroke: "var(--ctl-line)", "stroke-width": 2 }));
+  g.append(s("circle", { cx: 20, cy: 22, r: 9, fill: "var(--panel)", stroke: "var(--ctl-line)", "stroke-width": 1.6 }));
+  g.append(s("path", { d: "M14,22 h12 M20,16 v12", stroke: "var(--ctl-line)", "stroke-width": 1.4 }));
+  g.append(s("text", { x: 36, y: 20, class: "t-label" }, n.label));
+  g.append(s("text", { x: 36, y: 36, class: "t-sub" }, "holds " + n.setpoint));
+  g.append(s("circle", { cx: w - 14, cy: 16, r: 5, fill: tone }));
+  g.append(s("text", { x: w - 24, y: 20, class: "t-sub", "text-anchor": "end", fill: tone }, st));
+  const b = badge(n.agent, w / 2, hgt - 24);
+  if (b) g.append(b);
+  return g;
+}
+
+function drawAgent(n, w, hgt) {
+  const g = s("g");
+  g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 10, fill: "var(--panel)", stroke: n.failing ? "var(--bad)" : "var(--line)", "stroke-width": 2 }));
+  g.append(s("rect", { width: 6, height: hgt, rx: 3, fill: rungColor(n.rung) }));
+  g.append(s("text", { x: 16, y: 20, class: "t-label" }, n.label));
+  g.append(s("text", { x: w - 10, y: 20, class: "t-sub", "text-anchor": "end" }, `rung ${n.rung} · ${n.agentKind}`));
+  const when = n.every ? `every ${n.every}s` : (n.on && n.on.length ? `on ${n.on.join(", ")}` : "");
+  g.append(s("text", { x: 16, y: 38, class: "t-sub" }, when + (n.runs ? ` · ${n.runs} runs` : "")));
+  (n.roles || []).slice(0, 3).forEach((r, i) => g.append(s("text", { x: 16, y: 56 + i * 14, class: "t-sub" }, `${r.kind} ${r.name}`)));
+  return g;
+}
+
+const DRAW = { stock: drawStock, valve: drawValve, disturbance: drawDisturbance, cloud: drawCloud, sensor: drawSensor, controller: drawController, agent: drawAgent };
+
+function roundedPath(pts, r = 8) {
+  if (pts.length < 2) return "";
+  let d = `M${pts[0].x},${pts[0].y}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
+    const d1 = Math.hypot(p1.x - p0.x, p1.y - p0.y), d2 = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const rr = Math.min(r, d1 / 2, d2 / 2);
+    const a = { x: p1.x - ((p1.x - p0.x) / d1) * rr, y: p1.y - ((p1.y - p0.y) / d1) * rr };
+    const b = { x: p1.x + ((p2.x - p1.x) / d2) * rr, y: p1.y + ((p2.y - p1.y) / d2) * rr };
+    d += ` L${a.x},${a.y} Q${p1.x},${p1.y} ${b.x},${b.y}`;
+  }
+  const last = pts[pts.length - 1];
+  return d + ` L${last.x},${last.y}`;
+}
+
+function edgePoints(e) {
+  const sec = (e.sections || [])[0];
+  if (!sec) return [];
+  return [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint];
+}
+
+function arrowHead(pts, cls, size = 7) {
+  const a = pts[pts.length - 2], b = pts[pts.length - 1];
+  const ang = Math.atan2(b.y - a.y, b.x - a.x);
+  const p = (t) => `${b.x - size * Math.cos(ang + t)},${b.y - size * Math.sin(ang + t)}`;
+  return s("path", { d: `M${p(-0.45)} L${b.x},${b.y} L${p(0.45)} Z`, class: cls });
+}
+
+function drawGraph(svg, g, lay) {
+  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+  const edgeById = Object.fromEntries(g.edges.map((e) => [e.id, e]));
+  const vp = s("g", { id: "viewport" });
+  // systems as hulls behind everything (overlapping freely)
+  if (g.kind === "control" && S.showHulls) {
+    const hulls = s("g", { class: "sys-hull" });
+    const taken = [];                                   // label boxes already placed, so overlapping hulls never stack names
+    for (const name of (S.status?.systems || [])) {
+      const boxes = lay.children.filter((c) => (byId[c.id]?.systems || []).includes(name)).map((c) => {
+        const ls = c.labels || [];      // a node's box, with its labels outside it
+        const xs = [c.x, c.x + c.width, ...ls.flatMap((l) => [c.x + l.x, c.x + l.x + l.width])];
+        const ys = [c.y, c.y + c.height, ...ls.flatMap((l) => [c.y + l.y, c.y + l.y + l.height])];
+        return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+      });
+      if (!boxes.length) continue;
+      const x0 = Math.min(...boxes.map((b) => b.x)) - 22, y0 = Math.min(...boxes.map((b) => b.y)) - 34;
+      const x1 = Math.max(...boxes.map((b) => b.x + b.width)) + 22, y1 = Math.max(...boxes.map((b) => b.y + b.height)) + 22;
+      const lw = name.length * 8 + 10;
+      let lx = x0 + 12;
+      while (taken.some((t) => Math.abs(t.y - y0) < 14 && lx < t.x + t.w && lx + lw > t.x)) lx += 12;
+      for (const t of taken) if (Math.abs(t.y - y0) < 14 && lx < t.x + t.w && lx + lw > t.x) lx = t.x + t.w + 12;
+      taken.push({ x: lx, y: y0, w: lw });
+      hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16 }), s("text", { x: lx, y: y0 + 18 }, name));
+    }
+    vp.append(hulls);
+  }
+  const edgesG = s("g");
+  for (const le of lay.edges) {
+    const e = edgeById[le.id];
+    const pts = edgePoints(le);
+    if (pts.length < 2) continue;
+    const d = roundedPath(pts, e.kind === "pipe" ? 10 : 7);
+    const flowN = byId[e.kind === "pipe" ? (byId[e.source]?.kind === "valve" || byId[e.source]?.kind === "disturbance" ? e.source : e.target) : ""];
+    const dist = flowN && flowN.kind === "disturbance";
+    const loopSt = (e.loops || []).map((k) => g.loops[k]?.status).find(Boolean);
+    const cls = ["edge", e.kind, dist ? "dist" : "", loopSt ? "loop-" + loopSt : ""].join(" ");
+    const eg = s("g", { class: cls, "data-id": e.id, "data-loops": (e.loops || []).join(" "), "data-nodes": `${e.source} ${e.target}` });
+    if (e.kind === "pipe") {
+      eg.append(s("path", { d, class: "pipe-out" }), s("path", { d, class: "pipe-in" }));
+      if (flowN && flowN.rate > 0) eg.append(s("path", { d, class: "flowing", stroke: dist ? "var(--dist)" : "var(--accent)" }));
+      if (e.arrow) { const ah = arrowHead(pts, "", 12); ah.setAttribute("fill", dist ? "var(--dist)" : "var(--pipe)"); eg.append(ah); }
+    } else {
+      eg.append(s("path", { d, class: "info" }));
+      const ah = arrowHead(pts, "", 7);
+      ah.setAttribute("fill", getComputedStyle(document.documentElement).getPropertyValue(e.kind === "action" ? "--ctl-line" : (e.kind === "wire" ? "--accent" : "--info")));
+      if (loopSt) ah.setAttribute("fill", `var(--${loopSt === "holding" ? "ok" : loopSt === "off" ? "bad" : "warn"})`);
+      eg.append(ah);
+      for (const l of le.labels || []) eg.append(s("text", { class: "elabel", x: l.x + 3, y: l.y + 11 }, l.text));
+    }
+    edgesG.append(eg);
+  }
+  const nodesG = s("g");
+  for (const ln of lay.children) {
+    const n = byId[ln.id];
+    const ng = s("g", { class: `node k-${n.kind}`, transform: `translate(${ln.x},${ln.y})`, "data-id": n.id,
+                        onclick: (ev) => { ev.stopPropagation(); if (n.kind !== "cloud") openNode(n); } });
+    ng.append((DRAW[n.kind] || drawCloud)(n, ln.width, ln.height));
+    for (const lb of ln.labels || []) {
+      const lines = lb.text.split("\n");
+      lines.forEach((t, i) => {
+        const cx = lb.x + lb.width / 2, y = lb.y + 13 + i * 16;
+        if (t === "§badge") { const b = badge(n.agent, cx, y - 11); if (b) ng.append(b); return; }
+        ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: i === 0 ? "t-label" : "t-sub" }, t));
+      });
+    }
+    nodesG.append(ng);
+  }
+  vp.append(edgesG, nodesG);
+  svg.replaceChildren(vp);
+  applyView(svg);
+  if (S.hl) highlightLoop(S.hl);
+}
+
+function applyView(svg) {
+  const vp = svg.querySelector("#viewport");
+  if (vp) vp.setAttribute("transform", `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
+}
+
+function fit(svg, lay) {
+  const r = svg.getBoundingClientRect();
+  if (!lay || !r.width) return;
+  // fit, but never so small that the labels cannot be read: a wider system is panned
+  const k = Math.max(0.62, Math.min(1.25, Math.min((r.width - 40) / lay.width, (r.height - 90) / lay.height)));
+  const x = lay.width * k < r.width ? (r.width - lay.width * k) / 2 : 20;
+  S.view = { k, x, y: Math.max(56, (r.height - lay.height * k) / 2 + 20) };
+  applyView(svg);
+}
+
+function panZoom(svg) {
+  let drag = null;
+  svg.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    const r = svg.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const f = Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.0015));
+    const k = Math.max(0.15, Math.min(4, S.view.k * f));
+    S.view.x = mx - ((mx - S.view.x) * k) / S.view.k;
+    S.view.y = my - ((my - S.view.y) * k) / S.view.k;
+    S.view.k = k;
+    applyView(svg);
+  }, { passive: false });
+  svg.addEventListener("pointerdown", (ev) => {
+    if (ev.target.closest(".node")) return;
+    drag = { x: ev.clientX, y: ev.clientY, vx: S.view.x, vy: S.view.y };
+    svg.classList.add("dragging");
+    svg.setPointerCapture(ev.pointerId);
+  });
+  svg.addEventListener("pointermove", (ev) => {
+    if (!drag) return;
+    S.view.x = drag.vx + ev.clientX - drag.x;
+    S.view.y = drag.vy + ev.clientY - drag.y;
+    applyView(svg);
+  });
+  const end = () => { drag = null; svg.classList.remove("dragging"); };
+  svg.addEventListener("pointerup", end);
+  svg.addEventListener("pointercancel", end);
+  svg.addEventListener("click", (ev) => { if (!ev.target.closest(".node")) { closeDetail(); } });
+}
+
+function highlightLoop(name) {
+  S.hl = name;
+  const svg = $("svg.canvas");
+  if (!svg) return;
+  const lp = name && S.graph?.loops?.[name];
+  const members = new Set(lp ? lp.nodes : []);
+  for (const n of svg.querySelectorAll(".node")) n.classList.toggle("dim", !!lp && !members.has(n.dataset.id));
+  for (const e of svg.querySelectorAll(".edge")) {
+    const [a, b] = (e.dataset.nodes || "").split(" ");
+    e.classList.toggle("dim", !!lp && !(members.has(a) && members.has(b)));
+  }
+  for (const r of document.querySelectorAll(".looprow")) r.classList.toggle("hl", r.dataset.loop === name);
+}
+
+function legend(view) {
+  if (view === "wiring") {
+    return h("div", { class: "legend" },
+      h("span", { html: '<svg width="26" height="16"><rect x="2" y="2" width="22" height="12" rx="3" fill="var(--panel)" stroke="var(--line)" stroke-width="2"/><rect x="2" y="2" width="4" height="12" rx="2" fill="var(--r4)"/></svg>' }), "an agent, coloured by its rung",
+      h("span", { html: '<svg width="26" height="16"><path d="M2 8 H20" stroke="var(--accent)" stroke-width="2"/><path d="M18 4 L24 8 L18 12 Z" fill="var(--accent)"/></svg>' }), "its output reaches another agent");
+  }
+  const row = (svgTxt, text) => [h("span", { html: `<svg width="26" height="18">${svgTxt}</svg>` }), h("span", {}, text)];
+  return h("div", { class: "legend" },
+    row('<rect x="2" y="2" width="22" height="14" rx="2" fill="var(--stock)" stroke="var(--stock-line)" stroke-width="2"/>', "stock: what accumulates"),
+    row('<path d="M1 9 H25" stroke="var(--pipe)" stroke-width="7"/><path d="M1 9 H25" stroke="var(--pipe-in)" stroke-width="3"/>', "flow: moves a stock"),
+    row('<path d="M5 3 L13 9 L5 15 Z M21 3 L13 9 L21 15 Z" fill="var(--valve)"/>', "valve: where an agent acts"),
+    row('<path d="M13 2 L22 9 L13 16 L4 9 Z" fill="var(--panel)" stroke="var(--dist)" stroke-width="1.8"/>', "disturbance: nothing controls it"),
+    row('<circle cx="13" cy="9" r="7" fill="var(--sensor)" stroke="var(--sensor-line)" stroke-width="1.8"/>', "sensor: measures"),
+    row('<rect x="2" y="2" width="22" height="14" rx="4" fill="var(--ctl)" stroke="var(--ctl-line)" stroke-width="1.8"/>', "controller: decides, to hold a setpoint"),
+    row('<path d="M1 9 H25" stroke="var(--ok)" stroke-width="2"/>', "a loop holding (red: off, amber: open)"));
+}
+
+async function pageDiagram(main, q) {
+  const view = q.get("view") || "control";
+  const system = q.get("system") || "";
+  const around = q.get("around") || "";
+  S.showHulls = !system && !around;
+  const wrap = h("div", { class: "canvas-wrap" });
+  const svg = s("svg", { class: "canvas" });
+  const sysSel = h("select", { onchange: (ev) => go({ system: ev.target.value, around: "" }) }, h("option", { value: "" }, "everything"));
+  for (const name of S.status?.systems || []) sysSel.append(h("option", { value: name, selected: name === system ? "" : null }, name));
+  function go(over) {
+    const p = new URLSearchParams({ view, system, around, ...over });
+    for (const [k, v] of [...p]) if (!v) p.delete(k);
+    location.hash = "#/diagram?" + p.toString();
+  }
+  const toolbar = h("div", { class: "toolbar" },
+    h("span", { class: "muted" }, "system"), sysSel,
+    h("span", { class: "seg" },
+      h("button", { class: view === "control" ? "on" : "", onclick: () => go({ view: "control" }) }, "control"),
+      h("button", { class: view === "wiring" ? "on" : "", onclick: () => go({ view: "wiring" }) }, "wiring")),
+    h("button", { class: S.wrap ? "on" : "", title: "fold a long chain into rows",
+                  onclick: () => { S.wrap = !S.wrap; S.graphSig = ""; S.fitted = false; route(); } }, "wrap"),
+    around ? h("span", { class: "pill" }, "around " + around, " ", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); go({ around: "" }); } }, "×")) : null);
+  const zoom = h("div", { class: "zoom" },
+    h("button", { onclick: () => fit(svg, S.layout) }, "fit"),
+    h("button", { onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
+    h("button", { onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "−"));
+  wrap.append(svg, toolbar, zoom);
+  S.legendEl = legend(view);
+  const side = h("div", { class: "side" });
+  main.append(h("div", { class: "diagram" }, wrap, side));
+  panZoom(svg);
+  S.graphSig = ""; S.fitted = false;
+
+  async function tick() {
+    let g;
+    try { g = await api("graph", { view, system, around }); } catch (e) { return; }
+    S.graph = g;
+    if (!g.nodes.length) {
+      svg.replaceChildren();
+      wrap.querySelector(".empty")?.remove();
+      wrap.append(h("div", { class: "empty" }, view === "wiring" ? "no agents fill roles here yet" : "nothing to draw: the model is empty"));
+      renderSide(side, g, view);
+      return;
+    }
+    wrap.querySelector(".empty")?.remove();
+    const sg = sig(g);
+    if (sg !== S.graphSig) {
+      const r = svg.getBoundingClientRect();
+      S.layout = await layoutGraph(g, r.width && r.height ? r.width / Math.max(r.height - 80, 200) : 1.6);
+      S.graphSig = sg;
+    } else {
+      // same structure: keep positions, redraw with new values (label texts may change length slightly)
+    }
+    drawGraph(svg, g, S.layout);
+    if (!S.fitted) { fit(svg, S.layout); S.fitted = true; }
+    renderSide(side, g, view);
+  }
+  await tick();
+  S.timer = setInterval(tick, 2500);
+}
+
+function renderSide(side, g, view) {
+  const st = S.status || { attention: [], loops: {} };
+  side.replaceChildren();
+  side.append(h("h3", {}, "needs attention"));
+  const att = h("div", { class: "att" });
+  if (!st.attention.length) att.append(h("div", { class: "ok" }, "nothing needs you"));
+  for (const a of st.attention) att.append(h("div", { class: a.level }, h("b", {}, a.what), " ", a.says));
+  side.append(att);
+  const loops = Object.entries(g.loops || {});
+  if (view === "control") {
+    side.append(h("h3", {}, `loops (${loops.length})`));
+    if (!loops.length) side.append(h("div", { class: "muted" }, "no loops in view"));
+    for (const [name, lp] of loops) {
+      const full = st.loops[name] || {};
+      side.append(h("div", { class: "looprow", "data-loop": name,
+                              onmouseenter: () => highlightLoop(name), onmouseleave: () => highlightLoop(null),
+                              onclick: () => openLoop(name) },
+        h("b", {}, name), statusEl(lp.status),
+        h("div", { class: "sub" }, `${lp.stock} ${fmt(full.value)} · setpoint ${lp.setpoint}`)));
+    }
+  } else {
+    side.append(h("h3", {}, "agents"));
+    for (const n of g.nodes) side.append(h("div", { class: "looprow", onclick: () => openAgent(n.label) },
+      h("b", {}, n.label), h("span", { class: "pill" }, `rung ${n.rung}`), h("div", { class: "sub" }, n.agentKind)));
+  }
+  side.append(h("h3", {}, "how to read it"), S.legendEl || legend(view));
+  side.append(h("h3", {}, "window"), h("div", { class: "muted" }, `rates and changes over the last ${S.since}`));
+}
+
+/* ------------------------------------------------------------------ details */
+
+function closeDetail() { const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
+function showDetail(...kids) {
+  const d = $("#detail");
+  d.replaceChildren(h("button", { class: "close", onclick: closeDetail }, "close"), ...kids);
+  d.hidden = false;
+}
+function dl(pairs) { return h("dl", {}, pairs.filter(([, v]) => v != null && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])); }
+function agentLink(a) { return a ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(a.name); } }, `${a.name} (rung ${a.rung} ${a.kind})`) : h("span", { class: "muted" }, "unfilled"); }
+
+async function openNode(n) {
+  for (const x of document.querySelectorAll(".node.sel")) x.classList.remove("sel");
+  document.querySelector(`.node[data-id="${CSS.escape(n.id)}"]`)?.classList.add("sel");
+  if (n.kind === "agent") return openAgent(n.label);
+  const [kind, name] = n.kind === "valve" ? ["valve", n.label] : n.kind === "disturbance" ? ["disturbance", n.flow] : n.id.split(":");
+  if (kind === "controller") return openLoop(name);
+  const d = await api(`part/${kind}/${encodeURIComponent(name)}`);
+  const m = d.model, now = d.now || {};
+  const rows = [["description", m.description]];
+  if (kind === "stock") rows.push(["now", `${fmt(now.value)} ${m.unit}`], ["measured", now.at ? `${ago(now.at)} by ${now.sensor}` : "never"],
+                                  ["in", `${fmt(now.inflow)}/h`], ["out", `${fmt(now.outflow)}/h`]);
+  if (kind === "disturbance") rows.push(["pushes", m.target ? `into ${m.target}` : `out of ${m.source}`], ["rate", `${fmt(now.rate)}/h`], ["how we know", now.how]);
+  if (kind === "valve") rows.push(["acts on", m.flow], ["mode", m.mode], ["filled by", agentLink(d.agent)], ["rate", `${fmt(now.flow?.rate)}/h`]);
+  if (kind === "sensor") rows.push(["measures", m.measures], ["filled by", agentLink(d.agent)], ["readings", String((now.readings || []).length)]);
+  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, name), dl(rows)];
+  if (kind === "stock" && now.points?.length > 1) kids.push(sparkSvg(now.points, 380, 70));
+  if (kind === "sensor" && now.readings?.length > 1) kids.push(sparkSvg(now.readings, 380, 70));
+  if (kind === "valve") {
+    kids.push(h("h3", {}, "recent openings"));
+    kids.push(eventsTable(now.openings || [], true));
+  }
+  kids.push(h("p", {}, h("a", { href: `#/diagram?around=${kind}/${encodeURIComponent(name)}` }, "draw what is around it")));
+  showDetail(...kids);
+}
+
+async function openLoop(name) {
+  const loops = await api("loops");
+  const lp = loops[name];
+  if (!lp) return;
+  const kids = [h("div", { class: "kind" }, "loop"), h("h2", {}, name, " ", statusEl(lp.status)),
+    dl([["holds", `${lp.stock} ${lp.setpoint}` + (lp.tolerance ? ` (± ${lp.tolerance})` : "")], ["now", fmt(lp.value)],
+        ["error", lp.error ? fmt(lp.error) : "0"], ["sensors", lp.sensors.join(", ") || "none"], ["valves", lp.valves.join(", ") || "none"],
+        ["moves", lp.flows.join(", ") || "none"], ["last reading", ago(lp.last_read)],
+        ["last decision", lp.last_decision ? `${ago(lp.last_decision.time)}: ${lp.last_decision.data.decision}` : "none"],
+        ["last opening", ago(lp.last_opening)], ["cycled", lp.observed ? "yes, in this window" : "not in this window"]])];
+  for (const g of lp.gaps || []) kids.push(h("div", { class: "att" }, h("div", {}, h("b", {}, "cannot close: "), g)));
+  kids.push(h("p", {}, h("a", { href: `#/diagram?around=loop/${encodeURIComponent(name)}` }, "draw this loop alone")));
+  showDetail(...kids);
+}
+
+async function openAgent(name) {
+  const a = await api(`agents/${encodeURIComponent(name)}`);
+  const kids = [h("div", { class: "kind" }, `agent · rung ${a.rung} ${a.kind}`), h("h2", {}, name),
+    dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
+        ["runs", a.every ? `every ${a.every}s` : (a.on?.length ? `on ${a.on.join(", ")}` : "not run by ergostat")],
+        ["fills", (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || "nothing"],
+        ["in window", `${a.runs} runs, ${a.failed} failed`]])];
+  kids.push(h("h3", {}, "recent runs"));
+  kids.push(h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "result"), h("th", {}, "said")),
+    (a.recent || []).slice(-10).reverse().map((e) => h("tr", {}, h("td", {}, ago(e.time)),
+      h("td", {}, e.type === "agent.failed" ? h("span", { class: "s-off" }, e.data.note || "failed") : "ok"),
+      h("td", { class: "muted" }, `${e.data.readings || 0} readings, ${e.data.openings || 0} openings, ${e.data.decisions || 0} decisions`)))));
+  if (a.log?.length) kids.push(h("h3", {}, "end of its log"), h("pre", {}, a.log.slice(-15).join("\n")));
+  showDetail(...kids);
+}
+
+function sparkSvg(points, w, hgt) {
+  const vs = points.map((p) => p[1]), lo = Math.min(...vs), hi = Math.max(...vs);
+  const d = vs.map((v, i) => `${i ? "L" : "M"}${(i / (vs.length - 1)) * (w - 8) + 4},${hgt - 6 - ((v - lo) / ((hi - lo) || 1)) * (hgt - 12)}`).join("");
+  return s("svg", { width: w, height: hgt, class: "spark" }, s("path", { d, fill: "none", stroke: "var(--accent)", "stroke-width": 2 }),
+    s("text", { x: 4, y: 12, fill: "var(--muted)", "font-size": 11 }, fmt(hi)), s("text", { x: 4, y: hgt - 2, fill: "var(--muted)", "font-size": 11 }, fmt(lo)));
+}
+
+function eventsTable(evs, compact) {
+  return h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
+    evs.slice().reverse().map((e) => h("tr", {}, h("td", { class: "num" }, new Date(e.time * 1000).toLocaleTimeString()), h("td", {}, e.type),
+      compact ? null : h("td", {}, e.item ? h("a", { href: `#/item/${encodeURIComponent(e.item)}` }, e.item) : "–"),
+      h("td", { class: "muted" }, e.source || "–"), h("td", { class: "mono muted" }, JSON.stringify(e.data).slice(0, 90)))));
+}
+
+/* ------------------------------------------------------------------ the other pages */
+
+function page(main, title, lede) {
+  const p = h("div", { class: "page" }, h("h1", {}, title), lede ? h("p", { class: "lede" }, lede) : null);
+  main.append(p);
+  return p;
+}
+
+async function pageLoops(main) {
+  const p = page(main, "Loops", "Each controller that holds a stock is a loop. Holding: within its setpoint. Off: outside it. Open: it cannot close (a sensor or valve is missing). Unknown: no reading yet.");
+  const box = h("div");
+  p.append(box);
+  async function tick() {
+    const [loops, stocks] = [await api("loops"), await api("graph")];
+    const pts = Object.fromEntries(stocks.nodes.filter((n) => n.kind === "stock").map((n) => [n.label, n.points]));
+    box.replaceChildren(h("table", {}, h("tr", {}, ["loop", "status", "holds", "now", "setpoint", "error", "trend", "cycled"].map((x) => h("th", {}, x))),
+      Object.entries(loops).map(([n, lp]) => h("tr", { class: "click", onclick: () => openLoop(n) },
+        h("td", {}, h("b", {}, n)), h("td", {}, statusEl(lp.status)), h("td", {}, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
+        h("td", { class: "num" }, lp.setpoint), h("td", { class: "num" }, lp.error ? fmt(lp.error) : ""),
+        h("td", {}, (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 140, 30) : ""), h("td", {}, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
+  }
+  await tick();
+  S.timer = setInterval(tick, 3000);
+}
+
+async function pageAgents(main) {
+  const p = page(main, "Agents", "Agents fill roles: sensors, controllers and valves. The ladder runs from the most general agent to none at all; every role is expected to move right.");
+  const box = h("div", { class: "ladder" });
+  p.append(box);
+  async function tick() {
+    const agents = await api("agents");
+    box.replaceChildren();
+    const cols = [...RUNG_NAMES, "retired"];
+    cols.forEach((k, i) => {
+      const col = h("div", { class: "rung" }, h("h4", {}, h("span", { style: `color:${rungColor(i)}` }, "● "), `${i} ${k}`), h("div", { class: "hint" }, RUNG_HINT[i]));
+      for (const [name, a] of Object.entries(agents).filter(([, a]) => a.rung === i)) {
+        col.append(h("div", { class: "card" + (a.failing ? " failing" : ""), onclick: () => openAgent(name) },
+          h("b", {}, name),
+          h("div", { class: "muted" }, a.runs_itself ? `${a.runs} runs · ${a.last ? ago(a.last.time) : "never ran"}` : (a.kind === "person" ? "a person" : "not run here")),
+          h("div", { class: "roles" }, (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(" · ") || "no roles")));
+      }
+      box.append(col);
+    });
+  }
+  await tick();
+  S.timer = setInterval(tick, 3000);
+}
+
+async function pageRecord(main, q) {
+  const p = page(main, "Record", "Events as they happen, newest first; items are events folded by id.");
+  const filt = h("input", { placeholder: "type, e.g. valve.* or loop.off", value: q.get("type") || "" });
+  const box = h("div");
+  const items = h("div");
+  p.append(h("div", { style: "display:flex;gap:8px;align-items:center" }, filt, h("button", { onclick: () => tick(true) }, "filter")), h("h2", {}, "events"), box, h("h2", {}, "items"), items);
+  async function tick() {
+    const evs = await api("events", { n: 60, ...(filt.value ? { type: filt.value } : {}) });
+    box.replaceChildren(eventsTable(evs, false));
+    const its = await api("items");
+    items.replaceChildren(h("table", {}, h("tr", {}, ["item", "events", "latest", "last"].map((x) => h("th", {}, x))),
+      its.slice(0, 40).map((i) => h("tr", { class: "click", onclick: () => { location.hash = `#/item/${encodeURIComponent(i.item)}`; } },
+        h("td", {}, h("b", {}, i.item)), h("td", { class: "num" }, i.n), h("td", {}, i.latest), h("td", {}, ago(i.last))))));
+  }
+  await tick();
+  S.timer = setInterval(tick, 3000);
+}
+
+async function pageItem(main, name) {
+  const p = page(main, name, "An item: every event about one id, folded.");
+  const d = await api(`items/${encodeURIComponent(name)}`);
+  p.append(h("h2", {}, "fields"), dl(Object.entries(d.fields).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : String(v)])),
+           h("h2", {}, `events (${d.events.length})`), eventsTable(d.events, true));
+}
+
+async function pageResiduals(main) {
+  const p = page(main, "Residuals", "For each stock: how much its readings changed in the window, how much its known flows explain, and the rest. A disturbance nothing measures is estimated from the rest; anything left is unexplained, and worth a look.");
+  const r = await api("residuals");
+  p.append(h("table", {}, h("tr", {}, ["stock", "changed", "explained", "unexplained", ""].map((x) => h("th", {}, x))),
+    Object.entries(r).map(([k, v]) => h("tr", {}, h("td", {}, h("b", {}, k)), h("td", { class: "num" }, fmt(v.change)), h("td", { class: "num" }, fmt(v.explained)),
+      h("td", { class: "num" }, fmt(v.unexplained)),
+      h("td", {}, v.significant ? h("span", { class: "s-open status" }, "unexplained") : (v.absorbed_by.length ? `estimated as ${v.absorbed_by.join(", ")}` : h("span", { class: "s-holding status" }, "explained")))))));
+  if (!Object.keys(r).length) p.append(h("p", { class: "muted" }, "no stock has two readings in this window yet"));
+}
+
+async function pageCheck(main) {
+  const p = page(main, "Check", "Is the model whole? References that do not resolve are errors; loops that cannot close and parts nothing fills are warnings.");
+  const st = await api("status");
+  const list = h("div", { class: "att" });
+  if (!st.check.length) list.append(h("div", { class: "ok" }, "the model is whole"));
+  for (const c of st.check) list.append(h("div", { class: c.level === "error" ? "bad" : "" }, h("b", {}, c.level), " ", c.message));
+  p.append(list, h("h2", {}, "counts"), dl(Object.entries(st.counts).map(([k, v]) => [k, String(v)])));
+}
+
+/* ------------------------------------------------------------------ start */
+
+$("#since").addEventListener("change", (ev) => { S.since = ev.target.value; S.graphSig = ""; route(); });
+window.addEventListener("hashchange", route);
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeDetail(); });
+(async () => {
+  await refreshHeader();
+  setInterval(refreshHeader, 3000);
+  route();
+})();

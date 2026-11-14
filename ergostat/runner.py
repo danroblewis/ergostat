@@ -1,0 +1,268 @@
+"""``ergostat run``: runs each agent that has a command, on its schedule (``every``) or when an
+event it listens for arrives (``on``), and records what it says.
+
+An agent's run gets a JSON object on stdin: who it is, the roles it fills, the current state, each
+of its controllers' setpoints and errors, and the event that triggered it (if any). It answers on
+stdout, one JSON object per line, naming the part each line is for:
+
+    {"sensor": "disk-usage", "value": 71}                     a reading (a measurement)
+    {"valve": "delete-old-files", "amount": 3.1}              an opening (an event; amount moves its flow)
+    {"controller": "disk-under-80", "decision": "wait"}       a decision (an event)
+    {"event": "backup.verified", "item": "nightly", "data": {}}   anything else that happened
+
+A line naming a part the agent does not fill is refused and recorded as refused: every agent acts
+only through the roles it fills. Other output is kept in the agent's log. After each reading,
+a loop that crosses its setpoint (holding to off, or back) is recorded as ``loop.off`` or
+``loop.holding``: the edge detector, the one place a measurement becomes an event."""
+
+from __future__ import annotations
+
+import fnmatch
+import json
+import os
+import queue
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+from . import state as st
+
+RUN_TIMEOUT = 300.0
+TICK = 0.25
+SOURCE = "ergostat"
+
+
+def log_path(project, agent: str) -> Path:
+    d = project.dir / "logs"
+    d.mkdir(exist_ok=True)
+    return d / f"{agent}.log"
+
+
+def context(project, agent, trigger: dict | None) -> dict:
+    m = project.model
+    snapshot = st.snapshot(project)
+    roles = m.roles_of(agent.name)
+    return {
+        "agent": agent.name, "kind": agent.kind,
+        "roles": [{"kind": p.kind, "name": p.name} for p in roles],
+        "state": {k: v["value"] for k, v in snapshot["stocks"].items()},
+        "controllers": {c.name: {"holds": c.holds, "setpoint": c.setpoint, "value": snapshot["stocks"].get(c.holds, {}).get("value"),
+                                 "error": snapshot["loops"].get(c.name, {}).get("error"), "drives": c.drives}
+                        for c in roles if c.kind == "controller"},
+        "trigger": trigger,
+    }
+
+
+class Recorder:
+    """Turns an agent's output lines into measurements and events, refusing what it may not say."""
+
+    def __init__(self, project, agent, run_id: str):
+        self.p, self.agent, self.run_id = project, agent, run_id
+        self.fills = {(r.kind, r.name) for r in project.model.roles_of(agent.name)}
+        self.counts = {"readings": 0, "openings": 0, "decisions": 0, "events": 0, "refused": 0}
+
+    def refuse(self, line: dict, why: str) -> None:
+        self.counts["refused"] += 1
+        self.p.events.add("agent.refused", item=self.agent.name, source=SOURCE, causedby=self.run_id,
+                          data={"line": line, "why": why})
+
+    def take(self, raw: str) -> bool:
+        """True when the line was a JSON object meant for ergostat."""
+        try:
+            line = json.loads(raw)
+        except ValueError:
+            return False
+        if not isinstance(line, dict):
+            return False
+        ev = self.p.events
+        for kind in ("sensor", "valve", "controller"):
+            if kind in line:
+                name = line[kind]
+                if (kind, name) not in self.fills:
+                    self.refuse(line, f"{self.agent.name} does not fill {kind} {name}")
+                    return True
+                if kind == "sensor":
+                    try:
+                        value = float(line["value"])
+                    except (KeyError, TypeError, ValueError):
+                        self.refuse(line, "a reading needs a number: value")
+                        return True
+                    self.p.measurements.add(f"sensor/{name}", value)
+                    self.counts["readings"] += 1
+                    edges(self.p, self.run_id)
+                elif kind == "valve":
+                    try:
+                        amount = float(line.get("amount", 1))
+                    except (TypeError, ValueError):
+                        self.refuse(line, "amount must be a number")
+                        return True
+                    ev.add("valve.opened", item=name, source=self.agent.name, causedby=self.run_id,
+                           data={"amount": amount, "flow": self.p.model.valves[name].flow,
+                                 **({"note": line["note"]} if "note" in line else {})})
+                    self.counts["openings"] += 1
+                else:
+                    ev.add("controller.decided", item=name, source=self.agent.name, causedby=self.run_id,
+                           data={"decision": str(line.get("decision", "")), **({"why": line["why"]} if "why" in line else {})})
+                    self.counts["decisions"] += 1
+                return True
+        if "event" in line:
+            t = str(line["event"])
+            if t.startswith(("agent.", "loop.", "valve.", "controller.")):
+                self.refuse(line, f"{t}: types under agent., loop., valve. and controller. are ergostat's own")
+                return True
+            ev.add(t, item=line.get("item"), source=self.agent.name, causedby=self.run_id,
+                   data=line.get("data") if isinstance(line.get("data"), dict) else {})
+            self.counts["events"] += 1
+            return True
+        return False
+
+
+def edges(project, causedby: str | None = None) -> list[dict]:
+    """The edge detector: for each loop whose status changed since it was last recorded, record
+    ``loop.off`` or ``loop.holding``."""
+    out = []
+    snap = st.snapshot(project)
+    for name, lp in snap["loops"].items():
+        now = lp["status"]
+        if now not in ("off", "holding"):
+            continue
+        last = project.events.query(n=1, item=name, type="loop.*")
+        before = last[0]["type"].split(".", 1)[1] if last else None
+        if before != now:
+            out.append(project.events.add(f"loop.{now}", item=name, source=SOURCE, causedby=causedby,
+                                          data={"value": lp["value"], "setpoint": lp["setpoint"], "error": lp["error"]}))
+    return out
+
+
+def run_agent(project, agent, trigger: dict | None = None) -> dict:
+    """One run: start the command, feed it its context, record its lines, and record the run."""
+    started = time.time()
+    begun = project.events.add("agent.started", item=agent.name, source=SOURCE,
+                               causedby=trigger.get("id") if trigger else None,
+                               data={"trigger": trigger["type"] if trigger else "schedule"})
+    rec = Recorder(project, agent, begun["id"])
+    log = log_path(project, agent.name)
+    env = {**os.environ, "ERGOSTAT_AGENT": agent.name, "ERGOSTAT_RUN": begun["id"], "ERGOSTAT_PROJECT": project.model.name,
+           "ERGOSTAT_STATE_DIR": str(project.dir)}
+    code, note = None, ""
+    with open(log, "a", encoding="utf-8") as lf:
+        lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} "
+                 f"({trigger['type'] if trigger else 'schedule'})\n")
+        lf.flush()
+        try:
+            p = subprocess.Popen(agent.command, shell=True, cwd=project.repo, env=env, stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, stderr=lf, text=True)
+        except OSError as e:
+            note = f"could not start: {e}"
+        else:
+            try:
+                p.stdin.write(json.dumps(context(project, agent, trigger)))
+                p.stdin.close()
+            except OSError:
+                pass
+            timer = threading.Timer(RUN_TIMEOUT, p.kill)
+            timer.start()
+            for raw in p.stdout:
+                if not rec.take(raw.strip()):
+                    lf.write(raw)
+            code = p.wait()
+            timer.cancel()
+            if code != 0:
+                note = f"exited {code}"
+    data = {"exit": code, "seconds": round(time.time() - started, 3), **rec.counts, **({"note": note} if note else {})}
+    project.events.add("agent.ran" if not note else "agent.failed", item=agent.name, source=SOURCE, causedby=begun["id"],
+                       data=data)
+    return data
+
+
+class Runner:
+    def __init__(self, project, say=print):
+        self.p, self.say = project, say
+        self.stop = threading.Event()
+        self.queues = {a.name: queue.Queue() for a in project.model.agents.values() if a.command and a.kind != "person"}
+        self.waiting: set[str] = set()
+
+    def _work(self, name: str) -> None:
+        agent = self.p.model.agents[name]
+        q = self.queues[name]
+        while not self.stop.is_set():
+            try:
+                trig = q.get(timeout=TICK)
+            except queue.Empty:
+                continue
+            self.waiting.discard(name)
+            try:
+                r = run_agent(self.p, agent, trig)
+            except Exception as e:                       # one agent failing never stops the rest
+                self.say(f"{name}: {type(e).__name__}: {e}")
+                continue
+            if r.get("note") or r.get("refused"):
+                self.say(f"{name}: {r.get('note') or ''} {r.get('refused') and str(r['refused']) + ' refused' or ''}".strip())
+
+    def _schedule(self) -> None:
+        due: dict[str, float] = {}
+        timed = [a for a in self.p.model.agents.values() if a.name in self.queues and a.every]
+        while not self.stop.is_set():
+            now = time.monotonic()
+            for a in timed:
+                if now >= due.get(a.name, 0):
+                    due[a.name] = now + a.every
+                    if a.name not in self.waiting:          # its last scheduled run has not started: skip
+                        self.waiting.add(a.name)
+                        self.queues[a.name].put(None)
+            self.stop.wait(TICK)
+
+    def _follow(self) -> None:
+        listening = [a for a in self.p.model.agents.values() if a.name in self.queues and a.on]
+        seq = self.p.events.last_seq()
+        while not self.stop.is_set():
+            new = self.p.events.query(n=None, after_seq=seq)
+            for ev in new:
+                seq = ev["seq"]
+                for a in listening:
+                    if ev.get("source") != a.name and any(fnmatch.fnmatchcase(ev["type"], pat) for pat in a.on):
+                        self.queues[a.name].put(ev)
+            self.stop.wait(TICK)
+
+    def start(self) -> None:
+        for name in self.queues:
+            threading.Thread(target=self._work, args=(name,), daemon=True).start()
+        threading.Thread(target=self._schedule, daemon=True).start()
+        threading.Thread(target=self._follow, daemon=True).start()
+        self.p.events.add("ergostat.started", source=SOURCE, data={"agents": sorted(self.queues), "pid": os.getpid()})
+
+    def close(self) -> None:
+        self.stop.set()
+        self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
+
+
+# ---- in the background
+
+def pid_file(project) -> Path:
+    return project.dir / "run.pid"
+
+
+def running_pid(project) -> int | None:
+    try:
+        pid = int(pid_file(project).read_text().strip())
+        os.kill(pid, 0)
+        return pid
+    except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
+        return None
+
+
+def web_url(project) -> str | None:
+    try:
+        return json.loads((project.dir / "web.json").read_text())["url"]
+    except (FileNotFoundError, ValueError, KeyError):
+        return None
+
+
+def start_background(project, args: list[str]) -> int:
+    log = project.dir / "run.log"
+    with open(log, "a") as lf:
+        p = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(project.repo), "run", "--foreground", *args],
+                             stdout=lf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
+    return p.pid
