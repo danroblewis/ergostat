@@ -37,6 +37,7 @@ class Live:
             try:
                 self.p.model = mdl.load(self.p.model.path.parent)
                 self.mtime = now
+                history.note(self.p)
             except Exception:
                 pass                                   # keep the last model that loaded
         return self.p
@@ -64,7 +65,9 @@ def api(live: Live, path: str, q: dict):
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],
-                "at": snap["at"], "window": snap["window"]}
+                "at": snap["at"], "window": snap["window"],
+                "changes": [{"time": e["time"], **{k: e["data"][k] for k in ("added", "removed", "changed")}}
+                            for e in history.changes(p, snap["at"] - snap["window"])][-5:]}
     if head == "graph":
         system = one("system") or None
         around = one("around") or None

@@ -124,6 +124,15 @@ def cmd_status(args) -> int:
     else:
         print(f"  {c('●', 'ok')} nothing needs you")
     print()
+    if args.since:
+        from . import history
+        ch = history.changes(p, time.time() - window(args))
+        print(c(f"the model, since {args.since} ago: " + (f"{len(ch)} changes" if ch else "no changes"), "dim"))
+        for e in ch:
+            d = e["data"]
+            what = [f"+{x}" for x in d["added"]] + [f"-{x}" for x in d["removed"]] + [f"~{x}" for x in d["changed"]]
+            print(f"  {time.strftime('%H:%M:%S', time.localtime(e['time']))}  " + "  ".join(what))
+        print()
     loops = snap["loops"]
     if loops:
         print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT"],
@@ -563,9 +572,28 @@ def cmd_run(args) -> int:
     r = runner.Runner(p, say=lambda s: print(time.strftime("%H:%M:%S"), s, flush=True))
     r.start()
     print(f"running {len(r.queues)} agents", flush=True)
+    mtime = p.model.path.stat().st_mtime if p.model.path else 0
+    reload = False
     try:
         while not stopping:
-            time.sleep(0.2)
+            time.sleep(0.5)
+            try:
+                now_m = p.model.path.stat().st_mtime if p.model.path else 0
+            except OSError:
+                continue
+            if now_m != mtime:
+                mtime = now_m
+                try:
+                    fresh = mdl.load(p.model.path.parent)
+                except Exception as e:
+                    print(f"{mdl.FILE} changed but does not load ({e}); still running the last one", flush=True)
+                    continue
+                if any(lv == "error" for lv, _ in mdl.check(fresh)):
+                    print(f"{mdl.FILE} changed but has errors (ergostat check); still running the last one", flush=True)
+                    continue
+                print(f"{mdl.FILE} changed: restarting with it", flush=True)
+                reload = True
+                break
     except KeyboardInterrupt:
         pass
     r.close()
@@ -573,6 +601,9 @@ def cmd_run(args) -> int:
         server.shutdown()
         server.server_close()
         (p.dir / "web.json").unlink(missing_ok=True)
+    if reload:                                          # the same process, the new model: the pid file stays right
+        os.execv(sys.executable, [sys.executable, "-m", "ergostat", "-C", str(p.repo), "run", "--foreground",
+                                  *(["--no-web"] if args.no_web else []), *(["--port", str(args.port)] if args.port else [])])
     runner.pid_file(p).unlink(missing_ok=True)
     return 0
 

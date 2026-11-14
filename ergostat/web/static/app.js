@@ -568,6 +568,13 @@ function renderSide(side, g, view) {
     for (const n of g.nodes) side.append(h("div", { class: "looprow", onclick: () => openAgent(n.label) },
       h("b", {}, n.label), h("span", { class: "pill" }, `rung ${n.rung}`), h("div", { class: "sub" }, n.agentKind)));
   }
+  if (st.changes?.length) {
+    side.append(h("h3", {}, "the model changed"));
+    for (const c of st.changes.slice().reverse()) {
+      const what = [...c.added.map((x) => "+" + x), ...c.removed.map((x) => "−" + x), ...c.changed.map((x) => "~" + x)];
+      side.append(h("div", { class: "change" }, h("span", { class: "muted num" }, ago(c.time)), " ", what.join("  ")));
+    }
+  }
   side.append(h("h3", {}, "how to read it"), S.legendEl || legend(view));
   side.append(h("h3", {}, "window"), h("div", { class: "muted" }, `rates and changes over the last ${S.since}`));
 }

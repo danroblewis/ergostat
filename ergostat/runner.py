@@ -241,6 +241,8 @@ class Runner:
             self.stop.wait(TICK)
 
     def start(self) -> None:
+        from . import history
+        history.note(self.p)
         for name in self.queues:
             threading.Thread(target=self._work, args=(name,), daemon=True).start()
         threading.Thread(target=self._schedule, daemon=True).start()

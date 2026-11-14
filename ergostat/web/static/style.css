@@ -87,6 +87,7 @@ svg.canvas.dragging { cursor: grabbing; }
 .looprow { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
 .looprow:hover, .looprow.hl { border-color: var(--line); background: var(--bg); }
 .looprow .sub { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+.change { font-size: 12px; font-family: var(--mono); padding: 3px 0; overflow-wrap: anywhere; }
 .empty { color: var(--muted); padding: 40px; text-align: center; }
 
 .node text { fill: var(--ink); font-size: 12px; }

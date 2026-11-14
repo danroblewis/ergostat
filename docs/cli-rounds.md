@@ -126,3 +126,26 @@ $ ergostat                                  not running · start: ergostat run
 - "No recent reading" was said before anything had run. Missing readings count only while
   running.
 - `--help` names `check --example` as the place to start without the Supervisor.
+
+## Round 7: "what happened overnight?" and "is the AI doing anything a rule couldn't?"
+
+- `ergostat loop NAME` now ends with the loop's crossings (when it went off and came back) and its
+  decisions, grouped with the numbers taken out, commonest first.
+- A controller filled by a person, an AI agent or a decision that decides the same thing at least
+  80% of at least 10 times is a hint in the status: a cheaper rung could fill it. The refactor path,
+  with its evidence.
+
+## Round 8: before and after a change
+
+**Who:** the owner, asking the Supervisor to change a setpoint, then checking it took.
+
+```
+$ ergostat --since 10m        the model, since 10m ago: 1 change   07:51:25  ~controller:disk-under-80
+```
+
+**Findings (applied):**
+- The model's changes were invisible. Each load that differs is recorded as `model.changed`
+  (added, removed, changed parts); `--since` shows them above the loops, and the web page's side
+  panel lists them.
+- A running ergostat kept the old model until restarted. It now notices the file, and when the new
+  model loads without errors it restarts itself in place (the same process, the same page).

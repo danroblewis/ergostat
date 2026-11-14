@@ -116,3 +116,17 @@ def test_threads_share_the_stores_without_locking_up(project):
         t.join(60)
     assert not errs and not any(t.is_alive() for t in ts)
     assert project.events.count() == 240
+
+
+def test_the_model_history_records_what_changed(repo, project, capsys):
+    from ergostat import history, model
+    from ergostat.store import Project
+    first = history.note(project)
+    assert first["data"]["first"] and history.note(project) is None and history.changes(project, 0) == []
+    repo.write("ergostat.toml", repo.path.joinpath("ergostat.toml").read_text().replace('setpoint = "<= 80"', 'setpoint = "<= 70"')
+               + '\n[[stock]]\nname = "inodes"\n')
+    p = Project(model.load(repo.path))
+    (ch,) = [history.note(p)]
+    assert ch["data"]["added"] == ["stock:inodes"] and ch["data"]["changed"] == ["controller:disk-under-80"]
+    rc, out = run_cli(repo, "--since", "1h", capsys=capsys)
+    assert "1 changes" in out and "+stock:inodes" in out and "~controller:disk-under-80" in out
