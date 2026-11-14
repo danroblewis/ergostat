@@ -129,7 +129,7 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
     vb = (f"[ {v} ]" if pos is None else f"[ {v} open {fmt(pos)} ]") if v else "[ no valve ]"
     st = snap["stocks"].get(lp.stock, {})
     unit = model.stocks[lp.stock].unit if lp.stock in model.stocks else ""
-    sb = f"[ {lp.stock} {fmt(st.get('value'))}{(' ' + unit) if unit else ''} ]"
+    sb = f"[ ∫ {lp.stock} {fmt(st.get('value'))}{(' ' + unit) if unit else ''} ]"
     sen = lp.sensors[0] if lp.sensors else None
     hb = f"[ {sen} reads {fmt(readings.get(sen))} ]" if sen else "[ no sensor ]"
     # to a loop, any inflow it does not drive is a disturbance: declared ones, and other agents' valves
@@ -149,8 +149,10 @@ def block_text(model, snap: dict, readings: dict, name: str) -> str:
         rate = snap["flows"].get(d.name, {})
         col = len(left) + 1
         v = model.valve_of(d.name)
-        who = f" (valve {v.name} · {v.agent})" if v and v.agent else ""
-        lines.append(" " * col + f"d: {d.name}{who} {fmt(rate.get('rate'))}/h" + (" (est.)" if rate.get("estimated") else "")
+        source = next((x.name for x in model.loops() if v and v.name in x.valves), None)
+        who = f" (u of loop {source}, measured)" if source else f" (valve {v.name} · {v.agent})" if v and v.agent else ""
+        lines.append(" " * col + f"d: {d.name}{who} {fmt(rate.get('rate'))}{(' ' + unit) if unit else ''}/h"
+                     + (" (est.)" if rate.get("estimated") else "")
                      + (f" +{len(dists) - 1} more" if len(dists) > 1 else ""))
         lines.append(" " * col + "│")
     lines.append(row)

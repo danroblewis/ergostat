@@ -515,12 +515,12 @@ function renderSide(side, g, view) {
     side.append(h("h3", {}, `loops (${loops.length})`));
     if (!loops.length) side.append(h("div", { class: "muted" }, "no loops in view"));
     for (const [name, lp] of loops) {
-      const full = st.loops[name] || {};
+      const full = lp;                                   // the diagram's own snapshot
       side.append(h("div", { class: "looprow", "data-loop": name,
                               onmouseenter: () => highlightLoop(name), onmouseleave: () => highlightLoop(null),
                               onclick: () => openLoop(name) },
         h("b", {}, name), statusEl(lp.status),
-        h("div", { class: "sub" }, `${lp.stock} ${fmt(full.value)} · setpoint ${lp.setpoint}`)));
+        h("div", { class: "sub" }, `${lp.stock} ${fmt(full.value)} · setpoint ${lp.setpoint}${full.band || ""}`)));
     }
   } else {
     if (g.cycles?.length) {

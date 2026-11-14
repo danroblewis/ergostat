@@ -31,8 +31,8 @@ function drawBlocks(svg, g) {
   const tw = (t) => (t || "").length * 6.4 + 28;
   const cw = Math.max(190, ...rows.map((r) => Math.max(tw(r.ctl.label) + 10, tw("C · " + badgeText(r.ctl.agent)))));
   const vw = Math.max(160, ...rows.map((r) => Math.max(tw(r.valves[0]?.label), tw(badgeText(r.valves[0]?.agent)), tw("actuator · " + (r.valves[0]?.rateText || "")))));
-  const sw = Math.max(160, ...rows.map((r) => Math.max(tw(r.stock.label), tw(`plant · ${r.stock.valueText} ${r.stock.unit || ""}`))));
-  const hw = Math.max(160, ...rows.map((r) => Math.max(tw(r.sensors[0]?.label), tw(`H · reads ${r.sensors[0]?.reading ?? "?"}`))));
+  const sw = Math.max(160, ...rows.map((r) => Math.max(tw(r.stock.label), tw(`plant ∫ · ${r.stock.valueText} ${r.stock.unit || ""}`))));
+  const hw = Math.max(160, ...rows.map((r) => Math.max(tw(r.sensors[0]?.label), tw(`H · reads ${r.sensors[0]?.reading ?? "?"} · every ${r.sensors[0]?.agent?.when || ""}`))));
   const X = { r: 30, sum: 130 };
   X.ctl = X.sum + 70; X.valve = X.ctl + cw + 50; X.dsum = X.valve + vw + 50; X.stock = X.dsum + 50; X.out = X.stock + sw + 60;
   const RH = 210;
@@ -98,14 +98,16 @@ function drawBlocks(svg, g) {
     if (row.dists.length) {
       const d = row.dists[0];
       const more = row.dists.length > 1 ? ` (+${row.dists.length - 1} more)` : "";
-      const who = d.kind === "valve" && d.agent ? ` · ${d.agent.name}` : "";
+      // another loop's actuator is known and measured: say whose it is (the loops are in series)
+      const fromLoop = d.kind === "valve" ? Object.entries(g.loops).find(([, l]) => l.nodes.includes(d.id))?.[0] : null;
+      const who = fromLoop ? ` (u of loop ${fromLoop}, measured)` : d.kind === "valve" && d.agent ? ` · ${d.agent.name}` : "";
       loopG.append(...line([[X.dsum, cy - 70], [X.dsum, cy - 14]], "", "var(--dist)"));
       loopG.append(label(X.dsum + 8, cy - 74, `d: ${d.label}${who} ${d.rateText}${d.estimated ? " (est.)" : ""}${more}`, "t-sub", "start"));
     }
     if (row.dists.length || row.drains) loopG.append(...line([[X.dsum + 14, cy], [X.stock, cy]], "", "var(--pipe)"));
     else loopG.append(...line([[X.valve + vw, cy], [X.stock, cy]], "", "var(--pipe)"));
     // the plant: the stock
-    loopG.append(box(X.stock, cy - 36, sw, 72, row.stock.label, `plant · ${row.stock.valueText} ${row.stock.unit || ""}`,
+    loopG.append(box(X.stock, cy - 36, sw, 72, row.stock.label, `plant ∫ · ${row.stock.valueText} ${row.stock.unit || ""}`,
                      "var(--stock)", "var(--stock-line)", row.stock));
     // y out, and the feedback path through the sensor
     loopG.append(...line([[X.stock + sw, cy], [X.out + 40, cy]], "", tone));
@@ -113,7 +115,8 @@ function drawBlocks(svg, g) {
     const se = row.sensors[0];
     const fy = cy + 90, sw2 = hw, sx = (X.sum + X.out) / 2 - hw / 2;
     loopG.append(...line([[X.out, cy], [X.out, fy], [sx + sw2, fy]], "", tone, true));
-    loopG.append(box(sx, fy - 30, sw2, 60, se ? se.label : "no sensor", se ? `H · reads ${se.reading ?? "?"}` : "",
+    loopG.append(box(sx, fy - 30, sw2, 60, se ? se.label : "no sensor",
+                     se ? `H · reads ${se.reading ?? "?"}${se.agent?.when ? " · every " + se.agent.when.replace(/^on .*/, "event") : ""}` : "",
                      "var(--sensor)", se ? "var(--sensor-line)" : "var(--warn)", se));
     loopG.append(...line([[sx, fy], [X.sum, fy], [X.sum, cy + 14]], "", tone, true));
     loopG.append(label((X.sum + sx) / 2, fy - 8, "ym"));
