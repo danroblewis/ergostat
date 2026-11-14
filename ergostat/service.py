@@ -15,12 +15,22 @@ def command(repo: Path, extra: list[str]) -> list[str]:
     return [sys.executable, "-m", "ergostat", "-C", str(repo), "run", "--foreground", *extra]
 
 
+def _env() -> dict:
+    """What the agents need from this shell: ERGOSTAT_HOME, and PATH with each folder once."""
+    out = {}
+    if "ERGOSTAT_HOME" in os.environ:
+        out["ERGOSTAT_HOME"] = os.environ["ERGOSTAT_HOME"]
+    if "PATH" in os.environ:
+        out["PATH"] = ":".join(dict.fromkeys(x for x in os.environ["PATH"].split(":") if x))
+    return out
+
+
 def label(name: str) -> str:
     return "local.ergostat." + "".join(ch if ch.isalnum() or ch in "-." else "-" for ch in name)
 
 
 def launchd(name: str, repo: Path, cmd: list[str], state: Path) -> str:
-    env = {k: os.environ[k] for k in ("ERGOSTAT_HOME", "PATH") if k in os.environ}
+    env = _env()
     args = "\n".join(f"    <string>{escape(a)}</string>" for a in cmd)
     envs = "\n".join(f"    <key>{escape(k)}</key><string>{escape(v)}</string>" for k, v in env.items())
     return f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -57,7 +67,7 @@ def systemd(name: str, repo: Path, cmd: list[str], state: Path) -> str:
     def qe(a: str) -> str:                      # an Environment= assignment
         a = pct(a)
         return '"' + a.replace("\\", "\\\\").replace('"', '\\"') + '"' if any(c in a for c in ' "\\') else a
-    env = "".join(f"Environment={qe(k + '=' + os.environ[k])}\n" for k in ("ERGOSTAT_HOME", "PATH") if k in os.environ)
+    env = "".join(f"Environment={qe(k + '=' + v)}\n" for k, v in _env().items())
     log = pct(str(state / "run.log"))
     return f"""[Unit]
 Description=ergostat for {pct(name)} ({pct(str(repo))})
@@ -75,15 +85,16 @@ WantedBy=default.target
 """
 
 
-def text(project, extra: list[str]) -> tuple[str, str]:
-    """(the service text, how to install it), for this machine's service manager."""
+def text(project, extra: list[str], kind: str = "auto") -> tuple[str, str]:
+    """(the service text, how to install it), for this machine's service manager, or the one named
+    (``launchd``, ``systemd``: a unit for a Linux box can be read on a Mac)."""
     name, repo, state = project.model.name, project.repo, project.dir
     cmd = command(repo, extra)
-    if sys.platform == "darwin":
+    if kind == "launchd" or (kind == "auto" and sys.platform == "darwin"):
         path = f"~/Library/LaunchAgents/{label(name)}.plist"
-        how = (f"save it as {path}, then: launchctl load -w {path}\n"
+        how = (f"save it as {path}, then: launchctl bootstrap gui/$(id -u) {path}\n"
                f"(it restarts after a crash or a reboot; ergostat run --stop stops it until the next login; "
-               f"for good: launchctl unload -w {path})")
+               f"for good: launchctl bootout gui/$(id -u)/{label(name)})")
         return launchd(name, repo, cmd, state), how
     unit = f"ergostat-{label(name).removeprefix('local.ergostat.')}.service"
     how = (f"save it as ~/.config/systemd/user/{unit}, then: systemctl --user enable --now {unit}\n"

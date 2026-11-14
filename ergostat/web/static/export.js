@@ -22,7 +22,8 @@ function standaloneSvg(svg, title) {
   });
   for (const f of drop) f.remove();
   clone.querySelector("#viewport").setAttribute("transform", "");
-  const pad = 20, head = title ? 34 : 0, w = S.layout.width + pad * 2, hgt = S.layout.height + pad * 2 + head;
+  const foot = title && svg.querySelector(".k-stock") ? 46 : 0;     // a legend under a control diagram
+  const pad = 20, head = title ? 34 : 0, w = S.layout.width + pad * 2, hgt = S.layout.height + pad * 2 + head + foot;
   const x0 = (S.layout.ox || 0) - pad, y0 = (S.layout.oy || 0) - pad - head;     // outlines may reach left of or above the nodes
   clone.setAttribute("viewBox", `${x0} ${y0} ${w} ${hgt}`);
   clone.setAttribute("width", w);
@@ -32,6 +33,7 @@ function standaloneSvg(svg, title) {
   clone.setAttribute("style", `font-family:${font}`);
   const bg = getComputedStyle(document.body).backgroundColor, ink = getComputedStyle(document.body).color;
   clone.insertBefore(s("rect", { x: x0, y: y0, width: w, height: hgt, fill: bg }), clone.firstChild);
+  if (foot) clone.append(exportLegend(x0 + pad, y0 + hgt - foot + 14, ink, getComputedStyle(document.body).getPropertyValue("--muted") || ink));
   if (title) {                                   // a file on its own says what it is and when
     const muted = getComputedStyle(document.body).getPropertyValue("--muted") || ink;
     clone.append(s("text", { x: x0 + pad, y: y0 + 24, style: `fill:${ink};font-size:15px;font-weight:700` }, title[0]),
@@ -45,6 +47,30 @@ function download(blob, name) {
   document.body.append(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+/* the legend of a control diagram, in one row, with colours resolved: a picture on its own in a document */
+function exportLegend(x, y, ink, muted) {
+  const css = (v) => getComputedStyle(document.body).getPropertyValue(v).trim() || ink;
+  const g = s("g", { style: `font-size:11px;fill:${muted}` });
+  const items = [
+    [`<rect x="0" y="-9" width="20" height="12" rx="2" style="fill:${css("--stock")};stroke:${css("--stock-line")};stroke-width:1.6"/>`, "stock"],
+    [`<path d="M0,-3 H20" style="stroke:${css("--pipe")};stroke-width:6"/><path d="M0,-3 H20" style="stroke:${css("--pipe-in")};stroke-width:2"/>`, "flow"],
+    [`<path d="M2,-9 L10,-3 L2,3 Z M18,-9 L10,-3 L18,3 Z" style="fill:${css("--valve")}"/>`, "valve (an agent acts)"],
+    [`<path d="M10,-10 L18,-3 L10,4 L2,-3 Z" style="fill:none;stroke:${css("--dist")};stroke-width:1.6"/>`, "disturbance"],
+    [`<circle cx="10" cy="-3" r="7" style="fill:${css("--sensor")};stroke:${css("--sensor-line")};stroke-width:1.6"/>`, "sensor"],
+    [`<rect x="0" y="-9" width="20" height="12" rx="3" style="fill:${css("--ctl")};stroke:${css("--ctl-line")};stroke-width:1.6"/>`, "controller"],
+    [`<path d="M0,-3 H20" style="stroke:${css("--ok")};stroke-width:2"/>`, "loop holding"],
+    [`<path d="M0,-3 H20" style="stroke:${css("--bad")};stroke-width:2"/>`, "off"],
+    ["", "agents: " + RUNG_NAMES.map((k, i) => `${RUNG_LETTER[i]} ${k}`).join(" · ")],
+  ];
+  let cx = x;
+  for (const [icon, text] of items) {
+    if (icon) { const ic = s("g", { transform: `translate(${cx},${y})` }); ic.innerHTML = icon; g.append(ic); cx += 26; }
+    g.append(s("text", { x: cx, y: y + 1 }, text));
+    cx += textWidth(text) + 22;
+  }
+  return g;
 }
 
 function exportTitle() {

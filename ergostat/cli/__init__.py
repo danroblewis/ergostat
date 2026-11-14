@@ -138,8 +138,9 @@ def build() -> argparse.ArgumentParser:
     r.add_argument("--stop", action="store_true", help="stop the ergostat running here, and its agents' runs")
     r.add_argument("--no-web", action="store_true", help="no web page")
     r.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
-    r.add_argument("--service", action="store_true", help="print a launchd agent (macOS) or systemd user unit that keeps it "
-                                                       "running across reboots; prints only, installs nothing")
+    r.add_argument("--service", nargs="?", const="auto", choices=["auto", "launchd", "systemd"],
+                   help="print a launchd agent (macOS) or systemd user unit (or the one named) that keeps it running across "
+                        "reboots, on the page's current port; prints only, installs nothing")
     topic("projects", cmd_projects, "Every project on this machine, and which are running", named=False)
     hp = sub.add_parser("help", help="Guides: agents (writing one), ai-agents")
     hp.add_argument("name", nargs="?")
@@ -177,6 +178,13 @@ def cmd_help(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = build()
+    argv = list(sys.argv[1:] if argv is None else argv)
+    flags_with_value = {"-C", "-s", "--system", "--since", "--at"}
+    i = 0
+    while i < len(argv) and argv[i].startswith("-"):    # past the global flags to the topic
+        i += 2 if argv[i] in flags_with_value else 1
+    if i < len(argv) and argv[i] == "status":           # `ergostat status` is the status, as bare `ergostat`
+        del argv[i]
     args = ap.parse_args(argv)
     if args.version:
         print(f"ergostat {__version__}")

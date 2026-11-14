@@ -623,3 +623,25 @@ off (anti-windup): noted for later.
 
 - A valve may declare `max`, the most one opening moves. Saturation is then exact (its openings
   ran at the max), and the block views show it (`[ open-update-pr ≤ 2 a run ]`). deps declares it.
+
+## Round 36: a fifth review (an SRE writing a design doc; scripts that print sentences)
+
+Applied:
+
+- A script printing "cleaned up 3 old files" was dropped silently, with "fine when there was
+  nothing to do": an agent may say `parse = "cleaned up (\\d+)"` (a regular expression, one group:
+  the number; the last matching line of a run that ended well), and `agent NAME --now` says when a
+  run printed text but nothing was recorded, and the three ways to fix it.
+- An exported control diagram had no legend: a one-line legend under it (the shapes, the loop
+  colours, the agent letters), with the header it already had.
+- `run --service` forgot the page's port, offered no unit for a Linux box from a Mac, used
+  `launchctl load -w`, and copied a PATH with duplicates: it keeps the current port,
+  `--service systemd|launchd` picks the manager, it says `launchctl bootstrap`/`bootout`, and each
+  folder is in PATH once.
+- The wiring view ran long agent names into their rung: an agent's box fits both. The "more
+  beyond the edge" hint is shorter (the rest on hover).
+- `ergostat status` was an error: it is the status, as bare `ergostat`.
+
+Not applied (noted): an export of structure only (no live values), a `unit` on valves checked
+against the stock's, counting a successful run with nothing said as an opening of unknown amount,
+and rotating `run.log`.

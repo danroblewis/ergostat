@@ -39,6 +39,8 @@ async function layoutGraph(g, aspect, cut = false) {
       const lp = Object.values(g.loops || {}).find((l) => l.stock === n.label);
       w = Math.max(w, textWidth(n.label) + 34, (n.valueText || "").length * 14 + textWidth(n.unit || "") + textWidth(lp ? lp.setpoint : "") + 44);
     }
+    if (n.kind === "agent") w = Math.max(w, textWidth(n.label) * 1.15 + textWidth(`rung ${n.rung} · ${n.agentKind}`) + 56,
+                                         ...(n.roles || []).map((r) => textWidth(`${r.kind} ${r.name}`) + 40));   // the name and its rung, apart
     if (n.kind === "controller") w = Math.max(w, textWidth(n.label) * 1.12 + 120, textWidth("holds " + n.setpoint) + 60,   // the title is bold
                                               n.openLoop ? textWidth(OPEN_LOOP) + 30 : 0);
     const lines = labelLines(n);
@@ -582,7 +584,7 @@ async function pageDiagram(main, q) {
     wrapBtn,
     around ? h("span", { class: "pill" }, "around " + around, " ", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); go({ around: "" }); } }, "×")) : null);
   const zoom = h("div", { class: "zoom" },
-    h("span", { id: "panhint", class: "muted panhint", hidden: true }, "more beyond the edge: drag, or"),
+    h("span", { id: "panhint", class: "muted panhint", hidden: true, title: "drag to pan, or fit to see it whole" }, "more beyond the edge"),
     h("button", { onclick: () => fit(svg, S.layout) }, "fit"),
     h("button", { title: "save the diagram as an SVG file", onclick: () => exportSvg(svg, `${S.status?.name || "ergostat"}-${system || "all"}-${view}.svg`) }, "save SVG"),
     h("button", { title: "save the diagram as a PNG picture, at twice the size", onclick: () => exportPng(svg, `${S.status?.name || "ergostat"}-${system || "all"}-${view}.svg`) }, "PNG"),

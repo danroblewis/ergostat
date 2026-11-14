@@ -29,9 +29,12 @@ def cmd_run(args) -> int:
             time.sleep(0.1)
         print(f"{pid} did not stop within 10s; it still holds {runner.pid_file(p)}", file=sys.stderr)
         return 1
-    if getattr(args, "service", False):
+    if getattr(args, "service", None):
         from ..service import text
-        body, how = text(p, [*(["--no-web"] if args.no_web else []), *(["--port", str(args.port)] if args.port else [])])
+        port = args.port
+        if not port and not args.no_web and runner.web_url(p):           # keep the page where it is now
+            port = int(runner.web_url(p).rsplit(":", 1)[1])
+        body, how = text(p, [*(["--no-web"] if args.no_web else []), *(["--port", str(port)] if port else [])], args.service)
         print(body, end="")
         print(c(how, "dim"), file=sys.stderr)
         return 0
