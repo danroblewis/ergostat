@@ -15,13 +15,15 @@ async function pageLoops(main) {
   async function tick() {
     const [loops, stocks] = [await api("loops"), await api("graph")];
     const pts = Object.fromEntries(stocks.nodes.filter((n) => n.kind === "stock").map((n) => [n.label, n.points]));
-    box.replaceChildren(h("table", {}, h("tr", {}, ["loop", "status", "holds", "now", "setpoint", "e = r − y", "time off", "trend", "acted"].map((x) => h("th", {}, x))),
+    box.replaceChildren(h("table", {}, h("tr", {}, ["loop", "status", "holds", "now", "setpoint", "e = r − y", "time off", "back in", "trend", "acted"].map((x) => h("th", {}, x))),
       Object.entries(loops).map(([n, lp]) => h("tr", { class: "click", onclick: () => openLoop(n) },
         h("td", {}, h("b", {}, n), lp.open_loop ? h("span", { class: "muted", title: "acts on its schedule, reads nothing" }, " ⏲ open loop") : null),
         h("td", {}, statusEl(lp.status)), h("td", {}, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
         h("td", { class: "num nowrap" }, lp.setpoint + (lp.band || "")),
         h("td", { class: `num s-${lp.status}` }, lp.error != null ? fmt(lp.error) : ""),
         h("td", { class: "num", title: "the share of the window the loop spent off" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : "0%"),
+        h("td", { class: "num", title: lp.back_in != null ? `typically holding again this long after going off (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times); its valve opens ${lp.answers_in != null ? dur(lp.answers_in) : "?"} after` : "it has not gone off and come back in the window" },
+          lp.back_in != null ? dur(lp.back_in) : "–"),
         h("td", {}, (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 150, 30, setpointOf(lp.setpoint)) : ""),
         h("td", { title: "in the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
   }

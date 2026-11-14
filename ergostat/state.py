@@ -203,6 +203,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         before = [e for e in crossings if e["time"] < start]
         if before and before[-1]["type"] == "loop.off":
             off_from = start
+        episodes = []                                    # (went off, back holding) within the window
         for e in crossings:
             if e["time"] < start:
                 continue
@@ -210,17 +211,32 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                 off_from = e["time"]
             elif e["type"] == "loop.holding" and off_from is not None:
                 off_time += e["time"] - off_from
+                episodes.append((off_from, e["time"]))
                 off_from = None
         if off_from is not None:
             off_time += now - off_from
         off_share = off_time / max(now - start, 1.0)
+        # how fast it answers: from going off to its valve's first opening, and to holding again
+        import bisect
+        opens = sorted(e["time"] for v in lp.valves
+                       for e in project.events.query(n=None, type="valve.opened", item=v, since=start, until=now))
+        answers = []
+        for t0, _ in episodes + ([(off_from, None)] if off_from is not None and off_from > start else []):
+            i = bisect.bisect_left(opens, t0)
+            if i < len(opens):
+                answers.append(opens[i] - t0)
+        recoveries = sorted(t1 - t0 for t0, t1 in episodes if t0 > start)
+        answers.sort()
         cycled = bool(last_read and last_read >= since and ((decisions and decisions[-1]["time"] >= since)
                                                            or (last_open and last_open >= since)))
         loops[lp.name] = {"stock": c.holds, "setpoint": c.setpoint, "tolerance": c.tolerance, "band": c.band_text(), "value": value,
                           "error": error, "status": status, "gaps": lp.gaps, "sensors": lp.sensors, "valves": lp.valves,
                           "flows": lp.flows, "controller": c.name, "last_read": last_read,
                           "last_decision": decisions[-1] if decisions else None, "last_opening": last_open,
-                          "observed": cycled, "off_share": round(off_share, 3), "open_loop": lp.open_loop}
+                          "observed": cycled, "off_share": round(off_share, 3), "open_loop": lp.open_loop,
+                          "answers_in": answers[len(answers) // 2] if answers else None,
+                          "back_in": recoveries[len(recoveries) // 2] if recoveries else None,
+                          "back_in_slowest": recoveries[-1] if recoveries else None, "times_off": len(recoveries)}
 
     agents = {}
     for a in m.agents.values():

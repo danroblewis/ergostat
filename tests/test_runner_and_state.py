@@ -529,3 +529,16 @@ def test_forgetting_a_reading_forgets_the_crossing_it_caused(project, repo):
     assert r.returncode == 0, r.stderr
     snap = state.snapshot(project)
     assert snap["loops"]["disk-under-80"]["status"] == "holding" and snap["loops"]["disk-under-80"]["off_share"] < 0.05
+
+
+def test_how_fast_a_loop_answers_is_measured_from_the_record(project):
+    t = time.time() - 1500
+    project.events.add("ergostat.started", source="ergostat", at=t)
+    project.measurements.add("sensor/disk-usage", 70, at=t + 1)
+    for k, (gap, back) in enumerate([(30, 60), (10, 20), (50, 300)]):
+        t0 = t + 100 + k * 400
+        project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t0, data={})
+        project.events.add("valve.opened", item="delete-old-files", source="cleaner", at=t0 + gap, data={"amount": 1})
+        project.events.add("loop.holding", item="disk-under-80", source="ergostat", at=t0 + back, data={})
+    lp = state.snapshot(project)["loops"]["disk-under-80"]
+    assert lp["answers_in"] == 30 and lp["back_in"] == 60 and lp["back_in_slowest"] == 300 and lp["times_off"] == 3

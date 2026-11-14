@@ -28,6 +28,13 @@ function s(tag, attrs = {}, ...kids) {
   return el;
 }
 const fmt = (x) => x == null ? "?" : (typeof x === "number" ? (Number.isInteger(x) ? String(x) : (Math.abs(x) < 100 ? x.toPrecision(3).replace(/\.?0+$/, "") : x.toFixed(0))) : String(x));
+function dur(x) {                                      // seconds, said shortly
+  if (x == null) return "?";
+  if (x < 60) return `${Math.max(1, Math.round(x))}s`;
+  if (x < 3600) return `${Math.round(x / 60)}m`;
+  if (x < 86400) return `${(x / 3600).toFixed(x < 36000 ? 1 : 0)}h`;
+  return `${Math.round(x / 86400)}d`;
+}
 function ago(t) {
   if (!t) return "never";
   const d = nowS() - t;

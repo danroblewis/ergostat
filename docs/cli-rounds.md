@@ -612,3 +612,9 @@ off (anti-windup): noted for later.
 - Added afterwards (one of the noted concepts): a loop that keeps feeding a stock whose own loop is
   off half the time or more is named: work piles up downstream; hold it back while the downstream
   loop is off (the anti-windup question for loops in series). deps shows it.
+
+## Round 34: how fast each loop answers (from round 33's noted concepts)
+
+- Each loop's dead time and recovery are measured from the record: from going off to its valve's
+  first opening ("its valve opens 42s after it goes off"), and to holding again (typical, slowest,
+  how many times). `loop NAME` says it; `loop` and the page's Loops have TIME OFF and BACK IN.

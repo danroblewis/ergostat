@@ -93,15 +93,18 @@ def cmd_loop(args) -> int:
     parts = parts_of(args, m)
     if not args.name:
         rows = [[n, show.status_word(lp["status"]), lp["stock"], fmt(lp["value"]), st.setpoint_text(lp),
-                 fmt(lp["error"]) if lp["error"] is not None else "", m.controllers[n].agent or "-",
-                 "yes" if lp["observed"] else c("no", "dim")]
+                 fmt(lp["error"]) if lp["error"] is not None else "",
+                 f"{round(lp['off_share'] * 100)}%" if lp.get("off_share") else "0%",
+                 human(max(lp["back_in"], 1)) if lp.get("back_in") is not None else "-",
+                 m.controllers[n].agent or "-", "yes" if lp["observed"] else c("no", "dim")]
                 for n, lp in snap["loops"].items() if n in parts]
         if args.json:
             return out_json({n: lp for n, lp in snap["loops"].items() if n in parts})
-        print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "E = R − Y", "CONTROLLER AGENT", "ACTED"], rows,
+        print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "E = R − Y", "TIME OFF", "BACK IN", "CONTROLLER AGENT", "ACTED"], rows,
                     "no loops: a loop is a [[controller]] that holds a stock"))
         if rows:
-            print(c(f"\nACTED: in the last {human(snap['window'])}, its sensor read and its controller decided or its valve opened", "dim"))
+            print(c(f"\nACTED: in the last {human(snap['window'])}, its sensor read and its controller decided or its valve opened. "
+                    f"BACK IN: typically, from going off to holding again", "dim"))
         return 0
     lp = snap["loops"].get(args.name)
     if lp is None:
@@ -115,6 +118,14 @@ def cmd_loop(args) -> int:
         print(c("  " + ctl.description, "dim"))
     if lp.get("off_share"):
         print(f"  off {round(lp['off_share'] * 100)}% of the {human(min(snap['window'], snap['recorded'] or snap['window']))} recorded")
+    if lp.get("answers_in") is not None or lp.get("back_in") is not None:
+        parts = []
+        if lp.get("answers_in") is not None:
+            parts.append(f"its valve opens {human(max(lp['answers_in'], 1))} after it goes off")
+        if lp.get("back_in") is not None:
+            parts.append(f"it holds again {human(max(lp['back_in'], 1))} after (slowest {human(max(lp['back_in_slowest'], 1))}, "
+                         f"{lp['times_off']} time{'s' if lp['times_off'] != 1 else ''})")
+        print("  typically " + "; ".join(parts))
     pts = snap["stocks"].get(lp["stock"], {}).get("points", [])
     if pts:
         span = pts[-1][0] - pts[0][0] if len(pts) > 1 else 0
