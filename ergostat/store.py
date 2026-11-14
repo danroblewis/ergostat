@@ -195,20 +195,21 @@ class Events:
                           (valve, since, until if until is not None else 1e18)).fetchone()
         return {"count": r[0], "amount": float(r[1]), "last": r[2]}
 
-    def last_opening(self, valve: str) -> dict | None:
-        """A valve's last opening: the run that opened it last, with what that whole run moved (an
-        agent may report each thing it moves as its own line). None when it never opened."""
+    def last_opening(self, valve: str, until: float | None = None) -> dict | None:
+        """A valve's last opening (up to ``until``): the run that opened it last, with what that whole
+        run moved (an agent may report each thing it moves as its own line). None when it never opened."""
+        until = until if until is not None else 1e18
         with self._c() as c:
-            last = c.execute("select time, causedby from events where item = ? and type = 'valve.opened' "
-                             "order by time desc, seq desc limit 1", (valve,)).fetchone()
+            last = c.execute("select time, causedby, coalesce(json_extract(data, '$.amount'), 1) from events where item = ? "
+                             "and type = 'valve.opened' and time <= ? order by time desc, seq desc limit 1",
+                             (valve, until)).fetchone()
             if last is None:
                 return None
             if last[1] is None:
-                amt = c.execute("select coalesce(json_extract(data, '$.amount'), 1) from events where item = ? and "
-                                "type = 'valve.opened' order by time desc, seq desc limit 1", (valve,)).fetchone()
-                return {"time": last[0], "count": 1, "amount": float(amt[0])}
+                return {"time": last[0], "count": 1, "amount": float(last[2])}
             r = c.execute("select count(*), coalesce(sum(coalesce(json_extract(data, '$.amount'), 1)), 0) from events "
-                          "where item = ? and type = 'valve.opened' and causedby = ?", (valve, last[1])).fetchone()
+                          "where item = ? and type = 'valve.opened' and causedby = ? and time <= ?",
+                          (valve, last[1], until)).fetchone()
         return {"time": last[0], "count": r[0], "amount": float(r[1])}
 
     def decided(self, controller: str, since: float, until: float | None = None) -> list[tuple[str, int]]:

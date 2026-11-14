@@ -309,3 +309,9 @@ def test_text_blocks_draw_an_open_loop_and_disturbances_both_ways(repo, capsys):
     assert "(−±)" in out and "not fed back" in out and "(Σ)" not in out
     rc, out = run_cli(repo, "status", capsys=capsys)                        # the alias
     assert rc == 0 and "disk-under-80" in out
+
+
+def test_a_snapshot_without_logs_carries_no_unread_lines(project):
+    from ergostat.web.snapshot import build
+    project.events.add("agent.ran", item="cleaner", source="ergostat", data={"exit": 0, "unread": 1, "unread_lines": ["{secret oops"]})
+    assert "secret oops" not in build(project) and "secret oops" in build(project, logs=True)

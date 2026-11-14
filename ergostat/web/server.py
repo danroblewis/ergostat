@@ -159,7 +159,7 @@ def api(live: Live, path: str, q: dict):
                           "last": lp["last_decision"]})
             for v in lp["valves"]:
                 parts.append({"kind": "valve", "name": v, "agent": agent(m.valves[v].agent), "mode": m.valves[v].mode,
-                              "max": m.valves[v].max, "last": p.events.last_opening(v)})
+                              "max": m.valves[v].max, "last": p.events.last_opening(v, snap["at"])})
             return {**lp, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
                     "since": since, "until": snap["at"], "off_stretches": stretches,
                     "crossings": in_window[-20:], "crossings_total": len(in_window),
@@ -233,7 +233,8 @@ def api(live: Live, path: str, q: dict):
         elif kind in ("flow", "disturbance"):
             out["now"] = snap["flows"].get(pname)
         elif kind == "sensor":
-            out["now"] = {"readings": p.measurements.range(f"sensor/{pname}", time.time() - snap["window"])[-60:]}
+            rd = p.measurements.range(f"sensor/{pname}", snap["at"] - snap["window"], snap["at"])
+            out["now"] = {"readings": rd[-60:], "count": len(rd)}
         elif kind == "valve":
             out["now"] = {"openings": p.events.query(n=300, type="valve.opened", item=pname),
                           "flow": snap["flows"].get(x.flow)}

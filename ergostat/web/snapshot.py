@@ -41,6 +41,17 @@ def _requests(project) -> list[tuple[str, dict]]:
     return reqs
 
 
+def _strip(x) -> None:
+    """Every ``unread_lines`` (lines an agent printed that were not understood) taken out, wherever it is."""
+    if isinstance(x, dict):
+        x.pop("unread_lines", None)
+        for v in x.values():
+            _strip(v)
+    elif isinstance(x, list):
+        for v in x:
+            _strip(v)
+
+
 def build(project, since: str = "1h", logs: bool = False) -> str:
     """``logs``: the end of each agent's log goes in too (left out by default: a log may hold what
     should not be sent on)."""
@@ -61,6 +72,8 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
         got = api(live, f"items/{_q(it['item'])}", {"since": [since]})
         if got is not None:
             data[f"items/{_q(it['item'])}"] = got
+    if not logs:                                  # what an agent printed but ergostat could not read is its log too
+        _strip(data)
     snap = {"at": time.time(), "since": since, "name": project.model.name, "data": data}
 
     def inline(text: str) -> str:

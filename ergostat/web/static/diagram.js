@@ -272,7 +272,7 @@ function drawAgent(n, w, hgt) {
   g.append(s("text", { x: w - 26, y: 20, class: "t-sub", "text-anchor": "end" }, `rung ${n.rung} · ${n.agentKind}`));
   g.append(rungDot(n.rung, w - 14, 16, 6.5));
   const when = n.schedule || "";
-  g.append(s("text", { x: 16, y: 38, class: "t-sub" }, when + (n.runs ? ` · ${n.runs} runs` : "")));
+  g.append(s("text", { x: 16, y: 38, class: "t-sub" }, when, n.runs ? s("tspan", { class: "live" }, ` · ${n.runs} runs`) : null));
   [...(n.roles || []).map((r) => `${r.kind} ${r.name}`), ...(n.loads || []).map((d) => `the load: ${d}`)].slice(0, 3)
     .forEach((t, i) => g.append(s("text", { x: 16, y: 56 + i * 14, class: "t-sub" }, t)));
   return g;
@@ -431,7 +431,13 @@ function drawGraph(svg, g, lay) {
       lines.forEach((t, i) => {
         const cx = lb.x + lb.width / 2, y = lb.y + 13 + i * 16;
         if (t === "§badge") { const b = badge(n.agent, cx, y - 11); if (b) ng.append(b); return; }
-        ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: i === 0 ? "t-label" : "t-sub live" }, t));   // a reading, a rate
+        if (i === 0) { ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-label" }, t)); return; }
+        // a reading or a measured rate changes minute to minute (live); a valve's mode and a declared
+        // rate are the design, and stay in the design picture
+        const keep = (part) => ["manual", "advise"].includes(part) || (n.kind === "disturbance" && n.how === "declared");
+        const bits = t.split(" · ");
+        ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-sub" },
+          bits.map((b, k) => s("tspan", { class: keep(b) ? null : "live" }, (k ? " · " : "") + b))));
       });
     }
     nodesG.append(ng);
@@ -677,8 +683,11 @@ function renderSide(side, g, view) {
   side.append(att);
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside
-    const anyOff = Object.values(st.loops || {}).some((l) => l.status === "off");
-    const d = h("details", { class: "suggest", open: anyOff ? "" : null }, h("summary", {}, `suggestions (${hints.length})`));
+    // (the moment drawn, not now; and once the reader opens or closes them, as they left them)
+    const anyOff = Object.values(g.loops || {}).some((l) => l.status === "off");
+    const open = S.suggestOpen ?? anyOff;
+    const d = h("details", { class: "suggest", open: open ? "" : null },
+                h("summary", { onclick: () => { S.suggestOpen = !d.open; } }, `suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
       const loop = /^loop (\S+)/.exec(a.says)?.[1];
       d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", a.says, " ",

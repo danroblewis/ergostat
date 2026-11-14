@@ -27,7 +27,7 @@ async function openNode(n) {
                                   ["filled by", agentLink(d.agent)], ["rate", `${fmt(now.flow?.rate)}/h`]);
   const rd = now.readings || [], last = rd[rd.length - 1];
   if (kind === "sensor") rows.push(["measures", m.measures], ["filled by", agentLink(d.agent)],
-                                   ["last reading", last ? `${fmt(last[1])}, ${ago(last[0])}` : "none yet"], ["in the window", `${rd.length} readings`]);
+                                   ["last reading", last ? `${fmt(last[1])}, ${ago(last[0])}` : "none yet"], ["in the window", `${now.count ?? rd.length} readings`]);
   const kids = [h("div", { class: "kind" }, kind), h("h2", {}, name), dl(rows)];
   if (kind === "stock" && now.points?.length > 1) kids.push(sparkSvg(now.points, 380, 70));
   if (kind === "sensor" && now.readings?.length > 1) kids.push(sparkSvg(now.readings, 380, 70));
@@ -105,8 +105,8 @@ async function openAgent(name) {
         ["fills", (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || "nothing"],
         ["the load", (a.loads || []).map((x) => `disturbance ${x}`).join(", ") || null],
         ["in window", `${a.runs} runs, ${a.failed} failed` + (a.refused ? `, ${a.refused} lines refused` : "") + (a.unread ? `, ${a.unread} unreadable` : "")],
-        ["took", (() => { const ss = (a.recent || []).map((e) => e.data.seconds).filter((x) => x != null);
-                          return ss.length ? `${Math.min(...ss)}s to ${Math.max(...ss)}s over its last ${ss.length} runs` : null; })()],
+        ["durations", (() => { const ss = (a.recent || []).slice(-40).map((e) => e.data.seconds).filter((x) => x != null);
+                               return ss.length ? `${Math.min(...ss)}s to ${Math.max(...ss)}s over its last ${ss.length} runs` : null; })()],
         ["stale", (a.stale || []).length ? `no recent reading from ${a.stale.join(", ")}` : null],
         ["log", a.log_path ? h("code", {}, a.log_path) : null]])];
   if ((a.recent || []).length > 1) kids.push(h("h3", {}, `its last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
@@ -138,7 +138,10 @@ function trendChart(lp, w, hgt) {
     if (xb > xa - 1) out.append(s("rect", { x: xa, y: pad.t, width: Math.max(1, xb - xa), height: hgt - pad.t - pad.b, fill: "var(--bad)", opacity: 0.08 }));
   }
   if (spv != null) {
-    if (tol) out.append(s("rect", { x: pad.l, y: y(spv + tol), width: w - pad.l - pad.r, height: Math.max(1, y(spv - tol) - y(spv + tol)), fill: "var(--ok)", opacity: 0.08 }));
+    // the tolerance on the side that matters, as the status reads it: above <=, below >=, both for ==
+    const op = (/(<=|>=|==|<|>|=)/.exec(lp.setpoint) || [])[1] || "==";
+    const [bLo, bHi] = op.startsWith("<") ? [spv, spv + tol] : op.startsWith(">") ? [spv - tol, spv] : [spv - tol, spv + tol];
+    if (tol) out.append(s("rect", { x: pad.l, y: y(bHi), width: w - pad.l - pad.r, height: Math.max(1, y(bLo) - y(bHi)), fill: "var(--warn)", opacity: 0.08 }));
     out.append(s("line", { x1: pad.l, x2: w - pad.r, y1: y(spv), y2: y(spv), stroke: "var(--ok)", "stroke-dasharray": "4 3", "stroke-width": 1.2 }));
     out.append(s("text", { x: w - pad.r - 4, y: y(spv) - 4, "text-anchor": "end", fill: "var(--ok)", "font-size": 10.5, "paint-order": "stroke",
                            stroke: "var(--panel)", "stroke-width": 3 }, (lp.open_loop ? "watched against " : "setpoint ") + lp.setpoint));
