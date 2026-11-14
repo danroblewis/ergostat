@@ -25,7 +25,8 @@ questions about what is happening from the record (`ergostat`, `ergostat loop`, 
   (`"<= 80"`), reads sensors, drives valves. `[[valve]]` acts on one flow (mode auto, advise or
   manual). Each names the `agent` that fills it.
 - `[[agent]]` fills roles: kind (person, ai, narrow-ai, decision, program, rule), `command`, and
-  when it runs: `every = "5m"`, `cron = "0 3 * * *"`, or `on = ["loop.off", ...]` (event types).
+  when it runs: `every = "5m"`, `cron = "0 3 * * *"`, or `on = ["loop.off@my-loop", ...]` (event
+  types, optionally `@item`; listen as narrowly as the job needs).
   Prefer the lowest rung that does the job. A person has no command.
 - `[[system]]` names a selection; parts join it with `systems = [...]`. Systems may overlap.
 - A loop is a controller whose sensor measures its stock (or a flow of it) and whose valve acts on
@@ -49,7 +50,10 @@ the time; offer the move, with the evidence (`ergostat loop NAME`), and make it 
 
 ## Rules
 
-- Run `ergostat check` after every change, run each changed program by hand, and say what you did.
+- Run `ergostat check` after every change, try each changed agent once with `ergostat agent NAME --now`
+  (it runs it, records it, and prints what it said and what was refused), and say what you did.
+- `ergostat system --all --wiring` lists the cycles among the agents; one no loop declares is worth
+  raising with the owner.
 - Nothing writes to another system unless the owner asked for that write, through a valve.
 - Never delete what you didn't create.
 """
