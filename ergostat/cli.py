@@ -311,7 +311,10 @@ def cmd_agent(args) -> int:
             if not a["runs_itself"]:
                 when = "a person" if a["kind"] == "person" else "not run by ergostat"
             last = a["last"]
-            state_txt = (c("failing", "bad") if a["failing"] else (ago(last["time"]) if last else c("never ran", "dim")))
+            if a.get("running_since"):
+                state_txt = c(f"running for {human(time.time() - a['running_since'])}", "accent")
+            else:
+                state_txt = (c("failing", "bad") if a["failing"] else (ago(last["time"]) if last else c("never ran", "dim")))
             rows.append([n, f"{a['rung']} {a['kind']}", when.strip(), str(a["runs"]), state_txt,
                          ", ".join(f"{r['kind']} {r['name']}" for r in a["roles"]) or c("no roles", "dim")])
         print(table(["AGENT", "RUNG", "RUNS", f"RUNS IN {human(snap['window'])}", "LAST", "FILLS"], rows,

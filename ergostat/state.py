@@ -171,6 +171,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         done = [e for e in ran if e["type"] in ("agent.ran", "agent.failed")]
         last_any = max(project.events.query(n=1, item=a.name, type="agent.ran") +
                        project.events.query(n=1, item=a.name, type="agent.failed"), key=lambda e: e["seq"], default=None)
+        begun = project.events.query(n=1, item=a.name, type="agent.started")
+        running_since = begun[-1]["time"] if begun and (last_any is None or begun[-1]["seq"] > last_any["seq"]) else None
         roles = m.roles_of(a.name)
         stale = []
         if a.every:
@@ -184,7 +186,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                           "failed": sum(1 for e in done if e["type"] == "agent.failed"),
                           "refused": sum(e["data"].get("refused", 0) for e in done),
                           "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),
-                          "stale": stale, "runs_itself": bool(a.command and a.kind != "person")}
+                          "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),
+                          "running_since": running_since}
 
     snap = {"at": now, "window": window, "stocks": stocks, "flows": flows, "loops": loops, "residuals": residuals,
             "agents": agents}
@@ -241,7 +244,8 @@ def attention(snap: dict, running: bool = True) -> list[dict]:
             note = (a["last"] or {}).get("data", {}).get("note", "failed")
             out.append({"level": "bad", "what": f"agent {name}", "says": f"its last run failed ({note})"})
         if a["refused"]:
-            out.append({"level": "warn", "what": f"agent {name}", "says": f"{a['refused']} lines refused: it named parts it does not fill"})
+            out.append({"level": "warn", "what": f"agent {name}", "says": f"{a['refused']} lines refused "
+                        f"(a part it does not fill, or one of ergostat's own event types: ergostat event --type agent.refused)"})
         if a["stale"] and running:
             out.append({"level": "warn", "what": f"agent {name}", "says": f"no recent reading from {', '.join(a['stale'])}"})
     for h in snap.get("hints", []):

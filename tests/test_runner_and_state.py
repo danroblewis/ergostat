@@ -139,3 +139,23 @@ def test_a_controller_deciding_the_same_thing_is_a_hint_to_move_down_the_ladder(
     assert hint["controller"] == "disk-under-80" and "a decision or a rule could fill controller disk-under-80" in hint["says"]
     assert any(a["level"] == "hint" for a in state.attention(snap))
     assert state.ladder_hints(project, state.snapshot(project)) == []      # a program is low enough already
+
+
+def test_a_run_past_its_timeout_is_stopped_with_what_it_started(project, repo):
+    repo.write("ergostat.toml", repo.path.joinpath("ergostat.toml").read_text().replace('every = "1s"', 'every = "1s"\ntimeout = "1s"'))
+    from ergostat import model
+    from ergostat.store import Project
+    p = Project(model.load(repo.path))
+    repo.write("clean.py", "import subprocess, time\nsubprocess.Popen(['sleep', '30'])\ntime.sleep(30)\n")
+    t = time.time()
+    r = runner.run_agent(p, p.model.agents["cleaner"])
+    assert time.time() - t < 10 and r["note"] == "stopped after its timeout of 1s"
+    import subprocess
+    left = subprocess.run(["pgrep", "-f", "sleep 30"], capture_output=True, text=True).stdout.split()
+    assert not [x for x in left if int(x) != 0 and _child_of_test(int(x))], "the run's own children were stopped too"
+
+
+def _child_of_test(pid: int) -> bool:
+    import subprocess
+    cwd = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], capture_output=True, text=True).stdout
+    return "/repo" in cwd and "pytest" in cwd

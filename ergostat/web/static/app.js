@@ -717,7 +717,7 @@ async function pageAgents(main) {
       for (const [name, a] of Object.entries(agents).filter(([, a]) => a.rung === i)) {
         col.append(h("div", { class: "card" + (a.failing ? " failing" : ""), onclick: () => openAgent(name) },
           h("b", {}, name),
-          h("div", { class: "muted" }, a.runs_itself ? `${a.runs} runs · ${a.last ? ago(a.last.time) : "never ran"}` : (a.kind === "person" ? "a person" : "not run here")),
+          h("div", { class: "muted" }, a.runs_itself ? `${a.runs} runs · ${a.running_since ? "running for " + ago(a.running_since).replace(" ago", "") : (a.last ? ago(a.last.time) : "never ran")}` : (a.kind === "person" ? "a person" : "not run here")),
           h("div", { class: "roles" }, (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(" · ") || "no roles")));
       }
       box.append(col);

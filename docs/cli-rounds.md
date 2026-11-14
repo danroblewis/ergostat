@@ -149,3 +149,24 @@ $ ergostat --since 10m        the model, since 10m ago: 1 change   07:51:25  ~co
   panel lists them.
 - A running ergostat kept the old model until restarted. It now notices the file, and when the new
   model loads without errors it restarts itself in place (the same process, the same page).
+
+## Round 9: when agents misbehave
+
+**Who:** the SRE, with three bad agents: one exits 4, one names parts it does not fill (and one of
+ergostat's own event types), one hangs.
+
+```
+$ ergostat
+  ● agent crasher: its last run failed (exited 4)
+  ● agent trespasser: 9 lines refused (a part it does not fill, or one of ergostat's own event types: ...)
+  ● agent hanger: its last run failed (stopped after its timeout of 4s)
+$ ergostat agent                 hanger   running for 3s
+$ ergostat event --type agent.refused
+```
+
+**Findings (applied):**
+- A hanging agent showed "never ran". It shows "running for 3s" (CLI and the Agents page).
+- The timeout was fixed at five minutes. Agents take `timeout = "30s"`, and the note says so.
+- A timeout killed only the shell, and `run --stop` left runs behind. Each run is its own process
+  group; a timeout or a stop kills the group.
+- The refusal note now says what else it can be (one of ergostat's own types) and where to look.

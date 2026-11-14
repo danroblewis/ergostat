@@ -102,6 +102,7 @@ class Agent:
     on: list[str] = field(default_factory=list)
     description: str = ""
     cron: str | None = None
+    timeout: float = 300.0
 
     @property
     def schedule(self) -> str:
@@ -310,7 +311,7 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
                                       drives=_names(r.get("drives"), f"{w}.drives"), agent=r.get("agent")), "controller")
     for i, r in enumerate(rows("agent")):
         w = f"[[agent]] #{i + 1}"
-        _take(r, {"name", "kind", "command", "every", "on", "cron", "description"}, w)
+        _take(r, {"name", "kind", "command", "every", "on", "cron", "timeout", "description"}, w)
         kind = r.get("kind", "program")
         if kind not in KINDS:
             raise ModelError(f"{w} {r['name']}.kind: one of {', '.join(KINDS)}")
@@ -326,7 +327,8 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
         m.agents[r["name"]] = Agent(r["name"], kind, str(r.get("command", "")),
                                     parse_duration(r.get("every"), f"{w}.every") if r.get("every") is not None else None,
                                     _names(r.get("on"), f"{w}.on"), str(r.get("description", "")),
-                                    str(cron) if cron is not None else None)
+                                    str(cron) if cron is not None else None,
+                                    parse_duration(r["timeout"], f"{w}.timeout") if r.get("timeout") is not None else 300.0)
     for i, r in enumerate(rows("system")):
         w = f"[[system]] #{i + 1}"
         _take(r, {"name", "description"}, w)

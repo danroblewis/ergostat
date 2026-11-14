@@ -30,6 +30,24 @@ from pathlib import Path
 from . import state as st
 
 RUN_TIMEOUT = 300.0
+LIVE: set = set()          # the runs in progress, so stopping ergostat stops them too
+
+
+def _kill(p) -> None:
+    """The run and everything it started: each run is its own process group."""
+    import signal
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            p.kill()
+        except OSError:
+            pass
+
+
+def kill_all() -> None:
+    for p in list(LIVE):
+        _kill(p)
 TICK = 0.25
 SOURCE = "ergostat"
 
@@ -156,7 +174,8 @@ def run_agent(project, agent, trigger: dict | None = None) -> dict:
         lf.flush()
         try:
             p = subprocess.Popen(agent.command, shell=True, cwd=project.repo, env=env, stdin=subprocess.PIPE,
-                                 stdout=subprocess.PIPE, stderr=lf, text=True)
+                                 stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
+            LIVE.add(p)
         except OSError as e:
             note = f"could not start: {e}"
         else:
@@ -165,14 +184,23 @@ def run_agent(project, agent, trigger: dict | None = None) -> dict:
                 p.stdin.close()
             except OSError:
                 pass
-            timer = threading.Timer(RUN_TIMEOUT, p.kill)
+            killed = threading.Event()
+
+            def kill():
+                killed.set()
+                _kill(p)
+            timer = threading.Timer(agent.timeout or RUN_TIMEOUT, kill)
             timer.start()
             for raw in p.stdout:
                 if not rec.take(raw.strip()):
                     lf.write(raw)
             code = p.wait()
             timer.cancel()
-            if code != 0:
+            LIVE.discard(p)
+            if killed.is_set():
+                from .durations import human
+                note = f"stopped after its timeout of {human(agent.timeout)}"
+            elif code != 0:
                 note = f"exited {code}"
     data = {"exit": code, "seconds": round(time.time() - started, 3), **rec.counts, **({"note": note} if note else {})}
     project.events.add("agent.ran" if not note else "agent.failed", item=agent.name, source=SOURCE, causedby=begun["id"],
@@ -252,6 +280,7 @@ class Runner:
 
     def close(self) -> None:
         self.stop.set()
+        kill_all()
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
 
 
