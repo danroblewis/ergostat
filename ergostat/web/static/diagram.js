@@ -7,7 +7,7 @@ const CH = 6.7;   // px per character, for label sizes
 
 function labelLines(n) {
   if (n.kind === "valve") return [n.label, `${n.position != null ? "open " + fmt(n.position) + " · " : ""}${n.rateText}${n.mode && n.mode !== "auto" ? " · " + n.mode : ""}`, n.agent ? "§badge" : null].filter(Boolean);
-  if (n.kind === "disturbance") return [n.label, `${n.rateText}${n.estimated ? " (est.)" : ""}`];
+  if (n.kind === "disturbance") return [n.label, `${n.rateText}${n.estimated ? " (est.)" : ""}`, n.agent ? "§badge" : null].filter(Boolean);
   if (n.kind === "sensor") return [n.label, n.reading != null ? `reads ${n.reading}` : "no reading", n.agent ? "§badge" : null].filter(Boolean);
   return [];
 }
@@ -184,7 +184,8 @@ function drawAgent(n, w, hgt) {
   g.append(s("text", { x: w - 10, y: 20, class: "t-sub", "text-anchor": "end" }, `rung ${n.rung} · ${n.agentKind}`));
   const when = n.schedule || "";
   g.append(s("text", { x: 16, y: 38, class: "t-sub" }, when + (n.runs ? ` · ${n.runs} runs` : "")));
-  (n.roles || []).slice(0, 3).forEach((r, i) => g.append(s("text", { x: 16, y: 56 + i * 14, class: "t-sub" }, `${r.kind} ${r.name}`)));
+  [...(n.roles || []).map((r) => `${r.kind} ${r.name}`), ...(n.loads || []).map((d) => `the load: ${d}`)].slice(0, 3)
+    .forEach((t, i) => g.append(s("text", { x: 16, y: 56 + i * 14, class: "t-sub" }, t)));
   return g;
 }
 
@@ -313,8 +314,14 @@ function drawGraph(svg, g, lay) {
         const mx = (best[0].x + best[1].x) / 2, my = (best[0].y + best[1].y) / 2;
         const vertical = Math.abs(best[0].x - best[1].x) < 1;
         // an edge with a twin running the other way between the same agents puts its label on the other side
-        const twin = g.edges.some((o) => o.source === e.target && o.target === e.source);
-        const left = twin && e.source > e.target;
+        // (the side by where the two lines actually run: the left one's label left, the lower one's below)
+        const tw = lay.edges.find((o) => edgeById[o.id]?.source === e.target && edgeById[o.id]?.target === e.source);
+        let left = false;
+        if (tw) {
+          const tp = edgePoints(tw), tx = tp.reduce((a, p) => a + p.x, 0) / tp.length, ty = tp.reduce((a, p) => a + p.y, 0) / tp.length;
+          const ex = pts.reduce((a, p) => a + p.x, 0) / pts.length, ey = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+          left = vertical ? ex < tx || (ex === tx && e.source > e.target) : ey > ty || (ey === ty && e.source > e.target);
+        }
         eg.append(s("text", { class: "elabel", x: vertical ? (left ? mx - 6 : mx + 6) : mx, y: vertical ? my + 4 : (left ? my + 14 : my - 6),
                               "text-anchor": vertical ? (left ? "end" : "start") : "middle", "paint-order": "stroke",
                               stroke: "var(--bg)", "stroke-width": 4, "stroke-linejoin": "round" }, le.labels[0].text));

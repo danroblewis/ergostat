@@ -52,6 +52,9 @@ def cmd_agent(args) -> int:
         print(f"  command  {a.command}")
     print("  runs     " + (a.schedule or "not run by ergostat"))
     print("  fills    " + (", ".join(f"{r['kind']} {r['name']}" for r in s["roles"]) or "nothing"))
+    loads = [f.name for f in m.flows.values() if f.disturbance and f.agent == args.name]
+    if loads:
+        print("  the load " + ", ".join(f"disturbance {x}" for x in loads))
     every = [e for e in p.events.query(n=400, item=a.name, type="agent.*") if e["type"] in ("agent.ran", "agent.failed")]
     runs = every[-8:]
     if len(every) > 2:

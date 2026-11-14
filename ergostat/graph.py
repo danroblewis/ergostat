@@ -93,6 +93,13 @@ def readings(project, at: float | None = None) -> dict:
     return out
 
 
+def _badge(m, name: str | None) -> dict | None:
+    if not name or name not in m.agents:
+        return None
+    a = m.agents[name]
+    return {"name": a.name, "kind": a.kind, "rung": a.rung, "when": _when(a)}
+
+
 def control(model, snap: dict, parts: set[str], readings: dict | None = None) -> dict:
     """``readings``: each sensor's latest value, by name."""
     readings = readings or {}
@@ -115,12 +122,12 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         for end in (m.flows[f].source, m.flows[f].target):
             if end:
                 stocks_drawn.add(end)
-    for n in sorted(stocks_drawn):
+    for n in (x for x in m.stocks if x in stocks_drawn):
         s, st = m.stocks[n], snap["stocks"].get(n, {})
         nodes.append(_node(f"stock:{n}", "stock", n, unit=s.unit, value=st.get("value"), valueText=fmt(st.get("value")),
                            points=st.get("points", []), description=s.description, outside=n not in parts,
                            systems=in_system.get(n, [])))
-    for n in sorted(flows_drawn):
+    for n in (x for x in m.flows if x in flows_drawn):
         f, fl = m.flows[n], snap["flows"].get(n, {})
         v = m.valve_of(n)
         glyph = "disturbance" if f.disturbance else "valve"
@@ -130,7 +137,8 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         nodes.append(_node(f"flow:{n}", glyph, v.name if v else n, flow=n, rate=fl.get("rate"), position=pos,
                            rateText=_rate(fl.get("rate"), unit),
                            how=fl.get("how"), estimated=fl.get("estimated", False), mode=v.mode if v else None,
-                           agent=agent_of.get(v.name) if v else None, description=(v.description if v else f.description),
+                           agent=agent_of.get(v.name) if v else _badge(m, f.agent), load=not v and bool(f.agent),
+                           description=(v.description if v else f.description),
                            systems=in_system.get(n, [])))
         src = f"stock:{f.source}" if f.source else f"cloud:{n}:in"
         dst = f"stock:{f.target}" if f.target else f"cloud:{n}:out"
@@ -139,7 +147,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
                 nodes.append(_node(cid, "cloud", "", flow=n, systems=in_system.get(n, [])))
         edges.append(_edge(src, f"flow:{n}", "pipe", flow=n))
         edges.append(_edge(f"flow:{n}", dst, "pipe", flow=n, arrow=True))
-    for n in sorted(x for x in parts if x in m.sensors):
+    for n in (x for x in m.sensors if x in parts):
         s = m.sensors[n]
         target = f"stock:{s.measures}" if s.measures in m.stocks else f"flow:{s.measures}"
         got = readings.get(n)
@@ -148,7 +156,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
                            reading=(fmt(got) + unit) if got is not None else None, systems=in_system.get(n, [])))
         if (s.measures in stocks_drawn) or (s.measures in flows_drawn):
             edges.append(_edge(target, f"sensor:{n}", "measure"))
-    for n in sorted(x for x in parts if x in m.controllers):
+    for n in (x for x in m.controllers if x in parts):
         c = m.controllers[n]
         lp = snap["loops"].get(n, {})
         nodes.append(_node(f"controller:{n}", "controller", n, setpoint=f"{c.holds} {c.setpoint}", status=lp.get("status"),
@@ -180,13 +188,14 @@ def wiring(model, project, snap: dict, parts: set[str]) -> dict:
     """Agents as boxes; an arrow when one agent's output reaches another: through an event type it
     listens for, or through a stock (one agent's valve moves it, another's sensor measures it)."""
     m = model
-    involved = {p.agent for t in (m.sensors, m.controllers, m.valves) for p in t.values()
-                if p.name in parts and p.agent in m.agents}
+    involved = {p.agent for t in (m.sensors, m.controllers, m.valves, m.flows) for p in t.values()
+                if p.name in parts and getattr(p, "agent", None) in m.agents}
     nodes = []
-    for n in sorted(involved):
+    for n in (x for x in m.agents if x in involved):
         a, s = m.agents[n], snap["agents"].get(n, {})
         nodes.append(_node(f"agent:{n}", "agent", n, agentKind=a.kind, rung=a.rung, roles=s.get("roles", []),
-                           runs=s.get("runs", 0), failing=s.get("failing", False), every=a.every, on=a.on, schedule=a.schedule))
+                           runs=s.get("runs", 0), failing=s.get("failing", False), every=a.every, on=a.on, schedule=a.schedule,
+                           loads=[f.name for f in m.flows.values() if f.disturbance and f.agent == n]))
     edges = {}
 
     def add(src, dst, via):
@@ -198,12 +207,13 @@ def wiring(model, project, snap: dict, parts: set[str]) -> dict:
     # through stocks
     for f in m.flows.values():
         v = m.valve_of(f.name)
-        if not v or not v.agent:
+        mover = v.agent if v else f.agent                  # a valve's agent, or the agent a disturbance is the doing of
+        if not mover:
             continue
         for stock in (f.source, f.target):
             for s in m.sensors.values():
                 if s.measures == stock and s.agent:
-                    add(v.agent, s.agent, f"stock {stock}")
+                    add(mover, s.agent, f"stock {stock}")
     # sensor -> controller, controller -> valve (a decision handed on)
     for c in m.controllers.values():
         for s in c.reads:

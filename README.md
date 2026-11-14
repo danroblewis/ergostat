@@ -54,6 +54,7 @@ systems = ["host"]
 [[disturbance]]  # a flow no valve controls
 name = "logs-written"
 into = "disk-used"
+# agent = "app"  # optional: the agent whose doing it is (a load), drawn on it; not a role
 
 [[flow]]         # what moves a stock; an end left out is outside the boundary
 name = "cleaned"
@@ -84,6 +85,10 @@ kind = "program"
 command = "./clean.sh"
 every = "5m"     # or: cron = "0 3 * * *", or: on = ["loop.off", "backup.requested"]
 ```
+
+Names are unique across all parts (a sensor may not share its stock's name: `disk-usage` measures
+`disk-used`). Every amount is in its stock's unit: a valve on a stock in KB says how many KB it
+moved, not how many files; a reading of a flow is its rate per hour in that unit.
 
 ## What an agent's program does
 

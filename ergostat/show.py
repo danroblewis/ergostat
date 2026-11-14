@@ -91,7 +91,8 @@ def system_lines(model, snap: dict, parts: set[str]) -> str:
             end = model.stocks.get(f.target or "") or model.stocks.get(f.source or "")
             unit = f" {end.unit}/h" if end and end.unit else "/h"
             rate = f"{fmt(fl['rate'])}{unit}" if fl["rate"] is not None else f"?{unit}"
-            out.append(f"  {f.source or '○'} ─{sym} {f.name} ({rate}, {fl['how']})─▶ {f.target or '○'}")
+            by = f" · the doing of {f.agent}" if f.disturbance and f.agent else ""
+            out.append(f"  {f.source or '○'} ─{sym} {f.name} ({rate}, {fl['how']}{by})─▶ {f.target or '○'}")
     loose = [s for s in model.stocks if s in parts and not any(lp.stock == s for lp in model.loops())]
     if loose:
         out.append(c("stocks no loop holds: ", "dim") + ", ".join(f"{s} {fmt(snap['stocks'][s]['value'])}" for s in loose))

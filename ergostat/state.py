@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import time
 
+from .durations import human
+
 WINDOW = 3600.0
 STALE_RUNS = 3          # a reading older than this many of its agent's periods is stale
 
@@ -274,7 +276,13 @@ def ladder_hints(project, snap: dict) -> list[dict]:
     for name, lp in snap["loops"].items():
         # a loop off most of the time though its agents act: first, can its valve keep up with the load
         # at all (saturation)? only if it can, is it sampling too slowly?
-        if not (lp.get("off_share", 0) >= 0.5 and lp["observed"] and snap.get("recorded", 0) >= 600):
+        if not (lp.get("off_share", 0) >= 0.5 and lp["observed"]):
+            continue
+        if snap.get("recorded", 0) < 600:                # too little record to tell saturation from slow sampling
+            out.append({"controller": name, "agent": m.controllers[name].agent, "kind": "", "share": lp["off_share"],
+                        "count": 0, "decision": "", "about": "loop",
+                        "says": f"loop {name} was off {round(lp['off_share'] * 100)}% of the time; why (a valve too small, "
+                                f"or acting too seldom) is said after 10m of record ({human(snap.get('recorded', 0))} so far)"})
             continue
         c = m.controllers[name]
         a = m.agents.get(c.agent or "")

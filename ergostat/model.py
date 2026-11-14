@@ -68,6 +68,7 @@ class Flow(Part):
     unit: str = ""
     disturbance: bool = False          # an input no valve controls
     rate: float | None = None          # a disturbance's known rate per hour, when it is declared
+    agent: str | None = None           # a disturbance's: whose doing it is (the load), never a role it fills
     kind = "flow"
 
 
@@ -336,14 +337,14 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
         add(m.flows, Flow(**common(r, w), source=r.get("from"), target=r.get("to"), unit=str(r.get("unit", ""))), "flow")
     for i, r in enumerate(rows("disturbance")):
         w = f"[[disturbance]] #{i + 1}"
-        _take(r, COMMON | {"into", "out_of", "unit", "rate"}, w)
+        _take(r, COMMON | {"into", "out_of", "unit", "rate", "agent"}, w)
         if bool(r.get("into")) == bool(r.get("out_of")):
             raise ModelError(f"{w} {r['name']}: say which stock it pushes: into = \"...\" or out_of = \"...\"")
         rate = r.get("rate")
         if rate is not None and (isinstance(rate, bool) or not isinstance(rate, int | float)):
             raise ModelError(f"{w} {r['name']}.rate: a number per hour")
         add(m.flows, Flow(**common(r, w), source=r.get("out_of"), target=r.get("into"), unit=str(r.get("unit", "")),
-                          disturbance=True, rate=float(rate) if rate is not None else None), "disturbance")
+                          disturbance=True, rate=float(rate) if rate is not None else None, agent=r.get("agent")), "disturbance")
     for i, r in enumerate(rows("valve")):
         w = f"[[valve]] #{i + 1}"
         _take(r, COMMON | {"flow", "agent", "mode"}, w)
@@ -459,6 +460,9 @@ def check(m: Model) -> list[tuple[str, str]]:
                     f"with a kind and a command")
             if not p.agent:
                 warn(f"{p.kind} {p.name}: no agent fills it")
+    for f in m.flows.values():
+        if f.agent and f.agent not in m.agents:
+            err(f"disturbance {f.name}: agent {f.agent!r} is not an agent; declare it, or leave agent out (a load nobody runs)")
     for v in m.valves.values():
         flows = [f for f in m.flows.values() if f.name == v.flow]
         if flows and not any(v.name in c.drives for c in m.controllers.values()):
@@ -483,8 +487,8 @@ def check(m: Model) -> list[tuple[str, str]]:
                 continue
             if not first or not (shutil.which(first) or ("/" in first and (base / first).exists())):
                 warn(f"agent {a.name}: {first or 'its command'} not found" + ("" if "/" in first else " on PATH"))
-        if not m.roles_of(a.name):
-            out.append(("note", f"agent {a.name}: fills no role; if it changes anything, it is a disturbance"))
+        if not m.roles_of(a.name) and not any(f.agent == a.name for f in m.flows.values()):
+            out.append(("note", f"agent {a.name}: fills no role; if it is a load, name it on its disturbance: agent = \"{a.name}\""))
         if a.kind in ("person",) and a.command:
             warn(f"agent {a.name}: a person has no command; ergostat never runs it")
         if a.kind not in ("person",) and a.command and a.every is None and not a.on and not a.cron:

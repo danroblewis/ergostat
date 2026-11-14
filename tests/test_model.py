@@ -85,3 +85,23 @@ def test_the_guides_shipped_with_ergostat_match_the_docs():
     root = Path(__file__).resolve().parents[1]
     assert (root / "ergostat/help/agents.md").read_text() == (root / "docs/writing-agents.md").read_text()
     assert (root / "ergostat/help/ai-agents.md").read_text() == (root / "docs/ai-agents.md").read_text()
+
+
+def test_a_disturbance_may_name_the_agent_whose_doing_it_is(repo):
+    from ergostat import graph, model, state
+    from ergostat.store import Project
+    text = repo.path.joinpath("ergostat.toml").read_text().replace('into = "disk-used"', 'into = "disk-used"\nagent = "writer"')
+    text += '\n[[agent]]\nname = "writer"\nkind = "program"\ncommand = "true"\nevery = "1m"\n'
+    repo.write("ergostat.toml", text)
+    m = model.load(repo.path)
+    assert m.flows["logs-written"].agent == "writer"
+    assert not [x for _, x in model.check(m) if "writer" in x]                 # a load, not an agent filling nothing
+    p = Project(m)
+    snap = state.snapshot(p)
+    parts = graph.select(m, None, None, 1)
+    (d,) = [n for n in graph.control(m, snap, parts)["nodes"] if n["id"] == "flow:logs-written"]
+    assert d["agent"]["name"] == "writer"
+    w = graph.wiring(m, p, snap, parts)
+    assert any(e["source"] == "agent:writer" and e["target"] == "agent:cleaner" for e in w["edges"])
+    repo.write("ergostat.toml", text.replace('agent = "writer"\n', 'agent = "nobody"\n', 1))
+    assert any("nobody" in x for lv, x in model.check(model.load(repo.path)) if lv == "error")

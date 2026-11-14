@@ -412,3 +412,28 @@ click a part, switch to the block view or see the loops.
   residuals) into one HTML file, scripts and style inline. It opens offline; the header says it is
   a snapshot and when; ages are counted from then; the slider, window and project switcher are
   gone. A view it does not hold (around one part) says so rather than "the server is not answering".
+
+## Round 22: a fourth independent review (a cold start with the user's own cron jobs)
+
+Thirteen findings; applied:
+
+- A load generator could not be drawn: a disturbance may name `agent`, the agent whose doing it is.
+  It is drawn as a badge on the diamond, as an agent in the wiring view ("the load: ..."), with
+  arrows to the agents whose sensors read the stock it pushes; `check` no longer calls it an agent
+  filling nothing, and `agent NAME` says what it is the load of.
+- The saturation hint came only after 10 minutes, silently: before then a loop off half the time
+  says so, and that why is told after 10m of record (so far: N).
+- `system --wiring` alone listed the systems: it draws everything, like `--blocks`.
+- Loops were in four orders: the file's order everywhere (the diagram, blocks, wiring).
+- `event` was mostly run bookkeeping: `agent.started` and `agent.ran` are left out unless `--runs`
+  or `--type` (the page's Record already did this).
+- `valve NAME` printed `mode_set`; disturbances were listed as "flows outside any loop": they are
+  "disturbances (nothing controls them)", with the agent whose doing each is.
+- A bare number vanished from the agent's log: the log says what it became.
+- The loop's trend said "over 1h" after five minutes: it says the span recorded.
+- Twin edge labels in the wiring view were placed by name and could cross: by where the lines run.
+- The README says names are unique across parts and every amount is in its stock's unit.
+
+Not applied: a way to forget a bad reading (an open question: the record is append-only), and
+marking a controller as not reading its sensor (a time-based job that ignores the measurement:
+the loop is drawn as declared).
