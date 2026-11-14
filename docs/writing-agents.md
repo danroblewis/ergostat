@@ -93,6 +93,12 @@ on = ["loop.off"]
   agent said, what was refused, and the end of its log.
 - `ergostat check` warns when a command is not found, a part has no agent, or a loop cannot close.
 
+## Say each action as you take it
+
+Print the valve line right after each change, not one total at the end. A run can be stopped
+midway (a timeout, `ergostat run --stop`, a restart when the model changes): what it already did
+is then still on the record, and the residuals stay honest.
+
 ## Limits
 
 - `timeout = "30s"` (default five minutes): a run past it is stopped, with everything it started
