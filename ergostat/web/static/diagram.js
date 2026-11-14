@@ -25,7 +25,7 @@ async function layoutGraph(g, aspect) {
   const children = nodesInOrder.map((n) => {
     let [w, hgt] = SIZE[n.kind] || [60, 40];
     if (n.kind === "stock") w = Math.max(w, textWidth(n.label) + 34);
-    if (n.kind === "controller") w = Math.max(w, textWidth(n.label) + 110, textWidth("holds " + n.setpoint) + 60);
+    if (n.kind === "controller") w = Math.max(w, textWidth(n.label) * 1.12 + 120, textWidth("holds " + n.setpoint) + 60);   // the title is bold
     const lines = labelLines(n);
     const node = { id: n.id, width: w, height: hgt, layoutOptions: {} };
     if (lines.length) {
