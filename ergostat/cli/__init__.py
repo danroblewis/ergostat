@@ -64,6 +64,7 @@ examples
   ergostat loop disk-under-80     One loop, part by part
   ergostat agent                  Who fills which roles, at what rung
   ergostat event --follow         Watch events arrive
+  ergostat snapshot               The page, as of now, in one HTML file to send
   ergostat check --example        An example ergostat.toml to start from
 """
 
