@@ -118,7 +118,8 @@ def api(live: Live, path: str, q: dict):
         agent = lambda n: ({"name": n, "kind": m.agents[n].kind, "rung": m.agents[n].rung} if n in m.agents else None)  # noqa: E731
         return {
             "stock": [{"name": n, "value": snap["stocks"][n]["value"], "unit": x.unit, "points": snap["stocks"][n]["points"][-40:],
-                       "sensor": snap["stocks"][n]["sensor"], "inflow": snap["stocks"][n]["inflow"], "outflow": snap["stocks"][n]["outflow"],
+                       "sensor": snap["stocks"][n]["sensor"], "inflow": snap["stocks"][n]["inflow"],
+                       "outflow": snap["stocks"][n]["outflow"],
                        "systems": x.systems} for n, x in m.stocks.items()],
             "flow": [{"name": n, "from": x.source, "to": x.target, "rate": snap["flows"][n]["rate"], "how": snap["flows"][n]["how"],
                       "valve": snap["flows"][n]["valve"]} for n, x in m.flows.items() if not x.disturbance],
