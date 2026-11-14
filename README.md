@@ -92,7 +92,8 @@ every = "5m"     # or: cron = "0 3 * * *", or: on = ["loop.off", "backup.request
 
 Names are unique across all parts (a sensor may not share its stock's name: `disk-usage` measures
 `disk-used`). Every amount is in its stock's unit: a valve on a stock in KB says how many KB it
-moved, not how many files; a reading of a flow is its rate per hour in that unit.
+moved, not how many files; a reading of a flow is its rate per hour in that unit. Give a flow or
+a sensor its own `unit` and `check` warns when it is not its stock's.
 
 ## What an agent's program does
 

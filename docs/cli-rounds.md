@@ -645,3 +645,5 @@ Applied:
 Not applied (noted): an export of structure only (no live values), a `unit` on valves checked
 against the stock's, counting a successful run with nothing said as an opening of unknown amount,
 and rotating `run.log`.
+- Afterwards (raised by two reviews): a flow or sensor whose declared `unit` is not its stock's is
+  warned by `check` (a valve counting files on a stock in KB). `run.log` is rotated past 5MB.

@@ -154,3 +154,10 @@ def test_a_valve_may_declare_the_most_one_opening_moves(repo):
     repo.write("ergostat.toml", text.replace("max = 5", "max = 0"))
     with _pytest.raises(model.ModelError):
         model.load(repo.path)
+
+
+def test_a_flow_in_another_unit_than_its_stock_is_warned(repo):
+    from ergostat import model
+    text = repo.path.joinpath("ergostat.toml").read_text().replace('from = "disk-used"', 'from = "disk-used"\nunit = "files"', 1)
+    repo.write("ergostat.toml", text)
+    assert any("is in files, but disk-used is in %" in x for lv, x in model.check(model.load(repo.path)) if lv == "warn")

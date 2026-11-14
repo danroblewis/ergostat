@@ -476,6 +476,17 @@ def check(m: Model) -> list[tuple[str, str]]:
     for s in m.sensors.values():
         if s.measures not in m.stocks and s.measures not in m.flows:
             err(f"sensor {s.name}: {s.measures!r} is neither a stock nor a flow; declare it: [[stock]] name = \"{s.measures}\"")
+    # every amount is in its stock's unit: a flow or sensor that says otherwise is compared with the wrong thing
+    for f in m.flows.values():
+        for end in (f.source, f.target):
+            st = m.stocks.get(end or "")
+            if f.unit and st and st.unit and f.unit != st.unit:
+                warn(f"flow {f.name} is in {f.unit}, but {st.name} is in {st.unit}: what moves a stock is counted in its "
+                     f"unit (its valve should say how many {st.unit} it moved)")
+    for s_ in m.sensors.values():
+        st = m.stocks.get(s_.measures)
+        if s_.unit and st and st.unit and s_.unit != st.unit:
+            warn(f"sensor {s_.name} reads {s_.unit}, but {st.name} is in {st.unit}: its readings are compared with the setpoint as they are")
     for c in m.controllers.values():
         if c.open_loop and c.reads:
             warn(f"controller {c.name}: open_loop reads nothing; leave reads out (it reads {', '.join(c.reads)})")
