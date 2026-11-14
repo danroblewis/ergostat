@@ -13,6 +13,29 @@ from .common import EXAMPLE, as_of, open_project, out_json, parts_of, snap_of, w
 
 
 def cmd_status(args) -> int:
+    if getattr(args, "watch", False):
+        return watch(args)
+    return status(args)
+
+
+def watch(args, every: float = 2.0) -> int:
+    """``ergostat --watch``: the status, redrawn every two seconds until Ctrl-C."""
+    import contextlib
+    import io
+    import sys
+    try:
+        while True:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                status(args)
+            sys.stdout.write("\033[H\033[2J" + buf.getvalue() + c(f"\nredrawn every {every:g}s · Ctrl-C to stop", "dim") + "\n")
+            sys.stdout.flush()
+            time.sleep(every)
+    except KeyboardInterrupt:
+        return 0
+
+
+def status(args) -> int:
     from ..runner import running_pid, web_url
     p = open_project(args)
     m, snap = p.model, snap_of(p, args)

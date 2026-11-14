@@ -93,7 +93,7 @@ records `loop.off` or `loop.holding`, which other agents can listen for (`on`).
 ## The command line
 
 ```
-ergostat                     what needs attention
+ergostat                     what needs attention (--watch to keep it on screen; --exit-code for cron)
 ergostat system [NAME]       draw a system (--all, --around loop/NAME, --blocks, --wiring, --list, --open)
 ergostat loop [NAME]         the loops, or one part by part
 ergostat agent [NAME]        who fills which roles, at what rung
