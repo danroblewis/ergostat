@@ -53,6 +53,18 @@ def select(model, system: str | None = None, around: str | None = None, depth: i
     return seen
 
 
+def _when(a) -> str:
+    """An agent's schedule in a word or two, for its badge."""
+    from .durations import human
+    if a.every:
+        return human(a.every)
+    if a.cron:
+        return "cron"
+    if a.on:
+        return "on " + a.on[0] + ("…" if len(a.on) > 1 else "")
+    return ""
+
+
 def readings(project) -> dict:
     out = {}
     for n in project.model.sensors:
@@ -72,7 +84,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         for p in t.values():
             if p.agent and p.agent in m.agents:
                 a = m.agents[p.agent]
-                agent_of[p.name] = {"name": a.name, "kind": a.kind, "rung": a.rung}
+                agent_of[p.name] = {"name": a.name, "kind": a.kind, "rung": a.rung, "when": _when(a)}
 
     in_system = {}
     for sysname in m.system_names():

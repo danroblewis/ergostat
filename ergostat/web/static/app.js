@@ -93,7 +93,7 @@ function labelLines(n) {
   if (n.kind === "sensor") return [n.label, n.reading != null ? `reads ${n.reading}` : "no reading", n.agent ? "§badge" : null].filter(Boolean);
   return [];
 }
-function badgeText(a) { return a ? `${a.kind} · ${a.name}` : ""; }
+function badgeText(a) { return a ? `${a.kind} · ${a.name}${a.when ? " · " + a.when : ""}` : ""; }
 function textWidth(t) { return t.length * CH; }
 
 function sig(g) {
@@ -303,14 +303,15 @@ function drawGraph(svg, g, lay) {
   if (g.kind === "control" && S.showHulls) {
     const hulls = s("g", { class: "sys-hull" });
     const taken = [];                                   // label boxes already placed, so overlapping hulls never stack names
-    for (const name of (S.status?.systems || [])) {
+    (S.status?.systems || []).forEach((name, si) => {
+      const hue = (210 + si * 137.5) % 360;          // the golden angle: neighbours never share a colour
       const boxes = lay.children.filter((c) => (byId[c.id]?.systems || []).includes(name)).map((c) => {
         const ls = c.labels || [];      // a node's box, with its labels outside it
         const xs = [c.x, c.x + c.width, ...ls.flatMap((l) => [c.x + l.x, c.x + l.x + l.width])];
         const ys = [c.y, c.y + c.height, ...ls.flatMap((l) => [c.y + l.y, c.y + l.y + l.height])];
         return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
       });
-      if (!boxes.length) continue;
+      if (!boxes.length) return;
       const x0 = Math.min(...boxes.map((b) => b.x)) - 22, y0 = Math.min(...boxes.map((b) => b.y)) - 34;
       const x1 = Math.max(...boxes.map((b) => b.x + b.width)) + 22, y1 = Math.max(...boxes.map((b) => b.y + b.height)) + 22;
       const lw = name.length * 8 + 10;
@@ -318,8 +319,10 @@ function drawGraph(svg, g, lay) {
       while (taken.some((t) => Math.abs(t.y - y0) < 14 && lx < t.x + t.w && lx + lw > t.x)) lx += 12;
       for (const t of taken) if (Math.abs(t.y - y0) < 14 && lx < t.x + t.w && lx + lw > t.x) lx = t.x + t.w + 12;
       taken.push({ x: lx, y: y0, w: lw });
-      hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16 }), s("text", { x: lx, y: y0 + 18 }, name));
-    }
+      hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16,
+                               style: `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,45%,.45)` }),
+                   s("text", { x: lx, y: y0 + 18, style: `fill:hsl(${hue},55%,42%)` }, name));
+    });
     vp.append(hulls);
   }
   const edgesG = s("g");
