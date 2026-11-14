@@ -15,11 +15,14 @@ async function pageLoops(main) {
   async function tick() {
     const [loops, stocks] = [await api("loops"), await api("graph")];
     const pts = Object.fromEntries(stocks.nodes.filter((n) => n.kind === "stock").map((n) => [n.label, n.points]));
-    box.replaceChildren(h("table", {}, h("tr", {}, ["loop", "status", "holds", "now", "setpoint", "error", "trend", "cycled"].map((x) => h("th", {}, x))),
+    box.replaceChildren(h("table", {}, h("tr", {}, ["loop", "status", "holds", "now", "setpoint", "error", "time off", "trend", "acted"].map((x) => h("th", {}, x))),
       Object.entries(loops).map(([n, lp]) => h("tr", { class: "click", onclick: () => openLoop(n) },
         h("td", {}, h("b", {}, n)), h("td", {}, statusEl(lp.status)), h("td", {}, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
-        h("td", { class: "num" }, lp.setpoint), h("td", { class: "num" }, lp.error ? fmt(lp.error) : ""),
-        h("td", {}, (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 150, 30, setpointOf(lp.setpoint)) : ""), h("td", {}, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
+        h("td", { class: "num nowrap" }, lp.setpoint + (lp.tolerance ? ` (±${fmt(lp.tolerance)})` : "")),
+        h("td", { class: "num" }, lp.error && lp.status === "off" ? fmt(Math.abs(lp.error)) : ""),
+        h("td", { class: "num" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : ""),
+        h("td", {}, (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 150, 30, setpointOf(lp.setpoint)) : ""),
+        h("td", { title: "in the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
   }
   await tick();
   S.timer = setInterval(tick, 3000);
@@ -64,13 +67,14 @@ async function pageParts(main, q) {
                    x.sensor || h("span", { class: "s-open status" }, "unmeasured"), h("span", { class: "num" }, `${fmt(x.inflow)}/h in · ${fmt(x.outflow)}/h out`)],
     flow: (x) => [h("b", {}, x.name), x.from || "outside", x.to || "outside", h("span", { class: "num" }, `${fmt(x.rate)}/h`), h("span", { class: "muted" }, x.how)],
     disturbance: (x) => [h("b", {}, x.name), x.from || "outside", x.to || "outside", h("span", { class: "num" }, `${fmt(x.rate)}/h`), h("span", { class: "muted" }, x.how)],
-    valve: (x) => [h("b", {}, x.name), x.flow, x.mode, badgeEl(x.agent), h("span", { class: "num" }, `${fmt(x.rate)}/h`), ago(x.last)],
+    valve: (x) => [h("b", {}, x.name), x.flow, x.mode, badgeEl(x.agent), h("span", { class: "num" }, x.position != null ? fmt(x.position) : "–"),
+                   h("span", { class: "num" }, `${fmt(x.rate)}/h`), ago(x.last)],
     sensor: (x) => [h("b", {}, x.name), x.measures, badgeEl(x.agent), h("span", { class: "num" }, fmt(x.reading)), ago(x.at)],
     controller: (x) => [h("b", {}, x.name), `${x.holds} ${x.setpoint}`, statusEl(x.status), badgeEl(x.agent)],
   };
   const heads = { system: ["system", "description", "parts", "loops", "off"], stock: ["stock", "now", "trend", "measured by", "flows"],
                   flow: ["flow", "from", "to", "rate", "how we know"], disturbance: ["disturbance", "from", "to", "rate", "how we know"],
-                  valve: ["valve", "flow", "mode", "filled by", "rate", "last opened"], sensor: ["sensor", "measures", "filled by", "reading", "read"],
+                  valve: ["valve", "flow", "mode", "filled by", "open", "rate", "last opened"], sensor: ["sensor", "measures", "filled by", "reading", "read"],
                   controller: ["controller", "holds", "status", "filled by"] };
   const open = (x) => on === "system" ? (location.hash = `#/diagram?system=${encodeURIComponent(x.name)}`)
                     : on === "controller" ? openLoop(x.name)

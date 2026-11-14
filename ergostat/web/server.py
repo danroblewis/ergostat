@@ -143,7 +143,7 @@ def api(live: Live, path: str, q: dict):
                       "valve": snap["flows"][n]["valve"]} for n, x in m.flows.items() if not x.disturbance],
             "disturbance": [{"name": n, "from": x.source, "to": x.target, "rate": snap["flows"][n]["rate"], "how": snap["flows"][n]["how"],
                              "estimated": snap["flows"][n]["estimated"]} for n, x in m.flows.items() if x.disturbance],
-            "valve": [{"name": n, "flow": x.flow, "mode": x.mode, "agent": agent(x.agent),
+            "valve": [{"name": n, "flow": x.flow, "mode": x.mode, "agent": agent(x.agent), "position": rd.get(f"valve/{n}"),
                        "last": (snap["flows"].get(x.flow, {}).get("openings") or {}).get("last"),
                        "rate": snap["flows"].get(x.flow, {}).get("rate")} for n, x in m.valves.items()],
             "sensor": [{"name": n, "measures": x.measures, "agent": agent(x.agent), "reading": rd.get(n),
