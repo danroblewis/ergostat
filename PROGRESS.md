@@ -66,3 +66,4 @@ Work until 2pm.
 - 12:13 demo talking-scripts (parse, max, open loops); 11 demos.
 - 12:25 round 39: parity review applied (panels, whole-window trends, suggestions open). 100 tests.
 - 12:35 switcher refresh, panel room, residuals caption; 11 demos pass; sixth code review launched.
+- 12:43 round 40: sixth code review (8/8). 101 tests.
