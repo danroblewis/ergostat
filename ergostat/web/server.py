@@ -111,10 +111,11 @@ def api(live: Live, path: str, q: dict):
             a = m.agents.get(name)
             if a is None:
                 return None
-            runs = [e for e in p.events.query(n=200, item=name, type="agent.*") if e["type"] in ("agent.ran", "agent.failed")]
+            runs = [e for e in p.events.query(n=400, item=name, type="agent.*", until=snap["at"])
+                    if e["type"] in ("agent.ran", "agent.failed")]
             from ..runner import log_path
             log = log_path(p, name)
-            return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-20:],
+            return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:],
                     "log": log.read_text(errors="replace").splitlines()[-40:] if log.exists() else []}
         return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n]} for n, a in snap["agents"].items()}
     if head == "events":

@@ -69,6 +69,7 @@ async function openAgent(name) {
         ["runs", a.schedule || "not run by ergostat"],
         ["fills", (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || "nothing"],
         ["in window", `${a.runs} runs, ${a.failed} failed`]])];
+  if ((a.recent || []).length > 1) kids.push(h("h3", {}, `its last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
   kids.push(h("h3", {}, "recent runs"));
   kids.push(h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "result"), h("th", {}, "said")),
     (a.recent || []).slice(-10).reverse().map((e) => h("tr", {}, h("td", {}, ago(e.time)),
@@ -113,6 +114,23 @@ function trendChart(lp, w, hgt) {
   out.append(lab(fmt(hi - span * 0.08), 0, pad.t + 8), lab(fmt(lo + span * 0.08), 0, hgt - pad.b));
   const tl = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
   out.append(lab(tl(t0), pad.l, hgt - 4), lab(tl(t1), w - pad.r, hgt - 4, "end"), lab("valve openings ▮", (w + pad.l) / 2, hgt - 4, "middle"));
+  return out;
+}
+
+/* an agent's runs as bars: height is how long each took, red when it failed */
+function runsChart(runs, w, hgt) {
+  const secs = runs.map((e) => e.data.seconds || 0), top = Math.max(...secs, 0.001);
+  const bw = Math.max(2, (w - 40) / runs.length - 1);
+  const out = s("svg", { width: w, height: hgt, class: "runs" });
+  runs.forEach((e, i) => {
+    const bh = Math.max(2, (secs[i] / top) * (hgt - 22));
+    out.append(s("rect", { x: 36 + i * (bw + 1), y: hgt - 16 - bh, width: bw, height: bh, rx: 1,
+                           fill: e.type === "agent.failed" ? "var(--bad)" : (e.data.refused ? "var(--warn)" : "var(--accent)"), opacity: 0.85 },
+      s("title", {}, `${new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })}: ${secs[i]}s` +
+                     (e.type === "agent.failed" ? ` · ${e.data.note || "failed"}` : "") + (e.data.refused ? ` · ${e.data.refused} refused` : ""))));
+  });
+  const lab = (t, x, y, a = "start") => s("text", { x, y, "text-anchor": a, fill: "var(--muted)", "font-size": 10.5 }, t);
+  out.append(lab(`${fmt(top)}s`, 0, 10), lab("0", 0, hgt - 16), lab("oldest", 36, hgt - 3), lab("newest", w, hgt - 3, "end"));
   return out;
 }
 

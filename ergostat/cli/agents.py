@@ -6,6 +6,7 @@ import sys
 import time
 
 from .. import model as mdl
+from .. import show
 from ..durations import human
 from ..show import ago, c, table
 from ..state import fmt
@@ -50,7 +51,13 @@ def cmd_agent(args) -> int:
         print(f"  command  {a.command}")
     print("  runs     " + (a.schedule or "not run by ergostat"))
     print("  fills    " + (", ".join(f"{r['kind']} {r['name']}" for r in s["roles"]) or "nothing"))
-    runs = [e for e in p.events.query(n=200, item=a.name, type="agent.*") if e["type"] in ("agent.ran", "agent.failed")][-8:]
+    every = [e for e in p.events.query(n=400, item=a.name, type="agent.*") if e["type"] in ("agent.ran", "agent.failed")]
+    runs = every[-8:]
+    if len(every) > 2:
+        secs = [float(e["data"].get("seconds") or 0) for e in every[-40:]]
+        failed = sum(1 for e in every[-40:] if e["type"] == "agent.failed")
+        print(f"  durations {show.spark(list(enumerate(secs)), 40)}  {fmt(min(secs))}s to {fmt(max(secs))}s over the last "
+              f"{len(secs)} runs" + (c(f", {failed} failed", "bad") if failed else ""))
     print()
     print(table(["WHEN", "RESULT", "READINGS", "OPENINGS", "DECISIONS", "SECONDS"],
                 [[ago(e["time"]), c("failed: " + e["data"].get("note", ""), "bad") if e["type"] == "agent.failed" else "ok",
