@@ -64,6 +64,7 @@ tr.click:hover td { background: color-mix(in srgb, var(--accent) 5%, var(--panel
 .att .bad { border-left-color: var(--bad); }
 .att .ok { border-left-color: var(--ok); }
 .att .hint { border-left-color: var(--accent); }
+.att .more { border-left-color: var(--line); color: var(--muted); }
 .att b { font-weight: 600; }
 
 /* the diagram */

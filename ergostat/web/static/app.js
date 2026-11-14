@@ -84,7 +84,7 @@ async function route() {
 
 /* ------------------------------------------------------------------ the diagram */
 
-const SIZE = { stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [196, 78], agent: [210, 92] };
+const SIZE = { stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [200, 92], agent: [210, 92] };
 const CH = 6.7;   // px per character, for label sizes
 
 function labelLines(n) {
@@ -241,6 +241,11 @@ function drawController(n, w, hgt) {
   g.append(s("path", { d: "M14,22 h12 M20,16 v12", stroke: "var(--ctl-line)", "stroke-width": 1.4 }));
   g.append(s("text", { x: 36, y: 20, class: "t-label" }, n.label));
   g.append(s("text", { x: 36, y: 36, class: "t-sub" }, "holds " + n.setpoint));
+  if (n.decision) {
+    const room = Math.floor((w - 24) / 6.2);
+    const t = n.decision.length > room ? n.decision.slice(0, room - 1) + "…" : n.decision;
+    g.append(s("text", { x: 12, y: 56, class: "t-sub", "font-style": "italic" }, s("title", {}, n.decision), "“" + t + "”"));
+  }
   g.append(s("circle", { cx: w - 14, cy: 16, r: 5, fill: tone }));
   g.append(s("text", { x: w - 24, y: 20, class: "t-sub", "text-anchor": "end", fill: tone }, st));
   const b = badge(n.agent, w / 2, hgt - 24);
@@ -539,7 +544,9 @@ function renderSide(side, g, view) {
   side.append(h("h3", {}, "needs attention"));
   const att = h("div", { class: "att" });
   if (!st.attention.length) att.append(h("div", { class: "ok" }, "nothing needs you"));
-  for (const a of st.attention) att.append(h("div", { class: a.level }, h("b", {}, a.what), " ", a.says));
+  const MAX = 6;
+  for (const a of st.attention.slice(0, MAX)) att.append(h("div", { class: a.level }, h("b", {}, a.what), " ", a.says));
+  if (st.attention.length > MAX) att.append(h("div", { class: "more" }, `and ${st.attention.length - MAX} more: see Loops and Residuals`));
   side.append(att);
   const loops = Object.entries(g.loops || {});
   if (view === "control") {

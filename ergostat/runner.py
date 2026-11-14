@@ -41,18 +41,18 @@ def log_path(project, agent: str) -> Path:
 
 
 def context(project, agent, trigger: dict | None) -> dict:
+    """What an agent's run is given: cheap to make (no full snapshot), since every run makes one."""
     m = project.model
-    snapshot = st.snapshot(project)
     roles = m.roles_of(agent.name)
-    return {
-        "agent": agent.name, "kind": agent.kind,
-        "roles": [{"kind": p.kind, "name": p.name} for p in roles],
-        "state": {k: v["value"] for k, v in snapshot["stocks"].items()},
-        "controllers": {c.name: {"holds": c.holds, "setpoint": c.setpoint, "value": snapshot["stocks"].get(c.holds, {}).get("value"),
-                                 "error": snapshot["loops"].get(c.name, {}).get("error"), "drives": c.drives}
-                        for c in roles if c.kind == "controller"},
-        "trigger": trigger,
-    }
+    values = {name: st.stock_value(project, name)["value"] for name in m.stocks}
+    ctls = {}
+    for c in roles:
+        if c.kind == "controller":
+            v = values.get(c.holds)
+            ctls[c.name] = {"holds": c.holds, "setpoint": c.setpoint, "value": v, "drives": c.drives,
+                            "error": c.error(v) if v is not None and m.loop(c.name) and m.loop(c.name).closes else None}
+    return {"agent": agent.name, "kind": agent.kind, "roles": [{"kind": p.kind, "name": p.name} for p in roles],
+            "state": values, "controllers": ctls, "trigger": trigger}
 
 
 class Recorder:
@@ -91,7 +91,7 @@ class Recorder:
                         return True
                     self.p.measurements.add(f"sensor/{name}", value)
                     self.counts["readings"] += 1
-                    edges(self.p, self.run_id)
+                    edges(self.p, self.run_id, sensor=name)
                 elif kind == "valve":
                     try:
                         amount = float(line.get("amount", 1))
@@ -119,20 +119,23 @@ class Recorder:
         return False
 
 
-def edges(project, causedby: str | None = None) -> list[dict]:
+def edges(project, causedby: str | None = None, sensor: str | None = None) -> list[dict]:
     """The edge detector: for each loop whose status changed since it was last recorded, record
-    ``loop.off`` or ``loop.holding``."""
+    ``loop.off`` or ``loop.holding``. With ``sensor``, only the loops that sensor serves."""
     out = []
-    snap = st.snapshot(project)
-    for name, lp in snap["loops"].items():
-        now = lp["status"]
-        if now not in ("off", "holding"):
+    for lp in project.model.loops():
+        if not lp.closes or (sensor is not None and sensor not in lp.sensors):
             continue
-        last = project.events.query(n=1, item=name, type="loop.*")
+        value = st.stock_value(project, lp.stock)["value"]
+        if value is None:
+            continue
+        error = lp.controller.error(value)
+        now = "holding" if abs(error) <= lp.controller.tolerance else "off"
+        last = project.events.query(n=1, item=lp.name, type="loop.*")
         before = last[0]["type"].split(".", 1)[1] if last else None
         if before != now:
-            out.append(project.events.add(f"loop.{now}", item=name, source=SOURCE, causedby=causedby,
-                                          data={"value": lp["value"], "setpoint": lp["setpoint"], "error": lp["error"]}))
+            out.append(project.events.add(f"loop.{now}", item=lp.name, source=SOURCE, causedby=causedby,
+                                          data={"value": value, "setpoint": lp.controller.setpoint, "error": error}))
     return out
 
 

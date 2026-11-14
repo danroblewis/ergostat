@@ -9,7 +9,7 @@ Work until 2pm.
 
 - Python 3.12+, uv, standard library only at runtime; pytest and ruff for development.
 - The model is `ergostat.toml` in the repository (tomllib, no dependency).
-- State in `~/.ergostat/<project>/`: `events.db` and `measurements.db`, two SQLite files (two
+- State in `~/.ergostat/<project>-<hash of the repo path>/`: `events.db` and `measurements.db`, two SQLite files (two
   stores, per NOTES).
 - Web: standard-library HTTP server, one page, ELK.js (vendored) for layout, SVG drawn by us.
 - Default web port 8781.
@@ -18,7 +18,9 @@ Work until 2pm.
 ## Log
 
 - 07:10 rounds 2-4 written (docs/cli-rounds.md).
-- 07:40 model, stores, runner, state, graph, CLI, web page with ELK layout; disk-space demo renders (plant left to right, feedback above, system hulls).
-- 08:05 four demos (disk-space, backups, docs-fresh, deps) run and render; flow direction, hulls, wrap option, readable fit; measured flows integrated over time for residuals.
-- 07:40 round 5 (real CLI on ops): items, tolerance; web polish; SQLite per-thread connections (a deadlock under load); rates over one recorded interval (in/out now balance).
-- 08:00 round 6 (new user, empty repo): state keyed by repo path, missing commands warned; README; scripts/demo_check.py (5/5 demos ok with page checks); arrowheads, flow-sensor readings, residual noise floor.
+- 07:20 model, stores, runner, state, graph, CLI, web page with ELK layout; disk-space demo renders (plant left to right, feedback above, system hulls).
+- 07:25 four demos (disk-space, backups, docs-fresh, deps) run and render; flow direction, hulls, wrap option, readable fit; measured flows integrated over time for residuals.
+- 07:33 round 5 (real CLI on ops): items, tolerance; web polish; SQLite per-thread connections (a deadlock under load); rates over one recorded interval (in/out now balance).
+- 07:41 round 6 (new user, empty repo): state keyed by repo path, missing commands warned; README; scripts/demo_check.py (5/5 demos ok with page checks); arrowheads, flow-sensor readings, residual noise floor.
+- 07:47 round 7 (overnight; is the AI doing anything a rule couldn't): crossings, decisions, ladder hints; cron schedules; SVG export; file-queue demo (shell, real files).
+- 07:55 big demo (24 loops, 6 systems): layout scales; runs were 4-5s each under 24 agents: the run context and the edge detector no longer take full snapshots; controller boxes show the last decision; attention list capped in the side panel.
