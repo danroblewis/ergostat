@@ -38,8 +38,10 @@ function drawBlocks(svg, g) {
   const vw = Math.max(160, ...rows.map((r) => Math.max(tw(r.valves[0]?.label), tw(badgeText(r.valves[0]?.agent)), tw("actuator · " + (r.valves[0]?.rateText || "")))));
   const sw = Math.max(160, ...rows.map((r) => Math.max(tw(r.stock.label), tw(`plant ∫ · ${r.stock.valueText} ${r.stock.unit || ""}`))));
   const hw = Math.max(160, ...rows.map((r) => Math.max(tw(r.sensors[0]?.label), tw(`H · reads ${r.sensors[0]?.reading ?? "?"} · every ${r.sensors[0]?.agent?.when || ""}`))));
-  const X = { r: 30, sum: 130 };
-  X.ctl = X.sum + 70; X.valve = X.ctl + cw + 50; X.dsum = X.valve + vw + 50; X.stock = X.dsum + 50; X.out = X.stock + sw + 60;
+  const spText = (lp) => lp.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").trim() + (lp.band || "");
+  const rw = Math.max(...rows.map((r) => ("r: " + spText(r.lp)).length * 7.6));      // r's label clears the junction's + sign
+  const X = { r: 30, sum: Math.max(130, 30 + rw + 46) };
+  X.ctl = X.sum + 92; X.valve = X.ctl + cw + 50; X.dsum = X.valve + vw + 50; X.stock = X.dsum + 50; X.out = X.stock + sw + 60;
   const RH = 210;
   const line = (pts, cls, color, dashed) => {
     const d = pts.map((p, i) => `${i ? "L" : "M"}${p[0]},${p[1]}`).join("");
@@ -77,7 +79,7 @@ function drawBlocks(svg, g) {
     loopG.append(s("rect", { x: 6, y: y0 - 30, width: X.out + 70, height: RH - 20, rx: 14, fill: "none", stroke: "var(--line)", "stroke-dasharray": "4 4" }));
     loopG.append(label(18, y0 - 10, row.name, "t-label", "start"), label(18 + row.name.length * 7.4 + 10, y0 - 10, st, "t-sub", "start"));
     loopG.lastChild.style.fill = tone;
-    const sp = row.lp.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").trim() + (row.lp.band || "");
+    const sp = spText(row.lp);
     // r and the summing junction
     loopG.append(label(X.r, cy - 8, "r: " + sp, "t-sub", "start"));
     loopG.append(...line([[X.r, cy], [X.sum - 14, cy]], "", "var(--ink)"));
