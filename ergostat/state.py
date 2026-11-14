@@ -267,6 +267,22 @@ def decisions(project, controller: str, since: float, until: float | None = None
 LADDER_MIN, LADDER_SHARE = 10, 0.8
 
 
+def _period(agent) -> float | None:
+    """How often an agent runs, in seconds: its ``every``, or the gap between its next two cron
+    times; None for one that runs on events."""
+    if agent.every:
+        return float(agent.every)
+    if agent.cron:
+        from .cron import Cron
+        try:
+            c = Cron(agent.cron)
+            t = c.next_after(time.time())
+            return c.next_after(t) - t
+        except Exception:
+            return None
+    return None
+
+
 def ladder_hints(project, snap: dict) -> list[dict]:
     """Roles a cheaper agent could fill: a controller whose agent is a person, an AI agent or a
     decision, and that decided the same thing at least 80% of at least 10 times in the window."""
@@ -293,21 +309,42 @@ def ladder_hints(project, snap: dict) -> list[dict]:
         load = sum((snap["flows"][f.name]["rate"] or 0) for f in m.flows_of(stock)
                    if f.name not in mine and (f.target == stock if drains else f.source == stock))
         off = round(lp["off_share"] * 100)
-        # saturated: it cannot keep up, so it seldom gets back at all; a loop back now and then (a
-        # sawtooth: a job that empties the stock, too seldom) is sampling too slowly instead
-        if load > 0 and ours < 0.95 * load and lp["off_share"] >= 0.9:
-            says = (f"loop {name} was off {off}% of the time: its valve moved {fmt(ours)}/h "
-                    f"{'out' if drains else 'in'} while {fmt(load)}/h came {'in' if drains else 'out'}. It is saturated: "
-                    f"a valve with more capacity, or less load, not faster sampling")
-        elif load > 0 and ours < 0.95 * load:          # behind, but back now and then: either may help
-            says = (f"loop {name} was off {off}% of the time: its valve moved {fmt(ours)}/h "
-                    f"{'out' if drains else 'in'} while {fmt(load)}/h came {'in' if drains else 'out'}, and the loop got back "
-                    f"only now and then. More capacity, or acting more often ({a.schedule if a else '?'} now)")
-        elif a and (a.every or a.cron):
-            says = (f"loop {name} was off {off}% of the time though its valve can keep up: its controller runs "
-                    f"{a.schedule}; run it more often")
+        grew = snap["stocks"].get(stock, {}).get("change")
+        way = ("out" if drains else "in", "in" if drains else "out")
+        # the stages of the loop and how often each runs: the slowest bounds how fast it can answer
+        stages = {}
+        for role, part in (("sensor", (lp["sensors"] or [None])[0]), ("controller", name), ("valve", (lp["valves"] or [None])[0])):
+            table = {"sensor": m.sensors, "controller": m.controllers, "valve": m.valves}[role]
+            ag = m.agents.get(getattr(table.get(part), "agent", None) or "")
+            if ag is not None and _period(ag):
+                stages[f"its {role} ({ag.name}, {ag.schedule})"] = _period(ag)
+        slowest = max(stages, key=stages.get) if stages else None
+        if load > 0 and ours < 0.95 * load:
+            # falling behind: what went out was less than what came in. Saturated only when each
+            # opening moved the same amount (the valve at its limit); else it may be asking too little
+            amounts = [e["data"].get("amount") for v in lp["valves"]
+                       for e in project.events.query(n=50, type="valve.opened", item=v, since=since, until=snap["at"])]
+            at_limit = len(amounts) >= 3 and len(set(amounts)) == 1
+            says = (f"loop {name} was off {off}% of the time, falling behind: its valve moved {fmt(ours)}/h {way[0]} while "
+                    f"{fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "") + ". "
+                    + (f"Every opening moved {fmt(amounts[0])}: the valve is at its limit (saturated); it needs more per run, "
+                       f"or less load" if at_limit else
+                       "More per run, or acting more often" + (f" ({slowest} is the slowest stage)" if slowest else "")))
+        elif slowest:
+            says = (f"loop {name} was off {off}% of the time though its valve keeps up on average: it answers too late; "
+                    f"{slowest} is the slowest stage")
         else:
-            says = f"loop {name} was off {off}% of the time though its valve can keep up: it acts too late ({a.schedule if a else '?'})"
+            says = f"loop {name} was off {off}% of the time though its valve keeps up on average: it answers too late"
+        # a job that empties the stock on a schedule holds only if load × period fits the room under the setpoint
+        pts = snap["stocks"].get(stock, {}).get("points") or []
+        op, target = c.target()
+        if load > 0 and pts and op in ("<=", "<") and slowest:
+            room = target - min(v for _, v in pts)
+            if room > 0:
+                needed = room / (load / 3600.0)
+                says += (f". To hold it, it would have to act at least every {human(needed)}"
+                         + (" (cron cannot: once a minute is its finest)" if needed < 60 and any(
+                             x.cron for x in m.agents.values() if x.name in slowest) else ""))
         out.append({"controller": name, "agent": c.agent, "kind": a.kind if a else "", "share": lp["off_share"],
                     "count": 0, "decision": "", "about": "loop", "says": says})
     for c in m.controllers.values():

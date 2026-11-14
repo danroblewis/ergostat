@@ -192,7 +192,7 @@ def test_a_loop_off_most_of_the_time_is_a_hint_to_sample_faster(project):
     snap = state.snapshot(project)
     assert 0.8 < snap["loops"]["disk-under-80"]["off_share"] < 0.85
     (hint,) = [h for h in snap["hints"] if h["controller"] == "disk-under-80"]
-    assert "off 8" in hint["says"] and "run it more often" in hint["says"]      # back now and then: not saturated
+    assert "off 8" in hint["says"] and "slowest stage" in hint["says"] and "saturated" not in hint["says"]
 
 
 def test_a_week_of_readings_is_sampled_in_sql_and_the_ends_kept_exact(project):
@@ -227,7 +227,7 @@ def test_a_loop_whose_valve_cannot_keep_up_is_called_saturated(project):
         project.events.add("controller.decided", item="disk-under-80", source="cleaner", at=t + 20 + i * 290, data={"decision": "free 2"})
     project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 30, data={})
     (hint,) = [h for h in state.snapshot(project)["hints"] if h["controller"] == "disk-under-80"]
-    assert "saturated" in hint["says"] and "more capacity" in hint["says"]
+    assert "falling behind" in hint["says"] and "at its limit (saturated)" in hint["says"]   # every opening moved 2
 
 
 def test_a_disturbance_that_would_run_backwards_is_not_hidden(project):
