@@ -67,15 +67,16 @@ function drawBlocks(svg, g) {
     for (const [dx, dy, t] of signs) gg.append(label(cx + dx, cy + dy, t, "t-label"));
     return gg;
   };
+  const cols = rows.length > 6 ? 2 : 1, perCol = Math.ceil(rows.length / cols), colW = X.out + 110;
   rows.forEach((row, i) => {
-    const y0 = i * RH + 40, cy = y0 + 50;
+    const y0 = (i % perCol) * RH + 40, cy = y0 + 50, dx = Math.floor(i / perCol) * colW;
     const st = row.lp.status || "unknown";
     const tone = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[st] || "var(--unknown)";
-    const loopG = s("g", { class: "block-loop", "data-loop": row.name });
+    const loopG = s("g", { class: "block-loop", "data-loop": row.name, transform: dx ? `translate(${dx},0)` : null });
     loopG.append(s("rect", { x: 6, y: y0 - 30, width: X.out + 70, height: RH - 20, rx: 14, fill: "none", stroke: "var(--line)", "stroke-dasharray": "4 4" }));
     loopG.append(label(18, y0 - 10, row.name, "t-label", "start"), label(18 + row.name.length * 7.4 + 10, y0 - 10, st, "t-sub", "start"));
     loopG.lastChild.style.fill = tone;
-    const sp = row.lp.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").trim();
+    const sp = row.lp.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").trim() + (row.lp.band || "");
     // r and the summing junction
     loopG.append(label(X.r, cy - 8, "r: " + sp, "t-sub", "start"));
     loopG.append(...line([[X.r, cy], [X.sum - 14, cy]], "", "var(--ink)"));
@@ -83,7 +84,9 @@ function drawBlocks(svg, g) {
     // e into the controller
     loopG.append(...line([[X.sum + 14, cy], [X.ctl, cy]], "", tone));
     const err = row.lp.error;
-    loopG.append(label((X.sum + X.ctl) / 2 + 6, cy - 8, err != null ? `e = ${fmt(err)}` : "e"));
+    const eLab = label((X.sum + X.ctl) / 2 + 6, cy - 8, err != null ? `e = ${fmt(err)}` : "e");
+    eLab.style.fill = tone;                                    // coloured by the loop's status, not by e's sign
+    loopG.append(eLab);
     loopG.append(box(X.ctl, cy - 36, cw, 72, row.ctl.label, "C · " + (row.ctl.agent ? badgeText(row.ctl.agent) : "unfilled"),
                      "var(--ctl)", "var(--ctl-line)", row.ctl,
                      row.ctl.decision ? label(cw / 2, 60, "“" + (row.ctl.decision.length > cw / 6.4 - 4 ? row.ctl.decision.slice(0, Math.floor(cw / 6.4) - 5) + "…" : row.ctl.decision) + "”") : null));
@@ -135,6 +138,6 @@ function drawBlocks(svg, g) {
   });
   svg.replaceChildren(vp);
   applyView(svg);
-  return { width: X.out + 90, height: rows.length * RH + 30 };
+  return { width: cols * colW - 20, height: perCol * RH + 30 };
 }
 

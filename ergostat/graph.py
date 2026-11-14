@@ -145,6 +145,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         nodes.append(_node(f"controller:{n}", "controller", n, setpoint=f"{c.holds} {c.setpoint}", status=lp.get("status"),
                            error=lp.get("error"), agent=agent_of.get(n), description=c.description,
                            decision=((lp.get("last_decision") or {}).get("data") or {}).get("decision"),
+                           decisionAt=(lp.get("last_decision") or {}).get("time"),
                            systems=in_system.get(n, [])))
         for s in c.reads:
             if s in parts:

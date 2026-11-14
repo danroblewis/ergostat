@@ -79,10 +79,11 @@ async function layoutGraph(g, aspect) {
 /* node shapes, drawn with their top-left at 0,0 */
 function badge(a, x, y) {
   if (!a) return null;
-  const t = badgeText(a), w = textWidth(t) + 14;
+  const t = badgeText(a), w = textWidth(t) + 24;
   return s("g", { class: "badge", transform: `translate(${x - w / 2},${y})` },
-    s("rect", { width: w, height: 16, rx: 8, fill: rungColor(a.rung) }),
-    s("text", { x: w / 2, y: 11.5, "text-anchor": "middle" }, t));
+    s("rect", { width: w, height: 16, rx: 8, fill: "var(--panel)", stroke: "var(--line)", "stroke-width": 1 }),
+    s("circle", { cx: 9, cy: 8, r: 4, fill: rungColor(a.rung) }),
+    s("text", { x: w / 2 + 5, y: 11.5, "text-anchor": "middle" }, t));
 }
 
 function drawStock(n, w, hgt) {
@@ -100,8 +101,10 @@ function drawStock(n, w, hgt) {
   g.append(s("line", { x1: 0, x2: w, y1: T, y2: T, stroke: "var(--line)", "stroke-width": 1 }));
   g.append(s("rect", { x: 2, y: T + H * (1 - frac), width: w - 4, height: H * frac, fill: tone, opacity: 0.14 }));
   if (spv != null) {
+    // the setpoint: a marker on the tank's right edge, so it never strikes through the value
     const y = T + H * (1 - Math.min(1, spv / top));
-    g.append(s("line", { x1: 2, x2: w - 2, y1: y, y2: y, stroke: tone, "stroke-width": 1.2, "stroke-dasharray": "3 3", opacity: 0.9 }));
+    g.append(s("path", { d: `M${w},${y} l-9,-5 v10 Z`, fill: tone, opacity: 0.9 }, s("title", {}, "setpoint")));
+    g.append(s("line", { x1: w - 26, x2: w - 9, y1: y, y2: y, stroke: tone, "stroke-width": 1.2, "stroke-dasharray": "2 2" }));
   }
   if (pts.length > 1) {
     const vs = pts.map((p) => p[1]), lo = Math.min(...vs), hi = Math.max(...vs) || 1;
@@ -160,9 +163,11 @@ function drawController(n, w, hgt) {
   g.append(s("text", { x: 36, y: 20, class: "t-label" }, n.label));
   g.append(s("text", { x: 36, y: 36, class: "t-sub" }, "holds " + n.setpoint));
   if (n.decision) {
-    const room = Math.floor((w - 24) / 6.2);
+    const when = n.decisionAt ? " · " + ago(n.decisionAt) : "";
+    const room = Math.floor((w - 24) / 6.2) - when.length;
     const t = n.decision.length > room ? n.decision.slice(0, room - 1) + "…" : n.decision;
-    g.append(s("text", { x: 12, y: 56, class: "t-sub", "font-style": "italic" }, s("title", {}, n.decision), "“" + t + "”"));
+    g.append(s("text", { x: 12, y: 56, class: "t-sub", "font-style": "italic" }, s("title", {}, "last decision: " + n.decision),
+                         "“" + t + "”", s("tspan", { "font-style": "normal" }, when)));
   }
   g.append(s("circle", { cx: w - 14, cy: 16, r: 5, fill: tone }));
   g.append(s("text", { x: w - 24, y: 20, class: "t-sub", "text-anchor": "end", fill: tone }, st));
@@ -423,7 +428,9 @@ function legend(view) {
     row('<path d="M13 2 L22 9 L13 16 L4 9 Z" fill="var(--panel)" stroke="var(--dist)" stroke-width="1.8"/>', "disturbance: nothing controls it"),
     row('<circle cx="13" cy="9" r="7" fill="var(--sensor)" stroke="var(--sensor-line)" stroke-width="1.8"/>', "sensor: measures"),
     row('<rect x="2" y="2" width="22" height="14" rx="4" fill="var(--ctl)" stroke="var(--ctl-line)" stroke-width="1.8"/>', "controller: decides, to hold a setpoint"),
-    row('<path d="M1 9 H25" stroke="var(--ok)" stroke-width="2"/>', "a loop holding (red: off, amber: open)"));
+    row('<path d="M1 9 H25" stroke="var(--ok)" stroke-width="2"/>', "a loop holding (red: off, amber: open)"),
+    row('<circle cx="13" cy="9" r="4.5" fill="var(--r4)"/>', "the agent filling a part, its dot by kind:"),
+    h("span", {}), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, h("i", { style: `background:${rungColor(i)}` }), k))));
 }
 
 async function pageDiagram(main, q) {
@@ -461,10 +468,17 @@ async function pageDiagram(main, q) {
   main.append(h("div", { class: "diagram" }, wrap, side));
   panZoom(svg);
   S.graphSig = ""; S.fitted = false;
+  wrap.append(h("div", { class: "empty loading" }, "loading…"));
+  let fails = 0;
 
   async function tick() {
     let g;
-    try { g = await api("graph", { view: view === "blocks" ? "control" : view, system, around }); } catch (e) { return; }
+    try { g = await api("graph", { view: view === "blocks" ? "control" : view, system, around }); fails = 0; }
+    catch (e) {
+      if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, "the server is not answering: is ergostat still running?")); }
+      return;
+    }
+    wrap.querySelector(".loading")?.remove();
     S.graph = g;
     if (view === "blocks") {
       wrap.querySelector(".empty")?.remove();

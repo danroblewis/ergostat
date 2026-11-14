@@ -15,12 +15,12 @@ async function pageLoops(main) {
   async function tick() {
     const [loops, stocks] = [await api("loops"), await api("graph")];
     const pts = Object.fromEntries(stocks.nodes.filter((n) => n.kind === "stock").map((n) => [n.label, n.points]));
-    box.replaceChildren(h("table", {}, h("tr", {}, ["loop", "status", "holds", "now", "setpoint", "error", "time off", "trend", "acted"].map((x) => h("th", {}, x))),
+    box.replaceChildren(h("table", {}, h("tr", {}, ["loop", "status", "holds", "now", "setpoint", "e = r − y", "time off", "trend", "acted"].map((x) => h("th", {}, x))),
       Object.entries(loops).map(([n, lp]) => h("tr", { class: "click", onclick: () => openLoop(n) },
         h("td", {}, h("b", {}, n)), h("td", {}, statusEl(lp.status)), h("td", {}, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
-        h("td", { class: "num nowrap" }, lp.setpoint + (lp.tolerance ? ` (±${fmt(lp.tolerance)})` : "")),
-        h("td", { class: "num" }, lp.error && lp.status === "off" ? fmt(Math.abs(lp.error)) : ""),
-        h("td", { class: "num" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : ""),
+        h("td", { class: "num nowrap" }, lp.setpoint + (lp.band || "")),
+        h("td", { class: `num s-${lp.status}` }, lp.error != null ? fmt(lp.error) : ""),
+        h("td", { class: "num", title: "the share of the window the loop spent off" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : "0%"),
         h("td", {}, (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 150, 30, setpointOf(lp.setpoint)) : ""),
         h("td", { title: "in the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
   }
@@ -29,7 +29,7 @@ async function pageLoops(main) {
 }
 
 async function pageAgents(main) {
-  const p = page(main, "Agents", "Agents fill roles: sensors, controllers and valves. The ladder runs from the most general agent to none at all; every role is expected to move right.");
+  const p = page(main, "Agents", "Agents fill roles: sensors, controllers and valves. The ladder runs from the most general agent (left) to none at all (right); every role is expected to move down the ladder, that is, to the right.");
   const box = h("div", { class: "ladder" });
   p.append(box);
   async function tick() {
@@ -37,7 +37,8 @@ async function pageAgents(main) {
     box.replaceChildren();
     const cols = [...RUNG_NAMES, "retired"];
     cols.forEach((k, i) => {
-      const col = h("div", { class: "rung" }, h("h4", {}, h("span", { style: `color:${rungColor(i)}` }, "● "), `${i} ${k}`), h("div", { class: "hint" }, RUNG_HINT[i]));
+      const filled = Object.values(agents).some((a) => a.rung === i);
+      const col = h("div", { class: "rung" + (filled ? "" : " empty-rung") }, h("h4", {}, h("span", { style: `color:${rungColor(i)}` }, "● "), `${i} ${k}`), h("div", { class: "hint" }, RUNG_HINT[i]));
       for (const [name, a] of Object.entries(agents).filter(([, a]) => a.rung === i)) {
         col.append(h("div", { class: "card" + (a.failing ? " failing" : ""), onclick: () => openAgent(name) },
           h("b", {}, name),
@@ -138,15 +139,15 @@ async function pageGuide(main) {
   const stock = parts.stock[0], loop = parts.controller[0];
   sec("Work is a flow, not a list",
     h("p", {}, "Work is change in the world over time. ergostat does not track tasks; it watches what accumulates and what moves it. ",
-      "What accumulates is a ", h("b", {}, "stock"), ": ", ex(parts.stock, (x) => [code(x.name), ` (${fmt(x.value)} ${x.unit})`]) , ". ",
+      "What accumulates is a ", h("b", {}, "stock"), ": ", ex(parts.stock, (x) => [code(x.name), ` (${fmt(x.value)} ${x.value === 1 && x.unit.endsWith("s") ? x.unit.slice(0, -1) : x.unit})`]) , ". ",
       "What moves a stock is a ", h("b", {}, "flow"), ", drawn as a pipe. A flow nothing controls is a ", h("b", {}, "disturbance"), ": ",
       parts.disturbance.length ? ex(parts.disturbance, (x) => code(x.name)) : "you have none declared", "."));
   sec("Three roles keep it steady",
     h("p", {}, "A ", h("b", {}, "sensor"), " measures (", ex(parts.sensor, (x) => code(x.name)), "). ",
       "A ", h("b", {}, "controller"), " decides, to hold a stock at a setpoint (", ex(parts.controller, (x) => [code(x.name), ` holds ${x.holds} ${x.setpoint}`]), "). ",
       "A ", h("b", {}, "valve"), " acts on a flow (", ex(parts.valve, (x) => code(x.name)), "). Nothing changes the world except through a valve."),
-    loop ? h("p", {}, "Together they make a ", h("b", {}, "loop"), ": ", code(loop.name), " measures ", code(loop.holds),
-      ", compares it with its setpoint, and opens a valve when it is off. Its status now: ", statusEl(loop.status), ". ",
+    loop ? h("p", {}, "Together they make a ", h("b", {}, "loop"), ": a sensor measures ", code(loop.holds), "; ", code(loop.name),
+      " reads it, compares it with its setpoint, and opens a valve when it is off. Its status now: ", statusEl(loop.status), ". ",
       h("a", { href: "#/diagram?view=blocks" }, "See it as a block diagram"), ".") : null);
   const byRung = {};
   for (const [n, a] of Object.entries(agents)) (byRung[a.rung] ||= []).push(n);
