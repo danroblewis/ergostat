@@ -55,3 +55,4 @@ Work until 2pm.
 - 11:00 round 29: still-off loops re-announced at start; stop-killed runs not failures; block view grouped by system; screenshots retaken. 89 tests.
 - 11:04 round 30: chains of loops fold at their joining pipes (auto when too wide). Fourth code review running.
 - 11:12 rounds 31-32: first-run message; fourth code review (9/9 applied). 90 tests.
+- 11:20 web snapshot shared across requests (1.5s): 0.6s → ms on big; README shows the folded chain.
