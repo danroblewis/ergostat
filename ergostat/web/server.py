@@ -75,6 +75,9 @@ def api(live: Live, path: str, q: dict):
                 "at": snap["at"], "window": snap["window"],
                 "changes": [{"time": e["time"], **{k: e["data"][k] for k in ("added", "removed", "changed")}}
                             for e in history.changes(p, snap["at"] - snap["window"])][-5:]}
+    if head == "projects":
+        from ..projects import known
+        return known()
     if head == "graph":
         system = one("system") or None
         around = one("around") or None

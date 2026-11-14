@@ -272,6 +272,11 @@ class Project:
     def __init__(self, model, directory: Path | None = None):
         self.model = model
         self.dir = directory or state_dir(model.name, model.path.parent if model.path else None)
+        if model.path:                                      # so `ergostat projects` can find the repository again
+            note = self.dir / "repo.json"
+            want = json.dumps({"name": model.name, "repo": str(model.path.parent)})
+            if not note.exists() or note.read_text() != want:
+                note.write_text(want)
         self.events = Events(self.dir)
         self.measurements = Measurements(self.dir)
 

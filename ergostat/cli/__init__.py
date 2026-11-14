@@ -13,7 +13,7 @@ from .agents import cmd_agent
 from .common import PART_TOPICS
 from .parts import cmd_part
 from .record import cmd_event, cmd_item, cmd_residual
-from .running import cmd_chat, cmd_run, cmd_web
+from .running import cmd_chat, cmd_projects, cmd_run, cmd_web
 from .status import cmd_check, cmd_status
 from .system import cmd_loop, cmd_system
 
@@ -41,6 +41,7 @@ run it
   run            Start the agents here, in the background, with the web page
   web            Serve the web page only
   chat           Talk to the Supervisor, who changes the system for you
+  projects       Every project on this machine, which run, and their pages
 
 the parts, one at a time
   stock  flow  valve  sensor  controller  disturbance
@@ -120,6 +121,7 @@ def build() -> argparse.ArgumentParser:
     r.add_argument("--stop", action="store_true", help="stop the ergostat running here, and its agents' runs")
     r.add_argument("--no-web", action="store_true", help="no web page")
     r.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
+    topic("projects", cmd_projects, "Every project on this machine, and which are running", named=False)
     w = topic("web", cmd_web, "Serve the web page only", named=False)
     w.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     chat = sub.add_parser("chat", parents=[common], help="Talk to the Supervisor")

@@ -55,7 +55,18 @@ async function refreshHeader() {
   try {
     const st = await api("status");
     S.status = st;
-    $("#project").textContent = st.name;
+    const sel = $("#project");
+    if (!sel.dataset.filled) {
+      sel.dataset.filled = "1";
+      sel.replaceChildren(h("option", { value: "" }, st.name));
+      try {
+        for (const p of await api("projects")) {
+          if (p.name === st.name || !p.web) continue;
+          sel.append(h("option", { value: p.web }, `${p.name}${p.off?.length ? " · " + p.off.length + " off" : ""}`));
+        }
+      } catch (e) { /* the list is a convenience */ }
+      sel.addEventListener("change", () => { if (sel.value) location.href = sel.value + "/" + location.hash; });
+    }
     const off = Object.values(st.loops).filter((l) => l.status === "off").length;
     const run = $("#running");
     run.className = "pill " + (st.running ? (off ? "bad" : "ok") : "unknown");

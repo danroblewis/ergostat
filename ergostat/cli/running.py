@@ -9,8 +9,8 @@ import time
 from pathlib import Path
 
 from .. import model as mdl
-from ..show import c
-from .common import open_project
+from ..show import c, table
+from .common import open_project, out_json
 
 
 def cmd_run(args) -> int:
@@ -111,3 +111,22 @@ def cmd_chat(args) -> int:
     from .. import supervisor
     here = Path(args.C).resolve() if args.C else Path.cwd()
     return supervisor.chat(here, " ".join(args.message) or None, print_only=args.print_prompt)
+
+
+def cmd_projects(args) -> int:
+    """``ergostat projects``: every project on this machine ergostat has seen."""
+    from ..projects import known
+    found = known()
+    if args.json:
+        return out_json(found)
+    rows = []
+    for x in found:
+        if x.get("error"):
+            rows.append([x["name"], c("cannot load", "bad"), "", "", x["error"][:60]])
+            continue
+        state = c("running", "ok") if x["running"] else c("stopped", "dim")
+        names = ", ".join(x["off"][:3]) + (f" +{len(x['off']) - 3}" if len(x["off"]) > 3 else "")
+        off = c(f"{len(x['off'])} off: {names}", "bad") if x["off"] else c(f"{x['loops']} holding", "ok") if x["loops"] else "no loops"
+        rows.append([x["name"], state, off, x["web"] or "", x["repo"]])
+    print(table(["PROJECT", "STATE", "LOOPS", "PAGE", "REPOSITORY"], rows, "no projects yet: ergostat run in a repository"))
+    return 0
