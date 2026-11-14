@@ -10,10 +10,13 @@ function page(main, title, lede) {
 
 async function pageLoops(main) {
   const p = page(main, "Loops", "Each controller that holds a stock is a loop. Holding: within its setpoint. Off: outside it. Open: it cannot close (a sensor or valve is missing). Unknown: no reading yet.");
-  const box = h("div");
-  p.append(box);
+  const box = h("div"), cap = h("p", { class: "muted small" });
+  p.append(box, cap);
   async function tick() {
     const [loops, stocks] = [await api("loops"), await api("graph")];
+    const st = S.status, recorded = st?.first ? st.at - st.first : null;
+    cap.textContent = st?.window ? `time off and back in: over the ${recorded != null && recorded < st.window * 0.95 ? dur(recorded) + " recorded" : "last " + dur(st.window)}` +
+      ". Back in: typically, from going off to holding again." : "";
     const pts = Object.fromEntries(stocks.nodes.filter((n) => n.kind === "stock").map((n) => [n.label, n.points]));
     box.replaceChildren(h("table", {}, h("tr", {}, ["loop", "status", "holds", "now", "setpoint", "e = r − y", "time off", "back in", "trend", "acted"].map((x) => h("th", {}, x))),
       Object.entries(loops).map(([n, lp]) => h("tr", { class: "click", onclick: () => openLoop(n) },
