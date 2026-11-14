@@ -87,6 +87,10 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         assert json.loads(get("/api/graph?view=wiring")[1])["kind"] == "wiring"
         assert json.loads(get("/api/part/stock/disk-used")[1])["now"]["value"] == 70
         assert "cleaner" in json.loads(get("/api/agents")[1])
+        parts = json.loads(get("/api/parts")[1])
+        assert [x["name"] for x in parts["valve"]] == ["delete-old-files"] and parts["sensor"][0]["reading"] == 70
+        assert parts["system"][0]["name"] == "host" and parts["disturbance"][0]["name"] == "logs-written"
+        assert json.loads(get("/api/loops/disk-under-80")[1])["status"] == "holding"
         assert get("/")[0] == 200 and b"elk.bundled.js" in get("/")[1]
         try:
             get("/api/part/stock/nope")

@@ -40,10 +40,11 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
         b = p.chromium.launch()
         pg = b.new_page(viewport={"width": 1500, "height": 950})
         pg.on("pageerror", lambda e: errs.append(str(e)))
-        for route in ("diagram", "diagram?view=wiring", "loops", "agents", "record", "residuals", "check"):
+        for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "parts", "parts?kind=valve",
+                      "record", "residuals", "check"):
             pg.goto(f"{url}/#/{route}")
             pg.wait_for_timeout(1800)
-            if shot and route in ("diagram", "diagram?view=wiring", "agents"):
+            if shot and route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "agents"):
                 pg.screenshot(path=str(shot.with_name(f"{shot.stem}-{route.replace('?view=', '-')}.png")))
             if route == "diagram" and pg.locator(".node").count() == 0:
                 errs.append("the diagram drew no parts")
@@ -78,7 +79,7 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
             if lp["status"] == "open" or (lp["status"] == "unknown" and not people_only):
                 problems.append(f"loop {name} is {lp['status']}")
         url = st["web"]
-        for path in ("status", "graph", "graph?view=wiring", "loops", "agents", "events", "items", "residuals"):
+        for path in ("status", "graph", "graph?view=wiring", "loops", "agents", "events", "items", "residuals", "parts"):
             get(f"{url}/api/{path}")
         problems += page_errors(url, shots / demo.name if shots else None)
     finally:

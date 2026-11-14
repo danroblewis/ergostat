@@ -113,6 +113,29 @@ def api(live: Live, path: str, q: dict):
         return p.events.items(own=bool(one("all")))[:200]
     if head == "residuals":
         return snap["residuals"]
+    if head == "parts":
+        rd = graph.readings(p)
+        agent = lambda n: ({"name": n, "kind": m.agents[n].kind, "rung": m.agents[n].rung} if n in m.agents else None)  # noqa: E731
+        return {
+            "stock": [{"name": n, "value": snap["stocks"][n]["value"], "unit": x.unit, "points": snap["stocks"][n]["points"][-40:],
+                       "sensor": snap["stocks"][n]["sensor"], "inflow": snap["stocks"][n]["inflow"], "outflow": snap["stocks"][n]["outflow"],
+                       "systems": x.systems} for n, x in m.stocks.items()],
+            "flow": [{"name": n, "from": x.source, "to": x.target, "rate": snap["flows"][n]["rate"], "how": snap["flows"][n]["how"],
+                      "valve": snap["flows"][n]["valve"]} for n, x in m.flows.items() if not x.disturbance],
+            "disturbance": [{"name": n, "from": x.source, "to": x.target, "rate": snap["flows"][n]["rate"], "how": snap["flows"][n]["how"],
+                             "estimated": snap["flows"][n]["estimated"]} for n, x in m.flows.items() if x.disturbance],
+            "valve": [{"name": n, "flow": x.flow, "mode": x.mode, "agent": agent(x.agent),
+                       "last": (snap["flows"].get(x.flow, {}).get("openings") or {}).get("last"),
+                       "rate": snap["flows"].get(x.flow, {}).get("rate")} for n, x in m.valves.items()],
+            "sensor": [{"name": n, "measures": x.measures, "agent": agent(x.agent), "reading": rd.get(n),
+                        "at": (p.measurements.latest(f"sensor/{n}") or (None,))[0]} for n, x in m.sensors.items()],
+            "controller": [{"name": n, "holds": x.holds, "setpoint": x.setpoint, "status": snap["loops"][n]["status"],
+                            "agent": agent(x.agent)} for n, x in m.controllers.items()],
+            "system": [{"name": s_, "description": m.systems[s_].description if s_ in m.systems else "", "parts": len(m.members(s_)),
+                        "loops": [n for n in snap["loops"] if n in m.members(s_)],
+                        "off": [n for n in snap["loops"] if n in m.members(s_) and snap["loops"][n]["status"] in ("off", "open")]}
+                       for s_ in m.system_names()],
+        }
     if head == "part":
         kind = name
         pname = unquote(parts[2]) if len(parts) > 2 else None

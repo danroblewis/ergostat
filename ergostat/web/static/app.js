@@ -76,7 +76,7 @@ async function route() {
   closeDetail();
   const main = $("#main");
   main.replaceChildren();
-  const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord,
+  const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/parts": pageParts, "/record": pageRecord,
                   "/residuals": pageResiduals, "/check": pageCheck };
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)));
   return (pages[path] || pageDiagram)(main, q);
@@ -851,6 +851,42 @@ async function pageAgents(main) {
       }
       box.append(col);
     });
+  }
+  await tick();
+  S.timer = setInterval(tick, 3000);
+}
+
+async function pageParts(main, q) {
+  const p = page(main, "Parts", "Every part of the model, one kind at a time, with what it holds or does now. Click a row for its detail.");
+  const kinds = ["system", "stock", "flow", "valve", "sensor", "controller", "disturbance"];
+  const on = q.get("kind") || "stock";
+  p.append(h("div", { class: "seg tabs" }, kinds.map((k) => h("button", { class: k === on ? "on" : "", onclick: () => { location.hash = `#/parts?kind=${k}`; } }, k + "s"))));
+  const box = h("div", { style: "margin-top:14px" });
+  p.append(box);
+  const badgeEl = (a) => a ? h("span", { class: "rungpill", style: `background:${rungColor(a.rung)}` }, `${a.kind} · ${a.name}`) : h("span", { class: "s-open status" }, "unfilled");
+  const rowsFor = {
+    system: (x) => [h("b", {}, x.name), x.description, String(x.parts), x.loops.join(", ") || "–", x.off.length ? h("span", { class: "s-off status" }, x.off.join(", ")) : "0"],
+    stock: (x) => [h("b", {}, x.name), h("span", { class: "num" }, `${fmt(x.value)} ${x.unit}`), x.points.length > 1 ? sparkSvg(x.points, 130, 26) : "",
+                   x.sensor || h("span", { class: "s-open status" }, "unmeasured"), h("span", { class: "num" }, `${fmt(x.inflow)}/h in · ${fmt(x.outflow)}/h out`)],
+    flow: (x) => [h("b", {}, x.name), x.from || "outside", x.to || "outside", h("span", { class: "num" }, `${fmt(x.rate)}/h`), h("span", { class: "muted" }, x.how)],
+    disturbance: (x) => [h("b", {}, x.name), x.from || "outside", x.to || "outside", h("span", { class: "num" }, `${fmt(x.rate)}/h`), h("span", { class: "muted" }, x.how)],
+    valve: (x) => [h("b", {}, x.name), x.flow, x.mode, badgeEl(x.agent), h("span", { class: "num" }, `${fmt(x.rate)}/h`), ago(x.last)],
+    sensor: (x) => [h("b", {}, x.name), x.measures, badgeEl(x.agent), h("span", { class: "num" }, fmt(x.reading)), ago(x.at)],
+    controller: (x) => [h("b", {}, x.name), `${x.holds} ${x.setpoint}`, statusEl(x.status), badgeEl(x.agent)],
+  };
+  const heads = { system: ["system", "description", "parts", "loops", "off"], stock: ["stock", "now", "trend", "measured by", "flows"],
+                  flow: ["flow", "from", "to", "rate", "how we know"], disturbance: ["disturbance", "from", "to", "rate", "how we know"],
+                  valve: ["valve", "flow", "mode", "filled by", "rate", "last opened"], sensor: ["sensor", "measures", "filled by", "reading", "read"],
+                  controller: ["controller", "holds", "status", "filled by"] };
+  const open = (x) => on === "system" ? (location.hash = `#/diagram?system=${encodeURIComponent(x.name)}`)
+                    : on === "controller" ? openLoop(x.name)
+                    : openNode({ id: `${on === "valve" ? "valve" : on}:${x.name}`, kind: on, label: x.name, flow: x.name });
+  async function tick() {
+    const all = await api("parts");
+    const rows = all[on] || [];
+    box.replaceChildren(rows.length ? h("table", {}, h("tr", {}, heads[on].map((x) => h("th", {}, x))),
+      rows.map((x) => h("tr", { class: "click", onclick: () => open(x) }, rowsFor[on](x).map((c) => h("td", {}, c)))))
+      : h("p", { class: "muted" }, `no ${on}s`));
   }
   await tick();
   S.timer = setInterval(tick, 3000);
