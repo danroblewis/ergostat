@@ -65,7 +65,7 @@ examples
   ergostat agent                  Who fills which roles, at what rung
   ergostat event --follow         Watch events arrive
   ergostat snapshot               The page, as of now, in one HTML file to send
-  ergostat check --example        An example ergostat.toml to start from
+  ergostat check --example        An example ergostat.toml to start from (--example cron: one-liners)
 """
 
 
@@ -105,7 +105,8 @@ def build() -> argparse.ArgumentParser:
     s.add_argument("--open", action="store_true", help="open it in the web page")
     topic("loop", cmd_loop, "The feedback loops, or one, part by part")
     ch = topic("check", cmd_check, "Is the model whole?", named=False)
-    ch.add_argument("--example", action="store_true", help="print an example ergostat.toml")
+    ch.add_argument("--example", nargs="?", const="disk", choices=["disk", "cron"],
+                    help="print an example ergostat.toml: disk (one program, the default) or cron (one-liners, nothing to write)")
     ag = topic("agent", cmd_agent, "Who fills which roles, at what rung")
     ag.add_argument("--now", action="store_true", help="run this agent once, at once (recorded like any run)")
     e = topic("event", cmd_event, "The raw record, or one event with its causes (by id)")

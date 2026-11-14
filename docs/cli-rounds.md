@@ -506,3 +506,5 @@ was about to write a launchd plist by hand, guessing the arguments.
   runs this repository's ergostat in the foreground, with its log and `ERGOSTAT_HOME`, restarted
   after a crash or a reboot but not after `run --stop`; and says where to save it and how to load
   it. It installs nothing: where it goes is the owner's to decide.
+- `check --example cron` prints a model of two one-liners (a count, and an hourly prune as an open
+  loop) that runs as it is, in an empty repository: nothing to write before the first diagram.

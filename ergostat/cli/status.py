@@ -9,7 +9,7 @@ from .. import show
 from .. import state as st
 from ..show import ago, c, table
 from ..state import fmt
-from .common import EXAMPLE, as_of, open_project, out_json, parts_of, snap_of, window
+from .common import EXAMPLE, EXAMPLE_CRON, as_of, open_project, out_json, parts_of, snap_of, window
 
 
 def cmd_status(args) -> int:
@@ -104,7 +104,7 @@ def counts(p) -> dict:
 
 def cmd_check(args) -> int:
     if args.example:
-        print(EXAMPLE)
+        print(EXAMPLE_CRON if args.example == "cron" else EXAMPLE)
         return 0
     p = open_project(args)
     found = mdl.check(p.model)

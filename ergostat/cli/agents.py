@@ -126,7 +126,7 @@ def run_now(args) -> int:
             got = p.measurements.latest(f"sensor/{role.name}")
             if not got or got[0] < began:
                 silent.append(f"sensor {role.name}")
-        elif role.kind == "controller" and role.name not in decided:
+        elif role.kind == "controller" and role.name not in decided and not role.open_loop:   # a timer never says
             silent.append(f"controller {role.name}")
         elif role.kind == "valve" and role.name not in opened:
             silent.append(f"valve {role.name}")

@@ -120,3 +120,53 @@ kind = "program"
 command = "./clean.sh"
 every = "5m"
 '''
+
+
+EXAMPLE_CRON = '''# ergostat.toml: two jobs as a crontab would have them, one-liners that print a number; nothing to
+# write. A job filling one sensor or one valve may print a bare number: its reading, or what it moved.
+# Try it here as it is: `ergostat run`, then `ergostat` and `ergostat system --blocks`.
+
+[[stock]]
+name = "tmp-files"
+unit = "files"
+systems = ["host"]
+
+[[disturbance]]
+name = "files-left"
+into = "tmp-files"
+description = "whatever leaves files in tmp/; nothing here controls it"
+
+[[flow]]
+name = "pruned"
+from = "tmp-files"
+
+[[sensor]]
+name = "count-tmp"
+measures = "tmp-files"
+agent = "count"
+
+[[controller]]
+name = "tmp-under-500"
+holds = "tmp-files"
+setpoint = "<= 500"
+drives = ["prune-old"]
+agent = "pruner"
+open_loop = true          # a timer: it deletes by age, whatever the count; the count only watches it
+
+[[valve]]
+name = "prune-old"
+flow = "pruned"
+agent = "pruner"
+
+[[agent]]
+name = "count"
+kind = "program"
+command = "mkdir -p tmp; find tmp -type f | wc -l"
+every = "1m"
+
+[[agent]]
+name = "pruner"
+kind = "rule"
+command = "find tmp -type f -mmin +60 -delete -print | wc -l"
+cron = "0 * * * *"
+'''
