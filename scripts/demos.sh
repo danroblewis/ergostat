@@ -10,7 +10,7 @@ ergostat="$here/.venv/bin/ergostat"
 demos="${DEMOS:-$here/examples}"
 cmd="${1:-list}"; [ $# -gt 0 ] && shift
 names="$*"
-[ -n "$names" ] || names=$(for d in "$demos"/*/ergostat.toml; do basename "$(dirname "$d")"; done)
+[ -n "$names" ] || names=$(for d in "$demos"/*/ergostat.yaml "$demos"/*/ergostat.toml; do [ -f "$d" ] && basename "$(dirname "$d")"; done | sort -u)
 case "$cmd" in
   start) for n in $names; do printf '%-12s ' "$n"; "$ergostat" -C "$demos/$n" run | sed -n 's/^web: //p; s/^already running.*· //p'; done ;;
   stop)  for n in $names; do printf '%-12s ' "$n"; "$ergostat" -C "$demos/$n" run --stop; done ;;

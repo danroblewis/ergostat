@@ -145,7 +145,7 @@ def main() -> int:
     ap.add_argument("--shots", type=Path)
     a = ap.parse_args()
     os.environ.setdefault("ERGOSTAT_HOME", tempfile.mkdtemp(prefix="ergostat-demos-"))
-    names = a.demos or sorted(p.name for p in DEMOS.iterdir() if (p / "ergostat.toml").exists())
+    names = a.demos or sorted(p.name for p in DEMOS.iterdir() if (p / "ergostat.yaml").exists() or (p / "ergostat.toml").exists())
     if a.shots:
         a.shots.mkdir(parents=True, exist_ok=True)
     bad = 0

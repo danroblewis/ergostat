@@ -1,0 +1,163 @@
+# Three scripts as they are, printing sentences for people ("cleanup done: removed 12 stale
+# uploads"); each agent's `parse` takes the number from its own words. Nothing was rewritten.
+name = "talking-scripts"
+
+[[system]]
+name = "app-host"
+description = "the app's log, its uploads, and the status report"
+
+# ---- the log: a script rotates it when it is big, and says how much it freed
+
+[[stock]]
+name = "log-size"
+unit = "KB"
+systems = ["app-host"]
+
+[[disturbance]]
+name = "logging"
+into = "log-size"
+agent = "app"
+
+[[flow]]
+name = "rotated"
+from = "log-size"
+unit = "KB"
+
+[[sensor]]
+name = "du-log"
+measures = "log-size"
+agent = "du"
+
+[[controller]]
+name = "log-small"
+holds = "log-size"
+setpoint = "<= 64"
+tolerance = 16
+reads = ["du-log"]
+drives = ["rotate-log"]
+agent = "rotate"
+description = "the script looks at the size itself: over 48 KB, it rotates"
+
+[[valve]]
+name = "rotate-log"
+flow = "rotated"
+agent = "rotate"
+
+# ---- uploads: a cleanup removes old leftovers, at most 25 a run, whatever the count
+
+[[stock]]
+name = "uploads"
+unit = "files"
+systems = ["app-host"]
+
+[[disturbance]]
+name = "uploads-left"
+into = "uploads"
+agent = "app"
+
+[[flow]]
+name = "cleaned"
+from = "uploads"
+unit = "files"
+
+[[sensor]]
+name = "count-uploads"
+measures = "uploads"
+agent = "ls"
+
+[[controller]]
+name = "few-uploads"
+holds = "uploads"
+setpoint = "<= 60"
+tolerance = 20
+drives = ["clean-uploads"]
+agent = "clean"
+open_loop = true
+description = "a timer: whatever is older than a minute goes, 25 at most"
+
+[[valve]]
+name = "clean-uploads"
+flow = "cleaned"
+agent = "clean"
+max = 25
+
+# ---- the report: rebuilt on a schedule; it says how old the one it replaced was
+
+[[stock]]
+name = "report-age"
+unit = "s"
+systems = ["app-host"]
+
+[[disturbance]]
+name = "time-passing"
+into = "report-age"
+rate = 3600
+description = "a second a second"
+
+[[flow]]
+name = "refreshed"
+from = "report-age"
+unit = "s"
+
+[[sensor]]
+name = "report-clock"
+measures = "report-age"
+agent = "age"
+
+[[controller]]
+name = "report-fresh"
+holds = "report-age"
+setpoint = "<= 90"
+drives = ["rebuild-report"]
+agent = "report"
+open_loop = true
+description = "rebuilt every minute, whatever its age"
+
+[[valve]]
+name = "rebuild-report"
+flow = "refreshed"
+agent = "report"
+
+# ---- the agents: the scripts, and one-liners that measure
+
+[[agent]]
+name = "rotate"
+kind = "rule"
+command = "jobs/rotate.sh"
+cron = "* * * * *"
+parse = "freed (\\d+) KB"
+
+[[agent]]
+name = "clean"
+kind = "rule"
+command = "jobs/clean.sh"
+every = "20s"
+parse = "removed (\\d+) stale"
+
+[[agent]]
+name = "report"
+kind = "program"
+command = "jobs/report.sh"
+cron = "* * * * *"
+parse = "was (\\d+)s old"
+
+[[agent]]
+name = "du"
+command = "if [ -f var/log/app.log ]; then du -k var/log/app.log | cut -f1; else echo 0; fi"
+every = "10s"
+
+[[agent]]
+name = "ls"
+command = "mkdir -p var/uploads; ls var/uploads | wc -l"
+every = "10s"
+
+[[agent]]
+name = "age"
+command = "if [ -f var/report.html ]; then echo $(( $(date +%s) - $(stat -c %Y var/report.html 2>/dev/null || stat -f %m var/report.html) )); else echo 0; fi"
+every = "10s"
+
+[[agent]]
+name = "app"
+command = "jobs/app.sh"
+every = "3s"
+description = "stands in for the app: the load on the log and the uploads"

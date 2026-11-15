@@ -179,17 +179,16 @@ def test_the_yaml_wins_over_the_toml_and_shows_as_the_old_model(tmp_path):
     assert all(lv != "error" for lv, _ in mdl.check(m))
 
 
-def test_every_toml_example_converts_to_a_model_that_compiles(tmp_path):
+def test_every_old_example_converts_to_a_model_that_compiles(tmp_path):
+    """The twelve examples as they were in TOML (tests/fixtures/toml): each converts, compiles, and
+    keeps one goal per controller."""
     from ergostat.spec.convert import convert
-    for d in sorted((ROOT / "examples").iterdir()):
-        toml = d / "ergostat.toml"
-        if not toml.is_file():
-            continue
-        m = mdl.parse(__import__("tomllib").loads(toml.read_text()), toml, default_name=d.name)
+    for toml in sorted((ROOT / "tests/fixtures/toml").glob("*.toml")):
+        m = mdl.parse(__import__("tomllib").loads(toml.read_text()), toml, default_name=toml.stem)
         text, _ = convert(m)
-        out = tmp_path / d.name / "ergostat.yaml"
+        out = tmp_path / toml.stem / "ergostat.yaml"
         out.parent.mkdir()
         out.write_text(text)
         _, problems = read(out)
-        assert not [p for p in problems if p.level == "error"], (d.name, problems)
+        assert not [p for p in problems if p.level == "error"], (toml.stem, problems)
         assert len(m.controllers) == len(load(out).goals)

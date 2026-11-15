@@ -1,0 +1,69 @@
+# The docs kept in step with the code. An AI agent rewrites pages; a cheap decision picks which.
+name = "docs-fresh"
+
+[[system]]
+name = "docs"
+description = "the user guide and the API reference"
+
+[[stock]]
+name = "stale-pages"
+unit = "pages"
+systems = ["docs"]
+description = "pages older than the code they describe"
+
+[[disturbance]]
+name = "code-changes"
+into = "stale-pages"
+description = "every merged change can make a page stale"
+
+[[flow]]
+name = "pages-refreshed"
+from = "stale-pages"
+
+[[sensor]]
+name = "stale-scan"
+measures = "stale-pages"
+agent = "doc-scanner"
+description = "compares each page's date with the files it documents"
+
+[[sensor]]
+name = "churn-meter"
+measures = "code-changes"
+agent = "doc-scanner"
+description = "merged changes per hour"
+
+[[controller]]
+name = "docs-current"
+holds = "stale-pages"
+setpoint = "<= 3"
+reads = ["stale-scan", "churn-meter"]
+drives = ["rewrite-page"]
+agent = "page-picker"
+description = "few enough stale pages that readers rarely meet one"
+
+[[valve]]
+name = "rewrite-page"
+flow = "pages-refreshed"
+mode = "advise"
+agent = "doc-writer"
+description = "a rewritten page, proposed as a pull request"
+
+[[agent]]
+name = "doc-scanner"
+kind = "program"
+command = "python3 scan.py"
+every = "3s"
+
+[[agent]]
+name = "page-picker"
+kind = "decision"
+command = "python3 pick.py"
+every = "5s"
+description = "a short model call: which stale page matters most (simulated here)"
+
+[[agent]]
+name = "doc-writer"
+kind = "ai"
+command = "python3 writer.py"
+on = ["docs.rewrite.requested"]
+description = "a Claude Code session that rewrites one page (simulated here)"

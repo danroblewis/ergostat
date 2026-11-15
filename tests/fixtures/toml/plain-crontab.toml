@@ -1,0 +1,114 @@
+# Two jobs as they would sit in a crontab: one-liners that print a number, or nothing. No JSON, no
+# wrapper scripts. A job that fills one sensor or one valve may print a bare number: its reading, or
+# what it moved. The app below stands in for the program whose mess the jobs clean up.
+name = "plain-crontab"
+
+[[system]]
+name = "host"
+description = "the scratch directory and the log of one app"
+
+# ---- scratch files: the app leaves them, a job prunes them
+
+[[stock]]
+name = "scratch-files"
+unit = "files"
+systems = ["host"]
+
+[[disturbance]]
+name = "app-temp-files"
+into = "scratch-files"
+agent = "app"
+description = "the app writes temporary files and forgets them"
+
+[[flow]]
+name = "pruned"
+from = "scratch-files"
+
+[[sensor]]
+name = "count-scratch"
+measures = "scratch-files"
+agent = "ls"
+
+[[controller]]
+name = "scratch-under-100"
+holds = "scratch-files"
+setpoint = "<= 100"
+tolerance = 20
+drives = ["prune-old"]
+agent = "pruner"
+open_loop = true
+description = "a timer, not feedback: whatever is older than a minute goes, whatever the count"
+
+[[valve]]
+name = "prune-old"
+flow = "pruned"
+agent = "pruner"
+
+# ---- the app's log: it grows, a job rotates it
+
+[[stock]]
+name = "log-size"
+unit = "KB"
+systems = ["host"]
+
+[[disturbance]]
+name = "app-logging"
+into = "log-size"
+agent = "app"
+
+[[flow]]
+name = "rotated"
+from = "log-size"
+
+[[sensor]]
+name = "du-log"
+measures = "log-size"
+agent = "du"
+
+[[controller]]
+name = "log-under-64k"
+holds = "log-size"
+setpoint = "<= 64"
+tolerance = 16
+reads = ["du-log"]
+drives = ["rotate-log"]
+agent = "rotator"
+description = "implicit in the job: over 48 KB, rotate"
+
+[[valve]]
+name = "rotate-log"
+flow = "rotated"
+agent = "rotator"
+
+# ---- the jobs, as one-liners
+
+[[agent]]
+name = "ls"
+kind = "program"
+command = "ls scratch | wc -l"
+every = "10s"
+
+[[agent]]
+name = "pruner"
+kind = "rule"
+command = "find scratch -type f -mmin +1 -delete -print | wc -l"
+cron = "* * * * *"
+
+[[agent]]
+name = "du"
+kind = "program"
+command = "if [ -f logs/app.log ]; then du -k logs/app.log | cut -f1; else echo 0; fi"
+every = "10s"
+
+[[agent]]
+name = "rotator"
+kind = "rule"
+command = "s=$(du -k logs/app.log 2>/dev/null | cut -f1); if [ \"${s:-0}\" -gt 48 ]; then mv logs/app.log logs/app.log.1; echo $s; else echo 0; fi"
+cron = "*/2 * * * *"
+
+[[agent]]
+name = "app"
+kind = "program"
+command = "mkdir -p scratch logs; for i in 1 2 3; do mktemp scratch/tmp.XXXXXX >/dev/null; done; head -c 3000 /dev/urandom | base64 >> logs/app.log"
+every = "3s"
+description = "stands in for the app: the load behind both disturbances, filling no role"
