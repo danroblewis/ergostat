@@ -128,6 +128,49 @@ controller (PLC); SCADA; HMI; alarm management (priorities, flooding, shelving);
 instrumented system (SIS); IEC 61131-3 (PLC languages and function blocks); IEC 61499
 (distributed function blocks).
 
+## Comparison of terms
+
+The same idea in each field, and what ergostat calls it. A dash means the field has no usual term
+for it.
+
+| Idea | System dynamics | Control engineering | ergostat |
+|---|---|---|---|
+| What accumulates | Stock (level) | State variable; the plant's integrator, whose output is the controlled variable (PV, y) | Stock |
+| What changes it | Flow (rate): inflow, outflow | Plant input (and output) rate | Flow |
+| A change nobody controls | Exogenous flow; an input from outside the boundary | Disturbance (load), d | Disturbance (a flow with no valve) |
+| A change that can be commanded | Flow whose rate equation depends on a decision | Manipulated variable (MV, u) applied through the actuator | Flow with a valve |
+| Where a rate is set | Valve symbol: where the flow's rate equation lives | Actuator (final control element) | Valve |
+| The rule that decides a rate | Policy (decision rule) in the flow's equation | Controller (control law, compensator) | Controller |
+| What we want | Goal (desired state) | Reference (setpoint, SP, r) | Goal |
+| How far off | Discrepancy (gap) | Error, e = r − y | Error (and "off by") |
+| How we know | Information link from the stock (measurement implied) | Sensor (transmitter), ym | Sensor |
+| Information between elements | Connector (information link) | Signal | Signal (a reference to a port or stock) |
+| A computed value | Converter (auxiliary) | Block (function) | Block |
+| A fixed value | Constant (parameter) | Parameter (gain, setpoint value) | A value in the configuration |
+| A curve or table | Table (graphical) function | Lookup table (function generator) | Lookup block |
+| A lag in seeing | Information delay; perception delay; smoothing | Measurement lag; first-order lag; low-pass filter | Sensor period; stale readings |
+| A lag in moving | Material delay; pipeline; conveyor | Transport delay (dead time) | Valve delay ("opens 42s after") |
+| How fast it corrects | Adjustment time | Time constant (and gain) | Back in (recovery time) |
+| Outside the model | Source and sink (clouds); model boundary | Outside the plant; exogenous inputs | Outside (`from`/`to` left out) |
+| A goal-seeking loop | Balancing loop (B, negative) | Negative feedback loop (closed loop) | Loop (holding, off) |
+| A self-amplifying loop | Reinforcing loop (R, positive) | Positive feedback (unstable) | — |
+| No feedback | Open loop (no information link back) | Open loop | Open loop (`open_loop`) |
+| Acting on the disturbance itself | — (a decision reading an input flow) | Feedforward | Feedforward |
+| Loops inside loops | Nested structure; modules | Cascade control (primary, secondary) | Servo (an agent session), cascade |
+| A part of the model with inputs and outputs | Module (submodel, sector) | Subsystem | System (a label), subsystem (planned) |
+| The most a mechanism can do | — (a flow limited in its equation) | Saturation (limiter) | Valve `max`; saturated |
+| Asking for more than can be done | — | Integral windup | Work piling up; "falling behind" |
+| Stopping that | — | Anti-windup | Skipping a run while the last waits; clamping commands (planned) |
+| Which loop governs now | Loop dominance (shifting dominance) | Dominant poles | — |
+| Overshoot, oscillation | Overshoot and oscillation (behaviour modes) | Overshoot, underdamping, limit cycle | Crossings; time off |
+| Resting state | Equilibrium (steady state) | Steady state; operating point | Holding |
+| A measured pattern to explain | Reference mode | Data for system identification | The record |
+| Inferring the model from data | Calibration | System identification | Discovery (planned) |
+| What can be known | — | Observability | A stock with no sensor |
+| What can be changed | — | Controllability | A goal no controller serves (missing feedback) |
+| Amplification along a chain | Bullwhip effect | Noise or disturbance amplification | Loops in series; work piling up |
+| Who does the work | — | — (machines are outside the theory) | Agent (person, ai, program, rule) |
+
 ## Prior art: the two combined
 
 - **System dynamics came from control engineering.** Forrester worked in MIT's Servomechanisms
