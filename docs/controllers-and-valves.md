@@ -7,6 +7,35 @@ are collected here (the owner's notes, 2026-11-14), followed by what they mean f
 where the valves are often agents: machines, programs, AI agents and people that let a flow of
 work happen.
 
+## The distinction, in one place
+
+Mathematically there is no difference. Every block in a block diagram is a function from input
+signals to output signals; "controller", "actuator" (valve) and "sensor" are names for roles,
+not kinds of mathematics. And the sensor-controller-valve arrangement is a pattern, not a law.
+
+The role names still mean something:
+
+- **The controller is the block you design.** It is the free choice, where intent goes: goals,
+  priorities, limits, what to do when off. Everything else (the actuator, the plant, the sensor)
+  is given: something to accept and model, not choose. Control engineering is the study of
+  choosing that one block well, given the others.
+- **The controller is not "the simple part".** Model predictive control solves an optimisation
+  against a model of the whole plant at every step; actuators can be as simple as a solenoid.
+  The "light controller, heavy valve" picture comes from the economics of process plants, not
+  from the theory.
+- **The controller is not required to be linear.** On/off (thermostats), constrained MPC,
+  gain-scheduled, fuzzy and rule-based controllers are all nonlinear. Linearity is what the
+  analysis tools want (Bode, Nyquist, root locus, stability proofs), because linear blocks
+  compose predictably: superposition holds, small errors stay small, a few tests tell you how it
+  behaves everywhere. Where analysis matters, engineers keep known nonlinearities outside the
+  core block (gain scheduling, feedforward), not inside it.
+- **Sensors and actuators decide what can be known and what can be changed.** Control theory
+  makes this formal (observability and controllability): a state no sensor reads cannot be
+  known, and a state no actuator moves cannot be controlled. Missing feedback is one of these.
+
+The reasons below are why, in practice, the designed block is kept apart from the mechanisms it
+commands.
+
 ## The reasons
 
 ### 1. Loop shaping needs the control law apart from the mechanics
@@ -66,6 +95,31 @@ engineers use quasi-steady-state assumptions or reduced-order models when analys
 (singular perturbation).
 
 ## What this means for ergostat
+
+**An AI agent can fill either role; its function decides which, not its complexity.**
+
+- **As a valve**, it is coupled to the real system: it changes the repository, the docs, the
+  tickets. It is judged by what it did to the stocks, not by its report. An AI agent session is
+  more than a plain valve: it is a servo, given a target and looping inside until it gets there.
+- **As a controller**, its output is only a decision or a command, never a change to the world.
+  It is the policy written down at its level. What we want from it is not linearity but good
+  behaviour at the level of the loop: monotone (more error never brings less action), bounded
+  (no wild commands), consistent (the same situation gets much the same decision), and fast
+  enough. ergostat can measure each of these.
+
+Triage is an example: an AI agent sorting incoming items into buckets is a controller of the
+routing kind (it decides where work goes; other machines do the work). Item by item it is a
+discrete, nonlinear function; what the loop needs is a low, steady misroute rate and enough
+throughput, both measurable. A known nonlinearity, such as different sorting by time of day, is
+kept outside it, the way engineers would: switched or fed forward, not buried in the prompt. An AI
+controller whose decisions are very consistent is a candidate to become a rule (the ladder).
+
+Layered systems are the same picture repeated: at each level there is one designed block (the
+policy) and the levels below, seen from outside, are its valves. A Fable supervisor commanding
+Sonnet workers is supervisory control: an expensive policy over cheaper mechanisms. There is a
+controller at every level; that is where each level's decisions are explicit, measured at the
+boundary (command in, achievement out), and changeable.
+
 
 In ergostat the valve is usually an agent, and every one of the four reasons carries over.
 

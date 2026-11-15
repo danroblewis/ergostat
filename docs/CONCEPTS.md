@@ -120,11 +120,19 @@ part of the sensor's description.
 
 ### Why controllers and valves are separate
 
-See `docs/controllers-and-valves.md`. In short: the controller is the policy and the valve the
-mechanism. Each has its own dynamics, state and flaws: loop shaping needs the law apart from the
-mechanics, the valve's nonlinearities (dead zones, rate limits, asymmetry) are kept inside it,
-saturation and windup are caught at the boundary between them, and they run on different
-timescales. All of this is true, and often more true, when the valve is an agent.
+See `docs/controllers-and-valves.md`. In short: mathematically every block is just a function,
+and the role names say what each block is for. **The controller is the block you design**, where
+intent is written down; everything else is given, to be accepted and modelled. A controller is not
+necessarily simple (model predictive control solves an optimisation every step) and not
+necessarily linear (a thermostat is on/off); linearity is what analysis wants, so known
+nonlinearities are kept outside the designed block. The valve is the mechanism the controller
+commands, with its own dynamics, state and flaws, kept separate so they are contained, and so the
+boundary between them (command in, achievement out) can be measured.
+
+An AI agent can be either. As a valve it changes the world and is judged by the stocks. As a
+controller its output is only a decision, and what we want from it is good behaviour at the level
+of the loop (monotone, bounded, consistent), not linearity: triage is a routing controller of this
+kind.
 
 An AI agent session is more than a plain valve: it is a **servo**, an actuator with its own
 feedback, given a target and correcting itself until it gets there. Putting it under another
