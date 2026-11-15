@@ -49,6 +49,8 @@ def status_word(s: str | None) -> str:
 
 
 def agent_tag(model, name: str | None) -> str:
+    if not name and getattr(model, "spec", None) is not None:   # the YAML model: a sensor is its own command
+        return c("its own command", "dim")
     if not name:
         return c("unfilled", "warn")
     a = model.agents.get(name)
