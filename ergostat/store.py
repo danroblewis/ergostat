@@ -64,7 +64,7 @@ def state_dir(project: str, repo: Path | None = None) -> Path:
 
 
 def _connect(path: Path, schema: str) -> sqlite3.Connection:
-    c = sqlite3.connect(path, timeout=10, isolation_level=None)
+    c = sqlite3.connect(path, timeout=10, isolation_level=None, check_same_thread=False)   # lent to one thread at a time
     c.row_factory = sqlite3.Row
     c.execute("pragma journal_mode=wal")
     c.execute("pragma busy_timeout=10000")
@@ -73,19 +73,42 @@ def _connect(path: Path, schema: str) -> sqlite3.Connection:
 
 
 class _Conns:
-    """One connection per thread, kept open: opening and closing connections from many threads at
-    once can deadlock inside SQLite's file locking."""
+    """A few connections, kept open and lent to one thread at a time. Not one per thread: a runner
+    with dozens of agents and a page with its pool of threads would hold two files per connection
+    each (the database and its WAL), past macOS's default of 256 open files. Not opened and closed
+    for every use either: that, from many threads at once, can deadlock inside SQLite's locking.
+    A thread that already holds one (a call inside a call) uses the same one."""
+
+    SIZE = 6
 
     def __init__(self, path: Path, schema: str):
+        import queue
         self.path, self.schema = path, schema
         self.local = threading.local()
+        self.free: queue.LifoQueue = queue.LifoQueue()
+        self.made, self.lock = 0, threading.Lock()
 
     @contextmanager
     def __call__(self):
-        c = getattr(self.local, "c", None)
+        held = getattr(self.local, "c", None)
+        if held is not None:                       # already lent to this thread: the same one
+            yield held
+            return
+        c = None
+        with self.lock:
+            if self.free.empty() and self.made < self.SIZE:
+                self.made += 1
+                c = _connect(self.path, self.schema)
         if c is None:
-            c = self.local.c = _connect(self.path, self.schema)
-        yield c
+            c = self.free.get()                    # wait for one to come back
+        self.local.c = c
+        try:
+            yield c
+        finally:
+            self.local.c = None
+            if c.in_transaction:                   # an error inside one: nothing half done is lent on
+                c.rollback()
+            self.free.put(c)
 
 
 class Events:

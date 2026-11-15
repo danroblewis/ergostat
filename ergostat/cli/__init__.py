@@ -176,7 +176,21 @@ def cmd_help(args) -> int:
     return 0
 
 
+def _more_files() -> None:
+    """The soft limit on open files raised toward the hard one (macOS starts at 256): a runner with
+    many agents runs a process per agent at once, each with its pipes and log."""
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        want = 4096 if hard == resource.RLIM_INFINITY else min(4096, hard)
+        if soft < want:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+    except (ImportError, ValueError, OSError):
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _more_files()
     ap = build()
     argv = list(sys.argv[1:] if argv is None else argv)
     flags_with_value = {"-C", "-s", "--system", "--since", "--at"}
