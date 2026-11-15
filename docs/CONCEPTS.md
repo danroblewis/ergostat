@@ -126,6 +126,12 @@ mechanics, the valve's nonlinearities (dead zones, rate limits, asymmetry) are k
 saturation and windup are caught at the boundary between them, and they run on different
 timescales. All of this is true, and often more true, when the valve is an agent.
 
+An AI agent session is more than a plain valve: it is a **servo**, an actuator with its own
+feedback, given a target and correcting itself until it gets there. Putting it under another
+controller is **cascade control**: an outer loop decides what and how much against stocks it can
+measure, the inner loop inside the session decides how. The common multi-agent patterns read
+this way are in `docs/patterns.md`.
+
 ## 4. Machines and roles
 
 Control theory says nothing about the machines that do the work. A factory cannot ignore them.
