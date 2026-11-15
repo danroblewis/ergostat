@@ -17,7 +17,8 @@ Things to look at:
 - `rotate-log` names its goal (`goal: log-small`): ergostat runs `rotate.sh` while the log is too big, and reads "freed 132 KB" as what it moved.
 - The block logs (`logs/<block>.log` in the state directory) keep each sentence next to its run.
 - The stand-in app moves two flows, so it speaks JSON lines instead: `{"out": "flow.logging", "moved": 3}`.
-- The cleanup and the report are timers, not feedback: `check` reports their goals as **missing feedback** and the blocks as **acting on their own**, which is true and meant. The app acts on its own too: it is the load.
+- The cleanup and the report are timers, not feedback: `check` reports their goals (`few-uploads`,
+  `report-fresh`) as **missing feedback** and the blocks as **acting on their own**, which is true and meant. The app acts on its own too: it is the load.
 - `clean.sh` caps itself at 25 a run. The block has no `max:`: a block's `max` limits the command it is given, and nothing commands this one.
 
 Shows: `parse` on blocks, a goal-driven script, open loops, a declared disturbance rate.
