@@ -715,8 +715,11 @@ measured and acted in one run) is listed at the top of the file.
 1. *Decided:* `goal:` stays on `onoff` and `proportional`, and a machine block may name its goal
    too (section 9.3).
 2. Should a sensor be allowed to run on a remote host (`host:`), or only through sources?
-3. Arbitration when two controllers command one block: `select` in front of it, or a key on the
-   block (`arbitrate: max`, `latest` or `priority`)?
-4. Person blocks: how a person reports (`ergostat block NAME --done 3`), and how long ergostat
-   waits before it counts them as not answering.
+3. Arbitration when two controllers command one block. *For now:* the largest command wins, and
+   `check` reports the competing commands; a `select` in front says otherwise (`pick: min`,
+   `first`). A key on the block (`arbitrate: latest`, `priority`) is still open.
+4. *Decided:* a person reports with `ergostat block NAME --done N` (or the MCP tool
+   `report_done`); ergostat records `person.asked` when the command rises, and one not answered
+   within an hour is a finding (`not-answering`). Whether the hour should be a key on the block is
+   open.
 5. The built-in set: is it the right first twelve?
