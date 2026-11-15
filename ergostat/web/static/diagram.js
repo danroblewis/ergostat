@@ -490,6 +490,7 @@ function panZoom(svg) {
   }, { passive: false });
   svg.addEventListener("pointerdown", (ev) => {
     if (ev.target.closest(".node")) return;
+    ev.preventDefault();                                   // a drag pans; it never starts selecting text
     drag = { x: ev.clientX, y: ev.clientY, vx: S.view.x, vy: S.view.y };
     svg.classList.add("dragging");
     svg.setPointerCapture(ev.pointerId);
