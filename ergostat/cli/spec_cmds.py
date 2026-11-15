@@ -205,3 +205,44 @@ def cmd_explain(args) -> int:
         return out_json({"part": args.name, "text": text})
     print(text)
     return 0
+
+
+def cmd_discover(args) -> int:
+    """``ergostat discover prometheus URL`` (a draft model from what a Prometheus holds) and
+    ``ergostat discover loops`` (loops in the record: flows that follow their stock's level)."""
+    from ..spec import discover as dc
+    what = args.name or "loops"
+    if what == "prometheus":
+        if not args.url:
+            print("ergostat discover prometheus --url http://prometheus:9090 [--match REGEX]", file=sys.stderr)
+            return 2
+        try:
+            text, _ = dc.from_prometheus(args.url, args.match)
+        except Exception as e:
+            print(f"prometheus at {args.url}: {type(e).__name__}: {e}", file=sys.stderr)
+            return 1
+        print(text, end="")
+        return 0
+    if what != "loops":
+        print("discover what? prometheus (a draft model from its series) or loops (from the record)", file=sys.stderr)
+        return 2
+    from ..durations import parse_duration
+    from .common import open_project
+    p = open_project(args)
+    spec = getattr(p.model, "spec", None)
+    if spec is None:
+        print("discover reads the YAML model (ergostat convert)", file=sys.stderr)
+        return 2
+    window = parse_duration(args.since, "--since") if args.since else 6 * 3600.0
+    found = dc.loops(p, spec, window)
+    if args.json:
+        return out_json(found)
+    if not found:
+        print(c("not enough readings yet to say (each stock needs a few hours of them, and its flows measured)", "dim"))
+    for f in found:
+        tag = "loop" if f["kind"] == "loop" and f["known"] else "unwritten" if f["kind"] == "loop" else "unanswered"
+        print(f"{c(tag, 'ok' if tag == 'loop' else 'warn')}  {f['says']}")
+    prop = dc.proposal(found, spec)
+    if prop:
+        print(c("\nto write them down (fill in the setpoints and name what acts):\n", "dim") + prop)
+    return 0

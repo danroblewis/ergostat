@@ -14,7 +14,7 @@ from .common import PART_TOPICS
 from .parts import cmd_part
 from .record import cmd_event, cmd_item, cmd_residual
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
-from .spec_cmds import cmd_block, cmd_convert, cmd_explain, cmd_findings
+from .spec_cmds import cmd_block, cmd_convert, cmd_discover, cmd_explain, cmd_findings
 from .status import cmd_check, cmd_status
 from .system import cmd_loop, cmd_system
 
@@ -31,6 +31,7 @@ the system
   convert        Write ergostat.toml as ergostat.yaml, the new format (docs/SPEC.md)
   block          The blocks: what each computes or runs, what it reads and commands
   explain        The model, or one part of it, in sentences: what it is, what serves it, what it is doing
+  discover       Find the model in what exists: discover prometheus --url URL, discover loops
   findings       Missing feedback, a stock heading for its limit, saturation, a critical goal decaying
 
 who does the work
@@ -116,6 +117,10 @@ def build() -> argparse.ArgumentParser:
     cv = topic("convert", cmd_convert, "Write ergostat.toml as ergostat.yaml (the new format)", named=False)
     cv.add_argument("--stdout", action="store_true", help="print it instead of writing the file")
     cv.add_argument("--force", action="store_true", help="replace an ergostat.yaml that is already there")
+    dv = topic("discover", cmd_discover, "Find the model in what exists: prometheus (a draft from its series) or loops "
+                                         "(from the record)")
+    dv.add_argument("--url", help="discover prometheus: the Prometheus to read")
+    dv.add_argument("--match", metavar="REGEX", help="discover prometheus: only metric names matching this")
     topic("explain", cmd_explain, "The model, or one part (goal.x, block.x, stock.x, flow.x), in sentences")
     topic("findings", cmd_findings, "What is worth a look: missing feedback, limits ahead, saturation, decay", named=False)
     bk = topic("block", cmd_block, "The blocks (YAML model), or one; a person reports on theirs")
