@@ -18,41 +18,36 @@ from .spec_cmds import cmd_block, cmd_convert, cmd_discover, cmd_explain, cmd_fi
 from .status import cmd_check, cmd_status
 from .system import cmd_loop, cmd_system
 
-HELP = """ergostat keeps your work going. Design, watch and run the control system around it.
+HELP = """ergostat closes control loops around scheduled work, and finds the ones that are missing.
 
 usage: ergostat [TOPIC] [NAME] [FLAGS]
 
   With no topic, ergostat shows what needs attention.
 
-the system
-  system         Draw a system (--blocks: each loop as a block diagram; --wiring: how agents talk)
-  loop           The feedback loops: what each holds, how far off, each part along it
-  check          Is the model whole? Errors (with file:line), then findings: missing feedback, ...
-  convert        Write ergostat.toml as ergostat.yaml, the new format (docs/SPEC.md)
+the model (ergostat.yaml: stocks, flows, goals, blocks)
+  check          Errors (file:line), then findings: missing feedback, open loops, ...
+  explain        The model, or one part (goal.x, block.x, stock.x, flow.x), in sentences
   block          The blocks: what each computes or runs, what it reads and commands
-  explain        The model, or one part of it, in sentences: what it is, what serves it, what it is doing
-  discover       Find the model in what exists: discover prometheus --url URL, discover loops
-  findings       Missing feedback, a stock heading for its limit, saturation, a critical goal decaying
+                 (block NAME --now runs one at once; --done N is a person's report)
+  convert        Write an old ergostat.toml as ergostat.yaml
 
-who does the work
-  agent          People, AI agents, decisions, programs and rules, and the roles they fill
-                 (agent NAME --now runs one at once)
-
-what happened
-  event          The raw record (--follow to watch)
-  item           Events folded by id
+what is wrong, or missing
+  findings       Missing feedback, a limit ahead, saturation, people not answering, decay
+  discover       Loops in the record (discover loops), a draft from Prometheus (discover prometheus)
   residual       What the model can't explain
 
-run it
-  run            Start the agents here, in the background, with the web page
-  web            Serve the web page only
-  chat           Talk to the Supervisor, who changes the system for you
-  mcp            Serve ergostat to an AI agent over MCP: claude mcp add ergostat -- ergostat -C DIR mcp
-  help agents    How to write an agent (also: help ai-agents)
-  projects       Every project on this machine, which run, and their pages
+see it
+  system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
+  loop           The feedback loops: what each holds, how far off, each part along it
+  event          The raw record (--follow to watch); item: events folded by id
+  snapshot       The page, as of now, in one HTML file to send
 
-the parts, one at a time
-  stock  flow  valve  sensor  controller  disturbance
+run it
+  run            Run it here, in the background, with the web page (--stop)
+  web            Serve the web page only
+  mcp            ergostat for an AI agent, over MCP
+  projects       Every project on this machine, which run, and their pages
+  help blocks    How to write a sensor's and a block's program (also: help ai-agents, help spec)
 
 flags
   -C DIR             Run as if in DIR
@@ -67,12 +62,11 @@ flags
 
 examples
   ergostat                        What needs attention
+  ergostat check                  Is the model whole?
+  ergostat explain goal.disk      One goal: what measures it, what serves it, what it is doing
+  ergostat findings               What is worth a look
   ergostat system --all           Draw the whole system
-  ergostat loop disk-under-80     One loop, part by part
-  ergostat agent                  Who fills which roles, at what rung
   ergostat event --follow         Watch events arrive
-  ergostat snapshot               The page, as of now, in one HTML file to send
-  ergostat check --example        An example ergostat.toml to start from (--example cron: one-liners)
 """
 
 
@@ -127,6 +121,8 @@ def build() -> argparse.ArgumentParser:
     bk.add_argument("--done", type=float, metavar="N", help="a person's report: what they moved")
     bk.add_argument("--approve", action="store_true", help="approve an advised command (mode: advise)")
     bk.add_argument("--note", help="with --done or --approve: what was done")
+    bk.add_argument("--now", action="store_true", help="run this block once, at once (recorded like any run)")
+    bk.add_argument("--command", type=float, metavar="N", help="with --now: the command it is given, as if commanded")
     ag = topic("agent", cmd_agent, "Who fills which roles, at what rung")
     ag.add_argument("--now", action="store_true", help="run this agent once, at once (recorded like any run)")
     e = topic("event", cmd_event, "The raw record, or one event with its causes (by id)")
@@ -166,7 +162,7 @@ def build() -> argparse.ArgumentParser:
                         description="An MCP server on stdin/stdout: check, explain, status, findings, events, spec, "
                                     "report_done, read_sensor. Add it to Claude Code: claude mcp add ergostat -- ergostat -C DIR mcp")
     mc.set_defaults(fn=cmd_mcp)
-    hp = sub.add_parser("help", help="Guides: agents (writing one), ai-agents")
+    hp = sub.add_parser("help", help="Guides: blocks (writing their programs), ai-agents, spec (the format)")
     hp.add_argument("name", nargs="?")
     hp.set_defaults(fn=cmd_help)
     sn = topic("snapshot", cmd_snapshot, "Write the page, with what it shows now, to one HTML file", named=False,
@@ -195,7 +191,7 @@ def cmd_help(args) -> int:
     """``ergostat help [agents|ai-agents]``: the guides, shipped with ergostat."""
     from pathlib import Path
     here = Path(__file__).resolve().parent.parent / "help"
-    guides = sorted(p.stem for p in here.glob("*.md"))
+    guides = sorted({p.stem for p in here.glob("*.md")} | {"spec"})
     if not args.name:
         print(HELP)
         print("guides: " + ", ".join(f"ergostat help {g}" for g in guides))
@@ -203,7 +199,10 @@ def cmd_help(args) -> int:
     if args.name not in guides:
         print(f"no guide {args.name!r}; guides: {', '.join(guides)}", file=sys.stderr)
         return 2
-    print((here / f"{args.name}.md").read_text(encoding="utf-8"))
+    path = here / f"{args.name}.md"
+    if args.name == "spec" and not path.is_file():           # from a clone: the spec is in docs/
+        path = here.parent.parent / "docs" / "SPEC.md"
+    print(path.read_text(encoding="utf-8"))
     return 0
 
 

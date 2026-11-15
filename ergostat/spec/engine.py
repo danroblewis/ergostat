@@ -193,6 +193,9 @@ class Engine:
             if rising:
                 self.ask(b, cmd)
             return False
+        flows = [t.name for t in b.targets() if t.kind == "flow"]
+        if any(s.series in self.reading for s in self.after_acting(flows)):
+            return False                                        # its last effect is not read yet: never outrun its sensors
         return rising or self.last_reading > self.finished.get(b.name, 0.0)
 
     def ask(self, b: Block, cmd: float) -> None:
@@ -212,6 +215,7 @@ class Engine:
 
     def _run(self, b: Block, why: str) -> None:
         slot = self.slots.get(b.agent or "")
+        moved: list[str] = []
         try:
             if slot:
                 slot.acquire()
@@ -224,16 +228,21 @@ class Engine:
             if slot:
                 slot.release()
             with self.lock:
+                for s in self.after_acting(moved):              # read after acting: the loop sees the effect now
+                    self.read_soon(s)                           # (marked under way before it may run again)
                 self.running.discard(b.name)
                 self.finished[b.name] = time.time()
-        for f in moved:                                         # read after acting: the loop sees the effect now
+        self.evaluate()
+
+    def after_acting(self, flows) -> list[Sensor]:
+        """The sensors of the stocks these flows connect: read at once after a block moves them."""
+        out = []
+        for f in flows:
             fl = self.spec.flows[f]
             for st in (fl.source, fl.target):
                 if st in self.spec.stocks:
-                    for s in self.spec.stocks[st].sensors.values():
-                        if s.run or s.query:
-                            self.read_soon(s)
-        self.evaluate()
+                    out += [s for s in self.spec.stocks[st].sensors.values() if s.run or s.query]
+        return out
 
     def context(self, b: Block, why: str) -> dict:
         cmd, detail = self.command_of(b)

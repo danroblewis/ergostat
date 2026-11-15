@@ -1,8 +1,11 @@
 # ergostat
 
-ergostat keeps work going. You describe the control system around some work (what accumulates,
-what moves it, what measures it, what decides and what acts) and ergostat runs the agents that fill
-those roles, records what they do, estimates the state, and draws the system.
+ergostat closes control loops around scheduled work. You write down what accumulates (a queue, a
+disk, a backlog), the goal you hold it to, how it is measured, and the job that moves it; ergostat
+reads the sensors, decides when the goal is off, runs the job with a command, records what was
+commanded and what was moved, and draws the system. It also finds what is missing: goals nothing
+serves, stocks heading for a limit, loops that answer more slowly than they did, and feedback that
+already exists in production but was never written down.
 
 ![The control diagram of the ops demo: stocks as tanks, flows as pipes through valves and
 disturbances, sensors, controllers with their setpoints, each part tagged with its agent, systems as
@@ -19,13 +22,6 @@ More: [the design picture, for a document](docs/screenshots/design.png),
 [the ladder](docs/screenshots/ladder.png), [a loop's detail with its trend](docs/screenshots/loop-detail.png),
 [dark, two cron one-liners](docs/screenshots/plain-crontab-dark.png).
 
-The ideas behind it, the parts of a control system and how agents fit in as the factory's machines:
-[docs/CONCEPTS.md](docs/CONCEPTS.md); the draft of the next configuration format, in YAML:
-[docs/SPEC.md](docs/SPEC.md) with its [JSON Schema](schema/ergostat.schema.json) (and why controllers and valves are separate:
-[docs/controllers-and-valves.md](docs/controllers-and-valves.md)).
-
-What was built on 2026-11-14, and what is left to decide: [docs/REPORT-2026-11-14.md](docs/REPORT-2026-11-14.md).
-
 The terms are in [NOTES.md](NOTES.md), the design in [docs/DESIGN.md](docs/DESIGN.md), and the rules for
 working on it in [CLAUDE.md](CLAUDE.md).
 
@@ -33,116 +29,126 @@ working on it in [CLAUDE.md](CLAUDE.md).
 
 ```bash
 uv tool install git+ssh://git@github.com/danroblewis/ergostat   # private: needs your GitHub SSH key
-# (from a clone: uv tool install --force ./ergostat; update later with: uv tool upgrade ergostat)
+# (update later with: uv tool upgrade ergostat)
 cd <your repository>
-ergostat check --example cron > ergostat.toml   # two one-liners that run as they are
-                                           # (--example: one program to write; or ergostat chat, the Supervisor)
-ergostat check                             # is the model whole?
-ergostat run                               # the agents, in the background, and the web page
-ergostat                                   # what needs attention
+$EDITOR ergostat.yaml          # the model (below); examples/first-loop is the smallest whole one
+ergostat check                 # errors with file:line, then findings (missing feedback, ...)
+ergostat run                   # in the background, with the web page
+ergostat                       # what needs attention
+ergostat explain               # the model in sentences
 ```
 
-## Try the demos
+An `ergostat.toml` from before still runs; `ergostat convert` writes it as `ergostat.yaml`, closing
+the loops it only watched.
 
-```bash
-scripts/demos.sh start        # every example in examples/, each with its own page
-scripts/demos.sh list         # which run, which loops are off, and their pages
-scripts/demos.sh stop
+## The model: `ergostat.yaml`
+
+Four kinds of thing, and a fifth when it says something: **stocks** (what accumulates, with the
+sensors that measure it), **flows** (what fills and drains them), **goals** (what you want of a stock
+or a flow), **blocks** (functions: ergostat's own built-ins, or programs, AI prompts and people it
+runs), and **agents** (only for a machine several blocks share). Valves, controllers, disturbances
+and loops are worked out from these, never written. The format: [docs/SPEC.md](docs/SPEC.md) and its
+[JSON Schema](schema/ergostat.schema.json).
+
+```yaml
+name: host
+
+stocks:
+  disk:
+    unit: "%"
+    limit: 100                    # where it fails: ergostat says how long until it gets there
+    sensor:
+      run: df -P /data | awk 'NR==2 {print $5+0}'
+      every: 1m
+
+flows:
+  writes:                         # the services' logs: a disturbance (nothing here sets it)
+    to: disk
+  cleaned:
+    from: disk
+
+goals:
+  disk-headroom:
+    stock: disk
+    hold: "<= 80"
+    tolerance: 2
+    critical: true
+    owner: platform
+
+blocks:
+  clean:                          # runs while disk-headroom is off, until the disk is back to 70
+    type: program
+    goal: disk-headroom
+    until: "<= 70"
+    run: ./clean-oldest.sh        # prints how many % it freed
+    out: flow.cleaned
+    max: 15                       # the most one run may free: its commands are clamped to it
 ```
 
-## The model: `ergostat.toml`
+Bigger models split into files (`include: [systems/*.yaml]`); a name defined twice is an error that
+names both places.
 
-```toml
-keep = "30d"     # how long the record is kept (the default)
+## What a block's program does
 
-[[stock]]        # what accumulates
-name = "disk-used"
-unit = "%"
-systems = ["host"]
-
-[[disturbance]]  # a flow no valve controls
-name = "logs-written"
-into = "disk-used"
-# agent = "app"  # optional: the agent whose doing it is (a load), drawn on it; not a role
-
-[[flow]]         # what moves a stock; an end left out is outside the boundary
-name = "cleaned"
-from = "disk-used"
-
-[[sensor]]       # measures a stock or a flow
-name = "disk-usage"
-measures = "disk-used"
-agent = "disk-cleaner"
-
-[[controller]]   # holds a stock at a setpoint: this is a loop
-name = "disk-under-80"
-holds = "disk-used"
-setpoint = "<= 80"
-reads = ["disk-usage"]
-drives = ["delete-old-files"]
-agent = "disk-cleaner"
-# open_loop = true  # a timer: acts on its schedule and reads nothing; leave out reads
-
-[[valve]]        # where an agent acts: on one flow
-name = "delete-old-files"
-flow = "cleaned"
-agent = "disk-cleaner"
-mode = "auto"    # or advise, or manual (the default when a person fills it)
-# max = 15       # optional: the most one opening can move (its limit: saturation is then exact)
-
-[[agent]]        # fills roles: person, ai, narrow-ai, decision, program or rule
-name = "disk-cleaner"
-kind = "program"
-command = "./clean.sh"
-every = "5m"     # or: cron = "0 3 * * *", or: on = ["loop.off", "backup.requested"]
-```
-
-Names are unique across all parts (a sensor may not share its stock's name: `disk-usage` measures
-`disk-used`). Every amount is in its stock's unit: a valve on a stock in KB says how many KB it
-moved, not how many files; a reading of a flow is its rate per hour in that unit. Give a flow or
-a sensor its own `unit` and `check` warns when it is not its stock's.
-
-## What an agent's program does
-
-It gets a JSON object on stdin (its roles, the state, its controllers' setpoints and errors, and the
-event that triggered it) and prints one JSON object per line, naming the part each line is for:
+A sensor's command prints its reading: a number (`du -sm logs | cut -f1`), or `{"value": n}`. A
+block's command gets JSON on stdin (its command, its inputs, its goals' values and errors) and
+prints what it moved: a number for its one output, or JSON lines:
 
 ```
-{"sensor": "disk-usage", "value": 71}
-{"controller": "disk-under-80", "decision": "under 80: nothing to do"}
-{"valve": "delete-old-files", "amount": 3.1}          # what it moved; "position": 4 says how far open it stands
-{"event": "backup.requested", "item": "database", "data": {}}
+{"out": "flow.cleaned", "moved": 12}
+{"out": "block.writer", "command": 3}                  # a controller commanding another block
+{"decision": "12 waiting: process them", "why": "over the goal by 12"}
+{"event": "backup.verified", "item": "nightly"}
 ```
 
-A job that fills one sensor or one valve may print just a number instead: `du -k app.log | cut -f1`
-is a sensor, `find tmp -mmin +60 -delete -print | wc -l` is a valve; a script that prints a sentence
-keeps it, with `parse = "cleaned up (\\d+)"` on its agent. A line naming a part the agent does not fill is refused. A person filling a role records it from the
-command line (`ergostat valve NAME --opened N`). How to write one, in shell or Python, and
-try it (`ergostat agent NAME --now`): [docs/writing-agents.md](docs/writing-agents.md). An AI agent
-filling a controller, with `claude -p`: [docs/ai-agents.md](docs/ai-agents.md). When a loop crosses its setpoint ergostat
-records `loop.off` or `loop.holding`, which other agents can listen for (`on`).
+ergostat runs a commanded block once per fresh reading while its command holds, never twice at
+once (a command that arrives meanwhile is held, not queued), clamps the command to the block's
+`max`, and reads its stocks again right after it moves them. The built-in blocks (`onoff`,
+`compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`, `timer`,
+`counter`, `alarm`) are computed by ergostat itself. An `ai` block's prompt goes to `claude -p`
+(or `$ERGOSTAT_AI`); a `person` block asks, and the person answers with
+`ergostat block NAME --done N`; an `external` block is something ergostat only observes (an
+autoscaler, a team), judged by what its flow's sensors show.
 
 ## The command line
 
 ```
 ergostat                     what needs attention (--watch to keep it on screen; --exit-code for cron)
+ergostat check               errors (file:line), then findings; --json for agents and CI
+ergostat explain [PART]      the model, or one goal, block, stock or flow, in sentences, with what it is doing
+ergostat findings            missing feedback, limits ahead (time to failure), saturation, people not
+                             answering, a critical goal decaying
+ergostat block [NAME]        the blocks: type, role, what each reads and commands (--done N, --approve)
+ergostat discover loops      loops in the record: flows that follow their stock, written down or not
+ergostat discover prometheus --url URL [--match RE]   a draft model from a Prometheus's series
+ergostat convert             ergostat.toml written as ergostat.yaml
+ergostat run [--stop]        run it, in the background, with the web page (--foreground, --no-web)
+ergostat mcp                 ergostat for an AI agent, over MCP: claude mcp add ergostat -- ergostat -C DIR mcp
 ergostat system [NAME]       draw a system (--all, --around loop/NAME, --blocks, --wiring, --list, --open)
 ergostat loop [NAME]         the loops, or one part by part
-ergostat agent [NAME]        who fills which roles, at what rung
 ergostat event [--follow]    the raw record;  ergostat item [NAME]: events folded by id
-ergostat residual            what the model can't explain
-ergostat stock|flow|valve|sensor|controller|disturbance [NAME]
-ergostat check | run | web | chat
-ergostat projects            every project on this machine, which are running, and their pages
-ergostat help agents         how to write an agent (also: help ai-agents)
-ergostat valve NAME --opened N    a person records what they did (also sensor --read, controller --decided)
-ergostat sensor NAME --forget-above V   set wrong readings aside (also --forget-below); the record says so
+ergostat sensor STOCK.SENSOR --read V    a person's reading of a manual sensor
 ergostat snapshot            the page, as of now, in one HTML file that opens offline
+ergostat projects            every project on this machine, which are running, and their pages
 ergostat run --service       a launchd agent or systemd unit that keeps it running across reboots (printed only)
 ```
 
 Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` ago, `07:30`) and
 `--json`.
+
+## For AI agents
+
+`ergostat mcp` serves the tools an agent needs to work on a system: `spec` (the format), `check`
+(after every edit), `explain`, `status`, `findings`, `events`, and `report_done` and `read_sensor`
+for the work and readings a person block or a manual sensor waits for. Every call reads the files
+afresh.
+
+## More
+
+The ideas: [docs/CONCEPTS.md](docs/CONCEPTS.md) (the factory as a control system), why controllers
+and valves are separate ([docs/controllers-and-valves.md](docs/controllers-and-valves.md)),
+multi-agent patterns ([docs/patterns.md](docs/patterns.md)), and the vocabularies of system dynamics
+and control engineering compared ([docs/vocabulary.md](docs/vocabulary.md)).
 
 ## The web page
 

@@ -80,11 +80,12 @@ def test_the_ladder_runs_from_person_to_rule():
     assert parse(DISK).agents["cleaner"].rung == 4
 
 
-def test_the_guides_shipped_with_ergostat_match_the_docs():
+def test_the_guides_ship_with_ergostat_and_the_docs_point_at_them():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
-    assert (root / "ergostat/help/agents.md").read_text() == (root / "docs/writing-agents.md").read_text()
-    assert (root / "ergostat/help/ai-agents.md").read_text() == (root / "docs/ai-agents.md").read_text()
+    for guide, doc in (("blocks", "writing-agents"), ("ai-agents", "ai-agents")):
+        assert (root / f"ergostat/help/{guide}.md").is_file()
+        assert f"ergostat/help/{guide}.md" in (root / f"docs/{doc}.md").read_text()
 
 
 def test_a_disturbance_may_name_the_agent_whose_doing_it_is(repo):

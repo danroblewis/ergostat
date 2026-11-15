@@ -98,6 +98,8 @@ def cmd_block(args) -> int:
     if b is None:
         print(f"no block {args.name!r}" + (f" (blocks: {', '.join(spec.blocks)})" if spec.blocks else ""), file=sys.stderr)
         return 2
+    if getattr(args, "now", False):
+        return run_now(p, b, args)
     if args.done is not None:
         if b.type != "person":
             print(f"block {b.name} is a {b.type}: it reports itself; --done is a person's report", file=sys.stderr)
@@ -246,3 +248,42 @@ def cmd_discover(args) -> int:
     if prop:
         print(c("\nto write them down (fill in the setpoints and name what acts):\n", "dim") + prop)
     return 0
+
+
+def run_now(p, b, args) -> int:
+    """``ergostat block NAME --now [--command N]``: one run, at once, recorded like any other: what
+    it was given, and what it said."""
+    if not b.machine:
+        print(f"block {b.name} is {'built in: ergostat computes it' if b.builtin else 'external: ergostat never runs it'}",
+              file=sys.stderr)
+        return 2
+    if b.type == "person":
+        print(f"block {b.name} is a person's: they report with ergostat block {b.name} --done N", file=sys.stderr)
+        return 2
+    from ..spec.engine import Engine
+    e = Engine(p, say=lambda s: print(c(s, "warn")))
+    e._initial()
+    e.measure()
+    for name, g in p.model.spec.goals.items():               # the errors, without recording a crossing
+        y = e.signals.get(str(g.of))
+        if y is not None:
+            e.signals[f"goal.{name}.error"] = g.hold.error(y)
+    if args.command is not None:                          # stand in for its commander
+        for cmd in p.model.spec.commanders_of(b.name):
+            if cmd.builtin:
+                e.signals[f"block.{cmd.name}"] = args.command
+            else:
+                e.outputs.setdefault(cmd.name, {})["out"] = args.command
+    ctx = e.context(b, "by hand")
+    print(c("given: " + __import__("json").dumps(ctx), "dim"))
+    moved = e.run_block(b, "by hand")
+    last = p.events.query(n=1, item=b.name, type="agent.*")
+    d = last[-1]["data"] if last else {}
+    print(f"{'failed' if last and last[-1]['type'] == 'agent.failed' else 'ran'} in {d.get('seconds', '?')}s"
+          + (f": moved {', '.join(f'{v:g} along flow.{k}' for k, v in d.get('moved', {}).items())}" if moved else
+             ": moved nothing") + (f" ({d['note']})" if d.get("note") else ""))
+    for r in p.events.query(n=5, item=b.name, type="agent.refused", since=last[-1]["time"] - 60 if last else None):
+        print(c(f"refused: {r['data']['why']}", "warn"))
+    from ..runner import log_path
+    print(c(f"its log: {log_path(p, b.name)}", "dim"))
+    return 1 if last and last[-1]["type"] == "agent.failed" else 0
