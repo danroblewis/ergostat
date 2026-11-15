@@ -1,0 +1,78 @@
+# billing: work arrives at billing-q0 and passes down a chain of four queues; each queue has
+# a goal, and a worker that drains it while the goal is off.
+defaults:
+  system: billing
+
+stocks:
+  billing-q0:
+    sensor:
+      run: python3 tick.py count billing-q0
+      every: 4s
+  billing-q1:
+    sensor:
+      run: python3 tick.py count billing-q1
+      every: 4s
+  billing-q2:
+    sensor:
+      run: python3 tick.py count billing-q2
+      every: 4s
+  billing-q3:
+    sensor:
+      run: python3 tick.py count billing-q3
+      every: 4s
+
+flows:
+  billing-q0-in:
+    to: billing-q0
+  billing-q0-out:
+    from: billing-q0
+    to: billing-q1
+  billing-q1-out:
+    from: billing-q1
+    to: billing-q2
+  billing-q2-out:
+    from: billing-q2
+    to: billing-q3
+  billing-q3-out:
+    from: billing-q3
+
+goals:
+  billing-q0-low:
+    stock: billing-q0
+    hold: "<= 20"
+  billing-q1-low:
+    stock: billing-q1
+    hold: "<= 20"
+  billing-q2-low:
+    stock: billing-q2
+    hold: "<= 20"
+  billing-q3-low:
+    stock: billing-q3
+    hold: "<= 5"
+
+blocks:
+  billing-arrivals:                # the load: acts on its own, nothing commands it
+    type: program
+    run: python3 tick.py arrive billing-q0
+    every: 4s
+    out: flow.billing-q0-in
+  billing-q0-drain:
+    type: program
+    goal: billing-q0-low
+    run: python3 tick.py drain billing-q0 billing-q1
+    out: flow.billing-q0-out
+  billing-q1-drain:
+    type: program
+    goal: billing-q1-low
+    run: python3 tick.py drain billing-q1 billing-q2
+    out: flow.billing-q1-out
+  billing-q2-drain:
+    type: program
+    goal: billing-q2-low
+    run: python3 tick.py drain billing-q2 billing-q3
+    out: flow.billing-q2-out
+  billing-q3-drain:
+    type: program
+    goal: billing-q3-low
+    run: python3 tick.py drain billing-q3
+    out: flow.billing-q3-out

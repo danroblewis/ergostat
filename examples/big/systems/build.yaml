@@ -1,0 +1,78 @@
+# build: work arrives at build-q0 and passes down a chain of four queues; each queue has
+# a goal, and a worker that drains it while the goal is off.
+defaults:
+  system: build
+
+stocks:
+  build-q0:
+    sensor:
+      run: python3 tick.py count build-q0
+      every: 4s
+  build-q1:
+    sensor:
+      run: python3 tick.py count build-q1
+      every: 4s
+  build-q2:
+    sensor:
+      run: python3 tick.py count build-q2
+      every: 4s
+  build-q3:
+    sensor:
+      run: python3 tick.py count build-q3
+      every: 4s
+
+flows:
+  build-q0-in:
+    to: build-q0
+  build-q0-out:
+    from: build-q0
+    to: build-q1
+  build-q1-out:
+    from: build-q1
+    to: build-q2
+  build-q2-out:
+    from: build-q2
+    to: build-q3
+  build-q3-out:
+    from: build-q3
+
+goals:
+  build-q0-low:
+    stock: build-q0
+    hold: "<= 5"
+  build-q1-low:
+    stock: build-q1
+    hold: "<= 20"
+  build-q2-low:
+    stock: build-q2
+    hold: "<= 5"
+  build-q3-low:
+    stock: build-q3
+    hold: "<= 20"
+
+blocks:
+  build-arrivals:                # the load: acts on its own, nothing commands it
+    type: program
+    run: python3 tick.py arrive build-q0
+    every: 4s
+    out: flow.build-q0-in
+  build-q0-drain:
+    type: program
+    goal: build-q0-low
+    run: python3 tick.py drain build-q0 build-q1
+    out: flow.build-q0-out
+  build-q1-drain:
+    type: program
+    goal: build-q1-low
+    run: python3 tick.py drain build-q1 build-q2
+    out: flow.build-q1-out
+  build-q2-drain:
+    type: program
+    goal: build-q2-low
+    run: python3 tick.py drain build-q2 build-q3
+    out: flow.build-q2-out
+  build-q3-drain:
+    type: program
+    goal: build-q3-low
+    run: python3 tick.py drain build-q3
+    out: flow.build-q3-out

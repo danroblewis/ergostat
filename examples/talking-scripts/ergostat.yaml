@@ -1,0 +1,76 @@
+# Three scripts as they are, printing sentences for people ("cleanup done: removed 12 stale
+# uploads"); each block's `parse` takes the number from its own words. Nothing was rewritten.
+name: talking-scripts
+
+stocks:
+  log-size:
+    unit: KB
+    sensor:
+      run: if [ -f var/log/app.log ]; then du -k var/log/app.log | cut -f1; else echo 0; fi
+      every: 5s
+  uploads:
+    unit: files
+    sensor:
+      run: mkdir -p var/uploads; ls var/uploads | wc -l
+      every: 10s
+  report-age:
+    unit: s
+    sensor:
+      run: if [ -f var/report.html ]; then echo $(( $(date +%s) - $(stat -c %Y var/report.html 2>/dev/null || stat -f %m var/report.html) )); else echo 0; fi
+      every: 10s
+
+flows:
+  logging:
+    to: log-size
+  rotated:
+    from: log-size
+  uploads-left:
+    to: uploads
+  cleaned:
+    from: uploads
+  time-passing:                  # a second a second
+    to: report-age
+    rate: 3600
+  refreshed:
+    from: report-age
+
+goals:
+  log-small:
+    stock: log-size
+    hold: "<= 64"
+    tolerance: 16                # off past 80 KB
+  few-uploads:                   # watched only: the cleanup is a timer
+    stock: uploads
+    hold: "<= 60"
+    tolerance: 20
+  report-fresh:                  # watched only: the report is rebuilt every minute, whatever its age
+    stock: report-age
+    hold: "<= 90"
+
+blocks:
+  rotate-log:                    # runs while log-small is off
+    type: program
+    goal: log-small
+    run: jobs/rotate.sh
+    parse: freed (\d+) KB        # "rotated app.log: freed 83 KB"
+    out: flow.rotated
+
+  clean-uploads:                 # removes leftovers older than a minute, at most 25 a run
+    type: program
+    run: jobs/clean.sh
+    every: 20s
+    parse: removed (\d+) stale   # "cleanup done: removed 12 stale uploads"
+    out: flow.cleaned
+
+  rebuild-report:
+    type: program
+    run: jobs/report.sh
+    cron: "* * * * *"
+    parse: was (\d+)s old        # "report rebuilt (the old one was 61s old)"
+    out: flow.refreshed
+
+  app:                           # stands in for the app: the load on the log and the uploads
+    type: program
+    run: jobs/app.sh
+    every: 3s
+    out: [flow.logging, flow.uploads-left]

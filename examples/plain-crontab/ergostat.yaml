@@ -1,0 +1,61 @@
+# Jobs as they would sit in a crontab: one-liners that print a bare number, no wrapper scripts, no
+# JSON. A sensor prints its reading; a job prints what it moved. The app stands in for the program
+# whose mess the jobs clean up.
+name: plain-crontab
+
+stocks:
+  scratch-files:
+    unit: files
+    sensor:
+      run: ls scratch | wc -l
+      every: 10s
+  log-size:
+    unit: KB
+    sensor:
+      run: echo $(( $(cat logs/app.log 2>/dev/null | wc -c) / 1024 ))
+      every: 10s
+
+flows:
+  app-temp-files:                # the app writes temporary files and forgets them
+    to: scratch-files
+  pruned:
+    from: scratch-files
+  app-logging:
+    to: log-size
+  rotated:
+    from: log-size
+
+goals:
+  scratch-under-100:             # watched only: the pruner is a timer, not feedback
+    stock: scratch-files
+    hold: "<= 100"
+    tolerance: 20
+  log-under-64k:
+    stock: log-size
+    hold: "<= 64"
+    tolerance: 16                # off past 80 KB
+
+blocks:
+  prune-old:                     # a crontab line: whatever is older than a minute goes, whatever the count
+    type: program
+    run: find scratch -type f -mmin +1 -delete -print | wc -l
+    cron: "* * * * *"
+    out: flow.pruned
+
+  rotate-log:                    # runs while log-under-64k is off: the threshold is the goal's, not the job's
+    type: program
+    goal: log-under-64k
+    run: s=$(( $(wc -c < logs/app.log) / 1024 )) && mv logs/app.log logs/app.log.1 && echo $s
+    out: flow.rotated
+
+  # the app: the load behind both disturbances
+  app-scratch:
+    type: program
+    run: mkdir -p scratch; for i in 1 2 3; do mktemp scratch/tmp.XXXXXX >/dev/null; done; echo 3
+    every: 3s
+    out: flow.app-temp-files
+  app-log:
+    type: program
+    run: mkdir -p logs; head -c 3000 /dev/urandom | base64 >> logs/app.log; echo 4
+    every: 3s
+    out: flow.app-logging

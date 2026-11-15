@@ -1,0 +1,61 @@
+# Dependencies kept current: a program opens update pull requests, at most two a run;
+# a person reviews them, and has fallen behind.
+name: deps
+defaults:
+  system: deps
+
+stocks:
+  outdated-deps:
+    unit: packages
+    sensor:
+      run: python3 updater.py audit
+      every: 3s
+  update-prs-open:
+    unit: packages                        # one update PR per package
+    description: update pull requests waiting for review
+    sensor:
+      run: python3 updater.py prs
+      every: 3s
+
+flows:
+  new-releases:                           # upstream projects release new versions
+    to: outdated-deps
+  update-opened:
+    from: outdated-deps
+    to: update-prs-open
+  update-merged:
+    from: update-prs-open
+
+goals:
+  deps-current:
+    stock: outdated-deps
+    hold: "<= 5"
+  reviews-flowing:
+    stock: update-prs-open
+    hold: "<= 4"
+
+blocks:
+  upstream:                               # the load: releases happen whenever they happen
+    type: program
+    run: python3 sim.py release
+    every: 3s
+    out: flow.new-releases
+
+  open-updates:                           # how many PRs to open: as many as it is over the goal
+    type: proportional
+    goal: deps-current
+    gain: 1
+    out: block.updater
+
+  updater:
+    type: program
+    run: python3 updater.py open
+    in: stock.update-prs-open             # it stops at 12 waiting for review
+    max: 2                                # at most two update PRs a run
+    out: flow.update-opened
+
+  review:
+    type: person
+    goal: reviews-flowing
+    ask: Review and merge the open dependency-update PRs.
+    out: flow.update-merged               # they report: ergostat block review --done N

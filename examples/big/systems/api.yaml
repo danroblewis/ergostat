@@ -1,0 +1,78 @@
+# api: work arrives at api-q0 and passes down a chain of four queues; each queue has
+# a goal, and a worker that drains it while the goal is off.
+defaults:
+  system: api
+
+stocks:
+  api-q0:
+    sensor:
+      run: python3 tick.py count api-q0
+      every: 4s
+  api-q1:
+    sensor:
+      run: python3 tick.py count api-q1
+      every: 4s
+  api-q2:
+    sensor:
+      run: python3 tick.py count api-q2
+      every: 4s
+  api-q3:
+    sensor:
+      run: python3 tick.py count api-q3
+      every: 4s
+
+flows:
+  api-q0-in:
+    to: api-q0
+  api-q0-out:
+    from: api-q0
+    to: api-q1
+  api-q1-out:
+    from: api-q1
+    to: api-q2
+  api-q2-out:
+    from: api-q2
+    to: api-q3
+  api-q3-out:
+    from: api-q3
+
+goals:
+  api-q0-low:
+    stock: api-q0
+    hold: "<= 20"
+  api-q1-low:
+    stock: api-q1
+    hold: "<= 20"
+  api-q2-low:
+    stock: api-q2
+    hold: "<= 5"
+  api-q3-low:
+    stock: api-q3
+    hold: "<= 10"
+
+blocks:
+  api-arrivals:                # the load: acts on its own, nothing commands it
+    type: program
+    run: python3 tick.py arrive api-q0
+    every: 4s
+    out: flow.api-q0-in
+  api-q0-drain:
+    type: program
+    goal: api-q0-low
+    run: python3 tick.py drain api-q0 api-q1
+    out: flow.api-q0-out
+  api-q1-drain:
+    type: program
+    goal: api-q1-low
+    run: python3 tick.py drain api-q1 api-q2
+    out: flow.api-q1-out
+  api-q2-drain:
+    type: program
+    goal: api-q2-low
+    run: python3 tick.py drain api-q2 api-q3
+    out: flow.api-q2-out
+  api-q3-drain:
+    type: program
+    goal: api-q3-low
+    run: python3 tick.py drain api-q3
+    out: flow.api-q3-out

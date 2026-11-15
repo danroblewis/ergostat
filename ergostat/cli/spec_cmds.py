@@ -131,6 +131,8 @@ def cmd_block(args) -> int:
           c(f"   {b.where}" if b.where else "", "dim"))
     if b.goal:
         print(f"  goal  goal.{b.goal}")
+    if b.type == "person":
+        print(f"  asks  {b.params.get('ask', '')}")
     for k, r in b.inputs.items():
         print(f"  in    {r}" + (c(f"  ({k})", "dim") if k not in ("in",) else ""))
     for k, rs in b.outputs.items():

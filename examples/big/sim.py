@@ -1,7 +1,6 @@
 """A tiny shared simulation the agents read and write (.sim.json), with a lock."""
 import fcntl
 import json
-import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -16,10 +15,3 @@ def world(defaults: dict):
         yield state
         PATH.write_text(json.dumps(state))
 
-
-def say(**line):
-    print(json.dumps(line), flush=True)
-
-
-def now() -> float:
-    return time.time()

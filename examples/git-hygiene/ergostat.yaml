@@ -1,0 +1,45 @@
+# Branch hygiene on a working repository (work/, made on first run): a developer keeps branching
+# and merging; a pruner deletes branches once they are merged. Real git commands, no simulation,
+# and only ever in work/.
+name: git-hygiene
+
+stocks:
+  open-branches:
+    unit: branches
+    description: branches not yet merged into main
+    sensor:
+      run: bin/census.sh open
+      every: 3s
+  merged-branches:
+    unit: branches
+    description: branches merged into main but not deleted
+    sensor:
+      run: bin/census.sh merged
+      every: 3s
+
+flows:
+  branched:                      # the developer starts work on a branch
+    to: open-branches
+  merged:                        # the developer merges a branch into main
+    from: open-branches
+    to: merged-branches
+  pruned:
+    from: merged-branches
+
+goals:
+  few-merged-branches:           # merged branches are deleted soon after
+    stock: merged-branches
+    hold: "<= 3"
+
+blocks:
+  delete-merged:                 # runs only while few-merged-branches is off
+    type: program
+    goal: few-merged-branches
+    run: bin/prune.sh
+    out: flow.pruned
+
+  developer:                     # stands in for a person: branches, commits, merges
+    type: program
+    run: bin/develop.sh
+    every: 2s
+    out: [flow.branched, flow.merged]

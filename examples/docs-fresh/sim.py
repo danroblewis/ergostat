@@ -1,7 +1,11 @@
-"""A tiny shared simulation the agents read and write (.sim.json), with a lock."""
+"""A tiny shared simulation the scripts read and write (.sim.json), with a lock.
+
+    python3 sim.py merge      developers merge 0-2 changes, each making a page stale; prints how many
+"""
 import fcntl
 import json
-import time
+import random
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -17,9 +21,11 @@ def world(defaults: dict):
         PATH.write_text(json.dumps(state))
 
 
-def say(**line):
-    print(json.dumps(line), flush=True)
+START = {"stale": 2, "merged": 0}
 
-
-def now() -> float:
-    return time.time()
+if __name__ == "__main__" and sys.argv[1:] == ["merge"]:
+    with world(START) as w:
+        n = random.choice([0, 0, 1, 1, 2])
+        w["stale"] += n
+        w["merged"] += n
+    print(n)

@@ -58,7 +58,8 @@ class Engine:
         self.commands: dict[str, dict] = {}            # machine block → its last command's detail
         self.running: set[str] = set()
         self.finished: dict[str, float] = {}
-        self.began: dict[str, float] = {}              # machine block → when its last run began           # machine block → when its last run ended
+        self.asked: dict[str, float] = {}              # advised block → the command it last asked approval for
+        self.began: dict[str, float] = {}   # when each machine block's last run began           # machine block → when its last run ended
         self.was_commanded: dict[str, bool] = {}
         self.last_reading = 0.0                        # the time of the newest reading the engine has seen
         self.reading: set[str] = set()                 # sensors whose read is under way
@@ -189,9 +190,11 @@ class Engine:
         rising = on and not self.was_commanded.get(b.name)
         self.was_commanded[b.name] = on
         if not on:
+            self.asked.pop(b.name, None)
             return False
         if b.type == "person" or b.mode == "advise":
-            if rising:
+            if rising or (b.mode == "advise" and self.asked.get(b.name) != cmd):   # a new command asks again
+                self.asked[b.name] = cmd
                 self.ask(b, cmd)
             return False
         flows = [t.name for t in b.targets() if t.kind == "flow"]
@@ -199,7 +202,19 @@ class Engine:
             return False                                        # its last effect is not read yet: never outrun its sensors
         if b.every and time.time() - self.began.get(b.name, 0.0) < b.every:
             return False                                        # paced: a commanded block runs at most every `every`
-        return rising or self.last_reading > self.finished.get(b.name, 0.0)
+        return rising or self.fresh_for(b, flows) > self.finished.get(b.name, 0.0)
+
+    def fresh_for(self, b: Block, flows: list[str]) -> float:
+        """The newest reading that bears on this block: of the stocks its flows touch, and of what
+        its goals are about (any reading, when it has neither)."""
+        series = {s.series for s in self.after_acting(flows)}
+        for g in self.served(b) | {r.name for r in b.reads() if r.kind == "goal"}:
+            of = self.spec.goals[g].of
+            t = (self.spec.stocks if of.kind == "stock" else self.spec.flows).get(of.name)
+            series |= {s.series for s in t.sensors.values()} if t else set()
+        if not series:
+            return self.last_reading
+        return max((self.seen.get(x, 0.0) for x in series), default=0.0)
 
     def ask(self, b: Block, cmd: float) -> None:
         what = "person.asked" if b.type == "person" else "block.advised"
@@ -329,10 +344,11 @@ class Engine:
                 if code and not note:
                     note = old.STOPPED_WITH_US if old.STOPPING.is_set() else f"exited {code}"
         said = Said(self, b, begun["id"])
-        if code == 0:
+        if code is not None:                                     # what it said it moved counts, even if it then failed
             for raw in lines:
                 said.line(raw)
-            said.finish()
+            if code == 0:                                        # a bare number only from a run that finished well
+                said.finish()
         data = {"exit": code, "seconds": round(time.time() - started, 3), "why": why, **said.counts,
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
                 **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {})}
@@ -342,7 +358,7 @@ class Engine:
             self.say(f"{b.name}: {note}")
         if said.refused:
             self.say(f"{b.name}: {said.refused[0]}")
-        return list(said.moved)
+        return [f for f, v in said.moved.items() if v > 0]       # moving nothing is not a reason to read again
 
     # ---- sensors
 
@@ -422,6 +438,10 @@ class Engine:
                 seq = max(seq, e["seq"])
                 b = self.spec.blocks.get(e.get("item") or "")
                 if b and b.machine:
+                    cmd, _ = self.command_of(b)
+                    if cmd == 0:                                # nothing to approve: its command fell back meanwhile
+                        self.say(f"{b.name}: approved, but its command is 0 now; nothing to run")
+                        continue
                     self.start(b, "approved")
             try:
                 seq = max(seq, self.p.events.last_seq())

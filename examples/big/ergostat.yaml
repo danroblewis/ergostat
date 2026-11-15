@@ -1,0 +1,4 @@
+# A made-up platform for the layout at scale: six systems, each a chain of four queues,
+# each queue a loop (24 loops). Every system is one file; tick.py is the one script.
+name: big
+include: systems/*.yaml
