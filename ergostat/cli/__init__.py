@@ -14,6 +14,7 @@ from .common import PART_TOPICS
 from .parts import cmd_part
 from .record import cmd_event, cmd_item, cmd_residual
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
+from .spec_cmds import cmd_block, cmd_convert
 from .status import cmd_check, cmd_status
 from .system import cmd_loop, cmd_system
 
@@ -26,7 +27,9 @@ usage: ergostat [TOPIC] [NAME] [FLAGS]
 the system
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: how agents talk)
   loop           The feedback loops: what each holds, how far off, each part along it
-  check          Is the model whole? Unknown names, loops that cannot close
+  check          Is the model whole? Errors (with file:line), then findings: missing feedback, ...
+  convert        Write ergostat.toml as ergostat.yaml, the new format (docs/SPEC.md)
+  block          The blocks: what each computes or runs, what it reads and commands
 
 who does the work
   agent          People, AI agents, decisions, programs and rules, and the roles they fill
@@ -107,6 +110,13 @@ def build() -> argparse.ArgumentParser:
     ch = topic("check", cmd_check, "Is the model whole?", named=False)
     ch.add_argument("--example", nargs="?", const="disk", choices=["disk", "cron"],
                     help="print an example ergostat.toml: disk (one program, the default) or cron (one-liners, nothing to write)")
+    cv = topic("convert", cmd_convert, "Write ergostat.toml as ergostat.yaml (the new format)", named=False)
+    cv.add_argument("--stdout", action="store_true", help="print it instead of writing the file")
+    cv.add_argument("--force", action="store_true", help="replace an ergostat.yaml that is already there")
+    bk = topic("block", cmd_block, "The blocks (YAML model), or one; a person reports on theirs")
+    bk.add_argument("--done", type=float, metavar="N", help="a person's report: what they moved")
+    bk.add_argument("--approve", action="store_true", help="approve an advised command (mode: advise)")
+    bk.add_argument("--note", help="with --done or --approve: what was done")
     ag = topic("agent", cmd_agent, "Who fills which roles, at what rung")
     ag.add_argument("--now", action="store_true", help="run this agent once, at once (recorded like any run)")
     e = topic("event", cmd_event, "The raw record, or one event with its causes (by id)")

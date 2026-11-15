@@ -3,7 +3,9 @@ name = "ergostat"
 version = "0.1.0"
 description = "Keep your work going: design, watch and run the control system around it."
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pyyaml>=6.0.3",
+]
 
 [project.scripts]
 ergostat = "ergostat.cli:main"

@@ -1,0 +1,163 @@
+"""The commands of the YAML model: ``check`` (as it compiles: errors, then findings, each with its
+file and line), ``convert`` (TOML to YAML), ``block`` (a block, or a person's report on one) and a
+person's reading of a manual sensor."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from .. import model as mdl
+from ..show import c
+from .common import out_json
+
+
+def here(args) -> Path:
+    return Path(args.C).resolve() if getattr(args, "C", None) else Path.cwd()
+
+
+def check_yaml(args, path: Path) -> int:
+    from ..spec import read
+    spec, problems = read(path)
+    errors = [p for p in problems if p.level == "error"]
+    findings = [p for p in problems if p.level != "error"]
+    if args.json:
+        return out_json({"ok": not errors, "errors": len(errors), "findings": len(findings),
+                         "found": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
+                                    "file": str(p.where.file) if p.where else None,
+                                    "line": p.where.line if p.where else None} for p in problems]}) or (1 if errors else 0)
+
+    def n(k, word):
+        return f"{k} {word}" + ("" if k == 1 else "s")
+    head = " · ".join([n(len(spec.stocks), "stock"), n(len(spec.flows), "flow"), n(len(spec.sensors()), "sensor"),
+                       n(len(spec.goals), "goal"), n(len(spec.blocks), "block"), n(len(spec.agents), "agent"),
+                       n(len(spec.files), "file")])
+    print(f"{c('error', 'bad') if errors else c('ok', 'ok')}   {head}")
+    for p in errors:
+        print(f"{c('error', 'bad')}  {p}")
+    if errors:
+        print(c(f"{n(len(errors), 'error')}: ergostat will not run this model until they are fixed", "dim"))
+        return 1
+    loops = spec.loops()
+    closed = [lp for lp in loops if lp.closes]
+    print(c(f"{len(closed)} of {n(len(loops), 'goal')} closed by a loop ergostat can see", "dim"))
+    for p in findings:
+        print(f"{c(p.code or 'finding', 'warn')}  {p}")
+    return 0
+
+
+def cmd_convert(args) -> int:
+    from ..spec.convert import convert
+    start = here(args)
+    toml = next((d / mdl.FILE for d in (start, *start.parents) if (d / mdl.FILE).is_file()), None)
+    if toml is None:
+        print(f"no {mdl.FILE} here or above {start}", file=sys.stderr)
+        return 2
+    m = mdl.parse(__import__("tomllib").loads(toml.read_text(encoding="utf-8")), toml, default_name=toml.parent.name)
+    text, notes = convert(m)
+    if args.stdout:
+        print(text, end="")
+        return 0
+    dest = toml.with_name(mdl.YAML)
+    if dest.exists() and not args.force:
+        print(f"{dest} exists; --force to replace it, or --stdout to see the conversion", file=sys.stderr)
+        return 1
+    dest.write_text(text, encoding="utf-8")
+    print(f"wrote {dest} ({len(text.splitlines())} lines; {toml.name} was {len(toml.read_text().splitlines())})")
+    if notes:
+        print(c(f"{len(notes)} thing{'s' if len(notes) > 1 else ''} to look at, listed at the top of the file", "warn"))
+    print(c(f"ergostat now reads {dest.name} (it wins over {toml.name}); remove {toml.name} when you are done", "dim"))
+    from ..spec import read
+    _, problems = read(dest)
+    for p in problems:
+        if p.level == "error":
+            print(f"{c('error', 'bad')}  {p}")
+    return 0
+
+
+def cmd_block(args) -> int:
+    from .common import open_project
+    p = open_project(args)
+    spec = getattr(p.model, "spec", None)
+    if spec is None:
+        print("blocks belong to the YAML model (ergostat.yaml); this project is still ergostat.toml (ergostat convert)",
+              file=sys.stderr)
+        return 2
+    if not args.name:
+        rows = []
+        for b in spec.blocks.values():
+            ins = ", ".join(str(r) for r in b.inputs.values()) or (f"goal.{b.goal}" if b.goal else "")
+            outs = ", ".join(str(r) for r in b.targets())
+            rows.append((b.name, b.type, spec.role(b), ins, outs))
+        if args.json:
+            return out_json([dict(zip(("name", "type", "role", "in", "out"), r, strict=True)) for r in rows])
+        from ..show import table
+        print(table(["BLOCK", "TYPE", "ROLE", "IN", "OUT"], rows))
+        return 0
+    b = spec.blocks.get(args.name)
+    if b is None:
+        print(f"no block {args.name!r}" + (f" (blocks: {', '.join(spec.blocks)})" if spec.blocks else ""), file=sys.stderr)
+        return 2
+    if args.done is not None:
+        if b.type != "person":
+            print(f"block {b.name} is a {b.type}: it reports itself; --done is a person's report", file=sys.stderr)
+            return 2
+        from ..spec.legacy import valve_name
+        flows = [t.name for t in b.targets() if t.kind == "flow"]
+        run = p.events.add("agent.ran", item=b.name, source="person", data={"done": args.done, "note": args.note or ""})
+        for f in flows[:1]:
+            if args.done > 0:
+                p.events.add("valve.opened", item=valve_name(spec, b.name, f), source=b.name, causedby=run["id"],
+                             data={"amount": float(args.done), "flow": f, **({"note": args.note} if args.note else {})})
+        print(f"recorded: {b.name} moved {args.done:g}" + (f" along flow.{flows[0]}" if flows else ""))
+        return 0
+    if args.approve:
+        if b.mode != "advise":
+            print(f"block {b.name} is not in advise mode: nothing waits for approval", file=sys.stderr)
+            return 2
+        p.events.add("block.approved", item=b.name, source="person", data={"note": args.note or ""})
+        print(f"approved: {b.name} runs with its latest command (if ergostat is running here)")
+        return 0
+    info = {"name": b.name, "type": b.type, "role": spec.role(b), "in": {k: str(v) for k, v in b.inputs.items()},
+            "out": {k: [str(r) for r in v] for k, v in b.outputs.items()}, "agent": b.agent,
+            "where": str(b.where) if b.where else None,
+            "runs": p.events.query(n=5, item=b.name, type="agent.ran"),
+            "commanded": p.events.query(n=5, item=b.name, type="block.commanded")}
+    if args.json:
+        return out_json(info)
+    print(f"block {b.name} · {b.type} · {spec.role(b)}" + (f" · on {b.agent}" if b.agent else "") +
+          c(f"   {b.where}" if b.where else "", "dim"))
+    if b.goal:
+        print(f"  goal  goal.{b.goal}")
+    for k, r in b.inputs.items():
+        print(f"  in    {r}" + (c(f"  ({k})", "dim") if k not in ("in",) else ""))
+    for k, rs in b.outputs.items():
+        for r in rs:
+            print(f"  out   {r}" + (c(f"  ({k})", "dim") if k != "out" else ""))
+    for e in info["commanded"][-3:]:
+        print(c(f"  commanded {e['data'].get('amount')}" + (f" (asked {e['data']['asked']})" if 'asked' in e['data'] else ""),
+                "dim"))
+    for e in info["runs"][-3:]:
+        d = e["data"]
+        print(c(f"  ran: moved {d.get('moved', {})} in {d.get('seconds', '?')}s", "dim"))
+    return 0
+
+
+def read_manual(p, name: str, value: float) -> int:
+    """``ergostat sensor STOCK.SENSOR --read V`` on a YAML model: a manual sensor's reading."""
+    from ..spec.ir import Ref
+    spec = p.model.spec
+    of, _, sensor = name.partition(".")
+    s = None
+    for kind in ("stock", "flow"):
+        s = s or spec.sensor(Ref(kind, of, sensor or "main"))
+    if s is None:
+        print(f"no sensor {name!r}: name it as its stock (or flow) and sensor, like inbox.eyes", file=sys.stderr)
+        return 2
+    if not s.manual:
+        print(f"sensor {name} reads itself ({'run' if s.run else 'query'}); only a manual: true sensor takes a person's "
+              f"readings", file=sys.stderr)
+        return 2
+    p.measurements.add(s.series, float(value))
+    print(f"recorded: {s.of.name}.{s.name} = {value:g}")
+    return 0

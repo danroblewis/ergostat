@@ -429,10 +429,16 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
     return m
 
 
+YAML = "ergostat.yaml"
+
+
 def find(start: Path) -> Path | None:
+    """The model's main file: ``ergostat.yaml`` (the format, docs/SPEC.md) or, before it,
+    ``ergostat.toml``; the nearest folder up that has either, the YAML when it has both."""
     for d in (start, *start.parents):
-        if (d / FILE).is_file():
-            return d / FILE
+        for name in (YAML, FILE):
+            if (d / name).is_file():
+                return d / name
     return None
 
 
@@ -440,7 +446,15 @@ def load(start: Path | None = None) -> Model:
     here = (start or Path.cwd()).resolve()
     path = find(here)
     if path is None:
-        raise FileNotFoundError(FILE)
+        raise FileNotFoundError(f"{YAML} (or {FILE})")
+    if path.name == YAML:
+        from . import spec
+        from .spec.legacy import to_model
+        compiled, problems = spec.read(path)
+        errors = [p for p in problems if p.level == "error"]
+        if errors:
+            raise ModelError(f"{len(errors)} error{'s' if len(errors) > 1 else ''}:\n" + "\n".join(f"  {e}" for e in errors))
+        return to_model(compiled, problems)
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as e:
@@ -448,11 +462,35 @@ def load(start: Path | None = None) -> Model:
     return parse(data, path, default_name=path.parent.name)
 
 
+def stamp(m: Model) -> tuple:
+    """What changes when any of the model's files changes: their modification times."""
+    out = []
+    for f in getattr(m, "files", None) or ([m.path] if m.path else []):
+        try:
+            out.append(f.stat().st_mtime)
+        except OSError:
+            out.append(None)
+    if getattr(m, "spec", None) is not None:              # an include's glob may match a new file
+        from .spec.load import load as load_doc
+        try:
+            out.append(tuple(str(f) for f in load_doc(m.path).files))
+        except Exception:
+            out.append(None)
+    return tuple(out)
+
+
+def file_name(m: Model) -> str:
+    return m.path.name if m.path else FILE
+
+
 # ---- checking what the types alone do not
 
 def check(m: Model) -> list[tuple[str, str]]:
     """(level, message): errors are references that do not resolve; warnings are loops that cannot
-    close, parts nothing fills, and agents with nothing to do."""
+    close, parts nothing fills, and agents with nothing to do. A YAML model was checked as it
+    compiled: its findings are the warnings."""
+    if getattr(m, "spec", None) is not None:
+        return [("error" if p.level == "error" else "warn", str(p)) for p in m.problems]
     out: list[tuple[str, str]] = []
 
     def err(s):

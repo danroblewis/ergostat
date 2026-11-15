@@ -23,6 +23,13 @@ def record_by_a_person(args) -> int | None:
 
     from ..runner import Recorder
     p = open_project(args)
+    if getattr(p.model, "spec", None) is not None:
+        if args.topic == "sensor":
+            from .spec_cmds import read_manual
+            return read_manual(p, args.name or "", args.read)
+        print(f"a YAML model's {args.topic}s are not reported this way: a person's block reports with "
+              f"ergostat block NAME --done N", file=sys.stderr)
+        return 2
     part = p.model.tables()[args.topic].get(args.name or "")
     if part is None:
         print(f"no {args.topic} {args.name!r}", file=sys.stderr)

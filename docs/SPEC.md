@@ -481,7 +481,7 @@ blocks:
 
   drop:
     type: program
-    run: mkdir -p inbox; for i in 1 2 3; do mktemp inbox/job.XXXXXX > /dev/null; done
+    run: mkdir -p inbox; for i in 1 2 3; do mktemp inbox/job.XXXXXX > /dev/null; done; echo 3
     every: 5s
     out: flow.arrivals
 ```

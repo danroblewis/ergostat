@@ -29,10 +29,7 @@ class Live:
         self._snaps: dict = {}
 
     def _mtime(self):
-        try:
-            return self.p.model.path.stat().st_mtime if self.p.model.path else 0
-        except OSError:
-            return 0
+        return mdl.stamp(self.p.model)
 
     def snapshot(self, p, window: float, at: float | None):
         """The state, shared by the requests of one moment: the page asks for several parts of it

@@ -69,33 +69,39 @@ def cmd_run(args) -> int:
         from ..web import serve
         server, url = serve(Project(mdl.load(p.repo), p.dir), args.port)   # its own model: the page never hands the runner one
         print(f"web: {url}", flush=True)
-    r = runner.Runner(p, say=lambda s: print(time.strftime("%H:%M:%S"), s, flush=True))
-    r.start()
-    print(f"running {len(r.queues)} agents", flush=True)
-    mtime = p.model.path.stat().st_mtime if p.model.path else 0
+    say = lambda s: print(time.strftime("%H:%M:%S"), s, flush=True)       # noqa: E731
+    if getattr(p.model, "spec", None) is not None:      # the YAML model: ergostat closes its loops itself
+        from ..spec.engine import Engine
+        r = Engine(p, say=say)
+        r.start_all()
+        sp = p.model.spec
+        print(f"running {len(sp.sensors())} sensors, {len(r.builtins)} built-in blocks, {len(r.machines)} machine blocks",
+              flush=True)
+    else:
+        r = runner.Runner(p, say=say)
+        r.start()
+        print(f"running {len(r.queues)} agents", flush=True)
+    mtime = mdl.stamp(p.model)
     reload = False
     try:
         while not stopping:
             time.sleep(0.5)
-            try:
-                now_m = p.model.path.stat().st_mtime if p.model.path else 0
-            except OSError:
-                continue
+            now_m = mdl.stamp(p.model)
             if now_m != mtime:
                 mtime = now_m
                 try:
                     fresh = mdl.load(p.model.path.parent)
                 except Exception as e:
-                    print(f"{mdl.FILE} changed but does not load ({e}); still running the last one", flush=True)
+                    print(f"{mdl.file_name(p.model)} changed but does not load ({e}); still running the last one", flush=True)
                     continue
                 errors = [msg for lv, msg in mdl.check(fresh) if lv == "error"]
                 if errors:                                  # each one, so the log alone is enough to fix it
-                    print(f"{mdl.FILE} changed but has {len(errors)} error{'s' if len(errors) > 1 else ''}; "
+                    print(f"{mdl.file_name(p.model)} changed but has {len(errors)} error{'s' if len(errors) > 1 else ''}; "
                           f"still running the last one:", flush=True)
                     for msg in errors:
                         print(f"  {msg}", flush=True)
                     continue
-                print(f"{mdl.FILE} changed: restarting with it", flush=True)
+                print(f"{mdl.file_name(p.model)} changed: restarting with it", flush=True)
                 reload = True
                 break
     except KeyboardInterrupt:

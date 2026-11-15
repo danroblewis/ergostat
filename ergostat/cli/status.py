@@ -108,6 +108,10 @@ def cmd_check(args) -> int:
     if args.example:
         print(EXAMPLE_CRON if args.example == "cron" else EXAMPLE)
         return 0
+    from .spec_cmds import check_yaml, here
+    path = mdl.find(here(args))
+    if path is not None and path.name == mdl.YAML:
+        return check_yaml(args, path)
     p = open_project(args)
     found = mdl.check(p.model)
     m = p.model
