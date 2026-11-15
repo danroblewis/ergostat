@@ -5,8 +5,7 @@ system. This document says what the parts of that control system are, what each 
 relate, and how AI agents, programs and people fit in as the machines that do the productive
 work. It is the reference the configuration format is designed from.
 
-Where ergostat does not yet do what is described, this document says so (look for **Today** and
-**Planned**).
+Where ergostat does not yet do what is described, this document says so (look for **Not yet**).
 
 ## 1. The factory
 
@@ -177,38 +176,38 @@ Consequences:
 
 ## 5. What ergostat does
 
-**Today**, ergostat:
+ergostat (with an `ergostat.yaml`, docs/SPEC.md):
 
-- runs agents' commands on a schedule (`every`, `cron`) or on events (`on`), each given the
-  state as JSON on its standard input;
-- records what they print on standard output: readings, the amounts valves moved, decisions,
-  events (a plain number, or a sentence read with `parse`, also works);
-- estimates the state: each goal holding or off, by how much, for how long; flow rates; what
-  the known flows do not explain (estimated as disturbances); how fast each loop answers and
-  recovers; and diagnoses (falling behind, at a valve's limit, sampling too slowly, work piling
-  up behind a loop that is off);
-- draws it all, in the terminal and the web page.
+- **closes the loops.** It reads the sensors (commands, Prometheus queries, a person's readings),
+  works out each goal's error and status (with its hysteresis), computes the built-in blocks
+  (on/off, proportional, limits, delays, schedules, lookups, expressions) and commands the blocks
+  that act. A commanded block runs once per fresh reading while its command holds, never twice at
+  once (a command that arrives meanwhile is held, not queued: anti-windup), its command clamped to
+  its `max`; right after it moves a flow, that flow's stocks are read again. What was commanded and
+  what was moved are both recorded, so saturation is direct evidence, not an inference. When the
+  decision needs judgment, the controller is an `ai` block, given the readings and goals, answering
+  with commands; when it needs a person, a `person` block asks and waits for their report.
+- **observes what it does not run.** `external` blocks (an autoscaler, a Kubernetes controller, a
+  team) are declared for the structure and judged by the sensors on what they move.
+- **finds missing feedback.** `check` names goals nothing serves, goals nothing can measure,
+  blocks with no visible effect, open loops, competing commands, a controller that is its own
+  disturbance, and limits nothing guards; `findings` adds what needs the record: a stock heading
+  for its limit (with the time left), blocks saturating or failing, a person not answering, a
+  sensor gone quiet, a goal off that nothing answers.
+- **finds the feedback that exists.** `discover loops` looks in the record for flows that follow
+  their stock's level after a delay (a balancing loop acting) and proposes the ones nobody wrote
+  down as a goal and an external block; `discover prometheus` drafts a model from a Prometheus's
+  series.
+- **keeps critical loops healthy.** A goal marked `critical` is watched for decay: recovering more
+  slowly than it did, owned by nobody.
+- **explains itself**, to people and to AI agents: `explain` says any part in sentences, and
+  `ergostat mcp` serves the model, its checks and its state to an agent.
+- **draws it**, in the terminal and the web page, as stocks and flows and as block diagrams.
 
-What it does **not** do today is close loops. Every decision is inside the agents' own programs
-(a threshold hard-coded in a script); ergostat's controllers describe and judge, but issue no
-commands. This is the central gap.
-
-**Planned:**
-
-- **ergostat closes the loop.** A controller's law is written in the configuration
-  ("over 500 MB, rotate until under 300"), and ergostat runs it: it compares the reading with the
-  goal, commands the valve with an amount, refuses to stack commands while the valve is busy,
-  clamps to its limits, and records commanded against moved. When the decision needs judgment,
-  the controller is delegated to an agent, which is given the readings and goals and answers with
-  a command.
-- **Observing what exists.** Sensors read where production metrics already live (Prometheus
-  first); controllers and valves can be external (observed, not run).
-- **Finding missing feedback.** Goals no controller serves; stocks with a limit and no goal,
-  growing toward failure, ranked by time to failure.
-- **Finding the feedback that exists.** Inferring loops from the record (when this queue grows,
-  that consumer's rate rises after a delay), proposed back as configuration to accept.
-- **Keeping critical loops healthy.** Goals marked critical are watched for decay: answering more
-  slowly, saturating more often, the machine behind them changed, nobody owning them.
+**Not yet:** a sensor or block on a remote host (`host:` on an agent is recorded, not used);
+budgets counted across an agent's blocks (`cost:`); arbitration other than the largest command
+when several controllers command one block (put a `select` in front to say how); the page drawing
+blocks as blocks (it draws the model through the older parts: controllers, valves, sensors).
 
 ## 6. Two ways to draw it
 
