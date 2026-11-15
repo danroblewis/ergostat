@@ -1,0 +1,4 @@
+goals:
+  g:
+    of: inbox
+    hold: "<= 20"

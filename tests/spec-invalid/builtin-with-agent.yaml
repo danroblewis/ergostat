@@ -1,2 +1,5 @@
 blocks:
-  keep: { type: onoff, goal: inbox-short, by: runner }
+  keep:
+    type: onoff
+    goal: inbox-short
+    agent: runner

@@ -1,2 +1,4 @@
 stocks:
-  inbox: { unit: files, measures: something }
+  inbox:
+    unit: files
+    measures: something

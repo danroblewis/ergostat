@@ -9,23 +9,27 @@ of this document.
 
 ## 1. Principles
 
-1. **Five kinds of thing are written; everything else is derived.** Stocks, flows, goals,
-   blocks and agents. Valves, controllers, sensors as roles, disturbances, errors, loops and
-   diagrams are worked out from them, never declared.
+1. **Four kinds of thing are written, and a fifth when it says something.** Stocks, flows, goals
+   and blocks; and agents, only for machines shared by several blocks. Valves, controllers,
+   disturbances, errors, loops and diagrams are worked out from them, never declared.
 2. **Two layers.** The material layer (stocks and flows: where work moves and accumulates) and
-   the information layer (blocks and the signals between them: measuring, deciding,
-   commanding). This is system dynamics' stocks and flows plus converters and connectors, and
-   control engineering's function blocks and signals.
-3. **Every reference is written once, on one side.** A goal names its stock; a flow names its
-   stocks; a block names its inputs and outputs; a block names its machine. Reverse relations
-   (a stock's goals, a machine's blocks) are looked up, never written, so they cannot drift.
+   the information layer (blocks and the signals between them: deciding and commanding). This is
+   system dynamics' stocks and flows plus converters and connectors, and control engineering's
+   function blocks and signals.
+3. **Every reference is written once, on the side that acts.** A goal names its stock or flow; a
+   flow names the stocks it connects; a block names its inputs and outputs, and its machine when
+   it has one. Flows are passive: they never say who moves them. Reverse relations (a stock's
+   goals, a flow's actuator, a machine's blocks) are looked up, never written, so they cannot
+   drift.
 4. **Nest only what is exclusively owned.** A sensor measures exactly one stock or flow, so it
    is written inside it. Everything else is top-level and referenced by name.
-5. **What is real is measured.** A stock's value is only ever its sensors' readings. Agents'
-   reports are evidence, judged against the stocks.
-6. **Nothing is a claim nobody acts on.** Every block is either executed by ergostat, executed by
-   a machine ergostat runs, or explicitly observed (`external`): the file never describes
-   behaviour that nothing performs.
+5. **What is real is measured.** A stock's value is only ever its sensors' readings. What blocks
+   report is evidence, judged against the stocks.
+6. **Nothing is a claim nobody acts on.** Every block is executed by ergostat, executed by a
+   machine ergostat runs, or explicitly observed (`external`): the file never describes behaviour
+   that nothing performs.
+7. **Each key says what it names.** `from` and `to` are stocks, `stock` and `flow` say which kind
+   a goal is about, `agent` is a machine; no word means two things.
 
 ## 2. Files
 
@@ -36,13 +40,13 @@ of this document.
 - Each top-level section is a map keyed by name; maps from all files are merged. **Defining a
   name twice is an error**, reported with both files and lines. There is no overriding.
 - A file may set `defaults:` (at present only `system:`), which applies to the stocks, flows,
-  goals and blocks defined in that file and not to included files.
+  goals and blocks defined in that file, and not to the files it includes.
 
 ## 3. Names, references and values
 
 **Names** are lowercase letters, digits and `-`, starting with a letter: `inbox`,
 `keep-inbox-short`. Names are unique within each section; the same name may be used in two
-sections (a stock and a goal both called `inbox` is allowed, but discouraged).
+sections (a stock and a goal both called `inbox`), but it is discouraged.
 
 **References** point at a thing, or at one port of it:
 
@@ -57,8 +61,8 @@ sections (a stock and a goal both called `inbox` is allowed, but discouraged).
 | `block.decide` | A block's output (its only output, or its output named `out`) |
 | `block.decide.urgent` | A block's output port `urgent` |
 
-The `kind.` prefix may be left out where only one kind is possible (a block's `by:` is always an
-agent). Where it is left out elsewhere, the name must be unique across sections.
+Where a key can only name one kind of thing, the name is written bare: a goal's `stock: inbox`, a
+block's `agent: claude`, an `onoff` block's `goal: inbox-short`.
 
 **Durations**: `30s`, `5m`, `2h`, `1d`, or a number of seconds.
 
@@ -68,20 +72,32 @@ a folding marker).
 **Commands** (`run:`) are shell commands, run with `sh -c` in the project's root, with the
 inputs described in section 9 on standard input.
 
+**Style.** The examples use block-style YAML: one key per line. Short lists may stay on one line
+(`in: [goal.a.error, goal.b.error]`). Flow style (`{ ... }`) is valid but not used here.
+
 ## 4. Top level
 
 ```yaml
 name: checkout                  # the project's name (default: the folder's)
-include: [systems/*.yaml]
+include:
+  - systems/*.yaml
 keep: 30d                       # how long the record is kept
-defaults: { system: core }
-sources:  { ... }               # where existing metrics live
-systems:  { ... }               # optional: names and descriptions of groups
-stocks:   { ... }
-flows:    { ... }
-goals:    { ... }
-blocks:   { ... }
-agents:   { ... }
+defaults:
+  system: core
+sources:                        # where existing metrics live
+  ...
+systems:                        # optional: names and descriptions of groups
+  ...
+stocks:
+  ...
+flows:
+  ...
+goals:
+  ...
+blocks:
+  ...
+agents:                         # optional: machines shared by several blocks
+  ...
 ```
 
 ## 5. Stocks
@@ -96,13 +112,15 @@ stocks:
     system: intake                     # optional
     description: files waiting to be processed
     sensors:                           # zero or more, keyed by name
-      count: { run: "ls inbox | wc -l", every: 5s }
+      count:
+        run: ls inbox | wc -l
+        every: 5s
 ```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `unit` | string | none | Its unit. Flows and sensors on it must use the same unit |
-| `limit` | number | none | The physical limit: full disk, a queue's capacity. Used to estimate time to failure |
+| `limit` | number | none | The physical limit: a full disk, a queue's capacity. Used to estimate time to failure |
 | `initial` | number | none | A starting value, for simulation only |
 | `system` | name | the file's default | The group it belongs to |
 | `description` | string | none | |
@@ -118,9 +136,16 @@ is written inside the stock or flow it measures. Exactly one of `run`, `query` o
 
 ```yaml
 sensors:
-  count:  { run: "ls inbox | wc -l", every: 5s }
-  depth:  { query: { source: prom, promql: 'sum(queue_depth{app="checkout"})' }, every: 30s }
-  eyes:   { manual: true }                       # a person records readings: ergostat sensor inbox.eyes --read 12
+  count:
+    run: ls inbox | wc -l
+    every: 5s
+  depth:
+    query:
+      source: prom
+      promql: 'sum(queue_depth{app="checkout"})'
+    every: 30s
+  eyes:
+    manual: true                 # a person records readings: ergostat sensor inbox.eyes --read 12
 ```
 
 | Key | Type | Default | Meaning |
@@ -139,16 +164,24 @@ On a flow, a sensor's reading is a rate per hour.
 ## 7. Flows
 
 What changes stocks: into one, out of one, or from one to another. Leaving out `from` or `to`
-means outside the system (at least one is required).
+means outside the system (at least one is required). A flow is passive: it says which stocks it
+connects, never what moves it.
 
 ```yaml
 flows:
-  arrivals:  { to: inbox, by: dropper }          # a disturbance, its cause known
-  processed: { from: inbox, to: outbox }         # set by whatever block outputs flow.processed
-  time:      { to: report-age, rate: 3600 }      # a known, declared rate
+  arrivals:
+    to: inbox
+  processed:
+    from: inbox
+    to: outbox
+  time-passing:
+    to: report-age
+    rate: 3600                   # a known, declared rate per hour
   churn:
     to: stale-docs
-    sensors: { meter: { run: ./churn.sh, every: 5m } }   # a measured rate
+    sensor:                      # a measured rate
+      run: ./churn.sh
+      every: 5m
 ```
 
 | Key | Type | Default | Meaning |
@@ -157,12 +190,15 @@ flows:
 | `unit` | string | the stocks' | Must equal theirs |
 | `rate` | number | none | A known, declared rate per hour |
 | `sensors` / `sensor` | | none | Measurements of its rate |
-| `by` | agent | none | For a flow no block sets: the agent whose doing it is (attribution only) |
 | `system`, `description` | | | |
 
-A flow whose rate is set by a block is a **valve** (that block is its actuator). A flow no block
-sets is a **disturbance**: declared (`rate`), measured (`sensors`), or estimated from what its
-stock does that the other flows do not explain.
+What sets a flow is the block whose `out` names it (at most one). Seen from a goal's loop:
+
+- a flow set by a block that the loop's controller commands is that loop's **valve**;
+- any other flow on the goal's stock is a **disturbance** to that loop: set by nothing in the
+  model (its rate declared, measured, or estimated from what the stock does that the other flows
+  do not explain), by an `external` block (something known, not run by ergostat), or by a block
+  no controller of this loop commands.
 
 ## 8. Goals
 
@@ -170,20 +206,28 @@ What we want. Each goal is about exactly one stock (its level) or one flow (its 
 
 ```yaml
 goals:
-  inbox-short:   { of: inbox, hold: "<= 20", tolerance: 5 }
-  disk-headroom: { of: disk, hold: "<= 80", critical: true, owner: platform }
-  enough-workers: { of: workers, hold: ">= 5" }
-  low-errors:    { of: flow.errors, hold: "<= 1" }      # a goal on a rate
+  inbox-short:
+    stock: inbox
+    hold: "<= 20"
+    tolerance: 5
+  disk-headroom:
+    stock: disk
+    hold: "<= 80"
+    critical: true
+    owner: platform
+  low-errors:
+    flow: errors                 # a goal on a rate
+    hold: "<= 1"
 ```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `of` | stock or flow | required | What it is about. A bare name means a stock |
+| `stock` or `flow` | name | required, exactly one | What it is about: a stock's level, or a flow's rate |
 | `hold` | setpoint | required | The setpoint |
 | `tolerance` | number | 0 | Hysteresis for the status: off past the setpoint by more than this; holding again only back within the setpoint (for `==`, within half of it) |
 | `critical` | bool | false | It guards against a cascade or an accumulating failure: watched for decay |
 | `owner` | string | none | Who answers for it |
-| `description` | string | none | |
+| `system`, `description` | | | |
 
 A goal exists whether or not anything serves it. A goal nothing serves is **missing feedback**.
 
@@ -197,17 +241,16 @@ piece of logic between them is a block.
 blocks:
   keep-short:
     type: onoff
-    goal: inbox-short          # on while the goal is off ...
-    until: "<= 15"             # ... until the stock is back to here
-    out: block.worker          # commands the worker
+    goal: inbox-short            # on while the goal is off ...
+    until: "<= 15"               # ... until the stock is back to here
+    out: block.worker            # commands the worker
 
   worker:
     type: program
-    by: runner                 # the machine that runs it
     run: ./process.sh
-    in: block.keep-short       # runs while commanded
-    out: flow.processed        # reports what it moved along this flow
-    max: 25                    # the most one run may move
+    in: block.keep-short         # runs while commanded
+    out: flow.processed          # reports what it moved along this flow
+    max: 25                      # the most one run may move
 ```
 
 Common keys:
@@ -217,21 +260,27 @@ Common keys:
 | `type` | block type | What it computes (below) |
 | `in` | reference, list, or map of port → reference | Its inputs |
 | `out` | reference, list, or map of port → reference | Where its outputs go: a flow (it sets that flow), another block (it commands it), or a goal's setpoint (cascade) |
-| `role` | `controller`, `actuator`, `sensor`, `logic` | Optional label, for drawing and checks. Derived when left out |
+| `role` | `controller`, `actuator`, `logic` | Optional label, for drawing and checks. Derived when left out |
 | `system`, `description` | | |
+
+Every block has an output. A block with none has no visible effect: either it does nothing worth
+modelling, or the flow it changes is missing from the model; `check` reports it.
 
 ### 9.1 How blocks run
 
-- **Built-in blocks** (9.2) are executed by ergostat on every reading of their inputs: no
-  program, no agent. They are how ergostat closes loops by itself.
-- **Machine blocks** (9.3) are executed by an agent. They run:
+- **Built-in blocks** (9.2) are executed by ergostat itself, on every reading of their inputs:
+  no program, no machine. They are how ergostat closes loops by itself.
+- **Machine blocks** (9.3) run a program, an AI prompt or a request to a person. They run:
   - when an input commands them (the input becomes nonzero, or a new command arrives); or
   - on their own schedule (`every`, `cron`), when nothing commands them: an open loop.
-  A machine block never runs twice at once, and a command that arrives while it is running is
-  held, not queued (anti-windup): the latest command is used when it finishes.
+
+  A machine block never runs twice at once. A command that arrives while it is running is held,
+  not queued (anti-windup): the latest command is used when it finishes. Without an `agent`, a
+  machine block runs locally, launched by ergostat.
 - **External blocks** (`type: external`) are performed by something ergostat does not run (an
   autoscaler, a Kubernetes controller, a team). They are declared for the structure: their
-  inputs and outputs are what it reads and moves, judged by the flows' and stocks' sensors.
+  inputs and outputs are what that thing reads and moves, judged by the stocks' and flows'
+  sensors.
 
 A machine block receives on standard input (or, for `ai`, in its prompt):
 
@@ -267,8 +316,8 @@ A first set, kept small:
 | `delay` | one signal | the signal, later | `delay` (a duration) |
 | `schedule` | none (time) | a value by time of day or week | `table`: times to values (a lookup on the clock) |
 | `lookup` | one signal | a value from a table | `table`: points, linear between them |
-| `select` | several | the minimum, maximum, or the first nonzero | `pick: min | max | first` |
-| `expr` | several | an arithmetic expression of them | `expr: "a * 2 + b"`, with `in` as a map naming them |
+| `select` | several | the minimum, maximum, or the first nonzero | `pick: min`, `max` or `first` |
+| `expr` | several | an arithmetic expression of them | `expr: a * 2 + b`, with `in` as a map naming them |
 | `timer` | one signal | 1 once it has been nonzero this long | `after` |
 | `counter` | one signal | how many times it became nonzero | `reset` (a duration) |
 | `alarm` | one signal | raises a finding while out of bounds | `above`, `below`, `for` |
@@ -277,16 +326,16 @@ More (filters, rate of change, latches) can be added when a case needs them.
 
 ### 9.3 Machine block types
 
-| Type | Executed by | Key fields |
+| Type | What it runs | Key fields |
 |---|---|---|
-| `program` | an agent of kind `program` (or `rule`, `decision`) | `run` (command), `parse`, `max`, `min`, `timeout`, `every`/`cron` |
-| `ai` | an agent of kind `ai` or `narrow-ai` | `prompt` (text or a file), `run` (optional wrapper command), `max`, `timeout`, `every`/`cron` |
-| `person` | an agent of kind `person` | `ask` (what they are asked to do); they report with `ergostat block NAME --done ...` |
-| `external` | an agent marked `external: true` | none; observed only |
+| `program` | a shell command | `run`, `parse` |
+| `ai` | a prompt, given to a model | `prompt` (text or a file), `model` (when it has no agent), `run` (an optional wrapper command) |
+| `person` | a request to a person | `ask` (what they are asked to do); they report with `ergostat block NAME --done ...` |
+| `external` | nothing: observed only | none |
 
-Common to machine blocks: `by` (the agent, required), `max` and `min` (limits on one run's
-amount), `timeout`, `every`/`cron` (when nothing commands it), `mode` (`auto`, or `advise`:
-its commands wait for a person to approve).
+Common to machine blocks: `agent` (optional: the shared machine it runs on, section 10), `max`
+and `min` (limits on one run's amount), `timeout`, `every`/`cron` (when nothing commands it),
+`mode` (`auto`, or `advise`: its commands wait for a person to approve).
 
 ### 9.4 Roles
 
@@ -295,34 +344,52 @@ Roles are derived (or labelled with `role:`):
 - a block whose output is a flow is an **actuator** (the flow's valve);
 - a block whose output commands another block, or sets a goal's setpoint, and that reads a goal
   or a stock, is a **controller**;
-- a sensor is always inside a stock or flow, never a block;
 - anything else is **logic**.
 
-At most one block may output to a given flow (one valve per flow).
+Sensors are not blocks: they are always inside a stock or flow. At most one block may output to a
+given flow.
 
 ## 10. Agents
 
-The machines: what they are, never what they are used for.
+A machine shared by several blocks. Declare one only to say something true across them; whatever
+concerns one block alone belongs on the block.
 
 ```yaml
 agents:
-  runner: { kind: program, at-once: 4 }
-  claude: { kind: ai, model: claude-opus-5-5, at-once: 2, cost: "0.02/run" }
-  oncall: { kind: person }
-  hpa:    { kind: program, external: true }
+  claude:
+    kind: ai
+    model: claude-opus-5-5
+    at-once: 2                   # the blocks on it share this
+    cost: 0.02/run
+  oncall:
+    kind: person
+  hpa:
+    external: true               # ergostat only observes it
+  build-box:
+    host: build-box.internal
+    at-once: 4
 ```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `kind` | `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` | `program` | Its rung on the ladder |
+| `kind` | `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` | from its blocks | Its rung on the ladder, when it adds something to the blocks' types |
 | `external` | bool | false | ergostat never runs it; it only observes what its blocks do |
 | `at-once` | integer | 1 | How many of its blocks may run at the same time |
-| `model` | string | none | For `ai`: which model |
-| `cost` | string | none | What a run costs, for budgets |
+| `model` | string | none | For an AI machine: which model |
+| `cost` | string | none | What a run costs, for budgets counted across its blocks |
 | `host` | string | local | Where its commands run (local only at first) |
 | `description` | string | none | |
 
-Which blocks an agent runs is looked up from the blocks' `by:`.
+What an agent is for:
+
+- **shared limits**: blocks on one machine queue behind its `at-once`, and ergostat can show the
+  machine as a bottleneck;
+- **identity**: a named person, an on-call rotation, an AI allowance, an external system, whose
+  work and response times are seen across every block it fills;
+- **location**: a host, for every block sent there;
+- **budgets**: cost counted across its blocks.
+
+Which blocks an agent runs is looked up from the blocks' `agent:`.
 
 ## 11. Sources
 
@@ -330,12 +397,14 @@ Where existing measurements live. Read only.
 
 ```yaml
 sources:
-  prom: { type: prometheus, url: http://prometheus:9090 }
+  prom:
+    type: prometheus
+    url: http://prometheus:9090
 ```
 
 | `type` | Fields | A sensor's `query` |
 |---|---|---|
-| `prometheus` | `url` | `{source: prom, promql: "..."}`: an instant query, which must return one series |
+| `prometheus` | `url` | `source` and `promql`: an instant query, which must return one series |
 | `command` | none | (the same as `run`) |
 
 More types (Datadog, CloudWatch, SQL) can follow the same shape.
@@ -351,11 +420,12 @@ stock-and-flow diagram, block diagrams, the wiring of agents.
 - a reference to something that does not exist, or of the wrong kind;
 - a name defined twice;
 - a flow with neither `from` nor `to`;
-- a goal without `of` or `hold`, or with a setpoint that does not parse;
+- a goal without exactly one of `stock` and `flow`, without `hold`, or with a setpoint that does
+  not parse;
 - a sensor with none or more than one of `run`, `query`, `manual`;
 - two blocks outputting to the same flow;
-- a machine block without `by`, or whose agent's kind cannot run its type;
-- a `do`/`run`/`prompt` on an external block;
+- a `run`, `prompt` or `ask` on an external block, or a built-in block with an `agent`;
+- a block whose agent cannot run its type (an `ai` block on an agent of kind `person`);
 - units that disagree between a flow and its stocks, or a sensor and what it measures;
 - a cycle of built-in blocks with no delay (an algebraic loop).
 
@@ -364,6 +434,7 @@ stock-and-flow diagram, block diagrams, the wiring of agents.
 - **missing feedback**: a goal no block serves;
 - **unjudgeable goal**: a goal on something with no sensor;
 - **heading for a limit**: a stock with a `limit`, growing, and no goal: time to failure;
+- **no visible effect**: a block with no output;
 - **acting on its own**: an actuator nothing commands (an open loop);
 - **competing commands**: two controllers commanding one block;
 - **its own disturbance**: a controller that also adds to the stock it holds;
@@ -379,75 +450,124 @@ name: first-loop
 stocks:
   inbox:
     unit: files
-    sensor: { run: "mkdir -p inbox; ls inbox | wc -l", every: 5s }
+    sensor:
+      run: mkdir -p inbox; ls inbox | wc -l
+      every: 5s
 
 flows:
-  arrivals:  { to: inbox, by: dropper }
-  processed: { from: inbox }
+  arrivals:
+    to: inbox
+  processed:
+    from: inbox
 
 goals:
-  inbox-short: { of: inbox, hold: "<= 20", tolerance: 5 }
+  inbox-short:
+    stock: inbox
+    hold: "<= 20"
+    tolerance: 5
 
 blocks:
-  keep-short: { type: onoff, goal: inbox-short, until: "<= 15", out: block.worker }
+  keep-short:
+    type: onoff
+    goal: inbox-short
+    until: "<= 15"
+    out: block.worker
+
   worker:
     type: program
-    by: runner
-    run: "ls inbox | head -5 > .batch; (cd inbox && xargs rm -f < ../.batch); wc -l < .batch"
+    run: ls inbox | head -5 > .batch; (cd inbox && xargs rm -f < ../.batch); wc -l < .batch
     in: block.keep-short
     out: flow.processed
+
   drop:
     type: program
-    by: runner
-    run: "mkdir -p inbox; for i in 1 2 3; do mktemp inbox/job.XXXXXX > /dev/null; done"
+    run: mkdir -p inbox; for i in 1 2 3; do mktemp inbox/job.XXXXXX > /dev/null; done
     every: 5s
     out: flow.arrivals
-
-agents:
-  runner:  { kind: program, at-once: 4 }
-  dropper: { kind: program }
 ```
 
-The threshold lives once, in the goal. The worker only works.
+The threshold lives once, in the goal. The worker only works. No machine is shared, so there is
+no `agents:` section.
 
 ### Production: observed autoscaling, a cron job ergostat now controls, a missing loop
 
 ```yaml
 name: checkout
-sources: { prom: { type: prometheus, url: http://prometheus:9090 } }
+
+sources:
+  prom:
+    type: prometheus
+    url: http://prometheus:9090
 
 stocks:
   queue:
     unit: jobs
-    sensor: { query: { source: prom, promql: 'sum(queue_depth{app="checkout"})' }, every: 30s }
+    sensor:
+      query:
+        source: prom
+        promql: 'sum(queue_depth{app="checkout"})'
+      every: 30s
   logs:
     unit: MB
-    sensor: { run: "du -sm /var/log/app | cut -f1", every: 1m }
+    sensor:
+      run: du -sm /var/log/app | cut -f1
+      every: 1m
   disk:
     unit: "%"
     limit: 100
-    sensor: { query: { source: prom, promql: 'node_filesystem_used_pct{mount="/data"}' }, every: 1m }
+    sensor:
+      query:
+        source: prom
+        promql: 'node_filesystem_used_pct{mount="/data"}'
+      every: 1m
 
 flows:
-  requests: { to: queue }
-  served:   { from: queue }
-  logging:  { to: logs }
-  rotated:  { from: logs }
-  writes:   { to: disk }
+  requests:
+    to: queue
+  served:
+    from: queue
+  logging:
+    to: logs
+  rotated:
+    from: logs
+  writes:
+    to: disk
 
 goals:
-  queue-short:   { of: queue, hold: "<= 500", critical: true }
-  logs-small:    { of: logs, hold: "<= 500" }
-  disk-headroom: { of: disk, hold: "<= 80", critical: true }      # nothing serves it: missing feedback
+  queue-short:
+    stock: queue
+    hold: "<= 500"
+    critical: true
+  logs-small:
+    stock: logs
+    hold: "<= 500"
+  disk-headroom:                 # nothing serves it: missing feedback
+    stock: disk
+    hold: "<= 80"
+    critical: true
 
 blocks:
-  autoscaling: { type: external, by: hpa, in: goal.queue-short, out: flow.served }
-  rotate-when-big: { type: onoff, goal: logs-small, until: "<= 300", out: block.rotate }
-  rotate: { type: program, by: ops-box, run: "logrotate -f /etc/logrotate.d/app", in: block.rotate-when-big, out: flow.rotated }
+  autoscaling:
+    type: external
+    agent: hpa
+    in: goal.queue-short
+    out: flow.served
+
+  rotate-when-big:
+    type: onoff
+    goal: logs-small
+    until: "<= 300"
+    out: block.rotate
+
+  rotate:
+    type: program
+    run: logrotate -f /etc/logrotate.d/app
+    in: block.rotate-when-big
+    out: flow.rotated
 
 agents:
-  hpa:     { kind: program, external: true }
-  ops-box: { kind: program }
+  hpa:
+    external: true
 ```
 
 ### Triage: an AI controller serving three goals
@@ -456,48 +576,89 @@ agents:
 name: triage
 
 stocks:
-  tickets: { unit: tickets, sensor: { run: ./count-tickets.sh, every: 1m } }
-  alerts:  { unit: alerts,  sensor: { run: ./count-alerts.sh, every: 30s } }
-  spend:   { unit: USD,     sensor: { run: ./spend-this-hour.sh, every: 1m } }
+  tickets:
+    unit: tickets
+    sensor:
+      run: ./count-tickets.sh
+      every: 1m
+  alerts:
+    unit: alerts
+    sensor:
+      run: ./count-alerts.sh
+      every: 30s
+  spend:
+    unit: USD
+    sensor:
+      run: ./spend-this-hour.sh
+      every: 1m
 
 flows:
-  filed:     { to: tickets }
-  fired:     { to: alerts }
-  resolved:  { from: tickets }
-  acked:     { from: alerts }
-  used:      { to: spend }
+  filed:
+    to: tickets
+  fired:
+    to: alerts
+  resolved:
+    from: tickets
+  acked:
+    from: alerts
+  used:
+    to: spend
 
 goals:
-  few-tickets:   { of: tickets, hold: "<= 10" }
-  alerts-acked:  { of: alerts, hold: "<= 2", critical: true }
-  within-budget: { of: spend, hold: "<= 20", critical: true }
+  few-tickets:
+    stock: tickets
+    hold: "<= 10"
+  alerts-acked:
+    stock: alerts
+    hold: "<= 2"
+    critical: true
+  within-budget:
+    stock: spend
+    hold: "<= 20"
+    critical: true
 
 blocks:
   triage:
     type: ai
-    by: claude
+    agent: claude
     prompt: prompts/triage.md
     in: [goal.few-tickets.error, goal.alerts-acked.error, goal.within-budget.error]
-    out: { tickets: block.ticket-worker, alerts: block.alert-worker }
+    out:
+      tickets: block.ticket-worker
+      alerts: block.alert-worker
     every: 2m
-  ticket-worker: { type: ai, by: sonnet, prompt: prompts/resolve.md, in: block.triage.tickets, out: flow.resolved, max: 5 }
-  alert-worker:  { type: program, by: runner, run: ./ack-duplicates.sh, in: block.triage.alerts, out: flow.acked }
+
+  ticket-worker:
+    type: ai
+    agent: claude
+    prompt: prompts/resolve.md
+    in: block.triage.tickets
+    out: flow.resolved
+    max: 5
+
+  alert-worker:
+    type: program
+    run: ./ack-duplicates.sh
+    in: block.triage.alerts
+    out: flow.acked
 
 agents:
-  claude: { kind: ai, model: claude-opus-5-5 }
-  sonnet: { kind: ai, model: claude-sonnet-5-5, at-once: 3 }
-  runner: { kind: program }
+  claude:
+    kind: ai
+    model: claude-opus-5-5
+    at-once: 2                   # triage and the ticket worker share it
 ```
 
 ### Cascade: an outer goal sets an inner one
 
 ```yaml
 blocks:
-  backlog-to-workers:          # the outer loop: how many workers the backlog needs
+  backlog-to-workers:            # the outer loop: how many workers the backlog needs
     type: expr
-    in: { backlog: stock.backlog }
-    expr: "min(50, max(5, backlog / 20))"
-    out: goal.enough-workers   # sets the inner goal's setpoint
+    in:
+      backlog: stock.backlog
+    expr: min(50, max(5, backlog / 20))
+    out: goal.enough-workers     # sets the inner goal's setpoint
 ```
 
 ## 14. From the TOML format
@@ -507,10 +668,10 @@ blocks:
 | `[[stock]]` | `stocks:` |
 | `[[sensor]]` with `agent` | a sensor inside its stock (`run:` is the agent's command for that sensor) |
 | `[[flow]]` | `flows:` |
-| `[[disturbance]]` | a flow with no block setting it (`rate`, `by` as before) |
+| `[[disturbance]]` | a flow no block sets (its `rate` as before); its `agent` becomes a block (often `external`) whose `out` is the flow |
 | `[[controller]]` | a goal (its `holds` and `setpoint`) and a block serving it; `open_loop` becomes a machine block on a schedule with no controller |
-| `[[valve]]` with `agent` | a machine block whose `out` is the flow, `by` the agent |
-| `[[agent]]` | `agents:` (kind, external) plus the `run`, `every`, `parse` moving onto the blocks it ran |
+| `[[valve]]` with `agent` | a machine block whose `out` is the flow |
+| `[[agent]]` | its `run`, `every`, `parse` move onto the blocks it ran; an `agents:` entry only when it is shared, external, a person, or has limits |
 | `[[system]]` | `systems:` |
 
 `ergostat convert` will write an existing `ergostat.toml` as `ergostat.yaml`.
@@ -520,7 +681,7 @@ blocks:
 1. `goal: inbox-short` on an `onoff` block versus `in: goal.inbox-short`: keep the shortcut?
 2. Should a sensor be allowed to run on a remote host (`host:`), or only through sources?
 3. Arbitration when two controllers command one block: `select` in front of it, or a key on the
-   block (`arbitrate: max | latest | priority`)?
+   block (`arbitrate: max`, `latest` or `priority`)?
 4. Person blocks: how a person reports (`ergostat block NAME --done 3`), and how long ergostat
    waits before it counts them as not answering.
 5. The built-in set: is it the right first twelve?

@@ -153,8 +153,10 @@ ergostat separates the **logical** design from the **physical** machines:
 - **Agents** are the machines: what kind they are (person, ai, narrow-ai, decision, program,
   rule), how many jobs they can do at once, what they cost. They describe themselves, never what
   they are used for.
-- **The binding** is on the role: which machine fills it (`by:`), and what to run on that
-  machine for this role (`do:`): the program loaded into the CNC machine for this part.
+- **The binding** is on the role, which in the format is a block: what to run for this role
+  (`run:`, `prompt:`), the program loaded into the CNC machine for this part, and, when the
+  machine is shared or has facts of its own (limits, a host, a person, an external system), which
+  machine it is (`agent:`). A block with no agent simply runs locally, under ergostat.
 
 Roles name their machine; machines never list their roles (that is looked up), so nothing is
 written twice.
@@ -164,7 +166,8 @@ Consequences:
 - **The ladder.** Every role is expected to move to cheaper, more predictable machines over time:
   a person, then a general AI agent, then a narrow one, then a fixed decision, then a program,
   then a rule, then nothing (the work designed out). Moving down the ladder is changing one
-  role's `by:` and `do:`; the goal and the control law stay put.
+  block's type and what it runs (an `ai` block's prompt becomes a `program` block's command, or a
+  built-in block); the goal and the rest of the loop stay put.
 - **Machines are shared, and sharing is measurable.** Two roles on one busy machine compete for
   it; a valve can be limited by its machine rather than its design. ergostat sees jobs waiting
   for a machine, and can name the bottleneck.

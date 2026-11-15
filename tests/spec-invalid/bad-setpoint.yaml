@@ -1,2 +1,4 @@
 goals:
-  g: { of: inbox, hold: "about 20" }
+  g:
+    stock: inbox
+    hold: about 20

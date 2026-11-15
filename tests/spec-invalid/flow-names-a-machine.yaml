@@ -1,0 +1,4 @@
+flows:
+  arrivals:
+    to: inbox
+    by: dropper

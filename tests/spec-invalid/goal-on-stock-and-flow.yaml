@@ -1,0 +1,5 @@
+goals:
+  g:
+    stock: inbox
+    flow: arrivals
+    hold: "<= 20"

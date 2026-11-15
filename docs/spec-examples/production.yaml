@@ -1,35 +1,76 @@
 name: checkout
-sources: { prom: { type: prometheus, url: http://prometheus:9090 } }
+
+sources:
+  prom:
+    type: prometheus
+    url: http://prometheus:9090
 
 stocks:
   queue:
     unit: jobs
-    sensor: { query: { source: prom, promql: 'sum(queue_depth{app="checkout"})' }, every: 30s }
+    sensor:
+      query:
+        source: prom
+        promql: 'sum(queue_depth{app="checkout"})'
+      every: 30s
   logs:
     unit: MB
-    sensor: { run: "du -sm /var/log/app | cut -f1", every: 1m }
+    sensor:
+      run: du -sm /var/log/app | cut -f1
+      every: 1m
   disk:
     unit: "%"
     limit: 100
-    sensor: { query: { source: prom, promql: 'node_filesystem_used_pct{mount="/data"}' }, every: 1m }
+    sensor:
+      query:
+        source: prom
+        promql: 'node_filesystem_used_pct{mount="/data"}'
+      every: 1m
 
 flows:
-  requests: { to: queue }
-  served:   { from: queue }
-  logging:  { to: logs }
-  rotated:  { from: logs }
-  writes:   { to: disk }
+  requests:
+    to: queue
+  served:
+    from: queue
+  logging:
+    to: logs
+  rotated:
+    from: logs
+  writes:
+    to: disk
 
 goals:
-  queue-short:   { of: queue, hold: "<= 500", critical: true }
-  logs-small:    { of: logs, hold: "<= 500" }
-  disk-headroom: { of: disk, hold: "<= 80", critical: true }      # nothing serves it: missing feedback
+  queue-short:
+    stock: queue
+    hold: "<= 500"
+    critical: true
+  logs-small:
+    stock: logs
+    hold: "<= 500"
+  disk-headroom:                 # nothing serves it: missing feedback
+    stock: disk
+    hold: "<= 80"
+    critical: true
 
 blocks:
-  autoscaling: { type: external, by: hpa, in: goal.queue-short, out: flow.served }
-  rotate-when-big: { type: onoff, goal: logs-small, until: "<= 300", out: block.rotate }
-  rotate: { type: program, by: ops-box, run: "logrotate -f /etc/logrotate.d/app", in: block.rotate-when-big, out: flow.rotated }
+  autoscaling:
+    type: external
+    agent: hpa
+    in: goal.queue-short
+    out: flow.served
+
+  rotate-when-big:
+    type: onoff
+    goal: logs-small
+    until: "<= 300"
+    out: block.rotate
+
+  rotate:
+    type: program
+    run: logrotate -f /etc/logrotate.d/app
+    in: block.rotate-when-big
+    out: flow.rotated
 
 agents:
-  hpa:     { kind: program, external: true }
-  ops-box: { kind: program }
+  hpa:
+    external: true

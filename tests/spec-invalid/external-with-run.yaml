@@ -1,2 +1,5 @@
 blocks:
-  hpa: { type: external, by: k8s, run: ./scale.sh }
+  hpa:
+    type: external
+    agent: k8s
+    run: ./scale.sh

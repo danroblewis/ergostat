@@ -6,8 +6,10 @@ as a feedback structure (where the stocks are, what decides, what acts, what loo
 the configuration format: every pattern here should be expressible, and where it is not, the gap
 is named.
 
-The YAML sketches use the draft format discussed in `docs/CONCEPTS.md` (stocks with sensors,
-goals, flows with valves, controllers, agents). That format is not implemented yet.
+The YAML sketches predate `docs/SPEC.md` and use an earlier draft (controllers with `serves` and
+`drives`, valves with `by` and `do`); the specification is the current form: controllers and
+valves are blocks with `in` and `out`, and machines are named with `agent:` only when shared.
+Neither is implemented yet.
 
 Sources for the pattern list: Anthropic, [Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)
 (prompt chaining, routing, parallelization, orchestrator-workers, evaluator-optimizer, and

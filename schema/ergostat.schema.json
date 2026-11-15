@@ -6,30 +6,112 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "name": { "$ref": "#/$defs/name" },
-    "include": { "type": "array", "items": { "type": "string" } },
-    "keep": { "$ref": "#/$defs/duration" },
-    "defaults": {
-      "type": "object", "additionalProperties": false,
-      "properties": { "system": { "$ref": "#/$defs/name" } }
+    "name": {
+      "$ref": "#/$defs/name"
     },
-    "sources": { "type": "object", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/source" } },
-    "systems": { "type": "object", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/system" } },
-    "stocks": { "type": "object", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/stock" } },
-    "flows": { "type": "object", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/flow" } },
-    "goals": { "type": "object", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/goal" } },
-    "blocks": { "type": "object", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/block" } },
-    "agents": { "type": "object", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/agent" } }
+    "include": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "keep": {
+      "$ref": "#/$defs/duration"
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "system": {
+          "$ref": "#/$defs/name"
+        }
+      }
+    },
+    "sources": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "systems": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/system"
+      }
+    },
+    "stocks": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/stock"
+      }
+    },
+    "flows": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/flow"
+      }
+    },
+    "goals": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/goal"
+      }
+    },
+    "blocks": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/block"
+      }
+    },
+    "agents": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/agent"
+      }
+    }
   },
   "$defs": {
-    "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
     "duration": {
       "oneOf": [
-        { "type": "number", "exclusiveMinimum": 0 },
-        { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(s|m|h|d)$" }
+        {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?(s|m|h|d)$"
+        }
       ]
     },
-    "setpoint": { "type": "string", "pattern": "^\\s*(<=|>=|==|<|>)\\s*-?[0-9]+(\\.[0-9]+)?\\s*$" },
+    "setpoint": {
+      "type": "string",
+      "pattern": "^\\s*(<=|>=|==|<|>)\\s*-?[0-9]+(\\.[0-9]+)?\\s*$"
+    },
     "ref": {
       "type": "string",
       "description": "kind.name or kind.name.port, e.g. stock.inbox, goal.inbox-short.error, block.decide.urgent, flow.processed",
@@ -37,189 +119,725 @@
     },
     "refs": {
       "oneOf": [
-        { "$ref": "#/$defs/ref" },
-        { "type": "array", "items": { "$ref": "#/$defs/ref" }, "minItems": 1 },
-        { "type": "object", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/ref" }, "minProperties": 1 }
+        {
+          "$ref": "#/$defs/ref"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "minItems": 1
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/name"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/ref"
+          },
+          "minProperties": 1
+        }
       ]
     },
     "schedule": {
       "type": "object",
       "properties": {
-        "every": { "$ref": "#/$defs/duration" },
-        "cron": { "type": "string" }
+        "every": {
+          "$ref": "#/$defs/duration"
+        },
+        "cron": {
+          "type": "string"
+        }
       },
-      "not": { "required": ["every", "cron"] }
+      "not": {
+        "required": [
+          "every",
+          "cron"
+        ]
+      }
     },
     "sensor": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "run": { "type": "string", "minLength": 1 },
+        "run": {
+          "type": "string",
+          "minLength": 1
+        },
         "query": {
           "type": "object",
-          "required": ["source"],
-          "properties": { "source": { "$ref": "#/$defs/name" } }
+          "required": [
+            "source"
+          ],
+          "properties": {
+            "source": {
+              "$ref": "#/$defs/name"
+            }
+          }
         },
-        "manual": { "const": true },
-        "every": { "$ref": "#/$defs/duration" },
-        "cron": { "type": "string" },
-        "timeout": { "$ref": "#/$defs/duration" },
-        "parse": { "type": "string" },
-        "unit": { "type": "string" },
-        "description": { "type": "string" }
+        "manual": {
+          "const": true
+        },
+        "every": {
+          "$ref": "#/$defs/duration"
+        },
+        "cron": {
+          "type": "string"
+        },
+        "timeout": {
+          "$ref": "#/$defs/duration"
+        },
+        "parse": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
       },
       "oneOf": [
-        { "required": ["run"] },
-        { "required": ["query"] },
-        { "required": ["manual"] }
+        {
+          "required": [
+            "run"
+          ]
+        },
+        {
+          "required": [
+            "query"
+          ]
+        },
+        {
+          "required": [
+            "manual"
+          ]
+        }
       ],
-      "not": { "required": ["every", "cron"] }
+      "not": {
+        "required": [
+          "every",
+          "cron"
+        ]
+      }
     },
-    "sensors": { "type": "object", "propertyNames": { "$ref": "#/$defs/name" }, "additionalProperties": { "$ref": "#/$defs/sensor" } },
+    "sensors": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/sensor"
+      }
+    },
     "stock": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "unit": { "type": "string" },
-        "limit": { "type": "number" },
-        "initial": { "type": "number" },
-        "system": { "$ref": "#/$defs/name" },
-        "description": { "type": "string" },
-        "sensors": { "$ref": "#/$defs/sensors" },
-        "sensor": { "$ref": "#/$defs/sensor" }
+        "unit": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "initial": {
+          "type": "number"
+        },
+        "system": {
+          "$ref": "#/$defs/name"
+        },
+        "description": {
+          "type": "string"
+        },
+        "sensors": {
+          "$ref": "#/$defs/sensors"
+        },
+        "sensor": {
+          "$ref": "#/$defs/sensor"
+        }
       },
-      "not": { "required": ["sensors", "sensor"] }
+      "not": {
+        "required": [
+          "sensors",
+          "sensor"
+        ]
+      }
     },
     "flow": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "from": { "$ref": "#/$defs/name" },
-        "to": { "$ref": "#/$defs/name" },
-        "unit": { "type": "string" },
-        "rate": { "type": "number" },
-        "sensors": { "$ref": "#/$defs/sensors" },
-        "sensor": { "$ref": "#/$defs/sensor" },
-        "by": { "$ref": "#/$defs/name" },
-        "system": { "$ref": "#/$defs/name" },
-        "description": { "type": "string" }
+        "from": {
+          "$ref": "#/$defs/name"
+        },
+        "to": {
+          "$ref": "#/$defs/name"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "rate": {
+          "type": "number"
+        },
+        "sensors": {
+          "$ref": "#/$defs/sensors"
+        },
+        "sensor": {
+          "$ref": "#/$defs/sensor"
+        },
+        "system": {
+          "$ref": "#/$defs/name"
+        },
+        "description": {
+          "type": "string"
+        }
       },
-      "anyOf": [ { "required": ["from"] }, { "required": ["to"] } ],
-      "not": { "required": ["sensors", "sensor"] }
+      "anyOf": [
+        {
+          "required": [
+            "from"
+          ]
+        },
+        {
+          "required": [
+            "to"
+          ]
+        }
+      ],
+      "not": {
+        "required": [
+          "sensors",
+          "sensor"
+        ]
+      }
     },
     "goal": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["of", "hold"],
+      "required": [
+        "hold"
+      ],
       "properties": {
-        "of": { "$ref": "#/$defs/ref" },
-        "hold": { "$ref": "#/$defs/setpoint" },
-        "tolerance": { "type": "number", "minimum": 0 },
-        "critical": { "type": "boolean" },
-        "owner": { "type": "string" },
-        "system": { "$ref": "#/$defs/name" },
-        "description": { "type": "string" }
-      }
+        "stock": {
+          "$ref": "#/$defs/name"
+        },
+        "flow": {
+          "$ref": "#/$defs/name"
+        },
+        "hold": {
+          "$ref": "#/$defs/setpoint"
+        },
+        "tolerance": {
+          "type": "number",
+          "minimum": 0
+        },
+        "critical": {
+          "type": "boolean"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "system": {
+          "$ref": "#/$defs/name"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "stock"
+          ]
+        },
+        {
+          "required": [
+            "flow"
+          ]
+        }
+      ]
     },
     "builtinTypes": {
-      "enum": ["onoff", "compare", "proportional", "limit", "delay", "schedule", "lookup", "select", "expr", "timer", "counter", "alarm"]
+      "enum": [
+        "onoff",
+        "compare",
+        "proportional",
+        "limit",
+        "delay",
+        "schedule",
+        "lookup",
+        "select",
+        "expr",
+        "timer",
+        "counter",
+        "alarm"
+      ]
     },
-    "machineTypes": { "enum": ["program", "ai", "person", "external"] },
+    "machineTypes": {
+      "enum": [
+        "program",
+        "ai",
+        "person",
+        "external"
+      ]
+    },
     "block": {
       "type": "object",
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "properties": {
-        "type": { "anyOf": [ { "$ref": "#/$defs/builtinTypes" }, { "$ref": "#/$defs/machineTypes" } ] },
-        "in": { "$ref": "#/$defs/refs" },
-        "out": { "$ref": "#/$defs/refs" },
-        "role": { "enum": ["controller", "actuator", "logic"] },
-        "system": { "$ref": "#/$defs/name" },
-        "description": { "type": "string" },
-
-        "by": { "$ref": "#/$defs/name" },
-        "run": { "type": "string", "minLength": 1 },
-        "prompt": { "type": "string", "minLength": 1 },
-        "ask": { "type": "string", "minLength": 1 },
-        "parse": { "type": "string" },
-        "max": { "type": "number", "exclusiveMinimum": 0 },
-        "min": { "type": "number", "minimum": 0 },
-        "timeout": { "$ref": "#/$defs/duration" },
-        "every": { "$ref": "#/$defs/duration" },
-        "cron": { "type": "string" },
-        "mode": { "enum": ["auto", "advise"] },
-
-        "goal": { "$ref": "#/$defs/ref" },
-        "until": { "$ref": "#/$defs/setpoint" },
-        "min-on": { "$ref": "#/$defs/duration" },
-        "min-off": { "$ref": "#/$defs/duration" },
-        "above": { "type": "number" },
-        "below": { "type": "number" },
-        "back-below": { "type": "number" },
-        "back-above": { "type": "number" },
-        "gain": { "type": "number" },
-        "rate": { "type": "number", "exclusiveMinimum": 0 },
-        "delay": { "$ref": "#/$defs/duration" },
-        "after": { "$ref": "#/$defs/duration" },
-        "for": { "$ref": "#/$defs/duration" },
-        "reset": { "$ref": "#/$defs/duration" },
-        "table": { "type": ["object", "array"] },
-        "pick": { "enum": ["min", "max", "first"] },
-        "expr": { "type": "string", "minLength": 1 }
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/builtinTypes"
+            },
+            {
+              "$ref": "#/$defs/machineTypes"
+            }
+          ]
+        },
+        "in": {
+          "$ref": "#/$defs/refs"
+        },
+        "out": {
+          "$ref": "#/$defs/refs"
+        },
+        "role": {
+          "enum": [
+            "controller",
+            "actuator",
+            "logic"
+          ]
+        },
+        "system": {
+          "$ref": "#/$defs/name"
+        },
+        "description": {
+          "type": "string"
+        },
+        "agent": {
+          "$ref": "#/$defs/name"
+        },
+        "run": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ask": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parse": {
+          "type": "string"
+        },
+        "max": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "min": {
+          "type": "number",
+          "minimum": 0
+        },
+        "timeout": {
+          "$ref": "#/$defs/duration"
+        },
+        "every": {
+          "$ref": "#/$defs/duration"
+        },
+        "cron": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "auto",
+            "advise"
+          ]
+        },
+        "goal": {
+          "$ref": "#/$defs/ref"
+        },
+        "until": {
+          "$ref": "#/$defs/setpoint"
+        },
+        "min-on": {
+          "$ref": "#/$defs/duration"
+        },
+        "min-off": {
+          "$ref": "#/$defs/duration"
+        },
+        "above": {
+          "type": "number"
+        },
+        "below": {
+          "type": "number"
+        },
+        "back-below": {
+          "type": "number"
+        },
+        "back-above": {
+          "type": "number"
+        },
+        "gain": {
+          "type": "number"
+        },
+        "rate": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "delay": {
+          "$ref": "#/$defs/duration"
+        },
+        "after": {
+          "$ref": "#/$defs/duration"
+        },
+        "for": {
+          "$ref": "#/$defs/duration"
+        },
+        "reset": {
+          "$ref": "#/$defs/duration"
+        },
+        "table": {
+          "type": [
+            "object",
+            "array"
+          ]
+        },
+        "pick": {
+          "enum": [
+            "min",
+            "max",
+            "first"
+          ]
+        },
+        "expr": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string"
+        }
       },
       "additionalProperties": false,
-      "not": { "required": ["every", "cron"] },
+      "not": {
+        "required": [
+          "every",
+          "cron"
+        ]
+      },
       "allOf": [
         {
-          "if": { "properties": { "type": { "$ref": "#/$defs/machineTypes" } } },
-          "then": { "required": ["by"] }
+          "if": {
+            "properties": {
+              "type": {
+                "const": "program"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "run"
+            ]
+          }
         },
-        { "if": { "properties": { "type": { "const": "program" } } }, "then": { "required": ["run"] } },
-        { "if": { "properties": { "type": { "const": "ai" } } }, "then": { "required": ["prompt"] } },
-        { "if": { "properties": { "type": { "const": "person" } } }, "then": { "required": ["ask"] } },
         {
-          "if": { "properties": { "type": { "const": "external" } } },
-          "then": { "not": { "anyOf": [ { "required": ["run"] }, { "required": ["prompt"] }, { "required": ["ask"] } ] } }
+          "if": {
+            "properties": {
+              "type": {
+                "const": "ai"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "prompt"
+            ]
+          }
         },
         {
-          "if": { "properties": { "type": { "$ref": "#/$defs/builtinTypes" } } },
-          "then": { "not": { "anyOf": [ { "required": ["by"] }, { "required": ["run"] }, { "required": ["prompt"] } ] } }
+          "if": {
+            "properties": {
+              "type": {
+                "const": "person"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ask"
+            ]
+          }
         },
-        { "if": { "properties": { "type": { "const": "onoff" } } }, "then": { "required": ["goal"] } },
-        { "if": { "properties": { "type": { "const": "proportional" } } }, "then": { "required": ["goal", "gain"] } },
-        { "if": { "properties": { "type": { "const": "compare" } } }, "then": { "anyOf": [ { "required": ["above"] }, { "required": ["below"] } ] } },
-        { "if": { "properties": { "type": { "const": "expr" } } }, "then": { "required": ["expr", "in"] } },
-        { "if": { "properties": { "type": { "enum": ["schedule", "lookup"] } } }, "then": { "required": ["table"] } },
-        { "if": { "properties": { "type": { "const": "select" } } }, "then": { "required": ["pick", "in"] } },
-        { "if": { "properties": { "type": { "const": "timer" } } }, "then": { "required": ["after"] } }
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "external"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "run"
+                  ]
+                },
+                {
+                  "required": [
+                    "prompt"
+                  ]
+                },
+                {
+                  "required": [
+                    "ask"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "$ref": "#/$defs/builtinTypes"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "agent"
+                  ]
+                },
+                {
+                  "required": [
+                    "run"
+                  ]
+                },
+                {
+                  "required": [
+                    "prompt"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "onoff"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "goal"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "proportional"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "goal",
+              "gain"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "compare"
+              }
+            }
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "above"
+                ]
+              },
+              {
+                "required": [
+                  "below"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "expr"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "expr",
+              "in"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "schedule",
+                  "lookup"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "table"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "select"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "pick",
+              "in"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "timer"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "after"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "not": {
+                  "const": "ai"
+                }
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "model"
+              ]
+            }
+          }
+        }
       ]
     },
     "agent": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["person", "ai", "narrow-ai", "decision", "program", "rule"] },
-        "external": { "type": "boolean" },
-        "at-once": { "type": "integer", "minimum": 1 },
-        "model": { "type": "string" },
-        "cost": { "type": "string" },
-        "host": { "type": "string" },
-        "description": { "type": "string" }
+        "kind": {
+          "enum": [
+            "person",
+            "ai",
+            "narrow-ai",
+            "decision",
+            "program",
+            "rule"
+          ]
+        },
+        "external": {
+          "type": "boolean"
+        },
+        "at-once": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "model": {
+          "type": "string"
+        },
+        "cost": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
       }
     },
     "source": {
       "type": "object",
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "properties": {
-        "type": { "enum": ["prometheus", "command"] },
-        "url": { "type": "string" }
+        "type": {
+          "enum": [
+            "prometheus",
+            "command"
+          ]
+        },
+        "url": {
+          "type": "string"
+        }
       },
-      "if": { "properties": { "type": { "const": "prometheus" } } },
-      "then": { "required": ["url"] }
+      "if": {
+        "properties": {
+          "type": {
+            "const": "prometheus"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "url"
+        ]
+      }
     },
     "system": {
       "type": "object",
       "additionalProperties": false,
-      "properties": { "description": { "type": "string" } }
+      "properties": {
+        "description": {
+          "type": "string"
+        }
+      }
     }
   }
 }

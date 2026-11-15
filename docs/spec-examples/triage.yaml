@@ -1,34 +1,74 @@
 name: triage
 
 stocks:
-  tickets: { unit: tickets, sensor: { run: ./count-tickets.sh, every: 1m } }
-  alerts:  { unit: alerts,  sensor: { run: ./count-alerts.sh, every: 30s } }
-  spend:   { unit: USD,     sensor: { run: ./spend-this-hour.sh, every: 1m } }
+  tickets:
+    unit: tickets
+    sensor:
+      run: ./count-tickets.sh
+      every: 1m
+  alerts:
+    unit: alerts
+    sensor:
+      run: ./count-alerts.sh
+      every: 30s
+  spend:
+    unit: USD
+    sensor:
+      run: ./spend-this-hour.sh
+      every: 1m
 
 flows:
-  filed:     { to: tickets }
-  fired:     { to: alerts }
-  resolved:  { from: tickets }
-  acked:     { from: alerts }
-  used:      { to: spend }
+  filed:
+    to: tickets
+  fired:
+    to: alerts
+  resolved:
+    from: tickets
+  acked:
+    from: alerts
+  used:
+    to: spend
 
 goals:
-  few-tickets:   { of: tickets, hold: "<= 10" }
-  alerts-acked:  { of: alerts, hold: "<= 2", critical: true }
-  within-budget: { of: spend, hold: "<= 20", critical: true }
+  few-tickets:
+    stock: tickets
+    hold: "<= 10"
+  alerts-acked:
+    stock: alerts
+    hold: "<= 2"
+    critical: true
+  within-budget:
+    stock: spend
+    hold: "<= 20"
+    critical: true
 
 blocks:
   triage:
     type: ai
-    by: claude
+    agent: claude
     prompt: prompts/triage.md
     in: [goal.few-tickets.error, goal.alerts-acked.error, goal.within-budget.error]
-    out: { tickets: block.ticket-worker, alerts: block.alert-worker }
+    out:
+      tickets: block.ticket-worker
+      alerts: block.alert-worker
     every: 2m
-  ticket-worker: { type: ai, by: sonnet, prompt: prompts/resolve.md, in: block.triage.tickets, out: flow.resolved, max: 5 }
-  alert-worker:  { type: program, by: runner, run: ./ack-duplicates.sh, in: block.triage.alerts, out: flow.acked }
+
+  ticket-worker:
+    type: ai
+    agent: claude
+    prompt: prompts/resolve.md
+    in: block.triage.tickets
+    out: flow.resolved
+    max: 5
+
+  alert-worker:
+    type: program
+    run: ./ack-duplicates.sh
+    in: block.triage.alerts
+    out: flow.acked
 
 agents:
-  claude: { kind: ai, model: claude-opus-5-5 }
-  sonnet: { kind: ai, model: claude-sonnet-5-5, at-once: 3 }
-  runner: { kind: program }
+  claude:
+    kind: ai
+    model: claude-opus-5-5
+    at-once: 2                   # triage and the ticket worker share it

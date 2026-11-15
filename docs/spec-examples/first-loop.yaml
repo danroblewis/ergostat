@@ -3,30 +3,37 @@ name: first-loop
 stocks:
   inbox:
     unit: files
-    sensor: { run: "mkdir -p inbox; ls inbox | wc -l", every: 5s }
+    sensor:
+      run: mkdir -p inbox; ls inbox | wc -l
+      every: 5s
 
 flows:
-  arrivals:  { to: inbox, by: dropper }
-  processed: { from: inbox }
+  arrivals:
+    to: inbox
+  processed:
+    from: inbox
 
 goals:
-  inbox-short: { of: inbox, hold: "<= 20", tolerance: 5 }
+  inbox-short:
+    stock: inbox
+    hold: "<= 20"
+    tolerance: 5
 
 blocks:
-  keep-short: { type: onoff, goal: inbox-short, until: "<= 15", out: block.worker }
+  keep-short:
+    type: onoff
+    goal: inbox-short
+    until: "<= 15"
+    out: block.worker
+
   worker:
     type: program
-    by: runner
-    run: "ls inbox | head -5 > .batch; (cd inbox && xargs rm -f < ../.batch); wc -l < .batch"
+    run: ls inbox | head -5 > .batch; (cd inbox && xargs rm -f < ../.batch); wc -l < .batch
     in: block.keep-short
     out: flow.processed
+
   drop:
     type: program
-    by: runner
-    run: "mkdir -p inbox; for i in 1 2 3; do mktemp inbox/job.XXXXXX > /dev/null; done"
+    run: mkdir -p inbox; for i in 1 2 3; do mktemp inbox/job.XXXXXX > /dev/null; done
     every: 5s
     out: flow.arrivals
-
-agents:
-  runner:  { kind: program, at-once: 4 }
-  dropper: { kind: program }
