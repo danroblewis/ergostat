@@ -51,11 +51,11 @@ def test_first_loop_derives_its_loop():
     lp = spec.loop("inbox-short")
     assert lp.closes
     assert lp.sensors == ["stock.inbox.main"]
-    assert lp.controllers == ["keep-short"]
+    assert lp.controllers == ["keep-inbox-short"]          # implied by the worker's goal:
     assert lp.actuators == ["worker"]
     assert lp.valves == ["processed"]
     assert lp.disturbances == ["arrivals"]
-    assert spec.role(spec.blocks["keep-short"]) == "controller"
+    assert spec.role(spec.blocks["keep-inbox-short"]) == "controller" and spec.blocks["keep-inbox-short"].implied
     assert spec.role(spec.blocks["worker"]) == "actuator"
 
 

@@ -147,6 +147,7 @@ class Block:
     min: float | None = None
     mode: str = "auto"
     where: Where | None = None
+    implied: bool = False      # put in by ergostat (a machine block's goal:), not written
 
     @property
     def builtin(self) -> bool:

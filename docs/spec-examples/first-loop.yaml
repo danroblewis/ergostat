@@ -1,37 +1,27 @@
 name: first-loop
-
 stocks:
   inbox:
     unit: files
     sensor:
       run: mkdir -p inbox; ls inbox | wc -l
       every: 5s
-
 flows:
   arrivals:
     to: inbox
   processed:
     from: inbox
-
 goals:
   inbox-short:
     stock: inbox
     hold: "<= 20"
     tolerance: 5
-
 blocks:
-  keep-short:
-    type: onoff
-    goal: inbox-short
-    until: "<= 15"
-    out: block.worker
-
   worker:
     type: program
+    goal: inbox-short
+    until: "<= 15"
     run: ls inbox | head -5 > .batch; (cd inbox && xargs rm -f < ../.batch); wc -l < .batch
-    in: block.keep-short
     out: flow.processed
-
   drop:
     type: program
     run: mkdir -p inbox; for i in 1 2 3; do mktemp inbox/job.XXXXXX > /dev/null; done; echo 3

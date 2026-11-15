@@ -42,7 +42,7 @@ def human(sec: float) -> str:
 def convert(m: mdl.Model) -> tuple[str, list[str]]:
     notes: list[str] = []
     roles: dict[str, list[str]] = {}
-    for t in (m.sensors, m.valves, m.controllers):
+    for t in (m.sensors, m.valves):              # a controller's role is ergostat's now: only these are programs
         for p in t.values():
             if p.agent:
                 roles.setdefault(p.agent, []).append(f"{p.kind} {p.name}")
@@ -51,9 +51,10 @@ def convert(m: mdl.Model) -> tuple[str, list[str]]:
             roles.setdefault(f.agent, []).append(f"disturbance {f.name}")
     for a, rs in roles.items():
         ag = m.agents.get(a)
-        if len(rs) > 1 and ag and ag.command:
+        acts = [r for r in rs if not r.startswith("disturbance ")]
+        if len(rs) > 1 and acts and ag and ag.command:
             notes.append(f"agent {a} ran one program for {', '.join(rs)}. Its command is now each one's; split it so "
-                         f"each prints only its own number (a sensor its reading, a block what it moved).")
+                         f"each prints only its own number (a sensor its reading, a block what it moved)")
     out: dict = {"name": m.name}
     if m.keep != 30 * 86400.0:
         out["keep"] = human(m.keep)
@@ -147,13 +148,10 @@ def convert(m: mdl.Model) -> tuple[str, list[str]]:
             for v in lp.valves:
                 commanded[v] = name
             continue
-        name = f"keep-{fix(c.name)}"
-        blocks[name] = {"type": "onoff", "goal": fix(c.name),
-                        "out": [f"block.{fix(v)}" for v in lp.valves] if len(lp.valves) > 1 else f"block.{fix(lp.valves[0])}"}
         for v in lp.valves:
-            commanded[v] = name
-        notes.append(f"controller {c.name} is goal {fix(c.name)} and block {name}, which runs "
-                     f"{', '.join(fix(v) for v in lp.valves)} while the goal is off (they no longer run on a timer)")
+            commanded[v] = "goal:" + fix(c.name)
+        notes.append(f"controller {c.name} is goal {fix(c.name)}; {', '.join(fix(v) for v in lp.valves)} now run"
+                     f"{'s' if len(lp.valves) == 1 else ''} while it is off (goal: {fix(c.name)}), not on a timer")
     for v in m.valves.values():
         a = m.agents.get(v.agent or "")
         name = fix(v.name)
@@ -169,7 +167,9 @@ def convert(m: mdl.Model) -> tuple[str, list[str]]:
                 notes.append(f"valve {v.name} had no command: block {name} runs `true` until you give it one")
         if a is not None and a.parse:
             b["parse"] = a.parse
-        if v.name in commanded:
+        if commanded.get(v.name, "").startswith("goal:"):
+            b["goal"] = commanded[v.name][5:]
+        elif v.name in commanded:
             b["in"] = f"block.{commanded[v.name]}"
         else:
             b.update(schedule(a))
@@ -213,12 +213,29 @@ def convert(m: mdl.Model) -> tuple[str, list[str]]:
         if a.on:
             notes.append(f"agent {a.name} listened for {', '.join(a.on)}; blocks are commanded by blocks now, not by "
                          f"events")
-    text = yaml.safe_dump(out, sort_keys=False, default_flow_style=False, width=10_000, allow_unicode=True)
+    text = yaml.dump(whole(out), Dumper=Dumper, sort_keys=False, default_flow_style=False, width=10_000, allow_unicode=True)
+    text = re.sub(r"^(\s+(?:hold|until): )'?([<>=][^'\n]*)'?$", r'\1"\2"', text, flags=re.M)
     text = re.sub(r"^(\s+\w[\w-]*:) null$", r"\1", text, flags=re.M)
     head = f"# {m.name}: converted from {m.path.name if m.path else 'ergostat.toml'} by ergostat convert\n"
     if notes:
         head += "#\n# To look at:\n" + "".join(f"#   - {n}\n" for n in dict.fromkeys(notes))
     return head + "\n" + spaced(text), notes
+
+
+class Dumper(yaml.SafeDumper):
+    def increase_indent(self, flow=False, indentless=False):       # lists indented under their key
+        return super().increase_indent(flow, False)
+
+
+def whole(x):
+    """2.0 written as 2."""
+    if isinstance(x, dict):
+        return {k: whole(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [whole(v) for v in x]
+    if isinstance(x, float) and x == int(x):
+        return int(x)
+    return x
 
 
 def spaced(text: str) -> str:

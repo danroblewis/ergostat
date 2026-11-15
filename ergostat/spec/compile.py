@@ -21,9 +21,9 @@ SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role"}
 MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode"}
 TYPE_KEYS = {
-    "program": MACHINE_COMMON | {"run", "parse"},
-    "ai": MACHINE_COMMON | {"prompt", "model", "run", "parse"},
-    "person": MACHINE_COMMON | {"ask"},
+    "program": MACHINE_COMMON | {"run", "parse", "goal", "until"},
+    "ai": MACHINE_COMMON | {"prompt", "model", "run", "parse", "goal", "until"},
+    "person": MACHINE_COMMON | {"ask", "goal", "until"},
     "external": {"agent"},
     "onoff": {"goal", "until", "min-on", "min-off"},
     "compare": {"above", "below", "back-above", "back-below"},
@@ -284,8 +284,33 @@ class Compiler:
             b = self.block(name, m, what)
             if b:
                 spec.blocks[name] = b
+        self.implied(spec)
         self.references(spec)
         return spec
+
+    def implied(self, spec: Spec) -> None:
+        """A machine block that names a goal runs while that goal is off: ergostat puts the onoff
+        block in front of it (one per goal and release point, shared by the blocks that name it),
+        so the loop is drawn and run like any other."""
+        made: dict[tuple, str] = {}
+        for b in list(spec.blocks.values()):
+            if not b.machine or not b.goal:
+                continue
+            if b.goal not in spec.goals:
+                continue                                   # reported with the references
+            until = b.params.get("until")
+            key = (b.goal, str(until) if until else None)
+            if key not in made:
+                base = name = f"keep-{b.goal}"
+                i = 2
+                while name in spec.blocks:
+                    name = f"{base}-{i}"
+                    i += 1
+                params = {"goal": b.goal, **({"until": until} if until else {})}
+                spec.blocks[name] = Block(name, "onoff", {}, {"out": []}, params, system=b.system, where=b.where,
+                                          implied=True, description=f"implied by {b.name}'s goal: {b.goal}")
+                made[key] = name
+            spec.blocks[made[key]].outputs["out"].append(Ref("block", b.name))
 
     def suggest(self, name: str, among) -> str:
         import difflib
@@ -337,7 +362,7 @@ class Compiler:
         for k in ("min-on", "min-off", "delay", "after", "reset", "for"):
             if m.get(k) is not None:
                 params[k] = self.duration(m, k, what)
-        if t == "onoff" and m.get("until") is not None:
+        if m.get("until") is not None:
             sp = Setpoint.parse(m["until"])
             if sp is None:
                 self.err(f"{what}.until: a setpoint like \"<= 15\", quoted", m.at("until"), "bad-setpoint")

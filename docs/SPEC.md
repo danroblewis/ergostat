@@ -5,7 +5,8 @@ system. It replaces the TOML format. The ideas behind it are in `docs/CONCEPTS.m
 come from `docs/vocabulary.md`, and `schema/ergostat.schema.json` is the machine-checkable form
 of this document.
 
-**Status: draft for review. Nothing here is implemented yet.**
+**Status: draft for review, implemented.** `ergostat check`, `convert` and `run` follow this document
+(`ergostat/spec/`). Where building it settled a question, the decision is marked *Decided*.
 
 ## 1. Principles
 
@@ -337,6 +338,37 @@ Common to machine blocks: `agent` (optional: the shared machine it runs on, sect
 and `min` (limits on one run's amount), `timeout`, `every`/`cron` (when nothing commands it),
 `mode` (`auto`, or `advise`: its commands wait for a person to approve).
 
+**A machine block may name its goal.** `goal: inbox-short` (and optionally `until:`) on a
+`program`, `ai` or `person` block means "run while this goal is off, until it is back to `until`
+(or holding)". It is the commonest loop there is ("when the disk is over 80%, clean it"), written
+in one block: ergostat puts an `onoff` block in front of it, named `keep-<goal>` (one per goal
+and release point, shared by every block that names it), and draws and runs it like any other.
+`ergostat block` lists it as implied. *Decided* (question 1).
+
+```yaml
+blocks:
+  worker:
+    type: program
+    goal: inbox-short            # runs while the goal is off ...
+    until: "<= 15"               # ... until the inbox is back to 15
+    run: ./process.sh
+    out: flow.processed
+```
+
+**How a commanded block runs.** While its command is nonzero it runs, once per fresh reading:
+after each run it waits for a new reading of the system before running again, so it never
+outruns its sensors. When it moves a flow, the sensors of that flow's stocks read at once. The
+command it gets is clamped to its `max` (and `min`); `block.commanded` records both the clamped
+amount and, when they differ, what was asked.
+
+**Reading a machine block's output.** A bare number goes to its single output (a flow: what it
+moved; a block: a command; a goal: a setpoint). JSON lines may also be `{"moved": n}` without
+`out` when it moves one flow, and `{"event": "backup.verified", "item": "nightly"}` for anything
+else that happened. Lines that are not JSON go to its log (`logs/<block>.log` in the state
+directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_COMMAND` (the amount) and
+`ERGOSTAT_STATE_DIR`. An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
+with its prompt, the JSON above, and how to answer.
+
 ### 9.4 Roles
 
 Roles are derived (or labelled with `role:`):
@@ -467,16 +499,11 @@ goals:
     tolerance: 5
 
 blocks:
-  keep-short:
-    type: onoff
-    goal: inbox-short
-    until: "<= 15"
-    out: block.worker
-
   worker:
     type: program
+    goal: inbox-short
+    until: "<= 15"
     run: ls inbox | head -5 > .batch; (cd inbox && xargs rm -f < ../.batch); wc -l < .batch
-    in: block.keep-short
     out: flow.processed
 
   drop:
@@ -486,7 +513,11 @@ blocks:
     out: flow.arrivals
 ```
 
-The threshold lives once, in the goal. The worker only works. No machine is shared, so there is
+The threshold lives once, in the goal. The worker only works: ergostat runs it while the goal is
+off (through the implied `keep-inbox-short`), once per reading, until the inbox is back to 15.
+Written out, the implied block is an `onoff` with `goal: inbox-short`, `until: "<= 15"` and
+`out: block.worker`; the long form is still valid, and is needed when the controller is something
+other than on/off. No machine is shared, so there is
 no `agents:` section.
 
 ### Production: observed autoscaling, a cron job ergostat now controls, a missing loop
@@ -674,11 +705,15 @@ blocks:
 | `[[agent]]` | its `run`, `every`, `parse` move onto the blocks it ran; an `agents:` entry only when it is shared, external, a person, or has limits |
 | `[[system]]` | `systems:` |
 
-`ergostat convert` will write an existing `ergostat.toml` as `ergostat.yaml`.
+`ergostat convert` writes an existing `ergostat.toml` as `ergostat.yaml` (`--stdout` to look first).
+A controller that held a stock through a valve becomes a goal, and the valve's block names it
+(`goal:`), so the loop that the TOML only watched is closed. What needs a person (a program that
+measured and acted in one run) is listed at the top of the file.
 
 ## 15. Open questions
 
-1. `goal: inbox-short` on an `onoff` block versus `in: goal.inbox-short`: keep the shortcut?
+1. *Decided:* `goal:` stays on `onoff` and `proportional`, and a machine block may name its goal
+   too (section 9.3).
 2. Should a sensor be allowed to run on a remote host (`host:`), or only through sources?
 3. Arbitration when two controllers command one block: `select` in front of it, or a key on the
    block (`arbitrate: max`, `latest` or `priority`)?

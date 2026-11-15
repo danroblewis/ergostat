@@ -88,7 +88,7 @@ def cmd_block(args) -> int:
         for b in spec.blocks.values():
             ins = ", ".join(str(r) for r in b.inputs.values()) or (f"goal.{b.goal}" if b.goal else "")
             outs = ", ".join(str(r) for r in b.targets())
-            rows.append((b.name, b.type, spec.role(b), ins, outs))
+            rows.append((b.name, b.type + (' (implied)' if b.implied else ''), spec.role(b), ins, outs))
         if args.json:
             return out_json([dict(zip(("name", "type", "role", "in", "out"), r, strict=True)) for r in rows])
         from ..show import table
