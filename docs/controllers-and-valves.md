@@ -127,7 +127,8 @@ In ergostat the valve is usually an agent, and every one of the four reasons car
 until under 300") should not depend on which machine carries it out. Kept apart, the agent behind
 a valve can move down the ladder (an AI agent, then a script, then a rule) without the control
 law changing, and the law can be judged (does it hold its goal? does it oscillate?) on its own.
-This is why roles name their machine (`by:`) and machines never name their roles.
+This is why a block names its machine (`agent:`, when it is a shared one) and a machine never names
+its blocks.
 
 **2. Agents are badly nonlinear actuators, and their nonlinearities belong to the valve.**
 
@@ -150,8 +151,10 @@ inferring it afterwards. Windup is common with agents: a controller keeps asking
 is busy or at its limit, and requests pile up (a queue of jobs, repeated triggers, pull requests
 nobody reviews, as in the deps example). Anti-windup lives at the boundary: clamp commands to the
 valve's limits, don't queue a new command while the last one is still running (ergostat already
-skips a run whose previous one is waiting), and record each refused or clamped command. Today
-ergostat records only what was moved; it should record what was commanded as well.
+skips a run whose previous one is waiting), and record each refused or clamped command. ergostat
+does this now: a command that arrives while a block runs is held, not queued; it is clamped to the
+block's `max`; and `block.commanded` (the amount, and what was asked when it was clamped) is
+recorded beside `valve.opened` (what was moved).
 
 **4. Controller cadence must respect the valve's time constant.** A controller deciding every
 minute, driving an AI agent that takes ten minutes or a person who takes a day, will see the

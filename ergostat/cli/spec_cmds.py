@@ -161,3 +161,27 @@ def read_manual(p, name: str, value: float) -> int:
     p.measurements.add(s.series, float(value))
     print(f"recorded: {s.of.name}.{s.name} = {value:g}")
     return 0
+
+
+def cmd_findings(args) -> int:
+    """``ergostat findings``: everything worth a look, from the model (missing feedback, ...) and from
+    the record (heading for a limit, saturating, not answering, a critical goal decaying)."""
+    from ..durations import parse_duration
+    from ..spec import watch
+    from .common import open_project
+    p = open_project(args)
+    spec = getattr(p.model, "spec", None)
+    if spec is None:
+        print("findings are the YAML model's (ergostat convert); for this one: ergostat check", file=sys.stderr)
+        return 2
+    window = parse_duration(args.since, "--since") if args.since else watch.WINDOW
+    found = [x for x in p.model.problems if x.level != "error"] + watch.find(p, spec, window)
+    if args.json:
+        return out_json([{"code": f.code, "about": f.about, "message": f.message,
+                          "file": str(f.where.file) if f.where else None, "line": f.where.line if f.where else None}
+                         for f in found])
+    if not found:
+        print(c("nothing found", "ok"))
+    for f in found:
+        print(f"{c(f.code, 'warn')}  {f}")
+    return 0

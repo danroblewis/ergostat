@@ -14,7 +14,7 @@ from .common import PART_TOPICS
 from .parts import cmd_part
 from .record import cmd_event, cmd_item, cmd_residual
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
-from .spec_cmds import cmd_block, cmd_convert
+from .spec_cmds import cmd_block, cmd_convert, cmd_findings
 from .status import cmd_check, cmd_status
 from .system import cmd_loop, cmd_system
 
@@ -30,6 +30,7 @@ the system
   check          Is the model whole? Errors (with file:line), then findings: missing feedback, ...
   convert        Write ergostat.toml as ergostat.yaml, the new format (docs/SPEC.md)
   block          The blocks: what each computes or runs, what it reads and commands
+  findings       Missing feedback, a stock heading for its limit, saturation, a critical goal decaying
 
 who does the work
   agent          People, AI agents, decisions, programs and rules, and the roles they fill
@@ -113,6 +114,7 @@ def build() -> argparse.ArgumentParser:
     cv = topic("convert", cmd_convert, "Write ergostat.toml as ergostat.yaml (the new format)", named=False)
     cv.add_argument("--stdout", action="store_true", help="print it instead of writing the file")
     cv.add_argument("--force", action="store_true", help="replace an ergostat.yaml that is already there")
+    topic("findings", cmd_findings, "What is worth a look: missing feedback, limits ahead, saturation, decay", named=False)
     bk = topic("block", cmd_block, "The blocks (YAML model), or one; a person reports on theirs")
     bk.add_argument("--done", type=float, metavar="N", help="a person's report: what they moved")
     bk.add_argument("--approve", action="store_true", help="approve an advised command (mode: advise)")

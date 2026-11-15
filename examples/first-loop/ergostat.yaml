@@ -1,0 +1,36 @@
+# Your first loop: an inbox folder kept short. ergostat reads the inbox, and while there are more
+# than 25 files (20, give or take 5) it runs the worker, once per reading, until it is back to 15.
+name: first-loop
+
+stocks:
+  inbox:
+    unit: files
+    sensor:
+      run: mkdir -p inbox; ls inbox | wc -l
+      every: 5s
+
+flows:
+  arrivals:                     # files arriving: the load, from outside
+    to: inbox
+  processed:                    # files handled: the valve
+    from: inbox
+
+goals:
+  inbox-short:
+    stock: inbox
+    hold: "<= 20"
+    tolerance: 5
+
+blocks:
+  worker:                       # runs while inbox-short is off; prints how many it handled
+    type: program
+    goal: inbox-short
+    until: "<= 15"
+    run: ls inbox | head -5 > .batch; (cd inbox && xargs rm -f < ../.batch); wc -l < .batch
+    out: flow.processed
+
+  drop:                         # stands in for whatever fills the inbox: 3 files every 5s
+    type: program
+    run: mkdir -p inbox; for i in 1 2 3; do mktemp inbox/job.XXXXXX > /dev/null; done; echo 3
+    every: 5s
+    out: flow.arrivals

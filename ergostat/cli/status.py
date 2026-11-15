@@ -41,6 +41,15 @@ def status(args) -> int:
     m, snap = p.model, snap_of(p, args)
     pid = running_pid(p)
     att = st.attention(snap, running=bool(pid) and snap["live"], model=m)
+    spec = getattr(m, "spec", None)
+    if spec is not None and not getattr(args, "at", None):   # the YAML model's findings: from the record, and missing loops
+        from ..spec import watch
+        for f in watch.find(p, spec):
+            att.append({"level": "warn", "what": f.about or "the model", "says": f.message.split(": ", 1)[-1]})
+        for f in m.problems:
+            if f.code == "missing-feedback":
+                att.append({"level": "bad" if "(critical)" in f.message else "hint", "what": f.about,
+                            "says": f.message.split(": ", 1)[-1]})
     loops = snap["loops"]
     if args.system:                                       # only what is in that system
         parts = parts_of(args, m)
