@@ -14,7 +14,7 @@ from .common import PART_TOPICS
 from .parts import cmd_part
 from .record import cmd_event, cmd_item, cmd_residual
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
-from .spec_cmds import cmd_block, cmd_convert, cmd_findings
+from .spec_cmds import cmd_block, cmd_convert, cmd_explain, cmd_findings
 from .status import cmd_check, cmd_status
 from .system import cmd_loop, cmd_system
 
@@ -30,6 +30,7 @@ the system
   check          Is the model whole? Errors (with file:line), then findings: missing feedback, ...
   convert        Write ergostat.toml as ergostat.yaml, the new format (docs/SPEC.md)
   block          The blocks: what each computes or runs, what it reads and commands
+  explain        The model, or one part of it, in sentences: what it is, what serves it, what it is doing
   findings       Missing feedback, a stock heading for its limit, saturation, a critical goal decaying
 
 who does the work
@@ -45,6 +46,7 @@ run it
   run            Start the agents here, in the background, with the web page
   web            Serve the web page only
   chat           Talk to the Supervisor, who changes the system for you
+  mcp            Serve ergostat to an AI agent over MCP: claude mcp add ergostat -- ergostat -C DIR mcp
   help agents    How to write an agent (also: help ai-agents)
   projects       Every project on this machine, which run, and their pages
 
@@ -114,6 +116,7 @@ def build() -> argparse.ArgumentParser:
     cv = topic("convert", cmd_convert, "Write ergostat.toml as ergostat.yaml (the new format)", named=False)
     cv.add_argument("--stdout", action="store_true", help="print it instead of writing the file")
     cv.add_argument("--force", action="store_true", help="replace an ergostat.yaml that is already there")
+    topic("explain", cmd_explain, "The model, or one part (goal.x, block.x, stock.x, flow.x), in sentences")
     topic("findings", cmd_findings, "What is worth a look: missing feedback, limits ahead, saturation, decay", named=False)
     bk = topic("block", cmd_block, "The blocks (YAML model), or one; a person reports on theirs")
     bk.add_argument("--done", type=float, metavar="N", help="a person's report: what they moved")
@@ -154,6 +157,10 @@ def build() -> argparse.ArgumentParser:
                    help="print a launchd agent (macOS) or systemd user unit (or the one named) that keeps it running across "
                         "reboots, on the page's current port; prints only, installs nothing")
     topic("projects", cmd_projects, "Every project on this machine, and which are running", named=False)
+    mc = sub.add_parser("mcp", parents=[common], help="Serve ergostat to an AI agent over MCP (stdio)",
+                        description="An MCP server on stdin/stdout: check, explain, status, findings, events, spec, "
+                                    "report_done, read_sensor. Add it to Claude Code: claude mcp add ergostat -- ergostat -C DIR mcp")
+    mc.set_defaults(fn=cmd_mcp)
     hp = sub.add_parser("help", help="Guides: agents (writing one), ai-agents")
     hp.add_argument("name", nargs="?")
     hp.set_defaults(fn=cmd_help)
@@ -170,6 +177,13 @@ def build() -> argparse.ArgumentParser:
     chat.add_argument("--print-prompt", action="store_true", help="print the Supervisor's brief instead of starting it")
     chat.set_defaults(fn=cmd_chat)
     return ap
+
+
+def cmd_mcp(args) -> int:
+    from pathlib import Path
+
+    from ..mcp import serve
+    return serve(Path(args.C).resolve() if args.C else Path.cwd())
 
 
 def cmd_help(args) -> int:

@@ -20,6 +20,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["ergostat"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"docs/SPEC.md" = "ergostat/help/spec.md"
+
 [tool.ruff]
 line-length = 140
 target-version = "py312"

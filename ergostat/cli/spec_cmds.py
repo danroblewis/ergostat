@@ -185,3 +185,23 @@ def cmd_findings(args) -> int:
     for f in found:
         print(f"{c(f.code, 'warn')}  {f}")
     return 0
+
+
+def cmd_explain(args) -> int:
+    """``ergostat explain [PART]``: the model, or one part, in sentences."""
+    from ..spec.explain import explain
+    from .common import open_project
+    p = open_project(args)
+    spec = getattr(p.model, "spec", None)
+    if spec is None:
+        print("explain reads the YAML model (ergostat convert)", file=sys.stderr)
+        return 2
+    try:
+        text = explain(spec, args.name, p)
+    except KeyError as e:
+        print(e.args[0], file=sys.stderr)
+        return 2
+    if args.json:
+        return out_json({"part": args.name, "text": text})
+    print(text)
+    return 0
