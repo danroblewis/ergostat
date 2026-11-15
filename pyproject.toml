@@ -9,7 +9,7 @@ dependencies = []
 ergostat = "ergostat.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "jsonschema>=4.20", "pyyaml>=6"]
 
 [build-system]
 requires = ["hatchling"]

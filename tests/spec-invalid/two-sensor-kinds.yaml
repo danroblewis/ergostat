@@ -1,0 +1,2 @@
+stocks:
+  inbox: { sensor: { run: "ls | wc -l", manual: true } }

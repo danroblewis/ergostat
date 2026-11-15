@@ -1,0 +1,2 @@
+blocks:
+  worker: { type: program, run: ./work.sh }

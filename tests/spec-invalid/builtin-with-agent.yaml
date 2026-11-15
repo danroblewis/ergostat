@@ -1,0 +1,2 @@
+blocks:
+  keep: { type: onoff, goal: inbox-short, by: runner }

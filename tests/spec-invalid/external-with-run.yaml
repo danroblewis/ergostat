@@ -1,0 +1,2 @@
+blocks:
+  hpa: { type: external, by: k8s, run: ./scale.sh }

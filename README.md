@@ -20,7 +20,8 @@ More: [the design picture, for a document](docs/screenshots/design.png),
 [dark, two cron one-liners](docs/screenshots/plain-crontab-dark.png).
 
 The ideas behind it, the parts of a control system and how agents fit in as the factory's machines:
-[docs/CONCEPTS.md](docs/CONCEPTS.md) (and why controllers and valves are separate:
+[docs/CONCEPTS.md](docs/CONCEPTS.md); the draft of the next configuration format, in YAML:
+[docs/SPEC.md](docs/SPEC.md) with its [JSON Schema](schema/ergostat.schema.json) (and why controllers and valves are separate:
 [docs/controllers-and-valves.md](docs/controllers-and-valves.md)).
 
 What was built on 2026-11-14, and what is left to decide: [docs/REPORT-2026-11-14.md](docs/REPORT-2026-11-14.md).
