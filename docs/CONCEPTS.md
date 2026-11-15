@@ -58,15 +58,25 @@ truth they are all judged by.
 
 ## 3. How the parts relate
 
+```mermaid
+erDiagram
+    STOCK ||--o{ GOAL : "is the subject of"
+    STOCK ||--o{ SENSOR : "is measured by"
+    CONTROLLER }o--|{ GOAL : "serves"
+    CONTROLLER }o--|{ VALVE : "drives"
+    VALVE |o--|| FLOW : "acts on"
+    STOCK |o--o{ FLOW : "is drained by (from)"
+    STOCK |o--o{ FLOW : "is filled by (to)"
+    AGENT ||--o{ CONTROLLER : "fills"
+    AGENT ||--o{ VALVE : "fills"
 ```
-   goal ──── about exactly one ──▶ stock ◀── measured by ── sensor(s)
-     ▲                              ▲   ▲
-     │ served by                  in / out
-     │                              │   │
-controller ── drives ──▶ valve ── on one ──▶ flow
-     │                     │
-     └── filled by one ──▶ agent ◀── filled by one
-```
+
+Read each line's ends as counts: `||` exactly one, `|o` zero or one, `|{` one or more, `o{` zero or
+more. So a goal is about exactly one stock and a stock has any number of goals; a controller
+serves one or more goals and a goal may be served by none (missing feedback); a flow has at most
+one valve; a flow leaves at most one stock and enters at most one (none: outside the system). A
+goal can also be about a flow's rate (an error rate, a throughput), and a controller's "agent" can
+be ergostat itself, for a rule; the diagram leaves both out to stay readable.
 
 | Relation | How many | Meaning |
 |---|---|---|
