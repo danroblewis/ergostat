@@ -1,0 +1,47 @@
+# Backups, then copies sent off site. One simulated hour passes every two seconds.
+defaults:
+  system: backups
+
+stocks:
+  hours-since-backup:
+    unit: h
+    sensor:
+      run: python3 age_check.py
+      every: 2s
+  copies-not-offsite:
+    unit: backups
+    sensor:
+      run: python3 offsite_lag.py
+      every: 3s
+
+flows:
+  time-passing:
+    to: hours-since-backup
+    rate: 1800                   # known, not estimated: one simulated hour every two seconds
+  backed-up:
+    from: hours-since-backup
+  new-backups:
+    to: copies-not-offsite
+  sent-offsite:
+    from: copies-not-offsite
+
+goals:
+  backup-fresh:
+    stock: hours-since-backup
+    hold: "<= 24"
+    tolerance: 2                 # off past 26h
+  offsite-current:
+    stock: copies-not-offsite
+    hold: "<= 1"
+
+blocks:
+  backup-job:
+    type: program
+    goal: backup-fresh
+    run: python3 backup.py
+    out: [flow.backed-up, flow.new-backups]
+  offsite-sync:
+    type: program
+    goal: offsite-current
+    run: python3 offsite.py      # copies one per run
+    out: flow.sent-offsite

@@ -1,11 +1,13 @@
+"""The backup job: dumps the database. Its age goes back to 0, and there is one more backup to
+copy off site."""
 import time
 
-from sim import now, say, world
+from sim import HOUR, now, say, world
 
 time.sleep(1.0)                               # the backup takes a while
-with world({"last_backup": now(), "unsynced": 0}) as w:
-    age = (now() - w["last_backup"]) / 2.0
+with world() as w:
+    age = (now() - w["last_backup"]) / HOUR
     w["last_backup"] = now()
-    w["unsynced"] = w.get("unsynced", 0) + 1
-say(valve="run-backup", amount=round(age, 1), note="database dumped")
-say(valve="record-backup", amount=1)
+    w["unsynced"] += 1
+say(out="flow.backed-up", moved=round(age, 1), note="database dumped")
+say(out="flow.new-backups", moved=1)

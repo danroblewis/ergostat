@@ -1,5 +1,5 @@
-from sim import now, say, world
+"""The sensor: how old the newest backup is, in simulated hours. It only reads."""
+from sim import HOUR, now, world
 
-with world({"last_backup": now() - 40}) as w:
-    hours = (now() - w["last_backup"]) / 2.0
-say(sensor="backup-age", value=round(hours, 1))
+with world() as w:
+    print(round((now() - w["last_backup"]) / HOUR, 1))

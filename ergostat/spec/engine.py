@@ -57,7 +57,8 @@ class Engine:
         self.outputs: dict[str, dict[str, float]] = {}   # machine block → port → its last command (held)
         self.commands: dict[str, dict] = {}            # machine block → its last command's detail
         self.running: set[str] = set()
-        self.finished: dict[str, float] = {}           # machine block → when its last run ended
+        self.finished: dict[str, float] = {}
+        self.began: dict[str, float] = {}              # machine block → when its last run began           # machine block → when its last run ended
         self.was_commanded: dict[str, bool] = {}
         self.last_reading = 0.0                        # the time of the newest reading the engine has seen
         self.reading: set[str] = set()                 # sensors whose read is under way
@@ -196,6 +197,8 @@ class Engine:
         flows = [t.name for t in b.targets() if t.kind == "flow"]
         if any(s.series in self.reading for s in self.after_acting(flows)):
             return False                                        # its last effect is not read yet: never outrun its sensors
+        if b.every and time.time() - self.began.get(b.name, 0.0) < b.every:
+            return False                                        # paced: a commanded block runs at most every `every`
         return rising or self.last_reading > self.finished.get(b.name, 0.0)
 
     def ask(self, b: Block, cmd: float) -> None:
@@ -211,6 +214,7 @@ class Engine:
             if b.name in self.running:
                 return
             self.running.add(b.name)
+            self.began[b.name] = time.time()
         threading.Thread(target=self._run, args=(b, why), daemon=True).start()
 
     def _run(self, b: Block, why: str) -> None:

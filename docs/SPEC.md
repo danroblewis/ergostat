@@ -335,7 +335,8 @@ More (filters, rate of change, latches) can be added when a case needs them.
 | `external` | nothing: observed only | none |
 
 Common to machine blocks: `agent` (optional: the shared machine it runs on, section 10), `max`
-and `min` (limits on one run's amount), `timeout`, `every`/`cron` (when nothing commands it),
+and `min` (limits on one run's amount), `timeout`, `every`/`cron` (its schedule when nothing commands it; when something does, `every`
+is the least time between runs),
 `mode` (`auto`, or `advise`: its commands wait for a person to approve).
 
 **A machine block may name its goal.** `goal: inbox-short` (and optionally `until:`) on a
@@ -357,7 +358,8 @@ blocks:
 
 **How a commanded block runs.** While its command is nonzero it runs, once per fresh reading:
 after each run it waits for a new reading of the system before running again, so it never
-outruns its sensors. When it moves a flow, the sensors of that flow's stocks read at once. The
+outruns its sensors. `every` on a commanded block paces it: it runs at most that often while
+commanded (a worker pool that is always commanded would otherwise run back to back). When it moves a flow, the sensors of that flow's stocks read at once. The
 command it gets is clamped to its `max` (and `min`); `block.commanded` records both the clamped
 amount and, when they differ, what was asked.
 

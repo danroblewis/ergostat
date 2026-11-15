@@ -1,16 +1,16 @@
-"""The worker pool: jobs arrive in bursts; the pool works through them at a rate set by the
-autoscaler (how far the valve is open), and the workers' logs fill the disk."""
-import math
-import random
+"""The worker pool: runs as many workers as it is commanded (command.amount), each doing two jobs
+in two seconds. Their logs fill the disk."""
+import json
+import sys
+import time
 
-from sim import now, say, world
+from sim import say, world
 
-with world({"waiting": 10, "workers": 2, "t0": now(), "written": 0.0}) as w:
-    phase = (now() - w["t0"]) / 40.0
-    arriving = max(0, int(random.gauss(6 + 5 * math.sin(phase), 2)))
-    w["waiting"] += arriving
-    done = min(w["waiting"], w["workers"] * 2)
+workers = round(json.load(sys.stdin)["command"]["amount"])
+time.sleep(2.0)                               # the workers take a while
+with world() as w:
+    done = min(w["waiting"], workers * 2)
     w["waiting"] -= done
-    w["written"] = w.get("written", 0.0) + done * 0.05
-    say(sensor="queue-depth", value=w["waiting"])
-    say(valve="process-jobs", amount=done, position=w["workers"])   # how far open: the workers running
+    w["used"] += done * 0.1                   # each job writes a little log
+say(out="flow.jobs-done", moved=done, note=f"{workers} workers")
+say(out="flow.logs-written", moved=round(done * 0.1, 2))

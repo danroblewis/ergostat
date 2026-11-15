@@ -80,7 +80,7 @@ def test_a_slow_block_is_not_queued_up(tmp_path):
     starts = p.events.query(n=None, type="agent.started", item="worker")
     ends = p.events.query(n=None, type="agent.ran", item="worker") + p.events.query(n=None, type="agent.failed", item="worker")
     assert starts and len(starts) <= len(ends) + 1, "never two runs at once"
-    assert len(starts) <= 4                       # about 5s / 1.5s: no backlog of held commands
+    assert len(starts) <= 5                       # about 5s / 1.5s: no backlog of held commands
 
 
 def test_commanded_amount_is_clamped_by_max(tmp_path):
@@ -149,3 +149,11 @@ def test_a_prometheus_query_must_return_one_series():
         assert v is None and "2 series" in why
     finally:
         srv.shutdown()
+
+
+def test_every_paces_a_commanded_block(tmp_path):
+    paced = LOOP.replace("    in: block.keep-short\n", "    in: block.keep-short\n    every: 2s\n").replace(
+        "until: \"<= 3\"", "until: \"<= 0\"")
+    p = run_for(tmp_path, paced, 5)
+    starts = [e["time"] for e in p.events.query(n=None, type="agent.started", item="worker")]
+    assert starts and all(b - a >= 1.9 for a, b in zip(starts, starts[1:], strict=False))

@@ -1,11 +1,6 @@
-from sim import say, world
+"""The off-site sync: copies one backup off site per run, and prints 1 (what it moved)."""
+from sim import world
 
-with world({"unsynced": 0}) as w:
-    n = w.get("unsynced", 0)
-    say(sensor="offsite-lag", value=n)
-    if n > 1:
-        w["unsynced"] = n - 1
-        say(controller="offsite-current", decision=f"{n} waiting: copy one")
-        say(valve="copy-offsite", amount=1)
-    else:
-        say(controller="offsite-current", decision="up to date")
+with world() as w:
+    w["unsynced"] -= 1
+print(1)

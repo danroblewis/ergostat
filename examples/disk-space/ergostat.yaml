@@ -1,0 +1,31 @@
+# A host's disk, held under 80% by a cleaner that ergostat runs when the disk is too full.
+name: disk-space
+
+stocks:
+  disk-used:
+    unit: "%"
+    description: how full the data disk is
+    sensor:
+      run: python3 usage.py
+      every: 3s
+
+flows:
+  logs-written:                  # the services' logs: nothing here sets it (a disturbance)
+    to: disk-used
+  cleaned:
+    from: disk-used
+
+goals:
+  disk-under-80:
+    stock: disk-used
+    hold: "<= 80"
+    tolerance: 2                 # off past 82%
+    description: keep room for the services to write
+
+blocks:
+  delete-old-files:
+    type: program
+    goal: disk-under-80          # runs while the goal is off ...
+    until: "<= 65"               # ... until the disk is back to 65%
+    run: python3 clean.py        # prints the % it freed
+    out: flow.cleaned

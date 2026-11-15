@@ -1,0 +1,16 @@
+# A small platform: one host's disk, a job queue and the database's backups, one file each.
+# The job workers' logs fill the disk: that is where the systems overlap.
+name: ops
+
+include:
+  - host.yaml
+  - jobs.yaml
+  - backups.yaml
+
+systems:
+  host:
+    description: the machine everything runs on
+  jobs:
+    description: the background job queue and its worker pool
+  backups:
+    description: the database's backups and their off-site copies

@@ -1,0 +1,50 @@
+# Backups, then copies sent off site. One simulated hour passes every two seconds.
+name: backups
+
+stocks:
+  hours-since-backup:
+    unit: h
+    description: how old the newest backup is
+    sensor:
+      run: python3 age_check.py
+      every: 2s
+  copies-not-offsite:
+    unit: backups
+    description: backups taken but not yet copied off site
+    sensor:
+      run: python3 offsite_lag.py
+      every: 3s
+
+flows:
+  time-passing:                  # every hour the newest backup is an hour older
+    to: hours-since-backup
+    rate: 1800                   # known, not estimated: one simulated hour every two seconds
+  backed-up:                     # a new backup resets the age
+    from: hours-since-backup
+  new-backups:                   # each backup taken is one more to copy
+    to: copies-not-offsite
+  sent-offsite:
+    from: copies-not-offsite
+
+goals:
+  backup-fresh:
+    stock: hours-since-backup
+    hold: "<= 24"
+    tolerance: 2                 # off past 26h
+    description: a backup no older than a day
+  offsite-current:
+    stock: copies-not-offsite
+    hold: "<= 1"
+
+blocks:
+  backup-job:
+    type: program
+    goal: backup-fresh           # runs while the backup is too old
+    run: python3 backup.py
+    out: [flow.backed-up, flow.new-backups]     # one backup moves both
+
+  offsite-sync:
+    type: program
+    goal: offsite-current        # runs while more than one copy is waiting
+    run: python3 offsite.py      # copies one per run
+    out: flow.sent-offsite
