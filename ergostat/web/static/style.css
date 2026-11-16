@@ -129,6 +129,8 @@ svg.bd { color: var(--ink); }
 .bd .bd-head { fill: var(--ink); }
 .bd .bd-hit { fill: none; stroke: transparent; stroke-width: 9; cursor: pointer; }
 .bd .bd-dot { fill: var(--ink); }
+.bd .bd-portmark { fill: var(--bg); stroke: var(--ink); stroke-width: 1.1; }
+.bd .bd-portname { fill: var(--muted); }
 .bd .sys-hull.bd-frame rect { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: none; }
 .bd .sys-hull.bd-frame-cascade rect { stroke-dasharray: 5 3; }
 .bd .bd-frame text { text-transform: none; letter-spacing: 0; opacity: 1; fill: var(--ink); font-weight: 400; }

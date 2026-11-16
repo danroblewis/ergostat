@@ -90,15 +90,17 @@ def test_image_squeeze_the_service_is_one_mimo_process_and_the_tuner_integrates(
     assert vec["signal"]["n"] == 4
     tuner = n["blk:tuner"]["fn"]
     assert (tuner["sym"], tuner["sub"], tuner["arg"]) == ("C", "tuner", "z") and "z − 1" in tuner["expr"]
+    # the setting the tuner steps reaches the process through its hold and the junction where adopted adds
+    assert any(e["source"] == "jsum:tuner" and e["target"] == "mux:service" for e in g["edges"])
     # stocks moved only by blocks are integrators, each flow with its sign
     assert n["proc:stock.ideas"]["fn"]["expr"] == "1/s"
     signs = {e["key"]: e["sign"] for e in g["edges"] if e["target"] == "psum:stock.ideas"}
     assert signs == {"flow.proposed": "+", "flow.started": "−"}
     # an AI agent is not a transfer function
     assert n["blk:researcher"]["fn"]["linear"] is False and n["blk:researcher"]["fn"]["name"] == "researcher"
-    # the error of the quality loop: e = r − y_m, its measurement through the sensor beneath
+    # the error of the quality loop: e = r − y_m, its measurement read with unity gain: the wire itself, from the process
     ins = {e["source"]: e["sign"] for e in g["edges"] if e["target"] == "sum:quality-held"}
-    assert ins == {"ref:quality-held": "+", "sen:stock.quality": "−"}
+    assert ins == {"ref:quality-held": "+", "demux:service": "−"}
 
 
 def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
@@ -106,7 +108,7 @@ def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
     g = drawn(spec)
     assert {n["id"] for n in g["nodes"]} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark"}
     for n in g["nodes"]:
-        assert n["fn"]["sym"] == "Q" and n["fn"]["arg"] == "s"
+        assert n["fn"]["sym"] == "Q"
     assert any(e["signal"].get("n", 1) > 1 for e in g["edges"])
     one = drawn(spec, {"service"})
     ids = {n["id"] for n in one["nodes"]}
@@ -140,8 +142,7 @@ def test_feedforward_a_controller_reading_a_disturbance_takes_it_off():
     spec = load(ROOT / "examples" / "docs-fresh" / "ergostat.yaml")
     g = drawn(spec, {"*"})
     d = {e["target"] for e in g["edges"] if e["source"] == "dist:flow.code-changes"}
-    assert d == {"psum:stock.stale-pages", "sen:flow.code-changes"}       # into the process, and measured
-    assert any(e["source"] == "sen:flow.code-changes" and e["target"] == "blk:page-picker" for e in g["edges"])
+    assert d == {"psum:stock.stale-pages", "blk:page-picker"}       # into the process, and read (a unity sensor: the wire)
 
 
 def test_an_older_model_is_converted_and_drawn(repo):
@@ -149,3 +150,196 @@ def test_an_older_model_is_converted_and_drawn(repo):
     m = mdl.load(repo.path)
     g = bd.diagram(m, {})
     assert any(n["kind"] == "sum" for n in g["nodes"]) and any(n["kind"] == "block" for n in g["nodes"])
+
+
+# ---- the expert review of the blocks view (REVIEW.md, K1 and K3 to K7, K13)
+
+def _all_views(spec):
+    for open_, focus in views(spec):
+        yield f"open={open_} system={focus}", drawn(spec, open_, focus)
+
+
+def _text(x) -> str:
+    """Every string in a panel (its sentence, its rows, its MathML), as one text."""
+    if isinstance(x, str):
+        return x
+    if isinstance(x, dict):
+        return " ".join(_text(v) for v in x.values())
+    if isinstance(x, list | tuple):
+        return " ".join(_text(v) for v in x)
+    return ""
+
+
+def test_a_mimo_process_has_a_zero_only_where_no_path_inside_it_leads_from_the_input_to_the_output():
+    # deployed reaches users through fixes → bugs-live → signups and through shipped → missing-ops → churn
+    spec = load(ROOT / "examples" / "software-factory" / "ergostat.yaml")
+    n = {x["id"]: x for x in drawn(spec, {"*"})["nodes"]}
+    p = n["proc:product"]
+    assert p["pattern"]["stock.users"].get("flow.deployed"), p["pattern"]
+    assert all(p["pattern"][o].get("flow.deployed") for o in ("stock.bugs-live", "stock.missing-ops", "stock.users"))
+    # two paths of opposite sign: the entry is P, unsigned; never 0
+    matrix = next(m for m in p["math"] if "mtable" in str(m))
+    assert '["mn", "0"]' not in str(matrix).replace("'", '"')
+
+
+def test_zero_pattern_follows_paths_through_the_other_outputs_with_their_signs(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+        stocks:
+          a: {unit: x, sensor: {run: echo 1, every: 1m}}
+          b: {unit: x, sensor: {run: echo 1, every: 1m}}
+          c: {unit: x, sensor: {run: echo 1, every: 1m}}
+        flows:
+          push: {to: a}
+          into-b: {to: b, driven-by: +stock.a}
+          out-of-c: {from: c, driven-by: +stock.b}
+          into-c: {to: c, driven-by: +stock.a}
+        goals:
+          a-low: {stock: a, hold: "<= 5"}
+          b-low: {stock: b, hold: "<= 5"}
+          c-low: {stock: c, hold: "<= 5"}
+        blocks:
+          pusher: {type: program, run: echo 1, every: 1m, goal: a-low, out: flow.push}
+        """))
+    d = bd._Diagram(load(tmp_path / "ergostat.yaml"), {})
+    members = ["stock.b", "stock.c"]
+    info = {"stock.b": ({"flow.into-b"}, {"stock.a"}, set()),            # (what is inside, inputs, other outputs)
+            "stock.c": ({"flow.into-c", "flow.out-of-c"}, {"stock.a"}, {"stock.b"})}
+    pat = d.zero_pattern(members, ["stock.a"], info)
+    assert pat["stock.b"] == {"stock.a": {1}}
+    assert pat["stock.c"]["stock.a"] == {1, -1}        # a → into-c (+), and a → b → out-of-c (−)
+
+
+def test_a_discrete_controller_meets_the_continuous_process_through_a_sampler_and_a_hold():
+    spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
+    for where, g in _all_views(spec):
+        n = {x["id"]: x for x in g["nodes"]}
+        for b in [x for x in g["nodes"] if (x.get("fn") or {}).get("arg") == "z"]:
+            name = b["id"].split(":", 1)[1]
+            into = [e for e in g["edges"] if e["target"] == b["id"]]
+            assert [e["source"] for e in into] == [f"smp:{name}"], (where, b["id"], into)
+            assert n[f"smp:{name}"]["kind"] == "sampler"
+            out = [e for e in g["edges"] if e["source"] == b["id"]]
+            assert [e["target"] for e in out] == [f"zoh:{name}"], (where, b["id"], out)
+            assert n[f"zoh:{name}"]["role"] == "hold" and "e" in str(n[f"zoh:{name}"]["math"])
+            # what comes after the hold is continuous: nothing from a z block reaches a process unheld
+        for e in g["edges"]:
+            src = n.get(e["source"]) or {}
+            assert (src.get("fn") or {}).get("arg") != "z" or e["target"].startswith("zoh:"), (where, e["id"])
+
+
+def test_a_subsystem_is_a_transfer_function_only_when_every_part_inside_is_continuous():
+    sq = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
+    n = {x["id"]: x for x in drawn(sq)["nodes"]}
+    assert n["sys:service"]["fn"]["arg"] is None and n["sys:rollout"]["fn"]["arg"] is None      # C(z), relays, agents
+    assert "operator" in _text(n["sys:rollout"]["math"])
+    sf = load(ROOT / "examples" / "software-factory" / "ergostat.yaml")
+    g = drawn(sf, {"factory"})
+    n = {x["id"]: x for x in g["nodes"]}
+    assert n["sys:product"]["fn"]["arg"] == "s"                    # only the world's process inside
+    assert next(f for f in g["frames"] if f["id"] == "frame:factory")["fn"]["arg"] is None
+
+
+def test_a_transfer_function_block_takes_one_input_the_rest_enter_at_a_summing_junction_with_signs():
+    for ex in EXAMPLES:
+        spec = load(ROOT / "examples" / ex / "ergostat.yaml")
+        for where, g in _all_views(spec):
+            for b in g["nodes"]:
+                fn = b.get("fn") or {}
+                if b["kind"] == "block" and fn.get("sym") and not fn.get("name") and b["id"].startswith("blk:"):
+                    assert len(b["ins"]) <= 1, (ex, where, b["id"], b["ins"])
+    spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
+    g = drawn(spec, {"*"})
+    signs = {e["key"]: e["sign"] for e in g["edges"] if e["target"] == "jsum:matcher"}
+    assert signs == {"held:matcher": "+", "flow.adopted": "−", "flow.offset-cleared": "−"}
+    signs = {e["key"]: e["sign"] for e in g["edges"] if e["target"] == "jsum:tuner"}
+    assert signs == {"held:tuner": "+", "flow.adopted": "+"}
+
+
+def test_a_comparator_sits_in_the_frame_of_the_controller_that_reads_its_error():
+    spec = load(ROOT / "examples" / "software-factory" / "ergostat.yaml")
+    n = {x["id"]: x for x in drawn(spec, {"*"})["nodes"]}
+    assert n["sum:backlog-clear"]["parent"] == n["blk:keep-backlog-clear"]["parent"] == "frame:delivery"
+    assert n["ref:backlog-clear"]["parent"] == "frame:delivery"
+
+
+def test_unity_sensors_are_wires_and_a_measured_signal_with_dynamics_is_named_for_its_variable():
+    for ex in EXAMPLES:
+        spec = load(ROOT / "examples" / ex / "ergostat.yaml")
+        d = bd._Diagram(spec, {})
+        d.build()
+        for nid, n in d.nodes.items():
+            if n.get("role") == "sensor":
+                assert d.sensor_dynamics(n["part"]), (ex, nid, "a unity sensor drawn as a block")
+                assert n["fn"]["expr"] != "1"
+        for e in d.wires:
+            sg = d.signal(e["key"]) if e["key"] not in d.sig else d.sig[e["key"]]
+            if sg.get("what") == "measured":
+                assert sg["sub"].startswith("m,") and len(sg["sub"]) > 2, (ex, e["key"], sg)
+    # a unity reading says how it is sampled, in the panel of its wire
+    spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
+    g = drawn(spec, {"*"})
+    fb = next(e for e in g["edges"] if e["target"] == "sum:quality-held" and e["sign"] == "−")
+    assert "sampled every" in fb["note"] and "unity" in fb["note"]
+
+
+def test_a_sensor_with_a_window_is_drawn_as_h_of_s_and_its_signal_is_y_m_of_its_variable(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+        stocks:
+          queue: {unit: jobs, sensor: {run: echo 3, every: 10s}}
+        flows:
+          arrivals:
+            to: queue
+            sensor: {changes: rises, over: 10m, every: 10s}
+          served: {from: queue}
+        goals:
+          calm: {flow: arrivals, hold: "<= 30"}
+        blocks:
+          gate: {type: program, run: echo 1, every: 1m, goal: calm, out: flow.served}
+        """))
+    g = drawn(load(tmp_path / "ergostat.yaml"), {"*"})
+    n = {x["id"]: x for x in g["nodes"]}
+    h = n["sen:flow.arrivals"]
+    assert (h["fn"]["sym"], h["fn"]["arg"]) == ("H", "s") and "10m" in _text(h["math"])
+    ym = next(e for e in g["edges"] if e["source"] == "sen:flow.arrivals")
+    assert (ym["signal"]["sym"], ym["signal"]["sub"]) == ("y", "m,arrivals")
+
+
+def test_a_reference_is_a_value_and_the_relay_says_its_threshold():
+    spec = load(ROOT / "examples" / "software-factory" / "ergostat.yaml")
+    g = drawn(spec, {"*"})
+    n = {x["id"]: x for x in g["nodes"]}
+    r = n["ref:backlog-clear"]
+    assert r["fn"]["value"] == "= 0" and "≤" not in r["fn"]["value"]
+    relay = n["blk:keep-backlog-clear"]
+    rows = dict(relay["rows"])
+    assert rows["threshold"] == "backlog ≤ 0: on above it", rows
+    assert "y_backlog > 0" in relay["says"]
+    sq = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
+    assert {x["id"]: x for x in drawn(sq, {"*"})["nodes"]}["ref:quality-held"]["fn"]["value"] == "= 0.93"
+    for ex in EXAMPLES:                                  # real ≤ ≥ everywhere: no ASCII comparison in a label or a panel
+        spec = load(ROOT / "examples" / ex / "ergostat.yaml")
+        for where, g in _all_views(spec):
+            for x in [*g["nodes"], *g["frames"], *g["loops"].values()]:
+                t = _text({k: v for k, v in x.items() if k != "description"} if isinstance(x, dict) else x)
+                t = t.replace(_text([r[1] for r in x.get("rows", []) if r[0] == "description"]), "")
+                assert not any(op in t for op in ("<=", ">=", "==")), (ex, where, x.get("id"), t[:200])
+
+
+def test_the_blocks_panels_use_control_words_only():
+    banned = ("stock", "flows", "inflow", "outflow", "net flow", "moves ", "a AI", " a run")
+    for ex in EXAMPLES:
+        spec = load(ROOT / "examples" / ex / "ergostat.yaml")
+        descriptions = {d for d in [*(s.description for s in spec.stocks.values()), *(f.description for f in spec.flows.values()),
+                                    *(a.description for a in spec.auxiliaries.values()), *(b.description for b in spec.blocks.values()),
+                                    *(g.description for g in spec.goals.values()), *spec.systems.values()] if d}
+        for where, g in _all_views(spec):
+            for n in g["nodes"]:
+                said = _text([n.get("says", ""), n.get("math", []), [r for r in n.get("rows", []) if r[0] != "description"]])
+                for d in descriptions:
+                    said = said.replace(d, "")
+                bad = [w for w in banned if w in said]
+                assert not bad, (ex, where, n["id"], bad, said[:300])
+    # an integrator is said as one
+    spec = load(ROOT / "examples" / "software-factory" / "ergostat.yaml")
+    n = {x["id"]: x for x in drawn(spec, {"*"})["nodes"]}
+    assert n["proc:stock.in-review"]["says"].startswith("integrator: the sum of its inputs over time")
