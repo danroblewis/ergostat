@@ -143,7 +143,19 @@ Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` a
 for the work and readings a person block or a manual sensor waits for. Every call reads the files
 afresh.
 
+To review a model, an agent has a skill shipped with ergostat,
+[`ergostat/skills/improve-model/SKILL.md`](ergostat/skills/improve-model/SKILL.md) (a Claude Code
+skill: copy its folder into `.claude/skills/` to use it there). It runs `check`, reads the findings
+and the `residuals`, walks the checklist of [docs/MODELLING.md](docs/MODELLING.md), and proposes
+specific YAML edits with their reasons, applying none without the owner's approval. Over MCP the
+tool `improve_model` returns it with the guidelines; on the command line, `ergostat help
+improve-model` and `ergostat help modelling`.
+
 ## More
+
+Improving a model, for someone new to system dynamics: [docs/MODELLING.md](docs/MODELLING.md) (the
+tells of a wrong structure, what `check`'s structure findings and the Residuals page are evidence
+of, and what to write instead, each with its source in Sterman's *Business Dynamics* or Forrester).
 
 The ideas: [docs/CONCEPTS.md](docs/CONCEPTS.md) (the factory as a control system), why controllers
 and valves are separate ([docs/controllers-and-valves.md](docs/controllers-and-valves.md)),

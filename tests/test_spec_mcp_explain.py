@@ -50,3 +50,25 @@ def test_mcp_initialize_list_and_call(tmp_path):
     assert json.loads(got[2]["result"]["content"][0]["text"])["ok"] is True
     assert got[3]["result"]["isError"]                           # inbox.main runs a command: not manual
     assert got[4]["error"]["code"] == -32601
+
+
+def test_an_agent_finds_the_improve_model_skill_and_the_residuals_over_mcp_and_in_help(tmp_path, capsys, monkeypatch):
+    """The skill for reviewing a model ships with ergostat: the MCP tool improve_model returns it with
+    the guidelines it applies (docs/MODELLING.md), residuals gives the evidence it reads, and
+    ``ergostat help improve-model`` and ``ergostat help modelling`` print them."""
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    got = rpc(tmp_path,
+              {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+              {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+              {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "improve_model", "arguments": {}}},
+              {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "residuals", "arguments": {}}})
+    assert "improve_model" in got[0]["result"]["instructions"]
+    assert {"improve_model", "residuals"} <= {t["name"] for t in got[1]["result"]["tools"]}
+    text = got[2]["result"]["content"][0]["text"]
+    assert text.startswith("---\nname: improve-model\ndescription: ")        # a skill's frontmatter, as Claude Code reads it
+    assert "never applies an edit without the owner's approval" in text and "# Improving a model" in text
+    assert isinstance(json.loads(got[3]["result"]["content"][0]["text"]), dict)
+    from ergostat.cli import main
+    assert main(["help", "improve-model"]) == 0 and "## 4. Apply only with approval" in capsys.readouterr().out
+    assert main(["help", "modelling"]) == 0 and "| What you see |" in capsys.readouterr().out
+    assert main(["help"]) == 0 and "ergostat help improve-model" in capsys.readouterr().out

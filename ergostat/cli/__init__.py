@@ -169,11 +169,12 @@ def build() -> argparse.ArgumentParser:
                named=False)
     rs.add_argument("--yes", action="store_true", help="do it (without it, says what it would forget)")
     mc = sub.add_parser("mcp", parents=[common], help="Serve ergostat to an AI agent over MCP (stdio)",
-                        description="An MCP server on stdin/stdout: check, explain, status, findings, events, spec, "
-                                    "report_done, read_sensor, items, record_event. "
+                        description="An MCP server on stdin/stdout: check, explain, status, findings, residuals, events, "
+                                    "spec, improve_model, report_done, read_sensor, items, record_event. "
                                     "Add it to Claude Code: claude mcp add ergostat -- ergostat -C DIR mcp")
     mc.set_defaults(fn=cmd_mcp)
-    hp = sub.add_parser("help", help="Guides: blocks (writing their programs), ai-agents, spec (the format)")
+    hp = sub.add_parser("help", help="Guides: blocks (writing their programs), ai-agents, spec (the format), modelling "
+                                     "(improving a model), improve-model (the skill for an AI agent reviewing one)")
     hp.add_argument("name", nargs="?")
     hp.set_defaults(fn=cmd_help)
     sn = topic("snapshot", cmd_snapshot, "Write the page, with what it shows now, to one HTML file", named=False,
@@ -199,21 +200,18 @@ def cmd_mcp(args) -> int:
 
 
 def cmd_help(args) -> int:
-    """``ergostat help [agents|ai-agents]``: the guides, shipped with ergostat."""
-    from pathlib import Path
-    here = Path(__file__).resolve().parent.parent / "help"
-    guides = sorted({p.stem for p in here.glob("*.md")} | {"spec"})
+    """``ergostat help [NAME]``: the guides, shipped with ergostat (``helpdocs``)."""
+    from .. import helpdocs
+    guides = list(helpdocs.guides())
     if not args.name:
         print(HELP)
         print("guides: " + ", ".join(f"ergostat help {g}" for g in guides))
         return 0
-    if args.name not in guides:
+    text = helpdocs.read(args.name)
+    if text is None:
         print(f"no guide {args.name!r}; guides: {', '.join(guides)}", file=sys.stderr)
         return 2
-    path = here / f"{args.name}.md"
-    if args.name == "spec" and not path.is_file():           # from a clone: the spec is in docs/
-        path = here.parent.parent / "docs" / "SPEC.md"
-    print(path.read_text(encoding="utf-8"))
+    print(text)
     return 0
 
 
