@@ -30,7 +30,29 @@ function couplings(g) {
                                && byId[e.source]?.kind === "valve" && !byId[e.target]?.outside);
 }
 
-async function layoutGraph(g, aspect, cut = false) {
+/* which side of a system box each port is on: the side facing what it joins (worked out after a
+   first layout), else inputs left and outputs right */
+function portSides(g) {
+  for (const n of g.nodes) if (n.kind === "system") for (const p of n.ports) p.at = S.portAt?.[p.id] || (p.side === "in" ? "west" : "east");
+}
+function wantedSides(lay, g) {
+  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
+  const want = {};
+  for (const n of g.nodes) {
+    if (n.kind !== "system" || !box[n.id]) continue;
+    const b = box[n.id], mid = b.x + b.width / 2;
+    for (const p of n.ports) {
+      const peers = g.edges.filter((e) => e.sourcePort === p.id || e.targetPort === p.id).map((e) => box[e.sourcePort === p.id ? e.target : e.source]).filter(Boolean);
+      if (!peers.length) continue;
+      const cx = peers.reduce((a, c) => a + c.x + c.width / 2, 0) / peers.length;
+      want[p.id] = cx < mid ? "west" : "east";
+    }
+  }
+  return want;
+}
+
+async function layoutGraph(g, aspect, cut = false, again = false) {
+  portSides(g);
   const ORDER = { cloud: 0, terminal: 0, disturbance: 1, stock: 2, valve: 3, system: 3, sensor: 5, controller: 6, agent: 2 };
   const rank = (n) => (n.kind === "cloud" ? (n.id.endsWith(":out") ? 4 : 0) : ORDER[n.kind] ?? 3);
   const nodesInOrder = [...g.nodes].sort((a, b) => rank(a) - rank(b));
@@ -51,9 +73,9 @@ async function layoutGraph(g, aspect, cut = false) {
     const node = { id: n.id, width: w, height: hgt, layoutOptions: {} };
     if (n.kind === "system") {                        // its ports where their names are written: inputs left, outputs right
       node.layoutOptions["elk.portConstraints"] = "FIXED_POS";
-      const at = { in: 0, out: 0 };
-      node.ports = n.ports.map((p) => ({ id: p.id, width: 8, height: 8, x: p.side === "in" ? -4 : w - 4, y: SYS_TOP + (at[p.side]++) * SYS_ROW - 4,
-                                         layoutOptions: { "elk.port.side": p.side === "in" ? "WEST" : "EAST" } }));
+      const row = { west: 0, east: 0 };
+      node.ports = n.ports.map((p) => ({ id: p.id, width: 8, height: 8, x: p.at === "west" ? -4 : w - 4, y: SYS_TOP + (row[p.at]++) * SYS_ROW - 4,
+                                         layoutOptions: { "elk.port.side": p.at === "west" ? "WEST" : "EAST" } }));
     }
     if (lines.length) {
       const lw = Math.max(...lines.map((l) => l === "§badge" ? textWidth(badgeText(n.agent)) + 18 : textWidth(l))) + 8;
@@ -66,6 +88,7 @@ async function layoutGraph(g, aspect, cut = false) {
         { id: n.id + ":in", width: 1, height: 1, layoutOptions: { "elk.port.side": "WEST" } },
         { id: n.id + ":out", width: 1, height: 1, layoutOptions: { "elk.port.side": "EAST" } },
         { id: n.id + ":ctl", width: 1, height: 1, layoutOptions: { "elk.port.side": "NORTH" } },
+        { id: n.id + ":sense", width: 1, height: 1, layoutOptions: { "elk.port.side": "NORTH" } },   // its sensor reads here, apart from the command
       ];
     }
     return node;
@@ -82,7 +105,7 @@ async function layoutGraph(g, aspect, cut = false) {
       if (flowNode.has(dst)) dst = dst + ":in";
       if (flowNode.has(src)) src = src + ":out";
     } else if (flowNode.has(dst)) dst = dst + ":ctl";
-    else if (flowNode.has(src)) src = src + ":ctl";
+    else if (flowNode.has(src)) src = src + (e.kind === "measure" ? ":sense" : ":ctl");
     const out = { id: e.id, sources: [src], targets: [dst], layoutOptions: {} };
     if (e.kind === "pipe") { out.layoutOptions["elk.layered.priority.straightness"] = "20"; out.layoutOptions["elk.layered.priority.direction"] = "20"; out.layoutOptions["elk.layered.priority.shortness"] = "10"; }
     if (e.kind === "wire" && e.via && e.via.length) {
@@ -123,6 +146,13 @@ async function layoutGraph(g, aspect, cut = false) {
   };
   const lay = await elk.layout(graph);
   if (open.size) flatten(lay);
+  if (!again && g.nodes.some((n) => n.kind === "system")) {     // ports facing away from what they join: turn them, lay out again
+    const want = wantedSides(lay, g);
+    if (Object.entries(want).some(([id, at]) => g.nodes.some((n) => n.ports?.some((p) => p.id === id && p.at !== at)))) {
+      S.portAt = { ...(S.portAt || {}), ...want };
+      return layoutGraph(g, aspect, cut, true);
+    }
+  }
   if (g.kind !== "wiring") reroute(lay, g);
   if (cuts.length) {
     restack(lay, g);
@@ -146,11 +176,31 @@ function reroute(lay, g) {
   const inner = (id) => (nodeOf[id]?.systems || [])[0] || (id.startsWith("system:") ? "box:" + id : null);
   const todo = lay.edges.filter((le) => {
     const e = edgeOf[le.id], p = pts(le);
-    if (!e || e.kind === "pipe" || le.cut || p.length < 2) return false;
+    if (!e || le.cut || p.length < 2) return false;
     const crosses = inner(e.source) !== inner(e.target) || e.sourcePort || e.targetPort;
     const far = len(p) > 1.5 * (Math.abs(p[0].x - p[p.length - 1].x) + Math.abs(p[0].y - p[p.length - 1].y)) + 80;
     return crosses || far;
   });
+  // a line drawn on top of another (not a net: lines sharing an end and kind may share their way there)
+  const segsOf = (le) => { const q = pts(le); return q.slice(1).map((b, i) => [q[i], b]); };
+  const net = (a, b) => a.kind === b.kind && ((a.source === b.source && (a.sourcePort || "") === (b.sourcePort || "")) ||
+                                              (a.target === b.target && (a.targetPort || "") === (b.targetPort || "")));
+  const along = ([a, b], [c, d]) => {
+    if (Math.abs(a.y - b.y) < 1 && Math.abs(c.y - d.y) < 1 && Math.abs(a.y - c.y) < 3)
+      return Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) - Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x));
+    if (Math.abs(a.x - b.x) < 1 && Math.abs(c.x - d.x) < 1 && Math.abs(a.x - c.x) < 3)
+      return Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y)) - Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y));
+    return 0;
+  };
+  const chosen = new Set(todo.map((le) => le.id));
+  const drawn = lay.edges.filter((le) => edgeOf[le.id] && !le.cut);
+  for (let i = 0; i < drawn.length; i++) for (let j = i + 1; j < drawn.length; j++) {
+    const A = drawn[i], B = drawn[j], ea = edgeOf[A.id], eb = edgeOf[B.id];
+    if (chosen.has(A.id) || chosen.has(B.id) || net(ea, eb)) continue;
+    if (!segsOf(A).some((s) => segsOf(B).some((t) => along(s, t) > 16))) continue;
+    const pick = ea.kind === "pipe" && eb.kind !== "pipe" ? B : eb.kind === "pipe" && ea.kind !== "pipe" ? A : B;   // a pipe keeps its way
+    chosen.add(pick.id); todo.push(pick);
+  }
   if (!todo.length) return;
   // the grid: every part (with its labels) is in the way; the lines already drawn are costly to run along or cross
   const rects = lay.children.map((c) => {
@@ -163,19 +213,24 @@ function reroute(lay, g) {
   const W = Math.ceil((Math.max(...rects.map((r) => r.x1)) + 120 - X0) / GRID), H = Math.ceil((Math.max(...rects.map((r) => r.y1)) + 120 - Y0) / GRID);
   const cx = (x) => Math.max(0, Math.min(W - 1, Math.round((x - X0) / GRID))), cy = (y) => Math.max(0, Math.min(H - 1, Math.round((y - Y0) / GRID)));
   const owner = new Int32Array(W * H).fill(-1);           // which part (by index) a cell is inside, with a margin
+  const soft = new Uint8Array(W * H);                      // a part's labels: crossed only to save a long way round
   rects.forEach((r, i) => {
-    for (let y = cy(r.y0 - 6); y <= cy(r.y1 + 6); y++) for (let x = cx(r.x0 - 6); x <= cx(r.x1 + 6); x++) owner[y * W + x] = i;
+    const c = lay.children[i];
+    for (let y = cy(r.y0 - 4); y <= cy(r.y1 + 4); y++) for (let x = cx(r.x0 - 4); x <= cx(r.x1 + 4); x++) soft[y * W + x] = 1;
+    for (let y = cy(c.y - 6); y <= cy(c.y + c.height + 6); y++) for (let x = cx(c.x - 6); x <= cx(c.x + c.width + 6); x++) owner[y * W + x] = i;
   });
   const runH = new Uint8Array(W * H), runV = new Uint8Array(W * H);   // cells lines run through, across and down
-  const mark = (ps) => {
+  const mark = (ps, thick = false) => {
     for (let i = 1; i < ps.length; i++) {
       const a = ps[i - 1], b = ps[i];
-      if (Math.abs(a.y - b.y) < 1) { const y = cy(a.y); for (let x = Math.min(cx(a.x), cx(b.x)); x <= Math.max(cx(a.x), cx(b.x)); x++) runH[y * W + x] = 1; }
-      else { const x = cx(a.x); for (let y = Math.min(cy(a.y), cy(b.y)); y <= Math.max(cy(a.y), cy(b.y)); y++) runV[y * W + x] = 1; }
+      for (const k of thick ? [-1, 0, 1] : [0]) {
+        if (Math.abs(a.y - b.y) < 1) { const y = cy(a.y) + k; if (y < 0 || y >= H) continue; for (let x = Math.min(cx(a.x), cx(b.x)); x <= Math.max(cx(a.x), cx(b.x)); x++) runH[y * W + x] = 1; }
+        else { const x = cx(a.x) + k; if (x < 0 || x >= W) continue; for (let y = Math.min(cy(a.y), cy(b.y)); y <= Math.max(cy(a.y), cy(b.y)); y++) runV[y * W + x] = 1; }
+      }
     }
   };
   const redo = new Set(todo.map((le) => le.id));
-  for (const le of lay.edges) if (!redo.has(le.id)) mark(pts(le));
+  for (const le of lay.edges) if (!redo.has(le.id)) mark(pts(le), edgeOf[le.id]?.kind === "pipe");
   const idx = Object.fromEntries(rects.map((r, i) => [r.id, i]));
   const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];             // right, down, left, up
   // shorter, and longer later: the routes that matter most are found first
@@ -185,7 +240,8 @@ function reroute(lay, g) {
     const si = idx[e.source], ti = idx[e.target];
     const fixedStart = !!e.sourcePort || nodeOf[e.source]?.kind === "valve" || nodeOf[e.source]?.kind === "disturbance";
     const fixedEnd = !!e.targetPort || nodeOf[e.target]?.kind === "valve" || nodeOf[e.target]?.kind === "disturbance";
-    const free = (c, x, y) => x >= 0 && y >= 0 && x < W && y < H && (owner[c] === -1 || owner[c] === si || owner[c] === ti);
+    const stub = new Set();                                    // the straight way out of (and into) a port is always open
+    const free = (c, x, y) => x >= 0 && y >= 0 && x < W && y < H && (owner[c] === -1 || owner[c] === si || owner[c] === ti || stub.has(c));
     // where it may start: its fixed point, or anywhere round the edge of the part it leaves
     const starts = [];
     const ring = (r, inward) => {                              // the cells just outside a part, each with the way out of it
@@ -200,6 +256,10 @@ function reroute(lay, g) {
     const dirOf = (a, b) => (Math.abs(a.x - b.x) > Math.abs(a.y - b.y) ? (b.x > a.x ? 0 : 2) : (b.y > a.y ? 1 : 3));
     const n = p.length;
     const d0 = dirOf(p[0], p[1]), dn = dirOf(p[n - 2], p[n - 1]);
+    for (let k = 0; k <= 2; k++) {
+      if (fixedStart) stub.add((cy(p[0].y) + DY[d0] * k) * W + cx(p[0].x) + DX[d0] * k);
+      if (fixedEnd) stub.add((cy(p[n - 1].y) - DY[dn] * k) * W + cx(p[n - 1].x) - DX[dn] * k);
+    }
     // a fixed end (a port) is left, or reached, two cells straight out from it
     if (fixedStart) starts.push([cx(p[0].x) + DX[d0] * 2, cy(p[0].y) + DY[d0] * 2, d0]);
     else starts.push(...ring(sr, false));
@@ -231,7 +291,7 @@ function reroute(lay, g) {
         if (!fixedEnd && owner[nc] !== -1 && owner[nc] === ti && !goals.has(nc)) continue;   // into its target only where it arrives
         if (owner[nc] !== -1 && owner[nc] === si && owner[c] !== si) continue; // never back into where it started
         const along = nd % 2 === 0 ? runH[nc] : runV[nc], across = nd % 2 === 0 ? runV[nc] : runH[nc];
-        const cost = dist[st] + 1 + (nd !== d ? 6 : 0) + along * 30 + across * 3;
+        const cost = dist[st] + 1 + (nd !== d ? 6 : 0) + along * 30 + across * 3 + (owner[nc] === -1 && soft[nc] ? 10 : 0);
         const ns = nc * 4 + nd;
         if (cost < dist[ns]) { dist[ns] = cost; prev[ns] = st; push(cost + hcost(nx, ny), ns); }
       }
@@ -259,7 +319,7 @@ function reroute(lay, g) {
     });
     le.sections = [{ startPoint: route[0], bendPoints: route.slice(1, -1), endPoint: route[route.length - 1] }];
     le.junctionPoints = [];
-    mark(route);
+    mark(route, e.kind === "pipe");
   }
 }
 
@@ -297,7 +357,7 @@ function restack(lay, g) {
   const order = Object.fromEntries(g.nodes.map((n, i) => [n.id, i]));
   const parent = Object.fromEntries(lay.children.map((c) => [c.id, c.id]));
   const root = (x) => (parent[x] === x ? x : (parent[x] = root(parent[x])));
-  const owner = (p) => (p in parent ? p : p.startsWith("system:") ? "system:" + p.split(":")[1] : p.replace(/:(in|out|ctl)$/, ""));   // a port's node
+  const owner = (p) => (p in parent ? p : p.startsWith("system:") ? "system:" + p.split(":")[1] : p.replace(/:(in|out|ctl|sense)$/, ""));   // a port's node
   for (const e of lay.edges) {
     const a = owner(e.sources[0]), b = owner(e.targets[0]);
     if (a in parent && b in parent) parent[root(a)] = root(b);
@@ -480,7 +540,7 @@ const LINE_COLOR = { measure: "var(--sensor-line)", signal: "var(--sensor-line)"
 /* a system drawn as one part: its name, how its loops are doing, and its ports (what crosses its edge) */
 const SYS_TOP = 70, SYS_ROW = 20;
 function systemSize(n) {
-  const side = (d) => n.ports.filter((p) => p.side === d);
+  const side = (d) => n.ports.filter((p) => (p.at || (p.side === "in" ? "west" : "east")) === (d === "in" ? "west" : "east"));
   const lw = (ps) => Math.max(0, ...ps.map((p) => textWidth(p.label + (p.value ? "  " + p.value : ""))));
   const w = Math.max(240, textWidth(n.label) * 1.25 + 150, lw(side("in")) + lw(side("out")) + 60);
   return [w, Math.max(96, SYS_TOP + Math.max(side("in").length, side("out").length) * SYS_ROW + 6 + (n.inner?.length ? 16 : 0))];
@@ -505,12 +565,16 @@ function drawSystem(n, w, hgt) {
   g.append(btn(w - textWidth(into) - textWidth(open) - 46, open, "open it here: its parts in place of the box", () => S.toggleSystem?.(n.label)));
   if (n.inner?.length) g.append(s("text", { x: 16, y: hgt - 10, class: "t-sub" }, s("title", {}, "given a setpoint from outside, it holds it, and what it holds is read back out: an outer loop can treat it as one block"),
                                   `inner loop: holds ${n.inner.join(", ")} for an outer one`));
-  const at = { in: 0, out: 0 };
+  const at = { west: 0, east: 0 };
   for (const p of n.ports || []) {
-    const y = SYS_TOP + (at[p.side]++) * SYS_ROW;
-    const left = p.side === "in";
+    const side = p.at || (p.side === "in" ? "west" : "east");
+    const y = SYS_TOP + (at[side]++) * SYS_ROW;
+    const left = side === "west";
     g.append(s("rect", { x: left ? -4 : w - 4, y: y - 4, width: 8, height: 8, rx: 2, fill: "var(--panel)", stroke: "var(--system-line)", "stroke-width": 1.5 }));
-    g.append(s("text", { x: left ? 12 : w - 12, y: y + 4, class: "t-sub", "text-anchor": left ? "start" : "end" }, s("title", {}, `${p.kind} ${p.label}`),
+    const px = left ? 0 : w, inward = (p.side === "in") === left;    // which way it carries, across the edge
+    g.append(s("path", { d: inward ? `M${px - 2.5},${y - 2.5} L${px + 2},${y} L${px - 2.5},${y + 2.5} Z` : `M${px + 2.5},${y - 2.5} L${px - 2},${y} L${px + 2.5},${y + 2.5} Z`,
+                         fill: "var(--system-line)" }));
+    g.append(s("text", { x: left ? 12 : w - 12, y: y + 4, class: "t-sub", "text-anchor": left ? "start" : "end" }, s("title", {}, `${p.side === "in" ? "in" : "out"}: ${p.kind} ${p.label}`),
       p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
   }
   return g;
@@ -554,6 +618,7 @@ function arrowHead(pts, cls, size = 7) {
 }
 
 function drawGraph(svg, g, lay) {
+  portSides(g);
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const edgeById = Object.fromEntries(g.edges.map((e) => [e.id, e]));
   S.edgeById = edgeById;
