@@ -345,6 +345,118 @@
    1.333
   ]
  },
+ "the-job": {
+  "": [
+   604,
+   710,
+   1.214
+  ],
+  "open=*": [
+   3381,
+   2591,
+   0.333
+  ],
+  "open=awareness": [
+   240,
+   96,
+   5.167
+  ],
+  "open=delivery": [
+   240,
+   96,
+   5.167
+  ],
+  "open=documents": [
+   240,
+   96,
+   5.167
+  ],
+  "open=incidents": [
+   240,
+   96,
+   5.167
+  ],
+  "open=job": [
+   604,
+   710,
+   1.214
+  ],
+  "open=rhythm": [
+   240,
+   96,
+   5.167
+  ],
+  "open=safety": [
+   240,
+   96,
+   5.167
+  ],
+  "open=stewardship": [
+   240,
+   96,
+   5.167
+  ],
+  "open=support": [
+   240,
+   96,
+   5.167
+  ],
+  "open=team": [
+   240,
+   96,
+   5.167
+  ],
+  "system=awareness": [
+   959,
+   630,
+   1.293
+  ],
+  "system=delivery": [
+   886,
+   431,
+   1.399
+  ],
+  "system=documents": [
+   563,
+   395,
+   2.182
+  ],
+  "system=incidents": [
+   1607,
+   601,
+   0.772
+  ],
+  "system=job": [
+   552,
+   640,
+   1.347
+  ],
+  "system=rhythm": [
+   583,
+   555,
+   1.553
+  ],
+  "system=safety": [
+   1342,
+   633,
+   0.924
+  ],
+  "system=stewardship": [
+   641,
+   431,
+   1.936
+  ],
+  "system=support": [
+   661,
+   431,
+   1.875
+  ],
+  "system=team": [
+   643,
+   555,
+   1.553
+  ]
+ },
  "this-mac": {
   "": [
    531,

@@ -1,0 +1,177 @@
+# Incidents and on-call (charter §3 E). Watched: the pager, its alerts and the outages it groups them
+# into; the tracker, for postmortem actions assigned to me. Prepared: for each alert, a usefulness
+# comment and its correlation with recent deploys, flag changes and commits, and who is on call; a
+# plan for each action. Mine: the decision to declare, incident command, the comment posted as me,
+# and the postmortem's conclusions.
+defaults:
+  system: incidents
+
+items:
+  alert:
+    id: alert/*
+    description: a page from my rotation, and its alert ticket
+    states: [fired, drafted, commented]
+    on:
+      alert.drafted: drafted
+      alert.commented: commented
+    show: [service, summary, outage, comment]
+  outage:
+    id: outage/*
+    description: alerts the pager grouped as one outage
+    states: [suspected, declared, dismissed, resolved]
+    on:
+      outage.declared: declared
+      outage.dismissed: dismissed
+      outage.resolved: resolved
+    show: [service, cause, alerts]
+  action:
+    id: action/*
+    description: a postmortem action item assigned to me
+    states: [open, planned, done]
+    on:
+      action.planned: planned
+      action.done: done
+    show: [title, outage, plan]
+
+stocks:
+  alerts-to-draft:
+    unit: alerts
+    sensor:
+      items: alert
+      state: fired
+      every: 5s
+  alerts-drafted:
+    unit: alerts
+    description: a usefulness comment drafted, waiting for me to post it
+    sensor:
+      items: alert
+      state: drafted
+      every: 5s
+  outages-suspected:
+    unit: outages
+    description: grouped by the pager, not yet declared or dismissed
+    sensor:
+      items: outage
+      state: suspected
+      every: 5s
+  actions-to-plan:
+    unit: actions
+    description: assigned to me, with no owner, date and first step yet
+    sensor:
+      items: action
+      state: open
+      every: 5s
+
+auxiliaries:
+  alerts-late:
+    unit: alerts
+    description: alerts with no usefulness comment after half a working day
+    driven-by: [+stock.alerts-to-draft, +stock.alerts-drafted]
+    sensor:
+      items: alert
+      state: [fired, drafted]
+      where:
+        late: "yes"
+      every: 5s
+
+flows:
+  alerts-fired:
+    to: alerts-to-draft
+    description: pages from my rotation; a flag ramped without review makes them likelier
+    driven-by: +flow.ramps-went-ahead
+    sensor:
+      run: python3 bin/watch.py alert
+      every: 10s
+  comment-drafting:
+    from: alerts-to-draft
+    to: alerts-drafted
+    sensor:
+      items: alert
+      entering: drafted
+      over: 10m
+  comments-posted:
+    from: alerts-drafted
+    sensor:
+      items: alert
+      entering: commented
+      over: 10m
+  outages-noticed:
+    to: outages-suspected
+    description: the pager groups a burst of alerts on one service as an outage
+    driven-by: +flow.alerts-fired
+    sensor:
+      run: python3 bin/watch.py outage
+      every: 5s
+  outages-decided:
+    from: outages-suspected
+    sensor:
+      items: outage
+      leaving: suspected
+      over: 10m
+  actions-filed:
+    to: actions-to-plan
+    description: each declared outage's postmortem leaves action items
+    driven-by: +flow.outages-decided
+    sensor:
+      run: python3 bin/watch.py action
+      every: 10s
+  action-planning:
+    from: actions-to-plan
+    sensor:
+      items: action
+      entering: planned
+      over: 10m
+
+goals:
+  every-alert-drafted:
+    stock: alerts-to-draft
+    hold: "<= 0"
+    description: every alert from my rotation has a drafted usefulness comment
+  alerts-commented:
+    auxiliary: alerts-late
+    hold: "<= 0"
+    description: every alert ticket has my usefulness comment within half a working day
+  outages-decided:
+    stock: outages-suspected
+    hold: "<= 0"
+    critical: true
+    owner: me
+    description: every suspected outage is declared or dismissed, by me
+  actions-planned:
+    stock: actions-to-plan
+    hold: "<= 0"
+    description: every postmortem action assigned to me has an owner, a date and a first step
+
+blocks:
+  alert-companion:
+    type: ai
+    goal: every-alert-drafted
+    prompt: prompts/alert-companion.md
+    run: python3 bin/prepare.py alert-comment
+    max: 1
+    every: 8s
+    out: flow.comment-drafting
+  post-alert-comments:
+    type: person
+    agent: me
+    goal: alerts-commented
+    ask: >-
+      An alert has had no usefulness comment for half a day. The draft, with what changed before it and
+      who is on call, is in outbox/alert-*.md: post the comment on its alert ticket yourself.
+    out: flow.comments-posted
+  declare-incident:
+    type: person
+    agent: me
+    goal: outages-decided
+    ask: >-
+      The pager grouped alerts as an outage. Decide whether it is one: declare the incident and take
+      command, or dismiss it. Only you can; nothing was declared for you.
+    out: flow.outages-decided
+  action-planner:
+    type: ai
+    goal: actions-planned
+    prompt: prompts/action-planner.md
+    run: python3 bin/prepare.py action-plan
+    max: 1
+    every: 10s
+    out: flow.action-planning
