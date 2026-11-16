@@ -1,7 +1,7 @@
-"""The diagram's layout compared across engines and settings: every example, every view, each layout
-named on the command line (the page's ?layout= switch, diagram.js LAYOUTS), measured by the audit
-(size, empty share, fit zoom, crossings, bends, lines through parts) and timed; a screenshot of each
-view asked for with --shots.
+"""The diagram's layout compared across settings: every example, every view, each layout named on the
+command line (the page's ?layout= switch: layouts.js ELK_PRESETS, "elk" for ELK as diagram.js sets it,
+none for the default), measured by the audit (size, empty share, fit zoom, crossings, bends, lines
+through parts, parts on parts) and timed; a screenshot of each view asked for with --shots (or all).
 
     uv run --with playwright python scripts/layout_survey.py OUT [--layouts a,b] [--examples x,y]
         [--shots image-squeeze:system=lab,...] [--port 8795]
@@ -52,10 +52,13 @@ def summary(results: dict, base: str = "default") -> None:
     fit zoom, the views that fit at legible zoom (0.7), the worst aspect, and the audit's faults, summed."""
     import math
     keys = set.intersection(*(set(k for k, r in v.items() if "error" not in r) for v in results.values()))
-    gm = lambda xs: math.exp(sum(math.log(max(x, 1e-6)) for x in xs) / max(1, len(xs)))
+
+    def gm(xs):
+        return math.exp(sum(math.log(max(x, 1e-6)) for x in xs) / max(1, len(xs)))
+
     print(f"{len(keys)} views in common")
     print(f"{'layout':26} {'area':>8} {'fit':>6} {'>=.7':>5} {'aspect':>7} {'empty':>6} {'cross':>6} {'bends':>6} "
-          f"{'thru':>5} {'ovl':>4} {'detr':>5} {'net':>4} {'pipe>6':>6}")
+          f"{'thru':>5} {'ovl':>4} {'detr':>5} {'net':>4} {'parts':>5} {'pipe>6':>6}")
     for lay, rows in sorted(results.items(), key=lambda kv: -gm([kv[1][k]["fit"] for k in keys])):
         rs = [rows[k] for k in keys]
         print(f"{lay:26} {gm([r['width'] * r['height'] for r in rs]) / 1e6:8.2f} {gm([r['fit'] for r in rs]):6.3f} "
@@ -63,6 +66,7 @@ def summary(results: dict, base: str = "default") -> None:
               f"{sum(r['empty'] for r in rs) / len(rs):6.3f} {sum(r['crossings'] for r in rs):6d} "
               f"{sum(r['pipeBends'] + r['infoBends'] for r in rs):6d} {sum(r['through'] for r in rs):5d} "
               f"{sum(r['overlap'] for r in rs):4d} {sum(r['detour'] for r in rs):5d} {sum(r['netCrossings'] for r in rs):4d} "
+              f"{sum(r.get('partOverlap', 0) for r in rs):5d} "
               f"{sum(r['mostPipeBends'] > 6 for r in rs):6d}")
 
 
@@ -113,7 +117,7 @@ def main() -> None:
                         if not a.no_time:
                             pg.wait_for_function(READY, timeout=20000)
                         row = {**r["size"], "through": len(r["through"]), "overlap": len(r["overlap"]),
-                               "detour": len(r["detour"]), "netCrossings": len(r["netCrossings"]),
+                               "detour": len(r["detour"]), "netCrossings": len(r["netCrossings"]), "partOverlap": len(r["partOverlap"]),
                                "crossings": r["crossings"], "pipeBends": r["pipeBends"], "infoBends": r["infoBends"],
                                "mostPipeBends": r["mostPipeBends"][0], "first": round(first), "routed": round(final),
                                "errors": errors[:3]}
@@ -121,7 +125,7 @@ def main() -> None:
                         print(f"{lay or 'default'} {ex} [{v or 'whole'}] {row['width']}x{row['height']} empty {row['empty']} "
                               f"fit {row['fit']} x{row['crossings']} bends {row['pipeBends']}/{row['infoBends']} "
                               f"through {row['through']} overlap {row['overlap']} detour {row['detour']} "
-                              f"net {row['netCrossings']} {row['first']}/{row['routed']}ms", flush=True)
+                              f"net {row['netCrossings']} parts {row['partOverlap']} {row['first']}/{row['routed']}ms", flush=True)
                         if shots == "all" or (ex, v) in shots:
                             pg.get_by_role("button", name="fit").click()
                             pg.wait_for_timeout(150)

@@ -304,8 +304,10 @@ function restack(lay, g) {
     return { cs, x0, y0, h: y1 - y0, first, ids: new Set(cs.map((c) => c.id)) };
   }).sort((a, b) => a.first - b.first);
   let y = 40, width = 0;
+  lay.rows = [];                                      // where each row is: the pipes between them run in the gaps
   for (const gr of groups) {
     const dx = 40 - gr.x0, dy = y - gr.y0;
+    lay.rows.push({ y0: y, y1: y + gr.h, ids: gr.ids });
     for (const c of gr.cs) { c.x += dx; c.y += dy; width = Math.max(width, c.x + c.width); }
     for (const e of lay.edges) {
       if (!gr.ids.has(owner(e.sources[0]))) continue;
@@ -326,10 +328,21 @@ function routeCuts(lay, cuts) {
     const a = box[e.source], b = box[e.target];
     if (!a || !b) continue;
     const sx = a.x + a.width, sy = a.y + a.height / 2, tx = b.x, ty = b.y + b.height / 2;
-    // the gap: just above the highest thing in the target's row, or below the source's when the target is above
-    const row = lay.children.filter((c) => Math.abs(c.y + c.height / 2 - ty) < 160);
-    const gapY = ty > sy ? Math.min(...row.map((c) => c.y)) - 26 : Math.max(...lay.children.filter((c) => Math.abs(c.y + c.height / 2 - sy) < 160).map((c) => c.y + c.height)) + 26;
+    // the gap: the middle of the space above the target's row, or below the source's when the target is above
+    const rowOf = (id) => (lay.rows || []).find((r) => r.ids.has(id));
+    const rt = rowOf(e.target), rs = rowOf(e.source);
     const turn = Math.max(sx + 18, ...(a.labels || []).map((l) => a.x + l.x + l.width + 12));   // clear of the valve's labels
+    let gapY = ty > sy ? (rt ? rt.y0 - 35 : b.y - 26) : (rs ? rs.y1 + 35 : a.y + a.height + 26);
+    if (rt && rt === rs) {                             // one row (a controller joins them): a free band between the two ends
+      const x0 = Math.min(tx - 14, turn) - 6, x1 = Math.max(tx - 14, turn) + 6;
+      const labelled = lay.children.flatMap((c) => [c, ...(c.labels || []).map((l) => ({ x: c.x + l.x, y: c.y + l.y, width: l.width, height: l.height }))]);
+      const [lo, hi] = [Math.min(sy, ty), Math.max(sy, ty)];
+      const band = (boxes) => {                        // clear of the parts and their labels, else of the parts
+        for (let y = hi - 26; y > lo + 10; y -= 4) if (!boxes.some((c) => c.x < x1 && c.x + c.width > x0 && c.y - 8 < y && c.y + c.height + 8 > y)) return y;
+        return null;
+      };
+      gapY = band(labelled) ?? band(lay.children) ?? gapY;
+    }
     const pts = sy === ty ? [] : [{ x: turn, y: sy }, { x: turn, y: gapY }, { x: tx - 14, y: gapY }, { x: tx - 14, y: ty }];   // inside the outline
     lay.width = Math.max(lay.width, turn + 30);
     lay.edges.push({ id: e.id, sections: [{ startPoint: { x: sx, y: sy }, bendPoints: pts, endPoint: { x: tx, y: ty } }], cut: true });

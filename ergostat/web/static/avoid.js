@@ -180,7 +180,7 @@ function avoidSpec(lay, g) {
       ((ends[id] ||= {})[`${w}|${e.kind}`] ||= []).push(le.id);
     }
   }
-  // stocks a valve turned upright joins: their pipes may meet them on top and below too
+  // stocks and clouds a valve turned upright joins: their pipes may meet them on top and below too
   const upright = new Set(lines.map((le) => edgeOf[le.id]).filter((e) => e.kind === "pipe").flatMap((e) => {
     const v = ["up", "down"].includes(box[e.source]?.turn?.flow) ? e.target : ["up", "down"].includes(box[e.target]?.turn?.flow) ? e.source : null;
     return v ? [v] : [];
@@ -198,8 +198,8 @@ function avoidSpec(lay, g) {
       // its stem: what drives it comes in at one point, what it tells leaves at another
       at(PIN.STEM, ...side(t.stem, 0.4), true);
       at(PIN.TELL, ...side(t.stem, 0.6), true);
-    } else if (k === "cloud") {                              // a pipe meets a cloud on whichever side faces it
-      for (const d of ["left", "right", "up", "down"]) at(PIN.PIPE, ...sidePoint(d, 0.5, 1, 1), d, true);
+    } else if (k === "cloud") {                              // a pipe meets a cloud at its side (or top and bottom, by an upright valve)
+      for (const d of upright.has(c.id) ? ["left", "right", "up", "down"] : ["left", "right"]) at(PIN.PIPE, ...sidePoint(d, 0.5, 1, 1), d, true);
     } else {
       if (k === "system") (n.ports || []).forEach((p, i) => {
         const lp = (c.ports || []).find((q) => q.id === p.id);

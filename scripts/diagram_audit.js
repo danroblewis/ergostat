@@ -61,6 +61,19 @@
     if (e.kind === "pipe") { out.pipeBends += n; if (n > out.mostPipeBends[0]) out.mostPipeBends = [n, le.id]; }
     else out.infoBends += n;
   }
+  // parts on top of each other, and open systems' outlines over parts not in them or over each other
+  // (one inside the other is nesting): a layout that packs must still keep them apart
+  out.partOverlap = [];
+  const meet = (a, b, m = 2) => a.x + m < b.x + b.width && b.x + m < a.x + a.width && a.y + m < b.y + b.height && b.y + m < a.y + a.height;
+  const inside = (a, b) => a.x >= b.x - 1 && a.y >= b.y - 1 && a.x + a.width <= b.x + b.width + 1 && a.y + a.height <= b.y + b.height + 1;
+  const kids = lay.children;
+  for (let i = 0; i < kids.length; i++) for (let j = i + 1; j < kids.length; j++)
+    if (meet(kids[i], kids[j])) out.partOverlap.push(`${kids[i].id} on ${kids[j].id}`);
+  const hulls = lay.containers || [];
+  for (const h of hulls) {
+    for (const c of kids) if (!(byId[c.id]?.systems || []).includes(h.name) && meet(c, h)) out.partOverlap.push(`${c.id} on the outline of ${h.name}`);
+    for (const o of hulls) if (o !== h && o.name < h.name && meet(o, h) && !inside(o, h) && !inside(h, o)) out.partOverlap.push(`outlines of ${o.name} and ${h.name}`);
+  }
   // compactness: the drawing's extent (parts, their labels, open systems' outlines, lines), how much of
   // it the parts fill, and the zoom at which all of it fits the canvas (1 or more: it is read at full size)
   const ext = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };

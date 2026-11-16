@@ -1,13 +1,15 @@
 """Acceptance: the control diagram of every example, drawn in a real browser, in every view (the
 whole, everything open, each system opened, each drawn alone), draws no line through a part that
 is not one of its ends, no line on top of another (lines merging into or out of one end are a net),
-no line far longer than the way it covers, no two lines of one net crossing, and no page error;
+no line far longer than the way it covers, no two lines of one net crossing, no part on another or
+under an outline it is not in, no drawing bigger than recorded or far longer one way than the other
+when it does not fit the screen, and no page error;
 draws within its time (ELK's layout, with ELK's lines), and has libavoid's lines within a
 generous bound (routed in a worker, after the first draw).
 
 And a generated model, 16 systems of 6 loops each (STRESS=systems,loops to change it), each
 feeding the next and driving a flow two along: about 400 parts and 500 lines, drawn in about
-0.2s and routed in about 4s; 1,000 lines (24,8) are drawn in about 0.4s and routed in about 15s.
+0.3s and routed in about 1s.
 
 It needs Playwright and the Chrome installed on this machine, so the usual run skips it:
 
@@ -44,6 +46,12 @@ LAYOUT_BUDGET_MS = 2500       # until the biggest view is first drawn, on a lapt
 ROUTED_BOUND_MS = 20000       # until libavoid's lines replace ELK's (in a worker: the page is never held up meanwhile);
                               # the 24x8 model (STRESS=24,8: 1,030 lines) takes about 15s, nearly all of it libavoid's
 MAX_PIPE_BENDS = 6             # a flow that runs back (rework into a backlog) must turn; more is a pipe pushed about
+# compactness: each view's drawing no bigger than it was recorded (tests/fixtures/diagram_sizes.json, written
+# again with RECORD_SIZES=1 when a layout change is meant to make it so) and no longer one way than the other
+SIZES = ROOT / "tests" / "fixtures" / "diagram_sizes.json"
+SIZE_SLACK = 1.15              # the area may grow this much (labels' widths move a little with the data)
+MAX_ASPECT = 4.0               # wider than tall (or taller than wide) by more, and too big to read whole (MIN_FIT):
+MIN_FIT = 0.7                  # it runs off the screen one way, with the screen empty the other
 
 
 def free_port() -> int:
@@ -102,16 +110,29 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     tree = pg.evaluate("() => S.graph.tree || {}")
     views = ["", "open=*", *(f"open={s}" for s in tree), *(f"system={s}" for s in tree)]
     problems, slowest, routed = [], (0.0, ""), (0.0, "")
+    everything = json.loads(SIZES.read_text()) if SIZES.exists() else {}
+    recorded, sizes = everything.get(name, {}), {}
     for i, v in enumerate(views):
         drawn(pg, url, v, i + 1)
         r = pg.evaluate(AUDIT)
-        problems += [f"[{v or 'whole'}] {k}: {x}" for k in ("through", "overlap", "detour", "netCrossings") for x in r[k]]
+        problems += [f"[{v or 'whole'}] {k}: {x}" for k in ("through", "overlap", "detour", "netCrossings", "partOverlap")
+                     for x in r[k]]
         if r["mostPipeBends"][0] > MAX_PIPE_BENDS:                   # a flow reads best straight: the links bend instead
             problems.append(f"[{v or 'whole'}] pipe {r['mostPipeBends'][1]} bends {r['mostPipeBends'][0]} times")
+        size = r["size"]
+        sizes[v] = [size["width"], size["height"]]
+        was = recorded.get(v)
+        if was and size["width"] * size["height"] > SIZE_SLACK * was[0] * was[1]:
+            problems.append(f"[{v or 'whole'}] drawn {size['width']}x{size['height']}, recorded {was[0]}x{was[1]}")
+        if max(size["aspect"], 1 / size["aspect"]) > MAX_ASPECT and size["fit"] < MIN_FIT:    # (a short chain that fits is fine)
+            problems.append(f"[{v or 'whole'}] {size['width']}x{size['height']}: aspect {size['aspect']}")
         first, final = pg.evaluate(TIMED)
         slowest = max(slowest, (first, v or "whole"))
         routed = max(routed, (final, v or "whole"))
     pg.close()
+    if os.environ.get("RECORD_SIZES"):
+        everything = json.loads(SIZES.read_text()) if SIZES.exists() else {}
+        SIZES.write_text(json.dumps({**everything, name: sizes}, indent=1, sort_keys=True) + "\n")
     print(f"{name}: {len(views)} views, slowest first draw {slowest[0]:.0f}ms ({slowest[1]}), "
           f"slowest routing {routed[0]:.0f}ms ({routed[1]})")
     assert not errors, errors
@@ -295,14 +316,16 @@ UPRIGHT = """async () => {
              "cloud:abandoned:out": { x: Math.round(cx - cl.width / 2), y: st.y - 280 } };
   await S.relayout();
   await S.layout.whenRouted;
-  const edge = (s, t) => S.layout.edges.find((le) => { const e = S.graph.edges.find((x) => x.id === le.id); return e && e.source === s && e.target === t; });
+  const gEdge = (le) => S.graph.edges.find((x) => x.id === le.id);
+  const edge = (s, t) => S.layout.edges.find((le) => { const e = gEdge(le); return e && e.source === s && e.target === t; });
   const ends = (le) => { const sec = le.sections[0]; return [sec.startPoint, sec.endPoint]; };
   const c = at("flow:abandoned"), k = at("cloud:abandoned:out");
-  const [, inEnd] = ends(edge("stock:building", "flow:abandoned")), [outStart, outEnd] = ends(edge("flow:abandoned", "cloud:abandoned:out"));
+  const [, inEnd] = ends(edge("stock:building", "flow:abandoned"));
+  const [outStart, outEnd] = ends(edge("flow:abandoned", "cloud:abandoned:out"));
   const el = document.querySelector('g.node[data-id="flow:abandoned"]');
-  const info = S.layout.edges.filter((le) => { const e = S.graph.edges.find((x) => x.id === le.id);
-    return e && e.kind !== "pipe" && (e.source === "flow:abandoned" || e.target === "flow:abandoned"); })
-    .map((le) => { const e = S.graph.edges.find((x) => x.id === le.id); return e.source === "flow:abandoned" ? le.sections[0].startPoint : le.sections[0].endPoint; });
+  const mine = (e) => e && e.kind !== "pipe" && (e.source === "flow:abandoned" || e.target === "flow:abandoned");
+  const info = S.layout.edges.filter((le) => mine(gEdge(le)))
+    .map((le) => (gEdge(le).source === "flow:abandoned" ? le.sections[0].startPoint : le.sections[0].endPoint));
   return { turn: c.turn, drawn: el.dataset.turn, glyph: el.querySelector("g")?.getAttribute("transform") || "",
            inAtBottom: Math.abs(inEnd.y - (c.y + c.height)) < 3 && inEnd.x > c.x && inEnd.x < c.x + c.width,
            outAtTop: Math.abs(outStart.y - c.y) < 3 && outStart.x > c.x && outStart.x < c.x + c.width,
