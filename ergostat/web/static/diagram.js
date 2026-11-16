@@ -7,6 +7,7 @@ const CH = 6.7;   // px per character, for label sizes
 const OPEN_LOOP = "open loop: acts on its schedule, reads nothing";
 
 function labelLines(n) {
+  if (n.sd) return sdLabelLines(n);                    // the system dynamics view's (dynamics.js)
   if (n.kind === "valve") return [n.label, `${n.position != null ? "open " + fmt(n.position) + " · " : ""}${n.rateText}${n.max ? ` · ≤ ${fmt(n.max)} a run` : ""}${n.mode && n.mode !== "auto" ? " · " + n.mode : ""}`, n.agent ? "§badge" : null].filter(Boolean);
   if (n.kind === "disturbance") return [n.label, `${n.rateText}${n.estimated ? " (est.)" : ""}`, n.agent ? "§badge" : null].filter(Boolean);
   if (n.kind === "sensor") return [n.label, n.reading != null ? `reads ${n.reading}` : "no reading", n.agent ? "§badge" : null].filter(Boolean);
@@ -87,6 +88,8 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
                                               n.openLoop ? textWidth(OPEN_LOOP) + 30 : 0);
     if (n.kind === "system") [w, hgt] = systemSize(n);
     if (n.kind === "terminal") w = Math.max(textWidth(n.label + (n.valueText ? "  " + n.valueText : "")), textWidth(n.in ? "in " + n.in : "")) + 34;
+    if (n.sd) [w, hgt] = sdSize(n);                   // the system dynamics view's parts (dynamics.js)
+    else if (g.kind === "dynamics" && n.kind === "terminal") [w, hgt] = [textWidth(`<${n.label}>`) + 20, 24];
     const lines = labelLines(n);
     const node = { id: n.id, width: w, height: hgt, layoutOptions: {} };
     if (n.kind === "system") {                        // its ports where their names are written: inputs left, outputs right
@@ -551,6 +554,10 @@ function redrawLine(svg, id) {                         // a line's new way, whil
   if (!le || !e || !eg) return;
   const pts = edgePoints(le);
   if (pts.length < 2) return;
+  if (S.graph.kind === "dynamics") {                  // drawn again whole: its curve depends on where the parts are
+    eg.replaceChildren(...sdEdgeContent(e, pts, S.layout), s("path", { d: roundedPath(pts, 7), class: "edge-hit" }));
+    return;
+  }
   const d = roundedPath(pts, e.kind === "pipe" ? 10 : 7), body = roundedPath(e.kind === "pipe" && e.arrow ? shortened(pts, 14) : pts, 10);
   for (const p of eg.querySelectorAll("path")) {
     if (p.classList.contains("pipe-out") || p.classList.contains("pipe-in") || p.classList.contains("flowing")) p.setAttribute("d", body);
@@ -596,7 +603,10 @@ function drawGraph(svg, g, lay) {
   const vp = s("g", { id: "viewport" });
   // systems as hulls behind everything (overlapping freely)
   const hullPins = [];                                     // (drawn on top, with the parts' pins)
-  if (g.kind === "control" && lay.containers?.length) {      // open systems: laid out as containers, drawn as outlines
+  const sd = g.kind === "dynamics";                         // the system dynamics view: monochrome (dynamics.js)
+  const hueOf = (hue, a, l = 45) => (sd ? `fill:var(--sd-hull);stroke:var(--sd-hull-line)` : `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,${l}%,${a})`);
+  const inkOf = (hue) => (sd ? "fill:var(--sd-ink)" : `fill:hsl(${hue},55%,42%)`);
+  if ((g.kind === "control" || sd) && lay.containers?.length) {      // open systems: laid out as containers, drawn as outlines
     const hulls = s("g", { class: "sys-hull" });
     const names = Object.keys(g.tree || {}).sort();
     for (const c of lay.containers) {
@@ -607,10 +617,10 @@ function drawGraph(svg, g, lay) {
       const grip = s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: c.width, height: 32, rx: 16,
                                onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: c.name, x0: ev.clientX, y0: ev.clientY, cx: c.x, cy: c.y, moved: false }; } },
                        s("title", {}, `${c.name}: drag to move it, with everything in it`));
-      hg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height, rx: 16, style: `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,45%,.45)` }), grip,
-        s("text", { x: c.x + 14, y: c.y + 22, class: "sys-hull-label", "data-act": "close", style: `fill:hsl(${hue},55%,42%)`, onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
+      hg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height, rx: 16, style: hueOf(hue, 0.45) }), grip,
+        s("text", { x: c.x + 14, y: c.y + 22, class: "sys-hull-label", "data-act": "close", style: inkOf(hue), onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
           s("title", {}, `${c.name}: click to close it into one box`), "▾ " + c.name),
-        s("text", { x: c.x + 14 + textWidth("▾ " + c.name) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", "data-act": "into", style: `fill:hsl(${hue},55%,42%)`,
+        s("text", { x: c.x + 14 + textWidth("▾ " + c.name) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", "data-act": "into", style: inkOf(hue),
                     onclick: (ev) => { ev.stopPropagation(); S.drill?.(c.name); } }, s("title", {}, "draw it alone"), "⤓"));
       if (S.pins?.["hull:" + c.name]) hullPins.push(s("g", { class: "pin", "data-act": "unpin", "data-id": "hull:" + c.name, transform: `translate(${c.x + c.width - 14},${c.y + 4})`,
                                                       onclick: (ev) => { ev.stopPropagation(); delete S.pins["hull:" + c.name]; savePins(); S.relayout?.(); } },
@@ -618,7 +628,7 @@ function drawGraph(svg, g, lay) {
         s("circle", { r: 7 }), s("path", { d: "M-2.5,-3 h5 l-1,3 h2 l-3.5,3 v3 M0,3 v3" })));
     }
     vp.append(hulls);
-  } else if (g.kind === "control" && S.showHulls && !g.tree) {
+  } else if ((g.kind === "control" || sd) && S.showHulls && !g.tree) {
     const hulls = s("g", { class: "sys-hull" });
     const taken = [];                                   // label boxes already placed, so overlapping hulls never stack names
     // a system that contains another is padded more, so nested outlines nest visibly, labels apart
@@ -666,9 +676,8 @@ function drawGraph(svg, g, lay) {
         }
         taken.push({ x: lx, y: y0, w: lw });
         ext.x0 = Math.min(ext.x0, x0); ext.y0 = Math.min(ext.y0, y0); ext.x1 = Math.max(ext.x1, x1); ext.y1 = Math.max(ext.y1, y1);
-        hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16,
-                                 style: `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,45%,.45)` }),
-                     s("text", { x: lx, y: y0 + 18, class: "sys-hull-label", style: `fill:hsl(${hue},55%,42%)`,
+        hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16, style: hueOf(hue, 0.45) }),
+                     s("text", { x: lx, y: y0 + 18, class: "sys-hull-label", style: inkOf(hue),
                                  onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(name); } },
                        s("title", {}, `${name}: click to close it into one box`), name + (S.graph?.tree ? " ▾" : "")));
       });
@@ -680,6 +689,7 @@ function drawGraph(svg, g, lay) {
     lay.width = Math.max(lay.base.width, ext.x1) - lay.ox; lay.height = Math.max(lay.base.height, ext.y1) - lay.oy;
   }
   const edgesG = s("g");
+  S.sdSigns = [];                                         // (the polarities placed so far: dynamics.js)
   for (const le of lay.edges) {
     const e = edgeById[le.id];
     const pts = edgePoints(le);
@@ -692,7 +702,8 @@ function drawGraph(svg, g, lay) {
     const eg = s("g", { class: cls, "data-id": e.id, "data-loops": (e.loops || []).join(" "), "data-nodes": `${e.source} ${e.target}`,
                         "data-link": linkKey(e),
                         onpointerenter: () => { if (!S.dragging) hoverEdge(e); }, onpointerleave: () => hoverEdge(null) });
-    if (e.kind === "pipe") {
+    if (sd) eg.append(...sdEdgeContent(e, pts, lay));    // the system dynamics view's pipes and connectors (dynamics.js)
+    else if (e.kind === "pipe") {
       // the pipe stops short of its end, and the head, wider than the pipe, fills the rest: its point is the end
       const body = e.arrow ? shortened(pts, 14) : pts, bd = roundedPath(body, 10);
       eg.append(s("path", { d: bd, class: "pipe-out" }), s("path", { d: bd, class: "pipe-in" }));
@@ -728,7 +739,7 @@ function drawGraph(svg, g, lay) {
     }
     const onLine = (j) => pts.slice(1).some((p, i) => { const a = pts[i];     // a split point must be on the line itself
       return Math.min(a.x, p.x) - 1 <= j.x && j.x <= Math.max(a.x, p.x) + 1 && Math.min(a.y, p.y) - 1 <= j.y && j.y <= Math.max(a.y, p.y) + 1; });
-    for (const j of (le.junctionPoints || []).filter(onLine)) eg.append(s("circle", { cx: j.x, cy: j.y, r: 3.2, class: "junction", fill: LINE_COLOR[e.kind] || "var(--pipe)" }));
+    for (const j of sd ? [] : (le.junctionPoints || []).filter(onLine)) eg.append(s("circle", { cx: j.x, cy: j.y, r: 3.2, class: "junction", fill: LINE_COLOR[e.kind] || "var(--pipe)" }));
     eg.append(s("path", { d, class: "edge-hit" }));    // a wide, invisible line: easy to point at
     edgesG.append(eg);
   }
@@ -743,7 +754,7 @@ function drawGraph(svg, g, lay) {
                           partDown(ev, n);                // a drag, or a click (interact.js)
                         },
                         ondblclick: (ev) => { if (n.kind === "system") { ev.stopPropagation(); S.toggleSystem?.(n.label); } } });
-    ng.append((DRAW[n.kind] || drawCloud)(n, ln.width, ln.height, ln));
+    ng.append(((sd && SD_DRAW[n.kind]) || DRAW[n.kind] || drawCloud)(n, ln.width, ln.height, ln));
     const pid = pinId(n.id, n);                       // (a system's box and its open outline share one)
     if (S.pins?.[pid]) pinsG.append(s("g", { class: "pin", "data-act": "unpin", "data-id": pid, transform: `translate(${ln.x + ln.width - 4},${ln.y - 6})`,
                                             onclick: (ev) => { ev.stopPropagation(); delete S.pins[pid]; savePins(); S.relayout?.(); } },
@@ -755,6 +766,7 @@ function drawGraph(svg, g, lay) {
       const lines = fresh.length ? fresh : lb.text.split("\n");
       lines.forEach((t, i) => {
         const cx = lb.x + lb.width / 2, y = lb.y + 13 + i * 16;
+        if (n.sd) { sdLabel(ng, n, t, i, cx, y); return; }
         if (t === "§badge") { const b = badge(n.agent, cx, y - 11); if (b) ng.append(b); return; }
         if (i === 0) { ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-label" }, t)); return; }
         // a reading or a measured rate changes minute to minute (live); a valve's mode and a declared
@@ -769,10 +781,12 @@ function drawGraph(svg, g, lay) {
     nodesG.append(ng);
   }
   pinsG.append(...hullPins);
-  vp.append(edgesG, nodesG, pinsG);
+  vp.append(edgesG, nodesG, ...(sd ? [sdLoopMarkers(g, lay)] : []), pinsG);
   svg.replaceChildren(vp);
+  svg.classList.toggle("sd", sd);
   applyView(svg);
   if (S.hl) highlightLoop(S.hl);
+  if (sd && S.hlCausal) sdApply(S.hlCausal);
   if (S.hoverKey || S.selKey) trace(S.hoverKey || S.selKey);   // a redraw keeps the line being followed
   markInteraction(svg);                                // the chosen parts, the lines waiting for libavoid
 }
@@ -931,6 +945,7 @@ function highlightAgents(names) {
 }
 
 function legend(view) {
+  if (view === "dynamics") return sdLegend();
   if (view === "blocks") return blocksLegend();
   if (view === "wiring") {
     return h("div", { class: "legend" },
@@ -965,7 +980,8 @@ function legend(view) {
 }
 
 async function pageDiagram(main, q) {
-  const view = q.get("view") || "control";
+  // the system dynamics view is the first; "control", its old name, still reaches it
+  const view = !q.get("view") || q.get("view") === "control" ? "dynamics" : q.get("view");
   const system = q.get("system") || "";
   const around = q.get("around") || "";
   const openQ = q.has("open") ? q.get("open") : null;          // the systems opened; absent: the server's default
@@ -997,7 +1013,8 @@ async function pageDiagram(main, q) {
   const toolbar = h("div", { class: "toolbar" },
     h("span", { class: "muted" }, "system"), sysSel,
     h("span", { class: "seg" },
-      h("button", { class: view === "control" ? "on" : "", onclick: () => go({ view: "control" }) }, "control"),
+      h("button", { class: view === "dynamics" ? "on" : "", title: "the stock-and-flow diagram, as system dynamics draws it: stocks, flows, auxiliaries and their feedback loops",
+                    onclick: () => go({ view: "dynamics" }) }, "dynamics"),
       h("button", { class: view === "blocks" ? "on" : "", title: "the control system as a block diagram: what is controlled, and how", onclick: () => go({ view: "blocks" }) }, "blocks"),
       h("button", { class: view === "wiring" ? "on" : "", onclick: () => go({ view: "wiring" }) }, "wiring")),
     wrapBtn,
@@ -1017,7 +1034,7 @@ async function pageDiagram(main, q) {
     h("button", { onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
     h("button", { onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "−"));
   wrap.append(svg, toolbar, zoom);
-  S.legendEl = legend(view);   // blocks, wiring and control each read differently
+  S.legendEl = legend(view);   // blocks, wiring and dynamics each read differently
   const side = h("div", { class: "side" });
   const shell = h("div", { class: "diagram" + (sideHidden() ? " side-hidden" : "") }, wrap, side);
   main.append(shell);
@@ -1077,9 +1094,9 @@ async function pageDiagram(main, q) {
       const aspect = r.width && r.height ? r.width / Math.max(r.height - 80, 200) : 1.6;
       const asp = g.kind === "wiring" ? aspect * 2.5 : aspect;      // wiring: pack the components side by side
       // a chain of loops far wider than the window is folded at the pipes between loops, unless told not to
-      let lay = await layoutGraph(g, asp, S.wrap === true && g.kind === "control");
+      let lay = await layoutGraph(g, asp, S.wrap === true && (g.kind === "control" || g.kind === "dynamics"));
       S.wrapAuto = false;
-      if (S.wrap == null && g.kind === "control" && couplings(g).length && lay.width / lay.height > 2 * asp) {
+      if (S.wrap == null && (g.kind === "control" || g.kind === "dynamics") && couplings(g).length && lay.width / lay.height > 2 * asp) {
         lay = await layoutGraph(g, asp, true);
         S.wrapAuto = true;
       }
@@ -1140,7 +1157,8 @@ function renderSide(side, g, view) {
     side.append(d);
   }
   const loops = Object.entries(g.loops || {});
-  if (view === "control" || view === "blocks") {
+  if (view === "dynamics") sdLoopList(side, g);
+  else if (view === "control" || view === "blocks") {
     side.append(h("h3", {}, `loops (${loops.length})`));
     if (!loops.length) side.append(h("div", { class: "muted" }, "no loops in view"));
     for (const [name, lp] of loops) {

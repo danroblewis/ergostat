@@ -24,7 +24,7 @@ function standaloneSvg(svg, title) {
   clone.querySelector("#viewport").setAttribute("transform", "");
   // a legend under a control diagram, wrapped to the diagram's width
   const legend = title && svg.querySelector(".k-stock")
-    ? exportLegend(0, 0, getComputedStyle(document.body).color, getComputedStyle(document.body).getPropertyValue("--muted") || "#666",
+    ? S.graph?.kind === "dynamics" ? sdExportLegend(Math.max(360, S.layout.width)) : exportLegend(0, 0, getComputedStyle(document.body).color, getComputedStyle(document.body).getPropertyValue("--muted") || "#666",
                    svg.classList.contains("design"), Math.max(360, S.layout.width)) : null;
   const foot = legend ? legend.h + 24 : 0;
   const pad = 20, head = title ? 34 : 0, w = S.layout.width + pad * 2, hgt = S.layout.height + pad * 2 + head + foot;
@@ -82,7 +82,8 @@ function exportLegend(x, y, ink, muted, design = false, width = 1e9) {
 function exportTitle() {
   const { q } = parseRoute();
   const at = new Date((S.at || nowS()) * 1000).toLocaleString([], { hour12: false, dateStyle: "medium", timeStyle: "short" });
-  return [`${S.status?.name || "ergostat"} · ${q.get("system") || "everything"} · ${q.get("view") || "control"}`,
+  const view = !q.get("view") || q.get("view") === "control" ? "dynamics" : q.get("view");
+  return [`${S.status?.name || "ergostat"} · ${q.get("system") || "everything"} · ${view}`,
           `${S.at || SNAP ? "as of" : "live,"} ${at} · window ${S.since}`];
 }
 

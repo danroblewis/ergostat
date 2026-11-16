@@ -118,15 +118,20 @@ def api(live: Live, path: str, q: dict):
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
             return {**diagram(m, snap, want, system), "attention": att}
+        from ..dynamics import dynamics, finish
         from ..fold import fold
+        sd = one("view") == "dynamics"          # the system dynamics view: drawn from the same graph
         tree = getattr(getattr(m, "spec", None), "systems", None)
         if tree and not around:              # systems as parts: boxed, opened, or drilled into (whatever it reaches outside)
             g = graph.control(m, snap, graph.select(m), graph.readings(p, at))
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
+            if sd:
+                return {**finish(fold(dynamics(g, m), m, want, system)), "attention": att}
             return {**fold(g, m, want, system), "attention": att}
         sel = graph.select(m, system, around, int(one("depth") or 1))
-        return {**graph.control(m, snap, sel, graph.readings(p, at)), "attention": att}
+        g = graph.control(m, snap, sel, graph.readings(p, at))
+        return {**(dynamics(g, m) if sd else g), "attention": att}
     if head == "systems":
         return [{"name": s, "description": m.systems[s].description if s in m.systems else "",
                  "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)]}

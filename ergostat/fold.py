@@ -43,14 +43,20 @@ def chain_of(spec, model, node_id: str) -> list[str]:
     """The node's systems, outermost first."""
     kind, _, rest = node_id.partition(":")
     name = rest.split(":")[0]
-    part = model.part(name) if kind != "cloud" else model.flows.get(name)
+    if kind in ("gap", "desired"):                     # a goal's, drawn in the dynamics view: where its controller is
+        part = model.controllers.get(name)
+    elif kind == "decision":                           # a block drawn as a decision: in its own system
+        b = spec.blocks.get(name)
+        return list(reversed(spec.chain(b.system))) if b else []
+    else:
+        part = model.part(name) if kind != "cloud" else model.flows.get(name)
     tags = list(getattr(part, "systems", None) or [])
     return list(reversed(tags))
 
 
 def fold(g: dict, model, open_: set[str] | None, focus: str | None = None) -> dict:
     spec = getattr(model, "spec", None)
-    if spec is None or not spec.systems or g.get("kind") != "control":
+    if spec is None or not spec.systems or g.get("kind") not in ("control", "dynamics"):
         return g
     if open_ is None:
         open_ = default_open(spec, focus)
@@ -132,6 +138,12 @@ def fold(g: dict, model, open_: set[str] | None, focus: str | None = None) -> di
             st = lp.get("status") or "unknown"
             boxes[r]["loops"][st] = boxes[r]["loops"].get(st, 0) + 1
         lp["nodes"] = sorted({reps.get(x, x) for x in lp.get("nodes", [])})
+    for c in g.get("causalLoops") or []:                 # each feedback loop's members, as drawn here
+        ns = [reps.get(x, x) for x in c.get("nodes", [])]
+        ns = [x for i, x in enumerate(ns) if not i or ns[i - 1] != x]
+        while len(ns) > 1 and ns[0] == ns[-1]:
+            ns.pop()
+        c["nodes"] = ns
     loops = g.get("loops") or {}
     for b in boxes.values():                                 # the box as a control panel: the measures it shows
         name = b["label"]

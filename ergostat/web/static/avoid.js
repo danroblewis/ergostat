@@ -184,6 +184,18 @@ function avoidSpec(lay, g) {
   const box = Object.fromEntries(lay.children.filter((c) => byId[c.id]).map((c) => [c.id, c]));
   const lines = lay.edges.filter((le) => !le.cut && edgeOf[le.id] && box[edgeOf[le.id].source] && box[edgeOf[le.id].target]);
   const special = (id) => ["valve", "disturbance", "cloud"].includes(byId[id].kind);
+  // the system dynamics view (dynamics.js): every connector reaches its part at a point of its own, as
+  // its connectors do in Vensim and Stella, never merged into one line; a valve's on its stem, while few
+  const sd = g.kind === "dynamics";
+  const infoAt = {};
+  const arrive = {};
+  for (const le of lines) {
+    const e = edgeOf[le.id];
+    if (e.kind === "pipe") continue;
+    for (const id of [e.source, e.target]) infoAt[id] = (infoAt[id] || 0) + 1;
+    arrive[e.target] = (arrive[e.target] || 0) + 1;
+  }
+  const ownStem = (id) => sd && (infoAt[id] || 0) <= 6 && (arrive[id] || 0) <= 5;
   // a part's own ends (not at a port, a valve or a cloud, nor a pipe at a stock): by which way and kind
   const ends = {};
   for (const le of lines) {
@@ -210,8 +222,10 @@ function avoidSpec(lay, g) {
       at(PIN.IN, ...side(SIDE_OF[t.flow], 0.5), true);
       at(PIN.OUT, ...side(t.flow, 0.5), true);
       // its stem: what drives it comes in at one point, what it tells leaves at another
-      at(PIN.STEM, ...side(t.stem, 0.4), true);
-      at(PIN.TELL, ...side(t.stem, 0.6), true);
+      if (ownStem(c.id)) {                                  // (the system dynamics view: each arrival its own point)
+        for (const f of [0.15, 0.25, 0.35, 0.45, 0.55]) at(PIN.ANY, ...side(t.stem, f), false);
+        at(PIN.TELL, ...side(t.stem, 0.72), true);
+      } else { at(PIN.STEM, ...side(t.stem, 0.4), true); at(PIN.TELL, ...side(t.stem, 0.6), true); }
     } else if (k === "cloud") {                              // a pipe meets a cloud at its side (or top and bottom, by an upright valve)
       for (const d of upright.has(c.id) ? ["left", "right", "up", "down"] : ["left", "right"]) at(PIN.PIPE, ...sidePoint(d, 0.5, 1, 1), d, true);
     } else {
@@ -228,8 +242,12 @@ function avoidSpec(lay, g) {
       // its lines; single lines points of their own, one line each, enough of them for all
       const sides = k === "stock" ? ["up", "down"] : ["up", "down", "left", "right"];
       const groups = Object.entries(ends[c.id] || {});
-      const nets = groups.filter(([, x]) => x.length > 1), singles = groups.filter(([, x]) => x.length === 1).length;
-      const slots = nets.length + Math.ceil(singles / sides.length);
+      // (what arrives, in the system dynamics view: one point each, while few; what leaves shares one)
+      const own = (key) => ownStem(c.id) && key[0] === "t";
+      const nets = groups.filter(([key, x]) => x.length > 1 && !own(key));
+      const singles = groups.reduce((a, [key, x]) => a + (x.length === 1 || own(key) ? x.length : 0), 0);
+      // (a part whose arrivals each take a point of their own has a few on every side to choose from)
+      const slots = nets.length + (ownStem(c.id) ? Math.min(singles, 4) : Math.ceil(singles / sides.length));
       const place = (cls, i, shared) => {
         const f0 = (i + 1) / (slots + 1), f = upright.has(c.id) ? (f0 <= 0.5 ? f0 * 0.75 : 0.25 + f0 * 0.75) : f0;
         for (const d of sides) at(cls, d === "left" ? 0 : d === "right" ? 1 : f, d === "up" ? 0 : d === "down" ? 1 : f, d, shared);
@@ -246,7 +264,7 @@ function avoidSpec(lay, g) {
   const pinAt = (e, w) => {
     const id = w === "s" ? e.source : e.target, port = w === "s" ? e.sourcePort : e.targetPort, k = byId[id].kind;
     if (port) { const i = (byId[id].ports || []).findIndex((p) => p.id === port); return i < 0 ? null : PIN.PORT + i; }
-    if (k === "valve" || k === "disturbance") return e.kind === "pipe" ? (w === "s" ? PIN.OUT : PIN.IN) : (w === "t" ? PIN.STEM : PIN.TELL);
+    if (k === "valve" || k === "disturbance") return e.kind === "pipe" ? (w === "s" ? PIN.OUT : PIN.IN) : w === "t" ? (ownStem(id) ? PIN.ANY : PIN.STEM) : PIN.TELL;
     if (k === "cloud" || (e.kind === "pipe" && k === "stock")) return PIN.PIPE;
     return pinOf[`${e.id}|${w}`] ?? PIN.ANY;
   };
@@ -276,6 +294,7 @@ function avoidStart(lay, g) {
       untangle(lay, Object.values(groups).filter((x) => x.ids.length > 1), lay.children,
                Object.fromEntries(spec.conns.map((c) => [c.id, [c.s, c.t]])));
       uncross(lay, g);
+      if (g.kind === "dynamics") { sdSeparate(lay, g); uncross(lay, g); }   // (dynamics.js)
       AV.ms = m.ms; AV.invalid = m.invalid;               // (how long it took, and lines it found no way for: the tests read them)
       AV.routed = { lay, seq };
     }
