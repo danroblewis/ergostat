@@ -65,9 +65,7 @@ def find(spec: Spec) -> list[Problem]:
             say("unguarded-limit", f"stock {st.name}: has a limit ({st.limit:g}) but no goal: nothing keeps it from it",
                 st.where, f"stock.{st.name}")
     unsigned(spec, say)
-    for s in spec.sensors():
-        if not s.measured and not s.manual:
-            continue
+    structure(spec, say)
     return out
 
 
@@ -94,3 +92,95 @@ def unsigned(spec: Spec, say) -> None:
                 say("unsigned-link", f"{kind} {x.name}: driven-by {', '.join(bare)} with no sign, so every feedback loop "
                     f"through {'it' if len(bare) == 1 else 'them'} is of unknown polarity: write the sign on each "
                     f"(+{bare[0]} or -{bare[0]})", x.where, f"{kind}.{x.name}")
+
+
+# ---- the structure system dynamics asks of a model (SPEC §12): Sterman, *Business Dynamics*, ch. 21's
+# structure assessment, dimensional consistency and extreme-condition tests, done on the structure alone
+
+DIMENSIONLESS = {"", "share", "fraction", "ratio", "%", "percent", "1", "points", "score"}
+
+
+def base_unit(u: str) -> str | None:
+    """A unit as a plain count of something, singular, with any per-hour taken off (``alerts/h`` →
+    ``alert``); None when it is a ratio, a share or a compound, whose conversion cannot be told."""
+    u = (u or "").strip().lower()
+    for tail in ("/h", "/hour", " per hour", "/hr"):
+        if u.endswith(tail):
+            u = u[: -len(tail)].strip()
+    if u in DIMENSIONLESS or "/" in u or " per " in u or "*" in u or " " in u:
+        return None
+    return u[:-1] if u.endswith("s") and len(u) > 3 else u
+
+
+def unit_of(spec: Spec, r: Ref) -> str:
+    x = spec.measured(r.kind).get(r.name)
+    if x is None:
+        return ""
+    if r.kind == "flow" and not x.unit:
+        return next((spec.stocks[e].unit for e in (x.source, x.target) if e in spec.stocks), "")
+    return x.unit
+
+
+def structure(spec: Spec, say) -> None:
+    for f in spec.flows.values():
+        rates = [r for r in f.driven_by if r.kind == "flow" and str(r) not in f.instant]
+        if rates:
+            r = rates[0]
+            say("rate-driven-by-rate",
+                f"flow {f.name}: driven-by {', '.join(str(x) for x in rates)}, a rate following a rate. A connector acts at "
+                f"once, so this says {f.name} now depends on {r.name} now. A cause acting over time goes through a stock: "
+                f"what {r.name} moves accumulates somewhere (a stock it fills), and {f.name} follows that stock "
+                f"(driven-by: +stock.<what accumulates>), or drains it as a flow of its own. If the dependence really is "
+                f"immediate ({f.name} changes in the same moment as {r.name}, with nothing between), say so on the link: "
+                f"driven-by: [{{cause: +{r}, instant: true}}]",
+                f.where, f"flow.{f.name}")
+        mine = base_unit(unit_of(spec, Ref("flow", f.name)))
+        converted = any(r.kind == "auxiliary" or r == Ref("stock", f.source or "") for r in f.driven_by)   # a ratio, or what it takes from
+        odd = [r for r in f.driven_by if r.kind == "flow" and mine and (b := base_unit(unit_of(spec, r))) and b != mine]
+        if odd and not converted:
+            r = odd[0]
+            u, v = unit_of(spec, Ref("flow", f.name)).split("/")[0].strip(), base_unit(unit_of(spec, r))
+            ratio = f"{u}-per-{v}".replace(" ", "-")
+            take = (f"; or, since it drains {f.source}, drive it from {f.source} too (driven-by: +stock.{f.source}): "
+                    f"then it takes a share of what is there" if f.source else "")
+            say("units-mismatch",
+                f"flow {f.name}: in {u}, driven-by {r} in {unit_of(spec, r)}, with nothing between that converts one "
+                f"into the other. A rate that follows a rate of something else moves so many of its own units for each "
+                f"of the other's (a coflow): say how many with an auxiliary (auxiliaries: {{{ratio}: {{unit: {u}/{v}}}}}) "
+                f"and drive the flow from both (driven-by: [+{r}, +auxiliary.{ratio}]){take}",
+                f.where, f"flow.{f.name}")
+        if f.source and f.driven_by and spec.actuator_of(f.name) is None and not f.two_way and not depends_on(spec, f, f.source):
+            say("outflow-ignores-stock",
+                f"flow {f.name}: drains {f.source}, but its rate follows {', '.join(str(r) for r in f.driven_by)} and not "
+                f"{f.source} itself, so with {f.source} empty it would still run and take it below zero. An outflow "
+                f"takes what is there: add the stock to what drives it (driven-by: [+stock.{f.source}, ...])",
+                f.where, f"flow.{f.name}")
+    for st in spec.stocks.values():
+        fl = spec.flows_of(st.name)
+        if not fl or st.cumulative:
+            continue
+        if not any(f.source == st.name or f.two_way for f in fl):
+            say("stock-without-outflow",
+                f"stock {st.name}: flows fill it ({', '.join(f.name for f in fl)}) and nothing drains it, so in the model "
+                f"it can only grow. If what is in it leaves (is finished, expires, is thrown away), give it that outflow "
+                f"(flows: {{<name>: {{from: {st.name}}}}}); if it is a running total that by its nature never drains "
+                f"(spent so far, kept so far), say so: cumulative: true",
+                st.where, f"stock.{st.name}")
+    for a in spec.auxiliaries.values():
+        if not a.driven_by and not a.exogenous and spec.setter_of(a.name) is None:
+            say("auxiliary-without-causes",
+                f"auxiliary {a.name}: nothing drives it and it is not marked as an input from outside, so the model "
+                f"cannot say why it changes. Name what it is worked out from (driven-by: [+stock.x, ...]), or, if "
+                f"nothing in the model moves it (the weather, a price, a constant), say so: exogenous: true",
+                a.where, f"auxiliary.{a.name}")
+
+
+def depends_on(spec: Spec, f, stock: str, seen: frozenset = frozenset()) -> bool:
+    """Whether a flow's rate follows the stock, directly or through an auxiliary that does."""
+    for r in f.driven_by:
+        if r.kind == "stock" and r.name == stock:
+            return True
+        if r.kind == "auxiliary" and r.name not in seen and r.name in spec.auxiliaries:
+            if depends_on(spec, spec.auxiliaries[r.name], stock, seen | {r.name}):
+                return True
+    return False

@@ -333,6 +333,10 @@
         "initial": {
           "type": "number"
         },
+        "cumulative": {
+          "type": "boolean",
+          "description": "A running total that by its nature never drains (spent so far): no outflow is missing (SPEC section 5)"
+        },
         "system": {
           "$ref": "#/$defs/name"
         },
@@ -1042,15 +1046,15 @@
       "description": "A quantity without memory: determined at each moment by others (SPEC section 7a)"
     },
     "driven_by": {
-      "description": "What it follows: flow., stock. or auxiliary. references, each optionally signed (+ rises with it, - falls; unsigned: not known)",
+      "description": "What it follows: flow., stock. or auxiliary. references, each optionally signed (+ rises with it, - falls; unsigned: not known); an entry may be written out as {cause, instant, description}: instant says the dependence is immediate (SPEC section 7)",
       "oneOf": [
         {
-          "$ref": "#/$defs/signed_ref"
+          "$ref": "#/$defs/link"
         },
         {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/signed_ref"
+            "$ref": "#/$defs/link"
           }
         }
       ]
@@ -1058,6 +1062,32 @@
     "signed_ref": {
       "type": "string",
       "pattern": "^[+-]?(flow|stock|auxiliary|variable)\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$"
+    },
+    "link": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/signed_ref"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cause"
+          ],
+          "properties": {
+            "cause": {
+              "$ref": "#/$defs/signed_ref"
+            },
+            "instant": {
+              "type": "boolean",
+              "description": "The effect follows the cause in the same moment, with no stock between (silences rate-driven-by-rate)"
+            },
+            "description": {
+              "type": "string"
+            }
+          }
+        }
+      ]
     }
   }
 }

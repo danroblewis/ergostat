@@ -9,8 +9,10 @@ from .ir import Block, Ref, Spec, sign_text
 
 
 def _signed(x, r: Ref) -> str:
-    """A driven-by as written: +stock.x, -auxiliary.y, or bare when its sign is not known."""
-    return (sign_text(x.polarity.get(str(r))) or "") + str(r)
+    """A driven-by as written: +stock.x, -auxiliary.y, or bare when its sign is not known; one
+    declared immediate (instant: true) says so."""
+    now = " (at once)" if str(r) in getattr(x, "instant", ()) else ""
+    return (sign_text(x.polarity.get(str(r))) or "") + str(r) + now
 
 
 def _sp(g, r=None) -> str:

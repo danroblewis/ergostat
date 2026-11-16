@@ -211,6 +211,7 @@ stocks:
 | `unit` | string | none | Its unit. Flows and sensors on it must use the same unit |
 | `limit` | number | none | The physical limit: a full disk, a queue's capacity. Used to estimate time to failure |
 | `initial` | number | none | A starting value, for simulation only |
+| `cumulative` | bool | false | A running total that by its nature never drains (spent so far, kept so far): no outflow is missing, and `check` does not ask for one (**stock-without-outflow**) |
 | `system` | name | the file's default | The group it belongs to |
 | `description` | string | none | |
 | `sensors` | map of sensors | none | How it is measured (section 6) |
@@ -385,6 +386,36 @@ record yet. It also lets a loop close the long way (section 12).
 It never says who moves the flow. Each reference may be signed (`+flow.deployed`,
 `-stock.bugs-live`): the influence's polarity, used to find which feedback loops reinforce and which
 balance (section 12a).
+
+**A connector acts at once.** In system dynamics a link between two variables is instantaneous: a
+flow driven by another flow says its rate now depends on the other's rate now. When the cause acts
+over time (a flag ramped without review breaks something hours later, if at all), what the first
+flow moves accumulates in a stock, and the second follows that stock: the delay is the stock
+(`check` reports a flow driven by a flow as **rate-driven-by-rate**). Where the dependence really is
+immediate (a release fixes what it fixes as it goes live; the next document is needed the moment the
+last is approved), the link says so, written out:
+
+```yaml
+flows:
+  fixes:
+    from: bugs-live
+    driven-by:
+      - +stock.bugs-live                       # it takes a share of what is there
+      - cause: +flow.deployed
+        instant: true                          # as the release goes live: nothing between
+        description: a release fixes what it fixes when it is deployed
+```
+
+| Key | Type | Meaning |
+|---|---|---|
+| `cause` | a reference, optionally signed | What it follows, as in the short form |
+| `instant` | bool | The effect follows the cause in the same moment, with no stock between; `explain` says "at once" |
+| `description` | string | |
+
+A flow that follows a flow of something else (alerts following ramps) moves so many of its own units
+for each of the other's: a **coflow** (Sterman, ch. 12). The ratio is an auxiliary
+(`unit: alerts/ramp`, `exogenous: true` while it is not measured), and the flow is driven by both;
+or, for an outflow, by the stock it takes from (`check`: **units-mismatch**).
 
 **Polarity of structure.** A flow is + on the stock it fills and − on the stock it drains; a
 two-way flow is the same, counted in its direction (from `from` to `to`).
@@ -768,6 +799,26 @@ where the error is 0.
 - **critical goal decaying**: answering more slowly, saturating more often, its machine changed;
 - **deprecated name**: `variables:`, `variable.x` or a goal's `variable:`, still read; rename to
   `auxiliaries:`, `auxiliary.x`, `auxiliary:`.
+
+**Structure** (findings, the tests system dynamics makes of a model's structure before its
+behaviour: Sterman, *Business Dynamics*, ch. 21, structure assessment, dimensional consistency and
+extreme conditions; each says its fix and the YAML that writes it; `docs/MODELLING.md` explains
+them for someone new to system dynamics):
+
+- **rate-driven-by-rate**: a flow `driven-by` another flow. A connector acts at once, so a cause
+  acting over time goes through a stock: what the first moves accumulates, and the second follows
+  that stock. Silenced by `instant: true` on the link (section 7) where it really is immediate;
+- **stock-without-outflow**: flows fill a stock and none drains it (no outflow, no two-way flow),
+  so in the model it can only grow. Give it the outflow, or say it is a running total
+  (`cumulative: true`, section 5);
+- **units-mismatch**: a flow driven by a flow in another unit (both declared; counts compared with
+  any per-hour taken off; shares, percentages and compound units left alone), with no auxiliary
+  among its causes to convert, and not driven by the stock it drains. Name the ratio as an auxiliary;
+- **outflow-ignores-stock**: an outflow nothing sets, `driven-by` things that are not its stock (nor
+  an auxiliary driven by it): with the stock empty it would still run and take it below zero (the
+  extreme-conditions test). Drive it from the stock as well;
+- **auxiliary-without-causes**: an auxiliary nothing drives, nothing sets and not `exogenous`: the
+  model cannot say why it changes. Name its causes, or mark it `exogenous: true`.
 
 ## 12a. Feedback loops (system dynamics)
 
