@@ -880,11 +880,14 @@ function fit(svg, lay, legible = false) {
 
 function panZoom(svg) {
   let drag = null;
-  svg.addEventListener("wheel", (ev) => {
+  svg.addEventListener("wheel", (ev) => {      // like a map: scroll pans; Command+scroll or a pinch (Ctrl+wheel) zooms at the pointer
     ev.preventDefault();
     const r = svg.getBoundingClientRect();
+    const unit = ev.deltaMode === 1 ? 16 : ev.deltaMode === 2 ? r.height : 1;   // lines or pages, as pixels
+    const dx = ev.deltaX * unit, dy = ev.deltaY * unit;
+    if (!ev.ctrlKey && !ev.metaKey) { S.view.x -= dx; S.view.y -= dy; applyView(svg); return; }
     const mx = ev.clientX - r.left, my = ev.clientY - r.top;
-    const f = Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.0015));
+    const f = Math.exp(-dy * (ev.ctrlKey ? 0.01 : 0.003));      // a pinch sends small deltas; Command+scroll larger ones
     const k = Math.max(0.15, Math.min(4, S.view.k * f));
     S.view.x = mx - ((mx - S.view.x) * k) / S.view.k;
     S.view.y = my - ((my - S.view.y) * k) / S.view.k;

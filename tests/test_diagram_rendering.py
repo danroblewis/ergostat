@@ -431,3 +431,38 @@ def test_every_lines_panel_links_to_the_parts_it_joins(browser, tmp_path, exampl
         bad = pg.evaluate(LINE_LINKS)
         assert not bad, bad[:8]
         pg.close()
+
+
+WHEEL = """([dx, dy, mods]) => {
+  const svg = document.querySelector('svg.canvas'), r = svg.getBoundingClientRect();
+  const cx = r.left + r.width * 0.6, cy = r.top + r.height * 0.4, before = { ...S.view };
+  const ev = new WheelEvent('wheel', { deltaX: dx, deltaY: dy, deltaMode: 0, clientX: cx, clientY: cy,
+                                       bubbles: true, cancelable: true, ...mods });
+  svg.dispatchEvent(ev);
+  const mx = cx - r.left, my = cy - r.top;   // the diagram point under the cursor, before and after
+  return { before, after: { ...S.view }, prevented: ev.defaultPrevented,
+           p0: [(mx - before.x) / before.k, (my - before.y) / before.k],
+           p1: [(mx - S.view.x) / S.view.k, (my - S.view.y) / S.view.k] };
+}"""
+
+
+def test_scroll_pans_and_command_scroll_or_a_pinch_zooms_at_the_pointer(browser, tmp_path):
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=product", 0)
+        r = pg.evaluate(WHEEL, [30, -20, {}])
+        assert r["prevented"], "the page scrolled"
+        assert r["after"]["k"] == r["before"]["k"]
+        assert abs(r["after"]["x"] - (r["before"]["x"] - 30)) < 1e-6 and abs(r["after"]["y"] - (r["before"]["y"] + 20)) < 1e-6
+        for mods, dy in (({"metaKey": True}, -40), ({"ctrlKey": True}, -8), ({"metaKey": True}, 60)):
+            r = pg.evaluate(WHEEL, [0, dy, mods])
+            assert r["prevented"], mods
+            assert (r["after"]["k"] > r["before"]["k"]) == (dy < 0) and r["after"]["k"] != r["before"]["k"], (mods, r)
+            p0, p1 = r["p0"], r["p1"]
+            assert abs(p0[0] - p1[0]) * r["after"]["k"] < 2 and abs(p0[1] - p1[1]) * r["after"]["k"] < 2, (mods, r)
+        for _ in range(60):
+            r = pg.evaluate(WHEEL, [0, -500, {"ctrlKey": True}])
+        assert r["after"]["k"] <= 4
+        pg.get_by_role("button", name="+").click()
+        pg.get_by_role("button", name="fit").click()
+        pg.close()
