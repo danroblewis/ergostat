@@ -9,6 +9,35 @@ function showDetail(...kids) {
   d.replaceChildren(h("button", { class: "close", onclick: closeDetail }, "close"), ...kids.filter((k) => k != null && k !== false));
   d.hidden = false;
 }
+/* what each kind of thing on the diagram is: said first, in plain words, before how it is now */
+const WHAT = {
+  stock: ["Stock", "something that accumulates. It rises and falls only by its flows, and its level is what a goal holds."],
+  valve: ["Flow, controlled (a valve)", "material moving into or out of a stock, set by something in the model: a block opens it when its controller commands."],
+  disturbance: ["Flow, uncontrolled (a disturbance)", "material moving into or out of a stock that nothing in the model sets. The world pushes it; the loops on its stocks must make up for it."],
+  sensor: ["Sensor", "an instrument. It reads one stock or flow; a loop sees only what its sensor reads."],
+  loop: ["Feedback loop", "a goal on a stock and what serves it. When the stock's reading is off the setpoint, the controller commands a valve until it is back."],
+  system: ["System", "a part of the model drawn as one part. Its ports are what crosses its edge: what it reads and is told, what it moves and drives."],
+  agent: ["Agent", "the program, AI or person that does a part's work: reads a sensor, decides as a controller, or opens a valve."],
+  pipe: ["Flow (material)", "the pipe a flow runs along: material leaving one stock and arriving in another (or coming from or going to outside the model). Only flows change stocks."],
+  measure: ["Measurement (information)", "a sensor reading a stock or flow: the measured output, y. It moves nothing; it only tells."],
+  signal: ["Feedback (information)", "a sensor's reading going to a controller, which compares it with its setpoint r and acts on the error e = r − y. This is what makes the loop a loop."],
+  action: ["Control action (information)", "a controller commanding a valve: the control signal, u. How hard it pushes is the loop's gain; how long until the stock shows it is the loop's delay."],
+  influence: ["Influence (information)", "one thing's rate following another's, declared with driven-by: a release fixing what was broken, more users asking for more. Nothing moves along it; it is how a loop closes through another system."],
+  wire: ["Wire (who reaches whom)", "one agent's output reaching another: through a stock one changes and the other measures, a reading handed to a controller, a decision handed to a valve, or an event."],
+};
+const DRAWN = {
+  pipe: "a thick double line; it runs with blue dots while material moves along it (orange edged and dotted when nothing controls it)",
+  measure: "a blue dotted line, from what is read to the sensor",
+  signal: "a blue line, from the sensor to the controller",
+  action: "a purple line, from the controller to the valve it opens",
+  influence: "an orange dashed line, from what drives to the flow that follows",
+  wire: "a blue line between agents, labelled with what joins them",
+};
+function whatIs(kind) {
+  const w = WHAT[kind];
+  return w ? h("p", { class: "what" }, h("b", {}, w[0]), ": ", w[1]) : null;
+}
+
 function dl(pairs) { return h("dl", {}, pairs.filter(([, v]) => v != null && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])); }
 function agentLink(a) { return a ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(a.name); } }, `${a.name} (rung ${a.rung} ${a.kind})`) : h("span", { class: "muted" }, "unfilled"); }
 
@@ -16,7 +45,7 @@ function openSystem(n) {                               // a system as one part: 
   const side = (d) => (n.ports || []).filter((p) => p.side === d);
   const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, p.kind),
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
-  showDetail(h("div", { class: "kind" }, "system"), h("h2", {}, n.label, " ", n.status ? statusEl(n.status) : null),
+  showDetail(h("div", { class: "kind" }, "system"), h("h2", {}, n.label, " ", n.status ? statusEl(n.status) : null), whatIs("system"),
     n.description ? h("p", { class: "muted" }, n.description) : null,
     dl([["loops", loopsText(n)], ["inside", n.subsystems?.length ? n.subsystems.join(", ") : null],
         ["inner loop", n.inner?.length ? `given a setpoint for ${n.inner.join(", ")} from outside, it holds it: an outer loop can treat it as one block` : null]]),
@@ -46,7 +75,7 @@ async function openNode(n) {
   const rd = now.readings || [], last = rd[rd.length - 1];
   if (kind === "sensor") rows.push(["measures", m.measures], ["filled by", agentLink(d.agent)],
                                    ["last reading", last ? `${fmt(last[1])}, ${ago(last[0])}` : "none yet"], ["in the window", `${now.count ?? rd.length} readings`]);
-  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, name), dl(rows)];
+  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, name), whatIs(kind), h("h3", {}, "how it is now"), dl(rows)];
   if (kind === "stock" && now.points?.length > 1) kids.push(sparkSvg(now.points, 380, 70));
   if (kind === "sensor" && now.readings?.length > 1) kids.push(sparkSvg(now.readings, 380, 70));
   if (kind === "sensor" && rd.length) {
@@ -75,7 +104,7 @@ async function openLoop(name) {
   try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { return; }
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
   const windowWords = recorded < (lp.until - lp.since) * 0.95 ? `of the ${dur(recorded)} recorded` : "of the window";
-  const kids = [h("div", { class: "kind" }, lp.open_loop ? "loop · ⏲ open loop" : "loop"), h("h2", {}, name, " ", statusEl(lp.status))];
+  const kids = [h("div", { class: "kind" }, lp.open_loop ? "loop · ⏲ open loop" : "loop"), h("h2", {}, name, " ", statusEl(lp.status)), whatIs("loop")];
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
   if (lp.open_loop) kids.push(h("p", {}, "An open loop: it acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
   kids.push(dl([["holds", `${lp.stock} ${lp.setpoint}${lp.band || ""}`], ["now", fmt(lp.value)],
@@ -117,7 +146,7 @@ async function openLoop(name) {
 
 async function openAgent(name) {
   const a = await api(`agents/${encodeURIComponent(name)}`);
-  const kids = [h("div", { class: "kind" }, `agent · rung ${a.rung} ${a.kind}`), h("h2", {}, name),
+  const kids = [h("div", { class: "kind" }, `agent · rung ${a.rung} ${a.kind}`), h("h2", {}, name), whatIs("agent"),
     dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
         ["runs", a.schedule || "not run by ergostat"],
         ["fills", (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || "nothing"],
@@ -262,7 +291,7 @@ async function openEdge(e) {
     try { d = await api(`part/flow/${encodeURIComponent(e.flow)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
     const valve = g.nodes.find((n) => (n.kind === "valve" || n.kind === "disturbance") && n.flow === e.flow);
-    what = `Material moving from ${m.source || "outside"} to ${m.target || "outside"}: a flow changes the stocks it joins, and only flows do.`;
+    what = `Here: ${e.flow} moves material from ${m.source || "outside the model"} to ${m.target || "outside the model"}.`;
     rows.push(["flow", e.flow], ["from", m.source || "outside the model"], ["to", m.target || "outside the model"],
               ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : (valve?.rateText || "not known yet")],
               ["how we know", now.how || valve?.how],
@@ -272,28 +301,28 @@ async function openEdge(e) {
   } else if (e.kind === "measure") {
     kind = "measurement · control";
     const sn = byId[dst];
-    what = `The measured output, y: sensor ${nameOf(dst)} reads ${nameOf(src)}. Nothing is judged without it.`;
+    what = `Here: sensor ${nameOf(dst)} reads ${nameOf(src)}.`;
     rows.push(["measures", link(src)], ["sensor", link(dst)], ["reading", sn?.reading || "none yet"]);
   } else if (e.kind === "signal") {
     kind = "feedback · control";
     const c = byId[dst];
-    what = `Feedback: the reading y goes to the controller, which compares it with its setpoint r and acts on the error e = r − y.`;
+    what = `Here: ${nameOf(src)}'s reading goes to the controller of ${nameOf(dst)}.`;
     rows.push(["from", link(src)], ["reading", byId[src]?.reading || null], ["to", link(dst)],
               ["setpoint", c?.setpoint || null], ["error now", c?.error != null ? fmt(c.error) : null], ["status", c?.status ? statusEl(c.status) : null]);
   } else if (e.kind === "action") {
     kind = "control action · control";
     const c = byId[src], v = byId[dst];
-    what = `The control action u: the controller commands the valve on this flow when its goal is off. Its strength is the loop's gain; how long it takes to show in the stock is the loop's delay.`;
+    what = `Here: the controller of ${nameOf(src)} opens the valve on ${nameOf(dst)} while its goal is off.`;
     rows.push(["controller", link(src)], ["holds", c?.setpoint || null], ["status", c?.status ? statusEl(c.status) : null],
               ["acts on", link(dst)], ["filled by", v?.agent ? badgeText(v.agent) : null], ["rate now", v?.rateText || null],
               ["last decision", c?.decision ? `“${c.decision}”${c.decisionAt ? " · " + ago(c.decisionAt) : ""}` : null]);
   } else if (e.kind === "influence") {
     kind = "influence · driven-by";
-    what = `An influence, not a pipe: the rate of ${nameOf(dst)} follows ${nameOf(src)}, as declared (driven-by). Nothing moves along it; it is how a loop closes through another system. It is not yet checked against the record.`;
+    what = `Here: the rate of ${nameOf(dst)} follows ${nameOf(src)}. Declared (driven-by), not yet checked against the record.`;
     rows.push(["follows", link(src)], ["flow", link(dst)], ["its rate now", byId[dst]?.rateText || null]);
   } else if (e.kind === "wire") {
     kind = "wiring · who reaches whom";
-    what = `One agent's output reaches another: through a stock it changes and the other measures, a reading handed to a controller, a decision handed to a valve, or an event one publishes and the other listens for.`;
+    what = `Here: ${nameOf(src)}'s output reaches ${nameOf(dst)}.`;
     rows.push(["from", link(src)], ["to", link(dst)], ["through", (e.via || []).join("; ") || null]);
   } else {
     kind = e.kind;
@@ -301,8 +330,10 @@ async function openEdge(e) {
     rows.push(["from", link(src)], ["to", link(dst)]);
   }
   const title = e.kind === "pipe" ? [e.flow, h("span", { class: "muted" }, ` (${rows[1][1]} → ${rows[2][1]})`)] : [nameOf(src), " → ", nameOf(dst)];
-  showDetail(h("div", { class: "kind" }, kind), h("h2", {}, ...title),
-    what ? h("p", { class: "muted" }, what) : null, dl(rows),
+  showDetail(h("div", { class: "kind" }, WHAT[e.kind] ? "line" : kind), h("h2", {}, ...title), whatIs(e.kind),
+    what ? h("p", { class: "muted" }, what) : null,
+    DRAWN[e.kind] ? h("p", { class: "muted small" }, "Drawn as " + DRAWN[e.kind] + ".") : null,
+    h("h3", {}, "how it is now"), dl(rows),
     crossing.length ? h("p", {}, crossing.join("; ") + ".") : null,
     loops.length ? h("p", {}, "part of the loop", loops.length > 1 ? "s " : " ", loops.flatMap((x, i) => [i ? ", " : "", x])) : h("p", { class: "muted" }, "part of no loop drawn here"));
   S.selKey = linkKey(e);                               // it stays traced while its panel is open

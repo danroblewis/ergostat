@@ -110,6 +110,7 @@ async function layoutGraph(g, aspect, cut = false) {
     id: "root", children: roots, edges,
     layoutOptions: {
       ...(open.size ? { "elk.hierarchyHandling": "INCLUDE_CHILDREN" } : {}),
+      "elk.layered.mergeEdges": "true",
       "elk.algorithm": "layered", "elk.direction": g.kind === "wiring" ? "DOWN" : "RIGHT", "elk.edgeRouting": "ORTHOGONAL",
       "elk.layered.spacing.nodeNodeBetweenLayers": "64", "elk.spacing.nodeNode": "36", "elk.spacing.edgeNode": "18",
       "elk.spacing.edgeEdge": "12", "elk.layered.spacing.edgeNodeBetweenLayers": "18",
@@ -122,11 +123,48 @@ async function layoutGraph(g, aspect, cut = false) {
   };
   const lay = await elk.layout(graph);
   if (open.size) flatten(lay);
+  if (g.kind !== "wiring") straighten(lay, g);
   if (cuts.length) {
     restack(lay, g);
     routeCuts(lay, cuts);
   }
   return lay;
+}
+
+/* a line that goes the long way round, to come into a part from its side, comes in the short way
+   instead: from above (or below) when that is where it comes from. Lines may then cross parts;
+   a model whose systems are that tangled shows it. Pipes keep their routes, and so do lines into a
+   system's ports (its inputs are on its left) */
+function straighten(lay, g) {
+  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
+  const kindOf = Object.fromEntries(g.edges.map((e) => [e.id, e]));
+  const len = (pts) => pts.slice(1).reduce((a, p, i) => a + Math.abs(p.x - pts[i].x) + Math.abs(p.y - pts[i].y), 0);
+  for (const le of lay.edges) {
+    const e = kindOf[le.id];
+    if (!e || e.kind === "pipe" || e.targetPort || le.cut) continue;
+    const t = box[e.target], sec = (le.sections || [])[0];
+    if (!t || !sec || t.id.startsWith("system:")) continue;
+    const pts = [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint];
+    const S = pts[0], first = pts[1];
+    const above = S.y < t.y - 16, below = S.y > t.y + t.height + 16, right = S.x > t.x + t.width + 16;
+    const horizontal = Math.abs(first.y - S.y) < 1;
+    const out = S.x + (horizontal ? Math.sign(first.x - S.x) * 14 : 0);   // clear of what it leaves, the way it leaves
+    let route;
+    if (above || below) {                              // into its top (or bottom), straight down (or up) the last stretch
+      const ex = Math.max(t.x + 12, Math.min(t.x + t.width - 12, S.x)), ey = above ? t.y : t.y + t.height, lane = above ? ey - 16 : ey + 16;
+      if (horizontal && Math.sign(first.x - S.x) === Math.sign(ex - S.x || 1)) route = [S, { x: ex, y: S.y }, { x: ex, y: ey }];
+      else route = [S, { x: out, y: S.y }, { x: out, y: lane }, { x: ex, y: lane }, { x: ex, y: ey }];
+    } else if (right) {                                // beside it, to its right: into its right side
+      const ey = t.y + t.height / 2, ex = t.x + t.width;
+      route = horizontal && first.x < S.x ? [S, { x: ex + 14, y: S.y }, { x: ex + 14, y: ey }, { x: ex, y: ey }]
+                                          : [S, { x: out, y: S.y }, { x: out, y: ey }, { x: ex, y: ey }];
+    } else continue;
+    route = route.filter((p, i) => i === 0 || Math.abs(p.x - route[i - 1].x) + Math.abs(p.y - route[i - 1].y) > 0.5);
+    if (len(route) + 40 < len(pts)) {
+      le.sections = [{ startPoint: route[0], bendPoints: route.slice(1, -1), endPoint: route[route.length - 1] }];
+      le.junctionPoints = [];
+    }
+  }
 }
 
 /* a nested layout made flat again: every part and edge in the diagram's own coordinates, and the
@@ -151,6 +189,7 @@ function flatten(lay) {
     const o = abs[e.container] || abs.root;
     for (const sec of e.sections || []) for (const p of [sec.startPoint, sec.endPoint, ...(sec.bendPoints || [])]) { p.x += o.x; p.y += o.y; }
     for (const l of e.labels || []) { l.x += o.x; l.y += o.y; }
+    for (const p of e.junctionPoints || []) { p.x += o.x; p.y += o.y; }
   }
   lay.children = leaves;
   lay.edges = edges;
@@ -336,6 +375,9 @@ function drawAgent(n, w, hgt) {
   return g;
 }
 
+/* each kind of line has one colour, whatever it is part of: what it is, not how it is doing */
+const LINE_COLOR = { measure: "var(--sensor-line)", signal: "var(--sensor-line)", action: "var(--ctl-line)", influence: "var(--dist)", wire: "var(--accent)" };
+
 /* a system drawn as one part: its name, how its loops are doing, and its ports (what crosses its edge) */
 const SYS_TOP = 70, SYS_ROW = 20;
 function systemSize(n) {
@@ -424,9 +466,9 @@ function drawGraph(svg, g, lay) {
     for (const c of lay.containers) {
       const hue = (210 + names.indexOf(c.name) * 137.5) % 360;
       hulls.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height, rx: 16, style: `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,45%,.45)` }),
-        s("text", { x: c.x + 14, y: c.y + 22, class: "sys-hull-label", style: `fill:hsl(${hue},55%,42%)`, onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
+        s("text", { x: c.x + 14, y: c.y + 22, class: "sys-hull-label", "data-act": "close", style: `fill:hsl(${hue},55%,42%)`, onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
           s("title", {}, `${c.name}: click to close it into one box`), "▾ " + c.name),
-        s("text", { x: c.x + 14 + textWidth("▾ " + c.name) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", style: `fill:hsl(${hue},55%,42%)`,
+        s("text", { x: c.x + 14 + textWidth("▾ " + c.name) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", "data-act": "into", style: `fill:hsl(${hue},55%,42%)`,
                     onclick: (ev) => { ev.stopPropagation(); S.drill?.(c.name); } }, s("title", {}, "draw it alone"), "⤓"));
     }
     vp.append(hulls);
@@ -511,8 +553,7 @@ function drawGraph(svg, g, lay) {
     } else {
       eg.append(s("path", { d, class: "info" }));
       const ah = arrowHead(pts, "head", e.kind === "wire" ? 9 : 7);
-      ah.style.fill = loopSt ? `var(--${loopSt === "holding" ? "ok" : loopSt === "off" ? "bad" : "warn"})`
-                             : (e.kind === "action" ? "var(--ctl-line)" : e.kind === "wire" ? "var(--accent)" : e.kind === "influence" ? "var(--dist)" : "var(--info)");
+      ah.style.fill = LINE_COLOR[e.kind] || "var(--info)";
       eg.append(ah);
       if ((le.labels || []).length) {
         // on the edge itself: the middle of its longest segment, with a halo to read over the line
@@ -537,6 +578,9 @@ function drawGraph(svg, g, lay) {
                               stroke: "var(--bg)", "stroke-width": 4, "stroke-linejoin": "round" }, le.labels[0].text));
       }
     }
+    const onLine = (j) => pts.slice(1).some((p, i) => { const a = pts[i];     // a split point must be on the line itself
+      return Math.min(a.x, p.x) - 1 <= j.x && j.x <= Math.max(a.x, p.x) + 1 && Math.min(a.y, p.y) - 1 <= j.y && j.y <= Math.max(a.y, p.y) + 1; });
+    for (const j of (le.junctionPoints || []).filter(onLine)) eg.append(s("circle", { cx: j.x, cy: j.y, r: 3.2, class: "junction", fill: LINE_COLOR[e.kind] || "var(--pipe)" }));
     eg.append(s("path", { d, class: "edge-hit" }));    // a wide, invisible line: easy to point at
     edgesG.append(eg);
   }
@@ -613,7 +657,7 @@ function panZoom(svg) {
     applyView(svg);
   }, { passive: false });
   svg.addEventListener("pointerdown", (ev) => {
-    if (ev.target.closest(".node")) return;
+    if (ev.target.closest(".node") || ev.target.closest("[data-act]")) return;   // a part, or a control drawn on the canvas
     ev.preventDefault();                                   // a drag pans; it never starts selecting text
     drag = { x: ev.clientX, y: ev.clientY, vx: S.view.x, vy: S.view.y };
     S.dragged = false;
@@ -631,7 +675,7 @@ function panZoom(svg) {
   svg.addEventListener("pointerup", end);
   svg.addEventListener("pointercancel", end);
   svg.addEventListener("click", (ev) => {
-    if (ev.target.closest(".node") || S.dragged) return;          // a drag pans; it is not a click
+    if (ev.target.closest(".node") || ev.target.closest("[data-act]") || S.dragged) return;   // a drag pans; it is not a click
     const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".edge");   // the pan holds the pointer: ask what is there
     const e = under && S.edgeById?.[under.dataset.id];
     if (e) openEdge(e); else closeDetail();
@@ -672,6 +716,7 @@ function highlightLoop(name) {
   S.hl = name;
   const svg = $("svg.canvas");
   if (!svg) return;
+  svg.classList.toggle("loop-hl", !!name);            // its lines take its health's colour while it is pointed at
   const lp = name && S.graph?.loops?.[name];
   const members = new Set(lp ? lp.nodes : []);
   for (const n of svg.querySelectorAll(".node")) n.classList.toggle("dim", !!lp && !members.has(n.dataset.id));
@@ -727,9 +772,12 @@ function legend(view) {
       row('<rect x="2" y="2" width="22" height="14" rx="4" fill="var(--panel)" stroke="var(--system-line)" stroke-width="1.8"/><rect x="0" y="6" width="4" height="4" fill="var(--panel)" stroke="var(--system-line)"/>', "a system as one part: its ports are what crosses its edge (▸ opens it, ⤓ draws it alone)"),
     (S.graph?.nodes || []).some((n) => n.kind === "terminal") &&
       row('<rect x="2" y="3" width="22" height="12" rx="6" fill="var(--bg)" stroke="var(--system-line)" stroke-dasharray="3 2"/>', "outside this system: what its edge reaches (click to go there)"),
+    row('<path d="M1 9 H20" stroke="var(--sensor-line)" stroke-width="1.6" stroke-dasharray="4 3"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--sensor-line)"/>', "measurement: a sensor reads"),
+    row('<path d="M1 9 H20" stroke="var(--sensor-line)" stroke-width="1.6"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--sensor-line)"/>', "feedback: the reading goes to the controller"),
+    row('<path d="M1 9 H20" stroke="var(--ctl-line)" stroke-width="1.8"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--ctl-line)"/>', "control action: the controller opens a valve"),
     (S.graph?.edges || []).some((e) => e.kind === "influence") &&
       row('<path d="M1 9 H20" stroke="var(--dist)" stroke-width="1.6" stroke-dasharray="7 4"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--dist)"/>', "influence: a flow's rate follows this (driven-by)"),
-    row('<path d="M1 9 H25" stroke="var(--ok)" stroke-width="2"/>', "a loop holding (red: off, amber: open)"),
+    row('<circle cx="13" cy="9" r="5" fill="var(--ok)"/>', "a loop's health, on its controller and stock: green holding, red off, amber open. Point at a loop in the list and its lines take that colour"),
     row('<circle cx="13" cy="9" r="4.5" fill="var(--r4)"/>', "the agent filling a part, its dot by kind:"),
     h("span", {}), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, h("i", { style: `background:${rungColor(i)}` }, RUNG_LETTER[i]), k))));
 }

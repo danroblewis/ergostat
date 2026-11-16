@@ -115,17 +115,18 @@ svg.canvas.dragging { cursor: grabbing; }
 .edge .pipe-in { stroke: var(--pipe-in); stroke-width: 5; stroke-linejoin: round; }
 .edge.dist .pipe-out { stroke: var(--dist); }
 .edge .info { stroke: var(--info); stroke-width: 1.4; }
-.edge.measure .info { stroke-dasharray: 4 3; }
+.edge.measure .info { stroke: var(--sensor-line); stroke-dasharray: 4 3; }
+.edge.signal .info { stroke: var(--sensor-line); }
 .edge.action .info { stroke: var(--ctl-line); stroke-width: 1.8; }
 .edge.wire .info { stroke: var(--accent); stroke-width: 1.8; }
 .edge.influence .info { stroke: var(--dist); stroke-width: 1.6; stroke-dasharray: 7 4; }
-.edge.loop-holding .info { stroke: var(--ok); }
+svg.loop-hl .edge.loop-holding .info { stroke: var(--ok); }
 /* the design picture: the parts and how they connect, nothing that changes from one minute to the next */
 .design .live { display: none; }
 .design .edge .info { stroke: var(--ink) !important; stroke-width: 1.4 !important; }
 .design .edge.info-head, .design .edge .info + .head { fill: var(--ink) !important; }
-.edge.loop-off .info { stroke: var(--bad); stroke-width: 2.2; }
-.edge.loop-open .info { stroke: var(--warn); }
+svg.loop-hl .edge.loop-off .info { stroke: var(--bad); stroke-width: 2.2; }
+svg.loop-hl .edge.loop-open .info { stroke: var(--warn); }
 .edge .elabel { fill: var(--muted); font-size: 11px; }
 .flowing { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 0.1 14; animation: flow 1.4s linear infinite; opacity: .85; }
 @keyframes flow { to { stroke-dashoffset: -14.1; } }
@@ -264,3 +265,6 @@ svg.tracing .edge.near, svg.tracing .node.lit { opacity: .75; }
 svg.tracing .edge.lit { opacity: 1; }
 .edge.lit .info { stroke-width: 3.2 !important; }
 .edge.lit .pipe-out { stroke: var(--accent); }
+
+.detail .what { margin: 6px 0 10px; line-height: 1.45; }
+.detail .what b { font-weight: 650; }
