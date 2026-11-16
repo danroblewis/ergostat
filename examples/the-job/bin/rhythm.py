@@ -11,7 +11,9 @@ update) is built from it."""
 from __future__ import annotations
 
 import json
+import os
 import sys
+from pathlib import Path
 
 from job import DAY, OUTBOX, ROOT, clock_of, event, every_item, loops, moved, world, write_draft
 
@@ -61,7 +63,10 @@ def title(it: dict) -> str:
 
 def link(it: dict, field: str | None) -> str:
     v = it["fields"].get(field or "", "")
-    return f" · `{v.removeprefix('file:')}`" if isinstance(v, str) and v.startswith("file:") else ""
+    if not (isinstance(v, str) and v.startswith("file:")):
+        return ""
+    p = v.removeprefix("file:")
+    return f" · [{Path(p).stem}]({os.path.relpath(ROOT / p, OUTBOX)})"     # relative: it opens beside the brief
 
 
 def brief(day: dict, everything: list[dict], w: dict) -> str:

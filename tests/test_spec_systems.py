@@ -194,5 +194,22 @@ def test_the_page_shows_files_items_name_from_inside_the_project_only(tmp_path):
                 raise AssertionError(f"served {bad}")
             except urllib.error.HTTPError as e:
                 assert e.code == 404
+        # as a path, so a Markdown file's relative links open the files beside it: raw to the page's fetch,
+        # rendered (its HTML never run) when the browser opens it
+        (tmp_path / "run" / "brief.md").write_text("# Brief\n\n[the draft](draft.md) <script>alert(1)</script>\n")
+        base = f"http://127.0.0.1:{srv.server_address[1]}/file/"
+        with urllib.request.urlopen(base + "run/brief.md") as r:
+            assert r.read().startswith(b"# Brief")
+        req = urllib.request.Request(base + "run/brief.md", headers={"Accept": "text/html"})
+        with urllib.request.urlopen(req) as r:
+            body = r.read().decode()
+            assert r.headers["Content-Type"].startswith("text/html") and "marked.parse" in body
+            assert "<script>alert" not in body                                  # the text is data, escaped
+        for bad in ("../secret.txt", "run/../../secret.txt", "%2E%2E/secret.txt"):
+            try:
+                urllib.request.urlopen(base + bad)
+                raise AssertionError(f"served {bad}")
+            except urllib.error.HTTPError as e:
+                assert e.code in (400, 404)
     finally:
         srv.shutdown()

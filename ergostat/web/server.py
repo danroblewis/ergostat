@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import mimetypes
 import time
@@ -17,6 +18,24 @@ from .. import state as st
 
 STATIC = Path(__file__).parent / "static"
 FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this size
+
+
+def md_page(name: str, text: str) -> bytes:
+    """A Markdown file opened in the browser, rendered with the page's own Markdown and styles: raw HTML in
+    it is shown as text, never run; its relative links stay relative, so they open the files beside it."""
+    data = json.dumps(text).replace("<", "\\u003c")
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(name)}</title>
+<link rel="stylesheet" href="/static/style.css"></head>
+<body class="file-page"><main class="md" id="doc"></main>
+<script src="/static/marked.min.js"></script><script src="/static/highlight.min.js"></script>
+<script>
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({{"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}})[c]);
+marked.use({{ renderer: {{ html: (t) => esc(typeof t === "string" ? t : t.text || "") }} }});
+const el = document.getElementById("doc");
+el.innerHTML = marked.parse({data});
+for (const c of el.querySelectorAll("pre code")) {{ try {{ hljs.highlightElement(c); }} catch (e) {{}} }}
+</script></body></html>""".encode()
 
 
 class Live:
@@ -284,7 +303,7 @@ def handler(project):
             self.end_headers()
             self.wfile.write(body)
 
-        def _file(self, rel: str):
+        def _file(self, rel: str, page: bool = False):
             p = live.get()
             roots = [r.resolve() for r in (p.model.path.parent if p.model.path else None, p.dir) if r]
             for root in roots:
@@ -292,6 +311,8 @@ def handler(project):
                 if (root == f or root in f.parents) and f.is_file():
                     if f.stat().st_size > FILE_LIMIT:
                         return self._send(413, b"too big to show", "text/plain")
+                    if page and f.suffix.lower() == ".md":     # opened in the browser: shown rendered, its relative links kept
+                        return self._send(200, md_page(f.name, f.read_text(errors="replace")), "text/html; charset=utf-8")
                     return self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
             return self._send(404, b"not found", "text/plain")
 
@@ -307,6 +328,9 @@ def handler(project):
                 return self._send(200, json.dumps(data, default=str).encode(), "application/json")
             if u.path == "/file":                          # a file an item names (file:PATH), from inside the project only
                 return self._file((parse_qs(u.query).get("path") or [""])[0])
+            if u.path.startswith("/file/"):                # the same, as a path: a Markdown file's relative links resolve
+                navigating = "text/html" in (self.headers.get("Accept") or "") and "raw" not in parse_qs(u.query)
+                return self._file(unquote(u.path.removeprefix("/file/")), page=navigating)
             name = "index.html" if u.path in ("/", "") else u.path.removeprefix("/static/")
             f = (STATIC / name).resolve()
             if STATIC.resolve() not in f.parents or not f.is_file():

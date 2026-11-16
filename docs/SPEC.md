@@ -261,7 +261,8 @@ A field whose value is `file:PATH` names a file in the project (a picture a prog
 an agent's transcript): the page shows it where the item is shown, as what it is (`formats`, or its
 extension: an image as an image, Markdown rendered, code highlighted, a Claude Code transcript as the
 conversation, re-read while it grows; raw HTML in Markdown is shown as text, never run), and serves
-only files inside the project and its state directory. A file is kept apart from the record: the
+only files inside the project and its state directory, at `/file/PATH` (a path, so a Markdown file's
+relative links open the files beside it: opened in the browser, a Markdown file is shown rendered). A file is kept apart from the record: the
 record holds what happened, the file what was said.
 
 Items are counted by sensors (section 6): a stock may be the number of items in some states, and

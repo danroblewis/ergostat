@@ -567,3 +567,7 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   .g-plotbox { flex-basis: 100%; }
   .g-text { font-size: var(--text); }
 }
+
+/* a Markdown file opened by itself (/file/…): one readable column, as on an item's page */
+body.file-page { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: var(--text); line-height: var(--leading); }
+body.file-page main.md { max-width: 46em; margin: 0 auto; padding: var(--sp-6) var(--sp-4); }

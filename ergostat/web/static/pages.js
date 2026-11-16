@@ -116,7 +116,7 @@ function fieldView(v, small = false, depth = 0, declared = null) {
   if (typeof v === "string" && v.startsWith("file:")) {
     const path = v.slice(5), name = path.split("/").pop(), fmt = formatOf(path, declared);
     if (SNAP) return h("span", { class: "mono muted", title: path }, name);
-    const url = `/file?path=${encodeURIComponent(path)}`;
+    const url = fileUrl(path);
     if (fmt === "image") return h("a", { href: url, target: "_blank", title: path, onclick: (ev) => ev.stopPropagation() },
                                   h("img", { src: url, class: small ? "thumb" : "pic", alt: name, loading: "lazy" }));
     if (small) return h("a", { href: url, target: "_blank", class: "mono", onclick: (ev) => ev.stopPropagation() },
@@ -148,8 +148,9 @@ function fileView(path, url, fmt) {
   }).catch((e) => box.replaceChildren(h("span", { class: "muted" }, `cannot read ${path} (${e})`)));
   return box;
 }
+const fileUrl = (path) => "/file/" + path.split("/").map(encodeURIComponent).join("/");   // a path: relative links resolve
 function render(text, fmt, path) {
-  if (fmt === "markdown") return md(text);
+  if (fmt === "markdown") return md(text, path);
   if (fmt === "json") { try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (e) { /* as it is */ } return code(text, "json"); }
   if (fmt === "code") return code(text, CODE[(path.split(".").pop() || "").toLowerCase()]);
   if (fmt === "claude-session") return conversation(text);
@@ -163,7 +164,7 @@ function code(text, lang) {
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 let mdReady = false;
-function md(text) {                                       // Markdown, its raw HTML shown as text (nothing in it runs), code highlighted
+function md(text, path = null) {                          // Markdown, its raw HTML shown as text (nothing in it runs), code highlighted
   if (!window.marked) return h("pre", { class: "plain" }, text);
   if (!mdReady) {
     marked.use({ renderer: { html: (t) => esc(typeof t === "string" ? t : t.text || ""),
@@ -174,7 +175,13 @@ function md(text) {                                       // Markdown, its raw H
   }
   const el = h("div", { class: "md" });
   el.innerHTML = marked.parse(String(text));
-  for (const a of el.querySelectorAll("a")) { a.target = "_blank"; a.rel = "noopener"; }
+  for (const a of el.querySelectorAll("a")) {
+    const href = a.getAttribute("href") || "";
+    if (path && href && !/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(href)) {      // relative to the file: beside it in the project
+      a.href = new URL(href, location.origin + fileUrl(path)).pathname;
+    }
+    a.target = "_blank"; a.rel = "noopener";
+  }
   return el;
 }
 
