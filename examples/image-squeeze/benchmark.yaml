@@ -1,0 +1,60 @@
+# The benchmark: how good squeeze is, whatever images happen to arrive. Thirty fixed cases, five of
+# each kind of image, each with a target (world/benchmark.py): the kilobytes per megapixel it should
+# need while still looking good enough. Measured on every release; every candidate is measured too,
+# when it is submitted, and rolled back if it loses a case production meets.
+defaults:
+  system: benchmark
+
+items:
+  case:
+    id: case/*
+    states: [unmet, met]
+    on:
+      case.met: met
+      case.unmet: unmet
+    show: [image, kb_per_mp, target, best, format, quality]
+
+variables:
+  benchmark-score:
+    unit: KB/MP
+    description: kilobytes per megapixel squeeze needs to make the thirty cases look good enough (geometric mean, 300 for a case it cannot do); lower is better
+    driven-by: flow.kept
+
+stocks:
+  capabilities:
+    unit: cases
+    description: benchmark cases squeeze meets, what the product can do
+    sensor:
+      items: case
+      state: met
+      every: 10s
+
+flows:
+  gained:
+    to: capabilities
+    driven-by: flow.kept                  # a release that does something it could not
+    sensor:
+      items: case
+      entering: met
+      over: 30m
+  lost:
+    from: capabilities
+    driven-by: flow.kept                  # or breaks something it could
+    sensor:
+      items: case
+      leaving: met
+      over: 30m
+
+goals:
+  every-case:
+    stock: capabilities
+    hold: ">= 30"
+    description: the lab's other target, what squeeze can do (some noisy photos may stay out of reach)
+
+blocks:
+  benchmark:                               # measures each release once
+    type: program
+    run: bin/py world/bench.py
+    every: 20s
+    timeout: 10m
+    out: variable.benchmark-score

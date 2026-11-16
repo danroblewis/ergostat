@@ -9,12 +9,16 @@
 #             while it saves bytes, keeps it, or rolls it back (rollout.yaml)
 #   lab       the research: hypotheses proposed, built and tested one at a time (lab.yaml)
 #
+# and the benchmark (benchmark.yaml): thirty fixed cases measured on every release, the count of
+# those squeeze meets a stock (capabilities), how good it is on them a variable (benchmark-score).
+#
 # README.md walks the loops.
 name: image-squeeze
 include:
   - service.yaml
   - rollout.yaml
   - lab.yaml
+  - benchmark.yaml
 systems:
   service:
     description: squeeze, serving the images customers send
@@ -22,3 +26,5 @@ systems:
     description: one candidate build against production, on the same images
   lab:
     description: hypotheses proposed, built and tested
+  benchmark:
+    description: thirty fixed cases, measured on every release (what squeeze can do)

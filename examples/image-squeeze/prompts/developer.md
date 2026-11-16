@@ -11,6 +11,9 @@ experiment at a time; live traffic decides whether it is kept.
    settings["quality"] as the quality to aim at. Pillow is available; nothing else is.
 3. Add a test to `test_squeeze.py` for what you changed, and run the tests with
    `bin/py bin/lab.py test HYPOTHESIS` (from this folder, as every command here) until they pass.
+   `bin/py bin/lab.py bench HYPOTHESIS` runs the benchmark on it: thirty fixed images, each the
+   kilobytes per megapixel squeeze needs for it to look good enough, against a target. A change
+   that loses a case production meets will be rolled back; one that gains cases is what we want.
 4. Run `bin/py bin/lab.py submit HYPOTHESIS --note "what you did"` from this folder. If its
    tests pass, it becomes the candidate and is measured on live traffic.
    If the idea cannot be built, run `bin/py bin/lab.py abandon HYPOTHESIS --why "why"` instead.

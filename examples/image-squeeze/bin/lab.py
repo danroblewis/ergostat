@@ -8,6 +8,7 @@ experiments' stocks and flows are counted from the record.
     lab.py history                    every hypothesis so far, and what its experiment measured
     lab.py claim                      take the oldest proposed hypothesis (or the one left half built): a working copy, and the idea
     lab.py test HYPOTHESIS            run squeeze's tests in that hypothesis's working copy
+    lab.py bench HYPOTHESIS           run the benchmark on it: cases met, gained and lost against production
     lab.py submit HYPOTHESIS          test the working copy; if its tests pass, it becomes the candidate
     lab.py abandon HYPOTHESIS --why   give up on it (it cannot be built)
     lab.py tune                       the tuner: move production's quality toward the quality goal
@@ -184,13 +185,32 @@ def submit(hid: str, note: str, by: str) -> str:
     if not ok:
         abandon(hid, "its tests fail: " + report.splitlines()[-1] if report else "its tests fail", by)
         return "abandoned: tests fail"
+    bench = benchmark(wd)
     with lock():
         if CAND.exists():
             shutil.rmtree(CAND)
         shutil.copytree(wd, CAND, ignore=shutil.ignore_patterns(".git", "__pycache__"))
-        save(RUN / "rollout.json", {"candidate": hid, "share": 0.0, "offset": 0, "stage": -1, "since": 0})
-    record("hypothesis.testing", hid, {"note": note, "diff": git("diff", "--shortstat", "main...HEAD", cwd=wd).stdout.strip()}, by)
+        save(RUN / "rollout.json", {"candidate": hid, "share": 0.0, "offset": 0, "stage": -1, "since": 0, "benchmark": bench})
+    record("hypothesis.testing", hid, {"note": note, "diff": git("diff", "--shortstat", "main...HEAD", cwd=wd).stdout.strip(),
+                                       "benchmark": bench}, by)
     return "testing"
+
+
+def benchmark(build: Path) -> dict:
+    """The candidate on the benchmark, against production's last measurement: cases gained and lost."""
+    try:
+        p = subprocess.run([str(ROOT / "bin" / "py"), str(ROOT / "world" / "benchmark.py"), str(build)], capture_output=True,
+                           text=True, timeout=600)
+        now = json.loads(p.stdout)
+    except (subprocess.TimeoutExpired, ValueError):
+        return {"error": "the benchmark did not finish"}
+    prod = load(RUN / "world" / "benchmark.json", {"cases": {}})
+    pc = prod.get("cases", {})
+    return {"met": now.get("met"), "of": now.get("of"), "score": now.get("score"), "production_met": prod.get("met"),
+            "production_score": prod.get("score"),
+            "gained": sorted(c for c, x in now.get("cases", {}).items() if x.get("met") and not pc.get(c, {}).get("met")),
+            "lost": sorted(c for c, x in now.get("cases", {}).items() if not x.get("met") and pc.get(c, {}).get("met")),
+            **({"error": now["error"]} if now.get("error") else {})}
 
 
 def abandon(hid: str, why: str, by: str) -> None:
@@ -260,8 +280,11 @@ def rollout(by: str) -> dict:
     better = matched and (lo > 0.5 or (looks_better and lo > -3))   # fewer bytes, or better looking for about the same
     worse = [f"{k}: {v['saved']:+.0f}% bytes, {v['quality_change']:+.3f} SSIM" for k, v in (c.get("by_kind") or {}).items()
              if v.get("n", 0) >= 6 and (v["saved"] < -25 or v["quality_change"] < -0.02)]   # a guardrail on every kind
+    bench = r.get("benchmark") or {}
     verdict = None
-    if c.get("failures"):
+    if bench.get("lost"):                                    # a regression on the benchmark: what it could do, it cannot
+        verdict = ("dropped", f"loses benchmark cases production meets: {', '.join(bench['lost'])}")
+    elif c.get("failures"):
         verdict = ("dropped", f"failed on {c['failures']} images")
     elif n >= 20 and c.get("time", 0) > TIME_BUDGET:
         verdict = ("dropped", f"too slow: {c['time']} ms at the 95th percentile (the budget is {TIME_BUDGET:g})")
@@ -280,7 +303,8 @@ def rollout(by: str) -> dict:
         elif stage == len(STAGES) - 1 and n >= (len(STAGES) + 1) * PAIRS_PER_STAGE:
             verdict = ("kept", f"better looking (+{dq:.3f} SSIM) for {lo:.1f}% to {hi:.1f}% fewer bytes" if looks_better
                        else f"{lo:.1f}% to {hi:.1f}% fewer bytes at equal quality")
-    result = {"bytes_saved": [lo, hi], "quality_offset": r.get("offset", 0), "paired": n, "by_kind": c.get("by_kind")}
+    result = {"bytes_saved": [lo, hi], "quality_offset": r.get("offset", 0), "paired": n, "by_kind": c.get("by_kind"),
+              "benchmark": bench}
     if verdict and verdict[0] == "kept":
         promote(hid, {**result, "verdict": "kept", "why": verdict[1]}, by)
         return {"share": 0.0, "kept": 1, "dropped": 0}
@@ -322,7 +346,8 @@ def rollback(hid: str, result: dict, by: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", choices=["init", "propose", "history", "claim", "test", "submit", "abandon", "tune", "match", "rollout"])
+    ap.add_argument("what", choices=["init", "propose", "history", "claim", "test", "bench", "submit", "abandon", "tune", "match",
+                                     "rollout"])
     ap.add_argument("arg", nargs="?")
     ap.add_argument("--idea", default="")
     ap.add_argument("--key")
@@ -350,6 +375,11 @@ def main() -> int:
         ok, report = tests(wd)
         print(report)
         return 0 if ok else 1
+    elif a.what == "bench":
+        wd = WORK / f"hypothesis-{(a.arg or '').split('/')[-1]}"
+        if not a.arg or not wd.exists():
+            ap.error("bench HYPOTHESIS (one that has been claimed)")
+        say(benchmark(wd))
     elif a.what == "submit":
         got = submit(a.arg, a.note, a.by)
         say(got)

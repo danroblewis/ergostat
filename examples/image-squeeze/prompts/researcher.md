@@ -17,7 +17,10 @@ failures and within 120 ms per image (95th percentile).
 1. Read what has been tried and what each experiment measured: `bin/py bin/lab.py history`.
    Learn from it: what was kept, what was dropped and why (by_kind shows where it saved or lost).
 2. Read the current code: run/product/squeeze.py (the version in production), and
-   run/world/state.json (what is being served now: quality and bytes by kind of image).
+   run/world/state.json (what is being served now: quality and bytes by kind of image), and
+   run/world/benchmark.json: thirty fixed cases, each the kilobytes per megapixel squeeze needs
+   for that image to look good enough (SSIM 0.93) against its target. The cases it does not meet
+   yet are where to look. A change that loses a case production meets is rolled back.
 3. Propose something not tried yet, specific enough for a developer to build:
    `bin/py bin/lab.py propose "TITLE" --idea "WHAT TO CHANGE, AND WHY YOU EXPECT IT TO SAVE BYTES"`
 

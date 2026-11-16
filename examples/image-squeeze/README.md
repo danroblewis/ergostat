@@ -24,7 +24,8 @@ FACTORY_AI=claude ergostat run    # Claude Code sessions propose (Sonnet) and wr
 Then the page `ergostat run` prints, or:
 
 ```bash
-ergostat loop                     # the seven goals: holding or off
+ergostat loop                     # the goals: holding or off
+ergostat item --kind case         # the benchmark: which of the thirty cases squeeze meets, and how well
 ergostat item --kind hypothesis   # every experiment, its state, and (ergostat item hypothesis/3) what it measured
 ergostat explain small-images     # the whole chain, from the researcher to the bytes served
 ergostat run --stop
@@ -71,6 +72,28 @@ fewer than two wait (`ideas-ready`); the `developer` builds the oldest whenever 
 is empty (`one-running`). `small-images` (bytes per megapixel served ≤ 20) is the target the whole
 lab chases: `ergostat explain small-images` traces it from the researcher, through the ideas and the
 experiment, to the rollout and the bytes served.
+
+## The benchmark: what squeeze can do
+
+Bytes served depend on what customers happen to send. How good squeeze *is* does not: thirty fixed
+images (five of each kind) are the benchmark (`world/benchmark.py`), each a **case** with a target,
+the kilobytes per megapixel it should need while still looking good enough (SSIM 0.93; the quality
+setting is searched, so it measures the code, not the setting). Like recorded signals a radio must
+decode, they are not tests that pass or fail but a count of what the product can do:
+
+- each case is an item (`case/logo-3`: met or unmet, its size now and its best so far): the Items
+  tab's `case` table is squeeze's scoreboard;
+- **`capabilities`** is the stock of cases met, filled by `gained` and drained by `lost`, both driven
+  by releases; the goal `every-case` is all thirty (the noisiest photos may stay out of reach);
+- **`benchmark-score`** is the kilobytes per megapixel all thirty need (lower is better): one number
+  for how good squeeze is now;
+- the `benchmark` block measures each release once; every candidate is measured when it is
+  submitted, and rolled back if it loses a case production meets (a regression no amount of live
+  traffic in one hour might show).
+
+squeeze as handed over meets 2 of the 30; the transparency fix and the encoder's optimisation take
+it to about 9; screenshots, line art and logos need a flat-image policy that does not break
+grayscale photos; the noisy photos need something better than any idea in the stand-in's notebook.
 
 ## Variables, not stocks
 

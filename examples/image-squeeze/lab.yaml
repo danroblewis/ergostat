@@ -92,7 +92,7 @@ blocks:
     goal: ideas-ready
     prompt: prompts/researcher.md
     run: bin/ai.sh researcher               # FACTORY_AI=claude: a Claude Code session; otherwise a stand-in
-    in: variable.bytes-per-mp               # what it is trying to bring down
+    in: [variable.bytes-per-mp, stock.capabilities, variable.benchmark-score]   # what it is trying to improve
     max: 1
     timeout: 15m
     out: flow.proposed
