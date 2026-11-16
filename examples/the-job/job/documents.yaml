@@ -47,7 +47,9 @@ flows:
   docs-needed:
     to: docs-to-draft
     description: each approval opens the change's next document
-    driven-by: +flow.docs-approved
+    driven-by:
+      - cause: +flow.docs-approved
+        instant: true                            # the next document is needed the moment the last is approved
     sensor:
       run: python3 bin/watch.py doc
       every: 10s

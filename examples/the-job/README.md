@@ -82,8 +82,8 @@ watcher brings items in, a preparer prepares each, and I do what is mine.
 | stewardship | `review/2041` requested → briefed → answered | reviews asked of me | a brief: what it does, its risk, what to look for, related commits (`review-pre-reader`, ai) | `write-reviews`: the verdict and the tone |
 | documents | `doc/12-proposal` needed → drafted → approved | each change's paper trail | the next document from my notes: problem statement, proposal, design, board ticket (`doc-drafter`, ai) | `persuade`: the thinking; reviewers and the board |
 | awareness | `mention/88` new → triaged → answered; `secret/tls-cert-api` expiring → drafted → rotated | chat, filtered to mentions (and digested); the secrets store | a triage and a reply (`mention-triager`, program); a rotation ticket (`rotation-ticket-drafter`, program) | `answer-mentions`: speaking as me |
-| incidents | `alert/703` fired → drafted → commented; `outage/41` suspected → declared or dismissed → resolved; `action/902` open → planned → done | the pager; the tracker's postmortem actions | a usefulness comment, what changed before it, who is on call (`alert-companion`, ai); a plan for each action (`action-planner`, ai) | `post-alert-comments`; `declare-incident` |
-| safety | `ramp/301` pending → briefed → approved, rejected or went-ahead; `ci/2.41` released → planned → upgraded | the flag system; the CI server's releases | a ramp research brief (`ramp-researcher`, ai); an upgrade plan (`upgrade-planner`, program) | `approve-ramps`: my name is on it |
+| incidents | `alert/703` fired → drafted → commented; `outage/41` suspected → declared or dismissed → resolved → reviewed (its postmortem); `action/902` open → planned → done | the pager; the tracker's postmortem actions | a usefulness comment, what changed before it, who is on call (`alert-companion`, ai); a plan for each action (`action-planner`, ai) | `post-alert-comments`; `declare-incident` |
+| safety | `ramp/301` pending → briefed → approved, rejected or went-ahead → broke or proved-fine; `ci/2.41` released → planned → upgraded | the flag system; the CI server's releases | a ramp research brief (`ramp-researcher`, ai); an upgrade plan (`upgrade-planner`, program) | `approve-ramps`: my name is on it |
 | support | `ticket/5201` new → explained → answered | customer tickets assigned to me | what the command it asks for does, checked against the ticket (`command-explainer`, ai) | `run-commands`: whether it runs, and I run it |
 | team | `team-pr/3104` stale → nudged → moving; `update/2026-11-16` due → drafted → sent | teammates' PRs, reported once stale 3 days; the calendar | a nudge (`team-nudge-drafter`, program); the weekly update from the ledger (`update-drafter`, ai) | |
 | rhythm | `day/2026-11-16` started → briefed → ended → recorded | the working day's clock | the morning brief (`brief-builder`, program); the ledger (`ledger-keeper`, program) | |
@@ -133,11 +133,16 @@ slower at everything else, so on Tuesday the late reviews, mentions and alert co
 their goals go off, and they come back once the incident is resolved.
 
 Between the domains, influences (dashed, `driven-by`): a flag ramp I did not decide in time goes
-ahead without me (`ramps-went-ahead`, driven by `ramps-late`), and makes alerts likelier
-(`alerts-fired`); the pager groups bursts of alerts into suspected outages (`outages-noticed`);
-each declared outage leaves postmortem actions (`actions-filed`). In documents, each approval
-opens the change's next document (`paper-trail`, the one reinforcing loop), until the board
-approves it.
+ahead without me (`ramps-went-ahead`, driven by `ramps-late`) into a stock, `unreviewed-ramps-live`:
+live in production, unreviewed. Each one there may break its service hours later (`ramps-broke`,
+an outage begins) or prove fine after half a working day (`ramps-proved-fine`). Alerts
+(`alerts-fired`) and the outages the pager notices (`outages-noticed`) follow that stock, not the
+rate ramps went ahead at: in system dynamics a connector acts at once, so a cause that acts over
+time goes through a stock, and the stock is the delay (`docs/MODELLING.md` in ergostat). A declared
+outage waits for its postmortem (`outages-to-review`); each postmortem (`postmortems`) leaves two or
+three actions, filed as it ends (`actions-filed`, driven by `postmortems` at once, `instant: true`,
+and by `actions-per-postmortem`, the ratio). In documents, each approval opens the change's next
+document at once (`paper-trail`, the one reinforcing loop), until the board approves it.
 
 ## The code host for real (optional, read only)
 

@@ -291,7 +291,8 @@ def reviewers(w: World) -> None:
 
 def production(w: World) -> None:
     """Outages fire their alerts; one becomes visible as an outage at its third; a declared one is resolved and
-    leaves postmortem actions; a flag ramped without review may break its service."""
+    leaves postmortem actions at its postmortem; a flag ramped without review may break its service, hours later, or
+    prove fine after half a working day live."""
     for id, o in list(w.things("outage").items()):
         if o["_alerts_left"] > 0 and w.now >= o["_next_alert"]:
             fire_alert(w, o["service"], id)
@@ -307,20 +308,27 @@ def production(w: World) -> None:
             o["_postmortem_at"] = w.now + u(0.2, 0.4)
         if o.get("_postmortem_at") and w.now >= o["_postmortem_at"]:
             del o["_postmortem_at"]
+            w.emit("outage", id, "outage.reviewed")
             for what in random.sample([f"Alert on {o['service']} saturation before it pages", "Add a runbook step",
                                        f"Load-test {o['service']} at 2x", "Make the rollback one command",
                                        "Proposal: owning team adds a circuit breaker"], random.randint(2, 3)):
                 n = w.next_id("action", 900)
                 w.add("action", f"action/{n}", "action.filed", outage=id, title=what, owner="me",
                       service=o["service"])
-    for ramp in list(w.things("ramp").values()):
+    for rid, ramp in list(w.things("ramp").items()):
         if ramp.get("went_ahead") and not ramp.get("_effect_done"):
             ramp["_effect_done"] = True
             if random.random() < 0.45:
                 ramp["_breaks_at"] = w.now + u(0.1, 0.5)
+            else:
+                ramp["_fine_at"] = w.now + days(0.5)          # live half a day and nothing broke
         if ramp.get("_breaks_at") and w.now >= ramp["_breaks_at"]:
             del ramp["_breaks_at"]
+            w.emit("ramp", rid, "ramp.broke", service=ramp["service"])
             start_outage(w, ramp["service"], f"flag {ramp['flag']} ramped without review")
+        if ramp.get("_fine_at") and w.now >= ramp["_fine_at"]:
+            del ramp["_fine_at"]
+            w.emit("ramp", rid, "ramp.proved-fine")
         if ramp.get("approved") and not ramp.get("_effect_done"):
             ramp["_effect_done"] = True
             if random.random() < 0.05:

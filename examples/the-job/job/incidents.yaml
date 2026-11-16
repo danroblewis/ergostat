@@ -18,11 +18,12 @@ items:
   outage:
     id: outage/*
     description: alerts the pager grouped as one outage
-    states: [suspected, declared, dismissed, resolved]
+    states: [suspected, declared, dismissed, resolved, reviewed]
     on:
       outage.declared: declared
       outage.dismissed: dismissed
       outage.resolved: resolved
+      outage.reviewed: reviewed            # its postmortem held: the actions it leaves are filed
     show: [service, cause, alerts]
   action:
     id: action/*
@@ -54,6 +55,13 @@ stocks:
       items: outage
       state: suspected
       every: 5s
+  outages-to-review:
+    unit: outages
+    description: declared, their postmortem not held yet (being resolved, or resolved and waiting for it)
+    sensor:
+      items: outage
+      state: [declared, resolved]
+      every: 5s
   actions-to-plan:
     unit: actions
     description: assigned to me, with no owner, date and first step yet
@@ -63,6 +71,10 @@ stocks:
       every: 5s
 
 auxiliaries:
+  actions-per-postmortem:
+    unit: actions/outage
+    exogenous: true
+    description: the action items a postmortem leaves (two or three), the team's habit; not measured
   alerts-late:
     unit: alerts
     description: alerts with no usefulness comment after half a working day
@@ -77,8 +89,8 @@ auxiliaries:
 flows:
   alerts-fired:
     to: alerts-to-draft
-    description: pages from my rotation; a flag ramped without review makes them likelier
-    driven-by: +flow.ramps-went-ahead
+    description: pages from my rotation; a flag ramp live without my review may break its service and page
+    driven-by: +stock.unreviewed-ramps-live      # (not the rate it went ahead at: it breaks hours later, if at all)
     sensor:
       run: python3 bin/watch.py alert
       every: 10s
@@ -97,21 +109,39 @@ flows:
       over: 10m
   outages-noticed:
     to: outages-suspected
-    description: the pager groups a burst of alerts on one service as an outage
-    driven-by: +flow.alerts-fired
+    description: the pager groups a burst of alerts on one service as an outage (at its third alert)
+    driven-by: +stock.unreviewed-ramps-live      # what breaks; the alerts are how the pager sees it, not a cause
     sensor:
       run: python3 bin/watch.py outage
       every: 5s
-  outages-decided:
+  outages-declared:
+    from: outages-suspected
+    to: outages-to-review
+    sensor:
+      items: outage
+      entering: declared
+      over: 10m
+  outages-dismissed:
     from: outages-suspected
     sensor:
       items: outage
-      leaving: suspected
+      entering: dismissed
+      over: 10m
+  postmortems:
+    from: outages-to-review
+    description: a declared outage, resolved, has its postmortem (hours after it is resolved)
+    driven-by: +stock.outages-to-review
+    sensor:
+      items: outage
+      entering: reviewed
       over: 10m
   actions-filed:
     to: actions-to-plan
-    description: each declared outage's postmortem leaves action items
-    driven-by: +flow.outages-decided
+    description: each postmortem leaves action items, filed as it ends
+    driven-by:
+      - cause: +flow.postmortems
+        instant: true                            # filed at the postmortem itself: no delay between
+      - +auxiliary.actions-per-postmortem
     sensor:
       run: python3 bin/watch.py action
       every: 10s
@@ -166,7 +196,9 @@ blocks:
     ask: >-
       The pager grouped alerts as an outage. Decide whether it is one: declare the incident and take
       command, or dismiss it. Only you can; nothing was declared for you.
-    out: flow.outages-decided
+    out:
+      declared: flow.outages-declared
+      dismissed: flow.outages-dismissed
   action-planner:
     type: ai
     goal: actions-planned
