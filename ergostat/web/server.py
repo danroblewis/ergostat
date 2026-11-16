@@ -12,9 +12,10 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from .. import graph, history
+from .. import graph, history, series
 from .. import model as mdl
 from .. import state as st
+from ..series import off_stretches
 
 STATIC = Path(__file__).parent / "static"
 FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this size
@@ -176,16 +177,7 @@ def api(live: Live, path: str, q: dict):
             n_open = len(openings)
             openings = openings[::max(1, n_open // 300)]
             crossings = p.events.query(n=None, item=name, type="loop.*", until=snap["at"], unvoided=True)
-            stretches, off_from = [], None
-            for e in crossings:
-                if e["type"] == "loop.off" and off_from is None:
-                    off_from = max(e["time"], since)
-                elif e["type"] == "loop.holding" and off_from is not None:
-                    if e["time"] > since:
-                        stretches.append([off_from, e["time"]])
-                    off_from = None
-            if off_from is not None:
-                stretches.append([off_from, snap["at"]])
+            stretches = off_stretches(p, name, since, snap["at"])
             in_window = [e for e in crossings if e["time"] >= since]
             c = m.controllers[name]
             agent = lambda a: ({"name": a, "kind": m.agents[a].kind, "rung": m.agents[a].rung}       # noqa: E731
@@ -233,6 +225,13 @@ def api(live: Live, path: str, q: dict):
         if name:
             return its.detail(p.events, spec, name, until=snap["at"])
         return its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"])
+    if head == "series":                          # behaviour over time: each part's values, bucketed over the window
+        refs = [r for r in (one("refs") or "").split(",") if r]
+        return series.series(p, snap, refs, int(one("points") or series.POINTS), bool(one("strip")))
+    if head == "loop-scope":
+        return series.scope(p, snap, one("goal") or "", int(one("points") or series.POINTS))
+    if head == "items-flow":
+        return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":
         return snap["residuals"]
     if head == "parts":

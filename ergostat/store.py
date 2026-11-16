@@ -320,6 +320,17 @@ class Measurements:
         mid = [(r[0], r[1]) for r in rows if first[0] < r[0] < last[0]]
         return [(first[0], first[1]), *mid, (last[0], last[1])]
 
+    def bucketed(self, series: str, since: float, until: float, n: int) -> list[tuple[int, float, float, float]]:
+        """The readings in ``n`` equal buckets over a span, by SQLite: (bucket, mean, the last
+        reading's time, the last reading's value) for each bucket that has a reading."""
+        width = (until - since) / max(n, 1) or 1.0
+        with self._c() as c:
+            # one max() among the aggregates: SQLite takes the bare column from the row with the latest time
+            rows = c.execute("select min(cast((time - ?) / ? as integer), ?), avg(value), max(time), value from samples "
+                             "where series = ? and time >= ? and time <= ? group by 1 order by 1",
+                             (since, width, n - 1, series, since, until)).fetchall()
+        return [(r[0], r[1], r[2], r[3]) for r in rows]
+
     def forget(self, series: str, above: float | None = None, below: float | None = None) -> list[tuple[float, float]]:
         """Set readings aside: those above ``above`` or below ``below``. They are kept in their own
         table, out of every estimate (a wrong reading poisons rates and residuals for the whole
