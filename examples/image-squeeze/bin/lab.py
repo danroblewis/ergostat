@@ -273,14 +273,17 @@ def rollout(by: str) -> dict:
         return {"share": 0.0, "kept": 0, "dropped": 0}
     lo, hi = c.get("bytes_saved", [0, 0])
     n, since = int(c.get("paired", 0)), int(r.get("matched_since", 0))
+    bench = r.get("benchmark") or {}
     dq = float(c.get("quality_mean", 0))
     # compared at equal or better quality: what the matcher is for
     matched = n - since >= 20 and dq >= -0.006
     looks_better = dq > 0.006
-    better = matched and (lo > 0.5 or (looks_better and lo > -3))   # fewer bytes, or better looking for about the same
+    # better: fewer bytes; or better looking for about the same; or it does benchmark cases production cannot, and is
+    # no worse on the images arriving now (the benchmark has every kind of image; this hour's traffic may not)
+    gains = bool(bench.get("gained")) and not bench.get("lost")
+    better = matched and (lo > 0.5 or ((looks_better or gains) and lo > -3))
     worse = [f"{k}: {v['saved']:+.0f}% bytes, {v['quality_change']:+.3f} SSIM" for k, v in (c.get("by_kind") or {}).items()
              if v.get("n", 0) >= 6 and (v["saved"] < -25 or v["quality_change"] < -0.02)]   # a guardrail on every kind
-    bench = r.get("benchmark") or {}
     verdict = None
     if bench.get("lost"):                                    # a regression on the benchmark: what it could do, it cannot
         verdict = ("dropped", f"loses benchmark cases production meets: {', '.join(bench['lost'])}")
@@ -290,7 +293,7 @@ def rollout(by: str) -> dict:
         verdict = ("dropped", f"too slow: {c['time']} ms at the 95th percentile (the budget is {TIME_BUDGET:g})")
     elif r.get("offset", 0) >= 40 and dq < -0.006:
         verdict = ("dropped", "it cannot look as good as production at any quality")
-    elif matched and hi < 0 and not looks_better:
+    elif matched and hi < 0 and not looks_better and not gains:
         verdict = ("dropped", f"more bytes at equal quality: {lo:.1f}% to {hi:.1f}% saved")
     elif n - since >= 20 and worse:
         verdict = ("dropped", "much worse for some images (" + "; ".join(worse) + ")")
@@ -302,7 +305,9 @@ def rollout(by: str) -> dict:
             stage += 1                                       # better so far: give it more of the traffic
         elif stage == len(STAGES) - 1 and n >= (len(STAGES) + 1) * PAIRS_PER_STAGE:
             verdict = ("kept", f"better looking (+{dq:.3f} SSIM) for {lo:.1f}% to {hi:.1f}% fewer bytes" if looks_better
-                       else f"{lo:.1f}% to {hi:.1f}% fewer bytes at equal quality")
+                       else f"{lo:.1f}% to {hi:.1f}% fewer bytes at equal quality" if lo > 0.5
+                       else f"meets {len(bench['gained'])} more benchmark cases ({', '.join(bench['gained'])}), "
+                            f"no worse on live traffic ({lo:.1f}% to {hi:.1f}% saved)")
     result = {"bytes_saved": [lo, hi], "quality_offset": r.get("offset", 0), "paired": n, "by_kind": c.get("by_kind"),
               "benchmark": bench}
     if verdict and verdict[0] == "kept":
