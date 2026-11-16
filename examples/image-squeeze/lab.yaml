@@ -17,9 +17,14 @@ items:
   release:
     id: release/*
     show: [hypothesis, commit]
-  session:                                 # each Claude Code session the researcher or developer ran
+  session:                                 # each Claude Code session the researcher or developer runs
     id: session/*
-    show: [role, model, cost_usd, turns, seconds, error]
+    states: [open, done, failed, lost]     # lost: killed or crashed before it could say how it ended
+    on:
+      session.ran: done
+      session.failed: failed
+      session.lost: lost
+    show: [role, model, cost_usd, turns, seconds, transcript]
 
 variables:
   ai-spend:
@@ -30,6 +35,13 @@ variables:
       every: 30s
 
 stocks:
+  sessions:
+    unit: sessions
+    description: Claude Code sessions running now (FACTORY_AI=claude; at most one each for the researcher and the developer)
+    sensor:
+      items: session
+      state: open
+      every: 5s
   ideas:
     unit: hypotheses
     description: proposed, waiting to be built
@@ -60,6 +72,18 @@ stocks:
       every: 5s
 
 flows:
+  sessions-started:
+    to: sessions
+    sensor:
+      items: session
+      entering: open
+      over: 30m
+  sessions-ended:
+    from: sessions
+    sensor:
+      items: session
+      leaving: open
+      over: 30m
   proposed:
     to: ideas
   started:
