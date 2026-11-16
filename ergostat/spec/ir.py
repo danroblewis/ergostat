@@ -193,6 +193,7 @@ class Block:
     mode: str = "auto"
     where: Where | None = None
     implied: bool = False      # put in by ergostat (a machine block's goal:), not written
+    signs: dict[str, int] = field(default_factory=dict)         # port → +1 or -1, for an input written with a sign (+stock.x)
 
     @property
     def builtin(self) -> bool:
@@ -277,6 +278,18 @@ class Loop:
 
 
 @dataclass
+class NamedLoop:
+    """A feedback loop the model names (``loops:``): the loop through every part in ``through``, or
+    the one that seeks ``goal``; the shortest such loop takes the name."""
+
+    name: str
+    through: list[Ref] = field(default_factory=list)
+    goal: str | None = None
+    description: str = ""
+    where: Where | None = None
+
+
+@dataclass
 class Spec:
     name: str
     root: Path
@@ -293,6 +306,7 @@ class Spec:
     systems: dict[str, str] = field(default_factory=dict)        # name → description
     within: dict[str, str] = field(default_factory=dict)         # a system → the system it is part of
     show: dict[str, list[Ref]] = field(default_factory=dict)     # a system → the measures its box shows (default: its goals')
+    named_loops: dict[str, NamedLoop] = field(default_factory=dict)   # loops: the feedback loops the model names (SPEC §12a)
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 

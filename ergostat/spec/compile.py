@@ -7,7 +7,7 @@ import re
 import time
 
 from ..durations import DurationError, parse_duration
-from .ir import BUILTIN, MACHINE, NAME, Agent, Auxiliary, Block, Flow, Goal, ItemKind, Ref, Sensor, Setpoint, Source, Spec, Stock
+from .ir import BUILTIN, MACHINE, NAME, Agent, Auxiliary, Block, Flow, Goal, ItemKind, NamedLoop, Ref, Sensor, Setpoint, Source, Spec, Stock
 from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
@@ -128,7 +128,7 @@ class Compiler:
             if isinstance(raw, str) and NAME.match(raw):
                 hint = f": write the kind first, like {kinds[0]}.{raw}"
             elif isinstance(raw, str) and raw[:1] in "+-" and Ref.parse(raw[1:]):
-                hint = ": only a driven-by carries a sign"
+                hint = ": only a driven-by and a machine block's in: carry a sign"
             self.err(f"{what}: {raw!r} is not a reference{hint} (stock.x, flow.x, auxiliary.x, goal.x, block.x, with an "
                      f"optional .port)", where, "bad-ref")
             return None
@@ -139,21 +139,35 @@ class Compiler:
             return None
         return r
 
-    def refs(self, m: Map, key: str, what: str, kinds: tuple[str, ...]) -> dict[str, list[Ref]]:
-        """``in`` or ``out``: one reference, a list, or a map of port → reference (or list)."""
+    def refs(self, m: Map, key: str, what: str, kinds: tuple[str, ...], signs: dict[str, int] | None = None) -> dict[str, list[Ref]]:
+        """``in`` or ``out``: one reference, a list, or a map of port → reference (or list). With
+        ``signs``, a reference may carry its sign (``+stock.x``, ``-auxiliary.y``), recorded there by
+        port (SPEC §9, §12a)."""
         raw = m.get(key)
         w = m.at(key)
         if raw is None:
             return {}
+
+        def one(x, at, label: str) -> tuple[Ref | None, int | None]:
+            sign = None
+            if signs is not None and isinstance(x, str) and x[:1] in "+-" and Ref.parse(x[1:].strip()):
+                sign, x = (1 if x[0] == "+" else -1), x[1:].strip()
+            return self.ref(x, at, label, kinds), sign
+
+        def keep(port: str, r: Ref, sign: int | None) -> Ref:
+            if sign is not None and signs is not None:
+                signs[port] = sign
+            return r
         if isinstance(raw, str):
-            r = self.ref(raw, w, f"{what}.{key}", kinds)
-            return {"out" if key == "out" else "in": [r]} if r else {}
+            port = "out" if key == "out" else "in"
+            r, sign = one(raw, w, f"{what}.{key}")
+            return {port: [keep(port, r, sign)]} if r else {}
         if isinstance(raw, list):
-            got = [self.ref(x, w, f"{what}.{key}", kinds) for x in raw]
-            got = [g for g in got if g]
+            got = [(r, sign) for r, sign in (one(x, w, f"{what}.{key}") for x in raw) if r]
             if key == "out":
-                return {"out": got} if got else {}
-            return {f"in{i + 1}" if len(got) > 1 else "in": [g] for i, g in enumerate(got)}
+                return {"out": [r for r, _ in got]} if got else {}
+            ports = [f"in{i + 1}" if len(got) > 1 else "in" for i in range(len(got))]
+            return {p: [keep(p, r, sign)] for p, (r, sign) in zip(ports, got, strict=True)}
         if isinstance(raw, dict):
             out = {}
             for port, v in raw.items():
@@ -161,8 +175,8 @@ class Compiler:
                     self.err(f"{what}.{key}: port {port!r}: lowercase letters, digits and -", raw.at(port), "bad-name")
                     continue
                 vs = v if isinstance(v, list) else [v]
-                got = [self.ref(x, raw.at(port), f"{what}.{key}.{port}", kinds) for x in vs]
-                out[port] = [g for g in got if g]
+                got = [one(x, raw.at(port), f"{what}.{key}.{port}") for x in vs]
+                out[port] = [keep(port, r, sign) for r, sign in got if r]
             return out
         self.err(f"{what}.{key}: a reference, a list of them, or a map of port names to them", w, "bad-ref")
         return {}
@@ -517,6 +531,20 @@ class Compiler:
             if b:
                 spec.blocks[name] = b
         self.implied(spec)
+        for name, m, what in self.named("loops"):
+            self.keys(m, {"through", "goal", "description"}, what)
+            through = [r for rs in self.refs(m, "through", what, ("stock", "flow", "auxiliary", "goal", "block")).values()
+                       for r in rs]
+            goal = m.get("goal")
+            if (goal is None) == (not through):
+                self.err(f"{what}: name it by the parts it runs through (through: [flow.x, stock.y]) or by the goal it seeks "
+                         f"(goal: x), one of the two", m.where, "loop-of")
+                continue
+            if goal is not None and str(goal) not in spec.goals:
+                self.err(f"{what}.goal: {goal!r} is not a goal" + self.suggest(str(goal), spec.goals), m.at("goal"),
+                         "unknown-ref", f"goal.{goal}")
+                continue
+            spec.named_loops[name] = NamedLoop(name, through, goal and str(goal), self.text(m, "description"), m.where)
         for b in spec.blocks.values():                       # an auxiliary a block sets is read as what it was set to
             for t in b.targets():
                 v = spec.auxiliaries.get(t.name) if t.kind == "auxiliary" else None
@@ -633,7 +661,14 @@ class Compiler:
             p = str(m["prompt"])
             if "\n" not in p and p.endswith((".md", ".txt")) and not (self.doc.root / p).is_file():
                 self.err(f"{what}.prompt: {p} is not a file here", m.at("prompt"), "prompt-missing")
-        ins = self.refs(m, "in", what, ("stock", "flow", "auxiliary", "goal", "block"))
+        signs: dict[str, int] = {}
+        ins = self.refs(m, "in", what, ("stock", "flow", "auxiliary", "goal", "block"), signs if t in MACHINE else None)
+        for port in list(signs):
+            r = (ins.get(port) or [None])[-1]
+            if r is not None and r.kind in ("goal", "block"):
+                self.err(f"{what}.in.{port}: a sign is written on what a block reads of a stock, flow or auxiliary; how it "
+                         f"follows a goal or a block it is commanded by is worked out (SPEC §12a)", m.at("in"), "bad-ref")
+                del signs[port]
         outs = self.refs(m, "out", what, ("flow", "auxiliary", "block", "goal"))
         inputs = {}
         for port, refs in ins.items():
@@ -646,7 +681,7 @@ class Compiler:
             self.err(f"{what}: a {t} block takes one input", m.at("in"), "too-many-inputs")
         if t in ONE_INPUT and not inputs:
             self.err(f"{what}: a {t} block needs in: (the signal it works on)", m.where, "missing-key")
-        return Block(name, t, inputs, outs, params, agent=m.get("agent") and str(m["agent"]), role=role,
+        return Block(name, t, inputs, outs, params, signs=signs, agent=m.get("agent") and str(m["agent"]), role=role,
                      system=self.system("blocks", name, m), description=self.text(m, "description"),
                      every=self.duration(m, "every", what), cron=self.cron(m, "cron", what),
                      timeout=self.duration(m, "timeout", what, 300.0), max=self.number(m, "max", what) if t in MACHINE else None,
@@ -689,6 +724,10 @@ class Compiler:
             for r in refs:
                 if (why := exists(r)) is not None:
                     self.err(f"system {name}.show: {why}", self.doc.defined.get(("systems", name)), "unknown-ref", str(r))
+        for lp in spec.named_loops.values():
+            for r in lp.through:
+                if (why := exists(r)) is not None:
+                    self.err(f"loop {lp.name}.through: {why}", lp.where, "unknown-ref", str(r))
         for kind, table in (("flow", spec.flows), ("auxiliary", spec.auxiliaries)):
             for f in table.values():
                 for r in f.driven_by:

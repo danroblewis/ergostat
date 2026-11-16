@@ -69,6 +69,7 @@ function greyLines(svg, ids) {
 
 /* parts moving: their places sent to libavoid, one routing at a time, the latest */
 function follow(svg, d, list) {
+  if (S.graph?.kind === "dynamics") sdMarkersFollow(svg, list.map((x) => x[0]), d.dx, d.dy, d.name);   // the loop markers go with their loops (dynamics.js)
   d.next = list;
   const send = () => {
     if (d.busy || !d.next || d.done) return;
@@ -170,7 +171,8 @@ function interactions(svg) {
   // a box drawn with Shift (or Command) on the background: what it touches is chosen too
   let band = null;
   svg.addEventListener("pointerdown", (ev) => {
-    if (!(ev.shiftKey || ev.metaKey) || ev.button || ev.target.closest(".node") || ev.target.closest("[data-act]")) return;
+    const act = ev.target.closest("[data-act]");          // (a loop marker is no control a box may not start on)
+    if (!(ev.shiftKey || ev.metaKey) || ev.button || ev.target.closest(".node") || (act && act.dataset.act !== "loop")) return;
     ev.preventDefault();
     const r = svg.getBoundingClientRect();
     band = { x0: ev.clientX - r.left, y0: ev.clientY - r.top, el: s("rect", { class: "band" }) };

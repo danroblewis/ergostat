@@ -454,6 +454,13 @@ function drawAgent(n, w, hgt) {
 /* each kind of line has one colour, whatever it is part of: what it is, not how it is doing */
 const LINE_COLOR = { measure: "var(--sensor-line)", signal: "var(--sensor-line)", action: "var(--ctl-line)", influence: "var(--dist)", wire: "var(--accent)" };
 
+/* a port's twin: the same part crossing the other way on the same side, named once with it (the dynamics view's
+   ⇄); none in the control view */
+function sysTwin(n, p) {
+  if (S.graph?.kind !== "dynamics") return null;
+  const side = (q) => q.at || (q.side === "in" ? "west" : "east");
+  return (n.ports || []).find((q) => q !== p && q.part === p.part && side(q) === side(p)) || null;
+}
 /* a system drawn as one part: its name, how its loops are doing, and its ports (what crosses its edge) */
 const SYS_TOP = 70, SYS_ROW = 20, MEAS_ROW = 24;
 const sysTop = (n) => SYS_TOP + (n.measures?.length || 0) * MEAS_ROW;     // its ports start below its measures
@@ -604,7 +611,7 @@ function drawGraph(svg, g, lay) {
   // systems as hulls behind everything (overlapping freely)
   const hullPins = [];                                     // (drawn on top, with the parts' pins)
   const sd = g.kind === "dynamics";                         // the system dynamics view: monochrome (dynamics.js)
-  const hueOf = (hue, a, l = 45) => (sd ? `fill:var(--sd-hull);stroke:var(--sd-hull-line)` : `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,${l}%,${a})`);
+  const hueOf = (hue, a, l = 45) => (sd ? `fill:var(--sd-hull);stroke:none` : `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,${l}%,${a})`);
   const inkOf = (hue) => (sd ? "fill:var(--sd-ink)" : `fill:hsl(${hue},55%,42%)`);
   if ((g.kind === "control" || sd) && lay.containers?.length) {      // open systems: laid out as containers, drawn as outlines
     const hulls = s("g", { class: "sys-hull" });
@@ -855,8 +862,10 @@ function panZoom(svg) {
     const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".node");
     if (!was || !under || under.dataset.id !== was || ev.target.closest?.(".sys-btn")) return;
     const n = S.graph?.nodes.find((x) => x.id === was);
-    if (!n || n.kind === "cloud") return;
-    if (n.kind === "terminal") S.drill?.(n.in || ""); else openNode(n);
+    if (!n || (n.kind === "cloud" && !n.beyond)) return;
+    const orig = n.orig && S.graph.nodes.find((x) => x.id === n.orig);    // a shadow of a part drawn here too: that part's panel
+    if (orig) openNode(orig);
+    else if (n.kind === "terminal" || n.kind === "cloud") S.drill?.(n.in || ""); else openNode(n);
   });
   window.addEventListener("pointercancel", () => { S.pressed = false; }, true);
   svg.addEventListener("pointerdown", (ev) => {

@@ -30,6 +30,7 @@ function sdSize(n) {
 /* the lines written beside a part (under a valve or a converter): its name, then its value */
 function sdLabelLines(n) {
   if (n.kind === "valve" || n.kind === "disturbance") return [n.label, n.rate == null ? "–" : n.rateText];
+  if (n.kind === "cloud" && n.beyond) return [`<${n.beyond}>`];      // where the flow goes on to, beyond this system
   return [];
 }
 function sdAuxLines(n) {
@@ -37,6 +38,7 @@ function sdAuxLines(n) {
   return [n.label, sdValue(n), n.exogenous ? "(exogenous)" : null].filter(Boolean);
 }
 function sdLabel(ng, n, t, i, cx, y) {
+  if (n.kind === "cloud") return ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-sub sd-shadow" }, t));
   if (i === 0) return ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-label sd-name" }, t));
   ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-sub sd-value live" }, t));
 }
@@ -59,8 +61,8 @@ function sdAux(n, w, hgt) {
   return g;
 }
 function sdTitle(n) {
-  if (n.role === "desired") return `desired ${n.of}: the goal's setpoint, ${n.valueText}`;
-  if (n.role === "gap") return `${n.of} gap: desired ${n.of} − ${n.of}`;
+  if (n.role === "desired") return `desired ${n.of} = ${n.valueText}: the level wanted`;
+  if (n.role === "gap") return n.excess ? `excess ${n.of} = ${n.of} − desired ${n.of}` : `${n.of} gap = desired ${n.of} − ${n.of}`;
   if (n.role === "decision") return `${n.label}: a decision, from what it reads to what it moves`;
   return n.exogenous ? `${n.label}: an exogenous input` : `${n.label}: an auxiliary`;
 }
@@ -73,20 +75,21 @@ function sdValve(n, w, hgt, ln) {
   g.append(s("path", { class: "sd-valve", d: `M6,9 L${w / 2},${hgt / 2} L6,${hgt - 9} Z M${w - 6},9 L${w / 2},${hgt / 2} L${w - 6},${hgt - 9} Z` }));
   return g;
 }
-function sdCloud(n, w, hgt) {
+function sdCloud(n, w, hgt) {                           // (a cloud a flow leaves the view by: the part beyond named under it)
   const d = `M${w * 0.22},${hgt * 0.82} C${w * 0.02},${hgt * 0.82} ${w * 0.02},${hgt * 0.42} ${w * 0.22},${hgt * 0.45}
              C${w * 0.22},${hgt * 0.12} ${w * 0.55},${hgt * 0.08} ${w * 0.6},${hgt * 0.32}
              C${w * 0.7},${hgt * 0.12} ${w * 0.95},${hgt * 0.22} ${w * 0.86},${hgt * 0.5}
              C${w * 1.02},${hgt * 0.56} ${w * 0.98},${hgt * 0.84} ${w * 0.8},${hgt * 0.82} Z`;
-  return s("g", {}, s("path", { class: "hit sd-cloud", d }));
+  return s("g", {}, s("path", { class: "hit sd-cloud", d }),
+    n.beyond ? s("title", {}, `the flow goes on to ${n.beyond}${n.in ? `, in ${n.in}` : ""}, outside this system (click to go there)`) : null);
 }
 /* a system closed: a module (Stella) or a view (Vensim): its name, and its ports, what crosses its edge */
 function sdSystem(n, w, hgt) {
   const g = s("g");
   g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8 }));
   g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
-  const inside = (S.graph?.causalLoops || []).filter((c) => c.nodes.includes(n.id) && sdVisible(c, S.graph).length < 2).length;
-  g.append(s("text", { x: 16, y: 42, class: "t-sub" }, inside ? `${inside} feedback loop${inside > 1 ? "s" : ""} inside or through it` : "a module: open it to see its structure"));
+  const inside = sdInside(S.graph, n.id).length;
+  g.append(s("text", { x: 16, y: 42, class: "t-sub" }, inside ? `${inside} feedback loop${inside > 1 ? "s" : ""} inside` : "a module: open it to see its structure"));
   const btn = (x, label, title, fn) => s("g", { class: "sys-btn", transform: `translate(${x},10)`, onclick: (ev) => { ev.stopPropagation(); fn(); } },
     s("title", {}, title), s("rect", { width: textWidth(label) + 14, height: 20, rx: 5 }), s("text", { x: 7, y: 14 }, label));
   const into = "⤓ into", open = "▸ open";
@@ -95,21 +98,28 @@ function sdSystem(n, w, hgt) {
   const at = { west: 0, east: 0 };
   for (const p of n.ports || []) {
     const side = p.at || (p.side === "in" ? "west" : "east");
+    const twin = sysTwin(n, p);
     const y = sysTop(n) + (at[side]++) * SYS_ROW;
+    if (twin && p.side === "in") continue;               // (named once, on its twin's row: ⇄; its line meets the edge beside it)
+    p.both = !!twin;
     const left = side === "west";
-    g.append(s("rect", { x: left ? -4 : w - 4, y: y - 4, width: 8, height: 8, class: "sd-port" }));
-    g.append(s("text", { x: left ? 12 : w - 12, y: y + 4, class: "t-sub", "text-anchor": left ? "start" : "end" },
-      s("title", {}, `${p.side === "in" ? "in" : "out"}: ${sdKindWord(p.kind)} ${p.label}`),
-      p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
+    // a named connection point (as Stella's module connectors): no square, the line meets the edge at its name
+    g.append(s("text", { x: left ? 8 : w - 8, y: y + 4, class: "t-sub sd-port-name", "text-anchor": left ? "start" : "end", "data-part": p.part, "data-side": side },
+      s("title", {}, `${p.both ? "in and out" : p.side === "in" ? "in" : "out"}: ${sdKindWord(p.kind)} ${p.label}`),
+      p.both ? "⇄ " : "", p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
   }
   return g;
 }
-/* a part outside the system drawn alone: as Vensim's shadow variable, its name in angle brackets */
+/* a part drawn elsewhere: as Vensim's shadow variable, its name in angle brackets, an input only (nothing
+   points into it); what this system drives outside it ends at a stub naming it */
 function sdTerminal(n, w, hgt) {
   const g = s("g");
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 4, fill: "transparent", stroke: "transparent" }));
-  g.append(s("text", { x: w / 2, y: hgt / 2 + 4, "text-anchor": "middle", class: "t-sub sd-shadow" }, `<${n.label}>`,
-    s("title", {}, `${n.label}: outside this system${n.in ? `, in ${n.in}` : ""} (click to go there)`)));
+  const stub = n.role === "stub";
+  g.append(s("text", { x: stub ? 2 : w / 2, y: hgt / 2 + 4, "text-anchor": stub ? "start" : "middle", class: "t-sub sd-shadow" },
+    stub ? n.label : `<${n.label}>`,
+    s("title", {}, stub ? `drives ${n.label}, outside this system${n.in ? `, in ${n.in}` : ""} (click to go there)`
+                        : `${n.label}: drawn ${n.orig ? "in" : "outside this system, in"} ${n.in || "the model"} (click to go there)`)));
   return g;
 }
 const SD_DRAW = { stock: sdStock, auxiliary: sdAux, valve: sdValve, disturbance: sdValve, cloud: sdCloud, system: sdSystem, terminal: sdTerminal };
@@ -201,9 +211,11 @@ function sdPipeHead(pts, cls) {                         // a flow's head: hollow
 
 /* ------------------------------------------------------------------ loop markers */
 
-/* each feedback loop's marker, as Sterman draws them: its polarity and number (R1, B2; ? when a sign
-   along it is not known) in a circular arrow turning the way the loop runs, its name under it, placed
-   inside the loop: as near the middle of its parts as is clear of every part, label and other marker */
+/* each feedback loop's marker, as Sterman draws them: its polarity and number (R1, B2) in a circular arrow
+   turning the way the loop runs, its name under it, placed inside the loop as drawn: as near the
+   centroid of the polygon its lines make as is inside that polygon and clear of every part, label, pipe
+   and other marker. Only loops whose polarity is known are marked: the others are listed beside the
+   diagram (one entry, "+N of unknown polarity"), never drawn */
 function sdLoopMarkers(g, lay) {
   const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
   const taken = [];
@@ -213,88 +225,152 @@ function sdLoopMarkers(g, lay) {
     taken.push({ x: Math.min(...xs), y: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) });
   }
   for (const h of lay.containers || []) taken.push({ x: h.x, y: h.y, x1: h.x + h.width, y1: h.y + 32 });   // an outline's handle
-  const pipes = new Set(g.edges.filter((e) => e.kind === "pipe").map((e) => e.id));
-  for (const le of lay.edges) {                         // and off the pipes: a marker on a flow reads as part of it
-    if (!pipes.has(le.id)) continue;
+  const pipes = new Set(g.edges.filter((e) => e.kind === "pipe").map((e) => e.id)), lines = [], pipeLines = [];
+  for (const le of lay.edges) {                         // and off the lines: a marker on a line reads as part of it
     const p = edgePoints(le);
-    for (let i = 1; i < p.length; i++) taken.push({ x: Math.min(p[i - 1].x, p[i].x) - 5, y: Math.min(p[i - 1].y, p[i].y) - 5,
-                                                    x1: Math.max(p[i - 1].x, p[i].x) + 5, y1: Math.max(p[i - 1].y, p[i].y) + 5 });
+    for (let i = 1; i < p.length; i++) (pipes.has(le.id) ? pipeLines : lines).push({ x: Math.min(p[i - 1].x, p[i].x) - 4, y: Math.min(p[i - 1].y, p[i].y) - 4,
+                                                    x1: Math.max(p[i - 1].x, p[i].x) + 4, y1: Math.max(p[i - 1].y, p[i].y) + 4 });
   }
-  const free = (r) => !taken.some((t) => r.x < t.x1 + 4 && t.x < r.x1 + 4 && r.y < t.y1 + 4 && t.y < r.y1 + 4);
+  const hit = (xs, r) => xs.some((t) => r.x < t.x1 + 3 && t.x < r.x1 + 3 && r.y < t.y1 + 3 && t.y < r.y1 + 3);
+  // clear of everything; else (still inside its loop) across a connector; else across a pipe (its ground hides
+  // the line under it); never on a part, a label or another marker
+  const free = (r, tier) => !hit(taken, r) && (tier >= 1 || !hit(lines, r)) && (tier >= 2 || !hit(pipeLines, r));
   const out = s("g", { class: "loop-markers" });
   const placed = {};
   for (const { rep, loops } of sdLoopGroups(g, box)) {
-    const ids = rep.nodes.filter((id) => box[id]);
-    const at = ids.map((id) => ({ x: box[id].x + box[id].width / 2, y: box[id].y + box[id].height / 2 }));
-    const uniq = sdVisible(rep, g, box).map((id) => ({ x: box[id].x + box[id].width / 2, y: box[id].y + box[id].height / 2 }));
-    const cx = uniq.reduce((a, p) => a + p.x, 0) / uniq.length, cy = uniq.reduce((a, p) => a + p.y, 0) / uniq.length;
+    const { poly, members } = sdPolygon(rep, g, box);
+    if (poly.length < 2) continue;
+    const cx = poly.reduce((a, p) => a + p.x, 0) / poly.length, cy = poly.reduce((a, p) => a + p.y, 0) / poly.length;
     let area = 0;                                        // which way it runs, on the screen (y down: > 0 is clockwise)
-    for (let i = 0; i < at.length; i++) { const p = at[i], q2 = at[(i + 1) % at.length]; area += p.x * q2.y - q2.x * p.y; }
-    // its name under it (shortened in the middle: its end tells it from its twins); one whose polarity is
-    // not known only its number, its name on hover and in the list, so the loops that are known stand out
-    const name = !rep.polarity ? "" : rep.name.length > 26 ? rep.name.slice(0, 11) + "…" + rep.name.slice(-13) : rep.name;
-    const more = loops.length > 1 ? ` +${loops.length - 1}` : "";
-    const w = Math.max(28 + (more ? 22 : 0), textWidth(name) * 0.92 + 6), hgt = name ? 40 : 28;
-    const rect = (x, y) => ({ x: x - w / 2, y: y - 14, x1: x + w / 2, y1: y - 14 + hgt });
+    for (let i = 0; i < poly.length; i++) { const p = poly[i], q2 = poly[(i + 1) % poly.length]; area += p.x * q2.y - q2.x * p.y; }
+    const label = rep.label || rep.polarity;
+    const r = sdMarkerRadius(label), lines = sdNameLines(rep.name);
+    const more = loops.length > 1 ? 22 : 0;
+    const w = Math.max(2 * r + 8 + more, ...lines.map((t) => textWidth(t) * 0.92 + 6)), hgt = 2 * r + 6 + lines.length * 13;
+    const rect = (x, y) => ({ x: x - w / 2, y: y - r - 3, x1: x + w / 2, y1: y - r - 3 + hgt });
+    const inside = poly.length >= 3 && Math.abs(area) > 400 ? (x, y) => sdInPolygon(x, y, poly) : () => true;
+    const reach = Math.max(80, ...poly.map((p) => Math.hypot(p.x - cx, p.y - cy)));
     let spot = null;
-    for (let r = 0; r <= 640 && !spot; r += 10) {
-      const k = Math.max(1, Math.round((2 * Math.PI * r) / 16));
-      for (let i = 0; i < k; i++) {
-        const a = (i / k) * 2 * Math.PI, x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
-        if (free(rect(x, y))) { spot = { x, y }; break; }
+    const ring = (x, y) => ({ x: x - r - 4, y: y - r - 4, x1: x + r + 4, y1: y + r + 4 });
+    for (const tier of [0, 1, 2, 3, 4]) {               // inside and clear; across a connector; across a pipe; its circle alone clear; near it
+      for (let rr = 0; rr <= reach && !spot; rr += 8) {
+        const k = Math.max(1, Math.round((2 * Math.PI * rr) / 14));
+        for (let i = 0; i < k; i++) {
+          const ang = (i / k) * 2 * Math.PI, x = cx + rr * Math.cos(ang), y = cy + rr * Math.sin(ang);
+          const ok = tier === 4 ? free(rect(x, y), 0) : tier === 3 ? !hit(taken, ring(x, y)) : free(rect(x, y), tier);
+          if ((tier === 4 || inside(x, y)) && ok) { spot = { x, y }; break; }
+        }
       }
+      if (spot) break;
     }
     spot ||= { x: cx, y: cy };
     taken.push(rect(spot.x, spot.y));
     for (const c of loops) placed[c.name] = spot;
-    out.append(sdMarker(rep, spot.x, spot.y, area >= 0, name, loops));
+    const m = sdMarker(rep, spot.x, spot.y, area >= 0, lines, loops);
+    m.dataset.members = JSON.stringify(members);
+    out.append(m);
   }
   lay.markers = placed;
   return out;
+}
+function sdMarkerRadius(label) { return Math.max(12, label.length * 3.7 + 4.5); }     // the label at its own size, the circle around it
+function sdNameLines(name) {                            // a loop's name under its marker: two lines at most, at full size
+  const words = name.split(" "), lines = [""];
+  for (const wd of words) {
+    const cur = lines[lines.length - 1];
+    if (cur && (cur + " " + wd).length > 24) lines.push(wd); else lines[lines.length - 1] = cur ? cur + " " + wd : wd;
+  }
+  if (lines.length > 2) lines.splice(1, lines.length - 1, lines.slice(1).join(" ").slice(0, 22) + "…");
+  return lines;
+}
+/* a loop as drawn: the corners of the lines that make it (the drawn ends of each of its links, a shadow
+   where a link comes in from elsewhere), and the parts they are */
+function sdPolygon(c, g, box) {
+  const ns = c.nodes, poly = [], members = [];
+  const centre = (id) => (box[id] ? { x: box[id].x + box[id].width / 2, y: box[id].y + box[id].height / 2 } : null);
+  const add = (id) => { const p = centre(id); if (p && members[members.length - 1] !== id) { poly.push(p); members.push(id); } };
+  for (let i = 0; i < ns.length; i++) {
+    const a = ns[i], b = ns[(i + 1) % ns.length];
+    const e = g.edges.find((x) => (x.from ?? x.source) === a && (x.to ?? x.target) === b) ||
+              g.edges.find((x) => x.kind === "pipe" && (x.from ?? x.source) === b && (x.to ?? x.target) === a);
+    if (e && box[e.source] && box[e.target]) {
+      const [s0, t0] = (e.from ?? e.source) === a ? [e.source, e.target] : [e.target, e.source];
+      add(s0); add(t0);
+    } else add(a);
+  }
+  if (members.length > 1 && members[0] === members[members.length - 1]) { poly.pop(); members.pop(); }
+  return { poly, members };
+}
+function sdInPolygon(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a.y > y) !== (b.y > y) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+/* while parts are dragged: each marker moves by how far its loop's parts moved, on average; one inside an
+   open system dragged by its name goes with it whole (on drop the markers are placed again, from where the
+   parts are) */
+function sdMarkersFollow(svg, ids, dx, dy, system) {
+  const moved = new Set(ids);
+  const hull = system && (S.layout?.containers || []).find((o) => o.name === system);
+  for (const m of svg.querySelectorAll(".loop-marker")) {
+    const x = +m.dataset.x, y = +m.dataset.y;
+    const mine = JSON.parse(m.dataset.members || "[]");
+    const share = hull && x > hull.x && x < hull.x + hull.width && y > hull.y && y < hull.y + hull.height ? 1
+      : mine.length ? mine.filter((id) => moved.has(id)).length / mine.length : 0;
+    if (share) m.setAttribute("transform", `translate(${x + dx * share},${y + dy * share})`);
+  }
 }
 /* a loop's parts drawn here as themselves (not folded into a closed system, nor outside it) */
 function sdVisible(c, g, box) {
   const kind = Object.fromEntries(g.nodes.map((n) => [n.id, n.kind]));
   return [...new Set(c.nodes.filter((id) => (box ? box[id] : kind[id]) && !["system", "terminal"].includes(kind[id])))];
 }
+/* the loops inside a closed system: through it, with fewer than two parts drawn here */
+function sdInside(g, id) {
+  return (g?.causalLoops || []).filter((c) => c.nodes.includes(id) && sdVisible(c, g).length < 2);
+}
 /* the loops that show here (two of their parts drawn as themselves), one marker for those drawn alike
    (the same parts here: they differ only where they run inside a closed system or outside this one),
-   the best known of them first */
-function sdLoopGroups(g, box = null) {
+   the shortest first; of known polarity only, unless `all` */
+function sdLoopGroups(g, box = null, all = false) {
   const groups = new Map();
   for (const c of g.causalLoops || []) {
+    if (!c.polarity && !all) continue;
     const v = sdVisible(c, g, box);
     if (v.length < 2) continue;
-    const key = v.slice().sort().join("|");
+    const key = (c.polarity || "?") + v.slice().sort().join("|");
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(c);
   }
-  const rank = (c) => [c.polarity ? 0 : 1, c.nodes.length, c.name];
+  const rank = (c) => [c.nodes.length, c.name];
   return [...groups.values()].map((loops) => {
-    loops.sort((a, b) => { const x = rank(a), y = rank(b); return x[0] - y[0] || x[1] - y[1] || (x[2] > y[2]) - (x[2] < y[2]); });
+    loops.sort((a, b) => { const x = rank(a), y = rank(b); return x[0] - y[0] || (x[1] > y[1]) - (x[1] < y[1]); });
     return { rep: loops[0], loops };
   });
 }
-function sdMarker(c, x, y, clockwise, name, loops = [c]) {
-  const r = 11, start = clockwise ? -60 : -120, end = clockwise ? 240 : -60;   // a gap at the top, the head at its end
+function sdMarker(c, x, y, clockwise, lines, loops = [c]) {
+  const label = c.label || (c.polarity || "?");
+  const r = sdMarkerRadius(label), start = clockwise ? -60 : -120, end = clockwise ? 240 : -60;   // a gap at the top, the head at its end
   const P = (deg) => [r * Math.cos((deg * Math.PI) / 180), r * Math.sin((deg * Math.PI) / 180)];
   const [x0, y0] = P(start), [x1, y1] = P(end), rad = (end * Math.PI) / 180;
   const dx = clockwise ? -Math.sin(rad) : Math.sin(rad), dy = clockwise ? Math.cos(rad) : -Math.cos(rad);   // the way it turns, at the end
-  const tip = [x1 + dx * 4.5, y1 + dy * 4.5], base = [x1 - dx * 2, y1 - dy * 2], px = -dy * 4, py = dx * 4;
-  const words = { R: "reinforcing", B: "balancing" }[c.polarity] || "polarity not known: a sign along it is not known";
-  const label = c.label || (c.polarity || "?");
-  const g = s("g", { class: `loop-marker pol-${c.polarity || "unknown"}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join(" "),
-                     "data-act": "loop", transform: `translate(${x},${y})`,
+  const tip = [x1 + dx * 6, y1 + dy * 6], base = [x1 - dx * 2, y1 - dy * 2], px = -dy * 5, py = dx * 5;   // a clear arrowhead
+  const words = { R: "reinforcing", B: "balancing" }[c.polarity] || "polarity not known";
+  const g = s("g", { class: `loop-marker pol-${c.polarity || "unknown"}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join("|"),
+                     "data-act": "loop", "data-x": x, "data-y": y, transform: `translate(${x},${y})`,
                      onclick: (ev) => { ev.stopPropagation(); sdHighlight(c.name); openCausal(c.name); },
                      onpointerenter: () => { if (!S.dragging) sdHover(c.name); }, onpointerleave: () => sdHover(null) },
-    s("title", {}, `${label} ${c.name}: ${words} (click: its parts, and what it is)` +
+    s("title", {}, `${label} ${c.name}: a ${words} feedback loop (click: its parts, and what it is)` +
       (loops.length > 1 ? `\nand ${loops.length - 1} more drawn alike here: ${loops.slice(1).map((x2) => `${x2.label} ${x2.name}`).join(", ")}` : "")),
     s("circle", { class: "marker-hit", r: r + 4 }),
     s("path", { class: "marker-arc", d: `M${x0},${y0} A${r},${r} 0 1 ${clockwise ? 1 : 0} ${x1},${y1}` }),
     s("path", { class: "marker-head", d: `M${tip[0]},${tip[1]} L${base[0] + px},${base[1] + py} L${base[0] - px},${base[1] - py} Z` }),
-    s("text", { class: "marker-letter", y: 3.8, "text-anchor": "middle", style: label.length > 2 ? "font-size:8.5px" : null }, label),
-    loops.length > 1 ? s("text", { class: "marker-more", x: r + 3, y: 4, "text-anchor": "start" }, `+${loops.length - 1}`) : null,
-    name ? s("text", { class: "marker-name", y: r + 13, "text-anchor": "middle" }, name) : null);
+    s("text", { class: "marker-letter", y: 4, "text-anchor": "middle" }, label),
+    loops.length > 1 ? s("text", { class: "marker-more", x: r + 4, y: 4, "text-anchor": "start" }, `+${loops.length - 1}`) : null,
+    ...lines.map((t, i) => s("text", { class: "marker-name", y: r + 14 + i * 13, "text-anchor": "middle" }, t)));
   return g;
 }
 
@@ -314,7 +390,7 @@ function sdApply(name) {
     e.classList.toggle("in-loop", on);
   }
   for (const m of svg.querySelectorAll(".loop-marker")) {
-    const mine = !!name && (m.dataset.loops || "").split(" ").includes(name);
+    const mine = !!name && (m.dataset.loops || "").split("|").includes(name);
     m.classList.toggle("on", mine); m.classList.toggle("dim", !!c && !mine);
   }
   for (const r of document.querySelectorAll(".looprow")) r.classList.toggle("hl", r.dataset.loop === name);
@@ -324,18 +400,31 @@ function sdApply(name) {
 
 function sdLoopList(side, g) {
   const order = { R: 0, B: 1 };
-  const all = sdLoopGroups(g).flatMap((x) => x.loops)
-    .sort((a, b) => (order[a.polarity] ?? 2) - (order[b.polarity] ?? 2) || (parseInt(a.label.slice(1)) - parseInt(b.label.slice(1))));
-  side.append(h("h3", {}, `feedback loops (${all.length})`));
-  if (!all.length) side.append(h("div", { class: "muted" }, "no feedback loops drawn here"));
-  const counts = ["R", "B", null].map((p) => [p, all.filter((c) => (c.polarity || null) === p).length]).filter(([, n]) => n);
-  if (counts.length) side.append(h("div", { class: "muted small" }, counts.map(([p, n]) => `${n} ${{ R: "reinforcing", B: "balancing" }[p] || "of unknown polarity"}`).join(", ")));
-  for (const c of all) {
-    side.append(h("div", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
-                           onclick: () => { sdHighlight(c.name); openCausal(c.name); } },
-      h("div", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label), " ", h("b", {}, c.name)),
-      h("div", { class: "sub" }, `${{ R: "reinforcing", B: "balancing" }[c.polarity] || "polarity not known"} · ${new Set(c.nodes).size} parts`)));
+  const num = (c) => parseInt(c.label.slice(1)) || 0;
+  const sort = (xs) => xs.sort((a, b) => (order[a.polarity] ?? 2) - (order[b.polarity] ?? 2) || num(a) - num(b));
+  const known = sort(sdLoopGroups(g).flatMap((x) => x.loops));
+  const unknown = sort(sdLoopGroups(g, null, true).flatMap((x) => x.loops).filter((c) => !c.polarity));
+  const modules = g.nodes.filter((n) => n.kind === "system").map((n) => [n, sdInside(g, n.id)]).filter(([, xs]) => xs.length);
+  const every = new Set([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => c.name));   // (one loop may run through two modules)
+  side.append(h("h3", {}, `feedback loops (${every.size})`));
+  const row = (c) => h("div", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
+                                onclick: () => { sdHighlight(c.name); openCausal(c.name); } },
+    h("div", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label), " ", h("span", {}, c.name)),
+    h("div", { class: "sub" }, `${{ R: "reinforcing", B: "balancing" }[c.polarity] || "polarity not known"} · ${new Set(c.nodes).size} parts drawn`));
+  if (!known.length && !unknown.length && !modules.length) side.append(h("div", { class: "muted" }, "no feedback loops drawn here"));
+  const counts = ["R", "B"].map((p) => [p, known.filter((c) => c.polarity === p).length]).filter(([, n]) => n);
+  if (counts.length) side.append(h("div", { class: "muted small" }, counts.map(([p, n]) => `${n} ${{ R: "reinforcing", B: "balancing" }[p]}`).join(", ")));
+  for (const c of known) side.append(row(c));
+  if (unknown.length) {                                 // not on the canvas: a sign along each is not known
+    const d = h("details", { class: "sd-unknown" }, h("summary", {}, `+${unknown.length} of unknown polarity`),
+      h("div", { class: "muted small" }, "a link along each has no sign in the model (ergostat check names them), so they are not marked on the diagram"));
+    for (const c of unknown) d.append(row(c));
+    side.append(d);
   }
+  for (const [n, xs] of modules)                        // as many as the module's own caption says
+    side.append(h("div", { class: "looprow sd-inside", onclick: () => S.toggleSystem?.(n.label) },
+      h("div", {}, h("b", {}, n.label), `: ${xs.length} feedback loop${xs.length > 1 ? "s" : ""} inside`),
+      h("div", { class: "sub" }, "open it to see them")));
 }
 
 const SD_LEGEND = {
@@ -351,7 +440,9 @@ const SD_LEGEND = {
   loopR: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-ink)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-ink)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-ink)">R</text>',
   loopB: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-ink)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-ink)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-ink)">B</text>',
   loopQ: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-muted)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-muted)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-muted)">?</text>',
-  module: '<rect x="2" y="2" width="22" height="14" rx="3" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="1.3"/><rect x="0" y="6" width="4" height="4" fill="var(--sd-paper)" stroke="var(--sd-ink)"/>',
+  module: '<rect x="2" y="2" width="22" height="14" rx="3" fill="var(--sd-paper)" stroke="var(--sd-ink)" stroke-width="1.3"/>',
+  sector: '<rect x="1" y="1" width="24" height="16" rx="3" fill="var(--sd-hull)"/><text x="3" y="7" font-size="5" fill="var(--sd-muted)">NAME</text>',
+  stub: '<path d="M1 9 H17" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M20 9 L14 6 L14 12 Z" fill="var(--sd-ink)"/><text x="21" y="12" font-size="8" fill="var(--sd-muted)">x</text>',
   shadow: '<text x="13" y="13" font-size="10" text-anchor="middle" fill="var(--sd-muted)">&lt;x&gt;</text>',
 };
 function sdLegend() {
@@ -366,23 +457,27 @@ function sdLegend() {
     has((n) => n.kind === "cloud") && row("cloud", "source or sink: outside the model's boundary"),
     has((n) => n.kind === "auxiliary") && row("aux", "auxiliary: a name alone, worked out at each moment from what points into it (no memory)"),
     has((n) => n.exogenous) && row("exo", "exogenous input: from outside the model, nothing in it drives it (marked under its name)"),
-    has((n) => n.role === "gap") && row("aux", "desired level and gap: a goal, as goal-seeking structure (gap = desired − actual)"),
-    has((n) => n.role === "decision") && row("aux", "decision: what a rule reads, joined to the flows it sets"),
+    has((n) => n.role === "desired") && row("aux", "desired level: the level wanted (desired backlog = 0)"),
+    has((n) => n.role === "gap" && n.excess) && row("aux", "excess: actual − desired, for a level kept down; it drives the flow that brings it down (+)"),
+    has((n) => n.role === "gap" && !n.excess) && row("aux", "gap: desired − actual, for a level kept up or held; it drives the flow that closes it"),
+    has((n) => n.role === "decision") && row("aux", "decision: what it reads, joined to the flows it sets"),
     row("plus", "connector, +: the cause rises, the effect rises above what it would have been"),
     row("minus", "connector, −: the cause rises, the effect falls below what it would have been"),
     g.edges.some((e) => e.kind === "connector" && !e.polarity) && row("plain", "connector, no sign: the polarity is not known"),
     pols.has("R") && row("loopR", "reinforcing loop: a change comes back amplified"),
-    pols.has("B") && row("loopB", "balancing loop: a change comes back opposed (goal seeking)"),
-    pols.has("?") && row("loopQ", "loop whose polarity is not known: a sign along it is not known"),
-    has((n) => n.kind === "system") && row("module", "module: a system closed; its ports are what crosses its edge (▸ opens it, ⤓ draws it alone)"),
-    has((n) => n.kind === "terminal") && row("shadow", "shadow variable: a part outside this system (click to go there)"));
+    pols.has("B") && row("loopB", "balancing loop: a change comes back opposed (it seeks a desired level)"),
+    has((n) => n.kind === "system") && row("module", "module: a system closed; its connection points are what crosses its edge (▸ opens it, ⤓ draws it alone)"),
+    (g.open || []).length > 0 && g.nodes.some((n) => (n.systems || []).length) && row("sector", "sector: a system open, its parts on a tinted ground, its name at the top left (drag it by its name)"),
+    has((n) => n.kind === "terminal" && n.role !== "stub") && row("shadow", "shadow variable: a part drawn elsewhere, an input here (click to go there)"),
+    has((n) => n.role === "stub") && row("stub", "a connector out of this system: it ends at the name of what it drives"),
+    has((n) => n.kind === "cloud" && n.beyond) && row("cloud", "cloud named <x>: the flow goes on to x, outside this system"));
 }
 /* the same, in one row under a saved picture */
 function sdExportItems() {
   const g = S.graph || { nodes: [], edges: [] };
   return [["stock", "stock"], ["flow", "flow"], g.edges.some((e) => e.twoWay) && ["biflow", "biflow"], ["cloud", "source / sink"],
           ["aux", "auxiliary"], g.nodes.some((n) => n.exogenous) && ["exo", "exogenous"], ["plus", "connector +"], ["minus", "connector −"],
-          ["loopR", "reinforcing"], ["loopB", "balancing"], ["loopQ", "polarity not known"]].filter(Boolean);
+          ["loopR", "reinforcing"], ["loopB", "balancing"]].filter(Boolean);
 }
 
 /* ------------------------------------------------------------------ panels */
@@ -391,19 +486,23 @@ const SD_WHAT = {
   stock: ["Stock", "a level: what accumulates. It changes only by its flows, filling by its inflows and draining by its outflows, and keeps its value when they stop."],
   auxiliary: ["Auxiliary", "a converter: worked out at each moment from the parts that point into it, with no memory of its own (here it is measured, so no equation is written)."],
   exogenous: ["Exogenous input", "an auxiliary from outside the model's boundary: nothing in the model drives it, and it drives what it points into."],
-  desired: ["Desired level", "the goal, drawn as system dynamics draws goal-seeking structure: the level wanted, compared with the actual one in the gap."],
-  gap: ["Gap", "the discrepancy: the desired level less the actual one. It drives the flow that closes it, so the stock is pulled toward its goal: a balancing loop."],
-  decision: ["Decision", "a decision rule: what it reads (the connectors into it) decides the flows it sets (the connectors out of it). What it does with each reading is its own, so those links have no sign."],
+  desired: ["Desired level", "the level wanted, compared with the actual one in the gap (or the excess). The flow it drives pulls the actual level toward it: a balancing loop."],
+  gap: ["Gap", "the discrepancy: the desired level less the actual one. It drives the flow that closes it, so the level is pulled toward the desired one: a balancing loop."],
+  excess: ["Excess", "the discrepancy for a level kept down: the actual level less the desired one. It drives the flow that brings it down (+), so the level is pulled back to the desired one: a balancing loop."],
+  decision: ["Decision", "what it reads (the connectors into it) decides the flows it sets (the connectors out of it). A link into it is signed where the model says which way it acts."],
   flow: ["Flow", "a rate: what moves into or out of a stock per hour, along its pipe. Its valve is where the rate is set; the connectors into it are what it depends on. A cloud at an end is outside the model's boundary."],
   pipe: ["Flow", "the pipe a flow runs along, from the stock it drains to the stock it fills (or a cloud: outside the model's boundary). Only flows change stocks."],
   connector: ["Connector", "an information link: the cause at its tail changes the effect at its head. Nothing moves along it. Its sign is its polarity: + when the effect moves the same way as the cause, − when the opposite way."],
-  loop: ["Feedback loop", "a closed chain of cause and effect. Reinforcing (R): the product of its signs is +, so a change comes back amplified (growth or collapse). Balancing (B): the product is −, so a change comes back opposed (goal seeking). ?: a sign along it is not known."],
-  system: ["Module", "a system drawn closed, as Stella draws a module: its ports are what crosses its edge. Open it to see its stocks, flows and loops."],
+  loop: ["Feedback loop", "a closed chain of cause and effect. Reinforcing (R): the product of its signs is +, so a change comes back amplified (growth or collapse). Balancing (B): the product is −, so a change comes back opposed (it seeks a desired level). ?: a sign along it is not known, so it is listed beside the diagram and not marked on it."],
+  system: ["Module", "a system drawn closed, as Stella draws a module: its connection points are what crosses its edge. Open it to see its stocks, flows and loops."],
+  shadow: ["Shadow variable", "a part drawn elsewhere (in another system, or outside this one), shown here where it is an input. Nothing here points into it."],
+  stub: ["Connector out", "what this part drives outside the system drawn here: the connector ends at its name."],
 };
 function sdWhat(kind) { const w = SD_WHAT[kind]; return w ? h("p", { class: "what" }, h("b", {}, w[0]), ": ", w[1]) : null; }
 function sdNodeKind(n) {
   if (n.kind === "valve" || n.kind === "disturbance") return "flow";
-  if (n.kind === "auxiliary") return n.role || (n.exogenous ? "exogenous" : "auxiliary");
+  if (n.kind === "auxiliary") return n.role === "gap" && n.excess ? "excess" : n.role || (n.exogenous ? "exogenous" : "auxiliary");
+  if (n.kind === "terminal") return n.role === "stub" ? "stub" : "shadow";
   return n.kind;
 }
 function sdGraphLinks() {                              // each drawn part's panel, by id; a part in a closed system: its port's
@@ -447,8 +546,9 @@ async function openNodeSD(n) {
   const rows = [];
   let chart = null;
   if (n.role === "desired" || n.role === "gap" || n.role === "decision") {
-    rows.push(["goal", n.goal ? `${n.goal}: ${n.of} ${n.setpoint.replace("<=", "≤").replace(">=", "≥")}` : null],
-              ["now", n.role === "gap" ? (n.valueText || "not known yet") : n.role === "desired" ? n.valueText : null],
+    rows.push(["desired level", n.goal ? `desired ${n.of} = ${n.desired ?? n.valueText}` : null],
+              [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.valueText || "not known yet"}` : null],
+              ["switching", n.switching || null],
               ["description", n.description]);
   } else if (n.kind === "valve" || n.kind === "disturbance") {
     let d = null;
@@ -465,11 +565,12 @@ async function openNodeSD(n) {
     rows.push(["description", m.description || n.description], ["now", `${fmt(now.value ?? n.value)} ${m.unit || n.unit || ""}`],
               ["measured", now.at ? ago(now.at) : null]);
     if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? `${fmt(now.inflow)}/h` : null], ["outflow", now.outflow != null ? `${fmt(now.outflow)}/h` : null]);
-    for (const gl of n.goals || []) rows.push(["goal", `${gl.name}: ${gl.setpoint.replace("<=", "≤").replace(">=", "≥")}${gl.acted ? "" : " (nothing in the model acts on it: no feedback)"}`]);
+    for (const gl of n.goals || []) rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint}${gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)"}`]);
     if (now.points?.length > 1) chart = sparkSvg(now.points, 380, 70);
   }
   rows.push(["depends on", join(causes)], ["drives", join(effects)]);
   const id = n.id;
+  if (n.kind === "terminal") rows.unshift(["drawn in", n.in || "the model"]);
   showDetail(h("div", { class: "kind" }, (SD_WHAT[kind] || [kind])[0].toLowerCase() + " · system dynamics"), h("h2", {}, n.label), sdWhat(kind),
     h("h3", {}, "how it is now"), dl(rows), chart,
     loopsPara(loopsOf((c) => c.nodes.includes(id))),
@@ -515,41 +616,51 @@ async function openEdgeSD(e) {
     const sign = sdSign(e.polarity);
     const what = sign === "+" ? `When ${nameOf(src)} rises, ${nameOf(dst)} rises above what it would otherwise have been (and falls below it when ${nameOf(src)} falls).`
       : sign === MINUS ? `When ${nameOf(src)} rises, ${nameOf(dst)} falls below what it would otherwise have been (and rises above it when ${nameOf(src)} falls).`
-      : `${nameOf(dst)} depends on ${nameOf(src)}, but which way is not known` + ((e.rules || []).length ? `: what ${e.rules.join(", ")} does with it is its own.` : ": the model does not sign it.");
+      : `${nameOf(dst)} depends on ${nameOf(src)}, but which way is not known: the model does not sign it (ergostat check names it).`;
     showDetail(h("div", { class: "kind" }, "connector · system dynamics"), h("h2", {}, nameOf(src), " → ", nameOf(dst)), sdWhat("connector"),
       h("p", { class: "muted" }, what),
       h("h3", {}, "how it is now"),
       dl([["cause", link(src)], ["effect", link(dst)], ["polarity", sign ? `${sign} (${sign === "+" ? "same way" : "opposite way"})` : "not known"],
-          ["decided by", (e.rules || []).length ? e.rules.join(" → ") : null]]),
+          ["through the decision of", (e.rules || []).length ? e.rules.join(" → ") : null]]),
       crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops);
   }
   S.selKey = linkKey(e);
   trace(S.selKey);
 }
 
-/* a feedback loop: its polarity, its parts in order, and each link's sign */
+/* a feedback loop: its label and name, its polarity, its parts in order as drawn here, and the sign of each
+   line between them as drawn (a module where it runs inside a closed system, a shadow where it leaves) */
 function openCausal(name) {
   const c = (S.graph?.causalLoops || []).find((x) => x.name === name);
   if (!c) return;
   const { link, byId } = sdGraphLinks();
   const word = { R: "reinforcing", B: "balancing" }[c.polarity] || "polarity not known";
-  const part = (p) => {
-    const [k, nm] = [p.split(".")[0], p.split(".").slice(1).join(".")];
-    const id = k === "flow" ? `flow:${nm}` : k === "stock" || k === "auxiliary" ? `stock:${nm}` : k === "goal" ? `gap:${nm}` : `decision:${nm}`;
-    if (byId[id]) return link(id);
-    return h("span", { class: "muted" }, k === "block" ? `rule ${nm}` : k === "goal" ? `goal ${nm}` : nm);
+  const g = S.graph;
+  const part = (id) => {
+    const n = byId[id];
+    if (n?.kind === "system") return h("span", {}, "module ", link(id));
+    if (n?.kind === "terminal") return h("span", { class: "muted" }, `<${n.label}>`);
+    return n ? link(id) : h("span", { class: "muted" }, id.split(":").slice(1).join(":"));
   };
-  const unknown = (c.links || []).filter((x) => !x.polarity);
-  const minus = (c.links || []).filter((x) => x.polarity === "-").length;
-  showDetail(h("div", { class: "kind" }, `feedback loop · ${word}`), h("h2", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label), " ", c.name), sdWhat("loop"),
-    h("p", {}, c.polarity ? `${minus} negative link${minus === 1 ? "" : "s"} around it: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
-                          : `${unknown.length} link${unknown.length === 1 ? "" : "s"} along it ${unknown.length === 1 ? "has" : "have"} no known sign, so whether it reinforces or balances is not known.`),
+  const sign = (a, b) => {                              // the drawn line from a to b: a connector's sign, a pipe's way
+    const e = g.edges.find((x) => (x.from ?? x.source) === a && (x.to ?? x.target) === b);
+    if (e && e.kind === "connector") return sdSign(e.polarity) || "?";
+    if (e && e.kind === "pipe") return "+";                // a flow fills the stock it runs into
+    const back = g.edges.find((x) => x.kind === "pipe" && (x.from ?? x.source) === b && (x.to ?? x.target) === a);
+    return back ? MINUS : "";                               // a stock drains by its outflow
+  };
+  const ns = c.nodes, rows = ns.map((a, i) => [a, ns[(i + 1) % ns.length]]).filter(([a, b]) => a !== b);
+  const signs = rows.map(([a, b]) => sign(a, b));
+  const minus = signs.filter((x) => x === MINUS).length, unknown = signs.filter((x) => x === "?").length;
+  showDetail(h("div", { class: "kind" }, `feedback loop · ${word}`),
+    h("h2", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label)), h("div", { class: "subtitle" }, c.name), sdWhat("loop"),
+    h("p", {}, c.polarity ? `${minus} negative link${minus === 1 ? "" : "s"} around it as drawn: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
+                          : `${unknown || "a"} link${unknown === 1 ? "" : "s"} along it ${unknown === 1 ? "has" : "have"} no known sign, so whether it reinforces or balances is not known.`),
     h("h3", {}, "around the loop"),
-    h("table", { class: "parts" }, (c.links || []).map((x) => h("tr", {}, h("td", {}, part(x.source)), h("td", { class: "muted" }, "→"), h("td", {}, part(x.target)),
-      h("td", { class: "num" }, sdSign(x.polarity) || "?")))),
-    c.goals?.length ? h("p", { class: "muted" }, `It seeks the goal${c.goals.length > 1 ? "s" : ""} ${c.goals.join(", ")}.`) : null,
+    h("table", { class: "parts" }, rows.map(([a, b], i) => h("tr", {}, h("td", {}, part(a)), h("td", { class: "muted" }, "→"), h("td", {}, part(b)),
+      h("td", { class: "num" }, signs[i])))),
     (() => {                                            // the loops drawn alike here share its marker
-      const grp = sdLoopGroups(S.graph).find((x) => x.loops.includes(c));
+      const grp = sdLoopGroups(S.graph, null, true).find((x) => x.loops.includes(c));
       const others = grp ? grp.loops.filter((x) => x !== c) : [];
       return others.length ? h("p", { class: "muted" }, "Drawn alike here (they differ only inside a closed system or outside this one): ",
         others.flatMap((x, i) => [i ? ", " : "", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); sdHighlight(x.name); openCausal(x.name); } }, `${x.label} ${x.name}`)])) : null;

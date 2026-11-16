@@ -155,7 +155,7 @@ def test_the_compiler_refuses_two_setters_unknown_auxiliaries_and_a_driven_exoge
     _, problems = load(tmp_path, SET.replace("    driven-by: auxiliary.setting", "    exogenous: true\n    driven-by: auxiliary.setting"))
     assert "exogenous-driven" in {x.code for x in problems}
     _, problems = load(tmp_path, SET.replace("in: goal.quality-held.error", "in: +goal.quality-held.error"))
-    assert any("only a driven-by carries a sign" in x.message for x in problems)
+    assert any("a sign is written on what a block reads of a stock, flow or auxiliary" in x.message for x in problems)
 
 
 def test_the_diagram_draws_auxiliaries_two_way_flows_and_signed_influences(tmp_path):

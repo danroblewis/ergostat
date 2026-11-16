@@ -128,6 +128,8 @@ blocks:
   ...
 agents:                         # optional: machines shared by several blocks
   ...
+loops:                          # optional: names for feedback loops (section 12a)
+  ...
 ```
 
 ## 4a. Systems: parts made of parts
@@ -527,7 +529,7 @@ Common keys:
 | Key | Type | Meaning |
 |---|---|---|
 | `type` | block type | What it computes (below) |
-| `in` | reference, list, or map of port → reference | Its inputs |
+| `in` | reference, list, or map of port → reference | Its inputs. On a machine block, a stock, flow or auxiliary read may carry its sign, as a `driven-by` does: `+stock.x` (it does more as x rises), `-stock.x` (less); see §12a |
 | `out` | reference, list, or map of port → reference | Where its outputs go: a flow (it sets that flow), another block (it commands it), or a goal's setpoint (cascade) |
 | `role` | `controller`, `actuator`, `logic` | Optional label, for drawing and checks. Derived when left out |
 | `system`, `description` | | |
@@ -781,14 +783,57 @@ one's members, polarity and name). Each link has a sign:
 | a goal → a block acting while it is off (`.off`, an `onoff` or `proportional` on it, the goal itself) | + for a floor (`>=`), − for a ceiling (`<=`), not known for `==` |
 | a block → the block it commands | + for a machine block; a built-in's own sign (`compare below` and a falling `lookup` −, `expr` not known) |
 | a block → what it moves, sets or commands (a setpoint it sets raises the error) | + |
-| a stock, flow or auxiliary → a machine block that reads it | not known (what the block does with it is its own) |
+| a stock, flow or auxiliary → a machine block that reads it | as written on the read (`in: +stock.x`); unsigned, as the gap of a goal the block serves that is about that very quantity says (+ for a ceiling, − for a floor, not known for `==`), else not known |
+
+A block **serves** the goals it names (`goal:`, or reading `goal.x`); one that names none serves the
+goals whose loop closes with it as a controller or an actuator (section 12). So a block reading a
+stock its own goal keeps down acts the more, the higher the stock: `rollout` reading `failures`
+for `no-failures ≤ 0` is +. A link whose sign is still not known is reported by `check`
+(**unsigned-link**, one finding per block or flow, naming each read or `driven-by`): every loop
+through it is of unknown polarity until it is signed.
 
 A loop is **R** (reinforcing) when the product of its signs is +, **B** (balancing) when −, and of
-unknown polarity when any sign along it is not known. A loop through a goal is named for the goal
-(`quality-held`; several goals joined with `+`), any other for the stocks it runs through
-(`missing-ops+users`); a second loop with the same name gets `-2`. A goal-seeking loop whose links
-are all known comes out balancing, as it should; one that comes out reinforcing is a controller
-pushing the wrong way.
+unknown polarity when any sign along it is not known. A goal-seeking loop whose links are all known
+comes out balancing, as it should; one that comes out reinforcing is a controller pushing the wrong
+way.
+
+**Names.** A loop's name is how system dynamics people talk about it ("rework", "word of mouth"),
+so the model may give it one:
+
+```yaml
+loops:
+  rework:                        # the shortest loop through every part named
+    through: [flow.rejected, stock.backlog]
+    description: rejected work goes back to the backlog
+  quality:                       # or the shortest loop that seeks this goal
+    goal: quality-held
+```
+
+| Key | Type | Meaning |
+|---|---|---|
+| `through` | list of references | The parts it runs through (any of them, in any order); the shortest loop through all of them takes the name |
+| `goal` | goal name | The shortest loop through this goal takes the name |
+| `description` | | |
+
+One of `through` and `goal`; a reference that does not exist is an error. A loop the model does
+not name takes its **head**: the goal it seeks (the first, by name, when it seeks several), else the
+first stock it runs through. The shortest loop with a head takes it bare (`backlog-clear`); every
+other loop with that head is the head "via" the fewest of its members no sibling loop has, flows
+first, then stocks, auxiliaries, goals and blocks (`backlog-clear via rejected`). Never numbered,
+never a list of everything in it.
+
+**Drawn** (the dynamics view, `ergostat/dynamics.py`): each loop is labelled as Sterman numbers them,
+R1, B1 (the shortest first, the ones the model names before others of their length), with its name
+beneath. Only loops of known polarity are marked on the diagram, each inside the loop as drawn; the
+others are one entry beside it, "+N of unknown polarity", that opens to list them. A goal is drawn
+as a desired level (a value: `desired backlog = 0`) and the discrepancy that drives the correction +:
+for a ceiling the **excess** (actual − desired), for a floor or a level held the **gap** (desired −
+actual); when the decisions serving it switch (on while backlog > 0, off once it is ≤ 0), the panel
+says so. A connector between parts in two systems comes from a shadow variable `<x>` inside the
+receiving system; a shadow is an input only, so in a system drawn alone a connector out ends at a
+stub naming what it drives, and a pipe out ends in a cloud with the part beyond named under it. An
+open system is a sector, a light tint with its name at the top left; a closed one is a module, its
+connection points named on its edge. The view's panels use system dynamics' words only.
 
 ## 13. Examples
 
