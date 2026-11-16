@@ -154,9 +154,12 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         for src in m.flows[n].driven_by:
             sid = f"flow:{src}" if src in m.flows else f"stock:{src}"         # a stock's or a variable's node
             edges.append(_edge(sid, f"flow:{n}", "influence"))
+    # a sensor is drawn where it is in a loop: read by a controller. One that only records a value is
+    # instrumentation, not part of the system's structure: its reading is shown on what it measures
+    read = {s for c in m.controllers.values() if not c.open_loop for s in c.reads}
     for n in (x for x in m.sensors if x in parts):
         s = m.sensors[n]
-        if s.implied:                                         # a variable's set value: the block's badge says who set it
+        if s.implied or n not in read:                        # (implied: a variable's set value, said by the block's badge)
             continue
         target = f"stock:{s.measures}" if s.measures in m.stocks else f"flow:{s.measures}"
         got = readings.get(n)
