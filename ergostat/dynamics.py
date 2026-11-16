@@ -15,10 +15,11 @@ agents. Drawn from the control graph (``graph.control``) and the model's causal 
   (on above a ceiling, off once back under), that is said in the panel, not drawn;
 - every feedback loop is given, beside its members and polarity, its members as drawn and a label as
   Sterman numbers them (R1, B2, and ?3 for one whose polarity is not known);
-- after folding (``finish``): a connector between parts drawn in two different systems is drawn as
+- after folding (``finish``): a connector out of a closed module into an open system is drawn from
   a shadow variable ``<name>`` inside the receiving system, as Vensim and Stella draw a link from
-  another view; a shadow is an input only, so a connector out to a part outside a system drawn alone
-  ends in a stub naming it, and a pipe out to one ends in a cloud (the part named beneath);."""
+  another view (a line between two parts both drawn is drawn as itself); a shadow is an input
+  only, so a connector out to a part not drawn ends in a stub naming it, and a pipe out to one
+  ends in a cloud (the part named beneath)."""
 
 from __future__ import annotations
 
@@ -307,11 +308,12 @@ def _inner(n: dict) -> str:
 
 
 def shadows(g: dict) -> dict:
-    """Lines kept inside the systems they belong to, as Vensim and Stella draw a model of several
-    views (sectors, modules):
+    """Lines whose other end is not on the canvas, as Vensim and Stella draw a model of several views
+    (modules), and only those: a line between two parts both drawn, in open systems or not, is drawn
+    as itself, however far it runs (the owner, 2026-11-16: open systems keep their real connections).
 
-    - a connector from a part drawn in one system (or from a closed module) to a part drawn in another
-      becomes one from a shadow variable ``<name>`` inside the receiving system (one per part and
+    - a connector out of a closed module (a part inside it, not drawn) into a part drawn in an open
+      system comes from a shadow variable ``<name>`` inside the receiving system (one per part and
       system);
     - a shadow is an input only: a connector out to a part outside a system drawn alone, or into a
       closed module, ends at a stub naming that part, inside the sending system; a pipe to or from a
@@ -361,15 +363,6 @@ def shadows(g: dict) -> dict:
                 e["target"] = sid
                 e.pop("targetPort")
                 e["id"] = f"connector:{s}->{sid}"
-        elif s in drawn and t in drawn and _inner(nodes[s]) != _inner(nodes[t]):
-            src, dst = nodes[s], nodes[t]
-            sid = f"shadow:{_inner(dst)}:{s}"
-            from .fold import name_of, value_of
-            extra.setdefault(sid, {"id": sid, "kind": "terminal", "role": "shadow", "label": name_of(src), "of": src.get("kind"),
-                                   "orig": s, "in": _inner(src) or None, "valueText": value_of(src),
-                                   "systems": list(dst.get("systems") or [])})
-            e["source"] = sid
-            e["id"] = f"connector:{sid}->{t}"
         edges.append(e)
     used = {x for e in edges for x in (e["source"], e["target"])}
     ports = {e.get(k) for e in edges for k in ("sourcePort", "targetPort")}

@@ -209,6 +209,11 @@ async function runLayoutWith(graph, g, preset, name = "") {
     } };
     walk(lay);
     if (long.length) return runLayoutWith(plain, g, { ...p, wrap: long });
+    // open systems side by side far wider than tall (the dynamics view: their real lines between them pull them
+    // into one row): stacked instead, what feeds coming first, so the lines between them run down
+    if (g.kind === "dynamics" && !p.stack && lay.children.filter((c) => c.id.startsWith("hull:")).length > 1 &&
+        lay.width > WRAP_WIDE && lay.width / lay.height > p.wrapOver)
+      return runLayoutWith(plain, g, { ...p, stack: true, root: { ...(p.root || {}), "elk.direction": "DOWN" } });
   }
   unreverse(lay, state.reversed);
   restoreDropped(lay, state.dropped);

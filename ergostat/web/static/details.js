@@ -2,7 +2,7 @@
 "use strict";
 /* ------------------------------------------------------------------ details */
 
-function closeDetail() { if (S.selKey) { S.selKey = null; trace(S.hoverKey); } const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
+function closeDetail() { if (S.selKey) { S.selKey = null; trace(S.hoverKey); } if (S.hlCausal) sdHighlight(null); const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
 function showDetail(...kids) {
   if (S.selKey) { S.selKey = null; trace(S.hoverKey); }  // another detail: the line chosen before lets go
   const d = $("#detail");

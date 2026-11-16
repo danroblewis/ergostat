@@ -364,7 +364,7 @@ function sdMarker(c, x, y, clockwise, lines, loops = [c]) {
   const words = { R: "reinforcing", B: "balancing" }[c.polarity] || "polarity not known";
   const g = s("g", { class: `loop-marker pol-${c.polarity || "unknown"}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join("|"),
                      "data-act": "loop", "data-x": x, "data-y": y, transform: `translate(${x},${y})`,
-                     onclick: (ev) => { ev.stopPropagation(); sdHighlight(c.name); openCausal(c.name); },
+                     onclick: (ev) => { ev.stopPropagation(); sdToggle(c.name, loops); },
                      onpointerenter: () => { if (!S.dragging) sdHover(c.name); }, onpointerleave: () => sdHover(null) },
     s("title", {}, `${label} ${c.name}: a ${words} feedback loop (click: its parts, and what it is)` +
       (loops.length > 1 ? `\nand ${loops.length - 1} more drawn alike here: ${loops.slice(1).map((x2) => `${x2.label} ${x2.name}`).join(", ")}` : "")),
@@ -379,7 +379,13 @@ function sdMarker(c, x, y, clockwise, lines, loops = [c]) {
 
 /* a loop pointed at or chosen: its parts and its links lit, the rest faded */
 function sdHover(name) { sdApply(name || S.hlCausal); }
-function sdHighlight(name) { S.hlCausal = name; sdApply(name); }
+function sdHighlight(name) { S.hlCausal = name || null; sdApply(name); }
+/* a loop's marker (or its row) clicked: the loop lit and its panel open; clicked again, both let go (as the
+   background, Escape and the panel's close do: closeDetail) */
+function sdToggle(name, loops = []) {
+  if (S.hlCausal && (S.hlCausal === name || loops.some((x) => x.name === S.hlCausal))) { closeDetail(); return; }
+  sdHighlight(name); openCausal(name);
+}
 function sdApply(name) {
   const svg = $("svg.canvas");
   if (!svg) return;
@@ -411,7 +417,7 @@ function sdLoopList(side, g) {
   const every = new Set([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => c.name));   // (one loop may run through two modules)
   side.append(h("h3", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
   const row = (c) => h("div", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
-                                onclick: () => { sdHighlight(c.name); openCausal(c.name); } },
+                                onclick: () => sdToggle(c.name) },
     h("div", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label), h("span", {}, c.name)),
     h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[c.polarity] || "Polarity not known"}, ${new Set(c.nodes).size} parts`));
   if (!known.length && !unknown.length && !modules.length) side.append(h("div", { class: "muted" }, "No feedback loops drawn here."));

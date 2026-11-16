@@ -1171,3 +1171,47 @@ def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, m
     check_guide(walk_guide(pg, f"file://{out}#/guide"))
     pg.close()
     assert not errors and not asked, (errors, asked)
+
+
+def test_a_loop_lit_from_its_marker_lets_go_the_way_everything_else_does(browser, tmp_path):
+    """The owner could not unselect a loop: clicking its marker again, the background, Escape, and the
+    detail's close each let it go (no loop lit, nothing faded)."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=*", 0)
+        pg.get_by_role("button", name="Fit").or_(pg.get_by_role("button", name="fit")).first.click()
+        pg.wait_for_timeout(300)
+        lit = "() => [S.hlCausal, document.querySelector('svg.canvas').classList.contains('loop-hl'), " \
+              "document.querySelectorAll('svg.canvas .loop-marker.on, svg.canvas .node.dim').length]"
+        marker = pg.locator('.loop-marker[data-loop="backlog-clear"]')
+
+        def light():
+            marker.dispatch_event("click")
+            pg.wait_for_function("() => S.hlCausal === 'backlog-clear' && !document.querySelector('#detail').hidden", timeout=5000)
+            assert pg.evaluate(lit)[1]
+
+        def gone(how):
+            pg.wait_for_function("() => !S.hlCausal", timeout=5000)
+            assert pg.evaluate(lit) == [None, False, 0], how
+        light()
+        marker.dispatch_event("click")                                   # the marker again: a toggle
+        gone("marker again")
+        light()
+        pg.keyboard.press("Escape")
+        gone("Escape")
+        light()
+        pg.locator("#detail button.close").click()
+        gone("the detail's close")
+        light()
+        box = pg.locator("svg.canvas").bounding_box()                    # the background, where nothing is drawn
+        spot = pg.evaluate("""([x0, y0, w, h]) => {
+            for (let y = y0 + 8; y < y0 + h; y += 12) for (let x = x0 + 8; x < x0 + w; x += 12) {
+              const el = document.elementFromPoint(x, y);
+              if (el && el.closest('svg.canvas') && !el.closest('.node, .edge, .loop-marker, [data-act], .hull')) return [x, y];
+            }
+            return null; }""",
+                           [box["x"], box["y"], box["width"], box["height"]])
+        assert spot
+        pg.mouse.click(*spot)
+        gone("the background")
+        pg.close()

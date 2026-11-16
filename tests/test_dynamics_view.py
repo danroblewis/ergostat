@@ -93,17 +93,22 @@ def test_closed_systems_fold_the_loops_into_their_boxes(factory):
     assert not any(n["kind"] in ("sensor", "controller") for n in alone["nodes"])
 
 
-def test_a_connector_across_systems_comes_from_a_shadow_inside_the_receiving_system(factory):
+def test_a_line_between_parts_drawn_in_two_open_systems_is_drawn_as_itself(factory):
     g = factory(view="dynamics", open="*")
     ids = {n["id"]: n for n in g["nodes"]}
-    inner = lambda i: (ids[i].get("systems") or [""])[0]                # noqa: E731
-    for e in g["edges"]:
-        if e["kind"] != "connector":
-            continue
-        assert inner(e["source"]) == inner(e["target"]), e["id"]         # no connector runs from one system into another
-    sh = ids["shadow:product:flow:deployed"]
-    assert sh["kind"] == "terminal" and sh["label"] == "deployed" and sh["orig"] == "flow:deployed" and sh["in"] == "delivery"
-    assert {e["target"] for e in g["edges"] if e["source"] == sh["id"]} == {"flow:fixes", "flow:regressions", "flow:shipped"}
+    assert not [n["id"] for n in g["nodes"] if n["kind"] in ("terminal",) or n.get("beyond")]   # no shadow, stub or named cloud
+    conn = {(e["source"], e["target"]) for e in g["edges"] if e["kind"] == "connector"}
+    # deployed (delivery) drives fixes, regressions and shipped (product): real connectors across the two open systems
+    assert {("flow:deployed", "flow:fixes"), ("flow:deployed", "flow:regressions"), ("flow:deployed", "flow:shipped")} <= conn
+    assert ids["flow:deployed"]["systems"][0] != ids["flow:fixes"]["systems"][0]
+    assert ("gap:backlog-clear", "flow:submitted") in conn                # intake's excess drives delivery's flow
+    pipes = {(e["source"], e["target"]) for e in g["edges"] if e["kind"] == "pipe"}
+    assert ("stock:backlog", "flow:submitted") in pipes                   # and the pipe between them is a pipe
+
+
+def test_a_closed_module_s_inside_is_still_a_shadow_in_the_open_system(factory):
+    g = factory(view="dynamics", open="product")
+    assert any(n.get("role") == "shadow" and n["label"] == "deployed" and n["in"] == "factory" for n in g["nodes"])
 
 
 def test_a_shadow_is_an_input_only_pipes_out_end_in_clouds_and_connectors_out_in_stubs(factory):
