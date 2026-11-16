@@ -285,6 +285,50 @@ def test_valves_face_their_links_and_pipes_show_their_arrowheads(browser, tmp_pa
         pg.close()
 
 
+UPRIGHT = """async () => {
+  // the stock building pinned where it is, its valve abandoned above it and the valve's cloud above that:
+  // the valve turns upright, its pipes in at the bottom and out at the top, the cloud's on its bottom
+  const at = (id) => S.layout.children.find((c) => c.id === id);
+  const st = at("stock:building"), v = at("flow:abandoned"), cl = at("cloud:abandoned:out");
+  const cx = st.x + st.width / 2;
+  S.pins = { "stock:building": { x: st.x, y: st.y }, "flow:abandoned": { x: Math.round(cx - v.width / 2), y: st.y - 150 },
+             "cloud:abandoned:out": { x: Math.round(cx - cl.width / 2), y: st.y - 280 } };
+  await S.relayout();
+  await S.layout.whenRouted;
+  const edge = (s, t) => S.layout.edges.find((le) => { const e = S.graph.edges.find((x) => x.id === le.id); return e && e.source === s && e.target === t; });
+  const ends = (le) => { const sec = le.sections[0]; return [sec.startPoint, sec.endPoint]; };
+  const c = at("flow:abandoned"), k = at("cloud:abandoned:out");
+  const [, inEnd] = ends(edge("stock:building", "flow:abandoned")), [outStart, outEnd] = ends(edge("flow:abandoned", "cloud:abandoned:out"));
+  const el = document.querySelector('g.node[data-id="flow:abandoned"]');
+  const info = S.layout.edges.filter((le) => { const e = S.graph.edges.find((x) => x.id === le.id);
+    return e && e.kind !== "pipe" && (e.source === "flow:abandoned" || e.target === "flow:abandoned"); })
+    .map((le) => { const e = S.graph.edges.find((x) => x.id === le.id); return e.source === "flow:abandoned" ? le.sections[0].startPoint : le.sections[0].endPoint; });
+  return { turn: c.turn, drawn: el.dataset.turn, glyph: el.querySelector("g")?.getAttribute("transform") || "",
+           inAtBottom: Math.abs(inEnd.y - (c.y + c.height)) < 3 && inEnd.x > c.x && inEnd.x < c.x + c.width,
+           outAtTop: Math.abs(outStart.y - c.y) < 3 && outStart.x > c.x && outStart.x < c.x + c.width,
+           cloudBottom: Math.abs(outEnd.y - (k.y + k.height)) < 3,
+           infoOnSide: info.every((p) => Math.abs(p.x - c.x) < 3 || Math.abs(p.x - (c.x + c.width)) < 3), info: info.length };
+}"""
+
+
+def test_a_valve_turns_upright_when_its_pipe_runs_up(browser, tmp_path):
+    """What flows into a valve below it and out of it above it: the valve is drawn turned a quarter, its
+    pipes attach at its bottom and top (and at the cloud's bottom), its information lines at its side."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=lab", 0)
+        r = pg.evaluate(UPRIGHT)
+        assert r["turn"]["flow"] == "up" and r["turn"]["stem"] in ("left", "right"), r
+        assert r["drawn"].startswith("up ") and r["glyph"].startswith("matrix(0,-1"), r
+        assert r["inAtBottom"] and r["outAtTop"] and r["cloudBottom"] and r["infoOnSide"], r
+        audit = pg.evaluate(AUDIT)
+        assert not audit["through"], audit["through"]
+        assert not errors, errors
+        pg.close()
+
+
 def test_the_background_hides_the_side_panel_and_a_part_dragged_stays_pinned(browser, tmp_path):
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})

@@ -180,20 +180,26 @@ function avoidSpec(lay, g) {
       ((ends[id] ||= {})[`${w}|${e.kind}`] ||= []).push(le.id);
     }
   }
+  // stocks a valve turned upright joins: their pipes may meet them on top and below too
+  const upright = new Set(lines.map((le) => edgeOf[le.id]).filter((e) => e.kind === "pipe").flatMap((e) => {
+    const v = ["up", "down"].includes(box[e.source]?.turn?.flow) ? e.target : ["up", "down"].includes(box[e.target]?.turn?.flow) ? e.source : null;
+    return v ? [v] : [];
+  }));
   const pinOf = {};                                      // `${line}|${s or t}` -> pin class
   const shapes = [];
   for (const c of Object.values(box)) {
     const n = byId[c.id], k = n.kind, pins = [];
     const at = (cls, x, y, dir, shared, abs) => pins.push({ cls, x, y, dir, shared: !!shared, abs: !!abs });
     if (k === "valve" || k === "disturbance") {
-      at(PIN.IN, 0, 0.5, "left", true);
-      at(PIN.OUT, 1, 0.5, "right", true);
+      const t = c.turn || { flow: "right", stem: "up" };      // which way it faces (valves.js)
+      const side = (d, f) => { const [x, y] = sidePoint(d, f, 1, 1); return [x, y, d]; };
+      at(PIN.IN, ...side(SIDE_OF[t.flow], 0.5), true);
+      at(PIN.OUT, ...side(t.flow, 0.5), true);
       // its stem: what drives it comes in at one point, what it tells leaves at another
-      at(PIN.STEM, 0.4, n.flip ? 1 : 0, n.flip ? "down" : "up", true);
-      at(PIN.TELL, 0.6, n.flip ? 1 : 0, n.flip ? "down" : "up", true);
-    } else if (k === "cloud") {
-      at(PIN.PIPE, 0, 0.5, "left", true);
-      at(PIN.PIPE, 1, 0.5, "right", true);
+      at(PIN.STEM, ...side(t.stem, 0.4), true);
+      at(PIN.TELL, ...side(t.stem, 0.6), true);
+    } else if (k === "cloud") {                              // a pipe meets a cloud on whichever side faces it
+      for (const d of ["left", "right", "up", "down"]) at(PIN.PIPE, ...sidePoint(d, 0.5, 1, 1), d, true);
     } else {
       if (k === "system") (n.ports || []).forEach((p, i) => {
         const lp = (c.ports || []).find((q) => q.id === p.id);
@@ -201,6 +207,7 @@ function avoidSpec(lay, g) {
         if (lp) at(PIN.PORT + i, west ? 0 : c.width, lp.y + (lp.height || 0) / 2, west ? "left" : "right", true, true);
       });
       if (k === "stock") for (const f of PIPE_ALONG) { at(PIN.PIPE, 0, f, "left"); at(PIN.PIPE, 1, f, "right"); }
+      if (k === "stock" && upright.has(c.id)) for (const f of [0.35, 0.5, 0.65]) { at(PIN.PIPE, f, 0, "up"); at(PIN.PIPE, f, 1, "down"); }
       // the rest: each net (lines of one kind, all leaving or all arriving) its own point on each side, shared by
       // its lines; single lines points of their own, one line each, enough of them for all
       const sides = k === "stock" ? ["up", "down"] : ["up", "down", "left", "right"];
