@@ -305,7 +305,7 @@ function openMachine(n) {
     n.description ? h("p", { class: "muted" }, n.description) : null,
     dl([["on the record", n.seen ? `yes: last ${ago(n.last)}` : `nothing in ${windowWords()}`],
         ["in the model", n.declared ? (n.label === "ergostat" ? "ergostat itself: it records the loops' crossings and the blocks' runs" : "declared") : "not declared: seen only on the record"],
-        ["rung", typeof n.rung === "number" ? `${n.rung} · ${n.agentKind}` : null],
+        ["kind", n.agentKind || null],
         ["instances", n.instances?.length ? n.instances.join(", ") : null],
         ["runs", n.runs ? String(n.runs) : null], ["runs when", n.schedule || null]]),
     h("h3", {}, `published, in ${windowWords()}`),

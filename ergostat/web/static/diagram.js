@@ -81,7 +81,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
       const lp = Object.values(g.loops || {}).find((l) => l.stock === n.label);
       w = Math.max(w, textWidth(n.label) + 34, (n.valueText || "").length * 14 + textWidth(n.unit || "") + textWidth(lp ? lp.setpoint : "") + 44);
     }
-    if (n.kind === "agent") w = Math.max(w, textWidth(n.label) * 1.15 + textWidth(`rung ${n.rung} · ${n.agentKind}`) + 56,
+    if (n.kind === "agent") w = Math.max(w, textWidth(n.label) * 1.15 + textWidth(`${n.agentKind}`) + 56,
                                          ...(n.roles || []).map((r) => textWidth(`${r.kind} ${r.name}`) + 40));   // the name and its rung, apart
     if (n.kind === "controller") w = Math.max(w, textWidth(n.label) * 1.12 + 120, textWidth("holds " + n.setpoint) + 60,   // the title is bold
                                               n.openLoop ? textWidth(OPEN_LOOP) + 30 : 0);
@@ -438,7 +438,7 @@ function drawAgent(n, w, hgt) {
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 10, fill: "var(--panel)", stroke: n.failing ? "var(--bad)" : "var(--line)", "stroke-width": 2 }));
   g.append(s("rect", { width: 6, height: hgt, rx: 3, fill: rungColor(n.rung) }));
   g.append(s("text", { x: 16, y: 20, class: "t-label" }, n.label));
-  g.append(s("text", { x: w - 26, y: 20, class: "t-sub", "text-anchor": "end" }, `rung ${n.rung} · ${n.agentKind}`));
+  g.append(s("text", { x: w - 26, y: 20, class: "t-sub", "text-anchor": "end" }, `${n.agentKind}`));
   g.append(rungDot(n.rung, w - 14, 16, 6.5));
   const when = n.schedule || "";
   g.append(s("text", { x: 16, y: 38, class: "t-sub" }, when, n.runs ? s("tspan", { class: "live" }, ` · ${n.runs} runs`) : null));
@@ -1225,7 +1225,7 @@ function renderSide(side, g, view) {
     }
     side.append(h("h3", {}, `agents in this view (${g.nodes.length})`));
     for (const n of g.nodes) side.append(h("div", { class: "looprow", onclick: () => openAgent(n.label) },
-      h("b", {}, n.label), h("span", { class: "pill" }, `rung ${n.rung}`), h("div", { class: "sub" }, n.agentKind)));
+      h("b", {}, n.label), h("div", { class: "sub" }, n.agentKind)));
   }
   if (st.changes?.length) {
     const last = st.changes[st.changes.length - 1];

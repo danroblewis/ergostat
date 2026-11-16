@@ -10,9 +10,7 @@ function drawMachine(n, w, hgt) {
                        stroke: n.failing ? "var(--bad)" : n.silent ? "var(--muted)" : "var(--ink)",
                        "stroke-width": n.silent ? 1.2 : 1.6, "stroke-dasharray": n.silent ? "4 3" : null }));
   g.append(s("text", { x: 12, y: 20, class: "t-label" }, n.label));
-  const kind = typeof n.rung === "number" ? `rung ${n.rung} · ${n.agentKind}` : n.agentKind;
-  g.append(s("text", { x: w - (typeof n.rung === "number" ? 24 : 12), y: 20, class: "t-sub", "text-anchor": "end" }, kind));
-  if (typeof n.rung === "number") g.append(rungDot(n.rung, w - 12, 16, 5));
+  g.append(s("text", { x: w - 12, y: 20, class: "t-sub", "text-anchor": "end" }, n.agentKind || ""));
   const said = n.silent ? (n.declared ? "declared, silent" : "silent")
     : `${n.instances?.length ? n.instances.length + " instances · " : ""}last ${ago(n.last)}${n.declared ? "" : " · not in the model"}`;
   g.append(s("text", { x: 12, y: 38, class: "t-sub" }, said));
