@@ -892,6 +892,7 @@ function panZoom(svg) {
     const e = under && S.edgeById?.[under.dataset.id];
     if (e) openEdge(e);
     else if (!$("#detail")?.hidden) closeDetail();       // the background: first it closes what is open,
+    else if (S.hlCausal) sdHighlight(null);              // (or lets go of a loop still lit)
     else toggleSide();                                   // then it hides the side panel, or brings it back
   });
 }

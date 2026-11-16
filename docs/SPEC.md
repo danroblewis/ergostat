@@ -831,9 +831,11 @@ others are one entry beside it, "+N of unknown polarity", that opens to list the
 as a desired level (a value: `desired backlog = 0`) and the discrepancy that drives the correction +:
 for a ceiling the **excess** (actual − desired), for a floor or a level held the **gap** (desired −
 actual); when the decisions serving it switch (on while backlog > 0, off once it is ≤ 0), the panel
-says so. A connector between parts in two systems comes from a shadow variable `<x>` inside the
-receiving system; a shadow is an input only, so in a system drawn alone a connector out ends at a
-stub naming what it drives, and a pipe out ends in a cloud with the part beyond named under it. An
+says so. A line between two parts both drawn, in open systems or not, is drawn as itself; only
+where its other end is not on the canvas is it cut: a connector out of a closed module into an
+open system comes from a shadow variable `<x>` inside the receiving system, and a shadow is an
+input only, so a connector out to a part not drawn ends at a stub naming what it drives, and a
+pipe out ends in a cloud with the part beyond named under it. An
 open system is a sector, a light tint with its name at the top left; a closed one is a module, its
 connection points named on its edge. The view's panels use system dynamics' words only.
 
