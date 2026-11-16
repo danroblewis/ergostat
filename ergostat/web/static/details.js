@@ -113,6 +113,7 @@ async function openLoop(name, asController = false) {
   const kids = asController
     ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("controller"), whatIs("loop")]
     : [h("div", { class: "kind" }, lp.open_loop ? "Open loop" : "Loop"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("loop")];
+  kids.push(loopScope(name, { numbers: "new" }));       // its scope first (charts.js); time off and back in are below
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
   if (lp.open_loop) kids.push(h("p", {}, "It acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
   kids.push(dl([["status", statusEl(lp.status)], ["holds", `${lp.stock} ${op(lp.setpoint)}${lp.band || ""}`], ["now", fmt(lp.value)],
@@ -133,8 +134,6 @@ async function openLoop(name, asController = false) {
           : h("span", { class: "muted" }, pt.open_loop ? "acts on its schedule, reads nothing" : "no decision yet"))
         : (pt.last ? `opened ${ago(pt.last.time)}: ${fmt(pt.last.amount)}${pt.last.count > 1 ? ` in ${pt.last.count} openings` : ""}`
           : h("span", { class: "muted" }, "never opened")))))));
-  if ((lp.points || []).length > 1) kids.push(trendChart(lp, 400, 170));
-  if (lp.openings_total > (lp.openings || []).length) kids.push(h("div", { class: "note" }, `Ticks: ${lp.openings.length} of its ${lp.openings_total} openings, spread over the window.`));
   for (const g of lp.gaps || []) kids.push(h("p", {}, h("b", { class: "lvl-warn" }, "Cannot close: "), g));
   for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
   if (lp.crossings?.length) {
@@ -174,43 +173,6 @@ async function openAgent(name, itself = false) {
       h("td", {}, e.type === "agent.failed" ? h("span", { class: "s-off" }, e.data.note || "failed") : "")))));
   if (a.log?.length) kids.push(h("h3", {}, "End of its log"), h("pre", {}, a.log.slice(-15).join("\n")));
   showDetail(...kids);
-}
-
-/* a loop's trend: the stock over the window, the setpoint with its tolerance band, the stretches
-   when the loop was off shaded, and a tick on the time axis for each valve opening */
-function trendChart(lp, w, hgt) {
-  const pad = { l: 36, r: 8, t: 10, b: 22 };
-  const t0 = Math.max(lp.since, lp.points[0][0]), t1 = lp.until;
-  const vs = lp.points.map((p) => p[1]);
-  const spv = setpointOf(lp.setpoint), tol = lp.tolerance || 0;
-  let lo = Math.min(...vs, spv ?? Infinity), hi = Math.max(...vs, spv ?? -Infinity);
-  if (spv != null) { lo = Math.min(lo, spv - tol); hi = Math.max(hi, spv + tol); }
-  const span = (hi - lo) || 1; lo -= span * 0.08; hi += span * 0.08;
-  const x = (t) => pad.l + ((t - t0) / ((t1 - t0) || 1)) * (w - pad.l - pad.r);
-  const y = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * (hgt - pad.t - pad.b);
-  const out = s("svg", { width: w, height: hgt, class: "trend", viewBox: `0 0 ${w} ${hgt}` });
-  // off stretches over the whole window (the server reduces them from every crossing)
-  for (const [a, b] of lp.off_stretches || []) {
-    const xa = x(Math.max(a, t0)), xb = x(Math.min(b, t1));
-    if (xb > xa - 1) out.append(s("rect", { x: xa, y: pad.t, width: Math.max(1, xb - xa), height: hgt - pad.t - pad.b, class: "chart-off" }));
-  }
-  if (spv != null) {
-    // the tolerance on the side that matters, as the status reads it: above <=, below >=, both for ==
-    const rel = (/(<=|>=|==|<|>|=)/.exec(lp.setpoint) || [])[1] || "==";
-    const [bLo, bHi] = rel.startsWith("<") ? [spv, spv + tol] : rel.startsWith(">") ? [spv - tol, spv] : [spv - tol, spv + tol];
-    if (tol) out.append(s("rect", { x: pad.l, y: y(bHi), width: w - pad.l - pad.r, height: Math.max(1, y(bLo) - y(bHi)), class: "chart-band" }));
-    out.append(s("line", { x1: pad.l, x2: w - pad.r, y1: y(spv), y2: y(spv), class: "chart-set" }));
-    out.append(s("text", { x: w - pad.r - 4, y: y(spv) - 4, "text-anchor": "end", class: "chart-set-label" }, (lp.open_loop ? "watched against " : "setpoint ") + op(lp.setpoint)));
-  }
-  const d = lp.points.map((p, i) => `${i ? "L" : "M"}${x(p[0])},${y(p[1])}`).join("");
-  out.append(s("path", { d, class: "chart-line" }));
-  for (const o of lp.openings || []) out.append(s("line", { x1: x(o.time), x2: x(o.time), y1: hgt - pad.b, y2: hgt - pad.b + 6, class: "chart-tick-mark" }, s("title", {}, `${o.valve} opened: ${fmt(o.amount)}`)));
-  out.append(s("line", { x1: pad.l, x2: w - pad.r, y1: hgt - pad.b, y2: hgt - pad.b, class: "chart-axis" }));
-  const lab = (t, xx, yy, anchor = "start") => s("text", { x: xx, y: yy, "text-anchor": anchor, class: "chart-tick" }, t);
-  out.append(lab(fmt(hi - span * 0.08), 0, pad.t + 8), lab(fmt(lo + span * 0.08), 0, hgt - pad.b));
-  const tl = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
-  out.append(lab(tl(t0), pad.l, hgt - 4), lab(tl(t1), w - pad.r, hgt - 4, "end"), lab("ticks: valve openings", (w + pad.l) / 2, hgt - 4, "middle"));
-  return out;
 }
 
 /* an agent's runs as bars: height is how long each took, red when it failed */

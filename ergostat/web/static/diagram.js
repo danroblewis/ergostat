@@ -1126,6 +1126,7 @@ async function pageDiagram(main, q) {
     renderSide(side, g, view);
   }
   S.relayout = () => { S.graphSig = ""; return tick(); };      // after a part is pinned or unpinned
+  S.redrawSide = () => { if (S.graph) renderSide(side, S.graph, view); };       // the parts chosen changed (charts.js)
   S.redraw = () => { if (!S.pressed && !S.nodeDrag && !S.hullDrag && S.layout) drawGraph(svg, S.graph, S.layout); };   // libavoid's lines came
   await tick();
   S.timer = setInterval(tick, 2500);
@@ -1152,6 +1153,8 @@ function renderSide(side, g, view) {
     side.append(h("div", { class: "att" }, h("div", {}, h("b", { class: "lvl-warn" }, "Not running. "),
       last ? `These are the last readings, from ${ago(last)}.` : "Nothing has been measured.")));
   }
+  const charts = view === "dynamics" ? sideCharts(side) : null;     // charts.js: the parts chosen, at the top
+  if (charts && S.sel?.size) side.append(charts);
   side.append(h("h3", {}, "Needs attention", problems.length ? h("span", { class: "muted" }, ` ${problems.length}`) : null));
   const att = h("div", { class: "att" });
   if (!problems.length) att.append(h("div", { class: "none" }, "Nothing needs attention."));
@@ -1178,6 +1181,7 @@ function renderSide(side, g, view) {
     }
     side.append(d);
   }
+  if (charts && !S.sel?.size) side.append(charts);               // or the ones charted last
   const loops = Object.entries(g.loops || {});
   if (view === "dynamics") sdLoopList(side, g);
   else if (view === "control" || view === "blocks") {

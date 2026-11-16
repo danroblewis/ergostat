@@ -42,7 +42,7 @@ def test_flow_rates_come_from_valves_and_else_from_the_stocks_changes(project):
     assert [(s["ref"], s["role"]) for s in got.values()] == [("stock.disk-used", ""), ("flow.logs-written", "inflow"),
                                                            ("flow.cleaned", "outflow")]
     cleaned = got["flow.cleaned"]
-    assert cleaned["how"] == "opened by delete-old-files" and cleaned["per"] == "hour"
+    assert cleaned["how"].startswith("opened by delete-old-files") and cleaned["per"] == "hour"
     assert all(abs(v - 36) < 0.01 for v in cleaned["values"])               # 1 every 100s: 36 an hour
     logs = got["flow.logs-written"]
     assert logs["how"] == "changes of disk-used" and logs["values"][0] is None
@@ -105,7 +105,7 @@ def test_a_flow_counted_from_items_uses_its_readings_and_else_the_moves(tmp_path
         p.events.add("pr.opened", item=f"pr/{n}", at=now - 1200 + n)
         p.events.add("pr.merged", item=f"pr/{n}", at=now - 150 + n)          # four merged, in the last of four buckets
     s = by_ref(get(p, "series", refs="flow.merging", points=4))["flow.merging"]
-    assert s["how"] == "items moving, from the record" and s["values"][:3] == [0, 0, 0]
+    assert s["how"].startswith("items moving, from the record") and s["values"][:3] == [0, 0, 0]
     assert abs(s["values"][3] - 4 * 3600 / 300) < 0.01
     p.measurements.add("sensor/merging.main", 7.0, at=now - 100)
     p.measurements.add("sensor/merging.main", 9.0, at=now - 50)

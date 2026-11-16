@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import statistics
 
+from .durations import human as dur
 from .spec import items as its
 
 POINTS = 120          # the default number of buckets over the window
@@ -70,33 +71,47 @@ def _readings(p, flow: str, since: float, until: float, n: int) -> list[float | 
     return [sums[i] / counts[i] if counts[i] else None for i in range(n)]
 
 
+def over(since: float, until: float, n: int) -> float:
+    """How far back a rate counted from the record looks: a bucket, or a twelfth of the window when
+    that is longer (one event in a bucket of seconds is not a rate of thousands an hour)."""
+    return max((until - since) / n, (until - since) / 12)
+
+
+def _per_hour(events: list[tuple[float, float]], since: float, until: float, n: int) -> list[float]:
+    """Amounts at times, as a rate per hour at each bucket's end, over the time before it."""
+    import bisect
+    w, back = (until - since) / n, over(since, until, n)
+    events = sorted(events)
+    ts, sums = [t for t, _ in events], [0.0]
+    for _, a in events:
+        sums.append(sums[-1] + a)
+    out = []
+    for i in range(n):
+        end = since + (i + 1) * w
+        lo, hi = bisect.bisect_right(ts, end - back), bisect.bisect_right(ts, end)
+        out.append((sums[hi] - sums[lo]) * 3600.0 / back)
+    return out
+
+
 def _moves(p, flow: str, since: float, until: float, n: int) -> list[float] | None:
-    """A flow measured by counting items: its items entering (or leaving) the state, per hour, in each bucket."""
+    """A flow measured by counting items: its items entering (or leaving) the state, per hour."""
     spec = getattr(p.model, "spec", None)
     f = spec.flows.get(flow) if spec else None
     q = next((s.items for s in (f.sensors.values() if f else []) if s.items), None)
     if not q or q.get("kind") not in spec.items:
         return None
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
-    w = (until - since) / n
-    out = [0.0] * n
-    for it in its.project(p.events, spec, q["kind"], until=until):
-        if not its.matches(it, q.get("where") or {}):
-            continue
-        for mv in it.moves:
-            if mv[key] == state and since <= mv["time"] <= until:
-                out[min(int((mv["time"] - since) / w), n - 1)] += 3600.0 / w
-    return out
+    start = since - over(since, until, n)
+    moved = [(mv["time"], 1.0) for it in its.project(p.events, spec, q["kind"], until=until) if its.matches(it, q.get("where") or {})
+             for mv in it.moves if mv[key] == state and start <= mv["time"] <= until]
+    return _per_hour(moved, since, until, n)
 
 
 def _opened(p, valves: list[str], since: float, until: float, n: int) -> list[float]:
-    """What valves moved in each bucket, per hour."""
-    w = (until - since) / n
-    out = [0.0] * n
-    for v in valves:
-        for e in p.events.query(n=None, type="valve.opened", item=v, since=since, until=until):
-            out[min(int((e["time"] - since) / w), n - 1)] += float(e["data"].get("amount", 1) or 0) * 3600.0 / w
-    return out
+    """What valves moved, per hour."""
+    start = since - over(since, until, n)
+    return _per_hour([(e["time"], float(e["data"].get("amount", 1) or 0)) for v in valves
+                      for e in p.events.query(n=None, type="valve.opened", item=v, since=start, until=until)], since, until, n)
 
 
 def _changes(p, flow: str, since: float, until: float, n: int) -> tuple[list[float | None], str] | None:
@@ -139,12 +154,13 @@ def rate(p, flow: str, since: float, until: float, n: int, changes: bool = True)
     got = _readings(p, flow, since, until, n)
     if got is not None:
         return got, f"measured by {', '.join(_sensors(m, flow))}"
+    back = dur(over(since, until, n))
     got = _moves(p, flow, since, until, n)
     if got is not None:
-        return got, "items moving, from the record"
+        return got, f"items moving, from the record, over {back}"
     valves = [v.name for v in m.valves.values() if v.flow == flow]
     if valves:
-        return _opened(p, valves, since, until, n), f"opened by {', '.join(valves)}"
+        return _opened(p, valves, since, until, n), f"opened by {', '.join(valves)}, over {back}"
     if f.rate is not None:
         return [f.rate] * n, "declared"
     return _changes(p, flow, since, until, n) if changes else None
@@ -164,7 +180,8 @@ def band(op: str, value: float, tol: float) -> list[float] | None:
     """The tolerance on the side that matters: above for <=, below for >=, both for ==."""
     if not tol:
         return None
-    return [value, value + tol] if op.startswith("<") else [value - tol, value] if op.startswith(">") else [value - tol, value + tol]
+    lo, hi = (value, value + tol) if op.startswith("<") else (value - tol, value) if op.startswith(">") else (value - tol, value + tol)
+    return [round(lo, 9), round(hi, 9)]
 
 
 def one(p, ref: str, since: float, until: float, n: int, role: str = "") -> dict | None:
@@ -266,16 +283,17 @@ def scope(p, snap: dict, goal: str, n: int = POINTS) -> dict | None:
     e = [None if v is None else round(c.error(v), 6) for v in y]
     u: dict = {"how": None, "values": None, "openings": None, "limits": [None, None], "unit": "", "saturated": None}
     spec = getattr(m, "spec", None)
-    if lp["valves"]:
+    valves = [v for v in (lp["valves"] or (c.drives if c.through else [])) if v in m.valves]   # the long way: where it acts first
+    if valves:
         opened = sorted((e_["time"], float(e_["data"].get("amount", 1) or 0), v)
-                        for v in lp["valves"] for e_ in p.events.query(n=None, type="valve.opened", item=v, since=since, until=until))
-        most = [m.valves[v].max for v in lp["valves"] if m.valves[v].max is not None]
+                        for v in valves for e_ in p.events.query(n=None, type="valve.opened", item=v, since=since, until=until))
+        most = [m.valves[v].max for v in valves if m.valves[v].max is not None]
         hi = max(most) if most else None
-        flow = m.flows.get(m.valves[lp["valves"][0]].flow)
+        flow = m.flows.get(m.valves[valves[0]].flow)
         lo = -hi if hi is not None and flow is not None and flow.two_way else 0.0
         sat = [o for o in opened if hi is not None and abs(o[1]) >= hi - 1e-9]
         step = max(1, len(opened) // (MAX_POINTS // 2))
-        u.update(how=f"moved by {', '.join(lp['valves'])}, each opening", openings=[[round(t, 3), a] for t, a, _ in opened[::step]],
+        u.update(how=f"moved by {', '.join(valves)}, each opening", openings=[[round(t, 3), a] for t, a, _ in opened[::step]],
                  total=len(opened), limits=[lo, hi], unit=getattr(flow, "unit", "") or m.stocks[c.holds].unit,
                  saturated=(len(sat) / len(opened)) if opened and hi is not None else None)
     else:

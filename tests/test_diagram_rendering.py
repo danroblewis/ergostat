@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import shutil
 import socket
@@ -1169,5 +1170,181 @@ def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, m
     pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:"))
              else (asked.append(rt.request.url), rt.abort()))
     check_guide(walk_guide(pg, f"file://{out}#/guide"))
+    pg.close()
+    assert not errors and not asked, (errors, asked)
+
+
+CHARTED = """
+name: charted
+items:
+  ticket:
+    id: ticket/*
+    states: [open, doing, done]
+    on:
+      ticket.started: doing
+      ticket.done: done
+stocks:
+  backlog:
+    unit: tickets
+    sensor:
+      manual: true
+flows:
+  arriving:
+    to: backlog
+    sensor:
+      manual: true
+  finishing:
+    from: backlog
+auxiliaries:
+  pressure:
+    unit: share
+    driven-by: +stock.backlog
+    sensor:
+      manual: true
+goals:
+  short-backlog:
+    stock: backlog
+    hold: "<= 5"
+    tolerance: 1
+blocks:
+  worker:
+    type: program
+    run: echo 1
+    goal: short-backlog
+    max: 3
+    out: flow.finishing
+"""
+CHARTS = "() => [...document.querySelectorAll('{0} .chart-plot canvas')].length"
+CURSORS = "() => [...document.querySelectorAll('{0} .u-cursor-x:not(.u-off)')].length"
+
+
+def charted(tmp_path: Path, monkeypatch) -> Path:
+    """A small project with forty minutes of record: readings, valve openings, a loop off and back, items moving."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "charted"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(CHARTED)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # the server is given it too
+    p = Project(mdl.load(d))
+    now = time.time()
+    for i in range(240):
+        t = now - 2400 + i * 10
+        p.measurements.add("sensor/backlog.main", 4 + 3 * math.sin(i / 30), at=t)
+        p.measurements.add("sensor/arriving.main", 6 + 2 * math.cos(i / 25), at=t)
+        p.measurements.add("sensor/pressure.main", 0.5 + 0.3 * math.sin(i / 30), at=t)
+        if i % 6 == 0:
+            p.events.add("valve.opened", item="worker", data={"amount": 1 + i % 3, "flow": "finishing"}, at=t)
+    p.events.add("loop.off", item="short-backlog", data={"value": 7}, at=now - 2000)
+    p.events.add("loop.holding", item="short-backlog", data={"value": 5}, at=now - 1500)
+    for n in range(12):
+        p.events.add("ticket.opened", item=f"ticket/{n}", at=now - 2300 + n * 150)
+        if n < 9:
+            p.events.add("ticket.started", item=f"ticket/{n}", at=now - 2200 + n * 160)
+        if n < 6:
+            p.events.add("ticket.done", item=f"ticket/{n}", at=now - 1900 + n * 200)
+    return d
+
+
+def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser, tmp_path, monkeypatch):
+    """Clicking a stock draws its causes strip (it, its inflow and its outflow), a flow and an auxiliary
+    theirs; parts chosen chart in the side panel; a loop's comparator and the Loops page's sparkline
+    open its scope (y, u, e); the Items page draws each kind's flow and cycle times. Hovering one
+    chart moves the cursor on every chart beside it. A snapshot, opened from a file with nothing
+    else reachable, draws the same."""
+    d = charted(tmp_path, monkeypatch)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+
+    def hover_all(pg, where):
+        box = pg.locator(f"{where} .chart-plot").first.bounding_box()
+        pg.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.5)
+        pg.wait_for_timeout(200)
+        return pg.evaluate(CHARTS.format(where)), pg.evaluate(CURSORS.format(where))
+
+    def opened(pg, js, where, n):
+        pg.evaluate(js)
+        pg.wait_for_function(f"() => ({CHARTS.format(where)})() >= {n}", timeout=20000)
+        pg.wait_for_timeout(300)
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        # a stock, clicked: it, its inflow, its outflow; one cursor across them
+        hit = pg.locator('g.node[data-id="stock:backlog"] .hit').first.bounding_box()
+        pg.mouse.click(hit["x"] + hit["width"] / 2, hit["y"] + hit["height"] / 2)
+        pg.wait_for_function(f"() => ({CHARTS.format('#detail')})() >= 3", timeout=20000)
+        names = pg.evaluate("() => [...document.querySelectorAll('#detail .chart-name')].map((x) => x.textContent)")
+        assert names == ["value", "arriving", "finishing"], names
+        first = "(el) => el.compareDocumentPosition(document.querySelector('#detail dl')) & 4"
+        assert pg.locator("#detail .chart").first.evaluate(first), "the charts come first, what it is after"
+        charts, cursors = hover_all(pg, "#detail")
+        assert cursors == charts == 3 and pg.locator("#detail .chart-when").inner_text(), (charts, cursors)
+        # a flow (its rate, the stock it drains) and an auxiliary (its value, what drives it)
+        opened(pg, "() => openNode(S.graph.nodes.find((n) => n.id === 'flow:finishing'))", "#detail", 2)
+        assert "opened by worker" in pg.locator("#detail .chart-head").first.inner_text()
+        opened(pg, "() => openNode(S.graph.nodes.find((n) => n.id === 'stock:pressure'))", "#detail", 2)
+        assert hover_all(pg, "#detail") == (2, 2)
+        # parts chosen: each one's strip in the side panel, on one time axis; nothing chosen: the user's charts
+        pg.evaluate("() => closeDetail()")
+        opened(pg, "() => { S.sel = new Set(['stock:backlog', 'flow:arriving']); markInteraction(document.querySelector('svg.canvas')); }",
+               ".side .side-charts", 5)
+        charts, cursors = hover_all(pg, ".side .side-charts")
+        assert charts == cursors == 5, (charts, cursors)
+        pg.evaluate("() => { S.sel.clear(); markInteraction(document.querySelector('svg.canvas')); }")
+        pg.wait_for_function("() => document.querySelector('.side .side-charts h3')?.textContent === 'Your charts'", timeout=20000)
+        # the blocks view: the loop's comparator opens its scope
+        drawn(pg, url, "view=blocks", 1)
+        opened(pg, "() => openBlock(S.graph.nodes.find((n) => n.role === 'comparator'))", "#detail .scope", 3)
+        names = pg.evaluate("() => [...document.querySelectorAll('#detail .scope .chart-name')].map((x) => x.textContent)")
+        assert names == ["y", "u", "e"], names
+        assert hover_all(pg, "#detail .scope") == (3, 3)
+        assert "Saturated" in pg.locator("#detail .scope dl").inner_text()
+        # the Loops page: the sparkline opens the same scope
+        pg.goto(url + "/#/loops")
+        pg.locator("td.spark-cell").first.click()
+        pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=20000)
+        # the Items page: the kind's flow, and under its table its cycle times
+        pg.goto(url + "/#/items")
+        pg.wait_for_function(f"() => ({CHARTS.format('.cfd')})() >= 1 && ({CHARTS.format('.chart.cycle')})() >= 1", timeout=20000)
+        states = pg.evaluate("() => [...document.querySelectorAll('.cfd-states .stbox')].map((x) => x.textContent)")
+        assert states == ["3open", "3doing", "6done"], states
+        assert hover_all(pg, ".page") == (2, 2)
+        pg.locator(".cfd-states .stbox", has_text="doing").click()        # a state's label filters the table, as its count did
+        pg.wait_for_function("() => location.hash.includes('state=doing')", timeout=5000)
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+    # the snapshot: the same charts, from the file, with nothing reachable
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web.snapshot import build
+    out = tmp_path / "snapshot.html"
+    out.write_text(build(Project(mdl.load(d)), since="1h"))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors, asked = [], []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:"))
+             else (asked.append(rt.request.url), rt.abort()))
+    pg.goto(f"file://{out}#/diagram")
+    pg.wait_for_function("() => typeof uPlot === 'function' && S.graph && document.querySelectorAll('svg.canvas g.node').length",
+                         timeout=60000)
+    for js, where, n in (("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:backlog'))", "#detail", 3),
+                         ("() => openLoop('short-backlog')", "#detail .scope", 3)):
+        pg.evaluate(js)
+        pg.wait_for_function(f"() => ({CHARTS.format(where)})() >= {n}", timeout=20000)
+    pg.goto(f"file://{out}#/items")
+    pg.wait_for_function(f"() => ({CHARTS.format('.cfd')})() >= 1", timeout=20000)
     pg.close()
     assert not errors and not asked, (errors, asked)
