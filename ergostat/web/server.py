@@ -106,6 +106,9 @@ def api(live: Live, path: str, q: dict):
     if head == "projects":
         from ..projects import known
         return known()
+    if head == "guide":                              # the Guide's frames: tiny models, the same for every project
+        from ..guide import frames
+        return frames()
     if head == "graph":
         system = one("system") or None
         around = one("around") or None

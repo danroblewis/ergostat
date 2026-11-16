@@ -70,7 +70,7 @@ def snapshot_errors(demo: Path) -> list[str]:
         pg.on("pageerror", lambda e: errs.append(f"snapshot: {e}"))
         pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith("file:")
                  else (errs.append(f"snapshot asked for {rt.request.url}"), rt.abort()))
-        for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "items", "record", "residuals"):
+        for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "items", "record", "residuals", "guide"):
             pg.goto(f"file://{out}#/{route}")
             pg.wait_for_timeout(1200)
             if route == "diagram" and pg.locator(".node").count() == 0:

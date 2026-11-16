@@ -196,8 +196,10 @@ Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *
 owner's absence*), read only. Pages: Diagram (control, blocks and wiring views; the side panel:
 attention, loops or cycles, model changes, legend), Loops, Agents (the ladder, one column per
 rung), Items (the record folded by id, by kind and state), Record (events, with runs
-hidden by default), Residuals, Check, and a Guide that explains the ideas with the system's
-own parts as examples. Clicking a part opens what `ergostat <topic> <name>` shows.
+hidden by default), Residuals, Check, and a Guide: a sequence of frames, one line each, every
+frame a tiny built-in model drawn by the real dynamics and blocks renderers (`ergostat/guide.py`),
+with its behaviour over time beside it (why: what we control and what we want; system dynamics;
+control; then the project's own model, both ways). Clicking a part opens what `ergostat <topic> <name>` shows.
 A slider in the header moves the whole page to a past moment (the API's `at`), with
 "back to live". Light and dark themes; usable at phone width.
 

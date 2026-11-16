@@ -233,6 +233,7 @@ async function bdLayout(g) {
 const BD_WRAP_OVER = 3;           // wider than tall by more than this many times the screen's shape: wrapped
 const BD_ROW_GAP = 60;
 function bdWrapRows(g, lay, W, H) {
+  if (S.bdNoWrap) return [W, H];                        // (the Guide's frames: small, framed to fit, never wrapped)
   const svg = typeof document !== "undefined" && document.querySelector("svg.canvas");
   const r = svg?.getBoundingClientRect?.();
   const screen = r && r.width && r.height ? r.width / Math.max(r.height - 80, 200) : 1.6;
