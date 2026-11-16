@@ -124,9 +124,12 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
                 stocks_drawn.add(end)
     for n in (x for x in m.stocks if x in stocks_drawn):
         s, st = m.stocks[n], snap["stocks"].get(n, {})
-        nodes.append(_node(f"stock:{n}", "stock", n, unit=s.unit, value=st.get("value"), valueText=fmt(st.get("value")),
-                           points=st.get("points", []), description=s.description, outside=n not in parts,
-                           systems=in_system.get(n, [])))
+        nodes.append(_node(f"stock:{n}", "variable" if s.variable else "stock", n, unit=s.unit, value=st.get("value"),
+                           valueText=fmt(st.get("value")), points=st.get("points", []), description=s.description,
+                           outside=n not in parts, systems=in_system.get(n, []),
+                           agent=_badge(m, s.setter) if s.variable and s.setter else None))
+        for src in s.driven_by:                               # what a variable follows: an influence
+            edges.append(_edge(f"flow:{src}" if src in m.flows else f"stock:{src}", f"stock:{n}", "influence"))
     for n in (x for x in m.flows if x in flows_drawn):
         f, fl = m.flows[n], snap["flows"].get(n, {})
         v = m.valve_of(n)
@@ -149,10 +152,12 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         edges.append(_edge(f"flow:{n}", dst, "pipe", flow=n, arrow=True))
     for n in (x for x in m.flows if x in flows_drawn):      # what a flow's rate follows: an influence, not a pipe
         for src in m.flows[n].driven_by:
-            sid = f"flow:{src}" if src in m.flows else f"stock:{src}"
+            sid = f"flow:{src}" if src in m.flows else f"stock:{src}"         # a stock's or a variable's node
             edges.append(_edge(sid, f"flow:{n}", "influence"))
     for n in (x for x in m.sensors if x in parts):
         s = m.sensors[n]
+        if s.implied:                                         # a variable's set value: the block's badge says who set it
+            continue
         target = f"stock:{s.measures}" if s.measures in m.stocks else f"flow:{s.measures}"
         got = readings.get(n)
         unit = "/h" if s.measures in m.flows else ""
@@ -174,6 +179,9 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         for v in c.drives:
             if v in m.valves and m.valves[v].flow in flows_drawn:
                 edges.append(_edge(f"controller:{n}", f"flow:{m.valves[v].flow}", "action"))
+        first = next((p for p in c.through if p.startswith(("flow.", "variable."))), None)
+        if not c.drives and first and first.startswith("variable.") and first[9:] in stocks_drawn:
+            edges.append(_edge(f"controller:{n}", f"stock:{first[9:]}", "action"))       # it acts by setting a variable
         lpm = m.loop(n)
         if lpm is not None:
             members = {f"controller:{n}", f"stock:{lpm.stock}", *(f"sensor:{s}" for s in lpm.sensors),

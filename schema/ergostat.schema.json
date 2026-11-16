@@ -54,6 +54,15 @@
         "$ref": "#/$defs/item_kind"
       }
     },
+    "variables": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/variable"
+      }
+    },
     "stocks": {
       "type": "object",
       "propertyNames": {
@@ -405,6 +414,9 @@
         },
         "description": {
           "type": "string"
+        },
+        "variable": {
+          "$ref": "#/$defs/name"
         }
       },
       "oneOf": [
@@ -416,6 +428,11 @@
         {
           "required": [
             "flow"
+          ]
+        },
+        {
+          "required": [
+            "variable"
           ]
         }
       ]
@@ -937,6 +954,40 @@
         },
         "description": {
           "type": "string"
+        }
+      }
+    },
+    "variable": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "type": "string"
+        },
+        "system": {
+          "$ref": "#/$defs/name"
+        },
+        "description": {
+          "type": "string"
+        },
+        "sensor": {
+          "$ref": "#/$defs/sensor"
+        },
+        "sensors": {
+          "$ref": "#/$defs/sensors"
+        },
+        "driven-by": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
         }
       }
     }

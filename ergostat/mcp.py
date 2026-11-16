@@ -134,7 +134,7 @@ class Server:
         if name == "read_sensor":
             from .spec.ir import Ref
             of, _, sn = str(a["sensor"]).partition(".")
-            s = spec.sensor(Ref("stock", of, sn or "main")) or spec.sensor(Ref("flow", of, sn or "main"))
+            s = next((x for k in ("stock", "flow", "variable") if (x := spec.sensor(Ref(k, of, sn or "main")))), None)
             if s is None or not s.manual:
                 return {**_text(f"{a['sensor']!r} is not a manual sensor"), "isError": True}
             p.measurements.add(s.series, float(a["value"]))

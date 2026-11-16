@@ -85,7 +85,7 @@ class Engine:
     def measure(self) -> None:
         """Stocks' levels and flows' rates from the record: the newest reading of any of their sensors."""
         m = self.p.measurements
-        for kind, table in (("stock", self.spec.stocks), ("flow", self.spec.flows)):
+        for kind, table in (("stock", self.spec.stocks), ("flow", self.spec.flows), ("variable", self.spec.variables)):
             for name, x in table.items():
                 best = None
                 for s in x.sensors.values():
@@ -212,7 +212,7 @@ class Engine:
         series = {s.series for s in self.after_acting(flows)}
         for g in self.served(b) | {r.name for r in b.reads() if r.kind == "goal"}:
             of = self.spec.goals[g].of
-            t = (self.spec.stocks if of.kind == "stock" else self.spec.flows).get(of.name)
+            t = self.spec.measured(of.kind).get(of.name)
             series |= {s.series for s in t.sensors.values()} if t else set()
         if not series:
             return self.last_reading
@@ -595,6 +595,10 @@ class Said:
         elif r.kind == "goal":
             with self.e.lock:
                 self.e.setpoint[r.name] = amount
+            self.counts["commands"] += 1
+        elif r.kind == "variable":                          # a setting: what it was set to is its reading
+            self.e.p.measurements.add(f"sensor/{r.name}.set", amount)
+            ev.add("variable.set", item=r.name, source=self.b.name, causedby=self.run_id, data={"value": amount})
             self.counts["commands"] += 1
 
 

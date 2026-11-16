@@ -12,6 +12,7 @@ function showDetail(...kids) {
 /* what each kind of thing on the diagram is: said first, in plain words, before how it is now */
 const WHAT = {
   stock: ["Stock", "something that accumulates. It rises and falls only by its flows, and its level is what a goal holds."],
+  variable: ["Variable", "something measured or set that does not accumulate: a score, a ratio, a setting. No flow fills it. Measured, it is a loop's process variable (what a goal holds); set by a block, it is a manipulated variable, a knob the loop turns."],
   valve: ["Flow, controlled (a valve)", "material moving into or out of a stock, set by something in the model: a block opens it when its controller commands."],
   disturbance: ["Flow, uncontrolled (a disturbance)", "material moving into or out of a stock that nothing in the model sets. The world pushes it; the loops on its stocks must make up for it."],
   sensor: ["Sensor", "an instrument. It reads one stock or flow; a loop sees only what its sensor reads."],
@@ -76,7 +77,10 @@ async function openNode(n) {
   const rd = now.readings || [], last = rd[rd.length - 1];
   if (kind === "sensor") rows.push(["measures", m.measures], ["filled by", agentLink(d.agent)],
                                    ["last reading", last ? `${fmt(last[1])}, ${ago(last[0])}` : "none yet"], ["in the window", `${now.count ?? rd.length} readings`]);
-  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, name), whatIs(kind), h("h3", {}, "how it is now"), dl(rows)];
+  const shown = n.kind === "variable" ? "variable" : kind;
+  if (n.kind === "variable") for (let i = rows.length - 1; i >= 0; i--) if (rows[i][0] === "in" || rows[i][0] === "out") rows.splice(i, 1);
+  if (n.kind === "variable" && n.agent) rows.push(["set by", agentLink(n.agent)]);
+  const kids = [h("div", { class: "kind" }, shown), h("h2", {}, name), whatIs(shown), h("h3", {}, "how it is now"), dl(rows)];
   if (kind === "stock" && now.points?.length > 1) kids.push(sparkSvg(now.points, 380, 70));
   if (kind === "sensor" && now.readings?.length > 1) kids.push(sparkSvg(now.readings, 380, 70));
   if (kind === "sensor" && rd.length) {

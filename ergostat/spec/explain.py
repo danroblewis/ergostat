@@ -36,7 +36,7 @@ def _items(q: dict) -> str:
 
 def _sensor(s) -> str:
     how = (f"runs `{s.run}`" if s.run else f"queries {s.query.get('source')}" if s.query else _items(s.items) if s.items
-           else "is read by a person")
+           else "is read by a person" if s.manual else f"is {s.description}" if s.description else "is not read")
     when = _when(s) if not s.manual else ""
     return f"{s.of.kind}.{s.of.name}.{s.name} {how}" + (f" {when}" if when else "")
 
@@ -66,7 +66,8 @@ class Explainer:
         s = self.s
         def n(k, w):
             return f"{k} {w}{'' if k == 1 else 's'}"
-        out = [f"{s.name}: {n(len(s.stocks), 'stock')}, {n(len(s.flows), 'flow')}, {n(len(s.goals), 'goal')}, "
+        out = [f"{s.name}: {n(len(s.stocks), 'stock')}, {n(len(s.flows), 'flow')}, "
+               + (f"{n(len(s.variables), 'variable')}, " if s.variables else "") + f"{n(len(s.goals), 'goal')}, "
                f"{n(len(s.blocks), 'block')} ({', '.join(str(f.name) for f in s.files)})."]
         if s.systems:
             def walk(parent, depth):
@@ -106,7 +107,7 @@ class Explainer:
         if g.owner:
             lines.append(f"  Owner: {g.owner}.")
         if lp.sensors:
-            t = (s.stocks if what.kind == "stock" else s.flows)[what.name]
+            t = s.measured(what.kind)[what.name]
             lines.append("  Measured: " + "; ".join(_sensor(x) for x in t.sensors.values()) + ".")
         else:
             lines.append(f"  Nothing measures {what}: nobody can tell whether this goal holds.")
@@ -224,6 +225,27 @@ class Explainer:
             lines.append(f"  Now: {self.value(f'stock.{name}')}.")
         return "\n".join(lines)
 
+    def variable(self, name: str) -> str:
+        s, v = self.s, self.s.variables[name]
+        lines = [f"Variable {name}" + (f" ({v.unit})" if v.unit else "") + (f": {v.description}" if v.description else "") + ". "
+                 "It is measured or set, and nothing flows into it."]
+        setter = s.setter_of(name)
+        if setter:
+            lines.append(f"  Set by block {setter.name} ({setter.type}): a manipulated variable, a knob.")
+        real = [x for x in v.sensors.values() if not (x.name == "set" and setter and not x.measured and not x.manual)]
+        if real:
+            lines.append("  Measured: " + "; ".join(_sensor(x) for x in real) + ".")
+        if v.driven_by:
+            lines.append("  It follows " + ", ".join(str(r) for r in v.driven_by) + " (driven-by: declared, not yet checked).")
+        readers = [b.name for b in s.blocks.values() if Ref("variable", name) in [Ref(r.kind, r.name) for r in b.reads()]]
+        if readers:
+            lines.append(f"  Read by: {', '.join(readers)}.")
+        goals = [g for g, x in s.goals.items() if x.of == Ref("variable", name)]
+        lines.append(f"  Goals: {', '.join(goals)}." if goals else "  No goal is about it.")
+        if self.p is not None and self.value(f"variable.{name}"):
+            lines.append(f"  Now: {self.value(f'variable.{name}')}.")
+        return "\n".join(lines)
+
     def flow(self, name: str) -> str:
         s, f = self.s, self.s.flows[name]
         ends = f"from {f.source or 'outside'} to {f.target or 'outside'}"
@@ -286,13 +308,15 @@ class Explainer:
         r = Ref.parse(text)
         if r is None:
             for kind, table in (("goal", self.s.goals), ("block", self.s.blocks), ("stock", self.s.stocks),
-                                ("flow", self.s.flows)):
+                                ("flow", self.s.flows), ("variable", self.s.variables)):
                 if text in table:
                     r = Ref(kind, text)
                     break
         if r is None:
-            raise KeyError(f"no part named {text!r}: name a goal, block, stock or flow (goal.inbox-short, or inbox-short)")
-        table = {"goal": self.s.goals, "block": self.s.blocks, "stock": self.s.stocks, "flow": self.s.flows}[r.kind]
+            raise KeyError(f"no part named {text!r}: name a goal, block, stock, flow or variable (goal.inbox-short, or "
+                           f"inbox-short)")
+        table = {"goal": self.s.goals, "block": self.s.blocks, "stock": self.s.stocks, "flow": self.s.flows,
+                 "variable": self.s.variables}[r.kind]
         if r.name not in table:
             raise KeyError(f"no {r.kind} {r.name!r}")
         return getattr(self, r.kind)(r.name)

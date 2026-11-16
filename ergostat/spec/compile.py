@@ -7,7 +7,7 @@ import re
 import time
 
 from ..durations import DurationError, parse_duration
-from .ir import BUILTIN, MACHINE, NAME, Agent, Block, Flow, Goal, ItemKind, Ref, Sensor, Setpoint, Source, Spec, Stock
+from .ir import BUILTIN, MACHINE, NAME, Agent, Block, Flow, Goal, ItemKind, Ref, Sensor, Setpoint, Source, Spec, Stock, Variable
 from .load import Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
@@ -16,7 +16,8 @@ ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 ITEM_KEYS = COMMON | {"id", "states", "on", "show"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor"}
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by"}
-GOAL_KEYS = COMMON | {"stock", "flow", "hold", "tolerance", "critical", "owner"}
+GOAL_KEYS = COMMON | {"stock", "flow", "variable", "hold", "tolerance", "critical", "owner"}
+VARIABLE_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by"}
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}}
@@ -203,7 +204,7 @@ class Compiler:
         for k in ("entering", "leaving"):
             if s.get(k) is not None:
                 q[k] = str(s[k])
-        if of.kind == "stock":
+        if of.kind != "flow":
             for k in ("entering", "leaving", "over"):
                 if s.get(k) is not None:
                     self.err(f"{sw}.{k}: a stock counts the items in a state (state:); entering:, leaving: and over: "
@@ -352,14 +353,21 @@ class Compiler:
                     self.err(f"{what}.{key}: {end!r} is not a stock" + self.suggest(end, d.sections["stocks"]),
                              m.at(key), "unknown-ref", f"stock.{end}")
             f.sensors = self.sensors(m, Ref("flow", name), what)
-            f.driven_by = [r for rs in self.refs(m, "driven-by", what, ("flow", "stock")).values() for r in rs]
+            f.driven_by = [r for rs in self.refs(m, "driven-by", what, ("flow", "stock", "variable")).values() for r in rs]
             spec.flows[name] = f
+        for name, m, what in self.named("variables"):
+            self.keys(m, VARIABLE_KEYS, what)
+            v = Variable(name, self.text(m, "unit"), self.system("variables", name, m), self.text(m, "description"),
+                         where=m.where)
+            v.sensors = self.sensors(m, Ref("variable", name), what)
+            v.driven_by = [r for rs in self.refs(m, "driven-by", what, ("flow", "stock", "variable")).values() for r in rs]
+            spec.variables[name] = v
         for name, m, what in self.named("goals"):
             self.keys(m, GOAL_KEYS, what)
-            has = [k for k in ("stock", "flow") if m.get(k) is not None]
+            has = [k for k in ("stock", "flow", "variable") if m.get(k) is not None]
             of = None
             if len(has) != 1:
-                self.err(f"{what}: say what it is about with exactly one of stock: or flow:", m.where, "goal-of")
+                self.err(f"{what}: say what it is about with exactly one of stock:, flow: or variable:", m.where, "goal-of")
             else:
                 k = has[0]
                 target = str(m[k])
@@ -395,6 +403,12 @@ class Compiler:
             if b:
                 spec.blocks[name] = b
         self.implied(spec)
+        for b in spec.blocks.values():                       # a variable a block sets is read as what it was set to
+            for t in b.targets():
+                v = spec.variables.get(t.name) if t.kind == "variable" else None
+                if v is not None and "set" not in v.sensors:
+                    v.sensors["set"] = Sensor("set", Ref("variable", v.name), every=None,
+                                              description=f"the value block {b.name} set it to", where=b.where)
         self.counted(spec)
         self.references(spec)
         for x in (*spec.stocks.values(), *spec.flows.values(), *spec.goals.values(), *spec.blocks.values()):
@@ -503,8 +517,8 @@ class Compiler:
             p = str(m["prompt"])
             if "\n" not in p and p.endswith((".md", ".txt")) and not (self.doc.root / p).is_file():
                 self.err(f"{what}.prompt: {p} is not a file here", m.at("prompt"), "prompt-missing")
-        ins = self.refs(m, "in", what, ("stock", "flow", "goal", "block"))
-        outs = self.refs(m, "out", what, ("flow", "block", "goal"))
+        ins = self.refs(m, "in", what, ("stock", "flow", "variable", "goal", "block"))
+        outs = self.refs(m, "out", what, ("flow", "variable", "block", "goal"))
         inputs = {}
         for port, refs in ins.items():
             for r in refs:
@@ -538,6 +552,12 @@ class Compiler:
                     return f"{r.name!r} is not a flow" + self.suggest(r.name, spec.flows)
                 if r.port and r.port not in f.sensors:
                     return f"flow {r.name} has no sensor {r.port!r}"
+            elif r.kind == "variable":
+                v = spec.variables.get(r.name)
+                if v is None:
+                    return f"{r.name!r} is not a variable" + self.suggest(r.name, spec.variables)
+                if r.port and r.port not in v.sensors:
+                    return f"variable {r.name} has no sensor {r.port!r}"
             elif r.kind == "goal":
                 if r.name not in spec.goals:
                     return f"{r.name!r} is not a goal" + self.suggest(r.name, spec.goals)
@@ -549,12 +569,13 @@ class Compiler:
                     return f"{r.name!r} is not a block" + self.suggest(r.name, spec.blocks)
             return None
 
-        for f in spec.flows.values():
-            for r in f.driven_by:
-                if (why := exists(r)) is not None:
-                    self.err(f"flow {f.name}.driven-by: {why}", f.where, "unknown-ref", str(r))
-                elif r == Ref("flow", f.name):
-                    self.err(f"flow {f.name}.driven-by: a flow does not drive itself", f.where, "bad-ref")
+        for kind, table in (("flow", spec.flows), ("variable", spec.variables)):
+            for f in table.values():
+                for r in f.driven_by:
+                    if (why := exists(r)) is not None:
+                        self.err(f"{kind} {f.name}.driven-by: {why}", f.where, "unknown-ref", str(r))
+                    elif r == Ref(kind, f.name):
+                        self.err(f"{kind} {f.name}.driven-by: it does not drive itself", f.where, "bad-ref")
         setters: dict[str, str] = {}
         for b in spec.blocks.values():
             what = f"block {b.name}"
@@ -577,6 +598,13 @@ class Compiler:
                     if r.name in setters and setters[r.name] != b.name:
                         self.err(f"{what}.out: flow {r.name} is already set by block {setters[r.name]}; one block sets a "
                                  f"flow (put a select in front, or split the flow)", w, "two-actuators", str(r))
+                    setters[r.name] = b.name
+                elif r.kind == "variable":
+                    if r.port:
+                        self.err(f"{what}.out: a block sets a variable, not its sensor ({r})", w, "wrong-kind")
+                    if r.name in setters and setters[r.name] != b.name:
+                        self.err(f"{what}.out: variable {r.name} is already set by block {setters[r.name]}; one block sets "
+                                 f"a variable", w, "two-actuators", str(r))
                     setters[r.name] = b.name
                 elif r.kind == "goal" and r.port:
                     self.err(f"{what}.out: a block sets a goal's setpoint (goal.{r.name}), not its .{r.port}", w, "wrong-kind")

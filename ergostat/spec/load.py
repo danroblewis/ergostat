@@ -10,7 +10,7 @@ from pathlib import Path
 import yaml
 
 FILE = "ergostat.yaml"
-SECTIONS = ("sources", "systems", "items", "stocks", "flows", "goals", "blocks", "agents")
+SECTIONS = ("sources", "systems", "items", "variables", "stocks", "flows", "goals", "blocks", "agents")
 TOP = {"name", "include", "keep", "defaults", *SECTIONS}
 
 

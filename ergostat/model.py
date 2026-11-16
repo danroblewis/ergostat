@@ -58,6 +58,9 @@ class Part:
 @dataclass
 class Stock(Part):
     unit: str = ""
+    variable: bool = field(default=False, metadata={"history": False})   # a variable (YAML): measured or set, nothing flows in
+    setter: str | None = field(default=None, metadata={"history": False})   # the block that sets it, when one does
+    driven_by: list[str] = field(default_factory=list, metadata={"history": False})
     kind = "stock"
 
 
@@ -88,6 +91,7 @@ class Sensor(Part):
     measures: str = ""                 # a stock or a flow
     agent: str | None = None
     unit: str = ""
+    implied: bool = field(default=False, metadata={"history": False})   # what a block set a variable to: not an instrument
     kind = "sensor"
 
 

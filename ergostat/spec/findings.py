@@ -16,7 +16,7 @@ def find(spec: Spec) -> list[Problem]:
     for name, g in spec.goals.items():
         lp = spec.loop(name)
         what = g.of
-        target = (spec.stocks if what.kind == "stock" else spec.flows).get(what.name)
+        target = spec.measured(what.kind).get(what.name)
         has_sensor = bool(target and target.sensors) or (what.kind == "flow" and target and target.rate is not None)
         if not has_sensor:
             say("unjudgeable-goal", f"goal {name}: {what} has no sensor, so nothing can tell whether the goal holds",
@@ -57,8 +57,8 @@ def find(spec: Spec) -> list[Problem]:
     for st in spec.stocks.values():
         if not spec.flows_of(st.name):
             say("stock-without-flows", f"stock {st.name}: no flow fills or drains it, so nothing in the model moves it. A "
-                f"stock is what flows accumulate; a reading that nothing flows into (an age, a ratio, a count kept "
-                f"elsewhere) is not one: give it its flows, or measure it as the flow or stock it describes",
+                f"stock is what flows accumulate; a reading nothing flows into (an age, a ratio, a score) is a "
+                f"variable: give it its flows, or move it to variables:",
                 st.where, f"stock.{st.name}")
         if st.limit is not None and not any(g.of == Ref("stock", st.name) for g in spec.goals.values()):
             say("unguarded-limit", f"stock {st.name}: has a limit ({st.limit:g}) but no goal: nothing keeps it from it",

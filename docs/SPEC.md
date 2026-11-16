@@ -56,6 +56,7 @@ sections (a stock and a goal both called `inbox`), but it is discouraged.
 |---|---|
 | `stock.inbox` | The stock's measured level (its current best reading) |
 | `stock.inbox.count` | The reading of one of its sensors, `count` |
+| `variable.quality` | A variable's value (as an output: what a block sets it to) |
 | `flow.processed` | As an input: the flow's measured rate. As an output: what a block moves along this flow |
 | `goal.inbox-short` | The goal's setpoint (r) |
 | `goal.inbox-short.error` | The goal's error, e = r − y |
@@ -333,6 +334,41 @@ What sets a flow is the block whose `out` names it (at most one). Seen from a go
   do not explain), by an `external` block (something known, not run by ergostat), or by a block
   no controller of this loop commands.
 
+## 7a. Variables
+
+What is measured or set but does not accumulate: a score, a ratio, an age, a setting. Nothing
+flows into a variable, so it is not a stock (system dynamics calls it an auxiliary). In a loop it is
+either the **process variable**, measured, which a goal holds, or the **manipulated variable**, a
+knob a block sets, which the loop turns.
+
+```yaml
+variables:
+  quality:
+    unit: ssim
+    description: how close the compressed images look to the originals
+    sensor:
+      run: python3 world/read.py quality
+      every: 10s
+    driven-by: variable.quality-setting       # what it follows
+  quality-setting:
+    unit: jpeg-q
+    description: the encoder's quality, which the tuner sets
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `unit`, `system`, `description` | | | |
+| `sensors` / `sensor` | | none | How it is measured (section 6), as a stock is |
+| `driven-by` | references | none | What it follows (flows, stocks, variables): an influence, as on a flow |
+
+A block sets a variable by naming it in `out:` (`out: variable.quality-setting`) and printing the
+value (`{"out": "variable.quality-setting", "value": 82}`, or a bare number); what it set is the
+variable's reading, as if a sensor named `set` had read it, and is recorded as `variable.set`. One
+block sets a variable. A goal may be about a variable (`variable: quality`), and its loop closes
+when what the controller sets reaches it: directly, or through what it drives.
+
+A stock no flow fills or drains is reported (`stock-without-flows`): it is probably a variable.
+
 ## 8. Goals
 
 What we want. Each goal is about exactly one stock (its level) or one flow (its rate).
@@ -355,7 +391,7 @@ goals:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `stock` or `flow` | name | required, exactly one | What it is about: a stock's level, or a flow's rate |
+| `stock`, `flow` or `variable` | name | required, exactly one | What it is about: a stock's level, a flow's rate, or a variable's value |
 | `hold` | setpoint | required | The setpoint |
 | `tolerance` | number | 0 | Hysteresis for the status: off past the setpoint by more than this; holding again only back within the setpoint (for `==`, within half of it) |
 | `critical` | bool | false | It guards against a cascade or an accumulating failure: watched for decay |
