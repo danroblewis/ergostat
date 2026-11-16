@@ -70,7 +70,7 @@ def brief(day: dict, everything: list[dict], w: dict) -> str:
     off.sort(key=lambda x: -abs(x[1].get("error") or 0))
     out = [f"# Morning brief: {date}", ""]
     out += ["## False conditions, ranked", ""]
-    out += [f"{n}. **{CONDITIONS.get(g, g)}**: {lp['stock']} is {lp['value']:g} (holds {lp['setpoint']})"
+    out += [f"{n}. **{CONDITIONS.get(g, g)}**: {lp['stock']} is {lp['value']:g} (holds {str(lp['setpoint']).replace('<=', '≤').replace('>=', '≥').replace('==', '=')})"
             for n, (g, lp) in enumerate(off, 1)] or ["All true: nothing is off."]
     since = day["first"] - DAY                        # since yesterday's start
     overnight = [i for i in everything if i["kind"] in ("alert", "outage") and i["first"] >= since]
