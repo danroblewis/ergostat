@@ -75,6 +75,7 @@ function wanted(lay, g) {
 }
 
 async function layoutGraph(g, aspect, cut = false, again = 0) {
+  if (again === 0) await avoidLoad();
   portSides(g);
   const ORDER = { cloud: 0, terminal: 0, disturbance: 1, stock: 2, valve: 3, system: 3, variable: 4, sensor: 5, controller: 6, agent: 2 };
   const rank = (n) => (n.kind === "cloud" ? (n.id.endsWith(":out") ? 4 : 0) : ORDER[n.kind] ?? 3);
@@ -190,50 +191,10 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     restack(lay, g);
     routeCuts(lay, cuts);
   }
-  const moved = applyPins(lay, g);
-  const turned = new Set(flipValves(lay, g));            // valves whose links come from below turn their stem down
-  const relink = new Set(g.edges.filter((e) => e.kind !== "pipe" && (turned.has(e.source) || turned.has(e.target))).map((e) => e.id));
-  if (g.kind !== "wiring") {
-    reroute(lay, g, moved, null, relink);               // (a turned valve's pipes stay as they are: only its stem moved)
-    // lines a reroute left crossing their own net: again, seeing all the rest; moving one pair can
-    // bring a third into it, so until none is left (or three times)
-    for (let pass = 0, redo = new Set(); pass < 3; pass++) {
-      const crossing = netCrossers(lay, g);
-      if (!crossing.size) break;
-      for (const id of crossing) redo.add(id);
-      reroute(lay, g, new Set(), new Set(redo));
-    }
-  }
+  applyPins(lay, g);
+  flipValves(lay, g);                                    // valves whose links come from below turn their stem down
+  if (g.kind !== "wiring") avoidRoute(lay, g);           // every line, by libavoid (avoid.js); without it, ELK's
   return lay;
-}
-
-/* lines routed again, on a grid, around the parts and the other lines but straight through the
-   outlines of systems: the layout itself must take a line into a system from the side its layers
-   run (the left), which sends lines the long way round. Only lines that cross a system's edge, or
-   that the layout sent far round, are routed again; pipes and lines into a system box's ports keep
-   their places at either end */
-const GRID = 8;
-/* a step of a few pixels (a port a little off the grid's lines) is not a bend: the run after it
-   moves onto the run before it, or the run before onto the one after; the line's two ends never move,
-   and every piece stays straight across or straight down */
-function straightJogs(route) {
-  const r = route.map((p) => ({ ...p }));
-  const hor = (p, q) => Math.abs(p.y - q.y) < 0.5, ver = (p, q) => Math.abs(p.x - q.x) < 0.5;
-  for (let pass = 0; pass < 3; pass++) {
-    for (let i = 1; i + 1 < r.length; i++) {            // r[i] → r[i+1] is the short step
-      const a = r[i], b = r[i + 1];
-      if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) >= 6 || !(hor(a, b) || ver(a, b))) continue;
-      const before = r[i - 1], after = r[i + 2];
-      if (ver(a, b)) {                                  // a short step down: take one of the runs across to the other's height
-        if (after && i + 2 < r.length - 1 && hor(b, after) && ver(after, r[i + 3] || after)) { b.y = a.y; after.y = a.y; }
-        else if (i - 1 > 0 && hor(before, a) && ver(r[i - 2], before)) { a.y = b.y; before.y = b.y; }
-      } else {                                          // a short step across: likewise, sideways
-        if (after && i + 2 < r.length - 1 && ver(b, after) && hor(after, r[i + 3] || after)) { b.x = a.x; after.x = a.x; }
-        else if (i - 1 > 0 && ver(before, a) && hor(r[i - 2], before)) { a.x = b.x; before.x = b.x; }
-      }
-    }
-  }
-  return r.filter((p, i) => i === 0 || Math.abs(p.x - r[i - 1].x) + Math.abs(p.y - r[i - 1].y) > 0.5);
 }
 
 /* parts the owner dragged stay where they were put (pinned): the layout runs as ever, then each
@@ -327,234 +288,6 @@ function applyPins(lay, g) {
   lay.width = Math.max(lay.width, ...kids.map((k) => k.x + k.width + 40));
   lay.height = Math.max(lay.height, ...kids.map((k) => k.y + k.height + 60));
   return moved;
-}
-
-/* lines of one net that cross each other, after routing: their ids */
-function netCrossers(lay, g) {
-  const edgeOf = Object.fromEntries(g.edges.map((e) => [e.id, e]));
-  const kindOf = (id) => g.nodes.find((n) => n.id === id)?.kind;
-  const valveish = (id) => ["valve", "disturbance"].includes(kindOf(id));
-  const same = (a, b) => (a.sourcePort && a.sourcePort === b.sourcePort) || (a.targetPort && a.targetPort === b.targetPort) ||
-    (a.kind === b.kind && ((a.source === b.source && !a.sourcePort && !b.sourcePort) || (a.target === b.target && !a.targetPort && !b.targetPort))) ||
-    (a.kind !== "pipe" && b.kind !== "pipe" && ((a.source === b.source && valveish(a.source)) || (a.target === b.target && valveish(a.target))));
-  const segs = (le) => { const s = (le.sections || [])[0]; if (!s) return []; const p = [s.startPoint, ...(s.bendPoints || []), s.endPoint]; return p.slice(1).map((b, i) => [p[i], b]); };
-  const hv = (p, q, r, s) => Math.abs(p.y - q.y) < 1 && Math.abs(r.x - s.x) < 1 &&
-    r.x > Math.min(p.x, q.x) + 2 && r.x < Math.max(p.x, q.x) - 2 && p.y > Math.min(r.y, s.y) + 2 && p.y < Math.max(r.y, s.y) - 2;
-  const out = new Set(), es = lay.edges.filter((le) => edgeOf[le.id] && !le.cut);
-  for (let i = 0; i < es.length; i++) for (let j = i + 1; j < es.length; j++) {
-    const a = edgeOf[es[i].id], b = edgeOf[es[j].id];
-    if (!same(a, b)) continue;
-    if (segs(es[i]).some((s) => segs(es[j]).some((t) => hv(s[0], s[1], t[0], t[1]) || hv(t[0], t[1], s[0], s[1])))) {
-      // both move (on the router's grid they then truly share their way, not run a few pixels apart); a pipe keeps its way
-      if (a.kind !== "pipe") out.add(es[i].id);
-      if (b.kind !== "pipe") out.add(es[j].id);
-    }
-  }
-  return out;
-}
-
-function reroute(lay, g, moved = new Set(), force = null, relink = new Set()) {
-  const edgeOf = Object.fromEntries(g.edges.map((e) => [e.id, e]));
-  const nodeOf = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
-  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
-  const pts = (le) => { const sec = (le.sections || [])[0]; return sec ? [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint] : []; };
-  const len = (ps) => ps.slice(1).reduce((a, p, i) => a + Math.abs(p.x - ps[i].x) + Math.abs(p.y - ps[i].y), 0);
-  const inner = (id) => (nodeOf[id]?.systems || [])[0] || (id.startsWith("system:") ? "box:" + id : null);
-  const todo = lay.edges.filter((le) => {
-    const e = edgeOf[le.id], p = pts(le);
-    if (!e || le.cut || p.length < 2) return false;
-    if (force) return force.has(le.id);
-    if (relink.has(le.id)) return true;
-    const crosses = inner(e.source) !== inner(e.target) || e.sourcePort || e.targetPort || moved.has(e.source) || moved.has(e.target);
-    const far = len(p) > 1.5 * (Math.abs(p[0].x - p[p.length - 1].x) + Math.abs(p[0].y - p[p.length - 1].y)) + 80;
-    return crosses || far;
-  });
-  // a line drawn on top of another (not a net: lines sharing an end and kind may share their way there)
-  const segsOf = (le) => { const q = pts(le); return q.slice(1).map((b, i) => [q[i], b]); };
-  const sameNet = (a, b) => (a.sourcePort && a.sourcePort === b.sourcePort) || (a.targetPort && a.targetPort === b.targetPort) ||
-    (a.kind === b.kind && ((a.source === b.source && !a.sourcePort && !b.sourcePort) || (a.target === b.target && !a.targetPort && !b.targetPort))) ||
-    (a.kind !== "pipe" && b.kind !== "pipe" && ((a.source === b.source && ["valve", "disturbance"].includes(nodeOf[a.source]?.kind)) ||
-                                                (a.target === b.target && ["valve", "disturbance"].includes(nodeOf[a.target]?.kind))));
-  const net = (a, b) => a.kind === b.kind && ((a.source === b.source && (a.sourcePort || "") === (b.sourcePort || "")) ||
-                                              (a.target === b.target && (a.targetPort || "") === (b.targetPort || "")));
-  const along = ([a, b], [c, d]) => {
-    if (Math.abs(a.y - b.y) < 1 && Math.abs(c.y - d.y) < 1 && Math.abs(a.y - c.y) < 3)
-      return Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) - Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x));
-    if (Math.abs(a.x - b.x) < 1 && Math.abs(c.x - d.x) < 1 && Math.abs(a.x - c.x) < 3)
-      return Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y)) - Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y));
-    return 0;
-  };
-  const chosen = new Set(todo.map((le) => le.id));
-  const drawn = force ? [] : lay.edges.filter((le) => edgeOf[le.id] && !le.cut);
-  for (let i = 0; i < drawn.length; i++) for (let j = i + 1; j < drawn.length; j++) {
-    const A = drawn[i], B = drawn[j], ea = edgeOf[A.id], eb = edgeOf[B.id];
-    if (chosen.has(A.id) || chosen.has(B.id) || net(ea, eb)) continue;
-    if (!segsOf(A).some((s) => segsOf(B).some((t) => along(s, t) > 16))) continue;
-    const pick = ea.kind === "pipe" && eb.kind !== "pipe" ? B : eb.kind === "pipe" && ea.kind !== "pipe" ? A : B;   // a pipe keeps its way
-    chosen.add(pick.id); todo.push(pick);
-  }
-  // lines of one net that cross each other (they should split once and stay apart): route one again
-  const crossing = ([a, b], [c, d]) => {
-    const hv = (p, q, r, s) => Math.abs(p.y - q.y) < 1 && Math.abs(r.x - s.x) < 1 &&
-      r.x > Math.min(p.x, q.x) + 2 && r.x < Math.max(p.x, q.x) - 2 && p.y > Math.min(r.y, s.y) + 2 && p.y < Math.max(r.y, s.y) - 2;
-    return hv(a, b, c, d) || hv(c, d, a, b);
-  };
-  for (let i = 0; i < drawn.length; i++) for (let j = i + 1; j < drawn.length; j++) {
-    const A = drawn[i], B = drawn[j], ea = edgeOf[A.id], eb = edgeOf[B.id];
-    if (!sameNet(ea, eb) || (chosen.has(A.id) && chosen.has(B.id))) continue;
-    if (!segsOf(A).some((s) => segsOf(B).some((t) => crossing(s, t)))) continue;
-    for (const X of [A, B]) if (!chosen.has(X.id)) { chosen.add(X.id); todo.push(X); }
-  }
-  if (!todo.length) return;
-  // the grid: every part (with its labels) is in the way; the lines already drawn are costly to run along or cross
-  const rects = lay.children.map((c) => {
-    const ls = c.labels || [];
-    const xs = [c.x, c.x + c.width, ...ls.flatMap((l) => [c.x + l.x, c.x + l.x + l.width])];
-    const ys = [c.y, c.y + c.height, ...ls.flatMap((l) => [c.y + l.y, c.y + l.y + l.height])];
-    return { id: c.id, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
-  });
-  const X0 = Math.min(...rects.map((r) => r.x0)) - 120, Y0 = Math.min(...rects.map((r) => r.y0)) - 120;
-  const W = Math.ceil((Math.max(...rects.map((r) => r.x1)) + 120 - X0) / GRID), H = Math.ceil((Math.max(...rects.map((r) => r.y1)) + 120 - Y0) / GRID);
-  const cx = (x) => Math.max(0, Math.min(W - 1, Math.round((x - X0) / GRID))), cy = (y) => Math.max(0, Math.min(H - 1, Math.round((y - Y0) / GRID)));
-  const owner = new Int32Array(W * H).fill(-1);           // which part (by index) a cell is inside, with a margin
-  const soft = new Uint8Array(W * H);                      // a part's labels: crossed only to save a long way round
-  rects.forEach((r, i) => {
-    const c = lay.children[i];
-    for (let y = cy(r.y0 - 4); y <= cy(r.y1 + 4); y++) for (let x = cx(r.x0 - 4); x <= cx(r.x1 + 4); x++) soft[y * W + x] = 1;
-    for (let y = cy(c.y - 6); y <= cy(c.y + c.height + 6); y++) for (let x = cx(c.x - 6); x <= cx(c.x + c.width + 6); x++) owner[y * W + x] = i;
-  });
-  const runH = new Uint8Array(W * H), runV = new Uint8Array(W * H);   // cells lines run through, across and down
-  // a net is lines leaving (or reaching) one port: they may run together and meet, as one line that splits
-  const netIds = {};
-  const netOf = (e) => {                                 // (lines meeting at one port are a net, whatever they carry)
-    const valveish = (id) => ["valve", "disturbance"].includes(nodeOf[id]?.kind);
-    const peers = (k) => g.edges.filter((o) => o[k] === e[k] && (o[k + "Port"] ? o[k + "Port"] === e[k + "Port"]
-      : !e[k + "Port"] && (o.kind === e.kind || (o.kind !== "pipe" && e.kind !== "pipe" && valveish(e[k])))));
-    const tag = (k) => e[k + "Port"] || (e.kind !== "pipe" && valveish(e[k]) ? "info" : e.kind);
-    // a line may be in two nets: the one at its start and the one at its end
-    const id = (key) => (netIds[key] ??= Object.keys(netIds).length + 1);
-    return [peers("source").length > 1 ? id(`s|${e.source}|${tag("source")}`) : id(`e|${e.id}`),
-            peers("target").length > 1 ? id(`t|${e.target}|${tag("target")}`) : 0];
-  };
-  // every line through a cell, by its nets: a line runs free only where it shares a net with all of them
-  const netH = new Map(), netV = new Map();
-  const shares = (a, b) => (a[0] && (a[0] === b[0] || a[0] === b[1])) || (a[1] && (a[1] === b[0] || a[1] === b[1]));
-  const mine = (m, c, nets) => (m.get(c) || []).every((x) => shares(x, nets));       // only its own nets here
-  const someMine = (m, c, nets) => (m.get(c) || []).some((x) => shares(x, nets));   // one of its own nets among them
-  const mark = (ps, thick = false, nets = [0, 0]) => {
-    const put = (m, c) => { const l = m.get(c); if (l) l.push(nets); else m.set(c, [nets]); };
-    for (let i = 1; i < ps.length; i++) {
-      const a = ps[i - 1], b = ps[i];
-      for (const k of thick ? [-1, 0, 1] : [0]) {
-        if (Math.abs(a.y - b.y) < 1) { const y = cy(a.y) + k; if (y < 0 || y >= H) continue; for (let x = Math.min(cx(a.x), cx(b.x)); x <= Math.max(cx(a.x), cx(b.x)); x++) { runH[y * W + x] = 1; put(netH, y * W + x); } }
-        else { const x = cx(a.x) + k; if (x < 0 || x >= W) continue; for (let y = Math.min(cy(a.y), cy(b.y)); y <= Math.max(cy(a.y), cy(b.y)); y++) { runV[y * W + x] = 1; put(netV, y * W + x); } }
-      }
-    }
-  };
-  const redo = new Set(todo.map((le) => le.id));
-  for (const le of lay.edges) if (!redo.has(le.id) && edgeOf[le.id]) mark(pts(le), edgeOf[le.id].kind === "pipe", netOf(edgeOf[le.id]));
-  const idx = Object.fromEntries(rects.map((r, i) => [r.id, i]));
-  const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];             // right, down, left, up
-  // shorter, and longer later: the routes that matter most are found first
-  // pipes first, and straight: the information links bend around them; then shorter before longer
-  todo.sort((a, b) => (edgeOf[a.id].kind !== "pipe") - (edgeOf[b.id].kind !== "pipe") || len(pts(a)) - len(pts(b)));
-  for (const le of todo) {
-    const e = edgeOf[le.id], p = pts(le);
-    const net = netOf(e), bend = e.kind === "pipe" ? 30 : 8;
-    const si = idx[e.source], ti = idx[e.target];
-    const fixedStart = !!e.sourcePort || nodeOf[e.source]?.kind === "valve" || nodeOf[e.source]?.kind === "disturbance";
-    const fixedEnd = !!e.targetPort || nodeOf[e.target]?.kind === "valve" || nodeOf[e.target]?.kind === "disturbance";
-    const stub = new Set();                                    // the straight way out of (and into) a port is always open
-    const free = (c, x, y) => x >= 0 && y >= 0 && x < W && y < H && (owner[c] === -1 || owner[c] === si || owner[c] === ti || stub.has(c));
-    // where it may start: its fixed point, or anywhere round the edge of the part it leaves
-    const starts = [];
-    const ring = (r, inward) => {                              // the cells just outside a part, each with the way out of it
-      const out = [];
-      const x0 = cx(r.x0) - 1, x1 = cx(r.x1) + 1, y0 = cy(r.y0) - 1, y1 = cy(r.y1) + 1;
-      for (let x = x0 + 1; x < x1; x++) { out.push([x, y0, inward ? 1 : 3]); out.push([x, y1, inward ? 3 : 1]); }
-      for (let y = y0 + 1; y < y1; y++) { out.push([x0, y, inward ? 0 : 2]); out.push([x1, y, inward ? 2 : 0]); }
-      return out;
-    };
-    const sr = rects[si], tr = rects[ti];
-    if (!sr || !tr) continue;
-    const dirOf = (a, b) => (Math.abs(a.x - b.x) > Math.abs(a.y - b.y) ? (b.x > a.x ? 0 : 2) : (b.y > a.y ? 1 : 3));
-    const n = p.length;
-    let d0 = dirOf(p[0], p[1]), dn = dirOf(p[n - 2], p[n - 1]);
-    const stem = (id) => e.kind !== "pipe" && ["valve", "disturbance"].includes(nodeOf[id]?.kind);
-    if (stem(e.source)) d0 = nodeOf[e.source].flip ? 1 : 3;       // out of the stem: down when turned, else up
-    if (stem(e.target)) dn = nodeOf[e.target].flip ? 3 : 1;       // into the stem: up from below when turned, else down
-    for (let k = 0; k <= 2; k++) {
-      if (fixedStart) stub.add((cy(p[0].y) + DY[d0] * k) * W + cx(p[0].x) + DX[d0] * k);
-      if (fixedEnd) stub.add((cy(p[n - 1].y) - DY[dn] * k) * W + cx(p[n - 1].x) - DX[dn] * k);
-    }
-    // a fixed end (a port) is left, or reached, two cells straight out from it
-    if (fixedStart) starts.push([cx(p[0].x) + DX[d0] * 2, cy(p[0].y) + DY[d0] * 2, d0]);
-    else starts.push(...ring(sr, false));
-    const goals = new Map();                                   // cell → the way it must be going to arrive
-    if (fixedEnd) goals.set((cy(p[n - 1].y) - DY[dn] * 2) * W + cx(p[n - 1].x) - DX[dn] * 2, dn);
-    else for (const [x, y, d] of ring(tr, true)) goals.set(y * W + x, d);
-    // A*, the state a cell and the way in; a bend, running along a line and crossing one all cost
-    const N = W * H * 4, dist = new Float32Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1);
-    const heap = [];
-    const push = (f, s) => { heap.push([f, s]); let i = heap.length - 1; while (i > 0) { const j = (i - 1) >> 1; if (heap[j][0] <= heap[i][0]) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; } };
-    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i;
-      if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[i], heap[m]] = [heap[m], heap[i]]; i = m; } } return top; };
-    const gx = cx(p[p.length - 1].x), gy = cy(p[p.length - 1].y);
-    const hcost = (x, y) => Math.abs(x - gx) + Math.abs(y - gy);
-    for (const [x, y, d] of starts) {
-      if (x < 0 || y < 0 || x >= W || y >= H) continue;
-      const st = (y * W + x) * 4 + d;
-      dist[st] = 0; push(hcost(x, y), st);
-    }
-    let found = -1, steps = 0;
-    while (heap.length && steps++ < 400000) {
-      const [, st] = pop();
-      const c = st >> 2, d = st & 3, x = c % W, y = (c - x) / W;
-      if (goals.has(c) && goals.get(c) === d) { found = st; break; }
-      for (let nd = 0; nd < 4; nd++) {
-        if (nd === (d + 2) % 4) continue;
-        const nx = x + DX[nd], ny = y + DY[nd], nc = ny * W + nx;
-        if (!free(nc, nx, ny)) continue;
-        if (!fixedEnd && owner[nc] !== -1 && owner[nc] === ti && !goals.has(nc)) continue;   // into its target only where it arrives
-        if (owner[nc] !== -1 && owner[nc] === si && owner[c] !== si) continue; // never back into where it started
-        // running along another line is worst, crossing one costs a long way round, a bend costs some
-        // (a pipe's bends cost most: a flow reads best straight); a line's own net is free to join
-        const along = (nd % 2 === 0 ? runH[nc] && !mine(netH, nc, net) : runV[nc] && !mine(netV, nc, net)) ? 1 : 0;
-        const across = (nd % 2 === 0 ? runV[nc] && !mine(netV, nc, net) : runH[nc] && !mine(netH, nc, net)) ? 1 : 0;
-        // its own net it may run along, and meet (turning onto it is a junction: one line that splits), but
-        // not go straight through: that reads as two nets. Charged on leaving a cell straight on, the way it came
-        const acrossOwn = nd === d && (d % 2 === 0 ? runV[c] && someMine(netV, c, net) : runH[c] && someMine(netH, c, net)) ? 1 : 0;
-        const cost = dist[st] + 1 + (nd !== d ? bend : 0) + along * 40 + across * 16 + acrossOwn * 80 + (owner[nc] === -1 && soft[nc] ? 10 : 0);
-        const ns = nc * 4 + nd;
-        if (cost < dist[ns]) { dist[ns] = cost; prev[ns] = st; push(cost + hcost(nx, ny), ns); }
-      }
-    }
-    if (found < 0) { (lay.unrouted ||= []).push(le.id); mark(p); continue; }   // no way round: keep the layout's line
-    const states = [];
-    for (let st = found; st >= 0; st = prev[st]) states.push(st);
-    states.reverse();
-    const cells = states.map((st) => st >> 2);
-    let route = cells.map((c) => ({ x: X0 + (c % W) * GRID, y: Y0 + Math.floor(c / W) * GRID }));
-    const sb = box[e.source], tb = box[e.target];
-    const a = route[0], z = route[route.length - 1];
-    const firstDir = states[0] & 3;                            // the way out of the part it leaves
-    // its ends on the parts themselves: the ports where it has them, else the side of the part it leaves and reaches
-    const leave = (q, b, d) => (d === 0 ? { x: b.x + b.width, y: q.y } : d === 2 ? { x: b.x, y: q.y } : d === 1 ? { x: q.x, y: b.y + b.height } : { x: q.x, y: b.y });
-    const reach = (q, b, d) => (d === 0 ? { x: b.x, y: q.y } : d === 2 ? { x: b.x + b.width, y: q.y } : d === 1 ? { x: q.x, y: b.y } : { x: q.x, y: b.y + b.height });
-    const head = fixedStart ? [p[0], d0 % 2 === 0 ? { x: a.x, y: p[0].y } : { x: p[0].x, y: a.y }] : [leave(a, sb, firstDir)];
-    const lastDir = found & 3;
-    const tail = fixedEnd ? [dn % 2 === 0 ? { x: z.x, y: p[n - 1].y } : { x: p[n - 1].x, y: z.y }, p[n - 1]] : [reach(z, tb, lastDir)];
-    route = [...head, ...route, ...tail];
-    route = straightJogs(route);
-    route = route.filter((q, i) => {                          // only the corners
-      if (i === 0 || i === route.length - 1) return true;
-      const a = route[i - 1], b = route[i + 1];
-      return !((Math.abs(a.x - q.x) < 0.5 && Math.abs(q.x - b.x) < 0.5) || (Math.abs(a.y - q.y) < 0.5 && Math.abs(q.y - b.y) < 0.5));
-    });
-    le.sections = [{ startPoint: route[0], bendPoints: route.slice(1, -1), endPoint: route[route.length - 1] }];
-    le.junctionPoints = [];
-    mark(route, e.kind === "pipe", net);
-  }
 }
 
 /* a nested layout made flat again: every part and edge in the diagram's own coordinates, and the
@@ -889,6 +622,26 @@ function edgePoints(e) {
   return [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint];
 }
 
+function redrawLine(svg, id) {                         // a line's new way, while a part is dragged: its paths and its head
+  const le = S.layout?.edges.find((x) => x.id === id), e = S.graph?.edges.find((x) => x.id === id);
+  const eg = svg.querySelector(`.edge[data-id="${CSS.escape(id)}"]`);
+  if (!le || !e || !eg) return;
+  const pts = edgePoints(le);
+  if (pts.length < 2) return;
+  const d = roundedPath(pts, e.kind === "pipe" ? 10 : 7), body = roundedPath(e.kind === "pipe" && e.arrow ? shortened(pts, 14) : pts, 10);
+  for (const p of eg.querySelectorAll("path")) {
+    if (p.classList.contains("pipe-out") || p.classList.contains("pipe-in") || p.classList.contains("flowing")) p.setAttribute("d", body);
+    else if (p.classList.contains("info") || p.classList.contains("edge-hit")) p.setAttribute("d", d);
+    else {                                              // a head: drawn again at the new end
+      const fill = p.getAttribute("fill") || p.style.fill;
+      const head = e.kind === "pipe" ? pipeHead(pts, fill) : arrowHead(pts, "head", e.kind === "wire" ? 9 : 7);
+      if (e.kind !== "pipe") head.style.fill = p.style.fill;
+      p.replaceWith(head);
+    }
+  }
+  for (const j of eg.querySelectorAll("circle.junction, text.elabel")) j.remove();
+}
+
 function shortened(pts, by) {                        // the same line, its last stretch cut back by `by`
   const out = pts.map((p) => ({ ...p }));
   const a = out[out.length - 2], b = out[out.length - 1], len = Math.hypot(b.x - a.x, b.y - a.y);
@@ -1150,6 +903,7 @@ function panZoom(svg) {
     if (d.el) d.el.setAttribute("transform", `translate(${d.lx + dx},${d.ly + dy})`);
     svg.classList.add("dragging-part");
     d.to = { x: Math.round(d.lx + dx), y: Math.round(d.ly + dy) };
+    for (const id of avoidMove(d.id, d.to.x, d.to.y) || []) redrawLine(svg, id);   // its lines follow it
   });
   window.addEventListener("pointerup", () => {
     const d = S.nodeDrag;

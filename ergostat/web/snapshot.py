@@ -4,6 +4,7 @@ running: a diagram to attach to a document or a ticket, and everything behind it
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import time
@@ -92,5 +93,9 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
     def script(mt: re.Match) -> str:
         body = inline((STATIC / mt.group(1)).read_text())
         before = f"<script>{snapshot_js}</script>\n" if mt.group(1) == "elk.bundled.js" else ""
+        if mt.group(1) == "avoid.js":             # the line router too, as data: a page opened from a file cannot fetch it
+            lib = STATIC / "libavoid"
+            before += ("<script>window.LIBAVOID = " + json.dumps({"js": base64.b64encode((lib / "libavoid.js").read_bytes()).decode(),
+                       "wasm": base64.b64encode((lib / "libavoid.wasm").read_bytes()).decode()}) + ";</script>\n")
         return before + "<script>" + body + "</script>"
     return re.sub(r'<script src="/static/([\w.]+)"></script>', script, page)
