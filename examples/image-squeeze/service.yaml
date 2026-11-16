@@ -3,10 +3,12 @@
 # Sorted by memory. What persists when nothing happens, and changes only through some process, is a
 # stock. The encoder's quality setting stays where the tuner last stepped it. What was served is
 # measured over the last 48 images, a window that keeps its value until new images enter it and old
-# ones leave: so quality, bytes, failures and time are stocks too, each moved by one two-way flow,
-# the window's turnover (system dynamics' smoothing is a stock for the same reason), measured from
-# its own successive readings. The mix of images is a function of the clock, with no state of its
-# own: an auxiliary, from outside the model.
+# ones leave: so quality, bytes, failures and time are stocks too, system dynamics' first-order
+# smoothing. Each is moved by one two-way flow, its turnover, which closes the gap between what the
+# batch just served has (an auxiliary: the ten images of one tick, a momentary quantity) and what the
+# window holds, over the window's length (about five batches, 40 seconds). What changes what is
+# served drives the batch, never the window directly. The mix of images is a function of the clock,
+# with no state of its own: an auxiliary, from outside the model.
 defaults:
   system: service
 
@@ -15,6 +17,41 @@ auxiliaries:
     unit: share
     exogenous: true
     description: how much of the mix is flat images (screenshots, line art, logos), which shifts every four minutes; an input from outside (the customers' clock), which the customers block reports
+  # What the batch just served has: what the setting, the code kept so far (as the benchmark measures
+  # it: + on quality and - on bytes, for a release is kept only for fewer bytes at equal quality or for
+  # looking better) and the candidate's share make of the images arriving now. The candidate is given
+  # traffic only while it looks as good and saves bytes, and it is the untried build: its failures and
+  # its time (what saves bytes mostly spends time) are what it adds. The mix's effect has no one sign
+  # (flat images look perfect once logos are fixed and terrible before; big photos, the slow ones,
+  # come and go in every phase): unsigned, and from outside, so in no loop.
+  batch-quality:
+    unit: ssim
+    description: the 10th percentile SSIM of the batch just served (ten images)
+    sensor:
+      run: bin/py world/read.py batch-quality
+      every: 8s
+    driven-by: [+stock.quality-setting, +stock.benchmark-points, +stock.rollout-share, auxiliary.flat-share]
+  batch-bytes:
+    unit: KB/MP
+    description: kilobytes per megapixel of the batch just served
+    sensor:
+      run: bin/py world/read.py batch-bytes
+      every: 8s
+    driven-by: [+stock.quality-setting, -stock.benchmark-points, -stock.rollout-share, auxiliary.flat-share]
+  batch-failures:
+    unit: "%"
+    description: of the batch just served, the images the service could not compress
+    sensor:
+      run: bin/py world/read.py batch-failures
+      every: 8s
+    driven-by: +stock.rollout-share
+  batch-time:
+    unit: ms
+    description: the slowest image of the batch just served
+    sensor:
+      run: bin/py world/read.py batch-time
+      every: 8s
+    driven-by: [+stock.rollout-share, auxiliary.flat-share]
 
 stocks:
   quality-setting:
@@ -53,11 +90,12 @@ flows:
     to: quality-setting
     two-way: true
     description: the tuner's steps, up or down by the quality error
+  # Each window's turnover: (the batch − the window) / the window's length, first-order smoothing
   quality-turnover:
     to: quality
     two-way: true
     description: images entering the window and leaving it, as they move its 10th percentile
-    driven-by: [+stock.quality-setting, auxiliary.flat-share, stock.rollout-share, stock.improvements]
+    driven-by: [+auxiliary.batch-quality, -stock.quality]
     sensor:
       changes: net
       over: 2m
@@ -65,7 +103,7 @@ flows:
   bytes-turnover:
     to: bytes-per-mp
     two-way: true
-    driven-by: [+stock.quality-setting, auxiliary.flat-share, stock.rollout-share, -stock.improvements]
+    driven-by: [+auxiliary.batch-bytes, -stock.bytes-per-mp]
     sensor:
       changes: net
       over: 2m
@@ -73,7 +111,7 @@ flows:
   failures-turnover:
     to: failures
     two-way: true
-    driven-by: +stock.rollout-share            # the candidate is the untried build: more of its traffic, more of its failures
+    driven-by: [+auxiliary.batch-failures, -stock.failures]
     sensor:
       changes: net
       over: 2m
@@ -81,7 +119,7 @@ flows:
   time-turnover:
     to: time
     two-way: true
-    driven-by: [stock.rollout-share, auxiliary.flat-share]
+    driven-by: [+auxiliary.batch-time, -stock.time]
     sensor:
       changes: net
       over: 2m

@@ -1,6 +1,7 @@
 """What the product's sensors read from the service: bin/py world/read.py NAME
 
     quality bytes-per-mp failures time flat-share          what was served (world/customers.py)
+    batch-quality batch-bytes batch-failures batch-time    the same, of the batch just served
     bytes-saved-low bytes-saved-high quality-change        the running experiment, against production
     candidate-failures candidate-time paired
     quality-setting candidate-offset rollout-share         the settings the tuner, the matcher and the rollout step
@@ -46,5 +47,9 @@ value = {"quality": s["quality"], "bytes-per-mp": s["bytes_per_mp"], "failures":
          "flat-share": s["flat_share"],
          "bytes-saved-low": (c.get("bytes_saved") or [0, 0])[0], "bytes-saved-high": (c.get("bytes_saved") or [0, 0])[1],
          "quality-change": c.get("quality_mean", 0.0), "candidate-failures": c.get("failures", 0),
-         "candidate-time": c.get("time", 0.0), "paired": c.get("paired", 0)}[what]
+         "candidate-time": c.get("time", 0.0), "paired": c.get("paired", 0),
+         **{f"batch-{k}": v for k, v in (s.get("batch") or {}).items()}}.get(what)
+if value is None:
+    print(f"no {what} yet", file=sys.stderr)
+    raise SystemExit(1)
 print(value)

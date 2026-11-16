@@ -76,12 +76,16 @@ the bytes of the highest quality. That is when the lab matters.
   better is not made to look worse to match (its gain may be all on one kind of image, and
   spending it would make every other kind worse): it is kept if it looks better for about the same
   bytes, and the quality loop then turns production's setting down by itself;
-- the `rollout` reads `bytes-saved` (a 90% confidence interval over the images both builds saw),
-  the candidate's failures and time, and a guardrail on every kind of image. While the candidate
-  is better, it gets more of the traffic (5%, 25%, 50%, 100%: `rollout-share`, and what is served
-  moves with it); then it is kept, merged, and production runs at its matched quality. If it fails
-  on any image, is slow (over 120 ms at the 95th percentile), is much worse for some kind of image,
-  or shows no difference, it is rolled back.
+- the `rollout` reads `bytes-saved` (a 90% confidence interval over the images both builds saw)
+  and the images compared (`paired`). While the candidate is better, it gets more of the traffic
+  (5%, 25%, 50%, 100%: `rollout-share`, and what is served moves with it), one stage per 30 images,
+  and none while the service's own goals (`no-failures`, `fast-enough`) are off; then it is kept,
+  merged, and production runs at its matched quality (`adopted`);
+- the `rollback` holds the candidate to its guards, `candidate-sound` (no failures) and
+  `candidate-fast` (120 ms at the 95th percentile, the budget written there), and drops it when it
+  fails one, saves no bytes at equal quality, is much worse for some kind of image, loses a
+  benchmark case, or shows no difference after 240 images. The rollout steps its traffic back, the
+  matcher its offset.
 
 This is what makes an AI developer's mistakes safe: a broken change shows up as measured failures
 on a small share of traffic, and the loop pulls it back. Nobody has to notice.
@@ -91,7 +95,7 @@ on a small share of traffic, and the loop pulls it back. Nobody has to notice.
 fewer than two wait (`ideas-ready`); the `developer` builds the oldest whenever the candidate slot
 is empty (`one-running`). `small-images` (bytes per megapixel served ≤ 20) is the target the whole
 lab chases: `ergostat explain small-images` traces it from the researcher, through the ideas and the
-experiment, to the rollout and the bytes served.
+experiment, to the release kept, the benchmark points it gains and the bytes served.
 
 ## The benchmark: what squeeze can do
 
@@ -103,14 +107,14 @@ decode, they are not tests that pass or fail but a count of what the product can
 
 - each case is an item (`case/logo-3`: met or unmet, its size now and its best so far): the Items
   tab's `case` table is squeeze's scoreboard;
-- **`capabilities`** is the stock of cases met, filled by `gained` and drained by `lost`, both driven
-  by releases; the goal `every-case` is all thirty (the noisiest photos may stay out of reach);
+- **`capabilities`** is the stock of cases met, filled by `gained` (driven by releases) and drained by
+  `lost` (a disturbance); the goal `every-case` is all thirty (the noisiest photos may stay out of reach);
 - **`benchmark-points`** is how good squeeze is now, in one number: the percentage fewer kilobytes
   per megapixel all thirty need than squeeze as handed over needed (so higher is better, and the
   seed is 0; the KB/MP themselves are in `run/world/benchmark.json` and in each case). It is a stock:
   it keeps its value until a release changes the code. What releases do to it are its flows,
   `benchmark-points-gained` (driven by kept hypotheses) and `benchmark-points-lost` (to outside: a
-  release that breaks something, a cause not modelled yet), each measured from the points' own
+  release that breaks something; the rollback refuses one that loses a case, so nothing drives it), each measured from the points' own
   rises and falls (`changes:`), so a sudden drop shows as a large outflow. `photo-points` and
   `flat-points` are the same on the fifteen photos and the fifteen flat images;
 - the points' sensor runs the benchmark once per release (and records each case it measured, as
@@ -130,23 +134,42 @@ momentary function of other things.
 
 | Part | Kind | Why | Its flows |
 |---|---|---|---|
-| `quality-setting` | stock | stays where the tuner last stepped it | `quality-steps` (two-way, the tuner's steps by the error), `adopted` (a kept candidate's offset) |
-| `candidate-offset` | stock | stays where the matcher last stepped it | `offset-steps` (two-way, the matcher), out by `adopted` (kept) or `offset-cleared` (dropped) |
-| `rollout-share` | stock | stays at its stage until the rollout steps it | `share-steps` (two-way, the rollout) |
-| `paired`, `candidate-failures` | stocks | counts since the candidate started | `compared`, `candidate-failing` in; `cleared`, `failures-cleared` out when a candidate is kept or dropped; measured from their rises and falls |
+| `quality-setting` | stock | stays where the tuner last stepped it | `quality-steps` (two-way, the tuner), `adopted` (a kept candidate's offset) |
+| `candidate-offset` | stock | stays where the matcher last stepped it | `offset-steps` (two-way, the matcher's, back to 0 for each new candidate), out by `adopted` |
+| `rollout-share` | stock | stays at its stage until the rollout steps it | `share-steps` (two-way, the rollout's, back to 0 once the candidate is decided) |
+| `ideas`, `building`, `experiments`, `improvements` | stocks | hypotheses in each state: an aging chain | `started` follows the ideas waiting, `submitted` what is built, `kept` what is tested |
+| `paired`, `candidate-failures` | stocks | counts since the candidate started | `compared` (while a candidate runs), `candidate-failing` (the build's own); `cleared` on a verdict, `failures-cleared` on a drop |
 | `ai-spend` | stock | only grows, by each session's cost | `spending`, driven by the sessions running |
-| `benchmark-points`, `photo-points`, `flat-points` | stocks | keep their value until a release | `-gained` (driven by kept) and `-lost` (to outside) |
-| `quality`, `bytes-per-mp`, `failures`, `time`, `candidate-time` | stocks | each is measured over a window of the last images (48 served, or those compared), which keeps its value until new images enter it and old ones leave; system dynamics models smoothing as a stock for the same reason | one two-way flow each (`quality-turnover`, ...), the window's turnover, driven by what changes what is served (the setting +, kept improvements, the rollout's share, the mix), measured from its own net change |
-| `bytes-saved`, `quality-change` | auxiliaries | each is a difference between two builds on the same images, a function of what both did and of the offset, with nothing of its own to keep | |
-| `flat-share` | auxiliary, `exogenous` | a function of the clock, from outside the model: the customers' mix | |
+| `benchmark-points`, `photo-points`, `flat-points` | stocks | keep their value until a release | `-gained` (driven by kept) and `-lost` (a disturbance) |
+| `quality`, `bytes-per-mp`, `failures`, `time` | stocks | each a window of the last 48 images served: system dynamics' first-order smoothing | one two-way turnover each, (the batch − the window) / the window's length, measured from its own net change |
+| `batch-quality`, `batch-bytes`, `batch-failures`, `batch-time` | auxiliaries | what the ten images just served have, a momentary quantity: what the windows smooth | driven by the setting (+), the code kept as the benchmark measures it (+ quality, − bytes) and the candidate's share |
+| `candidate-time` | stock | a window of the images compared | its turnover, filling while a candidate runs |
+| `bytes-saved`, `quality-change` | auxiliaries | each is a difference between two builds on the same images, a function of what both did and of the offset | |
+| `flat-share` | auxiliary, `exogenous` | a function of the clock, from outside the model: the customers' mix (its effect has no one sign, so unsigned) | |
 
 So the tuner is an integral controller in the plain sense: it steps a stock (the setting) by the
-error, and the stock's memory is the integral. `ergostat explain quality-held` says so, and names
-the roles: the setting is the loop's manipulated variable, quality its process variable (roles in a
-loop, not kinds of quantity). The influences carry signs where they can be justified (`+` the
-setting on quality and on bytes, `−` kept improvements on bytes, `−` the candidate's offset on the
-bytes it saves), so `ergostat explain` can say which feedback loops balance (the four goals the
-controllers seek) and which are not yet known.
+error, and the stock's memory is the integral; `ergostat explain quality-held` names the roles.
+
+### The feedback loops
+
+Every influence carries a sign where the code justifies one, so `ergostat explain` can say which
+loops balance and which reinforce:
+
+| Loop | | What it does |
+|---|---|---|
+| `quality-held` | B | quality low → the tuner raises the setting → the batch looks better → quality rises |
+| `matched` | B | the candidate looks worse → the matcher raises its offset → it looks better |
+| `no-failures`, `fast-enough` | B | the candidate's traffic raises what is served's failures and time → while a goal is off, the rollout gives it no more |
+| `candidate-sound`, `candidate-fast` | B | a failing (or slow) candidate is dropped → its failures are cleared (its window empties) |
+| `ideas-ready` | B | ideas short → the researcher proposes |
+| `one-running`, `one-running-3` | B | no experiment → the developer starts and submits one |
+| `small-images`, `every-case` | B | the research loop: bytes over target (or cases short) → ideas → experiments → kept → benchmark points (cases) → fewer bytes |
+| `quality-held+small-images` | B | the two together: better code looks better, the tuner turns the setting down, bytes fall |
+| `one-running-2` | R | a developer that abandons builds leaves the slot empty, and keeps building |
+| `quality`, `bytes-per-mp`, `failures`, `time`, `ideas`, `building`, `experiments` | B | each window adjusting to its batch, each stage of the chain draining |
+
+The loops through the rollout's and the rollback's readings of `paired` and `bytes-saved` are of
+unknown polarity until ergostat can be told which way a program block takes a reading.
 
 ## What the experiments find
 
@@ -185,7 +208,7 @@ stays off; with `FACTORY_AI=claude` the researcher reads the results and keeps g
   default (`FACTORY_RESEARCHER_MODEL`, `FACTORY_DEVELOPER_MODEL`, or `FACTORY_MODEL` for both).
 - Change the quality goal (`hold: "== 0.93"` in `service.yaml`; the tuner is told it on every
   run): lower is cheaper, and every experiment is judged there.
-- Change the time budget (`TIME_BUDGET` in `bin/lab.py`) and watch slow ideas pass.
+- Change the time budget (`candidate-fast` in `rollout.yaml`) and watch slow ideas pass.
 - Add an idea to `bin/ideas.py` (a wrapper around `prepare` or `choose`, like the others).
 
 ## What is real and what stands in
