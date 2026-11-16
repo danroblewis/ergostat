@@ -20,11 +20,11 @@ const WHAT = {
   loop: ["Feedback loop", "a goal on a stock and what serves it. When the stock's reading is off the setpoint, the controller commands a valve until it is back."],
   system: ["System", "a part of the model drawn as one part. Its ports are what crosses its edge: what it reads and is told, what it moves and drives."],
   agent: ["Agent", "the program, AI or person that does a part's work: reads a sensor, decides as a controller, or opens a valve."],
-  pipe: ["Flow (material)", "the pipe a flow runs along: material leaving one stock and arriving in another (or coming from or going to outside the model). Only flows change stocks."],
-  measure: ["Measurement (information)", "a sensor reading a stock or flow: the measured output, y. The arrow points into the sensor because that is the way the information goes: the stock's level is what the sensor reports. It moves nothing; it only tells."],
-  signal: ["Feedback (information)", "a sensor's reading going to a controller, which compares it with its setpoint r and acts on the error e = r − y. This is what makes the loop a loop."],
-  action: ["Control action (information)", "a controller commanding a valve: the control signal, u. How hard it pushes is the loop's gain; how long until the stock shows it is the loop's delay."],
-  influence: ["Influence (information)", "one thing's rate following another's, declared with driven-by: a release fixing what was broken, more users asking for more. Nothing moves along it; it is how a loop closes through another system."],
+  pipe: ["Flow", "the pipe a flow runs along: material leaving one stock and arriving in another (or coming from or going to outside the model). Only flows change stocks."],
+  measure: ["Information link: measurement", "a sensor reading a stock or flow: the measured output, y. The arrow points into the sensor because that is the way the information goes: the stock's level is what the sensor reports. It moves nothing; it only tells."],
+  signal: ["Information link: feedback", "a sensor's reading going to a controller, which compares it with its setpoint r and acts on the error e = r − y. This is what makes the loop a loop."],
+  action: ["Information link: control action", "a controller commanding a valve: the control signal, u. How hard it pushes is the loop's gain; how long until the stock shows it is the loop's delay."],
+  influence: ["Information link: influence", "one thing's rate following another's, declared with driven-by: a release fixing what was broken, more users asking for more. Nothing moves along it; it is how a loop closes through another system."],
   wire: ["Wire (who reaches whom)", "one agent's output reaching another: through a stock one changes and the other measures, a reading handed to a controller, a decision handed to a valve, or an event."],
 };
 const DRAWN = {
@@ -338,7 +338,9 @@ async function openEdge(e) {
     rows.push(["from", link(src)], ["to", link(dst)]);
   }
   const title = e.kind === "pipe" ? [e.flow, h("span", { class: "muted" }, ` (${rows[1][1]} → ${rows[2][1]})`)] : [nameOf(src), " → ", nameOf(dst)];
-  showDetail(h("div", { class: "kind" }, WHAT[e.kind] ? "line" : kind), h("h2", {}, ...title), whatIs(e.kind),
+  const named = { pipe: "flow", measure: "information link · measurement", signal: "information link · feedback",
+                  action: "information link · control action", influence: "information link · influence", wire: "wire" }[e.kind] || kind;
+  showDetail(h("div", { class: "kind" }, named), h("h2", {}, ...title), whatIs(e.kind),
     what ? h("p", { class: "muted" }, what) : null,
     DRAWN[e.kind] ? h("p", { class: "muted small" }, "Drawn as " + DRAWN[e.kind] + ".") : null,
     h("h3", {}, "how it is now"), dl(rows),

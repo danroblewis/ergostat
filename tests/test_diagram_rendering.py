@@ -14,6 +14,7 @@ It needs Playwright and the Chrome installed on this machine, so the usual run s
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import socket
@@ -32,7 +33,8 @@ AUDIT = (ROOT / "scripts" / "diagram_audit.js").read_text()
 EXAMPLES = sorted(p.name for p in (ROOT / "examples").iterdir() if (p / "ergostat.yaml").exists())
 READY = "() => typeof S !== 'undefined' && S.layout && S.graphSig && document.querySelectorAll('svg.canvas g.node').length > 0"
 TIMED = "async () => { const t = performance.now(); await layoutGraph(S.graph, 1.6, false); return performance.now() - t; }"
-LAYOUT_BUDGET_MS = 2500        # one layout of the biggest view, on a laptop; generous, to catch the router going quadratic
+LAYOUT_BUDGET_MS = 2500       # one layout of the biggest view, on a laptop; generous, to catch the router going quadratic
+MAX_PIPE_BENDS = 6             # a flow that runs back (rework into a backlog) must turn; more is a pipe pushed about
 
 
 def free_port() -> int:
@@ -94,7 +96,9 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     for i, v in enumerate(views):
         drawn(pg, url, v, i + 1)
         r = pg.evaluate(AUDIT)
-        problems += [f"[{v or 'whole'}] {k}: {x}" for k in ("through", "overlap", "detour") for x in r[k]]
+        problems += [f"[{v or 'whole'}] {k}: {x}" for k in ("through", "overlap", "detour", "netCrossings") for x in r[k]]
+        if r["mostPipeBends"][0] > MAX_PIPE_BENDS:                   # a flow reads best straight: the links bend instead
+            problems.append(f"[{v or 'whole'}] pipe {r['mostPipeBends'][1]} bends {r['mostPipeBends'][0]} times")
         ms = pg.evaluate(TIMED)
         slowest = max(slowest, (ms, v or "whole"))
     pg.close()
@@ -206,3 +210,120 @@ def test_every_part_opens_its_panel_when_clicked_even_mid_redraw(browser, tmp_pa
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+@contextlib.contextmanager
+def served(example: str, tmp_path: Path):
+    """An example's page, served from a fresh copy (the model is not run)."""
+    d = tmp_path / example
+    shutil.copytree(ROOT / "examples" / example, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        yield url
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
+VALVE_SIDES = """() => {
+  // each valve's information lines attach on the side most of what they join lies: its stem up, or turned down
+  const box = Object.fromEntries(S.layout.children.map((c) => [c.id, c])), bad = [];
+  for (const n of S.graph.nodes.filter((n) => n.kind === "valve" || n.kind === "disturbance")) {
+    const c = box[n.id]; if (!c) continue;
+    const ends = S.layout.edges.map((le) => [le, S.graph.edges.find((e) => e.id === le.id)])
+      .filter(([, e]) => e && e.kind !== "pipe" && (e.source === n.id || e.target === n.id));
+    if (!ends.length) continue;
+    const below = ends.filter(([, e]) => {
+      const o = box[e.source === n.id ? e.target : e.source];
+      return o && o.y + o.height / 2 > c.y + c.height / 2 + 10;
+    }).length;
+    const wantDown = below > ends.length / 2;
+    for (const [le, e] of ends) {
+      const sec = le.sections[0], p = e.source === n.id ? sec.startPoint : sec.endPoint;
+      const atBottom = Math.abs(p.y - (c.y + c.height)) < 3, atTop = Math.abs(p.y - c.y) < 3;
+      if ((wantDown && !atBottom) || (!wantDown && !atTop)) bad.push(`${n.id}: ${le.id} at y ${p.y} (valve ${c.y}..${c.y + c.height})`);
+    }
+  }
+  return bad;
+}"""
+
+
+def test_valves_face_their_links_and_pipes_show_their_arrowheads(browser, tmp_path):
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        for i, v in enumerate(("system=product", "open=*", "open=product")):
+            drawn(pg, url, v, i)
+            assert pg.evaluate(VALVE_SIDES) == [], v
+            heads = pg.evaluate("() => [...document.querySelectorAll('g.edge.pipe path.pipe-head')]"
+                                ".map((h) => getComputedStyle(h).fill)")
+            arrows = pg.evaluate("() => S.graph.edges.filter((e) => e.kind === 'pipe' && e.arrow).length")
+            assert len(heads) == arrows and all(f not in ("none", "") for f in heads), (v, len(heads), arrows, heads[:3])
+        pg.close()
+
+
+def test_the_background_hides_the_side_panel_and_a_part_dragged_stays_pinned(browser, tmp_path):
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=product", 0)
+        pg.get_by_role("button", name="fit").click()
+        side = "() => document.querySelector('.diagram').classList.contains('side-hidden')"
+        empty = pg.evaluate("""() => { const r = document.querySelector('svg.canvas').getBoundingClientRect();
+            for (let y = r.top + 80; y < r.bottom - 80; y += 17) for (let x = r.left + 40; x < r.right - 40; x += 23) {
+              const e = document.elementFromPoint(x, y); if (e && e.tagName === 'svg') return {x, y}; } return null; }""")
+        assert empty, "no empty background to click"
+        pg.mouse.click(empty["x"], empty["y"])
+        pg.wait_for_timeout(200)
+        assert pg.evaluate(side) is True
+        pg.mouse.click(empty["x"], empty["y"])
+        pg.wait_for_timeout(200)
+        assert pg.evaluate(side) is False
+        pg.mouse.move(empty["x"], empty["y"])
+        pg.mouse.down()
+        pg.mouse.move(empty["x"] + 80, empty["y"] + 40)
+        pg.mouse.up()
+        pg.wait_for_timeout(200)
+        assert pg.evaluate(side) is False, "a pan is not a click"
+
+        # drag a stock 150px right and 120px down: it stays there, pinned, and its lines are routed to it
+        nid = "stock:users"
+        before = pg.evaluate(f"() => {{ const c = S.layout.children.find((c) => c.id === '{nid}'); return [c.x, c.y]; }}")
+        hit = pg.locator(f'g.node[data-id="{nid}"] .hit').first.bounding_box()
+        k = pg.evaluate("() => S.view.k")
+        x, y = hit["x"] + hit["width"] / 2, hit["y"] + hit["height"] / 2
+        pg.mouse.move(x, y)
+        pg.mouse.down()
+        for step in range(1, 11):
+            pg.mouse.move(x + 15 * step * k, y + 12 * step * k)
+        pg.mouse.up()
+        pg.wait_for_function(f"() => S.layout.children.find((c) => c.id === '{nid}') && S.pins['{nid}']", timeout=10000)
+        pg.wait_for_timeout(1500)
+        after = pg.evaluate(f"() => {{ const c = S.layout.children.find((c) => c.id === '{nid}'); return [c.x, c.y]; }}")
+        assert abs(after[0] - before[0] - 150) < 6 and abs(after[1] - before[1] - 120) < 6, (before, after)
+        r = pg.evaluate(AUDIT)
+        assert not r["through"], r["through"]
+        ends = pg.evaluate(f"""() => S.layout.edges.filter((le) => {{
+            const e = S.graph.edges.find((x) => x.id === le.id);
+            return e && (e.source === '{nid}' || e.target === '{nid}'); }}).map((le) => {{
+            const c = S.layout.children.find((c) => c.id === '{nid}');
+            const s = le.sections[0], e = S.graph.edges.find((x) => x.id === le.id);
+            const p = e.source === '{nid}' ? s.startPoint : s.endPoint;
+            return p.x >= c.x - 2 && p.x <= c.x + c.width + 2 && p.y >= c.y - 2 && p.y <= c.y + c.height + 2; }})""")
+        assert ends and all(ends), "every line of the moved part ends on it"
+        stored = pg.evaluate("() => Object.keys(localStorage).filter((k) => k.startsWith('ergostat.pins.'))")
+        assert stored, "the pin is kept in this browser"
+        drawn(pg, url, "open=product", 9)                          # a new visit: still where it was put
+        again = pg.evaluate(f"() => {{ const c = S.layout.children.find((c) => c.id === '{nid}'); return [c.x, c.y]; }}")
+        assert abs(again[0] - after[0]) < 2 and abs(again[1] - after[1]) < 2
+        pg.locator(f'g.pins .pin[data-id="{nid}"]').click(force=True)   # (the page redraws: it never stands still)
+        pg.wait_for_function(f"() => !S.pins['{nid}']", timeout=10000)
+        pg.close()

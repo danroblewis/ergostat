@@ -7,6 +7,12 @@
     const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
     return x1 > r.x + 3 && x0 < r.x + r.width - 3 && y1 > r.y + 3 && y0 < r.y + r.height - 3; };
   const out = { through: [], overlap: [], detour: [] };
+  // a net: lines leaving or reaching one point (one port, or one part, of one kind) together
+  const valveish = (id) => ["valve", "disturbance"].includes(byId[id]?.kind);
+  const info = (e) => e.kind !== "pipe";
+  const isNet = (ea, eb) => (ea.sourcePort && ea.sourcePort === eb.sourcePort) || (ea.targetPort && ea.targetPort === eb.targetPort) ||
+    (ea.kind === eb.kind && ((ea.source === eb.source && !ea.sourcePort && !eb.sourcePort) || (ea.target === eb.target && !ea.targetPort && !eb.targetPort))) ||
+    (info(ea) && info(eb) && ((ea.source === eb.source && valveish(ea.source)) || (ea.target === eb.target && valveish(ea.target))));   // one point on a valve
   const owners = (id) => { const e = eById[id]; return [e.source, e.target]; };
   for (const le of lay.edges) {
     const e = eById[le.id]; if (!e) continue;
@@ -24,13 +30,36 @@
     const [ia, [a, b]] = all[i], [ib, [c, d]] = all[j];
     if (ia === ib) continue;
     const ea = eById[ia], eb = eById[ib];
-    if (ea.kind === eb.kind && ((ea.source === eb.source && (ea.sourcePort || "") === (eb.sourcePort || "")) ||
-                                (ea.target === eb.target && (ea.targetPort || "") === (eb.targetPort || "")))) continue; // a net
+    if (isNet(ea, eb)) continue; // a net
     let ov = 0;
     if (Math.abs(a.y - b.y) < 1 && Math.abs(c.y - d.y) < 1 && Math.abs(a.y - c.y) < 3) ov = Math.min(Math.max(a.x,b.x), Math.max(c.x,d.x)) - Math.max(Math.min(a.x,b.x), Math.min(c.x,d.x));
     if (Math.abs(a.x - b.x) < 1 && Math.abs(c.x - d.x) < 1 && Math.abs(a.x - c.x) < 3) ov = Math.min(Math.max(a.y,b.y), Math.max(c.y,d.y)) - Math.max(Math.min(a.y,b.y), Math.min(c.y,d.y));
     const k = [ia, ib].sort().join(" & ");
     if (ov > 20 && !seen.has(k)) { seen.add(k); out.overlap.push(`${k}: ${Math.round(ov)}px`); }
+  }
+  // crossings: a horizontal piece of one line through a vertical piece of another (not at their ends,
+  // not lines that share a part); and those between lines of one net, which should never happen
+  const ends = (id) => { const e = eById[id]; return new Set([e.source, e.target]); };
+  out.crossings = 0; out.netCrossings = [];
+  const counted = new Set();
+  for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+    const [ia, [a, b]] = all[i], [ib, [c, d]] = all[j];
+    if (ia === ib) continue;
+    const ea = eById[ia], eb = eById[ib];
+    const hv = (p, q, r, s) => Math.abs(p.y - q.y) < 1 && Math.abs(r.x - s.x) < 1 &&
+      r.x > Math.min(p.x, q.x) + 2 && r.x < Math.max(p.x, q.x) - 2 && p.y > Math.min(r.y, s.y) + 2 && p.y < Math.max(r.y, s.y) - 2;
+    if (!(hv(a, b, c, d) || hv(c, d, a, b))) continue;
+    const shared = [...ends(ia)].some((x) => ends(ib).has(x));
+    if (isNet(ea, eb)) { out.netCrossings.push(`${ia} & ${ib}`); continue; }
+    if (!shared) { out.crossings++; counted.add(ia); counted.add(ib); }
+  }
+  // bends: the corners in each line; pipes should have as few as can be
+  out.pipeBends = 0; out.infoBends = 0; out.mostPipeBends = [0, ""];
+  for (const le of lay.edges) {
+    const e = eById[le.id]; if (!e) continue;
+    const n = Math.max(0, pts(le).length - 2);
+    if (e.kind === "pipe") { out.pipeBends += n; if (n > out.mostPipeBends[0]) out.mostPipeBends = [n, le.id]; }
+    else out.infoBends += n;
   }
   return out;
 })

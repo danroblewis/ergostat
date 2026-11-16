@@ -28,7 +28,8 @@ function blockLayout(g) {
     // feedforward: a sensor the controller reads that measures a disturbance, not the stock
     const ff = g.edges.filter((e) => e.kind === "signal" && e.target === ctl.id).map((e) => byId[e.source])
                       .filter((x) => x && x.measures !== lp.stock && dists.some((d) => d.flow === x.measures));
-    rows.push({ name, lp, ctl, stock, sensors, valves, dists, drains, ff, system: (stock.systems?.length ? stock.systems : ctl.systems || [])[0] || "" });
+    const chain = (stock.systems?.length ? stock.systems : ctl.systems || []);             // innermost first
+    rows.push({ name, lp, ctl, stock, sensors, valves, dists, drains, ff, system: chain[0] || "", path: [...chain].reverse() });
   }
   // the loops of one system together, systems in the order they first appear: the columns read by system
   const order = [...new Set(rows.map((r) => r.system))];
@@ -78,23 +79,36 @@ function drawBlocks(svg, g) {
     return gg;
   };
   if (!rows.length) { svg.replaceChildren(); return null; }
-  const manySystems = new Set(rows.map((r) => r.system)).size > 1;   // loops whose parts are not all in view
-  const cols = Math.min(4, Math.ceil(rows.length / 6)), perCol = Math.ceil(rows.length / cols), colW = X.out + 110;
-  rows.forEach((row, i) => {
-    const y0 = (i % perCol) * RH + 40, cy = y0 + 50, dx = Math.floor(i / perCol) * colW;
+  // each system's loops together, in an outline titled with where the system sits; a column holds
+  // whole systems where it can, and is about as tall as the others
+  const GAP = 46, colW = X.out + 130;
+  const groups = [];
+  for (const r of rows) {
+    const last = groups[groups.length - 1];
+    if (last && last.system === r.system) last.rows.push(r); else groups.push({ system: r.system, path: r.path, rows: [r] });
+  }
+  const total = rows.length * RH + groups.length * GAP, cols = Math.min(4, Math.max(1, Math.round(total / 1400))), target = total / cols;
+  const place = new Map();
+  let col = 0, y = 30, frames = [];
+  for (const gr of groups) {
+    const hgt = gr.rows.length * RH + GAP;
+    if (y > 30 && y + hgt > target + RH && col < cols - 1) { col += 1; y = 30; }
+    if (gr.system) frames.push({ x: col * colW, y, w: X.out + 100, h: hgt - 12, path: gr.path });
+    y += gr.system ? GAP : 10;
+    for (const r of gr.rows) { place.set(r, { y0: y + 10, dx: col * colW }); y += RH; }
+  }
+  const tall = Math.max(...[...place.values()].map((p) => p.y0)) + RH;
+  for (const f of frames) {
+    vp.append(s("rect", { x: f.x - 4, y: f.y, width: f.w, height: f.h, rx: 16, class: "block-system" }),
+              s("text", { x: f.x + 12, y: f.y + 24, class: "t-label block-system-title" }, f.path.join(" › ").toUpperCase()));
+  }
+  rows.forEach((row) => {
+    const { y0, dx } = place.get(row), cy = y0 + 50;
     const st = row.lp.status || "unknown";
     const tone = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[st] || "var(--unknown)";
     const loopG = s("g", { class: "block-loop", "data-loop": row.name, transform: dx ? `translate(${dx},0)` : null });
     loopG.append(s("rect", { x: 6, y: y0 - 30, width: X.out + 70, height: RH - 20, rx: 14, fill: "none", stroke: "var(--line)", "stroke-dasharray": "4 4" }));
-    // the system it belongs to, when there are several: a loop among 24 keeps its place
-    const sysTag = manySystems && row.system ? row.system.toUpperCase() : "";
-    let nx = 18;
-    if (sysTag) {
-      const t = label(18, y0 - 10, sysTag, "t-sub sys-tag", "start");
-      loopG.append(t);
-      vp.append(loopG);                                   // measured where it is drawn, then placed after it
-      nx = 18 + (t.getComputedTextLength?.() || sysTag.length * 8.5) + 10;
-    }
+    const nx = 18;                                          // its system is the outline around it
     loopG.append(label(nx, y0 - 10, row.name, "t-label", "start"), label(nx + row.name.length * 7.4 + 10, y0 - 10, st, "t-sub", "start"));
     loopG.lastChild.style.fill = tone;
     const sp = spText(row.lp);
@@ -136,9 +150,17 @@ function drawBlocks(svg, g) {
       const more = row.dists.length > 1 ? ` (+${row.dists.length - 1} more)` : "";
       // another loop's actuator is known and measured: say whose it is (the loops are in series)
       const fromLoop = d.kind === "valve" ? Object.entries(g.loops).find(([, l]) => l.nodes.includes(d.id))?.[0] : null;
-      const who = fromLoop ? ` (u of loop ${fromLoop}, measured)` : d.kind === "valve" && d.agent ? ` · ${d.agent.name}` : "";
+      const who = fromLoop ? ` · loop ${fromLoop}'s actuator` : d.kind === "valve" && d.agent ? ` · moved by ${d.agent.name}` : "";
+      // d, a disturbance: a flow into (or out of) the stock that this loop does not command
       loopG.append(...line([[X.dsum, cy - (row.ff.length ? 78 : 70)], [X.dsum, cy - 14]], "", "var(--dist)"));
-      loopG.append(label(X.dsum - 8, cy - 58, `d: ${d.label}${who} ${d.rateText}${d.estimated ? " (est.)" : ""}${more}`, "t-sub", "end"));
+      const dl = label(X.dsum + 8, cy - 34, "d", "t-label", "start");
+      dl.style.fill = "var(--dist)";
+      const name = d.flow || d.label;
+      const why = `a disturbance to this loop: flow ${name} ${d.sign === "−" ? "drains" : "fills"} ${row.stock.label}, and this loop does not command it` +
+                  (fromLoop ? ` (loop ${fromLoop} does)` : d.agent ? ` (${d.agent.name} moves it)` : " (nothing in the model moves it)");
+      const dt = label(X.dsum - 8, cy - 58, `d: ${name} ${d.rateText}${d.estimated ? " (est.)" : ""}${who}${more}`, "t-sub", "end", why);
+      dt.style.fill = "var(--dist)";
+      loopG.append(dl, dt);
       if (row.ff.length) {
         // the controller also measures d itself: feedforward, acting before d shows in the error
         const f = row.ff[0], fy = cy - 78, fx = X.ctl + cw / 2;
@@ -173,6 +195,6 @@ function drawBlocks(svg, g) {
   });
   svg.replaceChildren(vp);
   applyView(svg);
-  return { width: cols * colW - 20, height: perCol * RH + 30 };
+  return { width: cols * colW - 20, height: tall + 20 };
 }
 

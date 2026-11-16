@@ -33,26 +33,48 @@ function couplings(g) {
 
 /* which side of a system box each port is on: the side facing what it joins (worked out after a
    first layout), else inputs left and outputs right */
+/* what a first layout tells the second: which side of a system box each port belongs on (facing
+   what it joins), the order of ports down a side (by where what they join lies, so lines between
+   two boxes do not cross), and which valves turn their stem down (what commands or reads them is
+   below) */
 function portSides(g) {
-  for (const n of g.nodes) if (n.kind === "system") for (const p of n.ports) p.at = S.portAt?.[p.id] || (p.side === "in" ? "west" : "east");
-}
-function wantedSides(lay, g) {
-  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
-  const want = {};
   for (const n of g.nodes) {
-    if (n.kind !== "system" || !box[n.id]) continue;
-    const b = box[n.id], mid = b.x + b.width / 2;
-    for (const p of n.ports) {
-      const peers = g.edges.filter((e) => e.sourcePort === p.id || e.targetPort === p.id).map((e) => box[e.sourcePort === p.id ? e.target : e.source]).filter(Boolean);
-      if (!peers.length) continue;
-      const cx = peers.reduce((a, c) => a + c.x + c.width / 2, 0) / peers.length;
-      want[p.id] = cx < mid ? "west" : "east";
+    if (n.kind === "system") {
+      for (const p of n.ports) p.at = S.portAt?.[p.id] || (p.side === "in" ? "west" : "east");
+      n.ports.sort((a, b) => (a.at > b.at) - (a.at < b.at) || (S.portRank?.[a.id] ?? 1e9) - (S.portRank?.[b.id] ?? 1e9) || (a.label > b.label) - (a.label < b.label));
+    }
+    if (n.kind === "valve" || n.kind === "disturbance") n.flip = false;      // laid out stem up; flipValves turns it after
+  }
+}
+function wanted(lay, g) {
+  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
+  const at = (id) => { const b = box[id]; return b ? { x: b.x + b.width / 2, y: b.y + b.height / 2 } : null; };
+  const portAt = {};                                  // each laid-out port's place, in the diagram's coordinates
+  for (const c of lay.children) for (const p of c.ports || []) portAt[p.id] = { x: c.x + p.x + (p.width || 0) / 2, y: c.y + p.y + (p.height || 0) / 2 };
+  const other = (e, mine) => (e.sourcePort === mine ? (e.targetPort && portAt[e.targetPort]) || at(e.target)
+                                                    : (e.sourcePort && portAt[e.sourcePort]) || at(e.source));
+  const sides = {}, ranks = {}, flips = {};
+  for (const n of g.nodes) {
+    if (n.kind === "system" && box[n.id]) {
+      const b = box[n.id], mid = b.x + b.width / 2;
+      for (const p of n.ports) {
+        const peers = g.edges.filter((e) => e.sourcePort === p.id || e.targetPort === p.id).map((e) => other(e, p.id)).filter(Boolean);
+        if (!peers.length) continue;
+        const cx = peers.reduce((a, c) => a + c.x, 0) / peers.length, cy = peers.reduce((a, c) => a + c.y, 0) / peers.length;
+        sides[p.id] = cx < mid ? "west" : "east";
+        ranks[p.id] = Math.round(cy);
+      }
+    }
+    if ((n.kind === "valve" || n.kind === "disturbance") && box[n.id]) {
+      const me = at(n.id);
+      const peers = g.edges.filter((e) => e.kind !== "pipe" && (e.target === n.id || e.source === n.id)).map((e) => at(e.target === n.id ? e.source : e.target)).filter(Boolean);
+      if (peers.length) flips[n.id] = peers.filter((q) => q.y > me.y + 10).length > peers.length / 2;
     }
   }
-  return want;
+  return { sides, ranks, flips };
 }
 
-async function layoutGraph(g, aspect, cut = false, again = false) {
+async function layoutGraph(g, aspect, cut = false, again = 0) {
   portSides(g);
   const ORDER = { cloud: 0, terminal: 0, disturbance: 1, stock: 2, valve: 3, system: 3, variable: 4, sensor: 5, controller: 6, agent: 2 };
   const rank = (n) => (n.kind === "cloud" ? (n.id.endsWith(":out") ? 4 : 0) : ORDER[n.kind] ?? 3);
@@ -81,15 +103,15 @@ async function layoutGraph(g, aspect, cut = false, again = false) {
     if (lines.length) {
       const lw = Math.max(...lines.map((l) => l === "§badge" ? textWidth(badgeText(n.agent)) + 18 : textWidth(l))) + 8;
       node.labels = [{ id: n.id + ":label", text: lines.join("\n"), width: lw, height: lines.length * 16 + 4 }];
-      node.layoutOptions["elk.nodeLabels.placement"] = "OUTSIDE V_BOTTOM H_CENTER";
+      node.layoutOptions["elk.nodeLabels.placement"] = n.flip ? "OUTSIDE V_TOP H_CENTER" : "OUTSIDE V_BOTTOM H_CENTER";   // a flipped valve's stem is below
     }
     if (n.kind === "valve" || n.kind === "disturbance") {
       node.layoutOptions["elk.portConstraints"] = "FIXED_SIDE";
       node.ports = [
         { id: n.id + ":in", width: 1, height: 1, layoutOptions: { "elk.port.side": "WEST" } },
         { id: n.id + ":out", width: 1, height: 1, layoutOptions: { "elk.port.side": "EAST" } },
-        { id: n.id + ":ctl", width: 1, height: 1, layoutOptions: { "elk.port.side": "NORTH" } },
-        { id: n.id + ":sense", width: 1, height: 1, layoutOptions: { "elk.port.side": "NORTH" } },   // its sensor reads here, apart from the command
+        { id: n.id + ":ctl", width: 1, height: 1, layoutOptions: { "elk.port.side": n.flip ? "SOUTH" : "NORTH" } },
+        { id: n.id + ":sense", width: 1, height: 1, layoutOptions: { "elk.port.side": n.flip ? "SOUTH" : "NORTH" } },   // its sensor reads here, apart from the command
       ];
     }
     return node;
@@ -101,14 +123,16 @@ async function layoutGraph(g, aspect, cut = false, again = false) {
     let src = e.sourcePort || e.source, dst = e.targetPort || e.target;
     if (e.sourcePort || e.targetPort) {
       if (!e.targetPort && flowNode.has(dst)) dst = dst + (e.kind === "pipe" ? ":in" : ":ctl");
-      if (!e.sourcePort && flowNode.has(src)) src = src + (e.kind === "pipe" ? ":out" : ":ctl");
+      if (!e.sourcePort && flowNode.has(src)) src = src + (e.kind === "pipe" ? ":out" : ":sense");
     } else if (e.kind === "pipe") {
       if (flowNode.has(dst)) dst = dst + ":in";
       if (flowNode.has(src)) src = src + ":out";
-    } else if (flowNode.has(dst)) dst = dst + ":ctl";
-    else if (flowNode.has(src)) src = src + (e.kind === "measure" ? ":sense" : ":ctl");
+    } else {                                            // information: into a flow at its stem, out of one beside it
+      if (flowNode.has(dst)) dst = dst + ":ctl";
+      if (flowNode.has(src)) src = src + ":sense";      // what leaves a flow (read, or driving another) leaves apart from its command
+    }
     const out = { id: e.id, sources: [src], targets: [dst], layoutOptions: {} };
-    if (e.kind === "pipe") { out.layoutOptions["elk.layered.priority.straightness"] = "20"; out.layoutOptions["elk.layered.priority.direction"] = "20"; out.layoutOptions["elk.layered.priority.shortness"] = "10"; }
+    if (e.kind === "pipe") { out.layoutOptions["elk.layered.priority.straightness"] = "100"; out.layoutOptions["elk.layered.priority.direction"] = "20"; out.layoutOptions["elk.layered.priority.shortness"] = "10"; }   // a flow is laid out straight first
     if (e.kind === "wire" && e.via && e.via.length) {
       const t = e.via.slice(0, 2).join(", ") + (e.via.length > 2 ? ` +${e.via.length - 2}` : "");
       out.labels = [{ id: e.id + ":l", text: t, width: textWidth(t) + 6, height: 14 }];
@@ -120,7 +144,9 @@ async function layoutGraph(g, aspect, cut = false, again = false) {
   let roots = children;
   if (open.size) {
     const cont = {};
-    const box = (name) => (cont[name] ||= { id: "hull:" + name, children: [], layoutOptions: { "elk.padding": "[top=44,left=26,bottom=26,right=26]" } });
+    const box = (name) => (cont[name] ||= { id: "hull:" + name, children: [], layoutOptions: {
+      "elk.padding": "[top=44,left=26,bottom=26,right=26]",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "120", "elk.spacing.nodeNode": "56", "elk.spacing.edgeNode": "28" } });
     const parentOf = (name) => { let x = g.tree[name]?.within; while (x && !open.has(x)) x = g.tree[x]?.within; return x || null; };
     for (const name of open) box(name);
     roots = [];
@@ -130,13 +156,16 @@ async function layoutGraph(g, aspect, cut = false, again = false) {
     }
     for (const name of open) { const p = parentOf(name); (p ? cont[p].children : roots).push(cont[name]); }
   }
+  const roomy = g.nodes.some((n) => n.kind === "system" || (n.systems || []).length);
   const graph = {
     id: "root", children: roots, edges,
     layoutOptions: {
       ...(open.size ? { "elk.hierarchyHandling": "INCLUDE_CHILDREN" } : {}),
       "elk.layered.mergeEdges": "true",
       "elk.algorithm": "layered", "elk.direction": g.kind === "wiring" ? "DOWN" : "RIGHT", "elk.edgeRouting": "ORTHOGONAL",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "64", "elk.spacing.nodeNode": "36", "elk.spacing.edgeNode": "18",
+      // with systems in it, wider lanes between parts: lines between boxes run straight instead of hooking round
+      "elk.layered.spacing.nodeNodeBetweenLayers": roomy ? "120" : "64", "elk.spacing.nodeNode": roomy ? "56" : "36",
+      "elk.spacing.edgeNode": roomy ? "28" : "18",
       "elk.spacing.edgeEdge": "12", "elk.layered.spacing.edgeNodeBetweenLayers": "18",
       "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX", "elk.layered.crossingMinimization.semiInteractive": "false",
       "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES", "elk.separateConnectedComponents": "true",
@@ -147,14 +176,24 @@ async function layoutGraph(g, aspect, cut = false, again = false) {
   };
   const lay = await elk.layout(graph);
   if (open.size) flatten(lay);
-  if (!again && g.nodes.some((n) => n.kind === "system")) {     // ports facing away from what they join: turn them, lay out again
-    const want = wantedSides(lay, g);
-    if (Object.entries(want).some(([id, at]) => g.nodes.some((n) => n.ports?.some((p) => p.id === id && p.at !== at)))) {
-      S.portAt = { ...(S.portAt || {}), ...want };
-      return layoutGraph(g, aspect, cut, true);
+  if (again < 2) {                      // ports facing away from what they join, valves facing away: turn them, lay out again
+    const w = wanted(lay, g);
+    const ports = g.nodes.flatMap((n) => n.ports || []);
+    const moved = ports.some((p) => (w.sides[p.id] && p.at !== w.sides[p.id]) || (w.ranks[p.id] != null && S.portRank?.[p.id] == null));
+    if (moved) {
+      S.portAt = { ...(S.portAt || {}), ...w.sides };
+      S.portRank = { ...(S.portRank || {}), ...w.ranks };
+      return layoutGraph(g, aspect, cut, again + 1);   // (a turn can move parts: at most twice)
     }
   }
-  if (g.kind !== "wiring") reroute(lay, g);
+  const moved = applyPins(lay, g);
+  const turned = new Set(flipValves(lay, g));            // valves whose links come from below turn their stem down
+  const relink = new Set(g.edges.filter((e) => e.kind !== "pipe" && (turned.has(e.source) || turned.has(e.target))).map((e) => e.id));
+  if (g.kind !== "wiring") {
+    reroute(lay, g, moved, null, relink);               // (a turned valve's pipes stay as they are: only its stem moved)
+    const again2 = netCrossers(lay, g);                  // lines a reroute left crossing their own net: once more, seeing all
+    if (again2.size) reroute(lay, g, new Set(), again2);
+  }
   if (cuts.length) {
     restack(lay, g);
     routeCuts(lay, cuts);
@@ -168,7 +207,145 @@ async function layoutGraph(g, aspect, cut = false, again = false) {
    that the layout sent far round, are routed again; pipes and lines into a system box's ports keep
    their places at either end */
 const GRID = 8;
-function reroute(lay, g) {
+/* a step of a few pixels (a port a little off the grid's lines) is not a bend: the run after it
+   moves onto the run before it, or the run before onto the one after; the line's two ends never move,
+   and every piece stays straight across or straight down */
+function straightJogs(route) {
+  const r = route.map((p) => ({ ...p }));
+  const hor = (p, q) => Math.abs(p.y - q.y) < 0.5, ver = (p, q) => Math.abs(p.x - q.x) < 0.5;
+  for (let pass = 0; pass < 3; pass++) {
+    for (let i = 1; i + 1 < r.length; i++) {            // r[i] → r[i+1] is the short step
+      const a = r[i], b = r[i + 1];
+      if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) >= 6 || !(hor(a, b) || ver(a, b))) continue;
+      const before = r[i - 1], after = r[i + 2];
+      if (ver(a, b)) {                                  // a short step down: take one of the runs across to the other's height
+        if (after && i + 2 < r.length - 1 && hor(b, after) && ver(after, r[i + 3] || after)) { b.y = a.y; after.y = a.y; }
+        else if (i - 1 > 0 && hor(before, a) && ver(r[i - 2], before)) { a.y = b.y; before.y = b.y; }
+      } else {                                          // a short step across: likewise, sideways
+        if (after && i + 2 < r.length - 1 && ver(b, after) && hor(after, r[i + 3] || after)) { b.x = a.x; after.x = a.x; }
+        else if (i - 1 > 0 && ver(before, a) && hor(r[i - 2], before)) { a.x = b.x; before.x = b.x; }
+      }
+    }
+  }
+  return r.filter((p, i) => i === 0 || Math.abs(p.x - r[i - 1].x) + Math.abs(p.y - r[i - 1].y) > 0.5);
+}
+
+/* parts the owner dragged stay where they were put (pinned): the layout runs as ever, then each
+   pinned part goes back to its place, parts it would sit on are moved down out of its way, open
+   systems' outlines grow to hold their parts again, and every line touching a moved part is routed
+   anew. The pins are kept in this browser, per project, view and what is open */
+function pinKey() { return S.pinKey || ""; }
+function loadPins() {
+  try { return JSON.parse(localStorage.getItem(pinKey()) || "{}"); } catch (e) { return {}; }
+}
+function savePins() {
+  try { if (Object.keys(S.pins || {}).length) localStorage.setItem(pinKey(), JSON.stringify(S.pins)); else localStorage.removeItem(pinKey()); }
+  catch (e) { /* not remembered: they last this visit */ }
+}
+/* a valve's information lines (its command coming in, what leaves it) attach at its stem: on top,
+   unless most of what they join lies below it, when the valve turns over and its stem points down.
+   Decided on the finished layout: its labels move above it, and its lines are routed to the bottom */
+function flipValves(lay, g) {
+  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
+  const turned = [];
+  for (const n of g.nodes) {
+    if (n.kind !== "valve" && n.kind !== "disturbance") continue;
+    const c = box[n.id];
+    if (!c) continue;
+    const peers = g.edges.filter((e) => e.kind !== "pipe" && (e.target === n.id || e.source === n.id)).map((e) => box[e.target === n.id ? e.source : e.target]).filter(Boolean);
+    const down = peers.length > 0 && peers.filter((o) => o.y + o.height / 2 > c.y + c.height / 2 + 10).length > peers.length / 2;
+    n.flip = down;
+    (S.valveFlip ||= {})[n.id] = down;
+    if (!down) continue;
+    turned.push(n.id);
+    for (const l of c.labels || []) l.y = -l.height - 4;           // its name and rate above it, the stem below
+    for (const p of c.ports || []) if (/:(ctl|sense)$/.test(p.id)) p.y = c.height - 1;
+    for (const le of lay.edges) {
+      const e = g.edges.find((x) => x.id === le.id);
+      const sec = (le.sections || [])[0];
+      if (!e || e.kind === "pipe" || !sec) continue;
+      if (e.source === n.id) sec.startPoint = { x: sec.startPoint.x, y: c.y + c.height };
+      if (e.target === n.id) sec.endPoint = { x: sec.endPoint.x, y: c.y + c.height };
+      if (e.source === n.id || e.target === n.id) sec.bendPoints = [];
+    }
+  }
+  return turned;
+}
+
+function applyPins(lay, g) {
+  const moved = new Set(), delta = {};
+  const pins = S.pins || {};
+  const kids = lay.children;
+  const shift = (c, x, y) => {
+    const d = delta[c.id] || { x: 0, y: 0 };
+    delta[c.id] = { x: d.x + x - c.x, y: d.y + y - c.y };
+    c.x = x; c.y = y; moved.add(c.id);
+  };
+  for (const c of kids) if (pins[c.id]) shift(c, pins[c.id].x, pins[c.id].y);
+  if (!moved.size) return moved;
+  const over = (a, b, m = 16) => a.x < b.x + b.width + m && b.x < a.x + a.width + m && a.y < b.y + b.height + m && b.y < a.y + a.height + m;
+  for (let pass = 0; pass < 4; pass++) {                // what a pinned (or moved) part sits on is moved down, out of its way
+    let any = false;
+    for (const a of kids) {
+      if (!moved.has(a.id)) continue;
+      for (const b of kids) {
+        if (b === a || pins[b.id] || !over(a, b)) continue;
+        shift(b, b.x, a.y + a.height + 28);
+        any = true;
+      }
+    }
+    if (!any) break;
+  }
+  for (const le of lay.edges) {                         // each line's ends go with the parts they belong to
+    const e = (g.edges.find((x) => x.id === le.id)) || {};
+    const sec = (le.sections || [])[0];
+    if (!sec) continue;
+    const ds = delta[e.source], dt = delta[e.target];
+    if (ds) { sec.startPoint = { x: sec.startPoint.x + ds.x, y: sec.startPoint.y + ds.y }; }
+    if (dt) { sec.endPoint = { x: sec.endPoint.x + dt.x, y: sec.endPoint.y + dt.y }; }
+    if (ds || dt) sec.bendPoints = [];
+  }
+  if (lay.containers?.length) {                         // outlines hold their parts again, the innermost first
+    const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+    const sorted = [...lay.containers].sort((a, b) => b.depth - a.depth);
+    for (const c of sorted) {
+      const parts = kids.filter((k) => (byId[k.id]?.systems || []).includes(c.name));
+      const inner = sorted.filter((o) => o.depth > c.depth && (g.tree?.[o.name]?.within === c.name));
+      const boxes = [...parts.map((k) => ({ x0: k.x, y0: k.y, x1: k.x + k.width, y1: k.y + k.height + Math.max(0, ...(k.labels || []).map((l) => l.y + l.height - k.height)) })),
+                     ...inner.map((o) => ({ x0: o.x, y0: o.y, x1: o.x + o.width, y1: o.y + o.height }))];
+      if (!boxes.length) continue;
+      const x0 = Math.min(...boxes.map((b) => b.x0)) - 26, y0 = Math.min(...boxes.map((b) => b.y0)) - 44;
+      Object.assign(c, { x: x0, y: y0, width: Math.max(...boxes.map((b) => b.x1)) + 26 - x0, height: Math.max(...boxes.map((b) => b.y1)) + 26 - y0 });
+    }
+  }
+  lay.width = Math.max(lay.width, ...kids.map((k) => k.x + k.width + 40));
+  lay.height = Math.max(lay.height, ...kids.map((k) => k.y + k.height + 60));
+  return moved;
+}
+
+/* lines of one net that cross each other, after routing: their ids */
+function netCrossers(lay, g) {
+  const edgeOf = Object.fromEntries(g.edges.map((e) => [e.id, e]));
+  const kindOf = (id) => g.nodes.find((n) => n.id === id)?.kind;
+  const valveish = (id) => ["valve", "disturbance"].includes(kindOf(id));
+  const same = (a, b) => (a.sourcePort && a.sourcePort === b.sourcePort) || (a.targetPort && a.targetPort === b.targetPort) ||
+    (a.kind === b.kind && ((a.source === b.source && !a.sourcePort && !b.sourcePort) || (a.target === b.target && !a.targetPort && !b.targetPort))) ||
+    (a.kind !== "pipe" && b.kind !== "pipe" && ((a.source === b.source && valveish(a.source)) || (a.target === b.target && valveish(a.target))));
+  const segs = (le) => { const s = (le.sections || [])[0]; if (!s) return []; const p = [s.startPoint, ...(s.bendPoints || []), s.endPoint]; return p.slice(1).map((b, i) => [p[i], b]); };
+  const hv = (p, q, r, s) => Math.abs(p.y - q.y) < 1 && Math.abs(r.x - s.x) < 1 &&
+    r.x > Math.min(p.x, q.x) + 2 && r.x < Math.max(p.x, q.x) - 2 && p.y > Math.min(r.y, s.y) + 2 && p.y < Math.max(r.y, s.y) - 2;
+  const out = new Set(), es = lay.edges.filter((le) => edgeOf[le.id] && !le.cut);
+  for (let i = 0; i < es.length; i++) for (let j = i + 1; j < es.length; j++) {
+    const a = edgeOf[es[i].id], b = edgeOf[es[j].id];
+    if (!same(a, b)) continue;
+    if (segs(es[i]).some((s) => segs(es[j]).some((t) => hv(s[0], s[1], t[0], t[1]) || hv(t[0], t[1], s[0], s[1])))) {
+      out.add((a.kind === "pipe" ? es[j] : es[i]).id);      // the information line moves, a pipe keeps its way
+    }
+  }
+  return out;
+}
+
+function reroute(lay, g, moved = new Set(), force = null, relink = new Set()) {
   const edgeOf = Object.fromEntries(g.edges.map((e) => [e.id, e]));
   const nodeOf = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
@@ -178,12 +355,18 @@ function reroute(lay, g) {
   const todo = lay.edges.filter((le) => {
     const e = edgeOf[le.id], p = pts(le);
     if (!e || le.cut || p.length < 2) return false;
-    const crosses = inner(e.source) !== inner(e.target) || e.sourcePort || e.targetPort;
+    if (force) return force.has(le.id);
+    if (relink.has(le.id)) return true;
+    const crosses = inner(e.source) !== inner(e.target) || e.sourcePort || e.targetPort || moved.has(e.source) || moved.has(e.target);
     const far = len(p) > 1.5 * (Math.abs(p[0].x - p[p.length - 1].x) + Math.abs(p[0].y - p[p.length - 1].y)) + 80;
     return crosses || far;
   });
   // a line drawn on top of another (not a net: lines sharing an end and kind may share their way there)
   const segsOf = (le) => { const q = pts(le); return q.slice(1).map((b, i) => [q[i], b]); };
+  const sameNet = (a, b) => (a.sourcePort && a.sourcePort === b.sourcePort) || (a.targetPort && a.targetPort === b.targetPort) ||
+    (a.kind === b.kind && ((a.source === b.source && !a.sourcePort && !b.sourcePort) || (a.target === b.target && !a.targetPort && !b.targetPort))) ||
+    (a.kind !== "pipe" && b.kind !== "pipe" && ((a.source === b.source && ["valve", "disturbance"].includes(nodeOf[a.source]?.kind)) ||
+                                                (a.target === b.target && ["valve", "disturbance"].includes(nodeOf[a.target]?.kind))));
   const net = (a, b) => a.kind === b.kind && ((a.source === b.source && (a.sourcePort || "") === (b.sourcePort || "")) ||
                                               (a.target === b.target && (a.targetPort || "") === (b.targetPort || "")));
   const along = ([a, b], [c, d]) => {
@@ -194,13 +377,25 @@ function reroute(lay, g) {
     return 0;
   };
   const chosen = new Set(todo.map((le) => le.id));
-  const drawn = lay.edges.filter((le) => edgeOf[le.id] && !le.cut);
+  const drawn = force ? [] : lay.edges.filter((le) => edgeOf[le.id] && !le.cut);
   for (let i = 0; i < drawn.length; i++) for (let j = i + 1; j < drawn.length; j++) {
     const A = drawn[i], B = drawn[j], ea = edgeOf[A.id], eb = edgeOf[B.id];
     if (chosen.has(A.id) || chosen.has(B.id) || net(ea, eb)) continue;
     if (!segsOf(A).some((s) => segsOf(B).some((t) => along(s, t) > 16))) continue;
     const pick = ea.kind === "pipe" && eb.kind !== "pipe" ? B : eb.kind === "pipe" && ea.kind !== "pipe" ? A : B;   // a pipe keeps its way
     chosen.add(pick.id); todo.push(pick);
+  }
+  // lines of one net that cross each other (they should split once and stay apart): route one again
+  const crossing = ([a, b], [c, d]) => {
+    const hv = (p, q, r, s) => Math.abs(p.y - q.y) < 1 && Math.abs(r.x - s.x) < 1 &&
+      r.x > Math.min(p.x, q.x) + 2 && r.x < Math.max(p.x, q.x) - 2 && p.y > Math.min(r.y, s.y) + 2 && p.y < Math.max(r.y, s.y) - 2;
+    return hv(a, b, c, d) || hv(c, d, a, b);
+  };
+  for (let i = 0; i < drawn.length; i++) for (let j = i + 1; j < drawn.length; j++) {
+    const A = drawn[i], B = drawn[j], ea = edgeOf[A.id], eb = edgeOf[B.id];
+    if (!sameNet(ea, eb) || (chosen.has(A.id) && chosen.has(B.id))) continue;
+    if (!segsOf(A).some((s) => segsOf(B).some((t) => crossing(s, t)))) continue;
+    for (const X of [A, B]) if (!chosen.has(X.id)) { chosen.add(X.id); todo.push(X); }
   }
   if (!todo.length) return;
   // the grid: every part (with its labels) is in the way; the lines already drawn are costly to run along or cross
@@ -221,23 +416,41 @@ function reroute(lay, g) {
     for (let y = cy(c.y - 6); y <= cy(c.y + c.height + 6); y++) for (let x = cx(c.x - 6); x <= cx(c.x + c.width + 6); x++) owner[y * W + x] = i;
   });
   const runH = new Uint8Array(W * H), runV = new Uint8Array(W * H);   // cells lines run through, across and down
-  const mark = (ps, thick = false) => {
+  // a net is lines leaving (or reaching) one port: they may run together and meet, as one line that splits
+  const netIds = {};
+  const netOf = (e) => {                                 // (lines meeting at one port are a net, whatever they carry)
+    const valveish = (id) => ["valve", "disturbance"].includes(nodeOf[id]?.kind);
+    const peers = (k) => g.edges.filter((o) => o[k] === e[k] && (o[k + "Port"] ? o[k + "Port"] === e[k + "Port"]
+      : !e[k + "Port"] && (o.kind === e.kind || (o.kind !== "pipe" && e.kind !== "pipe" && valveish(e[k])))));
+    const tag = (k) => e[k + "Port"] || (e.kind !== "pipe" && valveish(e[k]) ? "info" : e.kind);
+    // a line may be in two nets: the one at its start and the one at its end
+    const id = (key) => (netIds[key] ??= Object.keys(netIds).length + 1);
+    return [peers("source").length > 1 ? id(`s|${e.source}|${tag("source")}`) : id(`e|${e.id}`),
+            peers("target").length > 1 ? id(`t|${e.target}|${tag("target")}`) : 0];
+  };
+  const netH = new Int32Array(W * H * 2), netV = new Int32Array(W * H * 2);  // the (up to two) nets of a cell's line
+  const mine = (arr, c, nets) => (arr[2 * c] && (arr[2 * c] === nets[0] || arr[2 * c] === nets[1])) ||
+                                 (arr[2 * c + 1] && (arr[2 * c + 1] === nets[0] || arr[2 * c + 1] === nets[1]));
+  const mark = (ps, thick = false, nets = [0, 0]) => {
+    const put = (arr, c) => { arr[2 * c] = nets[0]; arr[2 * c + 1] = nets[1]; };
     for (let i = 1; i < ps.length; i++) {
       const a = ps[i - 1], b = ps[i];
       for (const k of thick ? [-1, 0, 1] : [0]) {
-        if (Math.abs(a.y - b.y) < 1) { const y = cy(a.y) + k; if (y < 0 || y >= H) continue; for (let x = Math.min(cx(a.x), cx(b.x)); x <= Math.max(cx(a.x), cx(b.x)); x++) runH[y * W + x] = 1; }
-        else { const x = cx(a.x) + k; if (x < 0 || x >= W) continue; for (let y = Math.min(cy(a.y), cy(b.y)); y <= Math.max(cy(a.y), cy(b.y)); y++) runV[y * W + x] = 1; }
+        if (Math.abs(a.y - b.y) < 1) { const y = cy(a.y) + k; if (y < 0 || y >= H) continue; for (let x = Math.min(cx(a.x), cx(b.x)); x <= Math.max(cx(a.x), cx(b.x)); x++) { runH[y * W + x] = 1; put(netH, y * W + x); } }
+        else { const x = cx(a.x) + k; if (x < 0 || x >= W) continue; for (let y = Math.min(cy(a.y), cy(b.y)); y <= Math.max(cy(a.y), cy(b.y)); y++) { runV[y * W + x] = 1; put(netV, y * W + x); } }
       }
     }
   };
   const redo = new Set(todo.map((le) => le.id));
-  for (const le of lay.edges) if (!redo.has(le.id)) mark(pts(le), edgeOf[le.id]?.kind === "pipe");
+  for (const le of lay.edges) if (!redo.has(le.id) && edgeOf[le.id]) mark(pts(le), edgeOf[le.id].kind === "pipe", netOf(edgeOf[le.id]));
   const idx = Object.fromEntries(rects.map((r, i) => [r.id, i]));
   const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];             // right, down, left, up
   // shorter, and longer later: the routes that matter most are found first
-  todo.sort((a, b) => len(pts(a)) - len(pts(b)));
+  // pipes first, and straight: the information links bend around them; then shorter before longer
+  todo.sort((a, b) => (edgeOf[a.id].kind !== "pipe") - (edgeOf[b.id].kind !== "pipe") || len(pts(a)) - len(pts(b)));
   for (const le of todo) {
     const e = edgeOf[le.id], p = pts(le);
+    const net = netOf(e), bend = e.kind === "pipe" ? 30 : 8;
     const si = idx[e.source], ti = idx[e.target];
     const fixedStart = !!e.sourcePort || nodeOf[e.source]?.kind === "valve" || nodeOf[e.source]?.kind === "disturbance";
     const fixedEnd = !!e.targetPort || nodeOf[e.target]?.kind === "valve" || nodeOf[e.target]?.kind === "disturbance";
@@ -256,7 +469,10 @@ function reroute(lay, g) {
     if (!sr || !tr) continue;
     const dirOf = (a, b) => (Math.abs(a.x - b.x) > Math.abs(a.y - b.y) ? (b.x > a.x ? 0 : 2) : (b.y > a.y ? 1 : 3));
     const n = p.length;
-    const d0 = dirOf(p[0], p[1]), dn = dirOf(p[n - 2], p[n - 1]);
+    let d0 = dirOf(p[0], p[1]), dn = dirOf(p[n - 2], p[n - 1]);
+    const stem = (id) => e.kind !== "pipe" && ["valve", "disturbance"].includes(nodeOf[id]?.kind);
+    if (stem(e.source)) d0 = nodeOf[e.source].flip ? 1 : 3;       // out of the stem: down when turned, else up
+    if (stem(e.target)) dn = nodeOf[e.target].flip ? 3 : 1;       // into the stem: up from below when turned, else down
     for (let k = 0; k <= 2; k++) {
       if (fixedStart) stub.add((cy(p[0].y) + DY[d0] * k) * W + cx(p[0].x) + DX[d0] * k);
       if (fixedEnd) stub.add((cy(p[n - 1].y) - DY[dn] * k) * W + cx(p[n - 1].x) - DX[dn] * k);
@@ -291,13 +507,18 @@ function reroute(lay, g) {
         if (!free(nc, nx, ny)) continue;
         if (!fixedEnd && owner[nc] !== -1 && owner[nc] === ti && !goals.has(nc)) continue;   // into its target only where it arrives
         if (owner[nc] !== -1 && owner[nc] === si && owner[c] !== si) continue; // never back into where it started
-        const along = nd % 2 === 0 ? runH[nc] : runV[nc], across = nd % 2 === 0 ? runV[nc] : runH[nc];
-        const cost = dist[st] + 1 + (nd !== d ? 6 : 0) + along * 30 + across * 3 + (owner[nc] === -1 && soft[nc] ? 10 : 0);
+        // running along another line is worst, crossing one costs a long way round, a bend costs some
+        // (a pipe's bends cost most: a flow reads best straight); a line's own net is free to join
+        const along = (nd % 2 === 0 ? runH[nc] && !mine(netH, nc, net) : runV[nc] && !mine(netV, nc, net)) ? 1 : 0;
+        const across = (nd % 2 === 0 ? runV[nc] && !mine(netV, nc, net) : runH[nc] && !mine(netH, nc, net)) ? 1 : 0;
+        // its own net it may run along (one line that splits), but not cross: that would read as two nets
+        const acrossOwn = (nd % 2 === 0 ? runV[nc] && mine(netV, nc, net) && !runH[nc] : runH[nc] && mine(netH, nc, net) && !runV[nc]) ? 1 : 0;
+        const cost = dist[st] + 1 + (nd !== d ? bend : 0) + along * 40 + across * 16 + acrossOwn * 12 + (owner[nc] === -1 && soft[nc] ? 10 : 0);
         const ns = nc * 4 + nd;
         if (cost < dist[ns]) { dist[ns] = cost; prev[ns] = st; push(cost + hcost(nx, ny), ns); }
       }
     }
-    if (found < 0) { mark(p); continue; }                       // no way round: keep the layout's line
+    if (found < 0) { (lay.unrouted ||= []).push(le.id); mark(p); continue; }   // no way round: keep the layout's line
     const states = [];
     for (let st = found; st >= 0; st = prev[st]) states.push(st);
     states.reverse();
@@ -313,6 +534,7 @@ function reroute(lay, g) {
     const lastDir = found & 3;
     const tail = fixedEnd ? [dn % 2 === 0 ? { x: z.x, y: p[n - 1].y } : { x: p[n - 1].x, y: z.y }, p[n - 1]] : [reach(z, tb, lastDir)];
     route = [...head, ...route, ...tail];
+    route = straightJogs(route);
     route = route.filter((q, i) => {                          // only the corners
       if (i === 0 || i === route.length - 1) return true;
       const a = route[i - 1], b = route[i + 1];
@@ -320,7 +542,7 @@ function reroute(lay, g) {
     });
     le.sections = [{ startPoint: route[0], bendPoints: route.slice(1, -1), endPoint: route[route.length - 1] }];
     le.junctionPoints = [];
-    mark(route, e.kind === "pipe");
+    mark(route, e.kind === "pipe", net);
   }
 }
 
@@ -469,6 +691,11 @@ function drawVariable(n, w, hgt) {
 }
 
 function drawValve(n, w, hgt) {
+  if (n.flip) {                                       // its stem below: what commands it is underneath
+    const g = s("g", { transform: `translate(0,${hgt}) scale(1,-1)` });
+    g.append(drawValve({ ...n, flip: false }, w, hgt));
+    return s("g", {}, g);
+  }
   const g = s("g");
   const c = "var(--valve)";
   const m = n.mode || "auto";
@@ -625,6 +852,21 @@ function edgePoints(e) {
   return [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint];
 }
 
+function shortened(pts, by) {                        // the same line, its last stretch cut back by `by`
+  const out = pts.map((p) => ({ ...p }));
+  const a = out[out.length - 2], b = out[out.length - 1], len = Math.hypot(b.x - a.x, b.y - a.y);
+  if (len > by + 1) { b.x -= ((b.x - a.x) / len) * by; b.y -= ((b.y - a.y) / len) * by; }
+  return out;
+}
+function pipeHead(pts, fill) {                        // a flow's arrowhead: as wide as the pipe and more, at its very end
+  const a = pts[pts.length - 2], b = pts[pts.length - 1];
+  const ang = Math.atan2(b.y - a.y, b.x - a.x), L = 15, Wd = 9;
+  const bx = b.x - L * Math.cos(ang), by = b.y - L * Math.sin(ang);
+  const px = -Math.sin(ang) * Wd, py = Math.cos(ang) * Wd;
+  return s("path", { class: "pipe-head", d: `M${bx + px},${by + py} L${b.x},${b.y} L${bx - px},${by - py} Z`,
+                     style: `fill:${fill};stroke:var(--bg);stroke-width:1` });    // style: .edge path's fill:none would hide it
+}
+
 function arrowHead(pts, cls, size = 7) {
   const a = pts[pts.length - 2], b = pts[pts.length - 1];
   const ang = Math.atan2(b.y - a.y, b.x - a.x);
@@ -726,9 +968,11 @@ function drawGraph(svg, g, lay) {
                         "data-link": linkKey(e),
                         onpointerenter: () => { if (!S.dragging) hoverEdge(e); }, onpointerleave: () => hoverEdge(null) });
     if (e.kind === "pipe") {
-      eg.append(s("path", { d, class: "pipe-out" }), s("path", { d, class: "pipe-in" }));
-      if (flowN && flowN.rate > 0) eg.append(s("path", { d, class: "flowing", stroke: dist ? "var(--dist)" : "var(--accent)" }));
-      if (e.arrow) { const ah = arrowHead(pts, "head", 12); ah.style.fill = dist ? "var(--dist)" : "var(--pipe)"; eg.append(ah); }
+      // the pipe stops short of its end, and the head, wider than the pipe, fills the rest: its point is the end
+      const body = e.arrow ? shortened(pts, 14) : pts, bd = roundedPath(body, 10);
+      eg.append(s("path", { d: bd, class: "pipe-out" }), s("path", { d: bd, class: "pipe-in" }));
+      if (flowN && flowN.rate > 0) eg.append(s("path", { d: bd, class: "flowing", stroke: dist ? "var(--dist)" : "var(--accent)" }));
+      if (e.arrow) eg.append(pipeHead(pts, dist ? "var(--dist)" : "var(--pipe)"));
     } else {
       eg.append(s("path", { d, class: "info" }));
       const ah = arrowHead(pts, "head", e.kind === "wire" ? 9 : 7);
@@ -763,14 +1007,22 @@ function drawGraph(svg, g, lay) {
     eg.append(s("path", { d, class: "edge-hit" }));    // a wide, invisible line: easy to point at
     edgesG.append(eg);
   }
-  const nodesG = s("g");
+  const nodesG = s("g"), pinsG = s("g", { class: "pins" });   // pins on top of everything: always there to click
   for (const ln of lay.children) {
     const n = byId[ln.id];
     const ng = s("g", { class: `node k-${n.kind}`, transform: `translate(${ln.x},${ln.y})`, "data-id": n.id,
                         // pressed and let go over the same part, even if it was drawn again in between, is a click
-                        onpointerdown: (ev) => { if (!ev.target.closest(".sys-btn")) S.downOn = n.id; },
+                        onpointerdown: (ev) => {
+                          if (ev.target.closest(".sys-btn") || ev.target.closest("[data-act]")) return;
+                          S.downOn = n.id;
+                          S.nodeDrag = { id: n.id, x0: ev.clientX, y0: ev.clientY, lx: ln.x, ly: ln.y, moved: false, el: null };
+                        },
                         ondblclick: (ev) => { if (n.kind === "system") { ev.stopPropagation(); S.toggleSystem?.(n.label); } } });
     ng.append((DRAW[n.kind] || drawCloud)(n, ln.width, ln.height));
+    if (S.pins?.[n.id]) pinsG.append(s("g", { class: "pin", "data-act": "unpin", "data-id": n.id, transform: `translate(${ln.x + ln.width - 4},${ln.y - 6})`,
+                                            onclick: (ev) => { ev.stopPropagation(); delete S.pins[n.id]; savePins(); S.relayout?.(); } },
+      s("title", {}, "pinned here: click to let the layout place it again"),
+      s("circle", { r: 7 }), s("path", { d: "M-2.5,-3 h5 l-1,3 h2 l-3.5,3 v3 M0,3 v3" })));
     for (const lb of ln.labels || []) {
       // the text from this tick's data, not the layout's: positions are kept, readings move on
       const fresh = labelLines(n);
@@ -790,7 +1042,7 @@ function drawGraph(svg, g, lay) {
     }
     nodesG.append(ng);
   }
-  vp.append(edgesG, nodesG);
+  vp.append(edgesG, nodesG, pinsG);
   svg.replaceChildren(vp);
   applyView(svg);
   if (S.hl) highlightLoop(S.hl);
@@ -798,6 +1050,19 @@ function drawGraph(svg, g, lay) {
 }
 
 /* a standalone copy of the diagram: every computed style written inline, framed to the layout */
+
+/* the side panel, hidden by clicking the diagram's background (and shown again the same way);
+   remembered in this browser */
+function sideHidden() {
+  try { return localStorage.getItem("ergostat.side") === "hidden"; } catch (e) { return false; }
+}
+function toggleSide() {
+  const d = document.querySelector(".diagram");
+  if (!d) return;
+  const hide = !d.classList.contains("side-hidden");
+  d.classList.toggle("side-hidden", hide);
+  try { localStorage.setItem("ergostat.side", hide ? "hidden" : "shown"); } catch (e) { /* not remembered */ }
+}
 
 function applyView(svg) {
   const vp = svg.querySelector("#viewport");
@@ -837,6 +1102,27 @@ function panZoom(svg) {
     applyView(svg);
   }, { passive: false });
   svg.addEventListener("pointerdown", () => { S.pressed = true; }, true);      // held: no redraw until it is let go
+  window.addEventListener("pointermove", (ev) => {      // a part dragged: it follows the pointer; its lines wait for the drop
+    const d = S.nodeDrag;
+    if (!d) return;
+    const dx = (ev.clientX - d.x0) / S.view.k, dy = (ev.clientY - d.y0) / S.view.k;
+    if (!d.moved && Math.hypot(ev.clientX - d.x0, ev.clientY - d.y0) < 5) return;
+    d.moved = true;
+    S.downOn = null;                                    // a drag is not a click
+    d.el ||= svg.querySelector(`.node[data-id="${CSS.escape(d.id)}"]`);
+    if (d.el) d.el.setAttribute("transform", `translate(${d.lx + dx},${d.ly + dy})`);
+    svg.classList.add("dragging-part");
+    d.to = { x: Math.round(d.lx + dx), y: Math.round(d.ly + dy) };
+  });
+  window.addEventListener("pointerup", () => {
+    const d = S.nodeDrag;
+    S.nodeDrag = null;
+    svg.classList.remove("dragging-part");
+    if (!d || !d.moved || !d.to) return;
+    S.pins = { ...(S.pins || {}), [d.id]: d.to };       // put down: pinned there
+    savePins();
+    S.relayout?.();
+  });
   window.addEventListener("pointerup", () => { S.pressed = false; }, true);
   svg.addEventListener("pointerup", (ev) => {
     const was = S.downOn;
@@ -870,7 +1156,9 @@ function panZoom(svg) {
     if (ev.target.closest(".node") || ev.target.closest("[data-act]") || S.dragged) return;   // a drag pans; it is not a click
     const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".edge");   // the pan holds the pointer: ask what is there
     const e = under && S.edgeById?.[under.dataset.id];
-    if (e) openEdge(e); else closeDetail();
+    if (e) openEdge(e);
+    else if (!$("#detail")?.hidden) closeDetail();       // the background: first it closes what is open,
+    else toggleSide();                                   // then it hides the side panel, or brings it back
   });
 }
 
@@ -939,7 +1227,7 @@ function legend(view) {
       row("e", "the error: how far off it is"),
       row("C", "the controller, and the agent filling it"),
       row("u", "its output: how far the actuator (valve) is opened"),
-      row("d", "a disturbance joining at the plant"),
+      row("d", "a disturbance (the orange line from above): a flow into or out of the stock that this loop does not command, joining at the plant"),
       row("y", "the plant's output: the stock"),
       row("H", "the sensor; ym is what it reads"),
       row("ff", "feedforward: the controller also measures d"));
@@ -966,11 +1254,11 @@ function legend(view) {
       row('<rect x="2" y="2" width="22" height="14" rx="4" fill="var(--panel)" stroke="var(--system-line)" stroke-width="1.8"/><rect x="0" y="6" width="4" height="4" fill="var(--panel)" stroke="var(--system-line)"/>', "a system as one part: its ports are what crosses its edge (▸ opens it, ⤓ draws it alone)"),
     (S.graph?.nodes || []).some((n) => n.kind === "terminal") &&
       row('<rect x="2" y="3" width="22" height="12" rx="6" fill="var(--bg)" stroke="var(--system-line)" stroke-dasharray="3 2"/>', "outside this system: what its edge reaches (click to go there)"),
-    row('<path d="M1 9 H20" stroke="var(--sensor-line)" stroke-width="1.6" stroke-dasharray="4 3"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--sensor-line)"/>', "measurement: a sensor reads"),
-    row('<path d="M1 9 H20" stroke="var(--sensor-line)" stroke-width="1.6"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--sensor-line)"/>', "feedback: the reading goes to the controller"),
-    row('<path d="M1 9 H20" stroke="var(--ctl-line)" stroke-width="1.8"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--ctl-line)"/>', "control action: the controller opens a valve"),
+    row('<path d="M1 9 H20" stroke="var(--sensor-line)" stroke-width="1.6" stroke-dasharray="4 3"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--sensor-line)"/>', "information link, measurement: a sensor reads"),
+    row('<path d="M1 9 H20" stroke="var(--sensor-line)" stroke-width="1.6"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--sensor-line)"/>', "information link, feedback: the reading goes to the controller"),
+    row('<path d="M1 9 H20" stroke="var(--ctl-line)" stroke-width="1.8"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--ctl-line)"/>', "information link, control action: the controller opens a valve"),
     (S.graph?.edges || []).some((e) => e.kind === "influence") &&
-      row('<path d="M1 9 H20" stroke="var(--dist)" stroke-width="1.6" stroke-dasharray="7 4"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--dist)"/>', "influence: a flow's rate follows this (driven-by)"),
+      row('<path d="M1 9 H20" stroke="var(--dist)" stroke-width="1.6" stroke-dasharray="7 4"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--dist)"/>', "information link, influence: a flow's rate follows this (driven-by)"),
     row('<circle cx="13" cy="9" r="5" fill="var(--ok)"/>', "a loop's health, on its controller and stock: green holding, red off, amber open. Point at a loop in the list and its lines take that colour"),
     row('<circle cx="13" cy="9" r="4.5" fill="var(--r4)"/>', "the agent filling a part, its dot by kind:"),
     h("span", {}), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, h("i", { style: `background:${rungColor(i)}` }, RUNG_LETTER[i]), k))));
@@ -981,6 +1269,9 @@ async function pageDiagram(main, q) {
   const system = q.get("system") || "";
   const around = q.get("around") || "";
   const openQ = q.has("open") ? q.get("open") : null;          // the systems opened; absent: the server's default
+  S.portAt = {}; S.portRank = {}; S.valveFlip = {};               // a new view: ports and valves face what they join here
+  S.pinKey = `ergostat.pins.${S.status?.name || ""}.${view}.${system}.${around}.${openQ ?? ""}`;
+  S.pins = loadPins();
   S.showHulls = !around;
   const wrap = h("div", { class: "canvas-wrap" });
   const svg = s("svg", { class: "canvas" });
@@ -1011,6 +1302,8 @@ async function pageDiagram(main, q) {
     wrapBtn,
     h("button", { title: "open every system: all their parts", onclick: () => { S.graphSig = ""; go({ open: "*" }); } }, "open all"),
     h("button", { title: "close every system into a box", onclick: () => { S.graphSig = ""; go({ open: "-" }); } }, "close all"),
+    h("button", { class: "unpin-all", title: "let the layout place every part again (drag a part to pin it where you put it)",
+                  onclick: () => { S.pins = {}; savePins(); S.relayout?.(); } }, "unpin all"),
     crumbs,
     around ? h("span", { class: "pill" }, "around " + around, " ", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); go({ around: "" }); } }, "×")) : null);
   const zoom = h("div", { class: "zoom" },
@@ -1025,7 +1318,8 @@ async function pageDiagram(main, q) {
   wrap.append(svg, toolbar, zoom);
   S.legendEl = legend(view);   // blocks, wiring and control each read differently
   const side = h("div", { class: "side" });
-  main.append(h("div", { class: "diagram" }, wrap, side));
+  const shell = h("div", { class: "diagram" + (sideHidden() ? " side-hidden" : "") }, wrap, side);
+  main.append(shell);
   panZoom(svg);
   S.graphSig = ""; S.fitted = false;
   wrap.append(h("div", { class: "empty loading" }, "loading…"));
@@ -1033,7 +1327,9 @@ async function pageDiagram(main, q) {
 
   async function tick() {
     let g;
-    try { g = await api("graph", { view: view === "blocks" ? "control" : view, system, around, ...(openQ != null && view !== "wiring" ? { open: openQ } : {}) }); fails = 0; }
+    // the blocks view draws every loop, each in its system's outline: it asks for everything opened
+    const openArg = view === "blocks" ? { open: "*" } : openQ != null && view !== "wiring" ? { open: openQ } : {};
+    try { g = await api("graph", { view: view === "blocks" ? "control" : view, system, around, ...openArg }); fails = 0; }
     catch (e) {
       if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "this view is not in the snapshot: the whole system and each system are" : "the server is not answering: is ergostat still running?")); }
       return;
@@ -1098,6 +1394,7 @@ async function pageDiagram(main, q) {
     if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
     renderSide(side, g, view);
   }
+  S.relayout = () => { S.graphSig = ""; return tick(); };      // after a part is pinned or unpinned
   await tick();
   S.timer = setInterval(tick, 2500);
 }
