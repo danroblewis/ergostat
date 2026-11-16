@@ -2,6 +2,14 @@
 defaults:
   system: backups
 
+items:
+  backup:                        # each backup the job takes, until its copy is off site
+    id: backup/*
+    states: [taken, offsite]
+    on:
+      backup.sent-offsite: offsite
+    show: [database, size_mb, age_replaced_h]
+
 stocks:
   hours-since-backup:
     unit: h
@@ -10,8 +18,9 @@ stocks:
       every: 2s
   copies-not-offsite:
     unit: backups
-    sensor:
-      run: python3 offsite_lag.py
+    sensor:                      # counted from the record: the backups still in taken
+      items: backup
+      state: taken
       every: 3s
 
 flows:

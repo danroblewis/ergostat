@@ -13,6 +13,10 @@ Four loops, all simulated in one shared `.sim.json`:
   workers to run, and moves two flows: jobs done, and logs written to the disk.
 - **backup-fresh** and **offsite-current** (backups): the same as `examples/backups`.
 
+Items: each backup (`backup/7`), `taken` then `offsite`, as in `examples/backups`;
+`copies-not-offsite` counts the ones still `taken`. The jobs are not items: hundreds an hour,
+they are counted, not recorded one by one.
+
 ```bash
 cd examples/ops
 ergostat check

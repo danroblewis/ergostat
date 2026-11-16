@@ -14,8 +14,10 @@ HOUR = 2.0                                    # real seconds per simulated hour
 def world():
     with open(".sim.lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        start = {"last_backup": now() - 20 * HOUR, "unsynced": 0}    # the newest backup is 20h old
+        start = {"last_backup": now() - 20 * HOUR, "taken": 0, "unsynced": []}    # the newest backup is 20h old
         state = {**start, **(json.loads(PATH.read_text()) if PATH.exists() else {})}
+        if not isinstance(state["unsynced"], list):       # a world from before backups were items
+            state["unsynced"] = []
         yield state
         PATH.write_text(json.dumps(state))
 

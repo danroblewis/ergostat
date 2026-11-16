@@ -1,6 +1,14 @@
 # Backups, then copies sent off site. One simulated hour passes every two seconds.
 name: backups
 
+items:
+  backup:                        # each backup the job takes, until its copy is off site
+    id: backup/*
+    states: [taken, offsite]
+    on:
+      backup.sent-offsite: offsite
+    show: [database, size_mb, age_replaced_h]
+
 stocks:
   hours-since-backup:
     unit: h
@@ -11,8 +19,9 @@ stocks:
   copies-not-offsite:
     unit: backups
     description: backups taken but not yet copied off site
-    sensor:
-      run: python3 offsite_lag.py
+    sensor:                      # counted from the record: the backups still in taken
+      items: backup
+      state: taken
       every: 3s
 
 flows:

@@ -4,12 +4,21 @@ name: docs-fresh
 defaults:
   system: docs
 
+items:
+  page:                                   # a doc page: stale when a change outdates it, current once rewritten
+    id: page/*
+    states: [current, stale]
+    on:
+      page.stale: stale
+      page.rewritten: current
+    show: [change, pr]
+
 stocks:
   stale-pages:
     unit: pages
     description: pages older than the code they describe
     sensor:
-      run: python3 scan.py stale          # compares each page's date with the files it documents
+      run: python3 scan.py stale          # compares each page's date with the files it documents, and records each page it finds stale
       every: 3s
 
 flows:
