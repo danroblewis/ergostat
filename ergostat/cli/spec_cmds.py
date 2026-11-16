@@ -29,8 +29,9 @@ def check_yaml(args, path: Path) -> int:
 
     def n(k, word):
         return f"{k} {word}" + ("" if k == 1 else "s")
+    aux = f"{len(spec.auxiliaries)} auxiliar{'y' if len(spec.auxiliaries) == 1 else 'ies'}"
     head = " · ".join([n(len(spec.stocks), "stock"), n(len(spec.flows), "flow"),
-                       *([n(len(spec.variables), "variable")] if spec.variables else []), n(len(spec.sensors()), "sensor"),
+                       *([aux] if spec.auxiliaries else []), n(len(spec.sensors()), "sensor"),
                        n(len(spec.goals), "goal"), n(len(spec.blocks), "block"), n(len(spec.agents), "agent"),
                        n(len(spec.files), "file")])
     print(f"{c('error', 'bad') if errors else c('ok', 'ok')}   {head}")
@@ -154,7 +155,7 @@ def read_manual(p, name: str, value: float) -> int:
     spec = p.model.spec
     of, _, sensor = name.partition(".")
     s = None
-    for kind in ("stock", "flow", "variable"):
+    for kind in ("stock", "flow", "auxiliary"):
         s = s or spec.sensor(Ref(kind, of, sensor or "main"))
     if s is None:
         print(f"no sensor {name!r}: name it as its stock (or flow) and sensor, like inbox.eyes", file=sys.stderr)

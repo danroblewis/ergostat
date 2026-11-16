@@ -39,7 +39,7 @@ ergostat run --stop
 - **The Diagram, every system closed** ("close all"): the control panel. Each system's box shows its
   measures, each with its value, setpoint, health and trend over the window (the window, top
   right, sets how far back): `service` (quality, bytes per megapixel, failures, time), `benchmark`
-  (capabilities: cases met of 30; the scores, overall, photos and flat images), `lab` (ideas,
+  (capabilities: cases met of 30; the benchmark points, overall, photos and flat images), `lab` (ideas,
   experiments, improvements, AI spend), `rollout` (the running experiment). Click a measure for its
   history; open a box (▸) to see how it works inside.
 - **Items → `case`**: the benchmark as a gallery, each case's original beside what production makes
@@ -105,9 +105,15 @@ decode, they are not tests that pass or fail but a count of what the product can
   tab's `case` table is squeeze's scoreboard;
 - **`capabilities`** is the stock of cases met, filled by `gained` and drained by `lost`, both driven
   by releases; the goal `every-case` is all thirty (the noisiest photos may stay out of reach);
-- **`benchmark-score`** is the kilobytes per megapixel all thirty need (lower is better): one number
-  for how good squeeze is now;
-- the score's sensor runs the benchmark once per release (and records each case it measured, as
+- **`benchmark-points`** is how good squeeze is now, in one number: the percentage fewer kilobytes
+  per megapixel all thirty need than squeeze as handed over needed (so higher is better, and the
+  seed is 0; the KB/MP themselves are in `run/world/benchmark.json` and in each case). It is a stock:
+  it keeps its value until a release changes the code. What releases do to it are its flows,
+  `benchmark-points-gained` (driven by kept hypotheses) and `benchmark-points-lost` (to outside: a
+  release that breaks something, a cause not modelled yet), each measured from the points' own
+  rises and falls (`changes:`), so a sudden drop shows as a large outflow. `photo-points` and
+  `flat-points` are the same on the fifteen photos and the fifteen flat images;
+- the points' sensor runs the benchmark once per release (and records each case it measured, as
   an observation: it measures, it never sets anything); every candidate is measured when it is
   submitted, and rolled back if it loses a case production meets (a regression no amount of live
   traffic in one hour might show).
@@ -116,13 +122,31 @@ squeeze as handed over meets 2 of the 30; the transparency fix and the encoder's
 it to about 9; screenshots, line art and logos need a flat-image policy that does not break
 grayscale photos; the noisy photos need something better than any idea in the stand-in's notebook.
 
-## Variables, not stocks
+## Stocks and auxiliaries: sorted by memory
 
-Quality, bytes per megapixel, the quality setting, the rollout share: none of these accumulate, and
-nothing flows into them. They are **variables** (`variables:` in the YAML): measured ones are what
-the goals hold (process variables), set ones are the knobs the controllers turn (manipulated
-variables). The diagram draws them as ovals; `driven-by` says what each follows. The lab's own work
-is stocks and flows: ideas waiting, the experiment running, improvements kept.
+The rule: does it keep its value when nothing happens, and change only through some process? Then
+it is a **stock**, and its changes are flows. Otherwise it is an **auxiliary** (`auxiliaries:`), a
+momentary function of other things.
+
+| Part | Kind | Why | Its flows |
+|---|---|---|---|
+| `quality-setting` | stock | stays where the tuner last stepped it | `quality-steps` (two-way, the tuner's steps by the error), `adopted` (a kept candidate's offset) |
+| `candidate-offset` | stock | stays where the matcher last stepped it | `offset-steps` (two-way, the matcher), out by `adopted` (kept) or `offset-cleared` (dropped) |
+| `rollout-share` | stock | stays at its stage until the rollout steps it | `share-steps` (two-way, the rollout) |
+| `paired`, `candidate-failures` | stocks | counts since the candidate started | `compared`, `candidate-failing` in; `cleared`, `failures-cleared` out when a candidate is kept or dropped; measured from their rises and falls |
+| `ai-spend` | stock | only grows, by each session's cost | `spending`, driven by the sessions running |
+| `benchmark-points`, `photo-points`, `flat-points` | stocks | keep their value until a release | `-gained` (driven by kept) and `-lost` (to outside) |
+| `quality`, `bytes-per-mp`, `failures`, `time`, `candidate-time` | stocks | each is measured over a window of the last images (48 served, or those compared), which keeps its value until new images enter it and old ones leave; system dynamics models smoothing as a stock for the same reason | one two-way flow each (`quality-turnover`, ...), the window's turnover, driven by what changes what is served (the setting +, kept improvements, the rollout's share, the mix), measured from its own net change |
+| `bytes-saved`, `quality-change` | auxiliaries | each is a difference between two builds on the same images, a function of what both did and of the offset, with nothing of its own to keep | |
+| `flat-share` | auxiliary, `exogenous` | a function of the clock, from outside the model: the customers' mix | |
+
+So the tuner is an integral controller in the plain sense: it steps a stock (the setting) by the
+error, and the stock's memory is the integral. `ergostat explain quality-held` says so, and names
+the roles: the setting is the loop's manipulated variable, quality its process variable (roles in a
+loop, not kinds of quantity). The influences carry signs where they can be justified (`+` the
+setting on quality and on bytes, `−` kept improvements on bytes, `−` the candidate's offset on the
+bytes it saves), so `ergostat explain` can say which feedback loops balance (the four goals the
+controllers seek) and which are not yet known.
 
 ## What the experiments find
 

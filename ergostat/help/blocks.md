@@ -2,7 +2,7 @@
 
 Two kinds of program take part in a loop, and each does one thing.
 
-- A **sensor** measures one stock or one flow. Its command prints the reading.
+- A **sensor** measures one stock, flow or auxiliary. Its command prints the reading.
 - A **block** acts. Its command gets what it was asked to do on standard input, does it, and prints
   what it moved.
 
@@ -67,6 +67,12 @@ to say:
 {"decision": "rotated app.log: 612 MB", "why": "over the goal by 112"}
 {"event": "logs.rotated", "item": "log/app.log"}
 ```
+
+A block that steps a setting (an integral controller: the quality up by the error) moves a
+`two-way` flow into the setting's stock, and prints the step, which may be negative:
+`{"out": "flow.quality-steps", "moved": -2.5}`. The setting is a stock because it keeps its value
+between steps; only a value the block states whole each run, from what it reads now, is an
+auxiliary it sets (`{"out": "auxiliary.mix", "value": 0.3}`).
 
 Everything else it prints goes to its log. `ERGOSTAT_COMMAND` holds the amount too, for a shell
 one-liner (`find tmp -mmin +60 -delete -print | head -n "$ERGOSTAT_COMMAND" | wc -l`).

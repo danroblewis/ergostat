@@ -85,7 +85,7 @@ class Engine:
     def measure(self) -> None:
         """Stocks' levels and flows' rates from the record: the newest reading of any of their sensors."""
         m = self.p.measurements
-        for kind, table in (("stock", self.spec.stocks), ("flow", self.spec.flows), ("variable", self.spec.variables)):
+        for kind, table in (("stock", self.spec.stocks), ("flow", self.spec.flows), ("auxiliary", self.spec.auxiliaries)):
             for name, x in table.items():
                 best = None
                 for s in x.sensors.values():
@@ -361,7 +361,7 @@ class Engine:
             self.say(f"{b.name}: {note}")
         if said.refused:
             self.say(f"{b.name}: {said.refused[0]}")
-        return [f for f, v in said.moved.items() if v > 0]       # moving nothing is not a reason to read again
+        return [f for f, v in said.moved.items() if v]           # moving nothing is not a reason to read again
 
     # ---- sensors
 
@@ -383,7 +383,7 @@ class Engine:
                 for why in refused:
                     self.p.events.add("sensor.refused", item=name, source=SOURCE, data={"why": why})
                     self.say(f"sensor {name}: {why}")
-            v, why = read_sensor(self.spec, s, self.p.events, observe)
+            v, why = read_sensor(self.spec, s, self.p.events, observe, self.p.measurements)
             if v is None:
                 self.p.events.add("sensor.failed", item=sensor_name(s.of.name, s.name), source=SOURCE, data={"why": why})
                 self.say(f"sensor {s.of.name}.{s.name}: {why}")
@@ -585,11 +585,11 @@ class Said:
             return
         amount = float(amount)
         if r.kind == "flow":
-            if amount < 0:
-                self.refuse(obj, "moved must be 0 or more (a flow runs one way)")
+            if amount < 0 and not self.e.spec.flows[r.name].two_way:
+                self.refuse(obj, f"moved must be 0 or more: flow {r.name} runs one way (two-way: true lets it run back)")
                 return
             self.moved[r.name] = self.moved.get(r.name, 0.0) + amount
-            if amount > 0:
+            if amount:
                 ev.add("valve.opened", item=valve_name(self.e.spec, self.b.name, r.name), source=self.b.name,
                        causedby=self.run_id, data={"amount": amount, "flow": r.name,
                                                    **({"note": obj["note"]} if "note" in obj else {})})
@@ -604,9 +604,9 @@ class Said:
             with self.e.lock:
                 self.e.setpoint[r.name] = amount
             self.counts["commands"] += 1
-        elif r.kind == "variable":                          # a setting: what it was set to is its reading
+        elif r.kind == "auxiliary":                         # its value, stated whole: what it was set to is its reading
             self.e.p.measurements.add(f"sensor/{r.name}.set", amount)
-            ev.add("variable.set", item=r.name, source=self.b.name, causedby=self.run_id, data={"value": amount})
+            ev.add("auxiliary.set", item=r.name, source=self.b.name, causedby=self.run_id, data={"value": amount})
             self.counts["commands"] += 1
 
 
@@ -635,9 +635,14 @@ def observations(text: str) -> tuple[list[dict], list[str]]:
     return seen, refused
 
 
-def read_sensor(spec: Spec, s: Sensor, events=None, observe=None) -> tuple[float | None, str]:
-    """One reading: the number, or None and why not. Counting items needs the record. A command's
-    observations (event lines about items) go to ``observe``, when given, even with no number."""
+def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=None) -> tuple[float | None, str]:
+    """One reading: the number, or None and why not. Counting items needs the record, and a flow
+    read from its stock's changes the measurements. A command's observations (event lines about
+    items) go to ``observe``, when given, even with no number."""
+    if s.changes is not None:
+        if measurements is None:
+            return None, "a flow read from its stock's changes needs the stock's readings, and there are none here"
+        return changed(spec, s, measurements)
     if s.items is not None:
         if events is None:
             return None, "items are counted from the record, and there is none here"
@@ -658,6 +663,28 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None) -> tuple[float
     if observe is not None:
         observe(*observations(p.stdout))
     return number_in(p.stdout, s.parse)
+
+
+def changed(spec: Spec, s: Sensor, measurements, now: float | None = None) -> tuple[float | None, str]:
+    """A flow's rate per hour from its stock's successive readings over the window: how much they
+    rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a two-way flow). A
+    sudden drop is a big outflow: what the stock's sensor sees is what some process did."""
+    c = s.changes
+    st = spec.stocks[c["stock"]]
+    src = st.sensors.get("main") or next((x for x in st.sensors.values() if x.measured or x.manual), None)
+    if src is None:
+        return None, f"stock {st.name} has no sensor to read changes from"
+    now = time.time() if now is None else now
+    since = now - c["over"]
+    pts = measurements.range(src.series, since, now)
+    before = measurements.latest(src.series, since)
+    if before is not None and (not pts or before[0] < pts[0][0]):
+        pts = [before, *pts]                             # the level the window started from
+    if len(pts) < 2:
+        return 0.0, ""
+    d = [b[1] - a[1] for a, b in zip(pts, pts[1:], strict=False)]
+    total = {"rises": sum(x for x in d if x > 0), "falls": sum(-x for x in d if x < 0), "net": c["sign"] * sum(d)}[c["what"]]
+    return round(total * 3600.0 / c["over"], 6), ""
 
 
 def number_in(text: str, parse: str | None) -> tuple[float | None, str]:

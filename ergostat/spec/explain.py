@@ -5,7 +5,12 @@ and for an AI agent asked to change it."""
 from __future__ import annotations
 
 from ..durations import human
-from .ir import Block, Ref, Spec
+from .ir import Block, Ref, Spec, sign_text
+
+
+def _signed(x, r: Ref) -> str:
+    """A driven-by as written: +stock.x, -auxiliary.y, or bare when its sign is not known."""
+    return (sign_text(x.polarity.get(str(r))) or "") + str(r)
 
 
 def _sp(g, r=None) -> str:
@@ -34,8 +39,14 @@ def _items(q: dict) -> str:
     return f"counts the {q['kind']} items in {states}{where}"
 
 
+def _changes(c: dict) -> str:
+    verb = {"rises": "rose", "falls": "fell", "net": "changed, net"}[c["what"]]
+    return f"reads how much stock {c.get('stock')}'s readings {verb} (per hour, over {human(c['over'])})"
+
+
 def _sensor(s) -> str:
     how = (f"runs `{s.run}`" if s.run else f"queries {s.query.get('source')}" if s.query else _items(s.items) if s.items
+           else _changes(s.changes) if s.changes
            else "is read by a person" if s.manual else f"is {s.description}" if s.description else "is not read")
     when = _when(s) if not s.manual else ""
     return f"{s.of.kind}.{s.of.name}.{s.name} {how}" + (f" {when}" if when else "")
@@ -67,7 +78,8 @@ class Explainer:
         def n(k, w):
             return f"{k} {w}{'' if k == 1 else 's'}"
         out = [f"{s.name}: {n(len(s.stocks), 'stock')}, {n(len(s.flows), 'flow')}, "
-               + (f"{n(len(s.variables), 'variable')}, " if s.variables else "") + f"{n(len(s.goals), 'goal')}, "
+               + (f"{len(s.auxiliaries)} auxiliar{'y' if len(s.auxiliaries) == 1 else 'ies'}, " if s.auxiliaries else "")
+               + f"{n(len(s.goals), 'goal')}, "
                f"{n(len(s.blocks), 'block')} ({', '.join(str(f.name) for f in s.files)})."]
         if s.systems:
             def walk(parent, depth):
@@ -91,7 +103,25 @@ class Explainer:
         if loose:
             out.append("")
             out.append("Blocks serving no goal: " + "; ".join(self.block_line(b) for b in loose) + ".")
+        out += self.feedback()
         return "\n".join(out)
+
+    def feedback(self) -> list[str]:
+        """The causal loops, as system dynamics counts them: reinforcing, balancing, not known."""
+        from .causal import loops
+        ls = sorted(loops(self.s), key=lambda lp: (lp.polarity is None, len(lp.parts)))   # the ones whose sign is known first
+        if not ls:
+            return []
+        word = {"R": "reinforcing", "B": "balancing", None: "sign not known"}
+        count = ", ".join(f"{sum(lp.polarity == k for lp in ls)} {word[k]}" for k in ("B", "R", None)
+                          if any(lp.polarity == k for lp in ls))
+        out = ["", f"Feedback loops ({count}; R reinforces, B balances):"]
+        for lp in ls[:12]:
+            out.append(f"  {lp.polarity or '?'} {lp.name}: " + " → ".join(lp.parts) +
+                       (f" (not known: {', '.join(f'{x.source} → {x.target}' for x in lp.unknown[:2])})" if lp.unknown else ""))
+        if len(ls) > 12:
+            out.append(f"  ... and {len(ls) - 12} more.")
+        return out
 
     def block_line(self, b: Block) -> str:
         outs = ", ".join(str(t) for t in b.targets()) or "nothing"
@@ -122,12 +152,19 @@ class Explainer:
             lines.append("  Acting: " + "; ".join(
                 f"{a} ({s.blocks[a].type}) moves " + ", ".join(str(t) for t in s.blocks[a].targets() if t.kind == "flow")
                 for a in lp.actuators) + ".")
+        elif lp.through and self.stepped(lp.through):
+            knob = self.stepped(lp.through)
+            lines.append("  Closes through a setting it steps: " + " → ".join(lp.through) +
+                         f". The controller moves {knob} by each step (a two-way flow): the setting is a stock, it keeps "
+                         f"its value between steps (integral action), so the loop settles where the error is 0. Here "
+                         f"{knob} is the manipulated variable and {what} the process variable.")
         elif lp.through and any(p.startswith("stock.") for p in lp.through):
             lines.append("  Closes the long way, through other stocks: " + " → ".join(lp.through) +
                          ". Each stock along it is a queue the loop waits on, so it answers only as fast as they drain.")
         elif lp.through:
             lines.append("  Closes through what it sets: " + " → ".join(lp.through) +
-                         ". The controller turns a knob (a variable), and what it holds follows it (driven-by).")
+                         f". The controller states an auxiliary's value each run (no memory of its own), and {what} "
+                         f"follows it (driven-by).")
         else:
             lines.append("  Missing feedback: nothing ergostat can see acts on it when it is off.")
         if lp.disturbances:
@@ -146,6 +183,15 @@ class Explainer:
             else:
                 lines.append("  Now: no reading yet.")
         return "\n".join(lines)
+
+    def stepped(self, through: list[str]) -> str | None:
+        """The stock along a loop that its controller steps: the first stock, filled by a two-way flow
+        that a block of the loop moves (the setting an integral controller keeps)."""
+        for i, p in enumerate(through[:-1]):
+            if p.startswith("flow.") and through[i + 1].startswith("stock."):
+                f = self.s.flows.get(p.split(".", 1)[1])
+                return through[i + 1] if f is not None and f.two_way and self.s.actuator_of(f.name) else None
+        return None
 
     def describe_controller(self, b: Block) -> str:
         targets = ", ".join(t.name for t in b.targets() if t.kind == "block") or ", ".join(str(t) for t in b.targets())
@@ -211,57 +257,75 @@ class Explainer:
 
     def stock(self, name: str) -> str:
         s, st = self.s, self.s.stocks[name]
-        lines = [f"Stock {name}" + (f" ({st.unit})" if st.unit else "") + (f": {st.description}" if st.description else "") + "."]
+        lines = [f"Stock {name}" + (f" ({st.unit})" if st.unit else "") + (f": {st.description}" if st.description else "") + ". "
+                 "It has memory: its value persists, and changes only through its flows."]
         if st.limit is not None:
             lines.append(f"  It fails at {st.limit:g}.")
         if st.sensors:
             lines.append("  Measured: " + "; ".join(_sensor(x) for x in st.sensors.values()) + ".")
         ins = [f.name for f in s.flows_of(name) if f.target == name]
         outs = [f.name for f in s.flows_of(name) if f.source == name]
+        two = lambda f: ", two-way" if s.flows[f].two_way else ""                    # noqa: E731
         if ins:
-            lines.append(f"  Filled by: {', '.join(ins)}.")
+            lines.append(f"  Filled by: {', '.join(f'{f} (+{two(f)})' for f in ins)}.")
         if outs:
-            lines.append(f"  Drained by: {', '.join(outs)}.")
+            lines.append(f"  Drained by: {', '.join(f'{f} (−{two(f)})' for f in outs)}.")
+        stepped = [f for f in ins + outs if s.flows[f].two_way and s.actuator_of(f)]
+        for g in s.goals:
+            lp = s.loop(g)
+            if stepped and lp.through and f"stock.{name}" in lp.through and lp.through.index(f"stock.{name}") > 0 and \
+                    lp.through[lp.through.index(f"stock.{name}") - 1] in {f"flow.{f}" for f in stepped}:
+                lines.append(f"  In goal {g}'s loop it is the manipulated variable: a setting {s.actuator_of(stepped[0]).name} "
+                             f"steps, kept between steps (integral action).")
         goals = [g for g, x in s.goals.items() if x.of == Ref("stock", name)]
         lines.append(f"  Goals: {', '.join(goals)}." if goals else "  No goal is about it.")
         if self.p is not None and self.value(f"stock.{name}"):
             lines.append(f"  Now: {self.value(f'stock.{name}')}.")
         return "\n".join(lines)
 
-    def variable(self, name: str) -> str:
-        s, v = self.s, self.s.variables[name]
-        lines = [f"Variable {name}" + (f" ({v.unit})" if v.unit else "") + (f": {v.description}" if v.description else "") + ". "
-                 "It is measured or set, and nothing flows into it."]
+    def auxiliary(self, name: str) -> str:
+        s, v = self.s, self.s.auxiliaries[name]
+        lines = [f"Auxiliary {name}" + (f" ({v.unit})" if v.unit else "") + (f": {v.description}" if v.description else "") + ". "
+                 "It has no memory: its value is determined at each moment by others (its equation is not written, so "
+                 "it is measured)."]
+        if v.exogenous:
+            lines.append("  Exogenous: an input from outside the model; nothing in it drives it.")
         setter = s.setter_of(name)
         if setter:
-            lines.append(f"  Set by block {setter.name} ({setter.type}): a manipulated variable, a knob.")
+            lines.append(f"  Set by block {setter.name} ({setter.type}): each run states its whole value, from what the block "
+                         f"reads now.")
         real = [x for x in v.sensors.values() if not (x.name == "set" and setter and not x.measured and not x.manual)]
         if real:
             lines.append("  Measured: " + "; ".join(_sensor(x) for x in real) + ".")
         if v.driven_by:
-            lines.append("  It follows " + ", ".join(str(r) for r in v.driven_by) + " (driven-by: declared, not yet checked).")
-        readers = [b.name for b in s.blocks.values() if Ref("variable", name) in [Ref(r.kind, r.name) for r in b.reads()]]
+            lines.append("  It follows " + ", ".join(_signed(v, r) for r in v.driven_by) + " (driven-by: declared, not yet "
+                         "checked; + rises with it, − falls, unsigned not known).")
+        readers = [b.name for b in s.blocks.values() if Ref("auxiliary", name) in [Ref(r.kind, r.name) for r in b.reads()]]
         if readers:
             lines.append(f"  Read by: {', '.join(readers)}.")
-        goals = [g for g, x in s.goals.items() if x.of == Ref("variable", name)]
-        lines.append(f"  Goals: {', '.join(goals)}." if goals else "  No goal is about it.")
-        if self.p is not None and self.value(f"variable.{name}"):
-            lines.append(f"  Now: {self.value(f'variable.{name}')}.")
+        goals = [g for g, x in s.goals.items() if x.of == Ref("auxiliary", name)]
+        lines.append(f"  Goals: {', '.join(goals)} (in each one's loop it is the process variable)." if goals
+                     else "  No goal is about it.")
+        if setter and any(setter.name in lp.actuators or f"block.{setter.name}" in lp.through for lp in s.loops()):
+            lines.append("  In a loop whose controller sets it, it is the manipulated variable.")
+        if self.p is not None and self.value(f"auxiliary.{name}"):
+            lines.append(f"  Now: {self.value(f'auxiliary.{name}')}.")
         return "\n".join(lines)
 
     def flow(self, name: str) -> str:
         s, f = self.s, self.s.flows[name]
         ends = f"from {f.source or 'outside'} to {f.target or 'outside'}"
         setter = s.actuator_of(name)
-        lines = [f"Flow {name}: {ends}."]
+        lines = [f"Flow {name}: {ends}" + (", either way (two-way: what moves it may move it back)" if f.two_way else "")
+                 + "."]
         if setter:
             lines.append(f"  Set by block {setter.name} ({setter.type}).")
         else:
             lines.append("  Nothing in the model sets it: " + (f"a declared rate of {f.rate:g}/h." if f.rate is not None else
                                                                "a disturbance, estimated from what its stocks do."))
         if f.driven_by:
-            lines.append("  Its rate follows " + ", ".join(str(r) for r in f.driven_by) + " (driven-by: an influence, declared, "
-                         "not yet checked against the record).")
+            lines.append("  Its rate follows " + ", ".join(_signed(f, r) for r in f.driven_by) + " (driven-by: an influence, "
+                         "declared, not yet checked against the record).")
         if f.sensors:
             lines.append("  Measured: " + "; ".join(_sensor(x) for x in f.sensors.values()) + " (a rate per hour).")
         return "\n".join(lines)
@@ -311,15 +375,15 @@ class Explainer:
         r = Ref.parse(text)
         if r is None:
             for kind, table in (("goal", self.s.goals), ("block", self.s.blocks), ("stock", self.s.stocks),
-                                ("flow", self.s.flows), ("variable", self.s.variables)):
+                                ("flow", self.s.flows), ("auxiliary", self.s.auxiliaries)):
                 if text in table:
                     r = Ref(kind, text)
                     break
         if r is None:
-            raise KeyError(f"no part named {text!r}: name a goal, block, stock, flow or variable (goal.inbox-short, or "
+            raise KeyError(f"no part named {text!r}: name a goal, block, stock, flow or auxiliary (goal.inbox-short, or "
                            f"inbox-short)")
         table = {"goal": self.s.goals, "block": self.s.blocks, "stock": self.s.stocks, "flow": self.s.flows,
-                 "variable": self.s.variables}[r.kind]
+                 "auxiliary": self.s.auxiliaries}[r.kind]
         if r.name not in table:
             raise KeyError(f"no {r.kind} {r.name!r}")
         return getattr(self, r.kind)(r.name)

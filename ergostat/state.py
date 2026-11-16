@@ -196,9 +196,10 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         acts_on = lp.valves or (c.drives if c.through else [])    # the long way: where its controller acts, first along it
         last_open = max((o["time"] for v in acts_on for o in project.events.query(n=1, type="valve.opened", item=v, until=now)),
                         default=None)
-        knob = next((p[9:] for p in c.through if p.startswith("variable.")), None) if not acts_on else None
-        if knob:                                                  # it acts by turning a knob: when it last set it
-            last_open = max((e["time"] for e in project.events.query(n=1, type="variable.set", item=knob, until=now)), default=None)
+        knob = next((p.split(".", 1)[1] for p in c.through if p.startswith("auxiliary.")), None) if not acts_on else None
+        if knob:                                                  # it acts by setting an auxiliary: when it last set it
+            last_open = max((e["time"] for t in ("auxiliary.set", "variable.set")      # variable.set: its old name, in old records
+                             for e in project.events.query(n=1, type=t, item=knob, until=now)), default=None)
         reads = [project.measurements.latest(f"sensor/{s}", now) for s in lp.sensors]
         last_read = max((r[0] for r in reads if r), default=None)
         # how much of the recorded window the loop spent off, from its crossings

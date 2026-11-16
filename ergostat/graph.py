@@ -124,12 +124,14 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
                 stocks_drawn.add(end)
     for n in (x for x in m.stocks if x in stocks_drawn):
         s, st = m.stocks[n], snap["stocks"].get(n, {})
-        nodes.append(_node(f"stock:{n}", "variable" if s.variable else "stock", n, unit=s.unit, value=st.get("value"),
+        nodes.append(_node(f"stock:{n}", "auxiliary" if s.auxiliary else "stock", n, unit=s.unit, value=st.get("value"),
                            valueText=fmt(st.get("value")), points=st.get("points", []), description=s.description,
-                           outside=n not in parts, systems=in_system.get(n, []),
-                           agent=_badge(m, s.setter) if s.variable and s.setter else None))
-        for src in s.driven_by:                               # what a variable follows: an influence
-            edges.append(_edge(f"flow:{src}" if src in m.flows else f"stock:{src}", f"stock:{n}", "influence"))
+                           outside=n not in parts, systems=in_system.get(n, []), memory=not s.auxiliary,
+                           **({"exogenous": True} if s.exogenous else {}),
+                           agent=_badge(m, s.setter) if s.auxiliary and s.setter else None))
+        for src in s.driven_by:                               # what an auxiliary follows: an influence, with its sign
+            edges.append(_edge(f"flow:{src}" if src in m.flows else f"stock:{src}", f"stock:{n}", "influence",
+                               polarity=s.polarity.get(src)))
     for n in (x for x in m.flows if x in flows_drawn):
         f, fl = m.flows[n], snap["flows"].get(n, {})
         v = m.valve_of(n)
@@ -141,6 +143,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
                            rateText=_rate(fl.get("rate"), unit),
                            how=fl.get("how"), estimated=fl.get("estimated", False), mode=v.mode if v else None, max=v.max if v else None,
                            agent=agent_of.get(v.name) if v else _badge(m, f.agent), load=not v and bool(f.agent),
+                           twoWay=f.two_way,
                            description=(v.description if v else f.description),
                            systems=in_system.get(n, [])))
         src = f"stock:{f.source}" if f.source else f"cloud:{n}:in"
@@ -148,18 +151,19 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         for end, cid in ((f.source, src), (f.target, dst)):
             if not end:
                 nodes.append(_node(cid, "cloud", "", flow=n, systems=in_system.get(n, [])))
-        edges.append(_edge(src, f"flow:{n}", "pipe", flow=n))
-        edges.append(_edge(f"flow:{n}", dst, "pipe", flow=n, arrow=True))
+        # polarity: the flow's effect on the stock at that end (an outflow lowers its source, an inflow raises its target)
+        edges.append(_edge(src, f"flow:{n}", "pipe", flow=n, polarity="-" if f.source else None, twoWay=f.two_way))
+        edges.append(_edge(f"flow:{n}", dst, "pipe", flow=n, arrow=True, polarity="+" if f.target else None, twoWay=f.two_way))
     for n in (x for x in m.flows if x in flows_drawn):      # what a flow's rate follows: an influence, not a pipe
         for src in m.flows[n].driven_by:
-            sid = f"flow:{src}" if src in m.flows else f"stock:{src}"         # a stock's or a variable's node
-            edges.append(_edge(sid, f"flow:{n}", "influence"))
+            sid = f"flow:{src}" if src in m.flows else f"stock:{src}"         # a stock's or an auxiliary's node
+            edges.append(_edge(sid, f"flow:{n}", "influence", polarity=m.flows[n].polarity.get(src)))
     # a sensor is drawn where it is in a loop: read by a controller. One that only records a value is
     # instrumentation, not part of the system's structure: its reading is shown on what it measures
     read = {s for c in m.controllers.values() if not c.open_loop for s in c.reads}
     for n in (x for x in m.sensors if x in parts):
         s = m.sensors[n]
-        if s.implied or n not in read:                        # (implied: a variable's set value, said by the block's badge)
+        if s.implied or n not in read:                        # (implied: an auxiliary's set value, said by the block's badge)
             continue
         target = f"stock:{s.measures}" if s.measures in m.stocks else f"flow:{s.measures}"
         got = readings.get(n)
@@ -182,9 +186,10 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         for v in c.drives:
             if v in m.valves and m.valves[v].flow in flows_drawn:
                 edges.append(_edge(f"controller:{n}", f"flow:{m.valves[v].flow}", "action"))
-        first = next((p for p in c.through if p.startswith(("flow.", "variable."))), None)
-        if not c.drives and first and first.startswith("variable.") and first[9:] in stocks_drawn:
-            edges.append(_edge(f"controller:{n}", f"stock:{first[9:]}", "action"))       # it acts by setting a variable
+        first = next((p for p in c.through if p.startswith(("flow.", "auxiliary."))), None)
+        knob = first.split(".", 1)[1] if first and first.startswith("auxiliary.") else None
+        if not c.drives and knob and knob in stocks_drawn:
+            edges.append(_edge(f"controller:{n}", f"stock:{knob}", "action"))       # it acts by setting an auxiliary
         lpm = m.loop(n)
         if lpm is not None:
             members = {f"controller:{n}", f"stock:{lpm.stock}", *(f"sensor:{s}" for s in lpm.sensors),
@@ -200,7 +205,53 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
     edges = [e for e in edges if e["source"] in ids and e["target"] in ids]
     for e in edges:
         e["loops"] = [k for k, lp in loops.items() if e["source"] in lp["nodes"] and e["target"] in lp["nodes"]]
-    return {"kind": "control", "nodes": nodes, "edges": edges, "loops": loops}
+    causal = causal_loops(m)
+    for e in edges:
+        e["causal"] = [c["name"] for c in causal if (e["source"], e["target"]) in c["_pairs"]]
+    for c in causal:
+        del c["_pairs"]
+    return {"kind": "control", "nodes": nodes, "edges": edges, "loops": loops, "causalLoops": causal}
+
+
+def node_of(spec, part: str) -> str | None:
+    """The control diagram's node for a part of a causal loop: a stock's or an auxiliary's, a
+    flow's (its valve), a goal's controller; a block is drawn as the controller of a goal it serves."""
+    kind, _, name = part.partition(".")
+    if kind in ("stock", "auxiliary"):
+        return f"stock:{name}"
+    if kind == "flow":
+        return f"flow:{name}"
+    if kind == "goal":
+        return f"controller:{name}"
+    return None
+
+
+def causal_loops(model) -> list[dict]:
+    """The model's feedback loops for the system dynamics view (``spec/causal.py``): each with its
+    members (as parts and as the nodes drawn for them), its polarity (R, B, or None: not known), a
+    stable name, and the sign of each link along it."""
+    spec = getattr(model, "spec", None)
+    if spec is None:
+        return []
+    from .spec.causal import loops
+    from .spec.ir import sign_text
+    out = []
+    for lp in loops(spec):
+        nodes: list[str] = []
+        for p in lp.parts:
+            nid = node_of(spec, p)
+            if p.startswith("block."):                     # a controller's block: drawn as the goal's controller
+                served = [g for g in lp.goals if p.split(".", 1)[1] in spec.loop(g).controllers]
+                nid = f"controller:{served[0]}" if served else None
+            if nid and (not nodes or nodes[-1] != nid):
+                nodes.append(nid)
+        if len(nodes) > 1 and nodes[0] == nodes[-1]:
+            nodes.pop()
+        pairs = {(a, b) for a, b in zip(nodes, nodes[1:] + nodes[:1], strict=False) if a != b}
+        out.append({"name": lp.name, "polarity": lp.polarity, "goals": lp.goals, "parts": lp.parts, "nodes": nodes,
+                    "links": [{"source": x.source, "target": x.target, "polarity": sign_text(x.sign), "kind": x.kind}
+                              for x in lp.links], "_pairs": pairs})
+    return out
 
 
 def wiring(model, project, snap: dict, parts: set[str]) -> dict:

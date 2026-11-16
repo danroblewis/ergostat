@@ -30,7 +30,8 @@ TOOLS = [
      "(each with file and line; ergostat will not run the model until they are fixed) and the findings (missing feedback, "
      "a block with no visible effect, an open loop, ...). Call it after every edit.", "inputSchema": _obj()},
     {"name": "explain", "description": "The model, or one part of it, in sentences: what it is, what measures it, what serves "
-     "it, what it is doing now. part: a goal, block, stock or flow, as goal.x or just x; leave it out for the whole model.",
+     "it, what it is doing now. part: a goal, block, stock, flow or auxiliary, as goal.x or just x; leave it out for the "
+     "whole model, with its feedback loops (each R reinforcing, B balancing, or of unknown sign).",
      "inputSchema": _obj({"part": {"type": "string"}})},
     {"name": "status", "description": "Every goal now: its value, setpoint, error and status (holding or off), and whether "
      "a loop ergostat can see closes it.", "inputSchema": _obj()},
@@ -85,7 +86,8 @@ class Server:
                           "problems": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
                                         "file": str(p.where.file) if p.where else None,
                                         "line": p.where.line if p.where else None} for p in problems],
-                          "counts": {"stocks": len(spec.stocks), "flows": len(spec.flows), "goals": len(spec.goals),
+                          "counts": {"stocks": len(spec.stocks), "flows": len(spec.flows), "auxiliaries": len(spec.auxiliaries),
+                                     "goals": len(spec.goals),
                                      "blocks": len(spec.blocks), "files": len(spec.files)}})
         if name == "spec":
             doc = Path(__file__).resolve().parent.parent / "docs" / "SPEC.md"
@@ -134,7 +136,7 @@ class Server:
         if name == "read_sensor":
             from .spec.ir import Ref
             of, _, sn = str(a["sensor"]).partition(".")
-            s = next((x for k in ("stock", "flow", "variable") if (x := spec.sensor(Ref(k, of, sn or "main")))), None)
+            s = next((x for k in ("stock", "flow", "auxiliary") if (x := spec.sensor(Ref(k, of, sn or "main")))), None)
             if s is None or not s.manual:
                 return {**_text(f"{a['sensor']!r} is not a manual sensor"), "isError": True}
             p.measurements.add(s.series, float(a["value"]))

@@ -15,12 +15,13 @@ MACHINE = ("program", "ai", "person", "external")
 FORMATS = ("image", "markdown", "code", "text", "json", "claude-session")   # how a file an item names is shown
 SETPOINT = re.compile(r"^\s*(<=|>=|==|<|>)\s*(-?\d+(?:\.\d+)?)\s*$")
 NAME = re.compile(r"^[a-z][a-z0-9-]*$")
-REF = re.compile(r"^(stock|flow|variable|goal|block)\.([a-z][a-z0-9-]*)(?:\.([a-z][a-z0-9-]*))?$")
+REF = re.compile(r"^(stock|flow|auxiliary|variable|goal|block)\.([a-z][a-z0-9-]*)(?:\.([a-z][a-z0-9-]*))?$")
+OLD_KIND = {"variable": "auxiliary"}     # what a kind was called before (SPEC §7a): still read, with a finding
 
 
 @dataclass(frozen=True)
 class Ref:
-    kind: str                  # stock, flow, goal, block
+    kind: str                  # stock, flow, auxiliary, goal, block
     name: str
     port: str | None = None
 
@@ -30,7 +31,21 @@ class Ref:
     @staticmethod
     def parse(text) -> Ref | None:
         m = REF.match(text) if isinstance(text, str) else None
-        return Ref(m.group(1), m.group(2), m.group(3)) if m else None
+        return Ref(OLD_KIND.get(m.group(1), m.group(1)), m.group(2), m.group(3)) if m else None
+
+    @staticmethod
+    def signed(text) -> tuple[Ref | None, int | None]:
+        """``+stock.x`` or ``-auxiliary.y``: a reference with its polarity (+1, -1), or None when
+        unsigned (not known)."""
+        sign = None
+        if isinstance(text, str) and text[:1] in "+-":
+            sign, text = (1 if text[0] == "+" else -1), text[1:]
+        return Ref.parse(text), sign
+
+
+def sign_text(sign: int | None) -> str | None:
+    """+1, -1, None as the graph and the explanations write them: "+", "-", None (not known)."""
+    return None if sign is None else "+" if sign > 0 else "-"
 
 
 @dataclass
@@ -69,6 +84,7 @@ class Sensor:
     run: str | None = None
     query: dict | None = None
     items: dict | None = None  # counted from the record: kind, state, entering, leaving, where, over, measure
+    changes: dict | None = None   # a flow's rate from its stock's own readings: what (rises, falls, net), over, stock
     manual: bool = False
     every: float | None = 60.0
     cron: str | None = None
@@ -85,7 +101,7 @@ class Sensor:
     @property
     def measured(self) -> bool:
         """Read by ergostat on a schedule (a command, a query, or a count of items), not by hand."""
-        return bool(self.run or self.query or self.items)
+        return bool(self.run or self.query or self.items or self.changes)
 
     @property
     def series(self) -> str:
@@ -115,14 +131,18 @@ class Flow:
     description: str = ""
     sensors: dict[str, Sensor] = field(default_factory=dict)
     driven_by: list[Ref] = field(default_factory=list)   # what its rate depends on: other flows, stocks (an influence)
+    polarity: dict[str, int] = field(default_factory=dict)   # str(ref) → +1 or -1, for the driven-by written with a sign
+    two_way: bool = False      # it may run either way (system dynamics' biflow): a block may move it by a negative amount
     where: Where | None = None
 
 
 @dataclass
-class Variable:
-    """What is measured or set but does not accumulate (SPEC §7a): a ratio, a score, an age, a
-    setting. System dynamics' auxiliary; control theory's process variable (measured) or
-    manipulated variable (set by a block). Nothing flows into it."""
+class Auxiliary:
+    """A quantity without memory (SPEC §7a): determined at each moment by others, through an
+    equation that may be unknown, and so measured (a score, a ratio, a share of traffic). System
+    dynamics' auxiliary. What has memory, whose value persists and changes only through its flows,
+    is a stock, even when it is a setting. Process variable and manipulated variable are roles a
+    part plays in a loop, not kinds of quantity."""
 
     name: str
     unit: str = ""
@@ -130,13 +150,15 @@ class Variable:
     description: str = ""
     sensors: dict[str, Sensor] = field(default_factory=dict)
     driven_by: list[Ref] = field(default_factory=list)
+    polarity: dict[str, int] = field(default_factory=dict)
+    exogenous: bool = False    # an input from outside the model: nothing in it drives it (the weather, the mix of customers)
     where: Where | None = None
 
 
 @dataclass
 class Goal:
     name: str
-    of: Ref                    # stock.x or flow.x
+    of: Ref                    # stock.x, flow.x or auxiliary.x
     hold: Setpoint
     tolerance: float = 0.0
     critical: bool = False
@@ -267,7 +289,7 @@ class Spec:
     agents: dict[str, Agent] = field(default_factory=dict)
     sources: dict[str, Source] = field(default_factory=dict)
     items: dict[str, ItemKind] = field(default_factory=dict)
-    variables: dict[str, Variable] = field(default_factory=dict)
+    auxiliaries: dict[str, Auxiliary] = field(default_factory=dict)
     systems: dict[str, str] = field(default_factory=dict)        # name → description
     within: dict[str, str] = field(default_factory=dict)         # a system → the system it is part of
     show: dict[str, list[Ref]] = field(default_factory=dict)     # a system → the measures its box shows (default: its goals')
@@ -288,7 +310,7 @@ class Spec:
 
     def owner(self, r: Ref) -> str | None:
         """The system a referenced part belongs to (a sensor: its stock's or flow's)."""
-        t = {"stock": self.stocks, "flow": self.flows, "variable": self.variables, "goal": self.goals,
+        t = {"stock": self.stocks, "flow": self.flows, "auxiliary": self.auxiliaries, "goal": self.goals,
              "block": self.blocks}.get(r.kind, {})
         x = t.get(r.name)
         return getattr(x, "system", None) if x else None
@@ -352,17 +374,18 @@ class Spec:
 
     def measured(self, kind: str) -> dict:
         """The table of things a sensor may measure, by kind."""
-        return {"stock": self.stocks, "flow": self.flows, "variable": self.variables}.get(kind, {})
+        return {"stock": self.stocks, "flow": self.flows, "auxiliary": self.auxiliaries}.get(kind, {})
 
     def sensors(self) -> list[Sensor]:
-        return [s for t in (*self.stocks.values(), *self.flows.values(), *self.variables.values()) for s in t.sensors.values()]
+        return [s for t in (*self.stocks.values(), *self.flows.values(), *self.auxiliaries.values()) for s in t.sensors.values()]
 
     def sensor(self, ref: Ref) -> Sensor | None:
         t = self.measured(ref.kind).get(ref.name)
         return t.sensors.get(ref.port or "") if t else None
 
-    def setter_of(self, variable: str) -> Block | None:
-        return next((b for b in self.blocks.values() if Ref("variable", variable) in b.targets()), None)
+    def setter_of(self, auxiliary: str) -> Block | None:
+        """The block that states an auxiliary's value each run, when one does."""
+        return next((b for b in self.blocks.values() if Ref("auxiliary", auxiliary) in b.targets()), None)
 
     def flows_of(self, stock: str) -> list[Flow]:
         return [f for f in self.flows.values() if stock in (f.source, f.target)]
@@ -389,7 +412,7 @@ class Spec:
     def role(self, b: Block) -> str:
         if b.role:
             return b.role
-        if any(t.kind in ("flow", "variable") for t in b.targets()):
+        if any(t.kind in ("flow", "auxiliary") for t in b.targets()):
             return "actuator"
         reads_state = any(r.kind in ("goal", "stock", "flow") for r in b.reads())
         commands = any(t.kind in ("block", "goal") for t in b.targets())
@@ -404,8 +427,8 @@ class Spec:
         t = self.measured(what.kind).get(what.name)
         sensors = [str(s.ref) for s in (t.sensors.values() if t else [])]
         stock_flows = [f.name for f in self.flows_of(what.name)] if what.kind == "stock" else [what.name]
-        hit = lambda r: (r.kind == "flow" and what.kind != "variable" and r.name in stock_flows) or \
-            (r.kind == "variable" and what.kind == "variable" and r.name == what.name)        # noqa: E731
+        hit = lambda r: (r.kind == "flow" and what.kind != "auxiliary" and r.name in stock_flows) or \
+            (r.kind == "auxiliary" and what.kind == "auxiliary" and r.name == what.name)        # noqa: E731
         # controllers: blocks reading the goal, or its stock or flow directly
         ctl = [b for b in self.blocks.values()
                if any((r.kind == "goal" and r.name == goal) or (r.kind == what.kind and r.name == what.name) for r in b.reads())]
@@ -424,18 +447,21 @@ class Spec:
         controllers = [b.name for b in ctl if b.name not in actuators or any(t.kind == "block" for t in b.targets())]
         if not controllers and actuators:   # an actuator reading the goal itself: it is its own controller
             controllers = [a for a in actuators if a in {b.name for b in ctl}]
-        dist = [f for f in stock_flows if f not in valves] if what.kind != "variable" else []
+        dist = [f for f in stock_flows if f not in valves] if what.kind != "auxiliary" else []
         toward = set()                     # the flows that move the stock toward its goal: the path should end on one
         if what.kind == "stock":
             down = g.hold.op in ("<=", "<")
-            toward = {f"flow.{f.name}" for f in self.flows_of(what.name) if (f.source == what.name) == down}
-        targets = {f"variable.{what.name}"} if what.kind == "variable" else {f"flow.{f}" for f in stock_flows}
+            either = g.hold.op == "=="     # held at a level: a flow either way moves it toward the goal
+            toward = {f"flow.{f.name}" for f in self.flows_of(what.name) if (f.source == what.name) == down or f.two_way or either}
+        targets = {f"auxiliary.{what.name}"} if what.kind == "auxiliary" else {f"flow.{f}" for f in stock_flows}
         through = [] if actuators else self.long_way(ctl, targets, what, toward)
+        if through:                        # the flow it closes through is its way in, not a disturbance
+            dist = [f for f in dist if f"flow.{f}" != through[-1]]
         return Loop(goal, sensors, controllers, actuators, valves, dist, through)
 
     def readers(self, kind: str, name: str) -> list[Block]:
         """Blocks reading a stock (or a goal on it), a flow, or a goal."""
-        goals = {g for g, x in self.goals.items() if x.of == Ref(kind, name)} if kind in ("stock", "flow", "variable") else set()
+        goals = {g for g, x in self.goals.items() if x.of == Ref(kind, name)} if kind in ("stock", "flow", "auxiliary") else set()
         return [b for b in self.blocks.values() if any((r.kind == kind and r.name == name) or
                                                          (r.kind == "goal" and (r.name in goals or (kind == "goal" and r.name == name)))
                                                          for r in b.reads())]
@@ -444,10 +470,14 @@ class Spec:
         """A loop may close through other stocks and other systems: its controller files work into
         a queue, that queue's own loop works it off, and what that work moves drives a flow of the
         goal's stock (``driven-by``). The shortest such path, from the controller to a flow of the
-        goal's stock (or to the goal's variable); empty when there is none. ``targets`` and ``toward``
-        are references (flow.x, variable.y)."""
+        goal's stock (or to the goal's auxiliary); empty when there is none. ``targets`` and ``toward``
+        are references (flow.x, auxiliary.y).
+
+        A controller that steps a setting closes this way too: it moves a two-way flow into a stock
+        (the setting, which keeps its value between steps: integral action), and what the goal
+        holds is driven by that stock."""
         drives: dict[str, list[str]] = {}
-        for kind, table in (("flow", self.flows), ("variable", self.variables)):
+        for kind, table in (("flow", self.flows), ("auxiliary", self.auxiliaries)):
             for f in table.values():
                 for r in f.driven_by:
                     drives.setdefault(f"{r.kind}.{r.name}", []).append(f"{kind}.{f.name}")
@@ -471,14 +501,14 @@ class Spec:
             if kind == "block":
                 b = self.blocks[name]
                 nxt += [f"block.{d.name}" for d in self.downstream(name)]
-                nxt += [str(Ref(t.kind, t.name)) for t in b.targets() if t.kind in ("flow", "goal", "variable")]
+                nxt += [str(Ref(t.kind, t.name)) for t in b.targets() if t.kind in ("flow", "goal", "auxiliary")]
             elif kind == "goal":
                 nxt += [f"block.{b.name}" for b in self.readers("goal", name)]
             elif kind == "flow":
                 f = self.flows[name]
                 nxt += [f"stock.{s}" for s in (f.target, f.source) if s and s != what.name]
                 nxt += drives.get(n, [])
-            elif kind in ("stock", "variable"):
+            elif kind in ("stock", "auxiliary"):
                 nxt += [f"block.{b.name}" for b in self.readers(kind, name)]
                 nxt += drives.get(n, [])
             for x in nxt:

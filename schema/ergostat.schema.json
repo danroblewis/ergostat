@@ -10,10 +10,17 @@
       "$ref": "#/$defs/name"
     },
     "include": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
     },
     "keep": {
       "$ref": "#/$defs/duration"
@@ -54,13 +61,24 @@
         "$ref": "#/$defs/item_kind"
       }
     },
-    "variables": {
+    "auxiliaries": {
       "type": "object",
       "propertyNames": {
         "$ref": "#/$defs/name"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/variable"
+        "$ref": "#/$defs/auxiliary"
+      }
+    },
+    "variables": {
+      "type": "object",
+      "deprecated": true,
+      "description": "The old name of auxiliaries: (still read, with a finding)",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/auxiliary"
       }
     },
     "stocks": {
@@ -133,7 +151,7 @@
     "ref": {
       "type": "string",
       "description": "kind.name or kind.name.port, e.g. stock.inbox, goal.inbox-short.error, block.decide.urgent, flow.processed",
-      "pattern": "^((stock|flow|goal|block)\\.)?[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$"
+      "pattern": "^((stock|flow|auxiliary|variable|goal|block)\\.)?[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$"
     },
     "refs": {
       "oneOf": [
@@ -249,6 +267,14 @@
         },
         "where": {
           "type": "object"
+        },
+        "changes": {
+          "enum": [
+            "rises",
+            "falls",
+            "net"
+          ],
+          "description": "On a flow: its rate from its stock's own successive readings"
         }
       },
       "oneOf": [
@@ -270,6 +296,11 @@
         {
           "required": [
             "items"
+          ]
+        },
+        {
+          "required": [
+            "changes"
           ]
         }
       ],
@@ -351,17 +382,11 @@
           "type": "string"
         },
         "driven-by": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          ]
+          "$ref": "#/$defs/driven_by"
+        },
+        "two-way": {
+          "type": "boolean",
+          "description": "It may run either way (a biflow): a block may move it by a negative amount"
         }
       },
       "anyOf": [
@@ -416,6 +441,11 @@
           "type": "string"
         },
         "variable": {
+          "$ref": "#/$defs/name",
+          "deprecated": true,
+          "description": "The old name of auxiliary:"
+        },
+        "auxiliary": {
           "$ref": "#/$defs/name"
         }
       },
@@ -428,6 +458,11 @@
         {
           "required": [
             "flow"
+          ]
+        },
+        {
+          "required": [
+            "auxiliary"
           ]
         },
         {
@@ -917,6 +952,13 @@
         },
         "within": {
           "$ref": "#/$defs/name"
+        },
+        "show": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "description": "The measures its box shows: stock, flow or auxiliary references"
         }
       }
     },
@@ -954,10 +996,23 @@
         },
         "description": {
           "type": "string"
+        },
+        "formats": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": [
+              "image",
+              "markdown",
+              "code",
+              "text",
+              "json",
+              "claude-session"
+            ]
+          }
         }
       }
     },
-    "variable": {
+    "auxiliary": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -977,19 +1032,32 @@
           "$ref": "#/$defs/sensors"
         },
         "driven-by": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          ]
+          "$ref": "#/$defs/driven_by"
+        },
+        "exogenous": {
+          "type": "boolean",
+          "description": "An input from outside the model: nothing in it drives it"
         }
-      }
+      },
+      "description": "A quantity without memory: determined at each moment by others (SPEC section 7a)"
+    },
+    "driven_by": {
+      "description": "What it follows: flow., stock. or auxiliary. references, each optionally signed (+ rises with it, - falls; unsigned: not known)",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/signed_ref"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/signed_ref"
+          }
+        }
+      ]
+    },
+    "signed_ref": {
+      "type": "string",
+      "pattern": "^[+-]?(flow|stock|auxiliary|variable)\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$"
     }
   }
 }

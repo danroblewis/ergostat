@@ -28,15 +28,13 @@ items:
     formats:
       transcript: claude-session           # its page shows the conversation, live while it runs
 
-variables:
+stocks:
   ai-spend:
     unit: USD
-    description: what the Claude Code sessions have cost so far (FACTORY_AI=claude)
+    description: what the Claude Code sessions have cost so far (FACTORY_AI=claude); it only grows, by what each session costs
     sensor:
       run: bin/py world/read.py ai-spend
       every: 30s
-
-stocks:
   sessions:
     unit: sessions
     description: Claude Code sessions running now (FACTORY_AI=claude; at most one each for the researcher and the developer)
@@ -74,6 +72,14 @@ stocks:
       every: 5s
 
 flows:
+  spending:
+    to: ai-spend
+    driven-by: +stock.sessions              # what the sessions running cost
+    description: each session's cost, added when it ends
+    sensor:
+      changes: rises
+      over: 30m
+      every: 30s
   sessions-started:
     to: sessions
     sensor:
@@ -118,7 +124,7 @@ blocks:
     goal: ideas-ready
     prompt: prompts/researcher.md
     run: bin/ai.sh researcher               # FACTORY_AI=claude: a Claude Code session; otherwise a stand-in
-    in: [variable.bytes-per-mp, stock.capabilities, variable.benchmark-score]   # what it is trying to improve
+    in: [stock.bytes-per-mp, stock.capabilities, stock.benchmark-points]   # what it is trying to improve
     max: 1
     timeout: 15m
     out: flow.proposed

@@ -7,17 +7,19 @@ import re
 import time
 
 from ..durations import DurationError, parse_duration
-from .ir import BUILTIN, MACHINE, NAME, Agent, Block, Flow, Goal, ItemKind, Ref, Sensor, Setpoint, Source, Spec, Stock, Variable
-from .load import Document, Map, Problem, Where
+from .ir import BUILTIN, MACHINE, NAME, Agent, Auxiliary, Block, Flow, Goal, ItemKind, Ref, Sensor, Setpoint, Source, Spec, Stock
+from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
 SENSOR_KEYS = {"run", "query", "manual", "items", "every", "cron", "timeout", "parse", "unit", "description"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
+CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor"}
-FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by"}
-GOAL_KEYS = COMMON | {"stock", "flow", "variable", "hold", "tolerance", "critical", "owner"}
-VARIABLE_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by"}
+FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way"}
+GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner"}
+AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous"}
+DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}}
@@ -53,9 +55,27 @@ class Compiler:
     def __init__(self, doc: Document):
         self.doc = doc
         self.problems: list[Problem] = list(doc.problems)
+        self.old: dict[tuple, list] = {}                 # (what was renamed, file) → [first place, how many]
 
     def err(self, msg: str, where: Where | None, code: str = "", about: str = "") -> None:
         self.problems.append(Problem("error", msg, where, code, about))
+
+    def deprecated(self, what: str, where: Where | None) -> None:
+        """An old name, still read: said once per file, with how many times it is used there."""
+        k = (what, where.file if where else None)
+        if k in self.old:
+            self.old[k][1] += 1
+        else:
+            self.old[k] = [where, 1]
+
+    def renamed(self) -> None:
+        say = {"variables": ("variables: is now auxiliaries: (an auxiliary has no memory: it is determined at each moment "
+                             "by others; what keeps its value between changes is a stock). Rename the section"),
+               "variable-ref": "variable.NAME is now auxiliary.NAME: rename the reference",
+               "goal-variable": "a goal's variable: is now auxiliary: rename the key"}
+        for (what, _), (where, n) in self.old.items():
+            self.problems.append(Problem("finding", say[what] + (f" ({n} places in this file)" if n > 1 else ""), where,
+                                        "deprecated-name", ""))
 
     # ---- small readers
 
@@ -107,9 +127,13 @@ class Compiler:
             hint = ""
             if isinstance(raw, str) and NAME.match(raw):
                 hint = f": write the kind first, like {kinds[0]}.{raw}"
-            self.err(f"{what}: {raw!r} is not a reference{hint} (stock.x, flow.x, goal.x, block.x, with an optional .port)",
-                     where, "bad-ref")
+            elif isinstance(raw, str) and raw[:1] in "+-" and Ref.parse(raw[1:]):
+                hint = ": only a driven-by carries a sign"
+            self.err(f"{what}: {raw!r} is not a reference{hint} (stock.x, flow.x, auxiliary.x, goal.x, block.x, with an "
+                     f"optional .port)", where, "bad-ref")
             return None
+        if raw.startswith("variable."):
+            self.deprecated("variable-ref", where)
         if r.kind not in kinds:
             self.err(f"{what}: {r} is a {r.kind}; here it must be a {' or '.join(kinds)}", where, "wrong-kind")
             return None
@@ -143,6 +167,36 @@ class Compiler:
         self.err(f"{what}.{key}: a reference, a list of them, or a map of port names to them", w, "bad-ref")
         return {}
 
+    def driven(self, m: Map, what: str) -> tuple[list[Ref], dict[str, int]]:
+        """``driven-by``: what it follows, each reference with an optional sign, ``+stock.x`` (it
+        rises when x rises) or ``-auxiliary.y`` (it falls when y rises); unsigned: not known."""
+        raw = m.get("driven-by")
+        if raw is None:
+            return [], {}
+        if not isinstance(raw, str | list):
+            self.err(f"{what}.driven-by: a reference or a list of them (+stock.x, -auxiliary.y, flow.z)", m.at("driven-by"),
+                     "bad-ref")
+            return [], {}
+        refs, signs = [], {}
+        for x in raw if isinstance(raw, list) else [raw]:
+            sign = None
+            if isinstance(x, str) and x[:1] in "+-":
+                sign, x = (1 if x[0] == "+" else -1), x[1:].strip()
+            r = self.ref(x, m.at("driven-by"), f"{what}.driven-by", DRIVERS)
+            if r is None:
+                continue
+            refs.append(r)
+            if sign is not None:
+                signs[str(r)] = sign
+        return refs, signs
+
+    def flag(self, m: Map, key: str, what: str) -> bool:
+        v = m.get(key, False)
+        if not isinstance(v, bool):
+            self.err(f"{what}.{key}: true or false", m.at(key), "bad-bool")
+            return False
+        return v
+
     # ---- sections
 
     def sensors(self, owner: Map, of: Ref, what: str) -> dict[str, Sensor]:
@@ -167,11 +221,17 @@ class Compiler:
             if not NAME.match(str(name)):
                 self.err(f"{sw}: a name is lowercase letters, digits and -, starting with a letter", s.where, "bad-name")
             counted = s.get("items") is not None
-            self.keys(s, SENSOR_KEYS | (ITEM_SENSOR_KEYS if counted else set()), sw)
-            kinds = [k for k in ("run", "query", "manual", "items") if s.get(k) not in (None, False)]
+            changes = s.get("changes")
+            self.keys(s, SENSOR_KEYS | (ITEM_SENSOR_KEYS if counted else set()) | ({"changes", "over"} if changes is not None
+                                                                                  else {"changes"}), sw)
+            kinds = [k for k in ("run", "query", "manual", "items", "changes") if s.get(k) not in (None, False)]
             if len(kinds) != 1:
-                self.err(f"{sw}: exactly one of run:, query:, manual: or items: (it has {', '.join(kinds) or 'none'})",
+                self.err(f"{sw}: exactly one of run:, query:, manual:, items: or changes: (it has {', '.join(kinds) or 'none'})",
                          s.where, "sensor-kind")
+            if changes is not None and (of.kind != "flow" or changes not in CHANGES):
+                self.err(f"{sw}.changes: on a flow, one of {', '.join(CHANGES)}: its rate from its stock's own readings (how "
+                         f"much they rose, or fell, per hour)", s.at("changes"), "bad-changes")
+                changes = None
             q = s.get("query")
             if q is not None:
                 if not isinstance(q, dict) or "source" not in q:
@@ -187,6 +247,7 @@ class Compiler:
                     self.err(f"{sw}.parse: not a regular expression ({e})", s.at("parse"), "bad-parse")
             out[str(name)] = Sensor(str(name), of, run=s.get("run") and str(s["run"]), query=dict(q) if q else None,
                                     items=self.item_sensor(s, of, sw) if counted else None,
+                                    changes={"what": changes, "over": self.duration(s, "over", sw, 3600.0)} if changes else None,
                                     manual=bool(s.get("manual")), every=self.duration(s, "every", sw, 60.0),
                                     cron=self.cron(s, "cron", sw), timeout=self.duration(s, "timeout", sw, 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
@@ -295,9 +356,32 @@ class Compiler:
                     self.err(f"{sw}: {st!r} is not a state of {k.name} ({', '.join(k.states) or 'it has none'})", w,
                              "unknown-state")
 
+    def watched(self, spec: Spec) -> None:
+        """A flow measured by its stock's changes watches its one stock: it rises by an inflow, falls by
+        an outflow, and either way by a two-way flow."""
+        for f in spec.flows.values():
+            for s in f.sensors.values():
+                if not s.changes:
+                    continue
+                sw, what = f"flow {f.name} sensor {s.name}", s.changes["what"]
+                if f.source and f.target:
+                    self.err(f"{sw}: changes: reads one stock, and {f.name} runs between two (measure it some other way)",
+                             s.where, "bad-changes")
+                elif what == "rises" and not f.target or what == "falls" and not f.source:
+                    self.err(f"{sw}: changes: {what} measures an {'in' if what == 'rises' else 'out'}flow; {f.name} "
+                             f"{'drains' if f.source else 'fills'} its stock ({'falls' if f.source else 'rises'})", s.where,
+                             "bad-changes")
+                elif what == "net" and not f.two_way:
+                    self.err(f"{sw}: changes: net may read either way: give the flow two-way: true", s.where, "bad-changes")
+                elif (st := f.target or f.source) in spec.stocks:
+                    if not any(x.measured or x.manual for x in spec.stocks[st].sensors.values()):
+                        self.err(f"{sw}: changes: reads stock {st}'s readings, and nothing measures it", s.where, "bad-changes")
+                    s.changes["stock"] = st
+                    s.changes["sign"] = 1 if f.target else -1     # its direction: into its stock, or out of it
+
     def named(self, section: str):
         for name, m in self.doc.sections[section].items():
-            what = f"{section[:-1]} {name}"
+            what = f"{SINGULAR.get(section, section[:-1])} {name}"
             w = self.doc.defined[(section, name)]
             if not isinstance(name, str) or not NAME.match(name):
                 self.err(f"{what}: a name is lowercase letters, digits and -, starting with a letter", w, "bad-name")
@@ -326,7 +410,7 @@ class Compiler:
             if m.get("within") is not None:
                 spec.within[name] = str(m["within"])
             if m.get("show") is not None:
-                spec.show[name] = [r for rs in self.refs(m, "show", what, ("stock", "flow", "variable")).values() for r in rs]
+                spec.show[name] = [r for rs in self.refs(m, "show", what, ("stock", "flow", "auxiliary")).values() for r in rs]
         for name, parent in list(spec.within.items()):
             w = self.doc.defined[("systems", name)]
             if parent not in spec.systems:
@@ -360,33 +444,50 @@ class Compiler:
                 self.err(f"{what}: give it from:, to:, or both (the stocks it drains and fills; leaving one out means "
                          f"outside the system)", m.where, "flow-without-ends")
             f = Flow(name, m.get("from") and str(m["from"]), m.get("to") and str(m["to"]), self.text(m, "unit"),
-                     self.number(m, "rate", what), self.system("flows", name, m), self.text(m, "description"), where=m.where)
+                     self.number(m, "rate", what), self.system("flows", name, m), self.text(m, "description"),
+                     two_way=self.flag(m, "two-way", what), where=m.where)
             for end, key in ((f.source, "from"), (f.target, "to")):
                 if end is not None and end not in d.sections["stocks"]:
                     self.err(f"{what}.{key}: {end!r} is not a stock" + self.suggest(end, d.sections["stocks"]),
                              m.at(key), "unknown-ref", f"stock.{end}")
             f.sensors = self.sensors(m, Ref("flow", name), what)
-            f.driven_by = [r for rs in self.refs(m, "driven-by", what, ("flow", "stock", "variable")).values() for r in rs]
+            f.driven_by, f.polarity = self.driven(m, what)
             spec.flows[name] = f
-        for name, m, what in self.named("variables"):
-            self.keys(m, VARIABLE_KEYS, what)
-            v = Variable(name, self.text(m, "unit"), self.system("variables", name, m), self.text(m, "description"),
-                         where=m.where)
-            v.sensors = self.sensors(m, Ref("variable", name), what)
-            v.driven_by = [r for rs in self.refs(m, "driven-by", what, ("flow", "stock", "variable")).values() for r in rs]
-            spec.variables[name] = v
+        for section in ("auxiliaries", "variables"):        # variables: the old name, still read
+            for name, m, what in self.named(section):
+                what = f"auxiliary {name}"
+                if section == "variables":
+                    self.deprecated("variables", self.doc.defined[(section, name)])
+                    if name in spec.auxiliaries:
+                        self.err(f"{what} is defined twice: under auxiliaries: and under variables: (its old name)",
+                                 self.doc.defined[(section, name)], "defined-twice", f"auxiliary.{name}")
+                        continue
+                self.keys(m, AUXILIARY_KEYS, what)
+                v = Auxiliary(name, self.text(m, "unit"), self.system(section, name, m), self.text(m, "description"),
+                              exogenous=self.flag(m, "exogenous", what), where=m.where)
+                v.sensors = self.sensors(m, Ref("auxiliary", name), what)
+                v.driven_by, v.polarity = self.driven(m, what)
+                if v.exogenous and v.driven_by:
+                    self.err(f"{what}: exogenous (an input from outside the model) and driven-by something in it: one or the "
+                             f"other", m.at("exogenous"), "exogenous-driven")
+                spec.auxiliaries[name] = v
         for name, m, what in self.named("goals"):
             self.keys(m, GOAL_KEYS, what)
-            has = [k for k in ("stock", "flow", "variable") if m.get(k) is not None]
+            has = [k for k in ("stock", "flow", "auxiliary", "variable") if m.get(k) is not None]
             of = None
             if len(has) != 1:
-                self.err(f"{what}: say what it is about with exactly one of stock:, flow: or variable:", m.where, "goal-of")
+                self.err(f"{what}: say what it is about with exactly one of stock:, flow: or auxiliary:", m.where, "goal-of")
             else:
-                k = has[0]
-                target = str(m[k])
-                if target not in d.sections[k + "s"]:
-                    self.err(f"{what}.{k}: {target!r} is not a {k}" + self.suggest(target, d.sections[k + "s"]), m.at(k),
-                             "unknown-ref", f"{k}.{target}")
+                key = has[0]
+                k = "auxiliary" if key == "variable" else key
+                if key == "variable":
+                    self.deprecated("goal-variable", m.at(key))
+                target = str(m[key])
+                known = {"stock": d.sections["stocks"], "flow": d.sections["flows"],
+                         "auxiliary": {**d.sections["variables"], **d.sections["auxiliaries"]}}[k]
+                if target not in known:
+                    self.err(f"{what}.{key}: {target!r} is not a{'n' if k[0] == 'a' else ''} {k}" + self.suggest(target, known),
+                             m.at(key), "unknown-ref", f"{k}.{target}")
                 of = Ref(k, target)
             hold = Setpoint.parse(m.get("hold"))
             if hold is None:
@@ -416,14 +517,16 @@ class Compiler:
             if b:
                 spec.blocks[name] = b
         self.implied(spec)
-        for b in spec.blocks.values():                       # a variable a block sets is read as what it was set to
+        for b in spec.blocks.values():                       # an auxiliary a block sets is read as what it was set to
             for t in b.targets():
-                v = spec.variables.get(t.name) if t.kind == "variable" else None
+                v = spec.auxiliaries.get(t.name) if t.kind == "auxiliary" else None
                 if v is not None and "set" not in v.sensors:
-                    v.sensors["set"] = Sensor("set", Ref("variable", v.name), every=None,
+                    v.sensors["set"] = Sensor("set", Ref("auxiliary", v.name), every=None,
                                               description=f"the value block {b.name} set it to", where=b.where)
         self.counted(spec)
         self.references(spec)
+        self.watched(spec)
+        self.renamed()
         for x in (*spec.stocks.values(), *spec.flows.values(), *spec.goals.values(), *spec.blocks.values()):
             if x.system and x.system not in spec.systems:      # named by a part, not described: a top-level system
                 spec.systems[x.system] = ""
@@ -530,8 +633,8 @@ class Compiler:
             p = str(m["prompt"])
             if "\n" not in p and p.endswith((".md", ".txt")) and not (self.doc.root / p).is_file():
                 self.err(f"{what}.prompt: {p} is not a file here", m.at("prompt"), "prompt-missing")
-        ins = self.refs(m, "in", what, ("stock", "flow", "variable", "goal", "block"))
-        outs = self.refs(m, "out", what, ("flow", "variable", "block", "goal"))
+        ins = self.refs(m, "in", what, ("stock", "flow", "auxiliary", "goal", "block"))
+        outs = self.refs(m, "out", what, ("flow", "auxiliary", "block", "goal"))
         inputs = {}
         for port, refs in ins.items():
             for r in refs:
@@ -565,12 +668,12 @@ class Compiler:
                     return f"{r.name!r} is not a flow" + self.suggest(r.name, spec.flows)
                 if r.port and r.port not in f.sensors:
                     return f"flow {r.name} has no sensor {r.port!r}"
-            elif r.kind == "variable":
-                v = spec.variables.get(r.name)
+            elif r.kind == "auxiliary":
+                v = spec.auxiliaries.get(r.name)
                 if v is None:
-                    return f"{r.name!r} is not a variable" + self.suggest(r.name, spec.variables)
+                    return f"{r.name!r} is not an auxiliary" + self.suggest(r.name, spec.auxiliaries)
                 if r.port and r.port not in v.sensors:
-                    return f"variable {r.name} has no sensor {r.port!r}"
+                    return f"auxiliary {r.name} has no sensor {r.port!r}"
             elif r.kind == "goal":
                 if r.name not in spec.goals:
                     return f"{r.name!r} is not a goal" + self.suggest(r.name, spec.goals)
@@ -586,7 +689,7 @@ class Compiler:
             for r in refs:
                 if (why := exists(r)) is not None:
                     self.err(f"system {name}.show: {why}", self.doc.defined.get(("systems", name)), "unknown-ref", str(r))
-        for kind, table in (("flow", spec.flows), ("variable", spec.variables)):
+        for kind, table in (("flow", spec.flows), ("auxiliary", spec.auxiliaries)):
             for f in table.values():
                 for r in f.driven_by:
                     if (why := exists(r)) is not None:
@@ -616,12 +719,12 @@ class Compiler:
                         self.err(f"{what}.out: flow {r.name} is already set by block {setters[r.name]}; one block sets a "
                                  f"flow (put a select in front, or split the flow)", w, "two-actuators", str(r))
                     setters[r.name] = b.name
-                elif r.kind == "variable":
+                elif r.kind == "auxiliary":
                     if r.port:
-                        self.err(f"{what}.out: a block sets a variable, not its sensor ({r})", w, "wrong-kind")
+                        self.err(f"{what}.out: a block sets an auxiliary, not its sensor ({r})", w, "wrong-kind")
                     if r.name in setters and setters[r.name] != b.name:
-                        self.err(f"{what}.out: variable {r.name} is already set by block {setters[r.name]}; one block sets "
-                                 f"a variable", w, "two-actuators", str(r))
+                        self.err(f"{what}.out: auxiliary {r.name} is already set by block {setters[r.name]}; one block sets "
+                                 f"an auxiliary", w, "two-actuators", str(r))
                     setters[r.name] = b.name
                 elif r.kind == "goal" and r.port:
                     self.err(f"{what}.out: a block sets a goal's setpoint (goal.{r.name}), not its .{r.port}", w, "wrong-kind")

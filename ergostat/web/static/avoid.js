@@ -221,7 +221,9 @@ function avoidSpec(lay, g) {
         if (lp) at(PIN.PORT + i, west ? 0 : c.width, lp.y + (lp.height || 0) / 2, west ? "left" : "right", true, true);
       });
       if (k === "stock") for (const f of PIPE_ALONG) { at(PIN.PIPE, 0, f, "left"); at(PIN.PIPE, 1, f, "right"); }
-      if (k === "stock" && upright.has(c.id)) for (const f of [0.35, 0.5, 0.65]) { at(PIN.PIPE, f, 0, "up"); at(PIN.PIPE, f, 1, "down"); }
+      // a stock an upright valve joins takes that pipe at the middle of its top or bottom, where the valve stands
+      // (libavoid finds no way for a line whose point lies on another's: its information points keep off the middle)
+      if (k === "stock" && upright.has(c.id)) { at(PIN.PIPE, 0.5, 0, "up"); at(PIN.PIPE, 0.5, 1, "down"); }
       // the rest: each net (lines of one kind, all leaving or all arriving) its own point on each side, shared by
       // its lines; single lines points of their own, one line each, enough of them for all
       const sides = k === "stock" ? ["up", "down"] : ["up", "down", "left", "right"];
@@ -229,7 +231,7 @@ function avoidSpec(lay, g) {
       const nets = groups.filter(([, x]) => x.length > 1), singles = groups.filter(([, x]) => x.length === 1).length;
       const slots = nets.length + Math.ceil(singles / sides.length);
       const place = (cls, i, shared) => {
-        const f = (i + 1) / (slots + 1);
+        const f0 = (i + 1) / (slots + 1), f = upright.has(c.id) ? (f0 <= 0.5 ? f0 * 0.75 : 0.25 + f0 * 0.75) : f0;
         for (const d of sides) at(cls, d === "left" ? 0 : d === "right" ? 1 : f, d === "up" ? 0 : d === "down" ? 1 : f, d, shared);
       };
       nets.forEach(([key, ids], i) => {

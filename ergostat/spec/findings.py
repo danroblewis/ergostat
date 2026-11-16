@@ -34,7 +34,7 @@ def find(spec: Spec) -> list[Problem]:
         if b.type == "external":
             continue
         moves = [t for t in b.targets() if t.kind == "flow"]
-        commanded = spec.commanders_of(name) or [r for r in b.inputs.values() if r.kind in ("goal", "stock", "flow", "variable")]
+        commanded = spec.commanders_of(name) or [r for r in b.inputs.values() if r.kind in ("goal", "stock", "flow", "auxiliary")]
         if moves and not commanded and spec.role(b) == "actuator":
             say("acting-on-its-own", f"block {name}: moves {', '.join(str(t) for t in moves)} on its own schedule; nothing "
                 f"commands it (an open loop)", b.where, f"block.{name}")
@@ -57,8 +57,9 @@ def find(spec: Spec) -> list[Problem]:
     for st in spec.stocks.values():
         if not spec.flows_of(st.name):
             say("stock-without-flows", f"stock {st.name}: no flow fills or drains it, so nothing in the model moves it. A "
-                f"stock is what flows accumulate; a reading nothing flows into (an age, a ratio, a score) is a "
-                f"variable: give it its flows, or move it to variables:",
+                f"stock has memory: its value persists, and changes only through its flows. A quantity without memory, "
+                f"determined at each moment by others (a ratio, a score), is an auxiliary: give it its flows, or move it "
+                f"to auxiliaries:",
                 st.where, f"stock.{st.name}")
         if st.limit is not None and not any(g.of == Ref("stock", st.name) for g in spec.goals.values()):
             say("unguarded-limit", f"stock {st.name}: has a limit ({st.limit:g}) but no goal: nothing keeps it from it",

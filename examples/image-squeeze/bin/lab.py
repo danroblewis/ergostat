@@ -11,9 +11,12 @@ experiments' stocks and flows are counted from the record.
     lab.py bench HYPOTHESIS           run the benchmark on it: cases met, gained and lost against production
     lab.py submit HYPOTHESIS          test the working copy; if its tests pass, it becomes the candidate
     lab.py abandon HYPOTHESIS --why   give up on it (it cannot be built)
-    lab.py tune                       the tuner: move production's quality toward the quality goal
-    lab.py match                      the matcher: move the candidate's quality until it looks as good as production
+    lab.py tune                       the tuner: step production's quality toward the quality goal
+    lab.py match                      the matcher: step the candidate's quality until it looks as good as production
     lab.py rollout                    the rollout: give the candidate more traffic, keep it, or roll it back
+
+The settings they turn are stocks (each keeps its value until it is stepped), so each reports the
+step it took, along a two-way flow, not the value it left the setting at.
 
 The last line each prints is what its block reports to ergostat (JSON)."""
 
@@ -239,21 +242,22 @@ def abandon(hid: str, why: str, by: str) -> None:
 # ---- the loops
 
 def tune(ctx: dict) -> float:
-    """Integral control: production's quality setting moves by the quality error each time, so it
-    settles where the measured quality meets the setpoint whatever the mix (no steady error)."""
+    """Integral control: production's quality setting (a stock) is stepped by the quality error each
+    time, so it settles where the measured quality meets the setpoint whatever the mix (no steady
+    error). Returns the step."""
     s = load(RUN / "settings.json", {"quality": 80})
-    q = float(s.get("quality", 80))
+    q = was = float(s.get("quality", 80))
     g = (ctx.get("goals") or {}).get("quality-held") or {}
     y = g.get("value")
     if y is None or not g.get("hold"):
-        return q
+        return 0.0
     r = float(str(g["hold"]).split()[-1])                    # the setpoint, as ergostat.yaml's goal says ("== 0.93")
     e = r - float(y)                                         # e = r − y: positive when it looks too poor
     if abs(e) > 0.004:                                       # a dead band: hold steady inside the tolerance
-        q = max(5.0, min(95.0, q + 350 * e))
-    s["quality"] = round(q, 1)
+        q = round(max(5.0, min(95.0, q + 350 * e)), 1)
+    s["quality"] = q
     save(RUN / "settings.json", s)
-    return q
+    return round(q - was, 3)
 
 
 def match() -> float:
@@ -261,22 +265,22 @@ def match() -> float:
     looks as good as production on the same images, so a change that saves bytes by looking worse
     is compared at equal quality. It is only ever raised (and let back down to 0): a candidate that
     looks better is not made to look worse to match, because its gain may be all on one kind of
-    image, and spending it would make every other kind worse."""
+    image, and spending it would make every other kind worse. Returns the step."""
     r = load(RUN / "rollout.json", {})
     st = load(RUN / "world" / "state.json", {})
     c = st.get("candidate") or {}
     if not r.get("candidate") or c.get("id") != r.get("candidate") or c.get("paired", 0) < 10:
-        return float(r.get("offset") or 0)
+        return 0.0
     dq = float(c.get("quality_mean") or 0)                   # candidate − production, recent images
     off = float(r.get("offset") or 0)
     if dq < -0.004 or (dq > 0.004 and off > 0):
-        new = max(0.0, min(40.0, off - 350 * dq))            # looks worse: raise it; better again: let it back down
-        r["offset"] = round(new, 1)
+        new = round(max(0.0, min(40.0, off - 350 * dq)), 1)  # looks worse: raise it; better again: let it back down
+        r["offset"] = new
         if abs(new - off) >= 2:                              # a real move: compare from here on
             r["matched_since"] = c.get("paired", 0)
         save(RUN / "rollout.json", r)
-        off = new
-    return off
+        return round(new - off, 3)
+    return 0.0
 
 
 def rollout(by: str) -> dict:
@@ -287,8 +291,9 @@ def rollout(by: str) -> dict:
     r = load(RUN / "rollout.json", {})
     st = load(RUN / "world" / "state.json", {})
     hid, c = r.get("candidate"), st.get("candidate") or {}
+    was, offset = float(r.get("share") or 0), float(r.get("offset") or 0)   # the stocks it steps: as they were
     if not hid or c.get("id") != hid:
-        return {"share": 0.0, "kept": 0, "dropped": 0}
+        return {"share": 0.0, "kept": 0, "dropped": 0, "share_step": 0.0, "adopted": 0.0, "offset_cleared": 0.0}
     lo, hi = c.get("bytes_saved", [0, 0])
     n, since = int(c.get("paired", 0)), int(r.get("matched_since", 0))
     bench = r.get("benchmark") or {}
@@ -334,16 +339,16 @@ def rollout(by: str) -> dict:
               "benchmark": {k: v for k, v in bench.items() if k != "examples"}}
     if verdict and verdict[0] == "kept":
         promote(hid, {**result, "verdict": "kept", "why": verdict[1]}, by)
-        return {"share": 0.0, "kept": 1, "dropped": 0}
+        return {"share": 0.0, "kept": 1, "dropped": 0, "share_step": -was, "adopted": offset, "offset_cleared": 0.0}
     if verdict:
         rollback(hid, {**result, "verdict": "dropped", "why": verdict[1]}, by)
-        return {"share": 0.0, "kept": 0, "dropped": 1}
+        return {"share": 0.0, "kept": 0, "dropped": 1, "share_step": -was, "adopted": 0.0, "offset_cleared": offset}
     share = STAGES[stage] if stage >= 0 else 0.0
     if share != r.get("share") or stage != r.get("stage"):
         r.update(share=share, stage=stage)
         save(RUN / "rollout.json", r)
         record("hypothesis.rollout", hid, {"share": share, "bytes_saved": [lo, hi], "paired": n}, by)
-    return {"share": share, "kept": 0, "dropped": 0}
+    return {"share": share, "kept": 0, "dropped": 0, "share_step": round(share - was, 4), "adopted": 0.0, "offset_cleared": 0.0}
 
 
 def promote(hid: str, result: dict, by: str) -> None:
@@ -417,16 +422,18 @@ def main() -> int:
         print(json.dumps({"out": "flow.abandoned", "moved": 1}))
     elif a.what == "tune":
         ctx = json.loads(sys.stdin.read() or "{}")
-        print(json.dumps({"out": "variable.quality-setting", "value": tune(ctx)}))
+        print(json.dumps({"out": "flow.quality-steps", "moved": tune(ctx)}))
     elif a.what == "match":
         sys.stdin.read()
-        print(json.dumps({"out": "variable.candidate-offset", "value": match()}))
+        print(json.dumps({"out": "flow.offset-steps", "moved": match()}))
     elif a.what == "rollout":
         sys.stdin.read()
         r = rollout(a.by)
-        print(json.dumps({"out": "variable.rollout-share", "value": r["share"]}))
+        print(json.dumps({"out": "flow.share-steps", "moved": r["share_step"]}))
         print(json.dumps({"out": "flow.kept", "moved": r["kept"]}))
         print(json.dumps({"out": "flow.dropped", "moved": r["dropped"]}))
+        print(json.dumps({"out": "flow.adopted", "moved": r["adopted"]}))
+        print(json.dumps({"out": "flow.offset-cleared", "moved": r["offset_cleared"]}))
     return 0
 
 

@@ -24,9 +24,10 @@ usage: ergostat [TOPIC] [NAME] [FLAGS]
 
   With no topic, ergostat shows what needs attention.
 
-the model (ergostat.yaml: stocks, flows, goals, blocks)
+the model (ergostat.yaml: stocks, flows, auxiliaries, goals, blocks)
   check          Errors (file:line), then findings: missing feedback, open loops, ...
-  explain        The model, or one part (goal.x, block.x, stock.x, flow.x), in sentences
+  explain        The model, or one part (goal.x, block.x, stock.x, flow.x, auxiliary.x), in sentences,
+                 and its feedback loops (R reinforcing, B balancing)
   block          The blocks: what each computes or runs, what it reads and commands
                  (block NAME --now runs one at once; --done N is a person's report)
   convert        Write an old ergostat.toml as ergostat.yaml
@@ -117,7 +118,7 @@ def build() -> argparse.ArgumentParser:
                                          "(from the record)")
     dv.add_argument("--url", help="discover prometheus: the Prometheus to read")
     dv.add_argument("--match", metavar="REGEX", help="discover prometheus: only metric names matching this")
-    topic("explain", cmd_explain, "The model, or one part (goal.x, block.x, stock.x, flow.x), in sentences")
+    topic("explain", cmd_explain, "The model, or one part (goal.x, stock.x, auxiliary.x, ...), in sentences, and its feedback loops")
     topic("findings", cmd_findings, "What is worth a look: missing feedback, limits ahead, saturation, decay", named=False)
     bk = topic("block", cmd_block, "The blocks (YAML model), or one; a person reports on theirs")
     bk.add_argument("--done", type=float, metavar="N", help="a person's report: what they moved")
