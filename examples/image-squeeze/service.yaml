@@ -9,14 +9,14 @@ variables:
     sensor:
       run: bin/py world/read.py quality
       every: 8s
-    driven-by: [variable.quality-setting, variable.flat-share, variable.rollout-share, flow.kept]
+    driven-by: [variable.quality-setting, variable.flat-share, variable.rollout-share, stock.improvements]
   bytes-per-mp:
     unit: KB/MP
     description: kilobytes served per megapixel, what the lab makes smaller
     sensor:
       run: bin/py world/read.py bytes-per-mp
       every: 8s
-    driven-by: [variable.quality-setting, variable.flat-share, variable.rollout-share, flow.kept]
+    driven-by: [variable.quality-setting, variable.flat-share, variable.rollout-share, stock.improvements]
   failures:
     unit: "%"
     description: images the service could not compress
