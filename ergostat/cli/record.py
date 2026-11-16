@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 
@@ -122,7 +123,8 @@ def add_event(p, args) -> int:
     if not isinstance(data, dict):
         print("--data: a JSON object ({\"title\": \"...\"})", file=sys.stderr)
         return 2
-    ev = p.events.add(t, item=args.item, source=args.by or "user", data=data)
+    run = os.environ.get("ERGOSTAT_RUN") or None         # recorded during a run: caused by it
+    ev = p.events.add(t, item=args.item, source=args.by or "user", data=data, causedby=run)
     print(json.dumps(ev, default=str) if args.json else event_line(ev))
     return 0
 

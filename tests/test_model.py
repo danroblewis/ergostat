@@ -103,7 +103,7 @@ def test_a_disturbance_may_name_the_agent_whose_doing_it_is(repo):
     (d,) = [n for n in graph.control(m, snap, parts)["nodes"] if n["id"] == "flow:logs-written"]
     assert d["agent"]["name"] == "writer"
     w = graph.wiring(m, p, snap, parts)
-    assert any(e["source"] == "agent:writer" and e["target"] == "agent:cleaner" for e in w["edges"])
+    assert any(n["label"] == "writer" and n["silent"] for n in w["nodes"])          # declared, never on the record
     repo.write("ergostat.toml", text.replace('agent = "writer"\n', 'agent = "nobody"\n', 1))
     assert any("nobody" in x for lv, x in model.check(model.load(repo.path)) if lv == "error")
 

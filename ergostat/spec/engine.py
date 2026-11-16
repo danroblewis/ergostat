@@ -68,6 +68,12 @@ class Engine:
         self.seen: dict[str, float] = {}               # series → the newest reading's time
         self.slots = {a.name: threading.Semaphore(a.at_once) for a in self.spec.agents.values()}
         self.machines = [b for b in self.spec.blocks.values() if b.machine]
+        # what caused what, kept so the record can say it (causedby): the event carrying each block's latest
+        # output (a built-in's decision, or the run that gave the command), each block's latest run, and the
+        # run whose moving a flow made a sensor read at once
+        self.cause: dict[str, str] = {}
+        self.last_run: dict[str, str] = {}
+        self.read_cause: dict[str, str] = {}
 
     # ---- signals
 
@@ -103,7 +109,9 @@ class Engine:
                 elif kind == "flow" and x.rate is not None:
                     self.signals[f"flow.{name}"] = x.rate
 
-    def goals(self, now: float) -> None:
+    def goals(self, now: float, causes: dict | None = None, crossed: dict | None = None) -> None:
+        """``causes``: the run behind the reading that started this pass, by what it read; a crossing of a
+        goal on that is recorded as caused by it. ``crossed`` collects this pass's crossings, by goal."""
         for name, g in self.spec.goals.items():
             r = self.setpoint.get(name, g.hold.value)
             self.signals[f"goal.{name}"] = r
@@ -119,14 +127,17 @@ class Engine:
             self.signals[f"goal.{name}.off"] = 1.0 if now_s == "off" else 0.0
             if now_s != before:
                 self.status[name] = now_s
-                self.p.events.add(f"loop.{now_s}", item=name, source=SOURCE,
-                                  data={"value": y, "setpoint": f"{g.hold.op} {r:g}", "error": e})
+                ev = self.p.events.add(f"loop.{now_s}", item=name, source=SOURCE, causedby=(causes or {}).get(g.of.name),
+                                       data={"value": y, "setpoint": f"{g.hold.op} {r:g}", "error": e})
+                if crossed is not None:
+                    crossed[name] = ev["id"]
 
-    def evaluate(self) -> None:
+    def evaluate(self, causes: dict | None = None) -> None:
         now = time.time()
+        crossed: dict[str, str] = {}
         with self.lock:
             self.measure()
-            self.goals(now)
+            self.goals(now, causes, crossed)
             for name, blk in self.builtins.items():
                 before = self.signals.get(f"block.{name}")
                 try:
@@ -144,22 +155,25 @@ class Engine:
                 if before != v:
                     self.p.measurements.add(f"block/{name}", v, now)
                     if bool(before) != bool(v):
-                        self.decided(self.spec.blocks[name], v, now)
+                        self.decided(self.spec.blocks[name], v, now, crossed)
             if any(t.kind == "goal" for b in self.builtins for t in self.spec.blocks[b].targets()):
-                self.goals(now)                                 # a setpoint just moved: the status follows it
+                self.goals(now, causes, crossed)                                 # a setpoint just moved: the status follows it
             todo = [b for b in self.machines if self.due(b)]
         for b in todo:
             self.start(b, "command")
 
-    def decided(self, b: Block, v: float, now: float) -> None:
-        """A built-in's output turning on or off, said as a decision of the goal it serves."""
+    def decided(self, b: Block, v: float, now: float, crossed: dict | None = None) -> None:
+        """A built-in's output turning on or off, said as a decision of the goal it serves: caused by that
+        goal's crossing, when it crossed in this same pass."""
         served = [r.name for r in b.reads() if r.kind == "goal"] or [b.name]
         cmd = [t.name for t in b.targets() if t.kind == "block"]
         verb = "act" if v else "stop"
         for g in served:
-            self.p.events.add("controller.decided", item=g if g in self.spec.goals else b.name, source=b.name,
-                              data={"decision": f"{verb}{(': ' + ', '.join(cmd)) if cmd else ''}",
-                                    "why": f"{b.type} {b.name} → {v:g}", "block": b.name, "value": v})
+            ev = self.p.events.add("controller.decided", item=g if g in self.spec.goals else b.name, source=b.name,
+                                   causedby=(crossed or {}).get(g),
+                                   data={"decision": f"{verb}{(': ' + ', '.join(cmd)) if cmd else ''}",
+                                         "why": f"{b.type} {b.name} → {v:g}", "block": b.name, "value": v})
+            self.cause[b.name] = ev["id"]
 
     # ---- machine blocks
 
@@ -237,11 +251,13 @@ class Engine:
     def _run(self, b: Block, why: str) -> None:
         slot = self.slots.get(b.agent or "")
         moved: list[str] = []
+        run = None
         try:
             if slot:
                 slot.acquire()
             try:
                 moved = self.run_block(b, why)
+                run = self.last_run.get(b.name)
             except Exception as e:
                 self.say(f"{b.name}: {type(e).__name__}: {e}")
                 moved = []
@@ -250,6 +266,8 @@ class Engine:
                 slot.release()
             with self.lock:
                 for s in self.after_acting(moved):              # read after acting: the loop sees the effect now
+                    if run:
+                        self.read_cause[s.series] = run         # (what that reading crosses, this run caused)
                     self.read_soon(s)                           # (marked under way before it may run again)
                 self.running.discard(b.name)
                 self.finished[b.name] = time.time()
@@ -310,7 +328,10 @@ class Engine:
         ctx = self.context(b, why)
         cmd, stdin = self.program(b, ctx)
         ev = self.p.events
-        begun = ev.add("agent.started", item=b.name, source=SOURCE, data={"trigger": why, "command": ctx.get("command")})
+        commander = (ctx.get("command") or {}).get("from")          # caused by the decision or run that commanded it
+        begun = ev.add("agent.started", item=b.name, source=SOURCE, causedby=self.cause.get(commander) if commander else None,
+                       data={"trigger": why, "command": ctx.get("command")})
+        self.last_run[b.name] = begun["id"]
         if "command" in ctx:
             ev.add("block.commanded", item=b.name, source=SOURCE, causedby=begun["id"], data=ctx["command"])
         started = time.time()
@@ -394,7 +415,8 @@ class Engine:
         finally:
             with self.lock:
                 self.reading.discard(s.series)
-        self.evaluate()
+                cause = self.read_cause.pop(s.series, None)
+        self.evaluate({s.of.name: cause} if cause else None)
 
     # ---- the clock
 
@@ -599,7 +621,7 @@ class Said:
             with self.e.lock:
                 self.e.outputs.setdefault(self.b.name, {})[port] = amount
                 self.e.commands.setdefault(self.b.name, {})[port] = {**detail, "amount": amount}
-            self.counts["commands"] += 1
+                self.e.cause[self.b.name] = self.run_id         # the run that gave the command            self.counts["commands"] += 1
         elif r.kind == "goal":
             with self.e.lock:
                 self.e.setpoint[r.name] = amount

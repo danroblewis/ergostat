@@ -190,7 +190,8 @@ def api(live: Live, path: str, q: dict):
         after = one("after")
         skip = () if one("runs") or one("type") else ("agent.started", "agent.ran")   # as `ergostat event`
         return p.events.query(n=int(one("n") or 100), type=one("type"), item=one("item"), source=one("source"),
-                              after_seq=int(after) if after else None, skip=skip)
+                              machine=one("machine"), after_seq=int(after) if after else None, skip=skip,
+                              **({"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}))
     if head == "items":
         from ..spec import items as its
         spec = getattr(m, "spec", None)

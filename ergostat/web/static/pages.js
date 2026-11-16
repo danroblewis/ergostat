@@ -66,12 +66,20 @@ async function pageRecord(main, q) {
   const filt = h("input", { placeholder: "type, e.g. valve.* or ticket.*", value: q.get("type") || "" });
   const runs = h("input", { type: "checkbox" });
   const box = h("div");
-  p.append(h("div", { class: "filters" }, filt, h("button", { onclick: () => tick() }, "filter"),
+  // from the wiring: one machine's events (its instances too), in the page's window
+  const machine = q.get("machine") || "", inWindow = q.get("window") === "1";
+  const scope = machine || inWindow ? h("span", { class: "muted" }, [machine ? `from ${machine}` : "", inWindow ? "in the window" : ""].filter(Boolean).join(", "),
+    " ", h("a", { href: "#/record" + (filt.value ? "?type=" + encodeURIComponent(filt.value) : "") }, "(all)")) : null;
+  p.append(h("div", { class: "filters" }, filt, h("button", { onclick: () => tick() }, "filter"), scope,
                 h("label", { class: "muted" }, runs, " show runs (agent.started, agent.ran)"), h("a", { href: "#/items" }, "the items →")), box);
   runs.addEventListener("change", () => tick());
   filt.addEventListener("keydown", (ev) => { if (ev.key === "Enter") tick(); });
   async function tick() {
-    const evs = await api("events", { n: 80, ...(runs.checked ? { runs: 1 } : {}), ...(filt.value ? { type: filt.value } : {}) });
+    let evs;
+    try {
+      evs = await api("events", { n: 80, ...(runs.checked ? { runs: 1 } : {}), ...(filt.value ? { type: filt.value } : {}),
+                                  ...(machine ? { machine } : {}), ...(inWindow ? { window: 1 } : {}) });
+    } catch (err) { box.replaceChildren(h("p", { class: "muted" }, String(err.message || err))); return; }
     box.replaceChildren(evs.length ? eventsTable(evs, false) : h("p", { class: "muted" }, "nothing recorded yet"));
   }
   await tick();
@@ -325,7 +333,7 @@ async function pageGuide(main) {
     h("p", {}, "A ", h("b", {}, "residual"), " is what a stock did that its known flows do not explain. An unmeasured disturbance is estimated from it; anything left over is worth a look: ",
       "it is either a disturbance you have not named, or the plant behaving differently than you think. ", h("a", { href: "#/residuals" }, "Your residuals"), "."));
   sec("Reading the diagram", legend("control"), h("p", {}, "Systems are outlines around parts that belong together; they may overlap. ",
-    "The wiring view shows the agents and how each one's output reaches another. The slider in the header shows any past moment."));
+    "The wiring view shows what actually happened between the machines in the window, from the event log: a line only where an event proves one reached another (caused by it, or listened for and run after), dashed where the model declares a connection the log never shows. The slider in the header shows any past moment."));
   if (!stock) p.append(h("p", { class: "muted" }, "Your model is empty: describe your system with ergostat chat, or start from ergostat check --example."));
 }
 

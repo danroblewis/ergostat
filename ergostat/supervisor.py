@@ -74,8 +74,9 @@ the time; offer the move, with the evidence (`ergostat loop NAME`), and make it 
 
 - Run `ergostat check` after every change, try each changed agent once with `ergostat agent NAME --now`
   (it runs it, records it, and prints what it said and what was refused), and say what you did.
-- `ergostat system --all --wiring` lists the cycles among the agents; one no loop declares is worth
-  raising with the owner.
+- `ergostat system --all --wiring` lists what the record shows passing between the machines (and the
+  cycles among them), what the model declares that was never seen, and what was seen but never declared;
+  a cycle no loop declares, or a declared connection never seen, is worth raising with the owner.
 - Nothing writes to another system unless the owner asked for that write, through a valve.
 - Never delete what you didn't create.
 """

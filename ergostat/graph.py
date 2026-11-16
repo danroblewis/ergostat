@@ -1,6 +1,6 @@
 """A system as a graph to draw: the control diagram (stocks, flows with their valves or
-disturbances, sensors, controllers) and the wiring diagram (agents, and how each one's output
-reaches another). Both are plain data; the web page lays them out and the terminal prints them."""
+disturbances, sensors, controllers) and the wiring diagram (the machines on the event log, and
+what the log proves passed between them). Both are plain data; the web page lays them out and the terminal prints them."""
 
 from __future__ import annotations
 
@@ -203,64 +203,232 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
     return {"kind": "control", "nodes": nodes, "edges": edges, "loops": loops}
 
 
-def wiring(model, project, snap: dict, parts: set[str]) -> dict:
-    """Agents as boxes; an arrow when one agent's output reaches another: through an event type it
-    listens for, or through a stock (one agent's valve moves it, another's sensor measures it)."""
-    m = model
-    involved = {p.agent for t in (m.sensors, m.controllers, m.valves, m.flows) for p in t.values()
-                if p.name in parts and getattr(p, "agent", None) in m.agents}
-    nodes = []
-    for n in (x for x in m.agents if x in involved):
-        a, s = m.agents[n], snap["agents"].get(n, {})
-        nodes.append(_node(f"agent:{n}", "agent", n, agentKind=a.kind, rung=a.rung, roles=s.get("roles", []),
-                           runs=s.get("runs", 0), failing=s.get("failing", False), every=a.every, on=a.on, schedule=a.schedule,
-                           loads=[f.name for f in m.flows.values() if f.disturbance and f.agent == n]))
-    edges = {}
+RUN_RECORD = ("agent.started", "agent.ran", "agent.failed", "agent.refused", "block.commanded", "block.advised",
+              "person.asked")     # what ergostat records about a block's run: the block's doing, not ergostat's
+RUNNER = "ergostat"
+MOST_EVENTS = 50000                 # the newest this many in the window are read for the wiring
 
-    def add(src, dst, via):
-        if src == dst or src not in involved or dst not in involved:
-            return
-        e = edges.setdefault((src, dst), _edge(f"agent:{src}", f"agent:{dst}", "wire", via=[]))
-        if via not in e["via"]:
-            e["via"].append(via)
-    # through stocks
-    for f in m.flows.values():
-        v = m.valve_of(f.name)
-        mover = v.agent if v else f.agent                  # a valve's agent, or the agent a disturbance is the doing of
-        if not mover:
-            continue
-        for stock in (f.source, f.target):
-            for s in m.sensors.values():
-                if s.measures == stock and s.agent:
-                    add(mover, s.agent, f"stock {stock}")
-    # sensor -> controller, controller -> valve (a decision handed on)
-    for c in m.controllers.values():
-        for s in c.reads:
-            if s in m.sensors and m.sensors[s].agent and c.agent:
-                add(m.sensors[s].agent, c.agent, f"sensor {s}")
-        for v in c.drives:
-            if v in m.valves and m.valves[v].agent and c.agent:
-                add(c.agent, m.valves[v].agent, f"valve {v}")
-    # events one agent published that another listens for (from the record)
+
+def _machine(source: str | None) -> str | None:
+    """The machine an event's ``source`` names: ``<machine>/<instance>`` is one of its instances."""
+    return source.split("/", 1)[0] if source else None
+
+
+def _actor(ev: dict) -> str | None:
+    """Whose doing an event is: a run's record is the block's (ergostat writes it for it), the rest
+    their source's."""
+    if ev["type"] in RUN_RECORD and ev.get("source") == RUNNER and ev.get("item") and "/" not in ev["item"]:
+        return ev["item"]
+    return _machine(ev.get("source"))
+
+
+def declared_wires(m) -> dict[tuple[str, str], list[str]]:
+    """The connections between machines the model declares, each with how: a block commanding
+    another (``out: block.X`` or ``in: block.X``, a goal's implied ``keep-`` block), a built-in
+    block acting on a goal (whose crossings ergostat records), a block moving a flow of a stock a goal
+    is on (ergostat reads it again at once), a sensor's agent reading a loop's stock, and an
+    agent's ``on:`` subscription to what a named part's agent (or ergostat) publishes."""
+    out: dict[tuple[str, str], list[str]] = {}
+
+    def add(a, b, how):
+        if a and b and a != b and how not in out.setdefault((a, b), []):
+            out[(a, b)].append(how)
+    spec = getattr(m, "spec", None)
+    if spec is not None:
+        goals_on: dict[str, list[str]] = {}
+        for g in spec.goals.values():
+            goals_on.setdefault(g.of.name, []).append(g.name)
+        for b in spec.blocks.values():
+            for c in spec.commanders_of(b.name):
+                add(c.name, b.name, f"{c.name} commands {b.name}")
+            if b.builtin:                                  # its decisions follow the goal's crossings
+                for r in b.reads():
+                    if r.kind == "goal":
+                        add(RUNNER, b.name, f"{b.name} acts on goal {r.name}'s crossings, which ergostat records")
+            for t in b.targets():
+                if t.kind == "flow" and t.name in spec.flows:
+                    f = spec.flows[t.name]
+                    for st in (f.source, f.target):
+                        for g in goals_on.get(st or "", []):
+                            add(b.name, RUNNER, f"{b.name} moves {t.name}, of {st}: ergostat reads it and judges goal {g}")
+    for lp in m.loops():                                   # a sensor's readings decide its loop's crossings
+        for sn in lp.sensors:
+            s = m.sensors.get(sn)
+            if s and s.agent:
+                add(s.agent, RUNNER, f"{s.agent} reads {sn}, whose readings decide loop {lp.name}")
     from .runner import matches
-    published: dict[str, set[tuple[str, str]]] = {}               # agent -> (type, item) it causes
-    for ev in project.events.query(n=2000):
-        src = ev.get("source")
-        if src in involved:
-            published.setdefault(src, set()).add((ev["type"], ev.get("item") or ""))
-        if src == "ergostat" and ev["type"].startswith("loop.") and ev.get("item") in m.controllers:
-            lp = m.loop(ev["item"])
-            for s in lp.sensors if lp else []:
-                if m.sensors[s].agent:
-                    published.setdefault(m.sensors[s].agent, set()).add((ev["type"], ev["item"]))
-    for b in involved:
-        for pat in m.agents[b].on:
-            for a, kinds in published.items():
-                for t, item in kinds:
-                    if matches(pat, {"type": t, "item": item}):
-                        add(a, b, f"event {t}" + (f"@{item}" if "@" in pat else ""))
-    es = list(edges.values())
-    return {"kind": "wiring", "nodes": nodes, "edges": es, "loops": {}, "cycles": cycles(m, es)}
+    for b, a in m.agents.items():
+        for pat in a.on:
+            t, _, item = pat.partition("@")
+            if matches(pat, {"type": "loop.off", "item": item or "x"}) or matches(pat, {"type": "loop.holding", "item": item or "x"}):
+                add(RUNNER, b, f"{b} listens for {pat}")
+            if not item or any(ch in item for ch in "*?["):
+                continue
+            pub = (item if t.startswith("agent.") and item in m.agents else
+                   getattr(m.valves.get(item), "agent", None) if t.startswith("valve.") else
+                   getattr(m.controllers.get(item), "agent", None) if t.startswith("controller.") else None)
+            add(pub, b, f"{b} listens for {pat}")
+    return out
+
+
+def wiring(model, project, snap: dict, parts: set[str]) -> dict:
+    """The machines as the event log shows them, over the window: each one that published (an
+    event's ``source``, instances grouped by machine; a block's runs are its own), and each one the
+    model declares that never showed up (silent). A line from A to B only on evidence: an event of
+    B's (or B's run) caused by A's event or run (``causedby``), or B listening (``on:``) for a type A
+    published and running after it. Each line has its event types, how many, the rate, when last
+    seen and which evidence; a connection the model declares that the log never shows is drawn as
+    declared, never seen, and one seen but not declared is said to be undeclared."""
+    m = model
+    at, window = snap["at"], snap["window"]
+    since = at - window
+    span = max(60.0, min(window, snap.get("recorded") or window))      # the rate is over what was recorded
+    whole = parts >= m.members(None)
+    involved = set(m.agents) if whole else {
+        p.agent for t in (m.sensors, m.controllers, m.valves, m.flows) for p in t.values()
+        if p.name in parts and getattr(p, "agent", None) in m.agents}
+    evs = project.events.query(n=MOST_EVENTS, since=since, until=at)
+    by_id = {e["id"]: e for e in evs}
+    looked: dict[str, dict | None] = {}
+
+    def cause_of(cid):
+        if cid in by_id:
+            return by_id[cid]
+        if cid not in looked and len(looked) < 2000:          # a cause from before the window
+            looked[cid] = project.events.get(cid)
+        return looked.get(cid)
+    seen: dict[str, dict] = {}
+
+    def machine(name):
+        return seen.setdefault(name, {"published": {}, "runs": 0, "failed": 0, "last": None, "instances": set()})
+    starts: dict[str, list[float]] = {}
+    for e in evs:
+        a = _actor(e)
+        if not a:
+            continue
+        x = machine(a)
+        x["last"] = max(x["last"] or 0, e["time"])
+        src = e.get("source") or ""
+        if "/" in src and _machine(src) == a:
+            x["instances"].add(src.split("/", 1)[1])
+        if e["type"] in RUN_RECORD and src == RUNNER:
+            if e["type"] == "agent.started":
+                x["runs"] += 1
+                starts.setdefault(a, []).append(e["time"])
+            elif e["type"] == "agent.failed":
+                x["failed"] += 1
+            continue
+        p = x["published"].setdefault(e["type"], {"count": 0, "last": 0.0})
+        p["count"] += 1
+        p["last"] = max(p["last"], e["time"])
+    wires: dict[tuple[str, str], dict] = {}
+
+    def wire(a, b, t, how, evidence, cid, when, publisher):
+        w = wires.setdefault((a, b), {})
+        x = w.setdefault((t, how), {"type": t, "how": how, "ids": set(), "by": {}, "last": 0.0, "publisher": publisher})
+        x["ids"].add(cid)
+        x["by"].setdefault(evidence, set()).add(cid)
+        x["last"] = max(x["last"], when)
+    # caused by: B's event (or B's run) whose causedby is A's event or run
+    for e in evs:
+        cid = e.get("causedby")
+        if not cid:
+            continue
+        cause = cause_of(cid)
+        if cause is None:
+            continue
+        a, b = _actor(cause), _actor(e)
+        if not a or not b or a == b:
+            continue
+        if cause["type"] in RUN_RECORD:                       # A's run caused it: what was caused is what is carried
+            t, how, pub = ("block.commanded" if e["type"] in RUN_RECORD else e["type"]), "run", (a if e["type"] in RUN_RECORD else b)
+        else:                                                 # A's event caused it: that event is what reached B
+            t, how, pub = cause["type"], "sent", a
+        wire(a, b, t, how, "caused-by", cid, e["time"], pub)
+    # listened and ran: B listens for a type A published, and B ran after it
+    import bisect
+
+    from .runner import matches
+    heard_by: dict[str, dict[str, int]] = {}
+    for b, ag in m.agents.items():
+        if not ag.on:
+            continue
+        runs = sorted(starts.get(b, []))
+        heard = heard_by.setdefault(b, {})
+        for e in evs:
+            a = _actor(e)
+            if not a or a == b or e.get("source") == b or (e.get("item") == b and e["type"].startswith("agent.")):
+                continue
+            pats = [pat for pat in ag.on if matches(pat, e)]
+            if not pats:
+                continue
+            for pat in pats:
+                heard[pat] = heard.get(pat, 0) + 1
+            if bisect.bisect_left(runs, e["time"]) < len(runs):
+                wire(a, b, e["type"], "sent", "listened-and-ran", e["id"], e["time"], a)
+    declared = declared_wires(m)
+    # which machines to draw: everything seen (or, for a selection, those in it and what joins them)
+    if whole:
+        names = set(seen) | set(m.agents)
+    else:
+        names = involved | {x for (a, b) in wires for x in (a, b) if a in involved or b in involved}
+    if any(RUNNER in k and (k[0] in names or k[1] in names) for k in declared):
+        names.add(RUNNER)                                  # what reads a goal, or moves a stock one is on, joins ergostat
+    hours = span / 3600
+
+    def kind_of(n):
+        if n in m.agents:
+            return m.agents[n].kind, m.agents[n].rung
+        if n == RUNNER:
+            return "ergostat", None
+        if n in m.sensors:
+            return "sensor", None
+        return "not in the model", None
+    nodes = []
+    for n in sorted(names, key=lambda n: (n != RUNNER, n)):
+        x = seen.get(n)
+        kind, rung = kind_of(n)
+        a = m.agents.get(n)
+        pub = sorted(((t, v["count"], v["last"]) for t, v in (x["published"] if x else {}).items()), key=lambda r: -r[1])
+        lines = [{"kind": "published", "name": f"{t} {c}×"} for t, c, _ in pub[:2]]
+        if x and x["runs"]:
+            lines.insert(0, {"kind": "ran", "name": f"{x['runs']}×" + (f", {x['failed']} failed" if x["failed"] else "")})
+        if not x:
+            lines = [{"kind": "silent:", "name": "nothing on the record in this window"}]
+        nodes.append(_node(f"agent:{n}", "agent", n, machine=True, agentKind=kind, rung=rung if rung is not None else "–",
+                           declared=n in m.agents or n == RUNNER or n in m.sensors, seen=x is not None, silent=x is None,
+                           runs=x["runs"] if x else 0, failing=bool(x and x["failed"]), last=x["last"] if x else None,
+                           instances=sorted(x["instances"]) if x else [],
+                           published=[{"type": t, "count": c, "perHour": round(c / hours, 2), "last": lt} for t, c, lt in pub],
+                           listens=list(a.on) if a else [], heard=heard_by.get(n, {}),
+                           schedule=a.schedule if a else "", every=a.every if a else None, on=list(a.on) if a else [],
+                           description=a.description if a else "", roles=lines[:3], loads=[]))
+    edges = []
+    for (a, b) in sorted(set(wires) | {k for k in declared if k[0] in names and k[1] in names}):
+        if a not in names or b not in names:
+            continue
+        w = wires.get((a, b))
+        decl = declared.get((a, b), [])
+        if w:
+            types = sorted(({"type": v["type"], "how": v["how"], "count": len(v["ids"]),
+                             "perHour": round(len(v["ids"]) / hours, 2), "last": v["last"], "publisher": v["publisher"],
+                             "evidence": sorted(v["by"]), **{k: len(ids) for k, ids in v["by"].items()}}
+                            for v in w.values()), key=lambda r: -r["count"])
+            count = sum(t["count"] for t in types)
+            top = ", ".join(t["type"] for t in types[:2]) + (f" +{len(types) - 2}" if len(types) > 2 else "")
+            via = [f"{top} · {count}" + ("" if decl else " · undeclared")]
+            edges.append({**_edge(f"agent:{a}", f"agent:{b}", "wire"), "via": via, "types": types, "count": count,
+                          "perHour": round(count / hours, 2), "last": max(t["last"] for t in types),
+                          "evidence": sorted({ev for t in types for ev in t["evidence"]}), "seen": True,
+                          "declared": bool(decl), "undeclared": not decl, "declaredAs": decl})
+        else:
+            e = _edge(f"agent:{a}", f"agent:{b}", "wire")
+            e["id"] = "wire-unseen:" + e["id"].split(":", 1)[1]           # (drawn dashed: style.css)
+            edges.append({**e, "via": ["declared, never seen"], "types": [], "count": 0, "perHour": 0, "last": None,
+                          "evidence": [], "seen": False, "declared": True, "undeclared": False, "declaredAs": decl})
+    seen_edges = [e for e in edges if e["seen"]]
+    return {"kind": "events", "nodes": nodes, "edges": edges, "loops": {}, "cycles": cycles(m, seen_edges),
+            "since": since, "until": at, "span": span, "events": len(evs), "capped": len(evs) >= MOST_EVENTS}
 
 
 def cycles(model, edges: list[dict], longest: int = 6) -> list[dict]:
@@ -285,7 +453,7 @@ def cycles(model, edges: list[dict], longest: int = 6) -> list[dict]:
         walk(a, a, [a], [])
     out = []
     for path, vias in found:
-        agents = set(path)
+        agents = set(path) - {RUNNER}                  # ergostat records the crossings: it fills no role
         loop = None
         for lp in model.loops():
             fillers = {p.agent for p in (lp.controller, *(model.sensors[s] for s in lp.sensors),
