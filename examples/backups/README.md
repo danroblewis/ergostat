@@ -10,8 +10,11 @@ Two loops on a simulated database (one simulated hour passes every two seconds):
   copies one per run.
 
 The backup job is one loop's valve and the other loop's disturbance: each backup it takes makes
-the off-site goal harder. Both loops are `goal:` on the block that acts; the sensors
-(`age_check.py`, `offsite_lag.py`) only print their reading.
+the off-site goal harder. Both loops are `goal:` on the block that acts; `age_check.py` only
+prints its reading.
+
+Items: each backup is one (`backup/7`), `taken` by `backup.py` and `offsite` once `offsite.py`
+sends it; `copies-not-offsite` counts the backups still `taken` (Items page, `ergostat item`).
 
 ```bash
 cd examples/backups
