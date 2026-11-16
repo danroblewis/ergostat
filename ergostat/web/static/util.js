@@ -105,12 +105,13 @@ function menu(label, items, { cls = "", title = null, right = false, up = false 
   const btn = h("button", { class: `menu-btn ${cls}`, type: "button", title, "aria-haspopup": "menu", "aria-expanded": "false" }, label);
   const box = h("span", { class: "menu" + (right ? " right" : "") + (up ? " up" : "") }, btn, pop);
   const close = () => { pop.hidden = true; btn.setAttribute("aria-expanded", "false"); };
-  const fill = () => pop.replaceChildren(...(typeof items === "function" ? items() : items).filter(Boolean).map((it) => it.nodeType ? it
+  const fill = () => { const list = (typeof items === "function" ? items() : items).filter(Boolean), ticks = list.some((it) => it.checked != null);
+    pop.replaceChildren(...list.map((it) => it.nodeType ? it
     : it.sep ? h("div", { class: "menu-sep" })
     : h("button", { class: "menu-item", type: "button", role: it.checked != null ? "menuitemcheckbox" : "menuitem", disabled: it.disabled ? "" : null,
                     "aria-checked": it.checked != null ? String(!!it.checked) : null,
                     onclick: (ev) => { ev.stopPropagation(); close(); it.onclick?.(); } },
-        it.checked != null ? h("span", { class: "tick" }, it.checked ? "\u2713" : "") : null, it.label, it.hint ? h("span", { class: "hint" }, it.hint) : null)));
+        ticks ? h("span", { class: "tick" }, it.checked ? "\u2713" : "") : null, it.label, it.hint ? h("span", { class: "hint" }, it.hint) : null))); };
   btn.addEventListener("click", (ev) => {
     ev.stopPropagation();
     const open = pop.hidden;

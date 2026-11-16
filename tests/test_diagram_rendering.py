@@ -709,12 +709,12 @@ WIRE_PANELS = """() => {
   const bad = [];
   for (const e of S.graph.edges) {
     openEdge(e);
-    const kind = document.querySelector('#detail .kind')?.textContent || '';
+    const kind = (document.querySelector('#detail .kind')?.textContent || '').toLowerCase();   // (in sentence case)
     if (!kind.startsWith('wire')) bad.push(`${e.id}: ${kind}`);
   }
   for (const n of S.graph.nodes) {
     openNode(n);
-    const kind = document.querySelector('#detail .kind')?.textContent || '';
+    const kind = (document.querySelector('#detail .kind')?.textContent || '').toLowerCase();   // (in sentence case)
     if (!kind.startsWith('machine')) bad.push(`${n.id}: ${kind}`);
   }
   const dashed = [...document.querySelectorAll('g.edge.wire')].filter((g) => g.dataset.id.startsWith('wire-unseen:')).length;
@@ -929,7 +929,7 @@ def test_the_dynamics_view_draws_only_system_dynamics_symbols_each_loop_marked_e
             drawn(pg, url, v, i)
             bad = pg.evaluate(SD_CHECK)
             assert not bad, (v, bad[:10])
-        assert pg.locator(".toolbar .seg button.on").inner_text() == "dynamics"
+        assert pg.locator(".toolbar .seg button.on").inner_text().lower() == "dynamics"
         assert not errors, errors
         pg.close()
 
@@ -985,7 +985,7 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
         assert r["sizes"] == ["11px"], r["sizes"]                               # every marker at full size, never 8.5px
         assert r["hullStroke"] in ("none", None) or "0)" in r["hullStroke"], r["hullStroke"]   # a sector: a tint, no outline
         assert r["hullFill"] not in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]
-        assert not re.search(SD_WORDS, r["side"].split("HOW TO READ")[0], re.I), r["side"][:600]
+        assert not re.search(SD_WORDS, r["side"].split("How to read it")[0], re.I), r["side"][:600]
         # every panel: a loop's, a desired level's, a gap's, a connector's
         for sel in [".loop-marker", '.node[data-id^="desired:"]', '.node[data-id^="gap:"]']:
             pg.locator(f"svg.canvas {sel}").first.dispatch_event("click") if sel == ".loop-marker" else None

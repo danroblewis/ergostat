@@ -313,7 +313,8 @@ svg.design .edge path.head { fill: var(--ink); }
 .badge .rung-letter, .rung-letter { fill: var(--bg); font-weight: 600; }
 .sys-btn { cursor: pointer; }
 .sys-btn rect { fill: transparent; stroke: none; }
-.sys-btn text { font-size: var(--canvas-sm); fill: var(--accent); }
+.sys-btn text { font-size: var(--canvas-sm); fill: var(--ink-2); }
+.sys-btn:hover text { text-decoration: underline; }
 .sys-btn:hover rect { fill: var(--fill); }
 .sys-hull-label { cursor: pointer; }
 .sys-hull-label:hover { text-decoration: underline; }

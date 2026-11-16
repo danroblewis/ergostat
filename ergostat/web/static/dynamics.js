@@ -94,10 +94,10 @@ function sdSystem(n, w, hgt) {
   const inside = sdInside(S.graph, n.id).length;
   g.append(s("text", { x: 16, y: 42, class: "t-sub" }, inside ? `${inside} feedback loop${inside > 1 ? "s" : ""} inside` : "a module: open it to see its structure"));
   const btn = (x, label, title, fn) => s("g", { class: "sys-btn", transform: `translate(${x},10)`, onclick: (ev) => { ev.stopPropagation(); fn(); } },
-    s("title", {}, title), s("rect", { width: textWidth(label) + 14, height: 20, rx: 5 }), s("text", { x: 7, y: 14 }, label));
-  const into = "⤓ into", open = "▸ open";
-  g.append(btn(w - textWidth(into) - 24, into, "draw this system alone, with what it reaches outside at its edge", () => S.drill?.(n.label)));
-  g.append(btn(w - textWidth(into) - textWidth(open) - 46, open, "open it here: its parts in place of the box", () => S.toggleSystem?.(n.label)));
+    s("title", {}, title), s("rect", { width: textWidth(label) + 14, height: 20, rx: 4 }), s("text", { x: 7, y: 14 }, label));
+  const into = "Into", open = "Open";
+  g.append(btn(w - textWidth(into) - 24, into, "Draw this system alone, with what it reaches outside at its edge", () => S.drill?.(n.label)));
+  g.append(btn(w - textWidth(into) - textWidth(open) - 46, open, "Open it here: its parts in place of the box", () => S.toggleSystem?.(n.label)));
   const at = { west: 0, east: 0 };
   for (const p of n.ports || []) {
     const side = p.at || (p.side === "in" ? "west" : "east");
@@ -409,25 +409,25 @@ function sdLoopList(side, g) {
   const unknown = sort(sdLoopGroups(g, null, true).flatMap((x) => x.loops).filter((c) => !c.polarity));
   const modules = g.nodes.filter((n) => n.kind === "system").map((n) => [n, sdInside(g, n.id)]).filter(([, xs]) => xs.length);
   const every = new Set([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => c.name));   // (one loop may run through two modules)
-  side.append(h("h3", {}, `feedback loops (${every.size})`));
+  side.append(h("h3", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
   const row = (c) => h("div", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => { sdHighlight(c.name); openCausal(c.name); } },
-    h("div", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label), " ", h("span", {}, c.name)),
-    h("div", { class: "sub" }, `${{ R: "reinforcing", B: "balancing" }[c.polarity] || "polarity not known"} · ${new Set(c.nodes).size} parts drawn`));
-  if (!known.length && !unknown.length && !modules.length) side.append(h("div", { class: "muted" }, "no feedback loops drawn here"));
+    h("div", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label), h("span", {}, c.name)),
+    h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[c.polarity] || "Polarity not known"}, ${new Set(c.nodes).size} parts`));
+  if (!known.length && !unknown.length && !modules.length) side.append(h("div", { class: "muted" }, "No feedback loops drawn here."));
   const counts = ["R", "B"].map((p) => [p, known.filter((c) => c.polarity === p).length]).filter(([, n]) => n);
-  if (counts.length) side.append(h("div", { class: "muted small" }, counts.map(([p, n]) => `${n} ${{ R: "reinforcing", B: "balancing" }[p]}`).join(", ")));
+  if (counts.length) side.append(h("div", { class: "note" }, counts.map(([p, n], i) => `${n} ${{ R: i ? "reinforcing" : "Reinforcing", B: i ? "balancing" : "Balancing" }[p]}`).join(", ")));
   for (const c of known) side.append(row(c));
   if (unknown.length) {                                 // not on the canvas: a sign along each is not known
     const d = h("details", { class: "sd-unknown" }, h("summary", {}, `+${unknown.length} of unknown polarity`),
-      h("div", { class: "muted small" }, "a link along each has no sign in the model (ergostat check names them), so they are not marked on the diagram"));
+      h("div", { class: "note" }, "A link along each has no sign, so they are not marked on the diagram. ergostat check names them."));
     for (const c of unknown) d.append(row(c));
     side.append(d);
   }
   for (const [n, xs] of modules)                        // as many as the module's own caption says
     side.append(h("div", { class: "looprow sd-inside", onclick: () => S.toggleSystem?.(n.label) },
       h("div", {}, h("b", {}, n.label), `: ${xs.length} feedback loop${xs.length > 1 ? "s" : ""} inside`),
-      h("div", { class: "sub" }, "open it to see them")));
+      h("div", { class: "sub" }, "Open it to see them")));
 }
 
 const SD_LEGEND = {
@@ -469,7 +469,7 @@ function sdLegend() {
     g.edges.some((e) => e.kind === "connector" && !e.polarity) && row("plain", "connector, no sign: the polarity is not known"),
     pols.has("R") && row("loopR", "reinforcing loop: a change comes back amplified"),
     pols.has("B") && row("loopB", "balancing loop: a change comes back opposed (it seeks a desired level)"),
-    has((n) => n.kind === "system") && row("module", "module: a system closed; its connection points are what crosses its edge (▸ opens it, ⤓ draws it alone)"),
+    has((n) => n.kind === "system") && row("module", "module: a system closed; its connection points are what crosses its edge (Open draws its parts in place; Into draws it alone)"),
     (g.open || []).length > 0 && g.nodes.some((n) => (n.systems || []).length) && row("sector", "sector: a system open, its parts on a tinted ground, its name at the top left (drag it by its name)"),
     has((n) => n.kind === "terminal" && n.role !== "stub") && row("shadow", "shadow variable: a part drawn elsewhere, an input here (click to go there)"),
     has((n) => n.role === "stub") && row("stub", "a connector out of this system: it ends at the name of what it drives"),
@@ -501,7 +501,10 @@ const SD_WHAT = {
   shadow: ["Shadow variable", "a part drawn elsewhere (in another system, or outside this one), shown here where it is an input. Nothing here points into it."],
   stub: ["Connector out", "what this part drives outside the system drawn here: the connector ends at its name."],
 };
-function sdWhat(kind) { const w = SD_WHAT[kind]; return w ? h("p", { class: "what" }, h("b", {}, w[0]), ": ", w[1]) : null; }
+function sdWhat(kind) {
+  const w = SD_WHAT[kind];
+  return w ? h("details", { class: "what" }, h("summary", {}, `What is ${/^[AEIOU]/.test(w[0]) ? "an" : "a"} ${w[0].toLowerCase()}?`), h("p", {}, w[1][0].toUpperCase() + w[1].slice(1))) : null;
+}
 function sdNodeKind(n) {
   if (n.kind === "valve" || n.kind === "disturbance") return "flow";
   if (n.kind === "auxiliary") return n.role === "gap" && n.excess ? "excess" : n.role || (n.exogenous ? "exogenous" : "auxiliary");
@@ -532,9 +535,9 @@ function loopsOf(pred) {
     `${c.label} ${c.name}`));
 }
 function loopsPara(list) {
-  if (!list.length) return h("p", { class: "muted" }, "in no feedback loop drawn here");
+  if (!list.length) return h("p", { class: "muted" }, "In no feedback loop drawn here.");
   const shown = list.slice(0, 12);
-  return h("p", {}, `in ${list.length} feedback loop${list.length > 1 ? "s" : ""}: `, shown.flatMap((x, i) => [i ? ", " : "", x]), list.length > 12 ? ` and ${list.length - 12} more` : "");
+  return h("p", {}, `In ${list.length} feedback loop${list.length > 1 ? "s" : ""}: `, shown.flatMap((x, i) => [i ? ", " : "", x]), list.length > 12 ? ` and ${list.length - 12} more` : "");
 }
 
 async function openNodeSD(n) {
@@ -574,11 +577,12 @@ async function openNodeSD(n) {
   rows.push(["depends on", join(causes)], ["drives", join(effects)]);
   const id = n.id;
   if (n.kind === "terminal") rows.unshift(["drawn in", n.in || "the model"]);
-  showDetail(h("div", { class: "kind" }, (SD_WHAT[kind] || [kind])[0].toLowerCase() + " · system dynamics"), h("h2", {}, n.label), sdWhat(kind),
-    h("h3", {}, "how it is now"), dl(rows), chart,
+  showDetail(h("div", { class: "kind" }, (SD_WHAT[kind] || [kind])[0]), h("h2", {}, n.label),
+    dl(rows), chart,
     loopsPara(loopsOf((c) => c.nodes.includes(id))),
     n.kind === "stock" || n.kind === "valve" || n.kind === "disturbance" || (n.kind === "auxiliary" && !n.role)
-      ? h("p", {}, h("a", { href: `#/diagram?view=dynamics&around=${n.kind === "stock" || n.kind === "auxiliary" ? "stock" : "flow"}/${encodeURIComponent(n.flow || n.label)}` }, "draw what is around it")) : null);
+      ? h("p", {}, h("a", { href: `#/diagram?view=dynamics&around=${n.kind === "stock" || n.kind === "auxiliary" ? "stock" : "flow"}/${encodeURIComponent(n.flow || n.label)}` }, "Draw what is around it")) : null,
+    sdWhat(kind));
   void byId;
 }
 
@@ -587,14 +591,15 @@ function sdOpenSystem(n) {
   const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, sdKindWord(p.kind)),
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
   const inside = (S.graph?.causalLoops || []).filter((c) => c.nodes.includes(n.id) && sdVisible(c, S.graph).length < 2);
-  showDetail(h("div", { class: "kind" }, "module · system dynamics"), h("h2", {}, n.label), sdWhat("system"),
+  showDetail(h("div", { class: "kind" }, "Module"), h("h2", {}, n.label),
     n.description ? h("p", { class: "muted" }, n.description) : null,
-    h("h3", {}, "in: what reaches it from outside"), list(side("in"), "nothing outside reaches in (here)"),
-    h("h3", {}, "out: what it reaches outside"), list(side("out"), "nothing outside depends on it (here)"),
+    h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),
+    h("h3", {}, "Out, to outside"), list(side("out"), "Nothing outside depends on it here."),
     inside.length ? h("p", {}, `${inside.length} feedback loop${inside.length > 1 ? "s" : ""} inside it or through it, not drawn here: open it to see them`) : null,
     loopsPara(loopsOf((c) => c.nodes.includes(n.id) && !inside.includes(c))),
-    h("p", {}, h("button", { onclick: () => S.toggleSystem?.(n.label) }, "▸ open it here"), " ",
-               h("button", { onclick: () => S.drill?.(n.label) }, "⤓ draw it alone")));
+    h("div", { class: "actions" }, h("button", { onclick: () => S.toggleSystem?.(n.label) }, "Open it here"),
+               h("button", { onclick: () => S.drill?.(n.label) }, "Draw it alone")),
+    sdWhat("system"));
 }
 
 async function openEdgeSD(e) {
@@ -609,23 +614,21 @@ async function openEdgeSD(e) {
     try { d = await api(`part/flow/${encodeURIComponent(e.flow)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
     const valve = Object.values(byId).find((n) => (n.kind === "valve" || n.kind === "disturbance") && (n.flow === e.flow));
-    showDetail(h("div", { class: "kind" }, "flow · system dynamics"),
-      h("h2", {}, e.flow, h("span", { class: "muted" }, ` (${m.source || "outside"} → ${m.target || "outside"})`)), sdWhat("pipe"),
-      h("h3", {}, "how it is now"),
+    showDetail(h("div", { class: "kind" }, "Flow"),
+      h("h2", {}, e.flow, h("span", { class: "muted" }, ` ${m.source || "outside"} \u2192 ${m.target || "outside"}`)),   // (the pipe, not its valve: they share a name)
       dl([["flow", valve ? link(valve.id) : e.flow], ["from", m.source || "a source outside the model"], ["to", m.target || "a sink outside the model"],
           ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : valve?.rateText], ["runs", (m.two_way ?? e.twoWay) ? "either way (a biflow)" : "one way"]]),
-      crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops);
+      crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops, sdWhat("pipe"));
   } else {
     const sign = sdSign(e.polarity);
     const what = sign === "+" ? `When ${nameOf(src)} rises, ${nameOf(dst)} rises above what it would otherwise have been (and falls below it when ${nameOf(src)} falls).`
       : sign === MINUS ? `When ${nameOf(src)} rises, ${nameOf(dst)} falls below what it would otherwise have been (and rises above it when ${nameOf(src)} falls).`
       : `${nameOf(dst)} depends on ${nameOf(src)}, but which way is not known: the model does not sign it (ergostat check names it).`;
-    showDetail(h("div", { class: "kind" }, "connector · system dynamics"), h("h2", {}, nameOf(src), " → ", nameOf(dst)), sdWhat("connector"),
+    showDetail(h("div", { class: "kind" }, "Connector"), h("h2", {}, nameOf(src), " \u2192 ", nameOf(dst)),
       h("p", { class: "muted" }, what),
-      h("h3", {}, "how it is now"),
       dl([["cause", link(src)], ["effect", link(dst)], ["polarity", sign ? `${sign} (${sign === "+" ? "same way" : "opposite way"})` : "not known"],
           ["through the decision of", (e.rules || []).length ? e.rules.join(" → ") : null]]),
-      crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops);
+      crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops, sdWhat("connector"));
   }
   S.selKey = linkKey(e);
   trace(S.selKey);
@@ -655,11 +658,11 @@ function openCausal(name) {
   const ns = c.nodes, rows = ns.map((a, i) => [a, ns[(i + 1) % ns.length]]).filter(([a, b]) => a !== b);
   const signs = rows.map(([a, b]) => sign(a, b));
   const minus = signs.filter((x) => x === MINUS).length, unknown = signs.filter((x) => x === "?").length;
-  showDetail(h("div", { class: "kind" }, `feedback loop · ${word}`),
-    h("h2", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label)), h("div", { class: "subtitle" }, c.name), sdWhat("loop"),
+  showDetail(h("div", { class: "kind" }, `Feedback loop, ${word}`),
+    h("h2", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label)), h("div", { class: "subtitle" }, c.name),
     h("p", {}, c.polarity ? `${minus} negative link${minus === 1 ? "" : "s"} around it as drawn: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
                           : `${unknown || "a"} link${unknown === 1 ? "" : "s"} along it ${unknown === 1 ? "has" : "have"} no known sign, so whether it reinforces or balances is not known.`),
-    h("h3", {}, "around the loop"),
+    h("h3", {}, "Around the loop"),
     h("table", { class: "parts" }, rows.map(([a, b], i) => h("tr", {}, h("td", {}, part(a)), h("td", { class: "muted" }, "→"), h("td", {}, part(b)),
       h("td", { class: "num" }, signs[i])))),
     (() => {                                            // the loops drawn alike here share its marker
@@ -667,7 +670,7 @@ function openCausal(name) {
       const others = grp ? grp.loops.filter((x) => x !== c) : [];
       return others.length ? h("p", { class: "muted" }, "Drawn alike here (they differ only inside a closed system or outside this one): ",
         others.flatMap((x, i) => [i ? ", " : "", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); sdHighlight(x.name); openCausal(x.name); } }, `${x.label} ${x.name}`)])) : null;
-    })());
+    })(), sdWhat("loop"));
 }
 
 /* the legend under a saved picture: the system dynamics symbols in rows, colours resolved (a var()

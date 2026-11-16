@@ -594,7 +594,7 @@ function bdNode(n, c) {
         g.append(s("text", { x: w / 2, y: hgt / 2 + 6, class: "bd-expr", "text-anchor": "middle" }, frac[0]),
                  s("path", { d: `M${w / 2 - fw / 2},${hgt / 2 + 10} H${w / 2 + fw / 2}`, class: "bd-line" }),
                  s("text", { x: w / 2, y: hgt / 2 + 23, class: "bd-expr", "text-anchor": "middle" }, frac[1]));
-      } else if (fn.expr) g.append(s("text", { x: w / 2, y: hgt / 2 + 14, class: "bd-note", "text-anchor": "middle" }, fn.expr));
+      } else if (fn.expr) g.append(richSvg(s("text", { x: w / 2, y: hgt / 2 + 14, class: "bd-note", "text-anchor": "middle" }), fn.expr));   // K_p: K with a subscript p
       if (n.role === "subsystem") {                      // a system closed into one block: opened here with its +
         const b = s("g", { class: "bd-toggle", "data-act": "open", transform: `translate(${w - 15},3)` },
                     s("title", {}, `open ${n.label} here`), s("rect", { width: 12, height: 12 }), s("path", { d: "M3,6 H9 M6,3 V9" }));
@@ -857,16 +857,16 @@ function openBlock(n) {
                                   ...(fn.arg ? [["mo", "("], ["mi", fn.arg], ["mo", ")"]] : [])], false) : (fn.name || n.label);
   const defs = (n.math || []).map((m) => h("div", { class: "bd-math" }, mathml(m)));
   const rows = (n.rows || []).filter(([, v]) => v != null && v !== "");
-  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, title), n.says ? h("p", { class: "what" }, n.says) : null];
-  if (defs.length) kids.push(h("h3", {}, fn.linear === false || fn.name ? "what it computes" : "its function"), ...defs);
-  if (rows.length) kids.push(h("h3", {}, "in the model"), dl(rows));
+  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, title), n.says ? h("p", { class: "what" }, rich(op(n.says))) : null];
+  if (defs.length) kids.push(h("h3", {}, fn.linear === false || fn.name ? "What it computes" : "Its function"), ...defs);
+  if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, typeof v === "string" ? rich(op(v)) : v])));
   const loops = n.loops || [];
-  if (loops.length) kids.push(h("h3", {}, `in the loop${loops.length > 1 ? "s" : ""} of`),
+  if (loops.length) kids.push(h("h3", {}, `In the loop${loops.length > 1 ? "s" : ""} of`),
     h("p", {}, ...loops.flatMap((l, i) => [i ? ", " : "", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(l); } }, l)])));
   const sysName = n.role === "subsystem" ? n.label : n.kind === "frame" && n.frame === "system" ? n.label : null;
-  if (sysName) kids.push(h("p", {}, h("button", { onclick: () => S.toggleSystem?.(sysName) }, n.role === "subsystem" ? "▸ open it here" : "▾ close it into one block"),
-    " ", h("button", { onclick: () => S.drill?.(sysName) }, "⤓ draw it alone")));
-  if (n.kind === "port" && n.in != null) kids.push(h("p", {}, h("button", { onclick: () => S.drill?.(n.in || "") }, `go to ${n.in || "the top level"}`)));
+  if (sysName) kids.push(h("div", { class: "actions" }, h("button", { onclick: () => S.toggleSystem?.(sysName) }, n.role === "subsystem" ? "Open it here" : "Close it into one block"),
+    h("button", { onclick: () => S.drill?.(sysName) }, "Draw it alone")));
+  if (n.kind === "port" && n.in != null) kids.push(h("div", { class: "actions" }, h("button", { onclick: () => S.drill?.(n.in || "") }, `Go to ${n.in || "the top level"}`)));
   showDetail(...kids);
 }
 
@@ -875,10 +875,10 @@ function openSignal(e) {
   const byId = Object.fromEntries((S.graph?.nodes || []).map((n) => [n.id, n]));
   const name = (id) => { const n = byId[id]; return n ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openBlock(n); } }, bdFnText(n)) : id; };
   const title = mathml(sg.sub ? ["msub", sg.n > 1 ? ["mi", { mathvariant: "bold" }, sg.sym] : ["mi", sg.sym], ["mtext", sg.sub]] : ["mi", sg.sym || "?"], false);
-  showDetail(h("div", { class: "kind" }, "signal"), h("h2", {}, title), h("p", { class: "what" }, bdSignalWords(e)),
+  showDetail(h("div", { class: "kind" }, "Signal"), h("h2", {}, title), h("p", { class: "what" }, rich(bdSignalWords(e))),
     dl([["from", name(e.source)], ["to", name(e.target)], ["sign", e.sign || null],
         ["carries", e.keys ? e.keys.map((k) => k.split(".").slice(1).join(".")).join(", ") : (e.key || "").split(".").slice(1).join(".")],
-        ["measured", e.note || null]]));
+        ["measured", e.note ? rich(e.note) : null]]));
 }
 
 /* ---- the page: laid out again only when what is drawn changes */
@@ -920,5 +920,5 @@ function blocksLegend() {
     row(`<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
     row(`<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux)"),
     row(`<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
-    h("span", { class: "sym" }, "r e u y d"), h("span", {}, "reference (its value), error (r − y_m), control signal, output (y_m,x measured through H), disturbance; subscripts name the loop or the part; k a sample"));
+    h("span", { class: "sym" }, "r e u y d"), h("span", {}, "reference (its value), error (r − y", h("sub", {}, "m"), "), control signal, output (y", h("sub", {}, "m"), " measured through H), disturbance; subscripts name the loop or the part; k a sample"));
 }
