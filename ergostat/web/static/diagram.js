@@ -43,7 +43,6 @@ function portSides(g) {
       for (const p of n.ports) p.at = S.portAt?.[p.id] || (p.side === "in" ? "west" : "east");
       n.ports.sort((a, b) => (a.at > b.at) - (a.at < b.at) || (S.portRank?.[a.id] ?? 1e9) - (S.portRank?.[b.id] ?? 1e9) || (a.label > b.label) - (a.label < b.label));
     }
-    if (n.kind === "valve" || n.kind === "disturbance") n.flip = false;      // laid out stem up; flipValves turns it after
   }
 }
 function wanted(lay, g) {
@@ -53,7 +52,7 @@ function wanted(lay, g) {
   for (const c of lay.children) for (const p of c.ports || []) portAt[p.id] = { x: c.x + p.x + (p.width || 0) / 2, y: c.y + p.y + (p.height || 0) / 2 };
   const other = (e, mine) => (e.sourcePort === mine ? (e.targetPort && portAt[e.targetPort]) || at(e.target)
                                                     : (e.sourcePort && portAt[e.sourcePort]) || at(e.source));
-  const sides = {}, ranks = {}, flips = {};
+  const sides = {}, ranks = {};
   for (const n of g.nodes) {
     if (n.kind === "system" && box[n.id]) {
       const b = box[n.id], mid = b.x + b.width / 2;
@@ -65,13 +64,8 @@ function wanted(lay, g) {
         ranks[p.id] = Math.round(cy);
       }
     }
-    if ((n.kind === "valve" || n.kind === "disturbance") && box[n.id]) {
-      const me = at(n.id);
-      const peers = g.edges.filter((e) => e.kind !== "pipe" && (e.target === n.id || e.source === n.id)).map((e) => at(e.target === n.id ? e.source : e.target)).filter(Boolean);
-      if (peers.length) flips[n.id] = peers.filter((q) => q.y > me.y + 10).length > peers.length / 2;
-    }
   }
-  return { sides, ranks, flips };
+  return { sides, ranks };
 }
 
 async function layoutGraph(g, aspect, cut = false, again = 0) {
@@ -104,15 +98,15 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     if (lines.length) {
       const lw = Math.max(...lines.map((l) => l === "§badge" ? textWidth(badgeText(n.agent)) + 18 : textWidth(l))) + 8;
       node.labels = [{ id: n.id + ":label", text: lines.join("\n"), width: lw, height: lines.length * 16 + 4 }];
-      node.layoutOptions["elk.nodeLabels.placement"] = n.flip ? "OUTSIDE V_TOP H_CENTER" : "OUTSIDE V_BOTTOM H_CENTER";   // a flipped valve's stem is below
+      node.layoutOptions["elk.nodeLabels.placement"] = "OUTSIDE V_BOTTOM H_CENTER";   // (a valve turned after has them moved: valves.js)
     }
     if (n.kind === "valve" || n.kind === "disturbance") {
       node.layoutOptions["elk.portConstraints"] = "FIXED_SIDE";
       node.ports = [
         { id: n.id + ":in", width: 1, height: 1, layoutOptions: { "elk.port.side": "WEST" } },
         { id: n.id + ":out", width: 1, height: 1, layoutOptions: { "elk.port.side": "EAST" } },
-        { id: n.id + ":ctl", width: 1, height: 1, layoutOptions: { "elk.port.side": n.flip ? "SOUTH" : "NORTH" } },
-        { id: n.id + ":sense", width: 1, height: 1, layoutOptions: { "elk.port.side": n.flip ? "SOUTH" : "NORTH" } },   // its sensor reads here, apart from the command
+        { id: n.id + ":ctl", width: 1, height: 1, layoutOptions: { "elk.port.side": "NORTH" } },     // laid out stem up, then turned
+        { id: n.id + ":sense", width: 1, height: 1, layoutOptions: { "elk.port.side": "NORTH" } },   // its sensor reads here, apart from the command
       ];
     }
     return node;
@@ -175,8 +169,8 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
       "elk.padding": "[top=40,left=40,bottom=40,right=40]",
     },
   };
-  const lay = await elk.layout(graph);
-  if (open.size) flatten(lay);
+  const lay = await runLayout(graph, g);
+  if (open.size || lay.children.some((c) => c.children?.length)) flatten(lay);   // (or blocks laid out together: layouts.js)
   if (again < 2) {                      // ports facing away from what they join, valves facing away: turn them, lay out again
     const w = wanted(lay, g);
     const ports = g.nodes.flatMap((n) => n.ports || []);
@@ -192,7 +186,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     routeCuts(lay, cuts);
   }
   applyPins(lay, g);
-  flipValves(lay, g);                                    // valves whose links come from below turn their stem down
+  orientValves(lay, g);                                  // valves face their pipes and their links (valves.js)
   if (g.kind !== "wiring") avoidStart(lay, g);           // every line, by libavoid (avoid.js): ELK's until it is done
   return lay;
 }
@@ -209,36 +203,6 @@ function savePins() {
   try { if (Object.keys(S.pins || {}).length) localStorage.setItem(pinKey(), JSON.stringify(S.pins)); else localStorage.removeItem(pinKey()); }
   catch (e) { /* not remembered: they last this visit */ }
 }
-/* a valve's information lines (its command coming in, what leaves it) attach at its stem: on top,
-   unless most of what they join lies below it, when the valve turns over and its stem points down.
-   Decided on the finished layout: its labels move above it, and its lines are routed to the bottom */
-function flipValves(lay, g) {
-  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
-  const turned = [];
-  for (const n of g.nodes) {
-    if (n.kind !== "valve" && n.kind !== "disturbance") continue;
-    const c = box[n.id];
-    if (!c) continue;
-    const peers = g.edges.filter((e) => e.kind !== "pipe" && (e.target === n.id || e.source === n.id)).map((e) => box[e.target === n.id ? e.source : e.target]).filter(Boolean);
-    const down = peers.length > 0 && peers.filter((o) => o.y + o.height / 2 > c.y + c.height / 2 + 10).length > peers.length / 2;
-    n.flip = down;
-    (S.valveFlip ||= {})[n.id] = down;
-    if (!down) continue;
-    turned.push(n.id);
-    for (const l of c.labels || []) l.y = -l.height - 4;           // its name and rate above it, the stem below
-    for (const p of c.ports || []) if (/:(ctl|sense)$/.test(p.id)) p.y = c.height - 1;
-    for (const le of lay.edges) {
-      const e = g.edges.find((x) => x.id === le.id);
-      const sec = (le.sections || [])[0];
-      if (!e || e.kind === "pipe" || !sec) continue;
-      if (e.source === n.id) sec.startPoint = { x: sec.startPoint.x, y: c.y + c.height };
-      if (e.target === n.id) sec.endPoint = { x: sec.endPoint.x, y: c.y + c.height };
-      if (e.source === n.id || e.target === n.id) sec.bendPoints = [];
-    }
-  }
-  return turned;
-}
-
 function applyPins(lay, g) {
   const moved = new Set(), delta = {};
   const pins = S.pins || {};
@@ -301,7 +265,8 @@ function flatten(lay) {
       if (c.id.startsWith("hull:")) {
         containers.push({ id: c.id, name: c.id.slice(5), x, y, width: c.width, height: c.height, depth });
         walk(c, x, y, depth + 1);
-      } else leaves.push({ ...c, x, y });
+      } else if (c.id.startsWith("grp:")) walk(c, x, y, depth);   // a block laid out together (layouts.js): not drawn
+      else leaves.push({ ...c, x, y });
     }
   };
   walk(lay, 0, 0, 0);
@@ -339,8 +304,10 @@ function restack(lay, g) {
     return { cs, x0, y0, h: y1 - y0, first, ids: new Set(cs.map((c) => c.id)) };
   }).sort((a, b) => a.first - b.first);
   let y = 40, width = 0;
+  lay.rows = [];                                      // where each row is: the pipes between them run in the gaps
   for (const gr of groups) {
     const dx = 40 - gr.x0, dy = y - gr.y0;
+    lay.rows.push({ y0: y, y1: y + gr.h, ids: gr.ids });
     for (const c of gr.cs) { c.x += dx; c.y += dy; width = Math.max(width, c.x + c.width); }
     for (const e of lay.edges) {
       if (!gr.ids.has(owner(e.sources[0]))) continue;
@@ -361,10 +328,21 @@ function routeCuts(lay, cuts) {
     const a = box[e.source], b = box[e.target];
     if (!a || !b) continue;
     const sx = a.x + a.width, sy = a.y + a.height / 2, tx = b.x, ty = b.y + b.height / 2;
-    // the gap: just above the highest thing in the target's row, or below the source's when the target is above
-    const row = lay.children.filter((c) => Math.abs(c.y + c.height / 2 - ty) < 160);
-    const gapY = ty > sy ? Math.min(...row.map((c) => c.y)) - 26 : Math.max(...lay.children.filter((c) => Math.abs(c.y + c.height / 2 - sy) < 160).map((c) => c.y + c.height)) + 26;
+    // the gap: the middle of the space above the target's row, or below the source's when the target is above
+    const rowOf = (id) => (lay.rows || []).find((r) => r.ids.has(id));
+    const rt = rowOf(e.target), rs = rowOf(e.source);
     const turn = Math.max(sx + 18, ...(a.labels || []).map((l) => a.x + l.x + l.width + 12));   // clear of the valve's labels
+    let gapY = ty > sy ? (rt ? rt.y0 - 35 : b.y - 26) : (rs ? rs.y1 + 35 : a.y + a.height + 26);
+    if (rt && rt === rs) {                             // one row (a controller joins them): a free band between the two ends
+      const x0 = Math.min(tx - 14, turn) - 6, x1 = Math.max(tx - 14, turn) + 6;
+      const labelled = lay.children.flatMap((c) => [c, ...(c.labels || []).map((l) => ({ x: c.x + l.x, y: c.y + l.y, width: l.width, height: l.height }))]);
+      const [lo, hi] = [Math.min(sy, ty), Math.max(sy, ty)];
+      const band = (boxes) => {                        // clear of the parts and their labels, else of the parts
+        for (let y = hi - 26; y > lo + 10; y -= 4) if (!boxes.some((c) => c.x < x1 && c.x + c.width > x0 && c.y - 8 < y && c.y + c.height + 8 > y)) return y;
+        return null;
+      };
+      gapY = band(labelled) ?? band(lay.children) ?? gapY;
+    }
     const pts = sy === ty ? [] : [{ x: turn, y: sy }, { x: turn, y: gapY }, { x: tx - 14, y: gapY }, { x: tx - 14, y: ty }];   // inside the outline
     lay.width = Math.max(lay.width, turn + 30);
     lay.edges.push({ id: e.id, sections: [{ startPoint: { x: sx, y: sy }, bendPoints: pts, endPoint: { x: tx, y: ty } }], cut: true });
@@ -439,13 +417,9 @@ function drawVariable(n, w, hgt) {
   return g;
 }
 
-function drawValve(n, w, hgt) {
-  if (n.flip) {                                       // its stem below: what commands it is underneath
-    const g = s("g", { transform: `translate(0,${hgt}) scale(1,-1)` });
-    g.append(drawValve({ ...n, flip: false }, w, hgt));
-    return s("g", {}, g);
-  }
-  const g = s("g");
+function drawValve(n, w, hgt, ln) {
+  const t = turnTransform(ln?.turn, w, hgt);          // turned to face its pipe and its links (valves.js)
+  const g = s("g", t ? { transform: t } : {});
   const c = "var(--valve)";
   const m = n.mode || "auto";
   g.append(s("rect", { class: "hit", x: -2, y: -2, width: w + 4, height: hgt + 4, rx: 6, fill: "transparent", stroke: "transparent" }));
@@ -457,8 +431,9 @@ function drawValve(n, w, hgt) {
   return g;
 }
 
-function drawDisturbance(n, w, hgt) {
-  const g = s("g");
+function drawDisturbance(n, w, hgt, ln) {
+  const t = turnTransform(ln?.turn, w, hgt);
+  const g = s("g", t ? { transform: t } : {});
   g.append(s("path", { class: "hit", d: `M${w / 2},2 L${w - 2},${hgt / 2} L${w / 2},${hgt - 2} L2,${hgt / 2} Z`, fill: "var(--panel)", stroke: "var(--dist)", "stroke-width": 2 }));
   g.append(s("path", { d: `M${w * 0.25},${hgt / 2} q${w * 0.0625},-6 ${w * 0.125},0 t${w * 0.125},0 t${w * 0.125},0 t${w * 0.125},0`, fill: "none", stroke: "var(--dist)", "stroke-width": 2, "stroke-linecap": "round" }));
   return g;
@@ -801,6 +776,7 @@ function drawGraph(svg, g, lay) {
   for (const ln of lay.children) {
     const n = byId[ln.id];
     const ng = s("g", { class: `node k-${n.kind}`, transform: `translate(${ln.x},${ln.y})`, "data-id": n.id,
+                        "data-turn": ln.turn ? `${ln.turn.flow} ${ln.turn.stem}` : null,
                         // pressed and let go over the same part, even if it was drawn again in between, is a click
                         onpointerdown: (ev) => {
                           if (ev.target.closest(".sys-btn") || ev.target.closest("[data-act]")) return;
@@ -808,7 +784,7 @@ function drawGraph(svg, g, lay) {
                           S.nodeDrag = { id: n.id, x0: ev.clientX, y0: ev.clientY, lx: ln.x, ly: ln.y, moved: false, el: null };
                         },
                         ondblclick: (ev) => { if (n.kind === "system") { ev.stopPropagation(); S.toggleSystem?.(n.label); } } });
-    ng.append((DRAW[n.kind] || drawCloud)(n, ln.width, ln.height));
+    ng.append((DRAW[n.kind] || drawCloud)(n, ln.width, ln.height, ln));
     if (S.pins?.[n.id]) pinsG.append(s("g", { class: "pin", "data-act": "unpin", "data-id": n.id, transform: `translate(${ln.x + ln.width - 4},${ln.y - 6})`,
                                             onclick: (ev) => { ev.stopPropagation(); delete S.pins[n.id]; savePins(); S.relayout?.(); } },
       s("title", {}, "pinned here: click to let the layout place it again"),
@@ -1063,7 +1039,7 @@ async function pageDiagram(main, q) {
   const system = q.get("system") || "";
   const around = q.get("around") || "";
   const openQ = q.has("open") ? q.get("open") : null;          // the systems opened; absent: the server's default
-  S.portAt = {}; S.portRank = {}; S.valveFlip = {};               // a new view: ports and valves face what they join here
+  S.portAt = {}; S.portRank = {};                                 // a new view: ports face what they join here
   S.pinKey = `ergostat.pins.${S.status?.name || ""}.${view}.${system}.${around}.${openQ ?? ""}`;
   S.pins = loadPins();
   S.showHulls = !around;

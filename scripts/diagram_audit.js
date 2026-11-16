@@ -61,5 +61,35 @@
     if (e.kind === "pipe") { out.pipeBends += n; if (n > out.mostPipeBends[0]) out.mostPipeBends = [n, le.id]; }
     else out.infoBends += n;
   }
+  // parts on top of each other, and open systems' outlines over parts not in them or over each other
+  // (one inside the other is nesting): a layout that packs must still keep them apart
+  out.partOverlap = [];
+  const meet = (a, b, m = 2) => a.x + m < b.x + b.width && b.x + m < a.x + a.width && a.y + m < b.y + b.height && b.y + m < a.y + a.height;
+  const inside = (a, b) => a.x >= b.x - 1 && a.y >= b.y - 1 && a.x + a.width <= b.x + b.width + 1 && a.y + a.height <= b.y + b.height + 1;
+  const kids = lay.children;
+  for (let i = 0; i < kids.length; i++) for (let j = i + 1; j < kids.length; j++)
+    if (meet(kids[i], kids[j])) out.partOverlap.push(`${kids[i].id} on ${kids[j].id}`);
+  const hulls = lay.containers || [];
+  for (const h of hulls) {
+    for (const c of kids) if (!(byId[c.id]?.systems || []).includes(h.name) && meet(c, h)) out.partOverlap.push(`${c.id} on the outline of ${h.name}`);
+    for (const o of hulls) if (o !== h && o.name < h.name && meet(o, h) && !inside(o, h) && !inside(h, o)) out.partOverlap.push(`outlines of ${o.name} and ${h.name}`);
+  }
+  // compactness: the drawing's extent (parts, their labels, open systems' outlines, lines), how much of
+  // it the parts fill, and the zoom at which all of it fits the canvas (1 or more: it is read at full size)
+  const ext = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  const grow = (x0, y0, x1, y1) => { ext.x0 = Math.min(ext.x0, x0); ext.y0 = Math.min(ext.y0, y0); ext.x1 = Math.max(ext.x1, x1); ext.y1 = Math.max(ext.y1, y1); };
+  let filled = 0;
+  for (const c of lay.children) {
+    grow(c.x, c.y, c.x + c.width, c.y + c.height);
+    filled += c.width * c.height;
+    for (const l of c.labels || []) { grow(c.x + l.x, c.y + l.y, c.x + l.x + l.width, c.y + l.y + l.height); filled += l.width * l.height; }
+  }
+  for (const c of lay.containers || []) grow(c.x, c.y, c.x + c.width, c.y + c.height);
+  for (const le of lay.edges) for (const p of pts(le)) grow(p.x, p.y, p.x, p.y);
+  const W = Math.max(1, ext.x1 - ext.x0), H = Math.max(1, ext.y1 - ext.y0);
+  const r = document.querySelector("svg.canvas")?.getBoundingClientRect() || { width: 1300, height: 900 };
+  out.size = { width: Math.round(W), height: Math.round(H), aspect: +(W / H).toFixed(2), fill: +(filled / (W * H)).toFixed(3),
+               empty: +(1 - filled / (W * H)).toFixed(3), fit: +Math.min((r.width - 40) / W, (r.height - 90) / H).toFixed(3),
+               parts: lay.children.length };
   return out;
 })
