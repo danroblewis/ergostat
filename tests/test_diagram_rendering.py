@@ -25,6 +25,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import textwrap
 import time
 import urllib.request
 from pathlib import Path
@@ -581,3 +582,112 @@ def test_scroll_pans_and_command_scroll_or_a_pinch_zooms_at_the_pointer(browser,
         pg.get_by_role("button", name="+").click()
         pg.get_by_role("button", name="fit").click()
         pg.close()
+
+
+BLOCKS_DOM = """() => {
+  // the control view's own conventions, as drawn: a function in every block, a sign at every input of
+  // every summing junction, no placeholder, one ink (no fill on a block)
+  const bad = [];
+  for (const el of document.querySelectorAll("svg.canvas g.node.bd-block")) {
+    if (!(el.dataset.fn || "").trim() || el.dataset.fn === "block") bad.push(`${el.dataset.id}: no function`);
+    if (!el.querySelector("text")) bad.push(`${el.dataset.id}: nothing written in it`);
+    const fill = getComputedStyle(el.querySelector(".hit")).fill;
+    if (!/transparent|rgba\\(0, 0, 0, 0\\)|none/.test(fill)) bad.push(`${el.dataset.id}: filled ${fill}`);
+  }
+  for (const n of S.graph.nodes.filter((n) => n.kind === "sum")) {
+    const signs = document.querySelectorAll(`svg.canvas text.bd-sign[data-sum="${CSS.escape(n.id)}"]`).length;
+    if (signs !== n.ins.length) bad.push(`${n.id}: ${signs} signs for ${n.ins.length} inputs`);
+  }
+  if (/no valve|no sensor/.test(document.querySelector("svg.canvas").textContent)) bad.push("a placeholder");
+  const frames = Object.fromEntries((S.layout.containers || []).map((c) => [c.id, c]));
+  for (const n of S.graph.nodes) for (const f of n.systems || []) {        // a part inside every frame it is in
+    const c = S.layout.children.find((k) => k.id === n.id), o = frames[f];
+    if (c && o && !(c.x >= o.x && c.y >= o.y && c.x + c.width <= o.x + o.width && c.y + c.height <= o.y + o.height))
+      bad.push(`${n.id} outside ${f}`);
+  }
+  return bad;
+}"""
+
+
+# a feedback path runs back beneath the forward path by design (out of the process to the right, down, back
+# left to the sensor and on to the junction): a line is a detour past twice its way plus that run back
+BLOCKS_DETOUR = """() => {
+  const out = [];
+  for (const le of S.layout.edges) {
+    const s0 = (le.sections || [])[0]; if (!s0) continue;
+    const p = [s0.startPoint, ...(s0.bendPoints || []), s0.endPoint];
+    const L = p.slice(1).reduce((s, q, i) => s + Math.abs(q.x - p[i].x) + Math.abs(q.y - p[i].y), 0);
+    const M = Math.abs(p[0].x - p[p.length - 1].x) + Math.abs(p[0].y - p[p.length - 1].y);
+    if (L > 2 * M + 240) out.push(`${le.id}: ${Math.round(L)} for ${Math.round(M)}`);
+  }
+  return out;
+}"""
+
+
+def blocks_views(tree: dict) -> list[str]:
+    return ["view=blocks", "view=blocks&open=*", *(f"view=blocks&open={s}" for s in tree), *(f"view=blocks&system={s}" for s in tree)]
+
+
+def test_the_control_view_draws_every_example_cleanly_as_a_block_diagram(browser, page_of):
+    name, url = page_of
+    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    drawn(pg, url, "view=blocks", 0)
+    problems = []
+    for i, v in enumerate(blocks_views(pg.evaluate("() => S.graph.tree || {}"))):
+        drawn(pg, url, v, i + 1)
+        r = pg.evaluate(AUDIT)
+        problems += [f"[{v}] {k}: {x}" for k in ("through", "overlap", "netCrossings", "partOverlap") for x in r[k]]
+        problems += [f"[{v}] {x}" for x in pg.evaluate(BLOCKS_DOM)]
+        problems += [f"[{v}] detour: {x}" for x in pg.evaluate(BLOCKS_DETOUR)]
+        if max(r["size"]["aspect"], 1 / r["size"]["aspect"]) > MAX_ASPECT + 1 and r["size"]["fit"] < MIN_FIT:
+            problems.append(f"[{v}] {r['size']}")
+    pg.close()
+    assert not errors, errors
+    assert not problems, f"{name}: " + "\n".join(problems)
+
+
+def test_the_control_view_nests_a_cascades_inner_loop_and_opens_a_blocks_definition(browser, tmp_path):
+    from tests.test_spec_systems import MODEL
+    d = tmp_path / "cascade"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(textwrap.dedent(MODEL))
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&open=*", 0)
+        r = pg.evaluate(AUDIT)
+        assert not r["through"] and not r["overlap"] and not r["partOverlap"], r
+        assert pg.evaluate(BLOCKS_DOM) == []
+        nest = pg.evaluate("""() => {
+          const f = (id) => S.layout.containers.find((c) => c.id === id);
+          const inner = f("casc:burner-rate"), heater = f("frame:heater");
+          const el = document.querySelector('g.bd-frame-cascade[data-hull="casc:burner-rate"]');
+          return { drawn: !!el, dashed: el && getComputedStyle(el.querySelector("rect")).strokeDasharray,
+                   inside: inner.x >= heater.x && inner.x + inner.width <= heater.x + heater.width,
+                   members: S.graph.nodes.filter((n) => n.parent === "casc:burner-rate").map((n) => n.id).sort() }; }""")
+        assert nest["drawn"] and nest["dashed"] not in ("none", "") and nest["inside"], nest
+        assert nest["members"] == ["blk:burner", "blk:watcher", "sum:burner-rate"], nest
+        # a block clicked: its definition, as MathML
+        pg.locator('g.node[data-id="blk:thermostat"] .hit').click()
+        pg.wait_for_selector("#detail math", timeout=5000)
+        mi = pg.evaluate("() => [...document.querySelectorAll('#detail .bd-math math mi')].map((x) => x.textContent)")
+        assert "K" in mi and "p" in mi, mi                       # C_thermostat = K_p = 0.5
+        assert not errors, errors
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
