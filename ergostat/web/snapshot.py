@@ -80,6 +80,7 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
 
     def inline(text: str) -> str:
         text = re.sub(r"</(script)", r"<\\/\1", text, flags=re.I)    # nothing in a script may close it early,
+        text = re.sub(r"<(script)", r"\\x3c\1", text, flags=re.I)    # nor look like one opening (in a string or regex, \x3c is <)
         return text.replace("<!--", "<\\!--")                          # nor open a comment that hides its end
 
     page = (STATIC / "index.html").read_text()
