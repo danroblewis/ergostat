@@ -2,10 +2,11 @@
 "use strict";
 /* ------------------------------------------------------------------ details */
 
-function closeDetail() { const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
+function closeDetail() { if (S.selKey) { S.selKey = null; trace(S.hoverKey); } const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
 function showDetail(...kids) {
+  if (S.selKey) { S.selKey = null; trace(S.hoverKey); }  // another detail: the line chosen before lets go
   const d = $("#detail");
-  d.replaceChildren(h("button", { class: "close", onclick: closeDetail }, "close"), ...kids);
+  d.replaceChildren(h("button", { class: "close", onclick: closeDetail }, "close"), ...kids.filter((k) => k != null && k !== false));
   d.hidden = false;
 }
 function dl(pairs) { return h("dl", {}, pairs.filter(([, v]) => v != null && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])); }
@@ -234,3 +235,76 @@ function showEvent(e) {                                 // one event, all of it,
     h("pre", {}, JSON.stringify(e.data || {}, null, 2)));
 }
 
+
+/* a line, clicked: what kind of connection it is (a flow of material, or a signal in a loop), what
+   it joins, what it carries now, and the loops it is part of */
+async function openEdge(e) {
+  const g = S.graph || { nodes: [], loops: {} };
+  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+  const src = original(e.source, e.sourcePort), dst = original(e.target, e.targetPort);
+  const nameOf = (id) => { const n = byId[id]; return n && (n.kind === "valve" || n.kind === "disturbance") ? n.flow : n?.label ?? id.split(":").slice(1).join(":"); };
+  const link = (id) => {
+    const n = byId[id];
+    if (n && n.kind !== "cloud" && n.kind !== "terminal") return h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openNode(n); } }, nameOf(id));
+    if (id.startsWith("cloud:")) return h("span", { class: "muted" }, "outside the model");
+    return h("b", {}, nameOf(id));
+  };
+  const crossing = [e.sourcePort && `leaves system ${e.source.slice(7)} at its port ${nameOf(src)}`,
+                    e.targetPort && `enters system ${e.target.slice(7)} at its port ${nameOf(dst)}`,
+                    e.source.startsWith("term:") && `comes from outside this system (${byId[e.source]?.in || "elsewhere"})`,
+                    e.target.startsWith("term:") && `goes outside this system (${byId[e.target]?.in || "elsewhere"})`].filter(Boolean);
+  const loops = (e.loops || []).map((k) => h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); highlightLoop(k); openLoop(k); } }, k));
+  const rows = [];
+  let kind, what;
+  if (e.kind === "pipe") {
+    kind = "flow · system dynamics";
+    let d = null;
+    try { d = await api(`part/flow/${encodeURIComponent(e.flow)}`); } catch (err) { d = null; }
+    const m = d?.model || {}, now = d?.now || {};
+    const valve = g.nodes.find((n) => (n.kind === "valve" || n.kind === "disturbance") && n.flow === e.flow);
+    what = `Material moving from ${m.source || "outside"} to ${m.target || "outside"}: a flow changes the stocks it joins, and only flows do.`;
+    rows.push(["flow", e.flow], ["from", m.source || "outside the model"], ["to", m.target || "outside the model"],
+              ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : (valve?.rateText || "not known yet")],
+              ["how we know", now.how || valve?.how],
+              ["moved by", valve?.kind === "valve" ? [valve.label, valve.agent ? ` (${badgeText(valve.agent)})` : ""] :
+                           "nothing in the model: a disturbance to the loops on its stocks"],
+              ["follows", (m.driven_by || []).join(", ") || null]);
+  } else if (e.kind === "measure") {
+    kind = "measurement · control";
+    const sn = byId[dst];
+    what = `The measured output, y: sensor ${nameOf(dst)} reads ${nameOf(src)}. Nothing is judged without it.`;
+    rows.push(["measures", link(src)], ["sensor", link(dst)], ["reading", sn?.reading || "none yet"]);
+  } else if (e.kind === "signal") {
+    kind = "feedback · control";
+    const c = byId[dst];
+    what = `Feedback: the reading y goes to the controller, which compares it with its setpoint r and acts on the error e = r − y.`;
+    rows.push(["from", link(src)], ["reading", byId[src]?.reading || null], ["to", link(dst)],
+              ["setpoint", c?.setpoint || null], ["error now", c?.error != null ? fmt(c.error) : null], ["status", c?.status ? statusEl(c.status) : null]);
+  } else if (e.kind === "action") {
+    kind = "control action · control";
+    const c = byId[src], v = byId[dst];
+    what = `The control action u: the controller commands the valve on this flow when its goal is off. Its strength is the loop's gain; how long it takes to show in the stock is the loop's delay.`;
+    rows.push(["controller", link(src)], ["holds", c?.setpoint || null], ["status", c?.status ? statusEl(c.status) : null],
+              ["acts on", link(dst)], ["filled by", v?.agent ? badgeText(v.agent) : null], ["rate now", v?.rateText || null],
+              ["last decision", c?.decision ? `“${c.decision}”${c.decisionAt ? " · " + ago(c.decisionAt) : ""}` : null]);
+  } else if (e.kind === "influence") {
+    kind = "influence · driven-by";
+    what = `An influence, not a pipe: the rate of ${nameOf(dst)} follows ${nameOf(src)}, as declared (driven-by). Nothing moves along it; it is how a loop closes through another system. It is not yet checked against the record.`;
+    rows.push(["follows", link(src)], ["flow", link(dst)], ["its rate now", byId[dst]?.rateText || null]);
+  } else if (e.kind === "wire") {
+    kind = "wiring · who reaches whom";
+    what = `One agent's output reaches another: through a stock it changes and the other measures, a reading handed to a controller, a decision handed to a valve, or an event one publishes and the other listens for.`;
+    rows.push(["from", link(src)], ["to", link(dst)], ["through", (e.via || []).join("; ") || null]);
+  } else {
+    kind = e.kind;
+    what = "";
+    rows.push(["from", link(src)], ["to", link(dst)]);
+  }
+  const title = e.kind === "pipe" ? [e.flow, h("span", { class: "muted" }, ` (${rows[1][1]} → ${rows[2][1]})`)] : [nameOf(src), " → ", nameOf(dst)];
+  showDetail(h("div", { class: "kind" }, kind), h("h2", {}, ...title),
+    what ? h("p", { class: "muted" }, what) : null, dl(rows),
+    crossing.length ? h("p", {}, crossing.join("; ") + ".") : null,
+    loops.length ? h("p", {}, "part of the loop", loops.length > 1 ? "s " : " ", loops.flatMap((x, i) => [i ? ", " : "", x])) : h("p", { class: "muted" }, "part of no loop drawn here"));
+  S.selKey = linkKey(e);                               // it stays traced while its panel is open
+  trace(S.selKey);
+}

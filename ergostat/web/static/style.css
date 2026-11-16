@@ -256,3 +256,11 @@ a.plain { color: var(--ink); }
 .k-terminal { cursor: pointer; }
 .toolbar .crumbs { font-size: 13px; color: var(--muted); }
 .toolbar .crumbs b { color: var(--ink); }
+
+/* tracing a line: the one pointed at, and every piece of the same connection */
+.edge .edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+svg.tracing .edge, svg.tracing .node { opacity: .16; transition: opacity .12s; }
+svg.tracing .edge.near, svg.tracing .node.lit { opacity: .75; }
+svg.tracing .edge.lit { opacity: 1; }
+.edge.lit .info { stroke-width: 3.2 !important; }
+.edge.lit .pipe-out { stroke: var(--accent); }

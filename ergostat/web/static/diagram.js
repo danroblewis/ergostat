@@ -415,6 +415,7 @@ function arrowHead(pts, cls, size = 7) {
 function drawGraph(svg, g, lay) {
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const edgeById = Object.fromEntries(g.edges.map((e) => [e.id, e]));
+  S.edgeById = edgeById;
   const vp = s("g", { id: "viewport" });
   // systems as hulls behind everything (overlapping freely)
   if (g.kind === "control" && lay.containers?.length) {      // open systems: laid out as containers, drawn as outlines
@@ -500,7 +501,9 @@ function drawGraph(svg, g, lay) {
     const dist = flowN && flowN.kind === "disturbance";
     const loopSt = (e.loops || []).map((k) => g.loops[k]?.status).find(Boolean);
     const cls = ["edge", e.kind, dist ? "dist" : "", loopSt ? "loop-" + loopSt : ""].join(" ");
-    const eg = s("g", { class: cls, "data-id": e.id, "data-loops": (e.loops || []).join(" "), "data-nodes": `${e.source} ${e.target}` });
+    const eg = s("g", { class: cls, "data-id": e.id, "data-loops": (e.loops || []).join(" "), "data-nodes": `${e.source} ${e.target}`,
+                        "data-link": linkKey(e),
+                        onpointerenter: () => { if (!S.dragging) hoverEdge(e); }, onpointerleave: () => hoverEdge(null) });
     if (e.kind === "pipe") {
       eg.append(s("path", { d, class: "pipe-out" }), s("path", { d, class: "pipe-in" }));
       if (flowN && flowN.rate > 0) eg.append(s("path", { d, class: "flowing", stroke: dist ? "var(--dist)" : "var(--accent)" }));
@@ -534,6 +537,7 @@ function drawGraph(svg, g, lay) {
                               stroke: "var(--bg)", "stroke-width": 4, "stroke-linejoin": "round" }, le.labels[0].text));
       }
     }
+    eg.append(s("path", { d, class: "edge-hit" }));    // a wide, invisible line: easy to point at
     edgesG.append(eg);
   }
   const nodesG = s("g");
@@ -566,6 +570,7 @@ function drawGraph(svg, g, lay) {
   svg.replaceChildren(vp);
   applyView(svg);
   if (S.hl) highlightLoop(S.hl);
+  if (S.hoverKey || S.selKey) trace(S.hoverKey || S.selKey);   // a redraw keeps the line being followed
 }
 
 /* a standalone copy of the diagram: every computed style written inline, framed to the layout */
@@ -611,19 +616,56 @@ function panZoom(svg) {
     if (ev.target.closest(".node")) return;
     ev.preventDefault();                                   // a drag pans; it never starts selecting text
     drag = { x: ev.clientX, y: ev.clientY, vx: S.view.x, vy: S.view.y };
+    S.dragged = false;
     svg.classList.add("dragging");
     svg.setPointerCapture(ev.pointerId);
   });
   svg.addEventListener("pointermove", (ev) => {
     if (!drag) return;
+    if (Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) > 4) { S.dragged = true; S.dragging = true; hoverEdge(null); }
     S.view.x = drag.vx + ev.clientX - drag.x;
     S.view.y = drag.vy + ev.clientY - drag.y;
     applyView(svg);
   });
-  const end = () => { drag = null; svg.classList.remove("dragging"); };
+  const end = () => { drag = null; S.dragging = false; svg.classList.remove("dragging"); };
   svg.addEventListener("pointerup", end);
   svg.addEventListener("pointercancel", end);
-  svg.addEventListener("click", (ev) => { if (!ev.target.closest(".node")) { closeDetail(); } });
+  svg.addEventListener("click", (ev) => {
+    if (ev.target.closest(".node") || S.dragged) return;          // a drag pans; it is not a click
+    const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".edge");   // the pan holds the pointer: ask what is there
+    const e = under && S.edgeById?.[under.dataset.id];
+    if (e) openEdge(e); else closeDetail();
+  });
+}
+
+/* one line, traced: the line pointed at and every other piece of the same connection (both pipes
+   of a flow, a wire cut by a system's edge) are lit, with the parts at their ends; the other lines
+   at those parts stay half lit, so where each one goes can be followed; the rest fades */
+function original(id, port) {                          // the part a folded line really ends at
+  if (port) return port.replace(/^system:[^:]+:(in|out):/, "");
+  return id.startsWith("term:") ? id.slice(5) : id;
+}
+function linkKey(e) {
+  if (e.kind === "pipe" && e.flow) return "flow:" + e.flow;
+  return `${e.kind}:${original(e.source, e.sourcePort)}>${original(e.target, e.targetPort)}`;
+}
+function hoverEdge(e) {                               // pointing at a line traces it; leaving it, the chosen one (if any) stays
+  S.hoverKey = e ? linkKey(e) : null;
+  trace(S.hoverKey || S.selKey);
+}
+function trace(key) {
+  const svg = $("svg.canvas");
+  if (!svg) return;
+  if (!key) { svg.classList.remove("tracing"); for (const x of svg.querySelectorAll(".lit,.near")) x.classList.remove("lit", "near"); return; }
+  const lit = [...svg.querySelectorAll(".edge")].filter((x) => x.dataset.link === key);
+  const ends = new Set(lit.flatMap((x) => (x.dataset.nodes || "").split(" ")));
+  svg.classList.add("tracing");
+  for (const x of svg.querySelectorAll(".edge")) {
+    const [a, b] = (x.dataset.nodes || "").split(" ");
+    x.classList.toggle("lit", x.dataset.link === key);
+    x.classList.toggle("near", x.dataset.link !== key && (ends.has(a) || ends.has(b)));
+  }
+  for (const n of svg.querySelectorAll(".node")) n.classList.toggle("lit", ends.has(n.dataset.id));
 }
 
 function highlightLoop(name) {
