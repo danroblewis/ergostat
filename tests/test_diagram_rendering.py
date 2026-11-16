@@ -1,11 +1,13 @@
 """Acceptance: the control diagram of every example, drawn in a real browser, in every view (the
 whole, everything open, each system opened, each drawn alone), draws no line through a part that
 is not one of its ends, no line on top of another (lines merging into or out of one end are a net),
-no line far longer than the way it covers, and no page error; and lays out within its time.
+no line far longer than the way it covers, no two lines of one net crossing, and no page error;
+draws within its time (ELK's layout, with ELK's lines), and has libavoid's lines within a
+generous bound (routed in a worker, after the first draw).
 
 And a generated model, 16 systems of 6 loops each (STRESS=systems,loops to change it), each
-feeding the next and driving a flow two along: about 400 parts and 500 lines, laid out in about
-0.6s; 1,000 lines take about 2s.
+feeding the next and driving a flow two along: about 400 parts and 500 lines, drawn in about
+0.2s and routed in about 4s; 1,000 lines (24,8) are drawn in about 0.4s and routed in about 15s.
 
 It needs Playwright and the Chrome installed on this machine, so the usual run skips it:
 
@@ -32,9 +34,15 @@ playwright = pytest.importorskip("playwright.sync_api")
 ROOT = Path(__file__).resolve().parent.parent
 AUDIT = (ROOT / "scripts" / "diagram_audit.js").read_text()
 EXAMPLES = sorted(p.name for p in (ROOT / "examples").iterdir() if (p / "ergostat.yaml").exists())
-READY = "() => typeof S !== 'undefined' && S.layout && S.graphSig && document.querySelectorAll('svg.canvas g.node').length > 0"
-TIMED = "async () => { const t = performance.now(); await layoutGraph(S.graph, 1.6, false); return performance.now() - t; }"
-LAYOUT_BUDGET_MS = 2500       # one layout of the biggest view, on a laptop; generous, to catch the router going quadratic
+# drawn, and its lines routed (libavoid's, in place of ELK's first ones)
+READY = ("() => typeof S !== 'undefined' && S.layout && S.graphSig && !S.layout.routing && "
+         "document.querySelectorAll('svg.canvas g.node').length > 0")
+# [until it is first drawn, until its lines are routed], in ms
+TIMED = ("async () => { const t = performance.now(); const lay = await layoutGraph(S.graph, 1.6, false); "
+         "const first = performance.now() - t; await lay.whenRouted; return [first, performance.now() - t]; }")
+LAYOUT_BUDGET_MS = 2500       # until the biggest view is first drawn, on a laptop; generous, to catch the layout going quadratic
+ROUTED_BOUND_MS = 20000       # until libavoid's lines replace ELK's (in a worker: the page is never held up meanwhile);
+                              # the 24x8 model (STRESS=24,8: 1,030 lines) takes about 15s, nearly all of it libavoid's
 MAX_PIPE_BENDS = 6             # a flow that runs back (rework into a backlog) must turn; more is a pipe pushed about
 
 
@@ -82,7 +90,7 @@ def page_of(request, tmp_path_factory):
 
 def drawn(pg, url: str, view: str, n: int) -> None:
     pg.goto(f"{url}/?v={n}#/diagram?{view}")            # a new query: the page loads afresh, no layout carried over
-    pg.wait_for_function(READY, timeout=20000)
+    pg.wait_for_function(READY, timeout=60000)
 
 
 def test_every_view_draws_cleanly_and_in_time(browser, page_of):
@@ -93,20 +101,23 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     drawn(pg, url, "", 0)
     tree = pg.evaluate("() => S.graph.tree || {}")
     views = ["", "open=*", *(f"open={s}" for s in tree), *(f"system={s}" for s in tree)]
-    problems, slowest = [], (0.0, "")
+    problems, slowest, routed = [], (0.0, ""), (0.0, "")
     for i, v in enumerate(views):
         drawn(pg, url, v, i + 1)
         r = pg.evaluate(AUDIT)
         problems += [f"[{v or 'whole'}] {k}: {x}" for k in ("through", "overlap", "detour", "netCrossings") for x in r[k]]
         if r["mostPipeBends"][0] > MAX_PIPE_BENDS:                   # a flow reads best straight: the links bend instead
             problems.append(f"[{v or 'whole'}] pipe {r['mostPipeBends'][1]} bends {r['mostPipeBends'][0]} times")
-        ms = pg.evaluate(TIMED)
-        slowest = max(slowest, (ms, v or "whole"))
+        first, final = pg.evaluate(TIMED)
+        slowest = max(slowest, (first, v or "whole"))
+        routed = max(routed, (final, v or "whole"))
     pg.close()
-    print(f"{name}: {len(views)} views, slowest layout {slowest[0]:.0f}ms ({slowest[1]})")
+    print(f"{name}: {len(views)} views, slowest first draw {slowest[0]:.0f}ms ({slowest[1]}), "
+          f"slowest routing {routed[0]:.0f}ms ({routed[1]})")
     assert not errors, errors
     assert not problems, f"{name}: " + "\n".join(problems)
-    assert slowest[0] < LAYOUT_BUDGET_MS, f"{name}: laying out {slowest[1]} took {slowest[0]:.0f}ms"
+    assert slowest[0] < LAYOUT_BUDGET_MS, f"{name}: drawing {slowest[1]} took {slowest[0]:.0f}ms"
+    assert routed[0] < ROUTED_BOUND_MS, f"{name}: routing {routed[1]} took {routed[0]:.0f}ms"
 
 
 def big_model(systems: int = 8, loops: int = 4) -> str:
@@ -151,13 +162,15 @@ def test_a_big_tangled_model_lays_out_in_time_and_cleanly(browser, tmp_path):
         pg.on("pageerror", lambda e: errors.append(str(e)))
         for i, v in enumerate(("", "open=*", "open=s3", "system=s3")):
             drawn(pg, url, v, i)
-            ms = pg.evaluate(TIMED)
             r = pg.evaluate(AUDIT)
+            first, final = pg.evaluate(TIMED)
             n = pg.evaluate("() => [S.graph.nodes.length, S.graph.edges.length]")
-            print(f"stress [{v or 'whole'}]: {n[0]} parts, {n[1]} lines, {ms:.0f}ms; through {len(r['through'])}, "
-                  f"overlap {len(r['overlap'])}, detour {len(r['detour'])}")
-            assert ms < LAYOUT_BUDGET_MS, f"[{v}] took {ms:.0f}ms"
-            assert not r["through"] and not r["detour"], (v, r["through"][:5], r["detour"][:5])
+            print(f"stress [{v or 'whole'}]: {n[0]} parts, {n[1]} lines, drawn {first:.0f}ms, routed {final:.0f}ms; "
+                  f"through {len(r['through'])}, overlap {len(r['overlap'])}, detour {len(r['detour'])}, "
+                  f"net crossings {len(r['netCrossings'])}")
+            assert first < LAYOUT_BUDGET_MS, f"[{v}] took {first:.0f}ms to draw"
+            assert final < ROUTED_BOUND_MS, f"[{v}] took {final:.0f}ms to route"
+            assert not r["through"] and not r["detour"] and not r["netCrossings"], (v, r["through"][:5], r["detour"][:5])
         assert not errors, errors
         pg.close()
     finally:
