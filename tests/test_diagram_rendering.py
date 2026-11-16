@@ -1392,3 +1392,22 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
     pg.wait_for_function(f"() => ({CHARTS.format('.cfd')})() >= 1", timeout=20000)
     pg.close()
     assert not errors and not asked, (errors, asked)
+
+
+def test_the_loop_markers_can_be_hidden_and_it_is_remembered(browser, tmp_path):
+    """They help and they clutter: the ⋯ menu hides them; a reload keeps them hidden; it shows them again."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        drawn(pg, url, "open=*", 0)
+        js = "() => [...document.querySelectorAll('.loop-markers')].some((g) => g.getBoundingClientRect().width > 0)"
+        shown = lambda: pg.evaluate(js)  # noqa: E731
+        assert shown()
+        pg.get_by_title("More: wrap, open or close every system, unpin").click()
+        pg.get_by_text("Show loop markers").click()
+        assert not shown()
+        drawn(pg, url, "open=*", 1)
+        assert not shown(), "hidden after a reload"
+        pg.get_by_title("More: wrap, open or close every system, unpin").click()
+        pg.get_by_text("Show loop markers").click()
+        assert shown()
+        pg.close()

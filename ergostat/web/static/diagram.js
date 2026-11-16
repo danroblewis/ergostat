@@ -1018,9 +1018,13 @@ async function pageDiagram(main, q) {
   const crumbs = h("span", { class: "crumbs" });
   const file = (suffix = "") => `${S.status?.name || "ergostat"}-${system || "all"}-${view}${suffix}.svg`;
   const wrapOn = () => S.wrap === true || (S.wrap == null && S.wrapAuto);
+  const loopsOn = () => !document.body.classList.contains("no-loops");   // the loop markers, hidden or shown (remembered)
   const more = menu("\u22ef", () => [
     view !== "blocks" && view !== "wiring" ? { label: "Wrap loops into rows", checked: wrapOn(), hint: "at the pipes between loops",
       onclick: () => { S.wrap = !wrapOn(); S.graphSig = ""; S.fitted = false; route(); } } : null,
+    view === "dynamics" ? { label: "Show loop markers", checked: loopsOn(), hint: "R and B, inside each loop",
+      onclick: () => { const on = !loopsOn(); document.body.classList.toggle("no-loops", !on);
+                       try { localStorage.setItem("ergostat.loops", on ? "1" : "0"); } catch (e) { /* not remembered */ } } } : null,
     { label: "Open all systems", onclick: () => { S.graphSig = ""; go({ open: "*" }); } },
     { label: "Close all systems", onclick: () => { S.graphSig = ""; go({ open: "-" }); } },
     { sep: true },
@@ -1224,3 +1228,5 @@ function renderSide(side, g, view) {
   side.append(legendBox(view));
   side.scrollTop = scroll;
 }
+
+try { if (localStorage.getItem("ergostat.loops") === "0") document.body.classList.add("no-loops"); } catch (e) { /* shown */ }

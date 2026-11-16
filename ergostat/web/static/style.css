@@ -471,6 +471,7 @@ svg.sd .edge.lit .pipe-head, svg.sd .edge.in-loop .pipe-head, svg.sd .edge.lit .
 .loop-marker.on .marker-name { fill: var(--accent); }
 .loop-marker.dim { opacity: .18; }
 svg.tracing .loop-markers { opacity: .3; }
+body.no-loops .loop-markers { display: none; }
 .design .loop-marker .marker-hit { fill: none; }
 .loop-tag { display: inline-block; min-width: 2.4em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .loop-tag.pol-unknown { color: var(--muted); }
