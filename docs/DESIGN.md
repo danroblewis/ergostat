@@ -143,12 +143,13 @@ The control diagram is the product's main view. Conventions:
   A loop's lines take its status colour (green holding, red off, amber open).
 - **Layout** (ELK layered, vendored): the plant runs left to right along the pipes (pipes carry the
   highest straightness and direction priority), the feedback path above it; each loop a row.
-  Systems are drawn as outlines in their own colours (golden-angle hues), overlapping where they
+  Systems are drawn as thin outlines named in muted type (one ink: no colour per system), overlapping where they
   share parts, labels never stacked. A chain of loops in series folds into rows at the pipes that
   join them (one loop per row, upstream first, the joining pipe routed by hand), by itself when it
-  would be far wider than the window, or with "wrap". The first view keeps text legible (9px or
-  more) and says when more lies beyond the edge; "fit" shows everything.
-- **The wiring view** draws agents (coloured by rung, with schedule and roles) and an arrow when
+  would be far wider than the window, or with "Wrap loops into rows" (the toolbar's ⋯ menu, beside "Open
+  all systems", "Close all systems" and "Unpin all parts"). The first view keeps text legible (9px or
+  more) and says when more lies beyond the edge; "Fit" shows everything.
+- **The wiring view** draws agents (with their rung, schedule and roles) and an arrow when
   one agent's output reaches another: through a sensor or valve it hands on, through a stock, or
   through an event type it listens for. It runs top to bottom. The cycles among the agents are
   listed, each with the declared loop that accounts for it; a cycle no loop declares is something

@@ -7,7 +7,7 @@
 let GUIDE_QUEUE = Promise.resolve();          // the renderers keep their state in S: one drawing at a time
 
 async function pageGuide(main, q) {
-  const p = page(main, "Guide", null);
+  const p = page(main, "Guide");
   const d = await api("guide");
   const frames = d.frames;
   const at = (k) => Math.max(0, Math.min(frames.length - 1, k));
@@ -20,8 +20,8 @@ async function pageGuide(main, q) {
   });
   const text = h("p", { class: "g-text" });
   const stage = h("div", { class: "g-stage" });
-  const prev = h("button", { onclick: () => show(i - 1), title: "the previous frame (←)" }, "←");
-  const next = h("button", { onclick: () => show(i + 1), title: "the next frame (→)" }, "→");
+  const prev = h("button", { onclick: () => show(i - 1), title: "The previous frame (\u2190)", "aria-label": "Previous" }, "\u2190");
+  const next = h("button", { onclick: () => show(i + 1), title: "The next frame (\u2192)", "aria-label": "Next" }, "\u2192");
   const count = h("span", { class: "muted small g-count" });
   const deck = h("div", { class: "g-deck", tabindex: "0" }, steps, text, stage, h("div", { class: "g-nav" }, prev, count, next));
   p.append(deck);
@@ -116,9 +116,9 @@ async function guideYours(box) {
   for (const [view, name] of [["dynamics", "system dynamics"], ["blocks", "control"]]) {
     let g = null;
     try { g = await api("graph", { view }); } catch (e) { g = null; }
-    const link = h("a", { href: `#/diagram?view=${view}` }, `${name}: the diagram →`);
+    const link = h("a", { href: `#/diagram?view=${view}` }, `Open the ${name} diagram`);
     if (!g || !g.nodes.length) {
-      box.append(h("div", { class: "g-view" }, h("p", { class: "muted" }, view === "blocks" ? "nothing controlled yet: no goal, and no block that acts" : "your model is empty: describe your system with ergostat chat"), link));
+      box.append(h("div", { class: "g-view" }, h("p", { class: "muted" }, view === "blocks" ? "Nothing controlled yet: no goal, and no block that acts." : "Your model is empty. Describe your system with ergostat chat."), link));
       continue;
     }
     out.push(guideView(box, { view, graph: g }, link));
