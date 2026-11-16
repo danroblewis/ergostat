@@ -164,7 +164,7 @@ plant, y, the sensor H feeding ym back, and feedforward when a controller measur
 "save SVG" and "PNG" write the diagram as a standalone file, with a header and a legend; "design SVG" writes only
 the structure (parts, flows, roles and schedules, no live values or status), for a design document. `ergostat snapshot` writes the whole page, with
 what it shows now, to one HTML file that opens anywhere with no ergostat running (every view, page and part, as of then). The wiring view draws the agents and how each
-one's output reaches another, and lists the cycles among them, declared as loops or not. Loops, Agents (the ladder), Parts, Record, Residuals and Check show
+one's output reaches another, and lists the cycles among them, declared as loops or not. Loops, Agents (the ladder), Items, Record, Residuals and Check show
 what the command line shows; the Guide explains the ideas with the system's own parts as examples. The slider in the header looks at any past moment; "back to live"
 returns.
 

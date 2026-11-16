@@ -7,11 +7,13 @@ import re
 import time
 
 from ..durations import DurationError, parse_duration
-from .ir import BUILTIN, MACHINE, NAME, Agent, Block, Flow, Goal, Ref, Sensor, Setpoint, Source, Spec, Stock
+from .ir import BUILTIN, MACHINE, NAME, Agent, Block, Flow, Goal, ItemKind, Ref, Sensor, Setpoint, Source, Spec, Stock
 from .load import Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
-SENSOR_KEYS = {"run", "query", "manual", "every", "cron", "timeout", "parse", "unit", "description"}
+SENSOR_KEYS = {"run", "query", "manual", "items", "every", "cron", "timeout", "parse", "unit", "description"}
+ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor"}
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor"}
 GOAL_KEYS = COMMON | {"stock", "flow", "hold", "tolerance", "critical", "owner"}
@@ -163,11 +165,12 @@ class Compiler:
                 continue
             if not NAME.match(str(name)):
                 self.err(f"{sw}: a name is lowercase letters, digits and -, starting with a letter", s.where, "bad-name")
-            self.keys(s, SENSOR_KEYS, sw)
-            kinds = [k for k in ("run", "query", "manual") if s.get(k) not in (None, False)]
+            counted = s.get("items") is not None
+            self.keys(s, SENSOR_KEYS | (ITEM_SENSOR_KEYS if counted else set()), sw)
+            kinds = [k for k in ("run", "query", "manual", "items") if s.get(k) not in (None, False)]
             if len(kinds) != 1:
-                self.err(f"{sw}: exactly one of run:, query: or manual: (it has {', '.join(kinds) or 'none'})", s.where,
-                         "sensor-kind")
+                self.err(f"{sw}: exactly one of run:, query:, manual: or items: (it has {', '.join(kinds) or 'none'})",
+                         s.where, "sensor-kind")
             q = s.get("query")
             if q is not None:
                 if not isinstance(q, dict) or "source" not in q:
@@ -182,11 +185,103 @@ class Compiler:
                 except re.error as e:
                     self.err(f"{sw}.parse: not a regular expression ({e})", s.at("parse"), "bad-parse")
             out[str(name)] = Sensor(str(name), of, run=s.get("run") and str(s["run"]), query=dict(q) if q else None,
+                                    items=self.item_sensor(s, of, sw) if counted else None,
                                     manual=bool(s.get("manual")), every=self.duration(s, "every", sw, 60.0),
                                     cron=self.cron(s, "cron", sw), timeout=self.duration(s, "timeout", sw, 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
                                     description=self.text(s, "description"), where=s.where)
         return out
+
+    def item_sensor(self, s: Map, of: Ref, sw: str) -> dict | None:
+        """``items: ticket`` and how to count them: on a stock, how many are in ``state:`` (or the
+        age in hours of the ``oldest``); on a flow, the rate per hour ``entering:`` or ``leaving:``
+        a state, over the last ``over:``. Kinds and states are checked once all are read."""
+        q: dict = {"kind": str(s["items"]), "where": {}}
+        st = s.get("state")
+        if st is not None:
+            q["state"] = [str(x) for x in st] if isinstance(st, list) else [str(st)]
+        for k in ("entering", "leaving"):
+            if s.get(k) is not None:
+                q[k] = str(s[k])
+        if of.kind == "stock":
+            for k in ("entering", "leaving", "over"):
+                if s.get(k) is not None:
+                    self.err(f"{sw}.{k}: a stock counts the items in a state (state:); entering:, leaving: and over: "
+                             f"measure a flow", s.at(k), "items-on-stock")
+            m = s.get("measure", "count")
+            if m not in ("count", "oldest"):
+                self.err(f"{sw}.measure: count (how many) or oldest (the oldest one's hours in its state)", s.at("measure"),
+                         "bad-measure")
+            q["measure"] = m
+        else:
+            if s.get("state") is not None or s.get("measure") is not None:
+                self.err(f"{sw}: a flow is measured by items entering: or leaving: a state, not by state: or measure:",
+                         s.at("state") or s.at("measure"), "items-on-flow")
+            if ("entering" in q) == ("leaving" in q):
+                self.err(f"{sw}: on a flow, say entering: or leaving: (the state the items move into or out of)", s.where,
+                         "items-on-flow")
+            q["over"] = self.duration(s, "over", sw, 3600.0)
+        w = s.get("where")
+        if w is not None:
+            if not isinstance(w, dict):
+                self.err(f"{sw}.where: a map of field: value (or a list of values)", s.at("where"), "not-a-map")
+            else:
+                q["where"] = {str(k): (list(v) if isinstance(v, list) else v) for k, v in w.items()}
+        q["at"] = s.where
+        return q
+
+    def item_kind(self, name: str, m: Map, what: str) -> ItemKind:
+        self.keys(m, ITEM_KEYS, what)
+        id = m.get("id")
+        if not isinstance(id, str) or "/" not in id or id.startswith("/"):
+            self.err(f"{what}.id: which ids are this kind, a pattern with a / in it, like github/pull_request/* "
+                     f"(ids without a / are ergostat's own parts)", m.at("id") or m.where, "bad-id")
+            id = f"{name}/*"
+        states = m.get("states") or []
+        if not isinstance(states, list) or not all(isinstance(x, str) and NAME.match(x) for x in states):
+            self.err(f"{what}.states: a list of state names (lowercase letters, digits and -); the first is where a new "
+                     f"item starts", m.at("states"), "bad-states")
+            states = []
+        on = m.get("on") or {}
+        moves = {}
+        if not isinstance(on, dict):
+            self.err(f"{what}.on: a map of event type: the state it moves the item to", m.at("on"), "not-a-map")
+        else:
+            from ..runner import TYPE_NAME
+            for ev, st in on.items():
+                if not isinstance(ev, str) or not TYPE_NAME.match(ev):
+                    self.err(f"{what}.on: {ev!r} is not an event type (lowercase words joined by dots: ticket.opened)",
+                             on.at(ev), "bad-type")
+                elif str(st) not in states:
+                    self.err(f"{what}.on.{ev}: {st!r} is not one of its states ({', '.join(states) or 'none'})", on.at(ev),
+                             "unknown-state")
+                else:
+                    moves[ev] = str(st)
+            if moves and not states:
+                self.err(f"{what}: on: moves items between states; list them under states:", m.where, "bad-states")
+        show = m.get("show") or []
+        if not isinstance(show, list):
+            self.err(f"{what}.show: a list of field names", m.at("show"), "bad-show")
+            show = []
+        return ItemKind(name, id, list(states), moves, [str(x) for x in show], self.system("items", name, m),
+                        self.text(m, "description"), m.where)
+
+    def counted(self, spec: Spec) -> None:
+        """Sensors that count items name a kind and its states."""
+        for s in spec.sensors():
+            q = s.items
+            if q is None:
+                continue
+            sw, w = f"sensor {s.of.name}.{s.name}", q.pop("at", None) or s.where
+            k = spec.items.get(q["kind"])
+            if k is None:
+                self.err(f"{sw}.items: {q['kind']!r} is not a kind of item" + self.suggest(q["kind"], spec.items), w,
+                         "unknown-ref")
+                continue
+            for st in [*(q.get("state") or []), *[q[x] for x in ("entering", "leaving") if x in q]]:
+                if st not in k.states:
+                    self.err(f"{sw}: {st!r} is not a state of {k.name} ({', '.join(k.states) or 'it has none'})", w,
+                             "unknown-state")
 
     def named(self, section: str):
         for name, m in self.doc.sections[section].items():
@@ -225,6 +320,8 @@ class Compiler:
             if t == "prometheus" and not m.get("url"):
                 self.err(f"{what}: a prometheus source needs url:", m.where, "missing-key")
             spec.sources[name] = Source(name, t, self.text(m, "url"), m.where)
+        for name, m, _ in self.named("items"):
+            spec.items[name] = self.item_kind(name, m, f"item kind {name}")
         for name, m, what in self.named("stocks"):
             self.keys(m, STOCK_KEYS, what)
             st = Stock(name, self.text(m, "unit"), self.number(m, "limit", what), self.number(m, "initial", what),
@@ -285,6 +382,7 @@ class Compiler:
             if b:
                 spec.blocks[name] = b
         self.implied(spec)
+        self.counted(spec)
         self.references(spec)
         return spec
 

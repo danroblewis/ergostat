@@ -184,16 +184,27 @@ class Events:
             return [self._row(r) for r in c.execute("select * from events where causedby = ? order by seq", (id,))]
 
     def items(self, since: float | None = None, own: bool = False) -> list[dict]:
-        """Each item: how many events, the first and last, and the latest type. Items that only
-        ergostat's own events are about (agents, valves, controllers, loops) are left out unless
-        ``own``."""
-        theirs = "sum(case when " + " or ".join(f"type like '{p}.%'" for p in OWN) + " then 0 else 1 end)"
-        sql = ("select item, count(*) n, min(time) first, max(time) last, " + theirs + " theirs, "
+        """Each item (an id with a ``/`` in it: ``ticket/12``): how many events, the first and last,
+        and the latest type. With ``own``, also the parts ergostat's own events are about."""
+        sql = ("select item, count(*) n, min(time) first, max(time) last, "
                "(select type from events e2 where e2.item = e.item order by seq desc limit 1) latest "
-               "from events e where item is not null" + (" and time >= ?" if since else "") +
-               " group by item" + ("" if own else " having theirs > 0") + " order by last desc")
+               "from events e where item is not null" + ("" if own else " and item like '%/%'") +
+               (" and time >= ?" if since else "") + " group by item order by last desc")
         with self._c() as c:
             return [dict(r) for r in c.execute(sql, (since,) if since else ())]
+
+    def of_items(self, globs: list[str] | None = None, until: float | None = None) -> list[dict]:
+        """Every event about an item (an id with a ``/``), or about ids matching one of ``globs``,
+        oldest first."""
+        where, args = ["item like '%/%'"], []
+        if globs:
+            where.append("(" + " or ".join("item glob ?" for _ in globs) + ")")
+            args += globs
+        if until is not None:
+            where.append("time <= ?")
+            args.append(until)
+        with self._c() as c:
+            return [self._row(r) for r in c.execute("select * from events where " + " and ".join(where) + " order by seq", args)]
 
     def count(self) -> int:
         with self._c() as c:

@@ -159,7 +159,8 @@ def read_manual(p, name: str, value: float) -> int:
         print(f"no sensor {name!r}: name it as its stock (or flow) and sensor, like inbox.eyes", file=sys.stderr)
         return 2
     if not s.manual:
-        print(f"sensor {name} reads itself ({'run' if s.run else 'query'}); only a manual: true sensor takes a person's "
+        how = "run" if s.run else "items" if s.items else "query"
+        print(f"sensor {name} reads itself ({how}); only a manual: true sensor takes a person's "
               f"readings", file=sys.stderr)
         return 2
     p.measurements.add(s.series, float(value))

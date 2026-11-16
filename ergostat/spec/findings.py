@@ -59,6 +59,6 @@ def find(spec: Spec) -> list[Problem]:
             say("unguarded-limit", f"stock {st.name}: has a limit ({st.limit:g}) but no goal: nothing keeps it from it",
                 st.where, f"stock.{st.name}")
     for s in spec.sensors():
-        if s.query is None and s.run is None and not s.manual:
+        if not s.measured and not s.manual:
             continue
     return out

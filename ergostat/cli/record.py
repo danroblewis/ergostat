@@ -23,6 +23,8 @@ RUNS = ("agent.started", "agent.ran")    # the bookkeeping of each run: --runs s
 
 def cmd_event(args) -> int:
     p = open_project(args)
+    if args.add:
+        return add_event(p, args)
     if args.name:
         e = p.events.get(args.name)
         if e is None:
@@ -62,33 +64,68 @@ def cmd_event(args) -> int:
         return 0
 
 def cmd_item(args) -> int:
+    from ..spec import items as its
     p = open_project(args)
+    spec = getattr(p.model, "spec", None)
     if not args.name:
-        since = time.time() - parse_duration(args.since, "--since") if args.since else None
-        its = p.events.items(since, own=args.all)
+        got = its.listing(p.events, spec, kind=args.kind, state=args.state)
         if args.json:
-            return out_json(its)
-        print(table(["ITEM", "EVENTS", "LATEST", "LAST", "FIRST"],
-                    [[i["item"], str(i["n"]), i["latest"], ago(i["last"]), ago(i["first"])] for i in its[:args.n]],
-                    "no items yet: an item is what your agents' events are about (\"item\": ...)"
-                    + ("" if args.all else "; --all also lists the parts and agents")))
+            return out_json(got)
+        for k in got["kinds"]:
+            counts = " · ".join(f"{s} {k['counts'].get(s, 0)}" for s in k["states"]) or f"{sum(k['counts'].values())} items"
+            print(f"{c(k['name'], 'accent')} {c(k['id'], 'dim')}  {counts}")
+        if got["kinds"]:
+            print()
+        show = sorted({f for k in got["kinds"] for f in k["show"] if args.kind in (None, k["name"])})
+        rows = [[i["id"], i["kind"] or "-", i["state"] or "-", *[str(i["fields"].get(f, ""))[:30] for f in show],
+                 str(i["events"]), i["latest"], ago(i["entered"] or i["first"]), ago(i["last"])] for i in got["items"][:args.n]]
+        print(table(["ITEM", "KIND", "STATE", *[f.upper() for f in show], "EVENTS", "LATEST", "IN STATE SINCE", "LAST"], rows,
+                    "no items yet: an item is what events with an id like ticket/12 are about "
+                    "(a block prints {\"event\": \"ticket.opened\", \"item\": \"ticket/12\"})"))
+        if got["total"] > args.n:
+            print(c(f"{got['total'] - args.n} more (-n)", "dim"))
         return 0
-    evs = p.events.query(n=None, item=args.name)
-    if not evs:
+    d = its.detail(p.events, spec, args.name)
+    if d is None:
         print(f"no item {args.name!r}", file=sys.stderr)
         return 2
-    fields: dict = {}
-    for e in evs:
-        fields.update(e["data"])
     if args.json:
-        return out_json({"item": args.name, "fields": fields, "events": evs})
-    print(f"{c('item', 'dim')} {args.name} · {len(evs)} events · latest {evs[-1]['type']} {ago(evs[-1]['time'])}")
-    for k, v in sorted(fields.items()):
-        print(f"  {k:<14} {json.dumps(v, default=str)[:90]}")
+        return out_json(d)
+    kind = f" · {d['kind']}" if d["kind"] else " · no kind (no items: entry matches it)"
+    state = f" · {c(d['state'], 'accent')} since {ago(d['entered'])}" if d["state"] else ""
+    print(f"{c('item', 'dim')} {args.name}{kind}{state} · {d['events']} events, first {ago(d['first'])}")
+    for k, v in sorted(d["fields"].items()):
+        print(f"  {k:<14} {json.dumps(v, default=str)}")
+    if d["moves"]:
+        print()
+        for mv in d["moves"]:
+            print(f"  {c(time.strftime('%H:%M:%S', time.localtime(mv['time'])), 'dim')}  {mv['from'] or '-'} → {mv['to']}"
+                  f"  {c(mv['type'], 'dim')}")
     print()
-    for e in evs[-args.n:]:
+    for e in d["record"][-args.n:]:
         print(event_line(e))
     return 0
+
+
+def add_event(p, args) -> int:
+    from ..runner import OWN_TYPES, TYPE_NAME
+    t = args.add
+    if not TYPE_NAME.match(t) or t.startswith((*OWN_TYPES, "block.", "person.")):
+        print(f"{t!r}: an event type is lowercase words joined by dots (ticket.opened), and not ergostat's own",
+              file=sys.stderr)
+        return 2
+    try:
+        data = json.loads(args.data) if args.data else {}
+    except ValueError as e:
+        print(f"--data: not JSON ({e})", file=sys.stderr)
+        return 2
+    if not isinstance(data, dict):
+        print("--data: a JSON object ({\"title\": \"...\"})", file=sys.stderr)
+        return 2
+    ev = p.events.add(t, item=args.item, source=args.by or "user", data=data)
+    print(json.dumps(ev, default=str) if args.json else event_line(ev))
+    return 0
+
 
 def cmd_residual(args) -> int:
     p = open_project(args)

@@ -65,7 +65,7 @@ to say:
 ```
 {"out": "flow.rotated", "moved": 412}
 {"decision": "rotated app.log: 612 MB", "why": "over the goal by 112"}
-{"event": "logs.rotated", "item": "app.log"}
+{"event": "logs.rotated", "item": "log/app.log"}
 ```
 
 Everything else it prints goes to its log. `ERGOSTAT_COMMAND` holds the amount too, for a shell
@@ -100,3 +100,30 @@ directory (`ergostat block rotate --now` prints where).
 
 ergostat records `person.asked` when the goal goes off; the person answers with
 `ergostat block oncall --done 4`. A person who has not answered within the hour is a finding.
+
+## Items: what the work is made of
+
+An event about an id with a `/` in it (`ticket/12`, `github/pull_request/4231`) is about an item.
+A block reports one with `{"event": "ticket.started", "item": "ticket/12", "data": {"title": "..."}}`;
+something outside reports with `ergostat event --add ticket.opened --item ticket/12 --data '{...}'`
+(or `record_event` over MCP). A kind of item gives it states, and a stock can count them:
+
+```yaml
+items:
+  ticket:
+    id: ticket/*
+    states: [open, doing, done]
+    on:
+      ticket.started: doing
+      ticket.closed: done
+stocks:
+  backlog:
+    unit: tickets
+    sensor:
+      items: ticket
+      state: open
+      every: 30s
+```
+
+`ergostat item` lists them by kind and state; `ergostat item ticket/12` shows one, how it moved,
+and every event about it. The page's Items tab shows the same.

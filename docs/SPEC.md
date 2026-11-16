@@ -11,7 +11,8 @@ of this document.
 ## 1. Principles
 
 1. **Four kinds of thing are written, and a fifth when it says something.** Stocks, flows, goals
-   and blocks; and agents, only for machines shared by several blocks. Valves, controllers,
+   and blocks; and agents, only for machines shared by several blocks. (Kinds of item, section 5a,
+   say how to read the record, not what the system is.) Valves, controllers,
    disturbances, errors, loops and diagrams are worked out from them, never declared.
 2. **Two layers.** The material layer (stocks and flows: where work moves and accumulates) and
    the information layer (blocks and the signals between them: deciding and commanding). This is
@@ -87,6 +88,8 @@ defaults:
   system: core
 sources:                        # where existing metrics live
   ...
+items:                          # optional: kinds of item, read from the record
+  ...
 systems:                        # optional: names and descriptions of groups
   ...
 stocks:
@@ -130,10 +133,53 @@ stocks:
 
 A stock with no sensor cannot be judged: any goal on it is reported (section 12).
 
+## 5a. Items
+
+What the work is made of, one thing at a time: a ticket, a pull request, a deploy, a customer's
+order. An item is not written in the model; it is every event about one id, replayed in order.
+Its id names it the way the system it lives in does, with a `/` in it: `ticket/12`,
+`github/pull_request/4231`. (ergostat's own events are about the model's parts, whose names never
+have a `/`; the two never mix.) An event about an item comes from a block's output
+(`{"event": "pr.merged", "item": "github/pull_request/4231", "data": {...}}`), from
+`ergostat event --add`, or from an agent over MCP (`record_event`).
+
+A kind of item says which ids are that kind, and the states they move through:
+
+```yaml
+items:
+  pr:
+    id: github/pull_request/*        # a glob over ids
+    states: [open, review, merged, closed]
+    on:                              # event type: the state it moves the item to
+      pr.review-asked: review
+      pr.merged: merged
+      pr.closed: closed
+    show: [title, author]            # fields worth a column on the Items page
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `id` | glob with a `/` | required | Which ids are this kind. The first kind that matches an id is its kind |
+| `states` | list of names | none | The states, in their usual order; a new item starts in the first |
+| `on` | map of event type → state | none | Which events move an item, and where to |
+| `show` | list of field names | none | Columns for the Items page and `ergostat item` |
+| `system`, `description` | | | |
+
+**Folding.** An item's fields are its events' `data`, merged in order (the latest value of each
+field wins). Its state is the first state until an event its kind maps moves it; every move is
+kept (from, to, when, by which event), so how long it spent in each state is known. An item no
+kind matches is still shown, with its fields and no state.
+
+Items are counted by sensors (section 6): a stock may be the number of items in some states, and
+a flow the rate at which items enter or leave one. The record is then the instrument: what is
+counted is what the events say, so a stock counted from items is only as true as the events
+reporting them.
+
 ## 6. Sensors
 
 An instrument: it measures one stock or one flow, and nothing else. It never decides or acts. It
-is written inside the stock or flow it measures. Exactly one of `run`, `query` or `manual`:
+is written inside the stock or flow it measures. Exactly one of `run`, `query`, `manual` or
+`items`:
 
 ```yaml
 sensors:
@@ -149,11 +195,38 @@ sensors:
     manual: true                 # a person records readings: ergostat sensor inbox.eyes --read 12
 ```
 
+Counting items (section 5a), on a stock and on a flow:
+
+```yaml
+stocks:
+  in-review:
+    unit: prs
+    sensor:
+      items: pr
+      state: review              # one state, or a list: [open, review]
+      where:                     # optional: only items whose fields match
+        label: bug
+      every: 30s
+flows:
+  merging:
+    from: in-review
+    sensor:
+      items: pr
+      entering: merged           # or leaving: review
+      over: 1h                   # the rate per hour over this window (default 1h)
+```
+
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `run` | command | | A command whose output is the reading: a bare number, or JSON `{"value": n}` |
 | `query` | map | | A query against a source (section 11): `source` and the source's own fields |
 | `manual` | bool | | Readings recorded by a person |
+| `items` | item kind | | Counted from the record: on a stock, the items in `state` (any state when left out); on a flow, the items `entering` or `leaving` a state per hour, over `over` |
+| `state` | state or list | any | On a stock: which states count |
+| `measure` | `count` or `oldest` | `count` | On a stock: how many, or the hours the oldest of them has been in its state |
+| `entering`, `leaving` | state | | On a flow: exactly one; the move it counts |
+| `over` | duration | `1h` | On a flow: the window the rate is taken over |
+| `where` | map of field → value (or list) | | Only items whose fields match |
 | `every` | duration | `1m` | How often it reads (`run`, `query`) |
 | `cron` | cron expression | | Instead of `every` |
 | `timeout` | duration | `30s` | |
@@ -365,8 +438,8 @@ amount and, when they differ, what was asked.
 
 **Reading a machine block's output.** A bare number goes to its single output (a flow: what it
 moved; a block: a command; a goal: a setpoint). JSON lines may also be `{"moved": n}` without
-`out` when it moves one flow, and `{"event": "backup.verified", "item": "nightly"}` for anything
-else that happened. Lines that are not JSON go to its log (`logs/<block>.log` in the state
+`out` when it moves one flow, and `{"event": "backup.verified", "item": "backup/nightly"}` for
+anything else that happened (an event about an item, section 5a; `data` holds its fields). Lines that are not JSON go to its log (`logs/<block>.log` in the state
 directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_COMMAND` (the amount) and
 `ERGOSTAT_STATE_DIR`. An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
 with its prompt, the JSON above, and how to answer.
@@ -456,7 +529,10 @@ stock-and-flow diagram, block diagrams, the wiring of agents.
 - a flow with neither `from` nor `to`;
 - a goal without exactly one of `stock` and `flow`, without `hold`, or with a setpoint that does
   not parse;
-- a sensor with none or more than one of `run`, `query`, `manual`;
+- a sensor with none or more than one of `run`, `query`, `manual`, `items`;
+- an item kind whose `id` has no `/`, an `on` naming a state not in `states`, or a sensor counting
+  a kind or state that does not exist (or `state`/`measure` on a flow, `entering`/`leaving`/`over`
+  on a stock);
 - two blocks outputting to the same flow;
 - a `run`, `prompt` or `ask` on an external block, or a built-in block with an `agent`;
 - a block whose agent cannot run its type (an `ai` block on an agent of kind `person`);

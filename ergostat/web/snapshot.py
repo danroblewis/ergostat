@@ -68,10 +68,10 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
                 got["log"] = ["(left out of this snapshot: ergostat snapshot --with-logs puts it in)"]
                 got.pop("log_path", None)
             data[key(path, params)] = got
-    for it in (data.get("items") or [])[:40]:
-        got = api(live, f"items/{_q(it['item'])}", {"since": [since]})
+    for it in ((data.get("items") or {}).get("items") or [])[:40]:
+        got = api(live, f"items/{_q(it['id'])}", {"since": [since]})
         if got is not None:
-            data[f"items/{_q(it['item'])}"] = got
+            data[f"items/{_q(it['id'])}"] = got
     if not logs:                                  # what an agent printed but ergostat could not read is its log too
         _strip(data)
     snap = {"at": time.time(), "since": since, "name": project.model.name, "data": data}

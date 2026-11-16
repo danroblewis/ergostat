@@ -195,8 +195,8 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
 owner's absence*), read only. Pages: Diagram (control, blocks and wiring views; the side panel:
 attention, loops or cycles, model changes, legend), Loops, Agents (the ladder, one column per
-rung), Parts (every kind of part, as the command line's part topics), Record (events, with runs
-hidden by default; items), Residuals, Check, and a Guide that explains the ideas with the system's
+rung), Items (the record folded by id, by kind and state), Record (events, with runs
+hidden by default), Residuals, Check, and a Guide that explains the ideas with the system's
 own parts as examples. Clicking a part opens what `ergostat <topic> <name>` shows.
 A slider in the header moves the whole page to a past moment (the API's `at`), with
 "back to live". Light and dark themes; usable at phone width.

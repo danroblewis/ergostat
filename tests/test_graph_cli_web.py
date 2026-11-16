@@ -269,10 +269,10 @@ def test_a_snapshot_is_one_file_holding_the_answers_the_page_asks_for(project):
 
 def test_a_snapshot_survives_html_in_the_record_and_odd_item_names(project):
     from ergostat.web.snapshot import build
-    project.events.add("note.made", item="fix(1)", source="x", data={"text": "<!--<script>alert(1)</script>"})
+    project.events.add("note.made", item="note/fix(1)", source="x", data={"text": "<!--<script>alert(1)</script>"})
     html = build(project)
     assert "<!--<script" not in html and "alert(1)</script>" not in html
-    assert '"items/fix(1)"' in html                     # the key the page's encodeURIComponent asks for
+    assert '"items/note%2Ffix(1)"' in html                     # the key the page's encodeURIComponent asks for
     assert html.count("</script>") == html.lower().count("<script")
 
 

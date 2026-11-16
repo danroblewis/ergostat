@@ -90,7 +90,7 @@ def find(project, spec: Spec, window: float = WINDOW, now: float | None = None) 
                 f"they report with ergostat block {b.name} --done N", b.where, f"block.{b.name}")
     # a sensor gone quiet
     for s in spec.sensors():
-        if s.manual or not (s.run or s.query):
+        if s.manual or not s.measured:
             continue
         last = ms.latest(s.series)
         period = s.every or 60.0

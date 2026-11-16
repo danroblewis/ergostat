@@ -189,11 +189,31 @@ function sparkSvg(points, w, hgt, setpoint = null) {
 }
 const setpointOf = (sp) => { const m = /(-?\d+(\.\d+)?)/.exec(sp || ""); return m ? +m[1] : null; };
 
+function partLink(name) {                              // ergostat's own events are about a part: open it
+  if (S.status?.loops && name in S.status.loops) return h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(name); } }, name);
+  return h("a", { href: "#", class: "muted", title: "a part of the model", onclick: (ev) => { ev.preventDefault(); openAgent(name).catch(() => {}); } }, name);
+}
+function itemLink(id) {
+  return id.includes("/") ? h("a", { href: `#/item/${encodeURIComponent(id)}` }, id) : partLink(id);
+}
+function dataCell(d) {                                  // the whole of it, one click away
+  const flat = JSON.stringify(d || {});
+  if (flat === "{}") return h("td", { class: "mono muted" }, "");
+  if (flat.length <= 110) return h("td", { class: "mono muted data" }, flat);
+  return h("td", { class: "mono muted data" }, h("details", {}, h("summary", {}, flat.slice(0, 100) + " …"),
+    h("pre", {}, JSON.stringify(d, null, 2))));
+}
 function eventsTable(evs, compact) {
   return h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
-    evs.slice().reverse().map((e) => h("tr", {}, h("td", { class: "num nowrap" }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
-      h("td", { class: "nowrap" }, e.type),
-      compact ? null : h("td", { class: "nowrap" }, e.item ? h("a", { href: `#/item/${encodeURIComponent(e.item)}` }, e.item) : "–"),
-      h("td", { class: "muted nowrap" }, e.source || "–"), h("td", { class: "mono muted" }, JSON.stringify(e.data).slice(0, 110)))));
+    evs.slice().reverse().map((e) => h("tr", {}, h("td", { class: "num nowrap", title: new Date(e.time * 1000).toLocaleString() }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+      h("td", { class: "nowrap" }, h("a", { href: "#", class: "plain", title: `event ${e.id}`, onclick: (ev) => { ev.preventDefault(); showEvent(e); } }, e.type)),
+      compact ? null : h("td", { class: "nowrap" }, e.item ? itemLink(e.item) : "–"),
+      h("td", { class: "muted nowrap" }, e.source || "–"), dataCell(e.data))));
+}
+function showEvent(e) {                                 // one event, all of it, in the side panel
+  showDetail(h("div", { class: "kind" }, "event"), h("h2", {}, e.type),
+    dl([["item", e.item ? itemLink(e.item) : null], ["source", e.source], ["when", new Date(e.time * 1000).toLocaleString()], ["id", e.id],
+        ["caused by", e.causedby]]),
+    h("pre", {}, JSON.stringify(e.data || {}, null, 2)));
 }
 

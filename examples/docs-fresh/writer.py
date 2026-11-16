@@ -13,4 +13,4 @@ with world(START) as w:
     done = min(int(cmd["amount"]), w["stale"])
     w["stale"] -= done
 print(json.dumps({"out": "flow.pages-refreshed", "moved": done, "note": f"rewrote {cmd.get('item', 'a page')} and its neighbours"}))
-print(json.dumps({"event": "docs.page.rewritten", "item": cmd.get("item"), "data": {"pages": done}}))
+print(json.dumps({"event": "docs.page.rewritten", "item": f"doc/{cmd.get('item')}", "data": {"pages": done}}))

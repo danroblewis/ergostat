@@ -22,8 +22,21 @@ def _when(x) -> str:
     return ""
 
 
+def _items(q: dict) -> str:
+    where = "".join(f", {k} {'/'.join(map(str, v)) if isinstance(v, list) else v}" for k, v in (q.get("where") or {}).items())
+    if q.get("entering") or q.get("leaving"):
+        verb = "entering" if q.get("entering") else "leaving"
+        return f"counts {q['kind']} items {verb} {q.get('entering') or q.get('leaving')}{where} (per hour, over " \
+               f"{human(q.get('over') or 3600)})"
+    states = " or ".join(q.get("state") or []) or "any state"
+    if q.get("measure") == "oldest":
+        return f"reads the hours the oldest {q['kind']} item has been in {states}{where}"
+    return f"counts the {q['kind']} items in {states}{where}"
+
+
 def _sensor(s) -> str:
-    how = f"runs `{s.run}`" if s.run else f"queries {s.query.get('source')}" if s.query else "is read by a person"
+    how = (f"runs `{s.run}`" if s.run else f"queries {s.query.get('source')}" if s.query else _items(s.items) if s.items
+           else "is read by a person")
     when = _when(s) if not s.manual else ""
     return f"{s.of.kind}.{s.of.name}.{s.name} {how}" + (f" {when}" if when else "")
 
@@ -55,6 +68,9 @@ class Explainer:
             return f"{k} {w}{'' if k == 1 else 's'}"
         out = [f"{s.name}: {n(len(s.stocks), 'stock')}, {n(len(s.flows), 'flow')}, {n(len(s.goals), 'goal')}, "
                f"{n(len(s.blocks), 'block')} ({', '.join(str(f.name) for f in s.files)})."]
+        if s.items:
+            out.append("Items: " + "; ".join(f"{k.name} ({k.id}" + (f": {' → '.join(k.states)}" if k.states else "") + ")"
+                                            for k in s.items.values()) + ".")
         for g in s.goals:
             lp = s.loop(g)
             out.append("")

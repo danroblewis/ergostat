@@ -45,6 +45,15 @@
         "$ref": "#/$defs/system"
       }
     },
+    "items": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/item_kind"
+      }
+    },
     "stocks": {
       "type": "object",
       "propertyNames": {
@@ -197,6 +206,40 @@
         },
         "description": {
           "type": "string"
+        },
+        "items": {
+          "$ref": "#/$defs/name"
+        },
+        "state": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/name"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/name"
+              }
+            }
+          ]
+        },
+        "measure": {
+          "enum": [
+            "count",
+            "oldest"
+          ]
+        },
+        "entering": {
+          "$ref": "#/$defs/name"
+        },
+        "leaving": {
+          "$ref": "#/$defs/name"
+        },
+        "over": {
+          "$ref": "#/$defs/duration"
+        },
+        "where": {
+          "type": "object"
         }
       },
       "oneOf": [
@@ -213,6 +256,11 @@
         {
           "required": [
             "manual"
+          ]
+        },
+        {
+          "required": [
+            "items"
           ]
         }
       ],
@@ -834,6 +882,43 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "item_kind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[^/].*/"
+        },
+        "states": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/name"
+          }
+        },
+        "on": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/name"
+          }
+        },
+        "show": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "system": {
+          "$ref": "#/$defs/name"
+        },
         "description": {
           "type": "string"
         }

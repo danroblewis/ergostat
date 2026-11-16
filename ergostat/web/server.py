@@ -184,13 +184,11 @@ def api(live: Live, path: str, q: dict):
         return p.events.query(n=int(one("n") or 100), type=one("type"), item=one("item"), source=one("source"),
                               after_seq=int(after) if after else None, skip=skip)
     if head == "items":
+        from ..spec import items as its
+        spec = getattr(m, "spec", None)
         if name:
-            evs = p.events.query(n=None, item=name)
-            fields = {}
-            for e in evs:
-                fields.update(e["data"])
-            return {"item": name, "fields": fields, "events": evs[-200:]}
-        return p.events.items(own=bool(one("all")))[:200]
+            return its.detail(p.events, spec, name, until=snap["at"])
+        return its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"])
     if head == "residuals":
         return snap["residuals"]
     if head == "parts":

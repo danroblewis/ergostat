@@ -260,7 +260,7 @@ class Engine:
             fl = self.spec.flows[f]
             for st in (fl.source, fl.target):
                 if st in self.spec.stocks:
-                    out += [s for s in self.spec.stocks[st].sensors.values() if s.run or s.query]
+                    out += [s for s in self.spec.stocks[st].sensors.values() if s.measured]
         return out
 
     def context(self, b: Block, why: str) -> dict:
@@ -372,7 +372,7 @@ class Engine:
 
     def _read(self, s: Sensor) -> None:
         try:
-            v, why = read_sensor(self.spec, s)
+            v, why = read_sensor(self.spec, s, self.p.events)
             if v is None:
                 self.p.events.add("sensor.failed", item=sensor_name(s.of.name, s.name), source=SOURCE, data={"why": why})
                 self.say(f"sensor {s.of.name}.{s.name}: {why}")
@@ -390,11 +390,11 @@ class Engine:
     def _schedule(self) -> None:
         from ..cron import Cron
         due: dict[str, float] = {}
-        timed = [s for s in self.spec.sensors() if (s.run or s.query) and not s.cron]
+        timed = [s for s in self.spec.sensors() if s.measured and not s.cron]
         timed_blocks = [b for b in self.machines if (b.every and not b.cron) and not self.spec.commanders_of(b.name)]
         crons: dict[str, tuple] = {}
         for s in self.spec.sensors():
-            if (s.run or s.query) and s.cron:
+            if s.measured and s.cron:
                 crons[s.series] = (Cron(s.cron), lambda s=s: self.read_soon(s))
         for b in self.machines:
             if b.cron and not self.spec.commanders_of(b.name):
@@ -595,8 +595,13 @@ class Said:
             self.counts["commands"] += 1
 
 
-def read_sensor(spec: Spec, s: Sensor) -> tuple[float | None, str]:
-    """One reading: the number, or None and why not."""
+def read_sensor(spec: Spec, s: Sensor, events=None) -> tuple[float | None, str]:
+    """One reading: the number, or None and why not. Counting items needs the record."""
+    if s.items is not None:
+        if events is None:
+            return None, "items are counted from the record, and there is none here"
+        from .items import measure
+        return measure(events, spec, s)
     if s.query is not None:
         src = spec.sources[s.query["source"]]
         if src.type == "prometheus":

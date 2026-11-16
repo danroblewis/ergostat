@@ -1,4 +1,4 @@
-/* the pages besides the diagram: Loops, Agents, Parts, Record, an item, Residuals, Guide, Check */
+/* the pages besides the diagram: Loops, Agents, Record, Items, an item, Residuals, Guide, Check */
 "use strict";
 /* ------------------------------------------------------------------ the other pages */
 
@@ -61,69 +61,81 @@ async function pageAgents(main) {
   S.timer = setInterval(tick, 3000);
 }
 
-async function pageParts(main, q) {
-  const p = page(main, "Parts", "Every part of the model, one kind at a time, with what it holds or does now. Click a row for its detail.");
-  const kinds = ["system", "stock", "flow", "valve", "sensor", "controller", "disturbance"];
-  const on = q.get("kind") || "stock";
-  p.append(h("div", { class: "seg tabs" }, kinds.map((k) => h("button", { class: k === on ? "on" : "", onclick: () => { location.hash = `#/parts?kind=${k}`; } }, k + "s"))));
-  const box = h("div", { style: "margin-top:14px" });
-  p.append(box);
-  const badgeEl = (a) => a ? h("span", { class: "rungpill", style: `background:${rungColor(a.rung)}` }, `${a.kind} · ${a.name}`) : h("span", { class: "s-open status" }, "unfilled");
-  const rowsFor = {
-    system: (x) => [h("b", {}, x.name), x.description, String(x.parts), x.loops.join(", ") || "–", x.off.length ? h("span", { class: "s-off status" }, x.off.join(", ")) : "0"],
-    stock: (x) => [h("b", {}, x.name), h("span", { class: "num" }, `${fmt(x.value)} ${x.unit}`), x.points.length > 1 ? sparkSvg(x.points, 130, 26) : "",
-                   x.sensor || h("span", { class: "s-open status" }, "unmeasured"), h("span", { class: "num" }, `${fmt(x.inflow)}/h in · ${fmt(x.outflow)}/h out`)],
-    flow: (x) => [h("b", {}, x.name), x.from || "outside", x.to || "outside", h("span", { class: "num" }, `${fmt(x.rate)}/h`), h("span", { class: "muted" }, x.how)],
-    disturbance: (x) => [h("b", {}, x.name), x.from || "outside", x.to || "outside", h("span", { class: "num" }, `${fmt(x.rate)}/h`), h("span", { class: "muted" }, x.how)],
-    valve: (x) => [h("b", {}, x.name), x.flow, x.mode, badgeEl(x.agent), h("span", { class: "num" }, x.position != null ? fmt(x.position) : "–"),
-                   h("span", { class: "num" }, `${fmt(x.rate)}/h`), ago(x.last)],
-    sensor: (x) => [h("b", {}, x.name), x.measures, badgeEl(x.agent), h("span", { class: "num" }, fmt(x.reading)), ago(x.at)],
-    controller: (x) => [h("b", {}, x.name), `${x.holds} ${x.setpoint}`, statusEl(x.status), badgeEl(x.agent)],
-  };
-  const heads = { system: ["system", "description", "parts", "loops", "off"], stock: ["stock", "now", "trend", "measured by", "flows"],
-                  flow: ["flow", "from", "to", "rate", "how we know"], disturbance: ["disturbance", "from", "to", "rate", "how we know"],
-                  valve: ["valve", "flow", "mode", "filled by", "open", "rate", "last opened"], sensor: ["sensor", "measures", "filled by", "reading", "read"],
-                  controller: ["controller", "holds", "status", "filled by"] };
-  const open = (x) => on === "system" ? (location.hash = `#/diagram?system=${encodeURIComponent(x.name)}`)
-                    : on === "controller" ? openLoop(x.name)
-                    : openNode({ id: `${on === "valve" ? "valve" : on}:${x.name}`, kind: on, label: x.name, flow: x.name });
-  async function tick() {
-    const all = await api("parts");
-    const rows = all[on] || [];
-    box.replaceChildren(rows.length ? h("table", {}, h("tr", {}, heads[on].map((x) => h("th", {}, x))),
-      rows.map((x) => h("tr", { class: "click", onclick: () => open(x) }, rowsFor[on](x).map((c) => h("td", {}, c)))))
-      : h("p", { class: "muted" }, `no ${on}s`));
-  }
-  await tick();
-  S.timer = setInterval(tick, 3000);
-}
-
 async function pageRecord(main, q) {
-  const p = page(main, "Record", "Events as they happen, newest first; items are events folded by id.");
-  const filt = h("input", { placeholder: "type, e.g. valve.* or loop.off", value: q.get("type") || "" });
+  const p = page(main, "Record", "Every event, as it happens, newest first. An event about an item (an id like ticket/12) links to that item; one of ergostat's own links to the part it is about.");
+  const filt = h("input", { placeholder: "type, e.g. valve.* or ticket.*", value: q.get("type") || "" });
   const runs = h("input", { type: "checkbox" });
   const box = h("div");
-  const items = h("div");
-  p.append(h("div", { style: "display:flex;gap:12px;align-items:center" }, filt, h("button", { onclick: () => tick(true) }, "filter"),
-                h("label", { class: "muted" }, runs, " show runs (agent.started, agent.ran)")), h("h2", {}, "events"), box, h("h2", {}, "items"), items);
+  p.append(h("div", { class: "filters" }, filt, h("button", { onclick: () => tick() }, "filter"),
+                h("label", { class: "muted" }, runs, " show runs (agent.started, agent.ran)"), h("a", { href: "#/items" }, "the items →")), box);
   runs.addEventListener("change", () => tick());
+  filt.addEventListener("keydown", (ev) => { if (ev.key === "Enter") tick(); });
   async function tick() {
-    const evs = await api("events", { n: 60, ...(runs.checked ? { runs: 1 } : {}), ...(filt.value ? { type: filt.value } : {}) });
-    box.replaceChildren(eventsTable(evs, false));
-    const its = await api("items");
-    items.replaceChildren(h("table", {}, h("tr", {}, ["item", "events", "latest", "last", "first"].map((x) => h("th", {}, x))),
-      its.slice(0, 40).map((i) => h("tr", { class: "click", onclick: () => { location.hash = `#/item/${encodeURIComponent(i.item)}`; } },
-        h("td", {}, h("b", {}, i.item)), h("td", { class: "num" }, i.n), h("td", {}, i.latest), h("td", {}, ago(i.last)), h("td", { class: "muted" }, ago(i.first))))));
+    const evs = await api("events", { n: 80, ...(runs.checked ? { runs: 1 } : {}), ...(filt.value ? { type: filt.value } : {}) });
+    box.replaceChildren(evs.length ? eventsTable(evs, false) : h("p", { class: "muted" }, "nothing recorded yet"));
   }
   await tick();
-  S.timer = setInterval(tick, 3000);
+  S.timer = setInterval(() => { if (!box.querySelector("details[open]")) tick(); }, 3000);
 }
 
-async function pageItem(main, name) {
-  const p = page(main, name, "An item: every event about one id, folded.");
-  const d = await api(`items/${encodeURIComponent(name)}`);
-  p.append(h("h2", {}, "fields"), dl(Object.entries(d.fields).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : String(v)])),
-           h("h2", {}, `events (${d.events.length})`), eventsTable(d.events, true));
+function stateChip(st, on) { return h("span", { class: `chip${on ? " on" : ""}` }, st || "–"); }
+
+async function pageItems(main, q) {
+  const p = page(main, "Items", "The record folded by id: every event about one item (ticket/12, github/pull_request/4231), replayed in order. Its fields are the events' data, the latest winning; its state is where the last event its kind maps moved it. Stocks and flows may count them.");
+  const kinds = h("div", { class: "kinds" }), box = h("div"), search = h("input", { placeholder: "search ids and fields", value: q.get("q") || "" });
+  const more = h("p", { class: "muted small" });
+  p.append(kinds, h("div", { class: "filters" }, search), box, more);
+  let kind = q.get("kind"), state = q.get("state");
+  const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state); if (search.value) u.set("q", search.value);
+                     history.replaceState(null, "", "#/items" + (u.toString() ? "?" + u : "")); tick(); };
+  search.addEventListener("input", () => go());
+  async function tick() {
+    const d = await api("items", { ...(kind ? { kind } : {}), ...(state ? { state } : {}) });
+    kinds.replaceChildren(...[...d.kinds.map((k) => h("div", { class: `kindrow${kind === k.name ? " on" : ""}` },
+      h("a", { href: "#", class: "kname", onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; go(); } }, h("b", {}, k.name), " ", h("span", { class: "muted mono" }, k.id)),
+      h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+        h("a", { href: "#", class: `stbox${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); [kind, state] = kind === k.name && state === st ? [null, null] : [k.name, st]; go(); } },
+          h("span", { class: "n" }, String(k.counts[st] || 0)), h("span", { class: "muted" }, st || "items"))])))),
+      d.unkinded ? h("p", { class: "muted small" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind under items: in ergostat.yaml (shown with their fields, no state)`) : null,
+      !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "no items yet. An item is what events with an id like ticket/12 are about: a block prints {\"event\": \"ticket.opened\", \"item\": \"ticket/12\", \"data\": {...}}, or ergostat event --add ticket.opened --item ticket/12. Its kind (items: in ergostat.yaml) gives it states.") : null].filter(Boolean));
+    const shown = [...new Set(d.kinds.filter((k) => !kind || k.name === kind).flatMap((k) => k.show))];
+    const needle = search.value.trim().toLowerCase();
+    const rows = d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle));
+    box.replaceChildren(rows.length ? h("table", {}, h("tr", {}, ["item", kind ? null : "kind", "state", ...shown, "in state", "events", "latest", "last"].filter((x) => x !== null).map((x) => h("th", {}, x))),
+      rows.slice(0, 300).map((i) => h("tr", { class: "click", onclick: () => { location.hash = `#/item/${encodeURIComponent(i.id)}`; } },
+        h("td", { class: "nowrap" }, h("b", {}, i.id)), kind ? null : h("td", { class: "muted" }, i.kind || "–"), h("td", {}, i.state ? stateChip(i.state, true) : "–"),
+        shown.map((f) => h("td", { class: "cell" }, i.fields[f] == null ? "" : typeof i.fields[f] === "object" ? JSON.stringify(i.fields[f]) : String(i.fields[f]))),
+        h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, i.events), h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))))
+      : (d.items.length ? h("p", { class: "muted" }, "nothing matches") : ""));
+    more.textContent = d.total > rows.length && !needle ? `${d.total - Math.min(rows.length, 300)} more not shown` : "";
+  }
+  await tick();
+  S.timer = setInterval(tick, 4000);
+}
+
+async function pageItem(main, id) {
+  const p = page(main, id, null);
+  const body = h("div");
+  p.append(body);
+  async function tick() {
+    let d;
+    try { d = await api(`items/${encodeURIComponent(id)}`); } catch (e) { d = null; }
+    if (!d) { body.replaceChildren(h("p", { class: "muted" }, "nothing is recorded about this id")); return; }
+    const k = d.kind_of;
+    const head = h("p", { class: "lede" }, k ? [h("a", { href: `#/items?kind=${encodeURIComponent(k.name)}` }, k.name), " · "] : "no kind (nothing under items: matches this id) · ",
+      d.state ? ["in ", stateChip(d.state, true), ` for ${dur(nowS() - d.entered)} · `] : null, `${d.events} events since ${ago(d.first)}, the latest ${d.latest} ${ago(d.last)}`);
+    const track = k && k.states.length ? h("div", { class: "track" }, k.states.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+      h("span", { class: `stbox${st === d.state ? " on" : ""}${d.moves.some((m) => m.to === st) || (i === 0) ? " been" : ""}` }, h("span", {}, st))])) : null;
+    const moves = d.moves.length ? h("table", {}, h("tr", {}, ["when", "from", "to", "by event", "after"].map((x) => h("th", {}, x))),
+      d.moves.map((m, i) => h("tr", {}, h("td", { class: "num nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", {}, m.from || "–"), h("td", {}, stateChip(m.to, true)),
+        h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, dur(m.time - (i ? d.moves[i - 1].time : d.first)))))) : h("p", { class: "muted" }, k && k.states.length ? `it has stayed in ${d.state} since it was first seen` : "its kind has no states");
+    const fields = Object.keys(d.fields).length ? h("table", { class: "fields" }, Object.entries(d.fields).sort(([a], [b]) => (a < b ? -1 : 1)).map(([f, v]) => h("tr", {},
+      h("th", {}, f), h("td", { class: "mono" }, typeof v === "object" && v !== null ? h("pre", {}, JSON.stringify(v, null, 2)) : String(v))))) : h("p", { class: "muted" }, "no fields: its events carry no data");
+    body.replaceChildren(head, track || "", h("h2", {}, "fields"), fields, h("h2", {}, "how it moved"), moves,
+      h("h2", {}, `events (${d.events})`), eventsTable(d.record, true));
+  }
+  await tick();
+  S.timer = setInterval(() => { if (!body.querySelector("details[open]")) tick(); }, 4000);
 }
 
 async function pageResiduals(main) {

@@ -123,7 +123,7 @@ async function route() {
   closeDetail();
   const main = $("#main");
   main.replaceChildren();
-  const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/parts": pageParts, "/record": pageRecord,
+  const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/residuals": pageResiduals, "/check": pageCheck, "/guide": pageGuide };
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)));
   return (pages[path] || pageDiagram)(main, q);

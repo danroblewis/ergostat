@@ -171,7 +171,6 @@ svg.canvas.dragging { cursor: grabbing; }
 .tabs button { border-radius: 0; margin-left: -1px; }
 .tabs button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
 .tabs button:last-child { border-radius: 0 6px 6px 0; }
-.rungpill { color: #fff; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
 code { font-family: var(--mono); font-size: 12px; }
 
 @media (max-width: 700px) {
@@ -221,3 +220,27 @@ body:has(#detail:not([hidden])) .zoom { right: 456px; }               /* never u
 @media (prefers-color-scheme: dark) { .sys-hull text { opacity: 1; filter: brightness(1.5); } }
 .ladder .rung:not(.empty-rung) { flex: 2 1 200px; }                /* the filled rungs get the room */
 .rung b { overflow-wrap: normal; }
+
+/* the items */
+.filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; }
+.filters input { min-width: 16em; }
+.kinds { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; }
+.kindrow { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.kindrow.on { border-color: var(--accent); }
+.kindrow .kname { min-width: 14em; color: var(--ink); }
+.states, .track { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.track { margin: 4px 0 8px; }
+.arrow { color: var(--muted); }
+.stbox { display: inline-flex; gap: 6px; align-items: baseline; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--bg); }
+.stbox .n { font-family: var(--mono); font-weight: 600; }
+a.stbox:hover { border-color: var(--accent); text-decoration: none; }
+.stbox.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); font-weight: 600; }
+.track .stbox:not(.been) { color: var(--muted); border-style: dashed; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
+.chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+td.cell { max-width: 28em; overflow-wrap: anywhere; }
+td.data { overflow-wrap: anywhere; }
+td.data details summary { cursor: pointer; list-style: none; }
+td.data pre, table.fields pre { margin: 6px 0 0; white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; }
+table.fields th { width: 12em; background: transparent; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+a.plain { color: var(--ink); }

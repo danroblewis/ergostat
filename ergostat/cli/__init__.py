@@ -39,7 +39,8 @@ what is wrong, or missing
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
   loop           The feedback loops: what each holds, how far off, each part along it
-  event          The raw record (--follow to watch); item: events folded by id
+  item           The items (ticket/12): each one's kind, state and fields, folded from its events
+  event          The raw record (--follow to watch; --add TYPE records one from outside)
   snapshot       The page, as of now, in one HTML file to send
 
 run it
@@ -132,9 +133,13 @@ def build() -> argparse.ArgumentParser:
     e.add_argument("--source", help="only events from this agent (or ergostat)")
     e.add_argument("--follow", "-f", action="store_true", help="keep printing as events arrive")
     e.add_argument("--runs", action="store_true", help="also each run's start and end (agent.started, agent.ran), left out by default")
-    i = topic("item", cmd_item, "Events folded by id")
+    e.add_argument("--add", metavar="TYPE", help="record an event of this type (ticket.opened): what happened outside")
+    e.add_argument("--data", metavar="JSON", help="with --add: its data, a JSON object")
+    e.add_argument("--as", dest="by", metavar="SOURCE", help="with --add: who says so (default: the user)")
+    i = topic("item", cmd_item, "The items: the record folded by id, with each kind's states")
     i.add_argument("-n", type=int, default=30, help="how many (default 30)")
-    i.add_argument("--all", action="store_true", help="also the parts and agents ergostat's own events are about")
+    i.add_argument("--kind", help="only items of this kind")
+    i.add_argument("--state", help="only items in this state")
     topic("residual", cmd_residual, "What the model can't explain")
     for t in PART_TOPICS:
         sp = topic(t, cmd_part, f"The {t}s, or one")
@@ -160,7 +165,8 @@ def build() -> argparse.ArgumentParser:
     topic("projects", cmd_projects, "Every project on this machine, and which are running", named=False)
     mc = sub.add_parser("mcp", parents=[common], help="Serve ergostat to an AI agent over MCP (stdio)",
                         description="An MCP server on stdin/stdout: check, explain, status, findings, events, spec, "
-                                    "report_done, read_sensor. Add it to Claude Code: claude mcp add ergostat -- ergostat -C DIR mcp")
+                                    "report_done, read_sensor, items, record_event. "
+                                    "Add it to Claude Code: claude mcp add ergostat -- ergostat -C DIR mcp")
     mc.set_defaults(fn=cmd_mcp)
     hp = sub.add_parser("help", help="Guides: blocks (writing their programs), ai-agents, spec (the format)")
     hp.add_argument("name", nargs="?")

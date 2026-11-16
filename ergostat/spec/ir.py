@@ -67,6 +67,7 @@ class Sensor:
     of: Ref                    # the stock or flow it measures
     run: str | None = None
     query: dict | None = None
+    items: dict | None = None  # counted from the record: kind, state, entering, leaving, where, over, measure
     manual: bool = False
     every: float | None = 60.0
     cron: str | None = None
@@ -79,6 +80,11 @@ class Sensor:
     @property
     def ref(self) -> Ref:
         return Ref(self.of.kind, self.of.name, self.name)
+
+    @property
+    def measured(self) -> bool:
+        """Read by ergostat on a schedule (a command, a query, or a count of items), not by hand."""
+        return bool(self.run or self.query or self.items)
 
     @property
     def series(self) -> str:
@@ -187,6 +193,25 @@ class Agent:
 
 
 @dataclass
+class ItemKind:
+    """A kind of item (SPEC §5a): which ids are this kind, the states they move through, and the
+    event types that move them."""
+
+    name: str
+    id: str                    # a glob over ids: github/pull_request/*
+    states: list[str] = field(default_factory=list)   # the first is where a new item starts
+    on: dict[str, str] = field(default_factory=dict)   # event type → the state it moves the item to
+    show: list[str] = field(default_factory=list)      # fields worth a column
+    system: str | None = None
+    description: str = ""
+    where: Where | None = None
+
+    def matches(self, id: str) -> bool:
+        import fnmatch
+        return fnmatch.fnmatchcase(id, self.id)
+
+
+@dataclass
 class Source:
     name: str
     type: str
@@ -222,6 +247,7 @@ class Spec:
     blocks: dict[str, Block] = field(default_factory=dict)
     agents: dict[str, Agent] = field(default_factory=dict)
     sources: dict[str, Source] = field(default_factory=dict)
+    items: dict[str, ItemKind] = field(default_factory=dict)
     systems: dict[str, str] = field(default_factory=dict)
 
     # ---- lookups: the reverse relations, never written

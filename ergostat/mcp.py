@@ -50,6 +50,16 @@ TOOLS = [
     {"name": "read_sensor", "description": "Record a reading of a manual sensor (manual: true), named as its stock and sensor: "
      "inbox.eyes. The same as `ergostat sensor inbox.eyes --read V`.",
      "inputSchema": _obj({"sensor": {"type": "string"}, "value": {"type": "number"}}, ["sensor", "value"])},
+    {"name": "items", "description": "The items (the record folded by id: ticket/12, github/pull_request/4231): each kind's "
+     "count per state, and the items with their state and fields. kind and state filter; id gives one item with its "
+     "moves between states and its events.",
+     "inputSchema": _obj({"kind": {"type": "string"}, "state": {"type": "string"}, "id": {"type": "string"},
+                          "n": {"type": "integer"}})},
+    {"name": "record_event", "description": "Record something that happened outside: an event of a type (ticket.opened), "
+     "about an item (ticket/12), with data (its fields: title, priority, ...). An item kind's on: map says which types move "
+     "an item between states. The same as `ergostat event --add TYPE --item ID --data JSON`.",
+     "inputSchema": _obj({"type": {"type": "string"}, "item": {"type": "string"}, "data": {"type": "object"},
+                          "source": {"type": "string"}}, ["type"])},
 ]
 
 
@@ -129,6 +139,21 @@ class Server:
                 return {**_text(f"{a['sensor']!r} is not a manual sensor"), "isError": True}
             p.measurements.add(s.series, float(a["value"]))
             return _text(f"recorded: {a['sensor']} = {a['value']}")
+        if name == "items":
+            from .spec import items as its
+            if a.get("id"):
+                d = its.detail(p.events, spec, a["id"])
+                return _text(d) if d else {**_text(f"no item {a['id']!r}"), "isError": True}
+            return _text(its.listing(p.events, spec, kind=a.get("kind") or None, state=a.get("state") or None,
+                                     n=min(int(a.get("n") or 100), 500)))
+        if name == "record_event":
+            from .runner import OWN_TYPES, TYPE_NAME
+            t, data = str(a.get("type", "")), a.get("data") or {}
+            if not TYPE_NAME.match(t) or t.startswith((*OWN_TYPES, "block.", "person.")) or not isinstance(data, dict):
+                return {**_text("type: lowercase words joined by dots (ticket.opened), not ergostat's own; data: an object"),
+                        "isError": True}
+            ev = p.events.add(t, item=a.get("item") or None, source=a.get("source") or "mcp", data=data)
+            return _text({"recorded": ev["id"], "type": t, "item": ev["item"]})
         return {**_text(f"no tool {name!r}"), "isError": True}
 
     def handle(self, msg: dict) -> dict | None:
