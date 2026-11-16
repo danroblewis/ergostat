@@ -1,6 +1,10 @@
 # Charts: behaviour over time, beside the model
 
-Status: planned 2026-11-16, being built.
+Status: planned 2026-11-16, built 2026-11-16. As built: a flow's rate counted from the record (items
+moving, or its valve's openings, which come after items and before the stock's changes) is counted
+over a twelfth of the window, so one event is not a spike; a kind's items finish in the states after
+its first that no item has left (else its last state); the Loops page's old trend in a loop's panel
+is replaced by its scope.
 
 ## What the owner asked for
 

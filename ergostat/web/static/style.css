@@ -294,11 +294,11 @@ a.chart-name { color: var(--accent); }
 .chart-foot { display: flex; justify-content: space-between; gap: var(--sp-2); font-size: var(--text-sm); color: var(--muted); }
 .chart-when { color: var(--accent); font-variant-numeric: tabular-nums; }
 .strip-title { display: flex; align-items: baseline; gap: var(--sp-2); margin: var(--sp-3) 0 0; }
-.side-charts h3 { margin-top: var(--sp-3); }
+.side-charts h3 { margin-top: var(--sp-5); }
 .side-strip + .side-strip { border-top: var(--hair) solid var(--line); }
 .detail .scope dl { margin-top: var(--sp-2); }
 /* the Items page: each kind's cumulative flow, its states named at the right; its cycle times under its table */
-.cfd { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: var(--sp-4); align-items: center; margin: 0 0 var(--sp-3); }
+.cfd { display: grid; grid-template-columns: minmax(0, 1fr) 12em; gap: var(--sp-4); align-items: center; margin: 0 0 var(--sp-3); }
 .cfd-states { display: flex; flex-direction: column; gap: var(--sp-0); }
 .cfd .swatch { display: inline-block; width: var(--sp-2); height: var(--sp-2); margin-right: var(--sp-2); vertical-align: baseline; }
 .chart.cycle { margin: var(--sp-3) 0 var(--sp-4); max-width: 72rem; }

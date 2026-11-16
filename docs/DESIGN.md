@@ -201,9 +201,16 @@ Check, and a Guide: a sequence of frames, one line each, every frame a tiny buil
 the real dynamics and blocks renderers (`ergostat/guide.py`), with its behaviour over time beside
 it (why: what we control and what we want; system dynamics; control; then the project's own model,
 both ways). Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which
-takes the side panel's place. One control in the header holds the window and the moment: its menu
-sets the window and slides the page to a past moment (the API's `at`), with "Back to live". Light
-theme first, a dark one from the same tokens; usable at phone width.
+takes the side panel's place. Behaviour over time sits beside the structure, never on a page of
+its own (`docs/proposals/charts.md`, drawn with uPlot, vendored): a part's panel in the dynamics
+view opens with its causes strip (it, then what drives it, on one time axis), parts chosen with
+Shift chart in the side panel (and with none chosen, the parts charted last); a loop's panel, its
+comparator, controller or output in the blocks view, and its sparkline on the Loops page open its
+scope (y with r, u, e); the Items page draws each kind's cumulative flow and cycle times. Every
+chart in one place shares its cursor and covers the page's window. One control in the header
+holds the window and the moment: its menu sets the window and slides the page to a past moment
+(the API's `at`), with "Back to live". Light theme first, a dark one from the same tokens; usable at
+phone width.
 
 ### 8.1 How it looks, and why
 

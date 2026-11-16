@@ -36,7 +36,7 @@ function baseOpts({ width, height, group, since, until, xAxis = true, yValues = 
   const font = `${tok("--canvas-sm")} ${tok("--font")}`;
   const axis = { stroke: tok("--muted"), font, grid: { stroke: tok("--line"), width: 1 }, ticks: { show: false }, gap: 4 };
   return {
-    width, height, padding: [6, 8, 0, 0], legend: { show: false },
+    width, height, padding: [6, 8, xAxis ? 0 : 6, 0], legend: { show: false },
     cursor: { sync: { key: group.key, setSeries: false }, drag: { x: false, y: false, setScale: false }, y: false,
               points: { show: dataPoint, size: 6, width: 1.5, fill: tok("--bg") } },
     select: { show: false },
@@ -139,7 +139,7 @@ function lineChart({ group, name, role, unit, per, times, values, since, until, 
 
 /* a part's series and what drives it (api series?strip=1): the part first, taller, then each cause,
    one time axis under the last */
-const ROLE_WORDS = { inflow: "inflow", outflow: "outflow", "driven by": "drives it", from: "drains", into: "fills" };
+const ROLE_WORDS = { inflow: "inflow", outflow: "outflow", "driven by": "drives it", from: "it drains", into: "it fills" };
 function partRef(n) {
   if (!n) return null;
   if (n.kind === "stock") return `stock.${n.label}`;
@@ -147,7 +147,7 @@ function partRef(n) {
   if ((n.kind === "valve" || n.kind === "disturbance") && (n.flow || n.label)) return `flow.${n.flow || n.label}`;
   return null;
 }
-function causesStrip(ref, group = chartGroup("strip"), { title = false } = {}) {
+function causesStrip(ref, group = chartGroup("strip")) {
   const box = h("div", { class: "strip" }, h("div", { class: "muted small" }, "…"));
   api("series", { refs: ref, strip: 1, points: CHART_POINTS }).then((d) => {
     const list = d.series || [];
@@ -156,7 +156,7 @@ function causesStrip(ref, group = chartGroup("strip"), { title = false } = {}) {
       return;
     }
     box.replaceChildren(...list.map((s, i) => lineChart({
-      group, name: i === 0 && !title ? (s.kind === "flow" ? "rate" : "value") : s.name,
+      group, name: i === 0 ? (s.kind === "flow" ? "rate" : "value") : s.name,
       role: i === 0 ? (s.kind === "flow" ? s.how : null) : ROLE_WORDS[s.role] || s.role,
       unit: s.unit, per: s.per, times: d.times, values: s.values, since: d.since, until: d.until,
       goal: s.goal, height: i === 0 ? 84 : 52, xAxis: i === list.length - 1, zero: s.kind === "flow",
@@ -199,7 +199,7 @@ function sideCharts(side) {
   const group = chartGroup("side");
   box.replaceChildren(h("h3", {}, chosen.length ? "Charts of the parts chosen" : "Your charts"),
     ...refs.map((r) => h("div", { class: "side-strip" }, h("div", { class: "strip-title" }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openRef(r); } },
-      r.split(".").slice(1).join(".")), h("span", { class: "muted" }, r.split(".")[0])), causesStrip(r, group, { title: true }))));
+      r.split(".").slice(1).join(".")), h("span", { class: "muted" }, r.split(".")[0])), causesStrip(r, group))));
   return box;
 }
 function sideChartsChanged() {                          // the chosen parts changed: the side panel follows at once
@@ -267,7 +267,7 @@ function openingsChart(group, d, u) {
 /* a stem from zero to each opening, as a sampled signal is drawn */
 function stems(u) {
   const ctx = u.ctx, y0 = u.valToPos(0, "y", true);
-  ctx.save(); ctx.strokeStyle = tok("--ink"); ctx.lineWidth = devicePixelRatio;
+  ctx.save(); ctx.strokeStyle = tok("--ink"); ctx.lineWidth = devicePixelRatio; ctx.setLineDash([]);
   ctx.beginPath();
   for (let i = 0; i < u.data[0].length; i++) {
     const x = Math.round(u.valToPos(u.data[0][i], "x", true)) + 0.5, y = u.valToPos(u.data[1][i], "y", true);
@@ -318,7 +318,7 @@ function cycleChart(d, group) {
     h("span", { class: "muted" }, `from arriving to ${d.finished_states.join(" or ")}, ${f.length} finished`), val), plotEl);
   if (!f.length) { plotEl.append(h("div", { class: "muted small" }, `None finished in ${windowSaid(d)}.`)); return el; }
   mountPlot(plotEl, (width) => {
-    const o = baseOpts({ width, height: 100, group, since: d.since, until: d.until, xAxis: true, yValues: (v) => (v >= 0 ? dur(v) : ""),
+    const o = baseOpts({ width, height: 100, group, since: d.since, until: d.until, xAxis: true, yValues: (v) => (v > 0 ? dur(v) : v === 0 ? "0" : ""),
       yRange: (_, lo, hi) => [0, Math.max(hi || 1, d.median || 0) * 1.1],
       hooks: { draw: [lineLabel(d.median, `median ${dur(d.median)}`)],
                setCursor: [(u) => { const i = u.cursor.idx; val.textContent = i == null ? `median ${dur(d.median)}` : `${f[i].id}: ${dur(f[i].took)}`; }] } });
