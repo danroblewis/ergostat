@@ -259,15 +259,55 @@ svg.canvas.dragging { cursor: grabbing; }
 .chart-tick { fill: var(--muted); font-size: var(--canvas-sm); }
 .chart-line { fill: none; stroke: var(--ink); stroke-width: 1.5; }
 .chart-set { stroke: var(--muted); stroke-dasharray: 4 3; stroke-width: 1; }
-.chart-set-label { fill: var(--muted); font-size: var(--canvas-sm); paint-order: stroke; stroke: var(--chrome); stroke-width: 3; }
-.chart-band { fill: var(--fill); }
-.chart-off { fill: var(--bad-wash); }
-.chart-axis { stroke: var(--line); }
-.chart-tick-mark { stroke: var(--muted); stroke-width: 1.2; }
 .chart-bar { fill: var(--ink-2); }
 .chart-bar.failed { fill: var(--bad); }
 .chart-bar.refused { fill: var(--warn); }
 svg.spark { vertical-align: middle; overflow: visible; }
+td.spark-cell svg { cursor: pointer; }
+
+/* uPlot's few rules (its own stylesheet is not loaded: these are written with the tokens) */
+.uplot, .uplot * { box-sizing: border-box; }
+.uplot { width: min-content; font-family: var(--font); line-height: var(--leading); }
+.u-wrap { position: relative; user-select: none; }
+.u-over, .u-under { position: absolute; }
+.u-under { overflow: hidden; }
+.uplot canvas { display: block; position: relative; width: 100%; height: 100%; }
+.u-axis { position: absolute; }
+.u-legend { display: none; }
+.u-select { position: absolute; pointer-events: none; background: var(--accent-wash); }
+.u-cursor-x, .u-cursor-y { position: absolute; left: 0; top: 0; pointer-events: none; will-change: transform; }
+.u-hz .u-cursor-x { height: 100%; border-right: var(--hair) solid var(--accent); }
+.u-hz .u-cursor-y { width: 100%; border-bottom: var(--hair) dashed var(--line-strong); }
+.u-cursor-pt { position: absolute; top: 0; left: 0; border-radius: 50%; border: 0 solid; pointer-events: none; will-change: transform;
+  border-color: var(--accent); }
+.u-axis.u-off, .u-select.u-off, .u-cursor-x.u-off, .u-cursor-y.u-off, .u-cursor-pt.u-off { display: none; }
+
+/* the charts beside the model: a strip of charts on one time axis, each its name, its role and its value */
+.strip { margin: var(--sp-2) 0 var(--sp-3); }
+.chart { margin: 0 0 var(--sp-1); min-width: 0; }
+.chart-head { display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--text-sm); min-width: 0; }
+.chart-head .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.chart-name { color: var(--ink); font-weight: 600; white-space: nowrap; }
+a.chart-name { color: var(--accent); }
+.chart-val { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chart-plot { width: 100%; min-width: 0; }
+.chart-foot { display: flex; justify-content: space-between; gap: var(--sp-2); font-size: var(--text-sm); color: var(--muted); }
+.chart-when { color: var(--accent); font-variant-numeric: tabular-nums; }
+.strip-title { display: flex; align-items: baseline; gap: var(--sp-2); margin: var(--sp-3) 0 0; }
+.side-charts h3 { margin-top: var(--sp-5); }
+.side-strip + .side-strip { border-top: var(--hair) solid var(--line); }
+.detail .scope dl { margin-top: var(--sp-2); }
+/* the Items page: each kind's cumulative flow, its states named at the right; its cycle times under its table */
+.cfd { display: grid; grid-template-columns: minmax(0, 1fr) 12em; gap: var(--sp-4); align-items: center; margin: 0 0 var(--sp-3); }
+.cfd-states { display: flex; flex-direction: column; gap: var(--sp-0); }
+.cfd .swatch { display: inline-block; width: var(--sp-2); height: var(--sp-2); margin-right: var(--sp-2); vertical-align: baseline; }
+.chart.cycle { margin: var(--sp-3) 0 var(--sp-4); max-width: 72rem; }
+.kind-flows { margin: 0 0 var(--sp-5); }
+.kind-flow { margin: 0 0 var(--sp-4); }
+.kind-flow > .states { margin: var(--sp-1) 0 0; }
+.kind-flow .kname { color: var(--ink); font-weight: 600; }
+.kind-flow .kname.on { color: var(--accent); }
+.kind-flow .kname .mono { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); }
 
 /* the drawings' own text and lines (shapes are in the renderers; only their type and ink are here) */
 .node text { fill: var(--ink); font-size: var(--canvas); }
@@ -448,10 +488,6 @@ details.sd-unknown > summary { color: var(--muted); margin: var(--sp-2) 0; }
 .hints li.warn { color: var(--warn); }
 
 /* Items: each kind one line, its states as counts */
-.kinds { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--sp-2) var(--sp-5); margin: 0 0 var(--sp-5); align-items: baseline; }
-.kinds .kname { color: var(--ink); font-weight: 600; }
-.kinds .kname.on { color: var(--accent); }
-.kinds .kname .mono { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); }
 .states, .track { display: flex; gap: var(--sp-1) var(--sp-2); align-items: baseline; flex-wrap: wrap; }
 .track { margin: 0 0 var(--sp-4); }
 .arrow { color: var(--line-strong); }
@@ -561,9 +597,9 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   svg.canvas { height: 420px; flex: none; }
   .page { padding: var(--sp-4); }
   .page h1 { font-size: var(--text-lg); }
-  .kinds { grid-template-columns: 1fr; gap: var(--sp-1); }
-  .kinds .states { margin-bottom: var(--sp-2); }
   .detail dl { grid-template-columns: 7em minmax(0, 1fr); }
+  .cfd { grid-template-columns: minmax(0, 1fr); }
+  .cfd-states { flex-direction: row; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); }
   .g-plotbox { flex-basis: 100%; }
   .g-text { font-size: var(--text); }
 }

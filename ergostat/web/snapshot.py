@@ -10,6 +10,7 @@ import re
 import time
 from urllib.parse import quote
 
+from .. import series
 from .server import STATIC, Live, api
 
 SKIP = {"since", "at"}            # one window, one moment: the snapshot's own
@@ -37,6 +38,11 @@ def _requests(project) -> list[tuple[str, dict]]:
                 reqs.append(("graph", {"view": view, "open": "*", **({"system": system} if system else {})}))
     reqs += [(f"loops/{_q(n)}", {}) for n in m.controllers]
     reqs += [(f"agents/{_q(n)}", {}) for n in m.agents]
+    # the charts' series: each part's strip, each loop's scope, each item kind's flow (charts.js asks the same)
+    pts = {"points": series.POINTS}
+    reqs += [("series", {"refs": f"{series.kind_of(m, n)}.{n}", "strip": 1, **pts}) for n in [*m.stocks, *m.flows]]
+    reqs += [("loop-scope", {"goal": n, **pts}) for n in m.controllers]
+    reqs += [("items-flow", {"kind": k, **pts}) for k in (getattr(getattr(m, "spec", None), "items", None) or {})]
     for kind, table in m.tables().items():
         for n in table:
             k = "disturbance" if kind == "flow" and getattr(table[n], "disturbance", False) else kind
@@ -98,4 +104,4 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
             before += ("<script>window.LIBAVOID = " + json.dumps({"js": base64.b64encode((lib / "libavoid.js").read_bytes()).decode(),
                        "wasm": base64.b64encode((lib / "libavoid.wasm").read_bytes()).decode()}) + ";</script>\n")
         return before + "<script>" + body + "</script>"
-    return re.sub(r'<script src="/static/([\w.]+)"></script>', script, page)
+    return re.sub(r'<script src="/static/([\w./]+)"></script>', script, page)

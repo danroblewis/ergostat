@@ -857,7 +857,13 @@ function openBlock(n) {
                                   ...(fn.arg ? [["mo", "("], ["mi", fn.arg], ["mo", ")"]] : [])], false) : (fn.name || n.label);
   const defs = (n.math || []).map((m) => h("div", { class: "bd-math" }, mathml(m)));
   const rows = (n.rows || []).filter(([, v]) => v != null && v !== "");
-  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, title), n.says ? h("p", { class: "what" }, rich(op(n.says))) : null];
+  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, title)];
+  // a loop's comparator, controller or process output: its scope first (charts.js)
+  if (["comparator", "controller", "output"].includes(n.role)) for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x])) {
+    if ((n.loops || []).length > 1) kids.push(h("div", { class: "strip-title" }, h("b", {}, l)));
+    kids.push(loopScope(l));
+  }
+  if (n.says) kids.push(h("p", { class: "what" }, rich(op(n.says))));
   if (defs.length) kids.push(h("h3", {}, fn.linear === false || fn.name ? "What it computes" : "Its function"), ...defs);
   if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, typeof v === "string" ? rich(op(v)) : v])));
   const loops = n.loops || [];

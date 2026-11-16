@@ -569,7 +569,6 @@ async function openNodeSD(n) {
     rows.push(["description", m.description || n.description], ["from", m.source || "a source outside the model"], ["to", m.target || "a sink outside the model"],
               ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : n.rateText], ["how it is known", now.how || n.how],
               ["runs", (m.two_way ?? n.twoWay) ? "either way (a biflow)" : "one way"]);
-    if (now.points?.length > 1) chart = sparkSvg(now.points, 380, 70);
   } else {
     let d = null;
     try { d = await api(`part/stock/${encodeURIComponent(n.label)}`); } catch (err) { d = null; }
@@ -578,13 +577,14 @@ async function openNodeSD(n) {
               ["measured", now.at ? ago(now.at) : null]);
     if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? `${fmt(now.inflow)}/h` : null], ["outflow", now.outflow != null ? `${fmt(now.outflow)}/h` : null]);
     for (const gl of n.goals || []) rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint}${gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)"}`]);
-    if (now.points?.length > 1) chart = sparkSvg(now.points, 380, 70);
   }
+  const ref = partRef(n);                                // behaviour over time first: it, and what drives it (charts.js)
+  if (ref) chart = causesStrip(ref);
   rows.push(["depends on", join(causes)], ["drives", join(effects)]);
   const id = n.id;
   if (n.kind === "terminal") rows.unshift(["drawn in", n.in || "the model"]);
   showDetail(h("div", { class: "kind" }, (SD_WHAT[kind] || [kind])[0]), h("h2", {}, n.label),
-    dl(rows), chart,
+    chart, dl(rows),
     loopsPara(loopsOf((c) => c.nodes.includes(id))),
     n.kind === "stock" || n.kind === "valve" || n.kind === "disturbance" || (n.kind === "auxiliary" && !n.role)
       ? h("p", {}, h("a", { href: `#/diagram?view=dynamics&around=${n.kind === "stock" || n.kind === "auxiliary" ? "stock" : "flow"}/${encodeURIComponent(n.flow || n.label)}` }, "Draw what is around it")) : null,
@@ -622,6 +622,7 @@ async function openEdgeSD(e) {
     const valve = Object.values(byId).find((n) => (n.kind === "valve" || n.kind === "disturbance") && (n.flow === e.flow));
     showDetail(h("div", { class: "kind" }, "Flow"),
       h("h2", {}, e.flow, h("span", { class: "muted" }, ` ${m.source || "outside"} \u2192 ${m.target || "outside"}`)),   // (the pipe, not its valve: they share a name)
+      causesStrip(`flow.${e.flow}`),
       dl([["flow", valve ? link(valve.id) : e.flow], ["from", m.source || "a source outside the model"], ["to", m.target || "a sink outside the model"],
           ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : valve?.rateText], ["runs", (m.two_way ?? e.twoWay) ? "either way (a biflow)" : "one way"]]),
       crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops, sdWhat("pipe"));

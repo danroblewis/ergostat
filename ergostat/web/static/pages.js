@@ -37,7 +37,8 @@ async function pageLoops(main) {
         h("td", { class: "num", title: "The share of the window the loop spent off" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : "0%"),
         h("td", { class: "num", title: lp.back_in != null ? `Typically holding again this long after going off (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times); its valve opens ${lp.answers_in != null ? dur(lp.answers_in) : "?"} after` : "It has not gone off and come back in the window" },
           lp.back_in != null ? dur(lp.back_in) : "–"),
-        h("td", {}, (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 120, 24, setpointOf(lp.setpoint)) : ""),
+        h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
+          (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 120, 24, setpointOf(lp.setpoint)) : ""),
         h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
   }
   await tick();
@@ -230,24 +231,40 @@ function stateWord(st) { return st ? h("span", {}, st) : h("span", { class: "mut
 
 async function pageItems(main, q) {
   const p = page(main, "Items");
-  const kinds = h("div", { class: "kinds" }), notes = h("div"), box = h("div");
+  const kinds = h("div", { class: "kind-flows" }), notes = h("div"), box = h("div");
   const search = h("input", { type: "search", placeholder: "Search ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const more = h("p", { class: "note" });
   p.append(kinds, notes, h("div", { class: "filters" }, search), box, more);
   let kind = q.get("kind"), state = q.get("state");
+  const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
+  const keep = (key, sig, make) => {
+    const was = drawn[key];
+    if (was && (was.sig === sig || was.el.matches(":hover"))) return was.el;
+    drawn[key] = { sig, el: make() };
+    return drawn[key].el;
+  };
   const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state); if (search.value) u.set("q", search.value);
                      history.replaceState(null, "", "#/items" + (u.toString() ? "?" + u : "")); tick(); };
   search.addEventListener("input", () => go());
   async function tick() {
     const d = await api("items", { ...(kind ? { kind } : {}), ...(state ? { state } : {}) });
-    // each kind one line: its states as counts, the ones with items in them in ink
-    kinds.replaceChildren(...d.kinds.flatMap((k) => [
-      h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; go(); } },
-        k.name, h("span", { class: "mono" }, k.id)),
-      h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
-        h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`,
-                 onclick: (ev) => { ev.preventDefault(); [kind, state] = kind === k.name && state === st ? [null, null] : [k.name, st]; go(); } },
-          h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")]))]));
+    // each kind: its states stacked over the window (a cumulative flow diagram), each named with its count,
+    // a click on one shows its items; a kind without states, one line of its count
+    const flows = Object.fromEntries(await Promise.all(d.kinds.map(async (k) =>
+      [k.name, k.states.length ? await api("items-flow", { kind: k.name, points: CHART_POINTS }).catch(() => null) : null])));
+    for (const [name, fl] of Object.entries(flows)) if (fl && !Object.values(fl.counts).some((c) => c.some((x) => x))) flows[name] = null;   // none yet: its counts
+    const pick = (k, st) => { [kind, state] = kind === k.name && state === st ? [null, null] : [k.name, st]; go(); };
+    kinds.replaceChildren(...d.kinds.map((k) => {
+      const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; go(); } },
+        k.name, h("span", { class: "mono" }, k.id));
+      const fl = flows[k.name];
+      if (!fl) return h("div", { class: "kind-flow" }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+        h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); pick(k, st); } },
+          h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])));
+      const chosen = kind === k.name ? state : null;
+      return h("div", { class: "kind-flow" }, name,
+        keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen]), () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st) })));
+    }));
     notes.replaceChildren(...[
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind under items: in ergostat.yaml; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
@@ -274,6 +291,8 @@ async function pageItems(main, q) {
       const limit = kind ? 300 : 25;
       parts.push(h("h2", {}, name || "No kind", h("span", { class: "muted" }, ` ${its.length}`)));
       parts.push(tableOf(its, show, limit));
+      const fl = flows[name];                              // under its table: how long its finished items took
+      if (fl) parts.push(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group)));
       if (its.length > limit) parts.push(h("p", { class: "note" }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `All ${its.length}`)));
     }
     box.replaceChildren(...(parts.length ? parts : [d.items.length ? h("p", { class: "muted" }, "Nothing matches.") : ""]));
