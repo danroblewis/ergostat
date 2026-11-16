@@ -499,8 +499,8 @@ const SD_WHAT = {
   gap: ["Gap", "the discrepancy: the desired level less the actual one. It drives the flow that closes it, so the level is pulled toward the desired one: a balancing loop."],
   excess: ["Excess", "the discrepancy for a level kept down: the actual level less the desired one. It drives the flow that brings it down (+), so the level is pulled back to the desired one: a balancing loop."],
   decision: ["Decision", "what it reads (the connectors into it) decides the flows it sets (the connectors out of it). A link into it is signed where the model says which way it acts."],
-  flow: ["Flow", "a rate: what moves into or out of a stock per hour, along its pipe. Its valve is where the rate is set; the connectors into it are what it depends on. A cloud at an end is outside the model's boundary."],
-  pipe: ["Flow", "the pipe a flow runs along, from the stock it drains to the stock it fills (or a cloud: outside the model's boundary). Only flows change stocks."],
+  flow: ["Valve", "where a flow's rate is set: how much moves along its pipe per hour. The connectors into it are its inputs, what the rate depends on; its equation says how. A connector acts at once, so a cause that acts over time reaches a valve through a stock."],
+  pipe: ["Flow", "what moves, along its pipe, from the stock it drains to the stock it fills (or a cloud: outside the model's boundary). Only flows change stocks; its valve sets how fast."],
   connector: ["Connector", "an information link: the cause at its tail changes the effect at its head. Nothing moves along it. Its sign is its polarity: + when the effect moves the same way as the cause, − when the opposite way."],
   loop: ["Feedback loop", "a closed chain of cause and effect. Reinforcing (R): the product of its signs is +, so a change comes back amplified (growth or collapse). Balancing (B): the product is −, so a change comes back opposed (it seeks a desired level). ?: a sign along it is not known, so it is listed beside the diagram and not marked on it."],
   system: ["Module", "a system drawn closed, as Stella draws a module: its connection points are what crosses its edge. Open it to see its stocks, flows and loops."],
@@ -562,13 +562,19 @@ async function openNodeSD(n) {
               [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.valueText || "not known yet"}` : null],
               ["switching", n.switching || null],
               ["description", n.description]);
-  } else if (n.kind === "valve" || n.kind === "disturbance") {
+  } else if (n.kind === "valve" || n.kind === "disturbance") {        // the valve: the rate, its inputs and its equation
     let d = null;
     try { d = await api(`part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
-    rows.push(["description", m.description || n.description], ["from", m.source || "a source outside the model"], ["to", m.target || "a sink outside the model"],
-              ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : n.rateText], ["how it is known", now.how || n.how],
-              ["runs", (m.two_way ?? n.twoWay) ? "either way (a biflow)" : "one way"]);
+    rows.push(["rate now", now.rate != null ? `${fmt(now.rate)}/h` : n.rateText], ["how it is known", now.how || n.how],
+              ["inputs", join(causes) || h("span", { class: "muted" }, "none drawn: nothing in the model points into it")],
+              ["equation", n.equation || d?.equation || "not known"]);
+    const flow = n.flow || n.label;
+    showDetail(h("div", { class: "kind" }, "Valve"), h("h2", {}, flow), h("p", { class: "muted" }, `the rate of ${flow}`),
+      causesStrip(`flow.${flow}`), dl(rows), loopsPara(loopsOf((c) => c.nodes.includes(n.id))),
+      h("p", {}, h("a", { href: `#/diagram?view=dynamics&around=flow/${encodeURIComponent(flow)}` }, "Draw what is around it")),
+      sdWhat("flow"));
+    return;
   } else {
     let d = null;
     try { d = await api(`part/stock/${encodeURIComponent(n.label)}`); } catch (err) { d = null; }
@@ -620,11 +626,14 @@ async function openEdgeSD(e) {
     try { d = await api(`part/flow/${encodeURIComponent(e.flow)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
     const valve = Object.values(byId).find((n) => (n.kind === "valve" || n.kind === "disturbance") && (n.flow === e.flow));
+    const unit = d?.unit || m.unit || "";
     showDetail(h("div", { class: "kind" }, "Flow"),
       h("h2", {}, e.flow, h("span", { class: "muted" }, ` ${m.source || "outside"} \u2192 ${m.target || "outside"}`)),   // (the pipe, not its valve: they share a name)
       causesStrip(`flow.${e.flow}`),
-      dl([["flow", valve ? link(valve.id) : e.flow], ["from", m.source || "a source outside the model"], ["to", m.target || "a sink outside the model"],
-          ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : valve?.rateText], ["runs", (m.two_way ?? e.twoWay) ? "either way (a biflow)" : "one way"]]),
+      dl([["what moves", [unit, m.description].filter(Boolean).join(": ") || "not said (no unit or description)"],
+          ["from", m.source ? link(`stock:${m.source}`) : "a source outside the model"], ["to", m.target ? link(`stock:${m.target}`) : "a sink outside the model"],
+          ["its valve", valve ? link(valve.id) : e.flow], ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : valve?.rateText],
+          ["runs", (m.two_way ?? e.twoWay) ? "either way (a biflow)" : "one way"]]),
       crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops, sdWhat("pipe"));
   } else {
     const sign = sdSign(e.polarity);

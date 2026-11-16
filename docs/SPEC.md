@@ -888,7 +888,12 @@ open system comes from a shadow variable `<x>` inside the receiving system, and 
 input only, so a connector out to a part not drawn ends at a stub naming what it drives, and a
 pipe out ends in a cloud with the part beyond named under it. An
 open system is a sector, a light tint with its name at the top left; a closed one is a module, its
-connection points named on its edge. The view's panels use system dynamics' words only.
+connection points named on its edge. The view's panels use system dynamics' words only. A flow's
+valve (the bowtie) opens as the **valve**: the rate of the flow, its inputs (the connectors into it,
+each with its sign) and its equation, which ergostat does not yet write: a constant declared
+(`rate:`), the decision that sets it, or "not known yet: a declared cause with a sign, its size not
+estimated" (and which causes act at once). Its pipe opens as the **flow**: what moves (its unit and
+description), from which stock, to which.
 
 ## 13. Examples
 

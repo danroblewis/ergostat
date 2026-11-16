@@ -59,6 +59,34 @@ def switching(spec, goal: str) -> str:
     return f"on while {of} {on} {v}; off once {of} {off}"
 
 
+def equation(spec, flow: str) -> str:
+    """What a flow's rate is, as far as the model says: a number declared, the decision that sets it,
+    or the causes it is declared to follow (a sign each, no size yet); ergostat writes no equation of
+    its own, so most say what is not known yet, and why."""
+    f = spec.flows.get(flow) if spec is not None else None
+    if f is None:
+        return ""
+    if f.rate is not None:
+        return f"{fmt(f.rate)} per hour, declared: a constant"
+    out = []
+    setter = spec.actuator_of(flow)
+    if setter is not None:
+        out.append(f"set by the decision {setter.name}: as much as it moves each time it acts")
+    if f.driven_by:
+        now = [str(r) for r in f.driven_by if str(r) in f.instant]
+        signed = all(str(r) in f.polarity for r in f.driven_by)
+        out.append(("not known yet: a declared cause with a sign, its size not estimated" if signed else
+                     "not known yet: a declared cause, its sign not given and its size not estimated")
+                    if len(f.driven_by) == 1 else
+                    ("not known yet: declared causes with a sign each, their sizes not estimated" if signed else
+                     "not known yet: declared causes, not all signed, their sizes not estimated"))
+        if now:
+            out.append(f"at once with {', '.join(r.split('.', 1)[1] for r in now)}: no stock between")
+    if not out:
+        out.append("not known: nothing in the model drives it" + ("; it is measured" if f.sensors else ", and it is not measured"))
+    return "; ".join(out)
+
+
 def _drawn_id(part: str, as_target: bool = False, via: str = "") -> str | None:
     """The node a model part is drawn as. A goal is its gap, except where a block sets its
     setpoint: there it is its desired level."""
@@ -195,6 +223,8 @@ def dynamics(g: dict, model) -> dict:
         if n["kind"] in ("valve", "disturbance"):
             n["valve"] = n.get("label")
             n["label"] = n.get("flow") or n["label"]
+            if spec is not None:
+                n["equation"] = equation(spec, n["label"])
         nodes.append(n)
     loops = g.get("loops") or {}
     ctl = {n["id"].split(":", 1)[1]: n for n in g["nodes"] if n["kind"] == "controller"}

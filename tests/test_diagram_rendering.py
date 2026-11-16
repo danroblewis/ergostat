@@ -951,7 +951,7 @@ def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):
         pg.close()
 
 
-SD_WORDS = r"\b(controller|setpoint|rule|goal|valve)s?\b|<=|>="
+SD_WORDS = r"\b(controller|setpoint|rule|goal)s?\b|<=|>="   # (a valve is Sterman's word for where a rate is set)
 
 
 def unsign_rollout(d: Path) -> None:
@@ -1392,3 +1392,33 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
     pg.wait_for_function(f"() => ({CHARTS.format('.cfd')})() >= 1", timeout=20000)
     pg.close()
     assert not errors and not asked, (errors, asked)
+
+
+def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(browser, tmp_path):
+    """Clicking a flow's valve (the bowtie) opens the valve: the rate of the flow, its inputs (the
+    connectors into it, each signed) and its equation, or what of it is not known yet; clicking its
+    pipe opens the flow: what moves, from where, to where."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        pg.get_by_role("button", name="fit").click()
+        box = pg.locator('g.node[data-id="flow:regressions"] .hit').first.bounding_box()
+        pg.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Valve'", timeout=5000)
+        text = pg.locator("#detail").inner_text()
+        assert "the rate of regressions" in text, text[:600]
+        inputs = pg.evaluate("""() => { const dt = [...document.querySelectorAll('#detail dt')].find((d) => d.textContent === 'inputs');
+                                        return dt ? dt.nextElementSibling.textContent : null; }""")
+        assert inputs and "deployed (+)" in inputs and "ops-broken-per-ticket (+)" in inputs, inputs
+        assert "not known yet: declared causes with a sign each, their sizes not estimated" in text, text[:800]
+        assert "What is a valve?" in text
+        pg.evaluate("() => openEdge(S.graph.edges.find((e) => e.kind === 'pipe' && e.flow === 'regressions'))")
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Flow'", timeout=5000)
+        pg.wait_for_timeout(300)
+        text = pg.locator("#detail").inner_text()
+        assert "what moves" in text.lower() and "ops" in text and "bugs-live" in text and "a source outside the model" in text, text[:600]
+        assert "What is a flow?" in text
+        assert not errors, errors
+        pg.close()
