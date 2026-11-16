@@ -19,7 +19,7 @@ variables:
   benchmark-score:
     unit: KB/MP
     description: kilobytes per megapixel squeeze needs to make the thirty cases look good enough (geometric mean, 300 for a case it cannot do); lower is better
-    driven-by: flow.kept
+    driven-by: stock.improvements          # it measures the code in production, which is what has been kept so far
     sensor:                                # runs the benchmark on a new release (else reads the last result),
       run: bin/py world/bench.py           # and records each case it measured: case.met, case.unmet
       every: 20s
@@ -28,14 +28,14 @@ variables:
   photo-score:
     unit: KB/MP
     description: the same, on the fifteen photos (photos, big photos, grayscale photos)
-    driven-by: flow.kept
+    driven-by: stock.improvements
     sensor:
       run: bin/py world/bench.py --read photo_score
       every: 20s
   flat-score:
     unit: KB/MP
     description: the same, on the fifteen flat images (screenshots, line art, logos)
-    driven-by: flow.kept
+    driven-by: stock.improvements
     sensor:
       run: bin/py world/bench.py --read flat_score
       every: 20s

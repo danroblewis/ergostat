@@ -102,7 +102,7 @@ def fold(g: dict, model, open_: set[str] | None, focus: str | None = None) -> di
         b = boxes[box]
         if not any(p["id"] == pid for p in b["ports"]):
             b["ports"].append({"id": pid, "side": side, "part": orig, "label": name_of(n), "kind": n.get("kind"),
-                               "value": value_of(n)})
+                               "value": value_of(n), "named": n.get("label")})   # named: the part's own label (a valve's)
         return pid
 
     edges, seen = [], set()

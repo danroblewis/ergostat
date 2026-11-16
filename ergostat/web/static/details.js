@@ -24,7 +24,7 @@ const WHAT = {
   measure: ["Information link: measurement", "a sensor reading a stock or flow: the measured output, y. The arrow points into the sensor because that is the way the information goes: the stock's level is what the sensor reports. It moves nothing; it only tells."],
   signal: ["Information link: feedback", "a sensor's reading going to a controller, which compares it with its setpoint r and acts on the error e = r − y. This is what makes the loop a loop."],
   action: ["Information link: control action", "a controller commanding a valve: the control signal, u. How hard it pushes is the loop's gain; how long until the stock shows it is the loop's delay."],
-  influence: ["Information link: influence", "one thing's rate following another's, declared with driven-by: a release fixing what was broken, more users asking for more. Nothing moves along it; it is how a loop closes through another system."],
+  influence: ["Information link: influence", "a cause, declared with driven-by: what is at the arrow's end changes when what is at its start changes (a release fixing what was broken, more users asking for more, the code kept so far deciding a benchmark score). No formula: the value at the end is measured, and nothing moves or is computed along it. It is how a loop closes through another system."],
   wire: ["Wire (who reaches whom)", "one agent's output reaching another: through a stock one changes and the other measures, a reading handed to a controller, a decision handed to a valve, or an event."],
 };
 const DRAWN = {
@@ -280,6 +280,13 @@ function showEvent(e) {                                 // one event, all of it,
 async function openEdge(e) {
   const g = S.graph || { nodes: [], loops: {} };
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+  // a part inside a closed system is not drawn: its port on the system's box stands for it
+  for (const box of g.nodes) for (const p of box.ports || []) {
+    if (byId[p.part]) continue;
+    const name = p.part.split(":").slice(1).join(":");
+    byId[p.part] = { id: p.part, kind: p.kind, label: p.named || p.label, value: p.value,
+                     ...((p.kind === "valve" || p.kind === "disturbance") ? { flow: name } : {}) };
+  }
   const src = original(e.source, e.sourcePort), dst = original(e.target, e.targetPort);
   const nameOf = (id) => { const n = byId[id]; return n && (n.kind === "valve" || n.kind === "disturbance") ? n.flow : n?.label ?? id.split(":").slice(1).join(":"); };
   const link = (id) => {
@@ -328,8 +335,14 @@ async function openEdge(e) {
               ["last decision", c?.decision ? `“${c.decision}”${c.decisionAt ? " · " + ago(c.decisionAt) : ""}` : null]);
   } else if (e.kind === "influence") {
     kind = "influence · driven-by";
-    what = `Here: the rate of ${nameOf(dst)} follows ${nameOf(src)}. Declared (driven-by), not yet checked against the record.`;
-    rows.push(["follows", link(src)], ["flow", link(dst)], ["its rate now", byId[dst]?.rateText || null]);
+    const kindWord = (id) => ({ valve: "flow", disturbance: "flow", variable: "variable", stock: "stock" })[byId[id]?.kind] || "";
+    const toVar = byId[dst]?.kind === "variable";
+    what = toVar ? `Here: ${nameOf(dst)} changes when ${nameOf(src)} changes (declared with driven-by in the YAML). It is a cause, not a formula: ` +
+                   `${nameOf(dst)}'s value comes from its own sensor, and nothing is computed along this line.`
+                 : `Here: the rate of ${nameOf(dst)} follows ${nameOf(src)} (declared with driven-by in the YAML). A cause, not a formula: ` +
+                   `the rate is measured, and nothing is computed along this line.`;
+    rows.push(["cause", h("span", {}, link(src), ` (${kindWord(src)})`)], ["changes", h("span", {}, link(dst), ` (${kindWord(dst)})`)],
+              [toVar ? "its value now" : "its rate now", toVar ? byId[dst]?.value != null ? fmt(byId[dst].value) : null : byId[dst]?.rateText || null]);
   } else if (e.kind === "wire") {
     kind = "wiring · who reaches whom";
     what = `Here: ${nameOf(src)}'s output reaches ${nameOf(dst)}.`;

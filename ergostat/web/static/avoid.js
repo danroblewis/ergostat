@@ -31,7 +31,7 @@ function avoidCore(A) {
       router = new A.Router(A.RouterFlag.OrthogonalRouting);
       shapes = {}; labels = {}; conns = {}; pos = {}; dirty.clear();
       const P = A.RoutingParameter, O = A.RoutingOption;
-      router.setRoutingParameter(P.shapeBufferDistance, 8);
+      router.setRoutingParameter(P.shapeBufferDistance, 5);
       router.setRoutingParameter(P.idealNudgingDistance, 7);
       router.setRoutingParameter(P.segmentPenalty, 60);
       router.setRoutingParameter(P.crossingPenalty, spec.crossingPenalty);

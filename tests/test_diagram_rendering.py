@@ -398,3 +398,36 @@ def test_an_items_files_show_as_what_they_are_and_nothing_in_them_runs(browser, 
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+LINE_LINKS = """async () => {
+  // every line's panel: each part it names is a link, and the link opens that part's panel (also a
+  // part inside a closed system, which only its system's port stands for)
+  const bad = [];
+  for (const e of S.graph.edges) {
+    await openEdge(e);
+    const links = [...document.querySelectorAll("#detail dl a")].filter((a) => !/^(the evidence|close)$/.test(a.textContent));
+    const named = [...document.querySelectorAll("#detail dl b")].map((b) => b.textContent);
+    if (named.length && e.kind !== "pipe") bad.push(`${e.id}: names ${named.join(", ")} without a link`);
+    for (let i = 0; i < links.length; i++) {
+      await openEdge(e);
+      const a = [...document.querySelectorAll("#detail dl a")].filter((a) => !/^(the evidence|close)$/.test(a.textContent))[i];
+      const want = a.textContent, before = document.querySelector("#detail h2")?.textContent;
+      a.click();
+      await new Promise((r) => setTimeout(r, 400));
+      const now = document.querySelector("#detail h2")?.textContent;
+      if (document.querySelector("#detail").hidden || !now || now === before) bad.push(`${e.id}: link ${want} opened nothing`);
+    }
+  }
+  return bad;
+}"""
+
+
+@pytest.mark.parametrize("example", EXAMPLES)
+def test_every_lines_panel_links_to_the_parts_it_joins(browser, tmp_path, example):
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        drawn(pg, url, "", 0)                               # everything closed: lines end at systems' ports
+        bad = pg.evaluate(LINE_LINKS)
+        assert not bad, bad[:8]
+        pg.close()
