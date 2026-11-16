@@ -22,9 +22,13 @@ include:
 systems:
   service:
     description: squeeze, serving the images customers send
+    show: [variable.quality, variable.bytes-per-mp, variable.failures, variable.time]
   rollout:
     description: one candidate build against production, on the same images
+    show: [variable.rollout-share, variable.bytes-saved, variable.quality-change, variable.paired]
   lab:
     description: hypotheses proposed, built and tested
+    show: [stock.ideas, stock.experiments, stock.improvements, variable.ai-spend]
   benchmark:
     description: thirty fixed cases, measured on every release (what squeeze can do)
+    show: [stock.capabilities, variable.benchmark-score, variable.photo-score, variable.flat-score]

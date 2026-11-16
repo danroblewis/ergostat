@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+import math
 import os
 import shlex
 import shutil
@@ -185,32 +186,49 @@ def submit(hid: str, note: str, by: str) -> str:
     if not ok:
         abandon(hid, "its tests fail: " + report.splitlines()[-1] if report else "its tests fail", by)
         return "abandoned: tests fail"
-    bench = benchmark(wd)
+    bench = benchmark(wd, hid)
     with lock():
         if CAND.exists():
             shutil.rmtree(CAND)
         shutil.copytree(wd, CAND, ignore=shutil.ignore_patterns(".git", "__pycache__"))
         save(RUN / "rollout.json", {"candidate": hid, "share": 0.0, "offset": 0, "stage": -1, "since": 0, "benchmark": bench})
     record("hypothesis.testing", hid, {"note": note, "diff": git("diff", "--shortstat", "main...HEAD", cwd=wd).stdout.strip(),
-                                       "benchmark": bench}, by)
+                                       "benchmark": {k: v for k, v in bench.items() if k != "examples"},
+                                       "examples": bench.get("examples", [])}, by)
     return "testing"
 
 
-def benchmark(build: Path) -> dict:
-    """The candidate on the benchmark, against production's last measurement: cases gained and lost."""
-    try:
-        p = subprocess.run([str(ROOT / "bin" / "py"), str(ROOT / "world" / "benchmark.py"), str(build)], capture_output=True,
-                           text=True, timeout=600)
-        now = json.loads(p.stdout)
+def benchmark(build: Path, hid: str | None = None) -> dict:
+    """The candidate on the benchmark, against production's last measurement: cases gained and lost,
+    and (with ``hid``) its outputs kept, and the cases where it differs most as examples to look at."""
+    save = RUN / "world" / "hypotheses" / hid.split("/")[1] if hid else None
+
+    def bench(b: Path, where: Path | None) -> dict:
+        p = subprocess.run([str(ROOT / "bin" / "py"), str(ROOT / "world" / "benchmark.py"), str(b),
+                            *(["--save", str(where)] if where else [])], capture_output=True, text=True, timeout=600)
+        return json.loads(p.stdout)
+    try:                                                     # both, now: production may have changed since it was last measured
+        now = bench(build, save / "candidate" if save else None)
+        prod = bench(PROD, save / "production" if save else None)
     except (subprocess.TimeoutExpired, ValueError):
         return {"error": "the benchmark did not finish"}
-    prod = load(RUN / "world" / "benchmark.json", {"cases": {}})
     pc = prod.get("cases", {})
+    nc = now.get("cases", {})
+
+    def change(c):                                           # how much it differs: a case gained or lost first
+        a, b = pc.get(c, {}), nc.get(c, {})
+        flip = bool(a.get("met")) != bool(b.get("met"))
+        x, y = a.get("kb_per_mp") or 300.0, b.get("kb_per_mp") or 300.0
+        return (flip, abs(math.log(y / x)))
+    examples = [{"case": c, "original": nc[c].get("original"), "production": pc.get(c, {}).get("output"),
+                 "candidate": nc[c].get("output"), "production_kb_per_mp": pc.get(c, {}).get("kb_per_mp"),
+                 "candidate_kb_per_mp": nc[c].get("kb_per_mp"), "target": nc[c].get("target")}
+                for c in sorted(nc, key=change, reverse=True)[:3] if nc[c].get("output")] if save else []
     return {"met": now.get("met"), "of": now.get("of"), "score": now.get("score"), "production_met": prod.get("met"),
             "production_score": prod.get("score"),
             "gained": sorted(c for c, x in now.get("cases", {}).items() if x.get("met") and not pc.get(c, {}).get("met")),
             "lost": sorted(c for c, x in now.get("cases", {}).items() if not x.get("met") and pc.get(c, {}).get("met")),
-            **({"error": now["error"]} if now.get("error") else {})}
+            **({"examples": examples} if examples else {}), **({"error": now["error"]} if now.get("error") else {})}
 
 
 def abandon(hid: str, why: str, by: str) -> None:
@@ -309,7 +327,7 @@ def rollout(by: str) -> dict:
                        else f"meets {len(bench['gained'])} more benchmark cases ({', '.join(bench['gained'])}), "
                             f"no worse on live traffic ({lo:.1f}% to {hi:.1f}% saved)")
     result = {"bytes_saved": [lo, hi], "quality_offset": r.get("offset", 0), "paired": n, "by_kind": c.get("by_kind"),
-              "benchmark": bench}
+              "benchmark": {k: v for k, v in bench.items() if k != "examples"}}
     if verdict and verdict[0] == "kept":
         promote(hid, {**result, "verdict": "kept", "why": verdict[1]}, by)
         return {"share": 0.0, "kept": 1, "dropped": 0}

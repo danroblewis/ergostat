@@ -16,6 +16,7 @@ from .. import model as mdl
 from .. import state as st
 
 STATIC = Path(__file__).parent / "static"
+FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this size
 
 
 class Live:
@@ -266,6 +267,17 @@ def handler(project):
             self.end_headers()
             self.wfile.write(body)
 
+        def _file(self, rel: str):
+            p = live.get()
+            roots = [r.resolve() for r in (p.model.path.parent if p.model.path else None, p.dir) if r]
+            for root in roots:
+                f = (root / rel).resolve()
+                if (root == f or root in f.parents) and f.is_file():
+                    if f.stat().st_size > FILE_LIMIT:
+                        return self._send(413, b"too big to show", "text/plain")
+                    return self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
+            return self._send(404, b"not found", "text/plain")
+
         def do_GET(self):
             u = urlsplit(self.path)
             if u.path.startswith("/api/"):
@@ -276,6 +288,8 @@ def handler(project):
                 if data is None:
                     return self._send(404, b'{"error": "not found"}', "application/json")
                 return self._send(200, json.dumps(data, default=str).encode(), "application/json")
+            if u.path == "/file":                          # a file an item names (file:PATH), from inside the project only
+                return self._file((parse_qs(u.query).get("path") or [""])[0])
             name = "index.html" if u.path in ("/", "") else u.path.removeprefix("/static/")
             f = (STATIC / name).resolve()
             if STATIC.resolve() not in f.parents or not f.is_file():

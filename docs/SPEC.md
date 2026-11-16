@@ -128,6 +128,7 @@ systems:
 |---|---|---|---|
 | `description` | string | none | |
 | `within` | system name | the top level | The system it is part of. A system within itself, at any depth, is an error |
+| `show` | stock, flow or variable references | its goals' | The measures its box shows when it is drawn as one part: its control panel |
 
 A system named by a part and not described here is a top-level system.
 
@@ -150,7 +151,9 @@ loop when it is one.
 
 **Drawn as parts.** The control diagram draws each system as one box: its ports on its edges
 (inputs left, outputs right, each named for the part inside it reaches, with that part's
-reading), and how the loops inside it are doing. A box opens in place (its parts, laid out
+reading), how the loops inside it are doing, and its measures: each one's value, setpoint, health
+and trend (`show:`, or by default what its goals hold). With every system closed, the diagram is
+the model's control panel. A box opens in place (its parts, laid out
 together inside its outline, its own systems still boxed), or is drawn alone: its parts, and
 what it reaches outside as terminals at its edge, each naming the system it is in. A system alone
 at its level starts open; the others start as boxes.
@@ -221,6 +224,10 @@ field wins). It arrives in the first state (a move from nowhere, so a flow can c
 with `entering:`), and stays there until an event its kind maps moves it; every move is kept
 (from, to, when, by which event), so how long it spent in each state is known. An item no
 kind matches is still shown, with its fields and no state.
+
+A field whose value is `file:PATH` names a file in the project (a picture a program made, a report):
+the page shows it where the item is shown, an image as an image, anything else as a link, and
+serves only files inside the project and its state directory.
 
 Items are counted by sensors (section 6): a stock may be the number of items in some states, and
 a flow the rate at which items enter or leave one. The record is then the instrument: what is

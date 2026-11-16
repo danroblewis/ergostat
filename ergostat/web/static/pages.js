@@ -78,6 +78,32 @@ async function pageRecord(main, q) {
   S.timer = setInterval(() => { if (!box.querySelector("details[open]")) tick(); }, 3000);
 }
 
+/* an item's field, as what it is: a file the project holds (file:PATH) as the image it is, or a link;
+   a record as a small table of its fields; a list of records as a table; text as text */
+const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+function fieldView(v, small = false, depth = 0) {
+  if (v == null || v === "") return h("span", { class: "muted" }, "–");
+  if (typeof v === "string" && v.startsWith("file:")) {
+    const path = v.slice(5), name = path.split("/").pop();
+    if (SNAP) return h("span", { class: "mono muted", title: path }, name);
+    const url = `/file?path=${encodeURIComponent(path)}`;
+    return IMAGE.test(path) ? h("a", { href: url, target: "_blank", title: path, onclick: (ev) => ev.stopPropagation() },
+                                h("img", { src: url, class: small ? "thumb" : "pic", alt: name, loading: "lazy" }))
+                            : h("a", { href: url, target: "_blank", class: "mono", onclick: (ev) => ev.stopPropagation() }, name);
+  }
+  if (typeof v !== "object") return typeof v === "number" ? fmt(v) : String(v);
+  if (small || depth > 2) return h("span", { class: "mono muted" }, JSON.stringify(v).slice(0, 80));
+  if (Array.isArray(v)) {
+    if (v.length && v.every((x) => x && typeof x === "object" && !Array.isArray(x))) {
+      const cols = [...new Set(v.flatMap((x) => Object.keys(x)))];
+      return h("table", { class: "sub" }, h("tr", {}, cols.map((c) => h("th", {}, c))),
+        v.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1))))));
+    }
+    return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1)]) : h("span", { class: "muted" }, "none");
+  }
+  return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldView(x, false, depth + 1)))));
+}
+
 function stateChip(st, on) { return h("span", { class: `chip${on ? " on" : ""}` }, st || "–"); }
 
 async function pageItems(main, q) {
@@ -104,7 +130,7 @@ async function pageItems(main, q) {
     const tableOf = (its, show, limit) => h("table", { class: "items" }, h("tr", {}, ["item", "state", ...show, "in state", "events", "latest", "last"].map((x) => h("th", {}, x))),
       its.slice(0, limit).map((i) => h("tr", { class: "click", onclick: () => { location.hash = `#/item/${encodeURIComponent(i.id)}`; } },
         h("td", { class: "nowrap" }, h("b", {}, i.id)), h("td", {}, i.state ? stateChip(i.state, true) : "–"),
-        show.map((f) => h("td", { class: "cell", title: val(i.fields[f]) }, val(i.fields[f]))),
+        show.map((f) => h("td", { class: "cell", title: val(i.fields[f]) }, fieldView(i.fields[f], true))),
         h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, i.events), h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))));
     const groups = (kind ? d.kinds.filter((k) => k.name === kind) : d.kinds).map((k) => [k.name, k.show]);
     if (!kind && d.unkinded) groups.push(["", []]);
@@ -140,8 +166,11 @@ async function pageItem(main, id) {
     const moves = d.moves.length ? h("table", {}, h("tr", {}, ["when", "from", "to", "by event", "after"].map((x) => h("th", {}, x))),
       d.moves.map((m, i) => h("tr", {}, h("td", { class: "num nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", { class: m.from ? "" : "muted" }, m.from || "(arrived)"), h("td", {}, stateChip(m.to, true)),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "its kind has no states");
-    const fields = Object.keys(d.fields).length ? h("table", { class: "fields" }, Object.entries(d.fields).sort(([a], [b]) => (a < b ? -1 : 1)).map(([f, v]) => h("tr", {},
-      h("th", {}, f), h("td", { class: "mono" }, typeof v === "object" && v !== null ? h("pre", {}, JSON.stringify(v, null, 2)) : String(v))))) : h("p", { class: "muted" }, "no fields: its events carry no data");
+    // its kind's chosen fields first, in their order, then the rest by name
+    const first = (k?.show || []).filter((f) => f in d.fields);
+    const order = [...first, ...Object.keys(d.fields).filter((f) => !first.includes(f)).sort()];
+    const fields = order.length ? h("table", { class: "fields" }, order.map((f) => h("tr", {},
+      h("th", {}, f), h("td", {}, fieldView(d.fields[f]))))) : h("p", { class: "muted" }, "no fields: its events carry no data");
     body.replaceChildren(head, track || "", h("h2", {}, "fields"), fields, h("h2", {}, "how it moved"), moves,
       h("h2", {}, `events (${d.events})`), eventsTable(d.record, true));
   }

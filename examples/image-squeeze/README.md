@@ -31,6 +31,23 @@ ergostat explain small-images     # the whole chain, from the researcher to the 
 ergostat run --stop
 ```
 
+## Where to look
+
+- **The Diagram, every system closed** ("close all"): the control panel. Each system's box shows its
+  measures, each with its value, setpoint, health and trend over the window (the window, top
+  right, sets how far back): `service` (quality, bytes per megapixel, failures, time), `benchmark`
+  (capabilities: cases met of 30; the scores, overall, photos and flat images), `lab` (ideas,
+  experiments, improvements, AI spend), `rollout` (the running experiment). Click a measure for its
+  history; open a box (▸) to see how it works inside.
+- **Items → `case`**: the benchmark as a gallery, each case's original beside what production makes
+  of it now, its size against its target, met or not.
+- **Items → `hypothesis`**: every idea, its state, and on its page what it is, what it measured,
+  why it was kept or dropped, and examples (the original, production's output, the candidate's).
+- **Items → `session`** (with `FACTORY_AI=claude`): every Claude Code session, its cost, and the
+  path of its full transcript.
+- `run/product`: squeeze's own repository; every kept experiment is a merge (`git -C run/product
+  log --graph`).
+
 ## Three loops, fastest first
 
 **1. The quality loop (seconds): regulation that optimises.** Every image is compressed at one encoder

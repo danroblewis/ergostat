@@ -148,3 +148,51 @@ def test_a_stock_no_flow_touches_is_pointed_out(tmp_path):
                                     "  queue:\n    sensor:\n      manual: true\nflows:\n  in:\n    to: queue\n")
     found = {x.about for x in problems if x.code == "stock-without-flows"}
     assert found == {"stock.age"}
+
+
+def test_a_box_shows_its_measures_and_a_system_may_name_them(tmp_path):
+    from ergostat.web.server import Live, api
+    spec_of(tmp_path)
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    p = Project(mdl.load(tmp_path))
+    p.measurements.add("sensor/temperature.main", 18.5)
+    g = api(Live(p), "graph", {})
+    room = next(n for n in g["nodes"] if n["id"] == "system:room")
+    assert [m["label"] for m in room["measures"]] == ["temperature"]           # by default: its goals' measures
+    m = room["measures"][0]
+    assert m["goal"] == "warm" and m["setpoint"] == ">= 20" and m["value"] == "18.5"
+    named = MODEL.replace("  heater:\n    within: plant", "  heater:\n    within: plant\n    show: [stock.fuel, flow.burn]")
+    spec_of(tmp_path, named)
+    g = api(Live(Project(mdl.load(tmp_path))), "graph", {})
+    heater = next(n for n in g["nodes"] if n["id"] == "system:heater")
+    assert [m["label"] for m in heater["measures"]] == ["fuel", "burn"]
+    _, problems = spec_of(tmp_path, named.replace("stock.fuel", "stock.fule"))
+    assert any(x.code == "unknown-ref" and "show" in x.message for x in problems)
+
+
+def test_the_page_shows_files_items_name_from_inside_the_project_only(tmp_path):
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+
+    from ergostat.web.server import handler
+    spec_of(tmp_path)
+    (tmp_path / "run").mkdir()
+    (tmp_path / "run" / "a.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    (tmp_path.parent / "secret.txt").write_text("no")
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(Project(mdl.load(tmp_path))))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}/file?path="
+    try:
+        with urllib.request.urlopen(url + "run/a.png") as r:
+            assert r.headers["Content-Type"] == "image/png" and r.read().startswith(b"\x89PNG")
+        for bad in ("../secret.txt", "/etc/passwd", "run/../../secret.txt"):
+            try:
+                urllib.request.urlopen(url + urllib.request.quote(bad))
+                raise AssertionError(f"served {bad}")
+            except urllib.error.HTTPError as e:
+                assert e.code == 404
+    finally:
+        srv.shutdown()

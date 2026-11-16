@@ -310,10 +310,12 @@ class Compiler:
             except DurationError as e:
                 self.err(str(e), None, "bad-duration")
         for name, m, what in self.named("systems"):
-            self.keys(m, {"description", "within"}, what)
+            self.keys(m, {"description", "within", "show"}, what)
             spec.systems[name] = self.text(m, "description")
             if m.get("within") is not None:
                 spec.within[name] = str(m["within"])
+            if m.get("show") is not None:
+                spec.show[name] = [r for rs in self.refs(m, "show", what, ("stock", "flow", "variable")).values() for r in rs]
         for name, parent in list(spec.within.items()):
             w = self.doc.defined[("systems", name)]
             if parent not in spec.systems:
@@ -569,6 +571,10 @@ class Compiler:
                     return f"{r.name!r} is not a block" + self.suggest(r.name, spec.blocks)
             return None
 
+        for name, refs in spec.show.items():
+            for r in refs:
+                if (why := exists(r)) is not None:
+                    self.err(f"system {name}.show: {why}", self.doc.defined.get(("systems", name)), "unknown-ref", str(r))
         for kind, table in (("flow", spec.flows), ("variable", spec.variables)):
             for f in table.values():
                 for r in f.driven_by:

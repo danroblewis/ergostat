@@ -13,7 +13,7 @@ items:
       hypothesis.testing: testing
       hypothesis.kept: kept
       hypothesis.dropped: dropped
-    show: [title, by]
+    show: [title, idea, by]
   release:
     id: release/*
     show: [hypothesis, commit]

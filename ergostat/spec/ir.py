@@ -268,6 +268,7 @@ class Spec:
     variables: dict[str, Variable] = field(default_factory=dict)
     systems: dict[str, str] = field(default_factory=dict)        # name → description
     within: dict[str, str] = field(default_factory=dict)         # a system → the system it is part of
+    show: dict[str, list[Ref]] = field(default_factory=dict)     # a system → the measures its box shows (default: its goals')
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 

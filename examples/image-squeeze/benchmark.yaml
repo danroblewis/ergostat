@@ -12,12 +12,21 @@ items:
     on:
       case.met: met
       case.unmet: unmet
-    show: [image, kb_per_mp, target, best, format, quality]
+    show: [original, output, image, kb_per_mp, target, best, format]
 
 variables:
   benchmark-score:
     unit: KB/MP
     description: kilobytes per megapixel squeeze needs to make the thirty cases look good enough (geometric mean, 300 for a case it cannot do); lower is better
+    driven-by: flow.kept
+
+  photo-score:
+    unit: KB/MP
+    description: the same, on the fifteen photos (photos, big photos, grayscale photos)
+    driven-by: flow.kept
+  flat-score:
+    unit: KB/MP
+    description: the same, on the fifteen flat images (screenshots, line art, logos)
     driven-by: flow.kept
 
 stocks:
@@ -57,4 +66,7 @@ blocks:
     run: bin/py world/bench.py
     every: 20s
     timeout: 10m
-    out: variable.benchmark-score
+    out:
+      score: variable.benchmark-score
+      photos: variable.photo-score
+      flat: variable.flat-score

@@ -2,7 +2,7 @@
 "use strict";
 /* ------------------------------------------------------------------ the diagram */
 
-const SIZE = { terminal: [120, 34], variable: [128, 52], stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [200, 92], agent: [210, 92] };
+const SIZE = { terminal: [120, 34], variable: [140, 62], stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [200, 92], agent: [210, 92] };
 const CH = 6.7;   // px per character, for label sizes
 const OPEN_LOOP = "open loop: acts on its schedule, reads nothing";
 
@@ -97,7 +97,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     if (n.kind === "system") {                        // its ports where their names are written: inputs left, outputs right
       node.layoutOptions["elk.portConstraints"] = "FIXED_POS";
       const row = { west: 0, east: 0 };
-      node.ports = n.ports.map((p) => ({ id: p.id, width: 8, height: 8, x: p.at === "west" ? -4 : w - 4, y: SYS_TOP + (row[p.at]++) * SYS_ROW - 4,
+      node.ports = n.ports.map((p) => ({ id: p.id, width: 8, height: 8, x: p.at === "west" ? -4 : w - 4, y: sysTop(n) + (row[p.at]++) * SYS_ROW - 4,
                                          layoutOptions: { "elk.port.side": p.at === "west" ? "WEST" : "EAST" } }));
     }
     if (lines.length) {
@@ -694,10 +694,15 @@ function drawVariable(n, w, hgt) {
   const tone = sp ? ({ off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[sp.status] || "var(--line)") : "var(--stock-line)";
   const g = s("g");
   g.append(s("ellipse", { class: "hit", cx: w / 2, cy: hgt / 2, rx: w / 2 - 1, ry: hgt / 2 - 1, fill: "var(--stock)", stroke: tone, "stroke-width": sp ? 2.4 : 1.6 }));
-  g.append(s("text", { x: w / 2, y: hgt / 2 + 6, "text-anchor": "middle", class: "t-value live" }, n.valueText,
+  g.append(s("text", { x: w / 2, y: 26, "text-anchor": "middle", class: "t-value live" }, n.valueText,
              s("tspan", { class: "t-unit", dx: 4 }, n.unit || "")));
-  if (sp) g.append(s("text", { x: w / 2, y: hgt - 7, "text-anchor": "middle", class: "t-sub" },
+  if (sp) g.append(s("text", { x: w / 2, y: hgt - 6, "text-anchor": "middle", class: "t-sub" },
                      sp.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").trim()));
+  if ((n.points || []).length > 1) {                     // its trend over the window, inside it, as a stock's is
+    const t = sparkSvg(n.points, w * 0.56, 14, sp ? setpointOf(sp.setpoint) : null);
+    t.setAttribute("x", w * 0.22); t.setAttribute("y", 31); t.classList.add("live");
+    g.append(t);
+  }
   return g;
 }
 
@@ -791,12 +796,14 @@ function drawAgent(n, w, hgt) {
 const LINE_COLOR = { measure: "var(--sensor-line)", signal: "var(--sensor-line)", action: "var(--ctl-line)", influence: "var(--dist)", wire: "var(--accent)" };
 
 /* a system drawn as one part: its name, how its loops are doing, and its ports (what crosses its edge) */
-const SYS_TOP = 70, SYS_ROW = 20;
+const SYS_TOP = 70, SYS_ROW = 20, MEAS_ROW = 24;
+const sysTop = (n) => SYS_TOP + (n.measures?.length || 0) * MEAS_ROW;     // its ports start below its measures
 function systemSize(n) {
   const side = (d) => n.ports.filter((p) => (p.at || (p.side === "in" ? "west" : "east")) === (d === "in" ? "west" : "east"));
   const lw = (ps) => Math.max(0, ...ps.map((p) => textWidth(p.label + (p.value ? "  " + p.value : ""))));
-  const w = Math.max(240, textWidth(n.label) * 1.25 + 150, lw(side("in")) + lw(side("out")) + 60);
-  return [w, Math.max(96, SYS_TOP + Math.max(side("in").length, side("out").length) * SYS_ROW + 6 + (n.inner?.length ? 16 : 0))];
+  const mw = Math.max(0, ...(n.measures || []).map((m) => textWidth(m.label) + textWidth(`${m.value} ${m.unit}`) + textWidth(m.setpoint || "") + 150));
+  const w = Math.max(240, textWidth(n.label) * 1.25 + 150, lw(side("in")) + lw(side("out")) + 60, mw);
+  return [w, Math.max(96, sysTop(n) + Math.max(side("in").length, side("out").length) * SYS_ROW + 6 + (n.inner?.length ? 16 : 0))];
 }
 function loopsText(n) {
   const l = n.loops || {}, total = Object.values(l).reduce((a, b) => a + b, 0);
@@ -811,6 +818,25 @@ function drawSystem(n, w, hgt) {
   g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
   g.append(s("circle", { cx: 16 + textWidth(n.label) * 1.25 + 12, cy: 19, r: 5, fill: tone, class: "live" }, s("title", {}, loopsText(n))));
   g.append(s("text", { x: 16, y: 42, class: "t-sub live" }, loopsText(n) + (n.subsystems?.length ? ` · ${n.subsystems.length} inside` : "")));
+  // its measures, as a control panel: each one's health, value, setpoint and trend (click: the part itself)
+  (n.measures || []).forEach((m, i) => {
+    const y = 52 + i * MEAS_ROW;
+    const mt = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[m.status] || "var(--unknown)";
+    const row = s("g", { class: "measure-row", transform: `translate(0,${y})`, "data-act": "measure",
+                         onclick: (ev) => { ev.stopPropagation(); openNode({ id: m.part, kind: m.part.startsWith("flow:") ? "disturbance" : "stock", label: m.label, flow: m.label }); } },
+      s("title", {}, `${m.label}: ${m.value} ${m.unit}${m.goal ? ` · goal ${m.goal} ${m.setpoint}, ${m.status || "unknown"}` : ""}`),
+      s("rect", { x: 8, y: 0, width: w - 16, height: MEAS_ROW - 3, rx: 5, class: "measure-bg" }),
+      m.goal ? s("circle", { cx: 18, cy: 10.5, r: 4, fill: mt, class: "live" }) : null,
+      s("text", { x: 28, y: 15, class: "t-sub" }, m.label),
+      s("text", { x: w - 112, y: 15, class: "t-label live", "text-anchor": "end" }, m.value, s("tspan", { class: "t-unit", dx: 3 }, m.unit || ""),
+        m.setpoint ? s("tspan", { class: "t-sub", dx: 6 }, m.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=")) : null));
+    if ((m.points || []).length > 1) {
+      const sp = sparkSvg(m.points, 92, 18, setpointOf(m.setpoint));
+      sp.setAttribute("x", w - 104); sp.setAttribute("y", 1);
+      row.append(sp);
+    }
+    g.append(row);
+  });
   const btn = (x, label, title, fn) => s("g", { class: "sys-btn", transform: `translate(${x},10)`, onclick: (ev) => { ev.stopPropagation(); fn(); } },
     s("title", {}, title), s("rect", { width: textWidth(label) + 14, height: 20, rx: 5 }), s("text", { x: 7, y: 14 }, label));
   const into = "⤓ into", open = "▸ open";
@@ -821,7 +847,7 @@ function drawSystem(n, w, hgt) {
   const at = { west: 0, east: 0 };
   for (const p of n.ports || []) {
     const side = p.at || (p.side === "in" ? "west" : "east");
-    const y = SYS_TOP + (at[side]++) * SYS_ROW;
+    const y = sysTop(n) + (at[side]++) * SYS_ROW;
     const left = side === "west";
     g.append(s("rect", { x: left ? -4 : w - 4, y: y - 4, width: 8, height: 8, rx: 2, fill: "var(--panel)", stroke: "var(--system-line)", "stroke-width": 1.5 }));
     const px = left ? 0 : w, inward = (p.side === "in") === left;    // which way it carries, across the edge

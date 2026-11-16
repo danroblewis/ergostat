@@ -132,6 +132,24 @@ def fold(g: dict, model, open_: set[str] | None, focus: str | None = None) -> di
             st = lp.get("status") or "unknown"
             boxes[r]["loops"][st] = boxes[r]["loops"].get(st, 0) + 1
         lp["nodes"] = sorted({reps.get(x, x) for x in lp.get("nodes", [])})
+    loops = g.get("loops") or {}
+    for b in boxes.values():                                 # the box as a control panel: the measures it shows
+        name = b["label"]
+        shown = [f"{'flow' if r.kind == 'flow' else 'stock'}:{r.name}" for r in spec.show.get(name, [])]
+        if not shown:                                        # by default its goals' measures, its own first
+            mine = [(len(spec.chain(spec.goals[k].system)), k) for k in loops
+                    if k in spec.goals and name in spec.chain(spec.goals[k].system)]
+            shown = [f"stock:{spec.goals[k].of.name}" if spec.goals[k].of.kind != "flow" else f"flow:{spec.goals[k].of.name}"
+                     for _, k in sorted(mine)][:5]
+        b["measures"] = []
+        for nid in dict.fromkeys(shown):
+            n = nodes.get(nid, {})
+            lname = nid.split(":", 1)[1]
+            goal = next((k for k, lp in loops.items() if lp.get("stock") == lname), None)
+            lp = loops.get(goal, {}) if goal else {}
+            b["measures"].append({"part": nid, "label": lname, "value": n.get("valueText") or n.get("rateText") or "?",
+                                  "unit": n.get("unit", ""), "points": (n.get("points") or [])[-40:],
+                                  "goal": goal, "setpoint": lp.get("setpoint"), "status": lp.get("status")})
     for b in boxes.values():
         b["status"] = next((w for w in WORST if b["loops"].get(w)), None)
         b["ports"].sort(key=lambda p: (p["side"], p["label"]))
