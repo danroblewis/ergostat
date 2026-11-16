@@ -90,7 +90,7 @@ sources:                        # where existing metrics live
   ...
 items:                          # optional: kinds of item, read from the record
   ...
-systems:                        # optional: names and descriptions of groups
+systems:                        # optional: systems, and the systems they are within (section 4a)
   ...
 stocks:
   ...
@@ -103,6 +103,56 @@ blocks:
 agents:                         # optional: machines shared by several blocks
   ...
 ```
+
+## 4a. Systems: parts made of parts
+
+A system is a named part of the model, and it may be part of another: they nest, the way a
+cascade's inner loop is one block of the outer loop. Each stock, flow, goal and block belongs to
+one system (its `system:`, or its file's `defaults: system:`), and so to every system that one
+is within.
+
+```yaml
+systems:
+  factory:
+    description: tickets in, releases out
+  intake:
+    within: factory
+  delivery:
+    within: factory
+  product:                       # within no other system: the top level
+    description: what customers use
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `description` | string | none | |
+| `within` | system name | the top level | The system it is part of. A system within itself, at any depth, is an error |
+
+A system named by a part and not described here is a top-level system.
+
+**Its interface is worked out, never written.** Whatever crosses a system's boundary is one of
+its ports:
+
+| Port | In | Out |
+|---|---|---|
+| setpoint | a block outside sets a goal inside (a cascade) | a block inside sets a goal outside |
+| command | a block outside commands one inside | the other way |
+| action | a block outside moves a flow inside | a block inside moves a flow outside |
+| signal | a block inside reads a stock, flow or goal outside | a block outside reads one inside |
+| material | a flow from a stock outside into one inside | a flow out to a stock outside |
+| influence | a flow inside is `driven-by` something outside | something inside drives a flow outside |
+
+A system whose setpoint comes in from outside, and whose goal's measurement goes back out, is an
+**inner loop**: seen from outside, it is one block that holds what it is told, and an outer loop
+can treat it so. `ergostat explain system.NAME` says what goes in and out, and names it an inner
+loop when it is one.
+
+**Drawn as parts.** The control diagram draws each system as one box: its ports on its edges
+(inputs left, outputs right, each named for the part inside it reaches, with that part's
+reading), and how the loops inside it are doing. A box opens in place (its parts, laid out
+together inside its outline, its own systems still boxed), or is drawn alone: its parts, and
+what it reaches outside as terminals at its edge, each naming the system it is in. A system alone
+at its level starts open; the others start as boxes.
 
 ## 5. Stocks
 

@@ -68,6 +68,17 @@ class Explainer:
             return f"{k} {w}{'' if k == 1 else 's'}"
         out = [f"{s.name}: {n(len(s.stocks), 'stock')}, {n(len(s.flows), 'flow')}, {n(len(s.goals), 'goal')}, "
                f"{n(len(s.blocks), 'block')} ({', '.join(str(f.name) for f in s.files)})."]
+        if s.systems:
+            def walk(parent, depth):
+                out_ = []
+                for x in s.subsystems(parent):
+                    ins = sum(1 for p in s.interface(x) if p["dir"] == "in")
+                    outs = sum(1 for p in s.interface(x) if p["dir"] == "out")
+                    out_.append(f"{'  ' * depth}- {x}: {ins} in, {outs} out")
+                    out_ += walk(x, depth + 1)
+                return out_
+            out.append("Systems (explain system.NAME for one):")
+            out += walk(None, 1)
         if s.items:
             out.append("Items: " + "; ".join(f"{k.name} ({k.id}" + (f": {' → '.join(k.states)}" if k.states else "") + ")"
                                             for k in s.items.values()) + ".")
@@ -230,7 +241,48 @@ class Explainer:
             lines.append("  Measured: " + "; ".join(_sensor(x) for x in f.sensors.values()) + " (a rate per hour).")
         return "\n".join(lines)
 
+    def system(self, name: str) -> str:
+        s = self.s
+        kids = s.subsystems(name)
+        mine = lambda table: [x for x in table.values() if name in s.chain(x.system)]   # noqa: E731
+        stocks, goals, blocks = mine(s.stocks), mine(s.goals), [b for b in mine(s.blocks) if not b.implied]
+        lines = [f"System {name}" + (f": {s.systems[name]}" if s.systems.get(name) else "") + "."]
+        if s.within.get(name):
+            lines.append(f"  Within {' → '.join(s.chain(s.within[name]))}.")
+        lines.append(f"  Holds {len(stocks)} stocks, {len(goals)} goals, {len(blocks)} blocks" +
+                     (f"; systems inside: {', '.join(kids)}" if kids else "") + ".")
+        ports = s.interface(name)
+        for d, title in (("in", "In"), ("out", "Out")):
+            ps = [p for p in ports if p["dir"] == d]
+            if not ps:
+                lines.append(f"  {title}: nothing" + (" (nothing outside reaches in)" if d == "in" else " (nothing outside sees it)") + ".")
+                continue
+            lines.append(f"  {title}:")
+            for p in ps:
+                peers = ", ".join(p["peers"])
+                if d == "in":
+                    what = (f"{p['part']} reads {peers}" if p["kind"] == "signal" else
+                            f"{peers} → {p['part']} ({p['kind']})")
+                else:
+                    what = (f"{peers} reads {p['part']}" if p["kind"] == "signal" else
+                            f"{p['part']} → {peers} ({p['kind']})")
+                lines.append(f"    {what}")
+        inner = s.inner_loops(name)
+        if inner:
+            lines.append(f"  Seen from outside, it is an inner loop: it is given a setpoint for {', '.join(inner)} and holds it, "
+                         f"and what it holds is read back out. An outer loop can treat it as one block (a cascade).")
+        if self.p is not None and goals:
+            st = [self.status.get(g.name, "unknown") for g in goals]
+            lines.append("  Now: " + ", ".join(f"{st.count(k)} {k}" for k in ("holding", "off", "unknown") if st.count(k)) + ".")
+        return "\n".join(lines)
+
     def ref(self, text: str) -> str:
+        if text.startswith("system.") or (text in self.s.systems and Ref.parse(text) is None and not any(
+                text in t for t in (self.s.goals, self.s.blocks, self.s.stocks, self.s.flows))):
+            name = text.removeprefix("system.")
+            if name not in self.s.systems:
+                raise KeyError(f"no system {name!r} (systems: {', '.join(sorted(self.s.systems)) or 'none'})")
+            return self.system(name)
         r = Ref.parse(text)
         if r is None:
             for kind, table in (("goal", self.s.goals), ("block", self.s.blocks), ("stock", self.s.stocks),

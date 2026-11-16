@@ -182,6 +182,7 @@ class Agent:
 class System:
     name: str
     description: str = ""
+    within: str | None = None          # the system it is part of (YAML models)
 
 
 @dataclass

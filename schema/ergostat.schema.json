@@ -897,6 +897,9 @@
       "properties": {
         "description": {
           "type": "string"
+        },
+        "within": {
+          "$ref": "#/$defs/name"
         }
       }
     },

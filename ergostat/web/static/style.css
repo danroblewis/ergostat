@@ -245,3 +245,14 @@ td.data details summary { cursor: pointer; list-style: none; }
 td.data pre, table.fields pre { margin: 6px 0 0; white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; }
 table.fields th { width: 12em; background: transparent; font-family: var(--mono); font-size: 12px; color: var(--muted); }
 a.plain { color: var(--ink); }
+
+/* systems drawn as parts */
+.sys-btn { cursor: pointer; }
+.sys-btn rect { fill: var(--panel); stroke: var(--system-line); stroke-width: 1; }
+.sys-btn text { font-size: 11px; fill: var(--accent); }
+.sys-btn:hover rect { fill: var(--system); }
+.sys-hull-label { cursor: pointer; }
+.sys-hull-label:hover { text-decoration: underline; }
+.k-terminal { cursor: pointer; }
+.toolbar .crumbs { font-size: 13px; color: var(--muted); }
+.toolbar .crumbs b { color: var(--ink); }

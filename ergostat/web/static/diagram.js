@@ -2,7 +2,7 @@
 "use strict";
 /* ------------------------------------------------------------------ the diagram */
 
-const SIZE = { stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [200, 92], agent: [210, 92] };
+const SIZE = { terminal: [120, 34], stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [200, 92], agent: [210, 92] };
 const CH = 6.7;   // px per character, for label sizes
 const OPEN_LOOP = "open loop: acts on its schedule, reads nothing";
 
@@ -17,7 +17,8 @@ function textWidth(t) { return t.length * CH; }
 
 function sig(g) {
   // what the layout depends on: the parts, the wires, and how many label lines each part has
-  return JSON.stringify([g.kind, g.nodes.map((n) => `${n.id}:${labelLines(n).length}:${n.agent?.name || ""}`).sort(), g.edges.map((e) => e.id).sort()]);
+  return JSON.stringify([g.kind, g.nodes.map((n) => `${n.id}:${labelLines(n).length}:${n.agent?.name || ""}:${(n.ports || []).map((p) => p.id).join(",")}`).sort(),
+                         g.edges.map((e) => e.id).sort()]);
 }
 
 /* the pipes that join one loop to the next (a valve's flow from one stock into another): left out of
@@ -30,9 +31,10 @@ function couplings(g) {
 }
 
 async function layoutGraph(g, aspect, cut = false) {
-  const ORDER = { cloud: 0, disturbance: 1, stock: 2, valve: 3, sensor: 5, controller: 6, agent: 2 };
+  const ORDER = { cloud: 0, terminal: 0, disturbance: 1, stock: 2, valve: 3, system: 3, sensor: 5, controller: 6, agent: 2 };
   const rank = (n) => (n.kind === "cloud" ? (n.id.endsWith(":out") ? 4 : 0) : ORDER[n.kind] ?? 3);
   const nodesInOrder = [...g.nodes].sort((a, b) => rank(a) - rank(b));
+  const byIdNodes = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const children = nodesInOrder.map((n) => {
     let [w, hgt] = SIZE[n.kind] || [60, 40];
     if (n.kind === "stock") {                         // the title, and the value beside the setpoint, all fit
@@ -43,8 +45,16 @@ async function layoutGraph(g, aspect, cut = false) {
                                          ...(n.roles || []).map((r) => textWidth(`${r.kind} ${r.name}`) + 40));   // the name and its rung, apart
     if (n.kind === "controller") w = Math.max(w, textWidth(n.label) * 1.12 + 120, textWidth("holds " + n.setpoint) + 60,   // the title is bold
                                               n.openLoop ? textWidth(OPEN_LOOP) + 30 : 0);
+    if (n.kind === "system") [w, hgt] = systemSize(n);
+    if (n.kind === "terminal") w = Math.max(textWidth(n.label + (n.valueText ? "  " + n.valueText : "")), textWidth(n.in ? "in " + n.in : "")) + 34;
     const lines = labelLines(n);
     const node = { id: n.id, width: w, height: hgt, layoutOptions: {} };
+    if (n.kind === "system") {                        // its ports where their names are written: inputs left, outputs right
+      node.layoutOptions["elk.portConstraints"] = "FIXED_POS";
+      const at = { in: 0, out: 0 };
+      node.ports = n.ports.map((p) => ({ id: p.id, width: 8, height: 8, x: p.side === "in" ? -4 : w - 4, y: SYS_TOP + (at[p.side]++) * SYS_ROW - 4,
+                                         layoutOptions: { "elk.port.side": p.side === "in" ? "WEST" : "EAST" } }));
+    }
     if (lines.length) {
       const lw = Math.max(...lines.map((l) => l === "§badge" ? textWidth(badgeText(n.agent)) + 18 : textWidth(l))) + 8;
       node.labels = [{ id: n.id + ":label", text: lines.join("\n"), width: lw, height: lines.length * 16 + 4 }];
@@ -61,11 +71,14 @@ async function layoutGraph(g, aspect, cut = false) {
     return node;
   });
   const flowNode = new Set(g.nodes.filter((n) => n.kind === "valve" || n.kind === "disturbance").map((n) => n.id));
-  const cuts = cut ? couplings(g) : [];
+  const cuts = cut && !g.nodes.some((n) => (n.systems || []).length && g.tree) ? couplings(g) : [];
   const cutIds = new Set(cuts.map((e) => e.id));
   const edges = g.edges.filter((e) => !cutIds.has(e.id)).map((e) => {
-    let src = e.source, dst = e.target;
-    if (e.kind === "pipe") {
+    let src = e.sourcePort || e.source, dst = e.targetPort || e.target;
+    if (e.sourcePort || e.targetPort) {
+      if (!e.targetPort && flowNode.has(dst)) dst = dst + (e.kind === "pipe" ? ":in" : ":ctl");
+      if (!e.sourcePort && flowNode.has(src)) src = src + (e.kind === "pipe" ? ":out" : ":ctl");
+    } else if (e.kind === "pipe") {
       if (flowNode.has(dst)) dst = dst + ":in";
       if (flowNode.has(src)) src = src + ":out";
     } else if (flowNode.has(dst)) dst = dst + ":ctl";
@@ -78,9 +91,25 @@ async function layoutGraph(g, aspect, cut = false) {
     }
     return out;
   });
+  // an open system is laid out as one container, its parts together, nested as the systems nest
+  const open = new Set(g.tree ? g.nodes.flatMap((n) => n.systems || []) : []);
+  let roots = children;
+  if (open.size) {
+    const cont = {};
+    const box = (name) => (cont[name] ||= { id: "hull:" + name, children: [], layoutOptions: { "elk.padding": "[top=44,left=26,bottom=26,right=26]" } });
+    const parentOf = (name) => { let x = g.tree[name]?.within; while (x && !open.has(x)) x = g.tree[x]?.within; return x || null; };
+    for (const name of open) box(name);
+    roots = [];
+    for (const c of children) {
+      const inner = (byIdNodes[c.id]?.systems || [])[0];
+      (inner ? cont[inner].children : roots).push(c);
+    }
+    for (const name of open) { const p = parentOf(name); (p ? cont[p].children : roots).push(cont[name]); }
+  }
   const graph = {
-    id: "root", children, edges,
+    id: "root", children: roots, edges,
     layoutOptions: {
+      ...(open.size ? { "elk.hierarchyHandling": "INCLUDE_CHILDREN" } : {}),
       "elk.algorithm": "layered", "elk.direction": g.kind === "wiring" ? "DOWN" : "RIGHT", "elk.edgeRouting": "ORTHOGONAL",
       "elk.layered.spacing.nodeNodeBetweenLayers": "64", "elk.spacing.nodeNode": "36", "elk.spacing.edgeNode": "18",
       "elk.spacing.edgeEdge": "12", "elk.layered.spacing.edgeNodeBetweenLayers": "18",
@@ -92,6 +121,7 @@ async function layoutGraph(g, aspect, cut = false) {
     },
   };
   const lay = await elk.layout(graph);
+  if (open.size) flatten(lay);
   if (cuts.length) {
     restack(lay, g);
     routeCuts(lay, cuts);
@@ -99,12 +129,40 @@ async function layoutGraph(g, aspect, cut = false) {
   return lay;
 }
 
+/* a nested layout made flat again: every part and edge in the diagram's own coordinates, and the
+   open systems as outlines (lay.containers), outermost first */
+function flatten(lay) {
+  const abs = { root: { x: 0, y: 0 } }, leaves = [], containers = [];
+  const walk = (node, ox, oy, depth) => {
+    for (const c of node.children || []) {
+      const x = ox + c.x, y = oy + c.y;
+      abs[c.id] = { x, y };
+      if (c.id.startsWith("hull:")) {
+        containers.push({ id: c.id, name: c.id.slice(5), x, y, width: c.width, height: c.height, depth });
+        walk(c, x, y, depth + 1);
+      } else leaves.push({ ...c, x, y });
+    }
+  };
+  walk(lay, 0, 0, 0);
+  const edges = [];
+  const collect = (node) => { for (const e of node.edges || []) edges.push(e); for (const c of node.children || []) collect(c); };
+  collect(lay);
+  for (const e of edges) {
+    const o = abs[e.container] || abs.root;
+    for (const sec of e.sections || []) for (const p of [sec.startPoint, sec.endPoint, ...(sec.bendPoints || [])]) { p.x += o.x; p.y += o.y; }
+    for (const l of e.labels || []) { l.x += o.x; l.y += o.y; }
+  }
+  lay.children = leaves;
+  lay.edges = edges;
+  lay.containers = containers;
+}
+
 /* a wrapped layout's chains, one per row, in the model's order (upstream first), each left aligned */
 function restack(lay, g) {
   const order = Object.fromEntries(g.nodes.map((n, i) => [n.id, i]));
   const parent = Object.fromEntries(lay.children.map((c) => [c.id, c.id]));
   const root = (x) => (parent[x] === x ? x : (parent[x] = root(parent[x])));
-  const owner = (p) => (p in parent ? p : p.replace(/:(in|out|ctl)$/, ""));   // a port's node (a cloud's own id ends in :in)
+  const owner = (p) => (p in parent ? p : p.startsWith("system:") ? "system:" + p.split(":")[1] : p.replace(/:(in|out|ctl)$/, ""));   // a port's node
   for (const e of lay.edges) {
     const a = owner(e.sources[0]), b = owner(e.targets[0]);
     if (a in parent && b in parent) parent[root(a)] = root(b);
@@ -278,7 +336,53 @@ function drawAgent(n, w, hgt) {
   return g;
 }
 
-const DRAW = { stock: drawStock, valve: drawValve, disturbance: drawDisturbance, cloud: drawCloud, sensor: drawSensor, controller: drawController, agent: drawAgent };
+/* a system drawn as one part: its name, how its loops are doing, and its ports (what crosses its edge) */
+const SYS_TOP = 70, SYS_ROW = 20;
+function systemSize(n) {
+  const side = (d) => n.ports.filter((p) => p.side === d);
+  const lw = (ps) => Math.max(0, ...ps.map((p) => textWidth(p.label + (p.value ? "  " + p.value : ""))));
+  const w = Math.max(240, textWidth(n.label) * 1.25 + 150, lw(side("in")) + lw(side("out")) + 60);
+  return [w, Math.max(96, SYS_TOP + Math.max(side("in").length, side("out").length) * SYS_ROW + 6 + (n.inner?.length ? 16 : 0))];
+}
+function loopsText(n) {
+  const l = n.loops || {}, total = Object.values(l).reduce((a, b) => a + b, 0);
+  if (!total) return "no loops";
+  return `${total} loop${total > 1 ? "s" : ""}: ` + ["holding", "off", "open", "unknown"].filter((k) => l[k]).map((k) => `${l[k]} ${k}`).join(", ");
+}
+function drawSystem(n, w, hgt) {
+  const tone = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[n.status] || "var(--unknown)";
+  const g = s("g");
+  g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 12, fill: "var(--panel)", stroke: "var(--system-line)", "stroke-width": 2 }));
+  g.append(s("rect", { x: 4, y: 4, width: w - 8, height: hgt - 8, rx: 9, fill: "var(--system)", stroke: "var(--system-line)", "stroke-width": 1, "stroke-dasharray": "3 3" }));
+  g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
+  g.append(s("circle", { cx: 16 + textWidth(n.label) * 1.25 + 12, cy: 19, r: 5, fill: tone, class: "live" }, s("title", {}, loopsText(n))));
+  g.append(s("text", { x: 16, y: 42, class: "t-sub live" }, loopsText(n) + (n.subsystems?.length ? ` · ${n.subsystems.length} inside` : "")));
+  const btn = (x, label, title, fn) => s("g", { class: "sys-btn", transform: `translate(${x},10)`, onclick: (ev) => { ev.stopPropagation(); fn(); } },
+    s("title", {}, title), s("rect", { width: textWidth(label) + 14, height: 20, rx: 5 }), s("text", { x: 7, y: 14 }, label));
+  const into = "⤓ into", open = "▸ open";
+  g.append(btn(w - textWidth(into) - 24, into, "draw this system alone, with what it reaches outside at its edge", () => S.drill?.(n.label)));
+  g.append(btn(w - textWidth(into) - textWidth(open) - 46, open, "open it here: its parts in place of the box", () => S.toggleSystem?.(n.label)));
+  if (n.inner?.length) g.append(s("text", { x: 16, y: hgt - 10, class: "t-sub" }, s("title", {}, "given a setpoint from outside, it holds it, and what it holds is read back out: an outer loop can treat it as one block"),
+                                  `inner loop: holds ${n.inner.join(", ")} for an outer one`));
+  const at = { in: 0, out: 0 };
+  for (const p of n.ports || []) {
+    const y = SYS_TOP + (at[p.side]++) * SYS_ROW;
+    const left = p.side === "in";
+    g.append(s("rect", { x: left ? -4 : w - 4, y: y - 4, width: 8, height: 8, rx: 2, fill: "var(--panel)", stroke: "var(--system-line)", "stroke-width": 1.5 }));
+    g.append(s("text", { x: left ? 12 : w - 12, y: y + 4, class: "t-sub", "text-anchor": left ? "start" : "end" }, s("title", {}, `${p.kind} ${p.label}`),
+      p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
+  }
+  return g;
+}
+function drawTerminal(n, w, hgt) {
+  const g = s("g");
+  g.append(s("rect", { class: "hit", width: w, height: hgt, rx: hgt / 2, fill: "var(--bg)", stroke: "var(--system-line)", "stroke-width": 1.5, "stroke-dasharray": "4 3" }));
+  g.append(s("text", { x: 14, y: n.in ? 14 : hgt / 2 + 4, class: "t-sub" }, n.label, n.valueText ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, n.valueText) : null));
+  if (n.in) g.append(s("text", { x: 14, y: 27, class: "t-sub", opacity: 0.7 }, `in ${n.in}`));
+  return g;
+}
+
+const DRAW = { system: drawSystem, terminal: drawTerminal, stock: drawStock, valve: drawValve, disturbance: drawDisturbance, cloud: drawCloud, sensor: drawSensor, controller: drawController, agent: drawAgent };
 
 function roundedPath(pts, r = 8) {
   if (pts.length < 2) return "";
@@ -313,7 +417,19 @@ function drawGraph(svg, g, lay) {
   const edgeById = Object.fromEntries(g.edges.map((e) => [e.id, e]));
   const vp = s("g", { id: "viewport" });
   // systems as hulls behind everything (overlapping freely)
-  if (g.kind === "control" && S.showHulls) {
+  if (g.kind === "control" && lay.containers?.length) {      // open systems: laid out as containers, drawn as outlines
+    const hulls = s("g", { class: "sys-hull" });
+    const names = Object.keys(g.tree || {}).sort();
+    for (const c of lay.containers) {
+      const hue = (210 + names.indexOf(c.name) * 137.5) % 360;
+      hulls.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height, rx: 16, style: `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,45%,.45)` }),
+        s("text", { x: c.x + 14, y: c.y + 22, class: "sys-hull-label", style: `fill:hsl(${hue},55%,42%)`, onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
+          s("title", {}, `${c.name}: click to close it into one box`), "▾ " + c.name),
+        s("text", { x: c.x + 14 + textWidth("▾ " + c.name) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", style: `fill:hsl(${hue},55%,42%)`,
+                    onclick: (ev) => { ev.stopPropagation(); S.drill?.(c.name); } }, s("title", {}, "draw it alone"), "⤓"));
+    }
+    vp.append(hulls);
+  } else if (g.kind === "control" && S.showHulls && !g.tree) {
     const hulls = s("g", { class: "sys-hull" });
     const taken = [];                                   // label boxes already placed, so overlapping hulls never stack names
     // a system that contains another is padded more, so nested outlines nest visibly, labels apart
@@ -363,7 +479,9 @@ function drawGraph(svg, g, lay) {
         ext.x0 = Math.min(ext.x0, x0); ext.y0 = Math.min(ext.y0, y0); ext.x1 = Math.max(ext.x1, x1); ext.y1 = Math.max(ext.y1, y1);
         hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16,
                                  style: `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,45%,.45)` }),
-                     s("text", { x: lx, y: y0 + 18, style: `fill:hsl(${hue},55%,42%)` }, name));
+                     s("text", { x: lx, y: y0 + 18, class: "sys-hull-label", style: `fill:hsl(${hue},55%,42%)`,
+                                 onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(name); } },
+                       s("title", {}, `${name}: click to close it into one box`), name + (S.graph?.tree ? " ▾" : "")));
       });
     });
     vp.append(hulls);
@@ -422,7 +540,8 @@ function drawGraph(svg, g, lay) {
   for (const ln of lay.children) {
     const n = byId[ln.id];
     const ng = s("g", { class: `node k-${n.kind}`, transform: `translate(${ln.x},${ln.y})`, "data-id": n.id,
-                        onclick: (ev) => { ev.stopPropagation(); if (n.kind !== "cloud") openNode(n); } });
+                        onclick: (ev) => { ev.stopPropagation(); if (n.kind === "terminal") S.drill?.(n.in || ""); else if (n.kind !== "cloud") openNode(n); },
+                        ondblclick: (ev) => { if (n.kind === "system") { ev.stopPropagation(); S.toggleSystem?.(n.label); } } });
     ng.append((DRAW[n.kind] || drawCloud)(n, ln.width, ln.height));
     for (const lb of ln.labels || []) {
       // the text from this tick's data, not the layout's: positions are kept, readings move on
@@ -562,6 +681,10 @@ function legend(view) {
     row('<rect x="2" y="2" width="22" height="14" rx="4" fill="var(--ctl)" stroke="var(--ctl-line)" stroke-width="1.8"/>', "controller: decides, to hold a setpoint"),
     Object.values(S.graph?.loops || {}).some((l) => l.openLoop) &&
       row('<circle cx="13" cy="9" r="7" fill="var(--panel)" stroke="var(--ctl-line)" stroke-width="1.6"/><path d="M13,9 v-5 M13,9 l3,2" stroke="var(--ctl-line)" stroke-width="1.4" stroke-linecap="round"/>', "with a clock: an open loop (acts on time, reads nothing)"),
+    (S.graph?.nodes || []).some((n) => n.kind === "system") &&
+      row('<rect x="2" y="2" width="22" height="14" rx="4" fill="var(--panel)" stroke="var(--system-line)" stroke-width="1.8"/><rect x="0" y="6" width="4" height="4" fill="var(--panel)" stroke="var(--system-line)"/>', "a system as one part: its ports are what crosses its edge (▸ opens it, ⤓ draws it alone)"),
+    (S.graph?.nodes || []).some((n) => n.kind === "terminal") &&
+      row('<rect x="2" y="3" width="22" height="12" rx="6" fill="var(--bg)" stroke="var(--system-line)" stroke-dasharray="3 2"/>', "outside this system: what its edge reaches (click to go there)"),
     (S.graph?.edges || []).some((e) => e.kind === "influence") &&
       row('<path d="M1 9 H20" stroke="var(--dist)" stroke-width="1.6" stroke-dasharray="7 4"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--dist)"/>', "influence: a flow's rate follows this (driven-by)"),
     row('<path d="M1 9 H25" stroke="var(--ok)" stroke-width="2"/>', "a loop holding (red: off, amber: open)"),
@@ -573,16 +696,26 @@ async function pageDiagram(main, q) {
   const view = q.get("view") || "control";
   const system = q.get("system") || "";
   const around = q.get("around") || "";
-  S.showHulls = !system && !around;
+  const openQ = q.has("open") ? q.get("open") : null;          // the systems opened; absent: the server's default
+  S.showHulls = !around;
   const wrap = h("div", { class: "canvas-wrap" });
   const svg = s("svg", { class: "canvas" });
   const sysSel = h("select", { onchange: (ev) => go({ system: ev.target.value, around: "" }) }, h("option", { value: "" }, "everything"));
   for (const name of S.status?.systems || []) sysSel.append(h("option", { value: name, selected: name === system ? "" : null }, name));
   function go(over) {
-    const p = new URLSearchParams({ view, system, around, ...over });
+    const p = new URLSearchParams({ view, system, around, ...(openQ != null ? { open: openQ } : {}), ...over });
     for (const [k, v] of [...p]) if (!v) p.delete(k);
     location.hash = "#/diagram?" + p.toString();
   }
+  S.toggleSystem = (name) => {                     // open a box in place, or close an outline back into one
+    const now = new Set(S.graph?.open || []);
+    if (now.has(name)) { now.delete(name); for (const [k, v] of Object.entries(S.graph?.tree || {})) if (v.within === name) now.delete(k); }
+    else now.add(name);
+    S.graphSig = "";
+    go({ open: [...now].join(",") || "-" });
+  };
+  S.drill = (name) => { S.graphSig = ""; S.fitted = false; go({ system: name, open: "" }); };
+  const crumbs = h("span", { class: "crumbs" });
   const wrapBtn = h("button", { class: S.wrap ? "on" : "", title: "fold a chain of loops into rows, at the pipes between loops",
                                onclick: () => { S.wrap = !wrapBtn.classList.contains("on"); S.graphSig = ""; S.fitted = false; route(); } }, "wrap");
   const toolbar = h("div", { class: "toolbar" },
@@ -592,6 +725,9 @@ async function pageDiagram(main, q) {
       h("button", { class: view === "blocks" ? "on" : "", title: "each loop as a classic feedback block diagram", onclick: () => go({ view: "blocks" }) }, "blocks"),
       h("button", { class: view === "wiring" ? "on" : "", onclick: () => go({ view: "wiring" }) }, "wiring")),
     wrapBtn,
+    h("button", { title: "open every system: all their parts", onclick: () => { S.graphSig = ""; go({ open: "*" }); } }, "open all"),
+    h("button", { title: "close every system into a box", onclick: () => { S.graphSig = ""; go({ open: "-" }); } }, "close all"),
+    crumbs,
     around ? h("span", { class: "pill" }, "around " + around, " ", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); go({ around: "" }); } }, "×")) : null);
   const zoom = h("div", { class: "zoom" },
     h("span", { id: "panhint", class: "muted panhint", hidden: true, title: "drag to pan, or fit to see it whole" }, "more beyond the edge"),
@@ -613,13 +749,27 @@ async function pageDiagram(main, q) {
 
   async function tick() {
     let g;
-    try { g = await api("graph", { view: view === "blocks" ? "control" : view, system, around }); fails = 0; }
+    try { g = await api("graph", { view: view === "blocks" ? "control" : view, system, around, ...(openQ != null && view !== "wiring" ? { open: openQ } : {}) }); fails = 0; }
     catch (e) {
       if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "this view is not in the snapshot: the whole system and each system are" : "the server is not answering: is ergostat still running?")); }
       return;
     }
     wrap.querySelector(".loading")?.remove();
     S.graph = g;
+    if (g.tree && !sysSel.dataset.tree) {            // the picker as the tree it is: each system under the one it is within
+      sysSel.dataset.tree = "1";
+      const kids = (p) => Object.keys(g.tree).filter((x) => (g.tree[x].within || null) === p).sort();
+      const opts = [h("option", { value: "" }, "everything")];
+      const add = (p, depth) => { for (const x of kids(p)) { opts.push(h("option", { value: x, selected: x === system ? "" : null }, "\u00a0\u00a0".repeat(depth) + x)); add(x, depth + 1); } };
+      add(null, 0);
+      sysSel.replaceChildren(...opts);
+    }
+    if (g.tree && system) {                          // where this system sits: each level up, one click away
+      const up = []; let x = system;
+      while (x) { up.unshift(x); x = g.tree[x]?.within; }
+      crumbs.replaceChildren(h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); S.drill(""); } }, "everything"),
+        ...up.flatMap((x, i) => [" › ", i < up.length - 1 ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); S.drill(x); } }, x) : h("b", {}, x)]));
+    } else crumbs.replaceChildren();
     if (view === "blocks") {
       wrap.querySelector(".empty")?.remove();
       const drawn = Object.keys(g.loops || {}).length ? drawBlocks(svg, g) : null;

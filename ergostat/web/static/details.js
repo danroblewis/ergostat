@@ -11,10 +11,27 @@ function showDetail(...kids) {
 function dl(pairs) { return h("dl", {}, pairs.filter(([, v]) => v != null && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])); }
 function agentLink(a) { return a ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(a.name); } }, `${a.name} (rung ${a.rung} ${a.kind})`) : h("span", { class: "muted" }, "unfilled"); }
 
+function openSystem(n) {                               // a system as one part: what goes in and out, and how its loops do
+  const side = (d) => (n.ports || []).filter((p) => p.side === d);
+  const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, p.kind),
+    h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
+  showDetail(h("div", { class: "kind" }, "system"), h("h2", {}, n.label, " ", n.status ? statusEl(n.status) : null),
+    n.description ? h("p", { class: "muted" }, n.description) : null,
+    dl([["loops", loopsText(n)], ["inside", n.subsystems?.length ? n.subsystems.join(", ") : null],
+        ["inner loop", n.inner?.length ? `given a setpoint for ${n.inner.join(", ")} from outside, it holds it: an outer loop can treat it as one block` : null]]),
+    h("h3", {}, "in: what reaches it from outside"), list(side("in"), "nothing outside reaches in (here)"),
+    h("h3", {}, "out: what it reaches outside"), list(side("out"), "nothing outside sees it (here)"),
+    h("p", {}, h("button", { onclick: () => S.toggleSystem?.(n.label) }, "▸ open it here"), " ",
+               h("button", { onclick: () => S.drill?.(n.label) }, "⤓ draw it alone")),
+    h("p", { class: "muted small" }, "Its ports are worked out from the model: every part outside that it reads, sets, feeds or is driven by. ",
+      h("code", {}, `ergostat explain system.${n.label}`), " says the same in sentences."));
+}
+
 async function openNode(n) {
   for (const x of document.querySelectorAll(".node.sel")) x.classList.remove("sel");
   document.querySelector(`.node[data-id="${CSS.escape(n.id)}"]`)?.classList.add("sel");
   if (n.kind === "agent") return openAgent(n.label);
+  if (n.kind === "system") return openSystem(n);
   const [kind, name] = n.kind === "valve" ? ["valve", n.label] : n.kind === "disturbance" ? ["disturbance", n.flow] : n.id.split(":");
   if (kind === "controller") return openLoop(name);
   const d = await api(`part/${kind}/${encodeURIComponent(name)}`);

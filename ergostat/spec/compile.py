@@ -309,8 +309,20 @@ class Compiler:
             except DurationError as e:
                 self.err(str(e), None, "bad-duration")
         for name, m, what in self.named("systems"):
-            self.keys(m, {"description"}, what)
+            self.keys(m, {"description", "within"}, what)
             spec.systems[name] = self.text(m, "description")
+            if m.get("within") is not None:
+                spec.within[name] = str(m["within"])
+        for name, parent in list(spec.within.items()):
+            w = self.doc.defined[("systems", name)]
+            if parent not in spec.systems:
+                self.err(f"system {name}.within: {parent!r} is not a system" + self.suggest(parent, spec.systems), w,
+                         "unknown-ref", f"system.{parent}")
+                del spec.within[name]
+            elif name in spec.chain(parent):
+                self.err(f"system {name}.within: {parent} is within {name}: systems nest, they do not go round", w,
+                         "system-cycle")
+                del spec.within[name]
         for name, m, what in self.named("sources"):
             t = m.get("type")
             if t not in SOURCE_TYPES:
@@ -385,6 +397,9 @@ class Compiler:
         self.implied(spec)
         self.counted(spec)
         self.references(spec)
+        for x in (*spec.stocks.values(), *spec.flows.values(), *spec.goals.values(), *spec.blocks.values()):
+            if x.system and x.system not in spec.systems:      # named by a part, not described: a top-level system
+                spec.systems[x.system] = ""
         return spec
 
     def implied(self, spec: Spec) -> None:

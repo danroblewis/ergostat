@@ -32,6 +32,8 @@ def _requests(project) -> list[tuple[str, dict]]:
     for view in ("control", "wiring"):
         for system in [None, *m.system_names()]:
             reqs.append(("graph", {"view": view, **({"system": system} if system else {})}))
+            if view == "control" and getattr(m, "spec", None) is not None:      # every system opened: what an expand shows
+                reqs.append(("graph", {"view": view, "open": "*", **({"system": system} if system else {})}))
     reqs += [(f"loops/{_q(n)}", {}) for n in m.controllers]
     reqs += [(f"agents/{_q(n)}", {}) for n in m.agents]
     for kind, table in m.tables().items():

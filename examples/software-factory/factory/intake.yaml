@@ -1,0 +1,47 @@
+# Intake: what customers report and ask for becomes tickets, waiting in the backlog.
+defaults:
+  system: intake
+
+stocks:
+  backlog:
+    unit: tickets
+    description: tickets nobody has submitted work for yet (open, or being worked)
+    sensor:
+      items: ticket
+      state: [open, doing]
+      every: 5s
+  oldest-bug:
+    unit: hours
+    description: how long the oldest bug not yet live has waited in its state
+    sensor:
+      items: ticket
+      state: [open, doing, review, merged]
+      where:
+        type: bug
+      measure: oldest
+      every: 10s
+
+flows:
+  filed-bugs:
+    to: backlog
+  filed-features:
+    to: backlog
+
+goals:
+  backlog-clear:
+    stock: backlog
+    hold: "<= 0"
+
+blocks:
+  support:                                 # customers' failures become bug tickets
+    type: program
+    run: python3 bin/factory.py support
+    in: stock.bugs-live
+    every: 20s
+    out: flow.filed-bugs
+  product-manager:                         # what customers ask for and cannot get becomes feature tickets
+    type: program
+    run: python3 bin/factory.py pm
+    in: [stock.missing-ops, stock.users]
+    every: 30s
+    out: flow.filed-features

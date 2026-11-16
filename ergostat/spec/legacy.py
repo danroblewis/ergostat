@@ -25,9 +25,9 @@ def valve_name(spec: Spec, block: str, flow: str) -> str:
 
 def to_model(spec: Spec, problems) -> mdl.Model:
     m = mdl.Model(name=spec.name, path=spec.files[0] if spec.files else None, keep=spec.keep)
-    tags = lambda x: [x.system] if x.system else []                                  # noqa: E731
+    tags = lambda x: spec.chain(x.system)                     # noqa: E731 - its system and every one that is within
     for name, desc in spec.systems.items():
-        m.systems[name] = mdl.System(name, desc)
+        m.systems[name] = mdl.System(name, desc, spec.within.get(name))
     for st in spec.stocks.values():
         m.stocks[st.name] = mdl.Stock(st.name, st.description, tags(st), unit=st.unit)
     for f in spec.flows.values():
@@ -36,7 +36,8 @@ def to_model(spec: Spec, problems) -> mdl.Model:
                                    disturbance=setter is None, rate=f.rate if setter is None else None,
                                    driven_by=[r.name for r in f.driven_by])
     for s in spec.sensors():
-        m.sensors[sensor_name(s.of.name, s.name)] = mdl.Sensor(sensor_name(s.of.name, s.name), s.description, [],
+        m.sensors[sensor_name(s.of.name, s.name)] = mdl.Sensor(sensor_name(s.of.name, s.name), s.description,
+                                                               spec.chain(spec.owner(s.of)),
                                                                measures=s.of.name, agent=None, unit=s.unit)
     for b in spec.blocks.values():
         kind = spec.agents[b.agent].kind if b.agent in spec.agents and spec.agents[b.agent].kind else \

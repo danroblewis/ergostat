@@ -108,11 +108,18 @@ def api(live: Live, path: str, q: dict):
     if head == "graph":
         system = one("system") or None
         around = one("around") or None
-        sel = graph.select(m, system, around, int(one("depth") or 1))
         from ..runner import running_pid
         att = st.attention(snap, bool(running_pid(p)) and snap["live"], m)
         if one("view") == "wiring":
-            return {**graph.wiring(m, p, snap, sel), "attention": att}
+            return {**graph.wiring(m, p, snap, graph.select(m, system, around, int(one("depth") or 1))), "attention": att}
+        from ..fold import fold
+        tree = getattr(getattr(m, "spec", None), "systems", None)
+        if tree and not around:              # systems as parts: boxed, opened, or drilled into (whatever it reaches outside)
+            g = graph.control(m, snap, graph.select(m), graph.readings(p, at))
+            opened = q.get("open")
+            want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
+            return {**fold(g, m, want, system), "attention": att}
+        sel = graph.select(m, system, around, int(one("depth") or 1))
         return {**graph.control(m, snap, sel, graph.readings(p, at)), "attention": att}
     if head == "systems":
         return [{"name": s, "description": m.systems[s].description if s in m.systems else "",

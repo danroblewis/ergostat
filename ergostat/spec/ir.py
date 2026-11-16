@@ -250,7 +250,83 @@ class Spec:
     agents: dict[str, Agent] = field(default_factory=dict)
     sources: dict[str, Source] = field(default_factory=dict)
     items: dict[str, ItemKind] = field(default_factory=dict)
-    systems: dict[str, str] = field(default_factory=dict)
+    systems: dict[str, str] = field(default_factory=dict)        # name → description
+    within: dict[str, str] = field(default_factory=dict)         # a system → the system it is part of
+
+    # ---- systems: a tree; a part belongs to one, and to every system that one is within
+
+    def chain(self, system: str | None) -> list[str]:
+        """The system and every system it is within, innermost first."""
+        out: list[str] = []
+        while system and system not in out:
+            out.append(system)
+            system = self.within.get(system)
+        return out
+
+    def subsystems(self, system: str | None) -> list[str]:
+        """The systems directly within this one (None: the top level)."""
+        return sorted(s for s in self.systems if self.within.get(s) == system)
+
+    def owner(self, r: Ref) -> str | None:
+        """The system a referenced part belongs to (a sensor: its stock's or flow's)."""
+        t = {"stock": self.stocks, "flow": self.flows, "goal": self.goals, "block": self.blocks}.get(r.kind, {})
+        x = t.get(r.name)
+        return getattr(x, "system", None) if x else None
+
+    def inside(self, r: Ref, system: str) -> bool:
+        return system in self.chain(self.owner(r))
+
+    def interface(self, system: str) -> list[dict]:
+        """What crosses the system's boundary, each crossing a port: worked out, never written.
+
+        In: a setpoint (an outside block sets a goal inside: the cascade), a command (to a block
+        inside), an action (an outside block moves a flow inside), a signal (something inside
+        reads something outside), material (a flow from an outside stock into one inside), an
+        influence (a flow inside driven by something outside). Out: the same, the other way."""
+        ports: dict[tuple, dict] = {}
+
+        def port(dir: str, kind: str, inner: Ref, outer: Ref) -> None:
+            p = ports.setdefault((dir, kind, str(inner)), {"dir": dir, "kind": kind, "part": str(inner), "peers": []})
+            if str(outer) not in p["peers"]:
+                p["peers"].append(str(outer))
+        for f in self.flows.values():
+            ends = [(e, self.inside(Ref("stock", e), system)) for e in (f.source, f.target) if e]
+            if len(ends) == 2 and ends[0][1] != ends[1][1]:
+                inner, outer = (ends[0][0], ends[1][0]) if ends[0][1] else (ends[1][0], ends[0][0])
+                port("out" if ends[0][1] else "in", "material", Ref("flow", f.name), Ref("stock", outer))
+            here = self.inside(Ref("flow", f.name), system)
+            for r in f.driven_by:
+                if self.inside(r, system) != here:
+                    port("in", "influence", Ref("flow", f.name), r) if here else port("out", "influence", r, Ref("flow", f.name))
+        for b in self.blocks.values():
+            if b.implied:                                 # its machine block's goal: says the same
+                continue
+            me = Ref("block", b.name)
+            here = self.inside(me, system)
+            for r in b.reads():
+                r = Ref(r.kind, r.name)
+                if r.kind == "block" or self.inside(r, system) == here:
+                    continue
+                port("in", "signal", me, r) if here else port("out", "signal", r, me)
+            for t in b.targets():
+                t = Ref(t.kind, t.name)
+                if self.inside(t, system) == here:
+                    continue
+                kind = {"goal": "setpoint", "block": "command", "flow": "action"}[t.kind]
+                port("out", kind, me, t) if here else port("in", kind, t, me)
+            for r in b.inputs.values():                  # a block inside reading one outside, or the other way
+                if r.kind == "block" and self.inside(Ref("block", r.name), system) != here:
+                    port("in", "command", me, Ref("block", r.name)) if here else port("out", "command", Ref("block", r.name), me)
+        return sorted(ports.values(), key=lambda p: (p["dir"] != "in", p["kind"], p["part"]))
+
+    def inner_loops(self, system: str) -> list[str]:
+        """Goals inside whose setpoint comes from outside and whose measurement goes back out: the
+        system is, seen from outside, one block that holds what it is told (a cascade's inner loop)."""
+        ports = self.interface(system)
+        set_from_outside = {p["part"].split(".", 1)[1] for p in ports if p["dir"] == "in" and p["kind"] == "setpoint"}
+        read_outside = {p["part"] for p in ports if p["dir"] == "out" and p["kind"] == "signal"}
+        return [g for g in sorted(set_from_outside) if g in self.goals and
+                (str(self.goals[g].of) in read_outside or f"goal.{g}" in read_outside)]
 
     # ---- lookups: the reverse relations, never written
 

@@ -38,7 +38,13 @@ seconds each.
 
 ## The two systems
 
-**The factory** (`factory.yaml`) is made of items: `ticket/12`, `pr/7`, `release/3`, each folded
+The diagram starts with each system as one box: its ports are what crosses its edge (the
+product's stocks going out to support and the product manager, the deploys coming in). ▸ opens a
+box in place, ⤓ draws it alone with what it reaches outside at its edge. The factory is itself
+two systems, `intake` (tickets filed into the backlog) and `delivery` (developed, reviewed,
+deployed); `ergostat explain system.delivery` says what goes in and out of it.
+
+**The factory** (`factory/`, its items in `factory.yaml`) is made of items: `ticket/12`, `pr/7`, `release/3`, each folded
 from its events. Its stocks are counted from them, with no sensor program at all:
 
 | stock | counts | goal |

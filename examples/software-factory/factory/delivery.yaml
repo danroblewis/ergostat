@@ -1,0 +1,78 @@
+# Delivery: a developer takes tickets from the backlog, a reviewer passes or returns them, and a
+# deployer ships what is merged.
+defaults:
+  system: delivery
+
+stocks:
+  in-review:
+    unit: tickets
+    sensor:
+      items: ticket
+      state: review
+      every: 5s
+  awaiting-deploy:
+    unit: tickets
+    description: merged into main, not yet in production
+    sensor:
+      items: ticket
+      state: merged
+      every: 5s
+
+flows:
+  submitted:
+    from: backlog
+    to: in-review
+  rejected:
+    from: in-review
+    to: backlog
+    sensor:
+      items: ticket
+      leaving: review
+      over: 10m
+  merged:
+    from: in-review
+    to: awaiting-deploy
+    sensor:
+      items: ticket
+      entering: merged
+      over: 10m
+  deployed:
+    from: awaiting-deploy
+    sensor:
+      items: ticket
+      entering: live
+      over: 10m
+
+goals:
+  reviews-done:
+    stock: in-review
+    hold: "<= 0"
+  all-live:
+    stock: awaiting-deploy
+    hold: "<= 0"
+
+blocks:
+  developer:
+    type: ai
+    goal: backlog-clear                    # works while there is a ticket to work
+    prompt: prompts/developer.md
+    run: bin/ai.sh developer               # FACTORY_AI=claude: a Claude Code session; otherwise a stand-in
+    max: 1                                 # one ticket a run
+    timeout: 20m
+    out: flow.submitted
+  reviewer:
+    type: ai
+    goal: reviews-done
+    prompt: prompts/reviewer.md
+    run: bin/ai.sh reviewer
+    max: 1
+    timeout: 15m
+    out:
+      merged: flow.merged
+      rejected: flow.rejected
+  deployer:
+    type: program
+    goal: all-live
+    run: python3 bin/factory.py deploy
+    every: 30s                             # at most one release every 30s: merged work waits for the next
+    out: flow.deployed
