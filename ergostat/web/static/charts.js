@@ -166,6 +166,25 @@ function causesStrip(ref, group = chartGroup("strip")) {
   if (!SNAP) rememberChart(ref);
   return box;
 }
+/* a system's own measures (its show:, else its goals' measures), each a chart on one time axis: what its
+   box used to draw as sparklines, now in its panel */
+function moduleCharts(n, group = chartGroup("module")) {
+  const refs = [...new Set((n.charted || n.measures || []).map((x) => x.part.replace(":", ".")))];
+  if (!refs.length) return null;
+  const box = h("div", { class: "strip" }, h("div", { class: "muted small" }, "…"));
+  api("series", { refs: refs.join(","), points: CHART_POINTS }).then((d) => {
+    const list = d.series || [];
+    if (!list.length || list.every((s) => s.values.every((v) => v == null))) {
+      box.replaceChildren(h("p", { class: "muted small" }, `Nothing measured in ${windowSaid(d)}.`));
+      return;
+    }
+    box.replaceChildren(...list.map((s, i) => lineChart({
+      group, name: s.name, role: s.kind === "flow" ? "rate" : null, unit: s.unit, per: s.per, times: d.times, values: s.values,
+      since: d.since, until: d.until, goal: s.goal, height: 60, xAxis: i === list.length - 1, zero: s.kind === "flow",
+      href: () => openRef(s.ref) })), h("div", { class: "chart-foot" }, h("span", { class: "muted" }, "Its measures, on one time axis"), group.when));
+  }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
+  return box;
+}
 const windowSaid = (d) => (d && d.until - d.since < (S.status?.window || 0) * 0.95 ? `the ${dur(d.until - d.since)} recorded` : "the window");
 
 /* a part named in a strip, opened as if clicked on the diagram */

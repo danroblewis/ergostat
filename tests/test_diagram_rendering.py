@@ -1411,3 +1411,23 @@ def test_the_loop_markers_can_be_hidden_and_it_is_remembered(browser, tmp_path):
         pg.get_by_text("Show loop markers").click()
         assert shown()
         pg.close()
+
+
+def test_a_closed_systems_panel_charts_its_measures(browser, tmp_path):
+    """What a closed system's box used to draw as sparklines is charted in its panel: its show: measures."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)                                  # everything closed: each system a module
+        got = pg.evaluate("""async () => {
+          const n = S.graph.nodes.find((x) => x.kind === "system" && x.label === "benchmark");
+          await openNode(n);
+          await new Promise((r) => setTimeout(r, 1500));
+          return { measures: (n.charted || n.measures || []).length, strip: !!document.querySelector("#detail .strip"),
+                   text: document.querySelector("#detail .strip")?.textContent || "" };
+        }""")
+        assert got["measures"] > 0 and got["strip"], got
+        assert "…" != got["text"].strip(), got                 # it answered: charts, or "nothing measured"
+        assert not errors, errors
+        pg.close()

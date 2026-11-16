@@ -598,6 +598,7 @@ function sdOpenSystem(n) {
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
   const inside = (S.graph?.causalLoops || []).filter((c) => c.nodes.includes(n.id) && sdVisible(c, S.graph).length < 2);
   showDetail(h("div", { class: "kind" }, "Module"), h("h2", {}, n.label),
+    moduleCharts(n),
     n.description ? h("p", { class: "muted" }, n.description) : null,
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),
     h("h3", {}, "Out, to outside"), list(side("out"), "Nothing outside depends on it here."),

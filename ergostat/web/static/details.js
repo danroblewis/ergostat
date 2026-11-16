@@ -46,7 +46,8 @@ function openSystem(n) {                               // a system as one part: 
   const side = (d) => (n.ports || []).filter((p) => p.side === d);
   const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, p.kind),
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
-  showDetail(h("div", { class: "kind" }, "System"), h("h2", {}, n.label, exceptional(n.status) ? statusEl(n.status) : null), whatIs("system"),
+  showDetail(h("div", { class: "kind" }, "System"), h("h2", {}, n.label, exceptional(n.status) ? statusEl(n.status) : null),
+    typeof moduleCharts === "function" ? moduleCharts(n) : null, whatIs("system"),
     n.description ? h("p", { class: "muted" }, n.description) : null,
     dl([["loops", loopsText(n)], ["inside", n.subsystems?.length ? n.subsystems.join(", ") : null],
         ["inner loop", n.inner?.length ? `given a setpoint for ${n.inner.join(", ")} from outside, it holds it: an outer loop can treat it as one block` : null]]),
