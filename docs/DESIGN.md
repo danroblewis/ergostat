@@ -143,12 +143,13 @@ The control diagram is the product's main view. Conventions:
   A loop's lines take its status colour (green holding, red off, amber open).
 - **Layout** (ELK layered, vendored): the plant runs left to right along the pipes (pipes carry the
   highest straightness and direction priority), the feedback path above it; each loop a row.
-  Systems are drawn as outlines in their own colours (golden-angle hues), overlapping where they
+  Systems are drawn as thin outlines named in muted type (one ink: no colour per system), overlapping where they
   share parts, labels never stacked. A chain of loops in series folds into rows at the pipes that
   join them (one loop per row, upstream first, the joining pipe routed by hand), by itself when it
-  would be far wider than the window, or with "wrap". The first view keeps text legible (9px or
-  more) and says when more lies beyond the edge; "fit" shows everything.
-- **The wiring view** draws agents (coloured by rung, with schedule and roles) and an arrow when
+  would be far wider than the window, or with "Wrap loops into rows" (the toolbar's ⋯ menu, beside "Open
+  all systems", "Close all systems" and "Unpin all parts"). The first view keeps text legible (9px or
+  more) and says when more lies beyond the edge; "Fit" shows everything.
+- **The wiring view** draws agents (with their rung, schedule and roles) and an arrow when
   one agent's output reaches another: through a sensor or valve it hands on, through a stock, or
   through an event type it listens for. It runs top to bottom. The cycles among the agents are
   listed, each with the declared loop that accounts for it; a cycle no loop declares is something
@@ -161,8 +162,8 @@ The control diagram is the product's main view. Conventions:
   loop has `t: <schedule>` driving C with no Σ, and ym ends in "watched against r, not fed
   back". With several systems the rows are grouped by system and tagged. The command line prints
   the same in text (`ergostat system --blocks`).
-- **Export**: "save SVG" and "PNG" write a standalone file with a header (project, system, view,
-  when) and, for the control view, a one-line legend, every style resolved; "design SVG" leaves out
+- **Export** (the zoom bar's Export menu): "SVG" and "PNG" write a standalone file with a header (project, system, view,
+  when) and, for the control view, a one-line legend, every style resolved; "Design SVG" leaves out
   what changes minute to minute (values, rates, status, decisions, trends) for a design document; `ergostat snapshot` writes the whole page and its answers as one
   HTML file that opens offline (agents' logs only with `--with-logs`).
 
@@ -193,15 +194,82 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 ## 8. The web page
 
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
-owner's absence*), read only. Pages: Diagram (control, blocks and wiring views; the side panel:
-attention, loops or cycles, model changes, legend), Loops, Agents (the ladder, one column per
-rung), Items (the record folded by id, by kind and state), Record (events, with runs
-hidden by default), Residuals, Check, and a Guide: a sequence of frames, one line each, every
-frame a tiny built-in model drawn by the real dynamics and blocks renderers (`ergostat/guide.py`),
-with its behaviour over time beside it (why: what we control and what we want; system dynamics;
-control; then the project's own model, both ways). Clicking a part opens what `ergostat <topic> <name>` shows.
-A slider in the header moves the whole page to a past moment (the API's `at`), with
-"back to live". Light and dark themes; usable at phone width.
+owner's absence*), read only. Pages: Diagram (dynamics, blocks and wiring views; the side panel:
+attention, loops or cycles, model changes, legend), Loops, Agents (one list, by rung), Items (the
+record folded by id, by kind and state), Record (events, with runs hidden by default), Residuals,
+Check, and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
+the real dynamics and blocks renderers (`ergostat/guide.py`), with its behaviour over time beside
+it (why: what we control and what we want; system dynamics; control; then the project's own model,
+both ways). Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which
+takes the side panel's place. One control in the header holds the window and the moment: its menu
+sets the window and slides the page to a past moment (the API's `at`), with "Back to live". Light
+theme first, a dark one from the same tokens; usable at phone width.
+
+### 8.1 How it looks, and why
+
+ergostat is an instrument, so it looks like one. The references are tools whose quality comes from
+restraint and a strict notation, not from personality: Linear and Grafana for density, tables and
+side panels (Grafana's first principle: "don't get in the way of the data"); Observable for pages
+that are mostly figures with a line of text; Vensim and Stella, and the figures in Sterman's
+*Business Dynamics*, for the dynamics view; Åström and Murray's *Feedback Systems* figures for the
+blocks view. The method is Refactoring UI's (limit the choices, set the scales first, design in
+greyscale and add colour last, de-emphasise to emphasise, labels are a last resort) and Tufte's
+(maximise data-ink; erase what is not data, then what repeats it; thin, light lines for structure
+so the data reads on top). The craft checklist is Vercel's Web Interface Guidelines. The research
+behind this, with the tells of a generated UI it removes, is kept outside the repository
+(the redesign's `RESEARCH.md`).
+
+The diagrams keep their notations (§6): the dynamics view is Sterman's and Vensim's, the blocks view
+a textbook block diagram, monochrome, functions in the blocks. This section is about everything
+around them, and their chrome and type.
+
+**Decisions.** Every value below is a custom property in the one token block at the top of
+`ergostat/web/static/style.css`; nothing else in that file may write a colour, a font size, a
+radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it).
+
+- **Type.** One typeface for everything, the platform's own UI face (`system-ui`: San Francisco,
+  Segoe UI, Cantarell or Roboto), chosen because it is built for dense interfaces, has tabular
+  figures, needs nothing loaded and works in an offline snapshot. Numbers are always
+  `tabular-nums`. Monospace only for ids, code, patterns and raw event data. Four sizes for the
+  interface: 12 (meta, table headers, captions), 14 (body), 17 (panel and section titles), 22
+  (page titles); and three for drawings: 11, 12, 13. Two weights, 400 and 600. Headings in sentence
+  case, never upper case, never letter-spaced.
+- **Space.** 4, 8, 12, 16, 24, 32 and 48 px (and 2 px for hairline offsets). More space around a
+  group than within it.
+- **Radius.** Two: 4 px for controls, inputs, code and menus; 6 px for the menus' own box. The
+  diagrams' shapes keep their notations' corners (a stock is a rectangle). Circles are circles.
+- **Colour.** A neutral ramp of eight steps with a slight cool bias (OKLCH hue 250, chroma under
+  0.015): cool because the tool sits beside terminals and editors, and warm cream is a tell of its
+  own. Not pure grey: the bias keeps the page from looking unfinished. Ink is not black (about 13:1
+  on white), so long reading is not harsh; muted text stays above 4.5:1. Hue is reserved:
+  red for off or failing, amber for open or a warning, *nothing* for fine (a healthy row is
+  plain); one blue accent for interaction only (links, focus, the selected thing, what is pointed
+  at), never for data or decoration. Lines in charts are ink; a setpoint is a muted dash.
+- **Themes.** Light first. The dark theme follows the system setting and is the same ramp read
+  the other way, with the same hues, generated from the same OKLCH values (the hex values in the
+  token block say which).
+- **Surfaces.** The canvas and pages are the plain surface; the header and the side and detail
+  panels sit on a faintly tinted one, divided by hairlines (1 px, the lightest line). No shadows,
+  except under a menu, which floats. No cards, no boxes in boxes, no coloured side stripes.
+- **Status only for exceptions.** A loop holding says nothing; one off says "off" in red. No status
+  dots, pills, chips or badges on rows; a state is a word in a column.
+- **Controls.** The few that matter are visible; the rest are in a menu inside the toolbar that
+  already holds them (the diagram's "⋯" and "Export" menus). Buttons are quiet (borderless) unless
+  they are the selected one of a set. Nothing shifts when it is chosen: the active tab is marked by
+  colour and a rule, not by weight. Hit targets at least 24 px. One hover style, one focus ring
+  (2 px accent, outside). No animation on frequent actions.
+- **Tables.** Hairline rules between rows only: no outer border, no rounded corners, no header fill.
+  Numbers right-aligned, headers too over numbers. A wide table scrolls inside its own box; the page
+  never scrolls sideways.
+- **Numbers.** One formatter (`fmt` in `util.js`): integers as they are, with thousands separated;
+  others to three significant figures; a real minus (−). Raw data on the Record is rounded the same
+  way where it is summarised, and kept whole in the event's panel. Setpoints and conditions use the
+  real symbols: ≤, ≥, =, ≠, −, ×, and … for an ellipsis. Subscripts are subscripts (K<sub>p</sub>,
+  not K_p).
+- **Copy.** No paragraph under a page's title: what a thing is belongs to the Guide. Labels are
+  terse and specific; a panel opens with what the thing is now, not its definition. Sentence case
+  everywhere. No " · " chains to fake structure: two lines, or a label and a value. No arrows on
+  links. Empty states say what is missing in one line.
 
 ## 9. Not yet
 

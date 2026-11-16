@@ -6,8 +6,14 @@ function closeDetail() { if (S.selKey) { S.selKey = null; trace(S.hoverKey); } c
 function showDetail(...kids) {
   if (S.selKey) { S.selKey = null; trace(S.hoverKey); }  // another detail: the line chosen before lets go
   const d = $("#detail");
-  d.replaceChildren(h("button", { class: "close", onclick: closeDetail }, "close"), ...kids.filter((k) => k != null && k !== false));
+  kids = kids.filter((k) => k != null && k !== false);
+  // what it is now first; what a thing of its kind is (a definition) last, one click away
+  const defs = kids.filter((k) => k.nodeType && k.matches?.("details.what")), rest = kids.filter((k) => !defs.includes(k));
+  const close = h("button", { class: "close ghost", title: "Close (Esc)", "aria-label": "Close", onclick: closeDetail }, "\u00d7");
+  const head = rest[0]?.classList?.contains("kind") ? h("div", { class: "head" }, rest.shift(), close) : h("div", { class: "head" }, h("span"), close);
+  d.replaceChildren(head, ...rest, ...defs);
   d.hidden = false;
+  d.scrollTop = 0;
 }
 /* what each kind of thing on the diagram is: said first, in plain words, before how it is now */
 const WHAT = {
@@ -28,36 +34,27 @@ const WHAT = {
   wire: ["Wire (what the record shows)", "something that passed from one machine to another, proven by the event log: an event of the second's (or its run) caused by the first's event or run, or an event the second listens for, published by the first, after which the second ran. A wire the model declares that the log never shows is drawn dashed."],
   machine: ["Machine", "something that publishes on the event log (an event's source; machine/instance is one of its instances), or one the model declares. A block's runs are its own, though ergostat records them."],
 };
-const DRAWN = {
-  pipe: "a thick double line; it runs with blue dots while material moves along it (orange edged and dotted when nothing controls it)",
-  measure: "a blue dotted line, from what is read to the sensor",
-  signal: "a blue line, from the sensor to the controller",
-  action: "a purple line, from the controller to the valve it opens",
-  influence: "an orange dashed line, from what drives to the flow that follows",
-  wire: "a line from one machine to another, labelled with the event type along it and how many; dashed when declared but never seen",
-};
 function whatIs(kind) {
   const w = WHAT[kind];
-  return w ? h("p", { class: "what" }, h("b", {}, w[0]), ": ", w[1]) : null;
+  return w ? h("details", { class: "what" }, h("summary", {}, `About ${w[0].toLowerCase().replace(/^(information link|flow), /, "")}`), h("p", {}, w[1][0].toUpperCase() + w[1].slice(1))) : null;
 }
 
 function dl(pairs) { return h("dl", {}, pairs.filter(([, v]) => v != null && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])); }
-function agentLink(a) { return a ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(a.name); } }, `${a.name} (${a.kind})`) : h("span", { class: "muted" }, "unfilled"); }
+function agentLink(a) { return a ? h("span", {}, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(a.name); } }, a.name), h("span", { class: "muted" }, ` ${a.kind}`)) : h("span", { class: "s-open" }, "unfilled"); }
 
 function openSystem(n) {                               // a system as one part: what goes in and out, and how its loops do
   const side = (d) => (n.ports || []).filter((p) => p.side === d);
   const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, p.kind),
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
-  showDetail(h("div", { class: "kind" }, "system"), h("h2", {}, n.label, " ", n.status ? statusEl(n.status) : null), whatIs("system"),
+  showDetail(h("div", { class: "kind" }, "System"), h("h2", {}, n.label, exceptional(n.status) ? statusEl(n.status) : null), whatIs("system"),
     n.description ? h("p", { class: "muted" }, n.description) : null,
     dl([["loops", loopsText(n)], ["inside", n.subsystems?.length ? n.subsystems.join(", ") : null],
         ["inner loop", n.inner?.length ? `given a setpoint for ${n.inner.join(", ")} from outside, it holds it: an outer loop can treat it as one block` : null]]),
-    h("h3", {}, "in: what reaches it from outside"), list(side("in"), "nothing outside reaches in (here)"),
-    h("h3", {}, "out: what it reaches outside"), list(side("out"), "nothing outside sees it (here)"),
-    h("p", {}, h("button", { onclick: () => S.toggleSystem?.(n.label) }, "▸ open it here"), " ",
-               h("button", { onclick: () => S.drill?.(n.label) }, "⤓ draw it alone")),
-    h("p", { class: "muted small" }, "Its ports are worked out from the model: every part outside that it reads, sets, feeds or is driven by. ",
-      h("code", {}, `ergostat explain system.${n.label}`), " says the same in sentences."));
+    h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),
+    h("h3", {}, "Out, to outside"), list(side("out"), "Nothing outside sees it here."),
+    h("div", { class: "actions" }, h("button", { onclick: () => S.toggleSystem?.(n.label) }, "Open it here"),
+               h("button", { onclick: () => S.drill?.(n.label) }, "Draw it alone")),
+    h("p", { class: "note" }, h("code", {}, `ergostat explain system.${n.label}`), " says the same in sentences."));
 }
 
 async function openNode(n) {
@@ -84,12 +81,12 @@ async function openNode(n) {
                                    ["last reading", last ? `${fmt(last[1])}, ${ago(last[0])}` : "none yet"], ["in the window", `${now.count ?? rd.length} readings`]);
   const shown = n.kind === "auxiliary" ? "auxiliary" : kind;
   if (n.kind === "auxiliary") for (let i = rows.length - 1; i >= 0; i--) if (rows[i][0] === "in" || rows[i][0] === "out") rows.splice(i, 1);
-  const kids = [h("div", { class: "kind" }, shown), h("h2", {}, name), whatIs(shown), h("h3", {}, "how it is now"), dl(rows)];
+  const kids = [h("div", { class: "kind" }, shown), h("h2", {}, name), whatIs(shown), dl(rows)];
   if (kind === "stock" && now.points?.length > 1) kids.push(sparkSvg(now.points, 380, 70));
   if (kind === "sensor" && now.readings?.length > 1) kids.push(sparkSvg(now.readings, 380, 70));
   if (kind === "sensor" && rd.length) {
-    kids.push(h("h3", {}, "its last readings"), h("table", {}, rd.slice(-10).reverse().map(([t, v]) =>
-      h("tr", {}, h("td", { class: "num nowrap" }, new Date(t * 1000).toLocaleTimeString([], { hour12: false })), h("td", { class: "num" }, fmt(v))))));
+    kids.push(h("h3", {}, "Last readings"), h("table", {}, rd.slice(-10).reverse().map(([t, v]) =>
+      h("tr", {}, h("td", { class: "nowrap" }, new Date(t * 1000).toLocaleTimeString([], { hour12: false })), h("td", { class: "num" }, fmt(v))))));
   }
   if (kind === "valve") {
     // one row per run that opened it (an agent may report each thing it moves on its own line)
@@ -99,12 +96,12 @@ async function openNode(n) {
       if (last && e.causedby && last.causedby === e.causedby) { last.n += 1; last.amount += e.data.amount ?? 1; continue; }
       runs.push({ causedby: e.causedby, time: e.time, n: 1, amount: e.data.amount ?? 1, source: e.source, note: e.data.note });
     }
-    kids.push(h("h3", {}, "recent openings, by run"));
+    kids.push(h("h3", {}, "Recent openings, by run"));
     kids.push(h("table", {}, runs.slice(0, 12).map((r) => h("tr", {},
-      h("td", { class: "num nowrap" }, new Date(r.time * 1000).toLocaleTimeString([], { hour12: false })),
-      h("td", { class: "num" }, fmt(r.amount)), h("td", { class: "muted" }, `${r.n > 1 ? `in ${r.n} openings · ` : ""}${r.source}${r.note ? " · " + r.note : ""}`)))));
+      h("td", { class: "nowrap" }, new Date(r.time * 1000).toLocaleTimeString([], { hour12: false })),
+      h("td", { class: "num" }, fmt(r.amount)), h("td", { class: "muted" }, [r.n > 1 ? `in ${r.n} openings` : "", r.source, r.note].filter(Boolean).join(", "))))));
   }
-  kids.push(h("p", {}, h("a", { href: `#/diagram?around=${kind}/${encodeURIComponent(name)}` }, "draw what is around it")));
+  kids.push(h("p", {}, h("a", { href: `#/diagram?around=${kind}/${encodeURIComponent(name)}` }, "Draw what is around it")));
   showDetail(...kids);
 }
 
@@ -114,23 +111,22 @@ async function openLoop(name, asController = false) {
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
   const windowWords = recorded < (lp.until - lp.since) * 0.95 ? `of the ${dur(recorded)} recorded` : "of the window";
   const kids = asController
-    ? [h("div", { class: "kind" }, "controller"), h("h2", {}, name, " ", statusEl(lp.status)), whatIs("controller"),
-       h("h3", {}, "the loop it closes"), whatIs("loop")]
-    : [h("div", { class: "kind" }, lp.open_loop ? "loop · ⏲ open loop" : "loop"), h("h2", {}, name, " ", statusEl(lp.status)), whatIs("loop")];
+    ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("controller"), whatIs("loop")]
+    : [h("div", { class: "kind" }, lp.open_loop ? "Open loop" : "Loop"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("loop")];
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
-  if (lp.open_loop) kids.push(h("p", {}, "An open loop: it acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
-  kids.push(dl([["holds", `${lp.stock} ${lp.setpoint}${lp.band || ""}`], ["now", fmt(lp.value)],
+  if (lp.open_loop) kids.push(h("p", {}, "It acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
+  kids.push(dl([["status", statusEl(lp.status)], ["holds", `${lp.stock} ${op(lp.setpoint)}${lp.band || ""}`], ["now", fmt(lp.value)],
     ["error", lp.error ? fmt(lp.error) : "0"], ["time off", `${Math.round((lp.off_share || 0) * 100)}% ${windowWords}`],
     ["typically", lp.answers_in != null || lp.back_in != null ? [
       lp.answers_in != null ? `its valve opens ${dur(lp.answers_in)} after it goes off` : null,
       lp.back_in != null ? `it holds again ${dur(lp.back_in)} after (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times)` : null,
     ].filter(Boolean).join("; ") : null],
-    ["moves", lp.flows.map((f) => `${f} ${fmt(lp.rates?.[f])}/h`).join(", ") || "none"],
+    ["moves", lp.flows.map((f) => `${f} ${fmt(lp.rates?.[f])}/h`).join(", ") || "nothing"],
     ["cycled", lp.observed ? "yes, in this window" : "not in this window"]]));
   // each part along the loop, who fills it, and what it last did: as `ergostat loop NAME`
   kids.push(h("table", { class: "parts" }, h("tr", {}, ["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
     (lp.parts || []).map((pt) => h("tr", {}, h("td", {}, pt.kind), h("td", {}, h("b", {}, pt.name),
-        pt.kind === "valve" ? h("span", { class: "muted" }, ` (${pt.mode}${pt.max ? `, ≤ ${fmt(pt.max)} a run` : ""})`) : null),
+        pt.kind === "valve" ? h("span", { class: "muted" }, ` ${pt.mode}${pt.max ? `, \u2264 ${fmt(pt.max)} a run` : ""}`) : null),
       h("td", {}, agentLink(pt.agent)),
       h("td", {}, pt.kind === "sensor" ? (pt.last ? `read ${ago(pt.last.time)}: ${fmt(pt.last.value)}` : h("span", { class: "muted" }, "no reading yet"))
         : pt.kind === "controller" ? (pt.last ? `decided ${ago(pt.last.time)}: ${pt.last.data.decision}`
@@ -138,21 +134,21 @@ async function openLoop(name, asController = false) {
         : (pt.last ? `opened ${ago(pt.last.time)}: ${fmt(pt.last.amount)}${pt.last.count > 1 ? ` in ${pt.last.count} openings` : ""}`
           : h("span", { class: "muted" }, "never opened")))))));
   if ((lp.points || []).length > 1) kids.push(trendChart(lp, 400, 170));
-  if (lp.openings_total > (lp.openings || []).length) kids.push(h("div", { class: "muted small" }, `ticks: ${lp.openings.length} of its ${lp.openings_total} openings, spread over the window`));
-  for (const g of lp.gaps || []) kids.push(h("div", { class: "att" }, h("div", {}, h("b", {}, "cannot close: "), g)));
-  for (const hint of lp.hints || []) kids.push(h("div", { class: "att" }, h("div", { class: "hint" }, h("b", {}, "hint: "), hint.says)));
+  if (lp.openings_total > (lp.openings || []).length) kids.push(h("div", { class: "note" }, `Ticks: ${lp.openings.length} of its ${lp.openings_total} openings, spread over the window.`));
+  for (const g of lp.gaps || []) kids.push(h("p", {}, h("b", { class: "lvl-warn" }, "Cannot close: "), g));
+  for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
   if (lp.crossings?.length) {
-    kids.push(h("h3", {}, `crossings${lp.crossings_total > lp.crossings.length ? `, the newest ${lp.crossings.length} of ${lp.crossings_total}` : ""}`));
+    kids.push(h("h3", {}, `Crossings${lp.crossings_total > lp.crossings.length ? `, the newest ${lp.crossings.length} of ${lp.crossings_total}` : ""}`));
     kids.push(h("table", {}, lp.crossings.slice().reverse().map((e) => h("tr", {},
-      h("td", { class: "num nowrap" }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+      h("td", { class: "nowrap" }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
       h("td", {}, statusEl(e.type.split(".")[1])), h("td", { class: "num" }, fmt(e.data.value)),
-      h("td", { class: "muted" }, e.type === "loop.off" && e.data.error != null ? `off by ${fmt(Math.abs(e.data.error))}` : "")))));
+      h("td", { class: "muted" }, e.type === "loop.off" && e.data.error != null ? `by ${fmt(Math.abs(e.data.error))}` : "")))));
   }
   if (lp.decisions?.count) {
-    kids.push(h("h3", {}, `decisions (${lp.decisions.count}), alike when only their numbers differ`));
+    kids.push(h("h3", {}, `Decisions (${lp.decisions.count})`), h("div", { class: "note" }, "Alike when only their numbers differ."));
     kids.push(h("table", {}, lp.decisions.kinds.slice(0, 6).map(([w, n]) => h("tr", {}, h("td", { class: "num" }, n), h("td", {}, w.replaceAll("#", "N"))))));
   }
-  kids.push(h("p", {}, h("a", { href: `#/diagram?around=loop/${encodeURIComponent(name)}` }, "draw this loop alone")));
+  kids.push(h("p", {}, h("a", { href: `#/diagram?around=loop/${encodeURIComponent(name)}` }, "Draw this loop alone")));
   showDetail(...kids);
 }
 
@@ -160,7 +156,7 @@ async function openAgent(name, itself = false) {
   const m = itself ? null : (S.graph?.nodes || []).find((n) => n.machine && n.label === name);
   if (m) return openMachine(m);                        // the wiring: the machine as the record shows it
   const a = await api(`agents/${encodeURIComponent(name)}`);
-  const kids = [h("div", { class: "kind" }, `agent · ${a.kind}`), h("h2", {}, name), whatIs("agent"),
+  const kids = [h("div", { class: "kind" }, `Agent, ${a.kind}`), h("h2", {}, name), whatIs("agent"),
     dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
         ["runs", a.schedule || "not run by ergostat"],
         ["fills", (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || "nothing"],
@@ -170,13 +166,13 @@ async function openAgent(name, itself = false) {
                                return ss.length ? `${Math.min(...ss)}s to ${Math.max(...ss)}s over its last ${ss.length} runs` : null; })()],
         ["stale", (a.stale || []).length ? `no recent reading from ${a.stale.join(", ")}` : null],
         ["log", a.log_path ? h("code", {}, a.log_path) : null]])];
-  if ((a.recent || []).length > 1) kids.push(h("h3", {}, `its last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
-  kids.push(h("h3", {}, "recent runs"));
-  kids.push(h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "result"), h("th", {}, "said")),
-    (a.recent || []).slice(-10).reverse().map((e) => h("tr", {}, h("td", {}, ago(e.time)),
-      h("td", {}, e.type === "agent.failed" ? h("span", { class: "s-off" }, e.data.note || "failed") : "ok"),
-      h("td", { class: "muted" }, `${e.data.readings || 0} readings, ${e.data.openings || 0} openings, ${e.data.decisions || 0} decisions`)))));
-  if (a.log?.length) kids.push(h("h3", {}, "end of its log"), h("pre", {}, a.log.slice(-15).join("\n")));
+  if ((a.recent || []).length > 1) kids.push(h("h3", {}, `Last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
+  kids.push(h("h3", {}, "Recent runs"));
+  kids.push(h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", { class: "num" }, "readings"), h("th", { class: "num" }, "openings"), h("th", { class: "num" }, "decisions"), h("th", {}, "")),
+    (a.recent || []).slice(-10).reverse().map((e) => h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
+      h("td", { class: "num" }, String(e.data.readings || 0)), h("td", { class: "num" }, String(e.data.openings || 0)), h("td", { class: "num" }, String(e.data.decisions || 0)),
+      h("td", {}, e.type === "agent.failed" ? h("span", { class: "s-off" }, e.data.note || "failed") : "")))));
+  if (a.log?.length) kids.push(h("h3", {}, "End of its log"), h("pre", {}, a.log.slice(-15).join("\n")));
   showDetail(...kids);
 }
 
@@ -196,25 +192,24 @@ function trendChart(lp, w, hgt) {
   // off stretches over the whole window (the server reduces them from every crossing)
   for (const [a, b] of lp.off_stretches || []) {
     const xa = x(Math.max(a, t0)), xb = x(Math.min(b, t1));
-    if (xb > xa - 1) out.append(s("rect", { x: xa, y: pad.t, width: Math.max(1, xb - xa), height: hgt - pad.t - pad.b, fill: "var(--bad)", opacity: 0.08 }));
+    if (xb > xa - 1) out.append(s("rect", { x: xa, y: pad.t, width: Math.max(1, xb - xa), height: hgt - pad.t - pad.b, class: "chart-off" }));
   }
   if (spv != null) {
     // the tolerance on the side that matters, as the status reads it: above <=, below >=, both for ==
-    const op = (/(<=|>=|==|<|>|=)/.exec(lp.setpoint) || [])[1] || "==";
-    const [bLo, bHi] = op.startsWith("<") ? [spv, spv + tol] : op.startsWith(">") ? [spv - tol, spv] : [spv - tol, spv + tol];
-    if (tol) out.append(s("rect", { x: pad.l, y: y(bHi), width: w - pad.l - pad.r, height: Math.max(1, y(bLo) - y(bHi)), fill: "var(--warn)", opacity: 0.08 }));
-    out.append(s("line", { x1: pad.l, x2: w - pad.r, y1: y(spv), y2: y(spv), stroke: "var(--ok)", "stroke-dasharray": "4 3", "stroke-width": 1.2 }));
-    out.append(s("text", { x: w - pad.r - 4, y: y(spv) - 4, "text-anchor": "end", fill: "var(--ok)", "font-size": 10.5, "paint-order": "stroke",
-                           stroke: "var(--panel)", "stroke-width": 3 }, (lp.open_loop ? "watched against " : "setpoint ") + lp.setpoint));
+    const rel = (/(<=|>=|==|<|>|=)/.exec(lp.setpoint) || [])[1] || "==";
+    const [bLo, bHi] = rel.startsWith("<") ? [spv, spv + tol] : rel.startsWith(">") ? [spv - tol, spv] : [spv - tol, spv + tol];
+    if (tol) out.append(s("rect", { x: pad.l, y: y(bHi), width: w - pad.l - pad.r, height: Math.max(1, y(bLo) - y(bHi)), class: "chart-band" }));
+    out.append(s("line", { x1: pad.l, x2: w - pad.r, y1: y(spv), y2: y(spv), class: "chart-set" }));
+    out.append(s("text", { x: w - pad.r - 4, y: y(spv) - 4, "text-anchor": "end", class: "chart-set-label" }, (lp.open_loop ? "watched against " : "setpoint ") + op(lp.setpoint)));
   }
   const d = lp.points.map((p, i) => `${i ? "L" : "M"}${x(p[0])},${y(p[1])}`).join("");
-  out.append(s("path", { d, fill: "none", stroke: "var(--accent)", "stroke-width": 1.8 }));
-  for (const o of lp.openings || []) out.append(s("line", { x1: x(o.time), x2: x(o.time), y1: hgt - pad.b, y2: hgt - pad.b + 6, stroke: "var(--ctl-line)", "stroke-width": 1.4 }, s("title", {}, `${o.valve} opened: ${o.amount}`)));
-  out.append(s("line", { x1: pad.l, x2: w - pad.r, y1: hgt - pad.b, y2: hgt - pad.b, stroke: "var(--line)" }));
-  const lab = (t, xx, yy, anchor = "start") => s("text", { x: xx, y: yy, "text-anchor": anchor, fill: "var(--muted)", "font-size": 10.5 }, t);
+  out.append(s("path", { d, class: "chart-line" }));
+  for (const o of lp.openings || []) out.append(s("line", { x1: x(o.time), x2: x(o.time), y1: hgt - pad.b, y2: hgt - pad.b + 6, class: "chart-tick-mark" }, s("title", {}, `${o.valve} opened: ${fmt(o.amount)}`)));
+  out.append(s("line", { x1: pad.l, x2: w - pad.r, y1: hgt - pad.b, y2: hgt - pad.b, class: "chart-axis" }));
+  const lab = (t, xx, yy, anchor = "start") => s("text", { x: xx, y: yy, "text-anchor": anchor, class: "chart-tick" }, t);
   out.append(lab(fmt(hi - span * 0.08), 0, pad.t + 8), lab(fmt(lo + span * 0.08), 0, hgt - pad.b));
   const tl = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
-  out.append(lab(tl(t0), pad.l, hgt - 4), lab(tl(t1), w - pad.r, hgt - 4, "end"), lab("valve openings ▮", (w + pad.l) / 2, hgt - 4, "middle"));
+  out.append(lab(tl(t0), pad.l, hgt - 4), lab(tl(t1), w - pad.r, hgt - 4, "end"), lab("ticks: valve openings", (w + pad.l) / 2, hgt - 4, "middle"));
   return out;
 }
 
@@ -225,12 +220,12 @@ function runsChart(runs, w, hgt) {
   const out = s("svg", { width: w, height: hgt, class: "runs" });
   runs.forEach((e, i) => {
     const bh = Math.max(2, (secs[i] / top) * (hgt - 22));
-    out.append(s("rect", { x: 36 + i * (bw + 1), y: hgt - 16 - bh, width: bw, height: bh, rx: 1,
-                           fill: e.type === "agent.failed" ? "var(--bad)" : (e.data.refused ? "var(--warn)" : "var(--accent)"), opacity: 0.85 },
-      s("title", {}, `${new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })}: ${secs[i]}s` +
-                     (e.type === "agent.failed" ? ` · ${e.data.note || "failed"}` : "") + (e.data.refused ? ` · ${e.data.refused} refused` : ""))));
+    out.append(s("rect", { x: 36 + i * (bw + 1), y: hgt - 16 - bh, width: bw, height: bh,
+                           class: "chart-bar" + (e.type === "agent.failed" ? " failed" : e.data.refused ? " refused" : "") },
+      s("title", {}, `${new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })}: ${fmt(secs[i])}s` +
+                     (e.type === "agent.failed" ? `, ${e.data.note || "failed"}` : "") + (e.data.refused ? `, ${e.data.refused} refused` : ""))));
   });
-  const lab = (t, x, y, a = "start") => s("text", { x, y, "text-anchor": a, fill: "var(--muted)", "font-size": 10.5 }, t);
+  const lab = (t, x, y, a = "start") => s("text", { x, y, "text-anchor": a, class: "chart-tick" }, t);
   out.append(lab(`${fmt(top)}s`, 0, 10), lab("0", 0, hgt - 16), lab("oldest", 36, hgt - 3), lab("newest", w, hgt - 3, "end"));
   return out;
 }
@@ -243,9 +238,9 @@ function sparkSvg(points, w, hgt, setpoint = null) {
   const y = (v) => hgt - pad - ((v - lo) / ((hi - lo) || 1)) * (hgt - 2 * pad);
   const d = vs.map((v, i) => `${i ? "L" : "M"}${left + (i / (vs.length - 1)) * (w - left - 4)},${y(v)}`).join("");
   const out = s("svg", { width: w, height: hgt, class: "spark" });
-  if (setpoint != null) out.append(s("line", { x1: left, x2: w - 2, y1: y(setpoint), y2: y(setpoint), stroke: "var(--muted)", "stroke-dasharray": "3 3", "stroke-width": 1 }));
-  out.append(s("path", { d, fill: "none", stroke: "var(--accent)", "stroke-width": small ? 1.6 : 2 }));
-  if (!small) out.append(s("text", { x: 0, y: 12, fill: "var(--muted)", "font-size": 11 }, fmt(hi)), s("text", { x: 0, y: hgt - 2, fill: "var(--muted)", "font-size": 11 }, fmt(lo)));
+  if (setpoint != null) out.append(s("line", { x1: left, x2: w - 2, y1: y(setpoint), y2: y(setpoint), class: "chart-set" }));
+  out.append(s("path", { d, class: "chart-line" }));
+  if (!small) out.append(s("text", { x: 0, y: 12, class: "chart-tick" }, fmt(hi)), s("text", { x: 0, y: hgt - 2, class: "chart-tick" }, fmt(lo)));
   return out;
 }
 const setpointOf = (sp) => { const m = /(-?\d+(\.\d+)?)/.exec(sp || ""); return m ? +m[1] : null; };
@@ -257,22 +252,22 @@ function partLink(name) {                              // ergostat's own events 
 function itemLink(id) {
   return id.includes("/") ? h("a", { href: `#/item/${encodeURIComponent(id)}` }, id) : partLink(id);
 }
-function dataCell(d) {                                  // the whole of it, one click away
-  const flat = JSON.stringify(d || {});
+function dataCell(d) {                                  // the whole of it, one click away (rounded: the event's panel has it exactly)
+  const flat = JSON.stringify(tidy(d || {}));
   if (flat === "{}") return h("td", { class: "mono muted" }, "");
   if (flat.length <= 110) return h("td", { class: "mono muted data" }, flat);
-  return h("td", { class: "mono muted data" }, h("details", {}, h("summary", {}, flat.slice(0, 100) + " …"),
-    h("pre", {}, JSON.stringify(d, null, 2))));
+  return h("td", { class: "mono muted data" }, h("details", {}, h("summary", {}, flat.slice(0, 100) + "\u2026"),
+    h("pre", {}, JSON.stringify(tidy(d), null, 2))));
 }
 function eventsTable(evs, compact) {
-  return h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
-    evs.slice().reverse().map((e) => h("tr", {}, h("td", { class: "num nowrap", title: new Date(e.time * 1000).toLocaleString() }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+  return h("div", { class: "table-wrap" }, h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
+    evs.slice().reverse().map((e) => h("tr", {}, h("td", { class: "nowrap", title: new Date(e.time * 1000).toLocaleString() }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
       h("td", { class: "nowrap" }, h("a", { href: "#", class: "plain", title: `event ${e.id}`, onclick: (ev) => { ev.preventDefault(); showEvent(e); } }, e.type)),
       compact ? null : h("td", { class: "nowrap" }, e.item ? itemLink(e.item) : "–"),
-      h("td", { class: "muted nowrap" }, e.source || "–"), dataCell(e.data))));
+      h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(e.data)))));
 }
 function showEvent(e) {                                 // one event, all of it, in the side panel
-  showDetail(h("div", { class: "kind" }, "event"), h("h2", {}, e.type),
+  showDetail(h("div", { class: "kind" }, "Event"), h("h2", {}, e.type),
     dl([["item", e.item ? itemLink(e.item) : null], ["source", e.source], ["when", new Date(e.time * 1000).toLocaleString()], ["id", e.id],
         ["caused by", e.causedby]]),
     h("pre", {}, JSON.stringify(e.data || {}, null, 2)));
@@ -282,7 +277,7 @@ function showEvent(e) {                                 // one event, all of it,
 /* the wiring: a machine, with what it published and listened for in the window */
 function recordLink(type, machine, text) {
   const q = new URLSearchParams({ ...(type ? { type } : {}), ...(machine ? { machine } : {}), window: "1" });
-  return h("a", { href: `#/record?${q}`, title: "the Record, filtered to these events in the window" }, text || "record →");
+  return h("a", { href: `#/record?${q}`, title: "The Record, filtered to these events in the window" }, text || "Record");
 }
 function windowWords() {
   const g = S.graph || {};
@@ -292,58 +287,58 @@ function wireRow(e, mine) {                              // one wire, from a mac
   const other = (mine === e.source ? e.target : e.source).split(":").slice(1).join(":");
   return h("tr", { class: "click", onclick: () => openEdge(e) }, h("td", {}, other),
     h("td", { class: "muted" }, e.seen ? (e.types || []).map((t) => t.type).join(", ") : "declared, never seen"),
-    h("td", { class: "num" }, e.seen ? String(e.count) : "–"),
+    h("td", { class: "num" }, e.seen ? String(e.count) : "\u2013"),
     h("td", { class: "muted" }, e.seen ? (e.undeclared ? "undeclared" : "declared") : ""));
 }
 function openMachine(n) {
   const g = S.graph || { edges: [] };
   const into = g.edges.filter((e) => e.target === n.id), out = g.edges.filter((e) => e.source === n.id);
-  const wires = (es, none) => es.length ? h("table", {}, h("tr", {}, h("th", {}, "machine"), h("th", {}, "what"), h("th", {}, "how many"), h("th", {}, "")),
+  const wires = (es, none) => es.length ? h("table", {}, h("tr", {}, h("th", {}, "machine"), h("th", {}, "what"), h("th", { class: "num" }, "count"), h("th", {}, "")),
     es.map((e) => wireRow(e, n.id))) : h("p", { class: "muted" }, none);
   const pub = n.published || [];
   const listens = n.listens || [];
-  showDetail(h("div", { class: "kind" }, `machine · ${n.agentKind}`), h("h2", {}, n.label), whatIs("machine"),
+  showDetail(h("div", { class: "kind" }, `Machine${n.agentKind ? ", " + n.agentKind : ""}`), h("h2", {}, n.label), whatIs("machine"),
     n.description ? h("p", { class: "muted" }, n.description) : null,
     dl([["on the record", n.seen ? `yes: last ${ago(n.last)}` : `nothing in ${windowWords()}`],
         ["in the model", n.declared ? (n.label === "ergostat" ? "ergostat itself: it records the loops' crossings and the blocks' runs" : "declared") : "not declared: seen only on the record"],
         ["kind", n.agentKind || null],
         ["instances", n.instances?.length ? n.instances.join(", ") : null],
         ["runs", n.runs ? String(n.runs) : null], ["runs when", n.schedule || null]]),
-    h("h3", {}, `published, in ${windowWords()}`),
-    pub.length ? h("table", {}, h("tr", {}, h("th", {}, "type"), h("th", {}, "how many"), h("th", {}, "an hour"), h("th", {}, "last"), h("th", {}, "")),
+    h("h3", {}, `Published, in ${windowWords()}`),
+    pub.length ? h("table", {}, h("tr", {}, h("th", {}, "type"), h("th", { class: "num" }, "count"), h("th", { class: "num" }, "an hour"), h("th", {}, "last"), h("th", {}, "")),
       pub.map((p) => h("tr", {}, h("td", { class: "mono" }, p.type), h("td", { class: "num" }, String(p.count)), h("td", { class: "num" }, fmt(p.perHour)),
         h("td", { class: "muted nowrap" }, ago(p.last)), h("td", {}, recordLink(p.type, n.label)))))
       : h("p", { class: "muted" }, "nothing"),
-    h("h3", {}, "listens for (declared, on:)"),
-    listens.length ? h("table", {}, h("tr", {}, h("th", {}, "pattern"), h("th", {}, "heard in the window")),
+    h("h3", {}, "Listens for"),
+    listens.length ? h("table", {}, h("tr", {}, h("th", {}, "pattern (on:)"), h("th", { class: "num" }, "heard in the window")),
       listens.map((p) => h("tr", {}, h("td", { class: "mono" }, p), h("td", { class: "num" }, String(n.heard?.[p] || 0)))))
-      : h("p", { class: "muted" }, "nothing: it runs on its schedule, or when a block commands it"),
-    h("h3", {}, "reached from"), wires(into, "nothing on the record reached it"),
-    h("h3", {}, "reaches"), wires(out, "nothing on the record shows it reaching another machine"),
-    n.declared && n.label !== "ergostat" && !n.agentKind?.startsWith("sensor") ? h("p", {}, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(n.label, true); } }, "its runs and its log →")) : null,
-    h("p", {}, recordLink(null, n.label, "all it published, in the Record →")));
+      : h("p", { class: "muted" }, "Nothing: it runs on its schedule, or when a block commands it."),
+    h("h3", {}, "Reached from"), wires(into, "Nothing on the record reached it."),
+    h("h3", {}, "Reaches"), wires(out, "Nothing on the record shows it reaching another machine."),
+    n.declared && n.label !== "ergostat" && !n.agentKind?.startsWith("sensor") ? h("p", {}, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(n.label, true); } }, "Its runs and its log")) : null,
+    h("p", {}, recordLink(null, n.label, "All it published, in the Record")));
 }
 function openWire(e, link, nameOf) {
   const a = nameOf(e.source), b = nameOf(e.target);
   const how = (t) => t.how === "run" ? `${a}'s runs caused ${b === "ergostat" ? "ergostat's" : b + "'s"} ${t.type}` : `${a}'s ${t.type} reached ${b}`;
-  const evidence = (t) => [t["caused-by"] ? `caused by: ${t["caused-by"]}` : null, t["listened-and-ran"] ? `listened and ran: ${t["listened-and-ran"]}` : null].filter(Boolean).join(" · ");
+  const evidence = (t) => [t["caused-by"] ? `caused by: ${t["caused-by"]}` : null, t["listened-and-ran"] ? `listened and ran: ${t["listened-and-ran"]}` : null].filter(Boolean).join("; ");
   const model = e.declaredAs?.length ? h("p", {}, h("b", {}, e.seen ? "Declared, and seen. " : "Declared, never seen. "), "The model says: ", e.declaredAs.join("; "),
     e.seen ? "." : `; nothing in ${windowWords()} of the record shows it.`)
     : h("p", {}, h("b", {}, "Undeclared. "), `Nothing in the model says ${a} reaches ${b}; the record shows it does.`);
-  const kids = [h("div", { class: "kind" }, e.seen ? "wire · seen on the record" : "wire · declared, never seen"), h("h2", {}, a, " → ", b), whatIs("wire"), model];
+  const kids = [h("div", { class: "kind" }, e.seen ? "Wire, seen on the record" : "Wire, declared, never seen"), h("h2", {}, a, " \u2192 ", b), whatIs("wire"), model];
   if (e.seen) {
     kids.push(dl([["from", link(e.source)], ["to", link(e.target)], ["events", `${e.count} in ${windowWords()}, ${fmt(e.perHour)} an hour`],
                   ["last seen", ago(e.last)], ["evidence", e.evidence.join(", ")]]),
-      h("h3", {}, "what passed"),
-      h("table", {}, h("tr", {}, h("th", {}, "event type"), h("th", {}, "how many"), h("th", {}, "last"), h("th", {}, "")),
-        e.types.map((t) => h("tr", {}, h("td", {}, h("span", { class: "mono" }, t.type), h("div", { class: "muted small" }, `${how(t)} · ${evidence(t)}`)),
+      h("h3", {}, "What passed"),
+      h("table", {}, h("tr", {}, h("th", {}, "event type"), h("th", { class: "num" }, "count"), h("th", {}, "last"), h("th", {}, "")),
+        e.types.map((t) => h("tr", {}, h("td", {}, h("span", { class: "mono" }, t.type), h("div", { class: "muted small" }, [how(t), evidence(t)].filter(Boolean).join("; "))),
           h("td", { class: "num", title: `${fmt(t.perHour)} an hour` }, String(t.count)), h("td", { class: "muted nowrap" }, ago(t.last)),
           h("td", { class: "nowrap" }, recordLink(t.type, t.publisher))))),
-      h("p", { class: "muted small" }, "Caused by: an event's causedby names the other's event or run. Listened and ran: it listens (on:) for that type, and ran after it."));
+      h("p", { class: "note" }, "Caused by: an event's causedby names the other's event or run. Listened and ran: it listens (on:) for that type, and ran after it."));
   } else {
     kids.push(dl([["from", link(e.source)], ["to", link(e.target)]]));
   }
-  kids.push(h("p", { class: "muted small" }, "Drawn as " + DRAWN.wire + "."));
+
   showDetail(...kids);
   S.selKey = linkKey(e);
   trace(S.selKey);
@@ -407,7 +402,7 @@ async function openEdge(e) {
     what = `Here: the controller of ${nameOf(src)} opens the valve on ${nameOf(dst)} while its goal is off.`;
     rows.push(["controller", link(src)], ["holds", c?.setpoint || null], ["status", c?.status ? statusEl(c.status) : null],
               ["acts on", link(dst)], ["filled by", v?.agent ? badgeText(v.agent) : null], ["rate now", v?.rateText || null],
-              ["last decision", c?.decision ? `“${c.decision}”${c.decisionAt ? " · " + ago(c.decisionAt) : ""}` : null]);
+              ["last decision", c?.decision ? `“${c.decision}”${c.decisionAt ? ", " + ago(c.decisionAt) : ""}` : null]);
   } else if (e.kind === "influence") {
     kind = "influence · driven-by";
     const kindWord = (id) => ({ valve: "flow", disturbance: "flow", auxiliary: "auxiliary", stock: "stock" })[byId[id]?.kind] || "";
@@ -426,14 +421,14 @@ async function openEdge(e) {
     rows.push(["from", link(src)], ["to", link(dst)]);
   }
   const title = e.kind === "pipe" ? [e.flow, h("span", { class: "muted" }, ` (${rows[1][1]} → ${rows[2][1]})`)] : [nameOf(src), " → ", nameOf(dst)];
-  const named = { pipe: "flow", measure: "information link · measurement", signal: "information link · feedback",
-                  action: "information link · control action", influence: "information link · influence", wire: "wire" }[e.kind] || kind;
+  const named = { pipe: "flow", measure: "information link, measurement", signal: "information link, feedback",
+                  action: "information link, control action", influence: "information link, influence", wire: "wire" }[e.kind] || kind;
   showDetail(h("div", { class: "kind" }, named), h("h2", {}, ...title), whatIs(e.kind),
     what ? h("p", { class: "muted" }, what) : null,
-    DRAWN[e.kind] ? h("p", { class: "muted small" }, "Drawn as " + DRAWN[e.kind] + ".") : null,
-    h("h3", {}, "how it is now"), dl(rows),
+
+    dl(rows),
     crossing.length ? h("p", {}, crossing.join("; ") + ".") : null,
-    loops.length ? h("p", {}, "part of the loop", loops.length > 1 ? "s " : " ", loops.flatMap((x, i) => [i ? ", " : "", x])) : h("p", { class: "muted" }, "part of no loop drawn here"));
+    loops.length ? h("p", {}, "Part of the loop", loops.length > 1 ? "s " : " ", loops.flatMap((x, i) => [i ? ", " : "", x])) : h("p", { class: "muted" }, "Part of no loop drawn here."));
   S.selKey = linkKey(e);                               // it stays traced while its panel is open
   trace(S.selKey);
 }

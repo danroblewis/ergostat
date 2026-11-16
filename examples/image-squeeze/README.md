@@ -36,7 +36,7 @@ ergostat run --stop
 
 ## Where to look
 
-- **The Diagram, every system closed** ("close all"): the control panel. Each system's box shows its
+- **The Diagram, every system closed** (the ⋯ menu's "Close all systems"): the control panel. Each system's box shows its
   measures, each with its value, setpoint, health and trend over the window (the window, top
   right, sets how far back): `service` (quality, bytes per megapixel, failures, time), `benchmark`
   (capabilities: cases met of 30; the benchmark points, overall, photos and flat images), `lab` (ideas,

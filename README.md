@@ -161,11 +161,11 @@ controller has its Σ; a chain of loops in series folds into rows where one feed
 negative-feedback block diagram (r, Σ, e, C, u, the actuator, the disturbance d joining at the
 plant, y, the sensor H feeding ym back, and feedforward when a controller measures d itself);
 `ergostat system --blocks` prints the same in text.
-"save SVG" and "PNG" write the diagram as a standalone file, with a header and a legend; "design SVG" writes only
+The Export menu's "SVG" and "PNG" write the diagram as a standalone file, with a header and a legend; "Design SVG" writes only
 the structure (parts, flows, roles and schedules, no live values or status), for a design document. `ergostat snapshot` writes the whole page, with
 what it shows now, to one HTML file that opens anywhere with no ergostat running (every view, page and part, as of then). The wiring view draws the agents and how each
-one's output reaches another, and lists the cycles among them, declared as loops or not. Loops, Agents (the ladder), Items, Record, Residuals and Check show
-what the command line shows; the Guide steps through tiny models, drawn by the same renderers, that introduce system dynamics and control, then shows your own model both ways. The slider in the header looks at any past moment; "back to live"
+one's output reaches another, and lists the cycles among them, declared as loops or not. Loops, Agents (by rung), Items, Record, Residuals and Check show
+what the command line shows; the Guide steps through tiny models, drawn by the same renderers, that introduce system dynamics and control, then shows your own model both ways. The header's "Last 1h" menu sets the window and looks at any past moment; "Back to live"
 returns.
 
 ## Examples
