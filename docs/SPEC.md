@@ -217,6 +217,7 @@ items:
 | `states` | list of names | none | The states, in their usual order; a new item starts in the first |
 | `on` | map of event type → state | none | Which events move an item, and where to |
 | `show` | list of field names | none | Columns for the Items page and `ergostat item` |
+| `formats` | map of field → format | by extension | How a file a field names is shown: `image`, `markdown`, `code`, `text`, `json`, or `claude-session` (a Claude Code transcript, as the conversation) |
 | `system`, `description` | | | |
 
 **Folding.** An item's fields are its events' `data`, merged in order (the latest value of each
@@ -225,9 +226,12 @@ with `entering:`), and stays there until an event its kind maps moves it; every 
 (from, to, when, by which event), so how long it spent in each state is known. An item no
 kind matches is still shown, with its fields and no state.
 
-A field whose value is `file:PATH` names a file in the project (a picture a program made, a report):
-the page shows it where the item is shown, an image as an image, anything else as a link, and
-serves only files inside the project and its state directory.
+A field whose value is `file:PATH` names a file in the project (a picture a program made, a report,
+an agent's transcript): the page shows it where the item is shown, as what it is (`formats`, or its
+extension: an image as an image, Markdown rendered, code highlighted, a Claude Code transcript as the
+conversation, re-read while it grows; raw HTML in Markdown is shown as text, never run), and serves
+only files inside the project and its state directory. A file is kept apart from the record: the
+record holds what happened, the file what was said.
 
 Items are counted by sensors (section 6): a stock may be the number of items in some states, and
 a flow the rate at which items enter or leave one. The record is then the instrument: what is

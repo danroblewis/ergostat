@@ -81,15 +81,24 @@ async function pageRecord(main, q) {
 /* an item's field, as what it is: a file the project holds (file:PATH) as the image it is, or a link;
    a record as a small table of its fields; a list of records as a table; text as text */
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
-function fieldView(v, small = false, depth = 0) {
+const CODE = { py: "python", js: "javascript", ts: "typescript", sh: "bash", json: "json", yaml: "yaml", yml: "yaml", toml: "ini",
+               go: "go", rs: "rust", java: "java", c: "c", h: "c", cpp: "cpp", rb: "ruby", sql: "sql", html: "xml", css: "css", diff: "diff" };
+function formatOf(path, declared) {                      // how a file is shown: as its kind says, else by its extension
+  if (declared) return declared;
+  const ext = (path.split(".").pop() || "").toLowerCase();
+  return IMAGE.test(path) ? "image" : ext === "md" ? "markdown" : ext === "json" ? "json" : CODE[ext] ? "code" : "text";
+}
+function fieldView(v, small = false, depth = 0, declared = null) {
   if (v == null || v === "") return h("span", { class: "muted" }, "–");
   if (typeof v === "string" && v.startsWith("file:")) {
-    const path = v.slice(5), name = path.split("/").pop();
+    const path = v.slice(5), name = path.split("/").pop(), fmt = formatOf(path, declared);
     if (SNAP) return h("span", { class: "mono muted", title: path }, name);
     const url = `/file?path=${encodeURIComponent(path)}`;
-    return IMAGE.test(path) ? h("a", { href: url, target: "_blank", title: path, onclick: (ev) => ev.stopPropagation() },
-                                h("img", { src: url, class: small ? "thumb" : "pic", alt: name, loading: "lazy" }))
-                            : h("a", { href: url, target: "_blank", class: "mono", onclick: (ev) => ev.stopPropagation() }, name);
+    if (fmt === "image") return h("a", { href: url, target: "_blank", title: path, onclick: (ev) => ev.stopPropagation() },
+                                  h("img", { src: url, class: small ? "thumb" : "pic", alt: name, loading: "lazy" }));
+    if (small) return h("a", { href: url, target: "_blank", class: "mono", onclick: (ev) => ev.stopPropagation() },
+                        fmt === "claude-session" ? "conversation" : name);
+    return fileView(path, url, fmt);
   }
   if (typeof v !== "object") return typeof v === "number" ? fmt(v) : String(v);
   if (small || depth > 2) return h("span", { class: "mono muted" }, JSON.stringify(v).slice(0, 80));
@@ -102,6 +111,89 @@ function fieldView(v, small = false, depth = 0) {
     return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1)]) : h("span", { class: "muted" }, "none");
   }
   return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldView(x, false, depth + 1)))));
+}
+
+/* a file's contents, shown as what they are; kept while unchanged, so a refresh keeps what is open */
+const FILES = {};
+function fileView(path, url, fmt) {
+  const box = FILES[path]?.el || h("div", { class: `file-view f-${fmt}` }, h("span", { class: "muted" }, "…"));
+  FILES[path] = FILES[path] || { el: box, len: -1 };
+  fetch(url).then((r) => (r.ok ? r.text() : Promise.reject(r.status))).then((text) => {
+    if (FILES[path].len === text.length) return;          // unchanged: leave it as it is (open tool calls stay open)
+    FILES[path].len = text.length;
+    box.replaceChildren(render(text, fmt, path));
+  }).catch((e) => box.replaceChildren(h("span", { class: "muted" }, `cannot read ${path} (${e})`)));
+  return box;
+}
+function render(text, fmt, path) {
+  if (fmt === "markdown") return md(text);
+  if (fmt === "json") { try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (e) { /* as it is */ } return code(text, "json"); }
+  if (fmt === "code") return code(text, CODE[(path.split(".").pop() || "").toLowerCase()]);
+  if (fmt === "claude-session") return conversation(text);
+  return h("pre", { class: "plain" }, text);
+}
+function code(text, lang) {
+  const el = h("code", { class: "hljs" });
+  try { el.innerHTML = lang && window.hljs?.getLanguage(lang) ? hljs.highlight(text, { language: lang }).value : (window.hljs ? hljs.highlightAuto(text).value : esc(text)); }
+  catch (e) { el.textContent = text; }
+  return h("pre", { class: "code" }, el);
+}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let mdReady = false;
+function md(text) {                                       // Markdown, its raw HTML shown as text (nothing in it runs), code highlighted
+  if (!window.marked) return h("pre", { class: "plain" }, text);
+  if (!mdReady) {
+    marked.use({ renderer: { html: (t) => esc(typeof t === "string" ? t : t.text || ""),
+                             code: (src, lang) => { const s = typeof src === "string" ? src : src.text; const l = typeof src === "string" ? lang : src.lang;
+                                                    try { return `<pre class="code"><code class="hljs">${l && hljs.getLanguage(l) ? hljs.highlight(s, { language: l }).value : hljs.highlightAuto(s).value}</code></pre>`; }
+                                                    catch (e) { return `<pre class="code"><code>${esc(s)}</code></pre>`; } } } });
+    mdReady = true;
+  }
+  const el = h("div", { class: "md" });
+  el.innerHTML = marked.parse(String(text));
+  for (const a of el.querySelectorAll("a")) { a.target = "_blank"; a.rel = "noopener"; }
+  return el;
+}
+
+/* a Claude Code transcript (one JSON object a line): the conversation, each reply as Markdown, each
+   tool call one line that opens to its input and what came back */
+function conversation(text) {
+  const lines = text.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
+  const results = {};
+  for (const l of lines) for (const c of (Array.isArray(l.message?.content) ? l.message.content : [])) if (c.type === "tool_result") results[c.tool_use_id] = c;
+  const out = h("div", { class: "convo" });
+  let turns = 0;
+  for (const l of lines) {
+    const m = l.message;
+    if (!m || (l.type !== "user" && l.type !== "assistant")) continue;
+    const when = l.timestamp ? new Date(l.timestamp).toLocaleTimeString([], { hour12: false }) : "";
+    const parts = typeof m.content === "string" ? [{ type: "text", text: m.content }] : (m.content || []);
+    for (const c of parts) {
+      if (c.type === "tool_result") continue;             // shown with its call
+      if (c.type === "text" && l.type === "user") {
+        const long = c.text.length > 600;
+        out.append(h("div", { class: "turn user" }, h("div", { class: "who" }, "prompt", h("span", { class: "muted" }, when)),
+          long ? h("details", {}, h("summary", {}, c.text.split("\n")[0].slice(0, 140) + " …"), md(c.text)) : md(c.text)));
+      } else if (c.type === "text") {
+        turns += 1;
+        out.append(h("div", { class: "turn assistant" }, h("div", { class: "who" }, "claude", h("span", { class: "muted" }, when)), md(c.text)));
+      } else if (c.type === "thinking") {
+        out.append(h("details", { class: "turn thinking" }, h("summary", {}, "thinking"), md(c.thinking || "")));
+      } else if (c.type === "tool_use") {
+        const r = results[c.id], inp = c.input || {};
+        const head = inp.command || inp.file_path || inp.pattern || inp.path || inp.description || JSON.stringify(inp).slice(0, 120);
+        const res = r ? (Array.isArray(r.content) ? r.content.map((x) => x.text || "").join("\n") : String(r.content ?? "")) : null;
+        out.append(h("details", { class: `turn tool${r?.is_error ? " failed" : ""}` },
+          h("summary", {}, h("b", {}, c.name), " ", h("span", { class: "mono" }, String(head).split("\n")[0].slice(0, 160)),
+            r ? null : h("span", { class: "muted" }, " · running")),
+          inp.command ? code(inp.command, "bash") : inp.old_string != null ? code(`- ${inp.old_string}\n+ ${inp.new_string}`, "diff")
+                      : inp.content != null ? code(inp.content, CODE[(String(inp.file_path || "").split(".").pop() || "").toLowerCase()]) : code(JSON.stringify(inp, null, 2), "json"),
+          res != null ? h("div", {}, h("div", { class: "muted small" }, r.is_error ? "it failed:" : "it said:"), h("pre", { class: "plain" }, res.slice(0, 20000))) : null));
+      }
+    }
+  }
+  if (!out.children.length) out.append(h("p", { class: "muted" }, "nothing said yet"));
+  return out;
 }
 
 function stateChip(st, on) { return h("span", { class: `chip${on ? " on" : ""}` }, st || "–"); }
@@ -127,10 +219,11 @@ async function pageItems(main, q) {
     const needle = search.value.trim().toLowerCase();
     const rows = d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle));
     const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+    const kindOf = Object.fromEntries(d.kinds.map((x) => [x.name, x]));
     const tableOf = (its, show, limit) => h("table", { class: "items" }, h("tr", {}, ["item", "state", ...show, "in state", "events", "latest", "last"].map((x) => h("th", {}, x))),
       its.slice(0, limit).map((i) => h("tr", { class: "click", onclick: () => { location.hash = `#/item/${encodeURIComponent(i.id)}`; } },
         h("td", { class: "nowrap" }, h("b", {}, i.id)), h("td", {}, i.state ? stateChip(i.state, true) : "–"),
-        show.map((f) => h("td", { class: "cell", title: val(i.fields[f]) }, fieldView(i.fields[f], true))),
+        show.map((f) => h("td", { class: "cell", title: val(i.fields[f]) }, fieldView(i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
         h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, i.events), h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))));
     const groups = (kind ? d.kinds.filter((k) => k.name === kind) : d.kinds).map((k) => [k.name, k.show]);
     if (!kind && d.unkinded) groups.push(["", []]);
@@ -170,7 +263,8 @@ async function pageItem(main, id) {
     const first = (k?.show || []).filter((f) => f in d.fields);
     const order = [...first, ...Object.keys(d.fields).filter((f) => !first.includes(f)).sort()];
     const fields = order.length ? h("table", { class: "fields" }, order.map((f) => h("tr", {},
-      h("th", {}, f), h("td", {}, fieldView(d.fields[f]))))) : h("p", { class: "muted" }, "no fields: its events carry no data");
+      h("th", {}, f), h("td", {}, fieldView(d.fields[f], false, 0, (k?.formats || {})[f])))))
+      : h("p", { class: "muted" }, "no fields: its events carry no data");
     body.replaceChildren(head, track || "", h("h2", {}, "fields"), fields, h("h2", {}, "how it moved"), moves,
       h("h2", {}, `events (${d.events})`), eventsTable(d.record, true));
   }

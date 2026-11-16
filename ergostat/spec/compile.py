@@ -13,7 +13,7 @@ from .load import Document, Map, Problem, Where
 COMMON = {"system", "description"}
 SENSOR_KEYS = {"run", "query", "manual", "items", "every", "cron", "timeout", "parse", "unit", "description"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
-ITEM_KEYS = COMMON | {"id", "states", "on", "show"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor"}
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by"}
 GOAL_KEYS = COMMON | {"stock", "flow", "variable", "hold", "tolerance", "critical", "owner"}
@@ -264,8 +264,19 @@ class Compiler:
         if not isinstance(show, list):
             self.err(f"{what}.show: a list of field names", m.at("show"), "bad-show")
             show = []
-        return ItemKind(name, id, list(states), moves, [str(x) for x in show], self.system("items", name, m),
-                        self.text(m, "description"), m.where)
+        from .ir import FORMATS
+        formats = {}
+        raw = m.get("formats") or {}
+        if not isinstance(raw, dict):
+            self.err(f"{what}.formats: a map of field: format ({', '.join(FORMATS)})", m.at("formats"), "not-a-map")
+        else:
+            for f, fmt in raw.items():
+                if str(fmt) not in FORMATS:
+                    self.err(f"{what}.formats.{f}: {fmt!r} is not a format ({', '.join(FORMATS)})", raw.at(f), "bad-format")
+                else:
+                    formats[str(f)] = str(fmt)
+        return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
+                        system=self.system("items", name, m), description=self.text(m, "description"), where=m.where)
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""

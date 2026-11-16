@@ -135,7 +135,8 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
         c = counts.setdefault(i.kind or "", {})
         c[i.state or ""] = c.get(i.state or "", 0) + 1
     shown = [i for i in its if (kind is None or (i.kind or "") == kind) and (state is None or (i.state or "") == state)]
-    return {"kinds": [{"name": k.name, "id": k.id, "states": k.states, "show": k.show, "description": k.description,
+    return {"kinds": [{"name": k.name, "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
+                       "description": k.description,
                        "counts": counts.get(k.name, {})} for k in kinds.values()],
             "unkinded": sum(counts.get("", {}).values()),
             "total": len(shown),
@@ -149,5 +150,6 @@ def detail(events, spec, id: str, until: float | None = None) -> dict | None:
     k = kind_of(spec, id) if kinds_of(spec) else None
     it = fold(id, evs, k)
     return {**it.as_dict(moves=True),
-            "kind_of": {"name": k.name, "id": k.id, "states": k.states, "on": k.on, "show": k.show} if k else None,
+            "kind_of": {"name": k.name, "id": k.id, "states": k.states, "on": k.on, "show": k.show, "formats": k.formats}
+            if k else None,
             "record": evs[-500:]}

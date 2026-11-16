@@ -17,10 +17,6 @@ if [ "${FACTORY_AI:-}" = "claude" ]; then
         researcher) model="${FACTORY_RESEARCHER_MODEL:-${FACTORY_MODEL:-sonnet}}" ;;
         *) model="${FACTORY_DEVELOPER_MODEL:-${FACTORY_MODEL:-haiku}}" ;;
     esac
-    item=$(bin/py bin/session.py start "$role" "$model")        # an item from the moment it starts (Items: session)
-    claude -p --model "$model" --output-format json --permission-mode acceptEdits \
-        --allowedTools "Bash(bin/py:*)" "Bash(python3:*)" "Bash(git:*)" "Bash(ls:*)" "Bash(cat:*)" Read Edit Write Glob Grep \
-        | bin/py bin/session.py finish "$item"
-    exit $?
+    exec bin/py bin/session.py run "$role" "$model"     # a session item, its transcript kept as it grows (Items: session)
 fi
 exec bin/py "bin/standin_$role.py"

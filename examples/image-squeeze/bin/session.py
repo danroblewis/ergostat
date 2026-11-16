@@ -1,19 +1,20 @@
 """A Claude Code session, as an item ergostat shows (Items: session/developer-1a2b3c4d), from the
-moment it starts: open while it runs, then done or failed, with its cost, turns, time, what it said,
-and the path of its full transcript. bin/ai.sh calls it on both sides of `claude -p`.
+moment it starts: open while it runs, then done or failed, with its cost, turns and time, what it
+said, and its transcript, kept as run/sessions/<item>.jsonl and copied there as it grows, so the
+page can show the conversation while it happens.
 
-    session.py start ROLE MODEL              record it open (and any of ROLE's left open, by a session
-                                             that was killed, as lost); prints its item id
-    claude ... | session.py finish ITEM      read claude's JSON: its cost to run/costs.jsonl, the item
-                                             closed (as the block's output), its answer passed on"""
+    session.py run ROLE MODEL     the whole session: the prompt (stdin) to `claude -p`, which runs with
+                                  a session id chosen here (so its transcript is known from the start)"""
 
 import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,7 +30,40 @@ def add(type: str, item: str, data: dict, by: str) -> None:
                    capture_output=True, text=True)
 
 
-def start(role: str, model: str) -> str:
+ALLOWED = ["Bash(bin/py:*)", "Bash(python3:*)", "Bash(git:*)", "Bash(ls:*)", "Bash(cat:*)", "Read", "Edit", "Write", "Glob", "Grep"]
+
+
+def transcript_of(sid: str) -> Path:
+    """Where Claude Code writes the transcript of a session run in this folder."""
+    return Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9-]", "-", os.path.realpath(os.getcwd())) / f"{sid}.jsonl"
+
+
+def run(role: str, model: str) -> int:
+    sid = str(uuid.uuid4())
+    item = start(role, model, sid)
+    keep = ROOT / "run" / "sessions" / f"{item.split('/')[1]}.jsonl"
+    keep.parent.mkdir(parents=True, exist_ok=True)
+    src = transcript_of(sid)
+    proc = subprocess.Popen(["claude", "-p", "--model", model, "--session-id", sid, "--output-format", "json",
+                             "--permission-mode", "acceptEdits", "--allowedTools", *ALLOWED],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    proc.stdin.write(sys.stdin.read())
+    proc.stdin.close()
+    out = []
+    import threading
+    reader = threading.Thread(target=lambda: out.append(proc.stdout.read()), daemon=True)
+    reader.start()
+    while proc.poll() is None:                               # the transcript, copied as it grows
+        if src.exists():
+            shutil.copyfile(src, keep)
+        time.sleep(2)
+    reader.join(10)
+    if src.exists():
+        shutil.copyfile(src, keep)
+    return finish(item, out[0] if out else "")
+
+
+def start(role: str, model: str, sid: str = "") -> str:
     try:
         out = subprocess.run([*ergostat(), "item", "--kind", "session", "--state", "open", "-n", "100", "--json"],
                              capture_output=True, text=True).stdout
@@ -40,24 +74,22 @@ def start(role: str, model: str) -> str:
         add("session.lost", item, {"why": "it never finished: killed (a timeout?) or crashed"}, role)
     run = (os.environ.get("ERGOSTAT_RUN") or f"{time.time_ns():x}")[:8]
     item = f"session/{role}-{run}"
-    add("session.started", item, {"role": role, "model": model, "started": time.time()}, role)
+    add("session.started", item, {"role": role, "model": model, "started": time.time(), "session_id": sid,
+                                  "transcript": f"file:run/sessions/{item.split('/')[1]}.jsonl"}, role)
     return item
 
 
-def finish(item: str) -> int:
-    raw = sys.stdin.read()
-    role, model = item.split("/")[1].rsplit("-", 1)[0], ""
+def finish(item: str, raw: str) -> int:
+    role = item.split("/")[1].rsplit("-", 1)[0]
     try:
         d = json.loads(raw)
     except ValueError:
         print(json.dumps({"event": "session.failed", "item": item, "data": {"said": raw[-1500:], "error": True}}))
         print(raw)
         return 1
-    sid = d.get("session_id") or ""
-    transcript = Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9-]", "-", os.path.realpath(os.getcwd())) / f"{sid}.jsonl"
     rec = {"cost_usd": round(d.get("total_cost_usd") or 0, 4), "turns": d.get("num_turns"),
-           "seconds": round((d.get("duration_ms") or 0) / 1000, 1), "error": bool(d.get("is_error")), "session_id": sid,
-           "transcript": str(transcript) if transcript.exists() else None, "said": (d.get("result") or "")[-1500:]}
+           "seconds": round((d.get("duration_ms") or 0) / 1000, 1), "error": bool(d.get("is_error")),
+           "said": (d.get("result") or "")[-1500:]}
     (ROOT / "run").mkdir(exist_ok=True)
     with open(ROOT / "run" / "costs.jsonl", "a") as f:
         f.write(json.dumps({"at": time.time(), "role": role, "item": item, **rec}) + "\n")
@@ -67,7 +99,4 @@ def finish(item: str) -> int:
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "start":
-        print(start(sys.argv[2], sys.argv[3]))
-    else:
-        sys.exit(finish(sys.argv[2]))
+    sys.exit(run(sys.argv[2], sys.argv[3]))

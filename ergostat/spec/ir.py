@@ -12,6 +12,7 @@ from .load import Where
 BUILTIN = ("onoff", "compare", "proportional", "limit", "delay", "schedule", "lookup", "select", "expr", "timer",
            "counter", "alarm")
 MACHINE = ("program", "ai", "person", "external")
+FORMATS = ("image", "markdown", "code", "text", "json", "claude-session")   # how a file an item names is shown
 SETPOINT = re.compile(r"^\s*(<=|>=|==|<|>)\s*(-?\d+(?:\.\d+)?)\s*$")
 NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 REF = re.compile(r"^(stock|flow|variable|goal|block)\.([a-z][a-z0-9-]*)(?:\.([a-z][a-z0-9-]*))?$")
@@ -218,6 +219,7 @@ class ItemKind:
     states: list[str] = field(default_factory=list)   # the first is where a new item starts
     on: dict[str, str] = field(default_factory=dict)   # event type → the state it moves the item to
     show: list[str] = field(default_factory=list)      # fields worth a column
+    formats: dict[str, str] = field(default_factory=dict)   # field → how its file is shown (FORMATS); else by its extension
     system: str | None = None
     description: str = ""
     where: Where | None = None

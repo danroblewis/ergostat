@@ -25,6 +25,8 @@ items:
       session.failed: failed
       session.lost: lost
     show: [role, model, cost_usd, turns, seconds, transcript]
+    formats:
+      transcript: claude-session           # its page shows the conversation, live while it runs
 
 variables:
   ai-spend:

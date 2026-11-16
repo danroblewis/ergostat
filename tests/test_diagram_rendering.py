@@ -15,6 +15,7 @@ It needs Playwright and the Chrome installed on this machine, so the usual run s
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import shutil
 import socket
@@ -327,3 +328,60 @@ def test_the_background_hides_the_side_panel_and_a_part_dragged_stays_pinned(bro
         pg.locator(f'g.pins .pin[data-id="{nid}"]').click(force=True)   # (the page redraws: it never stands still)
         pg.wait_for_function(f"() => !S.pins['{nid}']", timeout=10000)
         pg.close()
+
+
+TRANSCRIPT = [
+    {"type": "user", "timestamp": "2026-11-15T10:00:00Z",
+     "message": {"role": "user", "content": "Do the thing. <script>window.pwned=1</script>"}},
+    {"type": "assistant", "timestamp": "2026-11-15T10:00:01Z", "message": {"role": "assistant", "content": [
+        {"type": "text", "text": "I'll **run** it:\n\n```python\nprint('hi')\n```\n<img src=x onerror=\"window.pwned=2\">"},
+        {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "bin/py test.py"}}]}},
+    {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok: 0 failed"}]}},
+    {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Done."}]}},
+]
+
+
+def test_an_items_files_show_as_what_they_are_and_nothing_in_them_runs(browser, tmp_path):
+    """A transcript as a conversation (each tool call one line, with what came back), Markdown rendered
+    with its code highlighted, an image as an image; HTML in any of it shown as text, never run."""
+    d = tmp_path / "files"
+    (d / "run").mkdir(parents=True)
+    (d / "run" / "s.jsonl").write_text("\n".join(json.dumps(x) for x in TRANSCRIPT))
+    (d / "run" / "notes.md").write_text("# Notes\n\nSome *text* and `code`.\n\n<script>window.pwned=3</script>\n")
+    (d / "ergostat.yaml").write_text("items:\n  session:\n    id: session/*\n    formats:\n      transcript: claude-session\n")
+    port = free_port()
+    home = tmp_path / "home"
+    env = {**os.environ, "ERGOSTAT_HOME": str(home)}
+    subprocess.run([sys.executable, "-m", "ergostat", "-C", str(d), "event", "--add", "session.ran", "--item", "session/x",
+                    "--data", json.dumps({"transcript": "file:run/s.jsonl", "notes": "file:run/notes.md"})], env=env, check=True,
+                   capture_output=True)
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/#/item/session%2Fx")
+        pg.wait_for_selector(".convo .turn.tool", timeout=10000)
+        assert pg.locator(".convo .turn.user").count() == 1 and pg.locator(".convo .turn.assistant").count() == 2
+        tool = pg.locator(".convo .turn.tool")
+        assert "Bash" in tool.inner_text() and "bin/py test.py" in tool.inner_text()
+        tool.locator("summary").click()
+        assert "ok: 0 failed" in tool.inner_text()
+        assert pg.locator(".convo .hljs-built_in, .convo .hljs-string").count() > 0          # the python block, highlighted
+        pg.wait_for_selector(".f-markdown h1", timeout=10000)
+        assert pg.locator(".f-markdown h1").inner_text() == "Notes"
+        pg.wait_for_timeout(500)
+        assert pg.evaluate("() => window.pwned") is None, "HTML in a file ran in the page"
+        assert not errors, errors
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
