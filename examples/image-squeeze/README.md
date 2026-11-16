@@ -21,6 +21,9 @@ ergostat run                      # stand-in researcher and developer: free, a f
 FACTORY_AI=claude ergostat run    # Claude Code sessions propose (Sonnet) and write (Haiku) the experiments: real tokens
 ```
 
+To start over: stop it, then `ergostat reset --yes` (forgets ergostat's record of it: events, items,
+measurements, logs) and `rm -rf run` (squeeze's repository, production and the world).
+
 Then the page `ergostat run` prints, or:
 
 ```bash

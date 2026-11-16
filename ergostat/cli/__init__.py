@@ -12,7 +12,7 @@ from ..durations import DurationError
 from .agents import cmd_agent
 from .common import PART_TOPICS
 from .parts import cmd_part
-from .record import cmd_event, cmd_item, cmd_residual
+from .record import cmd_event, cmd_item, cmd_reset, cmd_residual
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
 from .spec_cmds import cmd_block, cmd_convert, cmd_discover, cmd_explain, cmd_findings
 from .status import cmd_check, cmd_status
@@ -48,6 +48,7 @@ run it
   web            Serve the web page only
   mcp            ergostat for an AI agent, over MCP
   projects       Every project on this machine, which run, and their pages
+  reset          Forget this project's record and start from nothing (--yes)
   help blocks    How to write a sensor's and a block's program (also: help ai-agents, help spec)
 
 flags
@@ -163,6 +164,9 @@ def build() -> argparse.ArgumentParser:
                    help="print a launchd agent (macOS) or systemd user unit (or the one named) that keeps it running across "
                         "reboots, on the page's current port; prints only, installs nothing")
     topic("projects", cmd_projects, "Every project on this machine, and which are running", named=False)
+    rs = topic("reset", cmd_reset, "Forget this project's record (events, items, measurements, logs) and start from nothing",
+               named=False)
+    rs.add_argument("--yes", action="store_true", help="do it (without it, says what it would forget)")
     mc = sub.add_parser("mcp", parents=[common], help="Serve ergostat to an AI agent over MCP (stdio)",
                         description="An MCP server on stdin/stdout: check, explain, status, findings, events, spec, "
                                     "report_done, read_sensor, items, record_event. "

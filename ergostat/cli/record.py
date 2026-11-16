@@ -145,3 +145,34 @@ def cmd_residual(args) -> int:
     covered = (f"the {human(span)} recorded" if snap.get("recorded") and snap["recorded"] < snap["window"] - 1 else human(snap["window"]))
     print(c(f"\nover {covered}: what each stock's readings did, against what its known flows explain", "dim"))
     return 0
+
+
+RECORD = ("events.db", "events.db-shm", "events.db-wal", "measurements.db", "measurements.db-shm", "measurements.db-wal",
+          "run.log")
+
+
+def cmd_reset(args) -> int:
+    """``ergostat reset``: forget this project's record (every event, item and measurement, and the
+    agents' logs) and start from nothing. Only what ergostat wrote there is deleted, by name; the
+    project's own files (and anything its programs keep, like an example's run/) are not touched."""
+    import shutil
+
+    from ..runner import running_pid
+    p = open_project(args)
+    if running_pid(p):
+        print("it is running: stop it first (ergostat run --stop, or Ctrl-C), then reset", file=sys.stderr)
+        return 2
+    gone = [p.dir / n for n in RECORD if (p.dir / n).exists()]
+    logs = p.dir / "logs"
+    if not args.yes:
+        what = ", ".join(x.name for x in gone) + (", logs/" if logs.is_dir() else "")
+        print(f"this forgets {p.model.name}'s record in {p.dir}: {what or 'nothing is there'}.\n"
+              f"ergostat reset --yes to do it")
+        return 0
+    for f in gone:
+        f.unlink()
+    if logs.is_dir():
+        shutil.rmtree(logs)
+    print(f"forgot {p.model.name}'s record ({p.dir}); the next run starts from nothing")
+    return 0
+

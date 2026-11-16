@@ -315,3 +315,18 @@ def test_a_snapshot_without_logs_carries_no_unread_lines(project):
     from ergostat.web.snapshot import build
     project.events.add("agent.ran", item="cleaner", source="ergostat", data={"exit": 0, "unread": 1, "unread_lines": ["{secret oops"]})
     assert "secret oops" not in build(project) and "secret oops" in build(project, logs=True)
+
+
+def test_reset_forgets_the_record_and_nothing_else(project, capsys):
+    from ergostat.cli import main
+    project.events.add("note.made", item="note/1")
+    project.measurements.add("sensor/x", 1.0)
+    (project.dir / "keep.txt").write_text("mine")
+    assert main(["-C", str(project.repo), "reset"]) == 0                 # without --yes: says what, does nothing
+    assert project.events.count() == 1
+    assert main(["-C", str(project.repo), "reset", "--yes"]) == 0
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    p = Project(mdl.load(project.repo))
+    assert p.events.count() == 0 and p.measurements.latest("sensor/x") is None
+    assert (project.dir / "keep.txt").read_text() == "mine" and (project.dir / "repo.json").exists()
