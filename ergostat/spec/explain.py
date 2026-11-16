@@ -224,8 +224,8 @@ class Explainer:
             lines.append("  Nothing in the model sets it: " + (f"a declared rate of {f.rate:g}/h." if f.rate is not None else
                                                                "a disturbance, estimated from what its stocks do."))
         if f.driven_by:
-            lines.append("  Its rate follows " + ", ".join(str(r) for r in f.driven_by) + " (driven-by: an influence, to be "
-                         "borne out by the record).")
+            lines.append("  Its rate follows " + ", ".join(str(r) for r in f.driven_by) + " (driven-by: an influence, declared, "
+                         "not yet checked against the record).")
         if f.sensors:
             lines.append("  Measured: " + "; ".join(_sensor(x) for x in f.sensors.values()) + " (a rate per hour).")
         return "\n".join(lines)

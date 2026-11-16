@@ -271,8 +271,8 @@ flows:
 **`driven-by`: an influence, not a pipe.** Some flows are moved by nothing in the model, yet follow
 something that is: a deploy (`flow.deployed`) is what fixes the product's broken features
 (`flow.fixed`), though nothing pipes one into the other. `driven-by: [flow.deployed]` says so. It
-is a claim about how the system works, drawn as a dashed arrow, and the record is what bears it
-out (`ergostat discover loops` looks for it). It also lets a loop close the long way (section 12).
+is a claim about how the system works, drawn as a dashed arrow; nothing checks it against the
+record yet. It also lets a loop close the long way (section 12).
 It never says who moves the flow.
 
 What sets a flow is the block whose `out` names it (at most one). Seen from a goal's loop:
