@@ -11,6 +11,8 @@ one served. What was served is what the product's sensors read (world/read.py):
     bytes-per-mp   kilobytes served per megapixel, over the same images: what we make smaller
     failures       % of those images the service failed on
     time           95th percentile milliseconds to compress one
+    batch-*        the same of the ten images this tick served (the slowest, for time): what the
+                   windows above smooth
     flat-share     how much of the mix is flat images (screenshots, line art, logos): the disturbance
 
 and, while a candidate runs, the comparison, as 90% confidence bounds over the images both saw:
@@ -91,7 +93,8 @@ def tick() -> dict:
     prod = serve(RUN / "prod", batch, settings)
     cid = rollout.get("candidate") if (RUN / "candidate" / "squeeze.py").exists() else None
     # the candidate runs at production's quality plus the matcher's offset: compared at equal quality
-    csettings = {**settings, "quality": max(1, min(100, round(float(settings.get("quality", 80)) + float(rollout.get("offset") or 0))))}
+    offset = float(rollout.get("offset") or 0) if rollout.get("offset_for") == cid else 0.0   # the matcher's, for this candidate
+    csettings = {**settings, "quality": max(1, min(100, round(float(settings.get("quality", 80)) + offset)))}
     cand = serve(RUN / "candidate", batch, csettings) if cid else [None] * len(batch)
     rng = random.Random(int(now))
     window = load(WINDOW, [])
@@ -99,7 +102,8 @@ def tick() -> dict:
     pn = int(before.get("paired", 0)) if cid and before.get("id") == cid else 0   # each compared image numbered, from 0
     for (kind, seed), a, b in zip(batch, prod, cand, strict=True):
         mp = 1.92 if kind == "big-photo" else (0.2304 if kind == "logo" else 0.3072)
-        served = "cand" if b is not None and rng.random() < float(rollout.get("share") or 0) else "prod"
+        share = float(rollout.get("share") or 0) if int(rollout.get("stage", -1)) >= 0 else 0.0   # served from its first stage
+        served = "cand" if b is not None and rng.random() < share else "prod"
         window.append({"t": now, "kind": kind, "mp": mp, "prod": a, "cand": b, "cid": cid, "served": served,
                        **({"pn": pn} if b is not None else {})})
         pn += b is not None
@@ -116,6 +120,12 @@ def tick() -> dict:
              "bytes_per_mp": round(sum(x["bytes"] for _, x in ok) / 1024 / max(1e-9, sum(r["mp"] for r, _ in ok)), 2) if ok else 0.0,
              "failures": round(100 * (len(recent) - len(ok)) / max(1, len(recent)), 1),
              "time": round(p95([x["ms"] for _, x in ok]), 1)}
+    served = window[-BATCH:]                                     # what this tick served: the window's newest images
+    bok = [(r, got(r)) for r in served if "error" not in got(r)]
+    state["batch"] = {"quality": round(sorted(x["ssim"] for _, x in bok)[int(0.1 * (len(bok) - 1))], 4) if bok else 0.0,
+                      "bytes": round(sum(x["bytes"] for _, x in bok) / 1024 / max(1e-9, sum(r["mp"] for r, _ in bok)), 2) if bok else 0.0,
+                      "failures": round(100 * (len(served) - len(bok)) / max(1, len(served)), 1),
+                      "time": round(max([x["ms"] for _, x in bok], default=0.0), 1)}
     pairs = [r for r in window if cid and r["cid"] == cid and r["cand"] is not None]
     since = int(rollout.get("matched_since") or 0)               # the images seen since the matcher last moved
     both = [r for r in pairs if r.get("pn", 0) >= since and "error" not in r["prod"] and "error" not in r["cand"]][-80:]

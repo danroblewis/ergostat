@@ -7,6 +7,8 @@ How good an image looks is measured: SSIM against the original, 1.0 identical, j
 service holds quality at 0.93 (nine images in ten at least that close to their originals) by
 turning one encoder quality setting up or down.
 Your job is the bytes: kilobytes per megapixel served, at that same quality.
+The lab's targets, and whether each holds now, are in your input (`goals`: small-images, every-case);
+when both hold, propose nothing and say so.
 
 Propose ONE new hypothesis: a change to squeeze's code that you expect to make images smaller at
 equal quality (or better looking at equal size, which comes to the same thing once the quality

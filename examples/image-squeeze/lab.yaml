@@ -92,20 +92,25 @@ flows:
       items: session
       leaving: open
       over: 30m
+  # The pipeline of hypotheses, an aging chain: each stage can only take what the one before holds
+  # (the developer claims the oldest idea, and submits what it has built).
   proposed:
     to: ideas
   started:
     from: ideas
     to: building
+    driven-by: +stock.ideas
   submitted:
     from: building
     to: experiments
+    driven-by: +stock.building
   abandoned:
     from: building
-  kept:
+  kept:                                    # set by the rollout (rollout.yaml)
     from: experiments
     to: improvements
-  dropped:
+    driven-by: +stock.experiments          # what is kept comes out of what is tested (the rollout decides when)
+  dropped:                                 # set by the rollback, on its guards
     from: experiments
 
 goals:
@@ -124,7 +129,9 @@ blocks:
     goal: ideas-ready
     prompt: prompts/researcher.md
     run: bin/ai.sh researcher               # FACTORY_AI=claude: a Claude Code session; otherwise a stand-in
-    in: [stock.bytes-per-mp, stock.capabilities, stock.benchmark-points]   # what it is trying to improve
+    in:                                     # what it is trying to improve: it proposes only while one of them is off
+      bytes: goal.small-images.off
+      cases: goal.every-case.off
     max: 1
     timeout: 15m
     out: flow.proposed
@@ -132,8 +139,7 @@ blocks:
     type: ai
     goal: one-running
     prompt: prompts/developer.md
-    run: bin/ai.sh developer
-    in: stock.ideas
+    run: bin/ai.sh developer                # takes the oldest idea (started follows the ideas waiting)
     max: 1
     timeout: 20m
     out:

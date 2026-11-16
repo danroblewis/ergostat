@@ -56,8 +56,8 @@ flows:
       entering: met
       over: 30m
   lost:
-    from: capabilities
-    driven-by: +flow.kept                  # or breaks something it could
+    from: capabilities                     # a release that breaks something it could: the rollback refuses a candidate that
+                                           # loses a case production meets, so nothing in the model drives this (a disturbance)
     sensor:
       items: case
       leaving: met
