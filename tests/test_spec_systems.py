@@ -141,3 +141,10 @@ def test_a_model_without_systems_is_drawn_as_it_was(tmp_path):
     m = mdl.load(tmp_path)
     g = {"kind": "control", "nodes": [{"id": "stock:a", "kind": "stock", "label": "a"}], "edges": [], "loops": {}}
     assert fold(g, m, None) is g
+
+
+def test_a_stock_no_flow_touches_is_pointed_out(tmp_path):
+    _, problems = spec_of(tmp_path, "stocks:\n  age:\n    unit: hours\n    sensor:\n      manual: true\n"
+                                    "  queue:\n    sensor:\n      manual: true\nflows:\n  in:\n    to: queue\n")
+    found = {x.about for x in problems if x.code == "stock-without-flows"}
+    assert found == {"stock.age"}

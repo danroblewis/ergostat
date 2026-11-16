@@ -55,6 +55,11 @@ def find(spec: Spec) -> list[Problem]:
                     say("own-disturbance", f"block {a}: serves goal {name} but also adds to {g.of.name} (flow {f.name}): "
                         f"it is its own disturbance", spec.blocks[a].where, f"block.{a}")
     for st in spec.stocks.values():
+        if not spec.flows_of(st.name):
+            say("stock-without-flows", f"stock {st.name}: no flow fills or drains it, so nothing in the model moves it. A "
+                f"stock is what flows accumulate; a reading that nothing flows into (an age, a ratio, a count kept "
+                f"elsewhere) is not one: give it its flows, or measure it as the flow or stock it describes",
+                st.where, f"stock.{st.name}")
         if st.limit is not None and not any(g.of == Ref("stock", st.name) for g in spec.goals.values()):
             say("unguarded-limit", f"stock {st.name}: has a limit ({st.limit:g}) but no goal: nothing keeps it from it",
                 st.where, f"stock.{st.name}")

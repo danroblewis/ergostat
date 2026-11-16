@@ -158,3 +158,51 @@ def test_a_big_tangled_model_lays_out_in_time_and_cleanly(browser, tmp_path):
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+def test_every_part_opens_its_panel_when_clicked_even_mid_redraw(browser, tmp_path):
+    """Clicking any part says what it is; and a redraw landing between the press and the release
+    (the page redraws every few seconds) does not swallow the click."""
+    d = tmp_path / "software-factory"
+    shutil.copytree(ROOT / "examples" / "software-factory", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        pg.get_by_role("button", name="fit").click()
+        silent = []
+        ids = pg.evaluate("() => S.graph.nodes.filter((n) => n.kind !== 'cloud').map((n) => n.id)")
+        for i, nid in enumerate(ids):
+            pg.evaluate("() => { const d = document.querySelector('#detail'); d.hidden = true; d.replaceChildren(); }")
+            hit = pg.locator(f'g.node[data-id="{nid}"] .hit').first
+            box = hit.bounding_box()
+            if not box:
+                continue
+            pg.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            pg.mouse.down()
+            if i % 2:                                      # every other click, the page redraws in the middle of it
+                pg.evaluate("() => drawGraph(document.querySelector('svg.canvas'), S.graph, S.layout)")
+            pg.mouse.up()
+            try:
+                pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')",
+                                     timeout=3000)
+            except Exception:
+                silent.append(nid)
+        pg.close()
+        assert not errors, errors
+        assert not silent, f"clicked, and no panel said what it is: {silent}"
+    finally:
+        proc.terminate()
+        proc.wait(10)

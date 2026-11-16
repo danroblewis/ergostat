@@ -52,7 +52,6 @@ from its events. Its stocks are counted from them, with no sensor program at all
 | backlog | tickets open or being worked | `backlog-clear`: the developer works while it is above 0 |
 | in-review | tickets waiting for review | `reviews-done`: the reviewer works while it is above 0 |
 | awaiting-deploy | tickets merged, not live | `all-live`: the deployer ships, at most every 30s |
-| oldest-bug | hours the oldest unshipped bug has waited | (watched) |
 
 A rejected review sends its ticket back to the backlog (`rejected`, the rework flow).
 
@@ -103,8 +102,8 @@ FACTORY_REVIEW=rubber ergostat run      # the reviewer approves everything
 A strict review turns the developer's mistakes into rework: the `rejected` flow rises and
 `in-review` waits. Customers never see those mistakes. With a lax review they reach production,
 `regressions` rise, support files bugs, the backlog grows, and users settle lower. The page's
-Items tab shows each ticket's path (the regressions are titled "... again"), and `oldest-bug`
-shows how long customers waited.
+Items tab shows each ticket's path (the regressions are titled "... again"), and each ticket's
+time in each state.
 
 In the YAML: give the deployer `every: 5m` and watch `awaiting-deploy` fill and `no-live-bugs`
 take five minutes longer to come back. Or slow the developer (`FACTORY_PACE=20`): the factory has

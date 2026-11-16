@@ -20,7 +20,7 @@ const WHAT = {
   system: ["System", "a part of the model drawn as one part. Its ports are what crosses its edge: what it reads and is told, what it moves and drives."],
   agent: ["Agent", "the program, AI or person that does a part's work: reads a sensor, decides as a controller, or opens a valve."],
   pipe: ["Flow (material)", "the pipe a flow runs along: material leaving one stock and arriving in another (or coming from or going to outside the model). Only flows change stocks."],
-  measure: ["Measurement (information)", "a sensor reading a stock or flow: the measured output, y. It moves nothing; it only tells."],
+  measure: ["Measurement (information)", "a sensor reading a stock or flow: the measured output, y. The arrow points into the sensor because that is the way the information goes: the stock's level is what the sensor reports. It moves nothing; it only tells."],
   signal: ["Feedback (information)", "a sensor's reading going to a controller, which compares it with its setpoint r and acts on the error e = r − y. This is what makes the loop a loop."],
   action: ["Control action (information)", "a controller commanding a valve: the control signal, u. How hard it pushes is the loop's gain; how long until the stock shows it is the loop's delay."],
   influence: ["Influence (information)", "one thing's rate following another's, declared with driven-by: a release fixing what was broken, more users asking for more. Nothing moves along it; it is how a loop closes through another system."],

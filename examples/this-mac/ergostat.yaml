@@ -17,7 +17,7 @@ stocks:
       every: 30s
   load:
     unit: runnable
-    description: the one-minute load average
+    description: the run queue, processes waiting for the CPU (the one-minute load average)
     sensor:
       run: bin/meter.sh load
       every: 30s
@@ -31,6 +31,10 @@ flows:
     to: downloads
   tidied:
     from: downloads
+  work-arriving:                 # processes becoming runnable
+    to: load
+  work-done:                     # the CPU serving them
+    from: load
 
 goals:
   disk-has-room:

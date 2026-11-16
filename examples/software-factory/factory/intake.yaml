@@ -10,16 +10,6 @@ stocks:
       items: ticket
       state: [open, doing]
       every: 5s
-  oldest-bug:
-    unit: hours
-    description: how long the oldest bug not yet live has waited in its state
-    sensor:
-      items: ticket
-      state: [open, doing, review, merged]
-      where:
-        type: bug
-      measure: oldest
-      every: 10s
 
 flows:
   filed-bugs:

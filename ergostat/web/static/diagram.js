@@ -752,7 +752,8 @@ function drawGraph(svg, g, lay) {
   for (const ln of lay.children) {
     const n = byId[ln.id];
     const ng = s("g", { class: `node k-${n.kind}`, transform: `translate(${ln.x},${ln.y})`, "data-id": n.id,
-                        onclick: (ev) => { ev.stopPropagation(); if (n.kind === "terminal") S.drill?.(n.in || ""); else if (n.kind !== "cloud") openNode(n); },
+                        // pressed and let go over the same part, even if it was drawn again in between, is a click
+                        onpointerdown: (ev) => { if (!ev.target.closest(".sys-btn")) S.downOn = n.id; },
                         ondblclick: (ev) => { if (n.kind === "system") { ev.stopPropagation(); S.toggleSystem?.(n.label); } } });
     ng.append((DRAW[n.kind] || drawCloud)(n, ln.width, ln.height));
     for (const lb of ln.labels || []) {
@@ -820,6 +821,18 @@ function panZoom(svg) {
     S.view.k = k;
     applyView(svg);
   }, { passive: false });
+  svg.addEventListener("pointerdown", () => { S.pressed = true; }, true);      // held: no redraw until it is let go
+  window.addEventListener("pointerup", () => { S.pressed = false; }, true);
+  svg.addEventListener("pointerup", (ev) => {
+    const was = S.downOn;
+    S.downOn = null;
+    const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".node");
+    if (!was || !under || under.dataset.id !== was || ev.target.closest?.(".sys-btn")) return;
+    const n = S.graph?.nodes.find((x) => x.id === was);
+    if (!n || n.kind === "cloud") return;
+    if (n.kind === "terminal") S.drill?.(n.in || ""); else openNode(n);
+  });
+  window.addEventListener("pointercancel", () => { S.pressed = false; }, true);
   svg.addEventListener("pointerdown", (ev) => {
     if (ev.target.closest(".node") || ev.target.closest("[data-act]")) return;   // a part, or a control drawn on the canvas
     ev.preventDefault();                                   // a drag pans; it never starts selecting text
@@ -1063,6 +1076,7 @@ async function pageDiagram(main, q) {
     } else {
       // same structure: keep positions, redraw with new values (label texts may change length slightly)
     }
+    if (S.pressed) return;                             // mid-click: a redraw now would swallow it; the next tick draws
     drawGraph(svg, g, S.layout);
     if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
     renderSide(side, g, view);
