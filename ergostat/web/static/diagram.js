@@ -123,7 +123,7 @@ async function layoutGraph(g, aspect, cut = false) {
   };
   const lay = await elk.layout(graph);
   if (open.size) flatten(lay);
-  if (g.kind !== "wiring") straighten(lay, g);
+  if (g.kind !== "wiring") reroute(lay, g);
   if (cuts.length) {
     restack(lay, g);
     routeCuts(lay, cuts);
@@ -131,39 +131,135 @@ async function layoutGraph(g, aspect, cut = false) {
   return lay;
 }
 
-/* a line that goes the long way round, to come into a part from its side, comes in the short way
-   instead: from above (or below) when that is where it comes from. Lines may then cross parts;
-   a model whose systems are that tangled shows it. Pipes keep their routes, and so do lines into a
-   system's ports (its inputs are on its left) */
-function straighten(lay, g) {
+/* lines routed again, on a grid, around the parts and the other lines but straight through the
+   outlines of systems: the layout itself must take a line into a system from the side its layers
+   run (the left), which sends lines the long way round. Only lines that cross a system's edge, or
+   that the layout sent far round, are routed again; pipes and lines into a system box's ports keep
+   their places at either end */
+const GRID = 8;
+function reroute(lay, g) {
+  const edgeOf = Object.fromEntries(g.edges.map((e) => [e.id, e]));
+  const nodeOf = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
-  const kindOf = Object.fromEntries(g.edges.map((e) => [e.id, e]));
-  const len = (pts) => pts.slice(1).reduce((a, p, i) => a + Math.abs(p.x - pts[i].x) + Math.abs(p.y - pts[i].y), 0);
-  for (const le of lay.edges) {
-    const e = kindOf[le.id];
-    if (!e || e.kind === "pipe" || e.targetPort || le.cut) continue;
-    const t = box[e.target], sec = (le.sections || [])[0];
-    if (!t || !sec || t.id.startsWith("system:")) continue;
-    const pts = [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint];
-    const S = pts[0], first = pts[1];
-    const above = S.y < t.y - 16, below = S.y > t.y + t.height + 16, right = S.x > t.x + t.width + 16;
-    const horizontal = Math.abs(first.y - S.y) < 1;
-    const out = S.x + (horizontal ? Math.sign(first.x - S.x) * 14 : 0);   // clear of what it leaves, the way it leaves
-    let route;
-    if (above || below) {                              // into its top (or bottom), straight down (or up) the last stretch
-      const ex = Math.max(t.x + 12, Math.min(t.x + t.width - 12, S.x)), ey = above ? t.y : t.y + t.height, lane = above ? ey - 16 : ey + 16;
-      if (horizontal && Math.sign(first.x - S.x) === Math.sign(ex - S.x || 1)) route = [S, { x: ex, y: S.y }, { x: ex, y: ey }];
-      else route = [S, { x: out, y: S.y }, { x: out, y: lane }, { x: ex, y: lane }, { x: ex, y: ey }];
-    } else if (right) {                                // beside it, to its right: into its right side
-      const ey = t.y + t.height / 2, ex = t.x + t.width;
-      route = horizontal && first.x < S.x ? [S, { x: ex + 14, y: S.y }, { x: ex + 14, y: ey }, { x: ex, y: ey }]
-                                          : [S, { x: out, y: S.y }, { x: out, y: ey }, { x: ex, y: ey }];
-    } else continue;
-    route = route.filter((p, i) => i === 0 || Math.abs(p.x - route[i - 1].x) + Math.abs(p.y - route[i - 1].y) > 0.5);
-    if (len(route) + 40 < len(pts)) {
-      le.sections = [{ startPoint: route[0], bendPoints: route.slice(1, -1), endPoint: route[route.length - 1] }];
-      le.junctionPoints = [];
+  const pts = (le) => { const sec = (le.sections || [])[0]; return sec ? [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint] : []; };
+  const len = (ps) => ps.slice(1).reduce((a, p, i) => a + Math.abs(p.x - ps[i].x) + Math.abs(p.y - ps[i].y), 0);
+  const inner = (id) => (nodeOf[id]?.systems || [])[0] || (id.startsWith("system:") ? "box:" + id : null);
+  const todo = lay.edges.filter((le) => {
+    const e = edgeOf[le.id], p = pts(le);
+    if (!e || e.kind === "pipe" || le.cut || p.length < 2) return false;
+    const crosses = inner(e.source) !== inner(e.target) || e.sourcePort || e.targetPort;
+    const far = len(p) > 1.5 * (Math.abs(p[0].x - p[p.length - 1].x) + Math.abs(p[0].y - p[p.length - 1].y)) + 80;
+    return crosses || far;
+  });
+  if (!todo.length) return;
+  // the grid: every part (with its labels) is in the way; the lines already drawn are costly to run along or cross
+  const rects = lay.children.map((c) => {
+    const ls = c.labels || [];
+    const xs = [c.x, c.x + c.width, ...ls.flatMap((l) => [c.x + l.x, c.x + l.x + l.width])];
+    const ys = [c.y, c.y + c.height, ...ls.flatMap((l) => [c.y + l.y, c.y + l.y + l.height])];
+    return { id: c.id, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+  });
+  const X0 = Math.min(...rects.map((r) => r.x0)) - 120, Y0 = Math.min(...rects.map((r) => r.y0)) - 120;
+  const W = Math.ceil((Math.max(...rects.map((r) => r.x1)) + 120 - X0) / GRID), H = Math.ceil((Math.max(...rects.map((r) => r.y1)) + 120 - Y0) / GRID);
+  const cx = (x) => Math.max(0, Math.min(W - 1, Math.round((x - X0) / GRID))), cy = (y) => Math.max(0, Math.min(H - 1, Math.round((y - Y0) / GRID)));
+  const owner = new Int32Array(W * H).fill(-1);           // which part (by index) a cell is inside, with a margin
+  rects.forEach((r, i) => {
+    for (let y = cy(r.y0 - 6); y <= cy(r.y1 + 6); y++) for (let x = cx(r.x0 - 6); x <= cx(r.x1 + 6); x++) owner[y * W + x] = i;
+  });
+  const runH = new Uint8Array(W * H), runV = new Uint8Array(W * H);   // cells lines run through, across and down
+  const mark = (ps) => {
+    for (let i = 1; i < ps.length; i++) {
+      const a = ps[i - 1], b = ps[i];
+      if (Math.abs(a.y - b.y) < 1) { const y = cy(a.y); for (let x = Math.min(cx(a.x), cx(b.x)); x <= Math.max(cx(a.x), cx(b.x)); x++) runH[y * W + x] = 1; }
+      else { const x = cx(a.x); for (let y = Math.min(cy(a.y), cy(b.y)); y <= Math.max(cy(a.y), cy(b.y)); y++) runV[y * W + x] = 1; }
     }
+  };
+  const redo = new Set(todo.map((le) => le.id));
+  for (const le of lay.edges) if (!redo.has(le.id)) mark(pts(le));
+  const idx = Object.fromEntries(rects.map((r, i) => [r.id, i]));
+  const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];             // right, down, left, up
+  // shorter, and longer later: the routes that matter most are found first
+  todo.sort((a, b) => len(pts(a)) - len(pts(b)));
+  for (const le of todo) {
+    const e = edgeOf[le.id], p = pts(le);
+    const si = idx[e.source], ti = idx[e.target];
+    const fixedStart = !!e.sourcePort || nodeOf[e.source]?.kind === "valve" || nodeOf[e.source]?.kind === "disturbance";
+    const fixedEnd = !!e.targetPort || nodeOf[e.target]?.kind === "valve" || nodeOf[e.target]?.kind === "disturbance";
+    const free = (c, x, y) => x >= 0 && y >= 0 && x < W && y < H && (owner[c] === -1 || owner[c] === si || owner[c] === ti);
+    // where it may start: its fixed point, or anywhere round the edge of the part it leaves
+    const starts = [];
+    const ring = (r, inward) => {                              // the cells just outside a part, each with the way out of it
+      const out = [];
+      const x0 = cx(r.x0) - 1, x1 = cx(r.x1) + 1, y0 = cy(r.y0) - 1, y1 = cy(r.y1) + 1;
+      for (let x = x0 + 1; x < x1; x++) { out.push([x, y0, inward ? 1 : 3]); out.push([x, y1, inward ? 3 : 1]); }
+      for (let y = y0 + 1; y < y1; y++) { out.push([x0, y, inward ? 0 : 2]); out.push([x1, y, inward ? 2 : 0]); }
+      return out;
+    };
+    const sr = rects[si], tr = rects[ti];
+    if (!sr || !tr) continue;
+    const dirOf = (a, b) => (Math.abs(a.x - b.x) > Math.abs(a.y - b.y) ? (b.x > a.x ? 0 : 2) : (b.y > a.y ? 1 : 3));
+    const n = p.length;
+    const d0 = dirOf(p[0], p[1]), dn = dirOf(p[n - 2], p[n - 1]);
+    // a fixed end (a port) is left, or reached, two cells straight out from it
+    if (fixedStart) starts.push([cx(p[0].x) + DX[d0] * 2, cy(p[0].y) + DY[d0] * 2, d0]);
+    else starts.push(...ring(sr, false));
+    const goals = new Map();                                   // cell → the way it must be going to arrive
+    if (fixedEnd) goals.set((cy(p[n - 1].y) - DY[dn] * 2) * W + cx(p[n - 1].x) - DX[dn] * 2, dn);
+    else for (const [x, y, d] of ring(tr, true)) goals.set(y * W + x, d);
+    // A*, the state a cell and the way in; a bend, running along a line and crossing one all cost
+    const N = W * H * 4, dist = new Float32Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1);
+    const heap = [];
+    const push = (f, s) => { heap.push([f, s]); let i = heap.length - 1; while (i > 0) { const j = (i - 1) >> 1; if (heap[j][0] <= heap[i][0]) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i;
+      if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[i], heap[m]] = [heap[m], heap[i]]; i = m; } } return top; };
+    const gx = cx(p[p.length - 1].x), gy = cy(p[p.length - 1].y);
+    const hcost = (x, y) => Math.abs(x - gx) + Math.abs(y - gy);
+    for (const [x, y, d] of starts) {
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      const st = (y * W + x) * 4 + d;
+      dist[st] = 0; push(hcost(x, y), st);
+    }
+    let found = -1, steps = 0;
+    while (heap.length && steps++ < 400000) {
+      const [, st] = pop();
+      const c = st >> 2, d = st & 3, x = c % W, y = (c - x) / W;
+      if (goals.has(c) && goals.get(c) === d) { found = st; break; }
+      for (let nd = 0; nd < 4; nd++) {
+        if (nd === (d + 2) % 4) continue;
+        const nx = x + DX[nd], ny = y + DY[nd], nc = ny * W + nx;
+        if (!free(nc, nx, ny)) continue;
+        if (!fixedEnd && owner[nc] !== -1 && owner[nc] === ti && !goals.has(nc)) continue;   // into its target only where it arrives
+        if (owner[nc] !== -1 && owner[nc] === si && owner[c] !== si) continue; // never back into where it started
+        const along = nd % 2 === 0 ? runH[nc] : runV[nc], across = nd % 2 === 0 ? runV[nc] : runH[nc];
+        const cost = dist[st] + 1 + (nd !== d ? 6 : 0) + along * 30 + across * 3;
+        const ns = nc * 4 + nd;
+        if (cost < dist[ns]) { dist[ns] = cost; prev[ns] = st; push(cost + hcost(nx, ny), ns); }
+      }
+    }
+    if (found < 0) { mark(p); continue; }                       // no way round: keep the layout's line
+    const states = [];
+    for (let st = found; st >= 0; st = prev[st]) states.push(st);
+    states.reverse();
+    const cells = states.map((st) => st >> 2);
+    let route = cells.map((c) => ({ x: X0 + (c % W) * GRID, y: Y0 + Math.floor(c / W) * GRID }));
+    const sb = box[e.source], tb = box[e.target];
+    const a = route[0], z = route[route.length - 1];
+    const firstDir = states[0] & 3;                            // the way out of the part it leaves
+    // its ends on the parts themselves: the ports where it has them, else the side of the part it leaves and reaches
+    const leave = (q, b, d) => (d === 0 ? { x: b.x + b.width, y: q.y } : d === 2 ? { x: b.x, y: q.y } : d === 1 ? { x: q.x, y: b.y + b.height } : { x: q.x, y: b.y });
+    const reach = (q, b, d) => (d === 0 ? { x: b.x, y: q.y } : d === 2 ? { x: b.x + b.width, y: q.y } : d === 1 ? { x: q.x, y: b.y } : { x: q.x, y: b.y + b.height });
+    const head = fixedStart ? [p[0], d0 % 2 === 0 ? { x: a.x, y: p[0].y } : { x: p[0].x, y: a.y }] : [leave(a, sb, firstDir)];
+    const lastDir = found & 3;
+    const tail = fixedEnd ? [dn % 2 === 0 ? { x: z.x, y: p[n - 1].y } : { x: p[n - 1].x, y: z.y }, p[n - 1]] : [reach(z, tb, lastDir)];
+    route = [...head, ...route, ...tail];
+    route = route.filter((q, i) => {                          // only the corners
+      if (i === 0 || i === route.length - 1) return true;
+      const a = route[i - 1], b = route[i + 1];
+      return !((Math.abs(a.x - q.x) < 0.5 && Math.abs(q.x - b.x) < 0.5) || (Math.abs(a.y - q.y) < 0.5 && Math.abs(q.y - b.y) < 0.5));
+    });
+    le.sections = [{ startPoint: route[0], bendPoints: route.slice(1, -1), endPoint: route[route.length - 1] }];
+    le.junctionPoints = [];
+    mark(route);
   }
 }
 
@@ -339,10 +435,13 @@ function drawController(n, w, hgt) {
   const tone = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[st] || "var(--unknown)";
   const g = s("g");
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 10, fill: "var(--ctl)", stroke: "var(--ctl-line)", "stroke-width": 2 }));
-  g.append(s("circle", { cx: 20, cy: 22, r: 9, fill: "var(--panel)", stroke: "var(--ctl-line)", "stroke-width": 1.6 }));
-  // a comparison (Σ) for a feedback controller; a clock for an open loop, which acts on time alone
-  g.append(s("path", { d: n.openLoop ? "M20,22 v-6 M20,22 l4,3" : "M14,22 h12 M20,16 v12", stroke: "var(--ctl-line)", "stroke-width": 1.4,
-                       "stroke-linecap": "round" }));
+  // its summing point: the setpoint in (+), the reading in (−), the error out; a clock for an open loop, which reads nothing
+  g.append(s("circle", { cx: 20, cy: 22, r: 9, fill: "var(--panel)", stroke: "var(--ctl-line)", "stroke-width": 1.6 },
+             s("title", {}, n.openLoop ? "an open loop: it acts on its schedule and reads nothing" : "its summing point: e = r − y, the setpoint less the reading")));
+  if (n.openLoop) g.append(s("path", { d: "M20,22 v-6 M20,22 l4,3", stroke: "var(--ctl-line)", "stroke-width": 1.4, "stroke-linecap": "round" }));
+  else g.append(s("text", { x: 20, y: 26, "text-anchor": "middle", class: "sigma" }, "Σ"),
+                s("text", { x: 8, y: 13, "text-anchor": "middle", class: "sign" }, "+"),
+                s("text", { x: 8, y: 37, "text-anchor": "middle", class: "sign" }, "−"));
   g.append(s("text", { x: 36, y: 20, class: "t-label" }, n.label));
   g.append(s("text", { x: 36, y: 36, class: "t-sub" }, "holds " + n.setpoint));
   if (n.decision) {
@@ -765,7 +864,7 @@ function legend(view) {
     row('<path d="M5 3 L13 9 L5 15 Z M21 3 L13 9 L21 15 Z" fill="var(--valve)"/>', "valve: where an agent acts"),
     row('<path d="M13 2 L22 9 L13 16 L4 9 Z" fill="var(--panel)" stroke="var(--dist)" stroke-width="1.8"/>', "disturbance: nothing controls it"),
     row('<circle cx="13" cy="9" r="7" fill="var(--sensor)" stroke="var(--sensor-line)" stroke-width="1.8"/>', "sensor: measures"),
-    row('<rect x="2" y="2" width="22" height="14" rx="4" fill="var(--ctl)" stroke="var(--ctl-line)" stroke-width="1.8"/>', "controller: decides, to hold a setpoint"),
+    row('<rect x="2" y="2" width="22" height="14" rx="4" fill="var(--ctl)" stroke="var(--ctl-line)" stroke-width="1.8"/>', "controller: decides, to hold a setpoint; Σ is where it compares: e = r − y"),
     Object.values(S.graph?.loops || {}).some((l) => l.openLoop) &&
       row('<circle cx="13" cy="9" r="7" fill="var(--panel)" stroke="var(--ctl-line)" stroke-width="1.6"/><path d="M13,9 v-5 M13,9 l3,2" stroke="var(--ctl-line)" stroke-width="1.4" stroke-linecap="round"/>', "with a clock: an open loop (acts on time, reads nothing)"),
     (S.graph?.nodes || []).some((n) => n.kind === "system") &&

@@ -15,6 +15,7 @@ const WHAT = {
   valve: ["Flow, controlled (a valve)", "material moving into or out of a stock, set by something in the model: a block opens it when its controller commands."],
   disturbance: ["Flow, uncontrolled (a disturbance)", "material moving into or out of a stock that nothing in the model sets. The world pushes it; the loops on its stocks must make up for it."],
   sensor: ["Sensor", "an instrument. It reads one stock or flow; a loop sees only what its sensor reads."],
+  controller: ["Controller", "the part that decides, to hold a goal. At its summing point (the Σ in its corner) it compares the stock's reading y with the setpoint r: e = r − y. While that error says the goal is off, it commands a valve. The badge names the block that fills it. With its sensor, the stock and the valve it closes a feedback loop: the loop is the whole cycle, not this box."],
   loop: ["Feedback loop", "a goal on a stock and what serves it. When the stock's reading is off the setpoint, the controller commands a valve until it is back."],
   system: ["System", "a part of the model drawn as one part. Its ports are what crosses its edge: what it reads and is told, what it moves and drives."],
   agent: ["Agent", "the program, AI or person that does a part's work: reads a sensor, decides as a controller, or opens a valve."],
@@ -63,7 +64,7 @@ async function openNode(n) {
   if (n.kind === "agent") return openAgent(n.label);
   if (n.kind === "system") return openSystem(n);
   const [kind, name] = n.kind === "valve" ? ["valve", n.label] : n.kind === "disturbance" ? ["disturbance", n.flow] : n.id.split(":");
-  if (kind === "controller") return openLoop(name);
+  if (kind === "controller") return openLoop(name, true);
   const d = await api(`part/${kind}/${encodeURIComponent(name)}`);
   const m = d.model, now = d.now || {};
   const rows = [["description", m.description]];
@@ -99,12 +100,15 @@ async function openNode(n) {
   showDetail(...kids);
 }
 
-async function openLoop(name) {
+async function openLoop(name, asController = false) {
   let lp;
   try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { return; }
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
   const windowWords = recorded < (lp.until - lp.since) * 0.95 ? `of the ${dur(recorded)} recorded` : "of the window";
-  const kids = [h("div", { class: "kind" }, lp.open_loop ? "loop · ⏲ open loop" : "loop"), h("h2", {}, name, " ", statusEl(lp.status)), whatIs("loop")];
+  const kids = asController
+    ? [h("div", { class: "kind" }, "controller"), h("h2", {}, name, " ", statusEl(lp.status)), whatIs("controller"),
+       h("h3", {}, "the loop it closes"), whatIs("loop")]
+    : [h("div", { class: "kind" }, lp.open_loop ? "loop · ⏲ open loop" : "loop"), h("h2", {}, name, " ", statusEl(lp.status)), whatIs("loop")];
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
   if (lp.open_loop) kids.push(h("p", {}, "An open loop: it acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
   kids.push(dl([["holds", `${lp.stock} ${lp.setpoint}${lp.band || ""}`], ["now", fmt(lp.value)],

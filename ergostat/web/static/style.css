@@ -268,3 +268,6 @@ svg.tracing .edge.lit { opacity: 1; }
 
 .detail .what { margin: 6px 0 10px; line-height: 1.45; }
 .detail .what b { font-weight: 650; }
+
+.k-controller .sigma { font-size: 12px; font-weight: 700; fill: var(--ctl-line); }
+.k-controller .sign { font-size: 10px; font-weight: 700; fill: var(--ctl-line); }
