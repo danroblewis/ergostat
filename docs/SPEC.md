@@ -11,7 +11,8 @@ of this document.
 ## 1. Principles
 
 1. **Four kinds of thing are written, and more when they say something.** Stocks, flows, goals
-   and blocks; auxiliaries, for quantities without memory; and agents, only for machines shared
+   and blocks; auxiliaries, for quantities without memory; parameters, the numbers equations name
+   (section 7b); and agents, only for machines shared
    by several blocks. (Kinds of item, section 5a, say how to read the record, not what the system
    is.) Valves, controllers, disturbances, errors, loops and diagrams are worked out from them,
    never declared.
@@ -64,7 +65,8 @@ out, never written.
 
 **Names** are lowercase letters, digits and `-`, starting with a letter: `inbox`,
 `keep-inbox-short`. Names are unique within each section; the same name may be used in two
-sections (a stock and a goal both called `inbox`), but it is discouraged.
+sections (a stock and a goal both called `inbox`), but it is discouraged. Parameters (section 7b) are
+named by their bare name in equations, so a parameter may not take a function's name (`min`, `delay1`).
 
 **References** point at a thing, or at one port of it:
 
@@ -119,6 +121,8 @@ systems:                        # optional: systems, and the systems they are wi
 stocks:
   ...
 flows:
+  ...
+parameters:                     # optional: the numbers equations name (section 7b)
   ...
 auxiliaries:                    # optional: quantities without memory (section 7a)
   ...
@@ -434,8 +438,8 @@ What sets a flow is the block whose `out` names it (at most one). Seen from a go
 
 ## 7a. Auxiliaries
 
-A quantity without memory: determined at each moment by others, through an equation (here not
-written, so it is measured). System dynamics calls it an auxiliary (or converter). A ratio of two
+A quantity without memory: determined at each moment by others, through an equation (written, section
+7b, or else measured). System dynamics calls it an auxiliary (or converter). A ratio of two
 stocks, a difference between two builds measured on the same images, a share that is a function of
 the clock. Nothing flows into it, and it keeps nothing between moments.
 
@@ -501,6 +505,80 @@ then the auxiliary or the flow that follows it).
 
 A stock no flow fills or drains is reported (`stock-without-flows`): give it its flows, or, if it
 has no memory, make it an auxiliary.
+
+## 7b. Equations and parameters
+
+A flow's rate and an auxiliary's value may be written as an **equation**, the way Vensim and Stella
+write them, in the model's own names; the numbers it names are **parameters**. A stock needs none:
+it is the integral of its flows, exactly. Without an equation a flow or an auxiliary is what its
+sensor reads, or what the block that sets it says.
+
+```yaml
+parameters:
+  workdays-per-hour:
+    value: 60
+    unit: workdays/h
+  alerts-base:
+    value: 2.2
+    unit: alerts/workday
+    estimate: true                              # fitted from the record (section 12b)
+  window-time:
+    value: 38.4s                                # a duration, read in hours
+  effect-of-load:
+    table: [[0, 1], [10, 0.5], [20, 0.2]]       # a lookup: linear between its points
+  k: 0.45                                       # short for value: 0.45
+flows:
+  alerts-fired:
+    to: alerts-to-draft
+    driven-by: +stock.unreviewed-ramps-live
+    equation: workdays-per-hour * (alerts-base + alerts-per-ramp-live * stock.unreviewed-ramps-live)
+  quality-turnover:
+    to: quality
+    two-way: true
+    driven-by: [+auxiliary.batch-quality, -stock.quality]
+    equation: (auxiliary.batch-quality - stock.quality) / window-time   # first-order smoothing
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `equation` | expression | none | On a flow: its rate per hour; on an auxiliary: its value. Not with `rate:` on the same flow |
+| a parameter's `value` | number or duration | none (not known) | What it is believed to be; a duration (`40s`, `2h`) is read in hours, the model's time |
+| `unit` | string | none | Its unit, products and quotients of words (`alerts/ramp/workday`, `1/h`); `share` and `1` are pure numbers |
+| `estimate` | bool | false | Fitted from the record (section 12b): the estimate is kept apart and proposed, never written here until it is accepted |
+| `table` | points | none | A lookup, called like a function: `effect-of-load(stock.queue)` |
+| `system`, `description` | | | |
+
+**Expressions.** Numbers; parameters by their bare name; parts by reference (`stock.x`, `flow.x`,
+`auxiliary.x`: a flow is its rate per hour); `+ - * / ^` and brackets; `MIN`, `MAX`, `ABS`, `EXP`,
+`LN`, `SQRT`; and system dynamics' delays: `DELAY1(x, T)` and `DELAY3(x, T)`, material delays of
+the first and third order (what goes in comes out after `T` on average, and nothing is lost), and
+`SMOOTH(x, T)` and `SMOOTH3(x, T)`, information delays (exponential smoothing toward `x` over `T`).
+Each delay keeps hidden stocks of its own, starting in equilibrium with its input. Names have
+hyphens in them, so subtraction is written with spaces: `a - b`. Division by 0 gives 0 (Vensim's
+ZIDZ).
+
+**Every number says where it comes from**, its **provenance**: *declared* (its value is written
+here), *estimated* (fitted from the record, with how well, from how many points, and when: kept in
+the state directory, section 12b), or *unknown* (no value yet). The page and `ergostat explain`
+show each beside the equation; the replay uses only what is declared, so nothing estimated changes
+the model until the owner accepts it.
+
+**Checks.** Errors: an equation that does not read; a bare name that is not a parameter (with the
+hint to write `a - b` when `a-b` was meant); a reference to a part that does not exist, or to the
+part itself (what it was a moment ago is a stock); a flow with both `rate:` and `equation:`; an
+`exogenous` auxiliary whose equation names parts of the model; equations that need each other at
+once with no stock or delay between (an algebraic loop); a lookup used as a number. Findings:
+
+- **equation-units**: where units are written, an equation must add like things and come out in
+  its part's unit (a flow's per hour); a number written in it takes the unit it needs, and anything
+  whose unit is not written is not checked;
+- **size-unknown**: a `driven-by` the equation does not use: the link is drawn, with its sign, and
+  its size is not known (the equation says it has none);
+- **equation-not-drawn**: a part the equation uses that `driven-by` does not name, so the diagram
+  draws no connector for it and no loop runs through it;
+- **parameter-unknown**: a parameter with no value that is not to be estimated; equations using it
+  are left out of the replay (their parts are taken as measured);
+- **parameter-unused**: a parameter no equation uses.
 
 ## 8. Goals
 
@@ -890,10 +968,60 @@ pipe out ends in a cloud with the part beyond named under it. An
 open system is a sector, a light tint with its name at the top left; a closed one is a module, its
 connection points named on its edge. The view's panels use system dynamics' words only. A flow's
 valve (the bowtie) opens as the **valve**: the rate of the flow, its inputs (the connectors into it,
-each with its sign) and its equation, which ergostat does not yet write: a constant declared
-(`rate:`), the decision that sets it, or "not known yet: a declared cause with a sign, its size not
-estimated" (and which causes act at once). Its pipe opens as the **flow**: what moves (its unit and
+each with its sign) and its equation: written (section 7b), drawn in MathML with each parameter's
+value and provenance and any proposal for it, with Accept; else a constant declared (`rate:`), the
+decision that sets it, or "not known yet: a declared cause with a sign, its size not estimated"
+(and which causes act at once). An auxiliary's panel shows its equation the same way. The causes
+strip draws the model's replay dashed over the measured line, and its projection past now dashed
+and lighter (section 12b). Its pipe opens as the **flow**: what moves (its unit and
 description), from which stock, to which.
+
+## 12b. Replay, projection, fit and proposals
+
+**Replay** (`ergostat/numbers/simulate.py`): the model run over the window, as system dynamics
+calibrates a model (Oliva 2003; Homer 2012, partial-model testing). Each stock starts where it was
+first measured and is integrated from its flows; each flow and auxiliary with an equation is worked
+out from it; every other input (a flow a block moves, a rate a sensor reads, an auxiliary from
+outside) is driven by what was measured. So the replay tests exactly the equations the model
+writes. Euler integration, a step a fraction of the window's bucket and of the shortest time the
+model names (a quarter of it), deterministic. **Projection**: from the state now (each stock as last
+read, each delay as the replay left it) for a quarter of the window, the inputs held where they were
+(or carried on along their recent trend).
+
+**Fit** (`ergostat fit`, the Fit page): each stock's replay against its readings, and in total, by
+Sterman's measures (*Business Dynamics* ch. 21; "Appropriate summary statistics for evaluating the
+historical fit of system dynamics models", 1984): **R²** (the squared correlation: how much of the
+measured variation the replay moves with), **MAPE** (the mean absolute error as a share of what was
+measured, over the points not 0), and **Theil's inequality statistics**, which split the mean
+squared error into **U_M**, bias (the replay runs high or low), **U_S**, unequal variation (it
+swings more or less than the record) and **U_C**, unequal covariation (it moves at other moments:
+noise a model need not follow); they sum to 1, and a good fit's error is mostly U_C. The total
+averages R² and MAPE over the stocks, and takes Theil's shares from each stock's squared error over
+its own size, so no unit outweighs another. An equation whose part is measured is also compared
+with its readings. Each **version** of the model (a hash of its structure and the numbers written
+in it) has its fit recorded as it is computed (`<state>/fit/history.jsonl`, at most every five
+minutes a version).
+
+**Estimates** (`ergostat/numbers/estimate.py`): every `estimate: true` parameter is given the value
+that makes what it touches fit best: each equation using it against its own readings, every input
+as measured (the partial-model test), and every stock its flows move, replayed. Parameters that
+share an equation or a stock are fitted together (Nelder–Mead, on their logarithm when they start
+positive). An estimate is data: kept in `<state>/estimates/<structure>.json`, keyed by the model's
+**structure** (a hash of what moves what: stocks, flows, links, equations, parameters' names and
+units, not their values), so a value accepted keeps its estimates, and a changed structure starts
+afresh.
+
+**Proposals** (`ergostat proposals`, `ergostat accept ID`, `ergostat proposals --dismiss ID`, and an
+Accept beside the part on the page): each a concrete change with its reason, the fit before and
+after, and the smallest edit to the YAML that makes it, made on the file's text so its comments and
+order stay. Two kinds so far: a parameter set to its estimate (when it moves the value by more than
+2% and fits better), and an equation for a flow that has declared causes and none: a coefficient
+for each cause, by least squares on what was measured, proposed when it explains half or more of
+the flow's readings and agrees with every declared sign (an outflow has no constant term, so with
+its stock empty it stops). Nothing is applied by itself. Accepting applies the edit, refuses it (and
+puts the file back) if `check` would then find an error, and records `model.accepted` with the
+change, the versions before and after, and the fit of each; a dismissed proposal is not made again
+for that structure.
 
 ## 13. Examples
 

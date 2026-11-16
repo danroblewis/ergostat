@@ -109,6 +109,43 @@ class Sensor:
 
 
 @dataclass
+class Parameter:
+    """A number an equation names (SPEC §7b): declared with its value and unit, to be fitted from
+    the record (``estimate: true``), or not known yet (no value). A ``table`` makes it a lookup:
+    points, linear between them."""
+
+    name: str
+    value: float | None = None
+    unit: str = ""
+    estimate: bool = False
+    table: list[tuple[float, float]] | None = None
+    description: str = ""
+    system: str | None = None
+    where: Where | None = None
+    defined: Where | None = None       # the line its name is on
+    value_at: Where | None = None      # the line its value is on (what an accepted estimate rewrites)
+    duration: bool = False             # its value was written as a duration (40s): an estimate is written back as one
+
+    @property
+    def provenance(self) -> str:
+        """declared (its value is written), or unknown (none is, yet); an estimate is kept apart, in
+        the state directory, until it is accepted."""
+        return "declared" if self.value is not None or self.table else "unknown"
+
+
+@dataclass
+class Equation:
+    """What a flow's rate (per hour) or an auxiliary's value is, as written (``equation:``): its text,
+    its tree (spec/equation.py), what it names."""
+
+    text: str
+    tree: tuple
+    refs: list[str] = field(default_factory=list)          # the parts it names: stock.x, flow.y, auxiliary.z
+    parameters: list[str] = field(default_factory=list)    # the parameters it names
+    where: Where | None = None
+
+
+@dataclass
 class Stock:
     name: str
     unit: str = ""
@@ -135,7 +172,9 @@ class Flow:
     polarity: dict[str, int] = field(default_factory=dict)   # str(ref) → +1 or -1, for the driven-by written with a sign
     instant: set[str] = field(default_factory=set)       # str(ref) of the driven-by declared immediate (instant: true)
     two_way: bool = False      # it may run either way (system dynamics' biflow): a block may move it by a negative amount
+    equation: Equation | None = None   # its rate per hour, as an equation of parameters and parts (SPEC §7b)
     where: Where | None = None
+    defined: Where | None = None       # the line its name is on
 
 
 @dataclass
@@ -155,7 +194,9 @@ class Auxiliary:
     polarity: dict[str, int] = field(default_factory=dict)
     instant: set[str] = field(default_factory=set)
     exogenous: bool = False    # an input from outside the model: nothing in it drives it (the weather, the mix of customers)
+    equation: Equation | None = None   # its value, as an equation (SPEC §7b); without one it is measured
     where: Where | None = None
+    defined: Where | None = None       # the line its name is on
 
 
 @dataclass
@@ -310,6 +351,7 @@ class Spec:
     within: dict[str, str] = field(default_factory=dict)         # a system → the system it is part of
     show: dict[str, list[Ref]] = field(default_factory=dict)     # a system → the measures its box shows (default: its goals')
     named_loops: dict[str, NamedLoop] = field(default_factory=dict)   # loops: the feedback loops the model names (SPEC §12a)
+    parameters: dict[str, Parameter] = field(default_factory=dict)    # the numbers equations name (SPEC §7b)
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 

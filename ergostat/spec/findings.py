@@ -66,6 +66,8 @@ def find(spec: Spec) -> list[Problem]:
                 st.where, f"stock.{st.name}")
     unsigned(spec, say)
     structure(spec, say)
+    from .equation_checks import findings as numbers
+    numbers(spec, say)
     return out
 
 
@@ -167,7 +169,7 @@ def structure(spec: Spec, say) -> None:
                 f"(spent so far, kept so far), say so: cumulative: true",
                 st.where, f"stock.{st.name}")
     for a in spec.auxiliaries.values():
-        if not a.driven_by and not a.exogenous and spec.setter_of(a.name) is None:
+        if not a.driven_by and not a.exogenous and spec.setter_of(a.name) is None and a.equation is None:
             say("auxiliary-without-causes",
                 f"auxiliary {a.name}: nothing drives it and it is not marked as an input from outside, so the model "
                 f"cannot say why it changes. Name what it is worked out from (driven-by: [+stock.x, ...]), or, if "

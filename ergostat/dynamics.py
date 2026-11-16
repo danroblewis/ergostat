@@ -61,11 +61,13 @@ def switching(spec, goal: str) -> str:
 
 def equation(spec, flow: str) -> str:
     """What a flow's rate is, as far as the model says: a number declared, the decision that sets it,
-    or the causes it is declared to follow (a sign each, no size yet); ergostat writes no equation of
-    its own, so most say what is not known yet, and why."""
+    or the causes it is declared to follow (a sign each, no size yet), unless the model writes its
+    equation (SPEC §7b); ergostat writes none of its own, so the rest say what is not known yet, and why."""
     f = spec.flows.get(flow) if spec is not None else None
     if f is None:
         return ""
+    if f.equation is not None:
+        return f"{f.equation.text} (per hour, written)"
     if f.rate is not None:
         return f"{fmt(f.rate)} per hour, declared: a constant"
     out = []

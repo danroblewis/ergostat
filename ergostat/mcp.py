@@ -53,6 +53,12 @@ TOOLS = [
      "explain: changed, explained, unexplained, and whether the unexplained part is significant (evidence of a flow or "
      "stock the model is missing, or of a sensor reading wrongly). since: the window, like 6h (default 1h).",
      "inputSchema": _obj({"since": {"type": "string"}})},
+    {"name": "fit", "description": "How well the model's replay follows the record (each stock integrated from its flows, "
+     "every written equation worked out, everything else as measured): per stock and in total, R², MAPE and Theil's U_M "
+     "(bias), U_S (unequal variation), U_C (unequal covariation); each equation against its own readings; and the "
+     "proposals waiting for the owner (parameters estimated, equations fitted). Read only: the owner accepts. since: the "
+     "window, like 6h (default 1h).",
+     "inputSchema": _obj({"since": {"type": "string"}})},
     {"name": "report_done", "description": "Report the work a person block was asked for (type: person): how much was moved "
      "along its flow. The same as `ergostat block NAME --done N`.",
      "inputSchema": _obj({"block": {"type": "string"}, "moved": {"type": "number"}, "note": {"type": "string"}},
@@ -133,6 +139,21 @@ class Server:
             from .durations import parse_duration
             window = parse_duration(a["since"], "since") if a.get("since") else state.WINDOW
             return _text(state.snapshot(p, window, None)["residuals"])
+        if name == "fit":
+            import time as _t
+
+            from . import state
+            from .durations import parse_duration
+            from .numbers import fit as ft
+            from .numbers import proposals as pr
+            if getattr(p.model, "spec", None) is None:
+                return _text({"error": "the model is an ergostat.toml: equations are written in ergostat.yaml"})
+            window = parse_duration(a["since"], "since") if a.get("since") else state.WINDOW
+            oldest = min((t for t in (p.events.first_time(), p.measurements.first_time()) if t), default=None)
+            _, run, got = ft.compute(p, {"at": _t.time(), "window": window, "starts": oldest})
+            return _text({"total": ft._slim(got["total"]), "stocks": {r: ft._slim(x) for r, x in got["stocks"].items()},
+                          "equations": {r: ft._slim(x) for r, x in got["equations"].items()}, "notes": run.notes,
+                          "words": ft.WORDS, "proposals": pr.pending(p)})
         if name == "events":
             evs = p.events.query(n=min(int(a.get("n") or 30), 500), type=a.get("type") or None, item=a.get("item") or None)
             return _text([{"time": e["time"], "type": e["type"], "item": e.get("item"), "source": e.get("source"),

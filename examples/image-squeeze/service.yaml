@@ -85,6 +85,15 @@ stocks:
       run: bin/py world/read.py time
       every: 8s
 
+# The windows' length, from the code (world/customers.py): the last 48 images, ten served a batch, a
+# batch every 8 seconds, so an image stays in the window for 4.8 batches, 38.4 s. Quality and time are
+# percentiles over the window, not means, so first-order smoothing is only near: estimated from the record.
+parameters:
+  window-time:
+    value: 38.4s
+    estimate: true
+    description: how long an image stays in the window of the last 48 served
+
 flows:
   quality-steps:
     to: quality-setting
@@ -96,6 +105,7 @@ flows:
     two-way: true
     description: images entering the window and leaving it, as they move its 10th percentile
     driven-by: [+auxiliary.batch-quality, -stock.quality]
+    equation: (auxiliary.batch-quality - stock.quality) / window-time
     sensor:
       changes: net
       over: 2m
@@ -104,6 +114,7 @@ flows:
     to: bytes-per-mp
     two-way: true
     driven-by: [+auxiliary.batch-bytes, -stock.bytes-per-mp]
+    equation: (auxiliary.batch-bytes - stock.bytes-per-mp) / window-time
     sensor:
       changes: net
       over: 2m
@@ -112,6 +123,7 @@ flows:
     to: failures
     two-way: true
     driven-by: [+auxiliary.batch-failures, -stock.failures]
+    equation: (auxiliary.batch-failures - stock.failures) / window-time
     sensor:
       changes: net
       over: 2m
@@ -120,6 +132,7 @@ flows:
     to: time
     two-way: true
     driven-by: [+auxiliary.batch-time, -stock.time]
+    equation: (auxiliary.batch-time - stock.time) / window-time
     sensor:
       changes: net
       over: 2m

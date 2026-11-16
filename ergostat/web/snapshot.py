@@ -29,7 +29,7 @@ def _q(name: str) -> str:
 
 def _requests(project) -> list[tuple[str, dict]]:
     m = project.model
-    reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("items", {}), ("residuals", {}),
+    reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("items", {}), ("residuals", {}), ("fit", {}),
                                     ("parts", {}), ("guide", {}), ("graph", {}), ("events", {"n": 80}), ("events", {"n": 80, "runs": 1})]
     for view in ("dynamics", "control", "blocks", "wiring"):
         for system in [None, *m.system_names()]:
@@ -40,7 +40,7 @@ def _requests(project) -> list[tuple[str, dict]]:
     reqs += [(f"agents/{_q(n)}", {}) for n in m.agents]
     # the charts' series: each part's strip, each loop's scope, each item kind's flow (charts.js asks the same)
     pts = {"points": series.POINTS}
-    reqs += [("series", {"refs": f"{series.kind_of(m, n)}.{n}", "strip": 1, **pts}) for n in [*m.stocks, *m.flows]]
+    reqs += [("series", {"refs": f"{series.kind_of(m, n)}.{n}", "strip": 1, "replay": 1, **pts}) for n in [*m.stocks, *m.flows]]
     reqs += [("loop-scope", {"goal": n, **pts}) for n in m.controllers]
     reqs += [("items-flow", {"kind": k, **pts}) for k in (getattr(getattr(m, "spec", None), "items", None) or {})]
     for kind, table in m.tables().items():

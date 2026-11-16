@@ -22,7 +22,8 @@ The format is `docs/SPEC.md`; the five structure checks below are what `ergostat
 | A link between two things counted in different units | a converting **auxiliary** (so many of one per one of the other) | `units-mismatch` |
 | A cause far from its effect in time (a change that breaks things days later) | a **delay**: one stock or more holding what is on its way | `rate-driven-by-rate` when it is drawn rate to rate |
 | An auxiliary that changes for no reason the model gives | its **causes**, or the word that it comes from outside (`exogenous: true`) | `auxiliary-without-causes` |
-| A stock whose readings move more than its flows explain | a **flow** the model does not have (or a sensor reading wrongly) | the Residuals page |
+| A stock whose readings move more than its flows explain | a **flow** the model does not have (or a sensor reading wrongly) | the Fit page's residuals |
+| A replay that runs high or low (U_M), or swings too much or too little (U_S) | a wrong constant or gain; a missing flow or delay | the Fit page (`ergostat fit`) |
 
 ## 1. A rate driven by a rate: a missing stock
 
@@ -263,11 +264,28 @@ cannot know it: `instant: true` on a link that really is immediate, `cumulative:
 running total, `exogenous: true` on an input from outside. Write the reason beside it as a
 comment, so the next reader can disagree.
 
-## Reading the Residuals page: evidence of what is missing
+## Reading the Fit page: the replay against the record
+
+The Fit page (and `ergostat fit`) replays the model over the window and compares each stock with
+its readings. **R²** is how much of the measured variation the replay moves with; **MAPE** how far
+off it is, as a share of what was measured. **Theil's statistics** say what kind of error it is
+(Sterman ch. 21):
+
+- **U_M large (bias)**: the replay runs high or low throughout. A constant is wrong (a base rate,
+  a share), or an inflow or outflow is missing (and the residual says which).
+- **U_S large (unequal variation)**: the replay swings more, or less, than the record. A gain is
+  wrong (a coefficient too large or small), or a delay is missing that would smooth it.
+- **U_C large (unequal covariation)**: the error is point-by-point, at other moments: noise, or a
+  timing difference. This is where a good fit's error should be; a model need not follow the noise.
+
+An equation whose own flow is measured is compared with its readings too; that is the sharpest test
+of one equation (Homer's partial-model test), since every input is as measured.
+
+## Reading the residuals: evidence of what is missing
 
 A stock's **residual** is the change its readings show minus the change its known flows explain.
 The model's flows say how much should have come in and gone out; the sensor says what happened;
-the difference is what the model does not explain (`ergostat residual`, and the Residuals page).
+the difference is what the model does not explain (`ergostat residual`, and the Fit page's residuals).
 
 - **A persistent positive residual** (the stock rises more than its inflows explain): an inflow is
   missing, or an outflow is overestimated. Ask what else brings things in.
@@ -295,12 +313,25 @@ cannot be measured), it finds correlation and not cause, it is biased inside a c
 controller makes the input follow the output), and different structures can fit the same data
 equally well. The model's structure is still a claim people make and data tests.
 
-**ergostat does not do it yet.** A `driven-by` is a declared cause with a sign; its size is never
-estimated, so a valve's equation reads "not known yet: a declared cause with a sign, its size not
-estimated". What ergostat does from data is narrower: it estimates an unmeasured flow from its
-stock's residual, and `ergostat discover loops` looks for a flow that follows its stock after a
-delay (a balancing loop nobody wrote down). The residual is the one quantitative test of structure
-it makes; the structure checks above are tests made on the structure alone.
+**What ergostat does.** Equations and parameters are written in the model (`docs/SPEC.md` §7b):
+`equation: base + k * stock.unreviewed-ramps-live`, each parameter with its value and unit, and
+`estimate: true` on the ones to fit. ergostat replays the model over the record (each stock
+integrated from its flows, each equation worked out, everything else as measured), and says how
+well the replay fits (`ergostat fit`, the Fit page). It estimates the parameters marked to fit, and
+fits a coefficient to each declared cause of a measured flow that has no equation, by least squares
+on what was measured. Each is a **proposal**, with its reason, the fit before and after, and the
+YAML edit: nothing changes until the owner accepts it (`ergostat accept ID`, or Accept beside the
+part on the page). What ergostat still does not do is propose **structure** (a stock, a delay, a
+cause the model lacks): a residual and a poor fit say where to look, and the guidelines above say
+what to write. A `driven-by` the equation leaves out is drawn with its sign and flagged
+**size-unknown**: its size is not known.
+
+Write an equation in the model's own terms first (Sterman ch. 13: every parameter should mean
+something in the real world, and be measurable in principle): a first-order outflow is the stock
+over the time things stay (`stock.x / time-in-x`), a coflow so many of one unit per another
+(`alerts-per-outage * flow.outages`), a perceived value a `SMOOTH` of the true one, a pipeline a
+`DELAY3`. Mark `estimate: true` what you cannot know from the code or the process, and give it what
+you believe as its value: the estimate starts there.
 
 **Sources.** Ljung, *System Identification: Theory for the User* (2nd ed., 1999); Sterman ch. 21
 (parameter estimation, and behaviour reproduction as a test); Oliva, "Model calibration as a
@@ -317,7 +348,8 @@ nonlinear dynamical systems", *PNAS* (2016).
 4. For each link: is it signed, and do its units convert?
 5. For each decision: what does the decision maker actually see, and how late?
 6. For each long delay between cause and effect: is the stock of what is in transit in the model?
-7. On the Residuals page: which stocks are not explained, which way, and what moves with them?
+7. On the Fit page: which stocks the replay does not follow, and how (Theil's U_M, U_S, U_C); which
+   are not explained (the residuals), which way, and what moves with them?
 8. For each auxiliary: is it explained by the model, or declared as coming from outside?
 
 ## Sources
@@ -327,7 +359,10 @@ nonlinear dynamical systems", *PNAS* (2016).
   ch. 8 (first-order systems), ch. 11 (delays), ch. 12 (aging chains and coflows), ch. 13 (modelling
   decision making), ch. 15 (bounded rationality), ch. 21 (truth and beauty: validation and model
   testing: boundary adequacy, structure assessment, dimensional consistency, extreme conditions,
-  behaviour reproduction).
+  behaviour reproduction); and Sterman, "Appropriate summary statistics for evaluating the historical fit
+  of system dynamics models", *Dynamica* 10(2), 1984 (R², MAPE, Theil's inequality statistics).
+- Jack Homer, "Partial-model testing as a validation tool for system dynamics", *System Dynamics
+  Review* 28(3), 2012.
 - Jay W. Forrester, *Industrial Dynamics* (MIT Press, 1961) and *Principles of Systems*
   (Wright-Allen, 1968): levels and rates, and the information that rate equations may use.
 - The references under "Improving from data" above.

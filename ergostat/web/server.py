@@ -1,4 +1,5 @@
-"""The web page's HTTP server (standard library, read only, bound to 127.0.0.1). ``/`` is the page;
+"""The web page's HTTP server (standard library, bound to 127.0.0.1; read only but for the owner accepting or dismissing a
+proposal, ``POST``). ``/`` is the page;
 ``/api/*`` returns what the command line shows, as JSON. The model is re-read when
 ``ergostat.toml`` changes, so the page follows the Supervisor's edits."""
 
@@ -48,6 +49,22 @@ class Live:
         self.mtime = self._mtime()
         self._lock = threading.Lock()
         self._snaps: dict = {}
+        self._kept: dict = {}
+
+    def cached(self, key):
+        with self._lock:
+            return self._kept.get(key)
+
+    def keep(self, key, value) -> None:
+        with self._lock:
+            if len(self._kept) > 16:
+                self._kept.clear()
+            self._kept[key] = value
+
+    def reloaded(self) -> None:
+        """The model was changed here (a proposal accepted): take it as the one loaded."""
+        self.mtime = self._mtime()
+        history.note(self.p)
 
     def _mtime(self):
         return mdl.stamp(self.p.model)
@@ -227,7 +244,14 @@ def api(live: Live, path: str, q: dict):
         return its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"])
     if head == "series":                          # behaviour over time: each part's values, bucketed over the window
         refs = [r for r in (one("refs") or "").split(",") if r]
-        return series.series(p, snap, refs, int(one("points") or series.POINTS), bool(one("strip")))
+        out = series.series(p, snap, refs, int(one("points") or series.POINTS), bool(one("strip")))
+        if one("replay"):                         # and what the model says: its replay, and its projection past now
+            from .numbers_api import add_to_series
+            add_to_series(live, p, snap, out, one("inputs") or "hold")
+        return out
+    if head == "fit":                             # the Fit page: the replay against the record, its history, the proposals
+        from .numbers_api import fit_page
+        return fit_page(live, p, snap)
     if head == "loop-scope":
         return series.scope(p, snap, one("goal") or "", int(one("points") or series.POINTS))
     if head == "items-flow":
@@ -268,14 +292,19 @@ def api(live: Live, path: str, q: dict):
         out = {"kind": x.kind if not getattr(x, "disturbance", False) else "disturbance", "model": x.__dict__}
         if kind == "stock":
             out["now"] = snap["stocks"].get(pname)
+            if pname in getattr(getattr(m, "spec", None), "auxiliaries", {}):
+                from .numbers_api import part_numbers
+                out["numbers"] = part_numbers(live, p, snap, "auxiliary", pname)
         elif kind in ("flow", "disturbance"):
             out["now"] = snap["flows"].get(pname)
             if getattr(m, "spec", None) is not None:
                 from ..dynamics import equation
                 from ..spec.findings import unit_of
                 from ..spec.ir import Ref
+                from .numbers_api import part_numbers
                 out["equation"] = equation(m.spec, pname)
                 out["unit"] = unit_of(m.spec, Ref("flow", pname))       # what moves: its own unit, else its stocks'
+                out["numbers"] = part_numbers(live, p, snap, "flow", pname)
         elif kind == "sensor":
             rd = p.measurements.range(f"sensor/{pname}", snap["at"] - snap["window"], snap["at"])
             out["now"] = {"readings": rd[-60:], "count": len(rd)}
@@ -320,6 +349,23 @@ def handler(project):
                         return self._send(200, md_page(f.name, f.read_text(errors="replace")), "text/html; charset=utf-8")
                     return self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
             return self._send(404, b"not found", "text/plain")
+
+        def do_POST(self):
+            """The page's one kind of write: the owner accepting or dismissing a proposal, or asking for
+            estimates. Only from the page itself: a request another site's page could send is refused
+            (it cannot set this header without the server's leave, which it never gives)."""
+            u = urlsplit(self.path)
+            if self.headers.get("X-Ergostat") != "owner" or not u.path.startswith("/api/"):
+                return self._send(403, b'{"error": "only the page may ask"}', "application/json")
+            n = int(self.headers.get("Content-Length") or 0)
+            if n:
+                self.rfile.read(min(n, 65536))
+            from .numbers_api import post
+            try:
+                code, data = post(live, u.path.removeprefix("/api/"), _window(parse_qs(u.query)))
+            except Exception as e:                      # a broken request never takes the page down
+                code, data = 500, {"error": f"{type(e).__name__}: {e}"}
+            return self._send(code, json.dumps(data, default=str).encode(), "application/json")
 
         def do_GET(self):
             u = urlsplit(self.path)

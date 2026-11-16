@@ -61,9 +61,12 @@ def test_an_agent_finds_the_improve_model_skill_and_the_residuals_over_mcp_and_i
               {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
               {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
               {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "improve_model", "arguments": {}}},
-              {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "residuals", "arguments": {}}})
+              {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "residuals", "arguments": {}}},
+              {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "fit", "arguments": {}}})
     assert "improve_model" in got[0]["result"]["instructions"]
-    assert {"improve_model", "residuals"} <= {t["name"] for t in got[1]["result"]["tools"]}
+    assert {"improve_model", "residuals", "fit"} <= {t["name"] for t in got[1]["result"]["tools"]}
+    fit = json.loads(got[4]["result"]["content"][0]["text"])
+    assert set(fit["words"]) == {"r2", "mape", "um", "us", "uc"} and fit["proposals"] == []
     text = got[2]["result"]["content"][0]["text"]
     assert text.startswith("---\nname: improve-model\ndescription: ")        # a skill's frontmatter, as Claude Code reads it
     assert "never applies an edit without the owner's approval" in text and "# Improving a model" in text

@@ -61,6 +61,16 @@
         "$ref": "#/$defs/item_kind"
       }
     },
+    "parameters": {
+      "type": "object",
+      "description": "The numbers equations name (SPEC §7b)",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/parameter"
+      }
+    },
     "auxiliaries": {
       "type": "object",
       "propertyNames": {
@@ -391,6 +401,9 @@
         "two-way": {
           "type": "boolean",
           "description": "It may run either way (a biflow): a block may move it by a negative amount"
+        },
+        "equation": {
+          "$ref": "#/$defs/equation"
         }
       },
       "anyOf": [
@@ -1041,6 +1054,9 @@
         "exogenous": {
           "type": "boolean",
           "description": "An input from outside the model: nothing in it drives it"
+        },
+        "equation": {
+          "$ref": "#/$defs/equation"
         }
       },
       "description": "A quantity without memory: determined at each moment by others (SPEC section 7a)"
@@ -1081,6 +1097,69 @@
             "instant": {
               "type": "boolean",
               "description": "The effect follows the cause in the same moment, with no stock between (silences rate-driven-by-rate)"
+            },
+            "description": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "equation": {
+      "type": [
+        "string",
+        "number"
+      ],
+      "description": "Its rate per hour (a flow) or its value (an auxiliary), as an equation of parameters (bare names) and parts (stock.x, flow.x, auxiliary.x): + - * / ^, MIN, MAX, ABS, EXP, LN, SQRT, DELAY1, DELAY3, SMOOTH, SMOOTH3, and a lookup parameter called like a function. Subtraction is written with spaces (a - b): names have hyphens (SPEC §7b)"
+    },
+    "parameter": {
+      "description": "A number an equation names: its value (a number, or a duration read in hours), its unit, and whether to estimate it from the record; or a lookup's table. A bare number is short for value:",
+      "oneOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "A number, or a duration (40s, 2h) read in hours"
+            },
+            "unit": {
+              "type": "string"
+            },
+            "estimate": {
+              "type": "boolean",
+              "description": "Fit it from the record: estimates are kept apart, and become the value only when a proposal is accepted"
+            },
+            "table": {
+              "description": "A lookup's points: a map x: y or a list of [x, y]",
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                }
+              ]
+            },
+            "system": {
+              "$ref": "#/$defs/name"
             },
             "description": {
               "type": "string"

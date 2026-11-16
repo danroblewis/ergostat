@@ -144,6 +144,18 @@ three actions, filed as it ends (`actions-filed`, driven by `postmortems` at onc
 and by `actions-per-postmortem`, the ratio). In documents, each approval opens the change's next
 document at once (`paper-trail`, the one reinforcing loop), until the board approves it.
 
+## The numbers
+
+Where the world's code makes a rate known, the model writes it as an equation (docs/SPEC.md §7b):
+alerts fire at a base rate and more for each ramp live unreviewed
+(`workdays-per-hour * (alerts-base + alerts-per-ramp-live * stock.unreviewed-ramps-live)`), and
+outages the same way; unreviewed ramps break or prove fine at a first-order rate. The values come
+from `world/traffic.py`; those marked `estimate: true` are fitted from the record. The Fit page
+shows how well the replay follows each stock, and **Estimate now** proposes values the record
+supports, each with its fit before and after: nothing changes until you accept one. The watchers
+count arrivals over the last ten minutes, so in a run's first minutes every measured rate is low,
+and early estimates follow that: let it run before you accept one.
+
 ## The code host for real (optional, read only)
 
 With `JOB_GH=1`, my own open PRs and the reviews requested of me come from GitHub, read with my

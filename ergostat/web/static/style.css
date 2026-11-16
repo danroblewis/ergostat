@@ -608,3 +608,23 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
 /* a Markdown file opened by itself (/file/…): one readable column, as on an item's page */
 body.file-page { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: var(--text); line-height: var(--leading); }
 body.file-page main.md { max-width: 46em; margin: 0 auto; padding: var(--sp-6) var(--sp-4); }
+
+/* the model's numbers: an equation in MathML, its parameters, a proposal (equations.js); the Fit page */
+math.eq { font-size: var(--text); margin: var(--sp-2) 0; }
+math .eq-ref { font-style: normal; }
+math .eq-fn { font-style: normal; font-family: var(--font); font-size: var(--text); }
+.eq-box { overflow-x: auto; padding: var(--sp-1) 0; }
+table.params td, table.params th { vertical-align: top; }
+.proposal { border-top: var(--hair) solid var(--line); margin-top: var(--sp-4); padding-top: var(--sp-3); max-width: 72ch; }
+.proposal-title { margin-bottom: var(--sp-1); }
+.proposal p { margin: var(--sp-1) 0; }
+pre.diff { font-family: var(--mono); font-size: var(--text-sm); background: var(--bg); border: var(--hair) solid var(--line); border-radius: var(--radius);
+  padding: var(--sp-2); margin: var(--sp-2) 0; overflow-x: auto; white-space: pre; }
+pre.diff .add { color: var(--ink); background: var(--fill); }
+pre.diff .del { color: var(--muted); text-decoration: line-through; }
+table.fit tr.total td { border-top: var(--hair) solid var(--line-strong); }
+.page .actions { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; margin: var(--sp-2) 0; }
+.proposal dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); margin: var(--sp-2) 0; }
+.proposal dt { color: var(--muted); }
+.proposal dd { margin: 0; }
+.proposal dt::first-letter { text-transform: none; }

@@ -65,6 +65,6 @@ Both disciplines read behaviour beside the structure, never on a separate dashbo
 
 ## Later
 
-Projection and comparative runs on the causes strip (needs fit and simulation); step response
+Comparative runs on the causes strip (the replay and the projection are built: SPEC §12b); step response
 and Bode plots in the block panel (needs identified process models); phase plots; SPC charts
 on measured auxiliaries.

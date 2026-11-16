@@ -30,6 +30,19 @@ measured by a sensor or estimated from its effects. Agents can be disturbances t
 structured residual is how unmodelled disturbances (and missing dynamics) are found; once found,
 a disturbance is added to the model.
 
+## Numbers
+
+- **Equation**: what a flow's rate or an auxiliary's value is, written in the model's own names.
+  A stock needs none: it is the integral of its flows.
+- **Parameter**: a number an equation names. Every number says where it comes from (its
+  **provenance**): declared, estimated from the record, or not known yet.
+- **Replay**: the model run over the record, each stock integrated from its flows and every input
+  without an equation taken as measured. **Projection**: the same, forward from now. **Fit**: how
+  well the replay follows the readings (R², MAPE, Theil's U_M, U_S, U_C).
+- **Proposal**: a change to the model the record supports, with its reason, the fit before and
+  after, and its edit. The owner accepts or dismisses it; nothing estimated changes the model by
+  itself (2026-11-16).
+
 ## Agents
 
 - An **agent** fills one or more roles. It is the ordinary meaning of the word: whatever acts on

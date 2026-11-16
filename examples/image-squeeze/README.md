@@ -200,6 +200,15 @@ fall to a fraction. That is the quality loop doing its job, unlocked by the lab.
 When the notebook runs out, the stand-in researcher has nothing more to propose and `ideas-ready`
 stays off; with `FACTORY_AI=claude` the researcher reads the results and keeps going.
 
+## The numbers
+
+Each window of the last 48 images is a first-order smoothing of what the batch just served, written
+as an equation: `(auxiliary.batch-quality - stock.quality) / window-time`, with `window-time` the
+38.4 s an image stays in the window (`world/customers.py`); the images compared while a candidate
+runs, `images-per-hour * MIN(stock.experiments, 1)`. Both are marked to estimate, since a percentile
+is only nearly a mean: the Fit page shows how well the replay follows each window, and proposes what
+the record supports.
+
 ## What to try
 
 - `FACTORY_AI=claude ergostat run`: the researcher reads every result so far (`bin/py bin/lab.py

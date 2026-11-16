@@ -64,7 +64,7 @@ function padRange(lo, hi) {
 }
 
 /* drawn under the data: the stretches a loop was off (the one red), a tolerance band, a zero line */
-function underlay({ off = [], band = null, zero = false }) {
+function underlay({ off = [], band = null, zero = false, now = null }) {
   return (u) => {
     const ctx = u.ctx, { left, top, width, height } = u.bbox;
     ctx.save();
@@ -78,6 +78,11 @@ function underlay({ off = [], band = null, zero = false }) {
       const y0 = u.valToPos(band[1], "y", true), y1 = u.valToPos(band[0], "y", true);
       ctx.fillStyle = tok("--fill");
       ctx.fillRect(left, y0, width, Math.max(devicePixelRatio, y1 - y0));
+    }
+    if (now != null) {                                   // now: where the record ends and the projection begins
+      const x = Math.round(u.valToPos(now, "x", true)) + 0.5;
+      ctx.strokeStyle = tok("--line-strong"); ctx.lineWidth = devicePixelRatio;
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + height); ctx.stroke();
     }
     if (zero) {
       const y = Math.round(u.valToPos(0, "y", true)) + 0.5;
@@ -105,10 +110,13 @@ function lineLabel(value, text) {
 function before(vs, i) { for (let j = i; j >= 0; j--) if (vs[j] != null) return vs[j]; return null; }
 const inkLine = (extra = {}) => ({ stroke: tok("--ink"), width: 1.5, spanGaps: true, points: { show: false }, ...extra });
 const dashLine = (extra = {}) => ({ stroke: tok("--muted"), width: 1, dash: [4, 3], points: { show: false }, ...extra });
+/* the model's own lines: its replay dashed in ink over the measured one; its projection past now dashed, lighter */
+const replayLine = () => ({ stroke: tok("--ink"), width: 1.25, dash: [5, 3], spanGaps: true, points: { show: false } });
+const projectionLine = () => ({ stroke: tok("--muted"), width: 1.25, dash: [2, 3], spanGaps: true, points: { show: false } });
 
 /* one chart: a line, its name and its value at the cursor (or its last) above it */
 function lineChart({ group, name, role, unit, per, times, values, since, until, goal = null, off = [], height = 64, xAxis = false,
-                     zero = false, href = null, stepped = false, level = null }) {
+                     zero = false, href = null, stepped = false, level = null, replay = null, projection = null, ptimes = null }) {
   const last = [...values].reverse().find((v) => v != null);
   const unitText = per ? `${unit || ""}/h` : unit || "";
   const val = h("span", { class: "chart-val" });
@@ -120,18 +128,33 @@ function lineChart({ group, name, role, unit, per, times, values, since, until, 
   const plotEl = h("div", { class: "chart-plot" });
   const el = h("div", { class: "chart" }, head, plotEl);
   const desired = goal ? goal.value : null;
-  const data = [times, values, ...(desired != null ? [times.map(() => desired)] : [])];
+  // past now, the strip runs on to the projection's end; the measured line stops at now
+  const ahead = ptimes?.length ? ptimes : [], pad = (xs) => [...xs, ...ahead.map(() => null)];
+  const xs = [...times, ...ahead], end = ahead.length ? ahead[ahead.length - 1] : until;
+  const data = [xs, pad(values)];
+  const series = [{}, inkLine(stepped ? { paths: uPlot.paths.stepped({ align: 1 }) } : {})];
+  if (desired != null) { data.push(xs.map(() => desired)); series.push(dashLine()); }
+  const hasReplay = replay && replay.some((v) => v != null);
+  if (hasReplay) { data.push(pad(replay)); series.push(replayLine()); }
+  const hasProj = projection && projection.some((v) => v != null) && ahead.length;
+  if (hasProj) {                                         // from the last reading (what the projection starts from)
+    const from = last ?? [...(replay || [])].reverse().find((v) => v != null) ?? null;
+    data.push([...times.map((_, i) => (i === times.length - 1 ? from : null)), ...projection]);
+    series.push(projectionLine());
+  }
+  const valueAt = (i) => (i < times.length ? before(values, i) : hasProj ? data[data.length - 1][i] : null);
   mountPlot(plotEl, (width) => {
-    const o = baseOpts({ width, height, group, since, until, xAxis,
+    const o = baseOpts({ width, height, group, since, until: end, xAxis,
       yRange: (u, lo, hi) => padRange(Math.min(lo ?? desired ?? 0, desired ?? Infinity, goal?.band?.[0] ?? Infinity, zero ? 0 : Infinity),
                                       Math.max(hi ?? desired ?? 1, desired ?? -Infinity, goal?.band?.[1] ?? -Infinity, zero ? 0 : -Infinity)),
-      hooks: { drawClear: [underlay({ off, band: goal?.band, zero })],
+      hooks: { drawClear: [underlay({ off, band: goal?.band, zero, now: ahead.length ? until : null })],
                draw: desired != null ? [lineLabel(desired, level || `desired ${op(goal.setpoint)}`)] : [],
-               setCursor: [(u) => show(u.cursor.idx == null ? last : before(u.data[1], u.cursor.idx))] } });
-    o.series = [{}, inkLine(stepped ? { paths: uPlot.paths.stepped({ align: 1 }) } : {}),
-                ...(desired != null ? [dashLine()] : [])];
+               setCursor: [(u) => { const i = u.cursor.idx; if (i == null) return show(last); const v = valueAt(i);
+                                    val.textContent = v == null ? "\u2013" : `${fmt(v)}${unitText ? " " + unitText : ""}${i >= times.length ? ", projected" : ""}`; }] } });
+    o.series = series;
     return new uPlot(o, data, plotEl);
   });
+  if (hasReplay || hasProj) el.classList.add("modelled");
   return el;
 }
 
@@ -149,19 +172,22 @@ function partRef(n) {
 }
 function causesStrip(ref, group = chartGroup("strip")) {
   const box = h("div", { class: "strip" }, h("div", { class: "muted small" }, "…"));
-  api("series", { refs: ref, strip: 1, points: CHART_POINTS }).then((d) => {
+  api("series", { refs: ref, strip: 1, replay: 1, points: CHART_POINTS }).then((d) => {
     const list = d.series || [];
-    if (!list.length || list.every((s) => s.values.every((v) => v == null))) {
+    if (!list.length || list.every((s) => s.values.every((v) => v == null) && !(s.replay || []).some((v) => v != null))) {
       box.replaceChildren(h("p", { class: "muted small" }, `Nothing measured in ${windowSaid(d)}.`));
       return;
     }
+    const modelled = list.some((s) => s.replay);
     box.replaceChildren(...list.map((s, i) => lineChart({
       group, name: i === 0 ? (s.kind === "flow" ? "rate" : "value") : s.name,
       role: i === 0 ? (s.kind === "flow" ? s.how : null) : ROLE_WORDS[s.role] || s.role,
       unit: s.unit, per: s.per, times: d.times, values: s.values, since: d.since, until: d.until,
       goal: s.goal, height: i === 0 ? 84 : 52, xAxis: i === list.length - 1, zero: s.kind === "flow",
+      replay: s.replay, projection: s.projection, ptimes: d.projection_times,
       href: i === 0 ? null : () => openRef(s.ref) })),
-      h("div", { class: "chart-foot" }, h("span", { class: "muted" }, list.length > 1 ? "Rates per hour, on one time axis" : ""), group.when));
+      h("div", { class: "chart-foot" }, h("span", { class: "muted" }, [list.length > 1 ? "Rates per hour, on one time axis" : "",
+        modelled ? `dashed: the model's replay; past now, lighter: its projection ${dur(d.horizon)} ahead, ${d.inputs || "inputs held where they were"}` : ""].filter(Boolean).join(". ")), group.when));
   }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
   if (!SNAP) rememberChart(ref);
   return box;

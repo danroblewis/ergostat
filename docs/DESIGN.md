@@ -194,16 +194,23 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 ## 8. The web page
 
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
-owner's absence*), read only. Pages: Diagram (dynamics, blocks and wiring views; the side panel:
+owner's absence*), read only but for one kind of write: the owner's answer to a proposal (Accept or
+Dismiss) and asking for estimates (Estimate now), each a `POST` the page makes with its own header
+(`X-Ergostat: owner`), which another site's page cannot send; a snapshot offers none. Pages: Diagram (dynamics, blocks and wiring views; the side panel:
 attention, loops or cycles, model changes, legend), Loops, Agents (one list, by rung), Items (the
-record folded by id, by kind and state), Record (events, with runs hidden by default), Residuals,
+record folded by id, by kind and state), Record (events, with runs hidden by default), Fit (each
+stock's replay against its readings: R², MAPE and Theil's U_M, U_S, U_C, the total, the fit's
+history across versions with each accepted change, the proposals waiting, and the residuals),
 Check, and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
 the real dynamics and blocks renderers (`ergostat/guide.py`), with its behaviour over time beside
 it (why: what we control and what we want; system dynamics; control; then the project's own model,
 both ways). Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which
 takes the side panel's place. Behaviour over time sits beside the structure, never on a page of
 its own (`docs/proposals/charts.md`, drawn with uPlot, vendored): a part's panel in the dynamics
-view opens with its causes strip (it, then what drives it, on one time axis), parts chosen with
+view opens with its causes strip (it, then what drives it, on one time axis; where the model works a part
+out, its replay dashed over the measured line and its projection past now dashed and lighter), a
+valve's and an auxiliary's panel show its equation in MathML with each parameter's value and
+provenance and any proposal for it, with Accept, parts chosen with
 Shift chart in the side panel (and with none chosen, the parts charted last); a loop's panel, its
 comparator, controller or output in the blocks view, and its sparkline on the Loops page open its
 scope (y with r, u, e); the Items page draws each kind's cumulative flow and cycle times. Every

@@ -58,6 +58,24 @@ stocks:
       state: released
       every: 5s
 
+# The numbers the world's code makes known (world/traffic.py), and the one it only implies: how long an
+# unreviewed ramp stays live on average (those that break, a tenth to half a working day; the rest, half
+# a day), estimated from the record.
+parameters:
+  workdays-per-hour:
+    value: 60
+    unit: workdays/h
+    description: the world's clock, a working day every 60 seconds (JOB_DAY, world/world.py)
+  break-share:
+    value: 0.45
+    unit: share
+    description: of the ramps that go ahead unreviewed, the share that break their service
+  ramp-time-live:
+    value: 0.41
+    unit: workdays
+    estimate: true
+    description: how long an unreviewed ramp stays live before it breaks or proves fine, on average
+
 auxiliaries:
   ramps-late:
     unit: ramps
@@ -108,6 +126,8 @@ flows:
     from: unreviewed-ramps-live
     description: an unreviewed ramp breaks its service, hours after it went ahead (an outage begins)
     driven-by: +stock.unreviewed-ramps-live      # each one live may break: the more live, the more break
+    # a first-order drain (Sterman ch. 8): the share that break, over how long a ramp stays live
+    equation: workdays-per-hour * break-share * stock.unreviewed-ramps-live / ramp-time-live
     sensor:
       items: ramp
       entering: broke
@@ -116,6 +136,7 @@ flows:
     from: unreviewed-ramps-live
     description: an unreviewed ramp that has been live half a working day without breaking anything
     driven-by: +stock.unreviewed-ramps-live
+    equation: workdays-per-hour * (1 - break-share) * stock.unreviewed-ramps-live / ramp-time-live
     sensor:
       items: ramp
       entering: proved-fine

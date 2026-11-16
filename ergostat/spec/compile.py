@@ -7,7 +7,27 @@ import re
 import time
 
 from ..durations import DurationError, parse_duration
-from .ir import BUILTIN, MACHINE, NAME, Agent, Auxiliary, Block, Flow, Goal, ItemKind, NamedLoop, Ref, Sensor, Setpoint, Source, Spec, Stock
+from .equation import FUNCS as FUNCTIONS
+from .ir import (
+    BUILTIN,
+    MACHINE,
+    NAME,
+    Agent,
+    Auxiliary,
+    Block,
+    Equation,
+    Flow,
+    Goal,
+    ItemKind,
+    NamedLoop,
+    Parameter,
+    Ref,
+    Sensor,
+    Setpoint,
+    Source,
+    Spec,
+    Stock,
+)
 from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
@@ -17,9 +37,10 @@ CHANGES = ("rises", "falls", "net")                  # a flow measured from its 
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative"}
 LINK_KEYS = {"cause", "instant", "description"}      # a driven-by written out: the cause, and what is said of the link
-FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way"}
+FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation"}
 GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner"}
-AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous"}
+AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous", "equation"}
+PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table"}
 DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
@@ -463,6 +484,7 @@ class Compiler:
             spec.sources[name] = Source(name, t, self.text(m, "url"), m.where)
         for name, m, _ in self.named("items"):
             spec.items[name] = self.item_kind(name, m, f"item kind {name}")
+        self.parameters(spec)
         for name, m, what in self.named("stocks"):
             self.keys(m, STOCK_KEYS, what)
             st = Stock(name, self.text(m, "unit"), self.number(m, "limit", what), self.number(m, "initial", what),
@@ -484,6 +506,7 @@ class Compiler:
                              m.at(key), "unknown-ref", f"stock.{end}")
             f.sensors = self.sensors(m, Ref("flow", name), what)
             f.driven_by, f.polarity, f.instant = self.driven(m, what)
+            f.defined = d.defined[("flows", name)]
             spec.flows[name] = f
         for section in ("auxiliaries", "variables"):        # variables: the old name, still read
             for name, m, what in self.named(section):
@@ -499,6 +522,7 @@ class Compiler:
                               exogenous=self.flag(m, "exogenous", what), where=m.where)
                 v.sensors = self.sensors(m, Ref("auxiliary", name), what)
                 v.driven_by, v.polarity, v.instant = self.driven(m, what)
+                v.defined = self.doc.defined[(section, name)]
                 if v.exogenous and v.driven_by:
                     self.err(f"{what}: exogenous (an input from outside the model) and driven-by something in it: one or the "
                              f"other", m.at("exogenous"), "exogenous-driven")
@@ -571,12 +595,134 @@ class Compiler:
                                               description=f"the value block {b.name} set it to", where=b.where)
         self.counted(spec)
         self.references(spec)
+        self.equations(spec)
         self.watched(spec)
         self.renamed()
         for x in (*spec.stocks.values(), *spec.flows.values(), *spec.goals.values(), *spec.blocks.values()):
             if x.system and x.system not in spec.systems:      # named by a part, not described: a top-level system
                 spec.systems[x.system] = ""
         return spec
+
+    def parameters(self, spec: Spec) -> None:
+        """``parameters:``: each a number with its unit (``value: 0.45``, or a duration, ``value: 40s``,
+        in hours), to be fitted (``estimate: true``), or a lookup's ``table:``; ``k: 0.45`` for short."""
+        from .blocks import TableError, read_table
+        for name, m in self.doc.sections["parameters"].items():
+            what, w = f"parameter {name}", self.doc.defined[("parameters", name)]
+            if not isinstance(name, str) or not NAME.match(name):
+                self.err(f"{what}: a name is lowercase letters, digits and -, starting with a letter", w, "bad-name")
+                continue
+            if name.upper() in FUNCTIONS:
+                self.err(f"{what}: {name} is the name of a function; call the parameter something else", w, "bad-name")
+                continue
+            if not isinstance(m, dict):                    # the short form, k: 0.45
+                m2 = Map({"value": m})
+                m2.where, m2.lines = w, {"value": w}
+                m = m2
+            if m.where is None:
+                m.where = w
+            self.keys(m, PARAMETER_KEYS, what)
+            p = Parameter(name, unit=self.text(m, "unit"), estimate=self.flag(m, "estimate", what),
+                          description=self.text(m, "description"), system=self.system("parameters", name, m), where=m.where,
+                          defined=w, value_at=m.at("value") if "value" in m else None)
+            v = m.get("value")
+            if isinstance(v, str):
+                try:
+                    p.value = parse_duration(v, f"{what}.value") / 3600.0      # a duration: in hours, the model's time
+                    if p.unit and p.unit not in ("h", "hours", "hour"):
+                        self.err(f"{what}: a duration ({v}) is a time, in hours; its unit is h (or leave unit: out)",
+                                 m.at("unit"), "units")
+                    p.unit, p.duration = "h", True
+                except DurationError:
+                    self.err(f"{what}.value: a number, or a duration like 40s or 2h (read in hours)", m.at("value"),
+                             "bad-number")
+            elif v is not None:
+                p.value = self.number(m, "value", what)
+            if m.get("table") is not None:
+                if v is not None:
+                    self.err(f"{what}: a value or a table (a lookup), not both", m.at("table"), "bad-table")
+                try:
+                    p.table = read_table("lookup", m["table"])
+                except TableError as e:
+                    self.err(f"{what}.table: {e}", m.at("table"), "bad-table")
+                if p.estimate:
+                    self.err(f"{what}: a table is not estimated (only a value is)", m.at("estimate"), "bad-table")
+            spec.parameters[name] = p
+
+    def equations(self, spec: Spec) -> None:
+        """Each ``equation:`` read, its names resolved (a bare name a parameter, a reference a part),
+        a rate written two ways (rate: and equation:) refused, and the order they are worked out in
+        found: equations that need each other at once, with no stock or delay between, are an
+        algebraic loop."""
+        from . import equation as eq
+        for section, kind, table in (("flows", "flow", spec.flows), ("auxiliaries", "auxiliary", spec.auxiliaries),
+                                     ("variables", "auxiliary", spec.auxiliaries)):
+            for name, m in self.doc.sections[section].items():
+                x = table.get(name)
+                if x is None or not isinstance(m, dict) or m.get("equation") is None:
+                    continue
+                what, w = f"{kind} {name}.equation", m.at("equation")
+                raw = m["equation"]
+                if isinstance(raw, int | float) and not isinstance(raw, bool):
+                    raw = str(raw)
+                try:
+                    tree = eq.parse(raw, spec.parameters)
+                except eq.EquationError as e:
+                    self.err(f"{what}: {e}", w, "bad-equation")
+                    continue
+                bad = False
+                for nm in eq.names(tree):
+                    if nm not in spec.parameters:
+                        parts = [p for p in nm.split("-") if p]
+                        hint = (f"; to subtract, write spaces around the minus: {' - '.join(parts)}"
+                                if len(parts) > 1 and all(p in spec.parameters for p in parts) else
+                                ": declare it under parameters: (value:, unit:, estimate: true to fit it)"
+                                + self.suggest(nm, spec.parameters))
+                        self.err(f"{what}: {nm} is not a parameter{hint}", w, "unknown-ref", f"parameter.{nm}")
+                        bad = True
+                    elif spec.parameters[nm].table and not any(n[0] == "lookup" and n[1] == nm for n in eq.walk(tree)):
+                        self.err(f"{what}: {nm} is a lookup (a table): call it, {nm}(x)", w, "bad-equation")
+                        bad = True
+                for r in eq.refs(tree):
+                    k, _, n = r.partition(".")
+                    if n not in spec.measured(k):
+                        self.err(f"{what}: {r}: {n!r} is not a{'n' if k[0] == 'a' else ''} {k}" + self.suggest(n, spec.measured(k)),
+                                 w, "unknown-ref", r)
+                        bad = True
+                    elif r == f"{kind}.{name}":
+                        self.err(f"{what}: it names itself ({r}); what it was a moment ago is a stock", w, "bad-equation")
+                        bad = True
+                if kind == "flow" and x.rate is not None:
+                    self.err(f"{what}: its rate is written twice (rate: and equation:); keep one", w, "two-rates")
+                    bad = True
+                if kind == "auxiliary" and x.exogenous and eq.refs(tree):
+                    self.err(f"{what}: exogenous (from outside the model) and worked out from parts of it: one or the other",
+                             w, "exogenous-driven")
+                    bad = True
+                if not bad:
+                    x.equation = Equation(raw.strip(), tree, eq.refs(tree), eq.names(tree), w)
+        owned = {f"flow.{f.name}": f.equation for f in spec.flows.values() if f.equation} | \
+                {f"auxiliary.{a.name}": a.equation for a in spec.auxiliaries.values() if a.equation}
+        state: dict[str, int] = {}
+
+        def visit(n: str, path: list[str]) -> bool:
+            state[n] = 1
+            for r in eq.instant_refs(owned[n].tree):
+                if r not in owned:
+                    continue
+                if state.get(r) == 1:
+                    cyc = path[path.index(r):] + [r]
+                    self.err(f"equations {' → '.join(cyc)} need each other at once, with no stock or delay between (an "
+                             f"algebraic loop): what one of them depends on a moment later is a stock, or a DELAY1/SMOOTH",
+                             owned[r].where, "algebraic-loop")
+                    return True
+                if state.get(r) is None and visit(r, path + [r]):
+                    return True
+            state[n] = 2
+            return False
+        for n in sorted(owned):
+            if state.get(n) is None and visit(n, [n]):
+                break
 
     def implied(self, spec: Spec) -> None:
         """A machine block that names a goal runs while that goal is off: ergostat puts the onoff

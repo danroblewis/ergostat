@@ -148,6 +148,15 @@ async function api(path, params = {}) {
   return r.json();
 }
 
+/* the page's one kind of write: the owner's answer to a proposal, or asking for estimates (never in a snapshot) */
+async function apiPost(path) {
+  if (SNAP) throw new Error("a snapshot changes nothing: ergostat accept, where the model is");
+  const r = await fetch(`/api/${path}?${new URLSearchParams({ since: S.since })}`, { method: "POST", headers: { "X-Ergostat": "owner" } });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.error || `${path}: ${r.status}`);
+  return body;
+}
+
 /* ------------------------------------------------------------------ header and routing */
 
 async function refreshHeader() {
@@ -197,7 +206,7 @@ async function route() {
   const main = $("#main");
   main.replaceChildren();
   const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
-                  "/residuals": pageResiduals, "/check": pageCheck, "/guide": pageGuide };
+                  "/fit": pageFit, "/residuals": pageFit, "/check": pageCheck, "/guide": pageGuide };
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)));
   return (pages[path] || pageDiagram)(main, q);
 }

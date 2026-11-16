@@ -334,20 +334,71 @@ async function pageItem(main, id) {
   S.timer = setInterval(() => { if (!body.querySelector("details[open]")) tick(); }, 4000);
 }
 
-async function pageResiduals(main) {
-  const p = page(main, "Residuals");
-  const cap = h("p", { class: "note" }), box = h("div");
-  p.append(box, cap);
+/* Fit: how well the model's replay follows the record, stock by stock and in total, with Theil's
+   breakdown of the error; its history across versions; the proposals waiting; and the residuals */
+const two = (x) => (x == null ? "" : x.toFixed(2));
+const pct = (x) => (x == null ? "" : `${Math.round(x * 100)}%`);
+function fitRows(rows, total) {
+  const cells = (s) => [h("td", { class: "num" }, s.n ?? ""), h("td", { class: "num" }, two(s.r2)), h("td", { class: "num" }, pct(s.mape)),
+                        h("td", { class: "num" }, two(s.um)), h("td", { class: "num" }, two(s.us)), h("td", { class: "num" }, two(s.uc))];
+  const out = rows.map((s) => h("tr", {}, h("td", {}, h("b", {}, s.name), s.unit ? h("span", { class: "muted" }, ` ${s.unit}`) : null),
+    ...(s.n == null ? [h("td", { class: "muted", colspan: 6 }, "too few points to say")]
+      : s.exact ? [h("td", { class: "num" }, s.n), h("td", { class: "muted", colspan: 5 }, "no error: the replay is the record")] : cells(s))));
+  if (total) out.push(h("tr", { class: "total" }, h("td", {}, h("b", {}, "total")), ...cells(total)));
+  return out;
+}
+function fitHead(words, first) {
+  return [first, ...["n", "R\u00b2", "MAPE", "U_M", "U_S", "U_C"].map((label) => [rich(label), "num"])];
+}
+async function pageFit(main) {
+  const p = page(main, "Fit");
+  const fitBox = h("div"), eqBox = h("div"), notes = h("div"), propBox = h("div"), histBox = h("div"), resBox = h("div"), cap = h("p", { class: "note" });
+  p.append(fitBox, eqBox, notes, h("h2", {}, "Proposals"), propBox, h("h2", {}, "History"), histBox, h("h2", {}, "Residuals"), resBox, cap);
+  let propSig = null, busy = false;
+  async function estimateNow(btn, said) {
+    btn.disabled = true; busy = true; said.textContent = "Estimating\u2026";
+    try { await apiPost("estimate"); said.textContent = ""; propSig = null; }
+    catch (e) { said.textContent = String(e.message || e); }
+    busy = false; btn.disabled = false; tick();
+  }
   async function tick() {
-    const r = await api("residuals");
+    let d;
+    try { d = await api("fit"); } catch (e) { d = null; }
+    if (!d) { fitBox.replaceChildren(h("p", { class: "muted" }, "The model is an ergostat.toml: equations and their fit come with ergostat.yaml.")); return; }
     const w = windowNote();
-    cap.textContent = w ? `Changes ${w}. A disturbance nothing measures is estimated from the rest; what is left is unexplained.` : "";
+    fitBox.replaceChildren(d.stocks.length ? table(fitHead(d.words, "stock"), fitRows(d.stocks, d.total), "fit")
+      : h("p", { class: "muted" }, "No stock is integrated: nothing has flows."));
+    eqBox.replaceChildren(...(d.equations.length ? [h("h3", {}, "Equations, replayed, against their own readings"), table(fitHead(d.words, "worked out"), fitRows(d.equations, null), "fit")] : []));
+    notes.replaceChildren(...d.notes.map((n) => h("p", { class: "muted small" }, n)));
+    const sig = JSON.stringify(d.proposals.map((x) => x.id)) + (d.estimated_at || "");
+    if (sig !== propSig && !busy && !propBox.querySelector("button:disabled")) {
+      propSig = sig;
+      const said = h("span", { class: "muted small" });
+      const btn = h("button", { onclick: () => estimateNow(btn, said) }, "Estimate now");
+      const head = d.to_estimate.length
+        ? h("div", { class: "actions" }, SNAP ? null : btn, h("span", { class: "muted small" }, `${d.to_estimate.length} parameter${d.to_estimate.length > 1 ? "s" : ""} to estimate (${d.to_estimate.join(", ")})${d.estimated_at ? `, last estimated ${ago(d.estimated_at)}` : ", not estimated yet"}`), said)
+        : h("div", { class: "actions" }, SNAP ? null : btn, h("span", { class: "muted small" }, "No parameter is marked estimate: true; equations may still be proposed for flows with declared causes."), said);
+      propBox.replaceChildren(head, ...(d.proposals.length ? d.proposals.map((x) => proposalBlock(x, { onDone: () => { propSig = null; setTimeout(tick, 600); } }))
+        : [h("p", { class: "muted" }, "No proposals waiting.")]));
+    }
+    const events = [...d.history.map((v) => ({ t: v.first, v })), ...d.accepted.map((a) => ({ t: a.time, a }))].sort((x, y) => y.t - x.t);
+    histBox.replaceChildren(events.length ? table(["when", "version", ["R\u00b2", "num"], ["MAPE", "num"], ""], events.slice(0, 30).map(({ v, a }) => (v
+      ? h("tr", {}, h("td", { class: "nowrap" }, ago(v.first)), h("td", { class: "mono" }, v.version, v.version === d.version ? h("span", { class: "muted" }, " now") : null),
+          h("td", { class: "num" }, two(v.total?.r2)), h("td", { class: "num" }, pct(v.total?.mape)), h("td", { class: "muted small" }, `fitted ${v.fits} time${v.fits > 1 ? "s" : ""}, last ${ago(v.last)}`))
+      : h("tr", {}, h("td", { class: "nowrap" }, ago(a.time)), h("td", { class: "mono muted" }, `${a.version_before} \u2192 ${a.version_after}`),
+          h("td", { class: "num" }, `${two(a.fit_before?.r2)} \u2192 ${two(a.fit_after?.r2)}`), h("td", { class: "num" }, `${pct(a.fit_before?.mape)} \u2192 ${pct(a.fit_after?.mape)}`),
+          h("td", {}, "accepted: ", op(a.title))))), "fit")
+      : h("p", { class: "muted" }, "Not fitted before."));
+    const r = d.residuals || {};
     const rows = Object.entries(r).sort((a, b) => (b[1].significant ? 1 : 0) - (a[1].significant ? 1 : 0));
-    box.replaceChildren(Object.keys(r).length ? table(["stock", ["changed", "num"], ["explained", "num"], ["unexplained", "num"], ""],
+    resBox.replaceChildren(Object.keys(r).length ? table(["stock", ["changed", "num"], ["explained", "num"], ["unexplained", "num"], ""],
       rows.map(([k, v]) => h("tr", {}, h("td", {}, h("b", {}, k)), h("td", { class: "num" }, fmt(v.change)), h("td", { class: "num" }, fmt(v.explained)),
         h("td", { class: "num" }, fmt(v.unexplained)),
         h("td", {}, v.significant ? h("span", { class: "s-open" }, "unexplained") : (v.absorbed_by.length ? h("span", { class: "muted" }, `estimated as ${v.absorbed_by.join(", ")}`) : "")))), "fit")
       : h("p", { class: "muted" }, "No stock has two readings in this window yet."));
+    cap.replaceChildren(rich(`Version ${d.version}${w ? `, ${w}` : ""}. The replay integrates each stock from its flows, works out every equation, and takes every other input as measured. ` +
+      `R\u00b2: ${d.words.r2}. MAPE: ${d.words.mape}. Theil's U_M: ${d.words.um}; U_S: ${d.words.us}; U_C: ${d.words.uc}; the three sum to 1. ` +
+      "Residuals: what each stock did against what its known flows explain; a disturbance nothing measures is estimated from the rest."));
   }
   await tick();
   S.timer = setInterval(tick, 5000);

@@ -22,11 +22,41 @@ stocks:
       run: python3 world/read.py missing
       every: 5s
 
+# The market's own numbers are in its code (world/customers.py: per tick of 15 seconds, 240 an hour, 1%
+# of users leave anyway, and more the more requests fail); what the factory's work does to the product
+# depends on how well the developer and the reviewer do, so those are estimated from the record.
+parameters:
+  base-churn:
+    value: 2.4
+    unit: 1/h
+    description: the share of users who leave anyway, an hour (1% a tick, a tick every 15 s)
+  churn-per-failing-op:
+    value: 2
+    unit: 1/op/h
+    estimate: true
+    description: how many more users leave, as a share an hour, for each operation in demand that fails or is missing
+  fixes-per-ticket:
+    value: 0.4
+    unit: ops/ticket
+    estimate: true
+    description: the operations broken in production that each deployed ticket fixes, while some are
+  ops-per-ticket:
+    value: 0.4
+    unit: ops/ticket
+    estimate: true
+    description: the operations asked for that each deployed ticket adds, while some are missing
+  regression-rate:
+    value: 0.1
+    unit: ops/ticket
+    estimate: true
+    description: the working operations a deployed ticket breaks, on average
+
 auxiliaries:
   ops-broken-per-ticket:
     unit: ops/ticket
     exogenous: true
     description: how many working operations a deployed ticket breaks, the developers' and reviewers' miss rate; not measured
+    equation: regression-rate
 flows:
   signups:
     to: users
@@ -34,18 +64,23 @@ flows:
   churn:
     from: users
     driven-by: [+stock.users, +stock.bugs-live, +stock.missing-ops]   # and leave when it does not (a share of who is there)
+    equation: stock.users * (base-churn + churn-per-failing-op * (stock.bugs-live + stock.missing-ops))
   fixes:
     from: bugs-live
     driven-by: [+stock.bugs-live, {cause: +flow.deployed, instant: true}]   # a release fixes some of what did not work, as it goes live
+    # while anything is broken (and less as the last of it goes: with nothing broken, nothing is fixed)
+    equation: fixes-per-ticket * flow.deployed * stock.bugs-live / MAX(stock.bugs-live, 1)
   regressions:
     to: bugs-live
     driven-by: [{cause: +flow.deployed, instant: true}, +auxiliary.ops-broken-per-ticket]   # or breaks what did, as it goes live
+    equation: auxiliary.ops-broken-per-ticket * flow.deployed
   asks:
     to: missing-ops
     driven-by: +stock.users                # more users ask for more of the long tail
   shipped:
     from: missing-ops
     driven-by: [+stock.missing-ops, {cause: +flow.deployed, instant: true}]   # what a release adds of what was asked for
+    equation: ops-per-ticket * flow.deployed * stock.missing-ops / MAX(stock.missing-ops, 1)
 
 goals:
   no-live-bugs:

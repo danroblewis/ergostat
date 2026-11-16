@@ -1449,8 +1449,14 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
         inputs = pg.evaluate("""() => { const dt = [...document.querySelectorAll('#detail dt')].find((d) => d.textContent === 'inputs');
                                         return dt ? dt.nextElementSibling.textContent : null; }""")
         assert inputs and "deployed (+)" in inputs and "ops-broken-per-ticket (+)" in inputs, inputs
-        assert "not known yet: declared causes with a sign each, their sizes not estimated" in text, text[:800]
+        pg.wait_for_function("() => document.querySelector('#detail math.eq')", timeout=5000)     # its equation, written
+        assert pg.evaluate("() => [...document.querySelectorAll('#detail math.eq mi')].map((x) => x.textContent)") == \
+            ["regressions", "ops-broken-per-ticket", "deployed"]
         assert "What is a valve?" in text
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'flow:asks'))")             # and one with none
+        pg.wait_for_function("() => /the rate of asks/.test(document.querySelector('#detail').textContent)", timeout=5000)
+        pg.wait_for_timeout(300)
+        assert "not known yet: a declared cause with a sign, its size not estimated" in pg.locator("#detail").inner_text()
         pg.evaluate("() => openEdge(S.graph.edges.find((e) => e.kind === 'pipe' && e.flow === 'regressions'))")
         pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Flow'", timeout=5000)
         pg.wait_for_timeout(300)
@@ -1459,3 +1465,133 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
         assert "What is a flow?" in text
         assert not errors, errors
         pg.close()
+
+
+QUEUE = """\
+name: queue
+# the queue drains at k an hour of what is in it
+parameters:
+  k:
+    value: 2          # what we believe
+    unit: 1/h
+    estimate: true
+stocks:
+  queue:
+    unit: jobs
+    sensor:
+      manual: true
+flows:
+  arrivals:
+    to: queue
+    sensor:
+      manual: true
+  served:
+    from: queue
+    driven-by: +stock.queue
+    equation: k * stock.queue
+"""
+
+
+def queued(tmp_path: Path, monkeypatch) -> Path:
+    """The queue model, and an hour of record as the world ran it with k = 3."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "queue"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(QUEUE)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    p = Project(mdl.load(d))
+    now, q = time.time(), 0.0
+    for i in range(121):
+        a = 10 + 5 * ((i // 20) % 2)
+        p.measurements.add("sensor/queue.main", q, at=now - 3600 + i * 30)
+        p.measurements.add("sensor/arrivals.main", a, at=now - 3600 + i * 30)
+        for _ in range(30):
+            q += (a - 3 * q) / 3600
+    return d
+
+
+def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page(browser, tmp_path, monkeypatch):
+    """A valve with an equation shows it in MathML, each parameter with its value and where it comes
+    from; its causes strip draws the replay (dashed) over the measured line and the projection past
+    now. The Fit page has each stock's fit with Theil's breakdown; Estimate now makes a proposal,
+    shown there and in the valve's panel with Accept; accepting writes the smallest edit to the YAML
+    and the history records it. A snapshot shows the same, and offers no Accept."""
+    d = queued(tmp_path, monkeypatch)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        # nothing but the page may write: a request without its header is refused
+        req = urllib.request.Request(url + "/api/estimate", method="POST", data=b"")
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            urllib.request.urlopen(req, timeout=5)
+        assert refused.value.code == 403
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics", 0)
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'flow:served'))")
+        pg.wait_for_function("() => document.querySelector('#detail math.eq')", timeout=20000)
+        maths = pg.evaluate("() => [...document.querySelectorAll('#detail math.eq mi')].map((x) => x.textContent)")
+        assert maths == ["served", "k", "queue"], maths
+        assert pg.locator("#detail math.eq mo", has_text="×").count() == 1
+        row = pg.locator("#detail table.params tr").nth(1).inner_text()
+        assert "k" in row and "2 1/h" in row and "declared" in row, row
+        # the strip: the rate measured (none: it is worked out), its replay, and past now its projection
+        pg.wait_for_function(f"() => ({CHARTS.format('#detail')})() >= 2", timeout=20000)
+        assert "the model's replay" in pg.locator("#detail .chart-foot").first.inner_text()
+        assert pg.locator("#detail .chart.modelled").count() >= 2
+        # the Fit page: the stock's fit, Theil's breakdown, and a proposal once estimated
+        pg.goto(url + "/#/fit")
+        pg.wait_for_function("() => document.querySelector('table.fit td')", timeout=20000)
+        head = pg.locator("table.fit tr").first.inner_text()
+        assert all(x in head for x in ("R²", "MAPE", "UM", "US", "UC")), head
+        assert "queue" in pg.locator("table.fit").first.inner_text()
+        pg.get_by_role("button", name="Estimate now").click()
+        pg.wait_for_function("() => document.querySelector('.proposal')", timeout=30000)
+        prop = pg.locator(".proposal").first.inner_text()
+        assert "k: 2 1/h → 3" in prop and "value: 2" in prop and "Accept" in prop, prop
+        # its valve's panel offers it too; accepted there, the file says the new value, its comment kept
+        drawn(pg, url, "view=dynamics", 1)
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'flow:served'))")
+        pg.wait_for_function("() => document.querySelector('#detail .proposal button')", timeout=20000)
+        assert "estimated 3" in pg.locator("#detail table.params").inner_text()
+        pg.locator("#detail .proposal button", has_text="Accept").click()
+        pg.wait_for_function("() => /Accepted/.test(document.querySelector('#detail .proposal').textContent)", timeout=20000)
+        text = (d / "ergostat.yaml").read_text()
+        assert "    value: 3." in text and "# what we believe" in text and "# the queue drains" in text, text
+        pg.goto(url + "/#/fit")
+        pg.wait_for_function("() => /accepted: k/.test(document.body.textContent)", timeout=20000)
+        assert "No proposals waiting." in pg.locator(".page").inner_text()
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web.snapshot import build
+    out = tmp_path / "snapshot.html"
+    out.write_text(build(Project(mdl.load(d)), since="1h"))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors, asked = [], []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:"))
+             else (asked.append(rt.request.url), rt.abort()))
+    pg.goto(f"file://{out}#/diagram?view=dynamics")
+    pg.wait_for_function("() => S.graph && document.querySelectorAll('svg.canvas g.node').length", timeout=60000)
+    pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'flow:served'))")
+    pg.wait_for_function(f"() => document.querySelector('#detail math.eq') && ({CHARTS.format('#detail')})() >= 2", timeout=20000)
+    pg.goto(f"file://{out}#/fit")
+    pg.wait_for_function("() => document.querySelector('table.fit td')", timeout=20000)
+    assert pg.get_by_role("button", name="Estimate now").count() == 0
+    pg.close()
+    assert not errors and not asked, (errors, asked)

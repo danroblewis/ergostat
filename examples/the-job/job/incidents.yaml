@@ -70,6 +70,32 @@ stocks:
       state: open
       every: 5s
 
+# Alerts and outages arrive at a base rate, and more while ramps are live unreviewed (world/traffic.py):
+# 1.2 alerts a working day on their own, and 0.25 outages of unknown cause, each paging three to five
+# times; each unreviewed ramp breaks its service at the share and pace of safety.yaml, and an outage it
+# starts pages as often. The values below are what that code implies; the record refines them.
+parameters:
+  alerts-base:
+    value: 2.2
+    unit: alerts/workday
+    estimate: true
+    description: alerts a working day with no ramp live unreviewed (the pager's own, and outages of unknown cause)
+  alerts-per-ramp-live:
+    value: 4.4
+    unit: alerts/ramp/workday
+    estimate: true
+    description: the alerts a working day each unreviewed ramp brings (it breaks at 0.45 / 0.41 a day, and pages about four times)
+  outages-base:
+    value: 0.25
+    unit: outages/workday
+    estimate: true
+    description: outages a working day of unknown cause
+  outages-per-ramp-live:
+    value: 1.1
+    unit: outages/ramp/workday
+    estimate: true
+    description: the outages a working day each unreviewed ramp starts (one for each that breaks)
+
 auxiliaries:
   actions-per-postmortem:
     unit: actions/outage
@@ -91,6 +117,7 @@ flows:
     to: alerts-to-draft
     description: pages from my rotation; a flag ramp live without my review may break its service and page
     driven-by: +stock.unreviewed-ramps-live      # (not the rate it went ahead at: it breaks hours later, if at all)
+    equation: workdays-per-hour * (alerts-base + alerts-per-ramp-live * stock.unreviewed-ramps-live)
     sensor:
       run: python3 bin/watch.py alert
       every: 10s
@@ -111,6 +138,7 @@ flows:
     to: outages-suspected
     description: the pager groups a burst of alerts on one service as an outage (at its third alert)
     driven-by: +stock.unreviewed-ramps-live      # what breaks; the alerts are how the pager sees it, not a cause
+    equation: workdays-per-hour * (outages-base + outages-per-ramp-live * stock.unreviewed-ramps-live)
     sensor:
       run: python3 bin/watch.py outage
       every: 5s
