@@ -63,6 +63,7 @@ async function openNode(n) {
   for (const x of document.querySelectorAll(".node.sel")) x.classList.remove("sel");
   document.querySelector(`.node[data-id="${CSS.escape(n.id)}"]`)?.classList.add("sel");
   if (n.kind === "agent") return openAgent(n.label);
+  if (S.graph?.kind === "dynamics") return n.kind === "system" ? sdOpenSystem(n) : openNodeSD(n);   // dynamics.js
   if (n.kind === "system") return openSystem(n);
   const [kind, name] = n.kind === "valve" ? ["valve", n.label] : n.kind === "disturbance" ? ["disturbance", n.flow] : n.id.split(":");
   if (kind === "controller") return openLoop(name, true);
@@ -278,6 +279,7 @@ function showEvent(e) {                                 // one event, all of it,
 /* a line, clicked: what kind of connection it is (a flow of material, or a signal in a loop), what
    it joins, what it carries now, and the loops it is part of */
 async function openEdge(e) {
+  if (S.graph?.kind === "dynamics") return openEdgeSD(e);   // dynamics.js
   const g = S.graph || { nodes: [], loops: {} };
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   // a part inside a closed system is not drawn: its port on the system's box stands for it

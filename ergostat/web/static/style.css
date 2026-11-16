@@ -344,3 +344,59 @@ pre.code code.hljs { background: transparent; padding: 0; }
 .convo .who { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: flex; gap: 10px; margin-bottom: 4px; }
 .convo summary { cursor: pointer; font-size: 13px; }
 .convo details[open] > summary { margin-bottom: 6px; }
+
+/* the system dynamics view (dynamics.js): black lines on white, as the textbooks draw it, and its
+   dark equivalent; colour only for what is pointed at or chosen */
+:root { --sd-paper: #ffffff; --sd-ink: #111317; --sd-muted: #6b7079; --sd-hull: transparent; --sd-hull-line: rgba(17, 19, 23, 0.35); }
+@media (prefers-color-scheme: dark) {
+  :root { --sd-paper: #16181c; --sd-ink: #e9e7e2; --sd-muted: #9aa0a9; --sd-hull: transparent; --sd-hull-line: rgba(233, 231, 226, 0.38); }
+}
+svg.canvas.sd { background-color: var(--sd-paper); background-image: none; }
+svg.sd .node text { fill: var(--sd-ink); }
+svg.sd .node .t-sub { fill: var(--sd-muted); }
+svg.sd .node .sd-name { font-weight: 500; font-size: 12.5px; }
+svg.sd .node .sd-value { font-size: 10.5px; font-variant-numeric: tabular-nums; }
+svg.sd .node .sd-exo { font-style: italic; font-size: 10.5px; }
+svg.sd .node .sd-shadow { fill: var(--sd-muted); font-size: 12px; }
+svg.sd .sd-stock { fill: var(--sd-paper); stroke: var(--sd-ink); stroke-width: 1.6; }
+svg.sd .sd-aux { fill: var(--sd-paper); fill-opacity: 0.9; stroke: transparent; }
+svg.sd .sd-valve { fill: var(--sd-paper); stroke: var(--sd-ink); stroke-width: 1.5; stroke-linejoin: round; }
+svg.sd .sd-pipe-out { fill: none; stroke: var(--sd-ink); stroke-width: 8; }
+svg.sd .sd-pipe-in { fill: none; stroke: var(--sd-paper); stroke-width: 4.4; }
+svg.sd .sd-cloud { fill: var(--sd-paper); stroke: var(--sd-ink); stroke-width: 1.2; }
+svg.sd .sd-module { fill: var(--sd-paper); stroke: var(--sd-ink); stroke-width: 1.4; }
+svg.sd .sd-port { fill: var(--sd-paper); stroke: var(--sd-ink); stroke-width: 1.2; }
+svg.sd .sys-btn rect { stroke: var(--sd-hull-line); }
+svg.sd .sys-btn text { fill: var(--sd-ink); }
+svg.sd .sys-hull rect:not(.hull-grip) { stroke-width: 1; stroke-dasharray: 5 4; }
+svg.sd .sys-hull text { filter: none; }
+svg.sd .edge .pipe-out { stroke: var(--sd-ink); stroke-width: 8; }
+svg.sd .edge .pipe-in { stroke: var(--sd-paper); stroke-width: 4.4; }
+svg.sd .edge .sd-connector { stroke: var(--sd-ink); stroke-width: 1.1; }
+svg.sd .edge .sd-head { fill: var(--sd-ink); stroke: none; }
+svg.sd .edge .polarity { fill: var(--sd-ink); font-size: 13px; font-weight: 700; stroke: var(--sd-paper); stroke-width: 3px; stroke-linejoin: round; }
+svg.sd .node:hover .hit, svg.sd .node.sel .hit { stroke: var(--accent); }
+svg.sd .edge.lit .pipe-out, svg.sd .edge.in-loop .pipe-out { stroke: var(--accent); }
+svg.sd .edge.lit .sd-connector, svg.sd .edge.in-loop .sd-connector { stroke: var(--accent); stroke-width: 2.2 !important; }
+svg.sd .edge.lit .sd-head, svg.sd .edge.in-loop .sd-head, svg.sd .edge.lit .polarity, svg.sd .edge.in-loop .polarity { fill: var(--accent); }
+svg.sd .node.in-loop .hit { stroke: var(--accent); stroke-width: 2.2; }
+svg.sd .edge.lit .pipe-head, svg.sd .edge.in-loop .pipe-head, svg.sd .edge.lit .pipe-tail, svg.sd .edge.in-loop .pipe-tail { stroke: var(--accent) !important; }
+.loop-marker { cursor: pointer; }
+.loop-marker .marker-hit { fill: var(--sd-paper); fill-opacity: 0.85; stroke: none; }
+.loop-marker .marker-arc { fill: none; stroke: var(--sd-ink); stroke-width: 1.4; }
+.loop-marker .marker-head { fill: var(--sd-ink); }
+.loop-marker .marker-letter { fill: var(--sd-ink); font-size: 10px; font-weight: 700; }
+.loop-marker .marker-more { fill: var(--sd-muted); font-size: 9.5px; font-weight: 600; }
+.loop-marker .marker-name { fill: var(--sd-ink); font-size: 10.5px; font-style: italic; paint-order: stroke; stroke: var(--sd-paper); stroke-width: 3px; stroke-linejoin: round; }
+.loop-marker.pol-unknown .marker-arc { stroke: var(--sd-muted); }
+.loop-marker.pol-unknown .marker-head, .loop-marker.pol-unknown .marker-letter, .loop-marker.pol-unknown .marker-name { fill: var(--sd-muted); }
+.loop-marker:hover .marker-arc, .loop-marker.on .marker-arc { stroke: var(--accent); stroke-width: 2; }
+.loop-marker:hover .marker-head, .loop-marker.on .marker-head, .loop-marker:hover .marker-letter, .loop-marker.on .marker-letter,
+.loop-marker.on .marker-name { fill: var(--accent); }
+.loop-marker.dim { opacity: .18; }
+svg.tracing .loop-markers { opacity: .3; }
+.loop-tag { display: inline-block; min-width: 2.2em; text-align: center; font-family: var(--mono); font-size: 11.5px; font-weight: 700;
+  border: 1.3px solid var(--ink); border-radius: 99px; padding: 0 5px; }
+.loop-tag.pol-unknown { color: var(--muted); border-color: var(--muted); }
+.looprow .loop-tag { justify-self: start; }
+.design .loop-marker .marker-hit { fill: none; }

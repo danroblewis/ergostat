@@ -581,3 +581,79 @@ def test_scroll_pans_and_command_scroll_or_a_pinch_zooms_at_the_pointer(browser,
         pg.get_by_role("button", name="+").click()
         pg.get_by_role("button", name="fit").click()
         pg.close()
+
+
+SD_CHECK = """() => {
+  // the system dynamics view as drawn: no sensor, controller or agent; every loop that shows here (two of its
+  // parts drawn as themselves) has its marker; every connector whose polarity is known shows it at its head;
+  // connectors are curves that cut through no part; and the drawing is in one ink (no fill or stroke in colour
+  // but what is pointed at)
+  const bad = [], svg = document.querySelector("svg.canvas");
+  if (!svg.classList.contains("sd")) bad.push("not drawn as the dynamics view");
+  for (const n of S.graph.nodes) if (["sensor", "controller", "agent"].includes(n.kind)) bad.push(`drawn: ${n.kind} ${n.id}`);
+  if (svg.querySelector(".badge, .k-sensor, .k-controller")) bad.push("an agent badge, a sensor or a controller is drawn");
+  const marked = new Set([...svg.querySelectorAll(".loop-marker")].flatMap((m) => (m.dataset.loops || "").split(" ")));
+  for (const { loops } of sdLoopGroups(S.graph)) for (const c of loops) if (!marked.has(c.name)) bad.push(`no marker: ${c.name}`);
+  for (const m of svg.querySelectorAll(".loop-marker")) {
+    const c = S.graph.causalLoops.find((x) => x.name === m.dataset.loop);
+    const t = m.querySelector(".marker-letter")?.textContent || "";
+    if (!c || t[0] !== (c.polarity || "?")) bad.push(`marker ${m.dataset.loop} says ${t}`);
+  }
+  const box = S.layout.children;
+  for (const e of S.graph.edges.filter((x) => x.kind === "connector")) {
+    const eg = svg.querySelector(`.edge[data-id="${CSS.escape(e.id)}"]`);
+    if (!eg) { bad.push(`not drawn: ${e.id}`); continue; }
+    const sign = eg.querySelector("text.polarity")?.textContent;
+    const want = { "+": "+", "-": "−" }[e.polarity];
+    if (want !== sign) bad.push(`${e.id}: polarity ${e.polarity}, shows ${sign}`);
+    const path = eg.querySelector("path.sd-connector"), len = path.getTotalLength();
+    for (let d = 8; d < len - 8; d += 6) {
+      const p = path.getPointAtLength(d);
+      const hit = box.find((c) => c.id !== e.source && c.id !== e.target && !c.id.startsWith("cloud:") &&
+        p.x > c.x + 4 && p.x < c.x + c.width - 4 && p.y > c.y + 4 && p.y < c.y + c.height - 4);
+      if (hit) { bad.push(`${e.id} cuts through ${hit.id}`); break; }
+    }
+  }
+  const grey = (c) => { const m = c.match(/\\d+(\\.\\d+)?/g); if (!m || m.length < 3) return true;
+    const [r, g, b] = m.map(Number); return Math.max(r, g, b) - Math.min(r, g, b) < 24; };
+  for (const el of svg.querySelectorAll(".node *, .edge *, .loop-marker *")) {
+    const cs = getComputedStyle(el);
+    for (const v of [cs.fill, cs.stroke]) {
+      if (v && v !== "none" && !v.startsWith("rgba(0,") && !grey(v)) { bad.push(`colour ${v}: ${el.getAttribute("class")}`); break; }
+    }
+    if (bad.length > 40) break;
+  }
+  return bad;
+}"""
+
+
+@pytest.mark.parametrize("example", ["image-squeeze", "software-factory", "deps"])
+def test_the_dynamics_view_draws_only_system_dynamics_symbols_each_loop_marked_each_sign_shown(browser, tmp_path, example):
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        views = ["", "open=*", "view=control&open=*"]        # (view=control: its old name, the same view)
+        views += {"image-squeeze": ["open=lab", "system=lab"], "software-factory": ["open=product"]}.get(example, [])
+        for i, v in enumerate(views):
+            drawn(pg, url, v, i)
+            bad = pg.evaluate(SD_CHECK)
+            assert not bad, (v, bad[:10])
+        assert pg.locator(".toolbar .seg button.on").inner_text() == "dynamics"
+        assert not errors, errors
+        pg.close()
+
+
+def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=*", 0)
+        pg.get_by_role("button", name="fit").click()
+        pg.locator('.loop-marker[data-loop="backlog-clear"]').dispatch_event("click")
+        pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
+        assert "backlog-clear" in pg.locator("#detail h2").inner_text()
+        assert "balancing" in pg.locator("#detail .kind").inner_text().lower()
+        lit = pg.evaluate("""() => [...document.querySelectorAll('svg.canvas .node.in-loop')].map((n) => n.dataset.id).sort()""")
+        assert lit == ["flow:submitted", "gap:backlog-clear", "stock:backlog"], lit
+        assert pg.evaluate("() => document.querySelectorAll('svg.canvas .edge.in-loop').length") >= 3
+        pg.close()

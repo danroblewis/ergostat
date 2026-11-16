@@ -94,8 +94,17 @@ function anchorGroups(graph, g) {
     const acts = outs(c.id, "action");
     if (acts.length === 1 && kind[acts[0]] === "valve" && ins(acts[0], "action").length === 1) blocks.push([acts[0], c.id]);
   }
-  for (const [a] of blocks) taken.add(a);
-  for (const [, b] of blocks) taken.add(b);
+  // the system dynamics view's (dynamics.js): a flow and the one goal's gap that drives only it, with
+  // the desired level that feeds only that gap, stacked as a controller was on its valve
+  for (const gap of g.nodes.filter((n) => n.role === "gap")) {
+    const seek = (id) => g.edges.filter((e) => e.goalSeeking && e.source === id).map((e) => e.target);
+    const acts = seek(gap.id);
+    if (acts.length !== 1 || !["valve", "disturbance"].includes(kind[acts[0]])) continue;
+    if (g.edges.filter((e) => e.goalSeeking && e.target === acts[0]).length !== 1) continue;
+    const want = g.nodes.find((n) => n.role === "desired" && n.goal === gap.goal);
+    blocks.push(want && seek(want.id).length === 1 ? [acts[0], gap.id, want.id] : [acts[0], gap.id]);
+  }
+  for (const ids of blocks) for (const x of ids) taken.add(x);
   // a stock (or variable) and the sensors that read only it
   for (const st of g.nodes.filter((n) => n.kind === "stock" || n.kind === "auxiliary")) {
     const sens = outs(st.id, "measure").filter((x) => kind[x] === "sensor" && !taken.has(x) && ins(x, "measure").length === 1);
@@ -119,7 +128,8 @@ function anchorGroups(graph, g) {
 /* a command line reversed for the layering (and its points put back the right way after) */
 function reverseCommands(graph, g) {
   const kind = Object.fromEntries(g.edges.map((e) => [e.id, e.kind]));
-  for (const e of graph.edges) if (kind[e.id] === "action") { [e.sources, e.targets] = [e.targets, e.sources]; e.reversed = true; }
+  const seeking = new Set(g.edges.filter((e) => e.goalSeeking).map((e) => e.id));    // (a goal's gap and desired level: dynamics.js)
+  for (const e of graph.edges) if (kind[e.id] === "action" || seeking.has(e.id)) { [e.sources, e.targets] = [e.targets, e.sources]; e.reversed = true; }
 }
 function unreverse(lay, ids) {
   const all = [];
