@@ -15,6 +15,7 @@ Things to look at:
 
 - `delete-merged` names its goal (`goal: few-merged-branches`): it runs when the fourth merged branch appears, deletes all but the newest, and the goal holds again. Nothing runs it on a timer.
 - The developer moves two flows, so it says which with JSON lines (`{"out": "flow.merged", "moved": 1}`), and adds `branch.started` / `branch.merged` events.
+- Items: each branch (`branch/feature-…`), `open` when started, `merged`, then `deleted` by `prune.sh` (`branch.deleted`). The stocks still count what git says.
 - Every script refuses to run unless `work/` is a repository of its own; `prune.sh` uses `git branch -d`, which deletes only merged branches.
 
 Shows: real git, a block run by its goal, a block with two outputs.

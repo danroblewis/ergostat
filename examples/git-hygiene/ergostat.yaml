@@ -3,6 +3,15 @@
 # and only ever in work/.
 name: git-hygiene
 
+items:
+  branch:                        # each branch in work/, from its first commit to its deletion
+    id: branch/*
+    states: [open, merged, deleted]
+    on:
+      branch.merged: merged
+      branch.deleted: deleted
+    show: [commit, merge]
+
 stocks:
   open-branches:
     unit: branches

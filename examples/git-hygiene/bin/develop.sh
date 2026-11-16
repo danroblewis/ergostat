@@ -6,10 +6,12 @@ r=$(( $(od -An -N1 -tu1 /dev/urandom) % 3 ))
 if [ "$r" -lt 2 ]; then
   b="feature-$(date +%s)-$$"
   git switch -q -c "$b" && echo "$b" > "$b.txt" && git add "$b.txt" && git commit -qm "$b" && git switch -q main \
-    && printf '{"out": "flow.branched", "moved": 1}\n{"event": "branch.started", "item": "branch/%s"}\n' "$b"
+    && printf '{"out": "flow.branched", "moved": 1}\n{"event": "branch.started", "item": "branch/%s", "data": {"commit": "%s"}}\n' \
+      "$b" "$(git rev-parse --short "$b")"
 else
   b=$(git for-each-ref --no-merged main --sort=committerdate --format='%(refname:short)' refs/heads | head -1)
   [ -n "$b" ] && git merge -q --no-edit "$b" >/dev/null \
-    && printf '{"out": "flow.merged", "moved": 1}\n{"event": "branch.merged", "item": "branch/%s"}\n' "$b"
+    && printf '{"out": "flow.merged", "moved": 1}\n{"event": "branch.merged", "item": "branch/%s", "data": {"into": "main", "merge": "%s"}}\n' \
+      "$b" "$(git rev-parse --short HEAD)"
 fi
 exit 0
