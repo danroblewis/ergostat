@@ -15,7 +15,8 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "every", "cron", "timeout", "p
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats"}
-STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor"}
+STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative"}
+LINK_KEYS = {"cause", "instant", "description"}      # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way"}
 GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner"}
 AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous"}
@@ -181,18 +182,32 @@ class Compiler:
         self.err(f"{what}.{key}: a reference, a list of them, or a map of port names to them", w, "bad-ref")
         return {}
 
-    def driven(self, m: Map, what: str) -> tuple[list[Ref], dict[str, int]]:
+    def driven(self, m: Map, what: str) -> tuple[list[Ref], dict[str, int], set[str]]:
         """``driven-by``: what it follows, each reference with an optional sign, ``+stock.x`` (it
-        rises when x rises) or ``-auxiliary.y`` (it falls when y rises); unsigned: not known."""
+        rises when x rises) or ``-auxiliary.y`` (it falls when y rises); unsigned: not known. An
+        entry may be written out as a map, ``{cause: +flow.x, instant: true}``, to say the dependence
+        is immediate (SPEC §7): the third value is those causes."""
         raw = m.get("driven-by")
         if raw is None:
-            return [], {}
-        if not isinstance(raw, str | list):
+            return [], {}, set()
+        if not isinstance(raw, str | list | dict):
             self.err(f"{what}.driven-by: a reference or a list of them (+stock.x, -auxiliary.y, flow.z)", m.at("driven-by"),
                      "bad-ref")
-            return [], {}
-        refs, signs = [], {}
+            return [], {}, set()
+        refs, signs, instant = [], {}, set()
         for x in raw if isinstance(raw, list) else [raw]:
+            now = False
+            if isinstance(x, dict):
+                self.keys(x, LINK_KEYS, f"{what}.driven-by")
+                now = x.get("instant", False)
+                if not isinstance(now, bool):
+                    self.err(f"{what}.driven-by.instant: true or false", m.at("driven-by"), "bad-bool")
+                    now = False
+                if "cause" not in x:
+                    self.err(f"{what}.driven-by: a link written out names its cause (cause: +flow.x)", m.at("driven-by"),
+                             "missing-key")
+                    continue
+                x = x["cause"]
             sign = None
             if isinstance(x, str) and x[:1] in "+-":
                 sign, x = (1 if x[0] == "+" else -1), x[1:].strip()
@@ -202,7 +217,9 @@ class Compiler:
             refs.append(r)
             if sign is not None:
                 signs[str(r)] = sign
-        return refs, signs
+            if now:
+                instant.add(str(r))
+        return refs, signs, instant
 
     def flag(self, m: Map, key: str, what: str) -> bool:
         v = m.get(key, False)
@@ -449,7 +466,8 @@ class Compiler:
         for name, m, what in self.named("stocks"):
             self.keys(m, STOCK_KEYS, what)
             st = Stock(name, self.text(m, "unit"), self.number(m, "limit", what), self.number(m, "initial", what),
-                       self.system("stocks", name, m), self.text(m, "description"), where=m.where)
+                       self.system("stocks", name, m), self.text(m, "description"),
+                       cumulative=self.flag(m, "cumulative", what), where=m.where)
             st.sensors = self.sensors(m, Ref("stock", name), what)
             spec.stocks[name] = st
         for name, m, what in self.named("flows"):
@@ -465,7 +483,7 @@ class Compiler:
                     self.err(f"{what}.{key}: {end!r} is not a stock" + self.suggest(end, d.sections["stocks"]),
                              m.at(key), "unknown-ref", f"stock.{end}")
             f.sensors = self.sensors(m, Ref("flow", name), what)
-            f.driven_by, f.polarity = self.driven(m, what)
+            f.driven_by, f.polarity, f.instant = self.driven(m, what)
             spec.flows[name] = f
         for section in ("auxiliaries", "variables"):        # variables: the old name, still read
             for name, m, what in self.named(section):
@@ -480,7 +498,7 @@ class Compiler:
                 v = Auxiliary(name, self.text(m, "unit"), self.system(section, name, m), self.text(m, "description"),
                               exogenous=self.flag(m, "exogenous", what), where=m.where)
                 v.sensors = self.sensors(m, Ref("auxiliary", name), what)
-                v.driven_by, v.polarity = self.driven(m, what)
+                v.driven_by, v.polarity, v.instant = self.driven(m, what)
                 if v.exogenous and v.driven_by:
                     self.err(f"{what}: exogenous (an input from outside the model) and driven-by something in it: one or the "
                              f"other", m.at("exogenous"), "exogenous-driven")

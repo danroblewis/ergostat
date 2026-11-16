@@ -270,6 +270,12 @@ def api(live: Live, path: str, q: dict):
             out["now"] = snap["stocks"].get(pname)
         elif kind in ("flow", "disturbance"):
             out["now"] = snap["flows"].get(pname)
+            if getattr(m, "spec", None) is not None:
+                from ..dynamics import equation
+                from ..spec.findings import unit_of
+                from ..spec.ir import Ref
+                out["equation"] = equation(m.spec, pname)
+                out["unit"] = unit_of(m.spec, Ref("flow", pname))       # what moves: its own unit, else its stocks'
         elif kind == "sensor":
             rd = p.measurements.range(f"sensor/{pname}", snap["at"] - snap["window"], snap["at"])
             out["now"] = {"readings": rd[-60:], "count": len(rd)}

@@ -44,6 +44,15 @@ TOOLS = [
                           "item": {"type": "string"}})},
     {"name": "spec", "description": "The format's specification (docs/SPEC.md): read it before writing or changing "
      "ergostat.yaml.", "inputSchema": _obj()},
+    {"name": "improve_model", "description": "How to review the model as system dynamics would and propose edits that "
+     "improve its structure (missing stocks, outflows, delays, perceived values, converting auxiliaries): the "
+     "improve-model skill, then the guidelines it applies (docs/MODELLING.md). Read it when asked to review or improve "
+     "the model, or when check reports structure findings. It proposes edits; the owner approves each.",
+     "inputSchema": _obj()},
+    {"name": "residuals", "description": "What each stock's readings did over the window against what its known flows "
+     "explain: changed, explained, unexplained, and whether the unexplained part is significant (evidence of a flow or "
+     "stock the model is missing, or of a sensor reading wrongly). since: the window, like 6h (default 1h).",
+     "inputSchema": _obj({"since": {"type": "string"}})},
     {"name": "report_done", "description": "Report the work a person block was asked for (type: person): how much was moved "
      "along its flow. The same as `ergostat block NAME --done N`.",
      "inputSchema": _obj({"block": {"type": "string"}, "moved": {"type": "number"}, "note": {"type": "string"}},
@@ -90,12 +99,13 @@ class Server:
                                      "goals": len(spec.goals),
                                      "blocks": len(spec.blocks), "files": len(spec.files)}})
         if name == "spec":
-            doc = Path(__file__).resolve().parent.parent / "docs" / "SPEC.md"
-            here = Path(__file__).resolve().parent / "help" / "spec.md"
-            for p in (here, doc):
-                if p.is_file():
-                    return _text(p.read_text(encoding="utf-8"))
-            return _text("the specification is docs/SPEC.md in the ergostat repository")
+            from . import helpdocs
+            return _text(helpdocs.read("spec") or "the specification is docs/SPEC.md in the ergostat repository")
+        if name == "improve_model":
+            from . import helpdocs
+            skill, guide = helpdocs.read("improve-model"), helpdocs.read("modelling")
+            return _text("\n\n".join(x for x in (skill, guide) if x) or "the guidelines are docs/MODELLING.md in the "
+                         "ergostat repository")
         p = self.project()
         spec = p.model.spec
         if name == "explain":
@@ -118,6 +128,11 @@ class Server:
             found = [x for x in p.model.problems if x.level != "error"] + watch.find(p, spec, window)
             return _text([{"code": f.code, "about": f.about, "message": f.message,
                            "where": str(f.where) if f.where else None} for f in found])
+        if name == "residuals":
+            from . import state
+            from .durations import parse_duration
+            window = parse_duration(a["since"], "since") if a.get("since") else state.WINDOW
+            return _text(state.snapshot(p, window, None)["residuals"])
         if name == "events":
             evs = p.events.query(n=min(int(a.get("n") or 30), 500), type=a.get("type") or None, item=a.get("item") or None)
             return _text([{"time": e["time"], "type": e["type"], "item": e.get("item"), "source": e.get("source"),
@@ -169,7 +184,8 @@ class Server:
                           "serverInfo": {"name": "ergostat", "version": __version__},
                           "instructions": "ergostat runs control loops over scheduled work. Read the format with the "
                                           "spec tool before editing ergostat.yaml; run check after each edit; explain "
-                                          "shows any part in sentences."}
+                                          "shows any part in sentences. To review or improve the model, read "
+                                          "improve_model first."}
             elif method == "ping":
                 result = {}
             elif method == "tools/list":

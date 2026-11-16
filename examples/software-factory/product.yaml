@@ -22,25 +22,30 @@ stocks:
       run: python3 world/read.py missing
       every: 5s
 
+auxiliaries:
+  ops-broken-per-ticket:
+    unit: ops/ticket
+    exogenous: true
+    description: how many working operations a deployed ticket breaks, the developers' and reviewers' miss rate; not measured
 flows:
   signups:
     to: users
     driven-by: [-stock.bugs-live, -stock.missing-ops]   # people come when what they ask for works
   churn:
     from: users
-    driven-by: [+stock.bugs-live, +stock.missing-ops]   # and leave when it does not
+    driven-by: [+stock.users, +stock.bugs-live, +stock.missing-ops]   # and leave when it does not (a share of who is there)
   fixes:
     from: bugs-live
-    driven-by: +flow.deployed              # a release fixes what did not work
+    driven-by: [+stock.bugs-live, {cause: +flow.deployed, instant: true}]   # a release fixes some of what did not work, as it goes live
   regressions:
     to: bugs-live
-    driven-by: +flow.deployed              # or breaks what did
+    driven-by: [{cause: +flow.deployed, instant: true}, +auxiliary.ops-broken-per-ticket]   # or breaks what did, as it goes live
   asks:
     to: missing-ops
     driven-by: +stock.users                # more users ask for more of the long tail
   shipped:
     from: missing-ops
-    driven-by: +flow.deployed
+    driven-by: [+stock.missing-ops, {cause: +flow.deployed, instant: true}]   # what a release adds of what was asked for
 
 goals:
   no-live-bugs:

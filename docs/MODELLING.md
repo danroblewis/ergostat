@@ -1,0 +1,333 @@
+# Improving a model
+
+A guide for someone new to system dynamics: how to tell that a model's structure is wrong, why
+system dynamics says it is, and what to write in `ergostat.yaml` instead. Each guideline has the
+same four parts: the **symptom** (what looks or behaves wrong), the **reason** (in system
+dynamics' terms), the **fix** (in ergostat's YAML) and the **source**.
+
+The words are system dynamics' own (Sterman's *Business Dynamics*): a **stock** keeps what
+accumulates; a **flow** fills or drains a stock, at a rate per hour, through its **valve**; an
+**auxiliary** is worked out at each moment from others and keeps nothing; a **connector** (a
+`driven-by`, or what a block reads) carries information, never material, and carries it at once.
+The format is `docs/SPEC.md`; the five structure checks below are what `ergostat check` reports.
+
+## The tells
+
+| What you see | What is usually missing | `ergostat check` says |
+|---|---|---|
+| A rate driven by another rate (`driven-by: +flow.x` on a flow) | a **stock** between them: the cause accumulates, and the effect follows what accumulated | `rate-driven-by-rate` |
+| A stock that only fills (inflows, no outflow) | its **outflow**: what is in it leaves somehow | `stock-without-outflow` |
+| An outflow that would keep running with its stock empty | the **stock** among the outflow's causes | `outflow-ignores-stock` |
+| A decision that reacts to the true value the moment it changes | a **perceived** value: a stock that catches up with the true one, as people do | (not mechanical: read the decisions) |
+| A link between two things counted in different units | a converting **auxiliary** (so many of one per one of the other) | `units-mismatch` |
+| A cause far from its effect in time (a change that breaks things days later) | a **delay**: one stock or more holding what is on its way | `rate-driven-by-rate` when it is drawn rate to rate |
+| An auxiliary that changes for no reason the model gives | its **causes**, or the word that it comes from outside (`exogenous: true`) | `auxiliary-without-causes` |
+| A stock whose readings move more than its flows explain | a **flow** the model does not have (or a sensor reading wrongly) | the Residuals page |
+
+## 1. A rate driven by a rate: a missing stock
+
+**Symptom.** A flow is `driven-by` another flow. On the diagram a connector runs from one valve
+to another. The model then says, for instance, that alerts fire *as* ramps go ahead.
+
+**Reason.** In system dynamics a connector is instantaneous: the effect at its head depends on
+the cause at its tail *now*. A rate following a rate says the alert rate this hour depends on
+the ramp rate this hour. When the effect comes later (a flag ramped without review sits in
+production and may break its service hours later, or never), something accumulates in between:
+the ramps live and not yet broken. That something is a stock, and the delay is the time things
+spend in it. Forrester's rule for rate equations is that a rate depends on levels (stocks), not on
+other rates: a rate cannot be observed at an instant, only what it has accumulated.
+
+**Fix.** Give what the first flow moves a stock to go into, drain that stock by the flows that
+end its stay, and drive the effect from the stock (or from the flow that ends the stay). This is
+what `examples/the-job` does with unreviewed ramps:
+
+```yaml
+stocks:
+  unreviewed-ramps-live:
+    unit: ramps
+    sensor: {items: ramp, state: went-ahead}
+flows:
+  ramps-went-ahead:                     # was: alerts-fired driven-by +flow.ramps-went-ahead
+    from: ramps-briefed
+    to: unreviewed-ramps-live
+  ramps-broke:
+    from: unreviewed-ramps-live
+    driven-by: +stock.unreviewed-ramps-live    # each one live may break: the more live, the more break
+  ramps-proved-fine:
+    from: unreviewed-ramps-live
+    driven-by: +stock.unreviewed-ramps-live
+  alerts-fired:
+    to: alerts-to-draft
+    driven-by: +stock.unreviewed-ramps-live
+```
+
+Measure the new stock honestly: if its items have no state for it, give them one (here the world
+says when a ramp that went ahead broke or proved fine: `ramp.broke`, `ramp.proved-fine`).
+
+**When it really is immediate**, say so on the link, written out, and the finding is answered:
+a release fixes what it fixes as it goes live; the next document is needed the moment the last is
+approved.
+
+```yaml
+    driven-by:
+      - cause: +flow.docs-approved
+        instant: true                   # nothing between: the next document is needed at once
+```
+
+**Source.** Sterman, *Business Dynamics* (2000), ch. 6 (stocks and flows: only flows change
+stocks, and stocks are where delays and memory live), ch. 11 (delays: a material delay is a stock
+in transit); Forrester, *Industrial Dynamics* (1961) and *Principles of Systems* (1968), on rate
+equations depending on levels.
+
+## 2. An inflow without an outflow: a missing outflow
+
+**Symptom.** A stock has flows that fill it and none that drains it. Run long enough, the model
+says it can only grow; the real one does not (tickets get closed, files get deleted, people
+leave).
+
+**Reason.** A stock changes only through its flows. If the real stock falls and the model has no
+outflow, the fall is unexplained: the model is wrong about where things go. Most real stocks have
+an outflow, often one nobody thinks of because it is slow (expiry, attrition, forgetting).
+
+**Fix.** Add the outflow, and say what drives it (usually the stock itself: an outflow takes from
+what is there):
+
+```yaml
+flows:
+  tickets-closed:
+    from: open-tickets
+    driven-by: +stock.open-tickets
+```
+
+A **running total** that by its nature never drains (money spent so far, hypotheses kept so far)
+is a stock without an outflow on purpose; say so and the finding goes:
+
+```yaml
+stocks:
+  ai-spend:
+    unit: USD
+    cumulative: true
+```
+
+**Source.** Sterman ch. 6 (the conservation of material in stock and flow networks) and ch. 21
+(structure assessment: does the model conserve what it moves?).
+
+## 3. An outflow that ignores its stock: extreme conditions
+
+**Symptom.** An outflow is driven by something other than its stock (fixes driven by deploys
+only). Imagine the stock empty: the model still drains it, below zero.
+
+**Reason.** Sterman's extreme-conditions test asks what a model does when an input is taken to an
+extreme: with nothing to fix, nothing is fixed. An outflow must fall to zero as its stock does; the
+simplest formulation is first-order, outflow = stock / time it stays (or a share of what is there).
+
+**Fix.** Add the stock to what drives the outflow:
+
+```yaml
+flows:
+  fixes:
+    from: bugs-live
+    driven-by:
+      - +stock.bugs-live                # it takes a share of what is there
+      - {cause: +flow.deployed, instant: true}
+```
+
+**Source.** Sterman ch. 21 (extreme conditions tests) and ch. 8 (first-order systems: an outflow
+proportional to its stock).
+
+## 4. A decision on the true value: a missing perceived stock
+
+**Symptom.** A decision (a block, or a market in a simulation) reacts to the true state the moment
+it changes: customers leave the instant a bug ships, a manager staffs up the instant the backlog
+grows. Real decision makers see reports, averages and rumours, late.
+
+**Reason.** Decisions can use only the information actually available to the decision maker
+(Sterman's "Baker criterion"), and people form what they believe by adjusting it toward what they
+see, gradually: an information delay. The perceived value is a stock (it keeps its value until new
+evidence moves it). Leaving it out makes the model react faster, and oscillate less, than the
+real system.
+
+**Fix.** In ergostat a decision already reads a sensor, which is a measurement and not the truth,
+so this is only a fix where the decision maker sees something slower than the sensor: a weekly
+report, a reputation, a moving average. Make that a stock, filled by a two-way flow that closes
+the gap toward the true value, and let the decision read it:
+
+```yaml
+stocks:
+  perceived-quality:
+    unit: share
+    sensor: {run: ./reputation.sh}      # what customers believe, as a survey or the reviews say
+flows:
+  perception-catching-up:
+    to: perceived-quality
+    two-way: true
+    driven-by: [+auxiliary.share-answered-right, -stock.perceived-quality]   # the gap closes over time
+```
+
+**Source.** Sterman ch. 11 (information delays and the smoothing of perceptions) and ch. 13
+(modelling decision making: the Baker criterion; ch. 15 on bounded rationality).
+
+## 5. Units that do not agree: a missing auxiliary
+
+**Symptom.** A link joins two things counted in different units, with nothing between to convert
+one into the other: actions filed following postmortems held, operations broken following tickets
+deployed.
+
+**Reason.** Every equation must balance its units with parameters that mean something in the real
+world. A rate that follows a rate of something else moves so many of its own units for each of the
+other's: a **coflow**, and that ratio (actions per postmortem) is a quantity of its own, worth
+naming, measuring and questioning. A missing ratio is often a missing idea: "two or three actions
+per postmortem" is a habit someone could change.
+
+**Fix.** Name the ratio as an auxiliary (exogenous while nothing in the model moves it), and drive
+the flow from both:
+
+```yaml
+auxiliaries:
+  actions-per-postmortem:
+    unit: actions/outage
+    exogenous: true
+flows:
+  actions-filed:
+    to: actions-to-plan
+    driven-by:
+      - {cause: +flow.postmortems, instant: true}
+      - +auxiliary.actions-per-postmortem
+```
+
+Or, for an outflow, drive it from the stock it drains: it then takes a share of what is there, in
+its own unit (guideline 3). `check` compares counts (alerts, ramps, tickets) with any per-hour
+taken off, and leaves shares, percentages and compound units (`KB/MP`) alone.
+
+**Source.** Sterman ch. 21 (dimensional consistency: the units test is the first test of a model),
+ch. 12 (coflows).
+
+## 6. A cause far from its effect: a missing delay
+
+**Symptom.** Something happens long after what caused it (a decision now shows in the numbers next
+week), but the diagram draws them side by side. The model then responds at once where the real
+system responds late, and the real system overshoots where the model settles.
+
+**Reason.** Delays are everywhere in real systems, and they are what make feedback oscillate.
+A material delay is a stock of what is on its way (orders shipped, not yet delivered); a long or
+spread-out delay is several stocks in a row (an aging chain), each draining into the next.
+
+**Fix.** Put the stock (or stocks) of what is in transit between cause and effect, each measured
+where it can be: `outages-to-review` in `examples/the-job` holds the outages declared and waiting
+for their postmortem, so the actions they leave come when the postmortem is held, not when the
+outage is declared.
+
+**Source.** Sterman ch. 11 (delays) and ch. 12 (aging chains); Forrester (1961) on delays in
+industrial systems.
+
+## 7. An auxiliary with no causes: the boundary
+
+**Symptom.** An auxiliary nothing drives, nothing sets and not marked as coming from outside.
+
+**Reason.** Sterman's boundary-adequacy test asks which quantities the model explains
+(endogenous), which it takes as given (exogenous) and which it leaves out. An auxiliary with no
+causes is neither explained nor declared as given: the model cannot say why it changes.
+
+**Fix.** Name what it is worked out from (`driven-by: [+stock.x, ...]`), or say it comes from
+outside (`exogenous: true`: the weather, a price, a constant the model does not move).
+
+**Source.** Sterman ch. 21 (boundary adequacy), ch. 1–3 (endogenous explanation: the model's
+boundary is a choice to be stated).
+
+## 8. Two smaller ones
+
+- **A stock no flow moves** (`stock-without-flows`): a quantity with no memory is an auxiliary;
+  one with memory needs the flows that change it.
+- **A link with no sign** (`unsigned-link`): every loop through it is of unknown polarity. Write
+  the sign: `+` when the effect moves the same way as the cause, `-` the opposite way (Sterman ch. 5,
+  link polarity).
+
+## Reading what `ergostat check` says
+
+`check` refuses a model with errors (a reference that does not exist, units that disagree between
+a flow and its stock) and reports findings, which are questions to answer, not failures. Each
+names the part and its file and line, says what it found in plain words, and ends with the fix and
+the YAML that writes it. Read them in this order:
+
+1. **Structure** (`rate-driven-by-rate`, `stock-without-outflow`, `outflow-ignores-stock`,
+   `units-mismatch`, `auxiliary-without-causes`, `stock-without-flows`): the model says something
+   about how the world works that system dynamics says cannot be right. Fix these first: every
+   loop drawn from a wrong structure is wrong too.
+2. **Signs** (`unsigned-link`): the loops through an unsigned link are of unknown polarity, so
+   the diagram cannot say which reinforce and which balance.
+3. **Control** (`missing-feedback`, `unjudgeable-goal`, `acting-on-its-own`, `competing-commands`,
+   `own-disturbance`, `unguarded-limit`): what is wanted and whether anything serves it.
+
+A finding may be answered without changing the structure, when the model is right and the check
+cannot know it: `instant: true` on a link that really is immediate, `cumulative: true` on a
+running total, `exogenous: true` on an input from outside. Write the reason beside it as a
+comment, so the next reader can disagree.
+
+## Reading the Residuals page: evidence of what is missing
+
+A stock's **residual** is the change its readings show minus the change its known flows explain.
+The model's flows say how much should have come in and gone out; the sensor says what happened;
+the difference is what the model does not explain (`ergostat residual`, and the Residuals page).
+
+- **A persistent positive residual** (the stock rises more than its inflows explain): an inflow is
+  missing, or an outflow is overestimated. Ask what else brings things in.
+- **A persistent negative residual**: an outflow is missing (guideline 2), often a slow one.
+- **"would have to run backwards to explain it"**: a flow the model estimates from the residual
+  would need the wrong sign: the structure, not the size, is wrong.
+- **A residual that comes and goes with something else** (with deploys, with the time of day):
+  that something is a cause the model leaves out, a candidate `driven-by`.
+- **A residual that jumps once**: a sensor that read wrongly, more often than a missing flow; set
+  the reading aside (`ergostat sensor NAME --forget-above V`) rather than add a flow for it.
+
+A residual is evidence, never noise to be ignored: either the model is missing a flow or a stock,
+or a measurement is wrong, and both are worth knowing.
+
+## Improving from data: system identification
+
+System identification is inferring a model from measured inputs and outputs. Given a structure,
+it can estimate its sizes: how much of a stock drains per hour (a time constant), how long a delay
+is (from when a cause's change shows in its effect, by cross-correlation), how strongly a cause
+drives a flow, and how sure each estimate is. With care it can also propose structure: which
+candidate causes explain a flow at all (sparse regression over many candidates), whether a delay
+is one stock or several (the shape of the response), whether a residual follows something
+measured. Its limits are as real: it needs the inputs to have varied (a cause that never moved
+cannot be measured), it finds correlation and not cause, it is biased inside a closed loop (the
+controller makes the input follow the output), and different structures can fit the same data
+equally well. The model's structure is still a claim people make and data tests.
+
+**ergostat does not do it yet.** A `driven-by` is a declared cause with a sign; its size is never
+estimated, so a valve's equation reads "not known yet: a declared cause with a sign, its size not
+estimated". What ergostat does from data is narrower: it estimates an unmeasured flow from its
+stock's residual, and `ergostat discover loops` looks for a flow that follows its stock after a
+delay (a balancing loop nobody wrote down). The residual is the one quantitative test of structure
+it makes; the structure checks above are tests made on the structure alone.
+
+**Sources.** Ljung, *System Identification: Theory for the User* (2nd ed., 1999); Sterman ch. 21
+(parameter estimation, and behaviour reproduction as a test); Oliva, "Model calibration as a
+testing strategy for system dynamics models", *European Journal of Operational Research* (2003);
+Brunton, Proctor and Kutz, "Discovering governing equations from data by sparse identification of
+nonlinear dynamical systems", *PNAS* (2016).
+
+## A checklist for reviewing a model
+
+1. Run `ergostat check`; answer every structure finding, by a change or by a word with a reason.
+2. For each stock: what fills it, what drains it, and does the drain depend on what is there?
+3. For each `driven-by` on a flow: does the effect come at once? If not, where does the cause
+   wait (the stock), and what ends its wait (the flows out of it)?
+4. For each link: is it signed, and do its units convert?
+5. For each decision: what does the decision maker actually see, and how late?
+6. For each long delay between cause and effect: is the stock of what is in transit in the model?
+7. On the Residuals page: which stocks are not explained, which way, and what moves with them?
+8. For each auxiliary: is it explained by the model, or declared as coming from outside?
+
+## Sources
+
+- John D. Sterman, *Business Dynamics: Systems Thinking and Modeling for a Complex World*
+  (Irwin/McGraw-Hill, 2000): ch. 5 (causal loop diagrams, link polarity), ch. 6 (stocks and flows),
+  ch. 8 (first-order systems), ch. 11 (delays), ch. 12 (aging chains and coflows), ch. 13 (modelling
+  decision making), ch. 15 (bounded rationality), ch. 21 (truth and beauty: validation and model
+  testing: boundary adequacy, structure assessment, dimensional consistency, extreme conditions,
+  behaviour reproduction).
+- Jay W. Forrester, *Industrial Dynamics* (MIT Press, 1961) and *Principles of Systems*
+  (Wright-Allen, 1968): levels and rates, and the information that rate equations may use.
+- The references under "Improving from data" above.

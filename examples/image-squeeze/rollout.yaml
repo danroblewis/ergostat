@@ -83,7 +83,10 @@ flows:
       every: 8s
   cleared:
     from: paired
-    driven-by: [+flow.kept, +flow.dropped]   # a new candidate is compared from 0
+    driven-by:                               # a new candidate is compared from 0: at its verdict, all that was compared goes
+      - +stock.paired
+      - {cause: +flow.kept, instant: true}
+      - {cause: +flow.dropped, instant: true}
     sensor:
       changes: falls
       over: 2m
@@ -96,7 +99,9 @@ flows:
       every: 8s
   failures-cleared:
     from: candidate-failures
-    driven-by: +flow.dropped                 # a kept candidate failed on nothing: only a dropped one has failures to clear
+    driven-by:                               # a kept candidate failed on nothing: only a dropped one has failures to clear
+      - +stock.candidate-failures
+      - {cause: +flow.dropped, instant: true}
     sensor:
       changes: falls
       over: 2m

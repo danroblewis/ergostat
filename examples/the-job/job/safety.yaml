@@ -2,7 +2,8 @@
 # approval; the CI server's releases. Prepared: a research brief for each ramp (its implementation, its
 # schedule, what changed on its service), an upgrade plan for the CI server. Mine: the approvals and
 # the safety judgements; my name is on them. A ramp I do not decide within a working day and a half
-# goes ahead without me, and is likelier to page (incidents.yaml).
+# goes ahead without me, and stays live unreviewed until it breaks its service (an outage, hours later:
+# incidents.yaml) or proves fine.
 defaults:
   system: safety
 
@@ -10,12 +11,14 @@ items:
   ramp:
     id: ramp/*
     description: a team's request to ramp a feature flag in production
-    states: [pending, briefed, approved, rejected, went-ahead]
+    states: [pending, briefed, approved, rejected, went-ahead, broke, proved-fine]
     on:
       ramp.briefed: briefed
       ramp.approved: approved
       ramp.rejected: rejected
-      ramp.went-ahead: went-ahead
+      ramp.went-ahead: went-ahead          # live in production, unreviewed
+      ramp.broke: broke                    # it broke its service: an outage began
+      ramp.proved-fine: proved-fine        # half a working day live and nothing broke
     show: [flag, team, schedule, brief]
   ci:
     id: ci/*
@@ -39,6 +42,13 @@ stocks:
     sensor:
       items: ramp
       state: briefed
+      every: 5s
+  unreviewed-ramps-live:
+    unit: ramps
+    description: ramped without my review, live in production, not yet broken or proved fine
+    sensor:
+      items: ramp
+      state: went-ahead
       every: 5s
   ci-releases-unplanned:
     unit: releases
@@ -87,11 +97,28 @@ flows:
       over: 10m
   ramps-went-ahead:
     from: ramps-briefed
+    to: unreviewed-ramps-live
     description: the team ramps without my decision
     driven-by: +auxiliary.ramps-late
     sensor:
       items: ramp
       entering: went-ahead
+      over: 10m
+  ramps-broke:
+    from: unreviewed-ramps-live
+    description: an unreviewed ramp breaks its service, hours after it went ahead (an outage begins)
+    driven-by: +stock.unreviewed-ramps-live      # each one live may break: the more live, the more break
+    sensor:
+      items: ramp
+      entering: broke
+      over: 10m
+  ramps-proved-fine:
+    from: unreviewed-ramps-live
+    description: an unreviewed ramp that has been live half a working day without breaking anything
+    driven-by: +stock.unreviewed-ramps-live
+    sensor:
+      items: ramp
+      entering: proved-fine
       over: 10m
   ci-releases:
     to: ci-releases-unplanned

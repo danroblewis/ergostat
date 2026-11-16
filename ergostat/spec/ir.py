@@ -117,6 +117,7 @@ class Stock:
     system: str | None = None
     description: str = ""
     sensors: dict[str, Sensor] = field(default_factory=dict)
+    cumulative: bool = False   # a running total that by its nature never drains (spent so far): no outflow is missing
     where: Where | None = None
 
 
@@ -132,6 +133,7 @@ class Flow:
     sensors: dict[str, Sensor] = field(default_factory=dict)
     driven_by: list[Ref] = field(default_factory=list)   # what its rate depends on: other flows, stocks (an influence)
     polarity: dict[str, int] = field(default_factory=dict)   # str(ref) → +1 or -1, for the driven-by written with a sign
+    instant: set[str] = field(default_factory=set)       # str(ref) of the driven-by declared immediate (instant: true)
     two_way: bool = False      # it may run either way (system dynamics' biflow): a block may move it by a negative amount
     where: Where | None = None
 
@@ -151,6 +153,7 @@ class Auxiliary:
     sensors: dict[str, Sensor] = field(default_factory=dict)
     driven_by: list[Ref] = field(default_factory=list)
     polarity: dict[str, int] = field(default_factory=dict)
+    instant: set[str] = field(default_factory=set)
     exogenous: bool = False    # an input from outside the model: nothing in it drives it (the weather, the mix of customers)
     where: Where | None = None
 

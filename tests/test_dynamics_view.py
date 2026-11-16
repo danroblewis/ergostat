@@ -157,3 +157,21 @@ def test_the_attention_cards_speak_system_dynamics():
     for a in out:
         text = a["what"] + " " + a["says"]
         assert not re.search(r"controller|setpoint|\brule|\bgoal|valve|<=|>=", text), text
+
+
+def test_each_valve_says_its_equation_or_what_is_not_known_yet(factory):
+    """A valve's panel says what its rate is as far as the model says: a decision that sets it, or
+    declared causes with a sign and no size yet, and which act at once."""
+    g = factory(view="dynamics", open="*")
+    ids = {n["id"]: n for n in g["nodes"]}
+    assert ids["flow:regressions"]["equation"] == ("not known yet: declared causes with a sign each, their sizes not "
+                                                   "estimated; at once with deployed: no stock between")
+    assert ids["flow:submitted"]["equation"].startswith("set by the decision ")
+    assert "not known yet: a declared cause with a sign, its size not estimated" in ids["flow:asks"]["equation"]
+    from ergostat.dynamics import equation
+    from ergostat.spec.ir import Flow, Spec
+    s = Spec("t", ROOT, [])
+    s.flows["leak"] = Flow("leak", rate=2.0)
+    s.flows["rain"] = Flow("rain")
+    assert equation(s, "leak") == "2 per hour, declared: a constant"
+    assert equation(s, "rain") == "not known: nothing in the model drives it, and it is not measured"
