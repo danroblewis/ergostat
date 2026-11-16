@@ -12,7 +12,7 @@ function showDetail(...kids) {
 /* what each kind of thing on the diagram is: said first, in plain words, before how it is now */
 const WHAT = {
   stock: ["Stock", "something that accumulates. It rises and falls only by its flows, and its level is what a goal holds."],
-  variable: ["Variable", "something measured or set that does not accumulate: a score, a ratio, a setting. No flow fills it. Measured, it is a loop's process variable (what a goal holds); set by a block, it is a manipulated variable, a knob the loop turns."],
+  auxiliary: ["Auxiliary", "a quantity without memory: determined at each moment by others (a score, a ratio, a share), through an equation not written here, so it is measured. What keeps its value between changes is a stock. What a goal holds is its loop's process variable; what a controller turns is its manipulated variable: roles in a loop, not kinds of quantity."],
   valve: ["Flow, controlled (a valve)", "material moving into or out of a stock, set by something in the model: a block opens it when its controller commands."],
   disturbance: ["Flow, uncontrolled (a disturbance)", "material moving into or out of a stock that nothing in the model sets. The world pushes it; the loops on its stocks must make up for it."],
   sensor: ["Sensor", "an instrument. It reads one stock or flow; a loop sees only what its sensor reads."],
@@ -69,19 +69,19 @@ async function openNode(n) {
   const d = await api(`part/${kind}/${encodeURIComponent(name)}`);
   const m = d.model, now = d.now || {};
   const rows = [["description", m.description]];
-  const knob = n.kind === "variable" && n.agent;          // what a block sets is not measured: it is what the block said
+  const knob = n.kind === "auxiliary" && n.agent;          // what a block sets is not measured: it is what the block said
   if (kind === "stock") rows.push(["now", `${fmt(now.value)} ${m.unit}`],
     knob ? ["set", h("span", {}, now.at ? `${ago(now.at)} by ` : "never yet, by ", agentLink(n.agent))]
          : ["measured", now.at ? `${ago(now.at)} by its sensor ${now.sensor}` : "never"],
-    ...(n.kind === "variable" ? [] : [["in", `${fmt(now.inflow)}/h`], ["out", `${fmt(now.outflow)}/h`]]));
+    ...(n.kind === "auxiliary" ? [] : [["in", `${fmt(now.inflow)}/h`], ["out", `${fmt(now.outflow)}/h`]]));
   if (kind === "disturbance") rows.push(["pushes", m.target ? `into ${m.target}` : `out of ${m.source}`], ["rate", `${fmt(now.rate)}/h`], ["how we know", now.how]);
   if (kind === "valve") rows.push(["acts on", m.flow], ["mode", m.mode], ["most a run", m.max != null ? fmt(m.max) : null],
                                   ["filled by", agentLink(d.agent)], ["rate", `${fmt(now.flow?.rate)}/h`]);
   const rd = now.readings || [], last = rd[rd.length - 1];
   if (kind === "sensor") rows.push(["measures", m.measures], ["filled by", agentLink(d.agent)],
                                    ["last reading", last ? `${fmt(last[1])}, ${ago(last[0])}` : "none yet"], ["in the window", `${now.count ?? rd.length} readings`]);
-  const shown = n.kind === "variable" ? "variable" : kind;
-  if (n.kind === "variable") for (let i = rows.length - 1; i >= 0; i--) if (rows[i][0] === "in" || rows[i][0] === "out") rows.splice(i, 1);
+  const shown = n.kind === "auxiliary" ? "auxiliary" : kind;
+  if (n.kind === "auxiliary") for (let i = rows.length - 1; i >= 0; i--) if (rows[i][0] === "in" || rows[i][0] === "out") rows.splice(i, 1);
   const kids = [h("div", { class: "kind" }, shown), h("h2", {}, name), whatIs(shown), h("h3", {}, "how it is now"), dl(rows)];
   if (kind === "stock" && now.points?.length > 1) kids.push(sparkSvg(now.points, 380, 70));
   if (kind === "sensor" && now.readings?.length > 1) kids.push(sparkSvg(now.readings, 380, 70));
@@ -335,8 +335,8 @@ async function openEdge(e) {
               ["last decision", c?.decision ? `“${c.decision}”${c.decisionAt ? " · " + ago(c.decisionAt) : ""}` : null]);
   } else if (e.kind === "influence") {
     kind = "influence · driven-by";
-    const kindWord = (id) => ({ valve: "flow", disturbance: "flow", variable: "variable", stock: "stock" })[byId[id]?.kind] || "";
-    const toVar = byId[dst]?.kind === "variable";
+    const kindWord = (id) => ({ valve: "flow", disturbance: "flow", auxiliary: "auxiliary", stock: "stock" })[byId[id]?.kind] || "";
+    const toVar = byId[dst]?.kind === "auxiliary";
     what = toVar ? `Here: ${nameOf(dst)} changes when ${nameOf(src)} changes (declared with driven-by in the YAML). It is a cause, not a formula: ` +
                    `${nameOf(dst)}'s value comes from its own sensor, and nothing is computed along this line.`
                  : `Here: the rate of ${nameOf(dst)} follows ${nameOf(src)} (declared with driven-by in the YAML). A cause, not a formula: ` +

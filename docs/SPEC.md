@@ -10,10 +10,11 @@ of this document.
 
 ## 1. Principles
 
-1. **Four kinds of thing are written, and a fifth when it says something.** Stocks, flows, goals
-   and blocks; and agents, only for machines shared by several blocks. (Kinds of item, section 5a,
-   say how to read the record, not what the system is.) Valves, controllers,
-   disturbances, errors, loops and diagrams are worked out from them, never declared.
+1. **Four kinds of thing are written, and more when they say something.** Stocks, flows, goals
+   and blocks; auxiliaries, for quantities without memory; and agents, only for machines shared
+   by several blocks. (Kinds of item, section 5a, say how to read the record, not what the system
+   is.) Valves, controllers, disturbances, errors, loops and diagrams are worked out from them,
+   never declared.
 2. **Two layers.** The material layer (stocks and flows: where work moves and accumulates) and
    the information layer (blocks and the signals between them: deciding and commanding). This is
    system dynamics' stocks and flows plus converters and connectors, and control engineering's
@@ -32,6 +33,21 @@ of this document.
    that nothing performs.
 7. **Each key says what it names.** `from` and `to` are stocks, `stock` and `flow` say which kind
    a goal is about, `agent` is a machine; no word means two things.
+
+## 1a. One model, two perspectives
+
+There is one model, and two ways of looking at it, each true to its own discipline:
+
+- **System dynamics** (what is): stocks, flows, auxiliaries and the influences between them, and
+  the feedback loops they make, each reinforcing (R) or balancing (B). For product managers and
+  sales; the language of Sterman's *Business Dynamics*, Vensim and Stella.
+- **Control** (what is controlled): goals, sensors, controllers and actuators, the error each
+  controller acts on, and the loop it closes. For engineers; classical block diagrams.
+
+Neither is derived from the other: both are read from the same stocks, flows, auxiliaries, goals
+and blocks. A kind of quantity (stock, auxiliary) belongs to the model; a role in a loop (process
+variable, manipulated variable, controller, actuator) belongs to the control view, and is worked
+out, never written.
 
 ## 2. Files
 
@@ -56,13 +72,20 @@ sections (a stock and a goal both called `inbox`), but it is discouraged.
 |---|---|
 | `stock.inbox` | The stock's measured level (its current best reading) |
 | `stock.inbox.count` | The reading of one of its sensors, `count` |
-| `variable.quality` | A variable's value (as an output: what a block sets it to) |
+| `auxiliary.quality` | An auxiliary's value (as an output: what a block sets it to) |
 | `flow.processed` | As an input: the flow's measured rate. As an output: what a block moves along this flow |
 | `goal.inbox-short` | The goal's setpoint (r) |
 | `goal.inbox-short.error` | The goal's error, e = r − y |
 | `goal.inbox-short.off` | 1 while the goal is off, 0 while it holds |
 | `block.decide` | A block's output (its only output, or its output named `out`) |
 | `block.decide.urgent` | A block's output port `urgent` |
+
+A `driven-by` reference may carry a sign, its **polarity**: `+stock.improvements` (it rises when
+that rises), `-auxiliary.price` (it falls when that rises). Unsigned means not known. No other
+reference carries a sign.
+
+*Renamed:* `variable.x` is the old spelling of `auxiliary.x`, and `variables:` of `auxiliaries:`;
+both are still read, with a `deprecated-name` finding saying what to rename.
 
 Where a key can only name one kind of thing, the name is written bare: a goal's `stock: inbox`, a
 block's `agent: claude`, an `onoff` block's `goal: inbox-short`.
@@ -97,6 +120,8 @@ stocks:
   ...
 flows:
   ...
+auxiliaries:                    # optional: quantities without memory (section 7a)
+  ...
 goals:
   ...
 blocks:
@@ -128,7 +153,7 @@ systems:
 |---|---|---|---|
 | `description` | string | none | |
 | `within` | system name | the top level | The system it is part of. A system within itself, at any depth, is an error |
-| `show` | stock, flow or variable references | its goals' | The measures its box shows when it is drawn as one part: its control panel |
+| `show` | stock, flow or auxiliary references | its goals' | The measures its box shows when it is drawn as one part: its control panel |
 
 A system named by a part and not described here is a top-level system.
 
@@ -160,7 +185,11 @@ at its level starts open; the others start as boxes.
 
 ## 5. Stocks
 
-What accumulates. Real, measured, trusted.
+A quantity with memory: its value persists when nothing happens, and changes only through its
+flows. What accumulates (a queue, a disk, a backlog), and also what is held at a level by equal
+inflow and outflow, and a setting a controller steps (it stays where it was last moved: section
+7a). Its reading may come from a script and may change suddenly; a sudden drop is a large outflow,
+some process removing what was there. Real, measured, trusted.
 
 ```yaml
 stocks:
@@ -241,8 +270,8 @@ reporting them.
 ## 6. Sensors
 
 An instrument: it measures one stock or one flow, and nothing else. It never decides or acts. It
-is written inside the stock or flow it measures. Exactly one of `run`, `query`, `manual` or
-`items`:
+is written inside the stock or flow it measures. Exactly one of `run`, `query`, `manual`, `items`
+or `changes`:
 
 ```yaml
 sensors:
@@ -288,6 +317,7 @@ flows:
 | `state` | state or list | any | On a stock: which states count |
 | `measure` | `count` or `oldest` | `count` | On a stock: how many, or the hours the oldest of them has been in its state |
 | `entering`, `leaving` | state | | On a flow: exactly one; the move it counts |
+| `changes` | `rises`, `falls` or `net` | | On a flow into or out of one stock: its rate from that stock's own successive readings, how much they rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a `two-way` flow), per hour over `over` |
 | `over` | duration | `1h` | On a flow: the window the rate is taken over |
 | `where` | map of field → value (or list) | | Only items whose fields match |
 | `every` | duration | `1m` | How often it reads (`run`, `query`) |
@@ -296,14 +326,20 @@ flows:
 | `parse` | regex with one group | | Takes the number from a line of text |
 | `unit` | string | the stock's | Must equal the stock's (or the flow's rate unit) |
 
-On a flow, a sensor's reading is a rate per hour.
+On a flow, a sensor's reading is a rate per hour; on a `two-way` flow it may be negative (it ran
+back).
+
+`changes` measures a flow by what it did to its stock: a benchmark's score rising with a release
+is its inflow, a sudden fall its outflow. It is how a stock read by a script gets measured flows
+without a second instrument (the flows are then only as true as the stock's readings, and see only
+the net change between two readings).
 
 A `run` sensor may also print what it observed about items, one JSON line each, beside its number:
 `{"event": "case.met", "item": "case/logo-3", "data": {...}}` (a benchmark that records each case
 it measured). These are recorded as events from the sensor (`benchmark-score.main`) and fold into
 the items like any other. An observation records what was seen, never a command: it must name an
 item (an id with a `/`), may not use ergostat's own types, and a sensor has no outputs. A measured
-value is shown as measured by its sensor; a variable a block sets is shown as set by that block.
+value is shown as measured by its sensor; an auxiliary a block sets is shown as set by that block.
 
 ## 7. Flows
 
@@ -334,7 +370,8 @@ flows:
 | `unit` | string | the stocks' | Must equal theirs |
 | `rate` | number | none | A known, declared rate per hour |
 | `sensors` / `sensor` | | none | Measurements of its rate |
-| `driven-by` | flow or stock references | none | What its rate follows: an influence from elsewhere in the system (see below) |
+| `driven-by` | flow, stock or auxiliary references, each optionally signed | none | What its rate follows: an influence from elsewhere in the system (see below) |
+| `two-way` | bool | false | It may run either way (system dynamics' biflow): a block may move it by a negative amount, and its sensor may read a negative rate |
 | `system`, `description` | | | |
 
 **`driven-by`: an influence, not a pipe.** Some flows are moved by nothing in the model, yet follow
@@ -342,7 +379,16 @@ something that is: a deploy (`flow.deployed`) is what fixes the product's broken
 (`flow.fixed`), though nothing pipes one into the other. `driven-by: [flow.deployed]` says so. It
 is a claim about how the system works, drawn as a dashed arrow; nothing checks it against the
 record yet. It also lets a loop close the long way (section 12).
-It never says who moves the flow.
+It never says who moves the flow. Each reference may be signed (`+flow.deployed`,
+`-stock.bugs-live`): the influence's polarity, used to find which feedback loops reinforce and which
+balance (section 12a).
+
+**Polarity of structure.** A flow is + on the stock it fills and − on the stock it drains; a
+two-way flow is the same, counted in its direction (from `from` to `to`).
+
+**Two-way flows.** A flow runs one way: what a block moves along it is 0 or more, and a negative
+amount is refused. `two-way: true` lets it run back: a setting a controller steps up and down, a
+window of measurements whose level rises and falls as what it holds turns over.
 
 What sets a flow is the block whose `out` names it (at most one). Seen from a goal's loop:
 
@@ -352,44 +398,80 @@ What sets a flow is the block whose `out` names it (at most one). Seen from a go
   do not explain), by an `external` block (something known, not run by ergostat), or by a block
   no controller of this loop commands.
 
-## 7a. Variables
+## 7a. Auxiliaries
 
-What is measured or set but does not accumulate: a score, a ratio, an age, a setting. Nothing
-flows into a variable, so it is not a stock (system dynamics calls it an auxiliary). In a loop it is
-either the **process variable**, measured, which a goal holds, or the **manipulated variable**, a
-knob a block sets, which the loop turns.
+A quantity without memory: determined at each moment by others, through an equation (here not
+written, so it is measured). System dynamics calls it an auxiliary (or converter). A ratio of two
+stocks, a difference between two builds measured on the same images, a share that is a function of
+the clock. Nothing flows into it, and it keeps nothing between moments.
+
+Memory decides the kind, not how something is measured or what it is used for. What persists when
+nothing happens and changes only through some process is a stock (section 5), even when it is a
+setting, a score or a statistic over a window of what is served; what is a momentary function of
+other things is an auxiliary. *Process variable* and *manipulated variable* are not kinds: they are
+roles a part plays in a control loop (what its goal holds; what its controller turns), said by
+`explain` and the page, never written.
 
 ```yaml
-variables:
-  quality:
+auxiliaries:
+  quality-change:
     unit: ssim
-    description: how close the compressed images look to the originals
+    description: how much better the candidate looks than production, on the same images
     sensor:
-      run: python3 world/read.py quality
-      every: 10s
-    driven-by: variable.quality-setting       # what it follows
-  quality-setting:
-    unit: jpeg-q
-    description: the encoder's quality, which the tuner sets
+      run: python3 world/read.py quality-change
+      every: 8s
+    driven-by: +stock.candidate-offset          # what it follows, and which way
+  flat-share:
+    unit: share
+    exogenous: true                             # from outside the model: nothing in it drives it
+    description: how much of the mix is flat images, a function of the clock
 ```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `unit`, `system`, `description` | | | |
 | `sensors` / `sensor` | | none | How it is measured (section 6), as a stock is |
-| `driven-by` | references | none | What it follows (flows, stocks, variables): an influence, as on a flow |
+| `driven-by` | references, each optionally signed | none | What it follows (flows, stocks, auxiliaries): an influence, as on a flow |
+| `exogenous` | bool | false | An input from outside the model (system dynamics' exogenous input); it then has no `driven-by` |
 
-A block sets a variable by naming it in `out:` (`out: variable.quality-setting`) and printing the
-value (`{"out": "variable.quality-setting", "value": 82}`, or a bare number); what it set is the
-variable's reading, as if a sensor named `set` had read it, and is recorded as `variable.set`. One
-block sets a variable. A goal may be about a variable (`variable: quality`), and its loop closes
-when what the controller sets reaches it: directly, or through what it drives.
+A block may set an auxiliary by naming it in `out:` (`out: auxiliary.flat-share`) and printing its
+whole value each run (`{"out": "auxiliary.flat-share", "value": 0.3}`, or a bare number); what it
+set is the auxiliary's reading, as if a sensor named `set` had read it, and is recorded as
+`auxiliary.set`. One block sets an auxiliary. *Decided:* this is kept only for what is genuinely
+memoryless, a value the block states afresh from what it reads now (a proportional controller's
+output, a schedule, the world's mix brought in from outside). A controller whose output is its
+last output plus a step (integral action) keeps memory: what it turns is a stock, and it moves it
+through a two-way flow (`out: flow.quality-steps`, `{"moved": -2.5}`).
 
-A stock no flow fills or drains is reported (`stock-without-flows`): it is probably a variable.
+```yaml
+stocks:
+  quality-setting:                              # a setting the tuner steps: a stock
+    unit: q
+    sensor:
+      run: python3 world/read.py quality-setting
+flows:
+  quality-steps:
+    to: quality-setting
+    two-way: true
+blocks:
+  tuner:
+    type: program
+    run: python3 bin/tune.py                    # prints {"out": "flow.quality-steps", "moved": <the step>}
+    in: goal.quality-held.error
+    out: flow.quality-steps
+```
+
+A goal may be about an auxiliary (`auxiliary: quality-change`), and its loop closes when what the
+controller moves reaches it: directly, or through what it drives (a stock the controller steps,
+then the auxiliary or the flow that follows it).
+
+A stock no flow fills or drains is reported (`stock-without-flows`): give it its flows, or, if it
+has no memory, make it an auxiliary.
 
 ## 8. Goals
 
-What we want. Each goal is about exactly one stock (its level) or one flow (its rate).
+What we want. Each goal is about exactly one stock (its level), one flow (its rate) or one auxiliary
+(its value).
 
 ```yaml
 goals:
@@ -409,7 +491,7 @@ goals:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `stock`, `flow` or `variable` | name | required, exactly one | What it is about: a stock's level, a flow's rate, or a variable's value |
+| `stock`, `flow` or `auxiliary` | name | required, exactly one | What it is about: a stock's level, a flow's rate, or an auxiliary's value (`variable:`, its old name, is still read) |
 | `hold` | setpoint | required | The setpoint |
 | `tolerance` | number | 0 | Hysteresis for the status: off past the setpoint by more than this; holding again only back within the setpoint (for `==`, within half of it) |
 | `critical` | bool | false | It guards against a cascade or an accumulating failure: watched for decay |
@@ -645,14 +727,23 @@ path, from the controller through blocks, flows, stocks and influences to a flow
 stock, and the loop closes along it (`explain` names each part). Its delay is the sum of every
 queue along the way.
 
+An integral controller closes the same way, through one stock: it steps a setting (a two-way flow
+into a stock that keeps its value between steps), and what its goal holds is driven by that
+setting. `explain` says so: the setting is the loop's manipulated variable, and the loop settles
+where the error is 0.
+
 **Errors** (the model is refused until fixed; each names the file and line):
 
 - a reference to something that does not exist, or of the wrong kind;
 - a name defined twice;
 - a flow with neither `from` nor `to`;
-- a goal without exactly one of `stock` and `flow`, without `hold`, or with a setpoint that does
-  not parse;
-- a sensor with none or more than one of `run`, `query`, `manual`, `items`;
+- a goal without exactly one of `stock`, `flow` and `auxiliary`, without `hold`, or with a
+  setpoint that does not parse;
+- a sensor with none or more than one of `run`, `query`, `manual`, `items`, `changes` (or
+  `changes` on a flow between two stocks, `rises` on an outflow, `falls` on an inflow, `net` on a
+  one-way flow);
+- a negative amount moved along a flow that is not `two-way` (refused when the block reports it);
+- an `exogenous` auxiliary that is also `driven-by` something;
 - an item kind whose `id` has no `/`, an `on` naming a state not in `states`, or a sensor counting
   a kind or state that does not exist (or `state`/`measure` on a flow, `entering`/`leaving`/`over`
   on a stock);
@@ -671,7 +762,33 @@ queue along the way.
 - **acting on its own**: an actuator nothing commands (an open loop);
 - **competing commands**: two controllers commanding one block;
 - **its own disturbance**: a controller that also adds to the stock it holds;
-- **critical goal decaying**: answering more slowly, saturating more often, its machine changed.
+- **critical goal decaying**: answering more slowly, saturating more often, its machine changed;
+- **deprecated name**: `variables:`, `variable.x` or a goal's `variable:`, still read; rename to
+  `auxiliaries:`, `auxiliary.x`, `auxiliary:`.
+
+## 12a. Feedback loops (system dynamics)
+
+Worked out, never written: every cycle of cause and effect through stocks, flows, auxiliaries,
+goals and blocks (`ergostat/spec/causal.py`; `explain` lists them, and the graph API gives each
+one's members, polarity and name). Each link has a sign:
+
+| Link | Sign |
+|---|---|
+| a flow → the stock it fills / drains | + / − |
+| a `driven-by` | as written; unsigned: not known |
+| what a goal is about → the goal's error, e = r − y | − |
+| a goal → a block reading its error | + (a controller acts on its error: that is what serving a goal means) |
+| a goal → a block acting while it is off (`.off`, an `onoff` or `proportional` on it, the goal itself) | + for a floor (`>=`), − for a ceiling (`<=`), not known for `==` |
+| a block → the block it commands | + for a machine block; a built-in's own sign (`compare below` and a falling `lookup` −, `expr` not known) |
+| a block → what it moves, sets or commands (a setpoint it sets raises the error) | + |
+| a stock, flow or auxiliary → a machine block that reads it | not known (what the block does with it is its own) |
+
+A loop is **R** (reinforcing) when the product of its signs is +, **B** (balancing) when −, and of
+unknown polarity when any sign along it is not known. A loop through a goal is named for the goal
+(`quality-held`; several goals joined with `+`), any other for the stocks it runs through
+(`missing-ops+users`); a second loop with the same name gets `-2`. A goal-seeking loop whose links
+are all known comes out balancing, as it should; one that comes out reinforcing is a controller
+pushing the wrong way.
 
 ## 13. Examples
 

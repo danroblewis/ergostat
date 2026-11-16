@@ -19,7 +19,7 @@ and, while a candidate runs, the comparison, as 90% confidence bounds over the i
     quality-change SSIM gained over production (low, high)
     candidate-failures, candidate-time, paired (images compared)
 
-Prints the mix it served from, the variable this block sets."""
+Prints the mix it served from, the auxiliary this block sets (an input from outside the model)."""
 
 from __future__ import annotations
 
@@ -153,4 +153,4 @@ if __name__ == "__main__":
           f"p95 {s['time']}ms" + (f"; candidate {c['id']} at {s['rollout'].get('share', 0):.0%} (q{c['settings']['quality']}): "
                                   f"saves {c['bytes_saved']}%, quality {c['quality_mean']:+} over {c['paired']}" if c["id"] else ""),
           file=sys.stderr)
-    print(json.dumps({"out": "variable.flat-share", "value": s["flat_share"]}))
+    print(json.dumps({"out": "auxiliary.flat-share", "value": s["flat_share"]}))

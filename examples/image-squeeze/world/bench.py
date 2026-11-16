@@ -2,10 +2,14 @@
 release is in production, and reports each case as an item, met or not, with its best size so far.
 
 Prints, as a sensor reading: an observation per case whose result changed (case.met, case.unmet,
-case.measured), and the benchmark score (KB/MP at the quality floor, all thirty cases).
+case.measured), and the benchmark points.
 
-    bench.py                 measure (a new release) and read the score
-    bench.py --read KEY      only read KEY (photo_score, flat_score) of the last measurement"""
+Points are the percentage fewer kilobytes per megapixel (at the quality floor) squeeze needs than
+squeeze as handed over, the first release measured: higher is better, and the seed scores 0. The
+KB/MP themselves are kept beside them (score, photo_score, flat_score).
+
+    bench.py                 measure (a new release) and read the points, on all thirty cases
+    bench.py --read KEY      only read KEY (photo_points, flat_points, or a KB/MP score) of the last measurement"""
 
 import json
 import subprocess
@@ -38,7 +42,7 @@ def main() -> int:
     before = json.loads(OUT.read_text()) if OUT.exists() else {"cases": {}}
     commit = head(prod)
     if before.get("commit") == commit:                      # this release is measured already
-        print(before["score"])
+        print(before.get("benchmark_points", 0.0))
         return 0
     save = RUN / "world" / "cases" / commit[:8]               # what this release made of each case, to look at
     p = subprocess.run([sys.executable, str(ROOT / "world" / "benchmark.py"), str(prod), "--save", str(save)],
@@ -55,12 +59,17 @@ def main() -> int:
         if kind != "case.measured" or c.get("kb_per_mp") != was.get("kb_per_mp") or not was or c.get("output") != was.get("output"):
             print(json.dumps({"event": kind, "item": cid, "data": data}))
     now["commit"] = commit
+    seed = before.get("seed") or {k: now[k] for k in ("score", "photo_score", "flat_score")}   # the first release: the seed
+    now["seed"] = seed
+    for points, score in (("benchmark_points", "score"), ("photo_points", "photo_score"), ("flat_points", "flat_score")):
+        now[points] = round(100 * (1 - now[score] / seed[score]), 2) if seed.get(score) else 0.0
     OUT.parent.mkdir(parents=True, exist_ok=True)
     tmp = OUT.with_suffix(".tmp")                            # whole, for the other scores' sensors reading it
     tmp.write_text(json.dumps(now, indent=1))
     tmp.replace(OUT)
-    print(f"release {commit[:8]}: {now['met']} of {now['of']} cases met, score {now['score']} KB/MP", file=sys.stderr)
-    print(now["score"])
+    print(f"release {commit[:8]}: {now['met']} of {now['of']} cases met, score {now['score']} KB/MP "
+          f"({now['benchmark_points']:+g} points)", file=sys.stderr)
+    print(now["benchmark_points"])
     return 0
 
 

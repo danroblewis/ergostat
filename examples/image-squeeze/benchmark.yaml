@@ -15,31 +15,6 @@ items:
       case.unmet: unmet
     show: [original, output, image, kb_per_mp, target, best, format]
 
-variables:
-  benchmark-score:
-    unit: KB/MP
-    description: kilobytes per megapixel squeeze needs to make the thirty cases look good enough (geometric mean, 300 for a case it cannot do); lower is better
-    driven-by: stock.improvements          # it measures the code in production, which is what has been kept so far
-    sensor:                                # runs the benchmark on a new release (else reads the last result),
-      run: bin/py world/bench.py           # and records each case it measured: case.met, case.unmet
-      every: 20s
-      timeout: 10m
-
-  photo-score:
-    unit: KB/MP
-    description: the same, on the fifteen photos (photos, big photos, grayscale photos)
-    driven-by: stock.improvements
-    sensor:
-      run: bin/py world/bench.py --read photo_score
-      every: 20s
-  flat-score:
-    unit: KB/MP
-    description: the same, on the fifteen flat images (screenshots, line art, logos)
-    driven-by: stock.improvements
-    sensor:
-      run: bin/py world/bench.py --read flat_score
-      every: 20s
-
 stocks:
   capabilities:
     unit: cases
@@ -48,22 +23,84 @@ stocks:
       items: case
       state: met
       every: 10s
+  # How good squeeze is on the cases, as points: the percentage fewer kilobytes per megapixel it needs
+  # than squeeze as handed over (the first release measured), so higher is better and the seed is 0.
+  # A score keeps its value until a release changes the code: a stock, changed by what releases gain
+  # and lose.
+  benchmark-points:
+    unit: points
+    description: "% fewer KB/MP than squeeze as handed over, on all thirty cases (the KB/MP itself: the geometric mean, 300 for a case it cannot do; bench.py prints both); higher is better"
+    sensor:                                # runs the benchmark on a new release (else reads the last result),
+      run: bin/py world/bench.py           # and records each case it measured: case.met, case.unmet
+      every: 20s
+      timeout: 10m
+  photo-points:
+    unit: points
+    description: the same, on the fifteen photos (photos, big photos, grayscale photos)
+    sensor:
+      run: bin/py world/bench.py --read photo_points
+      every: 20s
+  flat-points:
+    unit: points
+    description: the same, on the fifteen flat images (screenshots, line art, logos)
+    sensor:
+      run: bin/py world/bench.py --read flat_points
+      every: 20s
 
 flows:
   gained:
     to: capabilities
-    driven-by: flow.kept                  # a release that does something it could not
+    driven-by: +flow.kept                 # a release that does something it could not
     sensor:
       items: case
       entering: met
       over: 30m
   lost:
     from: capabilities
-    driven-by: flow.kept                  # or breaks something it could
+    driven-by: +flow.kept                  # or breaks something it could
     sensor:
       items: case
       leaving: met
       over: 30m
+  benchmark-points-gained:
+    to: benchmark-points
+    driven-by: +flow.kept                 # what a release does better
+    sensor:                               # the points releases gained: the score's rises, per hour over 30 minutes
+      changes: rises
+      over: 30m
+      every: 20s
+  benchmark-points-lost:
+    from: benchmark-points                         # to outside: what a release does worse (its causes not yet modelled)
+    sensor:
+      changes: falls
+      over: 30m
+      every: 20s
+  photo-points-gained:
+    to: photo-points
+    driven-by: +flow.kept                 # what a release does better
+    sensor:                               # the points releases gained: the score's rises, per hour over 30 minutes
+      changes: rises
+      over: 30m
+      every: 20s
+  photo-points-lost:
+    from: photo-points                         # to outside: what a release does worse (its causes not yet modelled)
+    sensor:
+      changes: falls
+      over: 30m
+      every: 20s
+  flat-points-gained:
+    to: flat-points
+    driven-by: +flow.kept                 # what a release does better
+    sensor:                               # the points releases gained: the score's rises, per hour over 30 minutes
+      changes: rises
+      over: 30m
+      every: 20s
+  flat-points-lost:
+    from: flat-points                         # to outside: what a release does worse (its causes not yet modelled)
+    sensor:
+      changes: falls
+      over: 30m
+      every: 20s
 
 goals:
   every-case:

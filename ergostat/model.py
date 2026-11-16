@@ -58,8 +58,10 @@ class Part:
 @dataclass
 class Stock(Part):
     unit: str = ""
-    variable: bool = field(default=False, metadata={"history": False})   # a variable (YAML): measured or set, nothing flows in
+    auxiliary: bool = field(default=False, metadata={"history": False})   # an auxiliary (YAML): no memory, determined by others
+    exogenous: bool = field(default=False, metadata={"history": False})   # an auxiliary from outside the model: nothing drives it
     setter: str | None = field(default=None, metadata={"history": False})   # the block that sets it, when one does
+    polarity: dict = field(default_factory=dict, metadata={"history": False})   # driven-by name → "+" or "-", when written
     driven_by: list[str] = field(default_factory=list, metadata={"history": False})
     kind = "stock"
 
@@ -73,6 +75,8 @@ class Flow(Part):
     rate: float | None = None          # a disturbance's known rate per hour, when it is declared
     agent: str | None = None           # a disturbance's: whose doing it is (the load), never a role it fills
     driven_by: list[str] = field(default_factory=list, metadata={"history": False})   # flows and stocks its rate follows
+    polarity: dict = field(default_factory=dict, metadata={"history": False})   # driven-by name → "+" or "-", when written
+    two_way: bool = field(default=False, metadata={"history": False})   # it may run either way (a biflow)
     kind = "flow"
 
 
@@ -91,7 +95,7 @@ class Sensor(Part):
     measures: str = ""                 # a stock or a flow
     agent: str | None = None
     unit: str = ""
-    implied: bool = field(default=False, metadata={"history": False})   # what a block set a variable to: not an instrument
+    implied: bool = field(default=False, metadata={"history": False})   # what a block set an auxiliary to: not an instrument
     kind = "sensor"
 
 

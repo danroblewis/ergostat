@@ -2,13 +2,32 @@
 
     quality bytes-per-mp failures time flat-share          what was served (world/customers.py)
     bytes-saved-low bytes-saved-high quality-change        the running experiment, against production
-    candidate-failures candidate-time paired"""
+    candidate-failures candidate-time paired
+    quality-setting candidate-offset rollout-share         the settings the tuner, the matcher and the rollout step
+    ai-spend                                               what the Claude sessions have cost"""
 
 import json
 import sys
 from pathlib import Path
 
 RUN = Path(__file__).resolve().parent.parent / "run"
+
+
+def setting(path: str, key: str, default: float) -> None:
+    try:
+        print(float(json.loads((RUN / path).read_text()).get(key) or default))
+    except (OSError, ValueError):
+        print("no settings yet", file=sys.stderr)
+        raise SystemExit(1) from None
+    raise SystemExit(0)
+
+
+if sys.argv[1] == "quality-setting":
+    setting("settings.json", "quality", 80)
+if sys.argv[1] == "candidate-offset":
+    setting("rollout.json", "offset", 0)
+if sys.argv[1] == "rollout-share":
+    setting("rollout.json", "share", 0)
 try:
     s = json.loads((RUN / "world" / "state.json").read_text())
 except (OSError, ValueError):

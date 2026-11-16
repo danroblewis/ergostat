@@ -10,7 +10,8 @@ from pathlib import Path
 import yaml
 
 FILE = "ergostat.yaml"
-SECTIONS = ("sources", "systems", "items", "variables", "stocks", "flows", "goals", "blocks", "agents")
+SECTIONS = ("sources", "systems", "items", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents")
+SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary"}    # variables: the old name of auxiliaries
 TOP = {"name", "include", "keep", "defaults", *SECTIONS}
 
 
@@ -161,8 +162,9 @@ def load(main: Path) -> Document:
                 w = body.at(name)
                 if (section, name) in doc.defined:
                     first = doc.defined[(section, name)]
-                    doc.problems.append(Problem("error", f"{section[:-1]} {name} is defined twice: here and at {first}", w,
-                                                "defined-twice", f"{section[:-1]}.{name}"))
+                    one = SINGULAR.get(section, section[:-1])
+                    doc.problems.append(Problem("error", f"{one} {name} is defined twice: here and at {first}", w,
+                                                "defined-twice", f"{one}.{name}"))
                     continue
                 if entry is None:
                     entry = Map()

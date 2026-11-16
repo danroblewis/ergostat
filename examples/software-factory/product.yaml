@@ -25,22 +25,22 @@ stocks:
 flows:
   signups:
     to: users
-    driven-by: [stock.bugs-live, stock.missing-ops]   # people come when what they ask for works
+    driven-by: [-stock.bugs-live, -stock.missing-ops]   # people come when what they ask for works
   churn:
     from: users
-    driven-by: [stock.bugs-live, stock.missing-ops]   # and leave when it does not
+    driven-by: [+stock.bugs-live, +stock.missing-ops]   # and leave when it does not
   fixes:
     from: bugs-live
-    driven-by: flow.deployed               # a release fixes what did not work
+    driven-by: +flow.deployed              # a release fixes what did not work
   regressions:
     to: bugs-live
-    driven-by: flow.deployed               # or breaks what did
+    driven-by: +flow.deployed              # or breaks what did
   asks:
     to: missing-ops
-    driven-by: stock.users                 # more users ask for more of the long tail
+    driven-by: +stock.users                # more users ask for more of the long tail
   shipped:
     from: missing-ops
-    driven-by: flow.deployed
+    driven-by: +flow.deployed
 
 goals:
   no-live-bugs:

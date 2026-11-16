@@ -10,7 +10,8 @@
 #   lab       the research: hypotheses proposed, built and tested one at a time (lab.yaml)
 #
 # and the benchmark (benchmark.yaml): thirty fixed cases measured on every release, the count of
-# those squeeze meets a stock (capabilities), how good it is on them a variable (benchmark-score).
+# those squeeze meets a stock (capabilities), and how good it is on them a stock too (benchmark-points:
+# it keeps its value until a release changes the code).
 #
 # README.md walks the loops.
 name: image-squeeze
@@ -22,13 +23,13 @@ include:
 systems:
   service:
     description: squeeze, serving the images customers send
-    show: [variable.quality, variable.bytes-per-mp, variable.failures, variable.time]
+    show: [stock.quality, stock.bytes-per-mp, stock.failures, stock.time]
   rollout:
     description: one candidate build against production, on the same images
-    show: [variable.rollout-share, variable.bytes-saved, variable.quality-change, variable.paired]
+    show: [stock.rollout-share, auxiliary.bytes-saved, auxiliary.quality-change, stock.paired]
   lab:
     description: hypotheses proposed, built and tested
-    show: [stock.sessions, stock.ideas, stock.experiments, stock.improvements, variable.ai-spend]
+    show: [stock.sessions, stock.ideas, stock.experiments, stock.improvements, stock.ai-spend]
   benchmark:
     description: thirty fixed cases, measured on every release (what squeeze can do)
-    show: [stock.capabilities, variable.benchmark-score, variable.photo-score, variable.flat-score]
+    show: [stock.capabilities, stock.benchmark-points, stock.photo-points, stock.flat-points]

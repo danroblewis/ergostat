@@ -29,7 +29,7 @@ def _q(name: str) -> str:
 def _requests(project) -> list[tuple[str, dict]]:
     m = project.model
     reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("items", {}), ("residuals", {}),
-                                    ("parts", {}), ("graph", {}), ("events", {"n": 60}), ("events", {"n": 60, "runs": 1})]
+                                    ("parts", {}), ("graph", {}), ("events", {"n": 80}), ("events", {"n": 80, "runs": 1})]
     for view in ("control", "wiring"):
         for system in [None, *m.system_names()]:
             reqs.append(("graph", {"view": view, **({"system": system} if system else {})}))

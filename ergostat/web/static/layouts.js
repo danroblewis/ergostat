@@ -96,7 +96,7 @@ function anchorGroups(graph, g) {
   for (const [a] of blocks) taken.add(a);
   for (const [, b] of blocks) taken.add(b);
   // a stock (or variable) and the sensors that read only it
-  for (const st of g.nodes.filter((n) => n.kind === "stock" || n.kind === "variable")) {
+  for (const st of g.nodes.filter((n) => n.kind === "stock" || n.kind === "auxiliary")) {
     const sens = outs(st.id, "measure").filter((x) => kind[x] === "sensor" && !taken.has(x) && ins(x, "measure").length === 1);
     if (sens.length) { blocks.push([st.id, ...sens]); taken.add(st.id); sens.forEach((x) => taken.add(x)); }
   }

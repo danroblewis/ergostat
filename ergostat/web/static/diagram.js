@@ -2,7 +2,7 @@
 "use strict";
 /* ------------------------------------------------------------------ the diagram */
 
-const SIZE = { terminal: [120, 34], variable: [140, 62], stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [200, 92], agent: [210, 92] };
+const SIZE = { terminal: [120, 34], auxiliary: [140, 62], stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [200, 92], agent: [210, 92] };
 const CH = 6.7;   // px per character, for label sizes
 const OPEN_LOOP = "open loop: acts on its schedule, reads nothing";
 
@@ -10,7 +10,7 @@ function labelLines(n) {
   if (n.kind === "valve") return [n.label, `${n.position != null ? "open " + fmt(n.position) + " · " : ""}${n.rateText}${n.max ? ` · ≤ ${fmt(n.max)} a run` : ""}${n.mode && n.mode !== "auto" ? " · " + n.mode : ""}`, n.agent ? "§badge" : null].filter(Boolean);
   if (n.kind === "disturbance") return [n.label, `${n.rateText}${n.estimated ? " (est.)" : ""}`, n.agent ? "§badge" : null].filter(Boolean);
   if (n.kind === "sensor") return [n.label, n.reading != null ? `reads ${n.reading}` : "no reading", n.agent ? "§badge" : null].filter(Boolean);
-  if (n.kind === "variable") return [n.label, n.agent ? "§badge" : null].filter(Boolean);
+  if (n.kind === "auxiliary") return [n.label, n.agent ? "§badge" : null].filter(Boolean);
   return [];
 }
 function badgeText(a) { return a ? `${a.kind} · ${a.name}${a.when ? " · " + a.when : ""}` : ""; }
@@ -71,7 +71,7 @@ function wanted(lay, g) {
 async function layoutGraph(g, aspect, cut = false, again = 0) {
   if (again === 0) await avoidLoad();
   portSides(g);
-  const ORDER = { cloud: 0, terminal: 0, disturbance: 1, stock: 2, valve: 3, system: 3, variable: 4, sensor: 5, controller: 6, agent: 2 };
+  const ORDER = { cloud: 0, terminal: 0, disturbance: 1, stock: 2, valve: 3, system: 3, auxiliary: 4, sensor: 5, controller: 6, agent: 2 };
   const rank = (n) => (n.kind === "cloud" ? (n.id.endsWith(":out") ? 4 : 0) : ORDER[n.kind] ?? 3);
   const nodesInOrder = [...g.nodes].sort((a, b) => rank(a) - rank(b));
   const byIdNodes = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
@@ -574,7 +574,7 @@ function drawTerminal(n, w, hgt) {
   return g;
 }
 
-const DRAW = { system: drawSystem, terminal: drawTerminal, variable: drawVariable, stock: drawStock, valve: drawValve, disturbance: drawDisturbance, cloud: drawCloud, sensor: drawSensor, controller: drawController, agent: drawAgent };
+const DRAW = { system: drawSystem, terminal: drawTerminal, auxiliary: drawVariable, stock: drawStock, valve: drawValve, disturbance: drawDisturbance, cloud: drawCloud, sensor: drawSensor, controller: drawController, agent: drawAgent };
 
 function roundedPath(pts, r = 8) {
   if (pts.length < 2) return "";
@@ -1014,8 +1014,8 @@ function legend(view) {
     row('<path d="M1 9 H25" stroke="var(--pipe)" stroke-width="7"/><path d="M1 9 H25" stroke="var(--pipe-in)" stroke-width="3"/>', "flow: moves a stock"),
     row('<path d="M5 3 L13 9 L5 15 Z M21 3 L13 9 L21 15 Z" fill="var(--valve)"/>', "valve: where an agent acts"),
     row('<path d="M13 2 L22 9 L13 16 L4 9 Z" fill="var(--panel)" stroke="var(--dist)" stroke-width="1.8"/>', "disturbance: nothing controls it"),
-    (S.graph?.nodes || []).some((n) => n.kind === "variable") &&
-      row('<ellipse cx="13" cy="9" rx="11" ry="7" fill="var(--stock)" stroke="var(--stock-line)" stroke-width="1.6"/>', "variable: measured or set, nothing flows in (a score, a ratio, a setting)"),
+    (S.graph?.nodes || []).some((n) => n.kind === "auxiliary") &&
+      row('<ellipse cx="13" cy="9" rx="11" ry="7" fill="var(--stock)" stroke="var(--stock-line)" stroke-width="1.6"/>', "auxiliary: no memory, determined at each moment by others (a score, a ratio)"),
     row('<circle cx="13" cy="9" r="7" fill="var(--sensor)" stroke="var(--sensor-line)" stroke-width="1.8"/>', "sensor: measures"),
     row('<rect x="2" y="2" width="22" height="14" rx="4" fill="var(--ctl)" stroke="var(--ctl-line)" stroke-width="1.8"/>', "controller: decides, to hold a setpoint; Σ is where it compares: e = r − y"),
     Object.values(S.graph?.loops || {}).some((l) => l.openLoop) &&
