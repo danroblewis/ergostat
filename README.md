@@ -184,3 +184,11 @@ uv sync
 uv run python -m pytest -q
 uv run ruff check
 ```
+
+The diagram is tested in a real browser (it drives the Chrome on this machine): every example, in
+every view, must draw no line through a part, none on top of another, none far round, and lay out
+in time, as must a generated model of about 500 lines. After any change to the diagram:
+
+```bash
+uv run --with playwright python -m pytest tests/test_diagram_rendering.py -s
+```
