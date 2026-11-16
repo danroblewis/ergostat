@@ -21,7 +21,7 @@ def find(spec: Spec) -> list[Problem]:
         if not has_sensor:
             say("unjudgeable-goal", f"goal {name}: {what} has no sensor, so nothing can tell whether the goal holds",
                 g.where, f"goal.{name}")
-        if not lp.actuators:
+        if not lp.actuators and not lp.through:
             serving = [b for b in spec.blocks.values() if any(r.kind == "goal" and r.name == name for r in b.reads())]
             why = (f"{', '.join(b.name for b in serving)} read{'s' if len(serving) == 1 else ''} it, but nothing it commands "
                    f"moves a flow of {what.name}") if serving else "no block reads it"

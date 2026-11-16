@@ -113,6 +113,7 @@ class Flow:
     system: str | None = None
     description: str = ""
     sensors: dict[str, Sensor] = field(default_factory=dict)
+    driven_by: list[Ref] = field(default_factory=list)   # what its rate depends on: other flows, stocks (an influence)
     where: Where | None = None
 
 
@@ -229,10 +230,11 @@ class Loop:
     actuators: list[str]       # blocks that set a flow of the goal's stock, reached from the controllers
     valves: list[str]          # those flows
     disturbances: list[str]    # the stock's other flows
+    through: list[str] = field(default_factory=list)   # when it closes the long way: the path, part by part
 
     @property
     def closes(self) -> bool:
-        return bool(self.sensors and self.actuators)
+        return bool(self.sensors and (self.actuators or self.through))
 
 
 @dataclass
@@ -317,7 +319,56 @@ class Spec:
         if not controllers and actuators:   # an actuator reading the goal itself: it is its own controller
             controllers = [a for a in actuators if a in {b.name for b in ctl}]
         dist = [f for f in stock_flows if f not in valves]
-        return Loop(goal, sensors, controllers, actuators, valves, dist)
+        through = [] if actuators else self.long_way(ctl, set(stock_flows), what)
+        return Loop(goal, sensors, controllers, actuators, valves, dist, through)
+
+    def readers(self, kind: str, name: str) -> list[Block]:
+        """Blocks reading a stock (or a goal on it), a flow, or a goal."""
+        goals = {g for g, x in self.goals.items() if x.of == Ref(kind, name)} if kind in ("stock", "flow") else set()
+        return [b for b in self.blocks.values() if any((r.kind == kind and r.name == name) or
+                                                         (r.kind == "goal" and (r.name in goals or (kind == "goal" and r.name == name)))
+                                                         for r in b.reads())]
+
+    def long_way(self, ctl: list[Block], targets: set[str], what: Ref) -> list[str]:
+        """A loop may close through other stocks and other systems: its controller files work into
+        a queue, that queue's own loop works it off, and what that work moves drives a flow of the
+        goal's stock (``driven-by``). The shortest such path, from the controller to a flow of the
+        goal's stock; empty when there is none."""
+        drives: dict[str, list[str]] = {}
+        for f in self.flows.values():
+            for r in f.driven_by:
+                drives.setdefault(f"{r.kind}.{r.name}", []).append(f"flow.{f.name}")
+        start = [f"block.{b.name}" for b in ctl]
+        prev: dict[str, str | None] = {s: None for s in start}
+        todo = list(start)
+        while todo:
+            n = todo.pop(0)
+            kind, name = n.split(".", 1)
+            nxt: list[str] = []
+            if kind == "block":
+                b = self.blocks[name]
+                nxt += [f"block.{d.name}" for d in self.downstream(name)]
+                nxt += [str(Ref(t.kind, t.name)) for t in b.targets() if t.kind in ("flow", "goal")]
+            elif kind == "goal":
+                nxt += [f"block.{b.name}" for b in self.readers("goal", name)]
+            elif kind == "flow":
+                if name in targets:
+                    path = []
+                    while n is not None:
+                        path.append(n)
+                        n = prev[n]
+                    return path[::-1]
+                f = self.flows[name]
+                nxt += [f"stock.{s}" for s in (f.target, f.source) if s and s != what.name]
+                nxt += drives.get(n, [])
+            elif kind == "stock":
+                nxt += [f"block.{b.name}" for b in self.readers("stock", name)]
+                nxt += drives.get(n, [])
+            for x in nxt:
+                if x not in prev:
+                    prev[x] = n
+                    todo.append(x)
+        return []
 
     def loops(self) -> list[Loop]:
         return [self.loop(g) for g in self.goals]

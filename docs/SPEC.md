@@ -166,8 +166,9 @@ items:
 | `system`, `description` | | | |
 
 **Folding.** An item's fields are its events' `data`, merged in order (the latest value of each
-field wins). Its state is the first state until an event its kind maps moves it; every move is
-kept (from, to, when, by which event), so how long it spent in each state is known. An item no
+field wins). It arrives in the first state (a move from nowhere, so a flow can count arrivals
+with `entering:`), and stays there until an event its kind maps moves it; every move is kept
+(from, to, when, by which event), so how long it spent in each state is known. An item no
 kind matches is still shown, with its fields and no state.
 
 Items are counted by sensors (section 6): a stock may be the number of items in some states, and
@@ -264,7 +265,15 @@ flows:
 | `unit` | string | the stocks' | Must equal theirs |
 | `rate` | number | none | A known, declared rate per hour |
 | `sensors` / `sensor` | | none | Measurements of its rate |
+| `driven-by` | flow or stock references | none | What its rate follows: an influence from elsewhere in the system (see below) |
 | `system`, `description` | | | |
+
+**`driven-by`: an influence, not a pipe.** Some flows are moved by nothing in the model, yet follow
+something that is: a deploy (`flow.deployed`) is what fixes the product's broken features
+(`flow.fixed`), though nothing pipes one into the other. `driven-by: [flow.deployed]` says so. It
+is a claim about how the system works, drawn as a dashed arrow, and the record is what bears it
+out (`ergostat discover loops` looks for it). It also lets a loop close the long way (section 12).
+It never says who moves the flow.
 
 What sets a flow is the block whose `out` names it (at most one). Seen from a goal's loop:
 
@@ -440,8 +449,10 @@ amount and, when they differ, what was asked.
 moved; a block: a command; a goal: a setpoint). JSON lines may also be `{"moved": n}` without
 `out` when it moves one flow, and `{"event": "backup.verified", "item": "backup/nightly"}` for
 anything else that happened (an event about an item, section 5a; `data` holds its fields). Lines that are not JSON go to its log (`logs/<block>.log` in the state
-directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_COMMAND` (the amount) and
-`ERGOSTAT_STATE_DIR`. An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
+directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_COMMAND` (the amount),
+`ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
+(`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
+block, or the AI agent it starts, to read and record items while it works. An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
 with its prompt, the JSON above, and how to answer.
 
 ### 9.4 Roles
@@ -521,6 +532,14 @@ More types (Datadog, CloudWatch, SQL) can follow the same shape.
 **Derived** (never written): valves and actuators, controllers, disturbances, errors, loops
 (a goal, the sensors of what it is about, the blocks serving it, and the flows they set), the
 stock-and-flow diagram, block diagrams, the wiring of agents.
+
+**A loop that closes the long way.** When nothing a goal's controller commands moves a flow of the
+goal's stock directly, the loop may still close through other stocks: the controller moves work
+into a queue (it files tickets into a backlog), that queue's own goal and blocks work it off, and
+what they move drives a flow of the first stock (`driven-by`). ergostat finds the shortest such
+path, from the controller through blocks, flows, stocks and influences to a flow of the goal's
+stock, and the loop closes along it (`explain` names each part). Its delay is the sum of every
+queue along the way.
 
 **Errors** (the model is refused until fixed; each names the file and line):
 

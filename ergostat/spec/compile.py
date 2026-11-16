@@ -15,7 +15,7 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "every", "cron", "timeout", "p
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 ITEM_KEYS = COMMON | {"id", "states", "on", "show"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor"}
-FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor"}
+FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by"}
 GOAL_KEYS = COMMON | {"stock", "flow", "hold", "tolerance", "critical", "owner"}
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
@@ -340,6 +340,7 @@ class Compiler:
                     self.err(f"{what}.{key}: {end!r} is not a stock" + self.suggest(end, d.sections["stocks"]),
                              m.at(key), "unknown-ref", f"stock.{end}")
             f.sensors = self.sensors(m, Ref("flow", name), what)
+            f.driven_by = [r for rs in self.refs(m, "driven-by", what, ("flow", "stock")).values() for r in rs]
             spec.flows[name] = f
         for name, m, what in self.named("goals"):
             self.keys(m, GOAL_KEYS, what)
@@ -533,6 +534,12 @@ class Compiler:
                     return f"{r.name!r} is not a block" + self.suggest(r.name, spec.blocks)
             return None
 
+        for f in spec.flows.values():
+            for r in f.driven_by:
+                if (why := exists(r)) is not None:
+                    self.err(f"flow {f.name}.driven-by: {why}", f.where, "unknown-ref", str(r))
+                elif r == Ref("flow", f.name):
+                    self.err(f"flow {f.name}.driven-by: a flow does not drive itself", f.where, "bad-ref")
         setters: dict[str, str] = {}
         for b in spec.blocks.values():
             what = f"block {b.name}"

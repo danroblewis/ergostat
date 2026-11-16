@@ -110,6 +110,9 @@ class Explainer:
             lines.append("  Acting: " + "; ".join(
                 f"{a} ({s.blocks[a].type}) moves " + ", ".join(str(t) for t in s.blocks[a].targets() if t.kind == "flow")
                 for a in lp.actuators) + ".")
+        elif lp.through:
+            lines.append("  Closes the long way, through other stocks: " + " → ".join(lp.through) +
+                         ". Each stock along it is a queue the loop waits on, so it answers only as fast as they drain.")
         else:
             lines.append("  Missing feedback: nothing ergostat can see acts on it when it is off.")
         if lp.disturbances:
@@ -219,6 +222,9 @@ class Explainer:
         else:
             lines.append("  Nothing in the model sets it: " + (f"a declared rate of {f.rate:g}/h." if f.rate is not None else
                                                                "a disturbance, estimated from what its stocks do."))
+        if f.driven_by:
+            lines.append("  Its rate follows " + ", ".join(str(r) for r in f.driven_by) + " (driven-by: an influence, to be "
+                         "borne out by the record).")
         if f.sensors:
             lines.append("  Measured: " + "; ".join(_sensor(x) for x in f.sensors.values()) + " (a rate per hour).")
         return "\n".join(lines)

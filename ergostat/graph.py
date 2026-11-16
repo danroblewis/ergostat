@@ -147,6 +147,10 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
                 nodes.append(_node(cid, "cloud", "", flow=n, systems=in_system.get(n, [])))
         edges.append(_edge(src, f"flow:{n}", "pipe", flow=n))
         edges.append(_edge(f"flow:{n}", dst, "pipe", flow=n, arrow=True))
+    for n in (x for x in m.flows if x in flows_drawn):      # what a flow's rate follows: an influence, not a pipe
+        for src in m.flows[n].driven_by:
+            sid = f"flow:{src}" if src in m.flows else f"stock:{src}"
+            edges.append(_edge(sid, f"flow:{n}", "influence"))
     for n in (x for x in m.sensors if x in parts):
         s = m.sensors[n]
         target = f"stock:{s.measures}" if s.measures in m.stocks else f"flow:{s.measures}"
@@ -174,7 +178,11 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         if lpm is not None:
             members = {f"controller:{n}", f"stock:{lpm.stock}", *(f"sensor:{s}" for s in lpm.sensors),
                        *(f"flow:{f}" for f in lpm.flows)}
-            loops[n] = {"status": lp.get("status"), "nodes": sorted(members), "closes": lpm.closes,
+            for p in c.through:                         # the long way round: its stocks and flows are in the loop too
+                k, _, nm = p.partition(".")
+                if k in ("stock", "flow"):
+                    members.add(f"{k}:{nm}")
+            loops[n] = {"status": lp.get("status"), "nodes": sorted(members), "closes": lpm.closes, "through": c.through,
                         "stock": lpm.stock, "setpoint": c.setpoint, "value": lp.get("value"), "error": lp.get("error"),
                         "band": lp.get("band", ""), "openLoop": c.open_loop}
     ids = {x["id"] for x in nodes}

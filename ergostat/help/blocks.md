@@ -70,6 +70,8 @@ to say:
 
 Everything else it prints goes to its log. `ERGOSTAT_COMMAND` holds the amount too, for a shell
 one-liner (`find tmp -mmin +60 -delete -print | head -n "$ERGOSTAT_COMMAND" | wc -l`).
+`ERGOSTAT_CMD` runs this ergostat on this project, so a block (or the AI agent it starts) can read
+and record items while it works: `$ERGOSTAT_CMD item --kind ticket --state open --json`.
 
 A block nothing commands runs on its own schedule (`every: 5m`, `cron: "0 3 * * *"`): an open loop,
 which `check` points out. One that a goal or another block commands runs while the command holds,

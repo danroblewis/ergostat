@@ -340,6 +340,19 @@
         },
         "description": {
           "type": "string"
+        },
+        "driven-by": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
         }
       },
       "anyOf": [

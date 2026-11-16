@@ -33,7 +33,8 @@ def to_model(spec: Spec, problems) -> mdl.Model:
     for f in spec.flows.values():
         setter = spec.actuator_of(f.name)
         m.flows[f.name] = mdl.Flow(f.name, f.description, tags(f), source=f.source, target=f.target, unit=f.unit,
-                                   disturbance=setter is None, rate=f.rate if setter is None else None)
+                                   disturbance=setter is None, rate=f.rate if setter is None else None,
+                                   driven_by=[r.name for r in f.driven_by])
     for s in spec.sensors():
         m.sensors[sensor_name(s.of.name, s.name)] = mdl.Sensor(sensor_name(s.of.name, s.name), s.description, [],
                                                                measures=s.of.name, agent=None, unit=s.unit)
@@ -58,10 +59,15 @@ def to_model(spec: Spec, problems) -> mdl.Model:
         lp = spec.loop(g.name)
         drives = [valve_name(spec, a, t.name) for a in lp.actuators for t in spec.blocks[a].targets()
                   if t.kind == "flow" and t.name in lp.valves]
+        if lp.through:                           # the long way: it acts on the first flow along the path
+            first = next((p.split(".", 1)[1] for p in lp.through if p.startswith("flow.")), None)
+            setter = spec.actuator_of(first) if first else None
+            drives = [valve_name(spec, setter.name, first)] if setter else []
         agent = lp.controllers[0] if lp.controllers else None
         m.controllers[g.name] = mdl.Controller(
             g.name, g.description, tags(g), holds=g.of.name, setpoint=str(g.hold), tolerance=g.tolerance,
-            reads=[sensor_name(g.of.name, s) for s in spec.stocks[g.of.name].sensors], drives=drives, agent=agent)
+            reads=[sensor_name(g.of.name, s) for s in spec.stocks[g.of.name].sensors], drives=drives, agent=agent,
+            through=list(lp.through))
     m.spec = spec
     m.problems = problems
     m.files = list(spec.files)

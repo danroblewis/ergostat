@@ -118,6 +118,7 @@ svg.canvas.dragging { cursor: grabbing; }
 .edge.measure .info { stroke-dasharray: 4 3; }
 .edge.action .info { stroke: var(--ctl-line); stroke-width: 1.8; }
 .edge.wire .info { stroke: var(--accent); stroke-width: 1.8; }
+.edge.influence .info { stroke: var(--dist); stroke-width: 1.6; stroke-dasharray: 7 4; }
 .edge.loop-holding .info { stroke: var(--ok); }
 /* the design picture: the parts and how they connect, nothing that changes from one minute to the next */
 .design .live { display: none; }

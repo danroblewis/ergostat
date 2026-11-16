@@ -48,8 +48,9 @@ def fold(id: str, events: list[dict], kind: ItemKind | None) -> Item:
     for e in events:
         if not it.n:
             it.first = e["time"]
-            if kind and kind.states:
+            if kind and kind.states:                 # it arrives: a move into its first state, counted like any other
                 it.state, it.entered = kind.states[0], e["time"]
+                it.moves.append({"time": e["time"], "from": None, "to": it.state, "event": e["id"], "type": e["type"]})
         it.n += 1
         it.last = e["time"]
         it.latest = e["type"]

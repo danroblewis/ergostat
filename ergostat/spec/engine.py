@@ -19,7 +19,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -313,7 +315,8 @@ class Engine:
             ev.add("block.commanded", item=b.name, source=SOURCE, causedby=begun["id"], data=ctx["command"])
         started = time.time()
         env = {**os.environ, "ERGOSTAT_BLOCK": b.name, "ERGOSTAT_AGENT": b.name, "ERGOSTAT_RUN": begun["id"],
-               "ERGOSTAT_PROJECT": self.spec.name, "ERGOSTAT_STATE_DIR": str(self.p.dir)}
+               "ERGOSTAT_PROJECT": self.spec.name, "ERGOSTAT_STATE_DIR": str(self.p.dir),
+               "ERGOSTAT_CMD": f"{shlex.quote(sys.executable)} -m ergostat -C {shlex.quote(str(self.spec.root))}"}
         if "command" in ctx:
             env["ERGOSTAT_COMMAND"] = f"{ctx['command']['amount']:g}"
         log = old.log_path(self.p, b.name)

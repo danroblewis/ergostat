@@ -127,8 +127,8 @@ async function pageItem(main, id) {
     const track = k && k.states.length ? h("div", { class: "track" }, k.states.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
       h("span", { class: `stbox${st === d.state ? " on" : ""}${d.moves.some((m) => m.to === st) || (i === 0) ? " been" : ""}` }, h("span", {}, st))])) : null;
     const moves = d.moves.length ? h("table", {}, h("tr", {}, ["when", "from", "to", "by event", "after"].map((x) => h("th", {}, x))),
-      d.moves.map((m, i) => h("tr", {}, h("td", { class: "num nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", {}, m.from || "–"), h("td", {}, stateChip(m.to, true)),
-        h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, dur(m.time - (i ? d.moves[i - 1].time : d.first)))))) : h("p", { class: "muted" }, k && k.states.length ? `it has stayed in ${d.state} since it was first seen` : "its kind has no states");
+      d.moves.map((m, i) => h("tr", {}, h("td", { class: "num nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", { class: m.from ? "" : "muted" }, m.from || "(arrived)"), h("td", {}, stateChip(m.to, true)),
+        h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "its kind has no states");
     const fields = Object.keys(d.fields).length ? h("table", { class: "fields" }, Object.entries(d.fields).sort(([a], [b]) => (a < b ? -1 : 1)).map(([f, v]) => h("tr", {},
       h("th", {}, f), h("td", { class: "mono" }, typeof v === "object" && v !== null ? h("pre", {}, JSON.stringify(v, null, 2)) : String(v))))) : h("p", { class: "muted" }, "no fields: its events carry no data");
     body.replaceChildren(head, track || "", h("h2", {}, "fields"), fields, h("h2", {}, "how it moved"), moves,

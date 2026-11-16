@@ -69,6 +69,7 @@ class Flow(Part):
     disturbance: bool = False          # an input no valve controls
     rate: float | None = None          # a disturbance's known rate per hour, when it is declared
     agent: str | None = None           # a disturbance's: whose doing it is (the load), never a role it fills
+    driven_by: list[str] = field(default_factory=list, metadata={"history": False})   # flows and stocks its rate follows
     kind = "flow"
 
 
@@ -99,6 +100,7 @@ class Controller(Part):
     drives: list[str] = field(default_factory=list)     # valves
     agent: str | None = None
     open_loop: bool = False            # acts on its schedule and reads nothing: a timer, watched but not fed back
+    through: list[str] = field(default_factory=list, metadata={"history": False})   # closes the long way: the path
     kind = "controller"
 
     def target(self) -> tuple[str, float]:
@@ -259,9 +261,11 @@ class Model:
                 gaps.append(f"none of its sensors measures {c.holds} itself" + (
                     f" ({', '.join(on_flows)} measure{'s' if len(on_flows) == 1 else ''} a flow: that feeds forward, "
                     f"it does not close the loop)" if on_flows else ""))
-            if not valves:
+            if not valves and not c.through:
                 gaps.append(f"none of its valves acts on a flow of {c.holds}")
-            out.append(Loop(c.name, c, c.holds, sensors, valves, sorted(self.valves[v].flow for v in valves), gaps))
+            moved = sorted(self.valves[v].flow for v in valves) if valves else \
+                [p.split(".", 1)[1] for p in c.through[-1:] if p.startswith("flow.")]
+            out.append(Loop(c.name, c, c.holds, sensors, valves, moved, gaps))
         return out
 
     def loop(self, name: str) -> Loop | None:

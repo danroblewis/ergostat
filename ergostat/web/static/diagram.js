@@ -391,7 +391,7 @@ function drawGraph(svg, g, lay) {
       eg.append(s("path", { d, class: "info" }));
       const ah = arrowHead(pts, "head", e.kind === "wire" ? 9 : 7);
       ah.style.fill = loopSt ? `var(--${loopSt === "holding" ? "ok" : loopSt === "off" ? "bad" : "warn"})`
-                             : (e.kind === "action" ? "var(--ctl-line)" : e.kind === "wire" ? "var(--accent)" : "var(--info)");
+                             : (e.kind === "action" ? "var(--ctl-line)" : e.kind === "wire" ? "var(--accent)" : e.kind === "influence" ? "var(--dist)" : "var(--info)");
       eg.append(ah);
       if ((le.labels || []).length) {
         // on the edge itself: the middle of its longest segment, with a halo to read over the line
@@ -562,6 +562,8 @@ function legend(view) {
     row('<rect x="2" y="2" width="22" height="14" rx="4" fill="var(--ctl)" stroke="var(--ctl-line)" stroke-width="1.8"/>', "controller: decides, to hold a setpoint"),
     Object.values(S.graph?.loops || {}).some((l) => l.openLoop) &&
       row('<circle cx="13" cy="9" r="7" fill="var(--panel)" stroke="var(--ctl-line)" stroke-width="1.6"/><path d="M13,9 v-5 M13,9 l3,2" stroke="var(--ctl-line)" stroke-width="1.4" stroke-linecap="round"/>', "with a clock: an open loop (acts on time, reads nothing)"),
+    (S.graph?.edges || []).some((e) => e.kind === "influence") &&
+      row('<path d="M1 9 H20" stroke="var(--dist)" stroke-width="1.6" stroke-dasharray="7 4"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--dist)"/>', "influence: a flow's rate follows this (driven-by)"),
     row('<path d="M1 9 H25" stroke="var(--ok)" stroke-width="2"/>', "a loop holding (red: off, amber: open)"),
     row('<circle cx="13" cy="9" r="4.5" fill="var(--r4)"/>', "the agent filling a part, its dot by kind:"),
     h("span", {}), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, h("i", { style: `background:${rungColor(i)}` }, RUNG_LETTER[i]), k))));

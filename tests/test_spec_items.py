@@ -68,7 +68,7 @@ def test_an_item_is_its_events_folded(tmp_path):
     it = its.one(p.events, p.model.spec, "github/pull_request/1")
     assert it.kind == "pr" and it.state == "merged" and it.entered == t + 120
     assert it.fields == {"title": "fix the thing, really", "label": "bug", "reviewer": "a"}
-    assert [(m["from"], m["to"]) for m in it.moves] == [("open", "review"), ("review", "merged")]
+    assert [(m["from"], m["to"]) for m in it.moves] == [(None, "open"), ("open", "review"), ("review", "merged")]
     got = its.listing(p.events, p.model.spec)
     assert [i["id"] for i in got["items"]] == ["github/pull_request/1"]
     assert got["kinds"][0]["counts"] == {"merged": 1}
@@ -138,7 +138,7 @@ def test_the_engine_reads_item_counts_and_the_api_lists_them(tmp_path):
     d = api(live, "items", {"kind": ["pr"], "state": ["review"]})
     assert d["total"] == 1 and d["items"][0]["state"] == "review" and d["kinds"][0]["show"] == ["title"]
     one = api(live, "items/github%2Fpull_request%2F9", {})
-    assert one["kind_of"]["name"] == "pr" and len(one["moves"]) == 1 and len(one["record"]) == 2 and one["events"] == 2
+    assert one["kind_of"]["name"] == "pr" and len(one["moves"]) == 2 and len(one["record"]) == 2 and one["events"] == 2
 
 
 def test_an_agent_records_events_and_reads_items_over_mcp(tmp_path):
@@ -149,3 +149,72 @@ def test_an_agent_records_events_and_reads_items_over_mcp(tmp_path):
     assert s.call("record_event", {"type": "loop.off", "item": "x"}).get("isError")
     got = json.loads(s.call("items", {"kind": "pr"})["content"][0]["text"])
     assert got["items"][0]["id"] == "github/pull_request/3" and got["items"][0]["state"] == "open"
+
+
+LONG_WAY = """
+stocks:
+  bugs:
+    unit: ops
+    sensor:
+      manual: true
+  backlog:
+    unit: tickets
+    sensor:
+      manual: true
+  ready:
+    unit: tickets
+    sensor:
+      manual: true
+flows:
+  filed:
+    to: backlog
+  built:
+    from: backlog
+    to: ready
+  deployed:
+    from: ready
+  fixed:
+    from: bugs
+    driven-by: flow.deployed
+goals:
+  no-bugs:
+    stock: bugs
+    hold: "<= 0"
+  backlog-empty:
+    stock: backlog
+    hold: "<= 0"
+  shipped:
+    stock: ready
+    hold: "<= 0"
+blocks:
+  support:
+    type: program
+    run: echo 1
+    in: stock.bugs
+    out: flow.filed
+  dev:
+    type: program
+    goal: backlog-empty
+    run: echo 1
+    out: flow.built
+  deployer:
+    type: program
+    goal: shipped
+    run: echo 1
+    out: flow.deployed
+"""
+
+
+def test_a_loop_closes_the_long_way_through_queues_and_an_influence(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(LONG_WAY))
+    spec, problems = read(tmp_path / "ergostat.yaml")
+    assert not [x for x in problems if x.level == "error"], problems
+    lp = spec.loop("no-bugs")
+    assert lp.closes and not lp.actuators
+    assert lp.through == ["block.support", "flow.filed", "stock.backlog", "block.dev", "flow.built", "stock.ready",
+                          "block.deployer", "flow.deployed", "flow.fixed"]
+    assert "missing-feedback" not in {x.code for x in problems if x.about == "goal.no-bugs"}
+    m = mdl.load(tmp_path)
+    assert m.loop("no-bugs").closes and m.flows["fixed"].driven_by == ["deployed"]
+    from ergostat.spec.explain import explain
+    assert "Closes the long way" in explain(spec, "no-bugs")
