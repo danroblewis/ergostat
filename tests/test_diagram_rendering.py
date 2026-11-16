@@ -767,6 +767,16 @@ BLOCKS_DOM = """() => {
     if (signs !== n.ins.length) bad.push(`${n.id}: ${signs} signs for ${n.ins.length} inputs`);
   }
   if (/no valve|no sensor/.test(document.querySelector("svg.canvas").textContent)) bad.push("a placeholder");
+  // Simulink's ports: every line crossing an open system's frame has a mark there, and none runs along a frame's edge
+  const byLe = Object.fromEntries(S.layout.edges.map((le) => [le.id, le]));
+  const marks = [...document.querySelectorAll("svg.canvas rect.bd-portmark")]
+    .map((r) => [+r.getAttribute("x") + 4.5, +r.getAttribute("y") + 4.5]);
+  for (const c of bdFrameCrossings(S.layout, S.graph, byLe))
+    if (!marks.some(([x, y]) => Math.abs(x - c.x) < 1 && Math.abs(y - c.y) < 1))
+      bad.push(`${c.edge.id}: crosses ${c.frame.id} with no port mark`);
+  for (const le of S.layout.edges) { const p = bdPts(le);
+    for (let i = 2; i < p.length - 1; i++) for (const f of S.layout.containers)
+      if (bdOnFrame(p[i - 1], p[i], f)) bad.push(`${le.id}: runs along the edge of ${f.id}`); }
   const frames = Object.fromEntries((S.layout.containers || []).map((c) => [c.id, c]));
   for (const n of S.graph.nodes) for (const f of n.systems || []) {        // a part inside every frame it is in
     const c = S.layout.children.find((k) => k.id === n.id), o = frames[f];

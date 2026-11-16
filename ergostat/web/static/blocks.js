@@ -28,6 +28,7 @@ function bdSize(n) {
   if (n.kind === "mux" || n.kind === "demux") return [7, Math.max(34, (n.n || 2) * 18)];
   if (n.kind === "input" || n.kind === "output") return [Math.max(26, bdSymW(n.fn) + 10), 22];
   if (n.kind === "port") return [Math.max(40, bdSymW(n.fn) + 22), 22];
+  if (n.kind === "sampler") return [36, 24];
   const fn = n.fn || {};
   const sideN = Math.max(n.ins.length, n.outs.length);
   let w = Math.max(84, bdSymW(fn) + 28), hgt = 46;
@@ -56,7 +57,7 @@ function bdPortPos(n, w, hgt) {                        // the ports of the parts
     });
     return at;
   }
-  if (["mux", "demux", "input", "output", "port"].includes(n.kind)) {
+  if (["mux", "demux", "input", "output", "port", "sampler"].includes(n.kind)) {
     const place = (ps, x, side) => ps.forEach((p, i) => { at[p.id] = { x, y: ((i + 1) * hgt) / (ps.length + 1), side }; });
     place(n.ins, 0, "W");
     place(n.outs, w, "E");
@@ -99,7 +100,7 @@ function bdElkGraph(g) {
   // a sensor sits on the feedback path: given to the layering between where its reading goes and what it
   // reads (its lines reversed), it is placed beneath the forward path, not after it
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
-  const back = (e) => byId[e.source]?.role === "sensor" || byId[e.target]?.role === "sensor";
+  const back = (e) => e.feedback || byId[e.source]?.role === "sensor" || byId[e.target]?.role === "sensor";
   const edges = g.edges.map((e) => (back(e) ? { id: e.id, sources: [e.targetPort], targets: [e.sourcePort], reversed: true }
                                             : { id: e.id, sources: [e.sourcePort], targets: [e.targetPort] }));
   return { id: "root", children: roots, edges, layoutOptions: {
@@ -115,12 +116,12 @@ function bdElkGraph(g) {
 
 /* the order the parts are given to ELK, which breaks cycles by it: each loop from its reference along its
    forward path (r, Σ, C, the actuator, the process, y), and each sensor just after where its reading goes,
-   so that only the feedback runs against it */
+   so that only the feedback (a sensor's lines, and a process output read back) runs against it */
 function bdOrder(g) {
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const sensor = (id) => byId[id]?.role === "sensor";
   const next = {};
-  for (const e of g.edges) if (!sensor(e.source) && !sensor(e.target)) (next[e.source] ||= []).push(e.target);
+  for (const e of g.edges) if (!e.feedback && !sensor(e.source) && !sensor(e.target)) (next[e.source] ||= []).push(e.target);
   const out = [], seen = new Set();
   const visit = (id) => {
     if (seen.has(id) || !byId[id] || sensor(id)) return;
@@ -134,6 +135,23 @@ function bdOrder(g) {
   for (const n of starts) visit(n.id);
   const rank = {};
   out.forEach((id, i) => { rank[id] = i * 2; });
+  // a loop reached first through another loop's actuator (queues in series) would put its comparator after
+  // its own process: its forward path, from the comparator to the process it reads back, is moved in front
+  const prev = {};
+  for (const [a, ts] of Object.entries(next)) for (const b of ts) (prev[b] ||= []).push(a);
+  const reach = (from, by) => { const seen = new Set([from]), todo = [from];
+    while (todo.length) for (const y of by[todo.pop()] || []) if (!seen.has(y)) { seen.add(y); todo.push(y); }
+    return seen; };
+  for (const e of g.edges) {
+    const S0 = e.source, T = e.target;
+    if (!e.feedback || rank[S0] == null || rank[T] == null || rank[T] < rank[S0]) continue;
+    const back = reach(S0, prev), path = [], seen = new Set();
+    const walk = (id) => { if (seen.has(id) || id === S0 || !back.has(id)) return; seen.add(id); path.push(id); for (const t of next[id] || []) walk(t); };
+    walk(T);
+    const refs = (prev[T] || []).filter((x) => !(prev[x] || []).length && !seen.has(x));
+    const moved = [...refs, ...path];
+    moved.forEach((id, i) => { rank[id] = rank[S0] - 1 + (i + 1) / (moved.length + 2); });
+  }
   for (const n of g.nodes.filter((x) => sensor(x.id))) {     // just after the first part its reading goes to
     const to = g.edges.filter((e) => e.source === n.id).map((e) => rank[e.target]).filter((x) => x != null);
     rank[n.id] = (to.length ? Math.min(...to) : out.length * 2) + 1;
@@ -327,6 +345,85 @@ function bdTrade(lay, g, byLe) {
   }
 }
 
+/* no line runs along a frame's edge (it would read as a bus on the frame): a stretch on an edge is moved off
+   it, inward or outward, its neighbours stretched to meet it, where that hits no part and no other line */
+const BD_FRAME_GAP = 10;
+function bdOnFrame(m, n, f) {
+  const horiz = Math.abs(m.y - n.y) < 1, vert = Math.abs(m.x - n.x) < 1;
+  const overlap = (a0, a1, b0, b1) => Math.min(Math.max(a0, a1), b1) - Math.max(Math.min(a0, a1), b0);
+  if (horiz && (Math.abs(m.y - f.y) < BD_FRAME_GAP || Math.abs(m.y - f.y - f.height) < BD_FRAME_GAP)) return overlap(m.x, n.x, f.x, f.x + f.width) > 8;
+  if (vert && (Math.abs(m.x - f.x) < BD_FRAME_GAP || Math.abs(m.x - f.x - f.width) < BD_FRAME_GAP)) return overlap(m.y, n.y, f.y, f.y + f.height) > 8;
+  return false;
+}
+function bdOffFrames(lay, g, byLe) {
+  const frames = lay.containers || [];
+  if (!frames.length) return;
+  const netOf = Object.fromEntries(g.edges.map((e) => [e.id, e.sourcePort]));
+  const ends = Object.fromEntries(g.edges.map((e) => [e.id, [e.source, e.target]]));
+  const hitsPart = (m, n, id) => lay.children.some((c) => !ends[id].includes(c.id) &&
+    Math.max(m.x, n.x) > c.x + 2 && Math.min(m.x, n.x) < c.x + c.width - 2 && Math.max(m.y, n.y) > c.y + 2 && Math.min(m.y, n.y) < c.y + c.height - 2);
+  for (let pass = 0; pass < 60; pass++) {
+    const all = lay.edges.filter((le) => netOf[le.id]).map((le) => ({ le, pts: bdPts(le) }));
+    const clash = (pm, pn, net) => all.some((B) => netOf[B.le.id] !== net && B.pts.slice(1).some((q, k) => bdAlong(pm, pn, B.pts[k], q) > 4));
+    let fixed = false;
+    outer: for (const A of all) for (let i = 1; i < A.pts.length - 2; i++) {        // an inner stretch: both its ends bend
+      const [m, n] = [A.pts[i], A.pts[i + 1]];
+      if (!frames.some((f) => bdOnFrame(m, n, f))) continue;
+      const horiz = Math.abs(m.y - n.y) < 1;
+      const f = frames.find((x) => bdOnFrame(m, n, x));
+      const edge = horiz ? [f.y, f.y + f.height].sort((a, b) => Math.abs(a - m.y) - Math.abs(b - m.y))[0]
+                         : [f.x, f.x + f.width].sort((a, b) => Math.abs(a - m.x) - Math.abs(b - m.x))[0];
+      const at = horiz ? m.y : m.x;
+      for (const to of [edge + 14, edge - 14, edge + 20, edge - 20, edge + 28, edge - 28, edge + 36, edge - 36]) {
+        const d = to - at;
+        const pts = A.pts.map((q) => ({ ...q }));
+        if (horiz) { pts[i].y += d; pts[i + 1].y += d; } else { pts[i].x += d; pts[i + 1].x += d; }
+        const segs = [[pts[i - 1], pts[i]], [pts[i], pts[i + 1]], [pts[i + 1], pts[i + 2]]];
+        if (segs.some(([a, b]) => hitsPart(a, b, A.le.id) || clash(a, b, netOf[A.le.id]) || frames.some((f) => bdOnFrame(a, b, f)))) continue;
+        A.le.sections = [{ startPoint: pts[0], bendPoints: pts.slice(1, -1), endPoint: pts[pts.length - 1] }];
+        fixed = true;
+        break outer;
+      }
+    }
+    if (!fixed) break;
+  }
+}
+
+/* where the lines cross the frame of an open system: Simulink's ports, a mark on the edge with the signal's name */
+function bdFrameCrossings(lay, g, byLe) {
+  const frames = (lay.containers || []).filter((c) => (g.frames || []).find((f) => f.id === c.id)?.frame === "system");
+  const out = [];
+  const nets = {};
+  for (const e of g.edges) (nets[e.sourcePort] ||= []).push(e);
+  for (const es of Object.values(nets)) {
+    const seen = [];
+    for (const e of es) {
+      const pts = byLe[e.id] ? bdPts(byLe[e.id]) : [];
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        for (const f of frames) {
+          const hits = [];
+          if (Math.abs(a.y - b.y) < 1) {                  // across a left or right edge
+            for (const [x, side] of [[f.x, "W"], [f.x + f.width, "E"]])
+              if (x > Math.min(a.x, b.x) + 0.5 && x < Math.max(a.x, b.x) - 0.5 && a.y > f.y && a.y < f.y + f.height)
+                hits.push({ x, y: a.y, side, horiz: true, into: (b.x - a.x) * (side === "W" ? 1 : -1) > 0 });
+          } else if (Math.abs(a.x - b.x) < 1) {           // across the top or the bottom
+            for (const [y, side] of [[f.y, "N"], [f.y + f.height, "S"]])
+              if (y > Math.min(a.y, b.y) + 0.5 && y < Math.max(a.y, b.y) - 0.5 && a.x > f.x && a.x < f.x + f.width)
+                hits.push({ x: a.x, y, side, horiz: false, into: (b.y - a.y) * (side === "N" ? 1 : -1) > 0 });
+          }
+          for (const hp of hits) {
+            if (seen.some((q) => Math.abs(q.x - hp.x) < 2 && Math.abs(q.y - hp.y) < 2)) continue;
+            seen.push(hp);
+            out.push({ ...hp, frame: f, edge: e });
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
 function bdAlong(p, q, r, s0) {                     // how far two straight stretches run on top of each other
   if (Math.abs(p.y - q.y) < 1 && Math.abs(r.y - s0.y) < 1 && Math.abs(p.y - r.y) < 3)
     return Math.min(Math.max(p.x, q.x), Math.max(r.x, s0.x)) - Math.max(Math.min(p.x, q.x), Math.min(r.x, s0.x));
@@ -351,6 +448,7 @@ function bdRoute(lay, g) {
       } catch (err) { /* as they were */ }
       bdSeparate(lay, g, byLe);
       bdTrade(lay, g, byLe);
+      bdOffFrames(lay, g, byLe);
       AV.ms = m.ms; AV.invalid = m.invalid;
     }
     lay.routing = false;
@@ -378,6 +476,7 @@ function bdSketch(kind, x, y) {                        // a static nonlinearity,
   g.append(s("path", { d: "M0,12 H28 M14,0 V24", class: "bd-axis" }));
   if (kind === "relay") g.append(s("path", { d: "M2,18 H16 V5 H26 M8,18 V5 H16", class: "bd-curve" }));
   else if (kind === "saturation") g.append(s("path", { d: "M2,20 H8 L20,4 H26", class: "bd-curve" }));
+  else if (kind === "zoh") g.append(s("path", { d: "M2,20 H8 V15 H14 V9 H20 V5 H26", class: "bd-curve" }));
   else g.append(s("path", { d: "M2,20 C8,20 10,6 16,8 S22,4 26,3", class: "bd-curve" }));
   return g;
 }
@@ -396,6 +495,12 @@ function bdNode(n, c) {
     g.append(s("rect", { class: "hit bd-ghost", width: w, height: hgt }));
     bdSym(g, n.kind === "input" ? w - 4 : 4, hgt / 2 + 4, fn, { anchor: n.kind === "input" ? "end" : "start" });
     if (fn.value) g.append(s("text", { x: n.kind === "input" ? w - 4 : 4, y: hgt + 10, class: "bd-note", "text-anchor": n.kind === "input" ? "end" : "start" }, fn.value));
+  } else if (n.kind === "sampler") {                    // the sampler: a switch closed once every T (A/D)
+    const y = hgt / 2;
+    g.append(s("rect", { class: "hit bd-ghost", width: w, height: hgt }),
+             s("path", { class: "bd-line", d: `M0,${y} H9 M27,${y} H${w} M9,${y} L25,${y - 9}` }),
+             s("circle", { class: "bd-dot", cx: 9, cy: y, r: 1.8 }), s("circle", { class: "bd-dot", cx: 27, cy: y, r: 1.8 }),
+             s("text", { x: w / 2, y: y + 11, class: "bd-note", "text-anchor": "middle" }, "T"));
   } else if (n.kind === "port") {                       // Simulink's In and Out: a rounded port, at the edge of a system drawn alone
     g.append(s("rect", { class: "hit bd-line bd-fill", width: w, height: hgt, rx: hgt / 2 }));
     bdSym(g, w / 2, hgt / 2 + 4, fn, { size: 12 });
@@ -429,6 +534,7 @@ function bdNode(n, c) {
 }
 function bdFnText(n) {                                  // what is inside the block, as text (for the tests and a tooltip)
   const fn = n.fn || {};
+  if (n.kind === "sampler") return `sampler, T = ${fn.T || "?"}`;
   if (fn.name) return `${fn.name} (${fn.kind})`;
   if (fn.sym) return `${fn.sym}${fn.sub ? "_" + fn.sub : ""}${fn.arg ? `(${fn.arg})` : ""}${fn.expr ? " = " + fn.expr : ""}`;
   return n.kind;
@@ -527,6 +633,43 @@ function bdDraw(svg, g, lay) {
     const routes = es.map((e) => (byLe[e.id] ? bdPts(byLe[e.id]) : [])).filter((p) => p.length > 1);
     for (const p of bdTakeoffs(routes)) dots.append(s("circle", { cx: p.x, cy: p.y, r: 3.2, class: "bd-dot" }));
   }
+  // port marks where lines cross an open system's frame, each named
+  const marks = s("g", { class: "bd-portmarks" });
+  const crossings = bdFrameCrossings(lay, g, byLe);
+  for (const c of crossings) taken.push({ x: c.x - 6, y: c.y - 6, w: 12, h: 12 });
+  for (const f of lay.containers) taken.push({ x: f.x + f.width - 22, y: f.y, w: 22, h: 22 });      // its close button
+  const edgeSegs = lay.edges.flatMap((le) => { const q = bdPts(le); return q.slice(1).map((b, i) => [q[i], b]); });
+  for (const c of crossings) {
+    const sg = c.edge.signal || {};
+    const mk = s("g", { class: "bd-portmark-g", "data-net": c.edge.sourcePort, "data-frame": c.frame.id });
+    mk.append(s("rect", { class: "bd-portmark", x: c.x - 4.5, y: c.y - 4.5, width: 9, height: 9, rx: 2 }),
+              s("title", {}, `${c.into ? "In" : "Out"} port of ${c.frame.id.split(":").slice(1).join(":")}: ${bdSignalWords(c.edge)}`));
+    marks.append(mk);
+    if (!sg.sym) continue;
+    const w = 10 + (sg.sub ? bdTextW(sg.sub, true) * 0.82 : 0), hgt = 13;
+    const out = c.side === "W" || c.side === "N" ? -1 : 1;             // outside the frame first, then inside
+    const tries = c.horiz
+      ? [[c.x + (out < 0 ? -w - 6 : 6), c.y - hgt - 2], [c.x + (out < 0 ? 6 : -w - 6), c.y - hgt - 2],
+         [c.x + (out < 0 ? -w - 6 : 6), c.y + 3], [c.x + (out < 0 ? 6 : -w - 6), c.y + 3]]
+      : [[c.x + 6, c.y + (out < 0 ? -hgt - 6 : 6)], [c.x - w - 6, c.y + (out < 0 ? -hgt - 6 : 6)],
+         [c.x + 6, c.y + (out < 0 ? 6 : -hgt - 6)], [c.x - w - 6, c.y + (out < 0 ? 6 : -hgt - 6)]];
+    const onEdge = (r) => (lay.containers || []).some((f) =>
+      ((r.y < f.y && r.y + r.h > f.y) || (r.y < f.y + f.height && r.y + r.h > f.y + f.height)) && r.x < f.x + f.width && r.x + r.w > f.x ||
+      ((r.x < f.x && r.x + r.w > f.x) || (r.x < f.x + f.width && r.x + r.w > f.x + f.width)) && r.y < f.y + f.height && r.y + r.h > f.y);
+    const free = (r) => !taken.some((q) => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h) &&
+      !lay.children.some((q) => r.x < q.x + q.width && q.x < r.x + r.w && r.y < q.y + q.height && q.y < r.y + r.h) && !onEdge(r) &&
+      !edgeSegs.some(([a, b]) => Math.max(a.x, b.x) > r.x && Math.min(a.x, b.x) < r.x + r.w && Math.max(a.y, b.y) > r.y && Math.min(a.y, b.y) < r.y + r.h);
+    for (const k of [1, 2, 3]) {                                         // stacked further out, when crowded
+      const o = k * (hgt + 2);
+      tries.push(...(c.horiz ? [[c.x + (out < 0 ? -w - 6 : 6), c.y - hgt - 2 - o], [c.x + (out < 0 ? -w - 6 : 6), c.y + 3 + o]]
+                             : [[c.x + 6, c.y + (out < 0 ? -hgt - 6 - o : 6 + o)], [c.x - w - 6, c.y + (out < 0 ? -hgt - 6 - o : 6 + o)]]));
+    }
+    const spot = tries.map(([x, y]) => ({ x, y, w, h: hgt })).find(free);
+    if (!spot) continue;
+    taken.push(spot);
+    const t = bdSym(mk, spot.x + 1, spot.y + 9, { sym: sg.sym, sub: sg.sub, bold: (sg.n || 0) > 1 }, { size: 11, anchor: "start", cls: "bd-sig bd-portname" });
+    t.setAttribute("data-net", c.edge.sourcePort);
+  }
   // the signs at each summing junction's inputs
   for (const n of g.nodes.filter((x) => x.kind === "sum")) {
     const c = box[n.id];
@@ -566,7 +709,7 @@ function bdDraw(svg, g, lay) {
     el.addEventListener("click", (ev) => { ev.stopPropagation(); S.bdSel = { node: n.id }; bdTrace(svg, S.bdSel); openBlock(n); });
     nodesG.append(el);
   }
-  vp.append(edgesG, nodesG, dots, labelsG);
+  vp.append(edgesG, nodesG, dots, marks, labelsG);
   svg.replaceChildren(vp);
   applyView(svg);
   if (S.bdSel) bdTrace(svg, S.bdSel);
@@ -602,7 +745,8 @@ function bdTrace(svg, sel) {                          // what is pointed at, or 
 
 function bdSignalWords(e) {
   const sg = e.signal || {};
-  const what = { reference: "the setpoint", error: "the error, e = r − y_m", measured: "the measured output", command: "a command",
+  const what = { reference: "the reference input", error: "the error, e = r − y_m", measured: "the measured output, through its sensor H",
+                 sampled: "a sampled signal, one value every T", command: "a command",
                  control: "a control signal (what a block moves or sets)", output: "a process output", disturbance: "a disturbance",
                  vector: `a vector of ${sg.n} signals` }[sg.what] || "a signal";
   return `${sg.sym || ""}${sg.sub ? "_" + sg.sub : ""}: ${what}${e.keys ? " (" + e.keys.map((k) => k.split(".").slice(1).join(".")).join(", ") + ")" : ""}`;
@@ -632,7 +776,8 @@ function openBlock(n) {
   const fn = n.fn || {};
   const kinds = { controller: "controller", actuator: "actuator", process: "process", sensor: "sensor (feedback path)",
                   subsystem: "subsystem", comparator: "summing junction", "process-sum": "summing junction", reference: "reference input",
-                  disturbance: "disturbance input", output: "output", "in-port": "In port", "out-port": "Out port" };
+                  disturbance: "disturbance input", output: "output", "in-port": "In port", "out-port": "Out port",
+                  sampler: "sampler (A/D)", hold: "zero-order hold (D/A)", junction: "summing junction" };
   const kind = n.kind === "frame" ? (n.frame === "cascade" ? "inner loop (cascade)" : "subsystem, open") :
     n.kind === "mux" ? "mux" : n.kind === "demux" ? "demux" : kinds[n.role] || n.kind;
   const title = fn.sym ? mathml(["mrow", fn.sub ? ["msub", ["mi", fn.sym], ["mtext", fn.sub]] : ["mi", fn.sym],
@@ -659,7 +804,8 @@ function openSignal(e) {
   const title = mathml(sg.sub ? ["msub", sg.n > 1 ? ["mi", { mathvariant: "bold" }, sg.sym] : ["mi", sg.sym], ["mtext", sg.sub]] : ["mi", sg.sym || "?"], false);
   showDetail(h("div", { class: "kind" }, "signal"), h("h2", {}, title), h("p", { class: "what" }, bdSignalWords(e)),
     dl([["from", name(e.source)], ["to", name(e.target)], ["sign", e.sign || null],
-        ["carries", e.keys ? e.keys.map((k) => k.split(".").slice(1).join(".")).join(", ") : (e.key || "").split(".").slice(1).join(".")]]));
+        ["carries", e.keys ? e.keys.map((k) => k.split(".").slice(1).join(".")).join(", ") : (e.key || "").split(".").slice(1).join(".")],
+        ["measured", e.note || null]]));
 }
 
 /* ---- the page: laid out again only when what is drawn changes */
@@ -687,12 +833,19 @@ function blocksLegend() {
   const row = (svgTxt, text) => [h("span", { html: `<svg width="30" height="20">${svgTxt}</svg>` }), h("span", {}, text)];
   const ink = 'stroke="currentColor" fill="none" stroke-width="1.3"';
   return h("div", { class: "legend bd-legend" },
-    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="14" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">G</text>`,
-        "a block, its function inside: C a controller, P a process, H a sensor, Q a subsystem; z when it runs on a schedule, s for the world; click it for its definition"),
-    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off rule, a program, an AI agent, a person): named, with a sketch where there is a standard one; no transfer function is claimed"),
+    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="14" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">P</text>`,
+        "a block, its function inside: C a controller, P a process, H a sensor with dynamics of its own (a unity sensor is the feedback wire itself), Q a subsystem; C(z) runs every T, (s) is continuous; Q without (s) holds sampled or nonlinear parts; click it for its definition"),
+    row(`<path d="M0,10 H8 M22,10 H30 M8,10 L20,3" ${ink}/><circle cx="8" cy="10" r="1.6" fill="currentColor"/><circle cx="22" cy="10" r="1.6" fill="currentColor"/>`,
+        "a sampler (T): where a continuous signal enters a discrete controller C(z)"),
+    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,15 H10 V12 H14 V9 H18 V6 H24" ${ink}/>`,
+        "a zero-order hold (ZOH): where C(z) drives the continuous process, each value held for one period"),
+    row(`<rect x="3" y="4" width="24" height="12" rx="6" ${ink}/>`, "an In or Out port: a signal crossing the edge of a system drawn alone"),
+    row(`<path d="M15,0 V20" stroke="currentColor" stroke-width="0.8"/><path d="M2,10 H28" ${ink}/><rect x="11" y="6" width="8" height="8" rx="2" ${ink} fill="var(--bg, #fff)"/>`,
+        "a port mark: where a signal crosses the frame of an open system, named"),
+    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off controller: a relay; a program, an AI agent, a person): named, with a sketch where there is a standard one (relay, saturation); no transfer function is claimed"),
     row(`<circle cx="15" cy="10" r="7" ${ink}/><text x="5" y="8" font-size="9" fill="currentColor">+</text><text x="19" y="21" font-size="9" fill="currentColor">−</text>`, "a summing junction, with the sign of each input"),
     row(`<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
     row(`<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux)"),
     row(`<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
-    h("span", { class: "sym" }, "r e u y d"), h("span", {}, "setpoint, error (r − y_m), control signal, output (y_m measured), disturbance; subscripts name the loop or the part"));
+    h("span", { class: "sym" }, "r e u y d"), h("span", {}, "reference (its value), error (r − y_m), control signal, output (y_m,x measured through H), disturbance; subscripts name the loop or the part; k a sample"));
 }
