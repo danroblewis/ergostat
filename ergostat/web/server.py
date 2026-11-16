@@ -113,6 +113,11 @@ def api(live: Live, path: str, q: dict):
         att = st.attention(snap, bool(running_pid(p)) and snap["live"], m)
         if one("view") == "wiring":
             return {**graph.wiring(m, p, snap, graph.select(m, system, around, int(one("depth") or 1))), "attention": att}
+        if one("view") == "blocks":                 # the control view: the whole control system as a block diagram
+            from ..blockdiagram import diagram
+            opened = q.get("open")
+            want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
+            return {**diagram(m, snap, want, system), "attention": att}
         from ..fold import fold
         tree = getattr(getattr(m, "spec", None), "systems", None)
         if tree and not around:              # systems as parts: boxed, opened, or drilled into (whatever it reaches outside)

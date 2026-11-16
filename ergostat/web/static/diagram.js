@@ -931,19 +931,7 @@ function highlightAgents(names) {
 }
 
 function legend(view) {
-  if (view === "blocks") {
-    const row = (sym, text) => [h("span", { class: "sym" }, sym), h("span", {}, text)];
-    return h("div", { class: "legend" },
-      row("r", "the setpoint: what the loop holds"),
-      row("Σ", "compares: r − ym, with signs at each input"),
-      row("e", "the error: how far off it is"),
-      row("C", "the controller, and the agent filling it"),
-      row("u", "its output: how far the actuator (valve) is opened"),
-      row("d", "a disturbance (the orange line from above): a flow into or out of the stock that this loop does not command, joining at the plant"),
-      row("y", "the plant's output: the stock"),
-      row("H", "the sensor; ym is what it reads"),
-      row("ff", "feedforward: the controller also measures d"));
-  }
+  if (view === "blocks") return blocksLegend();
   if (view === "wiring") {
     return h("div", { class: "legend" },
       h("span", { html: '<svg width="26" height="16"><rect x="2" y="2" width="22" height="12" rx="3" fill="var(--panel)" stroke="var(--line)" stroke-width="2"/><rect x="2" y="2" width="4" height="12" rx="2" fill="var(--r4)"/></svg>' }), "an agent, coloured by its rung",
@@ -1010,7 +998,7 @@ async function pageDiagram(main, q) {
     h("span", { class: "muted" }, "system"), sysSel,
     h("span", { class: "seg" },
       h("button", { class: view === "control" ? "on" : "", onclick: () => go({ view: "control" }) }, "control"),
-      h("button", { class: view === "blocks" ? "on" : "", title: "each loop as a classic feedback block diagram", onclick: () => go({ view: "blocks" }) }, "blocks"),
+      h("button", { class: view === "blocks" ? "on" : "", title: "the control system as a block diagram: what is controlled, and how", onclick: () => go({ view: "blocks" }) }, "blocks"),
       h("button", { class: view === "wiring" ? "on" : "", onclick: () => go({ view: "wiring" }) }, "wiring")),
     wrapBtn,
     h("button", { title: "open every system: all their parts", onclick: () => { S.graphSig = ""; go({ open: "*" }); } }, "open all"),
@@ -1041,8 +1029,8 @@ async function pageDiagram(main, q) {
   async function tick() {
     let g;
     // the blocks view draws every loop, each in its system's outline: it asks for everything opened
-    const openArg = view === "blocks" ? { open: "*" } : openQ != null && view !== "wiring" ? { open: openQ } : {};
-    try { g = await api("graph", { view: view === "blocks" ? "control" : view, system, around, ...openArg }); fails = 0; }
+    const openArg = openQ != null && view !== "wiring" ? { open: openQ } : {};
+    try { g = await api("graph", { view, system, around, ...openArg }); fails = 0; }
     catch (e) {
       if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "this view is not in the snapshot: the whole system and each system are" : "the server is not answering: is ergostat still running?")); }
       return;
@@ -1065,12 +1053,11 @@ async function pageDiagram(main, q) {
     } else crumbs.replaceChildren();
     if (view === "blocks") {
       wrap.querySelector(".empty")?.remove();
-      const drawn = Object.keys(g.loops || {}).length ? drawBlocks(svg, g) : null;
-      if (!drawn) {
+      if (!g.nodes.length) {
         svg.replaceChildren();
-        wrap.append(h("div", { class: "empty" }, "no whole loops to draw here"));
-      } else {
-        S.layout = drawn;
+        wrap.append(h("div", { class: "empty" }, "no control system to draw here: no goal, and no block that acts"));
+      } else if (!S.pressed) {
+        await drawBlocksView(svg, g);
         if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
       }
       renderSide(side, g, "blocks");

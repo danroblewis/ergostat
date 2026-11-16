@@ -1,0 +1,1023 @@
+"""The control view (SPEC §1a): the whole control system as one block diagram, in the notation of
+the textbooks (Ogata; Franklin, Powell & Emami-Naeini; Åström & Murray) and of Simulink for its
+hierarchy. Worked out from the model, never written, as plain data the page lays out and draws.
+
+What each part of the model becomes:
+
+- A **controller** or **actuator** is a block the model runs (a goal's onoff, a proportional, a
+  program, an AI agent, a person), drawn once however many loops it serves. A setting a controller
+  steps (a stock moved by a two-way flow only it moves) is the controller's own memory: its value
+  is the controller's output u, and a block that reads its goal's error and steps a setting on a
+  schedule is integral action, C(z) = K_i T/(z − 1).
+- A **process** is the part of the world between what the blocks move and what they read. A stock
+  whose flows are all inputs (moved by blocks, or disturbances) is an integrator, 1/s, with its
+  flows summed in front of it (each a + or −). Anything else (flows that follow others,
+  auxiliaries) is not identified, and is grouped by system: outputs that share inputs are one
+  multi-input multi-output block, with its inputs and outputs gathered into vectors (Simulink's
+  mux and demux), unless drawing them one by one takes fewer lines.
+- A **sensor** read by a loop is the feedback path's H, beneath it.
+- A **goal** is a reference r compared at a summing junction (e = r − y_m) when a block reads its
+  error; a controller that reads the measurement itself is given r beside it (two degrees of
+  freedom). A goal whose setpoint another block sets is a cascade: its loop is drawn nested.
+- A **disturbance** (a flow nothing in the control system moves, or an input from outside the
+  model) enters at the process: at a stock's summing junction, or as an input of the process.
+- A block the model runs that reads nothing and is commanded by nothing (the world: customers,
+  arrivals) is where a disturbance comes from, not a block of the control system.
+- A **system** is a subsystem block Q(s) when closed; open, its parts are drawn inside its frame;
+  drawn alone, what crosses its edge are its In and Out ports."""
+
+from __future__ import annotations
+
+from .spec.ir import Ref, Spec
+
+WORLD_NOTE = "moved by a block that reads nothing and is commanded by nothing: the world, from the control system's side"
+
+
+# ---- MathML as nested lists: [tag, child, ...] or [tag, {attrs}, child, ...]; strings are text
+
+def mi(x: str):
+    return ["mi", x]
+
+
+def mn(x) -> list:
+    return ["mn", _num(x)]
+
+
+def mo(x: str):
+    return ["mo", x]
+
+
+def mt(x: str):
+    return ["mtext", x]
+
+
+def row(*xs):
+    return ["mrow", *xs]
+
+
+def frac(a, b):
+    return ["mfrac", a, b]
+
+
+def sym(base: str, sub: str | None = None, arg: str | None = None, bold: bool = False):
+    """``C_tuner(z)``: a symbol, its subscript as text (names have hyphens), its argument."""
+    b = ["mi", {"mathvariant": "bold"}, base] if bold else mi(base)
+    out = ["msub", b, mt(sub)] if sub else b
+    return row(out, mo("("), mi(arg), mo(")")) if arg else out
+
+
+def eq(*xs):
+    """Parts joined by =."""
+    out: list = []
+    for i, x in enumerate(xs):
+        if i:
+            out.append(mo("="))
+        out.append(x)
+    return row(*out)
+
+
+def _num(x) -> str:
+    if x is None:
+        return "?"
+    x = float(x)
+    return str(int(x)) if x == int(x) else f"{x:g}"
+
+
+def _dur(sec: float | None) -> str:
+    from .durations import human
+    return human(sec) if sec else ""
+
+
+# ---- the diagram, flat: every part with its system, every wire from a port to a port
+
+class _Diagram:
+    def __init__(self, spec: Spec, snap: dict | None):
+        self.s, self.snap = spec, snap or {}
+        self.nodes: dict[str, dict] = {}
+        self.wires: list[dict] = []
+        self.prod: dict[str, tuple[str, str]] = {}     # signal key -> (node, port) that produces it
+        self.sig: dict[str, dict] = {}                 # signal key -> how it is written
+        self.frames: list[dict] = []
+        self._classify()
+
+    # -- what each part of the model is to the control system
+
+    def _classify(self) -> None:
+        s = self.s
+        B = s.blocks
+        self.commands: set[tuple[str, str]] = set()    # (commander, commanded)
+        for b in B.values():
+            for t in b.targets():
+                if t.kind == "block" and t.name in B:
+                    self.commands.add((b.name, t.name))
+            for r in b.inputs.values():
+                if r.kind == "block" and r.name in B:
+                    self.commands.add((r.name, b.name))
+        commanded = {c for _, c in self.commands}
+        self.world = {n for n, b in B.items() if b.targets() and not b.reads() and n not in commanded
+                      and all(t.kind in ("flow", "auxiliary") for t in b.targets())}
+        self.control = [n for n in B if n not in self.world]
+        self.moved: dict[str, tuple[str, str]] = {}    # "flow.x" / "auxiliary.x" -> (block, its port)
+        for n in self.control:
+            for port, refs in B[n].outputs.items():
+                for t in refs:
+                    if t.kind in ("flow", "auxiliary"):
+                        self.moved[f"{t.kind}.{t.name}"] = (n, port)
+        self.goalvars = {f"{g.of.kind}.{g.of.name}": [] for g in s.goals.values()}
+        for g in s.goals.values():
+            self.goalvars[f"{g.of.kind}.{g.of.name}"].append(g.name)
+        self.knob: dict[str, str] = {}                 # "stock.k" -> the block whose setting it is
+        self.knob_flow: dict[str, str] = {}            # its flow -> "stock.k"
+        for f in s.flows.values():
+            mover = self.moved.get(f"flow.{f.name}")
+            if not (mover and f.two_way):
+                continue
+            for end in (f.target, f.source):
+                k = f"stock.{end}"
+                if end and end in s.stocks and k not in self.goalvars and k not in self.knob:
+                    self.knob[k], self.knob_flow[f.name] = mover[0], k
+                    break
+        # the setting a block steps; a stepping controller that reads its goal's error on a schedule integrates it
+        self.setting_of = {b: k for k, b in self.knob.items()}
+        # what each block reads, as signals (a machine block's goal: is said by the onoff ergostat puts in front of it)
+        implied_for = {}
+        for n, b in B.items():
+            if b.implied and b.goal:
+                for _, c in [x for x in self.commands if x[0] == n]:
+                    implied_for.setdefault(c, set()).add(b.goal)
+        self.reads: dict[str, list[tuple[str, str]]] = {}   # block -> [(its input's name, signal key)]
+        self.error_read: set[str] = set()              # goals whose error a block reads: they get a summing junction
+        self.reads_y: dict[str, set[str]] = {}         # goal -> the blocks reading its measurement directly
+        for n in self.control:
+            b = B[n]
+            out = []
+            for port, r in b.inputs.items():
+                if r.kind == "block":
+                    continue
+                out.append((port, self._read_key(r)))
+            if b.goal and b.goal not in implied_for.get(n, set()):
+                out.append(("goal", f"goal.{b.goal}.e"))
+            for c, d in sorted(self.commands):
+                if d == n:
+                    out.append((c, f"cmd.{c}.{n}"))
+            for _, sk in out:
+                if sk.startswith("goal.") and sk.endswith(".e"):
+                    self.error_read.add(sk.split(".")[1])
+            self.reads[n] = out
+        for g in s.goals.values():
+            gv = f"{g.of.kind}.{g.of.name}"
+            for n, rs in self.reads.items():
+                if any(k == gv or k.startswith(f"meas.{gv}.") for _, k in rs):
+                    self.reads_y.setdefault(g.name, set()).add(n)
+
+    def _read_key(self, r: Ref) -> str:
+        if r.kind == "goal":
+            return f"goal.{r.name}.e"
+        var = f"{r.kind}.{r.name}"
+        sen = self._sensors(var)
+        if sen:
+            return f"meas.{var}.{r.port if r.port in sen else sen[0]}"
+        return var
+
+    def _sensors(self, var: str) -> list[str]:
+        kind, name = var.split(".", 1)
+        t = self.s.measured(kind).get(name)
+        if not t:
+            return []
+        return [x.name for x in t.sensors.values() if x.measured or x.manual]
+
+    def _system(self, var: str) -> str | None:
+        kind, name = var.split(".", 1)
+        return self.s.owner(Ref(kind, name))
+
+    def is_input(self, var: str) -> bool:
+        """What the processes take in: what blocks move or set, the settings they step, disturbances."""
+        return var in self.moved or var in self.knob or self.disturbance(var)
+
+    def disturbance(self, var: str) -> bool:
+        kind, name = var.split(".", 1)
+        if var in self.moved or var in self.knob:
+            return False
+        if kind == "flow":
+            return not self.s.flows[name].driven_by
+        if kind == "auxiliary":
+            a = self.s.auxiliaries[name]
+            return a.exogenous or not a.driven_by
+        return False
+
+    def causes(self, var: str) -> list[tuple[str, int | None]]:
+        kind, name = var.split(".", 1)
+        s = self.s
+        if kind == "stock":
+            return [(f"flow.{f.name}", 1 if f.target == name else -1) for f in s.flows_of(name)]
+        t = s.flows.get(name) if kind == "flow" else s.auxiliaries.get(name)
+        return [(f"{r.kind}.{r.name}", t.polarity.get(str(r))) for r in (t.driven_by if t else [])]
+
+    # -- signals: how each is written, who produces it, who reads it
+
+    def signal(self, key: str) -> dict:
+        if key in self.sig:
+            return self.sig[key]
+        parts = key.split(".")
+        if key.startswith("goal.") and key.endswith(".r"):
+            out = {"sym": "r", "sub": parts[1], "what": "reference"}
+        elif key.startswith("goal.") and key.endswith(".e"):
+            out = {"sym": "e", "sub": parts[1], "what": "error"}
+        elif key.startswith("meas."):
+            out = {"sym": "y", "sub": "m", "what": "measured", "of": parts[1] + "." + parts[2]}
+        elif key.startswith("cmd."):
+            c = self.s.blocks[parts[1]]
+            out = {"sym": "u", "sub": c.goal if c.implied and c.goal else parts[1], "what": "command"}
+        elif self.disturbance(key):
+            out = {"sym": "d", "sub": parts[1], "what": "disturbance"}
+        elif key in self.moved or key in self.knob:
+            out = {"sym": "u", "sub": parts[1], "what": "control"}
+        else:
+            out = {"sym": "y", "sub": parts[1], "what": "output"}
+        out["key"] = key
+        self.sig[key] = out
+        return out
+
+    def node(self, id: str, **kw) -> dict:
+        n = self.nodes.get(id)
+        if n is None:
+            n = self.nodes[id] = {"id": id, "ins": [], "outs": [], **kw}
+        return n
+
+    def port(self, nid: str, io: str, name: str, side: str | None = None, sign: str | None = None) -> str:
+        n = self.nodes[nid]
+        pid = f"{nid}|{io}|{name}"
+        lst = n["ins" if io == "in" else "outs"]
+        if not any(p["id"] == pid for p in lst):
+            lst.append({"id": pid, "side": side or ("W" if io == "in" else "E"), **({"sign": sign} if sign else {})})
+        return pid
+
+    def produce(self, key: str, nid: str, name: str | None = None, side: str = "E") -> None:
+        self.prod[key] = (nid, self.port(nid, "out", name or key, side))
+
+    def source(self, key: str) -> tuple[str, str] | None:
+        """The port that produces a signal; a disturbance's or a setpoint's input is made when first read."""
+        if key in self.prod:
+            return self.prod[key]
+        if key.startswith("goal.") and key.endswith(".r"):
+            g = self.s.goals[key.split(".")[1]]
+            nid = f"ref:{g.name}"
+            # it enters where it is compared: its summing junction, or the controller that reads the measurement itself
+            readers = sorted(self.reads_y.get(g.name, ())) if g.name not in self.error_read else []
+            where = self.s.blocks[readers[0]].system if readers else g.system
+            self.node(nid, kind="input", role="reference", system=where, label=f"r {g.name}",
+                      fn={"sym": "r", "sub": g.name, "value": _hold(g)}, loops=[g.name],
+                      math=[eq(sym("r", g.name), row(mt(str(g.hold.op).replace("<=", "≤ ").replace(">=", "≥ ").replace("==",
+                              "")), mn(g.hold.value)))],
+                      says=f"the setpoint of goal {g.name}: hold {g.of.name} {g.hold}" +
+                           (f", within {_num(g.tolerance)}" if g.tolerance else "") + ".",
+                      rows=[["goal", g.name], ["holds", f"{g.of.kind} {g.of.name} {g.hold}"], ["description", g.description]])
+            self.produce(key, nid)
+            return self.prod[key]
+        if not key.startswith(("goal.", "meas.", "cmd.")) and self.disturbance(key):
+            kind, name = key.split(".", 1)
+            nid = f"dist:{key}"
+            mover = next((b for b in self.world if any(f"{t.kind}.{t.name}" == key for t in self.s.blocks[b].targets())), None)
+            t = self.s.flows.get(name) if kind == "flow" else self.s.auxiliaries.get(name)
+            says = (f"{'flow' if kind == 'flow' else 'auxiliary'} {name}: an input no block of the control system sets" +
+                    (f"; {mover} moves it ({WORLD_NOTE})" if mover else "; nothing in the model moves it") + ".")
+            self.node(nid, kind="input", role="disturbance", system=self._system(key), label=f"d {name}",
+                      fn={"sym": "d", "sub": name}, math=[sym("d", name)], says=says, part=key,
+                      rows=[["what", key], ["description", getattr(t, "description", "")], ["now", self.now(key)]])
+            self.produce(key, nid)
+            return self.prod[key]
+        return None
+
+    def wire(self, key: str, dst: str, dport: str, sign: str | None = None) -> None:
+        src = self.source(key)
+        if src is None:
+            return
+        self.wires.append({"key": key, "source": src[0], "sourcePort": src[1], "target": dst, "targetPort": dport,
+                           **({"sign": sign} if sign else {})})
+
+    def now(self, var: str) -> str:
+        kind, name = var.split(".", 1)
+        if kind == "flow":
+            r = (self.snap.get("flows") or {}).get(name, {}).get("rate")
+            return f"{_num(r)}/h" if r is not None else ""
+        v = (self.snap.get("stocks") or {}).get(name, {}).get("value")
+        return _num(v) if v is not None else ""
+
+    # -- building it
+
+    def build(self) -> None:
+        s = self.s
+        # the blocks of the control system, each once
+        for n in self.control:
+            self.node(f"blk:{n}", kind="block", system=s.blocks[n].system, label=n, **self.block_fn(n))
+        for n in self.control:
+            b = s.blocks[n]
+            for refs in b.outputs.values():
+                for t in refs:
+                    if t.kind == "flow" and t.name in self.knob_flow:
+                        key = self.knob_flow[t.name]
+                    elif t.kind in ("flow", "auxiliary"):
+                        key = f"{t.kind}.{t.name}"
+                    elif t.kind == "block":
+                        key = f"cmd.{n}.{t.name}"
+                    elif t.kind == "goal":
+                        key = f"goal.{t.name}.r"
+                    else:
+                        continue
+                    self.produce(key, f"blk:{n}", key)
+            for c, d in sorted(self.commands):
+                if c == n:
+                    self.produce(f"cmd.{c}.{d}", f"blk:{n}", f"cmd.{c}.{d}")
+        # summing junctions: e = r − y_m, for goals whose error a block reads, and for goals nothing serves
+        served = {g for g in s.goals if s.loop(g).controllers or s.loop(g).actuators}
+        for g in s.goals.values():
+            if g.name in self.error_read or (g.name not in served and g.name not in self.reads_y):
+                nid = f"sum:{g.name}"
+                self.node(nid, kind="sum", role="comparator", system=g.system, label=f"Σ {g.name}", loops=[g.name],
+                          math=[eq(sym("e", g.name), row(sym("r", g.name), mo("−"), sym("y", "m")))],
+                          says=f"compares the setpoint of {g.name} with what its sensor reads: the error e = r − y_m" +
+                               ("" if g.name in served else ". Nothing acts on it: missing feedback") + ".")
+                self.produce(f"goal.{g.name}.e", nid, "e")
+        # the processes, and the sensors and outputs on them
+        self.processes()
+        # inputs, wired
+        for n in self.control:
+            nid = f"blk:{n}"
+            for _, key in self.reads[n]:
+                if key.startswith("goal.") and key.endswith(".e") and f"sum:{key.split('.')[1]}" not in self.nodes:
+                    continue
+                self.need(key)
+                self.wire(key, nid, self.port(nid, "in", key))
+            for gname in sorted(g for g, readers in self.reads_y.items() if n in readers and g not in self.error_read):
+                key = f"goal.{gname}.r"                                  # it reads y itself: its setpoint beside it
+                self.wire(key, nid, self.port(nid, "in", key))
+            k = self.setting_of.get(n)
+            if k:                                                        # its setting, moved by others too
+                for f in s.flows_of(k.split(".", 1)[1]):
+                    fk = f"flow.{f.name}"
+                    if self.knob_flow.get(f.name) == k:
+                        continue
+                    sign = "+" if f.target == k.split(".", 1)[1] else "−"
+                    self.wire(fk, nid, self.port(nid, "in", fk, sign=sign), sign)
+        for g in s.goals.values():
+            nid = f"sum:{g.name}"
+            if nid not in self.nodes:
+                continue
+            self.wire(f"goal.{g.name}.r", nid, self.port(nid, "in", "r", "W", "+"), "+")
+            gv = f"{g.of.kind}.{g.of.name}"
+            sen = self._sensors(gv)
+            key = f"meas.{gv}.{sen[0]}" if sen else gv
+            self.need(key)
+            self.wire(key, nid, self.port(nid, "in", "y", "S", "−"), "−")
+        # what each goal holds, out to the right: the outputs the control system is for
+        for gv, goals in self.goalvars.items():
+            if gv in self.prod or self.source(gv):
+                g = self.s.goals[goals[0]]
+                nid = f"out:{gv}"
+                self.node(nid, kind="output", role="output", system=g.system, label=f"y {gv.split('.', 1)[1]}",
+                          fn={"sym": "y", "sub": gv.split(".", 1)[1]}, loops=goals, math=[sym("y", gv.split(".", 1)[1])],
+                          says=f"what {' and '.join(goals)} hold{'s' if len(goals) == 1 else ''}: {gv}.", part=gv,
+                          rows=[["holds", ", ".join(f"{x} {self.s.goals[x].hold}" for x in goals)], ["now", self.now(gv)]])
+                self.wire(gv, nid, self.port(nid, "in", gv))
+        self.cascades()
+        self.mark_loops()
+
+    def need(self, key: str) -> None:
+        """A measured signal's sensor, made when first read."""
+        if not key.startswith("meas.") or key in self.prod:
+            return
+        _, kind, name, sname = key.split(".", 3)
+        var = f"{kind}.{name}"
+        nid = f"sen:{var}"
+        if nid not in self.nodes:
+            t = self.s.measured(kind)[name]
+            sensors = [x for x in t.sensors.values() if x.measured or x.manual]
+            ex = sensors[0]
+            how, math = "reads its value", [eq(sym("H", name, "s"), mn(1))]
+            if ex.changes:
+                tau = ex.changes.get("over")
+                how = f"its rate, from its stock's successive readings over {_dur(tau) or 'its window'}"
+                math = [eq(sym("H", name, "s"), frac(row(mn(1), mo("−"), ["msup", mi("e"), row(mo("−"), mi("s"), mi("τ"))]),
+                                                     row(mi("s"), mi("τ")))),
+                        row(mt("a moving average of the rate over "), mi("τ"), mo("="), mt(_dur(tau) or "?"))]
+            elif ex.manual:
+                how = "read by hand"
+            elif ex.items:
+                how = "counted from the record"
+            every = f", every {_dur(ex.every)}" if ex.every and not ex.manual else ""
+            self.node(nid, kind="block", role="sensor", system=self._system(var), label=name,
+                      fn={"sym": "H", "sub": name, "arg": None, "expr": "1" if not ex.changes else "avg τ", "linear": True},
+                      math=math, says=f"the sensor on {var}: {how}{every}. Ideal measurement: unity gain, sampled.", part=var,
+                      rows=[["measures", var], ["sensors", ", ".join(x.name for x in sensors)], ["now", self.now(var)]])
+            self.wire(var, nid, self.port(nid, "in", var, "E"))
+        self.produce(key, nid, key, "W")
+
+    def processes(self) -> None:
+        internal = lambda v: not self.is_input(v)                            # noqa: E731
+        outs = set()
+        for gv in self.goalvars:
+            if internal(gv) and gv.split(".")[0] != "goal":
+                outs.add(gv)
+        for rs in self.reads.values():
+            for _, k in rs:
+                if k.startswith("meas."):
+                    k = ".".join(k.split(".")[1:3])
+                if not k.startswith(("goal.", "cmd.")) and internal(k):
+                    outs.add(k)
+        info: dict[str, tuple[set, set, set]] = {}
+
+        def walk(o: str) -> bool:
+            seen, ins, deps, grew = set(), set(), set(), False
+            todo = [o]
+            while todo:
+                x = todo.pop()
+                for c, _ in self.causes(x):
+                    if not internal(c):
+                        ins.add(c)
+                    elif c in outs and c != o:
+                        deps.add(c)
+                    elif c != o and self._system(c) != self._system(o):
+                        outs.add(c)
+                        deps.add(c)
+                        grew = True
+                    elif c not in seen and c != o:
+                        seen.add(c)
+                        todo.append(c)
+            info[o] = (seen, ins, deps)
+            return grew
+        while True:
+            if not any([walk(o) for o in sorted(outs)]):
+                break
+        pure = {o for o in outs if o.startswith("stock.") and not info[o][0] and not info[o][2]}
+        rest = sorted(outs - pure)
+        parent = {o: o for o in rest}
+
+        def root(x):
+            while parent[x] != x:
+                x = parent[x]
+            return x
+        for i, a in enumerate(rest):
+            for b in rest[i + 1:]:
+                if self._system(a) != self._system(b):
+                    continue
+                sa, ia, da = info[a]
+                sb, ib, db = info[b]
+                if sa & sb or ia & ib or a in db or b in da:
+                    parent[root(a)] = root(b)
+        groups: dict[str, list[str]] = {}
+        for o in rest:
+            groups.setdefault(root(o), []).append(o)
+        for o in sorted(pure):
+            self.integrator(o)
+        used = set()
+        for members in sorted(groups.values()):
+            members = sorted(members)
+            shared = any(info[a][0] & info[b][0] for i, a in enumerate(members) for b in members[i + 1:])
+            ins = sorted({x for o in members for x in info[o][1] | info[o][2]} - set(members))
+            apart = sum(len(info[o][1] | info[o][2]) for o in members)
+            if len(members) > 1 and (shared or apart > len(ins) + len(members)):
+                sysname = self._system(members[0]) or "plant"
+                pid = sysname if sysname not in used else f"{sysname}-{len(used)}"
+                used.add(pid)
+                self.mimo(pid, members, ins, info, shared)
+            else:
+                for o in members:
+                    self.siso(o, sorted(info[o][1] | info[o][2]), info)
+
+    def integrator(self, o: str) -> None:
+        """A stock whose flows are all inputs: 1/s, its flows summed in front of it."""
+        name = o.split(".", 1)[1]
+        st = self.s.stocks[name]
+        nid = f"proc:{o}"
+        flows = self.causes(o)
+        self.node(nid, kind="block", role="process", system=st.system, label=name,
+                  fn={"sym": "P", "sub": name, "arg": "s", "expr": "1/s", "linear": True},
+                  math=[eq(sym("P", name, "s"), frac(mn(1), mi("s")))],
+                  says=f"the stock {name}: it integrates its net flow (what flows in, less what flows out), "
+                       "so its transfer function is an integrator.",
+                  part=o, rows=[["stock", name], ["unit", st.unit], ["now", self.now(o)], ["flows", ", ".join(
+                      ("+" if sg > 0 else "−") + f.split(".", 1)[1] for f, sg in flows)], ["description", st.description]])
+        self.produce(o, nid, o)
+        if len(flows) == 1 and flows[0][1] > 0:
+            self.wire(flows[0][0], nid, self.port(nid, "in", flows[0][0]))
+            return
+        sid = f"psum:{o}"
+        self.node(sid, kind="sum", role="process-sum", system=st.system, label=f"Σ {name}",
+                  math=[eq(row(mi("q"), mt(" into "), mt(name)),
+                           row(*[x for f, sg in flows for x in (mo("+" if sg > 0 else "−"), sym("q", f.split('.',
+                                   1)[1]))][(1 if flows[0][1] > 0 else 0):]))],
+                  says=f"what moves {name}: its inflows (+) less its outflows (−).")
+        self.produce(f"psum:{o}", sid, "q")
+        self.sig[f"psum:{o}"] = {"key": f"psum:{o}", "sym": "", "sub": "", "what": "net flow"}
+        self.wire(f"psum:{o}", nid, self.port(nid, "in", "q"))
+        # the block's own action into its side, disturbances from above (and below, when there are many)
+        ctl = [(f, sg) for f, sg in flows if f in self.moved]
+        dist = [(f, sg) for f, sg in flows if f not in self.moved]
+        first = ctl[0] if ctl else dist.pop(0)
+        if ctl:
+            ctl = ctl[1:]
+        sides = [first, *ctl, *dist]
+        for i, (f, sg) in enumerate(sides):
+            side = "W" if i == 0 else "N" if i % 2 else "S"
+            sign = "+" if sg > 0 else "−"
+            self.wire(f, sid, self.port(sid, "in", f, side, sign), sign)
+
+    def siso(self, o: str, ins: list[str], info) -> None:
+        kind, name = o.split(".", 1)
+        flows = self.causes(o)
+        dist = [(f, sg) for f, sg in flows if self.disturbance(f)]
+        if kind == "stock" and dist:                   # what is known drawn as known: d at its own junction, then 1/s
+            return self.split_stock(o, [k for k in ins if not any(k == f for f, _ in dist)], flows, dist)
+        nid = f"proc:{o}"
+        t = self.s.measured(kind)[name]
+        static = kind == "auxiliary" or (kind == "flow")
+        how = self.structure(o)
+        u = row(*[x for i, k in enumerate(ins) for x in ((mo(",") if i else None), sym(self.signal(k)["sym"], k.split(".", 1)[1])) if x])
+        self.node(nid, kind="block", role="process", system=t.system, label=name,
+                  fn={"sym": "P", "sub": name, "arg": None if static else "s", "expr": "static" if static else "not identified",
+                      "linear": False if static else None},
+                  math=[eq(sym("y", name), row(sym("P", name, None if static else "s"), mo("("), u, mo(")"))),
+                        mt("not identified: " + how)],
+                  says=f"the process from what reaches {name} to {name}: {how}. Its dynamics are not identified.", part=o,
+                  rows=[[kind, name], ["now", self.now(o)], ["inputs", ", ".join(k.split(".", 1)[1] for k in ins)],
+                        ["description", t.description]])
+        self.produce(o, nid, o)
+        for k in ins:
+            self.wire(k, nid, self.port(nid, "in", k))
+
+    def split_stock(self, o: str, ins: list[str], flows, dist) -> None:
+        """A stock some of whose flows follow other things (not identified, G) and some are disturbances:
+        G(s), then the junction where the disturbances enter, then the integrator."""
+        name = o.split(".", 1)[1]
+        st = self.s.stocks[name]
+        nid, gid, sid = f"proc:{o}", f"gen:{o}", f"psum:{o}"
+        driven = [f.split(".", 1)[1] for f, _ in flows if not self.disturbance(f)]
+        self.node(nid, kind="block", role="process", system=st.system, label=name,
+                  fn={"sym": "P", "sub": name, "arg": "s", "expr": "1/s", "linear": True},
+                  math=[eq(sym("P", name, "s"), frac(mn(1), mi("s")))],
+                  says=f"the stock {name}: it integrates its net flow.", part=o,
+                  rows=[["stock", name], ["unit", st.unit], ["now", self.now(o)], ["description", st.description]])
+        self.produce(o, nid, o)
+        self.node(sid, kind="sum", role="process-sum", system=st.system, label=f"Σ {name}",
+                  math=[mt(f"what moves {name}: the flows that follow what drives them, and the disturbances, each with its sign")],
+                  says=f"what moves {name}: {', '.join(driven)} (through G) and the disturbances, inflows + and outflows −.")
+        self.produce(f"psum:{o}", sid, "q")
+        self.sig[f"psum:{o}"] = {"key": f"psum:{o}", "sym": "", "sub": "", "what": "net flow"}
+        self.wire(f"psum:{o}", nid, self.port(nid, "in", "q"))
+        if driven:
+            u = row(*[x for i, k in enumerate(ins) for x in ((mo(",") if i else None), sym(self.signal(k)["sym"], k.split(".",
+                    1)[1])) if x])
+            self.node(gid, kind="block", role="process", system=st.system, label=f"{name} flows",
+                      fn={"sym": "G", "sub": name, "arg": "s", "expr": "not identified", "linear": None},
+                      math=[eq(sym("q", ", ".join(driven)), row(sym("G", name, "s"), mo("("), u, mo(")"))),
+                            mt(f"not identified: how {', '.join(driven)} follow{'s' if len(driven) == 1 else ''} "
+                               f"what drives {'it' if len(driven) == 1 else 'them'}")],
+                      says=f"the flows of {name} that follow other things ({', '.join(driven)}): how they follow is not identified.",
+                      rows=[["flows", ", ".join(driven)], ["driven by", ", ".join(k.split(".", 1)[1] for k in ins)]])
+            for k in ins:
+                self.wire(k, gid, self.port(gid, "in", k))
+            self.produce(f"gen:{o}", gid, "q")
+            self.sig[f"gen:{o}"] = {"key": f"gen:{o}", "sym": "q", "sub": name, "what": "flow"}
+            self.wire(f"gen:{o}", sid, self.port(sid, "in", "q", "W", "+"), "+")
+        for i, (f, sg) in enumerate(dist):
+            side = "W" if not driven and i == 0 else "N" if i % 2 == 0 else "S"
+            sign = "+" if sg > 0 else "−"
+            self.wire(f, sid, self.port(sid, "in", f, side, sign), sign)
+
+    def structure(self, o: str) -> str:
+        kind, name = o.split(".", 1)
+        if kind == "auxiliary":
+            return "an auxiliary has no memory: a static map of what drives it"
+        if kind == "flow":
+            return "a flow's rate follows what drives it"
+        drv = [c.split(".", 1)[1] for c, _ in self.causes(o)]
+        return f"{name} integrates {', '.join(drv)}, whose rates follow what drives them: (1/s)·G(s), G not identified"
+
+    def mimo(self, pid: str, members: list[str], ins: list[str], info, shared: bool) -> None:
+        """Outputs that share their inputs: one block, P(s), with vectors in and out."""
+        nid = f"proc:{pid}"
+        system = self._system(members[0])
+        rowsm = []
+        for o in members:
+            reach = info[o][1] | info[o][2]
+            cells = []
+            for i in ins:
+                pol = None
+                if i in reach:
+                    pol = next((sg for c, sg in self.causes(o) if c == i), None)
+                cells.append(["mtd", (sym("P", f"{o.split('.', 1)[1]},{i.split('.', 1)[1]}") if i in reach else mn(0))
+                              if pol is None or i not in reach else row(mo("+" if pol > 0 else "−"), sym("P",
+                                      f"{o.split('.', 1)[1]},{i.split('.', 1)[1]}"))])
+            rowsm.append(["mtr", *cells])
+        why = ("its outputs share what is inside it" if shared else
+               f"its {len(members)} outputs share their {len(ins)} inputs: drawn one by one they would take "
+               f"{sum(len(info[o][1] | info[o][2]) for o in members)} lines, as one block {len(ins) + len(members)}")
+        def vec(ks):
+            return ["mrow", mo("["), ["mtable", *[["mtr", ["mtd", sym(self.signal(k)["sym"], k.split(".", 1)[1])]] for k in ks]], mo("]")]
+        self.node(nid, kind="block", role="process", system=system, label=pid, mimo=[len(members), len(ins)],
+                  fn={"sym": "P", "sub": pid, "arg": "s", "expr": f"{len(members)}×{len(ins)}, not identified", "linear": None,
+                          "bold": True},
+                  math=[eq(sym("y", None, None, True), row(sym("P", None, "s", True), sym("u", None, None, True))),
+                        eq(vec(members), row(["mrow", mo("["), ["mtable", *rowsm], mo("]")], vec(ins))),
+                        mt("each entry not identified; 0 where nothing in the model joins the input to the output")],
+                  says=f"the process inside {system or 'the model'}, multi-input multi-output: {why}. "
+                       "Its dynamics are not identified; the matrix says which input reaches which output.",
+                  rows=[["outputs", ", ".join(o.split(".", 1)[1] for o in members)],
+                        ["inputs", ", ".join(i.split(".", 1)[1] for i in ins)], ["why one block", why]])
+        mux = dmx = None
+        if len(ins) > 1:
+            mux = f"mux:{pid}"
+            self.node(mux, kind="mux", system=system, n=len(ins), label="mux",
+                      says=f"gathers the {len(ins)} inputs of P_{pid} into one vector u.")
+            for k in ins:
+                self.wire(k, mux, self.port(mux, "in", k))
+            self.produce(f"vec-u:{pid}", mux, "u")
+            self.sig[f"vec-u:{pid}"] = {"key": f"vec-u:{pid}", "sym": "u", "sub": pid, "what": "vector", "n": len(ins)}
+            self.wire(f"vec-u:{pid}", nid, self.port(nid, "in", "u"))
+        else:
+            for k in ins:
+                self.wire(k, nid, self.port(nid, "in", k))
+        if len(members) > 1:
+            dmx = f"demux:{pid}"
+            self.node(dmx, kind="demux", system=system, n=len(members), label="demux",
+                      says=f"splits the output vector y of P_{pid} into its {len(members)} signals.")
+            self.produce(f"vec-y:{pid}", nid, "y")
+            self.sig[f"vec-y:{pid}"] = {"key": f"vec-y:{pid}", "sym": "y", "sub": pid, "what": "vector", "n": len(members)}
+            self.wire(f"vec-y:{pid}", dmx, self.port(dmx, "in", "y"))
+            for o in members:
+                self.produce(o, dmx, o)
+        else:
+            self.produce(members[0], nid, members[0])
+
+    def block_fn(self, n: str) -> dict:
+        """A block's function: its symbol and what is known of it, and its definition as MathML."""
+        s = self.s
+        b = s.blocks[n]
+        role = "controller" if any(c == n for c, _ in self.commands) or any(t.kind == "goal" for t in b.targets()) or \
+            self.setting_of.get(n) or n in {c for g in s.goals for c in s.loop(g).controllers} else "actuator"
+        T = b.every
+        when = f"every {_dur(T)}" if T else ("on a cron schedule" if b.cron else "when commanded" if b.machine else "on every reading")
+        kind = {"ai": "AI agent", "program": "program", "person": "person", "external": "external"}.get(b.type, b.type)
+        agent = s.agents.get(b.agent) if b.agent else None
+        rows = [["block", f"{n} ({b.type}{', on ' + b.agent if b.agent else ''})"], ["runs", when],
+                ["reads", ", ".join(str(r) for r in b.reads())], ["moves", ", ".join(str(t) for t in b.targets())],
+                ["serves", ", ".join(g for g in s.goals if n in s.loop(g).controllers or n in s.loop(g).actuators)],
+                ["description", b.description]]
+        if agent and agent.kind:
+            rows.insert(1, ["agent", f"{agent.name} ({agent.kind})"])
+        knob = self.setting_of.get(n)
+        reads_error = any(k.startswith("goal.") and k.endswith(".e") for _, k in self.reads.get(n, []))
+        e = next((k.split(".")[1] for _, k in self.reads.get(n, []) if k.startswith("goal.") and k.endswith(".e")), None)
+        if knob and reads_error and b.type not in ("onoff", "compare"):
+            Ki = b.params.get("gain") or b.params.get("ki")
+            gain = ["msub", mi("K"), mi("i")] if Ki is None else mn(Ki)
+            Tn = mn(T) if T else mi("T")
+            times = mo("\u2062")                                          # invisible times
+            math = [eq(sym("C", n, "z"), frac(row(gain, times, Tn), row(mi("z"), mo("−"), mn(1)))),
+                    eq(["msub", mi("u"), row(mi("k"), mo("+"), mn(1))],
+                       row(["msub", mi("u"), mi("k")], mo("+"), gain, times, Tn, times, ["msub", mi("e"), mi("k")]))]
+            math.append(mt(f"integral action: it steps {knob.split('.', 1)[1]} (a setting that keeps its value between steps) "
+                           f"by its goal's error e = e_{e}, sampled every {_dur(T) or 'T'}; u is the setting. "
+                           + ("K_i is not identified." if Ki is None else "")))
+            return {"role": role, "fn": {"sym": "C", "sub": n, "arg": "z",
+                    "expr": "Kᵢ T/(z − 1)" if Ki is None else f"{_num(Ki)}·T/(z − 1)",
+                                         "linear": True, "kind": kind},
+                    "says": f"integral controller: {n} steps the setting {knob.split('.', 1)[1]} by the error, {when}.",
+                    "math": math, "rows": rows}
+        if b.type == "proportional":
+            k = b.params.get("gain")
+            sat = [x for x in (b.params.get("min"), b.params.get("max")) if x is not None]
+            return {"role": role, "fn": {"sym": "C", "sub": n, "arg": None, "expr": f"K_p = {_num(k)}", "linear": True,
+                    "kind": "proportional"},
+                    "says": f"proportional controller: u = K_p e{', clamped' if sat else ''}, on every reading.",
+                    "math": [eq(sym("C", n), ["msub", mi("K"), mi("p")], mn(k)),
+                             eq(mi("u"), row(["msub", mi("K"), mi("p")], mo("⁢"), mi("e")))]
+                    + ([mt(f"clamped to [{_num(b.params.get('min'))}, {_num(b.params.get('max'))}]")] if sat else []), "rows": rows}
+        if b.type == "delay":
+            tau = b.params.get("delay")
+            return {"role": role, "fn": {"sym": "D", "sub": n, "arg": "s", "expr": "e^(−sτ)", "linear": True, "kind": "delay"},
+                    "says": f"a pure delay of {_dur(tau) if isinstance(tau, int | float) else tau}.",
+                    "math": [eq(sym("D", n, "s"), ["msup", mi("e"), row(mo("−"), mi("s"), mi("τ"))]), eq(mi("τ"),
+                            mt(str(tau)))], "rows": rows}
+        # the rest are not linear: named, with a sketch of the nonlinearity where there is a standard one
+        if b.type in ("onoff", "compare", "alarm", "timer"):
+            g = s.goals.get(b.goal) if b.goal else None
+            until = b.params.get("until")
+            on = f"while {g.of.name} is off {g.hold}" if g else "while its input is past its threshold"
+            off = f"until it is back to {until}" if until else "until the goal holds again"
+            return {"role": role, "fn": {"sym": None, "sub": None, "name": n, "sketch": "relay",
+                    "kind": "relay" if b.type == "onoff" else b.type, "linear": False},
+                    "says": f"an on-off controller (a relay with hysteresis): 1 {on}, {off}; then 0.",
+                    "math": [eq(mi("u"), row(mo("{"), ["mtable", {"columnalign": "left"},
+                                                         ["mtr", ["mtd", mn(1)], ["mtd", mt(on)]],
+                                                         ["mtr", ["mtd", mn(0)], ["mtd",
+                                                                 mt(f"once back ({off.replace('until ', '')})")]]])),
+                             mt("a static nonlinearity with memory: no transfer function")], "rows": rows}
+        if b.type == "limit":
+            return {"role": role, "fn": {"name": n, "sketch": "saturation", "kind": "limit", "linear": False},
+                    "says": "a saturation: its input, clamped.", "math": [eq(mi("u"), row(mt("sat"), mo("("), mi("x"),
+                            mo(")")))], "rows": rows}
+        if b.type in ("expr", "lookup", "select", "schedule", "counter"):
+            what = {"expr": str(b.params.get("expr", "")), "lookup": "a table, linear between its points",
+                    "select": f"the {b.params.get('pick', 'first')} of its inputs", "schedule": "a value by the clock (a table of times)",
+                    "counter": "how many times its input became nonzero"}[b.type]
+            return {"role": role, "fn": {"name": n, "sketch": "static", "kind": b.type, "linear": False},
+                    "says": f"a static map: {what}.", "math": [eq(mi("u"), mt(what)),
+                            mt("a static nonlinearity: no transfer function")], "rows": rows}
+        sat = b.max is not None
+        moves = ", ".join(t.name for t in b.targets())
+        does = f"steps the setting {knob.split('.', 1)[1]}" if knob else f"moves {moves}" if moves else "acts"
+        return {"role": role, "fn": {"name": n, "sketch": "saturation" if sat else None, "kind": kind, "linear": False,
+                                     "max": b.max},
+                "says": f"{'an' if kind[0] in 'aeiou' else 'a'} {kind} ({when}): it {does}. "
+                        "What it computes is its own: not a transfer function"
+                        + (f"; at most {_num(b.max)} a run" if sat else "") + ".",
+                "math": [eq(sym("u", None), row(mi("f"), mo("("), mt("its inputs"), mo(")"))),
+                         mt(f"not identified: {kind}, {when}" + (f"; 0 ≤ u ≤ {_num(b.max)} a run" if sat else ""))], "rows": rows}
+
+    def cascades(self) -> None:
+        """A goal whose setpoint a block sets: its loop drawn nested, inside a frame of its own."""
+        s = self.s
+        serves: dict[str, set[str]] = {}
+        for g in s.goals:
+            lp = s.loop(g)
+            for b in [*lp.controllers, *lp.actuators]:
+                serves.setdefault(b, set()).add(g)
+        for g in s.goals.values():
+            src = self.prod.get(f"goal.{g.name}.r")
+            if not src or not src[0].startswith("blk:"):
+                continue
+            lp = s.loop(g.name)
+            members = [f"sum:{g.name}"] if f"sum:{g.name}" in self.nodes else []
+            members += [f"blk:{b}" for b in dict.fromkeys([*lp.controllers, *lp.actuators]) if serves.get(b) == {g.name}
+                        and f"blk:{b}" != src[0]]
+            gv = f"{g.of.kind}.{g.of.name}"
+            if f"sen:{gv}" in self.nodes:
+                members.append(f"sen:{gv}")
+            p = self.prod.get(gv)
+            if p and p[0].startswith("proc:") and [w for w in self.wires if w["source"] == p[0]] and \
+                    all(x["key"] == gv for x in self.wires if x["source"] == p[0]):
+                members.append(p[0])
+                if f"psum:{gv}" in self.nodes:
+                    members.append(f"psum:{gv}")
+            if len(members) < 2:
+                continue
+            self.frames.append({"id": f"casc:{g.name}", "kind": "frame", "frame": "cascade", "goal": g.name,
+                                "system": g.system, "members": members, "label": g.name,
+                                "fn": {"sym": "T", "sub": g.name, "arg": "s"},
+                                "says": f"the inner loop of a cascade: {src[0].split(':', 1)[1]} sets the setpoint of {g.name}, "
+                                        "and this loop holds it. "
+                                        "Seen from the outer loop it is one block, its closed-loop transfer function T(s).",
+                                "math": [eq(sym("T", g.name, "s"), frac(row(mi("C"), mo("⁢"), mi("P")),
+                                                                         row(mn(1), mo("+"), mi("C"), mo("⁢"), mi("P"), mo("⁢"),
+                                                                                 mi("H"))))]})
+
+    def mark_loops(self) -> None:
+        """Each part's loops: the goals whose loop it is in (for the side panel's list, pointed at)."""
+        s = self.s
+        for g in s.goals:
+            lp = s.loop(g)
+            mine = {f"sum:{g}", f"ref:{g}", f"out:{s.goals[g].of.kind}.{s.goals[g].of.name}"}
+            mine |= {f"blk:{b}" for b in [*lp.controllers, *lp.actuators]}
+            for p in lp.through:
+                k, _, nm = p.partition(".")
+                if k == "block":
+                    mine.add(f"blk:{nm}")
+                elif p in self.prod:
+                    mine.add(self.prod[p][0])
+            gv = f"{s.goals[g].of.kind}.{s.goals[g].of.name}"
+            mine.add(f"sen:{gv}")
+            if gv in self.prod:
+                mine.add(self.prod[gv][0])
+            for v in (*lp.valves, *lp.disturbances):
+                if f"flow.{v}" in self.prod:
+                    mine.add(self.prod[f"flow.{v}"][0])
+            for nid in mine:
+                if nid in self.nodes:
+                    self.nodes[nid].setdefault("loops", [])
+                    if g not in self.nodes[nid]["loops"]:
+                        self.nodes[nid]["loops"].append(g)
+
+
+def _hold(g) -> str:
+    return str(g.hold).replace("<=", "≤").replace(">=", "≥").replace("==", "=")
+
+
+# ---- folded by the systems: closed ones as subsystem blocks Q(s), open ones as frames, one drawn alone
+
+def _chain(spec: Spec, system: str | None) -> list[str]:
+    return list(reversed(spec.chain(system)))         # outermost first
+
+
+def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
+    from .fold import default_open
+    spec = d.s
+    if open_ is None:
+        open_ = default_open(spec, focus) if spec.systems else set()
+    if "*" in open_:
+        open_ = set(spec.systems)
+    nodes = d.nodes
+
+    def rep(nid: str) -> str:
+        ch = _chain(spec, nodes[nid].get("system"))
+        if focus:
+            if focus not in ch:
+                return "ext"
+            ch = ch[ch.index(focus) + 1:]
+        for s in ch:
+            if s not in open_:
+                return f"sys:{s}"
+        return nid
+
+    reps = {nid: rep(nid) for nid in nodes}
+    out: dict[str, dict] = {}
+    boxes: dict[str, dict] = {}
+    for nid, n in nodes.items():
+        r = reps[nid]
+        if r == nid:
+            out[nid] = {**n, "ins": list(n["ins"]), "outs": list(n["outs"])}
+        elif r.startswith("sys:") and r not in boxes:
+            name = r.split(":", 1)[1]
+            inner = spec.inner_loops(name)
+            boxes[r] = {"id": r, "kind": "block", "role": "subsystem", "system": spec.within.get(name), "label": name,
+                        "ins": [], "outs": [], "parts": 0, "loops": [],
+                        "fn": {"sym": "Q", "sub": name, "arg": "s", "expr": "", "linear": None},
+                        "says": (spec.systems.get(name) or "") and spec.systems.get(name) + ". ",
+                        "subsystems": spec.subsystems(name), "inner": inner, "system_name": name}
+        if r.startswith("sys:"):
+            boxes[r]["parts"] += 1
+            for g in n.get("loops", []):
+                if g not in boxes[r]["loops"]:
+                    boxes[r]["loops"].append(g)
+    terms: dict[str, dict] = {}
+    edges: list[dict] = []
+    seen: set[tuple] = set()
+
+    def box_port(b: str, io: str, key: str) -> str:
+        box = boxes[b]
+        pid = f"{b}|{io}|{key}"
+        lst = box["ins" if io == "in" else "outs"]
+        if not any(p["id"] == pid for p in lst):
+            lst.append({"id": pid, "side": "W" if io == "in" else "E", "key": key})
+        return pid
+
+    def term(key: str, io: str, other: str) -> str:
+        tid = f"term:{io}:{key}"
+        if tid not in terms:
+            sg = d.signal(key) if not key.startswith(("psum:", "vec-")) else d.sig.get(key, {"sym": "", "sub": ""})
+            ch = spec.chain(nodes[other].get("system")) if other in nodes else []
+            terms[tid] = {"id": tid, "kind": "port", "role": "in-port" if io == "in" else "out-port", "label": key,
+                          "fn": {"sym": sg.get("sym"), "sub": sg.get("sub")}, "ins": [], "outs": [], "system": focus,
+                          "in": ch[0] if ch else None,
+                          "says": f"{'an input from' if io == 'in' else 'an output to'} {ch[0] if ch else 'the top level'}, "
+                                  f"outside {focus}: "
+                                  f"{key}.", "port_of": io}
+            if io == "in":
+                terms[tid]["outs"].append({"id": tid + "|out", "side": "E"})
+            else:
+                terms[tid]["ins"].append({"id": tid + "|in", "side": "W"})
+        return terms[tid]["outs" if io == "in" else "ins"][0]["id"]
+
+    for w in d.wires:
+        s0, t0 = reps[w["source"]], reps[w["target"]]
+        if s0 == t0 or (s0 == "ext" and t0 == "ext"):
+            continue
+        e = {**w}
+        if s0 == "ext":
+            e["source"], e["sourcePort"] = f"term:in:{w['key']}", term(w["key"], "in", w["source"])
+        elif s0.startswith("sys:"):
+            e["source"], e["sourcePort"] = s0, box_port(s0, "out", w["key"])
+        if t0 == "ext":
+            e["target"], e["targetPort"] = f"term:out:{w['key']}", term(w["key"], "out", w["target"])
+        elif t0.startswith("sys:"):
+            e["target"], e["targetPort"] = t0, box_port(t0, "in", w["key"])
+        k = (e["sourcePort"], e["targetPort"])
+        if k in seen:
+            continue
+        seen.add(k)
+        edges.append(e)
+    # between two subsystem blocks, the signals one sends the other are one vector
+    bundles: dict[tuple, list[dict]] = {}
+    for e in edges:
+        if e["source"].startswith("sys:") and e["target"].startswith("sys:"):
+            bundles.setdefault((e["source"], e["target"]), []).append(e)
+    for (a, b), es in bundles.items():
+        if len(es) < 2:
+            continue
+        keys = sorted(x["key"] for x in es)
+        sp, tp = f"{a}|out|vec>{b}", f"{b}|in|vec<{a}"
+        for x in es:
+            edges.remove(x)
+        for box, io, pid in ((a, "outs", sp), (b, "ins", tp)):
+            boxes[box][io] = [p for p in boxes[box][io] if p["key"] not in keys or
+                              any(e["sourcePort" if io == "outs" else "targetPort"] == p["id"] for e in edges)]
+            boxes[box][io].append({"id": pid, "side": "W" if io == "ins" else "E", "key": "vec", "n": len(keys)})
+        edges.append({"key": f"vec:{a}>{b}", "source": a, "sourcePort": sp, "target": b, "targetPort": tp, "keys": keys})
+        d.sig[f"vec:{a}>{b}"] = {"key": f"vec:{a}>{b}", "sym": "y",          # a subsystem's outputs: y_i = Q_i(s) u_i
+                                 "sub": a.split(":", 1)[1], "what": "vector", "n": len(keys)}
+    for i, e in enumerate(edges):
+        e["id"] = f"w{i}:{e['sourcePort']}>{e['targetPort']}"
+        sg = d.sig.get(e["key"]) or d.signal(e["key"])
+        e["signal"] = {k: sg[k] for k in ("sym", "sub", "what", "n") if k in sg}
+    # what each subsystem block computes, now that its inputs and outputs are known
+    for b in boxes.values():
+        name = b["system_name"]
+        nin, nout = len(b["ins"]), len(b["outs"])
+        width = lambda ps: sum(p.get("n", 1) for p in ps)          # noqa: E731
+        b["fn"]["expr"] = f"{width(b['outs'])}×{width(b['ins'])}" if nin and nout else ""
+        b["fn"]["bold"] = width(b["ins"]) > 1 or width(b["outs"]) > 1
+        b["math"] = [eq(sym("y", name, None, b["fn"]["bold"]), row(sym("Q", name, "s", b["fn"]["bold"]), sym("u", name, None,
+                b["fn"]["bold"]))),
+                     mt(f"the system {name} as one block: from its {width(b['ins'])} input{'s' if width(b['ins']) != 1 else ''} "
+                        f"to its {width(b['outs'])} output{'s' if width(b['outs']) != 1 else ''}, with the {len(b['loops'])} "
+                        f"loop{'s' if len(b['loops']) != 1 else ''} inside closed. Not identified.")]
+        b["says"] = (b["says"] or "") + ("an inner loop: given a setpoint from outside, it holds it. " if b["inner"] else "")
+        b["rows"] = [["system", name], ["loops inside", ", ".join(b["loops"])], ["inside", ", ".join(b["subsystems"])],
+                     ["inputs", ", ".join(_portkey(p) for p in b["ins"])], ["outputs", ", ".join(_portkey(p) for p in b["outs"])]]
+    # where each part is drawn: inside the frame of the innermost open system it is in (or of its cascade)
+    def frame_of(system: str | None) -> str | None:
+        ch = _chain(spec, system)
+        if focus:
+            ch = ch[ch.index(focus) + 1:] if focus in ch else []
+        inner = [s for s in ch if s in open_]
+        return f"frame:{inner[-1]}" if inner else None
+    frames: dict[str, dict] = {}
+    for n in [*out.values(), *boxes.values()]:
+        n["parent"] = frame_of(n.get("system"))
+    for t in terms.values():
+        t["parent"] = None
+    used = {n["parent"] for n in [*out.values(), *boxes.values()] if n.get("parent")}
+    for f in list(used):                                   # a frame's own frame
+        while f:
+            name = f.split(":", 1)[1]
+            if f not in frames:
+                frames[f] = {"id": f, "kind": "frame", "frame": "system", "label": name, "parent": frame_of(spec.within.get(name)),
+                             "fn": {"sym": "Q", "sub": name, "arg": "s"}, "says": spec.systems.get(name, ""),
+                             "inner": spec.inner_loops(name)}
+            f = frames[f]["parent"]
+    for c in d.frames:
+        if all(m in out for m in c["members"]) and len({out[m]["parent"] for m in c["members"]}) == 1:
+            fid = c["id"]
+            frames[fid] = {k: v for k, v in c.items() if k != "members"}
+            frames[fid]["parent"] = out[c["members"][0]]["parent"]
+            for m in c["members"]:
+                out[m]["parent"] = fid
+    node_list = [*out.values(), *boxes.values(), *terms.values()]
+    for n in node_list:
+        n.setdefault("loops", [])
+    return {"kind": "blocks", "nodes": node_list, "edges": edges, "frames": list(frames.values()),
+            "open": sorted(open_), "focus": focus,
+            "tree": {s: {"within": spec.within.get(s), "description": desc} for s, desc in spec.systems.items()}}
+
+
+def _portkey(p: dict) -> str:
+    if p.get("key") == "vec":
+        return f"a vector of {p.get('n')}"
+    return (p.get("key") or "").split(".", 1)[-1]
+
+
+def diagram(model, snap: dict | None = None, open_: set[str] | None = None, focus: str | None = None) -> dict:
+    """The control system of a model as a block diagram, folded by its systems."""
+    spec = spec_of(model)
+    if spec is None:
+        return {"kind": "blocks", "nodes": [], "edges": [], "frames": [], "open": [], "focus": focus, "tree": {}}
+    d = _Diagram(spec, snap)
+    d.build()
+    g = fold(d, open_, focus)
+    loops = {}
+    for name, lp in (snap or {}).get("loops", {}).items():
+        if name in spec.goals:
+            gl = spec.goals[name]
+            loops[name] = {"status": lp.get("status"), "stock": gl.of.name, "setpoint": str(gl.hold), "value": lp.get("value"),
+                           "error": lp.get("error"), "band": lp.get("band", ""),
+                           "nodes": sorted(n["id"] for n in g["nodes"] if name in n.get("loops", []))}
+    g["loops"] = loops
+    return g
+
+
+def spec_of(model) -> Spec | None:
+    """The model's compiled form; an older model's, converted, when it has none."""
+    spec = getattr(model, "spec", None)
+    if spec is not None:
+        return spec
+    cached = getattr(model, "_block_spec", None)
+    if cached is not None:
+        return cached
+    try:
+        import tempfile
+        from pathlib import Path
+
+        from .spec import load
+        from .spec.convert import convert
+        text, _ = convert(model)
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "ergostat.yaml"
+            p.write_text(text)
+            spec = load(p)
+    except Exception:
+        return None
+    try:
+        model._block_spec = spec
+    except Exception:
+        pass
+    return spec
