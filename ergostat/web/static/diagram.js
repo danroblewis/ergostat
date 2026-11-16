@@ -69,7 +69,7 @@ function wanted(lay, g) {
 }
 
 async function layoutGraph(g, aspect, cut = false, again = 0) {
-  if (again === 0) await avoidLoad();
+  if (again === 0) { await avoidLoad(); S.layouts = (S.layouts || 0) + 1; }   // (how many: the tests count them)
   portSides(g);
   const ORDER = { cloud: 0, terminal: 0, disturbance: 1, stock: 2, valve: 3, system: 3, auxiliary: 4, sensor: 5, controller: 6, agent: 2 };
   const rank = (n) => (n.kind === "cloud" ? (n.id.endsWith(":out") ? 4 : 0) : ORDER[n.kind] ?? 3);
@@ -185,6 +185,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     restack(lay, g);
     routeCuts(lay, cuts);
   }
+  if (anchorLayout(lay, g, S.anchor)) S.anchored = true;   // a system opened or closed stays where it was (places.js)
   if (ELK_PRESETS[LAYOUT]?.upright) standUpright(lay, g);   // drains and inflows stood upright where there is room
   applyPins(lay, g);
   orientValves(lay, g);                                  // valves face their pipes and their links (valves.js)
@@ -587,6 +588,7 @@ function arrowHead(pts, cls, size = 7) {
 }
 
 function drawGraph(svg, g, lay) {
+  squareLines(lay, g);                                 // no line drawn across: a stand-in is drawn square, greyed (interact.js)
   portSides(g);
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const edgeById = Object.fromEntries(g.edges.map((e) => [e.id, e]));
@@ -736,15 +738,15 @@ function drawGraph(svg, g, lay) {
     const ng = s("g", { class: `node k-${n.kind}`, transform: `translate(${ln.x},${ln.y})`, "data-id": n.id,
                         "data-turn": ln.turn ? `${ln.turn.flow} ${ln.turn.stem}` : null,
                         // pressed and let go over the same part, even if it was drawn again in between, is a click
-                        onpointerdown: (ev) => {
+                        onpointerdown: (ev) => {      // pressed and let go over the same part, even if drawn again between, is a click
                           if (ev.target.closest(".sys-btn") || ev.target.closest("[data-act]")) return;
-                          S.downOn = n.id;
-                          S.nodeDrag = { id: n.id, x0: ev.clientX, y0: ev.clientY, lx: ln.x, ly: ln.y, moved: false, el: null };
+                          partDown(ev, n);                // a drag, or a click (interact.js)
                         },
                         ondblclick: (ev) => { if (n.kind === "system") { ev.stopPropagation(); S.toggleSystem?.(n.label); } } });
     ng.append((DRAW[n.kind] || drawCloud)(n, ln.width, ln.height, ln));
-    if (S.pins?.[n.id]) pinsG.append(s("g", { class: "pin", "data-act": "unpin", "data-id": n.id, transform: `translate(${ln.x + ln.width - 4},${ln.y - 6})`,
-                                            onclick: (ev) => { ev.stopPropagation(); delete S.pins[n.id]; savePins(); S.relayout?.(); } },
+    const pid = pinId(n.id, n);                       // (a system's box and its open outline share one)
+    if (S.pins?.[pid]) pinsG.append(s("g", { class: "pin", "data-act": "unpin", "data-id": pid, transform: `translate(${ln.x + ln.width - 4},${ln.y - 6})`,
+                                            onclick: (ev) => { ev.stopPropagation(); delete S.pins[pid]; savePins(); S.relayout?.(); } },
       s("title", {}, "pinned here: click to let the layout place it again"),
       s("circle", { r: 7 }), s("path", { d: "M-2.5,-3 h5 l-1,3 h2 l-3.5,3 v3 M0,3 v3" })));
     for (const lb of ln.labels || []) {
@@ -772,6 +774,7 @@ function drawGraph(svg, g, lay) {
   applyView(svg);
   if (S.hl) highlightLoop(S.hl);
   if (S.hoverKey || S.selKey) trace(S.hoverKey || S.selKey);   // a redraw keeps the line being followed
+  markInteraction(svg);                                // the chosen parts, the lines waiting for libavoid
 }
 
 /* a standalone copy of the diagram: every computed style written inline, framed to the layout */
@@ -830,63 +833,7 @@ function panZoom(svg) {
     applyView(svg);
   }, { passive: false });
   svg.addEventListener("pointerdown", () => { S.pressed = true; }, true);      // held: no redraw until it is let go
-  window.addEventListener("pointermove", (ev) => {      // a part dragged: it follows the pointer; its lines wait for the drop
-    const d = S.nodeDrag;
-    if (!d) return;
-    const dx = (ev.clientX - d.x0) / S.view.k, dy = (ev.clientY - d.y0) / S.view.k;
-    if (!d.moved && Math.hypot(ev.clientX - d.x0, ev.clientY - d.y0) < 5) return;
-    d.moved = true;
-    S.downOn = null;                                    // a drag is not a click
-    d.el ||= svg.querySelector(`.node[data-id="${CSS.escape(d.id)}"]`);
-    if (d.el) d.el.setAttribute("transform", `translate(${d.lx + dx},${d.ly + dy})`);
-    svg.classList.add("dragging-part");
-    d.to = { x: Math.round(d.lx + dx), y: Math.round(d.ly + dy) };
-    avoidMove(d.id, d.to.x, d.to.y)?.then((ids) => { if (S.nodeDrag === d) for (const id of ids) redrawLine(svg, id); });   // its lines follow it
-  });
-  window.addEventListener("pointermove", (ev) => {      // an open system dragged by its top: it and all in it follow
-    const d = S.hullDrag;
-    if (!d || !S.layout) return;
-    if (!d.moved && Math.hypot(ev.clientX - d.x0, ev.clientY - d.y0) < 5) return;
-    if (!d.moved) {                                     // what goes with it: its parts, and the systems open inside it
-      const byId = Object.fromEntries((S.graph?.nodes || []).map((n) => [n.id, n]));
-      d.parts = S.layout.children.filter((k) => (byId[k.id]?.systems || []).includes(d.name)).map((k) => ({ id: k.id, x: k.x, y: k.y }));
-      d.hulls = (S.layout.containers || []).filter((o) => o.name === d.name || within(S.graph, o.name, d.name)).map((o) => o.name);
-    }
-    d.moved = true;
-    const dx = (ev.clientX - d.x0) / S.view.k, dy = (ev.clientY - d.y0) / S.view.k;
-    svg.classList.add("dragging-part");
-    for (const name of d.hulls) svg.querySelector(`g.hull[data-hull="${CSS.escape(name)}"]`)?.setAttribute("transform", `translate(${dx},${dy})`);
-    for (const p of d.parts) svg.querySelector(`.node[data-id="${CSS.escape(p.id)}"]`)?.setAttribute("transform", `translate(${p.x + dx},${p.y + dy})`);
-    d.to = { x: Math.round(d.cx + dx), y: Math.round(d.cy + dy) };
-    d.next = d.parts.map((p) => [p.id, Math.round(p.x + dx), Math.round(p.y + dy)]);
-    const send = () => {                                // its lines follow, one routing at a time, the latest place
-      if (d.busy || !d.next || S.hullDrag !== d) return;
-      const list = d.next; d.next = null;
-      const done = avoidMoveMany(list);
-      if (!done) return;
-      d.busy = true;
-      done.then((ids) => { d.busy = false; if (S.hullDrag === d) { for (const id of ids) redrawLine(svg, id); send(); } });
-    };
-    send();
-  });
-  window.addEventListener("pointerup", () => {
-    const d = S.hullDrag;
-    S.hullDrag = null;
-    if (!d || !d.moved || !d.to) return;
-    svg.classList.remove("dragging-part");
-    S.pins = { ...(S.pins || {}), ["hull:" + d.name]: d.to };   // put down: it stays there
-    savePins();
-    S.relayout?.();
-  });
-  window.addEventListener("pointerup", () => {
-    const d = S.nodeDrag;
-    S.nodeDrag = null;
-    svg.classList.remove("dragging-part");
-    if (!d || !d.moved || !d.to) return;
-    S.pins = { ...(S.pins || {}), [d.id]: d.to };       // put down: pinned there
-    savePins();
-    S.relayout?.();
-  });
+  interactions(svg);                                   // parts and systems dragged, parts chosen (interact.js)
   window.addEventListener("pointerup", () => { S.pressed = false; }, true);
   svg.addEventListener("pointerup", (ev) => {
     const was = S.downOn;
@@ -900,6 +847,7 @@ function panZoom(svg) {
   window.addEventListener("pointercancel", () => { S.pressed = false; }, true);
   svg.addEventListener("pointerdown", (ev) => {
     if (ev.target.closest(".node") || ev.target.closest("[data-act]")) return;   // a part, or a control drawn on the canvas
+    if (ev.shiftKey || ev.metaKey) return;               // with Shift or Command it draws a box to choose with (interact.js)
     ev.preventDefault();                                   // a drag pans; it never starts selecting text
     drag = { x: ev.clientX, y: ev.clientY, vx: S.view.x, vy: S.view.y };
     S.dragged = false;
@@ -1034,7 +982,7 @@ async function pageDiagram(main, q) {
   const around = q.get("around") || "";
   const openQ = q.has("open") ? q.get("open") : null;          // the systems opened; absent: the server's default
   S.portAt = {}; S.portRank = {};                                 // a new view: ports face what they join here
-  S.pinKey = `ergostat.pins.${S.status?.name || ""}.${view}.${system}.${around}.${openQ ?? ""}`;
+  S.pinKey = `ergostat.pins.${S.status?.name || ""}.${view}.${system}.${around}`;   // (whatever is open: kept from systems' frames)
   S.pins = loadPins();
   S.showHulls = !around;
   const wrap = h("div", { class: "canvas-wrap" });
@@ -1047,6 +995,7 @@ async function pageDiagram(main, q) {
     location.hash = "#/diagram?" + p.toString();
   }
   S.toggleSystem = (name) => {                     // open a box in place, or close an outline back into one
+    rememberAnchor(name);                          // it stays where it is on the screen (interact.js)
     const now = new Set(S.graph?.open || []);
     if (now.has(name)) { now.delete(name); for (const [k, v] of Object.entries(S.graph?.tree || {})) if (v.within === name) now.delete(k); }
     else now.add(name);
@@ -1153,13 +1102,15 @@ async function pageDiagram(main, q) {
     } else {
       // same structure: keep positions, redraw with new values (label texts may change length slightly)
     }
+    if (S.anchor && S.anchored) S.fitted = true;      // a system just opened or closed: the view stays as it was
+    S.anchor = null; S.anchored = false;
     if (S.pressed) return;                             // mid-click: a redraw now would swallow it; the next tick draws
     drawGraph(svg, g, S.layout);
     if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
     renderSide(side, g, view);
   }
   S.relayout = () => { S.graphSig = ""; return tick(); };      // after a part is pinned or unpinned
-  S.redraw = () => { if (!S.pressed && !S.nodeDrag && S.layout) drawGraph(svg, S.graph, S.layout); };   // libavoid's lines came
+  S.redraw = () => { if (!S.pressed && !S.nodeDrag && !S.hullDrag && S.layout) drawGraph(svg, S.graph, S.layout); };   // libavoid's lines came
   await tick();
   S.timer = setInterval(tick, 2500);
 }
