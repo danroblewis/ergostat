@@ -103,7 +103,50 @@ svg.canvas.dragging { cursor: grabbing; }
 .empty { color: var(--muted); padding: 40px; text-align: center; }
 
 .node text { fill: var(--ink); font-size: 12px; }
-.block-loop text { fill: var(--ink); }
+/* the control view (blocks.js): one ink, as block diagrams are drawn; colour only on what is pointed at or chosen */
+svg.bd { color: var(--ink); }
+.bd text { pointer-events: none; }
+.bd text { fill: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.bd .bd-line { fill: none; stroke: var(--ink); stroke-width: 1.3; }
+.bd .bd-fill { fill: transparent; pointer-events: all; }
+.bd .bd-bar { fill: var(--ink); stroke: none; }
+.bd .bd-ghost { fill: transparent; stroke: none; }
+.bd .bd-mi { font-style: italic; }
+.bd .bd-bold { font-weight: 700; font-style: normal; }
+.bd .bd-subs { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.bd .bd-sym { font-size: 14px; }
+.bd .bd-expr { font-size: 13px; font-style: italic; }
+.bd .bd-name { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.bd .bd-note { fill: var(--muted); font: 10.5px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.bd .bd-sig { fill: var(--ink); }
+.bd .bd-sign { font: 600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.bd .bd-count { fill: var(--ink); font: 10px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.bd .bd-sketch .bd-axis { stroke: var(--muted); stroke-width: .8; fill: none; }
+.bd .bd-sketch .bd-curve { stroke: var(--ink); stroke-width: 1.3; fill: none; }
+.bd .bd-wire { fill: none; stroke: var(--ink); stroke-width: 1.2; }
+.bd .bd-vec .bd-wire { stroke-width: 2.6; }
+.bd .bd-slash { stroke: var(--ink); stroke-width: 1.2; }
+.bd .bd-head { fill: var(--ink); }
+.bd .bd-hit { fill: none; stroke: transparent; stroke-width: 9; cursor: pointer; }
+.bd .bd-dot { fill: var(--ink); }
+.bd .sys-hull.bd-frame rect { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: none; }
+.bd .sys-hull.bd-frame-cascade rect { stroke-dasharray: 5 3; }
+.bd .bd-frame text { text-transform: none; letter-spacing: 0; opacity: 1; fill: var(--ink); font-weight: 400; }
+.bd .bd-frame .bd-frame-name { fill: var(--muted); font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.bd .bd-frame { cursor: pointer; }
+.bd .bd-toggle rect { fill: var(--panel); stroke: var(--muted); stroke-width: 1; }
+.bd .bd-toggle path { stroke: var(--ink); stroke-width: 1.4; }
+.bd .bd-toggle { cursor: pointer; }
+.bd .node:hover .hit, .bd .node.bd-lit .hit { stroke: var(--accent); }
+.bd .bd-bar.hit { stroke: none; }
+.bd .node.bd-lit .bd-bar, .bd .node:hover .bd-bar { fill: var(--accent); }
+.bd .node.sel .hit { stroke: var(--accent); stroke-width: 2; }
+.bd .edge.bd-lit .bd-wire, .bd .edge:hover .bd-wire { stroke: var(--accent); }
+.bd .edge.bd-lit .bd-head, .bd .edge:hover .bd-head { fill: var(--accent); }
+.bd text.bd-lit, .bd text.bd-lit tspan { fill: var(--accent); }
+.bd-math { margin: 6px 0 10px; overflow-x: auto; }
+.bd-math math { font-size: 17px; }
+.bd-legend svg { color: var(--ink); }
 .node .t-label { font-weight: 600; font-size: 12.5px; }
 .node .t-sub { fill: var(--muted); font-size: 11px; }
 .node .t-value { font-family: var(--mono); font-size: 20px; font-weight: 600; }
@@ -120,7 +163,11 @@ svg.canvas.dragging { cursor: grabbing; }
 .edge.measure .info { stroke: var(--sensor-line); stroke-dasharray: 4 3; }
 .edge.signal .info { stroke: var(--sensor-line); }
 .edge.action .info { stroke: var(--ctl-line); stroke-width: 1.8; }
-.edge.wire .info { stroke: var(--accent); stroke-width: 1.8; }
+.edge.wire .info { stroke: var(--ink); stroke-width: 1.6; }
+.edge.wire[data-id^="wire-unseen:"] .info { stroke: var(--muted); stroke-dasharray: 5 4; stroke-width: 1.3; }   /* declared, never seen */
+.edge.wire[data-id^="wire-unseen:"] path.head { fill: var(--muted) !important; }
+.edge.wire[data-id^="wire-unseen:"] .elabel { fill: var(--muted); font-style: italic; }
+.node .machine.silent text { opacity: .6; }
 .edge.influence .info { stroke: var(--dist); stroke-width: 1.6; stroke-dasharray: 7 4; }
 svg.loop-hl .edge.loop-holding .info { stroke: var(--ok); }
 /* the design picture: the parts and how they connect, nothing that changes from one minute to the next */
@@ -133,7 +180,6 @@ svg.loop-hl .edge.loop-open .info { stroke: var(--warn); }
 .flowing { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 0.1 14; animation: flow 1.4s linear infinite; opacity: .85; }
 @keyframes flow { to { stroke-dashoffset: -14.1; } }
 .sys-hull rect { fill: var(--system); stroke: var(--system-line); stroke-width: 1.2; stroke-dasharray: 5 4; }
-.block-loop .sys-tag { fill: var(--accent); font-weight: 600; letter-spacing: .04em; }
 .sys-hull text { fill: var(--accent); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; opacity: .8; }
 
 .badge text { fill: var(--ink) !important; font-size: 10.5px; font-weight: 600; }
@@ -255,6 +301,9 @@ a.plain { color: var(--ink); }
 .sys-btn text { font-size: 11px; fill: var(--accent); }
 .sys-btn:hover rect { fill: var(--system); }
 .sys-hull-label { cursor: pointer; }
+.node.selected { filter: drop-shadow(0 0 2px var(--accent)) drop-shadow(0 0 4px var(--accent)); }
+.edge.stale { opacity: .3; }
+svg.canvas rect.band { fill: var(--accent); fill-opacity: .08; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; }
 .sys-hull rect.hull-grip { fill: transparent; stroke: none; cursor: move; }
 .sys-hull-label:hover { text-decoration: underline; }
 .k-terminal { cursor: pointer; }

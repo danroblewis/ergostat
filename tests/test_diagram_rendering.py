@@ -25,6 +25,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import textwrap
 import time
 import urllib.request
 from pathlib import Path
@@ -428,7 +429,8 @@ def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser
         places = """() => Object.fromEntries(S.layout.children.filter((c) => (S.graph.nodes.find((n) => n.id === c.id)?.systems || [])
                        .includes('product')).map((c) => [c.id, [c.x, c.y]]))"""
         before = pg.evaluate(places)
-        hull = pg.evaluate("() => { const c = S.layout.containers.find((c) => c.name === 'product'); return [c.x, c.y]; }")
+        frame = "() => { const c = S.layout.containers.find((c) => c.name === 'product'); return [c.bx ?? c.x, c.by ?? c.y]; }"
+        hull = pg.evaluate(frame)
         grip = pg.locator('g.hull[data-hull="product"] rect.hull-grip').bounding_box()
         k = pg.evaluate("() => S.view.k")
         x, y = grip["x"] + grip["width"] * 0.6, grip["y"] + 8
@@ -440,13 +442,13 @@ def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser
         pg.wait_for_function(f"() => S.pins['hull:product'] && S.layout && !S.layout.routing && "
                              f"Math.abs(S.layout.containers.find((c) => c.name === 'product').x - {hull[0]}) > 100", timeout=20000)
         after = pg.evaluate(places)
-        moved = pg.evaluate("() => { const c = S.layout.containers.find((c) => c.name === 'product'); return [c.x, c.y]; }")
+        moved = pg.evaluate(frame)
         assert before and set(before) == set(after)
         offs = {(round(after[i][0] - before[i][0]), round(after[i][1] - before[i][1])) for i in before}
         assert len(offs) == 1, offs                                   # all by the same amount
         (dx, dy), = offs
         assert abs(dx - 180) < 8 and abs(dy - 90) < 8, (dx, dy)
-        assert abs(moved[0] - hull[0] - dx) < 2 and abs(moved[1] - hull[1] - dy) < 2   # its outline with them
+        assert abs(moved[0] - hull[0] - dx) < 2 and abs(moved[1] - hull[1] - dy) < 2   # its frame with them
         r = pg.evaluate(AUDIT)
         assert not r["through"] and not r["partOverlap"] and not r["netCrossings"], (r["through"], r["partOverlap"])
         drawn(pg, url, "open=*", 9)                                   # a new visit: still where it was put
@@ -454,6 +456,124 @@ def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser
         assert all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after)
         pg.locator('g.pins .pin[data-id="hull:product"]').dispatch_event("click")
         pg.wait_for_function("() => !S.pins['hull:product']", timeout=10000)
+        assert not errors, errors
+        pg.close()
+
+
+SLANTED = """() => {
+  // straight pieces of the lines as drawn that run neither across nor up and down (corners are curves)
+  let n = 0;
+  for (const p of document.querySelectorAll("svg.canvas g.edge path.info, svg.canvas g.edge path.pipe-out")) {
+    let at = null;
+    for (const m of (p.getAttribute("d") || "").matchAll(/([MLQ])\\s*([-\\d.e]+),([-\\d.e]+)(?:\\s+([-\\d.e]+),([-\\d.e]+))?/g)) {
+      const pt = m[1] === "Q" ? { x: +m[4], y: +m[5] } : { x: +m[2], y: +m[3] };
+      if (m[1] === "L" && at && Math.abs(pt.x - at.x) > 1 && Math.abs(pt.y - at.y) > 1) n++;
+      at = pt;
+    }
+  }
+  return n;
+}"""
+
+
+def test_parts_chosen_with_a_box_move_together_pinned_and_with_no_new_layout(browser, tmp_path):
+    """Shift and a drag on the background draws a box: the parts it touches are chosen (marked); one of them
+    dragged moves them all, its lines never drawn across meanwhile; let go, they are all pinned there, with
+    no new layout, and their lines routed cleanly."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=product", 0)
+        pg.get_by_role("button", name="fit").click()
+        ids = ["stock:users", "flow:signups"]
+        boxes = [pg.locator(f'g.node[data-id="{i}"]').bounding_box() for i in ids]
+        x0, y0 = min(b["x"] for b in boxes) - 6, min(b["y"] for b in boxes) - 6
+        x1, y1 = max(b["x"] + b["width"] for b in boxes) + 6, max(b["y"] + b["height"] for b in boxes) + 6
+        pg.keyboard.down("Shift")
+        pg.mouse.move(x0, y0)
+        pg.mouse.down()
+        pg.mouse.move((x0 + x1) / 2, (y0 + y1) / 2)
+        pg.mouse.move(x1, y1)
+        pg.mouse.up()
+        pg.keyboard.up("Shift")
+        chosen = pg.evaluate("() => [...S.sel]")
+        assert set(ids) <= set(chosen), chosen
+        assert pg.locator("g.node.selected").count() == len(chosen)
+        before = pg.evaluate("() => Object.fromEntries(S.layout.children.map((c) => [c.id, [c.x, c.y]]))")
+        layouts = pg.evaluate("() => S.layouts")
+        k = pg.evaluate("() => S.view.k")
+        hit = pg.locator('g.node[data-id="stock:users"] .hit').first.bounding_box()
+        x, y = hit["x"] + hit["width"] / 2, hit["y"] + hit["height"] / 2
+        pg.mouse.move(x, y)
+        pg.mouse.down()
+        slanted = 0
+        for step in range(1, 13):
+            pg.mouse.move(x + 10 * step * k, y + 8 * step * k)
+            pg.wait_for_timeout(40)
+            slanted += pg.evaluate(SLANTED)
+        pg.mouse.up()
+        assert slanted == 0, f"{slanted} slanted pieces drawn while dragging"
+        pg.wait_for_function("() => S.layout && !S.layout.routing", timeout=20000)
+        pg.wait_for_timeout(300)
+        assert pg.evaluate(SLANTED) == 0
+        assert pg.evaluate("() => S.layouts") == layouts, "letting go laid the diagram out again"
+        after = pg.evaluate("() => Object.fromEntries(S.layout.children.map((c) => [c.id, [c.x, c.y]]))")
+        for i in chosen:
+            assert abs(after[i][0] - before[i][0] - 120) < 6 and abs(after[i][1] - before[i][1] - 96) < 6, (i, before[i], after[i])
+        pins = pg.evaluate("() => S.pins")
+        assert all(i in pins for i in chosen), pins
+        r = pg.evaluate(AUDIT)
+        assert not r["through"] and not r["partOverlap"] and not r["netCrossings"], (r["through"], r["partOverlap"])
+        pg.keyboard.press("Escape")
+        assert pg.evaluate("() => S.sel.size") == 0
+        assert not errors, errors
+        pg.close()
+
+
+SCREEN_AT = """(name) => {
+  // where a system is on the screen: its open outline, else its box (the box itself: not its ports, which stand out)
+  const id = S.graph.nodes.find((n) => n.label === name && n.kind === "system")?.id;
+  const el = document.querySelector(`g.hull[data-hull="${name}"] rect:not(.hull-grip)`) ||
+             document.querySelector(`g.node[data-id="${id}"] .hit`);
+  const r = el.getBoundingClientRect();
+  return [r.left, r.top];
+}"""
+
+
+def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(browser, tmp_path):
+    """A system opened stays where its box was on the screen, and closed again where its outline was; another
+    system's box, put by hand, keeps its pin and its place through both."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=-", 0)
+        pg.get_by_role("button", name="fit").click()
+        # the product box put somewhere by hand
+        box = pg.locator('g.node.k-system:has(text:text-is("product")) .hit').first.bounding_box()
+        k = pg.evaluate("() => S.view.k")
+        x, y = box["x"] + 30, box["y"] + 30
+        pg.mouse.move(x, y)
+        pg.mouse.down()
+        for step in range(1, 11):                     # well below, clear of factory opened
+            pg.mouse.move(x, y + 40 * step * k)
+        pg.mouse.up()
+        pg.wait_for_function("() => S.pins['hull:product'] && !S.layout.routing", timeout=20000)
+        pinned = pg.evaluate(SCREEN_AT, "product")
+        for name, opened in (("factory", True), ("factory", False)):
+            at = pg.evaluate(SCREEN_AT, name)
+            pg.evaluate("(n) => S.toggleSystem(n)", name)
+            pg.wait_for_function(f"() => S.graph && (S.graph.open || []).includes('{name}') === {str(opened).lower()} && S.layout && "
+                                 "!S.layout.routing && document.querySelectorAll('svg.canvas g.node').length", timeout=30000)
+            pg.wait_for_timeout(300)
+            now = pg.evaluate(SCREEN_AT, name)
+            assert abs(now[0] - at[0]) < 4 and abs(now[1] - at[1]) < 4, (name, opened, at, now)
+            assert pg.evaluate("() => !!S.pins['hull:product']"), "the pin was lost"
+            if not opened:                              # back as it was: product's box where it was put
+                d = pg.evaluate(SCREEN_AT, "product")
+                assert abs(d[0] - pinned[0]) < 4 and abs(d[1] - pinned[1]) < 4, (pinned, d)
+            r = pg.evaluate(AUDIT)
+            assert not r["through"] and not r["partOverlap"], (name, opened, r["through"], r["partOverlap"])
         assert not errors, errors
         pg.close()
 
@@ -581,6 +701,164 @@ def test_scroll_pans_and_command_scroll_or_a_pinch_zooms_at_the_pointer(browser,
         pg.get_by_role("button", name="+").click()
         pg.get_by_role("button", name="fit").click()
         pg.close()
+
+
+WIRE_PANELS = """() => {
+  const bad = [];
+  for (const e of S.graph.edges) {
+    openEdge(e);
+    const kind = document.querySelector('#detail .kind')?.textContent || '';
+    if (!kind.startsWith('wire')) bad.push(`${e.id}: ${kind}`);
+  }
+  for (const n of S.graph.nodes) {
+    openNode(n);
+    const kind = document.querySelector('#detail .kind')?.textContent || '';
+    if (!kind.startsWith('machine')) bad.push(`${n.id}: ${kind}`);
+  }
+  const dashed = [...document.querySelectorAll('g.edge.wire')].filter((g) => g.dataset.id.startsWith('wire-unseen:')).length;
+  return { bad, dashed, unseen: S.graph.edges.filter((e) => !e.seen).length, edges: S.graph.edges.length,
+           nodes: document.querySelectorAll('svg.canvas g.node').length, want: S.graph.nodes.length };
+}"""
+
+
+@pytest.mark.parametrize("example", EXAMPLES)
+def test_every_wiring_view_draws_what_the_record_shows(browser, tmp_path, example):
+    """The wiring of each example, with a record that shows half of what its model declares (and
+    two machines it never names): drawn cleanly, the declared but unseen dashed, every panel opening."""
+    from ergostat import graph
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served(example, tmp_path) as url:
+        p = Project(mdl.load(tmp_path / example))
+        for i, (a, b) in enumerate(sorted(graph.declared_wires(p.model))):
+            if i % 2:
+                continue
+            sent = p.events.add("thing.sent", source=a)
+            p.events.add("agent.started", item=b, source="ergostat", causedby=sent["id"])
+        inv = p.events.add("invoice.sent", source="billing/1")
+        p.events.add("mail.sent", source="mailer", causedby=inv["id"])
+        time.sleep(1.6)                                   # past the page's snapshot of the moment it started
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=wiring", 0)
+        r = pg.evaluate(AUDIT)
+        problems = [f"{k}: {x}" for k in ("through", "overlap", "partOverlap") for x in r[k]]
+        w = pg.evaluate(WIRE_PANELS)
+        pg.close()
+    assert not errors, errors
+    assert not problems, f"{example}: " + "\n".join(problems)
+    assert w["nodes"] == w["want"] and w["dashed"] == w["unseen"] and 0 < w["unseen"] < w["edges"], w
+    assert not w["bad"], w["bad"][:8]
+
+
+BLOCKS_DOM = """() => {
+  // the control view's own conventions, as drawn: a function in every block, a sign at every input of
+  // every summing junction, no placeholder, one ink (no fill on a block)
+  const bad = [];
+  for (const el of document.querySelectorAll("svg.canvas g.node.bd-block")) {
+    if (!(el.dataset.fn || "").trim() || el.dataset.fn === "block") bad.push(`${el.dataset.id}: no function`);
+    if (!el.querySelector("text")) bad.push(`${el.dataset.id}: nothing written in it`);
+    const fill = getComputedStyle(el.querySelector(".hit")).fill;
+    if (!/transparent|rgba\\(0, 0, 0, 0\\)|none/.test(fill)) bad.push(`${el.dataset.id}: filled ${fill}`);
+  }
+  for (const n of S.graph.nodes.filter((n) => n.kind === "sum")) {
+    const signs = document.querySelectorAll(`svg.canvas text.bd-sign[data-sum="${CSS.escape(n.id)}"]`).length;
+    if (signs !== n.ins.length) bad.push(`${n.id}: ${signs} signs for ${n.ins.length} inputs`);
+  }
+  if (/no valve|no sensor/.test(document.querySelector("svg.canvas").textContent)) bad.push("a placeholder");
+  const frames = Object.fromEntries((S.layout.containers || []).map((c) => [c.id, c]));
+  for (const n of S.graph.nodes) for (const f of n.systems || []) {        // a part inside every frame it is in
+    const c = S.layout.children.find((k) => k.id === n.id), o = frames[f];
+    if (c && o && !(c.x >= o.x && c.y >= o.y && c.x + c.width <= o.x + o.width && c.y + c.height <= o.y + o.height))
+      bad.push(`${n.id} outside ${f}`);
+  }
+  return bad;
+}"""
+
+
+# a feedback path runs back beneath the forward path by design (out of the process to the right, down, back
+# left to the sensor and on to the junction): a line is a detour past twice its way plus that run back
+BLOCKS_DETOUR = """() => {
+  const out = [];
+  for (const le of S.layout.edges) {
+    const s0 = (le.sections || [])[0]; if (!s0) continue;
+    const p = [s0.startPoint, ...(s0.bendPoints || []), s0.endPoint];
+    const L = p.slice(1).reduce((s, q, i) => s + Math.abs(q.x - p[i].x) + Math.abs(q.y - p[i].y), 0);
+    const M = Math.abs(p[0].x - p[p.length - 1].x) + Math.abs(p[0].y - p[p.length - 1].y);
+    if (L > 2 * M + 240) out.push(`${le.id}: ${Math.round(L)} for ${Math.round(M)}`);
+  }
+  return out;
+}"""
+
+
+def blocks_views(tree: dict) -> list[str]:
+    return ["view=blocks", "view=blocks&open=*", *(f"view=blocks&open={s}" for s in tree), *(f"view=blocks&system={s}" for s in tree)]
+
+
+def test_the_control_view_draws_every_example_cleanly_as_a_block_diagram(browser, page_of):
+    name, url = page_of
+    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    drawn(pg, url, "view=blocks", 0)
+    problems = []
+    for i, v in enumerate(blocks_views(pg.evaluate("() => S.graph.tree || {}"))):
+        drawn(pg, url, v, i + 1)
+        r = pg.evaluate(AUDIT)
+        problems += [f"[{v}] {k}: {x}" for k in ("through", "overlap", "netCrossings", "partOverlap") for x in r[k]]
+        problems += [f"[{v}] {x}" for x in pg.evaluate(BLOCKS_DOM)]
+        problems += [f"[{v}] detour: {x}" for x in pg.evaluate(BLOCKS_DETOUR)]
+        if max(r["size"]["aspect"], 1 / r["size"]["aspect"]) > MAX_ASPECT + 1 and r["size"]["fit"] < MIN_FIT:
+            problems.append(f"[{v}] {r['size']}")
+    pg.close()
+    assert not errors, errors
+    assert not problems, f"{name}: " + "\n".join(problems)
+
+
+def test_the_control_view_nests_a_cascades_inner_loop_and_opens_a_blocks_definition(browser, tmp_path):
+    from tests.test_spec_systems import MODEL
+    d = tmp_path / "cascade"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(textwrap.dedent(MODEL))
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&open=*", 0)
+        r = pg.evaluate(AUDIT)
+        assert not r["through"] and not r["overlap"] and not r["partOverlap"], r
+        assert pg.evaluate(BLOCKS_DOM) == []
+        nest = pg.evaluate("""() => {
+          const f = (id) => S.layout.containers.find((c) => c.id === id);
+          const inner = f("casc:burner-rate"), heater = f("frame:heater");
+          const el = document.querySelector('g.bd-frame-cascade[data-hull="casc:burner-rate"]');
+          return { drawn: !!el, dashed: el && getComputedStyle(el.querySelector("rect")).strokeDasharray,
+                   inside: inner.x >= heater.x && inner.x + inner.width <= heater.x + heater.width,
+                   members: S.graph.nodes.filter((n) => n.parent === "casc:burner-rate").map((n) => n.id).sort() }; }""")
+        assert nest["drawn"] and nest["dashed"] not in ("none", "") and nest["inside"], nest
+        assert nest["members"] == ["blk:burner", "blk:watcher", "sum:burner-rate"], nest
+        # a block clicked: its definition, as MathML
+        pg.locator('g.node[data-id="blk:thermostat"] .hit').click()
+        pg.wait_for_selector("#detail math", timeout=5000)
+        mi = pg.evaluate("() => [...document.querySelectorAll('#detail .bd-math math mi')].map((x) => x.textContent)")
+        assert "K" in mi and "p" in mi, mi                       # C_thermostat = K_p = 0.5
+        assert not errors, errors
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
 
 
 SD_CHECK = """() => {

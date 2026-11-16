@@ -340,6 +340,7 @@ function setRoute(le, pts) {                            // a route from libavoid
   if (r.length < 2) return;
   le.sections = [{ startPoint: r[0], bendPoints: r.slice(1, -1), endPoint: r[r.length - 1] }];
   le.junctionPoints = [];
+  le.stale = false;                                   // (its own way now: no longer grey)
 }
 
 /* parts dragged together (an open system): moved in one routing; resolves to the ids of the lines that changed

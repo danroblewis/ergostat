@@ -136,9 +136,10 @@ class Events:
 
     def query(self, *, n: int | None = 100, type: str | None = None, item: str | None = None, source: str | None = None,
               since: float | None = None, after_seq: int | None = None, until: float | None = None,
-              skip: tuple[str, ...] = (), unvoided: bool = False) -> list[dict]:
+              skip: tuple[str, ...] = (), unvoided: bool = False, machine: str | None = None) -> list[dict]:
         """Matching events, oldest first; the newest ``n`` when ``n`` is given. ``type`` may end in
-        ``*``; types in ``skip`` are left out."""
+        ``*``, and may be several, joined by commas; types in ``skip`` are left out. ``machine``: from
+        that source or one of its instances (``<machine>/<instance>``)."""
         where, args = [], []
         if skip:
             where.append(f"type not in ({','.join('?' * len(skip))})")
@@ -147,12 +148,14 @@ class Events:
             where.append("id not in (select j.value from events f, json_each(f.data, '$.voids') j "
                          "where f.type = 'ergostat.forgotten')")
         if type:
-            if type.endswith("*"):
-                where.append("type like ?")
-                args.append(type[:-1] + "%")
-            else:
-                where.append("type = ?")
-                args.append(type)
+            ors = []
+            for t in (x.strip() for x in type.split(",") if x.strip()):
+                ors.append("type like ?" if t.endswith("*") else "type = ?")
+                args.append(t[:-1] + "%" if t.endswith("*") else t)
+            where.append("(" + " or ".join(ors) + ")")
+        if machine:
+            where.append("(source = ? or source like ?)")
+            args += [machine, machine + "/%"]
         for col, v in (("item", item), ("source", source)):
             if v is not None:
                 where.append(f"{col} = ?")

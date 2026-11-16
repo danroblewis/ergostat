@@ -74,6 +74,24 @@ def test_the_engine_closes_the_loop(tmp_path):
     assert level <= 12, "held near the goal, not running away"
 
 
+def test_the_engine_records_what_caused_what(tmp_path):
+    """A crossing read just after a block acted is that block's doing; a built-in's decision is its
+    goal's crossing's; a commanded run is its commander's decision's: the wiring is drawn from these."""
+    from ergostat import graph, state
+    p = run_for(tmp_path, LOOP, 6)
+    ev = p.events
+    cause = lambda e: ev.get(e["causedby"]) if e.get("causedby") else None      # noqa: E731
+    decided = [e for e in ev.query(n=None, type="controller.decided") if e["source"] == "keep-short"]
+    assert any(cause(e) and cause(e)["type"].startswith("loop.") for e in decided)
+    runs = ev.query(n=None, type="agent.started", item="worker")
+    assert runs and all(cause(e) and cause(e)["source"] == "keep-short" for e in runs)
+    crossings = ev.query(n=None, type="loop.*", item="inbox-short")
+    assert any(cause(e) and cause(e)["type"] == "agent.started" for e in crossings)     # read after acting
+    g = graph.wiring(p.model, p, state.snapshot(p), p.model.members(None))
+    seen = {(e["source"], e["target"]) for e in g["edges"] if e["seen"] and e["declared"]}
+    assert {("agent:ergostat", "agent:keep-short"), ("agent:keep-short", "agent:worker")} <= seen
+
+
 def test_a_slow_block_is_not_queued_up(tmp_path):
     slow = LOOP.replace("run: ls inbox | head -2", "run: sleep 1.5; ls inbox | head -2").replace("every: 0.4s", "every: 0.2s")
     p = run_for(tmp_path, slow, 5)

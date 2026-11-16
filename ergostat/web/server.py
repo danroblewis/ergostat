@@ -113,6 +113,11 @@ def api(live: Live, path: str, q: dict):
         att = st.attention(snap, bool(running_pid(p)) and snap["live"], m)
         if one("view") == "wiring":
             return {**graph.wiring(m, p, snap, graph.select(m, system, around, int(one("depth") or 1))), "attention": att}
+        if one("view") == "blocks":                 # the control view: the whole control system as a block diagram
+            from ..blockdiagram import diagram
+            opened = q.get("open")
+            want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
+            return {**diagram(m, snap, want, system), "attention": att}
         from ..dynamics import dynamics, finish
         from ..fold import fold
         sd = one("view") == "dynamics"          # the system dynamics view: drawn from the same graph
@@ -195,7 +200,8 @@ def api(live: Live, path: str, q: dict):
         after = one("after")
         skip = () if one("runs") or one("type") else ("agent.started", "agent.ran")   # as `ergostat event`
         return p.events.query(n=int(one("n") or 100), type=one("type"), item=one("item"), source=one("source"),
-                              after_seq=int(after) if after else None, skip=skip)
+                              machine=one("machine"), after_seq=int(after) if after else None, skip=skip,
+                              **({"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}))
     if head == "items":
         from ..spec import items as its
         spec = getattr(m, "spec", None)
