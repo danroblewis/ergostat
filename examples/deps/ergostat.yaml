@@ -4,17 +4,28 @@ name: deps
 defaults:
   system: deps
 
+items:
+  update:                                 # one package's move to a new release: update/http-client-2.0
+    id: update/*
+    states: [outdated, pr-open, merged]
+    on:
+      update.pr-opened: pr-open
+      update.merged: merged
+    show: [package, from, to, pr, merged_by]
+
 stocks:
   outdated-deps:
     unit: packages
-    sensor:
-      run: python3 updater.py audit
+    description: releases not yet in an update PR
+    sensor:                               # counted from the record: the updates still outdated
+      items: update
+      state: outdated
       every: 3s
   update-prs-open:
     unit: packages                        # one update PR per package
     description: update pull requests waiting for review
     sensor:
-      run: python3 updater.py prs
+      run: python3 updater.py prs         # the host's count; it also records each PR it sees merged
       every: 3s
 
 flows:

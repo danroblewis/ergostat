@@ -22,4 +22,8 @@ Things to look at:
   merges one now and then without reporting it, so the PRs fall by more than the flows explain;
   a report you make is recorded but does not reach the simulation.
 
+Items: each new release is an update (`update/http-client-3.0`): `outdated` when upstream
+releases it, `pr-open` when the updater opens its PR, `merged` when the PR sensor sees it merged.
+`outdated-deps` counts the updates still `outdated`.
+
 Shows: a person in a loop, a proportional controller, `max`, saturation, work piling up downstream.
