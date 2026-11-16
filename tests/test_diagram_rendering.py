@@ -1062,3 +1062,112 @@ def test_each_loop_marker_sits_inside_its_loop_as_drawn(browser, tmp_path):
             outside = [n for n, ok in r if not ok]
             assert r and not outside, (v, outside)
         pg.close()
+
+
+# ---- the Guide: every frame drawn by the real renderers, live and in a snapshot
+
+GUIDE_FRAME = """(i) => { const d = document.querySelector('.g-deck'), c = d && d.querySelector('.g-count');
+  return !!c && c.textContent.startsWith(`${i + 1} /`) && d.dataset.drawn === d.dataset.frame; }"""
+GUIDE_SEEN = """() => { const d = document.querySelector('.g-deck'), all = (sel) => [...d.querySelectorAll(sel)];
+  return { id: d.dataset.frame,
+           svgs: all('svg.g-canvas').map((s) => [s.dataset.drawn || '', s.querySelectorAll('g.node').length]),
+           markers: all('.loop-marker .marker-letter').map((t) => t.textContent).sort(),
+           signs: all('text.polarity').map((t) => t.textContent),
+           sums: all('.bd-sign').map((t) => t.textContent),
+           plotted: all('svg.g-plot path.g-line').length }; }"""
+
+
+def guide_port() -> int:
+    """A free port in 8790-8799 (the range this repository's tests may use)."""
+    for port in range(8790, 8800):
+        with socket.socket() as s, contextlib.suppress(OSError):
+            s.bind(("127.0.0.1", port))
+            return port
+    pytest.skip("no free port in 8790-8799")
+
+
+def walk_guide(pg, url: str, shots: Path | None = None) -> dict:
+    """Every frame, stepped with the arrow key: what each drew."""
+    pg.goto(url)
+    pg.wait_for_function(GUIDE_FRAME, arg=0, timeout=60000)
+    n = pg.locator(".g-dot").count()
+    seen = {}
+    for i in range(n):
+        if i:
+            pg.keyboard.press("ArrowRight")
+            pg.wait_for_function(GUIDE_FRAME, arg=i, timeout=60000)
+        got = pg.evaluate(GUIDE_SEEN)
+        seen[got["id"]] = got
+        if shots:
+            pg.screenshot(path=str(shots / f"{i + 1:02d}-{got['id']}.png"))
+    return seen
+
+
+def check_guide(seen: dict) -> None:
+    assert len(seen) == 13, list(seen)
+    for fid, got in seen.items():
+        assert got["svgs"] and all(view and nodes for view, nodes in got["svgs"]), (fid, got["svgs"])
+    assert len(seen["between"]["svgs"]) == 2 and len(seen["yours"]["svgs"]) == 2            # both ways, side by side
+    assert [v for v, _ in seen["between"]["svgs"]] == ["dynamics", "blocks"]
+    assert not seen["links"]["markers"] and "+" in seen["links"]["signs"]                    # a sign, before its loop
+    assert seen["balancing"]["markers"] == ["B1"]
+    assert seen["reinforcing"]["markers"] == ["B1", "R1"]
+    assert seen["between"]["markers"] == ["B1"]
+    assert {"+", "−"} <= set(seen["controller"]["sums"])                                    # e = r − y
+    for fid in ("fills", "levels", "links", "balancing", "reinforcing", "closed", "disturbance"):
+        assert seen[fid]["plotted"], fid
+    assert seen["reinforcing"]["plotted"] == 2 and seen["closed"]["plotted"] == 2           # two runs; y and r
+
+
+def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, monkeypatch):
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web.snapshot import build
+    d = tmp_path / "first-loop"
+    shutil.copytree(ROOT / "examples" / "first-loop", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    home = tmp_path / "home"
+    shots = Path(os.environ["GUIDE_SHOTS"]) if os.environ.get("GUIDE_SHOTS") else None
+    port = guide_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1400, "height": 800})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        if shots:
+            shots.mkdir(parents=True, exist_ok=True)
+        check_guide(walk_guide(pg, url + "/#/guide", shots))
+        # the cascade's inner block opens on a click, and closes again
+        pg.goto(url + "/?v=1#/guide?frame=11")
+        pg.wait_for_function(GUIDE_FRAME, arg=11, timeout=60000)
+        assert pg.locator("svg.g-canvas .bd-frame").count() == 0
+        pg.locator("svg.g-canvas .bd-toggle").first.click()
+        pg.wait_for_function("() => document.querySelectorAll('svg.g-canvas .bd-frame').length >= 2", timeout=30000)
+        if shots:
+            pg.screenshot(path=str(shots / "12b-cascade-opened.png"))
+        pg.keyboard.press("ArrowLeft")                                       # back, by the other arrow
+        pg.wait_for_function(GUIDE_FRAME, arg=10, timeout=60000)
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+    # the snapshot: offline, nothing asked of a server
+    monkeypatch.setenv("ERGOSTAT_HOME", str(home))
+    out = tmp_path / "snapshot.html"
+    out.write_text(build(Project(mdl.load(d))))
+    pg = browser.new_page(viewport={"width": 1400, "height": 800})
+    errors, asked = [], []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:"))
+             else (asked.append(rt.request.url), rt.abort()))
+    check_guide(walk_guide(pg, f"file://{out}#/guide"))
+    pg.close()
+    assert not errors and not asked, (errors, asked)

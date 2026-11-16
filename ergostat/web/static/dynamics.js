@@ -14,7 +14,9 @@ const MINUS = "−";
 const sdSign = (p) => (p === "+" ? "+" : p === "-" ? MINUS : null);
 
 function sdValue(n) {                                   // a stock's or an auxiliary's value, small, with its unit
-  if (n.role === "desired" || n.role === "gap") return n.valueText || "–";
+  if (n.role === "desired") return n.valueText || "–";
+  if (n.bare) return "";                                // (the Guide's frames: structure only, no readings)
+  if (n.role === "gap") return n.valueText || "–";
   if (n.role === "decision") return "";
   const v = n.valueText && n.valueText !== "?" ? n.valueText : "–";
   return n.unit ? `${v} ${n.unit}` : v;
@@ -29,7 +31,7 @@ function sdSize(n) {
 }
 /* the lines written beside a part (under a valve or a converter): its name, then its value */
 function sdLabelLines(n) {
-  if (n.kind === "valve" || n.kind === "disturbance") return [n.label, n.rate == null ? "–" : n.rateText];
+  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "–" : n.rateText];
   if (n.kind === "cloud" && n.beyond) return [`<${n.beyond}>`];      // where the flow goes on to, beyond this system
   return [];
 }
@@ -48,8 +50,9 @@ function sdStock(n, w, hgt) {
   const g = s("g");
   // its name and its value now, small and muted; its history is in its panel (no gauge, no sparkline)
   g.append(s("rect", { class: "hit sd-stock", width: w, height: hgt, "stroke-dasharray": n.outside ? "5 4" : null }));
-  g.append(s("text", { x: w / 2, y: 19, "text-anchor": "middle", class: "t-label sd-name" }, n.label));
-  g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, sdValue(n)));
+  const v = sdValue(n);
+  g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, n.label));
+  if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v));
   return g;
 }
 /* an auxiliary, unadorned as Vensim draws it: its name alone (its value under it, muted) */

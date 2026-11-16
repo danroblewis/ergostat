@@ -1,4 +1,4 @@
-/* the pages besides the diagram: Loops, Agents, Record, Items, an item, Residuals, Guide, Check */
+/* the pages besides the diagram: Loops, Agents, Record, Items, an item, Residuals, Check (the Guide: guide.js) */
 "use strict";
 /* ------------------------------------------------------------------ the other pages */
 
@@ -296,45 +296,6 @@ async function pageResiduals(main) {
   }
   await tick();
   S.timer = setInterval(tick, 5000);
-}
-
-async function pageGuide(main) {
-  const p = page(main, "Guide", "ergostat keeps work going. It treats the work around you as a factory, and runs it as a control system. Here is how to read yours.");
-  const [parts, agents] = [await api("parts"), await api("agents")];
-  const code = (t) => h("code", {}, t);
-  const ex = (list, f, n = 2) => list.slice(0, n).map((x, i) => [i ? ", " : "", f(x)]);
-  const sec = (title, ...kids) => p.append(h("section", { class: "guide" }, h("h2", {}, title), ...kids));
-  const stock = parts.stock[0], loop = parts.controller.find((x) => !x.open_loop);   // the example of feedback is a feedback loop
-  sec("Work is a flow, not a list",
-    h("p", {}, "Work is change in the world over time. ergostat does not track tasks; it watches what accumulates and what moves it. ",
-      "What accumulates is a ", h("b", {}, "stock"), ": ", ex(parts.stock, (x) => [code(x.name), ` (${fmt(x.value)} ${x.value === 1 && x.unit.endsWith("s") ? x.unit.slice(0, -1) : x.unit})`]) , ". ",
-      "What moves a stock is a ", h("b", {}, "flow"), ", drawn as a pipe. A flow nothing controls is a ", h("b", {}, "disturbance"), ": ",
-      parts.disturbance.length ? ex(parts.disturbance, (x) => code(x.name)) : "you have none declared", "."));
-  sec("Three roles keep it steady",
-    h("p", {}, "A ", h("b", {}, "sensor"), " measures (", ex(parts.sensor, (x) => code(x.name)), "). ",
-      "A ", h("b", {}, "controller"), " decides, to hold a stock at a setpoint (", ex(parts.controller, (x) => [code(x.name), ` holds ${x.holds} ${x.setpoint}`]), "). ",
-      "A ", h("b", {}, "valve"), " acts on a flow (", ex(parts.valve, (x) => code(x.name)), "). Nothing changes the world except through a valve."),
-    loop ? h("p", {}, "Together they make a ", h("b", {}, "loop"), ": a sensor measures ", code(loop.holds), "; ", code(loop.name),
-      " reads it, compares it with its setpoint, and opens a valve when it is off. Its status now: ", statusEl(loop.status), ". ",
-      h("a", { href: "#/diagram?view=blocks" }, "See it as a block diagram"), ".") : null,
-    parts.controller.some((x) => x.open_loop) ? h("p", {}, "An ", h("b", {}, "open loop"), " acts by the clock and reads nothing (",
-      ex(parts.controller.filter((x) => x.open_loop), (x) => code(x.name)), "): a sensor on its stock only watches it, so its status still says ",
-      "whether the timer is enough, but nothing it measures changes what it does. A clock marks it in the diagram.") : null);
-  const byRung = {};
-  for (const [n, a] of Object.entries(agents)) (byRung[a.rung] ||= []).push(n);
-  sec("Agents fill the roles, and move down the ladder",
-    h("p", {}, "An ", h("b", {}, "agent"), " is whatever acts on your behalf: a person, an AI agent, a decision, a program, a rule. ",
-      "One agent can fill several roles. Every agent is held to the same discipline: measured, bounded, and acting only through the valves you grant."),
-    h("p", {}, "The ladder runs from the most general agent to none at all. Yours: ",
-      [0, 1, 2, 3, 4, 5].filter((r) => byRung[r]).map((r, i) => [i ? "; " : "", h("b", {}, RUNG_NAMES[r]), " ", byRung[r].join(", ")]), ". ",
-      "Every role is expected to move down: start with an AI agent, then a narrower one, a decision, a program, a rule, and finally design the work out. ",
-      h("a", { href: "#/agents" }, "See the ladder"), "."));
-  sec("When the model does not explain it",
-    h("p", {}, "A ", h("b", {}, "residual"), " is what a stock did that its known flows do not explain. An unmeasured disturbance is estimated from it; anything left over is worth a look: ",
-      "it is either a disturbance you have not named, or the plant behaving differently than you think. ", h("a", { href: "#/residuals" }, "Your residuals"), "."));
-  sec("Reading the diagram", legend("control"), h("p", {}, "Systems are outlines around parts that belong together; they may overlap. ",
-    "The wiring view shows what actually happened between the machines in the window, from the event log: a line only where an event proves one reached another (caused by it, or listened for and run after), dashed where the model declares a connection the log never shows. The slider in the header shows any past moment."));
-  if (!stock) p.append(h("p", { class: "muted" }, "Your model is empty: describe your system with ergostat chat, or start from ergostat check --example."));
 }
 
 async function pageCheck(main) {
