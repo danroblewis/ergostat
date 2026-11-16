@@ -27,7 +27,49 @@ function s(tag, attrs = {}, ...kids) {
   for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   return el;
 }
-const fmt = (x) => x == null ? "?" : (typeof x === "number" ? (Number.isInteger(x) ? String(x) : (Math.abs(x) < 100 ? x.toPrecision(3).replace(/\.?0+$/, "") : x.toFixed(0))) : String(x));
+/* the one number formatter: integers as they are (thousands separated from 10,000), others to three
+   significant figures, a real minus */
+function fmt(x) {
+  if (x == null) return "?";
+  if (typeof x !== "number") return String(x);
+  if (!Number.isFinite(x)) return String(x);
+  if (Math.abs(x) < 1e-9) x = 0;                       // floating-point dust: 1.78e-15 is nothing
+  let t;
+  if (Number.isInteger(x)) t = Math.abs(x) >= 10000 ? x.toLocaleString("en-US") : String(x);
+  else if (Math.abs(x) >= 100) { const r = Math.round(x); t = Math.abs(r) >= 10000 ? r.toLocaleString("en-US") : String(r); }
+  else t = String(+x.toPrecision(3));
+  return t.replace(/^-/, "\u2212");
+}
+/* a condition or setpoint as it is written in print: <= as ≤, >= as ≥, == as =, != as ≠ */
+const op = (x) => x == null ? "" : String(x).replaceAll("<=", "\u2264").replaceAll(">=", "\u2265").replaceAll("!=", "\u2260").replaceAll("==", "=")
+  .replace(/(^|[\s(=:])-(?=\.?\d)/g, "$1\u2212");                // and a negative number's real minus
+/* raw data, shown: every float to the precision that means something (the event's panel keeps it whole) */
+const tidy = (v) => typeof v === "number" && !Number.isInteger(v) ? +v.toPrecision(6)
+  : Array.isArray(v) ? v.map(tidy) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, tidy(x)])) : v;
+/* K_p, y_m, x_{ab}: a subscript as a subscript, in HTML or in an SVG text */
+const SUB = /([A-Za-z\u0370-\u03ff])_(\{[^}]+\}|[A-Za-z0-9]+)/g;
+function rich(text) {
+  const out = h("span"), str = String(text ?? "");
+  let at = 0;
+  for (const m of str.matchAll(SUB)) {
+    out.append(str.slice(at, m.index) + m[1], h("sub", {}, m[2].replace(/^\{|\}$/g, "")));
+    at = m.index + m[0].length;
+  }
+  out.append(str.slice(at));
+  return out;
+}
+function richSvg(textEl, text) {                    // (dy, not baseline-shift: it survives a saved file in any viewer)
+  const str = String(text ?? "");
+  let at = 0, down = false;
+  for (const m of str.matchAll(SUB)) {
+    textEl.append(s("tspan", { dy: down ? -3 : null }, str.slice(at, m.index) + m[1]),
+      s("tspan", { dy: 3, "font-size": "78%" }, m[2].replace(/^\{|\}$/g, "")));
+    down = true;
+    at = m.index + m[0].length;
+  }
+  textEl.append(s("tspan", { dy: down ? -3 : null }, str.slice(at)));
+  return textEl;
+}
 function dur(x) {                                      // seconds, said shortly
   if (x == null) return "?";
   if (x < 60) return `${Math.max(1, Math.round(x))}s`;
@@ -46,13 +88,43 @@ function ago(t) {
 const RUNG_NAMES = ["person", "ai", "narrow-ai", "decision", "program", "rule"];
 const RUNG_HINT = ["the most general agent", "a universal AI agent", "an AI agent with one job", "a short model call with fixed answers",
                    "deterministic code", "a threshold or a table", "the work designed out"];
-const rungColor = (r) => `var(--r${r})`;
+const rungColor = () => "var(--rung)";       // the rung is said in words and a letter; it has no colour of its own
 const RUNG_LETTER = ["H", "A", "N", "D", "P", "R", "–"];   // human, ai, narrow-ai, decision, program, rule, retired
 function rungDot(r, cx, cy, rad = 5.5) {              // the kind's colour, and its letter, so colour is never the only cue
   return s("g", {}, s("circle", { cx, cy, r: rad, fill: rungColor(r) }),
     s("text", { x: cx, y: cy + rad * 0.55, "text-anchor": "middle", class: "rung-letter", style: `font-size:${rad * 1.45}px` }, RUNG_LETTER[r] ?? "?"));
 }
-const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "?");
+/* a loop's state, as a word: quiet when it holds, coloured only when it needs someone */
+const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "unknown");
+const exceptional = (st) => st && st !== "holding";
+
+/* a menu: a button and what it holds, opened under it (or above, near the bottom of the screen).
+   items: [{label, onclick, checked, hint, disabled}] or nodes, or a function giving them, called on each opening */
+function menu(label, items, { cls = "", title = null, right = false, up = false } = {}) {
+  const pop = h("div", { class: "menu-pop", role: "menu", hidden: "" });
+  const btn = h("button", { class: `menu-btn ${cls}`, type: "button", title, "aria-haspopup": "menu", "aria-expanded": "false" }, label);
+  const box = h("span", { class: "menu" + (right ? " right" : "") + (up ? " up" : "") }, btn, pop);
+  const close = () => { pop.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+  const fill = () => pop.replaceChildren(...(typeof items === "function" ? items() : items).filter(Boolean).map((it) => it.nodeType ? it
+    : it.sep ? h("div", { class: "menu-sep" })
+    : h("button", { class: "menu-item", type: "button", role: it.checked != null ? "menuitemcheckbox" : "menuitem", disabled: it.disabled ? "" : null,
+                    "aria-checked": it.checked != null ? String(!!it.checked) : null,
+                    onclick: (ev) => { ev.stopPropagation(); close(); it.onclick?.(); } },
+        it.checked != null ? h("span", { class: "tick" }, it.checked ? "\u2713" : "") : null, it.label, it.hint ? h("span", { class: "hint" }, it.hint) : null)));
+  btn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    const open = pop.hidden;
+    closeMenus();
+    if (open) { fill(); pop.hidden = false; btn.setAttribute("aria-expanded", "true"); pop.querySelector("button, input")?.focus({ preventScroll: true }); }
+  });
+  pop.addEventListener("click", (ev) => ev.stopPropagation());
+  box.close = close;
+  box.button = btn;
+  return box;
+}
+function closeMenus() { for (const m of document.querySelectorAll(".menu")) m.close?.(); }
+document.addEventListener("click", closeMenus);
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeMenus(); });
 
 /* a snapshot (`ergostat snapshot`): the answers were taken once and are in the page */
 const SNAP = window.SNAPSHOT || null;
@@ -96,16 +168,16 @@ async function refreshHeader() {
           if (p.name === st.name) continue;
           const bits = [p.off?.length ? `${p.off.length} off` : "", p.unknown?.length ? `${p.unknown.length} unknown` : "",
                         p.web ? "" : "stopped"].filter(Boolean);
-          opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "" }, `${p.name}${bits.length ? " · " + bits.join(", ") : ""}`));
+          opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "" }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));
         }
         sel.replaceChildren(...opts);
       } catch (e) { if (!sel.options.length) sel.replaceChildren(h("option", { value: "" }, st.name)); }
     }
     const off = Object.values(st.loops).filter((l) => l.status === "off").length;
     const run = $("#running");
-    run.className = "pill " + (SNAP ? (off ? "bad" : "unknown") : st.running ? (off ? "bad" : "ok") : "unknown");
-    run.textContent = SNAP ? `snapshot ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? ` · ${off} off` : ""}`
-      : st.running ? (off ? `${off} loop${off > 1 ? "s" : ""} off` : "running") : "not running";
+    run.className = "runstate" + (off ? " bad" : !SNAP && !st.running ? " warn" : "");
+    run.textContent = SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
+      : off ? `${off} loop${off > 1 ? "s" : ""} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running";
     document.title = `${st.name} · ergostat`;
     S.first = st.first;
   } catch (e) { /* the server may be restarting */ }
