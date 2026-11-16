@@ -150,8 +150,8 @@ blocks:
     type: program
     run: bin/py bin/lab.py rollout
     in:                                    # a stage per 30 images compared while it saves bytes; none while the service is off
-      paired: stock.paired
-      saved: auxiliary.bytes-saved
+      paired: +stock.paired                # more images compared: more stages
+      saved: +auxiliary.bytes-saved        # more bytes saved: more traffic, sooner kept
       served-failures: goal.no-failures.error
       served-time: goal.fast-enough.error
     every: 16s
@@ -165,7 +165,7 @@ blocks:
     in:
       failures: goal.candidate-sound.off
       time: goal.candidate-fast.off
-      saved: auxiliary.bytes-saved
-      paired: stock.paired
+      saved: -auxiliary.bytes-saved        # fewer bytes saved: dropped the sooner
+      paired: +stock.paired                # more images compared: the sooner a verdict
     every: 16s
     out: flow.dropped

@@ -253,10 +253,12 @@ def test_every_part_opens_its_panel_when_clicked_even_mid_redraw(browser, tmp_pa
 
 
 @contextlib.contextmanager
-def served(example: str, tmp_path: Path):
-    """An example's page, served from a fresh copy (the model is not run)."""
+def served(example: str, tmp_path: Path, edit=None):
+    """An example's page, served from a fresh copy (the model is not run; ``edit`` may change the copy first)."""
     d = tmp_path / example
     shutil.copytree(ROOT / "examples" / example, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    if edit:
+        edit(d)
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
                             env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}, stdout=subprocess.DEVNULL,
@@ -880,7 +882,7 @@ SD_CHECK = """() => {
   if (!svg.classList.contains("sd")) bad.push("not drawn as the dynamics view");
   for (const n of S.graph.nodes) if (["sensor", "controller", "agent"].includes(n.kind)) bad.push(`drawn: ${n.kind} ${n.id}`);
   if (svg.querySelector(".badge, .k-sensor, .k-controller")) bad.push("an agent badge, a sensor or a controller is drawn");
-  const marked = new Set([...svg.querySelectorAll(".loop-marker")].flatMap((m) => (m.dataset.loops || "").split(" ")));
+  const marked = new Set([...svg.querySelectorAll(".loop-marker")].flatMap((m) => (m.dataset.loops || "").split("|")));
   for (const { loops } of sdLoopGroups(S.graph)) for (const c of loops) if (!marked.has(c.name)) bad.push(`no marker: ${c.name}`);
   for (const m of svg.querySelectorAll(".loop-marker")) {
     const c = S.graph.causalLoops.find((x) => x.name === m.dataset.loop);
@@ -939,9 +941,124 @@ def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):
         pg.get_by_role("button", name="fit").click()
         pg.locator('.loop-marker[data-loop="backlog-clear"]').dispatch_event("click")
         pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
-        assert "backlog-clear" in pg.locator("#detail h2").inner_text()
+        assert pg.locator("#detail h2").inner_text().startswith("B")           # its label, R1 or B2, as Sterman numbers them
+        assert pg.locator("#detail .subtitle").inner_text() == "backlog-clear"   # its name beneath
         assert "balancing" in pg.locator("#detail .kind").inner_text().lower()
         lit = pg.evaluate("""() => [...document.querySelectorAll('svg.canvas .node.in-loop')].map((n) => n.dataset.id).sort()""")
         assert lit == ["flow:submitted", "gap:backlog-clear", "stock:backlog"], lit
         assert pg.evaluate("() => document.querySelectorAll('svg.canvas .edge.in-loop').length") >= 3
+        pg.close()
+
+
+SD_WORDS = r"\b(controller|setpoint|rule|goal|valve)s?\b|<=|>="
+
+
+def unsign_rollout(d: Path) -> None:
+    """image-squeeze with the signs on what its rollout reads taken off: loops of unknown polarity again."""
+    f = d / "rollout.yaml"
+    f.write_text(f.read_text().replace("paired: +stock.paired", "paired: stock.paired")
+                 .replace("saved: +auxiliary.bytes-saved", "saved: auxiliary.bytes-saved"))
+
+
+def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known(browser, tmp_path):
+    import re
+    with served("image-squeeze", tmp_path, unsign_rollout) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        r = pg.evaluate("""() => {
+          const known = S.graph.causalLoops.filter((c) => c.polarity), unknown = S.graph.causalLoops.filter((c) => !c.polarity);
+          const marks = [...document.querySelectorAll('svg.canvas .loop-marker')];
+          const sizes = [...document.querySelectorAll('svg.canvas .marker-letter')].map((t) => getComputedStyle(t).fontSize);
+          const sum = document.querySelector('details.sd-unknown summary')?.textContent || '';
+          const hull = document.querySelector('svg.canvas .sys-hull rect:not(.hull-grip)');
+          return { known: known.length, unknown: unknown.length, marked: marks.map((m) => m.dataset.loop),
+                   unknownMarked: marks.filter((m) => !S.graph.causalLoops.find((c) => c.name === m.dataset.loop)?.polarity)
+                     .length,
+                   sizes: [...new Set(sizes)], sum,
+                   hullStroke: hull && getComputedStyle(hull).stroke, hullFill: hull && getComputedStyle(hull).fill,
+                   side: document.querySelector('#side, .side, aside')?.innerText || '' };
+        }""")
+        assert r["unknown"] > 0 and r["unknownMarked"] == 0 and r["marked"]
+        assert r["sum"].startswith(f"+{r['unknown']} of unknown polarity"), r["sum"]
+        assert r["sizes"] == ["11px"], r["sizes"]                               # every marker at full size, never 8.5px
+        assert r["hullStroke"] in ("none", None) or "0)" in r["hullStroke"], r["hullStroke"]   # a sector: a tint, no outline
+        assert r["hullFill"] not in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]
+        assert not re.search(SD_WORDS, r["side"].split("HOW TO READ")[0], re.I), r["side"][:600]
+        # every panel: a loop's, a desired level's, a gap's, a connector's
+        for sel in [".loop-marker", '.node[data-id^="desired:"]', '.node[data-id^="gap:"]']:
+            pg.locator(f"svg.canvas {sel}").first.dispatch_event("click") if sel == ".loop-marker" else None
+            if sel != ".loop-marker":
+                el = pg.locator(f"svg.canvas {sel}").first
+                pg.evaluate("(id) => openNode(S.graph.nodes.find((n) => n.id === id))", el.get_attribute("data-id"))
+            pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
+            pg.wait_for_timeout(300)
+            text = pg.locator("#detail").inner_text()
+            assert not re.search(SD_WORDS, text, re.I), (sel, text[:800])
+        assert not errors, errors
+        pg.close()
+
+
+def test_a_module_says_as_many_loops_inside_as_the_side_list_and_draws_no_port_squares(browser, tmp_path):
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=-", 0)
+        r = pg.evaluate("""() => {
+          const caps = Object.fromEntries([...document.querySelectorAll('svg.canvas .node[data-id^="system:"]')].map((n) =>
+            [n.dataset.id.slice(7), (n.querySelector('text.t-sub')?.textContent.match(/^(\\d+)/) || [])[1]]));
+          const rows = Object.fromEntries([...document.querySelectorAll('.looprow.sd-inside')].map((r) =>
+            [r.querySelector('b').textContent, (r.textContent.match(/: (\\d+) feedback/) || [])[1]]));
+          const dup = [...document.querySelectorAll('svg.canvas .node[data-id^="system:"]')].some((n) => {
+            const names = [...n.querySelectorAll('.sd-port-name')].map((t) => t.dataset.part + t.dataset.side);
+            return new Set(names).size !== names.length; });
+          return { caps, rows, squares: document.querySelectorAll('svg.canvas .sd-port').length, dup };
+        }""")
+        assert r["caps"] and r["caps"] == r["rows"], r
+        assert r["squares"] == 0 and not r["dup"]
+        pg.close()
+
+
+def test_a_loop_marker_moves_with_its_system_when_the_system_is_dragged(browser, tmp_path):
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=*", 0)
+        pg.get_by_role("button", name="fit").click()
+        pg.wait_for_timeout(300)
+        where = ("(n) => { const r = document.querySelector(`.loop-marker[data-loop=\"${n}\"]`).getBoundingClientRect(); "
+                 "return [r.x, r.y]; }")
+        before = pg.evaluate(where, "missing-ops")                          # inside product: missing-ops → asks … shipped
+        grip = pg.locator('svg.canvas g.hull[data-hull="product"] rect.hull-grip').bounding_box()
+        x, y = grip["x"] + 60, grip["y"] + 10
+        pg.mouse.move(x, y)
+        pg.mouse.down()
+        for i in range(1, 11):
+            pg.mouse.move(x + 12 * i, y + 8 * i)
+        mid = pg.evaluate(where, "missing-ops")                             # during the drag it goes along
+        assert mid[0] - before[0] > 60 and mid[1] - before[1] > 40, (before, mid)
+        pg.mouse.up()
+        pg.wait_for_timeout(500)
+        after = pg.evaluate(where, "missing-ops")                           # and placed again where its loop now is
+        assert after[0] - before[0] > 60 and after[1] - before[1] > 40, (before, after)
+        pg.close()
+
+
+def test_each_loop_marker_sits_inside_its_loop_as_drawn(browser, tmp_path):
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        for i, v in enumerate(["open=*", "system=delivery", "open=product"]):
+            drawn(pg, url, v, i)
+            r = pg.evaluate("""() => {
+              const box = Object.fromEntries(S.layout.children.map((c) => [c.id, c])), out = [];
+              for (const m of document.querySelectorAll('svg.canvas .loop-marker')) {
+                const c = S.graph.causalLoops.find((x) => x.name === m.dataset.loop), { poly, members } = sdPolygon(c, S.graph, box);
+                if (members.some((id) => id.startsWith('system:'))) continue;   // (through a closed module: its box fills the loop)
+                let area = 0;
+                for (let i = 0; i < poly.length; i++) { const p = poly[i], q = poly[(i + 1) % poly.length]; area += p.x * q.y - q.x * p.y; }
+                if (poly.length >= 3 && Math.abs(area) > 400) out.push([c.name, sdInPolygon(+m.dataset.x, +m.dataset.y, poly)]);
+              }
+              return out;
+            }""")
+            outside = [n for n, ok in r if not ok]
+            assert r and not outside, (v, outside)
         pg.close()

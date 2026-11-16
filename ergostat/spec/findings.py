@@ -64,7 +64,33 @@ def find(spec: Spec) -> list[Problem]:
         if st.limit is not None and not any(g.of == Ref("stock", st.name) for g in spec.goals.values()):
             say("unguarded-limit", f"stock {st.name}: has a limit ({st.limit:g}) but no goal: nothing keeps it from it",
                 st.where, f"stock.{st.name}")
+    unsigned(spec, say)
     for s in spec.sensors():
         if not s.measured and not s.manual:
             continue
     return out
+
+
+def unsigned(spec: Spec, say) -> None:
+    """The causal links whose sign the model could say and does not (SPEC §12a): what a machine
+    block reads, where no goal it serves tells the sign, and an unsigned driven-by. Each makes every
+    feedback loop through it of unknown polarity. One finding per part, naming each link."""
+    from .causal import input_sign, served
+    serves = served(spec)
+    for b in spec.blocks.values():
+        if b.builtin or b.type == "external" and not b.inputs:
+            continue
+        bare = [str(r) for port, r in b.inputs.items()
+                if r.kind in ("stock", "flow", "auxiliary") and input_sign(spec, b, r, port, serves) is None]
+        if bare:
+            say("unsigned-link", f"block {b.name}: reads {', '.join(bare)} with no sign, so every feedback loop through "
+                f"{'it' if len(bare) == 1 else 'them'} is of unknown polarity: write the sign on each (in: "
+                f"+{bare[0]} when {b.name} does more as it rises, -{bare[0]} when less)", b.where, f"block.{b.name}")
+    for kind, table in (("flow", spec.flows), ("auxiliary", spec.auxiliaries)):
+        for x in table.values():
+            bare = [str(r) for r in x.driven_by if str(r) not in x.polarity     # (an exogenous input is in no loop)
+                    and not (r.kind == "auxiliary" and r.name in spec.auxiliaries and spec.auxiliaries[r.name].exogenous)]
+            if bare:
+                say("unsigned-link", f"{kind} {x.name}: driven-by {', '.join(bare)} with no sign, so every feedback loop "
+                    f"through {'it' if len(bare) == 1 else 'them'} is of unknown polarity: write the sign on each "
+                    f"(+{bare[0]} or -{bare[0]})", x.where, f"{kind}.{x.name}")

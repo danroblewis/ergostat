@@ -273,7 +273,8 @@ function avoidSpec(lay, g) {
     const e = edgeOf[le.id], sp = pinAt(e, "s"), tp = pinAt(e, "t");
     if (sp != null && tp != null) conns.push({ id: le.id, s: e.source, sp, t: e.target, tp });
   }
-  return { shapes, conns, crossingPenalty: CROSSING_PENALTY(conns.length), nudgeCommon: true };
+  // (in the dynamics view a flow's pipe reads best short and straight: a crossing there costs less than a long way round)
+  return { shapes, conns, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
 }
 
 /* the lines routed: in the worker (the page keeps ELK's lines meanwhile and redraws when they come), or on

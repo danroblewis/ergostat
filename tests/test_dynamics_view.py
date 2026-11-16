@@ -30,28 +30,34 @@ def factory(tmp_path):
 def test_no_sensor_controller_or_agent_is_drawn_and_every_connector_says_its_sign(factory):
     g = factory(view="dynamics", open="*")
     assert g["kind"] == "dynamics"
-    assert {n["kind"] for n in g["nodes"]} <= {"stock", "auxiliary", "valve", "disturbance", "cloud"}
+    assert {n["kind"] for n in g["nodes"]} <= {"stock", "auxiliary", "valve", "disturbance", "cloud", "terminal"}   # (shadows)
     assert {e["kind"] for e in g["edges"]} == {"pipe", "connector"}
     assert not any(n.get("agent") for n in g["nodes"])
-    conn = {(e["source"], e["target"]): e["polarity"] for e in g["edges"] if e["kind"] == "connector"}
+    conn = {(e["from"], e["target"]): e["polarity"] for e in g["edges"] if e["kind"] == "connector"}
     # driven-by as written: people come when what they ask for works, and leave when it does not
     assert conn[("stock:bugs-live", "flow:signups")] == "-" and conn[("stock:bugs-live", "flow:churn")] == "+"
-    # a support block reads the stock: what it does with it is its own, so the sign is not known
-    assert conn[("stock:bugs-live", "flow:filed-bugs")] is None
+    # support reads bugs-live, which a goal it serves (no-live-bugs ≤ 0) is about: it files more as bugs-live rises
+    assert conn[("stock:bugs-live", "flow:filed-bugs")] == "+"
 
 
 def test_a_goal_is_drawn_as_a_desired_level_and_a_gap_feeding_the_flow_that_closes_it(factory):
     g = factory(view="dynamics", open="*")
     ids = {n["id"]: n for n in g["nodes"]}
-    assert ids["desired:backlog-clear"]["label"] == "desired backlog" and ids["desired:backlog-clear"]["valueText"] == "≤ 0"
-    assert ids["gap:backlog-clear"]["label"] == "backlog gap"
-    conn = {(e["source"], e["target"]): e["polarity"] for e in g["edges"] if e["kind"] == "connector"}
-    assert conn[("stock:backlog", "gap:backlog-clear")] == "-"          # gap = desired − actual
-    assert conn[("desired:backlog-clear", "gap:backlog-clear")] == "+"
-    assert conn[("gap:backlog-clear", "flow:submitted")] == "-"         # a bigger backlog: the gap falls, more is worked off
+    # a desired level is a value; the switching condition is the panel's
+    assert ids["desired:backlog-clear"]["label"] == "desired backlog" and ids["desired:backlog-clear"]["valueText"] == "0"
+    assert ids["desired:backlog-clear"]["switching"] == "on while backlog > 0; off once backlog ≤ 0"
+    # a ceiling: the excess (actual − desired) drives the outflow +, as Sterman defines the discrepancy
+    assert ids["gap:backlog-clear"]["label"] == "excess backlog" and ids["gap:backlog-clear"]["excess"]
+    conn = {(e.get("from", e["source"]), e["target"]): e["polarity"] for e in g["edges"] if e["kind"] == "connector"}
+    assert conn[("stock:backlog", "gap:backlog-clear")] == "+"
+    assert conn[("desired:backlog-clear", "gap:backlog-clear")] == "-"
+    sub = next(e for e in g["edges"] if e.get("from") == "gap:backlog-clear" and e["target"] == "flow:submitted")
+    assert sub["polarity"] == "+"                                      # more backlog: more is worked off
     # a goal nothing acts on is no structure: it is said on its stock, not drawn
     assert "gap:no-live-bugs" not in ids
-    assert ids["stock:bugs-live"]["goals"] == [{"name": "no-live-bugs", "setpoint": "<= 0", "acted": False}]
+    assert ids["stock:bugs-live"]["goals"] == [{"name": "no-live-bugs", "setpoint": "≤ 0", "desired": "0", "acted": False}]
+    # ≤ and ≥, never <= and >=
+    assert not [n for n in g["nodes"] if "<=" in str(n) or ">=" in str(n)]
     # the control view is untouched: the blocks view still reads its controllers from it
     ctl = factory(view="control", open="*")
     assert any(n["kind"] == "controller" for n in ctl["nodes"]) and any(n["kind"] == "sensor" for n in ctl["nodes"])
@@ -63,13 +69,16 @@ def test_every_loop_is_labelled_and_runs_through_parts_drawn_and_lines_it_is_a_l
     loops = {c["name"]: c for c in g["causalLoops"]}
     assert loops["backlog-clear"]["polarity"] == "B" and loops["backlog-clear"]["label"].startswith("B")
     assert loops["backlog-clear"]["nodes"] == ["stock:backlog", "gap:backlog-clear", "flow:submitted"]
-    assert loops["backlog-clear+reviews-done"]["label"] == "R1"
+    assert loops["rework"]["label"] == "R1" and loops["rework"]["polarity"] == "R"     # named in the model (loops:)
+    # every loop's sign is known here, and no name is numbered or a "+"-joined list
+    assert all(c["polarity"] for c in g["causalLoops"])
+    assert not [c["name"] for c in g["causalLoops"] if "+" in c["name"] or c["name"][-1].isdigit()]
     assert len({c["label"] for c in g["causalLoops"]}) == len(g["causalLoops"])
     for c in g["causalLoops"]:
-        assert set(c["nodes"]) <= ids, c["name"]
+        assert set(c["nodes"]) <= ids, c["name"]                         # (a shadow stands in for a part, never in its loop)
         ns = c["nodes"]
         for a, b in zip(ns, ns[1:] + ns[:1], strict=False):             # each link of it is a line drawn here
-            assert any(c["name"] in e["causal"] and {e["source"], e["target"]} == {a, b} for e in g["edges"]), (c["name"], a, b)
+            assert any(c["name"] in e["causal"] and {e["from"], e["to"]} == {a, b} for e in g["edges"]), (c["name"], a, b)
 
 
 def test_closed_systems_fold_the_loops_into_their_boxes(factory):
@@ -82,3 +91,64 @@ def test_closed_systems_fold_the_loops_into_their_boxes(factory):
     alone = factory(view="dynamics", system="delivery")
     assert any(n["kind"] == "terminal" for n in alone["nodes"])
     assert not any(n["kind"] in ("sensor", "controller") for n in alone["nodes"])
+
+
+def test_a_connector_across_systems_comes_from_a_shadow_inside_the_receiving_system(factory):
+    g = factory(view="dynamics", open="*")
+    ids = {n["id"]: n for n in g["nodes"]}
+    inner = lambda i: (ids[i].get("systems") or [""])[0]                # noqa: E731
+    for e in g["edges"]:
+        if e["kind"] != "connector":
+            continue
+        assert inner(e["source"]) == inner(e["target"]), e["id"]         # no connector runs from one system into another
+    sh = ids["shadow:product:flow:deployed"]
+    assert sh["kind"] == "terminal" and sh["label"] == "deployed" and sh["orig"] == "flow:deployed" and sh["in"] == "delivery"
+    assert {e["target"] for e in g["edges"] if e["source"] == sh["id"]} == {"flow:fixes", "flow:regressions", "flow:shipped"}
+
+
+def test_a_shadow_is_an_input_only_pipes_out_end_in_clouds_and_connectors_out_in_stubs(factory):
+    g = factory(view="dynamics", system="delivery")
+    ids = {n["id"]: n for n in g["nodes"]}
+    for e in g["edges"]:
+        t = ids[e["target"]]
+        assert not (t["kind"] == "terminal" and t.get("role") != "stub"), e["id"]        # nothing points into a shadow
+        if e["kind"] == "pipe":
+            assert "terminal" not in (ids[e["source"]]["kind"], t["kind"]), e["id"]   # a pipe leaves by a cloud
+    clouds = {n["beyond"] for n in g["nodes"] if n["kind"] == "cloud" and n.get("beyond")}
+    assert clouds == {"backlog"}
+    assert sum(1 for e in g["edges"] if e["kind"] == "pipe" and ids[e["source"]].get("beyond") or
+               e["kind"] == "pipe" and ids[e["target"]].get("beyond")) == 2      # submitted from it, rejected into it: a cloud each
+    stubs = {n["label"] for n in g["nodes"] if n.get("role") == "stub"}
+    assert stubs == {"fixes", "regressions", "shipped"}
+
+
+def test_lines_out_of_and_into_a_closed_module_end_in_a_shadow_and_a_stub_inside_the_open_system(factory):
+    g = factory(view="dynamics", open="product")
+    ids = {n["id"]: n for n in g["nodes"]}
+    for e in g["edges"]:
+        if e["kind"] != "connector":
+            continue
+        s, t = ids[e["source"]], ids[e["target"]]
+        assert not (s["kind"] == "system" and t["kind"] != "system"), e["id"]     # module → part: from a shadow
+        assert not (t["kind"] == "system" and s["kind"] != "system"), e["id"]     # part → module: to a stub
+    assert ids["shadow:product:flow:deployed"]["in"] == "factory"
+    assert any(n.get("role") == "stub" and n["in"] == "factory" for n in g["nodes"])
+    used = {e.get(k) for e in g["edges"] for k in ("sourcePort", "targetPort")}
+    ports = {p["id"] for n in g["nodes"] if n["kind"] == "system" for p in n["ports"]}
+    assert ports <= used                                                    # a port nothing crosses is not drawn
+
+
+def test_the_attention_cards_speak_system_dynamics():
+    from ergostat.dynamics import attention
+    snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0}}}
+    att = [{"level": "bad", "what": "loop backlog-clear", "says": "backlog is 4, setpoint <= 0 (off by 4)"},
+           {"level": "hint", "what": "controller backlog-clear", "says": "loop backlog-clear was off 60% of the time; why (a valve "
+            "too small, or acting too seldom) is said after 10m of record"},
+           {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill controller x"},
+           {"level": "hint", "what": "controller a", "says": "loop a keeps feeding x: Hold a back (its controller can read x)"}]
+    out = attention(att, snap)
+    assert out[0]["says"] == "backlog is 4, desired backlog = 0: excess 4"
+    import re
+    for a in out:
+        text = a["what"] + " " + a["says"]
+        assert not re.search(r"controller|setpoint|\brule|\bgoal|valve|<=|>=", text), text

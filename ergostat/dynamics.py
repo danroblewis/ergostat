@@ -7,11 +7,18 @@ agents. Drawn from the control graph (``graph.control``) and the model's causal 
 - a block is a decision rule: it is not drawn, and what it reads is connected straight to what it
   moves or sets, the signs along the way multiplied (not known when any of them is not);
 - a goal is drawn the system dynamics way, as goal-seeking structure: a desired level (an auxiliary
-  holding the setpoint) and the gap (desired − actual), what the goal is about feeding the gap (−),
-  the desired level feeding it (+), and the gap feeding what its decision rules move. A block that
-  sets a goal's setpoint (a cascade) feeds its desired level;
+  holding the value wanted, ``desired backlog = 0``) and the discrepancy that drives the correction
+  positively, as Sterman defines it: for a ceiling the excess (``excess backlog`` = actual − desired:
+  the actual feeding it +, the desired level −), for a floor (or a level held) the gap (``ideas gap``
+  = desired − actual: the actual −, the desired +); the discrepancy feeds what its decisions move. A
+  block that sets a goal's setpoint (a cascade) feeds its desired level. When the decision switches
+  (on above a ceiling, off once back under), that is said in the panel, not drawn;
 - every feedback loop is given, beside its members and polarity, its members as drawn and a label as
-  Sterman numbers them (R1, B2, and ?3 for one whose polarity is not known)."""
+  Sterman numbers them (R1, B2, and ?3 for one whose polarity is not known);
+- after folding (``finish``): a connector between parts drawn in two different systems is drawn as
+  a shadow variable ``<name>`` inside the receiving system, as Vensim and Stella draw a link from
+  another view; a shadow is an input only, so a connector out to a part outside a system drawn alone
+  ends in a stub naming it, and a pipe out to one ends in a cloud (the part named beneath);."""
 
 from __future__ import annotations
 
@@ -29,6 +36,28 @@ def _sp(text: str) -> str:
     return text
 
 
+def excess(spec, goal: str) -> bool:
+    """Whether a goal's discrepancy is drawn as the excess (actual − desired): for a ceiling, so the
+    corrective outflow it drives reads +."""
+    g = spec.goals.get(goal) if spec is not None else None
+    return bool(g and g.hold.op in ("<=", "<"))
+
+
+def switching(spec, goal: str) -> str:
+    """When the decisions serving a goal act, as on-off (bang-bang) control switches: "on while
+    backlog > 0; off once backlog ≤ 0" (the release point an ``until`` names, else the goal's)."""
+    g = spec.goals[goal]
+    of = g.of.name
+    ons = [b for b in spec.blocks.values() if b.type == "onoff" and b.params.get("goal") == goal]
+    if not ons or g.hold.op == "==":
+        return ""
+    v = fmt(g.hold.value)
+    on = {"<=": ">", "<": "≥", ">=": "<", ">": "≤"}[g.hold.op]
+    rel = [b.params["until"] for b in ons if b.params.get("until")]
+    off = _sp(str(rel[0])) if rel else _sp(str(g.hold))
+    return f"on while {of} {on} {v}; off once {of} {off}"
+
+
 def _drawn_id(part: str, as_target: bool = False, via: str = "") -> str | None:
     """The node a model part is drawn as. A goal is its gap, except where a block sets its
     setpoint: there it is its desired level."""
@@ -43,10 +72,11 @@ def _drawn_id(part: str, as_target: bool = False, via: str = "") -> str | None:
 
 
 def labels(loops: list[dict]) -> dict[str, str]:
-    """Each loop's label as Sterman numbers them, by polarity in the order given: R1, R2, B1, ?1."""
+    """Each loop's label as Sterman numbers them, by polarity, the shortest (the most basic) first, the
+    ones the model names before the rest of a length: R1, R2, B1, ?1."""
     count: dict[str, int] = {}
     out = {}
-    for c in loops:
+    for c in sorted(loops, key=lambda c: (len(c.get("parts") or c.get("nodes") or []), " via " in c["name"], c["name"])):
         letter = c.get("polarity") or "?"
         count[letter] = count.get(letter, 0) + 1
         out[c["name"]] = f"{letter}{count[letter]}"
@@ -124,6 +154,10 @@ def _connectors(spec) -> tuple[dict[tuple[str, str], dict], set[str]]:
         through(d, 1, f"decision:{d.split('.', 1)[1]}", [d.split(".", 1)[1]], {d})
     for g in spec.goals:
         add(f"desired:{g}", f"gap:{g}", 1, [])
+    flip = {f"gap:{g}" for g in spec.goals if excess(spec, g)}   # an excess (actual − desired): every sign at it turned
+    for (a, b), c in out.items():
+        if c["sign"] is not None and (a in flip) != (b in flip):
+            c["sign"] = -c["sign"]
     return out, decide
 
 
@@ -169,15 +203,20 @@ def dynamics(g: dict, model) -> dict:
             continue
         of = goal.of.name if goal else (loops.get(name) or {}).get("stock", name)
         lp = loops.get(name) or {}
-        sp = str(goal.hold) if goal else lp.get("setpoint") or ""
+        sp = _sp(str(goal.hold) if goal else lp.get("setpoint") or "")
+        want = fmt(goal.hold.value) if goal else sp.lstrip("≤≥=<> ")
         where = c.get("systems", [])
+        sw = switching(spec, name) if goal else ""
         nodes.append({"id": f"desired:{name}", "kind": "auxiliary", "label": f"desired {of}", "sd": True, "role": "desired",
-                      "goal": name, "of": of, "setpoint": sp, "valueText": _sp(sp), "systems": where,
-                      "description": goal.description if goal else c.get("description", "")})
+                      "goal": name, "of": of, "setpoint": sp, "desired": want, "valueText": want, "switching": sw,
+                      "systems": where, "description": goal.description if goal else c.get("description", "")})
         err = lp.get("error", c.get("error"))
-        nodes.append({"id": f"gap:{name}", "kind": "auxiliary", "label": f"{of} gap", "sd": True, "role": "gap",
-                      "goal": name, "of": of, "setpoint": sp, "value": err, "valueText": fmt(err) if err is not None else "",
-                      "systems": where})
+        over = excess(spec, name)
+        if over and err is not None:
+            err = -err
+        nodes.append({"id": f"gap:{name}", "kind": "auxiliary", "label": f"excess {of}" if over else f"{of} gap", "sd": True,
+                      "role": "gap", "excess": over, "goal": name, "of": of, "setpoint": sp, "desired": want, "switching": sw,
+                      "value": err, "valueText": fmt(err) if err is not None else "", "systems": where})
     conns, decide = _connectors(spec) if spec is not None else ({}, set())
     for part in sorted(decide):                            # a decision: a machine block reading several, moving several
         b = spec.blocks[part.split(".", 1)[1]]
@@ -224,11 +263,13 @@ def dynamics(g: dict, model) -> dict:
         if n["id"] in idle and n["role"] == "gap":
             of = next((x for x in nodes if x["id"] in (f"stock:{n['of']}", f"flow:{n['of']}")), None)
             if of is not None:
-                of.setdefault("goals", []).append({"name": n["goal"], "setpoint": n["setpoint"], "acted": False})
+                of.setdefault("goals", []).append({"name": n["goal"], "setpoint": n["setpoint"], "desired": n["desired"],
+                                                   "acted": False})
         elif n.get("role") == "gap":
             of = next((x for x in nodes if x["id"] in (f"stock:{n['of']}", f"flow:{n['of']}")), None)
             if of is not None:
-                of.setdefault("goals", []).append({"name": n["goal"], "setpoint": n["setpoint"], "acted": True})
+                of.setdefault("goals", []).append({"name": n["goal"], "setpoint": n["setpoint"], "desired": n["desired"],
+                                                   "acted": True})
     nodes = [n for n in nodes if n["id"] not in idle]
     edges = [e for e in edges if e["source"] not in idle and e["target"] not in idle]
     causal = [{**c, "nodes": _loop_nodes(c, decide)} for c in g.get("causalLoops") or []]
@@ -239,14 +280,18 @@ def dynamics(g: dict, model) -> dict:
 
 
 def finish(g: dict) -> dict:
-    """After folding (``fold.py``): each line's loops (the causal loops it is a link of), and the
-    systems' boxes left plain (a module's name and its ports, no control panel)."""
+    """After folding (``fold.py``): shadows, stubs and clouds where lines would cross a system's
+    edge (``shadows``), each line's loops (the causal loops it is a link of, by the parts it joins
+    in the model), and the systems' boxes left plain (a module's name and its ports, no control
+    panel)."""
+    if g.get("tree") is not None:
+        g = shadows(g)
     pairs = {}
     for c in g.get("causalLoops") or []:
         ns = c["nodes"]
         pairs[c["name"]] = {(a, b) for a, b in zip(ns, ns[1:] + ns[:1], strict=False) if a != b}
     for e in g["edges"]:
-        a, b = e["source"], e["target"]
+        a, b = e.get("from", e["source"]), e.get("to", e["target"])
         e["loops"] = []
         e["causal"] = [k for k, ps in pairs.items() if (a, b) in ps or (e["kind"] == "pipe" and (b, a) in ps)]
     for n in g["nodes"]:
@@ -255,3 +300,135 @@ def finish(g: dict) -> dict:
             n["status"] = None
             n["loops"] = {}
     return g
+
+
+def _inner(n: dict) -> str:
+    return (n.get("systems") or [""])[0]
+
+
+def shadows(g: dict) -> dict:
+    """Lines kept inside the systems they belong to, as Vensim and Stella draw a model of several
+    views (sectors, modules):
+
+    - a connector from a part drawn in one system (or from a closed module) to a part drawn in another
+      becomes one from a shadow variable ``<name>`` inside the receiving system (one per part and
+      system);
+    - a shadow is an input only: a connector out to a part outside a system drawn alone, or into a
+      closed module, ends at a stub naming that part, inside the sending system; a pipe to or from a
+      part outside ends in a cloud, the part named beneath it;
+
+    Each line keeps the parts it joins in the model (``from``, ``to``), for the loops it is a link of."""
+    nodes = {n["id"]: n for n in g["nodes"]}
+    drawn = {i for i, n in nodes.items() if n["kind"] not in ("system", "terminal", "cloud")}
+    extra: dict[str, dict] = {}
+    edges = []
+    for e in g["edges"]:
+        e = {**e, "from": e.get("from", e["source"]), "to": e.get("to", e["target"])}
+        s, t = e["source"], e["target"]
+        if e["kind"] == "pipe":
+            for end in ("source", "target"):
+                x = e[end]
+                if nodes.get(x, {}).get("kind") == "terminal":
+                    cid = f"cloud:{e.get('flow') or x}:{'in' if end == 'source' else 'out'}"
+                    term = nodes[x]
+                    extra.setdefault(cid, {"id": cid, "kind": "cloud", "label": term["label"], "beyond": term["label"],
+                                           "in": term.get("in"), "sd": True, "systems": []})
+                    e[end] = cid
+                    e["id"] = f"{e['id']}~c"
+        elif nodes.get(t, {}).get("kind") == "terminal":
+            term = nodes[t]
+            sid = f"stub:{t.split(':', 1)[1]}"
+            extra.setdefault(sid, {**term, "id": sid, "role": "stub", "systems": []})
+            e["target"] = sid
+            e["id"] = f"{e['id']}~s"
+        elif e["kind"] == "connector" and t in drawn and nodes.get(s, {}).get("kind") == "system" and e.get("sourcePort"):
+            port = next((p for p in nodes[s]["ports"] if p["id"] == e["sourcePort"]), None)
+            dst = nodes[t]
+            if port is not None:                            # out of a closed module, into an open system: its shadow there
+                sid = f"shadow:{_inner(dst)}:{port['part']}"
+                extra.setdefault(sid, {"id": sid, "kind": "terminal", "role": "shadow", "label": port["label"], "of": port.get("kind"),
+                                       "in": nodes[s]["label"], "valueText": port.get("value", ""),
+                                       "systems": list(dst.get("systems") or [])})
+                e["source"] = sid
+                e.pop("sourcePort")
+                e["id"] = f"connector:{sid}->{t}"
+        elif e["kind"] == "connector" and s in drawn and nodes.get(t, {}).get("kind") == "system" and e.get("targetPort"):
+            port = next((p for p in nodes[t]["ports"] if p["id"] == e["targetPort"]), None)
+            if port is not None:                            # out of an open system, into a closed module: a stub naming it
+                sid = f"stub:{_inner(nodes[s])}:{port['part']}"
+                extra.setdefault(sid, {"id": sid, "kind": "terminal", "role": "stub", "label": port["label"], "of": port.get("kind"),
+                                       "in": nodes[t]["label"], "valueText": "", "systems": list(nodes[s].get("systems") or [])})
+                e["target"] = sid
+                e.pop("targetPort")
+                e["id"] = f"connector:{s}->{sid}"
+        elif s in drawn and t in drawn and _inner(nodes[s]) != _inner(nodes[t]):
+            src, dst = nodes[s], nodes[t]
+            sid = f"shadow:{_inner(dst)}:{s}"
+            from .fold import name_of, value_of
+            extra.setdefault(sid, {"id": sid, "kind": "terminal", "role": "shadow", "label": name_of(src), "of": src.get("kind"),
+                                   "orig": s, "in": _inner(src) or None, "valueText": value_of(src),
+                                   "systems": list(dst.get("systems") or [])})
+            e["source"] = sid
+            e["id"] = f"connector:{sid}->{t}"
+        edges.append(e)
+    used = {x for e in edges for x in (e["source"], e["target"])}
+    ports = {e.get(k) for e in edges for k in ("sourcePort", "targetPort")}
+    for n in g["nodes"]:                                # a module's port nothing crosses now: gone
+        if n["kind"] == "system":
+            n["ports"] = [p for p in n.get("ports") or [] if p["id"] in ports]
+    out = [n for n in g["nodes"] if n["kind"] != "terminal" or n["id"] in used]
+    out += [n for i, n in extra.items() if i in used]
+    seen, lines = set(), []
+    for e in edges:                                     # (two lines now between the same ends: one)
+        key = (e["source"], e.get("sourcePort"), e["target"], e.get("targetPort"), e["kind"], e["id"])
+        if key not in seen:
+            seen.add(key)
+            lines.append(e)
+    return {**g, "nodes": out, "edges": lines}
+
+
+# the control words the attention cards use, in system dynamics' (the regulator is the flow's valve)
+_WORDS = [
+    (r"\ba valve too small\b", "a flow too small to close the gap"),
+    (r"\bthe valve is at its limit \(saturated\)", "the flow is at its most (saturated)"),
+    (r"\bits valve keeps up\b", "its flow keeps up"),
+    (r"\bits valve\b", "its flow"), (r"\bthe valve\b", "the flow"), (r"\bvalves?\b", "flow"),
+    (r"\bits controller\b", "its decision"), (r"\bcontrollers?\b", "decision"),
+    (r"\bsetpoints?\b", "desired level"), (r"\ba rule\b", "a fixed decision"), (r"\brules?\b", "decision"),
+    (r"\bgoals?\b", "desired level"), (r"<=", "≤"), (r">=", "≥"), (r"==", "="),
+]
+
+
+def words(text: str) -> str:
+    """A card's text in system dynamics' words: no controller, setpoint, rule, goal or valve."""
+    import re
+    for a, b in _WORDS:
+        text = re.sub(a, b, text)
+    return text
+
+
+def attention(att: list[dict], snap: dict) -> list[dict]:
+    """The attention cards as the dynamics view says them: a loop off its goal as a gap (``backlog is
+    4, desired backlog = 0: excess 4``), the rest in system dynamics' words."""
+    out = []
+    loops = snap.get("loops") or {}
+    for a in att:
+        a = dict(a)
+        what = a.get("what", "")
+        name = what.split(" ", 1)[1] if what.startswith(("loop ", "controller ")) else None
+        lp = loops.get(name) if name else None
+        if lp and lp.get("status") == "off" and what.startswith("loop "):
+            sp = _sp(lp.get("setpoint") or "")
+            want = sp.lstrip("≤≥=<> ")
+            err = lp.get("error")
+            over = sp.startswith(("≤", "<"))
+            gap = "" if err is None else f": {'excess' if over else 'gap'} {fmt(abs(err))}"
+            a["says"] = f"{lp['stock']} is {fmt(lp.get('value'))}, desired {lp['stock']} = {want}{gap}"
+        else:
+            a["says"] = words(a.get("says", ""))
+        if name:
+            a["what"] = f"loop {name}"
+        else:
+            a["what"] = words(what)
+        out.append(a)
+    return out

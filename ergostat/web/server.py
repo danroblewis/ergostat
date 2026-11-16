@@ -118,9 +118,12 @@ def api(live: Live, path: str, q: dict):
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
             return {**diagram(m, snap, want, system), "attention": att}
+        from ..dynamics import attention as sd_attention
         from ..dynamics import dynamics, finish
         from ..fold import fold
         sd = one("view") == "dynamics"          # the system dynamics view: drawn from the same graph
+        if sd:
+            att = sd_attention(att, snap)       # (in its own words)
         tree = getattr(getattr(m, "spec", None), "systems", None)
         if tree and not around:              # systems as parts: boxed, opened, or drilled into (whatever it reaches outside)
             g = graph.control(m, snap, graph.select(m), graph.readings(p, at))

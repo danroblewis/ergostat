@@ -76,3 +76,8 @@ blocks:
     run: python3 bin/factory.py deploy
     every: 30s                             # at most one release every 30s: merged work waits for the next
     out: flow.deployed
+
+loops:
+  rework:                                  # what review sends back goes back to the backlog, to be worked again
+    through: [flow.rejected, stock.backlog]
+    description: rejected work returns to the backlog and comes round again

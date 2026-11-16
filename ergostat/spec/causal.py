@@ -14,8 +14,10 @@ The links, each with a sign (+1, -1, or None: not known):
   itself), + for a goal held up (">= 5": off when the error is above 0), − for one held down,
   unknown for "==";
 - a built-in block passes its input on with its own sign (``compare`` ``below`` and a falling
-  ``lookup`` −; ``expr`` unknown); a machine block does as it is commanded (+), and what it does
-  with any other reading is unknown;
+  ``lookup`` −; ``expr`` unknown); a machine block does as it is commanded (+); any other reading
+  is as written on it (``in: +stock.x``), else, when it reads what a goal it serves is about, as
+  the goal's gap says (it acts as that quantity rises above a ceiling, +, or falls below a floor,
+  −; not known for "=="), else not known;
 - a block's output is + on what it moves, sets or commands (a setpoint it sets raises the error).
 """
 
@@ -73,14 +75,49 @@ def _passes(b: Block) -> int | None:
     return None
 
 
-def input_sign(spec: Spec, b: Block, r: Ref) -> int | None:
-    """The sign of the link from what ``b`` reads (``r``) to ``b``'s output."""
+def served(spec: Spec) -> dict[str, list[str]]:
+    """The goals each block serves: those it names (``goal:``, or reading ``goal.x``); a block that
+    names none, those whose loop closes with it as a controller or an actuator."""
+    out: dict[str, list[str]] = {}
+    for b in spec.blocks.values():
+        named = [r.name for r in b.reads() if r.kind == "goal" and r.name in spec.goals]
+        if named:
+            out[b.name] = list(dict.fromkeys(named))
+    for g in spec.goals:
+        lp = spec.loop(g)
+        if not lp.closes:
+            continue
+        for b in dict.fromkeys(lp.controllers + lp.actuators):
+            if b not in out or g in out[b] or not any(r.kind == "goal" for r in spec.blocks[b].reads()):
+                out.setdefault(b, [])
+                if g not in out[b]:
+                    out[b].append(g)
+    return out
+
+
+def inferred(spec: Spec, b: Block, r: Ref, serves: dict[str, list[str]] | None = None) -> int | None:
+    """The sign of a machine block's unsigned reading of a stock, flow or auxiliary, from the goals
+    it serves that are about that very quantity: as their gap says (the block acts the more, the
+    further the quantity is past the goal: + above a ceiling, − below a floor; not known for "==",
+    nor when two goals disagree)."""
+    serves = served(spec) if serves is None else serves
+    signs = {-_held(spec, g) if _held(spec, g) is not None else None for g in serves.get(b.name, [])
+             if spec.goals[g].of.kind == r.kind and spec.goals[g].of.name == r.name}
+    return signs.pop() if len(signs) == 1 else None
+
+
+def input_sign(spec: Spec, b: Block, r: Ref, port: str | None = None, serves: dict[str, list[str]] | None = None) -> int | None:
+    """The sign of the link from what ``b`` reads (``r``, at its input ``port``) to ``b``'s output."""
     if r.kind == "goal":
         base = 1 if r.port == "error" else _held(spec, r.name) if r.name in spec.goals else None
     elif r.kind == "block":
         base = 1
-    else:
-        base = None if not b.builtin else 1             # a machine block's other readings: what it does with them is its own
+    elif b.builtin:
+        base = 1
+    elif port is not None and port in b.signs:          # as written on it: in: +stock.x
+        base = b.signs[port]
+    else:                                               # what it does with it is its own, unless a goal it serves says
+        base = inferred(spec, b, r, serves)
     if base is None:
         return None
     if b.builtin and b.type not in ("onoff", "proportional"):
@@ -112,13 +149,14 @@ def links(spec: Spec) -> list[Link]:
     for g in spec.goals.values():
         add(_part(g.of), f"goal.{g.name}", -1, "goal")
     implied = {(t.name, b.goal) for b in spec.blocks.values() if b.implied for t in b.targets() if t.kind == "block"}
+    serves = served(spec)
     for b in spec.blocks.values():
         me = f"block.{b.name}"
-        reads = list(b.inputs.values())
+        reads: list[tuple[str | None, Ref]] = list(b.inputs.items())
         if b.goal and (b.name, b.goal) not in implied:  # a machine block's goal: is its implied onoff's link
-            reads.append(Ref("goal", b.goal, None if b.type in ("onoff", "proportional") else "off"))
-        for r in reads:
-            sign = input_sign(spec, b, r)
+            reads.append((None, Ref("goal", b.goal, None if b.type in ("onoff", "proportional") else "off")))
+        for port, r in reads:
+            sign = input_sign(spec, b, r, port, serves)
             if b.type == "proportional" and r.kind == "goal" and r.port is None:
                 gain = b.params.get("gain")
                 sign = None if sign is None or not isinstance(gain, int | float) or not gain else sign * (1 if gain > 0 else -1)
@@ -202,18 +240,69 @@ def _named(spec: Spec, cycles: list[list[Link]]) -> list[CausalLoop]:
             for s in signs:
                 prod *= s
             pol = "R" if prod > 0 else "B"
-        if goals:
-            base = "+".join(goals)
-        else:
-            named = sorted(p.split(".", 1)[1] for p in parts if p.startswith("stock.")) or \
-                sorted(p.split(".", 1)[1] for p in parts if p.startswith("auxiliary.")) or sorted(p.split(".", 1)[1] for p in parts)
-            base = "+".join(named)
-        out.append(CausalLoop(base, pol, [x.source for x in cyc], cyc, goals))
+        out.append(CausalLoop("", pol, [x.source for x in cyc], cyc, goals))
+    out.sort(key=lambda lp: (len(lp.parts), lp.parts))
+    for lp, name in zip(out, names(spec, out), strict=True):
+        lp.name = name
     out.sort(key=lambda lp: (lp.name, len(lp.parts), lp.parts))
-    seen: dict[str, int] = {}
-    for lp in out:                                       # the shortest keeps the plain name
-        n = seen.get(lp.name, 0) + 1
-        seen[lp.name] = n
-        if n > 1:
-            lp.name = f"{lp.name}-{n}"
     return out
+
+
+# which members name a loop best when its siblings share its head: a flow (the mechanism, "via
+# rejected"), then a stock, an auxiliary, a goal, a block
+_ORDER = ("flow", "stock", "auxiliary", "goal", "block")
+
+
+def names(spec: Spec, ls: list[CausalLoop]) -> list[str]:
+    """Each loop's name (SPEC §12a), in the order of ``ls`` (shortest first): the name the model
+    gives it (``loops:``: the shortest loop through every part named, or seeking the goal named);
+    else its head (the goal it seeks, else the stock it runs through first, else its first part),
+    the shortest loop with that head taking it bare, and every other loop with that head the head
+    "via" the members no sibling has (as few as tell it apart). Never numbered, never a list of
+    everything in it."""
+    out: dict = {}
+    taken: set[str] = set()
+    for nl in spec.named_loops.values():                # the model's own names first
+        want = {f"{r.kind}.{r.name}" for r in nl.through}
+        for lp in ls:
+            if id(lp) in out:
+                continue
+            if (nl.goal and f"goal.{nl.goal}" in lp.parts) or (want and want <= set(lp.parts)):
+                out[id(lp)] = nl.name
+                taken.add(nl.name)
+                break
+    heads: dict[str, list[CausalLoop]] = {}
+    for lp in ls:
+        if id(lp) in out:
+            continue
+        stocks = [p for p in lp.parts if p.startswith("stock.")]
+        head = lp.goals[0] if lp.goals else (stocks[0] if stocks else lp.parts[0]).split(".", 1)[1]
+        heads.setdefault(head, []).append(lp)
+    for head, group in heads.items():
+        for i, lp in enumerate(group):
+            if i == 0 and head not in taken:
+                name = head
+            else:
+                others = [set(o.parts) for o in group if o is not lp]
+                cand = sorted((p for p in dict.fromkeys(lp.parts) if p.split(".", 1)[1] != head),
+                              key=lambda p: (_ORDER.index(p.split(".", 1)[0]) if p.split(".", 1)[0] in _ORDER else 9,
+                                             lp.parts.index(p)))
+                pick: list[str] = []
+                left = others
+                for p in sorted(cand, key=lambda p: (-sum(p not in o for o in left), cand.index(p))):
+                    if not left:
+                        break
+                    if all(p in o for o in left):
+                        continue
+                    pick.append(p)
+                    left = [o for o in left if p in o]
+                pick.sort(key=cand.index)
+                words = [p.split(".", 1)[1] for p in pick]
+                name = f"{head} via {' and '.join(words)}" if words else f"{head}, the other way round"
+            base, k = name, 1
+            while name in taken:                          # (two loops through the very same parts)
+                k += 1
+                name = f"{base}, {['', '', 'again', 'once more', 'a fourth way'][k] if k < 5 else 'yet again'}"
+            taken.add(name)
+            out[id(lp)] = name
+    return [out[id(lp)] for lp in ls]
