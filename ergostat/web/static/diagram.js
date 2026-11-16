@@ -186,17 +186,23 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
       return layoutGraph(g, aspect, cut, again + 1);   // (a turn can move parts: at most twice)
     }
   }
+  if (cuts.length) {                                     // rows first: the router works on the parts where they end up
+    restack(lay, g);
+    routeCuts(lay, cuts);
+  }
   const moved = applyPins(lay, g);
   const turned = new Set(flipValves(lay, g));            // valves whose links come from below turn their stem down
   const relink = new Set(g.edges.filter((e) => e.kind !== "pipe" && (turned.has(e.source) || turned.has(e.target))).map((e) => e.id));
   if (g.kind !== "wiring") {
     reroute(lay, g, moved, null, relink);               // (a turned valve's pipes stay as they are: only its stem moved)
-    const again2 = netCrossers(lay, g);                  // lines a reroute left crossing their own net: once more, seeing all
-    if (again2.size) reroute(lay, g, new Set(), again2);
-  }
-  if (cuts.length) {
-    restack(lay, g);
-    routeCuts(lay, cuts);
+    // lines a reroute left crossing their own net: again, seeing all the rest; moving one pair can
+    // bring a third into it, so until none is left (or three times)
+    for (let pass = 0, redo = new Set(); pass < 3; pass++) {
+      const crossing = netCrossers(lay, g);
+      if (!crossing.size) break;
+      for (const id of crossing) redo.add(id);
+      reroute(lay, g, new Set(), new Set(redo));
+    }
   }
   return lay;
 }
@@ -339,7 +345,9 @@ function netCrossers(lay, g) {
     const a = edgeOf[es[i].id], b = edgeOf[es[j].id];
     if (!same(a, b)) continue;
     if (segs(es[i]).some((s) => segs(es[j]).some((t) => hv(s[0], s[1], t[0], t[1]) || hv(t[0], t[1], s[0], s[1])))) {
-      out.add((a.kind === "pipe" ? es[j] : es[i]).id);      // the information line moves, a pipe keeps its way
+      // both move (on the router's grid they then truly share their way, not run a few pixels apart); a pipe keeps its way
+      if (a.kind !== "pipe") out.add(es[i].id);
+      if (b.kind !== "pipe") out.add(es[j].id);
     }
   }
   return out;
@@ -428,11 +436,13 @@ function reroute(lay, g, moved = new Set(), force = null, relink = new Set()) {
     return [peers("source").length > 1 ? id(`s|${e.source}|${tag("source")}`) : id(`e|${e.id}`),
             peers("target").length > 1 ? id(`t|${e.target}|${tag("target")}`) : 0];
   };
-  const netH = new Int32Array(W * H * 2), netV = new Int32Array(W * H * 2);  // the (up to two) nets of a cell's line
-  const mine = (arr, c, nets) => (arr[2 * c] && (arr[2 * c] === nets[0] || arr[2 * c] === nets[1])) ||
-                                 (arr[2 * c + 1] && (arr[2 * c + 1] === nets[0] || arr[2 * c + 1] === nets[1]));
+  // every line through a cell, by its nets: a line runs free only where it shares a net with all of them
+  const netH = new Map(), netV = new Map();
+  const shares = (a, b) => (a[0] && (a[0] === b[0] || a[0] === b[1])) || (a[1] && (a[1] === b[0] || a[1] === b[1]));
+  const mine = (m, c, nets) => (m.get(c) || []).every((x) => shares(x, nets));       // only its own nets here
+  const someMine = (m, c, nets) => (m.get(c) || []).some((x) => shares(x, nets));   // one of its own nets among them
   const mark = (ps, thick = false, nets = [0, 0]) => {
-    const put = (arr, c) => { arr[2 * c] = nets[0]; arr[2 * c + 1] = nets[1]; };
+    const put = (m, c) => { const l = m.get(c); if (l) l.push(nets); else m.set(c, [nets]); };
     for (let i = 1; i < ps.length; i++) {
       const a = ps[i - 1], b = ps[i];
       for (const k of thick ? [-1, 0, 1] : [0]) {
@@ -511,9 +521,10 @@ function reroute(lay, g, moved = new Set(), force = null, relink = new Set()) {
         // (a pipe's bends cost most: a flow reads best straight); a line's own net is free to join
         const along = (nd % 2 === 0 ? runH[nc] && !mine(netH, nc, net) : runV[nc] && !mine(netV, nc, net)) ? 1 : 0;
         const across = (nd % 2 === 0 ? runV[nc] && !mine(netV, nc, net) : runH[nc] && !mine(netH, nc, net)) ? 1 : 0;
-        // its own net it may run along (one line that splits), but not cross: that would read as two nets
-        const acrossOwn = (nd % 2 === 0 ? runV[nc] && mine(netV, nc, net) && !runH[nc] : runH[nc] && mine(netH, nc, net) && !runV[nc]) ? 1 : 0;
-        const cost = dist[st] + 1 + (nd !== d ? bend : 0) + along * 40 + across * 16 + acrossOwn * 12 + (owner[nc] === -1 && soft[nc] ? 10 : 0);
+        // its own net it may run along, and meet (turning onto it is a junction: one line that splits), but
+        // not go straight through: that reads as two nets. Charged on leaving a cell straight on, the way it came
+        const acrossOwn = nd === d && (d % 2 === 0 ? runV[c] && someMine(netV, c, net) : runH[c] && someMine(netH, c, net)) ? 1 : 0;
+        const cost = dist[st] + 1 + (nd !== d ? bend : 0) + along * 40 + across * 16 + acrossOwn * 80 + (owner[nc] === -1 && soft[nc] ? 10 : 0);
         const ns = nc * 4 + nd;
         if (cost < dist[ns]) { dist[ns] = cost; prev[ns] = st; push(cost + hcost(nx, ny), ns); }
       }
