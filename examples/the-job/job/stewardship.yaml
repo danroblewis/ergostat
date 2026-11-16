@@ -1,0 +1,92 @@
+# Code stewardship (charter §3 B): reviewing others. Watched: review requests on the code host.
+# Prepared: a brief for each (what the change does, its risk, what to look for, related recent
+# commits and deploys). Mine: the verdict and the tone; I write the comments.
+defaults:
+  system: stewardship
+
+items:
+  review:
+    id: review/*
+    description: a review someone asked of me
+    states: [requested, briefed, answered]
+    on:
+      review.briefed: briefed
+      review.answered: answered
+    show: [title, author, repo, brief]
+
+stocks:
+  reviews-to-brief:
+    unit: reviews
+    description: requested of me, no brief yet
+    sensor:
+      items: review
+      state: requested
+      every: 5s
+  reviews-briefed:
+    unit: reviews
+    description: briefed, waiting for my review
+    sensor:
+      items: review
+      state: briefed
+      every: 5s
+
+auxiliaries:
+  reviews-late:
+    unit: reviews
+    description: requested over a working day ago and not answered
+    driven-by: [+stock.reviews-to-brief, +stock.reviews-briefed]
+    sensor:
+      items: review
+      state: [requested, briefed]
+      where:
+        late: "yes"
+      every: 5s
+
+flows:
+  review-requests:
+    to: reviews-to-brief
+    description: reviews asked of me, as the code host's watcher sees them
+    sensor:
+      run: python3 bin/watch.py review
+      every: 10s
+  reviews-briefing:
+    from: reviews-to-brief
+    to: reviews-briefed
+    sensor:
+      items: review
+      entering: briefed
+      over: 10m
+  reviews-answered:
+    from: reviews-briefed
+    sensor:
+      items: review
+      entering: answered
+      over: 10m
+
+goals:
+  every-review-briefed:
+    stock: reviews-to-brief
+    hold: "<= 0"
+    description: every review requested of me has a brief
+  reviews-on-time:
+    auxiliary: reviews-late
+    hold: "<= 0"
+    description: every review requested of me is answered within 1 working day
+
+blocks:
+  review-pre-reader:
+    type: ai
+    goal: every-review-briefed
+    prompt: prompts/review-pre-reader.md
+    run: python3 bin/prepare.py review-brief
+    max: 1
+    every: 10s
+    out: flow.reviews-briefing
+  write-reviews:
+    type: person
+    agent: me
+    goal: reviews-on-time
+    ask: >-
+      A review is past a working day. Read its brief in outbox/review-*.md, then write your review on
+      the code host yourself: the verdict and the tone are yours. Nothing was posted for you.
+    out: flow.reviews-answered

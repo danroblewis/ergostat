@@ -100,7 +100,7 @@ def measure(events, spec: Spec, s: Sensor, now: float | None = None) -> tuple[fl
     q = s.items or {}
     now = now or time.time()
     its = [i for i in project(events, spec, q["kind"], until=now) if matches(i, q.get("where") or {})]
-    if s.of.kind == "stock":
+    if s.of.kind != "flow":                         # a stock, or an auxiliary: how many there are now
         states = q.get("state")
         inside = [i for i in its if not states or i.state in states]
         if q.get("measure") == "oldest":

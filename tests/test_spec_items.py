@@ -50,6 +50,15 @@ flows:
       items: pr
       entering: merged
       over: 1h
+auxiliaries:
+  late:
+    unit: prs
+    driven-by: +stock.in-review
+    sensor:
+      items: pr
+      state: [open, review]
+      where:
+        late: "yes"
 """
 
 
@@ -91,6 +100,9 @@ def test_stocks_count_items_and_flows_count_their_moves(tmp_path):
     assert read("open-bugs") == 3                                   # 1, 3 (review) and 5 (open): odd ones are bugs
     assert 2.9 < read("stuck") < 3.1                                # 1 has waited 3 hours
     assert read("merging", "flow") == 1.0                           # one merged in the last hour
+    p.events.add("pr.late", item="github/pull_request/3", data={"late": "yes"})
+    p.events.add("pr.late", item="github/pull_request/2", data={"late": "yes"})      # merged: no longer counted
+    assert read("late", "auxiliary") == 1                           # an auxiliary counts the items now, as a stock does
 
 
 def test_the_compiler_refuses_what_does_not_fit(tmp_path):

@@ -1,0 +1,87 @@
+# The operating rhythm (charter §5): each working day starts with the morning brief and ends in the
+# ledger, both files in the outbox, both programs. The brief ranks the false conditions (the goals that
+# are off), what came overnight, the channels' digests, what waits on me and today's meetings with
+# their prep; the ledger records what I did, with links, and tomorrow's top three.
+defaults:
+  system: rhythm
+
+items:
+  day:
+    id: day/*
+    description: a working day, its morning brief and its ledger
+    states: [started, briefed, ended, recorded]
+    on:
+      day.briefed: briefed
+      day.ended: ended
+      day.recorded: recorded
+    show: [meetings, brief, ledger]
+    formats:
+      brief: markdown
+      ledger: markdown
+
+stocks:
+  days-to-brief:
+    unit: days
+    description: started, and no morning brief yet
+    sensor:
+      items: day
+      state: started
+      every: 5s
+  days-to-record:
+    unit: days
+    description: ended, and not in the ledger yet
+    sensor:
+      items: day
+      state: ended
+      every: 5s
+
+flows:
+  days-starting:
+    to: days-to-brief
+    sensor:
+      run: python3 bin/watch.py day
+      every: 10s
+  briefs-written:
+    from: days-to-brief
+    sensor:
+      items: day
+      entering: briefed
+      over: 10m
+  days-ending:
+    to: days-to-record
+    sensor:
+      items: day
+      entering: ended
+      over: 10m
+  ledgers-written:
+    from: days-to-record
+    sensor:
+      items: day
+      entering: recorded
+      over: 10m
+
+goals:
+  morning-brief-ready:
+    stock: days-to-brief
+    hold: "<= 0"
+    description: today's morning brief is written before standup
+  day-recorded:
+    stock: days-to-record
+    hold: "<= 0"
+    description: every working day is in the ledger
+
+blocks:
+  brief-builder:
+    type: program
+    goal: morning-brief-ready
+    run: python3 bin/rhythm.py brief
+    max: 1
+    every: 5s
+    out: flow.briefs-written
+  ledger-keeper:
+    type: program
+    goal: day-recorded
+    run: python3 bin/rhythm.py ledger
+    max: 1
+    every: 5s
+    out: flow.ledgers-written

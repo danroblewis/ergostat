@@ -74,7 +74,7 @@ def test_every_loop_that_acts_has_its_real_actuator_wired_into_the_world(example
         for a in lp.actuators:
             out = [e for e in g["edges"] if e["source"] == f"blk:{a}"]
             assert out, f"{example}: {a}, the actuator of {goal}, drives nothing"
-            assert any(nodes[e["target"]]["role"] in ("process", "process-sum", None) or nodes[e["target"]]["kind"] in ("mux", "sum")
+            assert any(nodes[e["target"]].get("role") in ("process", "process-sum", None) or nodes[e["target"]]["kind"] in ("mux", "sum")
                        for e in out), (example, a, [e["target"] for e in out])
 
 

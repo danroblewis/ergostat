@@ -1,0 +1,101 @@
+# Documents and change control (charter §3 C): each change needs its paper trail in order, problem
+# statement, proposal, design, then a ticket for the change advisory board, approved before rollout.
+# Watched: the doc index and the tracker. Prepared: a draft of the next document from my notes.
+# Mine: the thinking, and persuading the reviewers and the board.
+defaults:
+  system: documents
+
+items:
+  doc:
+    id: doc/*
+    description: one document a change needs (doc/12-proposal), or its change advisory board ticket (doc/12-board)
+    states: [needed, drafted, approved]
+    on:
+      doc.drafted: drafted
+      doc.approved: approved
+    show: [stage, change, rollout, draft]
+
+stocks:
+  docs-to-draft:
+    unit: docs
+    description: the next document a change needs, not drafted yet
+    sensor:
+      items: doc
+      state: needed
+      every: 5s
+  docs-drafted:
+    unit: docs
+    description: drafted, with me to finish and take to its reviewers (or the board)
+    sensor:
+      items: doc
+      state: drafted
+      every: 5s
+
+auxiliaries:
+  board-items-due:
+    unit: docs
+    description: change advisory board tickets not approved, with their rollout less than a working day away
+    driven-by: [+stock.docs-to-draft, +stock.docs-drafted]
+    sensor:
+      items: doc
+      state: [needed, drafted]
+      where:
+        due: "yes"
+      every: 5s
+
+flows:
+  docs-needed:
+    to: docs-to-draft
+    description: each approval opens the change's next document
+    driven-by: +flow.docs-approved
+    sensor:
+      run: python3 bin/watch.py doc
+      every: 10s
+  drafting:
+    from: docs-to-draft
+    to: docs-drafted
+    sensor:
+      items: doc
+      entering: drafted
+      over: 10m
+  docs-approved:
+    from: docs-drafted
+    sensor:
+      items: doc
+      entering: approved
+      over: 10m
+
+goals:
+  every-doc-drafted:
+    stock: docs-to-draft
+    hold: "<= 0"
+    description: every document a change needs next has a draft
+  board-before-rollout:
+    auxiliary: board-items-due
+    hold: "<= 0"
+    critical: true
+    owner: me
+    description: every change shipping to the regulated environment is approved by the board before rollout
+
+blocks:
+  doc-drafter:
+    type: ai
+    goal: every-doc-drafted
+    prompt: prompts/doc-drafter.md
+    run: python3 bin/prepare.py doc-draft
+    max: 1
+    every: 10s
+    out: flow.drafting
+  persuade:
+    type: person
+    agent: me
+    goal: board-before-rollout
+    ask: >-
+      A change's rollout is less than a working day away and its board ticket is not approved. The
+      draft is in outbox/doc-*-board.md: finish it, file it, and present it to the board yourself.
+    out: flow.docs-approved
+
+loops:
+  paper-trail:
+    through: [flow.docs-approved, flow.docs-needed]
+    description: each document approved opens the change's next one, until the board approves it

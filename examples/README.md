@@ -20,6 +20,7 @@ folder (each ignores what it writes), and their records in `~/.ergostat/` like a
 | [`big`](big/) | 24 loops, for the layout | layout at scale |
 | [`image-squeeze`](image-squeeze/) | A service that compresses images, and a lab of AI agents that optimises it | stocks and auxiliaries sorted by memory, two-way flows, integral control (a setting stepped as a stock), a tracking loop, progressive delivery with rollback, experiments as items, guardrails, real measurement; Claude Code agents (`FACTORY_AI=claude`) or stand-ins |
 | [`software-factory`](software-factory/) | AI agents build a product; customers judge it | items (tickets, PRs, releases) counted as stocks, a factory and a product as one system, `driven-by`, loops that close the long way, real Claude Code agents (`FACTORY_AI=claude`) or stand-ins |
+| [`the-job`](the-job/) | A senior engineer's and SRE's job: reviews, PRs, chat, pages, outages, flag ramps, secrets, customer tickets, documents, as one system | items of many kinds counted as stocks, the same two loops in every domain (prepare, then decide), person blocks that only ask, auxiliaries counting what is late, outputs as files (`file:` fields: the morning brief, the ledger), read-only toward the outside; a simulated world, or the owner's own GitHub PRs read with `gh` (`JOB_GH=1`) |
 
 Start with `first-loop`, then `plain-crontab` and `talking-scripts`: scheduled jobs as they are.
 Most of the rest are simulated (a `sim.py` keeps a made-up world), so they run on any machine;

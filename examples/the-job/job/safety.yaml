@@ -1,0 +1,147 @@
+# Production safety governance (charter §3 F). Watched: the feature flag system, for ramps awaiting my
+# approval; the CI server's releases. Prepared: a research brief for each ramp (its implementation, its
+# schedule, what changed on its service), an upgrade plan for the CI server. Mine: the approvals and
+# the safety judgements; my name is on them. A ramp I do not decide within a working day and a half
+# goes ahead without me, and is likelier to page (incidents.yaml).
+defaults:
+  system: safety
+
+items:
+  ramp:
+    id: ramp/*
+    description: a team's request to ramp a feature flag in production
+    states: [pending, briefed, approved, rejected, went-ahead]
+    on:
+      ramp.briefed: briefed
+      ramp.approved: approved
+      ramp.rejected: rejected
+      ramp.went-ahead: went-ahead
+    show: [flag, team, schedule, brief]
+  ci:
+    id: ci/*
+    description: a release of the CI server we are behind on
+    states: [released, planned, upgraded]
+    on:
+      ci.planned: planned
+      ci.upgraded: upgraded
+    show: [version, installed, notes, plan]
+
+stocks:
+  ramps-to-research:
+    unit: ramps
+    sensor:
+      items: ramp
+      state: pending
+      every: 5s
+  ramps-briefed:
+    unit: ramps
+    description: briefed, waiting for my decision
+    sensor:
+      items: ramp
+      state: briefed
+      every: 5s
+  ci-releases-unplanned:
+    unit: releases
+    description: releases of the CI server we run behind, with no upgrade plan
+    sensor:
+      items: ci
+      state: released
+      every: 5s
+
+auxiliaries:
+  ramps-late:
+    unit: ramps
+    description: ramps waiting over a working day for my decision
+    driven-by: [+stock.ramps-to-research, +stock.ramps-briefed]
+    sensor:
+      items: ramp
+      state: [pending, briefed]
+      where:
+        late: "yes"
+      every: 5s
+
+flows:
+  ramp-requests:
+    to: ramps-to-research
+    sensor:
+      run: python3 bin/watch.py ramp
+      every: 10s
+  researching:
+    from: ramps-to-research
+    to: ramps-briefed
+    sensor:
+      items: ramp
+      entering: briefed
+      over: 10m
+  ramps-approved:
+    from: ramps-briefed
+    sensor:
+      items: ramp
+      entering: approved
+      over: 10m
+  ramps-rejected:
+    from: ramps-briefed
+    sensor:
+      items: ramp
+      entering: rejected
+      over: 10m
+  ramps-went-ahead:
+    from: ramps-briefed
+    description: the team ramps without my decision
+    driven-by: +auxiliary.ramps-late
+    sensor:
+      items: ramp
+      entering: went-ahead
+      over: 10m
+  ci-releases:
+    to: ci-releases-unplanned
+    sensor:
+      run: python3 bin/watch.py ci
+      every: 10s
+  upgrade-planning:
+    from: ci-releases-unplanned
+    sensor:
+      items: ci
+      entering: planned
+      over: 10m
+
+goals:
+  every-ramp-briefed:
+    stock: ramps-to-research
+    hold: "<= 0"
+    description: every pending flag ramp awaiting my approval has a research brief
+  ramps-decided:
+    auxiliary: ramps-late
+    hold: "<= 0"
+    description: no flag ramp waits over a working day for my decision
+  ci-upgrade-planned:
+    stock: ci-releases-unplanned
+    hold: "<= 1"
+    description: the CI server is within one version of current, or an upgrade plan exists
+
+blocks:
+  ramp-researcher:
+    type: ai
+    goal: every-ramp-briefed
+    prompt: prompts/ramp-researcher.md
+    run: python3 bin/prepare.py ramp-brief
+    max: 1
+    every: 10s
+    out: flow.researching
+  approve-ramps:
+    type: person
+    agent: me
+    goal: ramps-decided
+    ask: >-
+      A flag ramp has waited over a working day for your decision. Its research brief is in
+      outbox/ramp-*.md: approve or reject it in the flag system yourself. Your name is on it.
+    out:
+      approved: flow.ramps-approved
+      rejected: flow.ramps-rejected
+  upgrade-planner:
+    type: program
+    goal: ci-upgrade-planned
+    run: python3 bin/prepare.py ci-plan
+    max: 1
+    every: 5s
+    out: flow.upgrade-planning
