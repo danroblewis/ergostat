@@ -6,7 +6,8 @@ experiments' stocks and flows are counted from the record.
     lab.py propose TITLE --idea TEXT [--key KEY]
                                       file a hypothesis
     lab.py history                    every hypothesis so far, and what its experiment measured
-    lab.py claim                      take the oldest proposed hypothesis: a working copy to change, and the idea
+    lab.py claim                      take the oldest proposed hypothesis (or the one left half built): a working copy, and the idea
+    lab.py test HYPOTHESIS            run squeeze's tests in that hypothesis's working copy
     lab.py submit HYPOTHESIS          test the working copy; if its tests pass, it becomes the candidate
     lab.py abandon HYPOTHESIS --why   give up on it (it cannot be built)
     lab.py tune                       the tuner: move production's quality toward the quality goal
@@ -138,9 +139,23 @@ def history() -> list[dict]:
 def claim(by: str) -> dict | None:
     init()
     with lock():
-        waiting = sorted(items("hypothesis", "proposed"), key=lambda h: h["first"])
-        if not waiting or items("hypothesis", "building") or items("hypothesis", "testing"):
+        if items("hypothesis", "testing"):
             return None                                       # one experiment at a time: there is one candidate slot
+        half = items("hypothesis", "building")               # a session that ended before submitting: carry on with it
+        if half:
+            h = half[0]
+            n = h["id"].split("/")[1]
+            wd = WORK / f"hypothesis-{n}"
+            if wd.exists():
+                record("hypothesis.resumed", h["id"], {"developer": by}, by)
+                f = h["fields"]
+                return {"hypothesis": h["id"], "title": f.get("title"), "idea": f.get("idea"), "key": f.get("key"),
+                        "workdir": str(wd), "resumed": True,
+                        "how": f"a session before you started this and did not submit it: its changes are in {wd}. Finish them; "
+                               f"bin/py bin/lab.py test {h['id']} runs the tests; then bin/py bin/lab.py submit {h['id']}"}
+        waiting = sorted(items("hypothesis", "proposed"), key=lambda h: h["first"])
+        if not waiting:
+            return None
         h = waiting[0]
         n = h["id"].split("/")[1]
         branch, wd = f"hypothesis-{n}", WORK / f"hypothesis-{n}"
@@ -151,8 +166,8 @@ def claim(by: str) -> dict | None:
         record("hypothesis.started", h["id"], {"developer": by, "branch": branch}, by)
     f = h["fields"]
     return {"hypothesis": h["id"], "title": f.get("title"), "idea": f.get("idea"), "key": f.get("key"), "workdir": str(wd),
-            "how": f"change squeeze.py (and test_squeeze.py) in {wd}; bin/py test_squeeze.py runs its tests there; "
-                   f"then bin/lab.py submit {h['id']}"}
+            "how": f"change squeeze.py (and test_squeeze.py) in {wd}; bin/py bin/lab.py test {h['id']} runs its tests; "
+                   f"then bin/py bin/lab.py submit {h['id']}"}
 
 
 def submit(hid: str, note: str, by: str) -> str:
@@ -307,7 +322,7 @@ def rollback(hid: str, result: dict, by: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", choices=["init", "propose", "history", "claim", "submit", "abandon", "tune", "match", "rollout"])
+    ap.add_argument("what", choices=["init", "propose", "history", "claim", "test", "submit", "abandon", "tune", "match", "rollout"])
     ap.add_argument("arg", nargs="?")
     ap.add_argument("--idea", default="")
     ap.add_argument("--key")
@@ -327,17 +342,21 @@ def main() -> int:
     elif a.what == "claim":
         h = claim(a.by)
         say(h if h else "nothing to start: no hypothesis is waiting, or an experiment is already running")
-        if h is None:
-            print(json.dumps({"out": "flow.started", "moved": 0}))
+        print(json.dumps({"out": "flow.started", "moved": 1 if h and not h.get("resumed") else 0}))
+    elif a.what == "test":
+        wd = WORK / f"hypothesis-{(a.arg or '').split('/')[-1]}"
+        if not a.arg or not wd.exists():
+            ap.error("test HYPOTHESIS (one that has been claimed)")
+        ok, report = tests(wd)
+        print(report)
+        return 0 if ok else 1
     elif a.what == "submit":
         got = submit(a.arg, a.note, a.by)
         say(got)
-        print(json.dumps({"out": "flow.started", "moved": 1}))
-        if got.startswith("abandoned"):
-            print(json.dumps({"out": "flow.abandoned", "moved": 1}))
+        print(json.dumps({"out": "flow.abandoned" if got.startswith("abandoned") else "flow.submitted",
+                          "moved": 0 if got.startswith("no working copy") else 1}))
     elif a.what == "abandon":
         abandon(a.arg, a.why or "given up", a.by)
-        print(json.dumps({"out": "flow.started", "moved": 1}))
         print(json.dumps({"out": "flow.abandoned", "moved": 1}))
     elif a.what == "tune":
         ctx = json.loads(sys.stdin.read() or "{}")

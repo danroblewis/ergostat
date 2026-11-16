@@ -23,17 +23,17 @@ if h is None:
     print("nothing to start", file=sys.stderr)
     print(json.dumps({"out": "flow.started", "moved": 0}))
     raise SystemExit(0)
+if not h.get("resumed"):
+    print(json.dumps({"out": "flow.started", "moved": 1}))
 time.sleep(float(os.environ.get("FACTORY_PACE", "2")))
 code = next((i["code"] for i in IDEAS if i["key"] == h.get("key")), None)
 if code is None:
     lab.abandon(h["hypothesis"], "the stand-in developer has no code for this idea", me)
-    print(json.dumps({"out": "flow.started", "moved": 1}))
     print(json.dumps({"out": "flow.abandoned", "moved": 1}))
     raise SystemExit(0)
 src = Path(h["workdir"]) / "squeeze.py"
-src.write_text(src.read_text().rstrip() + "\n\n" + code.strip() + "\n")
+if code.strip() not in src.read_text():                  # resumed: it may be written already
+    src.write_text(src.read_text().rstrip() + "\n\n" + code.strip() + "\n")
 got = lab.submit(h["hypothesis"], h["title"], me)
 print(f"{h['hypothesis']}: {got}", file=sys.stderr)
-print(json.dumps({"out": "flow.started", "moved": 1}))
-if got.startswith("abandoned"):
-    print(json.dumps({"out": "flow.abandoned", "moved": 1}))
+print(json.dumps({"out": "flow.abandoned" if got.startswith("abandoned") else "flow.submitted", "moved": 1}))

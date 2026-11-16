@@ -17,6 +17,17 @@ items:
   release:
     id: release/*
     show: [hypothesis, commit]
+  session:                                 # each Claude Code session the researcher or developer ran
+    id: session/*
+    show: [role, model, cost_usd, turns, seconds, error]
+
+variables:
+  ai-spend:
+    unit: USD
+    description: what the Claude Code sessions have cost so far (FACTORY_AI=claude)
+    sensor:
+      run: bin/py world/read.py ai-spend
+      every: 30s
 
 stocks:
   ideas:
@@ -26,12 +37,19 @@ stocks:
       items: hypothesis
       state: proposed
       every: 5s
-  experiments:
+  building:
     unit: hypotheses
-    description: being built, or running against production (one at a time, for there is one candidate)
+    description: claimed by the developer, not yet submitted (one left here by a session that stopped is picked up again)
     sensor:
       items: hypothesis
-      state: [building, testing]
+      state: building
+      every: 5s
+  experiments:
+    unit: hypotheses
+    description: running against production (one at a time, for there is one candidate)
+    sensor:
+      items: hypothesis
+      state: testing
       every: 5s
   improvements:
     unit: hypotheses
@@ -46,9 +64,12 @@ flows:
     to: ideas
   started:
     from: ideas
+    to: building
+  submitted:
+    from: building
     to: experiments
   abandoned:
-    from: experiments
+    from: building
   kept:
     from: experiments
     to: improvements
@@ -63,7 +84,7 @@ goals:
   one-running:
     stock: experiments
     hold: ">= 1"
-    description: the candidate slot is never idle
+    description: an experiment is always running; while none is, the developer builds (or finishes) one
 
 blocks:
   researcher:
@@ -85,4 +106,5 @@ blocks:
     timeout: 20m
     out:
       started: flow.started
+      submitted: flow.submitted
       abandoned: flow.abandoned

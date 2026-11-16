@@ -14,26 +14,26 @@ variables:
       high:
         run: bin/py world/read.py bytes-saved-high
         every: 8s
-    driven-by: [variable.candidate-offset, flow.started]
+    driven-by: [variable.candidate-offset, flow.submitted]
   quality-change:
     unit: ssim
     description: how much better the candidate looks than production on the same images
     sensor:
       run: bin/py world/read.py quality-change
       every: 8s
-    driven-by: [variable.candidate-offset, flow.started]
+    driven-by: [variable.candidate-offset, flow.submitted]
   candidate-failures:
     unit: images
     sensor:
       run: bin/py world/read.py candidate-failures
       every: 8s
-    driven-by: flow.started
+    driven-by: flow.submitted
   candidate-time:
     unit: ms
     sensor:
       run: bin/py world/read.py candidate-time
       every: 8s
-    driven-by: flow.started
+    driven-by: flow.submitted
   paired:
     unit: images
     description: images both builds have compressed

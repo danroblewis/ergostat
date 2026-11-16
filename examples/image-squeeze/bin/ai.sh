@@ -28,10 +28,16 @@ try:
     d = json.loads(raw)
 except ValueError:
     print(raw); raise SystemExit(1)
+import os, re
+sid = d.get("session_id") or ""
+transcript = os.path.expanduser("~/.claude/projects/" + re.sub(r"[^A-Za-z0-9-]", "-", os.path.realpath(os.getcwd())) + f"/{sid}.jsonl")
+rec = {"role": sys.argv[1], "model": sys.argv[2], "cost_usd": round(d.get("total_cost_usd") or 0, 4),
+       "turns": d.get("num_turns"), "seconds": round((d.get("duration_ms") or 0) / 1000, 1), "error": bool(d.get("is_error")),
+       "transcript": transcript if os.path.exists(transcript) else None, "said": (d.get("result") or "")[-1500:]}
 with open("run/costs.jsonl", "a") as f:
-    f.write(json.dumps({"at": time.time(), "role": sys.argv[1], "model": sys.argv[2], "cost_usd": d.get("total_cost_usd"),
-                        "turns": d.get("num_turns"), "seconds": round((d.get("duration_ms") or 0) / 1000, 1),
-                        "error": d.get("is_error")}) + "\n")
+    f.write(json.dumps({"at": time.time(), **rec}) + "\n")
+if sid:                                                   # the session, as an item ergostat shows (Items: session)
+    print(json.dumps({"event": "session.ran", "item": f"session/{sys.argv[1]}-{sid[:8]}", "data": rec}))
 print(d.get("result") or "")
 raise SystemExit(1 if d.get("is_error") else 0)' "$role" "$model"
     exit $?

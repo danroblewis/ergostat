@@ -16,6 +16,13 @@ except (OSError, ValueError):
     raise SystemExit(1)
 c = s.get("candidate") or {}
 what = sys.argv[1]
+if what == "ai-spend":                                   # every Claude session's cost, from bin/ai.sh
+    try:
+        lines = (RUN / "costs.jsonl").read_text().splitlines()
+    except OSError:
+        lines = []
+    print(round(sum(json.loads(x).get("cost_usd") or 0 for x in lines if x.strip()), 4))
+    raise SystemExit(0)
 value = {"quality": s["quality"], "bytes-per-mp": s["bytes_per_mp"], "failures": s["failures"], "time": s["time"],
          "flat-share": s["flat_share"],
          "bytes-saved-low": (c.get("bytes_saved") or [0, 0])[0], "bytes-saved-high": (c.get("bytes_saved") or [0, 0])[1],
