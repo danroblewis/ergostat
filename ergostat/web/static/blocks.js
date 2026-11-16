@@ -198,6 +198,7 @@ async function bdLayout(g) {
       for (const s of e.sections || []) { [s.startPoint, s.endPoint] = [s.endPoint, s.startPoint]; s.bendPoints = (s.bendPoints || []).slice().reverse(); }
     }
   }
+  const size = bdWrapRows(g, { children, containers, ports, edges }, lay.width, lay.height);
   // the side each port is on, after ELK placed them
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const box = Object.fromEntries(children.map((c) => [c.id, c]));
@@ -213,7 +214,7 @@ async function bdLayout(g) {
       if (fx) { p.x = c.x + fx.x; p.y = c.y + fx.y; }
     }
   }
-  const out = { children, containers, edges, ports, width: lay.width, height: lay.height, routing: false };
+  const out = { children, containers, edges, ports, width: size[0], height: size[1], routing: false };
   for (const e of out.edges) {                         // until libavoid's lines come: ELK's, ending on the ports
     const ge = g.edges.find((x) => x.id === e.id);
     const a = ports[ge?.sourcePort], b = ports[ge?.targetPort];
@@ -222,6 +223,77 @@ async function bdLayout(g) {
     if (!s) e.sections = [{ startPoint: { x: a.x, y: a.y }, endPoint: { x: b.x, y: b.y }, bendPoints: [] }];
   }
   return out;
+}
+
+/* a drawing far wider than the screen (several systems open, side by side): its top-level pieces (each
+   open system's frame, each closed one's block, with what lies above or below it) wrapped into rows, in
+   their order left to right, so that it keeps near the screen's shape, as the dynamics view wraps its open
+   systems (layouts.js). A line within a piece moves with it; a line between pieces is drawn straight until
+   libavoid routes it. */
+const BD_WRAP_OVER = 3;           // wider than tall by more than this many times the screen's shape: wrapped
+const BD_ROW_GAP = 60;
+function bdWrapRows(g, lay, W, H) {
+  const svg = typeof document !== "undefined" && document.querySelector("svg.canvas");
+  const r = svg?.getBoundingClientRect?.();
+  const screen = r && r.width && r.height ? r.width / Math.max(r.height - 80, 200) : 1.6;
+  if (!(W / H > BD_WRAP_OVER * screen)) return [W, H];
+  // the pieces: each top-level frame or part, and those whose spans left to right overlap taken together
+  const topOf = {};
+  for (const c of lay.children) topOf[c.id] = c.within?.[0] || c.id;
+  const rect = {};
+  for (const c of [...lay.children.filter((x) => !x.within?.length), ...lay.containers.filter((f) => f.depth === 0)])
+    rect[c.id] = { x: c.x, y: c.y, w: c.width, h: c.height };
+  const cols = [];
+  for (const [id, b] of Object.entries(rect).sort((a, b) => a[1].x - b[1].x)) {
+    const last = cols[cols.length - 1];
+    if (last && b.x < last.x1 - 2) { last.ids.push(id); last.x1 = Math.max(last.x1, b.x + b.w); last.y0 = Math.min(last.y0, b.y); last.y1 = Math.max(last.y1, b.y + b.h); }
+    else cols.push({ ids: [id], x0: b.x, x1: b.x + b.w, y0: b.y, y1: b.y + b.h });
+  }
+  if (cols.length < 2) return [W, H];
+  // how many rows: the number whose drawing comes nearest the screen's shape
+  const pack = (maxW) => {
+    const rows = [[]];
+    let x = 0;
+    for (const c of cols) {
+      const w = c.x1 - c.x0;
+      if (rows[rows.length - 1].length && x + w > maxW) { rows.push([]); x = 0; }
+      rows[rows.length - 1].push(c);
+      x += w + 46;
+    }
+    const width = Math.max(...rows.map((row) => row.reduce((s0, c) => s0 + c.x1 - c.x0 + 46, -46)));
+    const height = rows.reduce((s0, row) => s0 + Math.max(...row.map((c) => c.y1 - c.y0)) + BD_ROW_GAP, -BD_ROW_GAP);
+    return { rows, width, height };
+  };
+  let best = null;
+  for (let k = 1; k <= cols.length; k++) {
+    const p = pack(W / k);
+    const off = Math.abs(Math.log((p.width / p.height) / screen));
+    if (!best || off < best.off - 1e-9) best = { ...p, off };
+  }
+  if (best.rows.length < 2) return [W, H];
+  // each piece's shift
+  const shift = {};
+  let y = 20;
+  for (const row of best.rows) {
+    let x = 20;
+    const top = Math.min(...row.map((c) => c.y0)), hgt = Math.max(...row.map((c) => c.y1 - c.y0));
+    for (const c of row) { for (const id of c.ids) shift[id] = { dx: x - c.x0, dy: y - top }; x += c.x1 - c.x0 + 46; }
+    y += hgt + BD_ROW_GAP;
+  }
+  const mv = (o, d) => { o.x += d.dx; o.y += d.dy; };
+  const idOfTop = (nid) => topOf[nid];
+  for (const c of lay.children) mv(c, shift[idOfTop(c.id)] || { dx: 0, dy: 0 });
+  for (const f of lay.containers) { let t = f.id; const n = g.frames?.find((x) => x.id === f.id); let p = n?.parent;
+    while (p) { t = p; p = g.frames.find((x) => x.id === p)?.parent; } mv(f, shift[t] || { dx: 0, dy: 0 }); }
+  for (const p of Object.values(lay.ports)) mv(p, shift[idOfTop(p.node)] || { dx: 0, dy: 0 });
+  const ends = Object.fromEntries(g.edges.map((e) => [e.id, e]));
+  for (const e of lay.edges) {
+    const ge = ends[e.id];
+    const a = ge && idOfTop(ge.source), b = ge && idOfTop(ge.target);
+    if (a && a === b) { for (const sec of e.sections || []) for (const q of [sec.startPoint, sec.endPoint, ...(sec.bendPoints || [])]) mv(q, shift[a] || { dx: 0, dy: 0 }); }
+    else e.sections = [];                       // between pieces: drawn port to port (bdLayout) until routed
+  }
+  return [best.width + 40, best.height + 40];
 }
 
 /* ---- the lines, routed by libavoid around every part (avoid.js's router, in its worker) */

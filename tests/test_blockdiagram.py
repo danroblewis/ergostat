@@ -218,9 +218,13 @@ def test_a_discrete_controller_meets_the_continuous_process_through_a_sampler_an
             into = [e for e in g["edges"] if e["target"] == b["id"]]
             assert [e["source"] for e in into] == [f"smp:{name}"], (where, b["id"], into)
             assert n[f"smp:{name}"]["kind"] == "sampler"
+            # one hold per output: each output is its own continuous signal, held between samples
             out = [e for e in g["edges"] if e["source"] == b["id"]]
-            assert [e["target"] for e in out] == [f"zoh:{name}"], (where, b["id"], out)
-            assert n[f"zoh:{name}"]["role"] == "hold" and "e" in str(n[f"zoh:{name}"]["math"])
+            assert out and all(e["target"] == f"zoh:{name}" or e["target"].startswith(f"zoh:{name}:") for e in out), \
+                (where, b["id"], out)
+            assert len({e["sourcePort"] for e in out}) == len({e["target"] for e in out})
+            for e in out:
+                assert n[e["target"]]["role"] == "hold" and "e" in str(n[e["target"]]["math"])
             # what comes after the hold is continuous: nothing from a z block reaches a process unheld
         for e in g["edges"]:
             src = n.get(e["source"]) or {}
@@ -250,7 +254,7 @@ def test_a_transfer_function_block_takes_one_input_the_rest_enter_at_a_summing_j
     spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
     g = drawn(spec, {"*"})
     signs = {e["key"]: e["sign"] for e in g["edges"] if e["target"] == "jsum:matcher"}
-    assert signs == {"held:matcher": "+", "flow.adopted": "−", "flow.offset-cleared": "−"}
+    assert signs == {"held:matcher": "+", "flow.adopted": "−"}         # it resets its own offset: adopted alone moves it too
     signs = {e["key"]: e["sign"] for e in g["edges"] if e["target"] == "jsum:tuner"}
     assert signs == {"held:tuner": "+", "flow.adopted": "+"}
 
@@ -343,3 +347,39 @@ def test_the_blocks_panels_use_control_words_only():
     spec = load(ROOT / "examples" / "software-factory" / "ergostat.yaml")
     n = {x["id"]: x for x in drawn(spec, {"*"})["nodes"]}
     assert n["proc:stock.in-review"]["says"].startswith("integrator: the sum of its inputs over time")
+
+
+def test_a_block_that_weighs_several_signals_is_not_integral_action():
+    spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
+    n = {x["id"]: x for x in drawn(spec, {"*"})["nodes"]}
+    assert n["blk:rollout"]["fn"].get("name") == "rollout" and n["blk:rollout"]["fn"].get("arg") is None
+    assert "zoh:rollout" not in n and not any(k.startswith("zoh:rollout:") for k in n)
+
+
+def test_a_discrete_controller_with_several_outputs_holds_each_one(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+        stocks:
+          level: {unit: x, sensor: {run: echo 1, every: 1m}}
+          knob: {unit: x, sensor: {run: echo 1, every: 1m}}
+          other: {unit: x, sensor: {run: echo 1, every: 1m}}
+        flows:
+          turn: {to: knob, two-way: true}
+          fill: {to: level, driven-by: +stock.knob}
+          drain: {from: level, driven-by: +stock.other}
+          bump: {to: other}
+        goals:
+          level-held: {stock: level, hold: "== 5"}
+        blocks:
+          stepper:
+            type: program
+            run: echo 1
+            every: 30s
+            in: {err: goal.level-held.error}
+            out: {step: flow.turn, also: flow.bump}
+        """))
+    g = drawn(load(tmp_path / "ergostat.yaml"), {"*"})
+    n = {x["id"]: x for x in g["nodes"]}
+    assert n["blk:stepper"]["fn"]["arg"] == "z"
+    holds = sorted(e["target"] for e in g["edges"] if e["source"] == "blk:stepper")
+    assert holds == ["zoh:stepper", "zoh:stepper:flow.bump"], holds
+    assert all(n[h]["role"] == "hold" for h in holds)

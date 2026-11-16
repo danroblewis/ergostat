@@ -847,7 +847,10 @@ class _Diagram:
         knob = self.setting_of.get(n)
         reads_error = any(k.startswith("goal.") and k.endswith(".e") for _, k in self.reads.get(n, []))
         e = next((k.split(".")[1] for _, k in self.reads.get(n, []) if k.startswith("goal.") and k.endswith(".e")), None)
-        if knob and reads_error and b.type not in ("onoff", "compare"):
+        # integral action only when its error is all it reads: a block that weighs several signals (a program reading
+        # two errors and a measurement) is its own nonlinear map that happens to step a setting, not K_i T/(z − 1)
+        only_error = len(self.reads.get(n, [])) == 1
+        if knob and reads_error and only_error and b.type not in ("onoff", "compare"):
             Ki = b.params.get("gain") or b.params.get("ki")
             gain = ["msub", mi("K"), mi("i")] if Ki is None else mn(Ki)
             Tn = mn(T) if T else mi("T")
