@@ -23,4 +23,7 @@ Things to look at:
 - Without approvals the goal stays off: the loop is closed through a person.
 - The Agents page puts each machine on the ladder: the writer (ai), the picker (`kind: decision`).
 
+Items: each doc page (`page/api/auth.md`), recorded `stale` by the scanner when a change
+outdates it and `current` again by the writer, with its PR.
+
 Shows: an AI block driven by a decision block, feedforward, `max`, advise mode.
