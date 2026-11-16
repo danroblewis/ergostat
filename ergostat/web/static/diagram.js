@@ -193,7 +193,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
   }
   applyPins(lay, g);
   flipValves(lay, g);                                    // valves whose links come from below turn their stem down
-  if (g.kind !== "wiring") avoidRoute(lay, g);           // every line, by libavoid (avoid.js); without it, ELK's
+  if (g.kind !== "wiring") avoidStart(lay, g);           // every line, by libavoid (avoid.js): ELK's until it is done
   return lay;
 }
 
@@ -903,7 +903,7 @@ function panZoom(svg) {
     if (d.el) d.el.setAttribute("transform", `translate(${d.lx + dx},${d.ly + dy})`);
     svg.classList.add("dragging-part");
     d.to = { x: Math.round(d.lx + dx), y: Math.round(d.ly + dy) };
-    for (const id of avoidMove(d.id, d.to.x, d.to.y) || []) redrawLine(svg, id);   // its lines follow it
+    avoidMove(d.id, d.to.x, d.to.y)?.then((ids) => { if (S.nodeDrag === d) for (const id of ids) redrawLine(svg, id); });   // its lines follow it
   });
   window.addEventListener("pointerup", () => {
     const d = S.nodeDrag;
@@ -1186,6 +1186,7 @@ async function pageDiagram(main, q) {
     renderSide(side, g, view);
   }
   S.relayout = () => { S.graphSig = ""; return tick(); };      // after a part is pinned or unpinned
+  S.redraw = () => { if (!S.pressed && !S.nodeDrag && S.layout) drawGraph(svg, S.graph, S.layout); };   // libavoid's lines came
   await tick();
   S.timer = setInterval(tick, 2500);
 }
