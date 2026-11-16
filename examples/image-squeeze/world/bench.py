@@ -1,8 +1,11 @@
-"""The benchmark block: measures production on the benchmark (world/benchmark.py) whenever a new
+"""The benchmark's sensor: measures production on the benchmark (world/benchmark.py) whenever a new
 release is in production, and reports each case as an item, met or not, with its best size so far.
 
-Prints, as its block's output: an event per case whose result changed (case.met, case.unmet,
-case.measured), and the benchmark score it sets (KB/MP at the quality floor, all thirty cases)."""
+Prints, as a sensor reading: an observation per case whose result changed (case.met, case.unmet,
+case.measured), and the benchmark score (KB/MP at the quality floor, all thirty cases).
+
+    bench.py                 measure (a new release) and read the score
+    bench.py --read KEY      only read KEY (photo_score, flat_score) of the last measurement"""
 
 import json
 import subprocess
@@ -20,15 +23,22 @@ def head(build: Path) -> str:
 
 
 def main() -> int:
-    sys.stdin.read()
+    if "--read" in sys.argv:
+        key = sys.argv[sys.argv.index("--read") + 1]
+        last = json.loads(OUT.read_text()) if OUT.exists() else {}
+        if last.get(key) is None:
+            print("not measured yet", file=sys.stderr)
+            return 1
+        print(last[key])
+        return 0
     prod = RUN / "prod"
     if not (prod / "squeeze.py").exists():
         print("production is not there yet", file=sys.stderr)
-        return 0
+        return 1
     before = json.loads(OUT.read_text()) if OUT.exists() else {"cases": {}}
     commit = head(prod)
     if before.get("commit") == commit:                      # this release is measured already
-        scores(before)
+        print(before["score"])
         return 0
     save = RUN / "world" / "cases" / commit[:8]               # what this release made of each case, to look at
     p = subprocess.run([sys.executable, str(ROOT / "world" / "benchmark.py"), str(prod), "--save", str(save)],
@@ -46,16 +56,12 @@ def main() -> int:
             print(json.dumps({"event": kind, "item": cid, "data": data}))
     now["commit"] = commit
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(now, indent=1))
+    tmp = OUT.with_suffix(".tmp")                            # whole, for the other scores' sensors reading it
+    tmp.write_text(json.dumps(now, indent=1))
+    tmp.replace(OUT)
     print(f"release {commit[:8]}: {now['met']} of {now['of']} cases met, score {now['score']} KB/MP", file=sys.stderr)
-    scores(now)
+    print(now["score"])
     return 0
-
-
-def scores(b: dict) -> None:
-    for key, var in (("score", "benchmark-score"), ("photo_score", "photo-score"), ("flat_score", "flat-score")):
-        if b.get(key) is not None:
-            print(json.dumps({"out": f"variable.{var}", "value": b[key]}))
 
 
 if __name__ == "__main__":

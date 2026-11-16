@@ -298,6 +298,13 @@ flows:
 
 On a flow, a sensor's reading is a rate per hour.
 
+A `run` sensor may also print what it observed about items, one JSON line each, beside its number:
+`{"event": "case.met", "item": "case/logo-3", "data": {...}}` (a benchmark that records each case
+it measured). These are recorded as events from the sensor (`benchmark-score.main`) and fold into
+the items like any other. An observation records what was seen, never a command: it must name an
+item (an id with a `/`), may not use ergostat's own types, and a sensor has no outputs. A measured
+value is shown as measured by its sensor; a variable a block sets is shown as set by that block.
+
 ## 7. Flows
 
 What changes stocks: into one, out of one, or from one to another. Leaving out `from` or `to`

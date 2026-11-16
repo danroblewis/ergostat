@@ -1,7 +1,8 @@
 # The benchmark: how good squeeze is, whatever images happen to arrive. Thirty fixed cases, five of
 # each kind of image, each with a target (world/benchmark.py): the kilobytes per megapixel it should
-# need while still looking good enough. Measured on every release; every candidate is measured too,
-# when it is submitted, and rolled back if it loses a case production meets.
+# need while still looking good enough. Measured on every release (the score's sensor runs it, and
+# records each case it saw as an item); every candidate is measured too, when it is submitted, and
+# rolled back if it loses a case production meets.
 defaults:
   system: benchmark
 
@@ -19,15 +20,25 @@ variables:
     unit: KB/MP
     description: kilobytes per megapixel squeeze needs to make the thirty cases look good enough (geometric mean, 300 for a case it cannot do); lower is better
     driven-by: flow.kept
+    sensor:                                # runs the benchmark on a new release (else reads the last result),
+      run: bin/py world/bench.py           # and records each case it measured: case.met, case.unmet
+      every: 20s
+      timeout: 10m
 
   photo-score:
     unit: KB/MP
     description: the same, on the fifteen photos (photos, big photos, grayscale photos)
     driven-by: flow.kept
+    sensor:
+      run: bin/py world/bench.py --read photo_score
+      every: 20s
   flat-score:
     unit: KB/MP
     description: the same, on the fifteen flat images (screenshots, line art, logos)
     driven-by: flow.kept
+    sensor:
+      run: bin/py world/bench.py --read flat_score
+      every: 20s
 
 stocks:
   capabilities:
@@ -60,13 +71,3 @@ goals:
     hold: ">= 30"
     description: the lab's other target, what squeeze can do (some noisy photos may stay out of reach)
 
-blocks:
-  benchmark:                               # measures each release once
-    type: program
-    run: bin/py world/bench.py
-    every: 20s
-    timeout: 10m
-    out:
-      score: variable.benchmark-score
-      photos: variable.photo-score
-      flat: variable.flat-score

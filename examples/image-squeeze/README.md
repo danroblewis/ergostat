@@ -107,7 +107,8 @@ decode, they are not tests that pass or fail but a count of what the product can
   by releases; the goal `every-case` is all thirty (the noisiest photos may stay out of reach);
 - **`benchmark-score`** is the kilobytes per megapixel all thirty need (lower is better): one number
   for how good squeeze is now;
-- the `benchmark` block measures each release once; every candidate is measured when it is
+- the score's sensor runs the benchmark once per release (and records each case it measured, as
+  an observation: it measures, it never sets anything); every candidate is measured when it is
   submitted, and rolled back if it loses a case production meets (a regression no amount of live
   traffic in one hour might show).
 

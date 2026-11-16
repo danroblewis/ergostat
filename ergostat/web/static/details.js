@@ -41,7 +41,7 @@ function whatIs(kind) {
 }
 
 function dl(pairs) { return h("dl", {}, pairs.filter(([, v]) => v != null && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])); }
-function agentLink(a) { return a ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(a.name); } }, `${a.name} (rung ${a.rung} ${a.kind})`) : h("span", { class: "muted" }, "unfilled"); }
+function agentLink(a) { return a ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(a.name); } }, `${a.name} (${a.kind})`) : h("span", { class: "muted" }, "unfilled"); }
 
 function openSystem(n) {                               // a system as one part: what goes in and out, and how its loops do
   const side = (d) => (n.ports || []).filter((p) => p.side === d);
@@ -69,8 +69,11 @@ async function openNode(n) {
   const d = await api(`part/${kind}/${encodeURIComponent(name)}`);
   const m = d.model, now = d.now || {};
   const rows = [["description", m.description]];
-  if (kind === "stock") rows.push(["now", `${fmt(now.value)} ${m.unit}`], ["measured", now.at ? `${ago(now.at)} by ${now.sensor}` : "never"],
-                                  ["in", `${fmt(now.inflow)}/h`], ["out", `${fmt(now.outflow)}/h`]);
+  const knob = n.kind === "variable" && n.agent;          // what a block sets is not measured: it is what the block said
+  if (kind === "stock") rows.push(["now", `${fmt(now.value)} ${m.unit}`],
+    knob ? ["set", h("span", {}, now.at ? `${ago(now.at)} by ` : "never yet, by ", agentLink(n.agent))]
+         : ["measured", now.at ? `${ago(now.at)} by its sensor ${now.sensor}` : "never"],
+    ...(n.kind === "variable" ? [] : [["in", `${fmt(now.inflow)}/h`], ["out", `${fmt(now.outflow)}/h`]]));
   if (kind === "disturbance") rows.push(["pushes", m.target ? `into ${m.target}` : `out of ${m.source}`], ["rate", `${fmt(now.rate)}/h`], ["how we know", now.how]);
   if (kind === "valve") rows.push(["acts on", m.flow], ["mode", m.mode], ["most a run", m.max != null ? fmt(m.max) : null],
                                   ["filled by", agentLink(d.agent)], ["rate", `${fmt(now.flow?.rate)}/h`]);
@@ -79,7 +82,6 @@ async function openNode(n) {
                                    ["last reading", last ? `${fmt(last[1])}, ${ago(last[0])}` : "none yet"], ["in the window", `${now.count ?? rd.length} readings`]);
   const shown = n.kind === "variable" ? "variable" : kind;
   if (n.kind === "variable") for (let i = rows.length - 1; i >= 0; i--) if (rows[i][0] === "in" || rows[i][0] === "out") rows.splice(i, 1);
-  if (n.kind === "variable" && n.agent) rows.push(["set by", agentLink(n.agent)]);
   const kids = [h("div", { class: "kind" }, shown), h("h2", {}, name), whatIs(shown), h("h3", {}, "how it is now"), dl(rows)];
   if (kind === "stock" && now.points?.length > 1) kids.push(sparkSvg(now.points, 380, 70));
   if (kind === "sensor" && now.readings?.length > 1) kids.push(sparkSvg(now.readings, 380, 70));
@@ -154,7 +156,7 @@ async function openLoop(name, asController = false) {
 
 async function openAgent(name) {
   const a = await api(`agents/${encodeURIComponent(name)}`);
-  const kids = [h("div", { class: "kind" }, `agent · rung ${a.rung} ${a.kind}`), h("h2", {}, name), whatIs("agent"),
+  const kids = [h("div", { class: "kind" }, `agent · ${a.kind}`), h("h2", {}, name), whatIs("agent"),
     dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
         ["runs", a.schedule || "not run by ergostat"],
         ["fills", (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || "nothing"],

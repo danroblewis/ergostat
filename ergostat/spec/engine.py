@@ -375,7 +375,15 @@ class Engine:
 
     def _read(self, s: Sensor) -> None:
         try:
-            v, why = read_sensor(self.spec, s, self.p.events)
+            name = sensor_name(s.of.name, s.name)
+
+            def observe(seen, refused):
+                for o in seen:
+                    self.p.events.add(o["type"], item=o["item"], source=name, data=o["data"])
+                for why in refused:
+                    self.p.events.add("sensor.refused", item=name, source=SOURCE, data={"why": why})
+                    self.say(f"sensor {name}: {why}")
+            v, why = read_sensor(self.spec, s, self.p.events, observe)
             if v is None:
                 self.p.events.add("sensor.failed", item=sensor_name(s.of.name, s.name), source=SOURCE, data={"why": why})
                 self.say(f"sensor {s.of.name}.{s.name}: {why}")
@@ -602,8 +610,34 @@ class Said:
             self.counts["commands"] += 1
 
 
-def read_sensor(spec: Spec, s: Sensor, events=None) -> tuple[float | None, str]:
-    """One reading: the number, or None and why not. Counting items needs the record."""
+def observations(text: str) -> tuple[list[dict], list[str]]:
+    """What a sensor's command observed besides its number: event lines about items
+    ({"event": "case.met", "item": "case/logo-3", "data": {...}}). An observation records what was
+    seen, never a command: it names an item (an id with a /) and none of ergostat's own types."""
+    seen, refused = [], []
+    for x in text.splitlines():
+        x = x.strip()
+        if not x.startswith("{"):
+            continue
+        try:
+            obj = json.loads(x)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or "event" not in obj:
+            continue
+        t, item = obj["event"], obj.get("item")
+        if not isinstance(t, str) or not old.TYPE_NAME.match(t) or t.startswith((*old.OWN_TYPES, "block.", "person.", "sensor.")):
+            refused.append(f"{str(t)[:60]!r}: an event type is lowercase words joined by dots, and not ergostat's own")
+        elif not isinstance(item, str) or "/" not in item:
+            refused.append(f"{t}: a sensor's observation names an item (an id with a /, case/logo-3)")
+        else:
+            seen.append({"type": t, "item": item, "data": obj.get("data") if isinstance(obj.get("data"), dict) else {}})
+    return seen, refused
+
+
+def read_sensor(spec: Spec, s: Sensor, events=None, observe=None) -> tuple[float | None, str]:
+    """One reading: the number, or None and why not. Counting items needs the record. A command's
+    observations (event lines about items) go to ``observe``, when given, even with no number."""
     if s.items is not None:
         if events is None:
             return None, "items are counted from the record, and there is none here"
@@ -621,6 +655,8 @@ def read_sensor(spec: Spec, s: Sensor, events=None) -> tuple[float | None, str]:
         return None, f"no answer within {s.timeout:g}s"
     if p.returncode != 0:
         return None, f"exited {p.returncode}: {(p.stderr or p.stdout).strip()[:200]}"
+    if observe is not None:
+        observe(*observations(p.stdout))
     return number_in(p.stdout, s.parse)
 
 

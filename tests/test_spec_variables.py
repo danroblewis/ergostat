@@ -93,3 +93,35 @@ def test_the_diagram_draws_variables_and_the_knob_it_turns(tmp_path):
     setting = next(n for n in g["nodes"] if n["id"] == "stock:setting")
     assert setting["agent"]["name"] == "tuner"
     assert g["loops"]["quality-held"]["closes"]
+
+
+def test_a_sensor_records_what_it_observed_about_items_and_never_a_command(tmp_path):
+    """The benchmark: one command reads the score and reports each case it measured."""
+    load(tmp_path, """
+items:
+  case:
+    id: case/*
+    states: [unmet, met]
+    on:
+      case.met: met
+variables:
+  score:
+    unit: KB/MP
+    sensor:
+      run: >-
+        echo '{"event": "case.met", "item": "case/a", "data": {"kb": 3}}';
+        echo '{"event": "variable.set", "item": "case/b"}';
+        echo '{"event": "case.met", "item": "nobody"}';
+        echo 12.5
+""")
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    p = Project(mdl.load(tmp_path))
+    e = Engine(p, say=lambda s: None)
+    e._read(p.model.spec.variables["score"].sensors["main"])
+    assert p.measurements.latest("sensor/score.main")[1] == 12.5
+    got = p.events.query(n=10, type="case.met")
+    assert [(x["item"], x["source"]) for x in got] == [("case/a", "score.main")]
+    assert not p.events.query(n=10, type="variable.set")
+    assert len(p.events.query(n=10, type="sensor.refused")) == 2
+    from ergostat.spec.items import one
+    assert one(p.events, p.model.spec, "case/a").state == "met"

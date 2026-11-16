@@ -298,7 +298,10 @@ def rollout(by: str) -> dict:
     looks_better = dq > 0.006
     # better: fewer bytes; or better looking for about the same; or it does benchmark cases production cannot, and is
     # no worse on the images arriving now (the benchmark has every kind of image; this hour's traffic may not)
-    gains = bool(bench.get("gained")) and not bench.get("lost")
+    # (a benchmark score 5% better counts too: the transparency fix makes logos possible, before any is met)
+    ps, cs = bench.get("production_score"), bench.get("score")
+    improves = bool(ps and cs and cs <= 0.95 * ps)
+    gains = bool(bench.get("gained") or improves) and not bench.get("lost")
     better = matched and (lo > 0.5 or ((looks_better or gains) and lo > -3))
     worse = [f"{k}: {v['saved']:+.0f}% bytes, {v['quality_change']:+.3f} SSIM" for k, v in (c.get("by_kind") or {}).items()
              if v.get("n", 0) >= 6 and (v["saved"] < -25 or v["quality_change"] < -0.02)]   # a guardrail on every kind
@@ -325,7 +328,8 @@ def rollout(by: str) -> dict:
             verdict = ("kept", f"better looking (+{dq:.3f} SSIM) for {lo:.1f}% to {hi:.1f}% fewer bytes" if looks_better
                        else f"{lo:.1f}% to {hi:.1f}% fewer bytes at equal quality" if lo > 0.5
                        else f"meets {len(bench['gained'])} more benchmark cases ({', '.join(bench['gained'])}), "
-                            f"no worse on live traffic ({lo:.1f}% to {hi:.1f}% saved)")
+                            f"no worse on live traffic ({lo:.1f}% to {hi:.1f}% saved)" if bench.get("gained")
+                       else f"benchmark score {ps:g} to {cs:g} KB/MP, no worse on live traffic ({lo:.1f}% to {hi:.1f}% saved)")
     result = {"bytes_saved": [lo, hi], "quality_offset": r.get("offset", 0), "paired": n, "by_kind": c.get("by_kind"),
               "benchmark": {k: v for k, v in bench.items() if k != "examples"}}
     if verdict and verdict[0] == "kept":
