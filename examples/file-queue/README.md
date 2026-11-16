@@ -16,7 +16,8 @@ Things to look at:
 - Two loops in series: the processor's flow is the archiver's load. Each block names its goal (`goal:`); ergostat runs it while that goal is off.
 - The thresholds live in the goals, not the scripts: `process.sh` only processes three files, `archive.sh` only archives five. `until: "<= 10"` keeps the archiver going until `outbox/` is down to 10.
 - `ergostat block` lists the implied `keep-inbox-empty` and `keep-outbox-small` controllers.
-- `process.sh` prints a JSON line per file (`{"moved": 1}` and a `file.processed` event); the others print a bare number.
+- Each script says what it moved as JSON lines, and an event per file: `file.dropped`, `file.processed`, `file.archived`.
+- Items: each file is one (`file/note-….txt`), moving `inbox`, `outbox`, `archived` on those events. The stocks still count the folders (`ls`): a file someone drops by hand is in `inbox/` but not in the record.
 
 Shows: loops in series, `goal:` and `until:` on a machine block, a load generator.
 
