@@ -78,6 +78,7 @@ def main() -> None:
     ap.add_argument("--shots", default="")
     ap.add_argument("--port", type=int, default=8795)
     ap.add_argument("--no-time", action="store_true")
+    ap.add_argument("--viewport", default="1600x1000", help="the window, WxH (the layout follows its shape)")
     ap.add_argument("--summary", action="store_true", help="only summarise OUT/results.json")
     a = ap.parse_args()
     if a.summary:
@@ -97,7 +98,8 @@ def main() -> None:
             proc, url = serve(ex, Path(tmpd), a.port)
             try:
                 for lay in layouts:
-                    pg = b.new_page(viewport={"width": 1600, "height": 1000})
+                    vw, vh = map(int, a.viewport.split("x"))
+                    pg = b.new_page(viewport={"width": vw, "height": vh})
                     errors: list[str] = []
                     pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
                     q = f"layout={lay}&" if lay else ""

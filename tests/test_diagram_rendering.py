@@ -46,10 +46,10 @@ LAYOUT_BUDGET_MS = 2500       # until the biggest view is first drawn, on a lapt
 ROUTED_BOUND_MS = 20000       # until libavoid's lines replace ELK's (in a worker: the page is never held up meanwhile);
                               # the 24x8 model (STRESS=24,8: 1,030 lines) takes about 15s, nearly all of it libavoid's
 MAX_PIPE_BENDS = 6             # a flow that runs back (rework into a backlog) must turn; more is a pipe pushed about
-# compactness: each view's drawing no bigger than it was recorded (tests/fixtures/diagram_sizes.json, written
+# compactness: each view's drawing as much on the screen as it was recorded (tests/fixtures/diagram_sizes.json, written
 # again with RECORD_SIZES=1 when a layout change is meant to make it so) and no longer one way than the other
 SIZES = ROOT / "tests" / "fixtures" / "diagram_sizes.json"
-SIZE_SLACK = 1.15              # the area may grow this much (labels' widths move a little with the data)
+SIZE_SLACK = 1.15              # the fit zoom may fall, the area grow, this much (labels' widths move a little with the data)
 MAX_ASPECT = 4.0               # wider than tall (or taller than wide) by more, and too big to read whole (MIN_FIT):
 MIN_FIT = 0.7                  # it runs off the screen one way, with the screen empty the other
 
@@ -120,10 +120,14 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
         if r["mostPipeBends"][0] > MAX_PIPE_BENDS:                   # a flow reads best straight: the links bend instead
             problems.append(f"[{v or 'whole'}] pipe {r['mostPipeBends'][1]} bends {r['mostPipeBends'][0]} times")
         size = r["size"]
-        sizes[v] = [size["width"], size["height"]]
+        sizes[v] = [size["width"], size["height"], size["fit"]]
         was = recorded.get(v)
-        if was and size["width"] * size["height"] > SIZE_SLACK * was[0] * was[1]:
-            problems.append(f"[{v or 'whole'}] drawn {size['width']}x{size['height']}, recorded {was[0]}x{was[1]}")
+        # no less of it on the screen at once (a drawing shown whole at full size may change its shape), and
+        # one too big to show whole no bigger
+        if was and (min(size["fit"], 1) < min(was[2], 1) / SIZE_SLACK or
+                    (size["fit"] < 1 and size["width"] * size["height"] > SIZE_SLACK * was[0] * was[1])):
+            problems.append(f"[{v or 'whole'}] drawn {size['width']}x{size['height']} (fit {size['fit']}), "
+                            f"recorded {was[0]}x{was[1]} (fit {was[2]})")
         if max(size["aspect"], 1 / size["aspect"]) > MAX_ASPECT and size["fit"] < MIN_FIT:    # (a short chain that fits is fine)
             problems.append(f"[{v or 'whole'}] {size['width']}x{size['height']}: aspect {size['aspect']}")
         first, final = pg.evaluate(TIMED)
@@ -271,22 +275,24 @@ def served(example: str, tmp_path: Path):
 
 
 VALVE_SIDES = """() => {
-  // each valve's information lines attach on the side most of what they join lies: its stem up, or turned down
+  // each valve's information lines attach at its stem, on the side most of what they join lies: up or down
+  // for a level valve, left or right for one turned upright (valves.js)
   const box = Object.fromEntries(S.layout.children.map((c) => [c.id, c])), bad = [];
   for (const n of S.graph.nodes.filter((n) => n.kind === "valve" || n.kind === "disturbance")) {
     const c = box[n.id]; if (!c) continue;
     const ends = S.layout.edges.map((le) => [le, S.graph.edges.find((e) => e.id === le.id)])
       .filter(([, e]) => e && e.kind !== "pipe" && (e.source === n.id || e.target === n.id));
     if (!ends.length) continue;
-    const below = ends.filter(([, e]) => {
-      const o = box[e.source === n.id ? e.target : e.source];
-      return o && o.y + o.height / 2 > c.y + c.height / 2 + 10;
-    }).length;
-    const wantDown = below > ends.length / 2;
+    const upright = ["up", "down"].includes(c.turn?.flow);
+    const far = (o) => (upright ? o.x + o.width / 2 > c.x + c.width / 2 + 10 : o.y + o.height / 2 > c.y + c.height / 2 + 10);
+    const beyond = ends.filter(([, e]) => { const o = box[e.source === n.id ? e.target : e.source]; return o && far(o); }).length;
+    const want = upright ? (beyond > ends.length / 2 ? "right" : "left") : (beyond > ends.length / 2 ? "down" : "up");
+    if (c.turn?.stem !== want) bad.push(`${n.id}: stem ${c.turn?.stem}, its links lie ${want}`);
     for (const [le, e] of ends) {
       const sec = le.sections[0], p = e.source === n.id ? sec.startPoint : sec.endPoint;
-      const atBottom = Math.abs(p.y - (c.y + c.height)) < 3, atTop = Math.abs(p.y - c.y) < 3;
-      if ((wantDown && !atBottom) || (!wantDown && !atTop)) bad.push(`${n.id}: ${le.id} at y ${p.y} (valve ${c.y}..${c.y + c.height})`);
+      const on = { up: Math.abs(p.y - c.y) < 3, down: Math.abs(p.y - (c.y + c.height)) < 3,
+                   left: Math.abs(p.x - c.x) < 3, right: Math.abs(p.x - (c.x + c.width)) < 3 }[want];
+      if (!on) bad.push(`${n.id}: ${le.id} at ${Math.round(p.x)},${Math.round(p.y)} (stem ${want})`);
     }
   }
   return bad;
@@ -407,6 +413,48 @@ def test_the_background_hides_the_side_panel_and_a_part_dragged_stays_pinned(bro
         assert abs(again[0] - after[0]) < 2 and abs(again[1] - after[1]) < 2
         pg.locator(f'g.pins .pin[data-id="{nid}"]').click(force=True)   # (the page redraws: it never stands still)
         pg.wait_for_function(f"() => !S.pins['{nid}']", timeout=10000)
+        pg.close()
+
+
+def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser, tmp_path):
+    """An open system's outline, dragged by its top, moves with everything in it by the same amount;
+    its lines are routed again, cleanly; nothing lands under it; and it stays there after a new visit."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        pg.get_by_role("button", name="fit").click()
+        places = """() => Object.fromEntries(S.layout.children.filter((c) => (S.graph.nodes.find((n) => n.id === c.id)?.systems || [])
+                       .includes('product')).map((c) => [c.id, [c.x, c.y]]))"""
+        before = pg.evaluate(places)
+        hull = pg.evaluate("() => { const c = S.layout.containers.find((c) => c.name === 'product'); return [c.x, c.y]; }")
+        grip = pg.locator('g.hull[data-hull="product"] rect.hull-grip').bounding_box()
+        k = pg.evaluate("() => S.view.k")
+        x, y = grip["x"] + grip["width"] * 0.6, grip["y"] + 8
+        pg.mouse.move(x, y)
+        pg.mouse.down()
+        for step in range(1, 11):
+            pg.mouse.move(x + 18 * step * k, y + 9 * step * k)
+        pg.mouse.up()
+        pg.wait_for_function(f"() => S.pins['hull:product'] && S.layout && !S.layout.routing && "
+                             f"Math.abs(S.layout.containers.find((c) => c.name === 'product').x - {hull[0]}) > 100", timeout=20000)
+        after = pg.evaluate(places)
+        moved = pg.evaluate("() => { const c = S.layout.containers.find((c) => c.name === 'product'); return [c.x, c.y]; }")
+        assert before and set(before) == set(after)
+        offs = {(round(after[i][0] - before[i][0]), round(after[i][1] - before[i][1])) for i in before}
+        assert len(offs) == 1, offs                                   # all by the same amount
+        (dx, dy), = offs
+        assert abs(dx - 180) < 8 and abs(dy - 90) < 8, (dx, dy)
+        assert abs(moved[0] - hull[0] - dx) < 2 and abs(moved[1] - hull[1] - dy) < 2   # its outline with them
+        r = pg.evaluate(AUDIT)
+        assert not r["through"] and not r["partOverlap"] and not r["netCrossings"], (r["through"], r["partOverlap"])
+        drawn(pg, url, "open=*", 9)                                   # a new visit: still where it was put
+        again = pg.evaluate(places)
+        assert all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after)
+        pg.locator('g.pins .pin[data-id="hull:product"]').dispatch_event("click")
+        pg.wait_for_function("() => !S.pins['hull:product']", timeout=10000)
+        assert not errors, errors
         pg.close()
 
 

@@ -49,7 +49,8 @@ const ELK_PRESETS = {
   "anchors-mid": { separate: true, feedback: true, anchors: true, all: MID },
   "anchors-rect": { separate: true, feedback: true, anchors: true, all: TIGHT, root: { "elk.algorithm": "rectpacking" } },
   "anchors-wrap-all": { separate: true, feedback: true, anchors: true, all: { ...TIGHT, ...WRAP } },
-  "anchors-wrap": { separate: true, feedback: true, anchors: true, all: TIGHT, hullsRoot: WRAP, wrapOver: WRAP_OVER, align: true },
+  "anchors-wrap": { separate: true, feedback: true, anchors: true, all: TIGHT, hullsRoot: WRAP, wrapOver: WRAP_OVER, align: true, upright: true },
+  "anchors-wrap-level": { separate: true, feedback: true, anchors: true, all: TIGHT, hullsRoot: WRAP, wrapOver: WRAP_OVER, align: true },
   "anchors-wrap-unaligned": { separate: true, feedback: true, anchors: true, all: TIGHT, hullsRoot: WRAP, wrapOver: WRAP_OVER },
   // ELK's other algorithms, each open system on its own
   stress: { separate: true, all: { "elk.algorithm": "stress", "elk.stress.desiredEdgeLength": "120" }, overlap: true },

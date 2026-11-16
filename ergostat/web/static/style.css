@@ -255,6 +255,7 @@ a.plain { color: var(--ink); }
 .sys-btn text { font-size: 11px; fill: var(--accent); }
 .sys-btn:hover rect { fill: var(--system); }
 .sys-hull-label { cursor: pointer; }
+.sys-hull rect.hull-grip { fill: transparent; stroke: none; cursor: move; }
 .sys-hull-label:hover { text-decoration: underline; }
 .k-terminal { cursor: pointer; }
 .toolbar .crumbs { font-size: 13px; color: var(--muted); }

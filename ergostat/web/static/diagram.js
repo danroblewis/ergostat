@@ -185,16 +185,14 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     restack(lay, g);
     routeCuts(lay, cuts);
   }
+  if (ELK_PRESETS[LAYOUT]?.upright) standUpright(lay, g);   // drains and inflows stood upright where there is room
   applyPins(lay, g);
   orientValves(lay, g);                                  // valves face their pipes and their links (valves.js)
   if (g.kind !== "wiring") avoidStart(lay, g);           // every line, by libavoid (avoid.js): ELK's until it is done
   return lay;
 }
 
-/* parts the owner dragged stay where they were put (pinned): the layout runs as ever, then each
-   pinned part goes back to its place, parts it would sit on are moved down out of its way, open
-   systems' outlines grow to hold their parts again, and every line touching a moved part is routed
-   anew. The pins are kept in this browser, per project, view and what is open */
+/* the pins (places.js): kept in this browser, per project, view and what is open */
 function pinKey() { return S.pinKey || ""; }
 function loadPins() {
   try { return JSON.parse(localStorage.getItem(pinKey()) || "{}"); } catch (e) { return {}; }
@@ -203,57 +201,6 @@ function savePins() {
   try { if (Object.keys(S.pins || {}).length) localStorage.setItem(pinKey(), JSON.stringify(S.pins)); else localStorage.removeItem(pinKey()); }
   catch (e) { /* not remembered: they last this visit */ }
 }
-function applyPins(lay, g) {
-  const moved = new Set(), delta = {};
-  const pins = S.pins || {};
-  const kids = lay.children;
-  const shift = (c, x, y) => {
-    const d = delta[c.id] || { x: 0, y: 0 };
-    delta[c.id] = { x: d.x + x - c.x, y: d.y + y - c.y };
-    c.x = x; c.y = y; moved.add(c.id);
-  };
-  for (const c of kids) if (pins[c.id]) shift(c, pins[c.id].x, pins[c.id].y);
-  if (!moved.size) return moved;
-  const over = (a, b, m = 16) => a.x < b.x + b.width + m && b.x < a.x + a.width + m && a.y < b.y + b.height + m && b.y < a.y + a.height + m;
-  for (let pass = 0; pass < 4; pass++) {                // what a pinned (or moved) part sits on is moved down, out of its way
-    let any = false;
-    for (const a of kids) {
-      if (!moved.has(a.id)) continue;
-      for (const b of kids) {
-        if (b === a || pins[b.id] || !over(a, b)) continue;
-        shift(b, b.x, a.y + a.height + 28);
-        any = true;
-      }
-    }
-    if (!any) break;
-  }
-  for (const le of lay.edges) {                         // each line's ends go with the parts they belong to
-    const e = (g.edges.find((x) => x.id === le.id)) || {};
-    const sec = (le.sections || [])[0];
-    if (!sec) continue;
-    const ds = delta[e.source], dt = delta[e.target];
-    if (ds) { sec.startPoint = { x: sec.startPoint.x + ds.x, y: sec.startPoint.y + ds.y }; }
-    if (dt) { sec.endPoint = { x: sec.endPoint.x + dt.x, y: sec.endPoint.y + dt.y }; }
-    if (ds || dt) sec.bendPoints = [];
-  }
-  if (lay.containers?.length) {                         // outlines hold their parts again, the innermost first
-    const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
-    const sorted = [...lay.containers].sort((a, b) => b.depth - a.depth);
-    for (const c of sorted) {
-      const parts = kids.filter((k) => (byId[k.id]?.systems || []).includes(c.name));
-      const inner = sorted.filter((o) => o.depth > c.depth && (g.tree?.[o.name]?.within === c.name));
-      const boxes = [...parts.map((k) => ({ x0: k.x, y0: k.y, x1: k.x + k.width, y1: k.y + k.height + Math.max(0, ...(k.labels || []).map((l) => l.y + l.height - k.height)) })),
-                     ...inner.map((o) => ({ x0: o.x, y0: o.y, x1: o.x + o.width, y1: o.y + o.height }))];
-      if (!boxes.length) continue;
-      const x0 = Math.min(...boxes.map((b) => b.x0)) - 26, y0 = Math.min(...boxes.map((b) => b.y0)) - 44;
-      Object.assign(c, { x: x0, y: y0, width: Math.max(...boxes.map((b) => b.x1)) + 26 - x0, height: Math.max(...boxes.map((b) => b.y1)) + 26 - y0 });
-    }
-  }
-  lay.width = Math.max(lay.width, ...kids.map((k) => k.x + k.width + 40));
-  lay.height = Math.max(lay.height, ...kids.map((k) => k.y + k.height + 60));
-  return moved;
-}
-
 /* a nested layout made flat again: every part and edge in the diagram's own coordinates, and the
    open systems as outlines (lay.containers), outermost first */
 function flatten(lay) {
@@ -646,16 +593,27 @@ function drawGraph(svg, g, lay) {
   S.edgeById = edgeById;
   const vp = s("g", { id: "viewport" });
   // systems as hulls behind everything (overlapping freely)
+  const hullPins = [];                                     // (drawn on top, with the parts' pins)
   if (g.kind === "control" && lay.containers?.length) {      // open systems: laid out as containers, drawn as outlines
     const hulls = s("g", { class: "sys-hull" });
     const names = Object.keys(g.tree || {}).sort();
     for (const c of lay.containers) {
       const hue = (210 + names.indexOf(c.name) * 137.5) % 360;
-      hulls.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height, rx: 16, style: `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,45%,.45)` }),
+      const hg = s("g", { class: "hull", "data-hull": c.name });
+      hulls.append(hg);
+      // its top is a handle: dragged, the system moves with everything in it, and stays there (places.js)
+      const grip = s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: c.width, height: 32, rx: 16,
+                               onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: c.name, x0: ev.clientX, y0: ev.clientY, cx: c.x, cy: c.y, moved: false }; } },
+                       s("title", {}, `${c.name}: drag to move it, with everything in it`));
+      hg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height, rx: 16, style: `fill:hsla(${hue},70%,50%,.05);stroke:hsla(${hue},60%,45%,.45)` }), grip,
         s("text", { x: c.x + 14, y: c.y + 22, class: "sys-hull-label", "data-act": "close", style: `fill:hsl(${hue},55%,42%)`, onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
           s("title", {}, `${c.name}: click to close it into one box`), "▾ " + c.name),
         s("text", { x: c.x + 14 + textWidth("▾ " + c.name) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", "data-act": "into", style: `fill:hsl(${hue},55%,42%)`,
                     onclick: (ev) => { ev.stopPropagation(); S.drill?.(c.name); } }, s("title", {}, "draw it alone"), "⤓"));
+      if (S.pins?.["hull:" + c.name]) hullPins.push(s("g", { class: "pin", "data-act": "unpin", "data-id": "hull:" + c.name, transform: `translate(${c.x + c.width - 14},${c.y + 4})`,
+                                                      onclick: (ev) => { ev.stopPropagation(); delete S.pins["hull:" + c.name]; savePins(); S.relayout?.(); } },
+        s("title", {}, "moved here: click to let the layout place it again"),
+        s("circle", { r: 7 }), s("path", { d: "M-2.5,-3 h5 l-1,3 h2 l-3.5,3 v3 M0,3 v3" })));
     }
     vp.append(hulls);
   } else if (g.kind === "control" && S.showHulls && !g.tree) {
@@ -808,6 +766,7 @@ function drawGraph(svg, g, lay) {
     }
     nodesG.append(ng);
   }
+  pinsG.append(...hullPins);
   vp.append(edgesG, nodesG, pinsG);
   svg.replaceChildren(vp);
   applyView(svg);
@@ -883,6 +842,41 @@ function panZoom(svg) {
     svg.classList.add("dragging-part");
     d.to = { x: Math.round(d.lx + dx), y: Math.round(d.ly + dy) };
     avoidMove(d.id, d.to.x, d.to.y)?.then((ids) => { if (S.nodeDrag === d) for (const id of ids) redrawLine(svg, id); });   // its lines follow it
+  });
+  window.addEventListener("pointermove", (ev) => {      // an open system dragged by its top: it and all in it follow
+    const d = S.hullDrag;
+    if (!d || !S.layout) return;
+    if (!d.moved && Math.hypot(ev.clientX - d.x0, ev.clientY - d.y0) < 5) return;
+    if (!d.moved) {                                     // what goes with it: its parts, and the systems open inside it
+      const byId = Object.fromEntries((S.graph?.nodes || []).map((n) => [n.id, n]));
+      d.parts = S.layout.children.filter((k) => (byId[k.id]?.systems || []).includes(d.name)).map((k) => ({ id: k.id, x: k.x, y: k.y }));
+      d.hulls = (S.layout.containers || []).filter((o) => o.name === d.name || within(S.graph, o.name, d.name)).map((o) => o.name);
+    }
+    d.moved = true;
+    const dx = (ev.clientX - d.x0) / S.view.k, dy = (ev.clientY - d.y0) / S.view.k;
+    svg.classList.add("dragging-part");
+    for (const name of d.hulls) svg.querySelector(`g.hull[data-hull="${CSS.escape(name)}"]`)?.setAttribute("transform", `translate(${dx},${dy})`);
+    for (const p of d.parts) svg.querySelector(`.node[data-id="${CSS.escape(p.id)}"]`)?.setAttribute("transform", `translate(${p.x + dx},${p.y + dy})`);
+    d.to = { x: Math.round(d.cx + dx), y: Math.round(d.cy + dy) };
+    d.next = d.parts.map((p) => [p.id, Math.round(p.x + dx), Math.round(p.y + dy)]);
+    const send = () => {                                // its lines follow, one routing at a time, the latest place
+      if (d.busy || !d.next || S.hullDrag !== d) return;
+      const list = d.next; d.next = null;
+      const done = avoidMoveMany(list);
+      if (!done) return;
+      d.busy = true;
+      done.then((ids) => { d.busy = false; if (S.hullDrag === d) { for (const id of ids) redrawLine(svg, id); send(); } });
+    };
+    send();
+  });
+  window.addEventListener("pointerup", () => {
+    const d = S.hullDrag;
+    S.hullDrag = null;
+    if (!d || !d.moved || !d.to) return;
+    svg.classList.remove("dragging-part");
+    S.pins = { ...(S.pins || {}), ["hull:" + d.name]: d.to };   // put down: it stays there
+    savePins();
+    S.relayout?.();
   });
   window.addEventListener("pointerup", () => {
     const d = S.nodeDrag;
