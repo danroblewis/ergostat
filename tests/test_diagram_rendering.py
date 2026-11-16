@@ -581,3 +581,52 @@ def test_scroll_pans_and_command_scroll_or_a_pinch_zooms_at_the_pointer(browser,
         pg.get_by_role("button", name="+").click()
         pg.get_by_role("button", name="fit").click()
         pg.close()
+
+
+WIRE_PANELS = """() => {
+  const bad = [];
+  for (const e of S.graph.edges) {
+    openEdge(e);
+    const kind = document.querySelector('#detail .kind')?.textContent || '';
+    if (!kind.startsWith('wire')) bad.push(`${e.id}: ${kind}`);
+  }
+  for (const n of S.graph.nodes) {
+    openNode(n);
+    const kind = document.querySelector('#detail .kind')?.textContent || '';
+    if (!kind.startsWith('machine')) bad.push(`${n.id}: ${kind}`);
+  }
+  const dashed = [...document.querySelectorAll('g.edge.wire')].filter((g) => g.dataset.id.startsWith('wire-unseen:')).length;
+  return { bad, dashed, unseen: S.graph.edges.filter((e) => !e.seen).length, edges: S.graph.edges.length,
+           nodes: document.querySelectorAll('svg.canvas g.node').length, want: S.graph.nodes.length };
+}"""
+
+
+@pytest.mark.parametrize("example", EXAMPLES)
+def test_every_wiring_view_draws_what_the_record_shows(browser, tmp_path, example):
+    """The wiring of each example, with a record that shows half of what its model declares (and
+    two machines it never names): drawn cleanly, the declared but unseen dashed, every panel opening."""
+    from ergostat import graph
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served(example, tmp_path) as url:
+        p = Project(mdl.load(tmp_path / example))
+        for i, (a, b) in enumerate(sorted(graph.declared_wires(p.model))):
+            if i % 2:
+                continue
+            sent = p.events.add("thing.sent", source=a)
+            p.events.add("agent.started", item=b, source="ergostat", causedby=sent["id"])
+        inv = p.events.add("invoice.sent", source="billing/1")
+        p.events.add("mail.sent", source="mailer", causedby=inv["id"])
+        time.sleep(1.6)                                   # past the page's snapshot of the moment it started
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=wiring", 0)
+        r = pg.evaluate(AUDIT)
+        problems = [f"{k}: {x}" for k in ("through", "overlap", "partOverlap") for x in r[k]]
+        w = pg.evaluate(WIRE_PANELS)
+        pg.close()
+    assert not errors, errors
+    assert not problems, f"{example}: " + "\n".join(problems)
+    assert w["nodes"] == w["want"] and w["dashed"] == w["unseen"] and 0 < w["unseen"] < w["edges"], w
+    assert not w["bad"], w["bad"][:8]

@@ -73,14 +73,23 @@ def cmd_system(args) -> int:
             print(c("no loops in this selection", "dim"))
         return 0
     if args.wiring:
+        print(c(f"what the record shows, over the {human(g['span'])} "
+                f"{'recorded' if g['span'] < snap['window'] * 0.95 else 'window'} ({g['events']} events)", "dim"))
         for n in g["nodes"]:
-            fills = ", ".join(f"{r['kind']} {r['name']}" for r in n["roles"]) or "nothing"
-            load = f"; the load: {', '.join(n['loads'])}" if n.get("loads") else ""
-            print(f"  [{n['label']} · {n['agentKind']}]  fills {fills}{load}")
+            pub = ", ".join(f"{x['type']} {x['count']}" for x in n["published"][:4]) or "nothing"
+            runs = f"ran {n['runs']}, " if n["runs"] else ""
+            state = c("silent", "dim") if n["silent"] else f"{runs}published {pub}"
+            print(f"  [{n['label']} · {n['agentKind']}{'' if n['declared'] else ', not in the model'}]  {state}")
         for e in g["edges"]:
-            print(f"  {e['source'].split(':', 1)[1]} ─▶ {e['target'].split(':', 1)[1]}  {c('via ' + ', '.join(e['via']), 'dim')}")
+            ends = f"{e['source'].split(':', 1)[1]} ─▶ {e['target'].split(':', 1)[1]}"
+            if not e["seen"]:
+                print(f"  {c(ends, 'dim')}  {c('declared, never seen: ' + '; '.join(e['declaredAs']), 'warn')}")
+                continue
+            types = ", ".join(f"{t['type']} {t['count']}" for t in e["types"])
+            print(f"  {ends}  {types} {c('· ' + ', '.join(e['evidence']), 'dim')}"
+                  + (c("  undeclared", "warn") if e["undeclared"] else ""))
         if g.get("cycles"):
-            print(c("\ncycles among the agents", "dim"))
+            print(c("\ncycles among the machines", "dim"))
             for cy in g["cycles"]:
                 ring = " ─▶ ".join(cy["agents"] + [cy["agents"][0]])
                 print(f"  {ring}  " + (c("loop " + cy["loop"], "ok") if cy["loop"] else c("not a declared loop", "warn")))

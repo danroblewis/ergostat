@@ -26,17 +26,101 @@ def test_around_a_part_selects_its_neighbours(project):
                                                                        "delete-old-files", "cleaned", "logs-written"}
 
 
-def test_the_wiring_graph_links_agents_through_parts(repo, project):
+WIRED = """
+[[agent]]
+name = "decider"
+kind = "rule"
+command = "true"
+on = ["loop.off@disk-under-80"]
+
+[[agent]]
+name = "notifier"
+kind = "program"
+command = "true"
+on = ["cleanup.done"]
+
+[[agent]]
+name = "auditor"
+kind = "program"
+command = "true"
+on = ["agent.failed@cleaner"]
+
+[[agent]]
+name = "ghost"
+kind = "person"
+"""
+
+
+def wired(repo):
+    """The disk model with a controller agent woken by its loop, a listener, an auditor that never
+    hears anything and a person who never shows up; and a record crafted to prove some of it."""
     text = repo.path.joinpath("ergostat.toml").read_text().replace('agent = "cleaner"\n\n[[valve]]', 'agent = "decider"\n\n[[valve]]')
-    text += '\n[[agent]]\nname = "decider"\nkind = "rule"\n'
-    repo.write("ergostat.toml", text)
+    repo.write("ergostat.toml", text + WIRED)
     from ergostat import model
     from ergostat.store import Project
     p = Project(model.load(repo.path))
+    import time
+    now = time.time()
+    ev = p.events.add
+    ev("old.thing", source="long-gone", at=now - 3 * 86400)                       # outside the window
+    run = ev("agent.started", item="cleaner", source="ergostat", at=now - 600)       # the cleaner reads the disk ...
+    off = ev("loop.off", item="disk-under-80", source="ergostat", causedby=run["id"], at=now - 599)   # ... and it is off
+    ev("agent.started", item="decider", source="ergostat", causedby=off["id"], at=now - 598)          # woken by it
+    ev("cleanup.done", item="disk", source="cleaner", causedby=run["id"], at=now - 590)
+    ev("agent.started", item="notifier", source="ergostat", at=now - 580)           # ran after it: it listens for it
+    ev("cleanup.done", item="disk", source="cleaner", at=now - 100)                 # heard, but nothing ran after
+    inv = ev("invoice.sent", item="invoice/7", source="billing/2", at=now - 300)    # machines the model never names
+    ev("mail.sent", item="invoice/7", source="mailer", causedby=inv["id"], at=now - 299)
+    return p
+
+
+def test_the_wiring_is_what_the_record_shows(repo):
+    p = wired(repo)
     g = graph.wiring(p.model, p, state.snapshot(p), p.model.members(None))
-    vias = {(e["source"], e["target"]): e["via"] for e in g["edges"]}
-    assert vias[("agent:cleaner", "agent:decider")] == ["sensor disk-usage"]
-    assert vias[("agent:decider", "agent:cleaner")] == ["valve delete-old-files"]
+    nodes = {n["label"]: n for n in g["nodes"]}
+    edges = {(e["source"].split(":", 1)[1], e["target"].split(":", 1)[1]): e for e in g["edges"]}
+    assert "long-gone" not in nodes                                                  # only the window
+    assert nodes["ghost"]["silent"] and nodes["ghost"]["declared"] and nodes["auditor"]["silent"]
+    assert nodes["billing"]["seen"] and not nodes["billing"]["declared"] and nodes["billing"]["instances"] == ["2"]
+    assert nodes["cleaner"]["runs"] == 1 and {x["type"]: x["count"] for x in nodes["cleaner"]["published"]} == {"cleanup.done": 2}
+    assert nodes["notifier"]["heard"] == {"cleanup.done": 2}
+    # caused by: the cleaner's run caused ergostat's loop.off, which woke the decider; both declared
+    e = edges[("cleaner", "ergostat")]
+    assert e["seen"] and e["declared"] and e["evidence"] == ["caused-by"]
+    assert [(t["type"], t["how"], t["count"], t["publisher"]) for t in e["types"]] == [("loop.off", "run", 1, "ergostat")]
+    e = edges[("ergostat", "decider")]
+    assert e["seen"] and e["declared"] and e["types"][0]["type"] == "loop.off" and e["types"][0]["how"] == "sent"
+    assert any("listens for loop.off@disk-under-80" in x for x in e["declaredAs"])
+    # listened and ran: the notifier listens for cleanup.done and ran after the first, not the second
+    e = edges[("cleaner", "notifier")]
+    assert e["seen"] and e["undeclared"] and e["evidence"] == ["listened-and-ran"] and e["count"] == 1
+    assert e["via"] == ["cleanup.done · 1 · undeclared"]
+    # between machines the model never names: undeclared, from the instance's machine
+    e = edges[("billing", "mailer")]
+    assert e["undeclared"] and e["types"][0]["type"] == "invoice.sent" and e["types"][0]["publisher"] == "billing"
+    # declared, never seen: the auditor listens for the cleaner's failures, and there were none
+    e = edges[("cleaner", "auditor")]
+    assert not e["seen"] and e["declared"] and e["id"].startswith("wire-unseen:") and e["via"] == ["declared, never seen"]
+    assert ("decider", "cleaner") not in edges                       # a role handed on is not evidence by itself
+    assert len(g["edges"]) == 5
+
+
+def test_the_wiring_of_a_past_moment_and_a_window(repo):
+    p = wired(repo)
+    import time
+    early = graph.wiring(p.model, p, state.snapshot(p, 120, time.time() - 595), p.model.members(None))
+    labels = {n["label"]: n for n in early["nodes"]}
+    assert labels["cleaner"]["runs"] == 1 and labels["decider"]["runs"] == 1 and labels["notifier"]["silent"]
+    assert {(e["source"], e["target"]) for e in early["edges"] if e["seen"]} == {("agent:cleaner", "agent:ergostat"),
+                                                                              ("agent:ergostat", "agent:decider")}
+    late = graph.wiring(p.model, p, state.snapshot(p, 200), p.model.members(None))
+    assert {n["label"] for n in late["nodes"] if n["seen"]} == {"cleaner"}          # only its second cleanup.done
+
+
+def test_the_record_page_filters_by_machine_and_type(repo):
+    p = wired(repo)
+    assert [e["type"] for e in p.events.query(n=None, machine="billing")] == ["invoice.sent"]
+    assert [e["type"] for e in p.events.query(n=None, type="invoice.sent,mail.*")] == ["invoice.sent", "mail.sent"]
 
 
 def run_cli(repo, *args, capsys=None):
@@ -84,7 +168,7 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         st, body = get("/api/status")
         assert st == 200 and json.loads(body)["loops"]["disk-under-80"]["status"] == "holding"
         assert json.loads(get("/api/graph?view=control")[1])["kind"] == "control"
-        assert json.loads(get("/api/graph?view=wiring")[1])["kind"] == "wiring"
+        assert json.loads(get("/api/graph?view=wiring")[1])["kind"] == "events"
         assert json.loads(get("/api/part/stock/disk-used")[1])["now"]["value"] == 70
         assert "cleaner" in json.loads(get("/api/agents")[1])
         parts = json.loads(get("/api/parts")[1])
@@ -201,9 +285,17 @@ def test_cycles_among_agents_and_whether_a_loop_declares_them(repo):
     from ergostat import model, state
     from ergostat.store import Project
     p = Project(model.load(repo.path))
+    assert not graph.wiring(p.model, p, state.snapshot(p), p.model.members(None))["cycles"]   # nothing recorded yet
+    # the cleaner reads, the loop goes off, the decider decides, the cleaner runs on its decision
+    ev = p.events.add
+    run = ev("agent.started", item="cleaner", source="ergostat")
+    off = ev("loop.off", item="disk-under-80", source="ergostat", causedby=run["id"])
+    dec = ev("agent.started", item="decider", source="ergostat", causedby=off["id"])
+    said = ev("controller.decided", item="disk-under-80", source="decider", causedby=dec["id"], data={"decision": "clean"})
+    ev("agent.started", item="cleaner", source="ergostat", causedby=said["id"])
     g = graph.wiring(p.model, p, state.snapshot(p), p.model.members(None))
     (cy,) = g["cycles"]
-    assert sorted(cy["agents"]) == ["cleaner", "decider"] and cy["loop"] == "disk-under-80"
+    assert sorted(cy["agents"]) == ["cleaner", "decider", "ergostat"] and cy["loop"] == "disk-under-80"
     # two agents that pass events back and forth, with no loop between them
     m = p.model
     m.agents["pinger"] = model.Agent("pinger", "program", "true", 1.0, ["pong.*"])
