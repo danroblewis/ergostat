@@ -19,7 +19,8 @@ function within(g, inner, outer) {
   return false;
 }
 
-/* every open system's outline round its parts and the systems open inside it, the innermost first */
+/* every open system's outline round its parts and the systems open inside it (and its frame, the box
+   the layout gave it, wherever it has been moved: an outline only grows), the innermost first */
 function regrowOutlines(lay, g) {
   if (!lay.containers?.length) return;
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
@@ -28,6 +29,7 @@ function regrowOutlines(lay, g) {
     const parts = lay.children.filter((k) => (byId[k.id]?.systems || []).includes(c.name));
     const inner = sorted.filter((o) => o.depth > c.depth && g.tree?.[o.name]?.within === c.name);
     const boxes = [...parts.map(partBox), ...inner.map((o) => ({ x0: o.x, y0: o.y, x1: o.x + o.width, y1: o.y + o.height }))];
+    if (c.bx != null) boxes.push({ x0: c.bx + PAD.side, y0: c.by + PAD.top, x1: c.bx + c.w0 - PAD.side, y1: c.by + c.h0 - PAD.side });   // its frame
     if (!boxes.length) continue;
     const x0 = Math.min(...boxes.map((b) => b.x0)) - PAD.side, y0 = Math.min(...boxes.map((b) => b.y0)) - PAD.top;
     Object.assign(c, { x: x0, y: y0, width: Math.max(...boxes.map((b) => b.x1)) + PAD.side - x0, height: Math.max(...boxes.map((b) => b.y1)) + PAD.side - y0 });
@@ -51,10 +53,37 @@ function outlinesClear(lay, g) {
 
 /* the drawing's size again, from what is in it */
 function refit(lay) {
-  const xs = lay.children.flatMap((k) => { const b = partBox(k); return [b.x1]; }), ys = lay.children.map((k) => partBox(k).y1);
-  for (const c of lay.containers || []) { xs.push(c.x + c.width); ys.push(c.y + c.height); }
-  lay.width = Math.max(...xs) + 40;
-  lay.height = Math.max(...ys) + 40;
+  const bs = [...lay.children.map(partBox), ...(lay.containers || []).map((c) => ({ x0: c.x, y0: c.y, x1: c.x + c.width, y1: c.y + c.height }))];
+  lay.ox = Math.min(0, ...bs.map((b) => b.x0 - 40)); lay.oy = Math.min(0, ...bs.map((b) => b.y0 - 40));   // (what was put left or above)
+  lay.width = Math.max(...bs.map((b) => b.x1)) + 40 - lay.ox;
+  lay.height = Math.max(...bs.map((b) => b.y1)) + 40 - lay.oy;
+}
+
+/* parts put down by hand, and no new layout: what they would sit on moved out of their way (as for pins),
+   the outlines drawn round their parts again, the valves facing their pipes, the drawing's size; the
+   lines are routed again by the caller */
+function settle(lay, g, placed) {
+  applyPins(lay, g, placed);
+  orientValves(lay, g);
+  refit(lay);
+}
+
+/* the whole layout moved so that one system (opened or closed just now) lies where it lay before:
+   the view does not jump, and what was put stays put */
+function anchorLayout(lay, g, anchor) {
+  if (!anchor) return false;
+  const c = (lay.containers || []).find((o) => o.name === anchor.name);
+  const box = lay.children.find((k) => g.nodes.find((n) => n.id === k.id && n.kind === "system" && n.label === anchor.name));
+  const at = c || box;
+  if (!at) return false;
+  const dx = anchor.x - at.x, dy = anchor.y - at.y;
+  if (!dx && !dy) return true;
+  for (const k of lay.children) { k.x += dx; k.y += dy; }
+  for (const o of lay.containers || []) { o.x += dx; o.y += dy; }
+  for (const le of lay.edges) for (const sec of le.sections || []) for (const p of [sec.startPoint, sec.endPoint, ...(sec.bendPoints || [])]) { p.x += dx; p.y += dy; }
+  for (const le of lay.edges) for (const l of le.labels || []) { l.x += dx; l.y += dy; }
+  refit(lay);
+  return true;
 }
 
 /* a flow between a cloud and a stock and nothing else: the stock, its cloud, and whether it drains it */
@@ -114,13 +143,31 @@ function standUpright(lay, g) {
   return stood;
 }
 
+/* a pin: where the owner put a part, or a system (its closed box and its open outline share one,
+   "hull:<name>"), kept from the corner of the frame of the open system it is drawn in ({in, x, y}), or
+   in the diagram's own coordinates ({x, y}): so what is inside a system keeps its place in it when
+   the system moves, closes or opens, and a new layout never places what was put */
+function pinId(id, node) { return node?.kind === "system" ? "hull:" + node.label : id; }
+function pinAt(lay, p) {                               // where a pin puts it now (null: its frame is not drawn here)
+  if (!p) return null;
+  if (!p.in) return { x: p.x, y: p.y };
+  const f = (lay.containers || []).find((c) => c.name === p.in);
+  return f && f.bx != null ? { x: f.bx + p.x, y: f.by + p.y } : null;
+}
+function pinFor(lay, g, name, x, y) {                  // a pin for something put at x, y: in the frame of the open system it is in
+  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+  const frame = name.startsWith("hull:") ? g.tree?.[name.slice(5)]?.within : (byId[name]?.systems || [])[0];
+  const f = frame && (lay.containers || []).find((c) => c.name === frame);
+  return f && f.bx != null ? { in: frame, x: Math.round(x - f.bx), y: Math.round(y - f.by) } : { x: Math.round(x), y: Math.round(y) };
+}
+
 /* parts the owner dragged stay where they were put (pinned): an open system dragged by its outline
-   (pins["hull:<name>"], its outline's corner) takes everything in it along; then each pinned part goes
+   (its pin, its frame's corner) takes everything in it along; then each pinned part goes
    to its place, what they would sit on is moved down out of their way, the outlines grow to hold their
    parts again, and an outline over another (or over a part not in it) moves what it would cover below
    it. Every line touching a moved part is routed anew. The pins are kept in this browser, per project,
    view and what is open */
-function applyPins(lay, g) {
+function applyPins(lay, g, placed = null) {        // (placed: parts the owner has just put down, already where they go)
   const moved = new Set(), delta = {}, fixed = new Set();
   const pins = S.pins || {};
   const kids = lay.children;
@@ -133,16 +180,27 @@ function applyPins(lay, g) {
   const members = (name) => kids.filter((k) => (byId[k.id]?.systems || []).includes(name));
   const moveSystem = (c, dx, dy) => {                  // a system, everything in it and the systems inside it
     for (const k of members(c.name)) shift(k, k.x + dx, k.y + dy);
-    for (const o of lay.containers) if (o === c || within(g, o.name, c.name)) { o.x += dx; o.y += dy; }
+    for (const o of lay.containers) if (o === c || within(g, o.name, c.name)) { o.x += dx; o.y += dy; o.bx += dx; o.by += dy; }
   };
   const hulls = [...(lay.containers || [])].sort((a, b) => a.depth - b.depth);
-  for (const c of hulls) {
-    const p = pins["hull:" + c.name];
-    if (!p) continue;
-    moveSystem(c, p.x - c.x, p.y - c.y);
-    for (const k of members(c.name)) fixed.add(k.id);
+  for (const c of hulls) if (c.bx == null) { c.bx = c.x; c.by = c.y; c.w0 = c.width; c.h0 = c.height; }   // each open system's frame:
+                                                       // its pinned parts are kept from it, and its outline is drawn round it at least
+  if (placed) {                                        // put down by hand: they stay, and so does all that is pinned
+    for (const id of placed) { moved.add(id); fixed.add(id); }
+    for (const c of hulls) if (pins["hull:" + c.name]) for (const k of members(c.name)) fixed.add(k.id);
+    for (const c of kids) if (pins[pinId(c.id, byId[c.id])]) fixed.add(c.id);
+  } else {
+    for (const c of hulls) {                           // (the outermost first: one inside goes with it, then to its own pin)
+      const t = pinAt(lay, pins["hull:" + c.name]);
+      if (!t) continue;
+      moveSystem(c, t.x - c.bx, t.y - c.by);
+      for (const k of members(c.name)) fixed.add(k.id);
+    }
+    for (const c of kids) {
+      const t = pinAt(lay, pins[pinId(c.id, byId[c.id])]);
+      if (t) { shift(c, t.x, t.y); fixed.add(c.id); }
+    }
   }
-  for (const c of kids) if (pins[c.id]) { shift(c, pins[c.id].x, pins[c.id].y); fixed.add(c.id); }
   if (!moved.size) return moved;
   const over = (a, b, m = 16) => a.x < b.x + b.width + m && b.x < a.x + a.width + m && a.y < b.y + b.height + m && b.y < a.y + a.height + m;
   for (let pass = 0; pass < 4; pass++) {                // what a pinned (or moved) part sits on is moved down, out of its way
@@ -170,6 +228,13 @@ function applyPins(lay, g) {
       moveSystem(go, 0, stay.y + stay.height + 24 - go.y);
       any = true;
     }
+    for (const h of hulls) {                           // an outline not put there by the owner over a part that was: it gives way
+      if (pins["hull:" + h.name]) continue;
+      const level = hulls.find((o) => o.name === g.tree?.[h.name]?.within)?.name ?? null;
+      const k = kids.find((k) => fixed.has(k.id) && !(byId[k.id]?.systems || []).includes(h.name) &&
+                                 ((byId[k.id]?.systems || [])[0] ?? null) === level && meets(partBox(k), rect(h), 12));
+      if (k) { moveSystem(h, 0, partBox(k).y1 + 28 - h.y); any = true; }
+    }
     for (const h of hulls) {
       if (!pins["hull:" + h.name]) continue;
       const level = hulls.find((o) => o.name === g.tree?.[h.name]?.within)?.name ?? null;   // the outline it is drawn in
@@ -191,7 +256,6 @@ function applyPins(lay, g) {
     if (dt) { sec.endPoint = { x: sec.endPoint.x + dt.x, y: sec.endPoint.y + dt.y }; }
     if (ds || dt) sec.bendPoints = [];
   }
-  lay.width = Math.max(lay.width, ...kids.map((k) => k.x + k.width + 40), ...(lay.containers || []).map((c) => c.x + c.width + 40));
-  lay.height = Math.max(lay.height, ...kids.map((k) => k.y + k.height + 60), ...(lay.containers || []).map((c) => c.y + c.height + 40));
+  refit(lay);
   return moved;
 }

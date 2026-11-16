@@ -259,6 +259,9 @@ a.plain { color: var(--ink); }
 .sys-btn text { font-size: 11px; fill: var(--accent); }
 .sys-btn:hover rect { fill: var(--system); }
 .sys-hull-label { cursor: pointer; }
+.node.selected { filter: drop-shadow(0 0 2px var(--accent)) drop-shadow(0 0 4px var(--accent)); }
+.edge.stale { opacity: .3; }
+svg.canvas rect.band { fill: var(--accent); fill-opacity: .08; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; }
 .sys-hull rect.hull-grip { fill: transparent; stroke: none; cursor: move; }
 .sys-hull-label:hover { text-decoration: underline; }
 .k-terminal { cursor: pointer; }
