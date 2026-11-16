@@ -122,9 +122,12 @@ class Explainer:
             lines.append("  Acting: " + "; ".join(
                 f"{a} ({s.blocks[a].type}) moves " + ", ".join(str(t) for t in s.blocks[a].targets() if t.kind == "flow")
                 for a in lp.actuators) + ".")
-        elif lp.through:
+        elif lp.through and any(p.startswith("stock.") for p in lp.through):
             lines.append("  Closes the long way, through other stocks: " + " → ".join(lp.through) +
                          ". Each stock along it is a queue the loop waits on, so it answers only as fast as they drain.")
+        elif lp.through:
+            lines.append("  Closes through what it sets: " + " → ".join(lp.through) +
+                         ". The controller turns a knob (a variable), and what it holds follows it (driven-by).")
         else:
             lines.append("  Missing feedback: nothing ergostat can see acts on it when it is off.")
         if lp.disturbances:

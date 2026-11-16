@@ -34,7 +34,7 @@ def find(spec: Spec) -> list[Problem]:
         if b.type == "external":
             continue
         moves = [t for t in b.targets() if t.kind == "flow"]
-        commanded = spec.commanders_of(name) or [r for r in b.inputs.values() if r.kind in ("goal", "stock", "flow")]
+        commanded = spec.commanders_of(name) or [r for r in b.inputs.values() if r.kind in ("goal", "stock", "flow", "variable")]
         if moves and not commanded and spec.role(b) == "actuator":
             say("acting-on-its-own", f"block {name}: moves {', '.join(str(t) for t in moves)} on its own schedule; nothing "
                 f"commands it (an open loop)", b.where, f"block.{name}")

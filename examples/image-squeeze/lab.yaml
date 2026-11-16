@@ -1,0 +1,88 @@
+# The lab: hypotheses about what would make images smaller, proposed and built one at a time.
+# The researcher and the developer are AI agents (FACTORY_AI=claude: Claude Code sessions) or
+# stand-ins that work from a fixed notebook of ideas (bin/ideas.py).
+defaults:
+  system: lab
+
+items:
+  hypothesis:
+    id: hypothesis/*
+    states: [proposed, building, testing, kept, dropped]
+    on:
+      hypothesis.started: building
+      hypothesis.testing: testing
+      hypothesis.kept: kept
+      hypothesis.dropped: dropped
+    show: [title, by]
+  release:
+    id: release/*
+    show: [hypothesis, commit]
+
+stocks:
+  ideas:
+    unit: hypotheses
+    description: proposed, waiting to be built
+    sensor:
+      items: hypothesis
+      state: proposed
+      every: 5s
+  experiments:
+    unit: hypotheses
+    description: being built, or running against production (one at a time, for there is one candidate)
+    sensor:
+      items: hypothesis
+      state: [building, testing]
+      every: 5s
+  improvements:
+    unit: hypotheses
+    description: kept, and now part of production
+    sensor:
+      items: hypothesis
+      state: kept
+      every: 5s
+
+flows:
+  proposed:
+    to: ideas
+  started:
+    from: ideas
+    to: experiments
+  abandoned:
+    from: experiments
+  kept:
+    from: experiments
+    to: improvements
+  dropped:
+    from: experiments
+
+goals:
+  ideas-ready:
+    stock: ideas
+    hold: ">= 2"
+    description: there is always something to try next
+  one-running:
+    stock: experiments
+    hold: ">= 1"
+    description: the candidate slot is never idle
+
+blocks:
+  researcher:
+    type: ai
+    goal: ideas-ready
+    prompt: prompts/researcher.md
+    run: bin/ai.sh researcher               # FACTORY_AI=claude: a Claude Code session; otherwise a stand-in
+    in: variable.bytes-per-mp               # what it is trying to bring down
+    max: 1
+    timeout: 15m
+    out: flow.proposed
+  developer:
+    type: ai
+    goal: one-running
+    prompt: prompts/developer.md
+    run: bin/ai.sh developer
+    in: stock.ideas
+    max: 1
+    timeout: 20m
+    out:
+      started: flow.started
+      abandoned: flow.abandoned

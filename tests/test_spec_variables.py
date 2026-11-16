@@ -50,7 +50,7 @@ def test_a_goal_on_a_variable_closes_through_the_knob_that_drives_it(tmp_path):
     assert spec.setter_of("setting").name == "tuner" and "set" in spec.variables["setting"].sensors
     text = explain(spec, "setting")
     assert "Set by block tuner" in text and "manipulated variable" in text
-    assert "Closes the long way" in explain(spec, "quality-held")
+    assert "Closes through what it sets" in explain(spec, "quality-held")
 
 
 def test_the_compiler_refuses_two_setters_and_unknown_variables(tmp_path):

@@ -1,0 +1,24 @@
+# squeeze, and the lab that improves it: a service that compresses the images customers send, and
+# AI agents (or stand-ins) who try ideas to make them smaller, kept only when live traffic shows
+# they are. Three systems, three loops, fastest first:
+#
+#   service   the quality loop: a tuner turns the encoder's quality so what is served looks as good
+#             as it should (0.95 SSIM), whatever the mix of images (service.yaml)
+#   rollout   the experiment: a candidate build runs on the same images as production; a matcher
+#             turns its quality until it looks just as good, and the rollout gives it more traffic
+#             while it saves bytes, keeps it, or rolls it back (rollout.yaml)
+#   lab       the research: hypotheses proposed, built and tested one at a time (lab.yaml)
+#
+# README.md walks the loops.
+name: image-squeeze
+include:
+  - service.yaml
+  - rollout.yaml
+  - lab.yaml
+systems:
+  service:
+    description: squeeze, serving the images customers send
+  rollout:
+    description: one candidate build against production, on the same images
+  lab:
+    description: hypotheses proposed, built and tested

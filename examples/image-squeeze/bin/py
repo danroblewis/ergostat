@@ -1,0 +1,6 @@
+#!/bin/sh
+# The Python this example runs: the first with Pillow and numpy, else one uv makes for it.
+for p in python3 python; do
+    if command -v "$p" >/dev/null 2>&1 && "$p" -c "import PIL, numpy" >/dev/null 2>&1; then exec "$p" "$@"; fi
+done
+exec uv run --quiet --no-project --with pillow --with numpy python "$@"
