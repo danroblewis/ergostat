@@ -143,6 +143,16 @@ flows:
     assert {"missing-key", "bad-bool", "unknown-key"} <= codes, problems
 
 
+def test_the_examples_close_their_goals_with_no_structure_left_to_fix():
+    """Every example's rate-to-rate links go through a stock or are declared instant, and its units convert."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent / "examples"
+    for ex in sorted(p for p in root.iterdir() if (p / "ergostat.yaml").exists()):
+        _, problems = read(ex / "ergostat.yaml")
+        left = [(p.code, p.about) for p in problems if p.code in NEW]
+        assert not left, (ex.name, left)
+
+
 def test_the_schema_takes_a_link_written_out_and_a_running_total():
     import json
     from pathlib import Path

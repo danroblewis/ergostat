@@ -47,10 +47,18 @@ stocks:
       run: bin/py world/bench.py --read flat_points
       every: 20s
 
+auxiliaries:
+  cases-per-release:
+    unit: cases/hypothesis
+    exogenous: true
+    description: the cases a kept release newly meets, each release's own (the benchmark finds them once it is out); not measured
+                 apart, so the gain per release is not known before it
 flows:
   gained:
     to: capabilities
-    driven-by: +flow.kept                 # a release that does something it could not
+    driven-by:                            # a release that does something it could not (measured as it is released)
+      - {cause: +flow.kept, instant: true}
+      - +auxiliary.cases-per-release
     sensor:
       items: case
       entering: met
@@ -64,7 +72,7 @@ flows:
       over: 30m
   benchmark-points-gained:
     to: benchmark-points
-    driven-by: +flow.kept                 # what a release does better
+    driven-by: {cause: +flow.kept, instant: true}   # what a release does better (measured as it is released)
     sensor:                               # the points releases gained: the score's rises, per hour over 30 minutes
       changes: rises
       over: 30m
@@ -77,7 +85,7 @@ flows:
       every: 20s
   photo-points-gained:
     to: photo-points
-    driven-by: +flow.kept                 # what a release does better
+    driven-by: {cause: +flow.kept, instant: true}   # what a release does better (measured as it is released)
     sensor:                               # the points releases gained: the score's rises, per hour over 30 minutes
       changes: rises
       over: 30m
@@ -90,7 +98,7 @@ flows:
       every: 20s
   flat-points-gained:
     to: flat-points
-    driven-by: +flow.kept                 # what a release does better
+    driven-by: {cause: +flow.kept, instant: true}   # what a release does better (measured as it is released)
     sensor:                               # the points releases gained: the score's rises, per hour over 30 minutes
       changes: rises
       over: 30m

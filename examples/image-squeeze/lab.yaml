@@ -32,6 +32,7 @@ stocks:
   ai-spend:
     unit: USD
     description: what the Claude Code sessions have cost so far (FACTORY_AI=claude); it only grows, by what each session costs
+    cumulative: true                    # a running total: nothing spent comes back
     sensor:
       run: bin/py world/read.py ai-spend
       every: 30s
@@ -66,6 +67,7 @@ stocks:
   improvements:
     unit: hypotheses
     description: kept, and now part of production
+    cumulative: true                    # every hypothesis kept so far: a kept one stays kept
     sensor:
       items: hypothesis
       state: kept

@@ -65,7 +65,13 @@ A rejected review sends its ticket back to the backlog (`rejected`, the rework f
 
 Nothing pipes a release into the product. A deploy *drives* the product's flows: it fixes what
 was broken (`fixes`), ships what was missing (`shipped`), or breaks what worked (`regressions`).
-`driven-by:` says so, and the page draws it as a dashed arrow.
+`driven-by:` says so, and the page draws it as a dashed arrow. Each link is marked `instant: true`:
+a release changes what is live the moment it is deployed, with nothing in between (a link that
+acted later would need a stock between, `docs/MODELLING.md` in ergostat). What is fixed and what is
+shipped are taken from what is there, so `fixes` also follows `bugs-live` and `shipped`
+`missing-ops`: with nothing broken, a deploy fixes nothing. How many operations a deployed ticket
+breaks is a ratio of its own, `ops-broken-per-ticket` (an auxiliary from outside the model, not
+measured): tickets and operations are different things.
 
 ## The loops, the long way round
 
