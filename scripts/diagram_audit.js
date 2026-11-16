@@ -70,9 +70,16 @@
   for (let i = 0; i < kids.length; i++) for (let j = i + 1; j < kids.length; j++)
     if (meet(kids[i], kids[j])) out.partOverlap.push(`${kids[i].id} on ${kids[j].id}`);
   const hulls = lay.containers || [];
-  for (const h of hulls) {
+  for (const h of hulls)
     for (const c of kids) if (!(byId[c.id]?.systems || []).includes(h.name) && meet(c, h)) out.partOverlap.push(`${c.id} on the outline of ${h.name}`);
-    for (const o of hulls) if (o !== h && o.name < h.name && meet(o, h) && !inside(o, h) && !inside(h, o)) out.partOverlap.push(`outlines of ${o.name} and ${h.name}`);
+  // the outlines as drawn (open systems', or a model's systems drawn round their parts): one over another
+  // without being inside it
+  const drawn = [...document.querySelectorAll("svg.canvas g.sys-hull rect:not(.hull-grip)")].map((r) => ({
+    name: (r.parentElement.classList.contains("hull") ? r.parentElement.dataset.hull : r.nextElementSibling?.textContent) || "",
+    x: +r.getAttribute("x"), y: +r.getAttribute("y"), width: +r.getAttribute("width"), height: +r.getAttribute("height") }));
+  for (let i = 0; i < drawn.length; i++) for (let j = i + 1; j < drawn.length; j++) {
+    const a = drawn[i], b = drawn[j];
+    if (meet(a, b, 1) && !inside(a, b) && !inside(b, a)) out.partOverlap.push(`outlines of ${a.name} and ${b.name}`);
   }
   // compactness: the drawing's extent (parts, their labels, open systems' outlines, lines), how much of
   // it the parts fill, and the zoom at which all of it fits the canvas (1 or more: it is read at full size)

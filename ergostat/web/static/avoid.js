@@ -61,6 +61,19 @@ function avoidCore(A) {
       const invalid = Object.values(conns).filter((c) => !c.hasValidRoute()).length;
       return { routes: take(), ms, invalid };
     },
+    moveMany(list) {                                    // several parts moved together (an open system dragged): one routing
+      if (!router) return {};
+      for (const [id, x, y] of list) {
+        if (!shapes[id]) continue;
+        const dx = x - pos[id].x, dy = y - pos[id].y;
+        if (!dx && !dy) continue;
+        pos[id] = { x, y };
+        router.moveShape(shapes[id], dx, dy);
+        for (const l of labels[id]) router.moveShape(l, dx, dy);
+      }
+      router.processTransaction();
+      return take();
+    },
     move(id, x, y) {
       if (!router || !shapes[id]) return {};
       const dx = x - pos[id].x, dy = y - pos[id].y;
@@ -104,6 +117,7 @@ function drain() {
   const moves = {};
   for (const m of todo) {
     if (m.type === "route") postMessage({ type: "routed", seq: m.seq, ...core.route(m.spec) });
+    else if (m.type === "moveMany") postMessage({ type: "moved", seq: m.seq, n: m.n, routes: core.moveMany(m.list) });
     else {                                             // a part moved again before the last was routed: only where it is now
       if (moves[m.id]) postMessage({ type: "moved", seq: moves[m.id].seq, n: moves[m.id].n, routes: {} });
       moves[m.id] = m;
@@ -305,6 +319,27 @@ function setRoute(le, pts) {                            // a route from libavoid
   if (r.length < 2) return;
   le.sections = [{ startPoint: r[0], bendPoints: r.slice(1, -1), endPoint: r[r.length - 1] }];
   le.junctionPoints = [];
+}
+
+/* parts dragged together (an open system): moved in one routing; resolves to the ids of the lines that changed
+   (null when the lines are not libavoid's) */
+function avoidMoveMany(list) {
+  const r = AV.routed;
+  if (!r || r.lay !== S.layout) return null;
+  const byId = Object.fromEntries(r.lay.children.map((k) => [k.id, k]));
+  for (const [id, x, y] of list) if (byId[id]) { byId[id].x = x; byId[id].y = y; }
+  const apply = (routes) => {
+    if (r.lay !== S.layout) return [];
+    const byLe = Object.fromEntries(r.lay.edges.map((le) => [le.id, le]));
+    for (const [eid, pts] of Object.entries(routes)) setRoute(byLe[eid], pts.map(([px, py]) => ({ x: px, y: py })));
+    return Object.keys(routes);
+  };
+  if (AV.mode === "page") return Promise.resolve(apply(AV.core.moveMany(list)));
+  const n = (AV.moving = (AV.moving || 0) + 1);
+  return new Promise((resolve) => {
+    AV.waiting[`moved:${r.seq}:${n}`] = (m) => resolve(apply(m.routes));
+    AV.worker.postMessage({ type: "moveMany", seq: r.seq, n, list });
+  });
 }
 
 /* a part dragged: its shape (and its labels) moved, and only the lines that touches routed again; resolves to
