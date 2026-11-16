@@ -1,0 +1,63 @@
+# The product: textkit, and the customers who use it (world/: the market, run by ergostat as the
+# block customers). What the factory ships reaches these stocks only through deploys (driven-by).
+defaults:
+  system: product
+
+stocks:
+  users:
+    unit: users
+    sensor:
+      run: python3 world/read.py users
+      every: 5s
+  bugs-live:
+    unit: ops
+    description: operations customers use that answer wrong or fail, in production
+    sensor:
+      run: python3 world/read.py broken
+      every: 5s
+  missing-ops:
+    unit: ops
+    description: operations customers ask for that do not exist yet
+    sensor:
+      run: python3 world/read.py missing
+      every: 5s
+
+flows:
+  signups:
+    to: users
+    driven-by: [stock.bugs-live, stock.missing-ops]   # people come when what they ask for works
+  churn:
+    from: users
+    driven-by: [stock.bugs-live, stock.missing-ops]   # and leave when it does not
+  fixes:
+    from: bugs-live
+    driven-by: flow.deployed               # a release fixes what did not work
+  regressions:
+    to: bugs-live
+    driven-by: flow.deployed               # or breaks what did
+  asks:
+    to: missing-ops
+    driven-by: stock.users                 # more users ask for more of the long tail
+  shipped:
+    from: missing-ops
+    driven-by: flow.deployed
+
+goals:
+  no-live-bugs:
+    stock: bugs-live
+    hold: "<= 0"
+    critical: true
+    owner: product
+  few-missing:
+    stock: missing-ops
+    hold: "<= 1"
+  users-growing:
+    stock: users
+    hold: ">= 180"                         # most of the market: only a product that mostly works keeps them
+
+blocks:
+  customers:                               # the market: not ours to command
+    type: program
+    run: python3 world/customers.py
+    every: 15s
+    out: [flow.signups, flow.churn]

@@ -41,7 +41,7 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
         b = p.chromium.launch()
         pg = b.new_page(viewport={"width": 1500, "height": 950})
         pg.on("pageerror", lambda e: errs.append(str(e)))
-        for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "parts", "parts?kind=valve",
+        for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "items",
                       "record", "residuals", "check", "guide"):
             pg.goto(f"{url}/#/{route}")
             pg.wait_for_timeout(1800)
@@ -70,7 +70,7 @@ def snapshot_errors(demo: Path) -> list[str]:
         pg.on("pageerror", lambda e: errs.append(f"snapshot: {e}"))
         pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith("file:")
                  else (errs.append(f"snapshot asked for {rt.request.url}"), rt.abort()))
-        for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "parts", "record", "residuals"):
+        for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "items", "record", "residuals"):
             pg.goto(f"file://{out}#/{route}")
             pg.wait_for_timeout(1200)
             if route == "diagram" and pg.locator(".node").count() == 0:
@@ -113,8 +113,11 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
         if not st["running"] or not st["web"]:
             problems.append("not running, or no web page")
         agents = json.loads(sh("-C", str(demo), "agent", "--json").stdout)
+        from ergostat import model as mdl
+        spec = getattr(mdl.load(demo), "spec", None)
+        paced = {n for n in (spec.blocks if spec else {}) if spec.commanders_of(n)}   # every: paces it; a command runs it
         for name, a in agents.items():
-            if a["runs_itself"] and a["every"] and a["runs"] == 0:
+            if a["runs_itself"] and a["every"] and a["runs"] == 0 and name not in paced:
                 problems.append(f"agent {name} never ran")
             if a["failing"]:
                 problems.append(f"agent {name} is failing")

@@ -145,7 +145,8 @@ class Explainer:
         elif b.type == "expr":
             core = f"computes {b.params['expr']} → {targets}"
         elif any(t.kind == "flow" for t in b.targets()):
-            core = f"({b.type}) reads the goal and acts on it itself"
+            moves = ", ".join(t.name for t in b.targets() if t.kind == "flow")
+            core = f"({b.type}) reads it and moves {moves}"
         elif b.machine:
             core = f"a {b.type} that decides for {targets}" + (f" ({_when(b)})" if _when(b) else "")
         else:

@@ -1,6 +1,6 @@
 # Examples
 
-Each folder is a whole system: an `ergostat.toml` and the programs its agents run. Run one with
+Each folder is a whole system: an `ergostat.yaml` and the programs its blocks run. Run one with
 `cd examples/<name> && ergostat run`; its page's address is printed. They keep their files inside their
 folder (each ignores what it writes), and their records in `~/.ergostat/` like any project.
 
@@ -18,6 +18,7 @@ folder (each ignores what it writes), and their records in `~/.ergostat/` like a
 | [`this-mac`](this-mac/) | This machine, measured for real | a person filling several loops, manual valves, read-only measurement |
 | [`ops`](ops/) | A small platform, several systems | systems and outlines, a weekly status, snapshots |
 | [`big`](big/) | 24 loops, for the layout | layout at scale |
+| [`software-factory`](software-factory/) | AI agents build a product; customers judge it | items (tickets, PRs, releases) counted as stocks, a factory and a product as one system, `driven-by`, loops that close the long way, real Claude Code agents (`FACTORY_AI=claude`) or stand-ins |
 
 Start with `first-loop`, then `plain-crontab` and `talking-scripts`: scheduled jobs as they are.
 Most of the rest are simulated (a `sim.py` keeps a made-up world), so they run on any machine;

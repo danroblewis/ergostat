@@ -319,7 +319,11 @@ class Spec:
         if not controllers and actuators:   # an actuator reading the goal itself: it is its own controller
             controllers = [a for a in actuators if a in {b.name for b in ctl}]
         dist = [f for f in stock_flows if f not in valves]
-        through = [] if actuators else self.long_way(ctl, set(stock_flows), what)
+        toward = set()                     # the flows that move the stock toward its goal: the path should end on one
+        if what.kind == "stock":
+            down = g.hold.op in ("<=", "<")
+            toward = {f.name for f in self.flows_of(what.name) if (f.source == what.name) == down}
+        through = [] if actuators else self.long_way(ctl, set(stock_flows), what, toward)
         return Loop(goal, sensors, controllers, actuators, valves, dist, through)
 
     def readers(self, kind: str, name: str) -> list[Block]:
@@ -329,7 +333,7 @@ class Spec:
                                                          (r.kind == "goal" and (r.name in goals or (kind == "goal" and r.name == name)))
                                                          for r in b.reads())]
 
-    def long_way(self, ctl: list[Block], targets: set[str], what: Ref) -> list[str]:
+    def long_way(self, ctl: list[Block], targets: set[str], what: Ref, toward: set[str] | None = None) -> list[str]:
         """A loop may close through other stocks and other systems: its controller files work into
         a queue, that queue's own loop works it off, and what that work moves drives a flow of the
         goal's stock (``driven-by``). The shortest such path, from the controller to a flow of the
@@ -341,6 +345,7 @@ class Spec:
         start = [f"block.{b.name}" for b in ctl]
         prev: dict[str, str | None] = {s: None for s in start}
         todo = list(start)
+        fallback: list[str] = []
         while todo:
             n = todo.pop(0)
             kind, name = n.split(".", 1)
@@ -353,11 +358,14 @@ class Spec:
                 nxt += [f"block.{b.name}" for b in self.readers("goal", name)]
             elif kind == "flow":
                 if name in targets:
-                    path = []
-                    while n is not None:
-                        path.append(n)
-                        n = prev[n]
-                    return path[::-1]
+                    path, at = [], n
+                    while at is not None:
+                        path.append(at)
+                        at = prev[at]
+                    if not toward or name in toward:
+                        return path[::-1]
+                    fallback = fallback or path[::-1]          # it reaches the stock, the wrong way: keep looking
+                    continue
                 f = self.flows[name]
                 nxt += [f"stock.{s}" for s in (f.target, f.source) if s and s != what.name]
                 nxt += drives.get(n, [])
@@ -368,7 +376,7 @@ class Spec:
                 if x not in prev:
                     prev[x] = n
                     todo.append(x)
-        return []
+        return fallback
 
     def loops(self) -> list[Loop]:
         return [self.loop(g) for g in self.goals]

@@ -1,0 +1,19 @@
+# A software factory and the software it builds, as one system.
+#
+# The factory (factory.yaml) turns tickets into releases: support and the product manager file
+# them, a developer and a reviewer (AI agents, or stand-ins) work them, a deployer ships them.
+# Its stocks are counted from the tickets themselves (items: ticket/12, pr/7, release/3).
+#
+# The product (product.yaml) is textkit, serving customers. Its stocks are what customers live
+# with: operations that answer wrong, operations they ask for that do not exist, and how many
+# of them stay. Deploys drive its flows (driven-by), so its goals close the long way, through
+# every queue in the factory: README.md walks the loops.
+name: software-factory
+include:
+  - factory.yaml
+  - product.yaml
+systems:
+  factory:
+    description: tickets in, releases out
+  product:
+    description: textkit and its customers

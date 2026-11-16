@@ -228,7 +228,7 @@ class Engine:
 
     def start(self, b: Block, why: str) -> None:
         with self.lock:
-            if b.name in self.running:
+            if b.name in self.running or self.stop.is_set():   # stopping: nothing new starts
                 return
             self.running.add(b.name)
             self.began[b.name] = time.time()

@@ -98,16 +98,27 @@ async function pageItems(main, q) {
           h("span", { class: "n" }, String(k.counts[st] || 0)), h("span", { class: "muted" }, st || "items"))])))),
       d.unkinded ? h("p", { class: "muted small" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind under items: in ergostat.yaml (shown with their fields, no state)`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "no items yet. An item is what events with an id like ticket/12 are about: a block prints {\"event\": \"ticket.opened\", \"item\": \"ticket/12\", \"data\": {...}}, or ergostat event --add ticket.opened --item ticket/12. Its kind (items: in ergostat.yaml) gives it states.") : null].filter(Boolean));
-    const shown = [...new Set(d.kinds.filter((k) => !kind || k.name === kind).flatMap((k) => k.show))];
     const needle = search.value.trim().toLowerCase();
     const rows = d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle));
-    box.replaceChildren(rows.length ? h("table", {}, h("tr", {}, ["item", kind ? null : "kind", "state", ...shown, "in state", "events", "latest", "last"].filter((x) => x !== null).map((x) => h("th", {}, x))),
-      rows.slice(0, 300).map((i) => h("tr", { class: "click", onclick: () => { location.hash = `#/item/${encodeURIComponent(i.id)}`; } },
-        h("td", { class: "nowrap" }, h("b", {}, i.id)), kind ? null : h("td", { class: "muted" }, i.kind || "–"), h("td", {}, i.state ? stateChip(i.state, true) : "–"),
-        shown.map((f) => h("td", { class: "cell" }, i.fields[f] == null ? "" : typeof i.fields[f] === "object" ? JSON.stringify(i.fields[f]) : String(i.fields[f]))),
-        h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, i.events), h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))))
-      : (d.items.length ? h("p", { class: "muted" }, "nothing matches") : ""));
-    more.textContent = d.total > rows.length && !needle ? `${d.total - Math.min(rows.length, 300)} more not shown` : "";
+    const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+    const tableOf = (its, show, limit) => h("table", { class: "items" }, h("tr", {}, ["item", "state", ...show, "in state", "events", "latest", "last"].map((x) => h("th", {}, x))),
+      its.slice(0, limit).map((i) => h("tr", { class: "click", onclick: () => { location.hash = `#/item/${encodeURIComponent(i.id)}`; } },
+        h("td", { class: "nowrap" }, h("b", {}, i.id)), h("td", {}, i.state ? stateChip(i.state, true) : "–"),
+        show.map((f) => h("td", { class: "cell", title: val(i.fields[f]) }, val(i.fields[f]))),
+        h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, i.events), h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))));
+    const groups = (kind ? d.kinds.filter((k) => k.name === kind) : d.kinds).map((k) => [k.name, k.show]);
+    if (!kind && d.unkinded) groups.push(["", []]);
+    const parts = [];
+    for (const [name, show] of groups) {                   // one table per kind, each with its own columns
+      const its = rows.filter((i) => (i.kind || "") === name);
+      if (!its.length) continue;
+      const limit = kind ? 300 : 25;
+      if (!kind) parts.push(h("h2", {}, name || "no kind", ` (${its.length})`));
+      parts.push(tableOf(its, show, limit));
+      if (its.length > limit) parts.push(h("p", { class: "muted small" }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `all ${its.length} →`)));
+    }
+    box.replaceChildren(...(parts.length ? parts : [d.items.length ? h("p", { class: "muted" }, "nothing matches") : ""]));
+    more.textContent = d.total > d.items.length ? `${d.total - d.items.length} older items not loaded` : "";
   }
   await tick();
   S.timer = setInterval(tick, 4000);

@@ -193,7 +193,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             last = project.events.query(n=1, item=lp.name, type="loop.*", until=now, unvoided=True)
             status = c.status(value, was_off=bool(last and last[-1]["type"] == "loop.off"))
         decisions = project.events.query(n=1, type="controller.decided", item=c.name, until=now)
-        last_open = max((o["time"] for v in lp.valves for o in project.events.query(n=1, type="valve.opened", item=v, until=now)),
+        acts_on = lp.valves or (c.drives if c.through else [])    # the long way: where its controller acts, first along it
+        last_open = max((o["time"] for v in acts_on for o in project.events.query(n=1, type="valve.opened", item=v, until=now)),
                         default=None)
         reads = [project.measurements.latest(f"sensor/{s}", now) for s in lp.sensors]
         last_read = max((r[0] for r in reads if r), default=None)
@@ -218,7 +219,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         off_share = off_time / max(now - start, 1.0)
         # how fast it answers: from going off to its valve's first opening, and to holding again
         import bisect
-        opens = sorted(e["time"] for v in lp.valves
+        opens = sorted(e["time"] for v in acts_on
                        for e in project.events.query(n=None, type="valve.opened", item=v, since=start, until=now))
         answers = []
         for t0, t1 in episodes + ([(off_from, now)] if off_from is not None and off_from > start else []):

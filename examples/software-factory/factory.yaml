@@ -1,0 +1,137 @@
+# The factory: the work, as items, and the loops that keep it moving.
+defaults:
+  system: factory
+
+items:
+  ticket:
+    id: ticket/*
+    states: [open, doing, review, merged, live, dropped]
+    on:
+      ticket.started: doing
+      ticket.submitted: review
+      ticket.rejected: open                # back to the backlog, with the reviewer's note
+      ticket.merged: merged
+      ticket.deployed: live
+      ticket.dropped: dropped
+    show: [type, op, title, priority]
+  pr:
+    id: pr/*
+    states: [review, merged, rejected, deployed]
+    on:
+      pr.merged: merged
+      pr.rejected: rejected
+      pr.deployed: deployed
+    show: [ticket, author, tests, diff]
+  release:
+    id: release/*
+    show: [commit, tickets]
+
+stocks:
+  backlog:
+    unit: tickets
+    description: tickets nobody has submitted work for yet (open, or being worked)
+    sensor:
+      items: ticket
+      state: [open, doing]
+      every: 5s
+  in-review:
+    unit: tickets
+    sensor:
+      items: ticket
+      state: review
+      every: 5s
+  awaiting-deploy:
+    unit: tickets
+    description: merged into main, not yet in production
+    sensor:
+      items: ticket
+      state: merged
+      every: 5s
+  oldest-bug:
+    unit: hours
+    description: how long the oldest bug not yet live has waited in its state
+    sensor:
+      items: ticket
+      state: [open, doing, review, merged]
+      where:
+        type: bug
+      measure: oldest
+      every: 10s
+
+flows:
+  filed-bugs:
+    to: backlog
+  filed-features:
+    to: backlog
+  submitted:
+    from: backlog
+    to: in-review
+  rejected:
+    from: in-review
+    to: backlog
+    sensor:
+      items: ticket
+      leaving: review
+      over: 10m
+  merged:
+    from: in-review
+    to: awaiting-deploy
+    sensor:
+      items: ticket
+      entering: merged
+      over: 10m
+  deployed:
+    from: awaiting-deploy
+    sensor:
+      items: ticket
+      entering: live
+      over: 10m
+
+goals:
+  backlog-clear:
+    stock: backlog
+    hold: "<= 0"
+  reviews-done:
+    stock: in-review
+    hold: "<= 0"
+  all-live:
+    stock: awaiting-deploy
+    hold: "<= 0"
+
+blocks:
+  support:                                 # customers' failures become bug tickets
+    type: program
+    run: python3 bin/factory.py support
+    in: stock.bugs-live
+    every: 20s
+    out: flow.filed-bugs
+  product-manager:                         # what customers ask for and cannot get becomes feature tickets
+    type: program
+    run: python3 bin/factory.py pm
+    in: [stock.missing-ops, stock.users]
+    every: 30s
+    out: flow.filed-features
+  developer:
+    type: ai
+    goal: backlog-clear                    # works while there is a ticket to work
+    prompt: prompts/developer.md
+    run: bin/ai.sh developer               # FACTORY_AI=claude: a Claude Code session; otherwise a stand-in
+    max: 1                                 # one ticket a run
+    timeout: 20m
+    out: flow.submitted
+  reviewer:
+    type: ai
+    goal: reviews-done
+    prompt: prompts/reviewer.md
+    run: bin/ai.sh reviewer
+    max: 1
+    timeout: 15m
+    out:
+      merged: flow.merged
+      rejected: flow.rejected
+  deployer:
+    type: program
+    goal: all-live
+    run: python3 bin/factory.py deploy
+    every: 30s                             # at most one release every 30s: merged work waits for the next
+    out: flow.deployed

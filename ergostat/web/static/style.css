@@ -239,7 +239,7 @@ a.stbox:hover { border-color: var(--accent); text-decoration: none; }
 .track .stbox:not(.been) { color: var(--muted); border-style: dashed; }
 .chip { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
 .chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
-td.cell { max-width: 28em; overflow-wrap: anywhere; }
+td.cell { max-width: 22em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 td.data { overflow-wrap: anywhere; }
 td.data details summary { cursor: pointer; list-style: none; }
 td.data pre, table.fields pre { margin: 6px 0 0; white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; }
