@@ -40,6 +40,9 @@ disturbance; an agent with nothing to do, no roles, or a command that is not fou
 
 ## 3. The record
 
+(Where the record is kept, rolled up and downsampled, and its backends: SPEC §4b. What follows is
+the SQLite backend of each.)
+
 Two stores, kept apart because there are few events and many measurements, both SQLite files in
 `$ERGOSTAT_HOME/<name>-<8 hex of the repository's path>/` (default home `~/.ergostat`;
 *decided in the owner's absence*). Each thread keeps its own connection open (opening and closing

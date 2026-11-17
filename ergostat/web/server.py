@@ -20,7 +20,16 @@ from .. import state as st
 from ..series import off_stretches
 
 STATIC = Path(__file__).parent / "static"
+GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)    # the client went away mid-answer
+EVENTS_MOST = 1000                   # the most events one answer carries (``n``); page through with ``after``
 FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this size
+
+
+def went_away(path: str, size: int, e: BaseException) -> None:
+    """A client that hung up before its answer was written: one quiet line on stderr (the runner's log)."""
+    import sys
+    print(f"{time.strftime('%H:%M:%S')} web: the client went away before {path.split('?')[0]} was sent "
+          f"({size // 1024} KB, {type(e).__name__})", file=sys.stderr, flush=True)
 
 
 def md_page(name: str, text: str) -> bytes:
@@ -50,6 +59,7 @@ class Live:
         self.mtime = self._mtime()
         self._lock = threading.Lock()
         self._snaps: dict = {}
+        self._making: dict = {}            # snapshots being made: one at a time for each moment, however many ask
         self._kept: dict = {}
 
     def cached(self, key):
@@ -73,18 +83,32 @@ class Live:
     def snapshot(self, p, window: float, at: float | None):
         """The state, shared by the requests of one moment: the page asks for several parts of it
         every few seconds, and each would otherwise estimate it all again. Kept 1.5s; a past
-        moment (``at``) is kept until the model changes."""
+        moment (``at``) is kept until the model changes. Made once however many ask at once: on a
+        long record, requests that each made their own (and kept making it after their clients gave
+        up) were what left every later answer waiting."""
         key = (window, at, self.mtime)
-        with self._lock:
-            got = self._snaps.get(key)
-            if got and (at is not None or time.time() - got[0] < 1.5):
-                return got[1]
-        snap = st.snapshot(p, window, at)
-        with self._lock:
-            if len(self._snaps) > 32:
-                self._snaps.clear()
-            self._snaps[key] = (time.time(), snap)
-        return snap
+        import threading
+        while True:
+            with self._lock:
+                got = self._snaps.get(key)
+                if got and (at is not None or time.time() - got[0] < 1.5):
+                    return got[1]
+                busy = self._making.get(key)
+                if busy is None:                       # this request makes it; the others asking meanwhile wait for it
+                    busy = self._making[key] = threading.Event()
+                    break
+            busy.wait(120)
+        try:
+            snap = st.snapshot(p, window, at)
+            with self._lock:
+                if len(self._snaps) > 32:
+                    self._snaps.clear()
+                self._snaps[key] = (time.time(), snap)
+            return snap
+        finally:
+            with self._lock:
+                self._making.pop(key, None)
+            busy.set()
 
     def get(self):
         now = self._mtime()
@@ -204,7 +228,7 @@ def _answer(live: Live, path: str, q: dict):
                                                                                until=snap["at"])), key=lambda o: o["time"])
             n_open = len(openings)
             openings = openings[::max(1, n_open // 300)]
-            crossings = p.events.query(n=None, item=name, type="loop.*", until=snap["at"], unvoided=True)
+            crossings = st.crossings_of(p, name, since, snap["at"])
             stretches = off_stretches(p, name, since, snap["at"])
             in_window = [e for e in crossings if e["time"] >= since]
             c = m.controllers[name]
@@ -248,16 +272,22 @@ def _answer(live: Live, path: str, q: dict):
         skip = () if one("runs") or one("type") else ("agent.started", "agent.ran")   # as `ergostat event`
         if not one("type") and not one("item"):   # a transcript's lines are on its item's page, asked by type or item
             skip = (*skip, "claude.*")
-        return p.events.query(n=int(one("n") or 100), type=one("type"), item=one("item"), source=one("source"),
-                              machine=one("machine"), after_seq=int(after) if after else None, skip=skip,
+        before = one("before")
+        return p.events.query(n=max(1, min(int(one("n") or 100), EVENTS_MOST)), type=one("type"), item=one("item"),
+                              source=one("source"), machine=one("machine"), after_seq=int(after) if after else None,
+                              before_seq=int(before) if before else None, skip=skip,
                               **({"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}))
     if head == "items":
         from ..spec import items as its
         spec = getattr(m, "spec", None)
+        if name and one("archived"):            # its full history: the events rolled up into its snapshot, a page at a time
+            from ..rollup import archived
+            return archived(p, name, offset=int(one("offset") or 0), n=min(int(one("n") or 200), EVENTS_MOST))
         if name:
             return its.detail(p.events, spec, name, until=snap["at"],
                               history=None if one("history") == "all" else its.HISTORY_SHOWN)
-        return its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"])
+        return its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"],
+                           n=max(1, min(int(one("n") or its.LISTED), its.LISTED)), offset=int(one("offset") or 0))
     if head == "series":                          # behaviour over time: each part's values, bucketed over the window
         refs = [r for r in (one("refs") or "").split(",") if r]
         out = series.series(p, snap, refs, int(one("points") or series.POINTS), bool(one("strip")))
@@ -341,8 +371,9 @@ def _answer(live: Live, path: str, q: dict):
                 out["unit"] = unit_of(m.spec, Ref("flow", pname))       # what moves: its own unit, else its stocks'
                 out["numbers"] = part_numbers(live, p, snap, "flow", pname)
         elif kind == "sensor":
-            rd = p.measurements.range(f"sensor/{pname}", snap["at"] - snap["window"], snap["at"])
-            out["now"] = {"readings": rd[-60:], "count": len(rd)}
+            sid, since = f"sensor/{pname}", snap["at"] - snap["window"]
+            out["now"] = {"readings": p.measurements.range(sid, since, snap["at"], last=60),
+                          "count": p.measurements.count(sid, since, snap["at"])}
         elif kind == "valve":
             out["now"] = {"openings": p.events.query(n=300, type="valve.opened", item=pname),
                           "flow": snap["flows"].get(x.flow)}
@@ -366,12 +397,15 @@ def handler(project):
             pass
 
         def _send(self, code: int, body: bytes, ctype: str):
-            self.send_response(code)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+            except GONE as e:                        # the page stopped waiting: a line in the log, not a traceback
+                went_away(self.path, len(body), e)
 
         def _file(self, rel: str, page: bool = False):
             p = live.get()

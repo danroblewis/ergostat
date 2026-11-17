@@ -168,6 +168,18 @@ and valves are separate ([docs/controllers-and-valves.md](docs/controllers-and-v
 multi-agent patterns ([docs/patterns.md](docs/patterns.md)), and the vocabularies of system dynamics
 and control engineering compared ([docs/vocabulary.md](docs/vocabulary.md)).
 
+## The record
+
+What happened (events) and what the sensors read (measurements), in `~/.ergostat/<name>-<hash>/`,
+with no services: the events in an append-only log of compressed segments (or SQLite), the readings
+in SQLite. Under a long, heavy load it stays bounded: an item's events older than a week are rolled
+up into one snapshot event (its state as of then; the originals archived, compressed, behind the
+item page's "Show the full history"), readings older than two days are kept as 1-minute, 10-minute and
+hourly buckets, and nothing older than `keep:` (30 days) is kept. The engine does this hourly;
+`ergostat compact` does it now. VictoriaMetrics can hold the readings instead. The `storage:`
+section ([SPEC §4b](docs/SPEC.md)) sets all of it; `scripts/loadtest.py` measures it on the demos run
+for days.
+
 ## The web page
 
 `ergostat run` serves it at http://127.0.0.1:8781 (the next free port when taken). It opens on the

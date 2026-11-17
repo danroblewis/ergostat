@@ -105,7 +105,8 @@ def _moves(p, flow: str, since: float, until: float, n: int) -> list[float] | No
     back = max(float(q.get("over") or 3600.0), (until - since) / n)       # the sensor's window: never the page's
     start = since - back
     where = q.get("where") or {}
-    moved = [(mv["time"], 1.0) for it in its.project(p.events, spec, q["kind"], until=until, fields=tuple(where)) if its.matches(it, where)
+    moved = [(mv["time"], 1.0) for it in its.project(p.events, spec, q["kind"],
+                                                   until=until if where else None, fields=tuple(where)) if its.matches(it, where)
              for mv in it.moves if mv[key] == state and start <= mv["time"] <= until]
     return _per_hour(moved, since, until, n, back)
 
@@ -259,7 +260,8 @@ def series(p, snap: dict, refs: list[str], n: int = POINTS, strip: bool = False)
 
 def off_stretches(p, loop: str, since: float, until: float) -> list[list[float]]:
     """When a loop was off in a span, from every crossing."""
-    crossings = p.events.query(n=None, item=loop, type="loop.*", until=until, unvoided=True)
+    from .state import crossings_of
+    crossings = crossings_of(p, loop, since, until)
     out, off_from = [], None
     for e in crossings:
         if e["type"] == "loop.off" and off_from is None:
@@ -368,7 +370,10 @@ def items_flow(p, snap: dict, kind: str, n: int = POINTS) -> dict | None:
         if end is not None and since <= end <= until:
             finished.append({"id": it.id, "time": round(end, 3), "took": round(end - it.moves[0]["time"], 3)})
     finished.sort(key=lambda x: x["time"])
+    median = statistics.median([f["took"] for f in finished]) if finished else None
+    total = len(finished)
+    if total > MAX_POINTS:                    # thinned evenly: the chart shows a thousand dots at most
+        finished = finished[::-(-total // MAX_POINTS)]
     return {"kind": kind, "states": k.states, "since": since, "until": until, "points": n, "times": [round(t, 3) for t in ts],
             "counts": counts, "now": {s: sum(1 for it in items if it.state == s) for s in k.states},
-            "finished_states": done, "finished": finished,
-            "median": statistics.median([f["took"] for f in finished]) if finished else None}
+            "finished_states": done, "finished": finished, "finished_total": total, "median": median}

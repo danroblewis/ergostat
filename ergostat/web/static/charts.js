@@ -557,7 +557,7 @@ function cycleChart(d, group) {
   const val = h("span", { class: "chart-val" }, d.median != null ? `median ${dur(d.median)}` : "");
   const plotEl = h("div", { class: "chart-plot" });
   const el = h("div", { class: "chart cycle" }, h("div", { class: "chart-head" }, h("span", { class: "chart-name" }, "Cycle time"),
-    h("span", { class: "muted" }, `from arriving to ${d.finished_states.join(" or ")}, ${f.length} finished`), val), plotEl);
+    h("span", { class: "muted" }, `from arriving to ${d.finished_states.join(" or ")}, ${d.finished_total ?? f.length} finished${(d.finished_total ?? 0) > f.length ? ` (${f.length} shown)` : ""}`), val), plotEl);
   if (!f.length) { plotEl.append(h("div", { class: "muted small" }, `None finished in ${windowSaid(d)}.`)); return el; }
   mountPlot(plotEl, (width) => {
     const o = baseOpts({ width, height: 100, group, since: d.since, until: d.until, xAxis: true, yValues: (v) => (v > 0 ? dur(v) : v === 0 ? "0" : ""),

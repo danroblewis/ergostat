@@ -168,7 +168,35 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
         problems += snapshot_errors(demo)
     finally:
         sh("-C", str(demo), "run", "--stop")
+    problems += rollup_errors(demo)
     return problems
+
+
+def rollup_errors(demo: Path) -> list[str]:
+    """The demo's own record, every item rolled up whole (rollup.py), folds to the same items, with and
+    without their transcripts' lines; and the archive holds every event that went."""
+    from ergostat import model as mdl
+    from ergostat.rollup import archived, compact
+    from ergostat.spec import items as its
+    from ergostat.store import Project
+    p = Project(mdl.load(demo))
+    spec = getattr(p.model, "spec", None)
+    if spec is None or not spec.items:
+        return []
+
+    def folded(tr: bool) -> dict:
+        by: dict = {}
+        for e in p.events.of_items(None, skip=() if tr else (its.TRANSCRIPT_TYPES,)):
+            by.setdefault(e["item"], []).append(e)
+        return {i: its.fold(i, evs, its.kind_of(spec, i), transcript=tr).as_dict(moves=True) for i, evs in by.items()}
+    before = {tr: folded(tr) for tr in (False, True)}
+    got = compact(p, now=time.time() + 10 * 365 * 86400)
+    out = [f"rolled up, item {i} folds differently ({'with' if tr else 'without'} its transcript)"
+           for tr in (False, True) for i, it in folded(tr).items() if before[tr].get(i) != it]
+    out += [f"rolled up, item {i}: {a['total']} events in its full history, not {before[True][i]['events']}"
+            for i in before[True] if (a := archived(p, i, n=0)) and a["total"] != before[True][i]["events"]]
+    notes.append(f"note: rolled up {got['events']} events of {got['items']} items; every item folds as before")
+    return out
 
 
 def main() -> int:

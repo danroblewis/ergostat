@@ -188,6 +188,122 @@
           "type": "string"
         }
       }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where the record is kept: the backends, raw readings and their tiers, item rollup (SPEC \u00a74b)",
+      "properties": {
+        "events": {
+          "anyOf": [
+            {
+              "enum": [
+                "sqlite",
+                "segments"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "backend": {
+                  "enum": [
+                    "sqlite",
+                    "segments"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "measurements": {
+          "anyOf": [
+            {
+              "enum": [
+                "sqlite",
+                "victoriametrics"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "backend": {
+                  "enum": [
+                    "sqlite",
+                    "victoriametrics"
+                  ]
+                },
+                "url": {
+                  "type": "string"
+                },
+                "raw": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/duration"
+                    },
+                    {
+                      "const": "never"
+                    }
+                  ]
+                },
+                "tiers": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/$defs/duration"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "rollup": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/duration"
+                },
+                {
+                  "const": "never"
+                }
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "after": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/duration"
+                    },
+                    {
+                      "const": "never"
+                    }
+                  ]
+                },
+                "every": {
+                  "$ref": "#/$defs/duration"
+                },
+                "kinds": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/duration"
+                      },
+                      {
+                        "const": "never"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
     }
   },
   "$defs": {

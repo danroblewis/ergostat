@@ -15,7 +15,7 @@ FILE = "ergostat.yaml"
 SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
             "loops", "claims")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check"}    # variables: the old name of auxiliaries
-TOP = {"name", "include", "keep", "messages", "defaults", *SECTIONS}
+TOP = {"name", "include", "keep", "messages", "storage", "defaults", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -110,6 +110,7 @@ class Document:
     keep: object = None
     messages: object = None          # messages: how the owner's messages are routed (SPEC §12h), in one file
     messages_at: Where | None = None
+    storage: object = None
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
@@ -161,6 +162,11 @@ def load(main: Path) -> Document:
                 doc.name = str(data["name"])
             else:
                 doc.problems.append(Problem("error", "name: belongs in the main file only", data.at("name"), "name-in-include"))
+        if "storage" in data:
+            if top:
+                doc.storage = data["storage"]
+            else:
+                doc.problems.append(Problem("error", "storage: belongs in the main file only", data.at("storage"), "storage-in-include"))
         if "keep" in data:
             if top:
                 doc.keep = data["keep"]

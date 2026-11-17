@@ -371,3 +371,32 @@ resource or wiring; how it is measured; dependencies.
   classifier routed "the money people want their new thing out today" to the payments team's flag ramp. Next: 2.11's
   intake (a message that is new work becomes an item), 2.14 telling running sessions what moved on main (a message
   from ergostat itself).
+- **2026-11-17, F2 storage** (branch `storage`). Measured first (`scripts/loadtest.py`: each demo run two
+  minutes with its stand-ins, that record tiled to 1, 7 and 30 days with the bulk writers, every page's API
+  asked at 1h and 7d windows with a 30 s client, then the demo run on top for a minute; `--compare` prints
+  the table). On main (117378c's parent line, SQLite): image-squeeze answered 48 of 48 at 1 day, 21 of 48
+  at 7 and 30 days; the-job 21 of 48 at 1 day and **none** at 7 days; one slow answer (the Model page's
+  fit, 24 s on a day of record) left the server computing for clients that had gone, so every later
+  answer timed out, and each hang-up was a `BrokenPipeError` traceback. What grew with the record, not
+  the window: a loop's crossings (every one ever, per loop, per snapshot), item folds (the whole record,
+  per sensor tick and per page, and again per model tried by the fit), items-flow; the events file
+  (~490 bytes an event); the-job's engine fell from 4.4 to 0.02 events a second on a week's record.
+  After: the API bounded (events 1,000, items 500 with offset, a kind's finished items 1,000 dots, a
+  client gone is one line); a loop's crossings read for the window; the fold of every item kept and
+  followed (shared by every model with the same kinds; moves are history, so a past span's moves read
+  it); item roll-up into `ergostat.item.snapshot` (a `set`, both folds where transcript lines went too,
+  archived per kind and month, full history on the item page); measurements in raw (2d) then 1m/10m/1h
+  tiers; the segmented log the default for events (a fifth of SQLite's size, as fast or faster),
+  VictoriaMetrics an option for readings (its engine reads are requests: the engine kept to 0.8 readings
+  a second against 5.8). image-squeeze: 48 of 48 at 1, 7 and 30 days (slowest 9, 11, 16 s: the fit's
+  first, cold, answer), engine at its template rate at 30 days, events 474 MB for 4.9 M (SQLite 2,278 MB),
+  the 30-day record rolled up in 244 s (656 k events of 49 k items into 18 MB of archive). the-job:
+  48 of 48 at 1 and 7 days (slowest 4 s and 19 s), engine 3.2 events a second at 7 days (main 0.02);
+  at 30 days it still breaks: the speeded-up world makes 19,000 new items a day, so the record holds
+  524,000 live items; rolled up in 584 s (2.26 M events into 104 MB of archive, readings 2,771 to 722 MB)
+  it answered 15 of 48 (main: 0) and the engine ran at 1.6 events a second (template 4.0), because the
+  kept fold of every item is in each process's memory (13 GB at peak) and a fresh one takes about a
+  minute. Equivalence: `tests/test_rollup.py` (every example's kinds, random data/patch/set/refused
+  and transcript lines, rolled up three times over, with and without transcripts, both backends) and
+  `demo_check` on each demo's own record. Next: the fold persisted (an item index), so a record of
+  half a million live items starts in seconds; the engine reading VictoriaMetrics through a cache.
