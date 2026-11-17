@@ -592,3 +592,37 @@ def test_the_command_line_lists_the_queue_and_shows_one_with_its_diff(tmp_path, 
     assert main(["proposals", "--stored", "--json"]) == 0
     got = json.loads(capsys.readouterr().out)
     assert all(k in got[0] for k in FIELDS)
+
+
+def test_leverage_ranks_the_flows_by_how_far_a_tenth_faster_moves_the_goals(tmp_path):
+    """SD Lab's leverage: each flow a tenth faster in turn, projected to the horizon; arrivals faster moves
+    the queue away from a ceiling, the drain faster toward it."""
+    from ergostat.numbers import leverage as lv
+    from ergostat.numbers import observe as ob
+    from ergostat.numbers import simulate as sim
+    text = QUEUE + "goals:\n  short:\n    stock: queue\n    hold: <= 3\n"
+    p, snap = queue_project(tmp_path, k_true=2.0, text=text)
+    spec = p.model.spec
+    data = ob.measured(p, ob.reference(p, snap["at"]))
+    run = sim.replay(spec, data, sim.plan(spec))
+    got = lv.rank(spec, data, run, 3600.0)
+    rows = {r["flow"]: r for r in got["rows"]}
+    assert rows["arrivals"]["effect"]["short"]["toward"] < 0 < rows["served"]["effect"]["short"]["toward"]
+    assert sorted(r["rank"] for r in got["rows"]) == list(range(1, len(got["rows"]) + 1))
+    assert "toward goal short" in lv.said(rows["served"], got["of"])
+
+
+def test_the_page_api_lists_the_queue_simulates_and_accepts_only_what_was_shown(tmp_path):
+    from ergostat.web.numbers_api import post
+    from ergostat.web.server import Live, api
+    p, snap = queue_project(tmp_path, k_true=3.0)
+    pr.make(p, snap)
+    live = Live(p)
+    d = api(live, "fit", {})
+    e = next(x for x in d["queue"] if x["kind"] == "parameter")
+    assert d["can"] and d["cannot"] and all(k in e for k in FIELDS)
+    eff = api(live, "proposal-effect", {"ids": [e["id"]]})
+    assert eff["taken"] == [e["id"]] and eff["charts"]
+    assert post(live, f"proposals/{e['id']}/accept", 3600.0, {"expect": ["nope"]})[0] == 409
+    code, got = post(live, f"proposals/{e['id']}/accept", 3600.0, {"expect": [e["diff"]["hash"]]})
+    assert code == 200 and got["status"] == "accepted"
