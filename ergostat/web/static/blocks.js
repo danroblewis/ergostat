@@ -561,7 +561,7 @@ function bdNode(n, c) {
   g.append(s("title", {}, (n.says || "").replace(/\s+$/, "")));
   const fn = n.fn || {};
   if (n.kind === "sum") {
-    g.append(s("circle", { class: "hit bd-line", cx: w / 2, cy: hgt / 2, r: w / 2 }));
+    g.append(s("circle", { class: "hit bd-line bd-fill", cx: w / 2, cy: hgt / 2, r: w / 2 }));     // (clicked anywhere inside)
   } else if (n.kind === "mux" || n.kind === "demux") {
     g.append(s("rect", { class: "hit bd-bar", width: w, height: hgt }));
   } else if (n.kind === "input" || n.kind === "output") {
@@ -662,7 +662,12 @@ function bdDraw(svg, g, lay) {
       b.addEventListener("click", (ev) => { ev.stopPropagation(); S.toggleSystem?.(name); });
       fg.append(b);
     }
-    fg.addEventListener("click", (ev) => { if (ev.target.closest(".bd-toggle")) return; ev.stopPropagation(); openBlock(f); });
+    fg.addEventListener("click", (ev) => {
+      if (ev.target.closest(".bd-toggle")) return;
+      ev.stopPropagation();
+      if (ev.shiftKey || ev.metaKey) { chooseShape(c.id, "toggle"); return; }     // (what it is chosen: interact.js)
+      chooseShape(c.id); openBlock(f);
+    });
     vp.append(fg);
   }
   // the lines: each signal from its port, an arrowhead where it arrives, a dot where it is taken off
@@ -779,13 +784,18 @@ function bdDraw(svg, g, lay) {
     const el = bdNode(n, c);
     el.addEventListener("mouseenter", () => bdTrace(svg, { node: n.id }));
     el.addEventListener("mouseleave", () => bdTrace(svg, S.bdSel || null));
-    el.addEventListener("click", (ev) => { ev.stopPropagation(); S.bdSel = { node: n.id }; bdTrace(svg, S.bdSel); openBlock(n); });
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      if (ev.shiftKey || ev.metaKey) { chooseShape(n.id, "toggle"); return; }     // (what it is chosen: interact.js)
+      S.bdSel = { node: n.id }; bdTrace(svg, S.bdSel); chooseShape(n.id); openBlock(n);
+    });
     nodesG.append(el);
   }
   vp.append(edgesG, nodesG, dots, marks, labelsG);
   svg.replaceChildren(vp);
   applyView(svg);
   if (S.bdSel) bdTrace(svg, S.bdSel);
+  if (typeof markInteraction === "function" && svg.matches("svg.canvas")) markInteraction(svg);   // the parts chosen, lit
 }
 
 function bdTakeoffs(routes) {                         // the points where lines that leave one port together part

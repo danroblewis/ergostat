@@ -769,6 +769,7 @@ class _Diagram:
         def vec(ks):
             return ["mrow", mo("["), ["mtable", *[["mtr", ["mtd", sym(self.signal(k)["sym"], k.split(".", 1)[1])]] for k in ks]], mo("]")]
         self.node(nid, kind="block", role="process", system=system, label=pid, mimo=[len(members), len(ins)],
+                  inside=sorted(set(members).union(*(info[o][0] for o in members))),      # (correspond.py: what it holds)
                   fn={"sym": "P", "sub": pid, "arg": "s", "expr": f"{len(members)}×{len(ins)}, not identified", "linear": None,
                           "bold": True},
                   math=[eq(sym("y", None, None, True), row(sym("P", None, "s", True), sym("u", None, None, True))),
@@ -1050,6 +1051,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
                         "subsystems": spec.subsystems(name), "inner": inner, "system_name": name}
         if r.startswith("sys:"):
             boxes[r]["parts"] += 1
+            boxes[r].setdefault("holds", []).append(nid)          # (correspond.py: what it holds, as drawn)
             for g in n.get("loops", []):
                 if g not in boxes[r]["loops"]:
                     boxes[r]["loops"].append(g)

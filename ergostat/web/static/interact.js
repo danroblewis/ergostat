@@ -1,9 +1,13 @@
 /* the diagram in hand: choosing parts and moving them.
 
-   Choosing: a click with Shift (or Command) adds a part to the chosen ones or takes it away; a drag on
-   the background with Shift (or Command) draws a box, and what it touches is added (as Figma's and
-   tldraw's Shift: a plain drag still pans, and two fingers scroll); a click on the background, or
-   Escape, lets them all go. They are marked.
+   Choosing: what is chosen is model parts, not shapes (correspond.py: each graph says which parts each
+   shape is, and which shapes stand for each part), so the choice survives a change of view and is lit
+   in both panes of a split (split.js). A click chooses what its shape is; with Shift (or Command) it
+   adds that or takes it away; a drag on the background with Shift (or Command) draws a box, and what
+   it touches is added (as Figma's and tldraw's Shift: a plain drag still pans, and two fingers
+   scroll); a loop clicked chooses its members; a click on the background, or Escape, lets them all
+   go. What stands for a part chosen is marked, a region holding it (and nothing of its own) dashed;
+   what a shape pointed at in the other pane is, lightly.
 
    Moving: a part dragged moves alone, or with all the chosen ones if it is one of them; an open system
    dragged by its top moves with everything in it. While they move, their lines keep the shape they last
@@ -12,7 +16,63 @@
    is for parts added or taken away, or asked for (unpin) */
 "use strict";
 
-S.sel = new Set();
+S.sel = new Set();                                     // model parts: stock.x, flow.x, goal.g, goal.g.r, block.b, system.s
+S.xhover = new Set();                                  // the parts pointed at in the other pane
+
+/* the parts a shape is, in the view drawn */
+function partsOf(id) { return S.graph?.corr?.shapes?.[id]?.is || []; }
+/* what a choice lights here: each part's shapes (own, else the region holding it: "within"), and every
+   shape all of whose parts are chosen */
+function litShapes(sel = S.sel, corr = S.graph?.corr) {
+  const out = new Map();
+  if (!corr || !sel.size) return out;
+  for (const p of sel) for (const id of corr.parts?.[p] || []) if (out.get(id) !== "is") out.set(id, corr.inside?.[p] ? "within" : "is");
+  for (const [id, x] of Object.entries(corr.shapes || {})) if (x.is.length && x.is.every((p) => sel.has(p))) out.set(id, "is");
+  return out;
+}
+/* choose parts: only these, or added, or taken away (a shape's parts all chosen already: taken away);
+   said to the other pane (split.js) */
+function choose(parts, how = "only") {
+  parts = [...new Set(parts || [])];
+  if (how === "only") S.sel = new Set(parts);
+  else if (how === "toggle" && parts.length && parts.every((p) => S.sel.has(p))) for (const p of parts) S.sel.delete(p);
+  else for (const p of parts) S.sel.add(p);
+  markChosen();
+  if (typeof peerSay === "function") peerSay({ type: "sel", parts: [...S.sel] });
+}
+function chooseShape(id, how = "only") { choose(partsOf(id), how); if (how === "only") whereElse(partsOf(id)); }
+
+/* a part chosen that the other view draws only inside a region (a turnover inside P_service, a part
+   inside a closed system): said in its panel. The other view is asked as this one was drawn */
+const OTHER_VIEW = { dynamics: "blocks", blocks: "dynamics" };
+const OTHER_WORDS = { blocks: "In the block diagram", dynamics: "In the dynamics view" };
+async function whereElse(parts) {
+  S.whereNote = null;
+  const other = OTHER_VIEW[S.graph?.kind];
+  if (!other || !parts.length || parts.length > 3) return;
+  const key = JSON.stringify([other, S.graphQ || {}]), want = [...parts].sort().join(",");
+  try {
+    if (S.otherCorr?.key !== key || Date.now() - S.otherCorr.at > 15000)
+      S.otherCorr = { key, at: Date.now(), corr: (await api("graph", { view: other, ...(S.graphQ || {}) })).corr };
+  } catch (e) { return; }                              // (a snapshot without that view: nothing said)
+  if ([...S.sel].sort().join(",") !== want) return;          // chosen otherwise meanwhile
+  const inside = S.otherCorr.corr?.inside || {};
+  const said = parts.filter((p) => inside[p]?.length).map((p) => [p.split(".").slice(1).join("."), inside[p].join(", ")]);
+  if (!said.length) return;
+  S.whereNote = { parts: want, el: () => h("p", { class: "muted where-else" }, `${OTHER_WORDS[other]}: `,
+    ...said.flatMap(([name, where], i) => [i ? "; " : "", parts.length > 1 ? `${name} ` : "", "inside ", rich(where)]), ".") };
+  panelNote();
+}
+/* the note, in the open panel of what is chosen (showDetail calls it again when the panel is built) */
+function panelNote(d = $("#detail")) {
+  if (!d || d.hidden) return;
+  d.querySelector(".where-else")?.remove();
+  const n = S.whereNote;
+  if (!n || n.parts !== [...S.sel].sort().join(",")) return;
+  const h2 = d.querySelector("h2");
+  if (h2) h2.after(n.el());
+}
+function markChosen() { const svg = $("svg.canvas"); if (svg) markInteraction(svg); }
 
 /* a part pressed (drawGraph's handler): a drag, or a click (which chooses it, with Shift or Command) */
 function partDown(ev, n) {
@@ -24,7 +84,24 @@ function partDown(ev, n) {
 
 /* the chosen parts marked, and the lines waiting for libavoid greyed (after every drawing) */
 function markInteraction(svg) {
-  for (const el of svg.querySelectorAll(".node")) el.classList.toggle("selected", S.sel.has(el.dataset.id));
+  const lit = litShapes(), near = litShapes(S.xhover);
+  const mark = (el, id) => {
+    el.classList.toggle("selected", lit.has(id));
+    el.classList.toggle("within", lit.get(id) === "within");
+    el.classList.toggle("xhover", near.has(id) && !lit.has(id));
+  };
+  for (const el of svg.querySelectorAll(".node")) mark(el, el.dataset.id);
+  for (const el of svg.querySelectorAll("g.hull[data-hull]")) {     // an open system's outline (dynamics) or frame (blocks):
+    const id = el.dataset.hull.startsWith("frame:") ? el.dataset.hull : "hull:" + el.dataset.hull;   // a mark over it
+    const how = lit.get(id), pointed = near.has(id) && !how;
+    let m = el.querySelector(":scope > rect.hull-mark");
+    if (!how && !pointed) { m?.remove(); continue; }
+    const r = el.querySelector(":scope > rect:not(.hull-grip):not(.hull-mark)");
+    if (!m && r) el.append(m = s("rect", { class: "hull-mark", x: r.getAttribute("x"), y: r.getAttribute("y"), width: r.getAttribute("width"),
+                                           height: r.getAttribute("height"), rx: r.getAttribute("rx") }));
+    m?.classList.toggle("within", how === "within");
+    m?.classList.toggle("xhover", pointed);
+  }
   const stale = new Set((S.layout?.edges || []).filter((le) => le.stale).map((le) => le.id));
   for (const el of svg.querySelectorAll(".edge")) el.classList.toggle("stale", stale.has(el.dataset.id));
   sideChartsChanged();                                 // the side panel charts what is chosen (charts.js)
@@ -100,7 +177,8 @@ function interactions(svg) {
     if (!d || !S.layout) return;
     if (!d.moved && Math.hypot(ev.clientX - d.x0, ev.clientY - d.y0) < 5) return;
     if (!d.moved) {
-      const ids = S.sel.has(d.id) ? [...S.sel] : [d.id];
+      const lit = litShapes();                          // (the shapes standing for the parts chosen)
+      const ids = lit.get(d.id) === "is" ? [...lit].filter(([, how]) => how === "is").map(([id]) => id) : [d.id];
       d.parts = S.layout.children.filter((k) => ids.includes(k.id)).map((k) => ({ id: k.id, x: k.x, y: k.y }));
       greyLines(svg, d.parts.map((p) => p.id));
       d.moved = true;
@@ -119,7 +197,7 @@ function interactions(svg) {
     d.done = true;
     svg.classList.remove("dragging-part");
     if (!d.moved) {                                     // a click: with Shift or Command, chosen or let go
-      if (d.choose) { if (S.sel.has(d.id)) S.sel.delete(d.id); else S.sel.add(d.id); markInteraction(svg); }
+      if (d.choose) chooseShape(d.id, "toggle");
       return;
     }
     const nodes = byId(), box = Object.fromEntries(S.layout.children.map((k) => [k.id, k])), pins = {};
@@ -197,22 +275,35 @@ function interactions(svg) {
     if (b.x1 == null || !S.layout) return;
     const k = S.view.k, at = (sx, sy) => ({ x: (sx - S.view.x) / k, y: (sy - S.view.y) / k });
     const p0 = at(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1)), p1 = at(Math.max(b.x0, b.x1), Math.max(b.y0, b.y1));
+    const touched = [];
     for (const c of S.layout.children) {
       if (S.graph?.nodes.find((n) => n.id === c.id)?.kind === "cloud") continue;
-      if (c.x < p1.x && c.x + c.width > p0.x && c.y < p1.y && c.y + c.height > p0.y) S.sel.add(c.id);
+      if (c.x < p1.x && c.x + c.width > p0.x && c.y < p1.y && c.y + c.height > p0.y) touched.push(...partsOf(c.id));
     }
-    markInteraction(svg);
+    choose(touched, "add");
   });
   svg.addEventListener("click", (ev) => {               // the background clicked: first the chosen ones are let go
     if (!S.sel.size || S.dragged || ev.shiftKey || ev.metaKey || ev.target.closest(".node") || ev.target.closest("[data-act]") ||
         document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".edge")) return;
-    S.sel.clear();
-    markInteraction(svg);
-    ev.stopImmediatePropagation();
+    choose([]);
+    if ($("#detail")?.hidden) ev.stopImmediatePropagation();   // (a panel open closes with it, at the same click)
   }, true);
   document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape" && S.sel.size) { S.sel.clear(); markInteraction(svg); }
+    if (ev.key === "Escape" && S.sel.size) choose([]);
   });
+  // pointing at a shape: what it is lit lightly in the other pane (split.js), nothing chosen
+  let over = null;
+  const point = (id) => {
+    if (id === over) return;
+    over = id;
+    if (typeof peerSay === "function") peerSay({ type: "hover", parts: id ? partsOf(id) : [] });
+  };
+  svg.addEventListener("pointerover", (ev) => {
+    if (S.dragging || S.nodeDrag?.moved) return;
+    const el = ev.target.closest?.(".node") || ev.target.closest?.("g.hull[data-hull]");
+    point(el ? (el.dataset.id || (el.dataset.hull.startsWith("frame:") ? el.dataset.hull : "hull:" + el.dataset.hull)) : null);
+  });
+  svg.addEventListener("pointerleave", () => point(null));
 }
 
 /* a system about to be opened or closed: where it is, so the new layout puts it there again */

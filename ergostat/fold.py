@@ -96,6 +96,7 @@ def fold(g: dict, model, open_: set[str] | None, focus: str | None = None) -> di
                         "subsystems": spec.subsystems(name), "parts": 0}
         if r.startswith("system:"):
             boxes[r]["parts"] += 1
+            boxes[r].setdefault("holds", []).append(i)            # (correspond.py: what it holds, as drawn)
         elif r.startswith("term:"):
             n = nodes[i]
             ch = chains[i]

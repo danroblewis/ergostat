@@ -14,6 +14,7 @@ function showDetail(...kids) {
   d.replaceChildren(head, ...rest, ...defs);
   d.hidden = false;
   d.scrollTop = 0;
+  if (typeof panelNote === "function") panelNote(d);   // where the other view draws what is chosen (interact.js)
 }
 /* what each kind of thing on the diagram is: said first, in plain words, before how it is now */
 const WHAT = {

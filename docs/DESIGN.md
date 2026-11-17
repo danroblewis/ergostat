@@ -162,6 +162,25 @@ The control diagram is the product's main view. Conventions:
   loop has `t: <schedule>` driving C with no Σ, and ym ends in "watched against r, not fed
   back". With several systems the rows are grouped by system and tagged. The command line prints
   the same in text (`ergostat system --blocks`).
+- **One selection, two views.** What is chosen is model parts (`stock.x`, `flow.x`, `auxiliary.x`,
+  `goal.g` and its reference `goal.g.r`, `block.b`, `system.s`), never shapes, so it survives a change
+  of view. Every graph comes with a correspondence (`ergostat/correspond.py`): each shape, the parts it
+  is; each part, the shapes standing for it there. The rule is identity, never what a shape touches: a
+  stock's integrator and its output y are the stock, a controller (with its sampler, hold and junction)
+  its block and the valves it opens, a goal's comparator its desired level and gap, r the desired level,
+  d its flow; a stock's summing junction, a MIMO process, a closed system and an open system's frame are
+  regions holding what is in them. A part with no shape of its own in a view is stood for by the
+  smallest region holding it, dashed, and its panel says so ("In the block diagram: inside P_service");
+  a block, which the dynamics view does not draw, by what it moves. A click chooses what its shape is,
+  Shift or a box adds, a loop chooses its members, the background or Escape lets go.
+- **Two views at once.** A grip on each edge of the canvas, dragged inward, reveals a second pane
+  behind a separator (left or right: side by side; top or bottom: stacked); the separator resizes it,
+  a double-click halves it, dragged back to the edge it closes; the edge and size are remembered in the
+  browser. The second pane is the page itself in a frame, a whole diagram with its own pan, zoom, open
+  systems and view (the other one at first), and its own view switch; the panes never follow each
+  other's pan or zoom. They share the selection, and a shape pointed at in one lights what it is,
+  lightly, in the other. While the split is open the side panel and a part's panel are drawn over the
+  pane clicked in, so the diagrams keep the whole width. At phone width there is no split.
 - **Export** (the zoom bar's Export menu): "SVG" and "PNG" write a standalone file with a header (project, system, view,
   when) and, for the control view, a one-line legend, every style resolved; "Design SVG" leaves out
   what changes minute to minute (values, rates, status, decisions, trends) for a design document; `ergostat snapshot` writes the whole page and its answers as one

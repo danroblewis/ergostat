@@ -207,7 +207,7 @@ function rememberChart(ref) {
    strip on one time axis; with nothing chosen, the user's charts. Kept between the panel's refreshes */
 function sideCharts(side) {
   const g = S.graph;
-  const chosen = [...(S.sel || [])].map((id) => partRef((g?.nodes || []).find((n) => n.id === id))).filter(Boolean);
+  const chosen = [...(S.sel || [])].filter((p) => /^(stock|flow|auxiliary)\.[^.]+$/.test(p) && (g?.corr?.parts?.[p] || []).length);   // (parts: interact.js)
   const refs = chosen.length ? chosen.slice(0, 6) : rememberedCharts();
   const sig = (chosen.length ? "chosen:" : "yours:") + refs.join(",") + `|${S.since}|${S.at || ""}`;
   const box = S.sideChartsEl || (S.sideChartsEl = h("div", { class: "side-charts" }));
