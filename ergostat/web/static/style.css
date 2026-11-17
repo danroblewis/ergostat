@@ -608,3 +608,15 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
 /* a Markdown file opened by itself (/file/…): one readable column, as on an item's page */
 body.file-page { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: var(--text); line-height: var(--leading); }
 body.file-page main.md { max-width: 46em; margin: 0 auto; padding: var(--sp-6) var(--sp-4); }
+
+/* what is chosen (interact.js): model parts, marked in every view by what stands for them; a region that
+   only holds one (a process, a closed system) dashed; what is pointed at in the other pane, lightly */
+.node.selected .hit, svg.sd .node.selected .hit, .bd .node.selected .hit { stroke: var(--accent); stroke-width: 2.2; }
+.node.selected.within .hit { stroke-dasharray: 5 3; }
+.bd .node.selected .bd-bar { fill: var(--accent); }
+.node.xhover .hit, svg.sd .node.xhover .hit, .bd .node.xhover .hit { stroke: var(--accent); stroke-width: 1.6; stroke-opacity: 0.55; }
+.bd .node.xhover .bd-bar { fill: var(--accent); fill-opacity: 0.55; }
+svg.canvas rect.hull-mark { fill: none; stroke: var(--accent); stroke-width: 1.8; pointer-events: none; }
+svg.canvas rect.hull-mark.within { stroke-dasharray: 6 4; }
+svg.canvas rect.hull-mark.xhover { stroke-width: 1.4; stroke-opacity: 0.55; }
+

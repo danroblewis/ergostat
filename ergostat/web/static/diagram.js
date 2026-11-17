@@ -863,8 +863,8 @@ function panZoom(svg) {
     const n = S.graph?.nodes.find((x) => x.id === was);
     if (!n || (n.kind === "cloud" && !n.beyond)) return;
     const orig = n.orig && S.graph.nodes.find((x) => x.id === n.orig);    // a shadow of a part drawn here too: that part's panel
-    if (orig) openNode(orig);
-    else if (n.kind === "terminal" || n.kind === "cloud") S.drill?.(n.in || ""); else openNode(n);
+    if (orig) { chooseShape(n.id); openNode(orig); }               // (what it is chosen: interact.js)
+    else if (n.kind === "terminal" || n.kind === "cloud") S.drill?.(n.in || ""); else { chooseShape(n.id); openNode(n); }
   });
   window.addEventListener("pointercancel", () => { S.pressed = false; }, true);
   svg.addEventListener("pointerdown", (ev) => {
@@ -1065,6 +1065,7 @@ async function pageDiagram(main, q) {
     let g;
     // the blocks view draws every loop, each in its system's outline: it asks for everything opened
     const openArg = openQ != null && view !== "wiring" ? { open: openQ } : {};
+    S.graphQ = { system, around, ...openArg };      // (the other view's answer is asked the same: interact.js)
     try { g = await api("graph", { view, system, around, ...openArg }); fails = 0; }
     catch (e) {
       if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "This view is not in the snapshot; the whole system and each system are." : "The server is not answering. Is ergostat still running?")); }
@@ -1196,7 +1197,7 @@ function renderSide(side, g, view) {
     for (const [name, lp] of loops.sort((a, b) => (rank[a[1].status] ?? 2) - (rank[b[1].status] ?? 2))) {
       side.append(h("div", { class: "looprow", "data-loop": name,
                               onmouseenter: () => highlightLoop(name), onmouseleave: () => highlightLoop(null),
-                              onclick: () => openLoop(name) },
+                              onclick: () => { choose(g.corr?.loops?.[name] || []); openLoop(name); } },
         h("b", {}, name), exceptional(lp.status) ? statusEl(lp.status) : h("span"),
         h("div", { class: "sub" }, `${lp.stock} ${fmt(lp.value)}, setpoint ${op(lp.setpoint)}${lp.band || ""}`)));
     }

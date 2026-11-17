@@ -499,9 +499,9 @@ def test_parts_chosen_with_a_box_move_together_pinned_and_with_no_new_layout(bro
         pg.mouse.move(x1, y1)
         pg.mouse.up()
         pg.keyboard.up("Shift")
-        chosen = pg.evaluate("() => [...S.sel]")
+        assert {"stock.users", "flow.signups"} <= set(pg.evaluate("() => [...S.sel]"))      # model parts (interact.js)
+        chosen = pg.evaluate("() => [...document.querySelectorAll('g.node.selected')].map((e) => e.dataset.id)")
         assert set(ids) <= set(chosen), chosen
-        assert pg.locator("g.node.selected").count() == len(chosen)
         before = pg.evaluate("() => Object.fromEntries(S.layout.children.map((c) => [c.id, [c.x, c.y]]))")
         layouts = pg.evaluate("() => S.layouts")
         k = pg.evaluate("() => S.view.k")
@@ -1340,7 +1340,7 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
         assert hover_all(pg, "#detail") == (2, 2)
         # parts chosen: each one's strip in the side panel, on one time axis; nothing chosen: the user's charts
         pg.evaluate("() => closeDetail()")
-        opened(pg, "() => { S.sel = new Set(['stock:backlog', 'flow:arriving']); markInteraction(document.querySelector('svg.canvas')); }",
+        opened(pg, "() => { S.sel = new Set(['stock.backlog', 'flow.arriving']); markInteraction(document.querySelector('svg.canvas')); }",
                ".side .side-charts", 5)
         charts, cursors = hover_all(pg, ".side .side-charts")
         assert charts == cursors == 5, (charts, cursors)

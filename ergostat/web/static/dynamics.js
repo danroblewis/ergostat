@@ -383,8 +383,8 @@ function sdHighlight(name) { S.hlCausal = name || null; sdApply(name); }
 /* a loop's marker (or its row) clicked: the loop lit and its panel open; clicked again, both let go (as the
    background, Escape and the panel's close do: closeDetail) */
 function sdToggle(name, loops = []) {
-  if (S.hlCausal && (S.hlCausal === name || loops.some((x) => x.name === S.hlCausal))) { closeDetail(); return; }
-  sdHighlight(name); openCausal(name);
+  if (S.hlCausal && (S.hlCausal === name || loops.some((x) => x.name === S.hlCausal))) { closeDetail(); choose([]); return; }
+  sdHighlight(name); choose(S.graph?.corr?.loops?.[name] || []); openCausal(name);     // its members chosen, in both views
 }
 function sdApply(name) {
   const svg = $("svg.canvas");
