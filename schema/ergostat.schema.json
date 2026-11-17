@@ -63,7 +63,7 @@
     },
     "parameters": {
       "type": "object",
-      "description": "The numbers equations name (SPEC §7b)",
+      "description": "The numbers equations name (SPEC \u00a77b)",
       "propertyNames": {
         "$ref": "#/$defs/name"
       },
@@ -134,6 +134,66 @@
       },
       "additionalProperties": {
         "$ref": "#/$defs/agent"
+      }
+    },
+    "improve": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the model improves itself (SPEC \u00a712e): who writes a change the judge kept, the least improvement that counts, and the record it is judged on",
+      "properties": {
+        "accept": {
+          "oneOf": [
+            {
+              "enum": [
+                "owner",
+                "auto"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "parameter": {
+                  "enum": [
+                    "owner",
+                    "auto"
+                  ]
+                },
+                "equation": {
+                  "enum": [
+                    "owner",
+                    "auto"
+                  ]
+                },
+                "structure": {
+                  "enum": [
+                    "owner",
+                    "auto"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "threshold": {
+          "oneOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "exclusiveMaximum": 1
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9.]+%$"
+            }
+          ]
+        },
+        "hold-out": {
+          "$ref": "#/$defs/duration"
+        },
+        "description": {
+          "type": "string"
+        }
       }
     }
   },
@@ -289,6 +349,19 @@
             "net"
           ],
           "description": "On a flow: its rate from its stock's own successive readings"
+        },
+        "model": {
+          "enum": [
+            "fit",
+            "unexplained",
+            "loops-unidentified",
+            "findings",
+            "model.fit",
+            "model.unexplained",
+            "model.loops-unidentified",
+            "model.findings"
+          ],
+          "description": "One of the model's own measures, read by ergostat (SPEC \u00a712e): fit (scaled error), unexplained (share of change the flows leave unexplained), loops-unidentified, findings"
         }
       },
       "oneOf": [
@@ -315,6 +388,11 @@
         {
           "required": [
             "changes"
+          ]
+        },
+        {
+          "required": [
+            "model"
           ]
         }
       ],
@@ -475,7 +553,7 @@
           "required": [
             "gain"
           ],
-          "description": "The loop's process, from what its controller moves to what the goal holds: first order with dead time, or an integrator (SPEC §8, §12c)",
+          "description": "The loop's process, from what its controller moves to what the goal holds: first order with dead time, or an integrator (SPEC \u00a78, \u00a712c)",
           "properties": {
             "gain": {
               "type": "number"
@@ -1154,7 +1232,7 @@
         "string",
         "number"
       ],
-      "description": "Its rate per hour (a flow) or its value (an auxiliary), as an equation of parameters (bare names) and parts (stock.x, flow.x, auxiliary.x): + - * / ^, MIN, MAX, ABS, EXP, LN, SQRT, DELAY1, DELAY3, SMOOTH, SMOOTH3, and a lookup parameter called like a function. Subtraction is written with spaces (a - b): names have hyphens (SPEC §7b)"
+      "description": "Its rate per hour (a flow) or its value (an auxiliary), as an equation of parameters (bare names) and parts (stock.x, flow.x, auxiliary.x): + - * / ^, MIN, MAX, ABS, EXP, LN, SQRT, DELAY1, DELAY3, SMOOTH, SMOOTH3, and a lookup parameter called like a function. Subtraction is written with spaces (a - b): names have hyphens (SPEC \u00a77b)"
     },
     "parameter": {
       "description": "A number an equation names: its value (a number, or a duration read in hours), its unit, and whether to estimate it from the record; or a lookup's table. A bare number is short for value:",

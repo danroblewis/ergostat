@@ -4,6 +4,8 @@ error with the file and line it was written at."""
 from __future__ import annotations
 
 import re
+import shlex
+import sys
 import time
 
 from ..durations import DurationError, parse_duration
@@ -11,6 +13,7 @@ from .equation import FUNCS as FUNCTIONS
 from .ir import (
     BUILTIN,
     MACHINE,
+    MODEL_MEASURES,
     NAME,
     Agent,
     Auxiliary,
@@ -18,6 +21,7 @@ from .ir import (
     Equation,
     Flow,
     Goal,
+    Improve,
     ItemKind,
     NamedLoop,
     Parameter,
@@ -31,7 +35,7 @@ from .ir import (
 from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
-SENSOR_KEYS = {"run", "query", "manual", "items", "every", "cron", "timeout", "parse", "unit", "description", "averages"}
+SENSOR_KEYS = {"run", "query", "manual", "items", "model", "every", "cron", "timeout", "parse", "unit", "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats"}
@@ -154,6 +158,51 @@ class Compiler:
             self.err(f"{what}.cron: {e}", m.at(key), "bad-cron")
             return None
         return str(v)
+
+    def improve(self, m) -> Improve:
+        """``improve:``, the policy for changes to the model a judge kept (SPEC §12e): ``accept`` (``owner``, the
+        default, or ``auto``, for every kind or by kind), ``threshold`` (a share, ``2%``) and ``hold-out`` (a
+        duration)."""
+        out = Improve()
+        if not isinstance(m, Map):
+            self.err("improve: a map (accept:, threshold:, hold-out:)", None, "not-a-map")
+            return out
+        out.where = m.where
+        self.keys(m, {"accept", "threshold", "hold-out", "description"}, "improve")
+        acc = m.get("accept")
+        ways = ("owner", "auto")
+        if isinstance(acc, str):
+            if acc not in ways:
+                self.err("improve.accept: owner or auto (or by kind: parameter:, equation:, structure:)", m.at("accept"),
+                         "bad-accept")
+            else:
+                out.accept = dict.fromkeys(out.accept, acc)
+        elif isinstance(acc, Map):
+            for k, v in acc.items():
+                if k not in out.accept or str(v) not in ways:
+                    self.err(f"improve.accept.{k}: a kind of change ({', '.join(out.accept)}) set to owner or auto",
+                             acc.at(k), "bad-accept")
+                    continue
+                out.accept[str(k)] = str(v)
+        elif acc is not None:
+            self.err("improve.accept: owner or auto, or a map of kind to owner or auto", m.at("accept"), "bad-accept")
+        t = m.get("threshold")
+        if t is not None:
+            try:
+                v = float(str(t).strip().removesuffix("%")) / (100.0 if str(t).strip().endswith("%") else 1.0)
+                if not 0 < v < 1:
+                    raise ValueError
+                out.threshold = v
+            except ValueError:
+                self.err("improve.threshold: a share above 0 and below 1, like 2% or 0.02", m.at("threshold"),
+                         "bad-threshold")
+        h = self.duration(m, "hold-out", "improve", None)
+        if h is not None:
+            if h <= 0:
+                self.err("improve.hold-out: a duration above 0", m.at("hold-out"), "bad-duration")
+            else:
+                out.hold_out = h
+        return out
 
     def text(self, m: Map, key: str, default: str = "") -> str:
         v = m.get(key)
@@ -292,10 +341,21 @@ class Compiler:
             changes = s.get("changes")
             self.keys(s, SENSOR_KEYS | (ITEM_SENSOR_KEYS if counted else set()) | ({"changes", "over"} if changes is not None
                                                                                   else {"changes"}), sw)
-            kinds = [k for k in ("run", "query", "manual", "items", "changes") if s.get(k) not in (None, False)]
+            kinds = [k for k in ("run", "query", "manual", "items", "changes", "model") if s.get(k) not in (None, False)]
             if len(kinds) != 1:
-                self.err(f"{sw}: exactly one of run:, query:, manual:, items: or changes: (it has {', '.join(kinds) or 'none'})",
-                         s.where, "sensor-kind")
+                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes: or model: (it has "
+                         f"{', '.join(kinds) or 'none'})", s.where, "sensor-kind")
+            measure = None
+            if s.get("model") is not None:
+                measure = str(s["model"]).removeprefix("model.")
+                if measure not in MODEL_MEASURES:
+                    self.err(f"{sw}.model: one of the model's own measures, {', '.join(MODEL_MEASURES)}", s.at("model"),
+                             "bad-measure")
+                    measure = None
+                elif of.kind == "flow":
+                    self.err(f"{sw}.model: the model's measures are levels, read by a stock or an auxiliary", s.at("model"),
+                             "bad-measure")
+                    measure = None
             if changes is not None and (of.kind != "flow" or changes not in CHANGES):
                 self.err(f"{sw}.changes: on a flow, one of {', '.join(CHANGES)}: its rate from its stock's own readings (how "
                          f"much they rose, or fell, per hour)", s.at("changes"), "bad-changes")
@@ -321,11 +381,15 @@ class Compiler:
                              f"with over:", s.at("averages"), "bad-averages")
                 else:
                     averages = self.duration(s, "averages", sw, 0.0)
-            out[str(name)] = Sensor(str(name), of, run=s.get("run") and str(s["run"]), query=dict(q) if q else None, averages=averages,
+            run = s.get("run") and str(s["run"])
+            if measure:                                 # read by ergostat itself, in a process of its own
+                run = f"{shlex.quote(sys.executable)} -m ergostat -C . measure {measure}"
+            out[str(name)] = Sensor(str(name), of, run=run, query=dict(q) if q else None, averages=averages, model=measure,
                                     items=self.item_sensor(s, of, sw) if counted else None,
                                     changes={"what": changes, "over": self.duration(s, "over", sw, 3600.0)} if changes else None,
                                     manual=bool(s.get("manual")), every=self.duration(s, "every", sw, 60.0),
-                                    cron=self.cron(s, "cron", sw), timeout=self.duration(s, "timeout", sw, 30.0),
+                                    cron=self.cron(s, "cron", sw),
+                                    timeout=self.duration(s, "timeout", sw, 120.0 if measure else 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
                                     description=self.text(s, "description"), where=s.where)
         return out
@@ -480,6 +544,8 @@ class Compiler:
                 spec.keep = parse_duration(d.keep, "keep")
             except DurationError as e:
                 self.err(str(e), None, "bad-duration")
+        if d.improve is not None:
+            spec.improve = self.improve(d.improve)
         for name, m, what in self.named("systems"):
             self.keys(m, {"description", "within", "show"}, what)
             spec.systems[name] = self.text(m, "description")

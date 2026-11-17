@@ -77,6 +77,26 @@ class Setpoint:
         return {"<=": y > r + band, "<": y >= r + band, ">=": y < r - band, ">": y <= r - band}.get(self.op, abs(y - r) > band)
 
 
+MODEL_MEASURES = {                 # the model's own quality, as a sensor reads it (``sensor: {model: fit}``, SPEC §12e)
+    "fit": "the scaled error of the model's replay on the reference window (the Fit page's total; lower is better)",
+    "unexplained": "the share of the stocks' change over the last hour that their flows do not explain (the residuals), "
+                   "averaged over the stocks that moved",
+    "loops-unidentified": "the goals whose loop closes and whose process the model does not hold (no process:)",
+    "findings": "the findings ergostat check reports (structure, signs, control), errors aside",
+}
+
+
+@dataclass
+class Improve:
+    """How the model improves itself (SPEC §12e): who writes a change the judge kept, by its kind (``auto``: the
+    judge writes it; ``owner``: it waits in the review queue), the least fall in scaled error that counts, in
+    every window judged, and how much record after it was proposed it is judged on."""
+    accept: dict[str, str] = field(default_factory=lambda: {"parameter": "owner", "equation": "owner", "structure": "owner"})
+    threshold: float = 0.02
+    hold_out: float = 600.0
+    where: Where | None = None
+
+
 @dataclass
 class Sensor:
     name: str
@@ -94,6 +114,7 @@ class Sensor:
     description: str = ""
     where: Where | None = None
     averages: float | None = None    # on a flow: its reading is the average rate over this window (seconds) before it
+    model: str | None = None   # one of the model's own measures (MODEL_MEASURES), read by ergostat itself (``run`` says how)
 
     @property
     def window(self) -> float:
@@ -365,6 +386,7 @@ class Spec:
     show: dict[str, list[Ref]] = field(default_factory=dict)     # a system → the measures its box shows (default: its goals')
     named_loops: dict[str, NamedLoop] = field(default_factory=dict)   # loops: the feedback loops the model names (SPEC §12a)
     parameters: dict[str, Parameter] = field(default_factory=dict)    # the numbers equations name (SPEC §7b)
+    improve: Improve = field(default_factory=Improve)                  # how the model improves itself (SPEC §12e)
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 
