@@ -271,7 +271,8 @@ function claimView(d) {
    one that replaces it) or Retire (a correction) once confirmed */
 const DECISION_KIND = "ergostat.decision", CORRECTION_KIND = "ergostat.correction";
 function quoteView(w) {
-  const where = [w.session ? `session ${String(w.session).slice(0, 8)}` : null, w.line ? `line ${w.line}` : null,
+  const sess = w.session ? String(w.session) : "";
+  const where = [sess ? `session ${/^[0-9a-f-]{36}$/.test(sess) ? sess.slice(0, 8) : sess}` : null, w.line ? `line ${w.line}` : null,
     w.time ? String(w.time).slice(0, 16).replace("T", " ") : null, w.event ? `event ${String(w.event).slice(0, 12)}` : null].filter(Boolean).join(", ");
   return h("blockquote", { class: "owner-words" }, h("p", {}, w.text), where ? h("p", { class: "muted small" }, where) : null);
 }
@@ -300,7 +301,7 @@ function intentView(d, onDone) {
         for (const b of row.querySelectorAll("button")) b.disabled = false;
       }
     }
-    row.append(reason, by, h("button", { onclick: answer }, `${label[a]} it`), h("button", { class: "ghost", onclick: () => { row.hidden = true; } }, "Cancel"));
+    row.append(...[reason, by].filter(Boolean), h("button", { onclick: answer }, `${label[a]} it`), h("button", { class: "ghost", onclick: () => { row.hidden = true; } }, "Cancel"));
     rows[a] = row;
     buttons.push(h("button", { class: a === "confirm" ? "" : "ghost", "data-act": a, onclick: async () => {
       for (const r of Object.values(rows)) r.hidden = true;

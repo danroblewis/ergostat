@@ -556,6 +556,8 @@ pre.code code.hljs { background: transparent; padding: 0; }
 .md table { width: auto; } .md th, .md td { padding: var(--sp-1) var(--sp-2); }
 .convo { display: flex; flex-direction: column; gap: var(--sp-3); }
 .convo .turn { padding: 0 0 0 var(--sp-3); border-left: 2px solid var(--line); }
+.intent .owner-words { margin: var(--sp-2) 0; padding: 0 0 0 var(--sp-3); border-left: 2px solid var(--line-strong); }
+.intent .owner-words p { margin: 0 0 var(--sp-1); }
 .convo .turn.assistant { border-left-color: var(--ink-2); }
 .convo .turn.tool { color: var(--ink-2); }
 .convo .turn.tool.failed { border-left-color: var(--bad); }

@@ -100,6 +100,9 @@ reasons, what was rejected and who proposed it, and the answers:
   until the owner says so.
 - **Retire** (a confirmed correction that no longer applies), with a reason.
 
+![A decision's page: the owner's words with where they were said, its reasons, what was rejected, and Supersede
+open with its reason and the decision that replaces it (a synthetic project)](screenshots/decision-item.png)
+
 The same from the command line: `ergostat decisions list --state proposed`, `ergostat decisions confirm ID
 [--reason]`, `dismiss ID --reason`, `supersede ID --by ID --reason`; `ergostat corrections confirm | dismiss |
 retire`. An id may be given whole or as its slug.
