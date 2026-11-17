@@ -67,21 +67,34 @@ function equationBox(name, tree) {
 
 /* a parameter's number with its unit; a duration as a duration (it is kept in hours) */
 const amount = (p, v, unit = true) => (p.duration ? dur(v * 3600) : `${fmt(v)}${unit && p.unit ? " " + p.unit : ""}`);
-/* where a parameter's number comes from, in words */
+/* where a parameter's number comes from, in words: declared or not known, and what it might be; its
+   calibrations are a table of their own beneath (calibrationTable) */
 function provenance(p) {
   const bits = [];
   if (p.table) bits.push("a lookup, declared");
   else if (p.value != null) bits.push("declared");
   else bits.push(p.estimate ? "not known yet: to be estimated" : "not known yet");
-  const e = p.estimated;
-  if (e) bits.push(`estimated ${amount(p, e.value, false)}${e.se != null ? ` \u00b1 ${amount(p, e.se, false)}` : ""} (${e.n} points, ${ago(e.when)})`);
-  if (p.estimate_note) bits.push(e ? `not proposed: ${p.estimate_note}` : p.estimate_note);
-  for (const c of p.calibrated || []) {
-    bits.push(c.value != null ? `calibrated on ${c.scope_words}: ${amount(p, c.value, false)}${c.se != null ? ` \u00b1 ${amount(p, c.se, false)}` : ""}` +
-      (c.note ? `, not proposed: ${c.note}` : "") : `calibrated on ${c.scope_words}: ${c.note || "no value"}`);
-  }
   if (p.range) bits.push(`might be ${amount(p, p.range[0], false)} to ${amount(p, p.range[1], false)} (its range)`);
+  const n = (p.calibrated || []).length;
+  if (n) bits.push(`${n} calibration${n > 1 ? "s" : ""} below`);
+  else if (p.estimate_note) bits.push(p.estimate_note);
   return bits.join("; ");
+}
+/* each calibration of a parameter side by side (Oliva 2003): which, its estimate ± one standard error (marked
+   when it is outside the range or at its end), from how many points (and how many independent), and whether
+   it is proposed or why not */
+function calibrationTable(params) {
+  const rows = (params || []).flatMap((p) => (p.calibrated || []).map((c) => ({ p, c })));
+  if (!rows.length) return null;
+  const words = { parts: "each part alone", whole: "the whole model" };
+  return h("table", { class: "params calibrations" },
+    h("tr", {}, h("th", {}, "calibrated"), h("th", { class: "num" }, "estimate"), h("th", { class: "num" }, "n"), h("th", {}, "")),
+    rows.map(({ p, c }) => h("tr", {},
+      h("td", {}, h("b", {}, p.name), h("span", { class: "muted" }, ` ${c.scope?.startsWith("system:") ? `system ${c.scope.slice(7)} alone` : c.scope === "parts" ? words.parts : c.scope_words || words[c.scope] || ""}`)),
+      h("td", { class: "num nowrap" }, c.value != null ? `${amount(p, c.value, false)}${c.se != null ? ` \u00b1 ${amount(p, c.se, false)}` : ""}` : "\u2013",
+        c.outside_range ? h("span", { class: "s-open" }, " outside its range") : c.at_range ? h("span", { class: "s-open" }, ` at its ${c.at_range} end`) : null),
+      h("td", { class: "num nowrap" }, c.n != null ? `${c.n}${c.n_eff != null && c.n_eff < c.n * 0.9 ? ` (${Math.round(c.n_eff)})` : ""}` : ""),
+      h("td", { class: "muted small" }, c.value == null ? (c.note || "no value") : c.note ? `not proposed: ${c.note}` : `supported${c.when ? `, ${ago(c.when)}` : ""}`))));
 }
 /* a value as the owner would type it: a time in seconds (read as a duration), else the number */
 const typed = (p, v) => (v == null ? "" : p.duration ? `${+(v * 3600).toPrecision(4)}s` : String(+v.toPrecision(6)));
@@ -93,8 +106,12 @@ function parameterTable(params) {
     // what if it were another value? typed here, drawn on every chart, kept nowhere unless proposed and accepted
     const input = h("input", { class: "whatif-in num", value: S.whatif?.[p.name] ?? typed(p, p.value), size: 7, "aria-label": `what if ${p.name} were`,
       "data-name": p.name, "data-declared": typed(p, p.value),
-      title: `Type another value to see what the model does with it (${p.duration ? "a duration, like 40s" : p.unit || "a number"}); nothing is saved` });
-    input.addEventListener("change", () => setWhatif(p.name, input.value.trim() === typed(p, p.value) ? null : input.value));
+      title: `Type another value to see what the model does with it (${p.duration ? "a duration, like 40s or 2m; a bare number is in seconds, as shown" : p.unit || "a number"}); nothing is saved` });
+    input.addEventListener("change", () => {
+      let v = input.value.trim();
+      if (p.duration && /^[+\-\u2212]?(\d+\.?\d*|\.\d+)$/.test(v)) input.value = v = `${v}s`;   // in the unit it is shown in
+      setWhatif(p.name, v === typed(p, p.value) ? null : v);
+    });
     return h("span", { class: "nowrap" }, input, p.duration || !p.unit ? null : h("span", { class: "muted" }, ` ${p.unit}`));
   };
   return h("table", { class: "params" }, h("tr", {}, h("th", {}, "parameter"), h("th", { class: "num" }, "value"), h("th", {}, "from")),
@@ -102,26 +119,42 @@ function parameterTable(params) {
       h("td", { class: "num nowrap" }, cell(p)),
       h("td", { class: "muted small" }, provenance(p)))));
 }
-/* the what-ifs tried on this panel's parameters: what they are, and the owner's two answers (propose one, or
-   put them back); redrawn whenever one changes */
+/* the what-ifs tried (on this panel's parameters, and any others the charts draw with them): what they are, their
+   fit on the record before anything is stored (each stock it moves, and the payoff), and the owner's two answers:
+   propose them, together, as the charts drew them, or put them back; redrawn whenever one changes */
 function whatifBox(params) {
   const box = h("div", { class: "whatif" });
   const mine = new Set((params || []).filter((p) => !p.table).map((p) => p.name));
   box.redraw = () => {
-    const tried = Object.entries(S.whatif || {}).filter(([k]) => mine.has(k));
-    if (!tried.length || SNAP) { box.replaceChildren(); return; }
+    const tried = Object.entries(S.whatif || {});
+    if (!tried.some(([k]) => mine.has(k)) || SNAP) { box.replaceChildren(); return; }
     const said = h("p", { class: "small" });
     const out = h("div");
+    const fit = h("div", { class: "small muted" }, "Fitting it to the record\u2026");
+    const propose = h("button", { onclick: async (ev) => {
+      ev.target.disabled = true; said.textContent = "Fitting it to the record\u2026";
+      try { const x = await apiPost("propose", whatifParams()); said.textContent = ""; out.replaceChildren(proposalBlock(x, { onDone: () => { for (const [k] of tried) setWhatif(k, null); } })); }
+      catch (e) { said.className = "s-open small"; said.textContent = String(e.message || e); }
+      ev.target.disabled = false;
+    } }, tried.length > 1 ? "Propose these" : "Propose it");
     box.replaceChildren(h("p", { class: "small" }, "What if ", tried.map(([k, v], i) => [i ? " and " : "", h("b", {}, k), ` were ${v}`]),
-      ": drawn in blue on the charts above. Nothing is saved."),
-      h("div", { class: "actions" }, ...tried.map(([k, v]) => h("button", { onclick: async (ev) => {
-        ev.target.disabled = true; said.textContent = "Fitting it to the record\u2026";
-        try { const x = await apiPost("propose", { parameter: k, value: v }); said.textContent = ""; out.replaceChildren(proposalBlock(x, { onDone: () => setWhatif(k, null) })); }
-        catch (e) { said.className = "s-open small"; said.textContent = String(e.message || e); }
-        ev.target.disabled = false;
-      } }, tried.length > 1 ? `Propose ${k}` : "Propose it")),
-      h("button", { class: "ghost", onclick: () => { for (const [k] of tried) setWhatif(k, null); for (const i of document.querySelectorAll(".whatif-in")) if (mine.has(i.dataset.name)) i.value = i.dataset.declared; } }, "Put it back")),
+      ": drawn in blue on the charts above. Nothing is saved."), fit,
+      h("div", { class: "actions" }, propose,
+        h("button", { class: "ghost", onclick: () => { for (const [k] of tried) setWhatif(k, null); for (const i of document.querySelectorAll(".whatif-in")) i.value = i.dataset.declared; } }, "Put it back")),
       said, out);
+    api("whatif-fit", whatifParams()).then((d) => {
+      if (d.error) { fit.className = "s-open small"; fit.textContent = d.error; propose.disabled = true; return; }
+      const rows = (d.touched || []).map((r) => {
+        const fb = d.fit_before?.stocks?.[r] || d.fit_before?.equations?.[r], fa = d.fit_after?.stocks?.[r] || d.fit_after?.equations?.[r];
+        const t = beforeAfter(fb, fa);
+        return t !== "\u2013" ? [r.split(".").slice(1).join("."), t] : null;
+      }).filter(Boolean);
+      fit.className = "small";
+      fit.replaceChildren(dl([...rows, ["fit, in total", payoffText(d.fit_before?.total, d.fit_after?.total)]]),
+        ...(d.refused || []).map((w) => h("p", { class: "s-open small" }, `Not to be proposed: ${w}.`)),
+        ...(d.warnings || []).map((w) => h("p", { class: "s-open small" }, `${w[0].toUpperCase()}${w.slice(1)}.`)));
+      if (d.refused?.length) propose.disabled = true;
+    }).catch((e) => { fit.textContent = String(e.message || e); });
   };
   box.redraw();
   return box;
@@ -132,7 +165,8 @@ function equationSection(name, nb) {
   if (!nb) return null;
   const out = [];
   if (nb.equation_tree) {
-    out.push(h("h3", {}, "Equation"), equationBox(name, nb.equation_tree), parameterTable(nb.parameters), whatifBox(nb.parameters));
+    out.push(h("h3", {}, "Equation"), equationBox(name, nb.equation_tree), parameterTable(nb.parameters), whatifBox(nb.parameters),
+      calibrationTable(nb.parameters));
     const notes = [];
     if (nb.unit_problems?.length) notes.push(h("p", { class: "s-open small" }, op(nb.unit_problems.join("; "))));
     else if (nb.equation_ok === false) notes.push(h("p", { class: "s-open small" }, `It comes out in ${nb.equation_unit}: its units do not agree (ergostat check says how).`));
@@ -178,7 +212,7 @@ function proposalBlock(x, { onDone = null } = {}) {
       const got = await apiPost(`proposals/${encodeURIComponent(x.id)}/${what}`);
       said.className = "small";
       said.textContent = what === "accept"
-        ? `Accepted: ${(got.edit?.files || []).map((f) => Path(f.file)).join(", ")} changed; fit in total R² ${r2Text(got.applied?.fit_before)} → ${r2Text(got.applied?.fit_after)}.`
+        ? `Accepted: ${(got.edit?.files || []).map((f) => Path(f.file)).join(", ")} changed; fit in total, ${payoffText(got.applied?.fit_before, got.applied?.fit_after)}.`
         : "Dismissed: it is not proposed again for this model.";
       S.graphSig = "";                                    // the model changed: draw it again
       onDone?.(what);
@@ -193,7 +227,7 @@ function proposalBlock(x, { onDone = null } = {}) {
       ? (x.scope === "what-if" ? "Your value, proposed" : x.scope && x.scope !== "parts" ? `Proposed value, calibrated on ${x.scope_words}` : "Proposed value") : "Proposed equation"),
       h("div", {}, op(x.title).replaceAll(" * ", " \u00d7 "))),
     h("p", { class: "muted small" }, x.reason),
-    dl([...(x.objective ? [["fitted to", objectiveText(x.objective)]] : []), ...touchedFits(x), ["fit, in total", b || a ? beforeAfter(b, a) : null]]),
+    dl([...(x.objective ? [["fitted to", objectiveText(x.objective)]] : []), ...touchedFits(x), ["fit, in total", b || a ? payoffText(b, a) : null]]),
     x.edit?.diff ? h("pre", { class: "diff" }, x.edit.diff.split("\n").map((l) => h("div", { class: l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : "muted" }, l)))
       : h("p", { class: "s-open small" }, `ergostat cannot make this edit (${x.edit?.error}); write it by hand.`),
     SNAP ? h("p", { class: "muted small" }, `ergostat accept ${x.id} applies it.`) : h("div", { class: "actions" }, accept, dismiss),
@@ -212,6 +246,12 @@ function touchedFits(x) {
 function objectiveText(o) {
   const f = (v) => (v == null ? "\u2013" : fmt(v));
   return `weighted error ${f(o.before)} \u2192 ${f(o.after)}` + (o.held_before != null ? `; held out ${f(o.held_before)} \u2192 ${f(o.held_after)}` : "");
+}
+/* the total as a calibration judges it: the payoff, each stock's squared error over its own size, averaged
+   (lower is better; R² and MAPE are per stock, above it) */
+function payoffText(b, a) {
+  const f = (t) => (t?.nmse != null ? fmt(t.nmse) : "\u2013");
+  return b?.nmse != null || a?.nmse != null ? `scaled error ${f(b)} \u2192 ${f(a)}` : "\u2013";
 }
 /* R² and MAPE, before and after, leaving out what neither has */
 function beforeAfter(b, a) {

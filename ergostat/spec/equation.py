@@ -303,6 +303,7 @@ class Compiled:
         self.tree = tree
         self.slots = 0
         self.decay: list[float] = []
+        self.material: list[bool] = []      # each hidden stock: a material delay's contents (True), or a smoothed value
         self.faults: dict[str, int] = {}
         tables = tables or {}
         faults = self.faults
@@ -377,6 +378,7 @@ class Compiled:
             self.slots += order
             self.decay += [0.0] * order
             material = name.startswith("DELAY")
+            self.material += [material] * order
             decay = self.decay
 
             def delay(V, P, S, D, N):

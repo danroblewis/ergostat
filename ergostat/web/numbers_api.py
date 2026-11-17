@@ -66,19 +66,35 @@ def fan_of(live, p, snap: dict, mr: dict, inputs: str) -> dict | None:
     """The projection's Monte Carlo fan over the uncertain parameters (sensitivity.py), cached as the
     model run is (the same moment, window, grid and inputs)."""
     spec = spec_of(p)
-    key = ("fan", snap["window"], snap["at"] if not snap.get("live", True) else round(snap["at"] / 5), live.mtime,
+    key = ("fan", snap["window"], snap["at"] if not snap.get("live", True) else round(snap["at"] / 30), live.mtime,
            mr["data"].grid.n, inputs)
     got = live.cached(key)
     if got is not None:
         return got
+    got = sens.fan(spec, mr["data"], mr["horizon"], mr["points"], inputs, _estimates(p, spec), run=mr["run"])
+    live.keep(key, got)
+    return got
+
+
+def replay_fan_of(live, p, snap: dict, mr: dict) -> dict | None:
+    """The replay's spread over the uncertain parameters across the window (sensitivity.replay_fan), cached as the
+    model run is."""
+    key = ("replay-fan", snap["window"], snap["at"] if not snap.get("live", True) else round(snap["at"] / 15), live.mtime,
+           mr["data"].grid.n)
+    got = live.cached(key)
+    if got is None:
+        got = sens.replay_fan(spec_of(p), mr["data"], _estimates(p, spec_of(p)))
+        live.keep(key, got)
+    return got
+
+
+def _estimates(p, spec) -> dict:
     est: dict = {}
     kept = es.load_all(p, spec)
     for which in ("whole", "systems", "parts"):              # an estimate's standard error; each part alone's first
         for k, x in kept.get(which, {}).items():
             est[x.get("parameter", k)] = x
-    got = sens.fan(spec, mr["data"], mr["horizon"], mr["points"], inputs, est, run=mr["run"])
-    live.keep(key, got)
-    return got
+    return est
 
 
 def reference(live, p, snap: dict) -> dict | None:
@@ -111,7 +127,7 @@ def parse_whatif(spec, raw: str | None) -> dict[str, float]:
     return pr.what_if(spec, got) if got else {}
 
 
-def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: str | None = None, fan: bool = False) -> dict:
+def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: str | None = None, fan: bool | str = False) -> dict:
     """Each part's replay (what the model says it was) and projection (what it says comes next),
     where the model works it out: an integrated stock, a flow or auxiliary with an equation. With
     ``whatif``, the same with other values for some parameters, beside it (nothing is kept); with
@@ -128,6 +144,7 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
         tried, out["whatif_error"] = {}, str(e)
     mw = model_run(live, p, snap, out["points"], inputs, tried, mr["horizon"]) if tried else None
     fn = fan_of(live, p, snap, mr, inputs) if fan else None
+    rf = replay_fan_of(live, p, snap, mr) if fan == "replay" else None
     for s in out["series"]:
         ref = s["ref"]
         if ref in run.how:
@@ -137,8 +154,12 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
             if mw is not None and ref in mw["run"].how:
                 s["whatif_replay"] = _round(mw["run"].values[ref])
                 s["whatif_projection"] = _round(mw["projection"].values.get(ref) or [])
+            rb = (rf or {}).get("bands", {}).get(ref)
+            if rb and any(a is not None and b is not None and b > a for a, b in zip(rb["p25"], rb["p75"], strict=True)):
+                s["replay_fan"] = {k: _round(v) for k, v in rb.items()}
             band = (fn or {}).get("bands", {}).get(ref)
-            if band and max(b - a for a, b in zip(band["p5"], band["p95"], strict=True)) > 0:   # a spread to draw
+            lo, hi = ("p5", "p95") if band and "p5" in band else ("p25", "p75")
+            if band and max(b - a for a, b in zip(band[lo], band[hi], strict=True)) > 0:   # a spread to draw
                 s["fan"] = {k: _round(v) for k, v in band.items()}
     if any("replay" in s for s in out["series"]):
         out["projection_times"] = [round(t, 3) for t in proj.times]
@@ -148,32 +169,65 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
         if tried:
             out["whatif"] = [{"name": k, "value": v, "was": spec.parameters[k].value, "unit": spec.parameters[k].unit,
                               "duration": spec.parameters[k].duration} for k, v in tried.items()]
-            if mw is not None and not (mw["run"].valid and mw["projection"].valid):
-                out["whatif_invalid"] = mw["run"].invalid + mw["projection"].invalid
+            if mw is not None:                      # what they break: a blow-up, or a fault the model as written has not
+                faults = {r: {w: k for w, k in got.items() if k > (run.faults.get(r) or {}).get(w, 0)}
+                          for r, got in {**mw["projection"].faults, **mw["run"].faults}.items()}
+                bad = mw["run"].invalid + mw["projection"].invalid + pr.faults_said({r: g for r, g in faults.items() if g})
+                if bad:
+                    out["whatif_invalid"] = bad
         if fn is not None:                          # the parameters sampled that these parts depend on
             mine = sens.upstream(spec, [s["ref"] for s in out["series"] if "replay" in s])
-            out["fan"] = {"samples": fn["samples"], "invalid": fn["invalid"],
-                          "parameters": [u for u in fn["parameters"] if u["name"] in mine]}
+            sampled = [u for u in fn["parameters"] if u["name"] in mine]
+            if rf is not None:
+                out["replay_fan"] = {"samples": rf["samples"], "invalid": rf["invalid"], "tails": rf["samples"] >= sens.TAILS}
+            out["fan"] = {"samples": fn["samples"], "invalid": fn["invalid"], "tails": fn["samples"] >= sens.TAILS,
+                          "parameters": [{k: v for k, v in u.items() if k != "corr"} for u in sampled], "joint": sens.joint_said(sampled)}
     return out
 
 
+def whatif_fit(live, p, snap: dict, whatif: str | None) -> dict:
+    """``GET /api/whatif-fit?whatif=a:1,b:2``: the values tried, their fit before and after on the reference
+    window (per stock, and the payoff), and what would refuse them as a proposal or be said with it. Nothing
+    is stored."""
+    spec = spec_of(p)
+    if spec is None:
+        return {}
+    raw = {}
+    for part in (whatif or "").split(","):
+        if ":" in part:
+            k, _, v = part.partition(":")
+            raw[k.strip()] = v.strip()
+    key = ("whatif-fit", round(snap["at"] / 15), live.mtime, tuple(sorted(raw.items())))
+    got = live.cached(key)
+    if got is None:
+        try:
+            got = pr.whatif_fit(p, raw, {"at": snap["at"]})
+        except pr.ProposalError as e:
+            got = {"error": str(e)}
+        live.keep(key, got)
+    return got
+
+
 def loop_dominance(live, p, snap: dict, n: int = series.POINTS, loop: str | None = None) -> dict | None:
-    """Which loops drive the behaviour over the page's window (dominance.py, the Loops That Matter
-    method), on the replay the charts draw: each loop's relative score per bucket, or only ``loop``'s
-    and the dominant one's."""
+    """Which loops drive the behaviour over the page's window (dominance.py, the Loops That Matter method,
+    on the replay at its integration step): per stock, each scored loop's relative score per bucket and which
+    dominates; with ``loop``, only the stocks it runs through, each with every scored loop competing there."""
     mr = model_run(live, p, snap, n)
     if mr is None:
         return None
     key = ("dominance", snap["window"], snap["at"] if not snap.get("live", True) else round(snap["at"] / 5), live.mtime, n)
     got = live.cached(key)
     if got is None:
-        got = dm.dominance(spec_of(p), mr["data"], mr["run"])
+        got = dm.dominance(spec_of(p), mr["data"])
         live.keep(key, got)
-    rel = got["relative"] if loop is None else {k: v for k, v in got["relative"].items() if k == loop}
+    mine = {s: x for s, x in got["stocks"].items() if loop is None or loop in x["loops"]}
     return {"times": [round(t, 3) for t in got["times"]], "since": mr["data"].grid.since, "until": mr["data"].grid.until,
-            "relative": {k: _round(v) for k, v in rel.items()}, "dominant": got["dominant"], "share": got["share"],
+            "loop": loop, "polarity": got["polarity"], "assumed": got["assumed"].get(loop, []) if loop else got["assumed"],
             "not_scored": got["not_scored"] if loop is None else {k: v for k, v in got["not_scored"].items() if k == loop},
-            "polarity": got["polarity"], "scored": len(got["relative"]), "steps": got["steps"]}
+            "stocks": [{"stock": s, "loops": len(x["loops"]), "scored": len(x["scored"]), "named": x["named"], "ties": x["ties"],
+                        "relative": {k: _round(v) for k, v in x["relative"].items()}, "share": x["share"],
+                        "dominant": x["dominant"], "tied": x["tied"], "steps": x["steps"]} for s, x in sorted(mine.items())],
+            "integration_steps": got["integration_steps"]}
 
 
 def parameter_rows(p, spec, names: list[str]) -> list[dict]:
@@ -187,18 +241,23 @@ def parameter_rows(p, spec, names: list[str]) -> list[dict]:
         if x is None:
             continue
         e = est.get(nm)
+        def outside(v, rg=x.range):
+            return bool(rg and v is not None and not rg[0] <= v <= rg[1])
         calibrated = [{"scope": c.get("scope"), "scope_words": c.get("scope_words"), "value": c.get("value"), "n": c.get("n"),
-                       "when": c.get("when"), "se": es.said_se(c, c["value"]) if c.get("value") is not None else None,
+                       "n_eff": c.get("n_eff"), "when": c.get("when"),
+                       "se": es.said_se(c, c["value"]) if c.get("value") is not None else None,
+                       "outside_range": outside(c.get("value")), "at_range": c.get("at_range"),
                        "note": c.get("refused") or c.get("why")}
-                      for which in ("systems", "whole") for k, c in sorted(kept.get(which, {}).items()) if c.get("parameter", k) == nm]
+                      for which in ("parts", "systems", "whole") for k, c in sorted(kept.get(which, {}).items())
+                      if c.get("parameter", k) == nm]
         rows.append({"name": nm, "value": x.value, "unit": x.unit, "provenance": x.provenance, "estimate": x.estimate,
                      "duration": x.duration,
                      "table": x.table, "description": x.description,
                      "where": str(x.defined) if x.defined else None,
                      "estimated": None if not e or e.get("value") is None else
                      {**{k: e.get(k) for k in ("value", "n", "when", "window", "before", "after", "held_before", "held_after",
-                                                "fitted_to", "at_bound", "corr", "slowest")},
-                      "se": es.said_se(e, e["value"])},
+                                                "fitted_to", "at_bound", "at_range", "corr", "slowest", "n_eff")},
+                      "se": es.said_se(e, e["value"]), "outside_range": outside(e.get("value"))},
                      "estimate_note": (e.get("why") if e and e.get("value") is None else e.get("refused") if e else None),
                      "calibrated": calibrated, "range": list(x.range) if x.range else None})
     return rows
@@ -256,7 +315,7 @@ def fit_page(live, p, snap: dict) -> dict | None:
         for k, e in sorted(kept.get(which, {}).items()):
             n = e.get("parameter", k)
             if n in spec.parameters and (e.get("refused") or e.get("why")):
-                label = n if which == "parts" else f"{n}, {e.get('scope_words') or which}"
+                label = es.label(k, e)
                 not_proposed[label] = e.get("refused") or e.get("why")
     return {"version": ver.version(spec), "structure": ver.structure(spec), "since": rf["data"].grid.since,
             "until": rf["data"].grid.until, "total": ft._slim(fit["total"]), "stocks": rows("stocks"),
@@ -266,7 +325,8 @@ def fit_page(live, p, snap: dict) -> dict | None:
             "history": ft.versions(p), "accepted": pr.accepted(p), "proposals": pr.pending(p, spec),
             "estimated_at": max((e.get("when") or 0 for got in kept.values() for e in got.values()), default=None) or None,
             "to_estimate": names,
-            "calibrations": [{"key": w, "words": es.SCOPE_WORDS[w], "count": len(es.scopes(spec, names, w)) if names else 0,
+            "open_loops": es.open_loops(spec), "open_said": es.open_said(es.open_loops(spec)),
+            "calibrations": [{"key": w, "words": es.scope_words(spec, w), "count": len(es.scopes(spec, names, w)) if names else 0,
                               "when": max((e.get("when") or 0 for e in kept.get(w, {}).values()), default=None) or None}
                              for w in es.SCOPES],
             "not_proposed": not_proposed,
@@ -275,7 +335,8 @@ def fit_page(live, p, snap: dict) -> dict | None:
 
 def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, dict]:
     """``POST /api/estimate?calibrate=parts|systems|whole`` (calibrate, and make the proposals),
-    ``/api/propose?parameter=NAME&value=V`` (the owner's what-if, made a proposal),
+    ``/api/propose?whatif=NAME:V,NAME:V`` (the owner's what-if, every value tried made one proposal; or
+    ``parameter=NAME&value=V``),
     ``/api/proposals/ID/accept`` and ``/api/proposals/ID/dismiss``: the page's only writes, each the
     owner's own act, and none of them changes the model but Accept."""
     q = q or {}
@@ -297,6 +358,9 @@ def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, di
             finally:
                 ESTIMATING.release()
         if parts == ["propose"]:
+            if q.get("whatif"):                     # every value tried together, as the charts drew them
+                raw = dict(x.split(":", 1) for x in q["whatif"][0].split(",") if ":" in x)
+                return 200, pr.propose_values(p, {k.strip(): v.strip() for k, v in raw.items()}, snap)
             return 200, pr.propose_value(p, (q.get("parameter") or [""])[0], (q.get("value") or [""])[0], snap)
         if len(parts) == 3 and parts[0] == "proposals" and parts[2] in ("accept", "dismiss"):
             if parts[2] == "dismiss":

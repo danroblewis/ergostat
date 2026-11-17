@@ -175,7 +175,11 @@ def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts"
         fall = 1 - e["after"] / e["before"] if e["before"] > 0 else None
         weights = ", ".join(f"{r} {ye.number(w)}" for r, w in sorted((e.get("weights") or {}).items()))
         held = (1 - e["held_after"] / e["held_before"] if e.get("held_before") and e.get("held_after") is not None else None)
-        how = ({"parts": "", "whole": "calibrated on the whole model's replay (every stock integrated from its flows), "}
+        left = es.open_loops(spec) if scope == "whole" else []
+        how = ({"parts": "",
+                "whole": (f"calibrated on the model's replay, every stock integrated from its flows and what the decisions set "
+                          f"taken as measured, so {es.open_said(left)} {'stay' if len(left) > 1 else 'stays'} open, "
+                          if left else "calibrated on the whole model's replay (every stock integrated from its flows), ")}
                .get(scope, f"calibrated on {e.get('scope_words') or scope}, its stocks integrated from its flows, "))
         found.append({
             "id": _id("parameter", st, sorted(moved.items())) if scope == "parts" else _id("parameter", st, scope, sorted(moved.items())),
@@ -363,19 +367,35 @@ def _equation_edit(spec: Spec, f, text: str, params: dict) -> dict:
     return _joined([first, second])
 
 
+def is_time(prm) -> bool:
+    """A parameter that is a time: written as a duration, or in hours."""
+    return bool(prm.duration) or (prm.unit or "").strip() in ("h", "hour", "hours")
+
+
 def parse_value(prm, raw) -> float:
-    """A value the owner typed for a parameter: a number in its unit, or a duration for a time."""
-    from ..durations import DurationError, parse_duration
-    text = str(raw).strip()
-    try:
-        v = float(text)
-    except ValueError:
-        try:
-            v = parse_duration(text, f"parameter {prm.name}") / 3600.0
-        except DurationError:
-            raise ProposalError(f"parameter {prm.name}: {text!r} is not a number{' or a duration' if prm.duration else ''}") from None
+    """A value the owner typed for a parameter: a number in its unit; for a time written as a duration, a
+    duration with its unit (``20s``, ``5m``, ``2h``: a bare number is refused, since the panel shows it in
+    seconds and the model counts hours). A time is above 0 unless its range says it may be less."""
+    import re
+
+    from ..durations import UNITS
+    text = str(raw).strip().replace("\u2212", "-")
+    m = re.fullmatch(r"([+-]?)\s*(\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)\s*(ms|s|m|h|d|w)?", text)
+    if not m:
+        raise ProposalError(f"parameter {prm.name}: {text!r} is not a number{' or a duration' if prm.duration else ''}")
+    v = float(m.group(2)) * (-1 if m.group(1) == "-" else 1)
+    if m.group(3):
+        if not is_time(prm):
+            raise ProposalError(f"parameter {prm.name}: {text!r} is a duration, and {prm.name} is not a time"
+                                f"{f' (its unit is {prm.unit})' if prm.unit else ''}: write a number")
+        v *= UNITS[m.group(3)] / 3600.0
+    elif prm.duration:
+        raise ProposalError(f"parameter {prm.name} is a duration: write it with its unit, like {m.group(2)}s, {m.group(2)}m "
+                            f"or {m.group(2)}h")
     if not math.isfinite(v):
         raise ProposalError(f"parameter {prm.name}: {text!r} is not a number")
+    if is_time(prm) and v <= 0 and not (prm.range and prm.range[0] < 0):
+        raise ProposalError(f"parameter {prm.name} is a time: it must be more than 0 (its range would have to say it may be less)")
     return v
 
 
@@ -390,41 +410,123 @@ def what_if(spec: Spec, raw: dict[str, str]) -> dict[str, float]:
     return out
 
 
-def propose_value(p, name: str, raw, snap: dict | None = None, n: int | None = None) -> dict:
-    """The owner's own what-if, made a proposal: the value tried on the page, with the fit before and
-    after on the reference window and its edit. Like any proposal it changes nothing until accepted."""
+def _said_value(prm, x) -> str:
+    if x is None:
+        return "no value"
+    return ye.duration(x) if prm.duration else f"{ye.number(x)}{' ' + prm.unit if prm.unit else ''}"
+
+
+def faults_said(faults: dict[str, dict[str, int]]) -> list[str]:
+    """A run's equation faults, in words: each part, what it did and how often (each was taken as 0)."""
+    from .extremes import FAULT_WORDS
+    out = []
+    for r, got in sorted(faults.items()):
+        said = "; ".join(f"{FAULT_WORDS.get(w, w)} {n} time" + ("s" if n > 1 else "") for w, n in sorted(got.items()))
+        out.append(f"{r} {said}")
+    return out
+
+
+def judge_what_if(p, spec: Spec, moved: dict[str, float], data: ob.Data | None = None, extremes: bool = True) -> dict:
+    """What a what-if does to the model before it is proposed (Sterman ch. 21, parameter assessment and the
+    extreme-conditions test): the fit before and after on the reference window, per stock and its payoff;
+    what refuses it (a run that blows up, an equation that faults where the model as written does not); and
+    what is said with it (a value outside the parameter's range, an extreme condition the model as written
+    passes and this one fails)."""
+    from . import extremes as ex
+    base_pl, pl = sim.plan(spec), sim.plan(spec, moved)
+    base_run, run = sim.replay(spec, data, base_pl), sim.replay(spec, data, pl)
+    refused, warnings = [], []
+    if not run.valid:
+        refused.append(f"with it the replay blows up ({'; '.join(run.invalid)})")
+    new = {r: {w: n for w, n in got.items() if n > (base_run.faults.get(r) or {}).get(w, 0)} for r, got in run.faults.items()}
+    new = {r: got for r, got in new.items() if got}
+    if new:
+        refused.append(f"with it {'; '.join(faults_said(new))}, each taken as 0: a value the model cannot run")
+    for n, v in moved.items():
+        prm = spec.parameters[n]
+        if prm.value is not None and abs(v - prm.value) <= 1e-12 * max(1.0, abs(prm.value)):
+            refused.append(f"{n} is {_said_value(prm, v)} already")
+        if prm.range and not prm.range[0] <= v <= prm.range[1]:
+            warnings.append(f"{n} {_said_value(prm, v)} is outside its range ({_said_value(prm, prm.range[0])} to "
+                            f"{_said_value(prm, prm.range[1])}): what the model says it might be")
+    if extremes and not refused:
+        scales = ex.scales_of(data, spec)
+        was, now = ex.failures(spec, None, scales), ex.failures(spec, moved, scales)
+        for (ref, what), x in sorted(now.items()):
+            if (ref, what) not in was:
+                warnings.append("it fails an extreme-conditions test the model as written passes: " + ex.message(spec, pl, ref, what, x))
+    before = _total(spec, data, base_pl)
+    after = _total(spec, data, pl) if run.valid else {"total": None, "stocks": {}, "equations": {}}
+    return {"refused": refused, "warnings": warnings, "fit_before": before, "fit_after": after,
+            "window": data.grid.until - data.grid.since}
+
+
+def whatif_fit(p, raw: dict[str, str], snap: dict | None = None, n: int | None = None) -> dict:
+    """A what-if's fit, shown beside the charts before anything is stored: the payoff and each stock's fit
+    before and after on the reference window, and what would refuse it or be said with it."""
     spec: Spec = p.model.spec
-    moved = what_if(spec, {name: raw})
-    prm = spec.parameters[name]
+    moved = what_if(spec, raw)
     data = ob.measured(p, ob.reference(p, (snap or {}).get("at"), n))
-    before = _total(spec, data, sim.plan(spec))
-    after = _total(spec, data, sim.plan(spec, moved))
+    got = judge_what_if(p, spec, moved, data, extremes=False)
+    touched = sorted({r for k in moved for u in users_of(spec, k) for r in (u, *_stocks_of(spec, u))})
+    return {**got, "parameters": moved, "touched": touched}
+
+
+def propose_value(p, name: str, raw, snap: dict | None = None, n: int | None = None) -> dict:
+    """One what-if value made a proposal (``propose_values``)."""
+    return propose_values(p, {name: raw}, snap, n)
+
+
+def propose_values(p, raw: dict[str, str], snap: dict | None = None, n: int | None = None) -> dict:
+    """The owner's own what-if, made one proposal for every value tried together (what the charts drew):
+    with the fit before and after on the reference window and its edit. Refused when the values make the
+    model fault or blow up, or are what is written already; a value outside its range, or one that fails an
+    extreme condition the model passes, is said in its reason. Like any proposal it changes nothing until
+    accepted. An accepted what-if is never overwritten: asking again makes another."""
+    spec: Spec = p.model.spec
+    if not raw:
+        raise ProposalError("no value to propose")
+    moved = what_if(spec, raw)
+    data = ob.measured(p, ob.reference(p, (snap or {}).get("at"), n))
+    judged = judge_what_if(p, spec, moved, data)
+    if judged["refused"]:
+        raise ProposalError("not proposed: " + "; ".join(judged["refused"]))
     st, v = ver.structure(spec), ver.version(spec)
     try:
-        edit = _joined([_value_edit(prm, moved[name])])
+        edit = _joined([_value_edit(spec.parameters[k], x) for k, x in moved.items()])
     except ye.EditError as err:
         edit = {"error": str(err)}
-
-    def said(x):
-        if x is None:
-            return "no value"
-        return ye.duration(x) if prm.duration else f"{ye.number(x)}{' ' + prm.unit if prm.unit else ''}"
+    before, after = judged["fit_before"], judged["fit_after"]
     b, a = before.get("total") or {}, after.get("total") or {}
+    props = stored(p)
     pid = _id("parameter", st, "what-if", sorted(moved.items()))
+    if (props.get(pid) or {}).get("status") == "accepted":
+        pid = _id("parameter", st, "what-if", sorted(moved.items()), time.time())
+    names = sorted(moved)
+    parts = sorted({u for k in names for u in users_of(spec, k)})
     x = {"id": pid, "kind": "parameter", "scope": "what-if", "scope_words": "the owner's what-if",
-         "target": f"parameter.{name}", "parameters": moved, "previous": {name: prm.value}, "uncertainty": {name: None},
-         "parts": users_of(spec, name), "touched": sorted({r for u in users_of(spec, name) for r in (u, *_stocks_of(spec, u))}),
-         "title": f"{name}: {said(prm.value)} → {said(moved[name])}",
-         "reason": ("tried by the owner as a what-if, not estimated: " +
-                    (f"the model's fit in total on the last {series.dur(data.grid.until - data.grid.since)} of record goes "
-                     f"from R² {_two(b.get('r2'))} to {_two(a.get('r2'))}" if b or a else "nothing it moves is fitted yet")),
+         "target": ", ".join(f"parameter.{k}" for k in names), "parameters": moved,
+         "previous": {k: spec.parameters[k].value for k in names}, "uncertainty": dict.fromkeys(names),
+         "parts": parts, "touched": sorted({r for u in parts for r in (u, *_stocks_of(spec, u))}),
+         "title": "; ".join(f"{k}: {_said_value(spec.parameters[k], spec.parameters[k].value)} → "
+                            f"{_said_value(spec.parameters[k], moved[k])}" for k in names),
+         "reason": ("tried by the owner as a what-if, not estimated" +
+                    (" (the values together, as the charts drew them)" if len(names) > 1 else "") +
+                    ": " + (f"the model's scaled error on the last {series.dur(judged['window'])} of record goes from "
+                            f"{_sig(b.get('nmse'))} to {_sig(a.get('nmse'))} (lower is better)" if b or a
+                            else "nothing it moves is fitted yet") +
+                    "".join(f"; {w}" for w in judged["warnings"])),
+         "warnings": judged["warnings"],
          "fit_before": before, "fit_after": after, "edit": edit,
          "status": "pending", "created": time.time(), "structure": st, "version": v,
-         "window": data.grid.until - data.grid.since}
-    props = stored(p)
+         "window": judged["window"]}
     props[pid] = x                                  # the owner asked again: proposed again, even if let go before
     save(p, props)
     return x
+
+
+def _sig(x) -> str:
+    return "–" if x is None else f"{x:.3g}"
 
 
 def _two(x) -> str:

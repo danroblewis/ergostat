@@ -325,8 +325,8 @@ def test_a_loop_through_a_decision_with_several_inputs_is_not_scored_and_says_wh
     assert any("decision with 2 inputs" in w for w in got["not_scored"].values()), got["not_scored"]
 
 
-def test_a_replay_that_does_not_move_has_no_r_squared_from_its_rounding():
+def test_a_replay_that_does_not_move_explains_none_of_the_record_whatever_its_rounding():
     from ergostat.numbers import fit as ft
     flat = [132.0 + (1e-12 if i % 3 else 0.0) for i in range(20)]
     got = ft.stats(flat, [250.0 + 10 * (i % 4) for i in range(20)])
-    assert got["r2"] is None and got["says"] == "runs low"
+    assert got["r2"] == 0.0 and got["still"] and got["says"] == "does not move, while the record does, and runs low"

@@ -679,7 +679,8 @@ function openCausal(name) {
   const minus = signs.filter((x) => x === MINUS).length, unknown = signs.filter((x) => x === "?").length;
   showDetail(h("div", { class: "kind" }, `Feedback loop, ${word}`),
     h("h2", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label)), h("div", { class: "subtitle" }, c.name),
-    h("p", {}, c.polarity ? `${minus} negative link${minus === 1 ? "" : "s"} around it as drawn: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
+    h("p", {}, c.polarity && (!rows.length || signs.some((x) => x === "")) ? `${word[0].toUpperCase()}${word.slice(1)} by the signs of its links in the model; not all of them are drawn in this view (open its system to see them).`
+      : c.polarity ? `${minus} negative link${minus === 1 ? "" : "s"} around it as drawn: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
                           : `${unknown || "a"} link${unknown === 1 ? "" : "s"} along it ${unknown === 1 ? "has" : "have"} no known sign, so whether it reinforces or balances is not known.`),
     h("h3", {}, "Around the loop"),
     h("table", { class: "parts" }, rows.map(([a, b], i) => h("tr", {}, h("td", {}, part(a)), h("td", { class: "muted" }, "→"), h("td", {}, part(b)),

@@ -550,7 +550,7 @@ flows:
 | `unit` | string | none | Its unit, products and quotients of words (`alerts/ramp/workday`, `1/h`); `share` and `1` are pure numbers. Time is counted in hours: a unit counting it in `s`, `min`, `d` or `week` is an error (*decided*: 30 with `unit: min` would be read as 30 hours), so a time is written as a duration and a rate per hour; a model's own clock (`workdays`, with `workdays-per-hour`) is a word like any other |
 | `estimate` | bool | false | Fitted from the record (section 12b): the estimate is kept apart and proposed, never written here until it is accepted |
 | `table` | points | none | A lookup, called like a function: `effect-of-load(stock.queue)` |
-| `range` | `[low, high]`, numbers or durations | none | What it might be: sensitivity analysis samples it uniformly there (section 12c). A value outside it is a finding (**parameter-range**) |
+| `range` | `[low, high]`, numbers or durations | none | What it might be: sensitivity analysis samples it uniformly there, calibration keeps to it, and the extreme-conditions test pushes it to its ends (sections 12b, 12c). A value outside it is a finding (**parameter-range**) |
 | `system`, `description` | | | |
 
 **Expressions.** Numbers; parameters by their bare name; parts by reference (`stock.x`, `flow.x`,
@@ -913,9 +913,10 @@ them for someone new to system dynamics):
 - **auxiliary-without-causes**: an auxiliary nothing drives, nothing sets and not `exogenous`: the
   model cannot say why it changes. Name its causes, or mark it `exogenous: true`.
 - **extreme-conditions**: the behaviour test of extreme conditions (section 12c): the equations run
-  with the stocks empty, with nothing coming in, and with a million an hour coming in, and a stock
+  with the stocks empty, with nothing coming in, with each input alone at 0 and at a hundred times its
+  largest, and with each estimated, timed or ranged parameter alone at its extremes, and a stock
   drained below empty, a one-way flow running backwards, a division by 0 or a blow-up is said, with
-  the condition that showed it and the fix.
+  the input or parameter that showed it and the fix.
 
 ## 12a. Feedback loops (system dynamics)
 
@@ -988,13 +989,15 @@ open system is a sector, a light tint with its name at the top left; a closed on
 connection points named on its edge. The view's panels use system dynamics' words only. A flow's
 valve (the bowtie) opens as the **valve**: the rate of the flow, its inputs (the connectors into it,
 each with its sign) and its equation: written (section 7b), drawn in MathML with each parameter's
-value and provenance and any proposal for it, with Accept; else a constant declared (`rate:`), the
+value and provenance (its calibrations side by side beneath: each one's estimate ± its standard error,
+from how many points, and whether it is proposed or why not) and any proposal for it, with Accept; else a constant declared (`rate:`), the
 decision that sets it, or "not known yet: a declared cause with a sign, its size not estimated"
 (and which causes act at once). An auxiliary's panel shows its equation the same way. The causes
 strip draws the model's replay dashed over the measured line, and its projection past now dashed
 and lighter (section 12b), with the shaded fan of its sensitivity and, in the accent, a what-if beside it (section 12c);
 each parameter's value in the panel may be typed over to try it. A feedback loop's panel draws how much of the
-behaviour it drives over the window (loop dominance, section 12c). Its pipe opens as the **flow**: what moves (its unit and
+behaviour it drives over the window at each stock it runs through, beside the loops competing there
+(loop dominance, section 12c). Its pipe opens as the **flow**: what moves (its unit and
 description), from which stock, to which.
 
 ## 12b. Replay, projection, fit and proposals
@@ -1044,8 +1047,12 @@ inequality statistics**, which split the mean squared error into **U_M**, bias, 
 variation and **U_C**, unequal covariation; they sum to 1, and a good fit's error is mostly U_C. A
 large error (past a tenth of the readings' size) with U_M or U_S past 0.1 is said in words (runs
 high, swings less than the record). Three tables: the **model fit**, the stocks an equation moves,
-which alone make the total (R² and MAPE averaged, Theil's shares from each stock's squared error
-over its own size) and its history; the **equations**, each with its inputs as measured (the
+which alone make the total and its history. The total is led by its **payoff**, the **scaled error**:
+each stock's mean squared error over its own size (its mean square measured), averaged, so no unit
+outweighs another; it is what a calibration minimises, and what a proposal's "fit, in total" shows
+(Oliva 2003). Theil's shares come from the same scaled errors; R² and MAPE are judged per stock (a
+replay that does not move while its record does has R² 0, never none: a value that freezes a stock
+never raises the total); the **equations**, each with its inputs as measured (the
 partial-model test, the sharpest test of one equation) and replayed; and **accounting**, the stocks
 moved only by measured flows, which test no equation (their error is a measurement's or a missing
 flow's: the residuals). A flow measured only by its stock's `changes:` is judged by its stock's
@@ -1062,13 +1069,18 @@ in the partial-model test and every stock its flows move, replayed, the rest as 
 are proposed only here), **each system alone** (Homer's partial model: a system's stocks integrated
 from its flows, its equations worked out, everything that comes in from outside it as measured, an
 equation outside it whose part is measured taken as measured; the parameters its equations use,
-fitted to its stocks and its measured equations), or **the whole model** (every stock integrated, only
-the inputs from outside the model as measured; every `estimate: true` parameter together, fitted to
-every stock an equation moves and every measured equation). Every `estimate: true` parameter is given
+fitted to its stocks and its measured equations), or **every stock integrated** (only the inputs from
+outside the model as measured; every `estimate: true` parameter together, fitted to every stock an
+equation moves and every measured equation). The replay does not simulate the blocks, so what a
+decision sets is still taken as measured, and every loop through a decision stays open: this one is
+called "the whole model" only when no loop runs through one, else "every stock integrated; decisions
+taken as measured", and the loops left open are listed in its proposals' reasons and on the Fit page
+(Homer 2012: name what is driven by data). Every `estimate: true` parameter is given
 the value that makes what it is fitted to fit best; weighted least squares, each series' errors over its own spread
 (the readings' standard deviation, at least 1% of their mean). Parameters that share an equation or
-a stock are fitted together (Nelder–Mead, on their logarithm when they start positive, within a
-factor of a thousand of the value written), on the record but its last fifth, which is held out.
+a stock are fitted together (Nelder–Mead, on their logarithm when they start positive, within the
+parameter's `range` when one is written, the same bounds sensitivity samples, else within a factor of a
+thousand of the value written), on the record but its last fifth, which is held out.
 Each estimate has a standard error, and those fitted together their correlations, from the Jacobian
 of the weighted errors at the optimum (Gauss–Newton, Ljung ch. 9), widened for errors that run
 together in time. An estimate is data: kept in `<state>/estimates/<structure>.json` (`<structure>.systems.json`,
@@ -1081,7 +1093,8 @@ starts afresh.
 Accept beside the part on the page): each a concrete change with its reason, the fit before and
 after, and the smallest edit to the YAML that makes it, made on the file's text so its comments and
 order stay. Two kinds so far. A **parameter** set to its estimate, only when the record supports it:
-it is fitted on forty points or more spanning three of the slowest time constant the parameter touches (for a stock that only integrates, the time things stay in it, by Little's law), its errors hold at least ten independent points where the fit leaves a material error (n(1 − ρ)/(1 + ρ), ρ their lag-one autocorrelation), the estimate is not at its
+it is fitted on forty points or more spanning three of the slowest time constant the parameter touches (for a stock that only integrates, the time things stay in it, by Little's law), its errors hold at least ten independent points where the fit leaves a material error (n(1 − ρ)/(1 + ρ), ρ their lag-one autocorrelation), the estimate is not at an end of
+its range (the record would take it outside what the model says it might be: said first) nor at its
 bound (one there is a question of structure), the record tells it apart, it is more than two
 standard errors and 2% from the value written, and it fits the record held out better; otherwise it
 is kept with why, shown beside the parameter and on the Fit page, and proposes nothing. Its reason
@@ -1098,8 +1111,9 @@ records `model.accepted` with the change, the versions before and after, and the
 same record; a dismissed proposal is not made again for that structure. Each proposal says which
 calibration made it, and asking again lets go only of that calibration's proposals still waiting. A
 parameter proposal whose value written has changed since (another proposal for it accepted) is no
-longer offered, and refused if accepted. A third kind is the owner's own: a **what-if** value made a
-proposal (section 12c), with its fit before and after, accepted like the others.
+longer offered, and refused if accepted. A third kind is the owner's own: a **what-if** made a
+proposal (section 12c), every value tried together in one, with its fit before and after, accepted
+like the others; an accepted one is never overwritten (asking again makes another).
 
 ## 12c. Using the model: what-if, sensitivity, extreme conditions, loop dominance
 
@@ -1107,42 +1121,71 @@ The tools system dynamics uses once a model fits (Sterman ch. 21; Vensim's Synth
 runs), each where the model already is, and none of them changes it.
 
 **What-if** (the valve's and the auxiliary's panel): each parameter's value in the panel can be typed
-over. Every chart on the page then draws, in the accent, the replay and the projection with that value
-beside the model's own (`GET /api/series?…&whatif=name:value`), until it is put back. Nothing is saved:
-**Propose it** makes it a proposal (`POST /api/propose?parameter=NAME&value=V`, `ergostat proposals
---propose NAME=V`), with its fit before and after on the reference window and its edit, which changes
-the model only when it is accepted.
+over, in its units: a number in the parameter's unit, a time written as a duration with its unit (`20s`,
+`2m`; in the panel a bare number is read in seconds, as the value is shown; `ergostat proposals
+--propose` and the API refuse one), never 0 or below for a time unless its `range` allows it. Every
+chart on the page then draws, in the accent, the replay and the projection with the values tried beside
+the model's own (`GET /api/series?…&whatif=name:value,…`), until they are put back; where the values make
+an equation fault (a division by 0, taken as 0) or the run blow up, the strip says so, and that the blue
+lines are not what the model would do. Beside the values, before anything is stored, their fit on the
+reference window: each stock and equation they move, R² and MAPE before and after, and the payoff
+(`GET /api/whatif-fit?whatif=…`). Nothing is saved: **Propose these** makes every value tried one
+proposal, as the charts drew them (`POST /api/propose?whatif=NAME:V,…`, `ergostat proposals --propose
+NAME=V --propose NAME=V`), with its fit before and after and its edit, which changes the model only when
+it is accepted. A what-if is refused as a proposal when it faults or blows up where the model as
+written does not, or is what is written already; one outside the parameter's range, or that fails an
+extreme condition the model as written passes, is proposed with that said in its reason.
 
 **Sensitivity** (`ergostat/numbers/sensitivity.py`; the causes strip): Monte Carlo over what the model
 says is uncertain, a parameter's `range` (uniform), else an estimate's standard error (normal about
-the value written, on its logarithm where it was searched there); every other number held. Forty
-samples, a Latin hypercube from a fixed seed (the same model and record draw the same fan), each the
+the value written, on its logarithm where it was searched there, widened to reach the estimate when it
+lies further off); parameters estimated together are drawn jointly, from the multivariate normal of
+their covariance (the Cholesky factor of their correlation applied to the hypercube's normal scores:
+Iman and Conover 1982); every other number held. Two hundred samples, as Vensim's sensitivity runs
+default to, a Latin hypercube from a fixed seed (the same model and record draw the same fan), each the
 projection run again from the state now with the sample's values (the stocks from their last
-readings, the delays' contents as the replay left them: what is in a pipeline is what it is, and a
-sample changes how fast it comes out). The projection is drawn with a shaded fan: where half the runs
-fall, and nine in ten.
+readings; a material delay's contents as the replay left them, rescaled to the sample's delay time at
+the same outflow, so each sample starts in its own steady state; a smoothed value kept). The projection
+is drawn with a shaded fan: where half the runs fall, and, from a hundred runs or more, nine in ten. A
+projection shorter than a third of the window is drawn in the last quarter of the chart, on a time axis
+of its own past now (+20s, +40s), so a minute ahead of an hour's record can be read. **Spread over the
+record** (the strip's button) draws the same over the window: a hundred replays with the sampled values,
+the half and nine in ten of them under the replay, as Vensim's sensitivity graphs show the whole run.
 
 **Extreme conditions** (`ergostat/numbers/extremes.py`; `ergostat check`, **extreme-conditions**):
-with no record, the equations run for ten of their slowest time constant from three conditions: every
-stock empty and nothing coming in; nothing coming in, each stock at its `initial` (else 10); and a
-million an hour on every inflow from outside. An input is a flow from outside no equation works out
-(held at the condition), a flow between stocks no equation works out (held at 0, or its declared rate),
-an auxiliary from outside (held at 1). Said: a stock with only one-way flows drained below empty, a
-one-way flow whose equation goes negative, a division by 0 or a logarithm, root or power out of range,
-a blow-up. A failure on a grid is confirmed on one eight times finer before it is said, so a step too
-coarse is never blamed on the model. What a block would do is not simulated.
+with no record, the equations run for ten of their slowest time constant from each condition, each a
+change from where the model usually is (every stock at its `initial`, else 10; every input at its usual
+level): every stock empty and nothing coming in; nothing coming in; **each input alone** at 0 and at a
+hundred times its largest (so zero capacity, workforce or productivity in a denominator is found, and
+one input's failure is not masked by another's); and **each parameter alone** that is estimated, a time
+or has a `range`, at its range's ends, else at a hundredth and a hundred times its value. An input is a
+flow from outside no equation works out, or an auxiliary from outside; its usual level and largest are
+the record's where it is at hand (a what-if proposal), else its declared rate (or 10 an hour) and 1 (*decided*:
+`ergostat check` reads no record). A flow between stocks no equation works out is held at 0, or its
+declared rate. Said: a stock with only one-way flows drained below empty, a one-way flow whose equation
+goes negative, a division by 0 or a logarithm, root or power out of range, a blow-up. A failure the
+model shows with everything as usual is said once as that; every other names the input or parameter
+that caused it. A failure on a grid is confirmed on one eight times finer before it is said, so a step
+too coarse is never blamed on the model. What a block would do is not simulated.
 
 **Loop dominance** (`ergostat/numbers/dominance.py`; a feedback loop's panel, `GET /api/dominance`):
 which loops drive the behaviour, and when, by the Loops That Matter method (Schoenberg, Davidsen and
-Eberlein 2020), on the replay over the page's window. Each link's score is the share of its effect's
-change its cause's change made: for a flow into or out of a stock, ±|Δflow/Δnet flow|; into a part
-with an equation, |Δₓz/Δz| times the sign of Δₓz/Δx, the others held; into a part with one cause and
-no equation (a goal's error, a decision with one input), all of it, with its sign, or 0 where a
-measured part did not change. A loop's score is the product of its links'; its relative score, over
-the sum of every scored loop's |score|, runs from −1 (a balancing loop drives everything) to +1 (a
-reinforcing one). The panel draws it over the window and says how much of the window the loop
-dominated. A loop through a link that cannot be scored (a decision with several inputs, an equation
-with a delay inside it, an unsigned link) says why, and is left out of the sums.
+Eberlein 2020), computed on the simulation at its integration step (the replay over the page's window,
+every part along a scored loop traced at each step), from the model's own values: what it integrates
+and works out, and the inputs it was driven by. Each link's score is the share of its effect's change
+its cause's change made: for a flow into or out of a stock, ±|Δflow/Δnet flow|; into a part with an
+equation, |Δₓz/Δz| times the sign of Δₓz/Δx, the others held; into a part with one cause and no
+equation, all of it, with its sign, or 0 where it did not change; where the run has no value for that
+part (a goal's error, a decision), it is **assumed** to follow its cause, and the panel names each link
+assumed. A loop's score is the product of its links'. Its relative score is taken **per stock**, as LTM
+does: over the sum of the |scores| of the scored loops through that stock, from −1 (a balancing loop
+drives everything at the stock) to +1 (a reinforcing one); loops of stocks that do not interact are
+never weighed against each other. Each display bucket gets the mean of its steps. The panel draws, at
+each stock the loop runs through, its relative score in ink beside the loops competing there in grey,
+and says how much of the window it dominated there; no loop is named where two are tied, nor at a stock
+where a loop through it cannot be scored (the share of its loops that are scored is said instead). A
+loop through a link that cannot be scored (a decision with several inputs, an equation with a delay
+inside it, an unsigned link) says why, and is left out of the sums.
 
 ## 13. Examples
 

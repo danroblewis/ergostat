@@ -153,9 +153,12 @@ def build() -> argparse.ArgumentParser:
     pp.add_argument("--stored", action="store_true", help="list the proposals already made, without estimating again")
     pp.add_argument("--calibrate", choices=["parts", "systems", "whole"], default="parts",
                     help="what is fitted at once: each part alone (default; equations proposed too), each system alone "
-                         "driven by its measured inputs, or the whole model's replay")
-    pp.add_argument("--propose", metavar="NAME=VALUE", help="propose a value you tried (a what-if): its fit before and "
-                                                              "after, and its edit; nothing changes until it is accepted")
+                         "driven by its measured inputs, or every stock integrated at once (what decisions set still taken as "
+                         "measured, so loops through a decision stay open)")
+    pp.add_argument("--propose", metavar="NAME=VALUE", action="append",
+                    help="propose values you tried (a what-if; several, given together or as NAME=V,NAME=V, make one "
+                         "proposal): the fit before and after, and the edit; nothing changes until it is accepted. A time "
+                         "is written with its unit (20s, 5m, 2h)")
     topic("accept", cmd_accept, "Apply a proposal (ergostat proposals lists them) as the smallest edit to the YAML")
     for t in PART_TOPICS:
         sp = topic(t, cmd_part, f"The {t}s, or one")

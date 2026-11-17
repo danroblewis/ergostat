@@ -1,6 +1,7 @@
 """Parameters estimated from the record (system identification, as system dynamics calibrates:
-Oliva 2003; Sterman ch. 21.4.7; Ljung ch. 7 and 9): each parameter marked ``estimate: true`` is given
-the value that makes what it touches fit the record best, with how sure that value is.
+Oliva 2003; Sterman ch. 21, parameter assessment in Table 21-4; Ljung ch. 7 and 9): each parameter
+marked ``estimate: true`` is given the value that makes what it touches fit the record best, with how
+sure that value is.
 
 What is fitted is the part of the model a parameter touches: each equation using it, against its
 part's own readings with every input as measured (the partial-model test), and every stock its flows
@@ -8,7 +9,9 @@ fill or drain, replayed; each through the record's own measurement (``fit.pairs`
 squares: each series' errors over its own spread (its readings' standard deviation, with a floor
 of 1% of their mean), so a stock that barely moves is not drowned by one that swings. Nelder–Mead
 over the parameters together, in their logarithm when they start positive (a rate never turns
-negative), within a factor of a thousand of the value written; deterministic.
+negative), within the parameter's ``range`` when one is written (the same bounds sensitivity samples,
+as Vensim's optimisation control shares them; an estimate at an end of it is said, never proposed),
+else within a factor of a thousand of the value written; deterministic.
 
 How sure: the covariance of the estimates from the Jacobian of the weighted errors at the optimum
 (Gauss–Newton, Ljung ch. 9), widened for errors that run together in time (each series' lag-one
@@ -120,6 +123,30 @@ class Scope:
 SCOPES = ("parts", "systems", "whole")
 SCOPE_WORDS = {"parts": "each part alone", "systems": "each system alone, driven by its measured inputs",
                "whole": "the whole model"}
+OPEN_WORDS = "every stock integrated; decisions taken as measured"
+
+
+def open_loops(spec: Spec) -> list[str]:
+    """The feedback loops a replay leaves open: each through a decision (a block), whose law the replay does
+    not simulate, so what it sets is taken as measured (Homer 2012: name what is driven by data)."""
+    from ..spec import causal
+    return [lp.name for lp in causal.loops(spec) if any(x.startswith("block.") for x in lp.parts)]
+
+
+def open_said(names: list[str]) -> str:
+    """The loops left open, in words: how many, and by their heads (``quality-held``, for ``quality-held via
+    cleared`` and its siblings)."""
+    heads = sorted({n.split(" via ", 1)[0] for n in names})
+    return (f"{len(names)} loop{'s' if len(names) != 1 else ''} through a decision "
+            f"({', '.join(heads)}{' and their siblings' if len(heads) < len(names) else ''})")
+
+
+def scope_words(spec: Spec, which: str) -> str:
+    """What a calibration is, in words: "the whole model" only when no loop runs through a decision; else what it
+    is, every stock integrated with the decisions taken as measured."""
+    if which == "whole" and open_loops(spec):
+        return OPEN_WORDS
+    return SCOPE_WORDS[which]
 
 
 def _equations_in(spec: Spec, system: str | None) -> list[str]:
@@ -141,7 +168,7 @@ def scopes(spec: Spec, names: list[str], which: str = "parts") -> list[Scope]:
         eqs = _equations_in(spec, None)
         used = {n for r in eqs for n in _params_of(spec, r)}
         mine = [n for n in names if n in used]
-        return [Scope("whole", "the whole model", mine, {s for s in spec.stocks if spec.flows_of(s)}, eqs)] if mine else []
+        return [Scope("whole", scope_words(spec, "whole"), mine, {s for s in spec.stocks if spec.flows_of(s)}, eqs)] if mine else []
     if which != "systems":
         raise ValueError(f"no calibration {which!r}: {', '.join(SCOPES)}")
     out, seen = [], set()
@@ -322,26 +349,53 @@ def covariance(prob: Problem, best: dict[str, float], logged: list[bool]) -> dic
             "n_eff": n * (1 - rho) / (1 + rho)}
 
 
+def bounds(prob: Problem, start: dict[str, float], logged: list[bool]) -> list[tuple[float, float, bool]]:
+    """Where each parameter may be searched, in the coordinate it is searched in: its ``range`` when one is
+    written (the same bounds sensitivity samples, as Vensim's optimisation control shares them), else within
+    a factor of a thousand of the value written; and whether the bound is its range."""
+    out = []
+    for n, lg in zip(prob.names, logged, strict=True):
+        rg = prob.spec.parameters[n].range if n in prob.spec.parameters else None
+        x = math.log(start[n]) if lg else start[n]
+        if rg and (not lg or rg[0] > 0):
+            lo, hi = (math.log(rg[0]), math.log(rg[1])) if lg else rg
+            out.append((lo, hi, True))
+        else:
+            out.append((x - SPAN, x + SPAN, False) if lg else (-math.inf, math.inf, False))
+    return out
+
+
 def solve(prob: Problem, start: dict[str, float]) -> tuple[dict[str, float], float, float, dict]:
     """The best values, the cost before and after, and how sure they are: each one's standard error
-    (in the coordinate it was searched in), their correlations, and which ended at their bound."""
+    (in the coordinate it was searched in), their correlations, which ended at their bound (a thousand
+    times from the value written), and which at an end of their range."""
     names = prob.names
     logged = [start[n] > 0 for n in names]
-    x0 = [math.log(start[n]) if lg else start[n] for n, lg in zip(names, logged, strict=True)]
+    box = bounds(prob, start, logged)
+    x0 = [min(max(math.log(start[n]) if lg else start[n], lo), hi) for n, lg, (lo, hi, _) in zip(names, logged, box, strict=True)]
     scale = [0.5 if lg else (abs(start[n]) * 0.5 or 1.0) for n, lg in zip(names, logged, strict=True)]
 
-    def values(x):                       # within a factor of a thousand of where it started: further is a question of structure
-        return {n: (math.exp(max(x0[i] - SPAN, min(x0[i] + SPAN, v))) if lg else v)
-                for i, (n, v, lg) in enumerate(zip(names, x, logged, strict=True))}
+    def values(x):                       # within its range, or a factor of a thousand of where it started: further is structure
+        return {n: (math.exp(min(hi, max(lo, v))) if lg else min(hi, max(lo, v)))
+                for n, v, lg, (lo, hi, _) in zip(names, x, logged, box, strict=True)}
     before = prob.cost(start)
     best, after = nelder_mead(lambda x: prob.cost(values(x)), x0, scale)
     got = values(best)
-    at_bound = [n for i, (n, lg) in enumerate(zip(names, logged, strict=True)) if lg and abs(best[i] - x0[i]) >= SPAN * 0.98]
+    at_bound, at_range = [], {}
+    for n, v, lg, (lo, hi, ranged) in zip(names, best, logged, box, strict=True):
+        near = 0.005 * (hi - lo) if ranged else SPAN * 0.02
+        if v <= lo + near or v >= hi - near:
+            if ranged:
+                at_range[n] = "low" if v <= lo + near else "high"
+            elif lg:
+                at_bound.append(n)
     sure = covariance(prob, got, logged) or {"identifiable": False}
     for n in sure.get("unseen") or []:                   # it moves nothing measured: the search wandered on a flat cost
         got[n] = start[n]
         at_bound = [x for x in at_bound if x != n]
+        at_range.pop(n, None)
     sure["at_bound"] = at_bound
+    sure["at_range"] = at_range
     sure["logged"] = dict(zip(names, logged, strict=True))
     return got, before, after, sure
 
@@ -390,6 +444,15 @@ def key_of(scope: Scope, name: str) -> str:
     return f"{name}@{scope.key[7:]}" if scope.key.startswith("system:") else name
 
 
+def label(key: str, e: dict) -> str:
+    """An estimate's name for people: the parameter, and the system it was calibrated alone in when it was
+    (``images-per-hour (system rollout alone)``), never the key it is kept under."""
+    name, sc = e.get("parameter", key.split("@", 1)[0]), e.get("scope") or "parts"
+    if sc.startswith("system:"):
+        return f"{name} (system {sc[7:]} alone)"
+    return f"{name} (the whole model)" if sc == "whole" else name
+
+
 def estimate(p, snap: dict | None = None, n: int | None = None, which: str = "parts") -> dict:
     """Estimate every ``estimate: true`` parameter from the record on the reference window, by the
     calibration ``which`` asks for (each part alone, each system alone, or the whole model), keep the
@@ -426,7 +489,8 @@ def estimate(p, snap: dict | None = None, n: int | None = None, which: str = "pa
                        "se": se, "logged": sure["logged"][nm], "corr": (sure.get("corr") or {}).get(nm, {}),
                        "identifiable": sure.get("identifiable", False) and nm not in (sure.get("unseen") or []),
                        "unseen": nm in (sure.get("unseen") or []), "at_bound": nm in sure["at_bound"],
-                       "n_eff": sure.get("n_eff"), "rho": sure.get("rho"),
+                       "at_range": sure["at_range"].get(nm), "range": list(spec.parameters[nm].range or []) or None,
+                       "n_eff": sure.get("n_eff"), "rho": sure.get("rho"), "duration": spec.parameters[nm].duration,
                        "weights": prob.spread, "evaluations": prob.evaluations}
     f = path(p, ver.structure(spec), which)
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -435,11 +499,18 @@ def estimate(p, snap: dict | None = None, n: int | None = None, which: str = "pa
 
 
 def judged(e: dict, declared: float | None) -> str | None:
-    """Why an estimate is not to be proposed, or None when the record supports it: enough record
-    for the slowest time constant it touches, not at its bound, identifiable, more than two
-    standard errors from the value written, and better on the record held out."""
+    """Why an estimate is not to be proposed, or None when the record supports it: not at an end of its
+    range (the record would take it outside what the model says it might be: said first), enough record
+    for the slowest time constant it touches, not at its bound, identifiable, more than two standard
+    errors from the value written, and better on the record held out."""
     if e.get("value") is None:
         return e.get("why") or "not estimated"
+    if e.get("at_range"):
+        rg = e.get("range") or [None, None]
+        end = rg[0] if e["at_range"] == "low" else rg[1]
+        return (f"it ran to the {e['at_range']} end of its range ({_said(e, end)}): the record would take it "
+                f"{'lower' if e['at_range'] == 'low' else 'higher'} than the model says it might be. Widen the range if "
+                f"it can be that, or the structure around it is in question")
     if e.get("slowest") and e["window"] < ft.COVER * e["slowest"] * 3600:
         return (f"the record spans {dur(e['window'])}, under {ft.COVER:g} of the slowest time constant it touches "
                 f"({dur(e['slowest'] * 3600)}): too little to say")
@@ -465,6 +536,12 @@ def judged(e: dict, declared: float | None) -> str | None:
     if e.get("held_before") is not None and e.get("held_after") is not None and not e["held_after"] < e["held_before"]:
         return "it fits the record held out (its last fifth) no better than the value written"
     return None
+
+
+def _said(e: dict, v) -> str:
+    if v is None:
+        return "?"
+    return dur(v * 3600) if e.get("duration") else f"{v:.3g}"
 
 
 def said_se(e: dict, value: float) -> float | None:

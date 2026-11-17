@@ -35,6 +35,10 @@ def two(x) -> str:
     return "" if x is None else f"{x:.2f}"
 
 
+def sig(x) -> str:
+    return "–" if x is None else f"{x:.3g}"
+
+
 def cmd_fit(args) -> int:
     from ..numbers import fit as ft
     from ..numbers import proposals as pr
@@ -66,7 +70,8 @@ def cmd_fit(args) -> int:
         rows = [[ref.split(".", 1)[1], *cells(s)] for ref, s in sorted(got[part].items())]
         if part == "stocks" and got["total"]:
             t = got["total"]
-            rows.append([c("total", "bold"), str(t["n"]), two(t["r2"]), pct(t["mape"]), two(t["um"]), two(t["us"]), two(t["uc"])])
+            rows.append([c("total", "bold"), str(t["n"]), "", "", two(t["um"]), two(t["us"]),
+                         two(t["uc"]) + (f"  scaled error {t['nmse']:.3g}" if t.get("nmse") is not None else "")])
         if rows or empty:
             print(table([head, "N", "R²", "MAPE", "U_M", "U_S", "U_C"], rows, empty))
     for ref, stock in sorted(got["judged_by_stock"].items()):
@@ -75,7 +80,8 @@ def cmd_fit(args) -> int:
         print(c(f"  not valid: {n}", "warn"))
     for n in run.notes:
         print(c(f"  {n}", "dim"))
-    print(c(f"\nversion {ver.version(spec)}, over the last {human(got['span'])} of record. R² {ft.WORDS['r2']}; MAPE {ft.WORDS['mape']}; "
+    print(c(f"\nversion {ver.version(spec)}, over the last {human(got['span'])} of record. The total: {ft.WORDS['nmse']}. "
+            f"R² {ft.WORDS['r2']}; MAPE {ft.WORDS['mape']}; "
             f"Theil's U_M {ft.WORDS['um']}, U_S {ft.WORDS['us']}, U_C {ft.WORDS['uc']}. Accounting: {ft.WORDS['accounting']}.", "dim"))
     waiting = pr.pending(p, spec)
     if waiting:
@@ -94,8 +100,7 @@ def _show(x: dict) -> None:
             print(f"  {r}: R² {two((fb or {}).get('r2')) or '–'} → {two((fa or {}).get('r2')) or '–'}, "
                   f"MAPE {pct((fb or {}).get('mape')) or '–'} → {pct((fa or {}).get('mape')) or '–'}")
     if b or a:
-        print(f"  fit, in total: R² {two(b.get('r2')) or '–'} → {two(a.get('r2')) or '–'}, "
-              f"MAPE {pct(b.get('mape')) or '–'} → {pct(a.get('mape')) or '–'}")
+        print(f"  fit, in total: scaled error {sig(b.get('nmse'))} → {sig(a.get('nmse'))} (lower is better)")
     if "diff" in x["edit"]:
         for line in x["edit"]["diff"].split("\n"):
             print("  " + (c(line, "dim") if line.startswith("@@") else line))
@@ -116,9 +121,14 @@ def cmd_proposals(args) -> int:
         print(f"dismissed {x['id']}: {x['title']}")
         return 0
     if getattr(args, "propose", None):
-        name, _, value = args.propose.partition("=")
+        values = {}
+        for one in args.propose:
+            for part in one.split(","):
+                name, _, value = part.partition("=")
+                if name.strip():
+                    values[name.strip()] = value.strip()
         try:
-            x = pr.propose_value(p, name.strip(), value.strip(), light_snap(p, args))
+            x = pr.propose_values(p, values, light_snap(p, args))
         except pr.ProposalError as e:
             print(e, file=sys.stderr)
             return 2
@@ -133,7 +143,8 @@ def cmd_proposals(args) -> int:
         return out_json(got)
     if not got:
         from ..numbers import estimate as es
-        why = {n: e.get("refused") or e.get("why") for n, e in es.load(p, spec, which).items() if e.get("refused") or e.get("why")}
+        why = {es.label(n, e): e.get("refused") or e.get("why") for n, e in es.load(p, spec, which).items()
+               if e.get("refused") or e.get("why")}
         print("no proposals: every parameter to estimate fits as written, or the record does not support a change "
               "(estimate: true marks a parameter to fit)")
         for n, w in sorted(why.items()):
@@ -164,6 +175,6 @@ def cmd_accept(args) -> int:
         return out_json(x)
     ap = x["applied"]
     print(f"accepted {x['id']}: {x['title']}\n{x['edit']['diff']}")
-    print(f"version {ap['version_before']} → {ap['version_after']}; fit in total: R² {two((ap['fit_before'] or {}).get('r2'))} "
-          f"→ {two((ap['fit_after'] or {}).get('r2'))}")
+    print(f"version {ap['version_before']} → {ap['version_after']}; fit in total: scaled error "
+          f"{sig((ap['fit_before'] or {}).get('nmse'))} → {sig((ap['fit_after'] or {}).get('nmse'))}")
     return 0

@@ -1560,6 +1560,8 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         foot = "document.querySelector('#detail .chart-foot')?.textContent || ''"
         pg.wait_for_function(f"() => /what if k were 4/.test({foot})", timeout=20000)
         assert "Nothing is saved" in pg.locator("#detail .whatif").inner_text()
+        pg.wait_for_function("() => /scaled error/.test(document.querySelector('#detail .whatif').textContent)", timeout=20000)
+        assert "queue" in pg.locator("#detail .whatif dl").inner_text()            # its fit, before anything is stored
         pg.locator("#detail .whatif button", has_text="Put it back").click()
         pg.wait_for_function(f"() => !/what if k/.test({foot})", timeout=20000)
         assert (d / "ergostat.yaml").read_text() == before
@@ -1577,7 +1579,8 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         drawn(pg, url, "view=dynamics", 1)
         pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'flow:served'))")
         pg.wait_for_function("() => document.querySelector('#detail .proposal button')", timeout=20000)
-        assert "estimated 3" in pg.locator("#detail table.params").inner_text()
+        cal = pg.locator("#detail table.calibrations").inner_text()          # each calibration a row of its own
+        assert "each part alone" in cal and re.search(r"\b(3|2\.99|3\.0\d)", cal), cal
         pg.locator("#detail .proposal button", has_text="Accept").click()
         pg.wait_for_function("() => /Accepted/.test(document.querySelector('#detail .proposal').textContent)", timeout=20000)
         text = (d / "ergostat.yaml").read_text()

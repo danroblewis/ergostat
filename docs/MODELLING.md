@@ -383,29 +383,42 @@ changes it by itself.
   else as measured: the sharpest test of one equation, and where a wrong equation elsewhere cannot
   pull it off. *Each system alone* is Homer's partial model: the system's stocks integrated, what
   comes in from outside it as measured, so a system is calibrated as if the rest were exactly right.
-  *The whole model* integrates every stock: the values that make the model as a whole follow the
-  record, which compensate for each other's errors if a structure is wrong somewhere. Values that
+  *Every stock integrated* integrates every stock: the values that make the model as a whole follow
+  the record, which compensate for each other's errors if a structure is wrong somewhere. What a
+  decision sets is still taken as measured (the blocks are not simulated), so every loop through a
+  decision stays open; the page lists them, and calls it "the whole model" only when there are none.
+  A parameter's `range` bounds every calibration: an estimate that runs to an end of it is said, not
+  proposed (the record wants a value the model says it cannot have: the range, or the structure, is
+  wrong). Values that
   agree across the three are believable; a value the whole model wants and its part alone does not
   is a question about the structure between them. Each result is a proposal with its fit before and
   after.
-- **What if** (a valve's or an auxiliary's panel). Type another value over a parameter's: every chart
-  draws the replay and the projection with it, in blue, beside the model's own. This is how a model is
-  used: "what happens to the backlog if reviews take twice as long?" Nothing is saved; **Propose it**
-  makes it a proposal, with its fit on the record, which you then accept or dismiss.
+- **What if** (a valve's or an auxiliary's panel). Type another value over a parameter's (a time
+  with its unit, like `20s`): every chart draws the replay and the projection with it, in blue, beside
+  the model's own, and its fit on the record is shown beside it, stock by stock and in total, before
+  anything is kept. A value the model cannot run (one that divides by 0) is said, and never proposed. This is how a model is
+  used: "what happens to the backlog if reviews take twice as long?" Nothing is saved; **Propose these**
+  makes every value you are trying one proposal, with its fit on the record, which you then accept or
+  dismiss.
 - **Sensitivity** (the causes strip's shaded fan). Write what a number might be (`range: [0.1, 0.5]`)
   where the code or the process says so; a number estimated is sampled by its standard error. The fan
-  is where nine in ten, and half, of forty runs over those ranges fall. A wide fan says the
+  is where nine in ten, and half, of two hundred runs over those ranges fall (parameters estimated
+  together drawn together, as their correlation says); **Spread over the record** draws the same over
+  the replay. A wide fan says the
   projection depends on what is not known: measure that, or say so when you use it. A narrow fan
   around a projection that is wrong says the structure is wrong, not the numbers.
 - **Extreme conditions** (`ergostat check`, **extreme-conditions**). The equations alone, pushed to
-  the extreme: every stock empty with nothing coming in, nothing coming in, and a million an hour
-  coming in. A real queue never holds fewer than nothing, a one-way flow never runs back, a rate never
+  the extreme: every stock empty with nothing coming in, nothing coming in, each input alone at 0 and
+  at a hundred times its largest, and each estimated or timed parameter alone at its extremes (its
+  range's ends, else a hundredth and a hundred times it). Each failure names what caused it. A real queue never holds fewer than nothing, a one-way flow never runs back, a rate never
   divides by an empty stock: when the model does, an equation is wrong where it was never tested,
   and will be wrong there when the system gets there (guideline 3 is the structural form of this test).
 - **Loop dominance** (a feedback loop's panel). Which loop drives the behaviour, and when, by the
-  Loops That Matter method: each link scored by how much of its effect's change its cause made, a
-  loop's score the product of its links', and its share of all the loops' scores from −1 (a balancing
-  loop drives everything) to +1 (a reinforcing one). Growth with a reinforcing loop near +1 that
+  Loops That Matter method, on the replay at its integration step: each link scored by how much of its
+  effect's change its cause made, a loop's score the product of its links', and at each stock its share
+  of the scores of the loops through that stock, from −1 (a balancing loop drives everything there) to
+  +1 (a reinforcing one). Loops of stocks that do not interact are never compared, and no loop is named
+  where two are tied or where a loop through the stock cannot be scored. Growth with a reinforcing loop near +1 that
   turns over to a balancing loop is the S-shape; a goal-seeking loop that dominates all the time is a
   controller doing its job. A loop through a decision with several inputs is not scored: how much of
   the decision's change came from each input is not written in the model.

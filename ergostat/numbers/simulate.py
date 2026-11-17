@@ -120,6 +120,8 @@ class Run:
     time_constants: dict[str, float] = field(default_factory=dict)   # hours: each stock's, each delayed equation's
     started: dict[str, float] = field(default_factory=dict)          # when each stock's replay started
     fastest: float | None = None         # the fastest rate it met, per hour (its step followed it)
+    faults: dict[str, dict[str, int]] = field(default_factory=dict)  # each equation's faults, each taken as 0: what, how often
+    trace: list[tuple[int, dict[str, float | None]]] = field(default_factory=list)   # (bucket, values) at each step, when asked
 
     @property
     def valid(self) -> bool:
@@ -194,8 +196,12 @@ class _Stepper:
                 self.fresh.discard(r)
 
     def net(self, s: str) -> float:
-        V = self.V
-        return sum(V[f] for f in self.pl.flows_in[s]) - sum(V[f] for f in self.pl.flows_out[s])
+        V, x = self.V, 0.0
+        for f in self.pl.flows_in[s]:
+            x += V[f]
+        for f in self.pl.flows_out[s]:
+            x -= V[f]
+        return x
 
     def rates(self, state: dict[str, float | None]) -> float:
         """How fast the stocks move here, per hour: Gershgorin's bound on their Jacobian (finite
@@ -259,6 +265,17 @@ class _Stepper:
                 out.append(f"{r}: {'; '.join(said)}, each taken as 0{hint}")
         return out
 
+    def counted(self) -> dict[str, dict[str, int]]:
+        """Each equation's faults in this run (each was taken as 0), and how often."""
+        out = {}
+        for r, c in self.pl.eqs.items():
+            got = dict(c.faults)
+            if self.errors.get(r):
+                got["failed to compute"] = self.errors[r]
+            if got:
+                out[r] = got
+        return out
+
     def clamps(self) -> list[str]:
         return [f"{r} ran past ±{BIG:.0e} {n} time{'s' if n > 1 else ''} and was clamped: the run blew up there"
                 for r, n in sorted(self.clamped.items())]
@@ -277,7 +294,10 @@ def _hours(h: float) -> str:
     return human(h * 3600.0)
 
 
-def replay(spec: Spec, data: Data, pl: Plan | None = None) -> Run:
+def replay(spec: Spec, data: Data, pl: Plan | None = None, trace: set[str] | None = None) -> Run:
+    """The model run over the record (the module's docstring). With ``trace``, the values of those parts at
+    every integration step are kept (``Run.trace``: (bucket, {part: value})), for what is computed per step
+    of the simulation itself, as loop dominance is (Schoenberg et al. 2020: link scores per DT)."""
     pl = pl or plan(spec)
     g = data.grid
     n, w_s = g.n, g.width
@@ -303,6 +323,8 @@ def replay(spec: Spec, data: Data, pl: Plan | None = None) -> Run:
     missing: set[str] = set()
     taus: dict[str, list[float]] = {s: [] for s in pl.integrate}
     capped: list[tuple[float, float, int]] = []          # (dt·rate, rate, bucket) where the step stopped at its most
+    traced: list[tuple[int, dict[str, float | None]]] = []
+    tracing = sorted(trace or ())
     unstable = False
     steps, fastest = 0, 0.0
 
@@ -377,6 +399,8 @@ def replay(spec: Spec, data: Data, pl: Plan | None = None) -> Run:
                     out[r][i] = state[r[6:]] if r in integrated else V[r]
             for r in moved:
                 moved[r][i] += V[r] * dt
+            if tracing:
+                traced.append((i, {r: (state.get(r[6:]) if r in integrated else V.get(r)) for r in tracing}))
             for s in pl.integrate:                       # a stock at its reading's moment, to be compared there exactly
                 tr = reading[s][i]
                 if tr is not None and t < tr <= t + dt_s and state[s] is not None:
@@ -433,7 +457,7 @@ def replay(spec: Spec, data: Data, pl: Plan | None = None) -> Run:
                 at_reading[f"stock.{s}"][i] = start[s][1]
     return Run(g.times(), out, how, notes, {s: v for s, v in state.items() if v is not None},
                {r: list(v) for r, v in st.S.items()}, steps, edges, at_edges, moved, invalid, at_reading, tc,
-               {s: v[0] for s, v in start.items() if v is not None}, fastest or None)
+               {s: v[0] for s, v in start.items() if v is not None}, fastest or None, st.counted(), traced)
 
 
 def _trend(vals: list[float | None], times: list[float]) -> tuple[float, float] | None:
@@ -449,6 +473,26 @@ def _trend(vals: list[float | None], times: list[float]) -> tuple[float, float] 
     slope = sum((t - mt) * (v - mv) for t, v in pts) / var if var else 0.0
     now = mv + slope * (pts[-1][0] - mt)                 # the fitted line at the last point, not one raw sample
     return now, slope * 3600.0
+
+
+def _rescale(pl: Plan, was: Plan, st: _Stepper) -> None:
+    """Each material delay's stages scaled from the time ``was`` gives them to the time ``pl`` does (decay is one
+    over a stage's time), the inputs as they are now."""
+    for r, c in pl.eqs.items():
+        old = was.eqs.get(r)
+        if old is None or not any(c.material) or old.slots != c.slots:
+            continue
+        saved = dict(old.faults)
+        try:
+            old.fn(st.V, was.params, list(st.S[r]), [0.0] * old.slots, False)
+        except (OverflowError, ValueError, ZeroDivisionError):
+            continue
+        finally:
+            old.faults.clear()
+            old.faults.update(saved)
+        for j in range(c.slots):
+            if c.material[j] and c.decay[j] > 0 and old.decay[j] > 0:
+                st.S[r][j] *= old.decay[j] / c.decay[j]
 
 
 def controlled(spec: Spec) -> set[str]:
@@ -476,16 +520,25 @@ def controlled(spec: Spec) -> set[str]:
 
 
 def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = None, points: int | None = None,
-            inputs: str = "hold") -> Run:
+            inputs: str = "hold", rescale: Plan | None = None, held: set[str] | None = None) -> Run:
     """From now (``data.grid.until``) for ``horizon`` seconds, open loop: stocks from their last
     readings (the mean of the last few; the replay's end where they have none), delays as the replay
     left them; every input held where it was (``inputs="hold"``) or carried on along its recent trend
-    (``"trend"``; a one-way flow never below 0). What a controller's flow moves is left out."""
+    (``"trend"``; a one-way flow never below 0). What a controller's flow moves is left out.
+
+    ``rescale`` is the plan the replay ran with, when this one has other values (a sensitivity sample): a
+    material delay's contents are then rescaled to this plan's delay time at the same outflow (what is in a
+    pipeline at a given throughput is that throughput times its time: Sterman ch. 11), so a sample with
+    another delay time starts in its own steady state and the projection does not jump at now; a smoothed
+    value (SMOOTH) is a perceived level, the same whatever its time, and is kept."""
     pl = pl or plan(spec)
     g = data.grid
     n = points or max(2, round(horizon / g.width))
     step = horizon / n
     times = [g.until + (i + 1) * step for i in range(n)]
+    saved = {r: dict(c.faults) for r, c in pl.eqs.items()}     # the replay's own, kept for it; the projection counts its own
+    for c in pl.eqs.values():
+        c.faults.clear()
     st = _Stepper(pl, pl.integrate)
     V = st.V
     state: dict[str, float | None] = {}
@@ -505,12 +558,15 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
     one_way = {f"flow.{f.name}" for f in spec.flows.values() if not f.two_way}
     for r in data.values:
         V[r] = 0.0                                       # what was never measured is taken as 0, as in the replay
-    held = controlled(spec)
+    held = controlled(spec) if held is None else held
     out: dict[str, list[float | None]] = {f"stock.{s}": [None] * n for s in pl.integrate} | {r: [None] * n for r in pl.eqs}
+    moving = [(r, v0, slope) for r, (v0, slope) in ahead.items() if slope or inputs != "hold"]
+    for r, (v0, _) in ahead.items():                     # held where they were: set once (an equation's own value wins)
+        V[r] = max(0.0, v0) if r in one_way and v0 >= 0 else v0
 
     def inputs_at(t: float) -> None:
         h = (t - g.until) / 3600.0
-        for r, (v0, slope) in ahead.items():
+        for r, v0, slope in moving:
             v = v0 + slope * h
             V[r] = max(0.0, v) if r in one_way and v0 >= 0 else v
         for s in pl.integrate:
@@ -518,6 +574,9 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
     t = g.until
     inputs_at(t)
     st.evaluate()
+    if rescale is not None:
+        _rescale(pl, rescale, st)
+        st.evaluate()
     k, _ = _substeps(st.rates(state), step / 3600.0)
     dt = step / 3600.0 / k
     for i in range(n):
@@ -540,5 +599,9 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
     if left:
         notes.append(f"left out downstream of a controller's flow ({len(left)} part{'s' if len(left) > 1 else ''})")
     how = {f"stock.{s}": "integrated" for s in pl.integrate} | {r: "equation" for r in pl.eqs}
+    counted = st.counted()
+    for r, c in pl.eqs.items():
+        c.faults.clear()
+        c.faults.update(saved[r])
     return Run(times, out, how, notes + st.clamps(), {s: v for s, v in state.items() if v is not None}, st.S,
-               invalid=st.clamps())
+               invalid=st.clamps(), faults=counted)

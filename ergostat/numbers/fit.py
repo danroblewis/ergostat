@@ -48,6 +48,8 @@ COVER = 3.0                      # the record must span this many of the slowest
 NEAR_ZERO = 0.1                  # a reading below this share of the mean |reading| makes MAPE meaningless
 LARGE = 0.1                      # an error is large past this share of the readings' size; a share of it past this, worth saying
 WORDS = {
+    "nmse": ("the scaled error, each stock's mean squared error over its own size (its mean square measured), averaged: "
+             "what a calibration minimises, lower is better"),
     "r2": "how much of the measured variation the replay moves with (1: all of it)",
     "mape": "the mean absolute error, as a share of what was measured (where readings reach 0: of their mean, or range)",
     "um": "bias: the replay runs high or low on average",
@@ -74,11 +76,14 @@ def stats(sim_: list, meas: list) -> dict | None:
     mae = sum(abs(s - a) for s, a in pts) / n
     flat = 1e-9 * max(abs(ms), abs(ma), 1e-12)       # a spread below this is rounding, not a movement to correlate
     r = (sum((s - ms) * (a - ma) for s, a in pts) / n / (ss * sa)) if ss > flat and sa > flat else None
+    still = ss <= flat < sa                          # the replay does not move while the record does: it explains none of it
     size = sum(abs(a) for _, a in pts) / n
     lo, hi = min(a for _, a in pts), max(a for _, a in pts)
     near = lo < 0 < hi or size == 0 or any(abs(a) < NEAR_ZERO * size for _, a in pts)
-    out = {"n": n, "r2": None if r is None else r * r, "rmse": math.sqrt(mse), "mae": mae,
+    out = {"n": n, "r2": 0.0 if still else None if r is None else r * r, "rmse": math.sqrt(mse), "mae": mae,
            "mean_replay": ms, "mean_measured": ma, "sd_replay": ss, "sd_measured": sa, "mse": mse, "um": None, "us": None, "uc": None}
+    if still:
+        out["still"] = True
     if near:
         base, of = ((size, "mean") if not lo < 0 < hi and size > 0 else (hi - lo, "range"))
         out.update(mape=None, error_share=(mae / base) if base > 0 else None, error_of=of)
@@ -102,10 +107,10 @@ def says(s: dict) -> str:
     size = max(abs(s["mean_measured"]), s["sd_measured"], 1e-12)
     if s["rmse"] <= LARGE * size:
         return ""
-    words = []
+    words = ["does not move, while the record does"] if s.get("still") else []
     if s["um"] > LARGE:
         words.append("runs high" if s["mean_replay"] > s["mean_measured"] else "runs low")
-    if s["us"] > LARGE:
+    if s["us"] > LARGE and not s.get("still"):
         words.append("swings more than the record" if s["sd_replay"] > s["sd_measured"] else "swings less than the record")
     if not words:
         words.append("out of step with the record")
@@ -113,8 +118,11 @@ def says(s: dict) -> str:
 
 
 def total(per: dict[str, dict]) -> dict | None:
-    """Across stocks in different units: R² and MAPE their means; Theil's shares from the squared
-    errors each scaled by its stock's own size (mean square measured), so no unit outweighs another."""
+    """Across stocks in different units. First the **payoff**, ``nmse``: each stock's mean squared error
+    over its own size (mean square measured), averaged, so no unit outweighs another; what a calibration
+    minimises is of this kind, and it is what a total is judged on (Sterman 1984; Oliva 2003). Then
+    Theil's shares of it, and R² and MAPE averaged over the stocks (a replay that does not move while
+    its record does counts R² 0, never left out: a value that freezes a stock never raises the total)."""
     got = [s for s in per.values() if s and not s.get("too_little")]
     if not got:
         return None
@@ -239,7 +247,7 @@ def compute(p, snap: dict | None = None, n: int | None = None) -> tuple[ob.Data,
 
 def _slim(s: dict | None) -> dict | None:
     return None if s is None else {k: (round(v, 6) if isinstance(v, float) else v) for k, v in s.items()
-                                   if k in ("n", "r2", "mape", "um", "us", "uc", "rmse", "stocks", "exact", "error_share",
+                                   if k in ("n", "r2", "mape", "um", "us", "uc", "rmse", "stocks", "exact", "still", "error_share",
                                             "error_of", "says", "too_little", "nmse")}
 
 

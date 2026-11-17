@@ -248,11 +248,15 @@ def api(live: Live, path: str, q: dict):
         out = series.series(p, snap, refs, int(one("points") or series.POINTS), bool(one("strip")))
         if one("replay"):                         # and what the model says: its replay, and its projection past now
             from .numbers_api import add_to_series
-            add_to_series(live, p, snap, out, one("inputs") or "hold", one("whatif"), bool(one("fan")))
+            add_to_series(live, p, snap, out, one("inputs") or "hold", one("whatif"),
+                          "replay" if one("fan") == "replay" else bool(one("fan")))
         return out
     if head == "dominance":                       # which feedback loops drive the behaviour, and when (Loops That Matter)
         from .numbers_api import loop_dominance
         return loop_dominance(live, p, snap, int(one("points") or series.POINTS), one("loop"))
+    if head == "whatif-fit":                      # a what-if's fit before anything is stored: per stock, and its payoff
+        from .numbers_api import whatif_fit
+        return whatif_fit(live, p, snap, one("whatif"))
     if head == "fit":                             # the Fit page: the replay against the record, its history, the proposals
         from .numbers_api import fit_page
         return fit_page(live, p, snap)

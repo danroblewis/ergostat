@@ -351,7 +351,11 @@ function fitRows(rows, total) {
     ...(s.n == null ? [h("td", { class: "muted", colspan: 7 }, "too few points to say")]
       : s.too_little ? [h("td", { class: "num" }, s.n), h("td", { class: "muted small", colspan: 6 }, `too little record: ${s.too_little}`)]
       : s.exact ? [h("td", { class: "num" }, s.n), h("td", { class: "muted", colspan: 6 }, "no error: the replay is the record")] : cells(s))));
-  if (total) out.push(h("tr", { class: "total" }, h("td", {}, h("b", {}, "total")), ...cells(total)));
+  // the total is judged on its payoff (each stock's squared error over its own size, averaged), R² and MAPE per stock
+  if (total) out.push(h("tr", { class: "total" }, h("td", {}, h("b", {}, "total")), h("td", { class: "num" }, total.n ?? ""), h("td", {}, ""), h("td", {}, ""),
+    h("td", { class: "num" }, two(total.um)), h("td", { class: "num" }, two(total.us)), h("td", { class: "num" }, two(total.uc)),
+    h("td", { class: "small", title: "each stock's mean squared error over its own size (mean square measured), averaged: what a calibration minimises" },
+      total.nmse != null ? `scaled error ${fmt(total.nmse)}` : "")));
   return out;
 }
 function fitHead(words, first) {
@@ -398,22 +402,25 @@ async function pageFit(main) {
       // measured inputs, or the whole model's replay; each a set of proposals with the fit before and after
       const ways = (d.calibrations || []).filter((c) => c.key === "parts" || c.count);
       const pick = ways.length > 1 ? h("select", { "aria-label": "what to fit at once", onchange: (ev) => { chosen = ev.target.value; } },
-        ways.map((c) => h("option", { value: c.key, selected: c.key === chosen ? "selected" : null }, c.words))) : null;
+        ways.map((c) => h("option", { value: c.key, selected: c.key === chosen ? "selected" : null },
+          c.key === "whole" && d.open_loops?.length ? `${c.words} (${d.open_loops.length} loop${d.open_loops.length > 1 ? "s" : ""} left open)` : c.words))) : null;
+      const open = d.open_loops?.length && ways.some((c) => c.key === "whole")
+        ? h("p", { class: "muted small" }, `Every stock integrated still leaves open ${d.open_said}, since the replay takes what a decision sets as measured.`) : null;
       const btn = h("button", { onclick: () => estimateNow(btn, said, pick ? pick.value : "parts") }, d.to_estimate.length ? "Calibrate" : "Estimate now");
       const head = d.to_estimate.length
         ? h("div", { class: "actions" }, SNAP ? null : btn, SNAP ? null : pick, h("span", { class: "muted small" }, `${d.to_estimate.length} parameter${d.to_estimate.length > 1 ? "s" : ""} to estimate (${d.to_estimate.join(", ")})${d.estimated_at ? `, last calibrated ${ago(d.estimated_at)}` : ", not calibrated yet"}`), said)
         : h("div", { class: "actions" }, SNAP ? null : btn, h("span", { class: "muted small" }, "No parameter is marked estimate: true; equations may still be proposed for flows with declared causes."), said);
-      propBox.replaceChildren(head, ...(d.proposals.length ? d.proposals.map((x) => proposalBlock(x, { onDone: () => { propSig = null; setTimeout(tick, 600); } }))
+      propBox.replaceChildren(head, open || "", ...(d.proposals.length ? d.proposals.map((x) => proposalBlock(x, { onDone: () => { propSig = null; setTimeout(tick, 600); } }))
         : [h("p", { class: "muted" }, "No proposals waiting.")]),
         ...(why.length ? [table(["not proposed", "why"], why.map(([n, w]) => h("tr", {}, h("td", {}, h("b", {}, n)), h("td", { class: "small" }, w))), "fit")] : []));
     }
     const events = [...d.history.map((v) => ({ t: v.first, v })), ...d.accepted.map((a) => ({ t: a.time, a }))].sort((x, y) => y.t - x.t);
-    histBox.replaceChildren(events.length ? table(["when", "version", ["R\u00b2", "num"], ["MAPE", "num"], ["over", "num"], ""], events.slice(0, 30).map(({ v, a }) => (v
+    histBox.replaceChildren(events.length ? table(["when", "version", ["scaled error", "num"], ["over", "num"], ""], events.slice(0, 30).map(({ v, a }) => (v
       ? h("tr", {}, h("td", { class: "nowrap" }, ago(v.first)), h("td", { class: "mono" }, v.version, v.version === d.version ? h("span", { class: "muted" }, " now") : null),
-          h("td", { class: "num" }, two(v.total?.r2)), h("td", { class: "num" }, pct(v.total?.mape)), h("td", { class: "num nowrap" }, v.window ? dur(v.window) : ""),
+          h("td", { class: "num" }, v.total?.nmse != null ? fmt(v.total.nmse) : ""), h("td", { class: "num nowrap" }, v.window ? dur(v.window) : ""),
           h("td", { class: "muted small" }, `fitted ${v.fits} time${v.fits > 1 ? "s" : ""}, last ${ago(v.last)}`))
       : h("tr", {}, h("td", { class: "nowrap" }, ago(a.time)), h("td", { class: "mono muted" }, `${a.version_before} \u2192 ${a.version_after}`),
-          h("td", { class: "num" }, `${two(a.fit_before?.r2)} \u2192 ${two(a.fit_after?.r2)}`), h("td", { class: "num" }, `${pct(a.fit_before?.mape)} \u2192 ${pct(a.fit_after?.mape)}`),
+          h("td", { class: "num nowrap" }, `${a.fit_before?.nmse != null ? fmt(a.fit_before.nmse) : "\u2013"} \u2192 ${a.fit_after?.nmse != null ? fmt(a.fit_after.nmse) : "\u2013"}`),
           h("td", {}, ""), h("td", {}, "accepted: ", op(a.title))))), "fit")
       : h("p", { class: "muted" }, "Not fitted before."));
     const r = d.residuals || {};
@@ -426,7 +433,7 @@ async function pageFit(main) {
     cap.replaceChildren(rich(`Version ${d.version}, fitted over the last ${span} of record (at most a day, whatever the window above). ` +
       "The model is read the way the record was made: a level at its reading's moment, a counted flow by what it moved in each bucket, a rate a sensor averages by the model's own average. " +
       `Each series needs ${d.min_points} points over three of its slowest time constant to be judged. ` +
-      `R\u00b2: ${d.words.r2}. MAPE: ${d.words.mape}. Theil's U_M: ${d.words.um}; U_S: ${d.words.us}; U_C: ${d.words.uc}; the three sum to 1. ` +
+      `The total: ${d.words.nmse}. R\u00b2: ${d.words.r2}. MAPE: ${d.words.mape}. Theil's U_M: ${d.words.um}; U_S: ${d.words.us}; U_C: ${d.words.uc}; the three sum to 1. ` +
       `Accounting: ${d.words.accounting}. ` +
       "Residuals: what each stock did against what its known flows explain; a disturbance nothing measures is estimated from the rest."));
   }
