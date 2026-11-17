@@ -19,6 +19,7 @@ Work on a copy: it writes squeeze's repository, production and the candidate int
 cp -r examples/image-squeeze /tmp/squeeze && cd /tmp/squeeze
 ergostat run                      # stand-in researcher and developer: free, a few minutes per experiment
 FACTORY_AI=claude ergostat run    # Claude Code sessions propose (Sonnet) and write (Haiku) the experiments: real tokens
+FACTORY_LIE=1 ergostat run        # a planted lying developer: its claims are checked, and caught
 ```
 
 To start over: stop it, then `ergostat reset --yes` (forgets ergostat's record of it: events, items,
@@ -53,6 +54,14 @@ ergostat run --stop
   back, and the tokens, each with its history.
 - `run/product`: squeeze's own repository; every kept experiment is a merge (`git -C run/product
   log --graph`).
+- **Items → `ergostat.claim`**: what the developer said it did ("tests pass", "submitted hypothesis/3"),
+  each checked by ergostat after its run: verified, contradicted (with the evidence: squeeze's tests run again
+  on the hypothesis's branch, the hypothesis's state) or unchecked; and under them, **Trust**, how far each
+  block's (and each model's) claims held. The lab's `developer-honest` goal holds the developer's share
+  contradicted at 0.1 or less (`ergostat.trust.contradicted@developer`). With `FACTORY_LIE=1` the stand-in
+  plants a failing test on every other hypothesis, runs the tests through `tail` (so the pipe says they
+  passed), and claims they passed and that it submitted: both claims are contradicted, the goal goes off, and
+  the developer needs attention. `docs/CLAIMS.md` in ergostat says how it works.
 
 ## Three loops, fastest first
 

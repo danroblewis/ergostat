@@ -71,6 +71,11 @@ TOOLS = [
      "(the share of the stocks' change their flows leave unexplained), loops-unidentified (closed loops whose process the "
      "model does not hold) and findings (what check reports). A model: sensor reads the same numbers.",
      "inputSchema": _obj()},
+    {"name": "trust", "description": "How far the blocks' claims hold (claim lines: {\"claim\": {\"says\": \"tests pass\", "
+     "\"about\": ...}}, checked by ergostat after each run against the record and the world): per block, rung and "
+     "model, the claims made, verified, contradicted and unchecked, and the share contradicted, over the last week (or "
+     "since); and the latest contradicted claims with why. Each claim is an item of kind ergostat.claim (items).",
+     "inputSchema": _obj({"since": {"type": "string"}})},
     {"name": "report_done", "description": "Report the work a person block was asked for (type: person): how much was moved "
      "along its flow. The same as `ergostat block NAME --done N`.",
      "inputSchema": _obj({"block": {"type": "string"}, "moved": {"type": "number"}, "note": {"type": "string"}},
@@ -145,6 +150,13 @@ class Server:
         if name == "measures":
             from .numbers import measures as ms
             return _text(ms.all_of(p))
+        if name == "trust":
+            import time as _t
+
+            from .claims import trust
+            from .durations import parse_duration
+            since = _t.time() - parse_duration(a["since"], "since") if a.get("since") else None
+            return _text(trust.table(p, since))
         if name == "explain":
             from .spec.explain import explain
             return _text(explain(spec, a.get("part") or None, p))

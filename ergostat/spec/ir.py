@@ -98,6 +98,25 @@ MODEL_CHANGE = "ergostat.model-change"   # the built-in item kind: every change 
 MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refused", "failed", "dismissed", "superseded",
                        "verified", "regressed"]   # verified, regressed: an accepted change scored again later (SPEC §12f)
 JUDGE_PORTS = ("testing", "passed", "failed", "accepted")
+CLAIM = "ergostat.claim"          # the built-in item kind: what a block said it did, checked against the record (SPEC §12g)
+CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
+CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
+TRUST = re.compile(r"^ergostat\.trust\.(contradicted|contradictions|verified|unchecked|claims)"
+                   r"(?:@((?:rung:|model:)?[A-Za-z0-9][A-Za-z0-9._:-]*))?$")   # ergostat.trust.contradicted@developer
+TRUST_MEASURES = {                 # how far a block's claims hold (SPEC §12g), over the last week; @WHO narrows them
+    "ergostat.trust.contradicted": "of the claims checked over the last week, the share contradicted (0 while none is "
+                                   "checked); @BLOCK, @rung:KIND or @model:MODEL for one block, rung or model",
+    "ergostat.trust.contradictions": "claims contradicted over the last week",
+    "ergostat.trust.verified": "claims verified over the last week",
+    "ergostat.trust.unchecked": "claims no check could judge over the last week (recorded, not trusted)",
+    "ergostat.trust.claims": "claims made over the last week",
+}
+
+
+def is_measure(name: str) -> bool:
+    """A built-in measure a sensor may read: the model's own (``ergostat.model.*``) or trust's (``ergostat.trust.*``,
+    with an optional ``@who``)."""
+    return name in MODEL_MEASURES or bool(TRUST.match(name))
 
 
 @dataclass
@@ -120,6 +139,28 @@ def model_change_kind() -> ItemKind:
                     ["title", "kind", "made_by", "confidence", "verdict"], {}, None,
                     "every change to the model: made by a block, ergostat's own finders or the owner; checked, judged, "
                     "and accepted or not (built in, SPEC §12e)")
+
+
+def claim_kind() -> ItemKind:
+    on = {f"{CLAIM}.{s}": s for s in CLAIM_STATES}
+    return ItemKind(CLAIM, f"{CLAIM}/*", list(CLAIM_STATES), on, ["says", "about", "block", "kind", "why"], {}, None,
+                    "what a block said it did (a claim line), checked by ergostat against the record and the world: "
+                    "verified, contradicted, or unchecked (built in, SPEC §12g)")
+
+
+@dataclass
+class ClaimCheck:
+    """A check the project declares (``claims:``, SPEC §12g): ``tests``, the project's test command, which checks
+    "tests pass"; any other name, a kind of claim of its own, checked by its command's exit code. ``in``: where the
+    command runs (and the repository a claim's commit is taken from), from the model's folder; ``says``: a pattern
+    over what a claim says that makes it this kind."""
+    name: str
+    run: str
+    in_: str = "."
+    says: str | None = None
+    timeout: float = 600.0
+    description: str = ""
+    where: Where | None = None
 
 
 @dataclass
@@ -413,6 +454,7 @@ class Spec:
     named_loops: dict[str, NamedLoop] = field(default_factory=dict)   # loops: the feedback loops the model names (SPEC §12a)
     parameters: dict[str, Parameter] = field(default_factory=dict)    # the numbers equations name (SPEC §7b)
     improve: Improve = field(default_factory=Improve)                  # the judge block's policy (SPEC §12e)
+    claims: dict[str, ClaimCheck] = field(default_factory=dict)       # the checks the project declares (SPEC §12g)
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 

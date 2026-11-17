@@ -49,6 +49,21 @@ def transcript_of(sid: str) -> Path:
     return Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9-]", "-", os.path.realpath(os.getcwd())) / f"{sid}.jsonl"
 
 
+def claims_of(said: str, item: str, model: str) -> str:
+    """The session's claim lines, each said to be this session's and this model's (SPEC §12g: trust by model)."""
+    out = []
+    for line in said.splitlines():
+        try:
+            obj = json.loads(line) if line.strip().startswith("{") else None
+        except ValueError:
+            obj = None
+        if isinstance(obj, dict) and isinstance(obj.get("claim"), dict):
+            obj["claim"] = {**obj["claim"], "session": item, "model": model}
+            line = json.dumps(obj)
+        out.append(line)
+    return "\n".join(out)
+
+
 def run(role: str, model: str) -> int:
     sid = str(uuid.uuid4())
     item = start(role, model, sid)
@@ -70,7 +85,7 @@ def run(role: str, model: str) -> int:
     reader.join(10)
     if src.exists():
         shutil.copyfile(src, keep)
-    return finish(item, out[0] if out else "")
+    return finish(item, out[0] if out else "", model)
 
 
 def start(role: str, model: str, sid: str = "") -> str:
@@ -89,7 +104,7 @@ def start(role: str, model: str, sid: str = "") -> str:
     return item
 
 
-def finish(item: str, raw: str) -> int:
+def finish(item: str, raw: str, model: str = "") -> int:
     role = item.split("/")[1].rsplit("-", 1)[0]
     try:
         d = json.loads(raw)
@@ -104,7 +119,7 @@ def finish(item: str, raw: str) -> int:
     with open(ROOT / "run" / "costs.jsonl", "a") as f:
         f.write(json.dumps({"at": time.time(), "role": role, "item": item, **rec}) + "\n")
     print(json.dumps({"event": "session.failed" if rec["error"] else "session.ran", "item": item, "data": rec}))
-    print(d.get("result") or "")
+    print(claims_of(d.get("result") or "", item, model))
     return 1 if rec["error"] else 0
 
 

@@ -10,13 +10,16 @@ is a measurement of the model against the record, like any sensor's, so a goal c
 - **ergostat.model.unidentified-loops**: the goals whose loop closes and whose process (u to y) the model does not hold,
   declared or identified (SPEC §8, §12d);
 - **ergostat.model.open-findings**: what ``ergostat check`` finds, errors aside (structure, signs, extreme conditions, control).
+
+and how far blocks' claims hold (SPEC §12g, ``claims/trust.py``): ``ergostat.trust.contradicted`` and its counts, each
+for every block or, with ``@WHO``, one block, rung or model.
 """
 
 from __future__ import annotations
 
 import time
 
-from ..spec.ir import MODEL_MEASURES
+from ..spec.ir import MODEL_MEASURES, TRUST, TRUST_MEASURES
 
 
 class MeasureError(Exception):
@@ -73,10 +76,15 @@ READERS = {"ergostat.model.fit": fit, "ergostat.model.unexplained": unexplained,
 
 
 def measure(p, name: str) -> float | None:
+    if name.startswith("trust."):                  # by hand: trust.contradicted@developer
+        name = "ergostat." + name
     if not name.startswith("ergostat."):           # by hand, the short name will do: fit, open-findings
         name = "ergostat.model." + name.removeprefix("model.")
+    if TRUST.match(name):                          # how far blocks' claims hold (SPEC §12g)
+        from ..claims import trust
+        return trust.measure(p, name)
     if name not in MODEL_MEASURES:
-        raise MeasureError(f"no measure {name!r}: {', '.join(MODEL_MEASURES)}")
+        raise MeasureError(f"no measure {name!r}: {', '.join([*MODEL_MEASURES, *TRUST_MEASURES])}")
     if getattr(p.model, "spec", None) is None:
         raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
     return READERS[name](p)
@@ -84,7 +92,7 @@ def measure(p, name: str) -> float | None:
 
 def all_of(p) -> dict[str, float | None]:
     out = {}
-    for n in MODEL_MEASURES:
+    for n in [*MODEL_MEASURES, *TRUST_MEASURES]:
         try:
             out[n] = measure(p, n)
         except Exception as e:                        # one measure that cannot be read leaves the others

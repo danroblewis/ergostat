@@ -1,7 +1,7 @@
 """The guides shipped with ergostat, by name, for ``ergostat help NAME`` and the MCP tools: the
 guides in ``help/``, the format (``spec``, docs/SPEC.md), the guidelines for improving a model
 (``modelling``, docs/MODELLING.md), the model tools and where each shows up (``model-tools``,
-docs/MODEL-TOOLS.md), and the skills for AI agents (``skills/NAME/SKILL.md``). An
+docs/MODEL-TOOLS.md), claims and trust (``claims``, docs/CLAIMS.md), and the skills for AI agents (``skills/NAME/SKILL.md``). An
 installed ergostat has the three documents copied into ``help/``; a clone reads them from ``docs/``."""
 
 from __future__ import annotations
@@ -9,7 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DOCS = {"spec": "SPEC.md", "modelling": "MODELLING.md", "model-tools": "MODEL-TOOLS.md"}   # a guide that is a document in docs/
+DOCS = {"spec": "SPEC.md", "modelling": "MODELLING.md", "model-tools": "MODEL-TOOLS.md",   # a guide that is a document in docs/
+        "claims": "CLAIMS.md"}
 
 
 def guides() -> dict[str, Path]:

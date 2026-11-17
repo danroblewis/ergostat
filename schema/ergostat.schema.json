@@ -135,6 +135,16 @@
       "additionalProperties": {
         "$ref": "#/$defs/agent"
       }
+    },
+    "claims": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/claim_check"
+      },
+      "description": "The checks the project declares for its blocks' claims (SPEC \u00a712g): tests, the project's test command; any other name, a kind of claim of its own"
     }
   },
   "$defs": {
@@ -291,13 +301,26 @@
           "description": "On a flow: its rate from its stock's own successive readings"
         },
         "builtin": {
-          "enum": [
-            "ergostat.model.fit",
-            "ergostat.model.unexplained",
-            "ergostat.model.unidentified-loops",
-            "ergostat.model.open-findings"
-          ],
-          "description": "One of ergostat's built-in measures of the model's own quality, read by ergostat (SPEC \u00a712e)"
+          "description": "One of ergostat's built-in measures: the model's own quality (SPEC \u00a712e, \u00a712f), or how far blocks' claims hold (SPEC \u00a712g)",
+          "anyOf": [
+            {
+              "enum": [
+                "ergostat.model.fit",
+                "ergostat.model.unexplained",
+                "ergostat.model.unidentified-loops",
+                "ergostat.model.open-findings",
+                "ergostat.model.accepted-per-day",
+                "ergostat.model.regressed",
+                "ergostat.model.verified-share",
+                "ergostat.model.fit-gained",
+                "ergostat.model.cost-per-accepted"
+              ]
+            },
+            {
+              "type": "string",
+              "pattern": "^ergostat\\.trust\\.(contradicted|contradictions|verified|unchecked|claims)(@((rung:|model:)?[A-Za-z0-9][A-Za-z0-9._:-]*))?$"
+            }
+          ]
         }
       },
       "oneOf": [
@@ -1321,6 +1344,34 @@
           }
         }
       ]
+    },
+    "claim_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run"
+      ],
+      "properties": {
+        "run": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The command; exit 0 means what was claimed holds"
+        },
+        "in": {
+          "type": "string",
+          "description": "Where it runs, from the model's folder (and the repository a claim's commit is taken from)"
+        },
+        "says": {
+          "type": "string",
+          "description": "A pattern over what a claim says that makes it this kind"
+        },
+        "timeout": {
+          "$ref": "#/$defs/duration"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
     }
   }
 }

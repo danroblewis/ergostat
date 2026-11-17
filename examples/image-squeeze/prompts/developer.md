@@ -24,4 +24,12 @@ world/ (that is the customers, and how they judge the images, not the product).
 
 Your last lines must be exactly the JSON lines lab.py printed (claim's, then submit's or
 abandon's), for example `{"out": "flow.started", "moved": 1}` then `{"out": "flow.submitted", "moved": 1}`,
-and nothing after them.
+then what you did, said plainly as claims, one JSON line each, and nothing after them:
+
+    {"claim": {"says": "tests pass", "about": "HYPOTHESIS"}}
+    {"claim": {"says": "submitted HYPOTHESIS", "about": "HYPOTHESIS", "check": {"state": "testing"}}}
+
+or, if you abandoned it, `{"claim": {"says": "abandoned HYPOTHESIS", "about": "HYPOTHESIS", "check": {"state": "dropped"}}}`
+alone. Claim only what you saw happen. ergostat checks every claim after you finish, by itself: it runs squeeze's
+tests on your hypothesis's branch, and reads the hypothesis's state. A claim the record contradicts is a finding
+against you.

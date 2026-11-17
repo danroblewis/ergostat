@@ -185,7 +185,9 @@ def test_no_cascade_a_shape_lights_only_what_it_is(squeeze):
             assert len(groups) <= 2 * max(1, len(x["is"])) + reach, (sid, x["is"], got)
             for s in got:                             # each is what it lights, or stands for a block chosen
                 stand_in = any(s in there["parts"].get(p, []) and set(there["shapes"][s]["is"]) <= set(_reaches(spec, p[6:]))
-                               for p in x["is"] if p.startswith("block."))
+                               for p in x["is"] if p.startswith("block.")) or \
+                    any(s in there["parts"].get(p, []) and str(spec.goals[p.split(".")[1]].of) in there["shapes"][s]["is"]
+                        for p in x["is"] if p.startswith("goal."))    # a goal nothing acts on: by what it is about
                 assert set(there["shapes"][s]["is"]) & set(x["is"]) or stand_in, (sid, s)
     total = len(dyn["shapes"])
     for sid in blk["shapes"]:

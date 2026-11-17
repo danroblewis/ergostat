@@ -12,6 +12,8 @@ from ..durations import DurationError, parse_duration
 from .equation import FUNCS as FUNCTIONS
 from .ir import (
     BUILTIN,
+    CLAIM,
+    CLAIM_CHECKS,
     JUDGE_PORTS,
     MACHINE,
     MODEL_CHANGE,
@@ -20,6 +22,7 @@ from .ir import (
     Agent,
     Auxiliary,
     Block,
+    ClaimCheck,
     Equation,
     Flow,
     Goal,
@@ -33,6 +36,8 @@ from .ir import (
     Source,
     Spec,
     Stock,
+    claim_kind,
+    is_measure,
     model_change_kind,
 )
 from .load import SINGULAR, Document, Map, Problem, Where
@@ -362,8 +367,10 @@ class Compiler:
             measure = None
             if s.get("builtin") is not None:
                 measure = str(s["builtin"])
-                if measure not in MODEL_MEASURES:
-                    self.err(f"{sw}.builtin: one of ergostat's built-in measures, {', '.join(MODEL_MEASURES)}",
+                if not is_measure(measure):
+                    self.err(f"{sw}.builtin: one of ergostat's built-in measures, {', '.join(MODEL_MEASURES)}, or "
+                             f"ergostat.trust.contradicted (or contradictions, verified, unchecked, claims), with @BLOCK, "
+                             f"@rung:KIND or @model:MODEL when about one",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
@@ -397,7 +404,7 @@ class Compiler:
                     averages = self.duration(s, "averages", sw, 0.0)
             run = s.get("run") and str(s["run"])
             if measure:                                 # read by ergostat itself, in a process of its own
-                run = f"{shlex.quote(sys.executable)} -m ergostat -C . measure {measure}"
+                run = f"{shlex.quote(sys.executable)} -m ergostat -C . measure {shlex.quote(measure)}"
             out[str(name)] = Sensor(str(name), of, run=run, query=dict(q) if q else None, averages=averages, builtin=measure,
                                     items=self.item_sensor(s, of, sw) if counted else None,
                                     changes={"what": changes, "over": self.duration(s, "over", sw, 3600.0)} if changes else None,
@@ -549,6 +556,32 @@ class Compiler:
                     s.changes["stock"] = st
                     s.changes["sign"] = 1 if f.target else -1     # its direction: into its stock, or out of it
 
+    def claims(self, spec: Spec) -> None:
+        """``claims:``: the checks the project declares (SPEC §12g). ``tests`` is the project's test command, run to
+        check "tests pass"; any other name is a kind of claim of the project's own, checked by its command."""
+        for name, m, what in self.named("claims"):
+            self.keys(m, {"run", "in", "says", "timeout", "description"}, what)
+            if name in CLAIM_CHECKS and name != "tests":
+                self.err(f"{what}: {name} is a built-in check (only tests: takes a command); name it something else",
+                         m.where, "reserved-name")
+                continue
+            if not m.get("run"):
+                self.err(f"{what}: run: the command that checks it (exit 0: what was claimed holds)", m.where, "missing-key")
+                continue
+            says = m.get("says")
+            if says is not None:
+                try:
+                    re.compile(str(says))
+                except re.error as e:
+                    self.err(f"{what}.says: a pattern over what a claim says ({e})", m.at("says"), "bad-pattern")
+                    says = None
+            where = str(m.get("in") or ".")
+            if where.startswith("/") or ".." in where.split("/"):
+                self.err(f"{what}.in: a folder inside the model's, written from it", m.at("in"), "bad-path")
+                where = "."
+            spec.claims[name] = ClaimCheck(name, str(m["run"]), where, None if says is None else str(says),
+                                           self.duration(m, "timeout", what, 600.0), self.text(m, "description"), m.where)
+
     def named(self, section: str):
         for name, m in self.doc.sections[section].items():
             what = f"{SINGULAR.get(section, section[:-1])} {name}"
@@ -608,6 +641,8 @@ class Compiler:
                 continue
             spec.items[name] = k
         spec.items[MODEL_CHANGE] = model_change_kind()       # built in: every change to the model (SPEC §12e)
+        spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
+        self.claims(spec)
         self.parameters(spec)
         for name, m, what in self.named("stocks"):
             self.keys(m, STOCK_KEYS, what)

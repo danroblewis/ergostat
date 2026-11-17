@@ -283,6 +283,9 @@ def _answer(live: Live, path: str, q: dict):
         return control(live, p, snap, one("goal") or "")
     if head == "loop-scope":
         return series.scope(p, snap, one("goal") or "", int(one("points") or series.POINTS))
+    if head == "trust":                           # how far blocks' claims hold, by block, rung and model (SPEC §12g)
+        from ..claims import trust
+        return trust.table(p, snap["at"] - max(snap["window"], trust.WEEK), snap["at"])
     if head == "items-flow":
         return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":

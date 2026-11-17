@@ -25,6 +25,9 @@ the panel says why in one line and what would change that (for example "33 readi
 | [How we know the improver works](#how-we-know-the-improver-works) | the pipeline tests, the judge's error rates, the recovery benchmark, the prediction check, the loop's own measures | `ergostat bench`, `ergostat verify`, the test suite |
 | [How do my loops behave, and how should they be tuned?](#how-do-my-loops-behave-and-how-should-they-be-tuned) | identification, process step response and Bode, margins, closed-loop step and Bode, monitoring, SIMC tuning, detuning, step tests | Blocks view: the process block, the controller, the summing junction; Loops page |
 
+Whether the blocks' own reports can be believed (what each said it did, checked against the record, and its
+trust) is in [CLAIMS.md](CLAIMS.md), "Claims and trust".
+
 Where a tool's numbers and thresholds come from is in `docs/SPEC.md` §12b (fit, calibration,
 proposals, the review queue), §12c (what-if, sensitivity, extreme conditions, loop dominance) and §12d
 (control); how to act on what they say is in `docs/MODELLING.md`.

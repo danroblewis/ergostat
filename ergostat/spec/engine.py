@@ -47,6 +47,8 @@ the JSON below. Answer with JSON lines only, one per output, for example:
 {"propose": {"kind": "parameter|equation|structure", "parts": ["stock.<name>"], "edit": {...},
              "reasons": [{"says": "...", "evidence": "finding:CODE@PART | fit:total.nmse | residual:stock.<name> |
              path:LINE | URL | rule:NAME"}], "confidence": 0.6}}     a change to the model (SPEC §12e)
+{"claim": {"says": "tests pass", "about": "<an item id, stock.<name>, a file, a commit>",
+           "check": "tests | changed | state | exit | level"}}   what you did, said plainly: ergostat checks it (SPEC §12g)
 """
 
 
@@ -403,6 +405,11 @@ class Engine:
             self.say(f"{b.name}: {note}")
         if said.refused:
             self.say(f"{b.name}: {said.refused[0]}")
+        if said.claims:                                          # what it said it did, checked by ergostat (SPEC §12g)
+            from ..claims import checks
+            for c in checks.check_all(self.p, self.spec, said.claims):
+                if c["state"] == "contradicted":
+                    self.say(f"{b.name}: claim contradicted: {c['says']!r}: {c['why']}")
         return [f for f, v in said.moved.items() if v]           # moving nothing is not a reason to read again
 
     def judge(self, b: Block) -> None:
@@ -584,6 +591,7 @@ class Said:
         self.e, self.b, self.run_id = eng, b, run_id
         self.counts = {"openings": 0, "commands": 0, "decisions": 0, "events": 0, "refused": 0}
         self.proposals: list[dict] = []          # what it proposed for the model, and what became of each
+        self.claims: list[dict] = []             # what it said it did, recorded, to be checked after the run
         self.moved: dict[str, float] = {}
         self.refused: list[str] = []
         self.bare: float | None = None
@@ -662,6 +670,16 @@ class Said:
             self.proposals.append(got)
             if got["status"] == "not-proposed":
                 self.e.say(f"{self.b.name}: not proposed: {got['why']}")
+            return
+        if "claim" in obj:                            # what it says it did: recorded now, checked after the run (SPEC §12g)
+            from ..claims import record
+            try:
+                self.claims.append(record.made(self.e.p, self.e.spec, self.b.name, obj["claim"], run=self.run_id,
+                                               n=len(self.claims)))
+            except record.ClaimError as err:
+                self.refuse(obj, str(err))
+                return
+            self.counts["claims"] = self.counts.get("claims", 0) + 1
             return
         if "event" in obj:
             t = obj["event"]

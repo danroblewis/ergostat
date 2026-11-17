@@ -264,6 +264,9 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                           "back_in": recoveries[len(recoveries) // 2] if recoveries else None,
                           "back_in_slowest": recoveries[-1] if recoveries else None, "times_off": len(recoveries)}
 
+    contradicted: dict[str, list[dict]] = {}          # claims the record contradicts, by the block that made them (SPEC §12g)
+    for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
+        contradicted.setdefault(e["data"].get("block") or "", []).append(e)
     agents = {}
     for a in m.agents.values():
         counted = project.events.runs(a.name, since, now)
@@ -283,7 +286,9 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                           "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, **counted,
                           "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),
-                          "running_since": running_since}
+                          "running_since": running_since, "contradicted": len(contradicted.get(a.name, [])),
+                          "contradicted_latest": (contradicted[a.name][-1]["data"].get("why") if contradicted.get(a.name)
+                                                  else None)}
 
     snap = {"at": now, "live": live, "window": window, "recorded": max(0.0, now - start) if oldest else 0.0,
             "starts": oldest, "before_record": bool(oldest and now < oldest),
@@ -482,6 +487,10 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         if a.get("unread"):
             out.append({"level": "warn", "what": f"agent {name}", "says": f"{a['unread']} lines looked meant for ergostat but "
                         f"could not be read (broken JSON, or naming no part or event); they are in its log"})
+        if a.get("contradicted"):
+            n = a["contradicted"]
+            out.append({"level": "bad", "what": f"agent {name}", "says": f"{n} claim{'s' if n > 1 else ''} it made "
+                        f"contradicted by the record (latest: {a.get('contradicted_latest')}; Items: ergostat.claim)"})
         if a["stale"] and running:
             out.append({"level": "warn", "what": f"agent {name}", "says": f"no recent reading from {', '.join(a['stale'])}"})
     for h in snap.get("hints", []):
