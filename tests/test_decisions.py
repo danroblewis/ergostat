@@ -139,6 +139,10 @@ def test_a_correction_given_again_is_linked_to_the_first_and_raised(tmp_path):
     assert first.fields["repeated_by"][0]["item"] == two["item"] and first.fields["repeated_by"][0]["line"] == 9
     found = [f for f in watch.find(p, p.model.spec) if f.code == "correction-repeated"]
     assert found and "given 2 times" in found[0].message
+    same_turn = acts.propose(p, CORRECTION, {"correction": "Never add any new page or panel to the UI again.",
+                                             "words": [{"text": "no new pages, ever", "line": 3}], "kind_of_work": ["ui"]},
+                             "extractor")
+    assert "repeats" not in same_turn                              # said in the turn it would repeat: not given again
     other = acts.propose(p, CORRECTION, {"correction": "Run the whole test suite before merging.", "words": ["tests"],
                                          "kind_of_work": ["git"]}, "extractor")
     assert "repeats" not in other

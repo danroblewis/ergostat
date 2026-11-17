@@ -185,10 +185,13 @@ def first_like(p, data: dict, before: list[Item] | None = None) -> Item | None:
     kinds = set(data.get("kind_of_work") or [])
     text = str(data.get("correction") or "")         # the owner's point, not what it corrected (the assistant's words)
     olds = [i for i in (before if before is not None else items(p, CORRECTION)) if i.state != "dismissed"]
+    said = {(w.get("session"), w.get("line")) for w in data.get("words") or [] if w.get("line")}
     for i in sorted(olds, key=lambda i: i.first):
         f = i.fields
         if f.get("repeats"):
             continue
+        if said & {(w.get("session"), w.get("line")) for w in f.get("words") or []}:
+            continue                                        # the same turn, read twice: not given again
         theirs = set(f.get("kind_of_work") or [])
         if kinds and theirs and not (kinds & theirs) and "general" not in kinds | theirs:
             continue

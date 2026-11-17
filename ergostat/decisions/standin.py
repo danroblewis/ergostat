@@ -59,6 +59,7 @@ def read(turn: Turn, before: str, after: str) -> list[tuple[str, dict]]:
         if CORRECTION.search(s) and before and (not question or re.search(r"why did you", s, re.I)):
             nxt = ss[n + 1] if n + 1 < len(ss) else ""      # "No, not like that. Do it this way.": what to do instead
             if nxt and DECISION.search(nxt) and not nxt.endswith("?") and len(s) + len(nxt) < MAX:
+                seen.add(nxt)                                    # said once: not proposed again on its own
                 s = f"{s} {nxt}"
                 words = [{"text": s, **turn.where()}] if s in turn.text else words + [{"text": nxt, **turn.where()}]
                 scope = topics(s)
