@@ -222,7 +222,11 @@ sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-S
 token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
 page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and wiring views; the side panel:
 attention, loops or cycles, model changes, legend), Loops, Agents (one list, by rung), Items (the
-record folded by id, by kind and state), Record (events, with runs hidden by default), Fit (first the
+record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`#/model`;
+its old address `#/fit` goes there; first **What's available**: each loop, whether its process is
+identified and what would identify it, or that it closes through queues; each parameter to estimate,
+the parts it is in and whether the record is long enough yet; and where each model tool lives, every
+link choosing the part and opening its view and panel; `docs/MODEL-TOOLS.md` is the guide; then the
 review queue: every change waiting, read like a pull request, each with what kind of change it is, where
 (Show on diagram chooses its parts and opens both views), why, how it was found, its benefit, its effect
 simulated in memory and the exact diff Accept writes; Simulate all pending; what ergostat can and cannot
@@ -336,7 +340,9 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
 - **Copy.** No paragraph under a page's title: what a thing is belongs to the Guide. Labels are
   terse and specific; a panel opens with what the thing is now, not its definition. Sentence case
   everywhere. No " · " chains to fake structure: two lines, or a label and a value. No arrows on
-  links. Empty states say what is missing in one line.
+  links. Empty states say what is missing in one line; a panel whose model tool is not available yet
+  (no equation, so no what-if; no process, so no margins) says why and what would make it available,
+  in one line, never nothing.
 
 ## 9. Not yet
 

@@ -43,16 +43,18 @@ extra to write. ✅ drawn today · ⏳ being built · ◻ possible from data alr
 
 | Discipline | What | |
 |---|---|---|
-| System dynamics | Replay and projection over the measured line | ⏳ |
-| System dynamics | Fit with Theil's breakdown, calibration, sensitivity fans, what-if, extreme-conditions tests | ⏳ |
+| System dynamics | Replay and projection over the measured line | ✅ causes strip ([MODEL-TOOLS](MODEL-TOOLS.md#replay-and-projection)) |
+| System dynamics | Fit with Theil's breakdown, calibration, sensitivity fans, what-if, extreme-conditions tests | ✅ Model page, panels, Check ([MODEL-TOOLS](MODEL-TOOLS.md#is-my-model-right)) |
+| System dynamics | Loop dominance (Loops That Matter), leverage | ✅ a feedback loop's panel, a proposal's effect ([MODEL-TOOLS](MODEL-TOOLS.md#loop-dominance)) |
 | System dynamics | Phase plots (stock against stock, or against its flow) | ◻ |
-| Control engineering | System identification: gain, time constant, delay per process | ⏳ |
-| Control engineering | Step response, Bode plot, stability margins | ⏳ |
-| Control engineering | Tuning suggestions (SIMC), step-test proposals | ⏳ |
+| Control engineering | System identification: gain, time constant, delay per process | ✅ process block's panel ([MODEL-TOOLS](MODEL-TOOLS.md#identification)) |
+| Control engineering | Step response, Bode plot, stability margins | ✅ process and controller panels ([MODEL-TOOLS](MODEL-TOOLS.md#margins-closed-loop-step-and-bode)) |
+| Control engineering | Tuning suggestions (SIMC), step-test proposals | ✅ controller and process panels ([MODEL-TOOLS](MODEL-TOOLS.md#simc-tuning-and-detuning)) |
 | Control engineering | Nyquist, Nichols, root locus, pole-zero maps | ◻ |
 | Discrete-event simulation | Simulated item runs: distributions and tails (p95 time to answer a review) | ◻ |
 | Model validation | `ergostat check`: structural tests, units, boundary adequacy | ✅ |
 
-About a dozen disciplines and some 35 diagrams and charts: 14 drawn today, 5 being built, the
-rest possible. Which to build, and where they appear, waits on the user flows
+About a dozen disciplines and some 34 diagrams and charts: 19 drawn today, the rest possible (the
+model tools among them, with where each shows up and what it needs, are in
+[MODEL-TOOLS.md](MODEL-TOOLS.md)). Which to build, and where they appear, waits on the user flows
 ([proposals/diagram-options.md](proposals/diagram-options.md)): more diagrams is not better.
