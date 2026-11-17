@@ -28,15 +28,19 @@ import time
 from pathlib import Path
 
 from ..spec.ir import Spec
+from . import gate as gt
+from . import memory as mem
 from . import observe as ob
 from . import proposals as pr
 from . import trial as tr
 from . import version as ver
 from . import yamledit as ye
 
-KINDS = ("parameter", "equation", "structure")
-WORSE = 0.10                # a proposal whose scaled error rises past this share (and not by a trifle) clearly worsens the fit
-TRIFLE = 1e-4
+KINDS = ("parameter", "equation", "structure", "measurement", "control")
+FIT_KINDS = ("parameter", "equation", "structure")     # what the dynamics model's fit can judge; the rest is the owner's
+WORSE = gt.WORSE            # a proposal whose scaled error rises past this share (and not by a trifle) clearly worsens the fit
+TRIFLE = gt.TRIFLE
+CITED = "cited, not checked"   # a rule, a line or a URL: it says where a reason comes from, not that it holds here
 RULES = {                   # the modelling rules a reason may cite, each with where it is written
     "rate-driven-by-rate": "docs/MODELLING.md §1: a rate driven by a rate needs the stock between (Sterman ch. 6, 11; Forrester 1961)",
     "stock-without-outflow": "docs/MODELLING.md §2: what fills a stock leaves it somehow (Sterman ch. 6, 21)",
@@ -63,6 +67,10 @@ PATH_LINE = re.compile(r"^(?P<path>[^:\s][^:]*):(?P<a>\d+)(?:-(?P<b>\d+))?$")
 
 class ProposeError(Exception):
     pass
+
+
+class GateError(ProposeError):
+    """Refused for what the record says of it (it worsens the fit), not for its form: remembered (``memory``)."""
 
 
 def _id(*parts) -> str:
@@ -217,6 +225,46 @@ class Evidence:
                            f"(fit:total.nmse), a residual (residual:stock.NAME), a document or code line (path:LINE), a URL, "
                            f"or a modelling rule (rule:NAME)")
 
+    def supports(self, ev, near: set[str], answered: set[str], fit_after: dict | None) -> str | None:
+        """Whether checked evidence supports the change, not only exists: None when it does, else why not. A finding
+        is about a part the change touches or one next to it (or, about no part, one it answers); a fit statistic is
+        of such a part, or the total and the change does not raise it; a residual is of such a stock, and significant;
+        a rule is one ``check`` applies to such a part now. A rule ``check`` does not test, a line and a URL are cited
+        only: they say where a reason comes from, never that it holds here."""
+        if isinstance(ev, dict) and len(ev) == 1:
+            (k, v), = ev.items()
+            ev = f"{k}:{v}" if k in ("finding", "fit", "residual", "rule") else str(v)
+        ev = str(ev).strip()
+        kind, _, what = ev.partition(":")
+        where = ", ".join(sorted(near)[:6]) + ("…" if len(near) > 6 else "")
+        if kind == "finding":
+            about = what.split("@", 1)[1] if "@" in what else None
+            if about is None:
+                return None if what in answered else f"{ev}: about no part, and the change does not answer it"
+            return None if about in near else f"{ev}: about {about}, which the change does not touch (it touches {where})"
+        if kind == "fit":
+            ref, _, stat = what.rpartition(".")
+            if ref == "total":
+                b, a = gt.total(self._fit), gt.total(fit_after)
+                if b is not None and a is not None and a > b + TRIFLE:
+                    return f"{ev}: the change raises the scaled error it cites ({gt.said(b, a)})"
+                return None
+            return None if ref in near else f"{ev}: of {ref}, which the change does not touch (it touches {where})"
+        if kind == "residual":
+            ref = what if what.startswith("stock.") else f"stock.{what}"
+            if ref not in near:
+                return f"{ev}: of {ref}, which the change does not touch (it touches {where})"
+            r = self.residuals().get(ref[6:]) or {}
+            return None if r.get("significant") else f"{ev}: not significant"
+        if kind == "rule":
+            hits = [k for k in self.findings() if k.split("@")[0] == what]
+            if hits:
+                mine = [k for k in hits if "@" in k and k.split("@", 1)[1] in near]
+                return None if mine else (f"{ev}: check finds it at {', '.join(hits[:3])}, none of which the change touches "
+                                          f"(it touches {where})")
+            return f"{ev}: {CITED} (check does not test this rule against the parts it touches)"
+        return f"{ev}: {CITED}"
+
     def _lines(self, name: str, a: int, b: int) -> str:
         from .. import helpdocs
         roots = [self.spec.root, helpdocs.HERE.parent]          # the project, and ergostat's own (its docs, its code)
@@ -283,7 +331,14 @@ def _nmse(f: dict | None) -> float | None:
 
 
 def kind_of(before: Spec, after: Spec, said: str) -> str:
-    """What the change is, by what it does: values only is a parameter change, whatever it was called."""
+    """What the change is, by what it does, whatever it was called: a goal, a block (the judge's policy among its
+    keys) or an agent changed is a **control** change; a sensor of a part already there, a **measurement** change;
+    else values only is a parameter change, and the rest an equation or the structure. Only the last three are the
+    dynamics model's to judge."""
+    if ver.control(before) != ver.control(after):
+        return "control"
+    if ver.changed_sensors(before, after):
+        return "measurement"
     if ver.structure(before) == ver.structure(after):
         return "parameter"
     return said if said in ("equation", "structure") else "structure"
@@ -330,6 +385,7 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
     if not kept:
         raise ProposeError("no reason with evidence ergostat can check" +
                            (f" ({'; '.join(x['says'][:60] + ': ' + x['why'] for x in refused[:3])})" if refused else ""))
+    said_parts = list(parts)
     es_ = edits(spec, raw.get("edit"))
     try:
         texts = ye.apply_together(es_)
@@ -344,15 +400,28 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
     data_a = ob.measured(p, data.grid, after)
     run_a, fit_a = tr.fit_of(after, data_a)
     again = refit(spec, after, data_a)
-    b, a = _nmse(fit_b), _nmse(fit_a)
+    a = _nmse(fit_a)
     ar = _nmse(again["fit"]) if again else None
-    best = min((x for x in (a, ar) if x is not None), default=None)
+    best_fit = again["fit"] if ar is not None and (a is None or ar < a) else fit_a
     if run_b.valid and not run_a.valid and not (again and again["fit"].get("total")):
         raise ProposeError("with it the replay is not valid: " + "; ".join(run_a.invalid[:2]))
-    if b is not None and best is not None and best > b * (1 + WORSE) and best - b > TRIFLE:
-        raise ProposeError(f"it clearly worsens the fit: the scaled error goes from {b:.3g} to {best:.3g}"
-                           + (" even refitted" if ar is not None else ""))
     kind = kind_of(spec, after, said_kind)
+    refs = touched_refs(spec, after, said_parts, kind)
+    near = gt.neighbourhood(spec, refs) | gt.neighbourhood(after, refs)
+    g = gt.check(spec, fit_b, best_fit, refs)
+    if g["worse"]:
+        raise GateError(f"it clearly worsens the fit: {g['worse']}" + (" even refitted" if ar is not None else ""),
+                        mem.key({"kind": kind, "target": _target(spec, after, said_parts, kind),
+                                                           "made_by": by}))
+    answered = before_f - after_f
+    supported = 0
+    for r in kept:
+        r["supports"] = [ev.supports(e, near, answered, best_fit) for e in r["evidence"]]
+        r["supported"] = any(x is None for x in r["supports"])
+        supported += r["supported"]
+    if not supported:
+        raise ProposeError("no reason with evidence that supports it: " +
+                           "; ".join(w for r in kept for w in r["supports"] if w)[:600])
     j = joined(es_)
     x = {"kind": kind, "said_kind": said_kind, "made_by": by, "parts": parts,
          "touched": [r for r in parts if r.split(".")[0] in ("stock", "flow", "auxiliary")] or
@@ -360,17 +429,46 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
          "title": str(raw.get("title") or kept[0]["says"])[:200], "reasons": kept, "refused_reasons": refused,
          "reason": "; ".join(r["says"] for r in kept), "confidence": conf, "edit": j,
          "findings": {"answered": sorted(before_f - after_f), "new": sorted(after_f - before_f)},
+         "gate": {"whole": g["whole"], "local": g["local"], "said": gt.summary(g)}, "neighbourhood": g["neighbourhood"],
          "fit_before": fit_b, "fit_after": fit_a, "refit": again, "new_parts": sorted(_parts(after) - _parts(spec)),
          "gone_parts": sorted(_parts(spec) - _parts(after))}
     if kind == "parameter":
         moved = {n: q.value for n, q in after.parameters.items() if n in spec.parameters and q.value != spec.parameters[n].value}
         x["parameters"], x["previous"] = moved, {n: spec.parameters[n].value for n in moved}
-        x["target"] = ", ".join(f"parameter.{n}" for n in moved) or (parts[0] if parts else "")
+        x["target"] = _target(spec, after, parts, kind)
         x["parts"] = parts or sorted({r for n in moved for r in pr.users_of(spec, n)})
     else:
-        x["target"] = parts[0] if parts else (x["new_parts"] or x["gone_parts"] or [""])[0]
-        x["change"] = {"equation": "an equation changed", "structure": "a change to the structure"}[kind]
+        moved_ctl = ver.changed_control(spec, after) if kind == "control" else ver.changed_sensors(spec, after) \
+            if kind == "measurement" else []
+        x["target"] = _target(spec, after, parts, kind) or (x["new_parts"] or x["gone_parts"] or [""])[0]
+        x["change"] = {"equation": "an equation changed", "structure": "a change to the structure",
+                       "control": "a change to what decides (a goal, a block or the judge)",
+                       "measurement": "a change to how the world is read (a sensor)"}[kind]
+        if moved_ctl:
+            x["parts"] = list(dict.fromkeys([*moved_ctl, *parts]))
+    x["key"] = mem.key(x)
     return x
+
+
+def _target(spec: Spec, after: Spec, parts: list[str], kind: str) -> str:
+    """What a change is to, as ``validate`` names it: the parameters it sets, else the goal, block or sensor it alters,
+    else the first part it names."""
+    if kind == "parameter":
+        moved = [f"parameter.{n}" for n, q in after.parameters.items() if n in spec.parameters and q.value != spec.parameters[n].value]
+        if moved:
+            return ", ".join(moved)
+    ctl = ver.changed_control(spec, after) if kind == "control" else ver.changed_sensors(spec, after) if kind == "measurement" else []
+    return (ctl or parts or [""])[0]
+
+
+def touched_refs(before: Spec, after: Spec, parts: list[str], kind: str) -> list[str]:
+    """What a change touches: the parts it names, the parts whose definition it moves, the parameters whose values
+    it changes, and the goals, blocks and sensors it alters."""
+    out = list(parts) + sorted(_moved(before, after))
+    out += [f"parameter.{n}" for n, q in after.parameters.items()
+            if n in before.parameters and q.value != before.parameters[n].value]
+    out += ver.changed_control(before, after) + ver.changed_sensors(before, after)
+    return list(dict.fromkeys(out))
 
 
 def _parts(spec: Spec) -> set[str]:
@@ -416,7 +514,7 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
             "version": ver.version(spec), "structure": ver.structure(spec), "run": run,
             **({k: raw.get(k) for k in ("kind", "parts", "edit", "reasons", "confidence") if k in raw} if isinstance(raw, dict) else {})}
     with pr.locked(p):
-        pr.event(p, pid, "made", made, source=by, causedby=run)
+        x, err = None, None
         try:
             x = validate(p, spec, by, raw, data)
             same = next((y for y in pr.stored(p).values() if y["id"] != pid and y.get("version") == made["version"] and
@@ -425,8 +523,22 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
                 raise ProposeError(f"the same change is {'waiting' if same['status'] == 'pending' else same['status']} "
                                    f"already: {pr.item_of(same['id'])}, made by {same.get('made_by') or 'ergostat'}")
         except (ProposeError, tr.TrialError) as e:
-            pr.event(p, pid, "refused", {"why": str(e)})
-            return {"status": "not-proposed", "id": pid, "title": title, "why": str(e)}
+            err = e
+        gated = isinstance(err, GateError)
+        if err is None or gated:                    # what the record said of it: turned away before, and not again yet?
+            k = err.args[1] if gated else mem.key(x)
+            h = mem.held(p, spec, k, now)
+            if h is not None:
+                mem.repeat(p, h, title, str(run or now), by)
+                why = f"held back: {pr.item_of(h['prior']['id'])} was {h['prior']['state']} for the same target; " + \
+                    mem.said(int(h["prior"].get("repeats") or 0) + 1, h["until"], h["wait"])
+                return {"status": "not-proposed", "id": h["prior"]["id"], "title": title, "why": why}
+        pr.event(p, pid, "made", made, source=by, causedby=run)
+        if err is not None:
+            g = data.grid if data else ob.reference(p, now)
+            pr.event(p, pid, "refused", {"why": err.args[0] if gated else str(err), "window": g.until - g.since,
+                                         **({"gated": True, "key": k} if gated else {})})
+            return {"status": "not-proposed", "id": pid, "title": title, "why": err.args[0] if gated else str(err)}
         x.update({"made_by_rung": _rung(spec, by), "window": data.grid.until - data.grid.since if data else None,
                   "method": f"made by {by} ({_rung(spec, by) or 'a block'}); checked by ergostat on a scratch copy: "
                             f"compiled, checked, replayed and refitted on the reference window"})

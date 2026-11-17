@@ -148,7 +148,8 @@ def test_reasons_need_evidence_ergostat_can_check(tmp_path):
     assert got["status"] == "not-proposed" and "no reason with evidence" in got["why"]
     got = im.submit(p, "x", {**raw(), "reasons": [{"says": "a", "evidence": ["rule:vibes", "fit:total.nmse"]}, {"says": "b"}]})
     x = pr.stored(p)[got["id"]]
-    assert x["reasons"] == [{"says": "a", "evidence": ["fit:total.nmse"], "verified": [x["reasons"][0]["verified"][0]]}]
+    assert x["reasons"] == [{"says": "a", "evidence": ["fit:total.nmse"], "verified": [x["reasons"][0]["verified"][0]],
+                             "supports": [None], "supported": True}]
     assert [r["says"] for r in x["refused_reasons"]] == ["b"]
 
 
@@ -199,7 +200,7 @@ def test_a_new_parameter_to_estimate_is_refitted(tmp_path):
             {"file": "ergostat.yaml", "replace": "parameters:",
              "with": "parameters:\n  k2:\n    value: 1\n    unit: 1/h\n    estimate: true"}]
     got = im.submit(p, "x", {"kind": "structure", "parts": ["flow.served"], "title": "k2", "edit": edit,
-                             "reasons": [{"says": "a rate of its own", "evidence": "rule:first-order-drain"}]})
+                             "reasons": [{"says": "a rate of its own", "evidence": ["rule:first-order-drain", "fit:stock.queue.r2"]}]})
     x = pr.stored(p)[got["id"]]
     assert got["status"] == "proposed", got
     assert x["refit"] and abs(x["refit"]["values"]["k2"] - 3.0) < 0.3

@@ -7,11 +7,12 @@ from __future__ import annotations
 import pytest
 
 from ergostat.bench import adapter as ad
+from ergostat.bench import clock, improvers, judging, recovery, truth
 from ergostat.bench import defects as df
 from ergostat.bench import form as fm
-from ergostat.bench import improvers, judging, recovery, truth
 from ergostat.numbers import meta, verify
 from ergostat.numbers import observe as ob
+from ergostat.numbers import proposals as pr
 from ergostat.numbers import review as rv
 from ergostat.numbers import yamledit as ye
 
@@ -198,10 +199,8 @@ def test_a_written_change_is_verified_or_flagged_for_revert_on_the_record_after_
     s = queue(tmp_path, k=3.0, train=6.0, after=10.0)          # the model is right: k = 3
     loop = ad.Loop(s.p, ad.Policy(hold_out=HOLD))
     at = s.t(s.train_h)
-    thin = ob.measured(s.p, ob.Grid(at - 300, at, 2))           # checked on five minutes of record: nothing to say it is worse
-    bad = loop.submit("tester", k_raw(s, 4.5, reasons=[{"says": "I think so", "evidence": "rule:parameter-assessment"}]),
-                      data=thin, at=at)
-    assert bad["status"] == "proposed"
+    with clock.at(at):                                          # the owner's what-if: the gate is for proposals, not for them
+        bad = pr.propose_values(s.p, {"k": "4.5"}, {"at": at})
     loop.accept(bad["id"], at=at)                             # and the owner wrote it, without waiting for the judge
     early = verify.run(s.p, at=at + HOLD, hold_out=HOLD)
     assert early["waiting"] and not early["regressed"]

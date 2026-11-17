@@ -207,8 +207,10 @@ def _brief(e: dict) -> None:
     print(f"  {c('how', 'dim')}      {h.get('method') or '–'}" + (f", over {human(h['span'])} of record" if h.get("span") else "") +
           (f", {h['n']} points" if h.get("n") else "") + (f"; {h['confidence']}" if h.get("confidence") else ""))
     b = e["benefit"]
-    if b.get("nmse_before") is not None or b.get("nmse_after") is not None:
-        print(f"  {c('benefit', 'dim')}  scaled error {sig(b['nmse_before'])} → {sig(b['nmse_after'])} (lower is better)")
+    if b.get("nmse_before") is not None or b.get("nmse_after") is not None:      # a gain only when it is one
+        label = "benefit" if b.get("better") else "effect "
+        print(f"  {c(label, 'dim')}  scaled error, {b.get('said') or sig(b['nmse_before']) + ' → ' + sig(b['nmse_after'])} "
+              f"(lower is better)")
     elif b.get("margins"):
         print(f"  {c('benefit', 'dim')}  {b['margins']}")
     for x in e["conflicts"]:

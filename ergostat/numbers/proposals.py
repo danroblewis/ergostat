@@ -230,7 +230,7 @@ def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts"
     spec: Spec = p.model.spec
     data = ob.measured(p, ob.reference(p, (snap or {}).get("at"), n))
     estimates = es.estimate(p, snap, n, which)
-    st, v = ver.structure(spec), ver.version(spec)
+    st = ver.structure(spec)
     base = sim.plan(spec)
     before = _total(spec, data, base)
     now = time.time()
@@ -311,13 +311,48 @@ def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts"
     for k in [k for k, x in props.items() if x["status"] == "pending" and not candidate(x) and
               (x.get("structure") != st or _calibration(x) == which)]:
         del props[k]
+    admit(p, spec, props, found, now, data.grid.until - data.grid.since)
+    save(p, props)
+    return pending(p, spec)
+
+
+def admit(p, spec: Spec, props: dict, found: list[dict], now: float, window: float) -> None:
+    """ergostat's own finders' changes, into ``props``: each not made already (dismissed, accepted or waiting), and
+    not held back (``memory``: the same target turned away on this version while the record has not grown enough
+    since, counted on the item turned away); refused at the gate (``gate``) when it worsens the fit of the whole
+    model or near what it touches, with both numbers; else pending."""
+    from . import gate as gt
+    from . import memory as mem
+    st, v = ver.structure(spec), ver.version(spec)
     for x in found:
         if x["id"] in props:                       # dismissed (or accepted) already: not made again
             continue
-        props[x["id"]] = {**x, "status": "pending", "created": now, "structure": st, "version": v,
-                          "window": data.grid.until - data.grid.since}
-    save(p, props)
-    return pending(p, spec)
+        x = {**x, "made_by": x.get("made_by") or "ergostat", "window": window}
+        x["key"] = mem.key(x)
+        h = mem.held(p, spec, x["key"], now)
+        if h is not None:
+            props[h["prior"]["id"]] = mem.repeat(p, h, x.get("title") or "", x.get("title") or "")
+            continue
+        refs = [*(x.get("parts") or []), *(x.get("touched") or []), *str(x.get("target") or "").split(", ")]
+        g = gt.check(spec, x.get("fit_before"), x.pop("gate_fit", None) or x.get("fit_after"), [r for r in refs if r])
+        x["gate"] = {"whole": g["whole"], "local": g["local"], "said": gt.summary(g)}
+        x["neighbourhood"] = g["neighbourhood"]
+        state = {"status": "pending"}
+        if g["worse"]:
+            fitted = _fitted_said(x)
+            state = {"status": "refused", "state": "refused", "gated": True, "decided": now,
+                     "why": f"it clearly worsens the fit: {g['worse']}" + (f", though {fitted}" if fitted else "")}
+        props[x["id"]] = {**x, **state, "created": now, "structure": st, "version": v}
+
+
+def _fitted_said(x: dict) -> str | None:
+    """What the estimate itself improved, on what it was fitted to: the other number beside the gate's."""
+    o = x.get("objective") or {}
+    if not o.get("before"):
+        return None
+    on = ", ".join((next(iter((x.get("estimate") or {}).values()), {}) or {}).get("fitted_to") or []) or "what it was fitted to"
+    return (f"fitted {x.get('scope_words') or 'each part alone'}, its weighted error on {on} falls by "
+            f"{1 - o['after'] / o['before']:.0%} ({o['before']:.3g} → {o['after']:.3g})")
 
 
 def _calibration(x: dict) -> str:

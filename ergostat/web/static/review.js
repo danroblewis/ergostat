@@ -74,7 +74,8 @@ const nm = (v) => (v == null ? "–" : fmt(v));
 const r2s = (v) => (v == null ? "–" : v.toFixed(2));
 function benefitRows(b) {
   const rows = [];
-  if (b.nmse_before != null || b.nmse_after != null) rows.push(h("div", {}, `scaled error ${nm(b.nmse_before)} → ${nm(b.nmse_after)}`,
+  if (b.said) rows.push(h("div", { class: b.better === false ? "s-open" : "" }, `scaled error: ${b.said}`));
+  else if (b.nmse_before != null || b.nmse_after != null) rows.push(h("div", {}, `scaled error ${nm(b.nmse_before)} → ${nm(b.nmse_after)}`,
     h("span", { class: "muted" }, b.nmse_after != null && b.nmse_before != null ? (b.nmse_after < b.nmse_before ? ", better" : b.nmse_after > b.nmse_before ? ", worse" : ", the same") : "")));
   for (const x of b.parts || []) if (x.r2_before != null || x.r2_after != null)
     rows.push(h("div", { class: "small" }, h("span", { class: "muted" }, `${x.ref.split(".").slice(1).join(".")} `), rich(`R² ${r2s(x.r2_before)} → ${r2s(x.r2_after)}`)));
@@ -193,7 +194,7 @@ function reviewEntry(e, { onDone }) {
         ["why", e.by_block && (e.reasons || []).length ? reasonsView(e.reasons) : e.why],
         ["judged", e.verdict ? h("div", { class: e.verdict.verdict === "dropped" ? "s-open small" : "small" }, `${e.verdict.verdict === "testing" ? "testing" : e.verdict.verdict}: ${e.verdict.why}`) : null],
         ["how found", h("div", {}, ...howText(e.how))],
-        ["benefit", benefitRows(e.benefit) ? h("div", {}, ...benefitRows(e.benefit)) : null],
+        [e.benefit?.better === false ? "effect" : "benefit", benefitRows(e.benefit) ? h("div", {}, ...benefitRows(e.benefit)) : null],
         ["conflicts", e.conflicts.length ? h("div", {}, ...e.conflicts.map((c) => h("div", { class: "s-open small" }, `with ${c.id}: ${c.why}`))) : null]]),
     h("div", { class: "actions" }, canShow ? h("button", { class: "ghost", onclick: () => showOnDiagram(where.select, where.systems || []) }, "Show on diagram") : null, toggle,
       h("span", { class: "muted small mono" }, e.id)),

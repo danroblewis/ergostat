@@ -96,6 +96,7 @@ def stats(sim_: list, meas: list) -> dict | None:
     else:
         out["exact"] = True                                         # no error to split: the replay is the record
     out["scale"] = sa * sa + ma * ma                                # for a total across units
+    out["nmse"] = mse / (out["scale"] or 1.0)                       # its own scaled error, as the total averages it
     out["says"] = says(out)
     return out
 

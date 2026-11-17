@@ -27,6 +27,8 @@ from pathlib import Path
 from ..durations import human as dur
 from ..spec.ir import Spec
 from . import estimate as es
+from . import gate as gt
+from . import improve as im
 from . import leverage as lv
 from . import observe as ob
 from . import proposals as pr
@@ -77,19 +79,24 @@ def refresh(p, spec: Spec, at: float | None = None, force: bool = False) -> list
     for k in [k for k, x in props.items() if x.get("kind") == "structure" and x["status"] == "pending" and
               not pr.candidate(x) and (k not in mine or x.get("structure") != st)]:
         del props[k]                                  # superseded: no longer found
+    fresh = []
     for x in found:
         x["made_by"] = "ergostat"
-    for x in found:
         if x["id"] in props:                           # dismissed (or accepted, or pending) already: not made again
             continue
+        again = None
         try:
             after_spec = tr.spec_after(p, tr.edits_of(x))
-            _, after = tr.fit_of(after_spec, ob.measured(p, data.grid, after_spec))
+            data_a = ob.measured(p, data.grid, after_spec)
+            _, after = tr.fit_of(after_spec, data_a)
+            again = im.refit(spec, after_spec, data_a)       # what it adds to estimate, fitted: the gate judges it so
         except tr.TrialError:
             after = None
-        props[x["id"]] = {**x, "fit_before": base, "fit_after": after or {"total": None, "stocks": {}, "equations": {}},
-                          "status": "pending", "created": now, "structure": st, "version": v,
-                          "window": data.grid.until - data.grid.since, "span": data.grid.until - data.grid.since}
+        best = again["fit"] if again and gt.total(again["fit"]) is not None and \
+            (gt.total(after) is None or gt.total(again["fit"]) < gt.total(after)) else after
+        fresh.append({**x, "fit_before": base, "fit_after": after or {"total": None, "stocks": {}, "equations": {}},
+                      "refit": again, "gate_fit": best, "span": data.grid.until - data.grid.since})
+    pr.admit(p, spec, props, fresh, now, data.grid.until - data.grid.since)   # held back, refused at the gate, or pending
     pr.save(p, props)
     tmp = f.with_suffix(".tmp")
     tmp.write_text(json.dumps({"version": v, "at": now, "not_made": not_made}, indent=1))
@@ -247,6 +254,12 @@ def _benefit(x: dict) -> dict:
             per.append({"ref": r, "r2_before": (fb or {}).get("r2"), "r2_after": (fa or {}).get("r2"),
                         "mape_before": (fb or {}).get("mape"), "mape_after": (fa or {}).get("mape")})
     out = {"nmse_before": b.get("nmse"), "nmse_after": a.get("nmse"), "parts": per}
+    g = x.get("gate") or {}
+    whole = g.get("whole") or {"before": b.get("nmse"), "after": a.get("nmse")}
+    out["said"] = g.get("said") or gt.summary({"whole": whole, "local": None})   # both numbers, and which way they went
+    out["better"] = None if whole.get("before") is None or whole.get("after") is None else \
+        whole["after"] < whole["before"] - gt.TRIFLE and not (g.get("local") and g["local"]["after"] > g["local"]["before"] + gt.TRIFLE)
+    out["local"] = g.get("local")
     if x.get("kind") == "tuning":
         out["margins"] = x.get("reason", "").split(". ", 1)[1] if ". " in x.get("reason", "") else None
     return out
