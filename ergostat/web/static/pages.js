@@ -433,7 +433,7 @@ async function pageFit(main) {
       queueBox.replaceChildren(...(q.length ? q.map((x) => reviewEntry(x, { onDone: () => { propSig = null; allBox.replaceChildren(); setTimeout(tick, 600); } }))
         : [h("p", { class: "muted" }, "Nothing waiting.")]));
       whyBox.replaceChildren(...(why.length ? [h("h3", {}, "Estimates not proposed"),
-        table(["parameter", "why"], why.map(([n, w]) => h("tr", {}, h("td", {}, h("b", {}, n)), h("td", { class: "small" }, w))), "fit")] : []),
+        table(["parameter", "why"], why.map(([n, w]) => h("tr", {}, h("td", {}, h("b", {}, n)), h("td", { class: "small" }, w))), "can")] : []),
         ...(d.open_loops?.length ? [h("p", { class: "muted small" }, `Every stock integrated still leaves open ${d.open_said}, since the replay takes what a decision sets as measured.`)] : []));
       canBox.replaceChildren(proposableView(d));
     }

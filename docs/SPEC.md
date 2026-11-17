@@ -1144,7 +1144,8 @@ a one-way flow that runs backwards and `ZIDZ` on a division that faults; *auxili
 errors) whose largest effect either way is under a tenth of its part's size is taken out with its
 link; a declared sign that a least-squares fit of a flow on its causes (R² ≥ 0.5) contradicts is
 flipped. From SD Lab's simplify rules (its SPEC §4.8, as tested there): a measured flow that moved
-under a thousandth of the typical flow on average and a hundredth at its peak, or an equation-only flow
+under a thousandth of the typical flow on average and a hundredth at its peak over half an hour of record
+or more (rare is not useless), or an equation-only flow
 whose removal leaves the scaled error within 2%, removed; two flows between the same two stocks merged;
 a stock empty (under 0.5) at 95% of its readings with one flow in from a stock and one out to a stock
 joined through; a stock that never changes, is nearly always empty, moves exactly like another

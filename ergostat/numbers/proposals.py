@@ -17,7 +17,9 @@ Two kinds so far:
   below 0); a flow and a cause inside a loop a controller closes carry the warning that a
   regression there is biased (Ljung ch. 13).
 
-Kept in ``<state>/proposals.json``."""
+A third, the owner's what-if (``propose_values``); and the structural proposals (``structural.py``) are
+kept here too, so they are accepted and dismissed the same way. All are read as one review queue
+(``review.py``). Kept in ``<state>/proposals.json``."""
 
 from __future__ import annotations
 

@@ -160,10 +160,10 @@ async function simulateAll(ids, box, btn) {
 /* what ergostat can propose now, what it cannot yet, and what it found and could not make */
 function proposableView(d) {
   return h("div", {},
-    table(["change", "found by"], (d.can || []).map((c) => h("tr", {}, h("td", {}, c.what), h("td", { class: "small" }, c.how))), "fit"),
+    table(["change", "found by"], (d.can || []).map((c) => h("tr", {}, h("td", {}, c.what), h("td", { class: "small" }, c.how))), "can"),
     h("h3", {}, "Not yet"),
     h("ul", { class: "plain" }, ...(d.cannot || []).map((x) => h("li", {}, x))),
     h("p", { class: "muted small" }, "The residual-pattern structure finder, for missing stocks, flows and delays and for replacements, is the next piece of work."),
     ...((d.not_made || []).length ? [h("h3", {}, "Found, and not proposed"),
-      table(["change", "why not"], d.not_made.map((x) => h("tr", {}, h("td", {}, x.title), h("td", { class: "small" }, x.why))), "fit")] : []));
+      table(["change", "why not"], d.not_made.map((x) => h("tr", {}, h("td", {}, x.title), h("td", { class: "small" }, x.why))), "can")] : []));
 }

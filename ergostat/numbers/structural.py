@@ -45,7 +45,8 @@ EMPTY = 0.5             # SD Lab: a level under this is empty ...
 NEARLY_ALWAYS = 0.95    # ... and a stock empty at this share of its readings is nearly always empty
 STILL = 0.001           # a stock whose range is under this share of its mean never changes
 TWIN = 0.999            # two stocks correlated past this, with a scale within 5%, move exactly alike
-DEAD_MEAN, DEAD_PEAK = 0.001, 0.01   # a flow under these shares of the typical flow's rate moved nothing
+DEAD_MEAN, DEAD_PEAK = 0.001, 0.01   # a flow under these shares of the typical flow's rate moved nothing ...
+DEAD_SPAN = 1800.0      # ... over at least this much record (s): rare is not useless, and a short record cannot tell
 NO_WORSE = 1.02         # a flow removed that leaves the scaled error within 2% explained nothing
 MIN_READINGS = 20
 NARROW = 0.1            # a term whose largest effect, its estimate ± 2σ, is under this share of its part's size
@@ -557,9 +558,11 @@ def simplify(c: Ctx, base_fit: dict | None) -> None:
     rates = {n: [abs(v) for v in c.level(f"flow.{n}")] for n in spec.flows}
     means = [sum(v) / len(v) for v in rates.values() if v and sum(v) > 0]
     typical = sum(means) / len(means) if means else 1.0
+    long_enough = data.grid.until - data.grid.since >= DEAD_SPAN
     for n, f in spec.flows.items():                     # a measured flow that moved essentially nothing
         ref = f"flow.{n}"
-        if ref in c.named or f.equation is not None or len(rates[n]) < MIN_READINGS or data.how.get(ref) in ("declared", "not measured"):
+        if not long_enough or ref in c.named or f.equation is not None or len(rates[n]) < MIN_READINGS \
+                or data.how.get(ref) in ("declared", "not measured"):
             continue
         r = rates[n]
         if sum(r) / len(r) < DEAD_MEAN * typical and max(r) < DEAD_PEAK * typical:

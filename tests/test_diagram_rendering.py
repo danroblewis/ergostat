@@ -1876,8 +1876,11 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         assert all(x in head for x in ("R²", "MAPE", "UM", "US", "UC")), head
         assert "queue" in pg.locator("table.fit").first.inner_text()
         pg.get_by_role("button", name="Calibrate").click()
-        pg.wait_for_function("() => document.querySelector('.proposal')", timeout=30000)
-        prop = pg.locator(".proposal").first.inner_text()
+        pg.wait_for_function("() => document.querySelector('.entry')", timeout=30000)
+        entry = pg.locator(".entry").first
+        assert entry.locator("h3").inner_text() == "A parameter's value"            # the kind of change, its title
+        entry.get_by_role("button", name="Effect and diff").click()
+        prop = entry.inner_text()
         assert "k: 2 1/h → 3" in prop and "value: 2" in prop and "Accept" in prop, prop
         # its valve's panel offers it too; accepted there, the file says the new value, its comment kept
         drawn(pg, url, "view=dynamics", 1)
@@ -1891,7 +1894,7 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         assert re.search(r"    value: (3|2\.99\d*|3\.0\d*) ", text) and "# what we believe" in text and "# the queue drains" in text, text
         pg.goto(url + "/#/fit")
         pg.wait_for_function("() => /accepted: k/.test(document.body.textContent)", timeout=20000)
-        assert "No proposals waiting." in pg.locator(".page").inner_text()
+        assert "Nothing waiting." in pg.locator(".page").inner_text()
         pg.close()
         assert not errors, errors
     finally:
