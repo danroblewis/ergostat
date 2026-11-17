@@ -226,7 +226,8 @@ def decide(results: list[dict], threshold: float, answers: int, new: int, held: 
     away = [(r, w) for r in judged if (w := _worst_elsewhere(r, threshold))]
     better = [r for r in judged if r["change"] >= threshold]
     lo, hi = min(r["change"] for r in judged), max(r["change"] for r in judged)
-    near = ", ".join(judged[0].get("scored") or []) or "every stock"
+    sc = judged[0].get("scored") or []
+    near = (", ".join(sc[:4]) + (f" and {len(sc) - 4} more" if len(sc) > 4 else "")) or "every stock"
     if worse:
         w = min(worse, key=lambda r: r["change"])
         return "dropped", (f"worse in {len(worse)} of {n} windows held out: near what it touches ({near}) the scaled error "

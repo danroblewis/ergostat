@@ -37,7 +37,6 @@ from . import version as ver
 from . import yamledit as ye
 
 KINDS = ("parameter", "equation", "structure", "measurement", "control")
-FIT_KINDS = ("parameter", "equation", "structure")     # what the dynamics model's fit can judge; the rest is the owner's
 WORSE = gt.WORSE            # a proposal whose scaled error rises past this share (and not by a trifle) clearly worsens the fit
 TRIFLE = gt.TRIFLE
 CITED = "cited, not checked"   # a rule, a line or a URL: it says where a reason comes from, not that it holds here
@@ -410,9 +409,8 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
     near = gt.neighbourhood(spec, refs) | gt.neighbourhood(after, refs)
     g = gt.check(spec, fit_b, best_fit, refs)
     if g["worse"]:
-        raise GateError(f"it clearly worsens the fit: {g['worse']}" + (" even refitted" if ar is not None else ""),
-                        mem.key({"kind": kind, "target": _target(spec, after, said_parts, kind),
-                                                           "made_by": by}))
+        key = mem.key({"kind": kind, "target": _target(spec, after, said_parts, kind), "made_by": by})
+        raise GateError(f"it clearly worsens the fit: {g['worse']}" + (" even refitted" if ar is not None else ""), key)
     answered = before_f - after_f
     supported = 0
     for r in kept:
@@ -530,9 +528,9 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
             k = err.args[1] if gated else mem.key(x)
             h = mem.held(p, spec, k, now)
             if h is not None:
-                mem.repeat(p, h, title, str(run or now), by)
+                n = int(mem.repeat(p, h, title, str(run or now), by).get("repeats") or 0)
                 why = f"held back: {pr.item_of(h['prior']['id'])} was {h['prior']['state']} for the same target; " + \
-                    mem.said(int(h["prior"].get("repeats") or 0) + 1, h["until"], h["wait"])
+                    mem.said(n, h["until"], h["wait"])
                 return {"status": "not-proposed", "id": h["prior"]["id"], "title": title, "why": why}
         pr.event(p, pid, "made", made, source=by, causedby=run)
         if err is not None:
