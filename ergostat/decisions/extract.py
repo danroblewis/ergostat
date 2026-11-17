@@ -1,4 +1,4 @@
-"""Running an extractor over Claude Code transcripts: ``ergostat decisions extract FILE|DIR ...``.
+"""Running an extractor over Claude Code transcripts: ``ergostat decisions extract FILE|DIR|ITEM ... [--since]``.
 
 It reads the owner's turns (and the assistant's around them), proposes the decisions and corrections it finds,
 and either records them (the default: as ``extractor``, or ``--as``) or prints them as event lines
@@ -17,21 +17,26 @@ from pathlib import Path
 
 from . import acts, ai, standin
 from .kinds import CORRECTION, DECISION, item_id
-from .transcript import exchanges, lines_in, turns
+from .transcript import exchanges, lines_in, turns, turns_of_item
 
 READ = "decisions-read.json"     # in the state directory: each transcript's lines already read
 
 
-def files_of(paths: list[str]) -> list[Path]:
-    out: list[Path] = []
+def files_of(paths: list[str], p=None) -> list[Path | str]:
+    """Each transcript named: a file, every ``.jsonl`` in a folder, or an item whose session the record holds
+    (``session/x``: its ``claude.*`` events, ingested by ``transcripts.py``), kept as its id."""
+    out: list[Path | str] = []
     for x in paths:
         f = Path(x).expanduser()
         if f.is_dir():
             out += sorted(f.glob("*.jsonl"), key=lambda q: q.stat().st_mtime)
         elif f.is_file():
             out.append(f)
+        elif p is not None and "/" in x and not x.startswith((".", "/", "~")) and \
+                p.events.query(n=1, item=x, type="claude.message"):
+            out.append(x)
         else:
-            raise FileNotFoundError(f"{x}: no such transcript or folder")
+            raise FileNotFoundError(f"{x}: no such transcript, folder, or session in the record")
     return out
 
 
@@ -63,7 +68,7 @@ def run(p, paths: list[str], since: str | None = None, model: str | None = None,
         instructions: str | None = None, print_lines: bool = False, new: bool = False, source: str = "extractor",
         out=None) -> dict:
     out = out or sys.stdout
-    files = files_of(paths)
+    files = files_of(paths, p)
     line0, t0 = since_of(since)
     state = p.dir / READ
     try:
@@ -100,9 +105,9 @@ def run(p, paths: list[str], since: str | None = None, model: str | None = None,
 
     spent = ai.Spent()
     for f in files:
-        key = str(f.resolve())
+        key = f if isinstance(f, str) else str(f.resolve())
         start = max(line0, int(read.get(key, 0)))
-        ts = turns(f, since_line=start, since_time=t0)
+        ts = turns_of_item(p, f, start, t0) if isinstance(f, str) else turns(f, since_line=start, since_time=t0)
         exs = list(exchanges(ts))
         got["owner_turns"] += len(exs)
         got["transcripts"].append({"file": str(f), "from_line": start + 1, "owner_turns": len(exs)})
@@ -124,7 +129,7 @@ def run(p, paths: list[str], since: str | None = None, model: str | None = None,
                 for kind, data in standin.read(t, before, after):
                     found(kind, data)
         if new:
-            read[key] = lines_in(f)
+            read[key] = (max((t.line for t in ts), default=start) if isinstance(f, str) else lines_in(f))
     if new:
         state.write_text(json.dumps(read, indent=1))
     if model:

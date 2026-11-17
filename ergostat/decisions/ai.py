@@ -30,7 +30,7 @@ ANSWER = """
 Answer with JSON lines only, one per finding, and nothing else (no prose, no code fences). Nothing found: no lines.
 {"decision": {"decision": "one sentence: what was decided", "words": [{"line": N, "text": "the owner's words, copied exactly from the owner's turn at line N"}], "reasons": ["why, as the owner or the exchange gave it"], "alternatives": [{"option": "what was rejected", "why": "why not"}], "scope": ["the parts or topics it applies to"], "supersedes": ["the slug of an earlier decision it replaces, from the list above"], "confidence": 0.0}}
 {"correction": {"correction": "one sentence: what to do differently from now on", "words": [{"line": N, "text": "exact quote"}], "corrects": "the behaviour or result it corrects", "kind_of_work": ["the kinds of work it applies to: ui, docs, git, testing, modelling, review, reporting, planning, ..."], "scope": ["parts or topics"], "repeats": "the slug of an earlier correction it gives again, from the list above", "confidence": 0.0}}
-"""
+"""  # noqa: E501
 
 
 @dataclass

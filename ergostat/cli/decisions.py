@@ -15,8 +15,10 @@ def register(sub, common) -> None:
     d = sub.add_parser("decisions", parents=[common], help="The owner's decisions: extract them from transcripts, propose, "
                                                            "confirm, dismiss, supersede")
     ds = d.add_subparsers(dest="act")
-    ex = ds.add_parser("extract", parents=[common], help="propose the decisions and corrections in Claude Code transcripts")
-    ex.add_argument("paths", nargs="+", metavar="TRANSCRIPT", help="a session's .jsonl, or a folder of them")
+    ex = ds.add_parser("extract", parents=[common], help="propose the decisions and corrections in Claude Code transcripts "
+                                                         "(--since: from a line, 4000; a time, 2026-11-16T09:00; or ago, 2d)")
+    ex.add_argument("paths", nargs="+", metavar="TRANSCRIPT", help="a session's .jsonl, a folder of them, or a session "
+                                                                  "item whose transcript the record holds (claude.* events)")
     ex.add_argument("--model", help="the AI extractor, on this model (sonnet); without it, the stand-in (no tokens)")
     ex.add_argument("--max-cost", type=float, metavar="USD", help="with --model: stop before spending more than this")
     ex.add_argument("--prompt", metavar="FILE", help="with --model: the extractor's instructions (- for standard input, as an "

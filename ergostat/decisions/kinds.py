@@ -8,10 +8,8 @@ from __future__ import annotations
 import hashlib
 import re
 
-from ..spec.ir import ItemKind
+from ..spec.ir import CORRECTION, DECISION, ItemKind
 
-DECISION = "ergostat.decision"
-CORRECTION = "ergostat.correction"
 KINDS = (DECISION, CORRECTION)
 
 DECISION_STATES = ["proposed", "confirmed", "superseded", "dismissed"]
@@ -28,21 +26,31 @@ STOP = set("a an the and or but of to in on for with at by from is are be it thi
            "not no do does don't dont never always should must".split())
 
 
-def _kind(name: str, states: list[str], show: list[str], description: str) -> ItemKind:
+# how their events' data folds (SPEC §5a, fold rules): the owner's words and the evidence accumulate, one event at
+# a time (a decision seen again in a later session adds its words, never replaces the first); the sets are sets
+DECISION_FOLD = {"words": "append", "evidence": "append", "reasons": "union", "alternatives": "append",
+                 "scope": "union", "supersedes": "union"}
+CORRECTION_FOLD = {"words": "append", "evidence": "append", "kind_of_work": "union", "scope": "union",
+                   "repeated_by": "append"}
+
+
+def _kind(name: str, states: list[str], show: list[str], description: str, fold: dict[str, str]) -> ItemKind:
     on = {f"{name}.{s}": s for s in states}
-    return ItemKind(name, f"{name}/*", list(states), on, show, {}, None, description)
+    return ItemKind(name, f"{name}/*", list(states), on, show, {}, None, description, fold=dict(fold))
 
 
 def decision_kind() -> ItemKind:
     return _kind(DECISION, DECISION_STATES, ["decision", "scope", "proposed_by"],
                  "what the owner decided, with their words, its reasons and the alternatives rejected: proposed (by "
-                 "the extractor or a person), confirmed by the owner, superseded only with a reason (built in, SPEC §5a)")
+                 "the extractor or a person), confirmed by the owner, superseded only with a reason (built in, SPEC §5a)",
+                 DECISION_FOLD)
 
 
 def correction_kind() -> ItemKind:
     return _kind(CORRECTION, CORRECTION_STATES, ["correction", "kind_of_work", "repeats"],
                  "a correction the owner gave, in their words, and the kind of work it applies to: proposed from the "
-                 "record or a transcript, confirmed by the owner; a repeat is linked to the first (built in, SPEC §5a)")
+                 "record or a transcript, confirmed by the owner; a repeat is linked to the first (built in, SPEC §5a)",
+                 CORRECTION_FOLD)
 
 
 def builtin() -> dict[str, ItemKind]:

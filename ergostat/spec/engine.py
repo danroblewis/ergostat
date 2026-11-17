@@ -684,7 +684,7 @@ class Said:
         if "event" in obj:
             t = obj["event"]
             if isinstance(t, str) and t.startswith(("ergostat.decision.", "ergostat.correction.")):
-                from ..decisions import acts                # a proposal of the owner's intent: checked like any
+                from ..decisions import acts  # a proposal of the owner's intent: checked like any
                 try:
                     acts.take_line(self.e.p, t, obj.get("item"), obj.get("data") if isinstance(obj.get("data"), dict) else {},
                                    self.b.name, causedby=self.run_id)

@@ -1,6 +1,10 @@
 """A Claude Code transcript (a session's JSONL, one line per message, tool call or note), read as turns: who
 spoke (the owner, or the assistant), what they said, and where (the session, the file's line, the time).
 
+Two ways in: a file read directly (``turns``), or a session already in the record as ``claude.message`` events
+(``turns_of_item``: an item whose transcript ``transcripts.py`` ingested), each message's text whole (a head cut
+at 4 KB is read from the line its ``full`` names).
+
 Only what was said counts. Tool results, the harness's own notes (task notifications, command output,
 interruptions, a compacted summary, a subagent's side chain) and the reminders it inserts into a message are
 left out, so an owner's turn is what the owner typed."""
@@ -112,3 +116,45 @@ def exchanges(ts: list[Turn], before: int = 1500, after: int = 800):
         prev = next((x for x in reversed(ts[:i]) if x.role == "assistant"), None)
         nxt = next((x for x in ts[i + 1:] if x.role == "assistant"), None)
         yield t, (prev.text[-before:] if prev else ""), (nxt.text[:after] if nxt else "")
+
+
+def _full_text(p, m: dict) -> str:
+    """A message's text, whole: a head cut in its event is read again from the transcript's line."""
+    if not m.get("truncated") or not isinstance(m.get("full"), dict):
+        return str(m.get("text") or "")
+    f = m["full"]
+    path = (p.repo / str(f.get("file") or "")).resolve()
+    if not (path.is_relative_to(p.repo.resolve()) or path.is_relative_to(p.dir.resolve())) or not path.is_file():
+        return str(m.get("text") or "")
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for n, raw in enumerate(fh, 1):
+            if n == int(f.get("line") or 0):
+                try:
+                    d = json.loads(raw)
+                except ValueError:
+                    break
+                return _text((d.get("message") or {}).get("content")) or str(m.get("text") or "")
+    return str(m.get("text") or "")
+
+
+def turns_of_item(p, item: str, since_line: int = 0, since_time: float | None = None) -> list[Turn]:
+    """The turns of a session in the record (its ``claude.message`` events, ``transcripts.py``), in order."""
+    out: list[Turn] = []
+    session = item
+    for e in p.events.query(n=None, item=item, type="claude.message"):
+        if since_time is not None and e["time"] < since_time:
+            continue
+        for m in (e.get("data") or {}).get("messages") or []:
+            n = int(m.get("line") or 0)
+            if n <= since_line or m.get("meta"):
+                continue
+            raw = _full_text(p, m)
+            role = "owner" if m.get("role") == "user" else "assistant"
+            text = owner_text(raw) if role == "owner" else raw.strip()
+            if not text:
+                continue
+            if out and out[-1].role == role == "assistant":
+                out[-1].text += "\n\n" + text
+                continue
+            out.append(Turn(role, text, n, e["time"], session))
+    return out

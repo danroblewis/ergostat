@@ -48,7 +48,8 @@ def read(turn: Turn, before: str, after: str) -> list[tuple[str, dict]]:
     """What one owner turn proposes: ``[(kind, data), ...]``, each with the sentence it rests on, verbatim."""
     out: list[tuple[str, dict]] = []
     seen: set[str] = set()
-    for s in sentences(turn.text):
+    ss = sentences(turn.text)
+    for n, s in enumerate(ss):
         if not (MIN <= len(s) <= MAX) or s in seen:
             continue
         seen.add(s)
@@ -56,6 +57,11 @@ def read(turn: Turn, before: str, after: str) -> list[tuple[str, dict]]:
         words = [{"text": s, **turn.where()}]
         scope = topics(s)
         if CORRECTION.search(s) and before and (not question or re.search(r"why did you", s, re.I)):
+            nxt = ss[n + 1] if n + 1 < len(ss) else ""      # "No, not like that. Do it this way.": what to do instead
+            if nxt and DECISION.search(nxt) and not nxt.endswith("?") and len(s) + len(nxt) < MAX:
+                s = f"{s} {nxt}"
+                words = [{"text": s, **turn.where()}] if s in turn.text else words + [{"text": nxt, **turn.where()}]
+                scope = topics(s)
             out.append(("correction", {"correction": s, "words": words, "corrects": _gist(before),
                                        "kind_of_work": scope or ["general"], "scope": scope, "confidence": 0.3,
                                        "source": {"type": "transcript", **turn.where()},

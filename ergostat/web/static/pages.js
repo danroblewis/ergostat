@@ -266,6 +266,70 @@ function claimView(d) {
     ev.output ? h("pre", { class: "plain" }, ev.output) : null);
 }
 
+/* a decision or correction (the owner's intent, SPEC §5a): the owner's words with where they were said, and the
+   owner's answers to it, each with a reason: Confirm and Dismiss while proposed; Supersede (a decision, naming the
+   one that replaces it) or Retire (a correction) once confirmed */
+const DECISION_KIND = "ergostat.decision", CORRECTION_KIND = "ergostat.correction";
+function quoteView(w) {
+  const where = [w.session ? `session ${String(w.session).slice(0, 8)}` : null, w.line ? `line ${w.line}` : null,
+    w.time ? String(w.time).slice(0, 16).replace("T", " ") : null, w.event ? `event ${String(w.event).slice(0, 12)}` : null].filter(Boolean).join(", ");
+  return h("blockquote", { class: "owner-words" }, h("p", {}, w.text), where ? h("p", { class: "muted small" }, where) : null);
+}
+function intentView(d, onDone) {
+  const f = d.fields, isDec = d.kind === DECISION_KIND;
+  const said = h("p", { class: "small" });
+  const acts = d.state === "proposed" ? ["confirm", "dismiss"] : d.state === "confirmed" ? [isDec ? "supersede" : "retire"] : [];
+  const label = { confirm: "Confirm", dismiss: "Dismiss", supersede: "Supersede", retire: "Retire" };
+  const hint = { confirm: "Why (optional): kept with it", dismiss: "Why not (required): the extractor learns from it",
+                 supersede: "Why it no longer holds (required)", retire: "Why it no longer applies (required)" };
+  const done = { confirm: "Confirmed: it is in every session's starting context from now on.", dismiss: "Dismissed, with its reason.",
+                 supersede: "Superseded: the decision that replaces it holds from now on.", retire: "Retired: it is no longer shown to sessions." };
+  const rows = {}, buttons = [];
+  for (const a of acts) {
+    const reason = h("input", { type: "text", class: "reason", placeholder: hint[a], "aria-label": `${label[a]}: reason` });
+    const by = a === "supersede" ? h("select", { class: "by", "aria-label": "The decision that replaces it" }, h("option", { value: "" }, "replaced by…")) : null;
+    const row = h("div", { class: "actions confirm intent-act", hidden: true, "data-act": a });
+    async function answer() {
+      for (const b of row.querySelectorAll("button")) b.disabled = true;
+      try {
+        await apiPost(`intent/${a}`, { id: d.id, reason: reason.value, ...(by ? { by: by.value } : {}) });
+        said.className = "small"; said.textContent = done[a];
+        row.hidden = true; onDone?.();
+      } catch (err) {
+        said.className = "s-open small"; said.textContent = String(err.message || err);
+        for (const b of row.querySelectorAll("button")) b.disabled = false;
+      }
+    }
+    row.append(reason, by, h("button", { onclick: answer }, `${label[a]} it`), h("button", { class: "ghost", onclick: () => { row.hidden = true; } }, "Cancel"));
+    rows[a] = row;
+    buttons.push(h("button", { class: a === "confirm" ? "" : "ghost", "data-act": a, onclick: async () => {
+      for (const r of Object.values(rows)) r.hidden = true;
+      row.hidden = false; reason.focus();
+      if (by && by.options.length < 2) {
+        const all = await api("items", { kind: DECISION_KIND }).catch(() => ({ items: [] }));
+        for (const x of all.items.filter((x) => x.id !== d.id && !["dismissed", "superseded"].includes(x.state)))
+          by.append(h("option", { value: x.id }, `${x.fields.decision || x.id} (${x.state})`));
+      }
+    } }, label[a]));
+  }
+  const list = (xs) => xs && xs.length ? xs.join("; ") : null;
+  return h("div", { class: "intent" },
+    h("p", {}, h("b", {}, isDec ? f.decision : f.correction)),
+    ...(f.words || []).slice(0, 6).map(quoteView),
+    (f.words || []).length > 6 ? h("p", { class: "note" }, `${f.words.length - 6} more of the owner's words, under Fields.`) : null,
+    dl([["reasons", list(f.reasons)], ["rejected", (f.alternatives || []).length ? h("div", {}, ...f.alternatives.map((a) => h("div", {}, a.option, a.why ? h("span", { class: "muted" }, ` (${a.why})`) : null))) : null],
+        ["corrects", f.corrects || null], ["kind of work", list(f.kind_of_work)], ["scope", list(f.scope)],
+        ["supersedes", (f.supersedes || []).length ? h("div", {}, ...f.supersedes.map(itemLink)) : null],
+        ["superseded by", f.superseded_by ? h("div", {}, itemLink(f.superseded_by), f.superseded_reason ? `: ${f.superseded_reason}` : "") : null],
+        ["repeats", f.repeats ? itemLink(f.repeats) : null],
+        ["given again", (f.repeated_by || []).length ? h("div", {}, ...f.repeated_by.map((r) => h("div", {}, itemLink(r.item)))) : null],
+        ["proposed by", f.proposed_by ? `${f.proposed_by}${f.extractor?.model ? ` (${f.extractor.model})` : ""}${f.confidence != null ? `, confidence ${f.confidence}` : ""}` : null],
+        ["dismissed", f.dismissed_reason || null], ["retired", f.retired_reason || null], ["confirmed", f.confirmed_reason || null]]),
+    SNAP ? h("p", { class: "muted small" }, `ergostat ${isDec ? "decisions" : "corrections"} confirm ${d.id} answers it, where the project is.`)
+      : buttons.length ? h("div", { class: "actions" }, ...buttons) : null,
+    ...Object.values(rows), said);
+}
+
 function stateWord(st) { return st ? h("span", {}, st) : h("span", { class: "muted" }, "–"); }
 
 async function pageItems(main, q) {
@@ -402,12 +466,13 @@ async function pageItem(main, id) {
         h("td", { class: "nowrap" }, eventLink(r.event, r.type, d)), h("td", { class: "muted" }, r.form), h("td", {}, r.why))), "refused")] : [];
     const said = d.transcript_events ? h("p", { class: "note" }, `${d.transcript_events} more events are its transcript's lines (claude.*), folded into its fields above; `,
       recordLinkItem(id), ".") : null;
-    const verdict = k?.name === CLAIM_KIND ? [h("h2", {}, "Verdict"), claimView(d)] : [];
+    const verdict = k?.name === CLAIM_KIND ? [h("h2", {}, "Verdict"), claimView(d)]
+      : k?.name === DECISION_KIND || k?.name === CORRECTION_KIND ? [h("h2", {}, k.name === DECISION_KIND ? "The decision" : "The correction"), intentView(d, tick)] : [];
     body.replaceChildren(head, track || "", ...verdict, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said || "", eventsTable(d.record, true));
   }
   await tick();
-  S.timer = setInterval(() => { if (!body.querySelector("details[open]")) tick(); }, 4000);
+  S.timer = setInterval(() => { if (!body.querySelector("details[open], .intent-act:not([hidden])")) tick(); }, 4000);
 }
 
 /* Model: first what is available for this project (each loop, each parameter to estimate, and where each

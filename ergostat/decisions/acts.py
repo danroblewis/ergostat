@@ -161,11 +161,19 @@ def _eid(*parts) -> str:
     return hashlib.sha1("\n".join(str(x) for x in parts).encode()).hexdigest()[:32]
 
 
+def _stem(w: str) -> str:
+    """A word's plain form, roughly: ``pages`` and ``page``, ``adding`` and ``add``, are one word here."""
+    for end in ("ing", "s"):
+        if w.endswith(end) and len(w) - len(end) >= 3:
+            return w[: -len(end)]
+    return w
+
+
 def similar(a: str, b: str) -> bool:
     """Two corrections make the same point: most of their content words are shared."""
     from .kinds import STOP
-    x = {w for w in words_of(a) if w not in STOP and len(w) > 2}
-    y = {w for w in words_of(b) if w not in STOP and len(w) > 2}
+    x = {_stem(w) for w in words_of(a) if w not in STOP and len(w) > 2}
+    y = {_stem(w) for w in words_of(b) if w not in STOP and len(w) > 2}
     if len(x) < 2 or len(y) < 2:
         return False
     both = len(x & y)
@@ -175,7 +183,7 @@ def similar(a: str, b: str) -> bool:
 def first_like(p, data: dict, before: list[Item] | None = None) -> Item | None:
     """The first correction, not dismissed, that the proposed one repeats."""
     kinds = set(data.get("kind_of_work") or [])
-    text = f"{data.get('correction', '')} {data.get('corrects', '')}"
+    text = str(data.get("correction") or "")         # the owner's point, not what it corrected (the assistant's words)
     olds = [i for i in (before if before is not None else items(p, CORRECTION)) if i.state != "dismissed"]
     for i in sorted(olds, key=lambda i: i.first):
         f = i.fields
@@ -184,7 +192,7 @@ def first_like(p, data: dict, before: list[Item] | None = None) -> Item | None:
         theirs = set(f.get("kind_of_work") or [])
         if kinds and theirs and not (kinds & theirs) and "general" not in kinds | theirs:
             continue
-        if similar(text, f"{f.get('correction', '')} {f.get('corrects', '')}"):
+        if similar(text, str(f.get("correction") or "")):
             return i
     return None
 
@@ -201,8 +209,15 @@ def propose(p, kind: str, data: dict, source: str, item: str | None = None, caus
     if kind_of_id(id) != kind or not id.split("/", 1)[1]:
         raise ActError(f"item: {kind}/<slug>")
     had = one(p, id)
-    if had is not None:
-        return {"status": "known", "item": id, "state": had.state}
+    if had is not None:                                     # seen again: its new words, if any, are added to it
+        known = {" ".join(str(w.get("text", "")).split()) for w in had.fields.get("words") or []}
+        fresh = [w for w in d["words"] if " ".join(w["text"].split()) not in known]
+        if not fresh or had.state == "dismissed":
+            return {"status": "known", "item": id, "state": had.state}
+        seen = {"by": source, **{k: d[k] for k in ("confidence", "extractor") if k in d}}
+        ev = p.events.add(f"{kind}.seen", item=id, source=source, causedby=causedby, at=at,
+                          id=_eid(id, "seen", *(w["text"] for w in fresh)), data={"words": fresh, "evidence": [seen]})
+        return {"status": "known", "item": id, "state": had.state, "added_words": len(fresh), "event": ev["id"]}
     if kind == DECISION:
         for s in d["supersedes"]:
             if one(p, s) is None:
@@ -226,7 +241,8 @@ def propose(p, kind: str, data: dict, source: str, item: str | None = None, caus
         n = 1 + sum(1 for i in items(p, CORRECTION) if i.fields.get("repeats") == first.id and i.id != id)
         p.events.add(f"{CORRECTION}.repeated", item=first.id, source="ergostat", causedby=ev["id"], at=at,
                      id=_eid(first.id, "repeated", id),
-                     data={"repeated_n": n, "last_repeat": id, "last_repeat_words": d["words"][0]["text"][:500]})
+                     data={"repeated_n": n, "repeated_by": [{"item": id, "text": d["words"][0]["text"][:500],
+                                                              **{k: v for k, v in d["words"][0].items() if k != "text"}}]})
     return {"status": "proposed", "item": id, "event": ev["id"], **({"repeats": first.id} if first else {})}
 
 

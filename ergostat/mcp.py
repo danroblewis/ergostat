@@ -250,7 +250,7 @@ class Server:
             from .runner import OWN_TYPES, TYPE_NAME
             t, data = str(a.get("type", "")), a.get("data") or {}
             if t.startswith(("ergostat.decision.", "ergostat.correction.")) and isinstance(data, dict):
-                from .decisions import acts                  # a proposal of the owner's intent, checked; never the owner's act
+                from .decisions import acts  # a proposal of the owner's intent, checked; never the owner's act
                 try:
                     got = acts.take_line(p, t, a.get("item") or None, data, a.get("source") or "mcp")
                 except acts.ActError as e:

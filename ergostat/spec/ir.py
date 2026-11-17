@@ -101,6 +101,8 @@ JUDGE_PORTS = ("testing", "passed", "failed", "accepted")
 CLAIM = "ergostat.claim"          # the built-in item kind: what a block said it did, checked against the record (SPEC §12g)
 CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
 CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
+DECISION = "ergostat.decision"    # the built-in item kinds of the owner's intent (SPEC §5a): what was decided,
+CORRECTION = "ergostat.correction"   # and what the owner corrected (decisions/kinds.py)
 TRUST = re.compile(r"^ergostat\.trust\.(contradicted|contradictions|verified|unchecked|claims)"
                    r"(?:@((?:rung:|model:)?[A-Za-z0-9][A-Za-z0-9._:-]*))?$")   # ergostat.trust.contradicted@developer
 TRUST_MEASURES = {                 # how far a block's claims hold (SPEC §12g), over the last week; @WHO narrows them
