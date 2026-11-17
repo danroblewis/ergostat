@@ -144,9 +144,9 @@ it in time, the number this function exists to keep at zero.
 
 They are built-in measures: a sensor reads one (`builtin: ergostat.messages.unrouted`) on a stock or an auxiliary, and
 item sensors count messages like any items (`items: ergostat.message, state: routed`, `entering: delivered`). Both
-examples model them as a system of their own (`examples/the-job/job/messages.yaml`,
-`examples/image-squeeze/messages.yaml`): unrouted and awaiting as stocks, routed, delivered, unrouted and missed as
-flows, and a goal holding the unrouted at zero, which nothing but the owner answers.
+examples model them (`examples/the-job/job/messages.yaml`, a system of its own within the job;
+`examples/image-squeeze/messages.yaml`, part of the lab): unrouted and awaiting as stocks, routed, delivered, unrouted
+and missed as flows, and a goal holding the unrouted at zero, which nothing but the owner answers.
 
 ```yaml
 stocks:

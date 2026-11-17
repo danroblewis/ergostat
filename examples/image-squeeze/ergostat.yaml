@@ -9,7 +9,7 @@
 #             while it saves bytes, keeps it, or rolls it back (rollout.yaml)
 #   lab       the research: hypotheses proposed, built and tested one at a time (lab.yaml)
 #   modelling the model of all this, improved by a loop of its own (model.yaml)
-#   messages  the owner's notes to the lab while it works, routed and delivered (messages.yaml)
+#             (and the owner's notes to it while it works, routed and delivered: messages.yaml)
 #
 # and the benchmark (benchmark.yaml): thirty fixed cases measured on every release, the count of
 # those squeeze meets a stock (capabilities), and how good it is on them a stock too (benchmark-points:
@@ -40,6 +40,4 @@ systems:
   modelling:
     description: the model of all this, improved as a loop of its own (model.yaml)
     show: [stock.model-error, stock.pending-changes, stock.changes-testing, stock.accepted-changes]
-  messages:
-    description: the owner's notes to the lab while it works, routed to the work and delivered (messages.yaml)
-    show: [stock.messages-unrouted, stock.messages-awaiting, stock.messages-missed]
+

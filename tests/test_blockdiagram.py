@@ -106,8 +106,7 @@ def test_image_squeeze_the_service_is_one_mimo_process_and_the_tuner_integrates(
 def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
     spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
     g = drawn(spec)
-    assert {n["id"] for n in g["nodes"]} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling",
-                                           "sys:messages"}
+    assert {n["id"] for n in g["nodes"]} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling"}
     for n in g["nodes"]:
         assert n["fn"]["sym"] == "Q"
     assert any(e["signal"].get("n", 1) > 1 for e in g["edges"])

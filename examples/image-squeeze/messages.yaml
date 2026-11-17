@@ -5,7 +5,7 @@
 # hypothesis already kept or dropped reopens it: it goes back to the ideas, and is built again with the note. One that
 # waited while its hypothesis finished without it was missed: the work is redone.
 defaults:
-  system: messages
+  system: lab                            # the lab's own: what the owner tells it while it works
 
 messages:
   finished: reopen
