@@ -310,6 +310,8 @@ def analyse(p, goal: str, at: float | None = None) -> dict | None:
     out["tests"] = tests_in(p, goal, dm["since"], dm["until"])
     guess = found_process(r)
     proc = declared or (guess if r.get("told_apart") else None)   # a guess too unsure is not worked with
+    if proc is guess and guess and guess["form"] == "integrating" and (law or {}).get("form") == "I":
+        proc = None            # integral action never settles an integrator: the guess, not the loop, is what fails
     out["process_from"] = "model" if declared else "identified" if proc else None
     if proc:
         out["process"] = proc
