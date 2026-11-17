@@ -30,7 +30,9 @@ create index if not exists events_type on events(type, seq);
 create index if not exists events_time on events(time);
 create index if not exists events_cause on events(causedby);
 create index if not exists events_item_type_time on events(item, type, time);
+create index if not exists events_item_own on events(item, seq) where (type < 'claude.' or type >= 'claude/');
 """
+OWN_LINES = "(type < 'claude.' or type >= 'claude/')"     # not a transcript's line: events_item_own holds just these
 MEASUREMENTS = """
 create table if not exists samples (
   series text not null,
@@ -85,7 +87,9 @@ def _skipping(skip: tuple[str, ...], where: list[str], args: list) -> None:
         where.append(f"type not in ({','.join('?' * len(exact))})")
         args.extend(exact)
     for t in skip:
-        if t.endswith("*"):                        # a range, so the type index serves it
+        if t == "claude.*":                        # as events_item_own says it, so a fold of items reads only that index
+            where.append(OWN_LINES)
+        elif t.endswith("*"):                      # a range, so the type index serves it
             lo = t[:-1]
             where.append("not (type >= ? and type < ?)")
             args += [lo, lo[:-1] + chr(ord(lo[-1]) + 1)]
