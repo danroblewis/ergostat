@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 
-def _mean(xs):
-    xs = [x for x in xs if x is not None]
-    return sum(xs) / len(xs) if xs else None
+def _median(xs):
+    xs = sorted(x for x in xs if x is not None)
+    if not xs:
+        return None
+    k = len(xs) // 2
+    return xs[k] if len(xs) % 2 else (xs[k - 1] + xs[k]) / 2
 
 
 def overall(results) -> dict:
@@ -34,8 +37,8 @@ def overall(results) -> dict:
         "recall_by_kind": {k: f"{sum(v)}/{len(v)}" for k, v in sorted(by_kind.items())},
         "proposals": props, "real_fixes": real, "precision": real / props if props else None,
         "accepted": acc, "accepted_real": accepted_real, "damage": sum(s["damage"] for s in sc),
-        "fit_ratio_final_to_truth": _mean([_ratio(s["fit"]["final"], s["fit"]["truth"]) for s in sc]),
-        "fit_ratio_damaged_to_truth": _mean([_ratio(s["fit"]["damaged"], s["fit"]["truth"]) for s in sc]),
+        "fit_ratio_final_to_truth": _median([_ratio(s["fit"]["final"], s["fit"]["truth"]) for s in sc]),
+        "fit_ratio_damaged_to_truth": _median([_ratio(s["fit"]["damaged"], s["fit"]["truth"]) for s in sc]),
         "forecast_better_than_damaged": sum(1 for s in sc if _lt(s["forecast"]["final"], s["forecast"]["damaged"])),
         "forecast_within_2x_truth": sum(1 for s in sc if _ratio(s["forecast"]["final"], s["forecast"]["truth"]) is not None
                                         and _ratio(s["forecast"]["final"], s["forecast"]["truth"]) <= 2.0),
@@ -77,7 +80,8 @@ def markdown(data: dict) -> str:
            + f", {o['fixed']} fixed (recall {_g(o['recall'])}); "
            f"{o['proposals']} proposals, {o['real_fixes']} real fixes (precision {_g(o['precision'])}); "
            f"{o['accepted']} accepted, {o['accepted_real']} of them real fixes, {o['damage']} damaging.", "",
-           f"Fit over the record, as a multiple of the truth's: damaged {_g(o['fit_ratio_damaged_to_truth'])}, final "
+           f"Fit over the record, as a multiple of the truth's (median over the cases): damaged "
+           f"{_g(o['fit_ratio_damaged_to_truth'])}, final "
            f"{_g(o['fit_ratio_final_to_truth'])}. Forecast on later record: better than the damaged model in "
            f"{o['forecast_better_than_damaged']} of {o['cases']} cases, within twice the truth's error in "
            f"{o['forecast_within_2x_truth']}.", "",

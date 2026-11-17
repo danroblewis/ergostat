@@ -564,6 +564,28 @@ Two weaknesses it found in the judge as built, and the changes proposed for them
   correct delay is often worse in a short window than none. *Warm windows*: each window is scored on a replay
   started six hours before it.
 
+### As measured (2026-11-17)
+
+The judge (`ergostat bench judge --seeds 10`, 120 trials): as built, 5 of 90 worse, neutral or slowed changes
+written (all five slowed: a stock pushed out of the total) and 17 of 30 better ones not (the delay world: cold
+windows); with warm windows alone, 0 and 0; like for like alone, 1 and 17; both, 0 and 0.
+
+The recovery benchmark (15 cases, 16 defects the record can see, six rounds):
+
+| Improver, judge | Recall | Precision | Accepted (real fixes, damaging) | Final fit, median × truth's | Forecast better than damaged | Cost |
+|---|---|---|---|---|---|---|
+| stand-in, as built | 9/16 | 45/92 | 14 (9, 3) | 1.54 | 10 of 15 | 14 min, $0 |
+| stand-in, both fixes | 12/16 | 24/65 | 23 (15, 2) | 1.01 | 13 of 15 | 11 min, $0 |
+| calibrator, as built | 5/16 | 21/66 | 13 (8, 4) | 28 | 8 of 15 | 1.4 min, $0 |
+| AI (Sonnet), as built, 3 cases | 1/3 | 8/20 | 3 (2, 0) | 2.3 | 1 of 3 | $0.95 |
+
+What it shows: parameter proposals made from the record they were fitted on mostly fail the judge on the record
+after them (the calibrator: 49 checked, 16 passed, 25 failed), and one in three of those it wrote moved the model
+away from the truth: a value refitted to make up for a missing flow fits better and is wrong. The damage that gets
+through is of that kind, a compensating error, which a judge of fit alone cannot see. A missing delay is recovered
+only with warm windows. Where the record barely shows a defect (a hidden stock merged away, the-job's missing
+delay) the benchmark says so and does not count it.
+
 ### The prediction check
 
 **What it is.** Each change written is scored again once three hold-outs of record have come after it: the
