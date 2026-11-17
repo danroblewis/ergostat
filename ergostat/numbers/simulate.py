@@ -57,10 +57,12 @@ class Plan:
 
 
 def plan(spec: Spec, params: dict[str, float] | None = None, extra: dict[str, Equation] | None = None,
-         extra_params: dict | None = None, integrate: set[str] | None = None) -> Plan:
+         extra_params: dict | None = None, integrate: set[str] | None = None, given: set[str] | None = None) -> Plan:
     """``params`` overrides a parameter's value (an estimate being tried); ``extra`` adds or replaces
     an equation (a proposal being tried), with ``extra_params`` (name → (value, unit)) it names;
-    ``integrate`` limits the stocks integrated (``set()``: none, the partial-model test)."""
+    ``integrate`` limits the stocks integrated (``set()``: none, the partial-model test); ``given`` are
+    parts whose equations are not run, taken as measured (a system calibrated alone: what comes in from
+    outside it is what was measured)."""
     values = {n: p.value for n, p in spec.parameters.items() if p.value is not None}
     values.update({n: v for n, (v, _) in (extra_params or {}).items()})
     values.update(params or {})
@@ -69,6 +71,8 @@ def plan(spec: Spec, params: dict[str, float] | None = None, extra: dict[str, Eq
     written |= {f"auxiliary.{a.name}": a.equation for a in spec.auxiliaries.values() if a.equation}
     written |= extra or {}
     eqs, left_out = {}, {}
+    for ref in given or ():
+        written.pop(ref, None)
     for ref, e in written.items():
         missing = [n for n in e.parameters if n not in values and n not in tables]
         if missing:
@@ -141,7 +145,7 @@ class _Stepper:
     def __init__(self, pl: Plan, stocks: list[str]):
         self.pl = pl
         self.stocks = stocks
-        self.V: dict[str, float] = {}
+        self.V: dict[str, float] = dict.fromkeys(pl.eqs, 0.0)     # a delay's equilibrium may read one not worked out yet
         self.S = {r: [0.0] * c.slots for r, c in pl.eqs.items()}
         self.D = {r: [0.0] * c.slots for r, c in pl.eqs.items()}
         self.fresh = set(pl.eqs)

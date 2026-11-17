@@ -248,8 +248,11 @@ def api(live: Live, path: str, q: dict):
         out = series.series(p, snap, refs, int(one("points") or series.POINTS), bool(one("strip")))
         if one("replay"):                         # and what the model says: its replay, and its projection past now
             from .numbers_api import add_to_series
-            add_to_series(live, p, snap, out, one("inputs") or "hold")
+            add_to_series(live, p, snap, out, one("inputs") or "hold", one("whatif"), bool(one("fan")))
         return out
+    if head == "dominance":                       # which feedback loops drive the behaviour, and when (Loops That Matter)
+        from .numbers_api import loop_dominance
+        return loop_dominance(live, p, snap, int(one("points") or series.POINTS), one("loop"))
     if head == "fit":                             # the Fit page: the replay against the record, its history, the proposals
         from .numbers_api import fit_page
         return fit_page(live, p, snap)
@@ -376,7 +379,8 @@ def handler(project):
                 self.rfile.read(min(n, 65536))
             from .numbers_api import post
             try:
-                code, data = post(live, u.path.removeprefix("/api/"), _window(parse_qs(u.query)))
+                q = parse_qs(u.query)
+                code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
             except Exception as e:                      # a broken request never takes the page down
                 code, data = 500, {"error": f"{type(e).__name__}: {e}"}
             return self._send(code, json.dumps(data, default=str).encode(), "application/json")

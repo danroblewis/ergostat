@@ -40,7 +40,7 @@ LINK_KEYS = {"cause", "instant", "description"}      # a driven-by written out: 
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation"}
 GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner"}
 AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous", "equation"}
-PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table"}
+PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table", "range"}
 DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
@@ -675,7 +675,37 @@ class Compiler:
                     self.err(f"{what}.table: {e}", m.at("table"), "bad-table")
                 if p.estimate:
                     self.err(f"{what}: a table is not estimated (only a value is)", m.at("estimate"), "bad-table")
+            if m.get("range") is not None:
+                p.range = self.span(m, "range", what, p)
             spec.parameters[name] = p
+
+    def span(self, m: Map, key: str, what: str, p: Parameter) -> tuple[float, float] | None:
+        """A parameter's ``range: [low, high]``: what it might be, for sensitivity analysis (SPEC §12b);
+        numbers, or durations read in hours as its value is."""
+        raw = m.get(key)
+        bad = f"{what}.{key}: two values, [low, high], low below high (numbers, or durations like 30s for a time)"
+        if p.table:
+            self.err(f"{what}: a table has no range (only a value is sampled)", m.at(key), "bad-range")
+            return None
+        if not isinstance(raw, list) or len(raw) != 2:
+            self.err(bad, m.at(key), "bad-range")
+            return None
+        out = []
+        for v in raw:
+            if isinstance(v, str):
+                try:
+                    out.append(parse_duration(v, f"{what}.{key}") / 3600.0)
+                    continue
+                except DurationError:
+                    pass
+            if isinstance(v, bool) or not isinstance(v, int | float):
+                self.err(bad, m.at(key), "bad-range")
+                return None
+            out.append(float(v))
+        if not out[0] < out[1]:
+            self.err(bad, m.at(key), "bad-range")
+            return None
+        return out[0], out[1]
 
     def equations(self, spec: Spec) -> None:
         """Each ``equation:`` read, its names resolved (a bare name a parameter, a reference a part),

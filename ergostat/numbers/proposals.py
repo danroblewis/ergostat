@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from pathlib import Path
 
@@ -63,10 +64,21 @@ def save(p, props: dict[str, dict]) -> None:
     tmp.replace(f)
 
 
+def current(x: dict, spec: Spec) -> bool:
+    """A parameter proposal still changes the value written as it was when it was proposed (another
+    proposal for the same parameter, accepted since, has made it stale)."""
+    for n, was in (x.get("previous") or {}).items():
+        prm = spec.parameters.get(n)
+        if prm is None or (prm.value is None) != (was is None) or (was is not None and abs(prm.value - was) > 1e-12 * max(1.0, abs(was))):
+            return False
+    return True
+
+
 def pending(p, spec: Spec | None = None) -> list[dict]:
     """The proposals waiting for the owner, for the model as it is now."""
-    st = ver.structure(spec or p.model.spec)
-    return sorted((x for x in stored(p).values() if x["status"] == "pending" and x["structure"] == st),
+    spec = spec or p.model.spec
+    st = ver.structure(spec)
+    return sorted((x for x in stored(p).values() if x["status"] == "pending" and x["structure"] == st and current(x, spec)),
                   key=lambda x: x["created"])
 
 
@@ -106,35 +118,43 @@ def unit_words(u: dict | None) -> str:
     return top + (f"/{bottom}" if bottom else "")
 
 
-def make(p, snap: dict | None = None, n: int | None = None) -> list[dict]:
+def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts") -> list[dict]:
     """Estimate, then propose: every change the record supports, for the model as it is now, on the
-    reference window (never the page's). Pending proposals for an older structure are let go;
-    accepted and dismissed ones are kept. An estimate the record does not support is kept with why
-    (``estimate.judged``), shown beside its parameter, and proposes nothing."""
+    reference window (never the page's), by the calibration ``which`` asks for (``estimate.SCOPES``:
+    each part alone, with the equations proposed for flows that have none; each system alone, driven by
+    its measured inputs; the whole model). Pending proposals of the same calibration, or for an older
+    structure, are let go; accepted and dismissed ones are kept. An estimate the record does not support
+    is kept with why (``estimate.judged``), shown beside its parameter, and proposes nothing."""
     spec: Spec = p.model.spec
     data = ob.measured(p, ob.reference(p, (snap or {}).get("at"), n))
-    estimates = es.estimate(p, snap, n)
+    estimates = es.estimate(p, snap, n, which)
     st, v = ver.structure(spec), ver.version(spec)
     base = sim.plan(spec)
     before = _total(spec, data, base)
     now = time.time()
     found: list[dict] = []
     groups: dict[tuple, list[str]] = {}
-    for name, e in sorted(estimates.items()):           # parameters fitted together are proposed together
+    for key, e in sorted(estimates.items()):            # parameters fitted together are proposed together
+        name = e.get("parameter", key)
         prm = spec.parameters.get(name)
         if prm is None or not prm.estimate:
             continue
         e["refused"] = es.judged(e, prm.value)
-        groups.setdefault(tuple(sorted([name, *e.get("with", [])])), []).append(name)
-    _keep_judgements(p, spec, estimates)
-    for group in groups.values():
-        if any(estimates[n].get("value") is None for n in group):
+        groups.setdefault((e.get("scope", "parts"), *sorted([name, *e.get("with", [])])), []).append(key)
+    _keep_judgements(p, spec, estimates, which)
+    for keys in groups.values():
+        if any(estimates[k].get("value") is None for k in keys):
             continue
-        e = estimates[group[0]]
-        sure = [n for n in group if estimates[n]["refused"] is None]
-        if not sure:
+        e = estimates[keys[0]]
+        scope = e.get("scope", "parts")
+        sure_keys = [k for k in keys if estimates[k]["refused"] is None]
+        if not sure_keys:
             continue
-        moved = {name: float(ye.number(estimates[name]["value"])) for name in sure}
+        name_of = {k: estimates[k].get("parameter", k) for k in keys}
+        group = [name_of[k] for k in keys]
+        sure = [name_of[k] for k in sure_keys]
+        estimates_by = {name_of[k]: estimates[k] for k in keys}
+        moved = {name_of[k]: float(ye.number(estimates[k]["value"])) for k in sure_keys}
         after = _total(spec, data, sim.plan(spec, moved))
         edits, errors = [], []
         for name, new in moved.items():
@@ -149,21 +169,24 @@ def make(p, snap: dict | None = None, n: int | None = None) -> list[dict]:
                 return "no value"
             num = ye.duration(v) if x.duration else f"{ye.number(v)}{' ' + x.unit if x.unit else ''}"
             return num if se is None else f"{num} ± {ye.duration(se) if x.duration else ye.number(se)}"
-        corr = [(a, b, c) for a in sure for b, c in (estimates[a].get("corr") or {}).items() if a < b and c is not None]
+        corr = [(a, b, c) for a in sure for b, c in (estimates_by[a].get("corr") or {}).items() if a < b and c is not None]
         objective = {"before": e["before"], "after": e["after"], "held_before": e.get("held_before"),
                      "held_after": e.get("held_after")}
         fall = 1 - e["after"] / e["before"] if e["before"] > 0 else None
         weights = ", ".join(f"{r} {ye.number(w)}" for r, w in sorted((e.get("weights") or {}).items()))
         held = (1 - e["held_after"] / e["held_before"] if e.get("held_before") and e.get("held_after") is not None else None)
+        how = ({"parts": "", "whole": "calibrated on the whole model's replay (every stock integrated from its flows), "}
+               .get(scope, f"calibrated on {e.get('scope_words') or scope}, its stocks integrated from its flows, "))
         found.append({
-            "id": _id("parameter", st, sorted(moved.items())), "kind": "parameter",
+            "id": _id("parameter", st, sorted(moved.items())) if scope == "parts" else _id("parameter", st, scope, sorted(moved.items())),
+            "kind": "parameter", "scope": scope, "scope_words": e.get("scope_words") or es.SCOPE_WORDS["parts"],
             "target": ", ".join(f"parameter.{n}" for n in moved), "parameters": moved,
             "previous": {n: spec.parameters[n].value for n in moved},
-            "uncertainty": {n: es.said_se(estimates[n], moved[n]) for n in moved},
+            "uncertainty": {n: es.said_se(estimates_by[n], moved[n]) for n in moved},
             "parts": sorted({r for n in moved for r in users_of(spec, n)}), "touched": e.get("fitted_to", []),
-            "title": "; ".join(f"{n}: {said(n, spec.parameters[n].value)} → {said(n, v, es.said_se(estimates[n], v))}"
+            "title": "; ".join(f"{n}: {said(n, spec.parameters[n].value)} → {said(n, v, es.said_se(estimates_by[n], v))}"
                                for n, v in moved.items()),
-            "reason": (f"estimated {'together ' if len(group) > 1 else ''}from {e['n']} points over the last "
+            "reason": (f"{how}estimated {'together ' if len(group) > 1 else ''}from {e['n']} points over the last "
                        f"{series.dur(e['window'])}, the last fifth held out, by weighted least squares on "
                        f"{', '.join(e['fitted_to'])}: " +
                        (f"their weighted error falls by {fall:.0%} on the record fitted" if fall is not None else "it fits better") +
@@ -171,14 +194,15 @@ def make(p, snap: dict | None = None, n: int | None = None) -> list[dict]:
                        "".join(f"; {a} and {b} are correlated {c:+.2f}" for a, b, c in corr if abs(c) > 0.5) +
                        (f"; each series weighted by its spread ({weights})" if weights else "") +
                        (f" (±: one standard error; {', '.join(sorted(set(group) - set(sure)))} not proposed: "
-                        f"{'; '.join(estimates[x]['refused'] for x in sorted(set(group) - set(sure)))})" if set(group) - set(sure)
+                        f"{'; '.join(estimates_by[x]['refused'] for x in sorted(set(group) - set(sure)))})" if set(group) - set(sure)
                         else " (±: one standard error)")),
             "objective": objective,
-            "estimate": {n: estimates[n] for n in group}, "fit_before": before, "fit_after": after,
+            "estimate": {n: estimates_by[n] for n in group}, "fit_before": before, "fit_after": after,
             "edit": _joined(edits) if not errors else {"error": "; ".join(errors)}})
-    found += _equations(spec, data, before)
+    if which == "parts":
+        found += _equations(spec, data, before)
     props = stored(p)
-    for k in [k for k, x in props.items() if x["status"] == "pending"]:
+    for k in [k for k, x in props.items() if x["status"] == "pending" and (x.get("structure") != st or _calibration(x) == which)]:
         del props[k]
     for x in found:
         if x["id"] in props:                       # dismissed (or accepted) already: not made again
@@ -189,8 +213,14 @@ def make(p, snap: dict | None = None, n: int | None = None) -> list[dict]:
     return pending(p, spec)
 
 
-def _keep_judgements(p, spec: Spec, estimates: dict) -> None:
-    f = es.path(p, ver.structure(spec))
+def _calibration(x: dict) -> str:
+    """Which calibration made a proposal (``estimate.SCOPES``; a what-if is the owner's own)."""
+    sc = x.get("scope", "parts")
+    return "systems" if sc.startswith("system:") else sc
+
+
+def _keep_judgements(p, spec: Spec, estimates: dict, which: str = "parts") -> None:
+    f = es.path(p, ver.structure(spec), which)
     try:
         f.write_text(json.dumps(estimates, indent=1))
     except OSError:
@@ -333,6 +363,80 @@ def _equation_edit(spec: Spec, f, text: str, params: dict) -> dict:
     return _joined([first, second])
 
 
+def parse_value(prm, raw) -> float:
+    """A value the owner typed for a parameter: a number in its unit, or a duration for a time."""
+    from ..durations import DurationError, parse_duration
+    text = str(raw).strip()
+    try:
+        v = float(text)
+    except ValueError:
+        try:
+            v = parse_duration(text, f"parameter {prm.name}") / 3600.0
+        except DurationError:
+            raise ProposalError(f"parameter {prm.name}: {text!r} is not a number{' or a duration' if prm.duration else ''}") from None
+    if not math.isfinite(v):
+        raise ProposalError(f"parameter {prm.name}: {text!r} is not a number")
+    return v
+
+
+def what_if(spec: Spec, raw: dict[str, str]) -> dict[str, float]:
+    """The values a what-if tries, checked: each names a parameter with a value (not a lookup)."""
+    out = {}
+    for name, v in raw.items():
+        prm = spec.parameters.get(name)
+        if prm is None or prm.table:
+            raise ProposalError(f"no parameter {name} with a value to try")
+        out[name] = parse_value(prm, v)
+    return out
+
+
+def propose_value(p, name: str, raw, snap: dict | None = None, n: int | None = None) -> dict:
+    """The owner's own what-if, made a proposal: the value tried on the page, with the fit before and
+    after on the reference window and its edit. Like any proposal it changes nothing until accepted."""
+    spec: Spec = p.model.spec
+    moved = what_if(spec, {name: raw})
+    prm = spec.parameters[name]
+    data = ob.measured(p, ob.reference(p, (snap or {}).get("at"), n))
+    before = _total(spec, data, sim.plan(spec))
+    after = _total(spec, data, sim.plan(spec, moved))
+    st, v = ver.structure(spec), ver.version(spec)
+    try:
+        edit = _joined([_value_edit(prm, moved[name])])
+    except ye.EditError as err:
+        edit = {"error": str(err)}
+
+    def said(x):
+        if x is None:
+            return "no value"
+        return ye.duration(x) if prm.duration else f"{ye.number(x)}{' ' + prm.unit if prm.unit else ''}"
+    b, a = before.get("total") or {}, after.get("total") or {}
+    pid = _id("parameter", st, "what-if", sorted(moved.items()))
+    x = {"id": pid, "kind": "parameter", "scope": "what-if", "scope_words": "the owner's what-if",
+         "target": f"parameter.{name}", "parameters": moved, "previous": {name: prm.value}, "uncertainty": {name: None},
+         "parts": users_of(spec, name), "touched": sorted({r for u in users_of(spec, name) for r in (u, *_stocks_of(spec, u))}),
+         "title": f"{name}: {said(prm.value)} → {said(moved[name])}",
+         "reason": ("tried by the owner as a what-if, not estimated: " +
+                    (f"the model's fit in total on the last {series.dur(data.grid.until - data.grid.since)} of record goes "
+                     f"from R² {_two(b.get('r2'))} to {_two(a.get('r2'))}" if b or a else "nothing it moves is fitted yet")),
+         "fit_before": before, "fit_after": after, "edit": edit,
+         "status": "pending", "created": time.time(), "structure": st, "version": v,
+         "window": data.grid.until - data.grid.since}
+    props = stored(p)
+    props[pid] = x                                  # the owner asked again: proposed again, even if let go before
+    save(p, props)
+    return x
+
+
+def _two(x) -> str:
+    return "–" if x is None else f"{x:.2f}"
+
+
+def _stocks_of(spec: Spec, ref: str) -> list[str]:
+    kind, _, name = ref.partition(".")
+    f = spec.flows.get(name) if kind == "flow" else None
+    return [f"stock.{s}" for s in (f.source, f.target) if s] if f else []
+
+
 def find(p, pid: str) -> dict:
     props = stored(p)
     hits = [x for k, x in props.items() if k.startswith(pid)] if pid else []
@@ -366,6 +470,8 @@ def accept(p, pid: str, snap: dict, by: str = "owner") -> dict:
         raise ProposalError(f"its edit cannot be made by ergostat ({x['edit']['error']}); write it by hand")
     if x["structure"] != ver.structure(p.model.spec):
         raise ProposalError("the model has changed since it was proposed: ask for proposals again")
+    if not current(x, p.model.spec):
+        raise ProposalError("the value it changes has been changed since it was proposed: ask for proposals again")
     edits = [ye.Edit.from_dict(d) for d in x["edit"]["files"]]
     old_text = {e.file: Path(e.file).read_text(encoding="utf-8") for e in edits}
     _, _, fit_before = ft.compute(p, snap)

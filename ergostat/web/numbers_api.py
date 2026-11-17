@@ -8,10 +8,12 @@ import threading
 import time
 
 from .. import series
+from ..numbers import dominance as dm
 from ..numbers import estimate as es
 from ..numbers import fit as ft
 from ..numbers import observe as ob
 from ..numbers import proposals as pr
+from ..numbers import sensitivity as sens
 from ..numbers import simulate as sim
 from ..numbers import version as ver
 from ..spec import equation as eq
@@ -35,23 +37,46 @@ def horizon_of(run: sim.Run, window: float) -> float:
     return min(window * HORIZON, max(window * LEAST, DOMINANT * slow * 3600.0))
 
 
-def model_run(live, p, snap: dict, n: int = series.POINTS, inputs: str = "hold") -> dict | None:
+def model_run(live, p, snap: dict, n: int = series.POINTS, inputs: str = "hold", whatif: dict | None = None,
+              horizon: float | None = None) -> dict | None:
     """The replay and the projection on the page's grid, for the charts: shared by the requests of a
-    few seconds (the strip and the panels ask together). The fit is not of this grid (``reference``)."""
+    few seconds (the strip and the panels ask together). The fit is not of this grid (``reference``).
+    ``whatif`` tries other values for some parameters (nothing is kept: a what-if)."""
     spec = spec_of(p)
     if spec is None:
         return None
-    key = ("numbers", snap["window"], snap["at"] if not snap.get("live", True) else round(snap["at"] / 5), live.mtime, n, inputs)
+    key = ("numbers", snap["window"], snap["at"] if not snap.get("live", True) else round(snap["at"] / 5), live.mtime, n, inputs,
+           tuple(sorted((whatif or {}).items())), horizon)
     got = live.cached(key)
     if got is not None:
         return got
     since, until = series.span(p, snap)
     data = ob.measured(p, ob.Grid(since, until, n))
-    pl = sim.plan(spec)
+    pl = sim.plan(spec, whatif or None)
     run = sim.replay(spec, data, pl)
-    horizon = horizon_of(run, until - since)
-    proj = sim.project(spec, data, run, horizon, pl, points=max(2, round(n * horizon / max(until - since, 1.0))), inputs=inputs)
-    got = {"data": data, "run": run, "projection": proj, "horizon": horizon}
+    horizon = horizon or horizon_of(run, until - since)
+    points = max(2, round(n * horizon / max(until - since, 1.0)))
+    proj = sim.project(spec, data, run, horizon, pl, points=points, inputs=inputs)
+    got = {"data": data, "run": run, "projection": proj, "horizon": horizon, "points": points}
+    live.keep(key, got)
+    return got
+
+
+def fan_of(live, p, snap: dict, mr: dict, inputs: str) -> dict | None:
+    """The projection's Monte Carlo fan over the uncertain parameters (sensitivity.py), cached as the
+    model run is (the same moment, window, grid and inputs)."""
+    spec = spec_of(p)
+    key = ("fan", snap["window"], snap["at"] if not snap.get("live", True) else round(snap["at"] / 5), live.mtime,
+           mr["data"].grid.n, inputs)
+    got = live.cached(key)
+    if got is not None:
+        return got
+    est: dict = {}
+    kept = es.load_all(p, spec)
+    for which in ("whole", "systems", "parts"):              # an estimate's standard error; each part alone's first
+        for k, x in kept.get(which, {}).items():
+            est[x.get("parameter", k)] = x
+    got = sens.fan(spec, mr["data"], mr["horizon"], mr["points"], inputs, est)
     live.keep(key, got)
     return got
 
@@ -76,37 +101,93 @@ def _round(vals):
     return [None if v is None else round(v, 6) for v in vals]
 
 
-def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold") -> dict:
+def parse_whatif(spec, raw: str | None) -> dict[str, float]:
+    """``name:value,name:value``, each value a number in the parameter's unit or a duration."""
+    got = {}
+    for part in (raw or "").split(","):
+        if ":" in part:
+            k, _, v = part.partition(":")
+            got[k.strip()] = v.strip()
+    return pr.what_if(spec, got) if got else {}
+
+
+def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: str | None = None, fan: bool = False) -> dict:
     """Each part's replay (what the model says it was) and projection (what it says comes next),
-    where the model works it out: an integrated stock, a flow or auxiliary with an equation."""
-    mr = model_run(live, p, snap, out["points"], "trend" if inputs == "trend" else "hold")
+    where the model works it out: an integrated stock, a flow or auxiliary with an equation. With
+    ``whatif``, the same with other values for some parameters, beside it (nothing is kept); with
+    ``fan``, the projection's spread over the parameters the model says are uncertain."""
+    inputs = "trend" if inputs == "trend" else "hold"
+    mr = model_run(live, p, snap, out["points"], inputs)
     if mr is None:
         return out
     run, proj = mr["run"], mr["projection"]
+    spec = spec_of(p)
+    try:
+        tried = parse_whatif(spec, whatif)
+    except pr.ProposalError as e:
+        tried, out["whatif_error"] = {}, str(e)
+    mw = model_run(live, p, snap, out["points"], inputs, tried, mr["horizon"]) if tried else None
+    fn = fan_of(live, p, snap, mr, inputs) if fan else None
     for s in out["series"]:
         ref = s["ref"]
         if ref in run.how:
             s["replay"] = _round(run.values[ref])
             s["projection"] = _round(proj.values.get(ref) or [])
             s["modelled"] = run.how[ref]
+            if mw is not None and ref in mw["run"].how:
+                s["whatif_replay"] = _round(mw["run"].values[ref])
+                s["whatif_projection"] = _round(mw["projection"].values.get(ref) or [])
+            if fn is not None and ref in fn["bands"]:
+                s["fan"] = {k: _round(v) for k, v in fn["bands"][ref].items()}
     if any("replay" in s for s in out["series"]):
         out["projection_times"] = [round(t, 3) for t in proj.times]
         out["horizon"] = mr["horizon"]
         out["inputs"] = "; ".join(mr["projection"].notes)
         out["replay_notes"] = run.notes + run.invalid
+        if tried:
+            out["whatif"] = [{"name": k, "value": v, "was": spec.parameters[k].value, "unit": spec.parameters[k].unit,
+                              "duration": spec.parameters[k].duration} for k, v in tried.items()]
+            if mw is not None and not (mw["run"].valid and mw["projection"].valid):
+                out["whatif_invalid"] = mw["run"].invalid + mw["projection"].invalid
+        if fn is not None:
+            out["fan"] = {"samples": fn["samples"], "invalid": fn["invalid"], "parameters": fn["parameters"]}
     return out
+
+
+def loop_dominance(live, p, snap: dict, n: int = series.POINTS, loop: str | None = None) -> dict | None:
+    """Which loops drive the behaviour over the page's window (dominance.py, the Loops That Matter
+    method), on the replay the charts draw: each loop's relative score per bucket, or only ``loop``'s
+    and the dominant one's."""
+    mr = model_run(live, p, snap, n)
+    if mr is None:
+        return None
+    key = ("dominance", snap["window"], snap["at"] if not snap.get("live", True) else round(snap["at"] / 5), live.mtime, n)
+    got = live.cached(key)
+    if got is None:
+        got = dm.dominance(spec_of(p), mr["data"], mr["run"])
+        live.keep(key, got)
+    rel = got["relative"] if loop is None else {k: v for k, v in got["relative"].items() if k == loop}
+    return {"times": [round(t, 3) for t in got["times"]], "since": mr["data"].grid.since, "until": mr["data"].grid.until,
+            "relative": {k: _round(v) for k, v in rel.items()}, "dominant": got["dominant"], "share": got["share"],
+            "not_scored": got["not_scored"] if loop is None else {k: v for k, v in got["not_scored"].items() if k == loop},
+            "polarity": got["polarity"], "scored": len(got["relative"]), "steps": got["steps"]}
 
 
 def parameter_rows(p, spec, names: list[str]) -> list[dict]:
     """Each parameter an equation names: its value and where it comes from (declared, estimated or
     unknown), and its estimate beside it when there is one."""
     est = es.load(p, spec)
+    kept = es.load_all(p, spec)
     rows = []
     for nm in names:
         x = spec.parameters.get(nm)
         if x is None:
             continue
         e = est.get(nm)
+        calibrated = [{"scope": c.get("scope"), "scope_words": c.get("scope_words"), "value": c.get("value"), "n": c.get("n"),
+                       "when": c.get("when"), "se": es.said_se(c, c["value"]) if c.get("value") is not None else None,
+                       "note": c.get("refused") or c.get("why")}
+                      for which in ("systems", "whole") for k, c in sorted(kept.get(which, {}).items()) if c.get("parameter", k) == nm]
         rows.append({"name": nm, "value": x.value, "unit": x.unit, "provenance": x.provenance, "estimate": x.estimate,
                      "duration": x.duration,
                      "table": x.table, "description": x.description,
@@ -115,7 +196,8 @@ def parameter_rows(p, spec, names: list[str]) -> list[dict]:
                      {**{k: e.get(k) for k in ("value", "n", "when", "window", "before", "after", "held_before", "held_after",
                                                 "fitted_to", "at_bound", "corr", "slowest")},
                       "se": es.said_se(e, e["value"])},
-                     "estimate_note": (e.get("why") if e and e.get("value") is None else e.get("refused") if e else None)})
+                     "estimate_note": (e.get("why") if e and e.get("value") is None else e.get("refused") if e else None),
+                     "calibrated": calibrated, "range": list(x.range) if x.range else None})
     return rows
 
 
@@ -164,23 +246,36 @@ def fit_page(live, p, snap: dict) -> dict | None:
     def rows(part):
         return [{"ref": r, "name": r.split(".", 1)[1], "unit": units.get(r, ""), **(ft._slim(s) or {"n": None})}
                 for r, s in sorted(fit[part].items())]
-    est = es.load(p, spec)
+    kept = es.load_all(p, spec)
+    names = sorted(n for n, x in spec.parameters.items() if x.estimate and not x.table)
+    not_proposed = {}
+    for which in es.SCOPES:
+        for k, e in sorted(kept.get(which, {}).items()):
+            n = e.get("parameter", k)
+            if n in spec.parameters and (e.get("refused") or e.get("why")):
+                label = n if which == "parts" else f"{n}, {e.get('scope_words') or which}"
+                not_proposed[label] = e.get("refused") or e.get("why")
     return {"version": ver.version(spec), "structure": ver.structure(spec), "since": rf["data"].grid.since,
             "until": rf["data"].grid.until, "total": ft._slim(fit["total"]), "stocks": rows("stocks"),
             "accounting": rows("accounting"), "equations": rows("equations"), "partial": rows("partial"),
             "judged_by_stock": fit["judged_by_stock"], "invalid": fit["invalid"],
             "notes": rf["run"].notes, "words": ft.WORDS, "min_points": ft.MIN_POINTS,
             "history": ft.versions(p), "accepted": pr.accepted(p), "proposals": pr.pending(p, spec),
-            "estimated_at": max((e.get("when") or 0 for e in est.values()), default=None) or None,
-            "to_estimate": sorted(n for n, x in spec.parameters.items() if x.estimate and not x.table),
-            "not_proposed": {n: e.get("refused") or e.get("why") for n, e in est.items()
-                             if n in spec.parameters and (e.get("refused") or e.get("why"))},
+            "estimated_at": max((e.get("when") or 0 for got in kept.values() for e in got.values()), default=None) or None,
+            "to_estimate": names,
+            "calibrations": [{"key": w, "words": es.SCOPE_WORDS[w], "count": len(es.scopes(spec, names, w)) if names else 0,
+                              "when": max((e.get("when") or 0 for e in kept.get(w, {}).values()), default=None) or None}
+                             for w in es.SCOPES],
+            "not_proposed": not_proposed,
             "residuals": snap.get("residuals", {})}
 
 
-def post(live, path: str, window: float) -> tuple[int, dict]:
-    """``POST /api/estimate`` (estimate, and make the proposals), ``/api/proposals/ID/accept`` and
-    ``/api/proposals/ID/dismiss``: the page's only writes, each the owner's own act."""
+def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, dict]:
+    """``POST /api/estimate?calibrate=parts|systems|whole`` (calibrate, and make the proposals),
+    ``/api/propose?parameter=NAME&value=V`` (the owner's what-if, made a proposal),
+    ``/api/proposals/ID/accept`` and ``/api/proposals/ID/dismiss``: the page's only writes, each the
+    owner's own act, and none of them changes the model but Accept."""
+    q = q or {}
     p = live.get()
     if spec_of(p) is None:
         return 400, {"error": "the model is an ergostat.toml: equations are written in ergostat.yaml"}
@@ -192,9 +287,14 @@ def post(live, path: str, window: float) -> tuple[int, dict]:
             if not ESTIMATING.acquire(blocking=False):
                 return 409, {"error": "already estimating: its proposals come when it ends"}
             try:
-                return 200, {"proposals": pr.make(p, snap)}
+                which = (q.get("calibrate") or ["parts"])[0]
+                if which not in es.SCOPES:
+                    return 400, {"error": f"calibrate: one of {', '.join(es.SCOPES)}"}
+                return 200, {"proposals": pr.make(p, snap, which=which)}
             finally:
                 ESTIMATING.release()
+        if parts == ["propose"]:
+            return 200, pr.propose_value(p, (q.get("parameter") or [""])[0], (q.get("value") or [""])[0], snap)
         if len(parts) == 3 and parts[0] == "proposals" and parts[2] in ("accept", "dismiss"):
             if parts[2] == "dismiss":
                 return 200, pr.dismiss(p, parts[1])

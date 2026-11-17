@@ -1140,6 +1140,18 @@
               "type": "boolean",
               "description": "Fit it from the record: estimates are kept apart, and become the value only when a proposal is accepted"
             },
+            "range": {
+              "type": "array",
+              "description": "What it might be, [low, high] (numbers, or durations read in hours): sensitivity analysis samples it uniformly there",
+              "items": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
             "table": {
               "description": "A lookup's points: a map x: y or a list of [x, y]",
               "oneOf": [

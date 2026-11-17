@@ -119,7 +119,13 @@ def findings(spec: Spec, say) -> None:
                     say("equation-not-drawn", f"{what}: its equation uses {r}, which its driven-by does not name, so the "
                         f"diagram draws no connector for it and no loop runs through it. Add it with its sign "
                         f"(driven-by: [+{r}])", e.where, f"{kind}.{x.name}")
+    from ..numbers import extremes
+    extremes.findings(spec, say)
     for p in spec.parameters.values():
+        if p.range and p.value is not None and not p.range[0] <= p.value <= p.range[1]:
+            say("parameter-range", f"parameter {p.name}: its value ({p.value:g}) is outside its range ({p.range[0]:g} to "
+                f"{p.range[1]:g}), so what it is believed to be and what it might be disagree. Widen the range, or "
+                f"correct the value", p.where, f"parameter.{p.name}")
         if p.name not in used:
             say("parameter-unused", f"parameter {p.name}: no equation uses it", p.where, f"parameter.{p.name}")
         elif p.value is None and not p.table and not p.estimate:

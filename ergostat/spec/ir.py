@@ -136,6 +136,7 @@ class Parameter:
     defined: Where | None = None       # the line its name is on
     value_at: Where | None = None      # the line its value is on (what an accepted estimate rewrites)
     duration: bool = False             # its value was written as a duration (40s): an estimate is written back as one
+    range: tuple[float, float] | None = None   # what it might be (low, high): sensitivity analysis samples it there
 
     @property
     def provenance(self) -> str:

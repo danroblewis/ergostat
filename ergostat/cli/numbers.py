@@ -85,7 +85,7 @@ def cmd_fit(args) -> int:
 
 def _show(x: dict) -> None:
     b, a = (x.get("fit_before") or {}).get("total") or {}, (x.get("fit_after") or {}).get("total") or {}
-    print(f"{c(x['id'], 'accent')}  {x['title']}")
+    print(f"{c(x['id'], 'accent')}  {x['title']}" + (c(f"  ({x['scope_words']})", "dim") if x.get("scope_words") else ""))
     print(f"  {x['reason']}")
     for r in x.get("touched", []):
         fb = (x.get("fit_before") or {}).get("stocks", {}).get(r) or (x.get("fit_before") or {}).get("equations", {}).get(r)
@@ -115,12 +115,25 @@ def cmd_proposals(args) -> int:
             return 2
         print(f"dismissed {x['id']}: {x['title']}")
         return 0
-    got = pr.pending(p, spec) if args.stored else pr.make(p, light_snap(p, args))
+    if getattr(args, "propose", None):
+        name, _, value = args.propose.partition("=")
+        try:
+            x = pr.propose_value(p, name.strip(), value.strip(), light_snap(p, args))
+        except pr.ProposalError as e:
+            print(e, file=sys.stderr)
+            return 2
+        if args.json:
+            return out_json(x)
+        _show(x)
+        print(c(f"\nergostat accept {x['id']} applies it", "dim"))
+        return 0
+    which = getattr(args, "calibrate", None) or "parts"
+    got = pr.pending(p, spec) if args.stored else pr.make(p, light_snap(p, args), which=which)
     if args.json:
         return out_json(got)
     if not got:
         from ..numbers import estimate as es
-        why = {n: e.get("refused") or e.get("why") for n, e in es.load(p, spec).items() if e.get("refused") or e.get("why")}
+        why = {n: e.get("refused") or e.get("why") for n, e in es.load(p, spec, which).items() if e.get("refused") or e.get("why")}
         print("no proposals: every parameter to estimate fits as written, or the record does not support a change "
               "(estimate: true marks a parameter to fit)")
         for n, w in sorted(why.items()):

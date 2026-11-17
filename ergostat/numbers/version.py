@@ -36,4 +36,7 @@ def structure(spec: Spec) -> str:
 def version(spec: Spec) -> str:
     numbers = {"parameters": {n: [p.value, p.table] for n, p in sorted(spec.parameters.items())},
                "rates": {n: f.rate for n, f in sorted(spec.flows.items()) if f.rate is not None}}
+    ranges = {n: list(p.range) for n, p in sorted(spec.parameters.items()) if p.range}
+    if ranges:                                          # only where written, so a model without one keeps its version
+        numbers["ranges"] = ranges
     return _hash([_structure(spec), numbers])
