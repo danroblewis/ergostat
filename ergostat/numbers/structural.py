@@ -224,6 +224,11 @@ def stock_without_outflow(c: Ctx, st) -> None:
     if len(lv) >= MIN_READINGS and came is not None:
         left = came - (lv[-1] - lv[0])
         mean = sum(lv) / len(lv)
+        if left < -0.05 * max(came, 1e-9):             # it rose by more than came in: an inflow is missing, not an outflow
+            c.not_made.append({"title": f"An outflow from {st.name}", "code": "stock-without-outflow",
+                               "why": f"it rose by {ye.number(lv[-1] - lv[0])} while its inflows brought {ye.number(came)}: an "
+                                      f"inflow is missing or mismeasured, so what leaves cannot be told"})
+            return
         if left <= 0.05 * max(came, 1e-9):             # nothing left it: a running total
             path, at = _name_at(st, st.name)
             c.add("a stock marked cumulative", "stock-without-outflow", ref, f"{st.name} marked cumulative: true", [ref],

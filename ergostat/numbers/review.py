@@ -271,7 +271,7 @@ def entry(x: dict, spec: Spec, others: list[dict] | None = None) -> dict:
     simulable = x.get("kind") in ("parameter", "equation", "structure") and "error" not in d
     return {"id": x["id"], "source": "control" if x.get("kind") in ("process", "tuning") else "numbers",
             "kind": x.get("kind"), "code": x.get("code"), "what": _what(x), "title": x.get("title"),
-            "where": {"parts": parts, "select": sel, "words": [_words(r) for r in parts],
+            "where": {"parts": parts, "select": sel, "words": [_words(r) for r in parts], "systems": _systems(spec, sel),
                       "new": x.get("new_parts") or [], "gone": x.get("gone_parts") or [], "files": d.get("files") or []},
             "why": _why(x, spec), "how": _how(x, spec), "benefit": _benefit(x), "reason": x.get("reason"),
             "diff": d, "conflicts": clash, "simulable": simulable,
@@ -280,6 +280,18 @@ def entry(x: dict, spec: Spec, others: list[dict] | None = None) -> dict:
                                                      "and margins on the loop's panel" if x.get("kind") in ("process", "tuning")
                                                      else d.get("error")),
             "created": x.get("created"), "status": x.get("status", "pending")}
+
+
+def _systems(spec: Spec, parts: list[str]) -> list[str]:
+    """The systems to open so the parts are drawn themselves, not inside a closed system: each holding one,
+    and the systems holding those."""
+    from ..correspond import system_of
+    out: list[str] = []
+    for r in parts:
+        s = system_of(spec, r)
+        if s:
+            out += [x for x in spec.chain(s) if x not in out]
+    return out
 
 
 def control_pending(p, spec: Spec) -> list[dict]:
@@ -411,19 +423,27 @@ def effect(p, spec: Spec, xs: list[dict], at: float | None = None, base_leverage
     points = max(2, round(CHART_POINTS * horizon / max(grid.until - grid.since, 1.0)))
     proj_b = sim.project(spec, data, run, horizon, sim.plan(spec), points=points)
     proj_a = sim.project(after, data_a, run_a, horizon, sim.plan(after), points=points) if run_a.valid else None
-    refs = _charted(after, taken, most) or _charted(spec, taken, most)
-    charts = []
+    refs = _charted(after, taken, 4 * most) or _charted(spec, taken, 4 * most)
+    charts, undrawn = [], []
     for r in refs:
         kind, _, name = r.partition(".")
         x = after.measured(kind).get(name) or spec.measured(kind).get(name)
-        charts.append({"ref": r, "name": name, "kind": kind, "unit": getattr(x, "unit", "") or "",
-                       "per": kind == "flow", "new": r in {n for t in taken for n in (t.get("new_parts") or [])},
-                       "gone": name not in after.measured(kind),
-                       "measured": _round(data.values.get(r) or data_a.values.get(r)),
-                       "before": _round(run.values.get(r)) if r in run.how else None,
-                       "after": _round(run_a.values.get(r)) if r in run_a.how else None,
-                       "proj_before": _round(proj_b.values.get(r)) if proj_b.values.get(r) else None,
-                       "proj_after": _round(proj_a.values.get(r)) if proj_a and proj_a.values.get(r) else None})
+        c = {"ref": r, "name": name, "kind": kind, "unit": getattr(x, "unit", "") or "",
+             "per": kind == "flow", "new": r in {n for t in taken for n in (t.get("new_parts") or [])},
+             "gone": name not in after.measured(kind),
+             "measured": _round(data.values.get(r) or data_a.values.get(r)),
+             "before": _round(run.values.get(r)) if r in run.how else None,
+             "after": _round(run_a.values.get(r)) if r in run_a.how else None,
+             "proj_before": _round(proj_b.values.get(r)) if proj_b.values.get(r) else None,
+             "proj_after": _round(proj_a.values.get(r)) if proj_a and proj_a.values.get(r) else None}
+        if not any(v is not None for k in ("measured", "before", "after") for v in (c[k] or [])):
+            undrawn.append(f"{_words(r)}{' (new)' if c['new'] else ''}: no record and nothing to start a replay from")
+            continue
+        if c["after"] == c["before"] and c["proj_after"] == c["proj_before"]:
+            c["same"] = True                               # the change leaves it as it was: one line, not two
+            c["after"] = c["proj_after"] = None
+        charts.append(c)
+    charts = sorted(charts, key=lambda c: c.get("same", False))[:most]
     flows = [r.split(".", 1)[1] for t in taken for r in (t.get("touched") or []) + (t.get("parts") or [])
              if r.startswith("flow.") and r.split(".", 1)[1] in after.flows]
     lev = []
@@ -433,7 +453,7 @@ def effect(p, spec: Spec, xs: list[dict], at: float | None = None, base_leverage
         except Exception:                                     # leverage is a help to reading, never a reason to fail
             lev = []
     return {**out, "times": [round(t, 3) for t in grid.times()], "ptimes": [round(t, 3) for t in proj_b.times],
-            "horizon": horizon, "charts": charts,
+            "horizon": horizon, "charts": charts, "undrawn": undrawn,
             "fit_before": fit_b, "fit_after": fit_a, "valid": run_a.valid, "invalid": run_a.invalid,
             "operational": operational(after, refs, proj_b, proj_a, grid.until, horizon) if proj_a else [],
             "leverage": lev}

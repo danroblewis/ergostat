@@ -424,11 +424,12 @@ async function pageFit(main) {
       const kinds = {};
       for (const x of q) kinds[x.what] = (kinds[x.what] || 0) + 1;
       qHead.replaceChildren("Changes to review", h("span", { class: "muted" }, q.length ? ` ${q.length} waiting` : ""));
-      qActions.replaceChildren(SNAP ? null : all, SNAP ? null : btn, SNAP ? null : pick,
+      qActions.replaceChildren(...[SNAP ? null : all, SNAP ? null : btn, SNAP ? null : pick,
         h("span", { class: "muted small" }, d.to_estimate.length
           ? `${d.to_estimate.length} parameter${d.to_estimate.length > 1 ? "s" : ""} to estimate${d.estimated_at ? `, last calibrated ${ago(d.estimated_at)}` : ", not calibrated yet"}`
           : "no parameter is marked estimate: true"),
-        d.loops < 1 ? null : h("span", { class: "muted small" }, d.loops_analysed < d.loops ? `loops analysed ${d.loops_analysed} of ${d.loops}` : ""), said);
+        d.loops_analysed < d.loops ? h("span", { class: "muted small" }, `loops analysed for proposals: ${d.loops_analysed} of ${d.loops}`) : null,
+        said].filter(Boolean));
       queueBox.replaceChildren(...(q.length ? q.map((x) => reviewEntry(x, { onDone: () => { propSig = null; allBox.replaceChildren(); setTimeout(tick, 600); } }))
         : [h("p", { class: "muted" }, "Nothing waiting.")]));
       whyBox.replaceChildren(...(why.length ? [h("h3", {}, "Estimates not proposed"),

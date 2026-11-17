@@ -10,10 +10,12 @@ const REVIEW_OPEN = new Set();                         // the entries opened, ke
 const PART_WORDS = { stock: "stock", flow: "flow", auxiliary: "auxiliary", goal: "goal", block: "block", system: "system" };
 
 /* the parts chosen, and the diagram opened on them: the dynamics view, with the block diagram beside it */
-function showOnDiagram(parts) {
+function showOnDiagram(parts, systems = []) {
   choose(parts);
   if (!PANE && typeof SPLIT === "object" && innerWidth >= SPLIT_NARROW && !SPLIT.open) { SPLIT.open = true; SPLIT.edge = "right"; SPLIT.frac = 0.5; }
-  location.hash = "#/diagram?view=dynamics";
+  const q = new URLSearchParams({ view: "dynamics", ...(systems.length ? { open: systems.join(",") } : {}) });
+  S.graphSig = "";
+  location.hash = `#/diagram?${q}`;
 }
 
 function partWords(refs, max = 6) {
@@ -49,19 +51,20 @@ function howText(hw) {
 function effectView(d, box) {
   if (d.error) return box.replaceChildren(h("p", { class: "s-open small" }, d.error));
   const group = chartGroup("review");
-  const charts = (d.charts || []).map((c, i, all) => lineChart({ group, name: c.name, role: c.new ? "new" : c.gone ? "removed" : PART_WORDS[c.kind],
+  const charts = (d.charts || []).map((c, i, all) => lineChart({ group, name: c.name, role: c.new ? "new" : c.gone ? "removed" : c.same ? "unchanged" : PART_WORDS[c.kind],
     unit: c.unit, per: c.per, times: d.times, values: c.measured?.length ? c.measured : d.times.map(() => null), since: d.since, until: d.until,
     replay: c.before, projection: c.proj_before, ptimes: d.ptimes, whatifReplay: c.after, whatifProjection: c.proj_after,
     height: 56, xAxis: i === all.length - 1 }));
   const fb = d.fit_before?.total, fa = d.fit_after?.total;
-  box.replaceChildren(
+  box.replaceChildren(...[
     charts.length ? h("div", { class: "review-charts" }, ...charts) : h("p", { class: "muted small" }, "Nothing it changes is replayed."),
     charts.length ? h("p", { class: "muted small" }, `Measured, solid; the model as it is, dashed; with the change, in blue; past now, the projections over ${dur(d.horizon || 0)}.`) : null,
     d.valid === false ? h("p", { class: "s-open small" }, `With it the replay is not valid: ${(d.invalid || []).join("; ")}.`) : null,
     dl([["fit, in total", fb || fa ? `scaled error ${nm(fb?.nmse)} → ${nm(fa?.nmse)}` : null],
         ["ahead", (d.operational || []).length ? h("div", {}, ...d.operational.map((x) => h("div", {}, x))) : null],
         ["leverage", (d.leverage || []).length ? h("div", {}, ...d.leverage.map((x) => h("div", {}, x))) : null],
-        ["left out", (d.left || []).length ? h("div", {}, ...d.left.map((x) => h("div", { class: "small" }, h("span", { class: "mono" }, x.id), ` ${x.why}`))) : null]]));
+        ["not drawn", (d.undrawn || []).length ? h("div", {}, ...d.undrawn.map((x) => h("div", { class: "small" }, x))) : null],
+        ["left out", (d.left || []).length ? h("div", {}, ...d.left.map((x) => h("div", { class: "small" }, h("span", { class: "mono" }, x.id), ` ${x.why}`))) : null]])].filter(Boolean));
 }
 
 function diffView(u) {
@@ -135,7 +138,7 @@ function reviewEntry(e, { onDone }) {
         ["how found", h("div", {}, ...howText(e.how))],
         ["benefit", benefitRows(e.benefit) ? h("div", {}, ...benefitRows(e.benefit)) : null],
         ["conflicts", e.conflicts.length ? h("div", {}, ...e.conflicts.map((c) => h("div", { class: "s-open small" }, `with ${c.id}: ${c.why}`))) : null]]),
-    h("div", { class: "actions" }, canShow ? h("button", { class: "ghost", onclick: () => showOnDiagram(where.select) }, "Show on diagram") : null, toggle,
+    h("div", { class: "actions" }, canShow ? h("button", { class: "ghost", onclick: () => showOnDiagram(where.select, where.systems || []) }, "Show on diagram") : null, toggle,
       h("span", { class: "muted small mono" }, e.id)),
     body);
 }
