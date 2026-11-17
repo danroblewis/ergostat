@@ -342,7 +342,7 @@ def test_ergostats_own_changes_are_judged_too(tmp_path):
     p, snap = long_queue(tmp_path, text=QUEUE + judge_block())
     x = pr.make(p, snap)[0]
     jd.run(p, "judge", at=time.time() + 3 * 3600)                                   # its record held out, three hours on
-    assert item(p, x["id"])["state"] in ("testing", "passed", "failed")
+    assert item(p, x["id"])["state"] in ("testing", "passed", "failed", "inconclusive")
 
 
 def test_a_passed_parameter_change_is_written_when_the_judge_says_auto(tmp_path):

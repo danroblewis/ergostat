@@ -279,3 +279,87 @@ def test_ergostats_own_finders_are_held_back_too_and_a_model_change_lets_them_go
     write(tmp_path, TWO.replace("    value: 1\n", "    value: 1.5\n", 1))           # the model changed: let go
     p.model = mdl.load(tmp_path)
     assert mem.held(p, p.model.spec, xs[0]["key"], now + 120) is None
+
+
+# ---- the judge sees what the change touches, waits long enough, and says when it cannot tell
+
+def judge_block(**policy) -> str:
+    return "blocks:\n  judge:\n    type: judge\n" + "".join(f"    {k}: {v}\n" for k, v in policy.items())
+
+
+def test_the_judge_scores_what_the_change_touches_where_the_whole_mean_would_dilute_it(tmp_path):
+    p = two_project(tmp_path, k_true=3.0, m_true=0.15, text=TWO + judge_block(**{"hold-out": "1h"}))   # backlog fits badly
+    got = im.submit(p, "improver", k_to(3), at=time.time() - 3 * 3600)
+    assert got["status"] == "proposed", got
+    out = jd.run(p, "judge")
+    x = pr.stored(p)[got["id"]]
+    assert out["passed"] == 1 and x["state"] == "passed", x.get("verdict")
+    ws = x["verdict"]["windows"]
+    assert all(w["scored"] == ["stock.queue"] for w in ws) and all(w["change"] > 0.5 for w in ws)
+    whole = [((w["before"] + w["rest_before"]) - (w["after"] + w["rest_after"])) / (w["before"] + w["rest_before"]) for w in ws]
+    assert min(whole) < max(w["change"] for w in ws) / 2       # the whole model's mean says far less
+    assert "near what it touches (stock.queue)" in x["verdict"]["why"] and "no worse elsewhere" in x["verdict"]["why"]
+
+
+def test_a_change_the_record_cannot_tell_is_inconclusive_not_failed_and_is_held_back(tmp_path):
+    p = two_project(tmp_path, text=TWO + judge_block(**{"hold-out": "10m"}))
+    now = time.time()
+    got = im.submit(p, "improver", k_to(2.0001), at=now - 5 * 3600)
+    assert got["status"] == "proposed", got
+    jd.run(p, "judge")
+    x = pr.stored(p)[got["id"]]
+    assert x["state"] == "inconclusive" and x["status"] == "inconclusive", x.get("verdict")
+    assert "needs more record" in x["verdict"]["why"] and not p.events.query(type="ergostat.model-change.failed")
+    again = im.submit(p, "improver", k_to(2.0002), run="again", at=now)
+    assert again["status"] == "not-proposed" and again["why"].startswith("held back:") and "inconclusive" in again["why"]
+
+
+def test_a_change_that_cannot_be_told_yet_is_kept_under_test_for_more_record(tmp_path):
+    p = two_project(tmp_path, text=TWO + judge_block(**{"hold-out": "10m"}))
+    got = im.submit(p, "improver", k_to(2.0001), at=time.time() - 3600)    # an hour held out: it needs up to three
+    out = jd.run(p, "judge")
+    x = pr.stored(p)[got["id"]]
+    assert x["state"] == "testing" and x["looked"] > 0 and out["waiting"][0]["needs"] > x["looked"]
+
+
+def test_a_simpler_change_no_worse_passes(tmp_path):
+    leak = ("  leak:\n    from: backlog\n    driven-by: +stock.backlog\n    equation: tiny * stock.backlog\n")
+    tiny = "  tiny:\n    value: 0\n    unit: 1/h\n"
+    text = TWO.replace("goals:", leak + "goals:").replace("stocks:\n", tiny + "stocks:\n", 1)
+    p = two_project(tmp_path, text=text + judge_block(**{"hold-out": "10m"}))
+    raw = {"kind": "structure", "parts": ["flow.leak"], "title": "remove leak",
+           "edit": [{"file": "ergostat.yaml", "replace": leak.rstrip("\n"), "with": ""},
+                    {"file": "ergostat.yaml", "replace": tiny.rstrip("\n"), "with": ""}],
+           "reasons": [{"says": "it moves nothing", "evidence": "fit:stock.backlog.r2"}]}
+    got = im.submit(p, "improver", raw, at=time.time() - 3 * 3600)
+    assert got["status"] == "proposed", got
+    jd.run(p, "judge")
+    x = pr.stored(p)[got["id"]]
+    assert x["state"] == "passed" and x["verdict"]["why"].startswith("simpler, and no worse"), x.get("verdict")
+    assert x["status"] == "pending"                             # the structure is the owner's to write
+
+
+def test_the_warm_up_is_bounded_by_the_record_and_the_time_constants_and_windows_by_the_time_constant(tmp_path):
+    p = two_project(tmp_path, minutes=120, text=TWO + judge_block())
+    spec = p.model.spec
+    x = {"parts": ["parameter.k"], "target": "parameter.k"}
+    since = time.time() - 3600                                  # an hour after the record starts
+    nd = jd.needs(p, spec, spec, x, since, 600.0, 6 * 3600.0)
+    assert nd["stocks"] == ["stock.queue"] and nd["goals"] == {"stock.queue": "short-queue"}
+    assert nd["tau"] == pytest.approx(1800, rel=0.2)            # the queue drains at k = 2 an hour
+    assert nd["warm_up"] <= min(nd["record_before"], jd.WARM_TAUS * nd["tau"]) + 1e-6 and nd["record_before"] <= 3601
+    assert nd["needs"] == pytest.approx(max(600.0, 2 * nd["tau"]))
+    assert jd.windows(0, 3600, (1, 2, 4), least=1000) == [(0, 3600), (0, 1800), (1800, 3600)]
+
+
+def test_the_verdict_rules_inconclusive_elsewhere_and_simpler():
+    def w(b, a, rb=None, ra=None):
+        return {"since": 0, "until": 600, "before": b, "after": a, "change": (b - a) / b, "scored": ["stock.q"],
+                "rest_before": rb, "rest_after": ra, "rest_change": None if rb is None else (rb - ra) / rb}
+    assert jd.decide([w(1, 1.0)] * 3, 0.02, 0, 0, 600, 600) is None                      # cannot tell yet: more record
+    v, why = jd.decide([w(1, 1.0)] * 3, 0.02, 0, 0, 1800, 600)
+    assert v == "inconclusive" and "needs more record" in why
+    assert jd.decide([w(1, 1.0)] * 3, 0.02, 0, 0, 600, 600, simpler=True)[0] == "kept"
+    v, why = jd.decide([w(1, 0.5, 1, 1.5)] * 3, 0.02, 0, 0, 600, 600)
+    assert v == "dropped" and why.startswith("worse elsewhere in 3 of 3") and "the rest of the model 50% worse" in why
+    assert jd.decide([], 0.02, 0, 0, 1800, 600)[0] == "inconclusive"                    # too little record: not failed

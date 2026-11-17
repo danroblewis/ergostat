@@ -45,7 +45,8 @@ EQUATION_R2 = 0.5        # an equation is proposed when it explains this much of
 OPEN = ("checked", "testing", "passed")                 # waiting: in the review queue
 STATUS = {"made": "made", "checked": "pending", "testing": "pending", "passed": "pending", "accepted": "accepted",
           "refused": "refused", "failed": "failed", "dismissed": "dismissed", "superseded": "superseded",
-          "verified": "accepted", "regressed": "accepted"}           # scored again after it was written (verify.py)
+          "verified": "accepted", "regressed": "accepted",           # scored again after it was written (verify.py)
+          "inconclusive": "inconclusive"}                              # the judge could not tell: it needs more record
 _FOLDED: dict = {}
 
 
@@ -112,7 +113,7 @@ def event(p, pid: str, state: str, data: dict | None = None, source: str = "ergo
     return p.events.add(f"{MODEL_CHANGE}.{state}", item=item_of(pid), source=source, causedby=causedby, data=data or {})
 
 
-DECIDED = {"accepted", "dismissed", "refused", "failed", "superseded"}
+DECIDED = {"accepted", "dismissed", "refused", "failed", "superseded", "inconclusive"}
 LOCAL = ("id", "status", "state")
 
 
