@@ -293,9 +293,8 @@ def compare(paths: list[Path]) -> int:
     rs = [json.loads(p.read_text()) for p in paths]
     print("columns: " + " | ".join(str(p) for p in paths))
     for demo in rs[0]["demos"]:
-        for i, run in enumerate(rs[0]["demos"][demo]["runs"]):
-            runs = [r["demos"].get(demo, {}).get("runs", [])[i] if i < len(r["demos"].get(demo, {}).get("runs", [])) else None
-                    for r in rs]
+        for run in rs[0]["demos"][demo]["runs"]:
+            runs = [next((x for x in r["demos"].get(demo, {}).get("runs", []) if x["days"] == run["days"]), None) for r in rs]
             print(f"\n## {demo}, {run['days']:g} days ({run['events']} events, {run['measurements']} readings written)")
 
             def row(name, f, runs=runs):
