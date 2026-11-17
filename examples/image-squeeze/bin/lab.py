@@ -352,8 +352,11 @@ def judge(goals: dict) -> dict | None:
     better = matched and (lo > 0.5 or ((looks_better or gains) and lo > -3))
     worse = [f"{k}: {v['saved']:+.0f}% bytes, {v['quality_change']:+.3f} SSIM" for k, v in (c.get("by_kind") or {}).items()
              if v.get("n", 0) >= 6 and (v["saved"] < -25 or v["quality_change"] < -0.02)]   # a guardrail on every kind
+    intent = intent_of(hid)                                  # the intent judge's verdict (intent.yaml), if it has one
     why = None
-    if bench.get("lost"):                                    # a regression on the benchmark: what it could do, it cannot
+    if intent and intent.get("verdict") in ("unmet", "contradicted") and not intent.get("overruled"):
+        why = f"not done as the owner meant ({intent['verdict']}, {intent.get('id')}): {intent.get('why', '')[:300]}"
+    elif bench.get("lost"):                                    # a regression on the benchmark: what it could do, it cannot
         why = f"loses benchmark cases production meets: {', '.join(bench['lost'])}"
     elif c.get("failures", 0) > allowed:
         why = f"failed on {c['failures']} images"
@@ -369,8 +372,14 @@ def judge(goals: dict) -> dict | None:
         why = f"no clear difference after {n} images ({lo:.1f}% to {hi:.1f}% saved)"
     result = {"bytes_saved": [lo, hi], "quality_offset": off, "paired": n, "by_kind": c.get("by_kind"),
               "benchmark": {k: v for k, v in bench.items() if k != "examples"}}
-    return {"r": r, "hid": hid, "offset": off, "n": n, "lo": lo, "hi": hi, "dq": dq, "bench": bench, "ps": ps, "cs": cs,
+    return {"r": r, "hid": hid, "judged": intent is not None, "offset": off, "n": n, "lo": lo, "hi": hi, "dq": dq, "bench": bench, "ps": ps, "cs": cs,
             "better": better, "looks_better": looks_better, "drop": why, "result": result}
+
+
+def intent_of(hid: str) -> dict | None:
+    """What the intent judge said of the hypothesis (its field ``intent``), or None before it has judged it."""
+    h = next((h for h in items("hypothesis", "testing") if h["id"] == hid), None)
+    return (h or {}).get("fields", {}).get("intent")
 
 
 def rollout(by: str, goals: dict) -> dict:
@@ -399,7 +408,8 @@ def rollout(by: str, goals: dict) -> dict:
         if j["better"] and not held:
             if stage + 1 < len(STAGES) and n >= (stage + 2) * PAIRS_PER_STAGE:
                 stage += 1                                   # better so far: give it more of the traffic
-            elif stage == len(STAGES) - 1 and n >= (len(STAGES) + 1) * PAIRS_PER_STAGE:
+            elif stage == len(STAGES) - 1 and n >= (len(STAGES) + 1) * PAIRS_PER_STAGE and j["judged"]:
+                # (kept only once the intent judge has given its verdict: done as meant, not only better)
                 bench, ps, cs = j["bench"], j["ps"], j["cs"]
                 why = (f"better looking (+{dq:.3f} SSIM) for {lo:.1f}% to {hi:.1f}% fewer bytes" if j["looks_better"]
                        else f"{lo:.1f}% to {hi:.1f}% fewer bytes at equal quality" if lo > 0.5

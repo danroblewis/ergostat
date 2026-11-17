@@ -10,6 +10,7 @@
 #   lab       the research: hypotheses proposed, built and tested one at a time (lab.yaml)
 #   modelling the model of all this, improved by a loop of its own (model.yaml)
 #             (and the owner's notes to it while it works, routed and delivered: messages.yaml)
+#   intent    finished work held to what the owner decided, before the rollout may keep it (intent.yaml)
 #
 # and the benchmark (benchmark.yaml): thirty fixed cases measured on every release, the count of
 # those squeeze meets a stock (capabilities), and how good it is on them a stock too (benchmark-points:
@@ -24,6 +25,7 @@ include:
   - benchmark.yaml
   - model.yaml
   - messages.yaml
+  - intent.yaml
 systems:
   service:
     description: squeeze, serving the images customers send

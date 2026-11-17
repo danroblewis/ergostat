@@ -429,7 +429,7 @@ class Compiler:
                              f"ergostat.trust.contradicted (or contradictions, verified, unchecked, claims), with @BLOCK, "
                              f"@rung:KIND or @model:MODEL when about one, or ergostat.messages.unrouted (or awaiting, "
                              f"received, routed, delivered, answered, missed, reached), or ergostat.intent.false-done (or "
-                             f"false-done-tests, accepted, reopened, judged, met, unmet, contradicted, unjudged, "
+                             f"false-done-tests, accepted, reopened, judged, met, unmet, contradicted, held, unjudged, "
                              f"overruled, cost), with @KIND when about one",
                              s.at("builtin"), "bad-measure")
                     measure = None

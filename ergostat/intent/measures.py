@@ -7,7 +7,8 @@
   state (its tests passed), the share found not done as meant, by the judge (held, not overruled) or by the owner
   after it was accepted;
 - ``accepted``, ``reopened`` (of the accepted, found by the owner): counts;
-- ``judged``, ``met``, ``unmet``, ``contradicted``, ``unjudged``, ``overruled``: the verdicts given; ``cost``: what the
+- ``judged``, ``met``, ``unmet``, ``contradicted``, ``unjudged``, ``overruled``: the verdicts given; ``held``: those
+  unmet or contradicted and not overruled (work held back); ``cost``: what the
   judge spent, in dollars.
 
 A sensor reads one (``builtin: ergostat.intent.false-done``) on a stock or an auxiliary, so a goal can hold it."""
@@ -51,6 +52,7 @@ def table(p, spec: Spec, since: float | None = None, now: float | None = None, k
                "judged": len(given), "cost": round(sum(float(v.get("cost_usd") or 0) for v in ws), 4)}
         for st in ("met", "unmet", "contradicted", "unjudged"):
             out[st] = sum(1 for v in given if v["verdict"] == st)
+        out["held"] = sum(1 for v in ws if v.get("verdict") in record.HELD and v["state"] != "overruled")
         out["overruled"] = sum(1 for v in ws if v["state"] == "overruled")
         out["missed"] = sum(1 for v in ws if v["state"] == "missed")
         return out

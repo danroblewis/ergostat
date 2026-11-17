@@ -493,7 +493,7 @@
             },
             {
               "type": "string",
-              "pattern": "^ergostat\\.intent\\.(false-done|false-done-tests|accepted|reopened|judged|met|unmet|contradicted|unjudged|overruled|cost)(@[A-Za-z0-9][A-Za-z0-9._/-]*)?$"
+              "pattern": "^ergostat\\.intent\\.(false-done|false-done-tests|accepted|reopened|judged|met|unmet|contradicted|held|unjudged|overruled|cost)(@[A-Za-z0-9][A-Za-z0-9._/-]*)?$"
             }
           ]
         }

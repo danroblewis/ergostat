@@ -135,7 +135,7 @@ VERDICT_STATES = ["asked", "met", "unmet", "contradicted", "unjudged", "overrule
 JUDGE_MODES = ("model", "intent")  # a judge block's judge: of changes to the model (SPEC §12e), or of work (§12i)
 INTENT_PORTS = ("judged", "met", "held")   # what an intent judge moved on a pass: judged, passed, held back
 INTENT = re.compile(r"^ergostat\.intent\.(false-done|false-done-tests|accepted|reopened|judged|met|unmet|contradicted|"
-                    r"unjudged|overruled|cost)(?:@([A-Za-z0-9][A-Za-z0-9._/-]*))?$")   # ergostat.intent.false-done@hypothesis
+                    r"held|unjudged|overruled|cost)(?:@([A-Za-z0-9][A-Za-z0-9._/-]*))?$")   # ergostat.intent.false-done@hypothesis
 INTENT_MEASURES = {                # how far finished work holds to what the owner meant (SPEC §12i); @KIND narrows them
     "ergostat.intent.false-done": "of the work accepted over the last week, the share the owner later reopened, followed "
                                   "up or corrected (0 while none is accepted); @KIND for one kind of item",
@@ -149,6 +149,7 @@ INTENT_MEASURES = {                # how far finished work holds to what the own
     "ergostat.intent.unmet": "verdicts that the work does not do what it was meant to (its done-when, the owner's words)",
     "ergostat.intent.contradicted": "verdicts that the work contradicts a confirmed decision, a correction or the owner's "
                                     "messages about it",
+    "ergostat.intent.held": "work held back: verdicts unmet or contradicted that the owner has not overruled",
     "ergostat.intent.unjudged": "work the judge could not hold to anything (nothing in scope), or whose verdict it could "
                                 "not support with evidence",
     "ergostat.intent.overruled": "verdicts the owner overruled (a false alarm, or a pass that was not)",
