@@ -814,7 +814,8 @@ def test_no_proposal_when_the_estimate_is_within_its_error_of_the_value_written(
 
 
 def test_an_estimate_at_its_bound_is_refused_as_a_question_of_structure():
-    e = {"value": 2000.0, "window": 7200, "slowest": 0.5, "at_bound": True, "identifiable": True, "se": 0.1, "logged": True}
+    e = {"value": 2000.0, "window": 7200, "slowest": 0.5, "at_bound": True, "identifiable": True, "se": 0.1, "logged": True,
+         "n": 96}
     assert "structure" in es.judged(e, 2.0)
     e |= {"at_bound": False, "identifiable": False}
     assert "does not tell it apart" in es.judged(e, 2.0)
@@ -925,3 +926,20 @@ def test_the_residuals_and_the_replay_count_on_one_basis(tmp_path):
     t0, v0 = data.started["stock.open-tickets"]
     assert r["explained"] == pytest.approx(run.state["open-tickets"] - v0, abs=1e-9)
     assert abs(r["unexplained"]) < 1e-9
+
+
+def test_no_proposal_from_fewer_points_than_a_proposal_needs_or_errors_that_run_together():
+    e = {"value": 3.0, "window": 7200, "slowest": 0.5, "at_bound": False, "identifiable": True, "se": 0.01, "logged": True,
+         "n": 24, "after": 0.5, "n_eff": 30}
+    assert "under the 40" in es.judged(e, 2.0)
+    e |= {"n": 96, "n_eff": 3, "rho": 0.9}
+    assert "independent" in es.judged(e, 2.0)                  # a systematic error left, and few independent points
+    e |= {"after": 1e-6}
+    assert es.judged(e, 2.0) is None                           # it fits exactly: what is left is not evidence against it
+
+
+def test_a_stock_that_only_integrates_is_judged_by_the_time_things_stay_in_it(tmp_path):
+    p, snap = tickets_project(tmp_path)
+    data = sim.measured(p, sim.Grid(snap["at"] - 3600, snap["at"], 120))
+    t = es.residence(p.model.spec, data, "open-tickets")
+    assert t is not None and 30 / 3600 < t < 600 / 3600         # tickets stay half a minute to ten minutes

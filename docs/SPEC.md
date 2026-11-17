@@ -1063,7 +1063,7 @@ starts afresh.
 Accept beside the part on the page): each a concrete change with its reason, the fit before and
 after, and the smallest edit to the YAML that makes it, made on the file's text so its comments and
 order stay. Two kinds so far. A **parameter** set to its estimate, only when the record supports it:
-it spans three of the slowest time constant the parameter touches, the estimate is not at its
+it is fitted on forty points or more spanning three of the slowest time constant the parameter touches (for a stock that only integrates, the time things stay in it, by Little's law), its errors hold at least ten independent points where the fit leaves a material error (n(1 − ρ)/(1 + ρ), ρ their lag-one autocorrelation), the estimate is not at its
 bound (one there is a question of structure), the record tells it apart, it is more than two
 standard errors and 2% from the value written, and it fits the record held out better; otherwise it
 is kept with why, shown beside the parameter and on the Fit page, and proposes nothing. Its reason

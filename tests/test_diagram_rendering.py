@@ -22,6 +22,7 @@ import contextlib
 import json
 import math
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -1493,7 +1494,8 @@ flows:
 
 
 def queued(tmp_path: Path, monkeypatch) -> Path:
-    """The queue model, and an hour of record as the world ran it with k = 3."""
+    """The queue model, and two hours of record as the world ran it with k = 3 (an hour is under three of
+    the queue's time constant, 30 minutes: too little to propose a value from)."""
     from ergostat import model as mdl
     from ergostat.store import Project
     d = tmp_path / "queue"
@@ -1502,10 +1504,10 @@ def queued(tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
     p = Project(mdl.load(d))
     now, q = time.time(), 0.0
-    for i in range(121):
+    for i in range(241):
         a = 10 + 5 * ((i // 20) % 2)
-        p.measurements.add("sensor/queue.main", q, at=now - 3600 + i * 30)
-        p.measurements.add("sensor/arrivals.main", a, at=now - 3600 + i * 30)
+        p.measurements.add("sensor/queue.main", q, at=now - 7200 + i * 30)
+        p.measurements.add("sensor/arrivals.main", a, at=now - 7200 + i * 30)
         for _ in range(30):
             q += (a - 3 * q) / 3600
     return d
@@ -1567,7 +1569,7 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         pg.locator("#detail .proposal button", has_text="Accept").click()
         pg.wait_for_function("() => /Accepted/.test(document.querySelector('#detail .proposal').textContent)", timeout=20000)
         text = (d / "ergostat.yaml").read_text()
-        assert "    value: 3." in text and "# what we believe" in text and "# the queue drains" in text, text
+        assert re.search(r"    value: (3|2\.99\d*|3\.0\d*) ", text) and "# what we believe" in text and "# the queue drains" in text, text
         pg.goto(url + "/#/fit")
         pg.wait_for_function("() => /accepted: k/.test(document.body.textContent)", timeout=20000)
         assert "No proposals waiting." in pg.locator(".page").inner_text()

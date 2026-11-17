@@ -12,8 +12,11 @@ negative), within a factor of a thousand of the value written; deterministic.
 
 How sure: the covariance of the estimates from the Jacobian of the weighted errors at the optimum
 (Gauss–Newton, Ljung ch. 9), widened for errors that run together in time (each series' lag-one
-autocorrelation), so each estimate has a standard error and parameters fitted together their
-correlation. The last fifth of the record is held out: fitted on the rest, the estimate must fit
+autocorrelation ρ), so each estimate has a standard error and parameters fitted together their
+correlation; and, where the fit leaves a material error, the record's effective size, n(1 − ρ)/(1 + ρ)
+independent points, which must reach ``fit.MIN_POINTS``. A value is proposed only from ``PROPOSE``
+points or more, over three of the slowest time constant it touches (for a stock that only
+integrates, the time things stay in it: Little's law). The last fifth of the record is held out: fitted on the rest, the estimate must fit
 it better too.
 
 An estimate is data: kept in the state directory under the model's structure (version.py), never
@@ -38,6 +41,8 @@ SPAN = math.log(1000.0)      # how far an estimate may move from the value writt
 HOLD_OUT = 0.2               # the last share of the record kept out of the fit, to test the estimate on
 FLOOR = 0.01                 # a series' spread is at least this share of its mean, for its weight
 CHANGED = 0.02               # an estimate moving a value by less than this share is not worth a change to the model
+PROPOSE = 40                 # points fitted, at least, before a value is proposed
+MATERIAL = 0.01              # a weighted error left past this (a tenth of the spread) is systematic enough to count ρ
 
 
 def nelder_mead(f, x0: list[float], scale: list[float], iterations: int = ITERATIONS, tol: float = 1e-9) -> tuple[list[float], float]:
@@ -234,7 +239,8 @@ def covariance(prob: Problem, best: dict[str, float], logged: list[bool]) -> dic
     se = [math.sqrt(max(cov[i][i], 0.0)) for i in range(p)]
     corr = {names[i]: {names[j]: (cov[i][j] / (se[i] * se[j]) if se[i] and se[j] else None) for j in range(p) if j != i}
             for i in range(p)}
-    return {"identifiable": True, "se": dict(zip(names, se, strict=True)), "corr": corr, "rho": rho, "n": n, "unseen": unseen}
+    return {"identifiable": True, "se": dict(zip(names, se, strict=True)), "corr": corr, "rho": rho, "n": n, "unseen": unseen,
+            "n_eff": n * (1 - rho) / (1 + rho)}
 
 
 def solve(prob: Problem, start: dict[str, float]) -> tuple[dict[str, float], float, float, dict]:
@@ -273,9 +279,25 @@ def load(p, spec: Spec) -> dict:
         return {}
 
 
-def slowest(spec: Spec, run: sim.Run, owners: set[str], stocks: set[str]) -> float | None:
-    """The slowest time constant (hours) the replay met in what a parameter touches."""
+def residence(spec: Spec, data: ob.Data, stock: str) -> float | None:
+    """How long things stay in a stock (hours), by Little's law: its mean level over its mean outflow,
+    as measured. The time scale of a stock that only integrates, and has no time constant of its own."""
+    level = [v for v in data.values.get(f"stock.{stock}") or [] if v is not None]
+    outs = [f"flow.{f.name}" for f in spec.flows_of(stock) if f.source == stock]
+    rates = [sum(x for x in vals if x is not None) / max(1, sum(1 for x in vals if x is not None))
+             for vals in (data.values.get(r) or [] for r in outs) if any(x is not None for x in vals)]
+    out = sum(rates)
+    if not level or out <= 0:
+        return None
+    return (sum(level) / len(level)) / out
+
+
+def slowest(spec: Spec, run: sim.Run, owners: set[str], stocks: set[str], data: ob.Data | None = None) -> float | None:
+    """The slowest time constant (hours) the replay met in what a parameter touches, or, for a stock
+    with none, how long things stay in it."""
     got = [run.time_constants[r] for r in (*owners, *(f"stock.{s}" for s in stocks)) if r in run.time_constants]
+    if data is not None:
+        got += [t for s in stocks if f"stock.{s}" not in run.time_constants and (t := residence(spec, data, s))]
     return max(got) if got else None
 
 
@@ -294,7 +316,7 @@ def estimate(p, snap: dict | None = None, n: int | None = None) -> dict:
     cut = max(1, int(round(data.grid.n * (1 - HOLD_OUT))))
     for group in _groups(spec, names):
         prob = Problem(spec, data, group, cut=cut)
-        tc = slowest(spec, base, prob.owners, prob.stocks)
+        tc = slowest(spec, base, prob.owners, prob.stocks, data)
         common = {"when": now, "window": span, "n": prob.n(), "slowest": tc, "with": [], "fitted_to": [r for r, _ in prob.targets()]}
         if prob.n() < ft.MIN_POINTS:
             for nm in group:
@@ -311,6 +333,7 @@ def estimate(p, snap: dict | None = None, n: int | None = None) -> dict:
                        "se": se, "logged": sure["logged"][nm], "corr": (sure.get("corr") or {}).get(nm, {}),
                        "identifiable": sure.get("identifiable", False) and nm not in (sure.get("unseen") or []),
                        "unseen": nm in (sure.get("unseen") or []), "at_bound": nm in sure["at_bound"],
+                       "n_eff": sure.get("n_eff"), "rho": sure.get("rho"),
                        "weights": prob.spread, "evaluations": prob.evaluations}
     f = path(p, ver.structure(spec))
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -327,6 +350,11 @@ def judged(e: dict, declared: float | None) -> str | None:
     if e.get("slowest") and e["window"] < ft.COVER * e["slowest"] * 3600:
         return (f"the record spans {dur(e['window'])}, under {ft.COVER:g} of the slowest time constant it touches "
                 f"({dur(e['slowest'] * 3600)}): too little to say")
+    if e["n"] < PROPOSE:
+        return f"{e['n']} points fitted, under the {PROPOSE} a proposal needs: too little record to say"
+    if e.get("n_eff") is not None and e["n_eff"] < ft.MIN_POINTS and e.get("after", 0) > MATERIAL:
+        return (f"its errors run together (lag-one autocorrelation {e.get('rho', 0):.2f}), so its {e['n']} points hold about "
+                f"{e['n_eff']:.0f} independent ones, under {ft.MIN_POINTS}: too little record to say")
     if e.get("at_bound"):
         return ("it ran to its bound (a thousand times from the value written): no value of it fits, a question of "
                 "structure, not of size")
