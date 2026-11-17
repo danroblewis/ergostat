@@ -26,7 +26,15 @@ items:
       session.lost: lost
     show: [role, model, cost_usd, turns, seconds, transcript]
     formats:
-      transcript: claude-session           # its page shows the conversation, live while it runs
+      transcript: claude-session           # its page shows the conversation, live while it runs; ergostat records
+                                           # each line as an event about it (claude.message, claude.tool-use, ...)
+    fold:                                  # ... which fold it into its conversation: what was said, the tools it called
+      messages: append                     # and what came back, appended in order; the tokens summed. cost_usd, turns
+      tool_calls: append                   # and seconds stay as session.ran states them: once, for the whole run
+      tool_results: append
+      thinking: append
+      tokens_in: sum
+      tokens_out: sum
 
 stocks:
   ai-spend:
