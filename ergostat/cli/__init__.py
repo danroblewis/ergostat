@@ -10,6 +10,7 @@ import sys
 from .. import __version__
 from ..durations import DurationError
 from .agents import cmd_agent
+from .claims import cmd_claims
 from .common import PART_TOPICS
 from .numbers import cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_proposals
 from .parts import cmd_part
@@ -39,6 +40,8 @@ what is wrong, or missing
   residual       What the model can't explain
   fit            How well the model's replay fits the record: R², MAPE, Theil's U_M, U_S, U_C
   proposals      Changes to review (values, equations, structure, loops): --show ID, accept ID, --dismiss ID
+  claims         What blocks said they did, checked against the record: verified, contradicted, unchecked;
+                 trust by block, rung and model (--check: check those left unchecked)
   judge          Judge the candidate changes blocks proposed for the model; measure: the model's own measures
 
 see it
@@ -56,7 +59,8 @@ run it
   reset          Forget this project's record and start from nothing (--yes)
   verify         Score the changes written to the model again on the record since (--propose)
   bench          How we know it works: bench improve, judge, meta; bench parity (fresh sessions vs a long one)
-  help blocks    How to write a sensor's and a block's program (also: help ai-agents, help spec, help model-tools)
+  help blocks    How to write a sensor's and a block's program (also: help ai-agents, help spec, help model-tools,
+                 help claims)
 
 flags
   -C DIR             Run as if in DIR
@@ -125,6 +129,10 @@ def build() -> argparse.ArgumentParser:
     dv.add_argument("--url", help="discover prometheus: the Prometheus to read")
     dv.add_argument("--match", metavar="REGEX", help="discover prometheus: only metric names matching this")
     topic("explain", cmd_explain, "The model, or one part (goal.x, stock.x, auxiliary.x, ...), in sentences, and its feedback loops")
+    cl = topic("claims", cmd_claims, "What blocks said they did (claim lines), checked against the record; trust by "
+                                    "block, rung and model")
+    cl.add_argument("--check", action="store_true", help="check the claims made and left unchecked (ergostat stopped "
+                                                         "between a run and its checks)")
     topic("findings", cmd_findings, "What is worth a look: missing feedback, limits ahead, saturation, decay", named=False)
     bk = topic("block", cmd_block, "The blocks (YAML model), or one; a person reports on theirs")
     bk.add_argument("--done", type=float, metavar="N", help="a person's report: what they moved")

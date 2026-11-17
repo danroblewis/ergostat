@@ -2,6 +2,7 @@
 taking the block's word. The case from this project's history first: tests piped through ``tail`` hide their
 failing exit code, the run exits 0, and the block claims they pass. Running the declared test command catches it."""
 
+import json
 import os
 import subprocess
 import sys
@@ -288,3 +289,36 @@ claims:
     assert c["kind"] == "lint" and c["state"] == "contradicted"
     (tmp_path / "dirty").unlink()
     assert checks.check(p, p.model.spec, {**c, "id": c["id"]})["state"] == "verified"
+
+
+def test_the_cli_the_mcp_tool_and_the_page_show_the_verdicts_and_trust(tmp_path, capsys):
+    from urllib.parse import quote
+
+    from ergostat.cli import main
+    from ergostat.mcp import Server
+    from ergostat.web.server import Live, api
+    cmd = write_block(tmp_path, "w.sh", "echo '{\"claim\": {\"says\": \"finished job/9\", \"about\": \"job/9\", "
+                                        "\"check\": {\"state\": \"done\"}}}'\n"
+                                        "echo '{\"claim\": {\"says\": \"the command succeeded\"}}'\necho 1\n")
+    p = project(tmp_path, f"w:\n  type: program\n  run: {cmd}\n  every: 1h\n  out: flow.done\n", ITEMS)
+    bad, good = run(p, "w")
+    assert main(["-C", str(tmp_path), "claims"]) == 0
+    out = capsys.readouterr().out
+    assert "developer" not in out and "w" in out and "50%" in out and "finished job/9" in out
+    assert main(["-C", str(tmp_path), "claims", bad["id"].split("/")[1]]) == 0
+    assert "job/9" in capsys.readouterr().out
+    got = json.loads(Server(tmp_path).call("trust", {})["content"][0]["text"])
+    assert got["all"]["contradicted"] == 1 and got["all"]["verified"] == 1
+    t = api(Live(p), "trust", {})
+    assert next(r for r in t["rows"] if r["who"] == "w")["contradicted_share"] == 0.5
+    d = api(Live(p), "items/" + quote(bad["id"], safe=""), {})
+    assert d["state"] == "contradicted" and "job/9" in d["fields"]["why"]
+
+
+def test_claims_left_unchecked_are_checked_again(tmp_path):
+    p = project(tmp_path, "w:\n  type: program\n  run: echo 1\n  every: 1h\n  out: flow.done\n", ITEMS)
+    c = record.made(p, p.model.spec, "w", {"says": "finished job/1", "about": "job/1", "check": {"state": "done"}})
+    assert [x["id"] for x in checks.pending(p, p.model.spec)] == [c["id"]]
+    p.events.add("job.finished", item="job/1", source="w")
+    [done] = checks.check_all(p, p.model.spec, checks.pending(p, p.model.spec))
+    assert done["state"] == "verified" and not checks.pending(p, p.model.spec)

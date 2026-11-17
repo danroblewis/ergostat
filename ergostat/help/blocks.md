@@ -80,6 +80,13 @@ Any block may also propose a change to the model, one line each:
 (compiles, checks, replays and refits it; every reason needs evidence it can check) and puts it in the review
 queue as the block's candidate, or says why not (`ergostat improve`). `ergostat help spec`, section 12e.
 
+And any block may say what it did, one line each: `{"claim": {"says": "tests pass", "about": "ticket/12"}}`
+(`about`: an item, `stock.x`, a file, a commit; optional `check`: `tests`, `changed`, `state`, `exit`, `level`).
+ergostat checks each claim itself after the run (it runs the project's declared test command, reads git, folds
+the item, reads the exit code or the part's reading) and records it as verified, contradicted or unchecked
+(`ergostat claims`; Items → `ergostat.claim`). A contradicted claim is a finding against the block, and lowers its
+trust (`ergostat.trust.contradicted@BLOCK`). `ergostat help spec`, section 12g.
+
 Everything else it prints goes to its log. `ERGOSTAT_COMMAND` holds the amount too, for a shell
 one-liner (`find tmp -mmin +60 -delete -print | head -n "$ERGOSTAT_COMMAND" | wc -l`).
 `ERGOSTAT_CMD` runs this ergostat on this project, so a block (or the AI agent it starts) can read

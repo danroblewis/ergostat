@@ -307,6 +307,10 @@ changes and how many there were, all with `history=all`). An item can be read as
 time (`--at`, the pages' time travel): its fields, its state and its history are folded from
 the events up to then.
 
+**Built-in kinds.** Two kinds are ergostat's own, present in every project and never declared (a project's
+kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every change to the model (section 12e),
+and `ergostat.claim`, what a block said it did, checked (section 12g).
+
 **States.** An item arrives in its kind's first state (a move from nowhere, so a flow can count
 arrivals with `entering:`), and stays there until an event its kind maps moves it; every move is
 kept (from, to, when, by which event), so how long it spent in each state is known. An item no
@@ -789,6 +793,7 @@ output:
 {"out": "block.writer", "command": {"amount": 3, "item": "install.md"}}
 {"decision": "12 waiting: process them", "why": "over the goal by 12"}
 {"propose": {"kind": "parameter", "parts": ["parameter.k"], "edit": {...}, "reasons": [...], "confidence": 0.6}}
+{"claim": {"says": "tests pass", "about": "hypothesis/3"}}
 ```
 
 ergostat records what was **commanded** and what was **moved**: the gap is the direct evidence of
@@ -879,7 +884,9 @@ directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_COMMAND` (the am
 (`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
 block, or the AI agent it starts, to read and record items while it works. An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
 with its prompt, the JSON above, and how to answer. Any block, whatever its type, may also propose a change to
-the model, `{"propose": {...}}` (section 12e); `agent.ran` counts what it proposed and what was not taken.
+the model, `{"propose": {...}}` (section 12e); `agent.ran` counts what it proposed and what was not taken. And any
+block may say what it did, `{"claim": {"says": "tests pass", "about": ...}}`: ergostat checks it after the run,
+against the record and the world, never taking the block's word (section 12g).
 
 ### 9.4 Roles
 
@@ -1712,6 +1719,125 @@ accepted).
 
 They are built-in measures like the model's own of section 12e (`MODEL_MEASURES`): read by a sensor
 (`builtin: ergostat.model.accepted-per-day`), or printed by `ergostat measure`.
+
+## 12g. Claims and trust
+
+A block's report is a sensor too, and only as good as its honesty: a run that says "tests pass" while a pipe hid
+their failing exit code degrades every loop that reads it. So what a block says it did is a **claim**, and
+ergostat checks it, by itself, after the run: against the record (what ran, what moved, what state an item is in)
+and the world (the tests run again, the repository read). A contradicted claim is a finding against the block that
+made it, and how far each block's claims hold is a measure a goal can read: its **trust**.
+
+### The claim line
+
+Any block, whatever its type, may print:
+
+```json
+{"claim": {"says": "tests pass", "about": "hypothesis/3"}}
+{"claim": {"says": "submitted hypothesis/3", "about": "hypothesis/3", "check": {"state": "testing"}}}
+{"claim": {"says": "changed squeeze.py", "about": {"file": "run/product/squeeze.py"}}}
+{"claim": {"says": "the queue is down to 3", "about": "stock.queue", "check": {"level": "<= 3"}}}
+```
+
+| Key | Meaning |
+|---|---|
+| `says` | What was done, in words (required, at most 500 characters) |
+| `about` | What it is about: an item (`hypothesis/3`, or `{"item": ...}`), a part (`stock.x`, `{"part": ...}`), a file in the project (`{"file": ...}`), a commit (`{"commit": SHA, "repo": DIR}`), a folder (`{"dir": ...}`), a run (`{"run": EVENT}`) or a test suite (`{"suite": ...}`). Text is read as an item id a kind matches, a part, a commit's hash or an existing file, in that order; `file:`, `commit:` and the other keys may lead it |
+| `check` | Optional: which check judges it, by name (`tests`, `changed`, `state`, `exit`, `level`, or one `claims:` declares), or a map naming it and what it needs (`{"state": "done"}`, `{"level": ">= 3"}`, `{"exit": 0}`). A command given here (`run`) is never run: a claim is checked by the model's checks, not its own |
+| `session`, `model` | Who made it, where the block cannot say: the session item the claim came from, the AI model behind it. A model the block or its agent declares is used before the one the claim names |
+| `evidence` | The block's own evidence: kept beside the claim, never trusted in place of a check |
+
+A line with nothing in `says`, or an `about` ergostat cannot read, is refused like any bad line (`agent.refused`).
+
+### The checks
+
+After a run ends (`agent.ran` or `agent.failed` recorded), each claim it made is checked in turn. Without `check`,
+the claim's words choose: a claim that tests pass (or fail) is `tests`; one about an item that names a state of
+its kind is `state`; "changed", "edited", "wrote", "fixed" ... about a file, a part or a commit is `changed`;
+"succeeded" or "exited 0" is `exit`; one whose words a declared check's `says` matches is that check.
+
+| Check | Verified when | Evidence |
+|---|---|---|
+| `tests` | The project's test command (`claims: {tests: {run}}`), run by ergostat, exits 0 (or, for a claim that they fail, does not). It runs where the claim says: in a folder it names, or on a copy of a commit (the one it names, or the one its item names in a `commit` or `branch` field), exported from the repository `in:` names into a scratch folder, so nothing is checked out; else in `in:`. With no test command declared, the latest test run in the record decides (`tests.ran` with its `exit`, `tests.passed`, `tests.failed`, about the claim's item when there is one) | The command, where it ran (the commit), its exit code, its time, the last 1,500 characters it printed |
+| `changed` | A file: git shows it changed (uncommitted, or in a commit since the run began, or in the commit the claim names); outside git, it was written since the run began. A part: a change written to the model (`ergostat.model.changed`) since the run began touches it. A commit alone: it exists | What git said, the commits |
+| `state` | The item, folded, is in the state claimed, or moved into it since the run began | Its state now, its last moves |
+| `exit` | The run (or the run `about` names) recorded that exit code (0 by default) | The run's event, its exit code and note |
+| `level` | The part's latest reading is within the level claimed | The reading, its time, its series |
+| one `claims:` declares | Its command, run as `tests`' is, exits 0 | As `tests` |
+
+A claim no check knows, a check that cannot run (no test command, no reading, a folder outside the project, a
+command that does not finish within its timeout) or one that breaks is **unchecked**, with why: recorded, and never
+trusted. Checking takes as long as its commands: the block is not run again until its claims are checked.
+
+**The pattern this exists for**, tested (`tests/test_claims.py`): a block runs `pytest | tail -n 3`, which exits
+0 whatever pytest did, and claims the tests pass. Its run's exit code is 0, so `exit` is fooled; `tests` runs the
+declared command itself, which exits 1, and the claim is contradicted with pytest's own output as the evidence.
+
+### Checks the project declares
+
+```yaml
+claims:
+  tests:                                # what checks "tests pass": the project's test command
+    run: '"$ERGOSTAT_ROOT/bin/py" test_squeeze.py'
+    in: run/product                     # where it runs, and the repository a claim's commit comes from
+    timeout: 3m
+  lint:                                 # a kind of claim of the project's own
+    says: "lint (is )?clean"            # the claims it judges, by what they say (or check: lint)
+    run: ruff check .
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `run` | command | required | Run by ergostat with the shell; exit 0: what was claimed holds. Its environment carries `ERGOSTAT_ROOT` (the model's folder), `ERGOSTAT_STATE_DIR` and `ERGOSTAT_CLAIM` (the claim's id) |
+| `in` | folder | `.` | Where it runs, from the model's folder (never outside it), and the git repository a claim's commit is exported from |
+| `says` | pattern | none | A regular expression over what a claim says (case aside) that makes it this kind |
+| `timeout` | duration | `10m` | Past it, the claim is unchecked |
+| `description` | | | |
+
+`tests` is the one name a built-in check reads; the other built-in names (`changed`, `state`, `exit`, `level`)
+may not be declared.
+
+### Every claim is an item
+
+`ergostat.claim` is a built-in item kind (section 5a). Its id is `ergostat.claim/<short hash>`; every step is an
+event about it, and the item, folded from them, is the claim:
+
+| State | Reached by | Source |
+|---|---|---|
+| made | `ergostat.claim.made`: the claim as said, caused by the run | the block |
+| verified | `.verified`: with its evidence | ergostat |
+| contradicted | `.contradicted`: with its evidence | ergostat |
+| unchecked | `.unchecked`: with why no check could judge it | ergostat |
+
+Its fields: `says`, `about`, `check` (as given), `kind` (the check that judges it), who made it (`block`, `rung`,
+`model`, `session`, `run`), `made`, and from the verdict `verdict`, `why`, `evidence` and `seconds`; each is
+replaced, so its history keeps every verdict it was given (`ergostat claims --check` checks again what was left
+made, when ergostat stopped between a run and its checks). Items → `ergostat.claim` lists them, with a **Trust**
+table under them; a claim's page shows its verdict and evidence first. `ergostat claims` prints the trust table and
+the latest contradicted claims, `ergostat claims ID` one claim with its evidence, and the MCP tool `trust` the same.
+Item sensors count claims like any items (`items: ergostat.claim, state: contradicted`).
+
+### Trust, as a measure
+
+| Reference | What it is, over the last week |
+|---|---|
+| `ergostat.trust.contradicted` | Of the claims checked (verified or contradicted), the share contradicted; 0 while none is |
+| `ergostat.trust.contradictions` | Claims contradicted |
+| `ergostat.trust.verified` | Claims verified |
+| `ergostat.trust.unchecked` | Claims no check could judge |
+| `ergostat.trust.claims` | Claims made |
+
+Each is about every block, or, with `@WHO`, one: `@developer` (a block), `@rung:ai` (every block on that rung: its
+agent's kind, else its type's), `@model:haiku` (every claim made by that model). *Decided:* a parameterised
+reference (`ergostat.trust.contradicted@developer`) rather than a measure per block, so a block added later needs
+no new name. They are built-in measures like the model's own (section 12e): read by a sensor, `builtin:
+ergostat.trust.contradicted@developer`, on a stock or an auxiliary, so a goal holds it through that part
+(`examples/image-squeeze/lab.yaml`: `developer-honest`, `<= 0.1`); `ergostat measure trust.contradicted@developer`
+prints one, and `ergostat measure` all of them for every block.
+
+**A contradicted claim is a finding** (`contradicted-claim`, about `block.NAME`: how many in the window, the
+latest's words and why; `ergostat findings`, the status, the MCP `findings`), and needs attention: the page's and
+`ergostat`'s list says it against the block's agent, as bad.
 
 ## 13. Examples
 

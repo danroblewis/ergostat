@@ -175,7 +175,8 @@ def tests(p, spec: Spec, c: dict, params: dict) -> tuple[str, dict, str]:
     if decl is not None:
         ev = run_check(p, spec, decl.run, c.get("about") or {}, decl.in_, decl.timeout, c["id"])
         ok = ev["exit"] == 0
-        said = f"the declared test command ({decl.run}) exited {ev['exit']}" + (f" at {ev['commit'][:10]}" if ev.get("commit") else "")
+        said = (f"the tests exited {ev['exit']}" + (f" at {ev['commit'][:10]}" if ev.get("commit") else "") +
+                f", run by ergostat ({decl.run})")
         return ("verified" if ok == wants else "contradicted"), ev, said
     item = (c.get("about") or {}).get("item")
     got = (p.events.query(n=1, type=TEST_EVENTS, item=item) if item else []) or p.events.query(n=1, type=TEST_EVENTS)

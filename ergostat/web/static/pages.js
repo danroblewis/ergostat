@@ -237,6 +237,35 @@ function conversation(text) {
   return out;
 }
 
+/* claims (SPEC §12g): what blocks said they did, checked by ergostat. Under the ergostat.claim table, how far each
+   block's (each rung's, each model's) claims held; on a claim's own page, its verdict and the evidence first */
+const CLAIM_KIND = "ergostat.claim";
+function trustView(t) {
+  const rows = t.rows.map((r) => h("tr", {}, h("td", { class: "muted" }, r.by), h("td", {}, h("b", {}, r.name)),
+    h("td", { class: "num" }, String(r.claims)), h("td", { class: "num" }, String(r.verified)),
+    h("td", { class: `num${r.contradicted ? " s-off" : ""}` }, String(r.contradicted)), h("td", { class: "num" }, String(r.unchecked)),
+    h("td", { class: "num" }, pct(r.contradicted_share))));
+  return h("div", { class: "trust" },
+    h("h3", {}, "Trust", h("span", { class: "muted" }, ` over the last ${dur(t.until - t.since)}: how far each block's claims held when ergostat checked them`)),
+    rows.length ? table(["by", "who", ["claims", "num"], ["verified", "num"], ["contradicted", "num"], ["unchecked", "num"], ["share contradicted", "num"]], rows, "fit compact")
+      : h("p", { class: "muted" }, "No claims in this window."),
+    h("p", { class: "note" }, "Unchecked claims are recorded, not trusted. A goal can hold these: a sensor reads ",
+      h("code", {}, "builtin: ergostat.trust.contradicted@BLOCK"), " (or @rung:KIND, @model:MODEL)."));
+}
+function claimView(d) {
+  const f = d.fields, ev = f.evidence || {};
+  const cls = d.state === "contradicted" ? "s-off" : d.state === "unchecked" ? "s-open" : "";
+  const rest = Object.entries(ev).filter(([k]) => k !== "output");
+  const about = f.about && Object.keys(f.about).length ? Object.entries(f.about).map(([k, v]) => (k === "item" ? itemLink(v) : `${k} ${v}`)) : null;
+  return h("div", { class: "claim" },
+    h("p", {}, h("b", {}, `\u201c${f.says}\u201d`), about ? [" about ", ...about] : null, h("span", { class: "muted" },
+      ` said by ${f.block}${f.rung ? ` (${f.rung}${f.model ? `, ${f.model}` : ""})` : ""}`), f.session ? [h("span", { class: "muted" }, " in "), itemLink(f.session)] : null),
+    h("p", {}, h("span", { class: cls || "status" }, d.state === "made" ? "not checked yet" : d.state),
+      f.kind ? h("span", { class: "muted" }, ` by the ${f.kind} check`) : null, f.why ? `: ${f.why}` : ""),
+    rest.length ? dl(rest.map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : String(v)])) : null,
+    ev.output ? h("pre", { class: "plain" }, ev.output) : null);
+}
+
 function stateWord(st) { return st ? h("span", {}, st) : h("span", { class: "muted" }, "–"); }
 
 async function pageItems(main, q) {
@@ -301,6 +330,10 @@ async function pageItems(main, q) {
       const limit = kind ? 300 : 25;
       parts.push(h("h2", {}, name || "No kind", h("span", { class: "muted" }, ` ${its.length}`)));
       parts.push(tableOf(its, show, limit));
+      if (name === CLAIM_KIND) {                          // how far each block's claims held
+        const t = await api("trust").catch(() => null);
+        if (t) parts.push(keep("trust", JSON.stringify([t.rows, Math.round(t.until - t.since)]), () => trustView(t)));
+      }
       const fl = flows[name];                              // under its table: how long its finished items took
       if (fl) parts.push(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group)));
       if (its.length > limit) parts.push(h("p", { class: "note" }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `All ${its.length}`)));
@@ -369,7 +402,8 @@ async function pageItem(main, id) {
         h("td", { class: "nowrap" }, eventLink(r.event, r.type, d)), h("td", { class: "muted" }, r.form), h("td", {}, r.why))), "refused")] : [];
     const said = d.transcript_events ? h("p", { class: "note" }, `${d.transcript_events} more events are its transcript's lines (claude.*), folded into its fields above; `,
       recordLinkItem(id), ".") : null;
-    body.replaceChildren(head, track || "", h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+    const verdict = k?.name === CLAIM_KIND ? [h("h2", {}, "Verdict"), claimView(d)] : [];
+    body.replaceChildren(head, track || "", ...verdict, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said || "", eventsTable(d.record, true));
   }
   await tick();
