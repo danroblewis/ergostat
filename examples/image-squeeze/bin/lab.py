@@ -247,9 +247,17 @@ def abandon(hid: str, why: str, by: str) -> None:
 def tune(ctx: dict) -> float:
     """Integral control: production's quality setting (a stock) is stepped by the quality error each
     time, so it settles where the measured quality meets the setpoint whatever the mix (no steady
-    error). Returns the step."""
+    error): q ← q + gain × e, the gain as ergostat.yaml writes it (``params``). In a step test the
+    owner approved, it moves the setting by exactly the step it is given, and decides nothing.
+    Returns the step."""
     s = load(RUN / "settings.json", {"quality": 80})
     q = was = float(s.get("quality", 80))
+    if ctx.get("trigger") == "step-test":
+        q = round(max(5.0, min(95.0, q + float((ctx.get("command") or {}).get("amount") or 0))), 1)
+        s["quality"] = q
+        save(RUN / "settings.json", s)
+        return round(q - was, 3)
+    gain = float((ctx.get("params") or {}).get("gain", 350))
     g = (ctx.get("goals") or {}).get("quality-held") or {}
     y = g.get("value")
     if y is None or not g.get("hold"):
@@ -257,7 +265,7 @@ def tune(ctx: dict) -> float:
     r = float(str(g["hold"]).split()[-1])                    # the setpoint, as ergostat.yaml's goal says ("== 0.93")
     e = r - float(y)                                         # e = r − y: positive when it looks too poor
     if abs(e) > 0.004:                                       # a dead band: hold steady inside the tolerance
-        q = round(max(5.0, min(95.0, q + 350 * e)), 1)
+        q = round(max(5.0, min(95.0, q + gain * e)), 1)
     s["quality"] = q
     save(RUN / "settings.json", s)
     return round(q - was, 3)

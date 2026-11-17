@@ -620,6 +620,7 @@ goals:
 | `tolerance` | number | 0 | Hysteresis for the status: off past the setpoint by more than this; holding again only back within the setpoint (for `==`, within half of it) |
 | `critical` | bool | false | It guards against a cascade or an accumulating failure: watched for decay |
 | `owner` | string | none | Who answers for it |
+| `process` | map | none | The loop's process, from what its controller moves (u) to what the goal holds (y), as control engineering writes it: `gain` (y per u), `time-constant` and `dead-time` (durations): P(s) = K e^(−θs)/(τs + 1); or `integrating: true`, `gain` per hour and `dead-time`: P(s) = k e^(−θs)/s. `identified:` says it was accepted from an identification (when, how, on how much record); without it, it is declared (section 12c) |
 | `system`, `description` | | | |
 
 A goal exists whether or not anything serves it. A goal nothing serves is **missing feedback**.
@@ -729,7 +730,16 @@ More (filters, rate of change, latches) can be added when a case needs them.
 Common to machine blocks: `agent` (optional: the shared machine it runs on, section 10), `max`
 and `min` (limits on one run's amount), `timeout`, `every`/`cron` (its schedule when nothing commands it; when something does, `every`
 is the least time between runs),
-`mode` (`auto`, or `advise`: its commands wait for a person to approve).
+`mode` (`auto`, or `advise`: its commands wait for a person to approve), and its control law's
+constants when it says them: `gain` (for a block that steps a setting by its goal's error, the step
+per unit of error, u ← u + gain × e: integral action, C(z) = gain/(z − 1)) and `integral-time` (with
+`gain`, a PI law in velocity form). They are given to it in its input as `params`, so the program
+reads them from the model rather than holding its own copy, and a tuning accepted (section 12c)
+reaches it at its next run.
+
+**A step test.** A block run for a step test the owner approved (section 12c) is given
+`"trigger": "step-test"` and `"command": {"amount": Δ, "test": ID}`: it moves its flow by exactly Δ
+and decides nothing else. A block that cannot is not offered one.
 
 **A machine block may name its goal.** `goal: inbox-short` (and optionally `until:`) on a
 `program`, `ai` or `person` block means "run while this goal is off, until it is back to `until`
@@ -1078,6 +1088,73 @@ warning that a regression there is biased (Ljung ch. 13). Nothing is applied by 
 applies the edit, refuses it (and puts the file back) if `check` would then find an error, and
 records `model.accepted` with the change, the versions before and after, and the fit of each on the
 same record; a dismissed proposal is not made again for that structure.
+
+## 12c. Control: identification, analysis, monitoring and tuning
+
+The control view's numbers (`ergostat/control/`), for each loop whose controller moves one thing: a
+**setting** it steps (a stock moved by a two-way flow its block sets, SPEC §12) or a **valve** (a flow
+it sets). That is u; what its goal holds is y. A loop that closes the long way through queues has no
+one process, and says so; a valve that drains or fills the goal's stock directly is an integrator
+known from the model, and only its dead time is not.
+
+**Identification** (`ident.py`; Ljung, *System Identification*, ch. 4, 7, 16): the process from u to
+y as first order with dead time, K e^(−θs)/(τs + 1), or an integrator with dead time, k e^(−θs)/s
+(when it follows the record held out better), fitted as an output-error model: driven by the
+measured u alone from the state the record starts in, never one step ahead. The measured inputs
+beside the path (an input from outside the model, a stock that also drives y) are fitted with it,
+each its own gain through the same lag. The record is the reference window's, in buckets of half
+y's sensor period; the gains are linear for each (τ, θ), which are searched (a grid, then
+Nelder–Mead). The last fifth is held out; for a step test, the step up is fitted and the step back
+held out. Said of it: the fit on each part, 100(1 − ‖y − ŷ‖/‖y − ȳ‖); the standard errors of K, τ and
+θ (Gauss–Newton, widened for errors that run together); the **whiteness** of the errors held out
+(Ljung–Box against χ² at 95%) and their **independence** from u (cross-correlation within
+±1.96/√n); and, identified from the loop working, that it is closed loop, where the estimate leans
+toward the controller's inverse (Ljung ch. 13). It is proposed (written into the goal's `process:`)
+only with u stepped three times or more in the part fitted (or a step test), forty readings fitted
+spanning five of τ + θ, half or more of the record held out followed, and K, τ and θ each told apart
+(a standard error under half of it); otherwise it says why.
+
+**Analysis** (`lti.py`): with the process (the model's, else the one identified, said as such) and
+the controller as its block writes it (integral action u ← u + gain × e every T, C(z) = gain/(z − 1);
+PI with `integral-time`; through its sampler and hold), the process's step response, the closed
+loop's step response to a unit step of r (overshoot, settling into 2%, rise), the Bode plot (|P|, or
+the loop L = CP and the closed loop T = L/(1 + L), and their phase) and the **stability margins**:
+gain margin, phase margin, delay margin and Ms, the peak of the sensitivity.
+
+**Performance monitoring** (`monitor.py`; Desborough and Harris 1992, Thornhill et al. 2003): the
+**Harris index**, the variance a minimum-variance controller would leave given the dead time over
+the loop's own (an autoregression of the error at the controller's period; it needs θ); whether
+the error **oscillates** (regular zero crossings: mean period over three times its spread past 1,
+four periods or more, past the tolerance), with its period and amplitude; the share of time u was
+at a limit; and, each time the loop went off and came back to stay, how long it took to **settle**,
+and for a level held (==) how far it **overshot** to the other side. Shown under the scope, and in a
+word on the Loops page.
+
+**Tuning** (`tuning.py`; Skogestad's SIMC, 2003): for a controller whose law its block writes and the
+process the model holds: PI, Kc = τ/(K(τc + θ)), τI = min(τ, 4(τc + θ)); on an integrator, Kc =
+1/(k(τc + θ)), τI = 4(τc + θ); integral action only, K_I = 1/(K(τc + θ + τ)), the lag taken as delay,
+gain = K_I T; τc = θ (the rules' own "tight" default), a block run every T adding T/2 to θ. It is
+offered with its margins and closed-loop step beside the controller's own, when it moves the gain by
+more than a fifth and settles the loop; never on a process not yet in the model.
+
+**Step test** (`steptest.py`): when the record does not identify the process of a loop whose setting
+its own controller steps by this loop's error alone, ergostat offers a test: the size of the step
+(enough to move y past twice its tolerance and four times its jitter, as the record's best guess of
+K says, and no more than the setting is used to moving), how long each way is held (five of τ + θ,
+ten controller periods, forty readings, within 2 to 30 minutes), when it stops early (the error past
+a bound), and the blocks held still: the loop's own, and those that move the inputs beside the path
+(not the world). Only once the owner approves it (and while ergostat runs) does `ergostat run` hold
+those blocks, step, wait, step back, wait, and give the loop back, recording each move
+(`steptest.approved`, `.started`, `.stepped`, `.finished`).
+
+**Proposals.** Each is worked out afresh when the loop is looked at; Accept applies what the page was
+shown (the goal's `process:`, a block's `gain:`, made on the file's text so its comments stay, and
+refused, with the file put back, if `check` would then find an error), recorded as `model.accepted`;
+Approve records a step test's approval; a dismissed one is not offered again until what it depends
+on in the model changes. Shown where the loop is: the process block's panel in the blocks view (the
+identification, its step response and Bode plot, the process and step-test proposals), the
+controller's panel (its law with that process, margins, closed-loop step and Bode, the tuning), the
+scope (performance), and a loop's panel on the Loops page (all of it).
 
 ## 13. Examples
 

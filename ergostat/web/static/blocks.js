@@ -32,7 +32,7 @@ function bdSize(n) {
   const fn = n.fn || {};
   const sideN = Math.max(n.ins.length, n.outs.length);
   let w = Math.max(84, bdSymW(fn) + 28), hgt = 46;
-  const frac = bdFrac(fn.expr);
+  const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
   if (fn.name) {                                       // a nonlinear block: its name, its kind, a sketch of it
     w = Math.max(w, bdTextW(fn.name) + 28 + (fn.sketch ? 40 : 0));
     hgt = 46;
@@ -586,7 +586,7 @@ function bdNode(n, c) {
       // its name only: who fills it (a program, an AI agent, a person) and how often is the side panel's
       g.append(s("text", { x: sk + (w - sk) / 2, y: hgt / 2 + 4, class: "bd-name", "text-anchor": "middle" }, fn.name));
     } else {
-      const frac = bdFrac(fn.expr);
+      const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
       const top = frac ? hgt / 2 - 12 : fn.expr ? hgt / 2 - 2 : hgt / 2 + 5;
       bdSym(g, w / 2, top, fn);
       if (frac) {
@@ -866,6 +866,10 @@ function openBlock(n) {
   if (n.says) kids.push(h("p", { class: "what" }, rich(op(n.says))));
   if (defs.length) kids.push(h("h3", {}, fn.linear === false || fn.name ? "What it computes" : "Its function"), ...defs);
   if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, typeof v === "string" ? rich(op(v)) : v])));
+  // the loop it is the process of, identified (control.js); a controller's law with that process, and its tuning
+  if (n.role === "process") for (const l of n.y_of || []) kids.push(controlBox(l, "process"));
+  if (n.role === "controller" && n.id?.startsWith("blk:")) for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x]))
+    kids.push(controlBox(l, "controller", { block: n.id.slice(4) }));
   const loops = n.loops || [];
   if (loops.length) kids.push(h("h3", {}, `In the loop${loops.length > 1 ? "s" : ""} of`),
     h("p", {}, ...loops.flatMap((l, i) => [i ? ", " : "", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(l); } }, l)])));

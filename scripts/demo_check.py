@@ -137,6 +137,10 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
         url = st["web"]
         for path in ("status", "graph", "graph?view=wiring", "loops", "agents", "events", "items", "residuals", "parts"):
             get(f"{url}/api/{path}")
+        if spec is not None:                                     # each loop as a control engineer reads it
+            from urllib.parse import quote
+            for g in spec.goals:
+                get(f"{url}/api/loop-control?goal={quote(g)}")
         problems += page_errors(url, shots / demo.name if shots else None)
         problems += snapshot_errors(demo)
     finally:

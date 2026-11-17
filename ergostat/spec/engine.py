@@ -74,6 +74,8 @@ class Engine:
         self.cause: dict[str, str] = {}
         self.last_run: dict[str, str] = {}
         self.read_cause: dict[str, str] = {}
+        self.testing: dict[str, dict] = {}             # block → the step it moves in an approved step test
+        self.held: set[str] = set()                    # blocks held still while a step test runs
 
     # ---- signals
 
@@ -244,6 +246,8 @@ class Engine:
         with self.lock:
             if b.name in self.running or self.stop.is_set():   # stopping: nothing new starts
                 return
+            if b.name in self.held:                             # a step test holds the loop still: its controller waits
+                return
             self.running.add(b.name)
             self.began[b.name] = time.time()
         threading.Thread(target=self._run, args=(b, why), daemon=True).start()
@@ -299,6 +303,13 @@ class Engine:
                            "status": self.status.get(name, "unknown")}
         out = {"block": b.name, "type": b.type, "trigger": why, "inputs": inputs, "goals": goals,
                "outputs": {p: [str(r) for r in rs] for p, rs in b.outputs.items()}}
+        law = {k: b.params[k] for k in ("gain", "integral-time") if b.params.get(k) is not None}
+        if law:
+            out["params"] = law                                   # its control law's constants, as the model writes them
+        test = self.testing.get(b.name)
+        if why == "step-test" and test:                           # a step test the owner approved: move exactly this
+            out["command"] = {"amount": test["amount"], "test": test["id"], "from": "step-test"}
+            return out
         if cmd is not None:
             out["command"] = {**{k: v for k, v in detail.items() if k != "amount"}, "amount": amount}
             if amount != cmd:
@@ -463,12 +474,17 @@ class Engine:
         """Approvals of advised commands, from the CLI."""
         while not self.stop.is_set():
             try:
-                new = self.p.events.query(n=None, after_seq=seq, type="block.approved")
+                new = sorted(self.p.events.query(n=None, after_seq=seq, type="block.approved") +
+                             self.p.events.query(n=None, after_seq=seq, type="steptest.approved"), key=lambda e: e["seq"])
             except Exception:
                 self.stop.wait(1)
                 continue
             for e in new:
                 seq = max(seq, e["seq"])
+                if e["type"] == "steptest.approved":
+                    from ..control import steptest
+                    steptest.begin(self, e)
+                    continue
                 b = self.spec.blocks.get(e.get("item") or "")
                 if b and b.machine:
                     cmd, _ = self.command_of(b)
@@ -496,6 +512,8 @@ class Engine:
         seq = self.p.events.last_seq()
         self.p.events.add("ergostat.started", source=SOURCE,
                           data={"blocks": sorted(self.spec.blocks), "pid": os.getpid(), "format": "yaml"})
+        from ..control import steptest
+        steptest.resume(self)                                   # a test approved just before, or cut off by a stop
         threading.Thread(target=self._schedule, daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop

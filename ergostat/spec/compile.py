@@ -38,7 +38,8 @@ ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative"}
 LINK_KEYS = {"cause", "instant", "description"}      # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation"}
-GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner"}
+GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner", "process"}
+PROCESS_KEYS = {"gain", "time-constant", "dead-time", "integrating", "identified", "description"}
 AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous", "equation"}
 PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table"}
 DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
@@ -47,10 +48,11 @@ AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role"}
 MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode"}
+LAW_KEYS = {"gain", "integral-time"}                 # a machine block's control law, when it says it (passed in its params)
 TYPE_KEYS = {
-    "program": MACHINE_COMMON | {"run", "parse", "goal", "until"},
-    "ai": MACHINE_COMMON | {"prompt", "model", "run", "parse", "goal", "until"},
-    "person": MACHINE_COMMON | {"ask", "goal", "until"},
+    "program": MACHINE_COMMON | LAW_KEYS | {"run", "parse", "goal", "until"},
+    "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until"},
+    "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until"},
     "external": {"agent"},
     "onoff": {"goal", "until", "min-on", "min-off"},
     "compare": {"above", "below", "back-above", "back-below"},
@@ -574,9 +576,10 @@ class Compiler:
             tol = self.number(m, "tolerance", what) or 0.0
             if tol < 0:
                 self.err(f"{what}.tolerance: 0 or more", m.at("tolerance"), "bad-number")
+            process = self.process(m, what) if m.get("process") is not None else None
             if of and hold:
                 spec.goals[name] = Goal(name, of, hold, tol, bool(m.get("critical")), self.text(m, "owner"),
-                                        self.system("goals", name, m), self.text(m, "description"), m.where)
+                                        self.system("goals", name, m), self.text(m, "description"), m.where, process)
         for name, m, what in self.named("agents"):
             self.keys(m, AGENT_KEYS, what)
             kind = m.get("kind")
@@ -781,6 +784,33 @@ class Compiler:
         near = difflib.get_close_matches(name, list(among), n=1)
         return f" (did you mean {near[0]}?)" if near else ""
 
+    def process(self, m: Map, what: str) -> dict | None:
+        """A goal's ``process:``: the loop's process, from what its controller moves to what the goal
+        holds, first order with dead time (or an integrator), declared or accepted from an
+        identification (``identified:``)."""
+        pm = m.get("process")
+        w = f"{what}.process"
+        if not isinstance(pm, dict):
+            self.err(f"{w}: a map (gain:, time-constant:, dead-time:)", m.at("process"), "bad-process")
+            return None
+        self.keys(pm, PROCESS_KEYS, w)
+        gain = self.number(pm, "gain", w)
+        integrating = bool(pm.get("integrating"))
+        tau = self.duration(pm, "time-constant", w) if pm.get("time-constant") is not None else None
+        raw = pm.get("dead-time")
+        theta = 0.0 if raw in (None, 0, "0", "0s") else self.duration(pm, "dead-time", w, 0.0)
+        if gain is None:
+            self.err(f"{w}: needs gain:", pm.at("gain") if hasattr(pm, "at") else m.at("process"), "missing-key")
+            return None
+        if integrating and tau is not None:
+            self.err(f"{w}: an integrator has no time-constant:", pm.at("time-constant"), "bad-process")
+        if not integrating and tau is None:
+            self.err(f"{w}: needs time-constant: (or integrating: true)", m.at("process"), "missing-key")
+            return None
+        return {"form": "integrating" if integrating else "fopdt", "gain": gain, "tau": tau, "theta": theta,
+                "identified": self.text(pm, "identified"), "description": self.text(pm, "description"),
+                "where": pm.where if hasattr(pm, "where") else None}
+
     def block(self, name: str, m: Map, what: str) -> Block | None:
         t = m.get("type")
         if t not in TYPE_KEYS:
@@ -823,6 +853,8 @@ class Compiler:
         for k in ("gain", "above", "below", "back-above", "back-below", "rate"):
             if m.get(k) is not None:
                 self.number(m, k, what)
+        if t in MACHINE and m.get("integral-time") is not None:
+            params["integral-time"] = self.duration(m, "integral-time", what)
         for k in ("min-on", "min-off", "delay", "after", "reset", "for"):
             if m.get(k) is not None:
                 params[k] = self.duration(m, k, what)

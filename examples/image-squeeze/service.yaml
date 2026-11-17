@@ -170,4 +170,5 @@ blocks:
     run: bin/py bin/lab.py tune
     in: goal.quality-held.error
     every: 16s                             # two batches of fresh images between moves
+    gain: 350                              # q per unit of error, each step: u ← u + 350 e (its program reads it)
     out: flow.quality-steps

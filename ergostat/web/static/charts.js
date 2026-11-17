@@ -280,7 +280,7 @@ function loopScope(goal, { numbers = true } = {}) {
                     ["saturated", nb.saturated != null ? `${Math.round(nb.saturated * 100)}% of ${u.openings ? "its openings" : "the time"}` : null],
                     ["last decision", nb.last_decision ? `${ago(nb.last_decision.time)}: ${nb.last_decision.decision ?? "–"}` : null]]) : null);
   }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
-  return box;
+  return h("div", {}, box, controlBox(goal, "scope"));  // and how it is doing, as a control engineer reads it (control.js)
 }
 /* a knob's limit, as its chart's dashed level */
 function limitsLevel(u) {
