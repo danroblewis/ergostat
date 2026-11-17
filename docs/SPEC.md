@@ -1131,6 +1131,45 @@ longer offered, and refused if accepted. A third kind is the owner's own: a **wh
 proposal (section 12c), every value tried together in one, with its fit before and after, accepted
 like the others; an accepted one is never overwritten (asking again makes another).
 
+**Structural proposals** (`ergostat/numbers/structural.py`), looked for when the model changes and
+every ten minutes: a change to what moves what, each the YAML edit that makes it. From `check`'s
+findings with a concrete fix: *rate-driven-by-rate*, a stock between the two rates (the first fills it,
+the second drains it and follows it; where both already join stocks, the stock gets two flows of its
+own); *stock-without-outflow*, an outflow to a cloud, first-order in the stock with its time things
+stay by Little's law (its mean level over what left an hour, the record's inflows less its rise), or,
+when nothing left it, `cumulative: true`; *units-mismatch*, the converting auxiliary; *equation-sign*,
+the equation's sign on the link (or none, where it changes sign); *extreme-conditions*, `MAX(0, …)` on
+a one-way flow that runs backwards and `ZIDZ` on a division that faults; *auxiliary-without-causes*,
+`exogenous: true`. From the estimators: a coefficient indistinguishable from 0 (within two standard
+errors) whose largest effect either way is under a tenth of its part's size is taken out with its
+link; a declared sign that a least-squares fit of a flow on its causes (R² ≥ 0.5) contradicts is
+flipped. From SD Lab's simplify rules (its SPEC §4.8, as tested there): a measured flow that moved
+under a thousandth of the typical flow on average and a hundredth at its peak, or an equation-only flow
+whose removal leaves the scaled error within 2%, removed; two flows between the same two stocks merged;
+a stock empty (under 0.5) at 95% of its readings with one flow in from a stock and one out to a stock
+joined through; a stock that never changes, is nearly always empty, moves exactly like another
+(correlation past 0.999, scale within 5%) or that nothing touches, removed (SD Lab hides it; ergostat
+has no `hide:`, so the proposal removes it and makes its flows' ends there clouds). A stock a goal
+holds, and what a goal or block names, is left alone. Each edit is applied in memory and the model
+compiled from it: one that would leave an error, or not answer its finding, is not proposed, and is
+listed with why. *Not yet*: a missing stock, flow or delay, or a part replaced, found from the pattern
+in the residuals (the residual-pattern structure finder, `structural.from_residuals`).
+
+**The review queue** (`ergostat/numbers/review.py`; the Fit page; `ergostat proposals`, `--show ID`):
+every proposal waiting, the loops' process and gain proposals (§12d) with them, each read like a pull
+request: **what** kind of change, **where** (its parts, and the systems holding them: Show on diagram
+chooses them and opens the dynamics view with the block diagram beside it), **why** (the evidence in
+words), **how found** (the method, its span of record, its points and how sure it is), its **effect**
+(each affected part's record, the model's replay and projection as it is and with the change, simulated
+with the edit applied in memory, `numbers/trial.py`), its **benefit** (the fit before and after; what
+changes ahead: a projected value, a time to a limit, a goal projected held or off; and the **leverage**
+of the flows it touches, SD Lab's §4.9: each flow a tenth faster in turn, projected to the horizon, ranked
+by how far it moves the goals), its **conflicts** with others waiting (the same lines, parameter or
+equation) and the unified **diff** Accept writes. Accept carries the diff's hash and is refused if the
+files would now be written otherwise; Dismiss takes an optional reason, kept with it and in
+`model.dismissed`. **Simulate all pending** applies every change together in memory, in order, a
+conflicting one left out and said, and shows their combined effect.
+
 ## 12c. Using the model: what-if, sensitivity, extreme conditions, loop dominance
 
 The tools system dynamics uses once a model fits (Sterman ch. 21; Vensim's SyntheSim and sensitivity

@@ -222,7 +222,11 @@ sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-S
 token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
 page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and wiring views; the side panel:
 attention, loops or cycles, model changes, legend), Loops, Agents (one list, by rung), Items (the
-record folded by id, by kind and state), Record (events, with runs hidden by default), Fit (over the
+record folded by id, by kind and state), Record (events, with runs hidden by default), Fit (first the
+review queue: every change waiting, read like a pull request, each with what kind of change it is, where
+(Show on diagram chooses its parts and opens both views), why, how it was found, its benefit, its effect
+simulated in memory and the exact diff Accept writes; Simulate all pending; what ergostat can and cannot
+propose yet; then, over the
 last day of record, whatever the window: the model fit, the stocks its equations move, with the
 total; each equation with its inputs as measured and replayed; accounting, the stocks moved only by
 measured flows; each with R², MAPE, Theil's U_M, U_S, U_C and what a large error says, or "too
