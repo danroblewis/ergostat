@@ -34,6 +34,7 @@ from .legacy import sensor_name, valve_name
 
 TICK = 1.0
 JUDGE_EVERY = 30.0          # a judge with no every: passes this often
+SWEEP = 5.0                 # how often the owner's messages are swept: left received, or about work since finished
 SOURCE = "ergostat"
 AI_COMMAND = os.environ.get("ERGOSTAT_AI", "claude -p")
 AI_FOOTER = """
@@ -49,6 +50,8 @@ the JSON below. Answer with JSON lines only, one per output, for example:
              path:LINE | URL | rule:NAME"}], "confidence": 0.6}}     a change to the model (SPEC §12e)
 {"claim": {"says": "tests pass", "about": "<an item id, stock.<name>, a file, a commit>",
            "check": "tests | changed | state | exit | level"}}   what you did, said plainly: ergostat checks it (SPEC §12g)
+{"answer": {"message": "ergostat.message/<id>", "says": "..."}}   your answer to a message the owner sent (SPEC §12h)
+Messages the owner sent about this work while it waited are in the JSON under "messages": take them into it.
 """
 
 
@@ -83,6 +86,8 @@ class Engine:
         self.testing: dict[str, dict] = {}             # block → the step it moves in an approved step test
         self.held: set[str] = set()                    # blocks held still while a step test runs
         self.moved_by: dict[str, dict[str, float]] = {}  # block → what its last run said it moved, by flow
+        self._sweeping = threading.Lock()
+        self.routes: dict[str, list[dict]] = {}       # block → the route lines its runs printed (a classifier, SPEC §12h)
 
     # ---- signals
 
@@ -342,10 +347,10 @@ class Engine:
             cmd += f" --model {model}"
         return cmd, prompt + AI_FOOTER + payload
 
-    def run_block(self, b: Block, why: str) -> list[str]:
-        """One run: give it its inputs and command, record what it says. Returns the flows it moved."""
-        ctx = self.context(b, why)
-        cmd, stdin = self.program(b, ctx)
+    def run_block(self, b: Block, why: str, extra: dict | None = None) -> list[str]:
+        """One run: give it its inputs and command, record what it says. Returns the flows it moved. ``extra``: more
+        for its input (a classifier's message and candidates)."""
+        ctx = {**self.context(b, why), **(extra or {})}
         ev = self.p.events
         commander = (ctx.get("command") or {}).get("from")          # caused by the decision or run that commanded it
         begun = ev.add("agent.started", item=b.name, source=SOURCE, causedby=self.cause.get(commander) if commander else None,
@@ -353,6 +358,16 @@ class Engine:
         self.last_run[b.name] = begun["id"]
         if "command" in ctx:
             ev.add("block.commanded", item=b.name, source=SOURCE, causedby=begun["id"], data=ctx["command"])
+        if why != "message":                                     # the owner's messages that waited for it (SPEC §12h)
+            try:
+                from ..messages import deliver
+                msgs = deliver.for_context(self.p, self.spec, b, begun["id"])
+            except Exception as e:                               # a message never stops a run
+                self.say(f"{b.name}: messages: {type(e).__name__}: {e}")
+                msgs = []
+            if msgs:
+                ctx["messages"] = msgs
+        cmd, stdin = self.program(b, ctx)
         started = time.time()
         env = {**os.environ, "ERGOSTAT_BLOCK": b.name, "ERGOSTAT_AGENT": b.name, "ERGOSTAT_RUN": begun["id"],
                "ERGOSTAT_PROJECT": self.spec.name, "ERGOSTAT_STATE_DIR": str(self.p.dir),
@@ -452,6 +467,15 @@ class Engine:
             def observe(seen, refused):
                 from ..store import ChangesetError
                 for o in seen:
+                    if "message" in o:                       # the owner's words, relayed by a sensor (SPEC §12h)
+                        from ..messages import route
+                        m = o["message"]
+                        try:
+                            route.send(self.p, self.spec, m.get("text"), by=str(m.get("by") or "owner"),
+                                       about=m.get("about"), via=f"sensor {name}")
+                        except Exception as err:
+                            refused.append(f"message: {err}")
+                        continue
                     try:
                         self.p.events.add(o["type"], item=o["item"], source=name, data=o["data"], patch=o.get("patch"),
                                           set=o.get("set"))
@@ -490,7 +514,7 @@ class Engine:
             if b.cron and not self.spec.commanders_of(b.name):
                 crons[f"block/{b.name}"] = (Cron(b.cron), lambda b=b: self.start(b, "schedule"))
         nxt = {k: c.next_after(time.time()) for k, (c, _) in crons.items()}
-        last_eval = 0.0
+        last_eval = last_sweep = 0.0
         while not self.stop.is_set():
             mono = time.monotonic()
             for s in timed:
@@ -515,6 +539,9 @@ class Engine:
                     c, fire = crons[k]
                     nxt[k] = c.next_after(wall)
                     fire()
+            if mono - last_sweep >= SWEEP:                       # the owner's messages: routed, finished work followed up
+                last_sweep = mono
+                threading.Thread(target=self._sweep, daemon=True).start()
             if mono - last_eval >= TICK:                         # the clock moves schedules, timers, delays
                 last_eval = mono
                 try:
@@ -522,6 +549,16 @@ class Engine:
                 except Exception as e:
                     self.say(f"evaluating: {type(e).__name__}: {e}")
             self.stop.wait(0.2)
+
+    def _sweep(self) -> None:
+        if self._sweeping.locked():
+            return
+        with self._sweeping:
+            try:
+                from ..messages import deliver
+                deliver.sweep(self.p, self.spec)
+            except Exception as e:
+                self.say(f"messages: {type(e).__name__}: {e}")
 
     def _follow(self, seq: int) -> None:
         """Approvals of advised commands, from the CLI."""
@@ -681,6 +718,30 @@ class Said:
                 return
             self.counts["claims"] = self.counts.get("claims", 0) + 1
             return
+        if "route" in obj:                            # a classifier's answer: where a message goes (SPEC §12h)
+            r = obj["route"]
+            if not isinstance(r, dict) or not isinstance(r.get("message"), str) or not isinstance(r.get("to", []), list):
+                self.refuse(obj, "a route line: {\"route\": {\"message\": ID, \"to\": [item ids, block.NAME], \"why\": ...}}")
+                return
+            self.e.routes.setdefault(self.b.name, []).append(r)
+            self.counts["routes"] = self.counts.get("routes", 0) + 1
+            flows = [t for t in self.b.targets() if t.kind == "flow"]
+            if len(flows) == 1 and r.get("to"):          # a classifier with one flow: it moves a message along it
+                self.moved[flows[0].name] = self.moved.get(flows[0].name, 0.0) + 1
+            return
+        if "answer" in obj:                           # an answer to a message the owner sent (SPEC §12h)
+            from ..messages import deliver, record
+            a = obj["answer"]
+            try:
+                if not isinstance(a, dict):
+                    raise record.MessageError("an answer line: {\"answer\": {\"message\": ID, \"says\": \"...\"}}")
+                deliver.answered(self.e.p, str(a.get("message") or ""), a.get("says"), by=self.b.name, run=self.run_id,
+                                 session=a.get("session"))
+            except record.MessageError as err:
+                self.refuse(obj, str(err))
+                return
+            self.counts["answers"] = self.counts.get("answers", 0) + 1
+            return
         if "event" in obj:
             t = obj["event"]
             if isinstance(t, str) and t.startswith(("ergostat.decision.", "ergostat.correction.")):
@@ -757,6 +818,12 @@ def observations(text: str) -> tuple[list[dict], list[str]]:
         try:
             obj = json.loads(x)
         except ValueError:
+            continue
+        if isinstance(obj, dict) and isinstance(obj.get("message"), dict):   # the owner's words, relayed (SPEC §12h)
+            if isinstance(obj["message"].get("text"), str) and obj["message"]["text"].strip():
+                seen.append({"message": obj["message"]})
+            else:
+                refused.append("a message line says something: {\"message\": {\"text\": \"...\", \"by\": \"me\"}}")
             continue
         if not isinstance(obj, dict) or "event" not in obj:
             continue

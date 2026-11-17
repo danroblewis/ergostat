@@ -12,6 +12,7 @@ from ..durations import DurationError
 from .agents import cmd_agent
 from .claims import cmd_claims
 from .common import PART_TOPICS
+from .messages import cmd_message, cmd_messages, cmd_session
 from .numbers import cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_proposals
 from .parts import cmd_part
 from .record import cmd_event, cmd_item, cmd_reset, cmd_residual
@@ -44,6 +45,11 @@ what is wrong, or missing
                  trust by block, rung and model (--check: check those left unchecked)
   judge          Judge the candidate changes blocks proposed for the model; measure: the model's own measures
 
+the owner's messages
+  message        Send the work in flight a message: ergostat message "that review can wait" [--about ITEM|PART];
+                 routed to the items and runs it concerns, delivered to a running session as its next turn
+  messages       What became of each message: routed, delivered, unrouted, answered (ID --about X: route one)
+
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
   loop           The feedback loops: what each holds, how far off, each part along it
@@ -63,7 +69,7 @@ run it
   verify         Score the changes written to the model again on the record since (--propose)
   bench          How we know it works: bench improve, judge, meta; bench parity (fresh sessions vs a long one)
   help blocks    How to write a sensor's and a block's program (also: help ai-agents, help spec, help model-tools,
-                 help claims)
+                 help claims, help messages)
 
 flags
   -C DIR             Run as if in DIR
@@ -136,6 +142,21 @@ def build() -> argparse.ArgumentParser:
                                     "block, rung and model")
     cl.add_argument("--check", action="store_true", help="check the claims made and left unchecked (ergostat stopped "
                                                          "between a run and its checks)")
+    ms = topic("message", cmd_message, "Send the work in flight a message, routed to what it concerns", named=False)
+    ms.add_argument("text", nargs="*", metavar="TEXT", help="what you say, verbatim")
+    ms.add_argument("--about", action="append", metavar="ITEM|PART", help="what it is about (ticket/12, block.developer, "
+                                                                            "stock.inbox); again for more")
+    ms.add_argument("--as", dest="by", metavar="WHO", help="who sends it (default: owner)")
+    ms.add_argument("--reopen", action="store_true", help="reopen the finished items it is about, whatever the policy")
+    mss = topic("messages", cmd_messages, "The owner's messages and what became of each, or one; --about X routes one")
+    mss.add_argument("--about", action="append", metavar="ITEM|PART", help="with NAME: route it to this, by hand")
+    mss.add_argument("--reopen", action="store_true", help="with NAME: reopen the finished items it is about")
+    mss.add_argument("--as", dest="by", metavar="WHO", help="who routes it (default: owner)")
+    mss.add_argument("-n", type=int, default=30, help="how many to list (default 30)")
+    se = sub.add_parser("session", parents=[common], help="Run a Claude Code session as a block's run, taking the "
+                        "owner's messages while it works (ergostat session ROLE --model M -- CLAUDE-ARGS)", add_help=False)
+    se.add_argument("rest", nargs=argparse.REMAINDER)
+    se.set_defaults(fn=cmd_session)
     topic("findings", cmd_findings, "What is worth a look: missing feedback, limits ahead, saturation, decay", named=False)
     bk = topic("block", cmd_block, "The blocks (YAML model), or one; a person reports on theirs")
     bk.add_argument("--done", type=float, metavar="N", help="a person's report: what they moved")

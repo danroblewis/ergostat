@@ -15,7 +15,7 @@ FILE = "ergostat.yaml"
 SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
             "loops", "claims")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check"}    # variables: the old name of auxiliaries
-TOP = {"name", "include", "keep", "defaults", *SECTIONS}
+TOP = {"name", "include", "keep", "messages", "defaults", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -108,6 +108,8 @@ class Document:
     name: str
     files: list[Path] = field(default_factory=list)
     keep: object = None
+    messages: object = None          # messages: how the owner's messages are routed (SPEC §12h), in one file
+    messages_at: Where | None = None
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
@@ -164,6 +166,12 @@ def load(main: Path) -> Document:
                 doc.keep = data["keep"]
             else:
                 doc.problems.append(Problem("error", "keep: belongs in the main file only", data.at("keep"), "keep-in-include"))
+        if "messages" in data:
+            if doc.messages is not None:
+                doc.problems.append(Problem("error", f"messages: is written twice (here and at {doc.messages_at}); keep one",
+                                            data.at("messages"), "defined-twice"))
+            else:
+                doc.messages, doc.messages_at = data["messages"], data.at("messages")
         defaults = data.get("defaults") or {}
         if not isinstance(defaults, dict) or set(defaults) - {"system"}:
             doc.problems.append(Problem("error", "defaults: may only set system:", data.at("defaults"), "bad-defaults"))

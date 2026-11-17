@@ -267,8 +267,8 @@ def cmd_measure(args) -> int:
     got = ms.all_of(p)
     if args.json:
         return out_json(got)
-    from ..spec.ir import MODEL_MEASURES, TRUST_MEASURES
-    said = {**MODEL_MEASURES, **TRUST_MEASURES}
+    from ..spec.ir import MESSAGE_MEASURES, MODEL_MEASURES, TRUST_MEASURES
+    said = {**MODEL_MEASURES, **TRUST_MEASURES, **MESSAGE_MEASURES}
     print(table(["MEASURE", "VALUE", ""], [[n, sig(got.get(n)), said[n]] for n in said], ""))
     return 0
 

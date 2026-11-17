@@ -157,6 +157,15 @@ async function apiPost(path, params = {}) {
   return body;
 }
 
+/* the owner's words to the work in flight (SPEC §12h): the text in the body, as JSON */
+async function apiSend(path, body) {
+  if (SNAP) throw new Error("a snapshot changes nothing: ergostat message, where the model is");
+  const r = await fetch(`/api/${path}`, { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json", "X-Ergostat-Token": document.querySelector('meta[name="ergostat-token"]')?.content || "" } });
+  const got = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(got.error || `${path}: ${r.status}`);
+  return got;
+}
+
 /* ------------------------------------------------------------------ header and routing */
 
 async function refreshHeader() {

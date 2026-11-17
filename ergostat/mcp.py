@@ -105,6 +105,17 @@ TOOLS = [
      "inputSchema": _obj({"type": {"type": "string"}, "item": {"type": "string"}, "data": {"type": "object"},
                           "patch": {"type": "array", "items": {"type": "object"}}, "set": {"type": "object"},
                           "source": {"type": "string"}}, ["type"])},
+    {"name": "message", "description": "Relay the owner's words to the work in flight, verbatim (an AI front-end passing on "
+     "what the owner said): recorded as an ergostat.message item, routed to the items and block runs it concerns (about, "
+     "when said: an item id like review/2041 or a part like block.developer; else the ids and names in its words; else "
+     "the classifier), and delivered: a running Claude Code session gets it as its next turn, a block's next run in its "
+     "context, finished work a follow-up. Returns where it went, or that it reached no work (unrouted: it needs "
+     "attention). The same as `ergostat message TEXT --about X`.",
+     "inputSchema": _obj({"text": {"type": "string"}, "about": {"type": "array", "items": {"type": "string"}},
+                          "by": {"type": "string"}}, ["text"])},
+    {"name": "messages", "description": "The owner's messages and what became of each (routed, delivered, unrouted, "
+     "answered, missed), with the counts; or one (id) with its routing and deliveries.",
+     "inputSchema": _obj({"id": {"type": "string"}})},
 ]
 
 
@@ -246,6 +257,22 @@ class Server:
                 return _text(d) if d else {**_text(f"no item {a['id']!r}"), "isError": True}
             return _text(its.listing(p.events, spec, kind=a.get("kind") or None, state=a.get("state") or None,
                                      n=min(int(a.get("n") or 100), 500)))
+        if name == "message":
+            from .messages import record, route
+            try:
+                got = route.send(p, spec, str(a.get("text") or ""), by=str(a.get("by") or "owner"), about=a.get("about"),
+                                 via="mcp")
+            except record.MessageError as e:
+                return {**_text(str(e)), "isError": True}
+            return _text({k: got.get(k) for k in ("id", "state", "matched", "why", "routed_to", "deliveries", "outcome")})
+        if name == "messages":
+            from .messages import measures, record
+            if a.get("id"):
+                got = record.get(p, str(a["id"]))
+                return _text(got) if got else {**_text(f"no message {a['id']!r}"), "isError": True}
+            ms = sorted(record.stored(p).values(), key=lambda m: -m["time"])[:30]
+            return _text({"messages": [{k: m.get(k) for k in ("id", "state", "text", "by", "sent", "matched", "outcome")}
+                                       for m in ms], "counts": measures.counts(p)})
         if name == "record_event":
             from .runner import OWN_TYPES, TYPE_NAME
             t, data = str(a.get("type", "")), a.get("data") or {}

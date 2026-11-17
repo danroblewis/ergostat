@@ -331,6 +331,63 @@ function intentView(d, onDone) {
     ...Object.values(rows), said);
 }
 
+/* the owner's messages (SPEC §12h): on the Items page's ergostat.message kind, a box to send one; on an item's page,
+   the messages about it and a field to send a note about it; on a message's own page, where it went */
+const MESSAGE_KIND = "ergostat.message";
+function messageBox({ about = null, title = "Message", hint = null, done = null } = {}) {
+  const text = h("textarea", { rows: about ? 2 : 3, placeholder: about ? `A note about ${about}: it goes to the work on it now` : "Say it as you would to whoever is doing the work: “that review can wait”, “check the flag ramp first”", "aria-label": title });
+  const at = about ? null : h("input", { type: "text", placeholder: "about (optional): review/2041, block.developer", "aria-label": "About" });
+  const said = h("p", { class: "note", "aria-live": "polite" });
+  const send = h("button", { onclick: async () => {
+    if (!text.value.trim()) { text.focus(); return; }
+    send.disabled = true;
+    try {
+      const m = await apiSend("message", { text: text.value, ...(about ? { about } : at.value.trim() ? { about: at.value.trim() } : {}) });
+      said.replaceChildren(itemLink(m.id), `: ${m.outcome}`);
+      said.className = `note${m.state === "unrouted" ? " s-off" : ""}`;
+      text.value = ""; if (at) at.value = "";
+      done?.(m);
+    } catch (e) { said.textContent = e.message; said.className = "note s-off"; }
+    send.disabled = false;
+  } }, "Send");
+  return h("div", { class: "message-box" }, h("h3", {}, title, hint ? h("span", { class: "muted" }, ` ${hint}`) : null), text,
+    h("div", { class: "row" }, at, send), said);
+}
+function messagesAbout(ms) {
+  if (!ms.length) return h("p", { class: "muted" }, "No messages about it yet.");
+  return table(["message", "state", "sent", "text", "outcome"], ms.map((m) => h("tr", { class: "click", onclick: () => { location.hash = `#/item/${encodeURIComponent(m.id)}`; } },
+    h("td", { class: "nowrap" }, h("b", {}, m.id.split("/")[1])), h("td", { class: m.state === "unrouted" ? "s-off" : "" }, m.state), h("td", { class: "muted nowrap" }, ago(m.time)),
+    h("td", { class: "cell" }, m.text), h("td", { class: "cell muted" }, m.outcome))), "messages");
+}
+function messageView(d, refresh) {
+  const f = d.fields;
+  const to = (f.routed_to || []).map((t) => h("li", {}, t.item ? itemLink(t.item) : h("code", {}, t.part || ""), t.block ? h("span", { class: "muted" }, ` worked on by ${t.block}`) : null,
+    t.run ? h("span", { class: "muted" }, `, run ${String(t.run).slice(0, 8)}`) : null, t.session ? [h("span", { class: "muted" }, ", session "), itemLink(t.session)] : null));
+  const dv = (f.deliveries || []).map((x) => h("li", {}, h("b", {}, x.how), x.session ? [" to ", itemLink(x.session)] : x.block ? ` to block ${x.block}` : "",
+    x.item ? [" about ", itemLink(x.item)] : null, x.follow_up ? [": ", itemLink(x.follow_up)] : null, h("span", { class: "muted" }, ` ${ago(x.at)}`)));
+  const an = (f.answers || []).map((x) => h("li", {}, h("span", { class: "muted" }, `${x.session || x.by}: `), x.says));
+  const route = d.state === "unrouted" || d.state === "routed" ? (() => {
+    const at = h("input", { type: "text", placeholder: "review/2041, block.developer", "aria-label": "Route it to" });
+    const said = h("span", { class: "note" });
+    return h("div", { class: "row" }, h("span", {}, d.state === "unrouted" ? "It reached no work. Route it to " : "Route it again, to "), at,
+      h("button", { onclick: async () => {
+        if (!at.value.trim()) { at.focus(); return; }
+        try { const m = await apiSend("message", { route: d.id, about: at.value.trim() }); said.textContent = ` ${m.outcome}`; refresh?.(); } catch (e) { said.textContent = ` ${e.message}`; }
+      } }, "Route"), said);
+  })() : null;
+  return h("div", { class: "claim" },
+    h("blockquote", { class: "said" }, f.text),
+    h("p", { class: "muted" }, `from ${f.by}, ${ago(f.sent || d.first)}, by ${f.via || "?"}`, (f.about || []).length ? [", about ", ...f.about.map((a) => (a.includes("/") ? itemLink(a) : h("code", {}, a)))] : null),
+    h("p", {}, h("span", { class: d.state === "unrouted" ? "s-off" : d.state === "routed" ? "s-open" : "status" }, d.state === "routed" ? "awaiting delivery" : d.state),
+      f.matched ? h("span", { class: "muted" }, ` matched by ${f.matched}`) : null, f.why ? `: ${f.why}` : ""),
+    to.length ? [h("h3", {}, "Routed to"), h("ul", {}, to)] : null,
+    dv.length ? [h("h3", {}, "Delivered"), h("ul", {}, dv)] : null,
+    f.queued ? h("p", { class: "note" }, `Queued for ${f.queued.session}: ${f.queued.why}`) : null,
+    f.missed ? h("p", { class: "s-off" }, `Missed: ${f.missed.item} finished (${f.missed.state}) before it was delivered; the work was ${f.missed.policy === "reopen" ? "reopened" : "followed up"}.`) : null,
+    an.length ? [h("h3", {}, "Answered"), h("ul", {}, an)] : null,
+    route);
+}
+
 function stateWord(st) { return st ? h("span", {}, st) : h("span", { class: "muted" }, "–"); }
 
 async function pageItems(main, q) {
@@ -338,8 +395,9 @@ async function pageItems(main, q) {
   const kinds = h("div", { class: "kind-flows" }), notes = h("div"), box = h("div");
   const search = h("input", { type: "search", placeholder: "Search ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const more = h("p", { class: "note" });
-  p.append(kinds, notes, h("div", { class: "filters" }, search), box, more);
   let kind = q.get("kind"), state = q.get("state");
+  const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => tick() });
+  p.append(kinds, notes, h("div", { class: "filters" }, search), compose, box, more);
   const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
   const keep = (key, sig, make) => {
     const was = drawn[key];
@@ -351,6 +409,7 @@ async function pageItems(main, q) {
                      history.replaceState(null, "", "#/items" + (u.toString() ? "?" + u : "")); tick(); };
   search.addEventListener("input", () => go());
   async function tick() {
+    compose.hidden = kind !== MESSAGE_KIND || !!SNAP;
     const d = await api("items", { ...(kind ? { kind } : {}), ...(state ? { state } : {}) });
     // each kind: its states stacked over the window (a cumulative flow diagram), each named with its count,
     // a click on one shows its items; a kind without states, one line of its count
@@ -438,7 +497,9 @@ async function pageItem(main, id) {
   const p = page(main, id);
   const body = h("div");
   p.append(body);
+  const note = messageBox({ about: id, title: "Send a note about this", done: () => tick() });
   async function tick() {
+    if (note.contains(document.activeElement) && note.querySelector("textarea").value) return;   // being written
     let d;
     try { d = await api(`items/${encodeURIComponent(id)}`); } catch (e) { d = null; }
     if (!d) { body.replaceChildren(h("p", { class: "muted" }, "Nothing is recorded about this id.")); return; }
@@ -468,8 +529,14 @@ async function pageItem(main, id) {
     const said = d.transcript_events ? h("p", { class: "note" }, `${d.transcript_events} more events are its transcript's lines (claude.*), folded into its fields above; `,
       recordLinkItem(id), ".") : null;
     const verdict = k?.name === CLAIM_KIND ? [h("h2", {}, "Verdict"), claimView(d)]
-      : k?.name === DECISION_KIND || k?.name === CORRECTION_KIND ? [h("h2", {}, k.name === DECISION_KIND ? "The decision" : "The correction"), intentView(d, tick)] : [];
-    body.replaceChildren(head, track || "", ...verdict, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+      : k?.name === DECISION_KIND || k?.name === CORRECTION_KIND ? [h("h2", {}, k.name === DECISION_KIND ? "The decision" : "The correction"), intentView(d, tick)]
+      : k?.name === MESSAGE_KIND ? [h("h2", {}, "Message"), messageView(d, tick)] : [];
+    let about = [];
+    if (!k?.name?.startsWith("ergostat.")) {               // the owner's messages about it, and a note to send
+      const ms = await api("messages", { item: id }).catch(() => null);
+      if (ms) about = [h("h2", {}, "Messages", h("span", { class: "muted" }, ` ${ms.messages.length}`)), messagesAbout(ms.messages), SNAP ? "" : note];
+    }
+    body.replaceChildren(head, track || "", ...verdict, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said || "", eventsTable(d.record, true));
   }
   await tick();

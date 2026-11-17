@@ -145,6 +145,49 @@
         "$ref": "#/$defs/claim_check"
       },
       "description": "The checks the project declares for its blocks' claims (SPEC \u00a712g): tests, the project's test command; any other name, a kind of claim of its own"
+    },
+    "messages": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the owner's messages are routed to the work in flight, and what a message about finished work does (SPEC \u00a712h)",
+      "properties": {
+        "classifier": {
+          "type": "string",
+          "description": "A machine block (an ai block on a cheap model) that routes a message no id or name in it routes; else ergostat's stand-in"
+        },
+        "finished": {
+          "enum": [
+            "follow-up",
+            "reopen",
+            "attention"
+          ],
+          "description": "A message about finished work: a new item linked to it, the item moved back, or left to the owner"
+        },
+        "follow-up": {
+          "type": "string",
+          "description": "The kind of item a follow-up is made as (default: the finished item's own)"
+        },
+        "reopen-to": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "By kind, the state reopening moves an item back to (default: its first)"
+        },
+        "done": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "By kind, the states an item is finished in (default: inferred from the record)"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
     }
   },
   "$defs": {
@@ -301,7 +344,7 @@
           "description": "On a flow: its rate from its stock's own successive readings"
         },
         "builtin": {
-          "description": "One of ergostat's built-in measures: the model's own quality (SPEC \u00a712e, \u00a712f), or how far blocks' claims hold (SPEC \u00a712g)",
+          "description": "One of ergostat's built-in measures: the model's own quality (SPEC \u00a712e, \u00a712f), how far blocks' claims hold (SPEC \u00a712g), or how the owner's messages reach the work (SPEC \u00a712h)",
           "anyOf": [
             {
               "enum": [
@@ -319,6 +362,18 @@
             {
               "type": "string",
               "pattern": "^ergostat\\.trust\\.(contradicted|contradictions|verified|unchecked|claims)(@((rung:|model:)?[A-Za-z0-9][A-Za-z0-9._:-]*))?$"
+            },
+            {
+              "enum": [
+                "ergostat.messages.unrouted",
+                "ergostat.messages.awaiting",
+                "ergostat.messages.received",
+                "ergostat.messages.routed",
+                "ergostat.messages.delivered",
+                "ergostat.messages.answered",
+                "ergostat.messages.missed",
+                "ergostat.messages.reached"
+              ]
             }
           ]
         }
