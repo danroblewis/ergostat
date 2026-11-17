@@ -134,7 +134,7 @@ def test_a_correction_given_again_is_linked_to_the_first_and_raised(tmp_path):
     two = acts.propose(p, CORRECTION, {"correction": "Do not add another panel or page to the UI.",
                                        "words": [{"text": "you keep adding panels", "line": 9}], "kind_of_work": ["ui"]},
                        "extractor")
-    assert two["repeats"] == one["item"]
+    assert two["repeats"] == one["item"] and acts.one(p, two["item"]).fields["repeat"] is True
     first = acts.one(p, one["item"])
     assert first.fields["repeated_by"][0]["item"] == two["item"] and first.fields["repeated_by"][0]["line"] == 9
     found = [f for f in watch.find(p, p.model.spec) if f.code == "correction-repeated"]
@@ -335,9 +335,41 @@ def test_the_items_page_answers_go_through_the_owners_acts(tmp_path):
     assert post("retire", id=a)[0] == 404                                  # a decision is superseded, not retired
     assert acts.one(p, a).state == "superseded"
     detail = its.detail(p.events, p.model.spec, a)
-    assert detail["kind_of"]["name"] == DECISION if "kind_of" in detail else True
+    assert detail["kind_of"]["name"] == DECISION and detail["state"] == "superseded"
+    assert {c["rule"] for c in detail["history"]["words"]} == {"append"}
 
 
 def test_strip_block_footer_leaves_the_prompt():
     from ergostat.spec.engine import AI_FOOTER
     assert ai.strip_block_footer("Find them.\n\n" + AI_FOOTER + "\ninputs...") == "Find them."
+
+
+def test_the_extractor_as_an_ai_block_takes_its_prompt_from_the_block(tmp_path, monkeypatch):
+    """The ``ai`` mode as an ordinary block: its prompt (the model's to improve) is the extractor's instructions,
+    the engine records the proposals it prints, from that block."""
+    (tmp_path / "run").mkdir()
+    synthetic(tmp_path / "run" / "s.jsonl")
+    seen = tmp_path / "prompt-seen.txt"
+    answer = json.dumps({"decision": {"decision": "Keep the owner's words verbatim.",
+                                      "words": [{"line": 11, "text": "Always keep the owner's words verbatim in items."}]}})
+    fake = tmp_path / "fake-claude"
+    fake.write_text(f"#!/bin/sh\ncat > {seen}\ncat <<'EOF'\n" +
+                    json.dumps({"result": answer, "total_cost_usd": 0.01, "usage": {}}) + "\nEOF\n")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("ERGOSTAT_AI", str(fake))
+    (tmp_path / "find.md").write_text("Find the owner's lasting rules. Only rules.\n")
+    p = project(tmp_path, f"""
+        blocks:
+          extractor:
+            type: ai
+            prompt: find.md
+            run: {sys.executable} -m ergostat decisions extract run --new --print --model sonnet --max-cost 1 --prompt -
+            every: 1h
+        """)
+    Engine(p, say=lambda s: None).run_block(p.model.spec.blocks["extractor"], "schedule")
+    ds = acts.items(p, DECISION)
+    assert [(d.fields["decision"], d.fields["proposed_by"]) for d in ds] == [("Keep the owner's words verbatim.", "extractor")]
+    sent = seen.read_text()
+    assert sent.startswith("Find the owner's lasting rules. Only rules.") and "You are a block in an ergostat" not in sent
+    ran = p.events.query(n=None, type="extractor.ran")
+    assert ran and ran[-1]["data"]["cost_usd"] == 0.01

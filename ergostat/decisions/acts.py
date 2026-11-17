@@ -235,6 +235,8 @@ def propose(p, kind: str, data: dict, source: str, item: str | None = None, caus
             first = first_like(p, d)
             if first is not None:
                 d["repeats"] = first.id
+        if first is not None:
+            d["repeat"] = True                                  # so a sensor can count them (where: {repeat: true})
     ev = p.events.add(f"{kind}.proposed", item=id, source=source, causedby=causedby, data=d, at=at,
                       id=_eid(id, "proposed"))
     if first is not None:

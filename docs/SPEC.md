@@ -307,9 +307,60 @@ changes and how many there were, all with `history=all`). An item can be read as
 time (`--at`, the pages' time travel): its fields, its state and its history are folded from
 the events up to then.
 
-**Built-in kinds.** Two kinds are ergostat's own, present in every project and never declared (a project's
+**Built-in kinds.** Four kinds are ergostat's own, present in every project and never declared (a project's
 kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every change to the model (section 12e),
-and `ergostat.claim`, what a block said it did, checked (section 12g).
+`ergostat.claim`, what a block said it did, checked (section 12g), and the owner's intent,
+`ergostat.decision` and `ergostat.correction` (below).
+
+**Decisions and corrections.** What the owner decided, and what the owner corrected, are items, so that every
+later session can start from them (`docs/DECISIONS.md` is how to use them):
+
+| Kind | States | Fields |
+|---|---|---|
+| `ergostat.decision` | `proposed` → `confirmed` → `superseded`; `dismissed` (an exit, from proposed) | `decision` (one sentence), `words`, `reasons`, `alternatives` (`[{option, why}]`, what was rejected), `scope`, `supersedes`, `proposed_by`, `confidence`, `extractor`, `evidence` |
+| `ergostat.correction` | `proposed` → `confirmed` → `retired`; `dismissed` | `correction` (what to do differently), `words`, `corrects` (the behaviour or result), `kind_of_work`, `scope`, `source`, `repeats` (and `repeat: true`), `repeated_by`, `evidence` |
+
+`words` is the owner's words, verbatim, each with where it was said: `{text, session, line, time}` (a
+transcript), or `{text, time, event}` (the record). Their fold rules: `words`, `evidence`, `alternatives` and
+`repeated_by` are `append`; `reasons`, `scope`, `supersedes` and `kind_of_work` are `union`; the rest
+replace. An id is the kind and a slug of the sentence (`ergostat.decision/never-add-page-7c1e`), so the same
+sentence proposed again is the same item.
+
+The events, `ergostat.decision.*` and `ergostat.correction.*`:
+
+| Event | From | Data, and what it needs |
+|---|---|---|
+| `.proposed` | anyone: a block's output line, the extractor, `ergostat decisions propose`, MCP `record_event` | the fields above; checked before it is recorded: the sentence (at most 400 characters), and `words` (required unless the owner proposes it, when the sentence is the owner's words) |
+| `.seen` | the same | a known item proposed again with new words: `words` and `evidence` appended |
+| `.confirmed` | the owner | `confirmed_by`, an optional `confirmed_reason`; only a proposed item |
+| `.dismissed` | the owner | `dismissed_reason`, required; only a proposed item |
+| `decision.superseded` | the owner | `superseded_by` (the decision that replaces it, not dismissed or superseded) and `superseded_reason`, both required; only a confirmed decision. The replacing decision records `decision.supersedes` |
+| `correction.retired` | the owner | `retired_reason`, required; only a confirmed correction |
+| `correction.repeated` | ergostat | on the first correction, when a later one makes the same point: `repeated_by` (`{item, text, line, ...}`), `repeated_n` |
+
+A block may print a `.proposed` line (`{"event": "ergostat.decision.proposed", "data": {...}}`), checked like
+any proposal and refused with why when it does not hold; the owner's acts (`confirmed`, `dismissed`,
+`superseded`, `retired`) are never a block's, and are refused. A supersession is never implied: a decision
+proposed with `supersedes` leaves the older one confirmed until the owner supersedes it with a reason.
+
+A correction that makes the same point as an earlier one (most of the content words of the owner's sentence
+shared, for the same kind of work) is linked to the first (`repeats`), and the first records
+`correction.repeated`. A repeat is a finding (`correction-repeated`, needs attention) while it waits for the
+owner, or while the correction it repeats is confirmed: the first did not change what was done.
+
+`ergostat corrections scan` proposes the corrections the record already holds: an owner's dismissal with a
+reason, an item moved back to an earlier state (or by a `*.reopened` event) with a reason, an
+`ergostat.message` classed as a correction (`class: correction`, or unclassed and read as one).
+
+**Projections.** `ergostat context decisions [--scope X] [--budget N]` and `ergostat context corrections
+--kind K [--budget N]` render the confirmed items (with `--proposed`, those waiting too, marked) as Markdown
+for the start of a session, most relevant first: an item whose `scope` (or `kind_of_work`) names a word of
+the scope asked comes first, then one whose words mention it, then the rest, the newest first within each;
+corrections for another kind of work are left out, those for `general` kept. As many as fit the budget are
+given in full (the sentence, up to two quotes with where they were said, reasons, what was rejected, what it
+replaces, the scope, its id), the rest as one-line pointers, then a count of those that did not fit. A budget
+is characters (`6000`; the default `8000`) or tokens (`1500t`, at four characters a token). MCP `context`
+gives the same.
 
 **States.** An item arrives in its kind's first state (a move from nowhere, so a flow can count
 arrivals with `entering:`), and stays there until an event its kind maps moves it; every move is
