@@ -319,6 +319,9 @@ def _answer(live: Live, path: str, q: dict):
     if head == "trust":                           # how far blocks' claims hold, by block, rung and model (SPEC §12g)
         from ..claims import trust
         return trust.table(p, snap["at"] - max(snap["window"], trust.WEEK), snap["at"])
+    if head == "verdicts":                        # finished work held to what the owner meant (SPEC §12i)
+        from .verdicts_api import table as verdicts
+        return verdicts(p, snap)
     if head == "items-flow":
         return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":
@@ -450,6 +453,9 @@ def handler(project):
                 elif u.path.startswith("/api/control/"):   # a loop's process, tuning or step test: the owner's answer
                     from .control_api import post as control
                     code, data = control(live, u.path.removeprefix("/api/"))
+                elif u.path.startswith("/api/verdict/"):   # the owner on the intent judge: overrule, reopen (SPEC §12i)
+                    from .verdicts_api import post as verdict
+                    code, data = verdict(live, u.path.removeprefix("/api/"), q)
                 elif u.path.startswith("/api/intent/"):    # a proposed decision or correction: the owner's answer
                     from .intent_api import post as intent
                     code, data = intent(live, u.path.removeprefix("/api/"), q)

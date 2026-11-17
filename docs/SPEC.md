@@ -400,12 +400,13 @@ changes and how many there were, all with `history=all`). An item can be read as
 time (`--at`, the pages' time travel): its fields, its state and its history are folded from
 the events up to then.
 
-**Built-in kinds.** Five kinds are ergostat's own, present in every project and never declared (a project's
+**Built-in kinds.** Six kinds are ergostat's own, present in every project and never declared (a project's
 kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every change to the model (section 12e),
 `ergostat.claim`, what a block said it did, checked (section 12g), the owner's intent, `ergostat.decision` and
 `ergostat.correction` (below), and `ergostat.message`, the owner's messages, routed to the work they concern
-(section 12h). ergostat may also move any item: `ergostat.item.reopened` moves it to the state its data names
-(`reopened.to`, else its kind's first), and `ergostat.item.follow-up` starts one (section 12h).
+(section 12h), and `ergostat.verdict`, the intent judge's verdict on finished work (section 12i). ergostat may also
+move any item: `ergostat.item.reopened` moves it to the state its data names (`reopened.to`, else its kind's first),
+`ergostat.item.follow-up` starts one (section 12h), and `ergostat.item.judged` sets its field `intent` (section 12i).
 
 **Decisions and corrections.** What the owner decided, and what the owner corrected, are items, so that every
 later session can start from them (`docs/DECISIONS.md` is how to use them):
@@ -2135,6 +2136,139 @@ stock or an auxiliary, so a goal can hold it; `ergostat measure messages.unroute
 messages by state like any items (`items: ergostat.message, state: routed`; `entering: delivered`).
 `examples/image-squeeze/messages.yaml` and `examples/the-job/job/messages.yaml` model them: unrouted and awaiting as
 stocks, routed, delivered and missed as flows, and a goal holding the unrouted at 0.
+
+## 12i. The intent judge: done as meant
+
+A long session decides when work is done: not when its tests pass, but when it does what the owner meant. Work that
+ergostat runs as many short runs must be held to the same: a change can pass every test and still do what the owner
+decided against ("WebP output" when the owner chose JPEG and PNG only), and the tests cannot see it. So a piece of
+work that says it is done is **judged against what the owner meant** before it counts as done: its done-when, the
+confirmed decisions and corrections in its scope (section 5a), and the owner's messages about it (section 12h). The
+verdict, with its evidence, is an item, and how often finished work turns out not done as meant is a measure.
+(Harness parity, function 2: `docs/proposals/harness-parity-plan.md` §2.2.)
+
+### The judge block
+
+```yaml
+blocks:
+  intent-judge:
+    type: judge
+    judge: intent                 # (judge: model, the default, is section 12e's)
+    every: 10s
+    kinds:
+      hypothesis:
+        at: testing               # the state it says it is done in: its tests passed
+        accepted: kept            # where it counts as done (default: its kind's last state)
+        scope: [formats, squeeze] # the decisions it is held to: those whose scope shares a word, or that name none
+        work: [code]              # the corrections it is held to: for this kind of work (default: its scope)
+        repo: run/product         # the git repository its commit or branch is read from (default: claims' tests.in)
+        base: main
+        reopen-to: proposed
+    model: haiku                  # optional: a judge on a model; without it, the free stand-in
+    max-cost: 0.05                # dollars a verdict, at most
+    held: attention               # or reopen: what a verdict that the work is not done as meant does
+    within: 1d                    # work that entered its state longer ago is not judged late
+    out: {held: flow.holding}     # its ports: judged, met, held
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `judge` | `model`, `intent` | `model` | What the judge judges: changes to the model (12e), or finished work |
+| `kinds` | map of kind → `{at, ...}` or a state | required | The model's own item kinds it judges, and when (`kinds: {ticket: review}`) |
+| `model` | a model name | none: the stand-in | An AI judge on that model (a cheap one: `haiku`) |
+| `max-cost` | dollars | `0.05` | Per verdict, passed to the model as its budget |
+| `held` | `attention`, `reopen` | `attention` | `reopen` moves held work back (`ergostat.item.reopened`, to `reopen-to`), with the verdict as its reason |
+| `within` | duration | `1d` | How late it judges |
+
+One intent judge at most. It is ergostat's own, like section 12e's judge: a program (rung `program`), or a narrow AI
+(`narrow-ai`) when it names a model. Each pass (on its clock, or `ergostat intent judge [ITEM]`), every item of a kind
+it holds that entered its `at` state within `within` and has no verdict for that moment is judged, oldest first,
+twenty at most; a pass is recorded as a run, and a held verdict is said in the log.
+
+### What a piece of work is held to (the brief)
+
+- **its done-when**: the field `done_when` (or `done-when`), verbatim from the message that started it; a follow-up
+  made from the owner's message (12h) carries the message's words as its `done_when`;
+- **its change**: when it names a `commit` or a `branch`, the diff against `base` in `repo`, with the files it touches
+  as they were;
+- **the confirmed decisions in its scope**, each with the owner's words, reasons and rejected alternatives;
+- **the confirmed corrections for its kind of work** (or `general`, or naming the item);
+- **the owner's messages about it**: sent about it, routed to it, or naming it (a block's words are not the owner's).
+
+Only what is confirmed holds: a proposed decision is not the owner's yet. Work held to nothing is **unjudged**, and
+counts on its tests.
+
+### The verdict
+
+| Verdict | Means |
+|---|---|
+| `met` | It does what its done-when asks, and nothing in it goes against what it is held to |
+| `unmet` | It does not do what its done-when or the owner's messages ask |
+| `contradicted` | It does what a decision, a correction or a message rules out |
+| `unjudged` | Nothing to hold it to, or a verdict its evidence did not support |
+
+Each unmet or contradicted point carries **evidence**: the id of what it goes against (`ergostat.decision/...`, or
+`done-when`) and a quote from the work (a line of its diff, with file and line, or a field's value).
+
+- **The stand-in** (free, no tokens) reads what the owner ruled out (a decision's rejected alternatives; the words
+  after `never`, `no`, `not`, `don't`, `without`, `instead of` ... in a decision, a correction, the owner's words or a
+  message) and looks for it in what the work brings in: the words of the lines its diff adds that are in none of the
+  files as they were nor in the lines it removes (identifiers split at `_` and case). A term ruled out that the work
+  brings in is a contradiction, with the line. It cannot read what a done-when means (it says so); work with a
+  done-when and nothing to show is unmet. It is a matcher of words: it misses a contradiction said in other words
+  ("strip" for "stripping metadata"), and flags a word brought in that does not do what was ruled out (a format named
+  in a comparison). Measured on image-squeeze: below.
+- **On a model**, the brief is given as Markdown (`ergostat/intent/prompt.md`, replaced by a project's
+  `prompts/intent-judge.md`) to `$ERGOSTAT_AI` (`claude -p`, no tools, `--max-budget-usd`), asked for one JSON line.
+  Its answer is checked, not trusted: each unmet or contradicted point must name something it was given and quote the
+  work (whitespace aside); points that do not are dropped, and a verdict left with none is `unjudged` (unsupported).
+  Its cost and tokens are recorded with the verdict.
+
+**Every verdict is an item.** `ergostat.verdict` is a built-in item kind (section 5a), its id `ergostat.verdict/<short
+hash>` of the work and the event that moved it into its judged state, so one moment is judged once:
+
+| State | Reached by | Source |
+|---|---|---|
+| asked | `ergostat.verdict.asked`: the work, its kind, the moment, what it is held to (ids), how (`mode`: standin, ai; `model`; `rung`) | the judge |
+| met, unmet, contradicted, unjudged | `.met`, ...: `why`, `evidence`, `cost_usd`, tokens, seconds | the judge |
+| overruled | `.overruled`: the owner says it was wrong, with a reason | the owner |
+| missed | `.missed`: it passed work (met, unjudged) the owner later found not done as meant | ergostat |
+
+The verdict is also put on the work: `ergostat.item.judged` sets its field `intent` (`verdict`, `why`, `id`, `by`,
+`against`; `overruled` when it was), beside what its tests said, so its page shows it and its own programs read it
+(image-squeeze's rollback drops a candidate held back, and its rollout keeps none before it has a verdict).
+
+**The owner's acts.** `ergostat intent overrule ID --reason R` (a false alarm, or a pass that was not): the verdict is
+overruled and stops holding the work; nothing else moves. `ergostat intent reopen ITEM --reason R`: work accepted that
+was not done as meant goes back (`ergostat.item.reopened`, the reason in its field `reopened`), and counts against the
+judge that passed it.
+
+`ergostat intent` prints the counts and rates by kind and the latest verdicts; `ergostat intent ID` one verdict with its
+evidence; `ergostat intent judge [ITEM] [--model haiku] [--max-cost USD] [--again]` a pass now. Items → `ergostat.verdict`
+lists them; a verdict's page shows its evidence, and the work's page its `intent`.
+
+### What became of the work, as measures
+
+Work **reaches** its judged state, and is **accepted** when it then enters an `accepted` state. The owner **finds it
+not done as meant** when, after accepting it and before it is judged again, it is reopened (not by the judge), a
+follow-up is made of it from the owner's message, or a correction the owner proposed or confirmed names it.
+
+| Reference | What it is, over the last week |
+|---|---|
+| `ergostat.intent.false-done` | Of the work accepted, the share the owner later found not done as meant (0 while none is) |
+| `ergostat.intent.false-done-tests` | The same had the tests alone decided: of the work that reached its judged state, the share found not done as meant, by the judge (not overruled) or by the owner after accepting it |
+| `ergostat.intent.accepted`, `.reopened` | Work accepted; of it, found not done as meant |
+| `ergostat.intent.judged`, `.met`, `.unmet`, `.contradicted`, `.unjudged`, `.overruled` | Verdicts given |
+| `ergostat.intent.held` | Verdicts unmet or contradicted, not overruled: work held back |
+| `ergostat.intent.cost` | Dollars the judge spent |
+
+Each with `@KIND` for one kind of item (`ergostat.intent.false-done@hypothesis`). Read by a sensor (`builtin:`) on a
+stock or an auxiliary, so a goal holds it; `ergostat measure intent.false-done` prints one. *Decided:* the rate goals
+read is what got past the judge (accepted, then found by the owner), and its tests-alone twin beside it, so the judge's
+worth is the gap between them, and its cost is the false alarms the owner overrules.
+
+`examples/image-squeeze/intent.yaml` models it: the owner's confirmed decisions and the work held back as stocks,
+false-done and its tests-alone twin as auxiliaries, a goal holding false-done at 0.1 or below.
 
 ## 13. Examples
 
