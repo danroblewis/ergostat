@@ -142,13 +142,41 @@ session that built ergostat, and what it amounts to in control terms.
     honesty. Pushing with failing tests, or overstating what was built, degraded the owner's control of
     the project. *Sensor integrity.*
 
-## 6. What ergostat can take over, and what it can't
+## 6. What an ergostat deployment is missing, and how to recover it
 
-| | Functions | What ergostat does |
+The aim is **parity** with the session being replaced, not a claim that ergostat is better at
+some things and agents at others. A harness can run programs, timers and checklists too: an agent can be
+told, in a well-written Markdown file, to run checks on a schedule, or can write a program that does and
+run it, and that program is still part of the harness's value. And a "guarantee" that ergostat starts a
+step is not a guarantee of the outcome: an agent started on time, on the right trigger, that lacks the
+context to do the job well, produces a worse outcome. A guaranteed step with a worse outcome is a loss.
+
+So for each function: what is missing when the work runs as ergostat-scheduled sessions instead of one
+long session, and how the value could be recovered. Recovery is often ergostat itself supplying what the
+long session supplied: the right context, the right instructions, the right measure of the outcome.
+
+| Function | Missing in an ergostat deployment | How to recover it |
 |---|---|---|
-| **Guarantee or measure outright** | 2 stopping (a judge), 5 gating (a policy), 8 state checks (sensors), 9 scheduling and triggers, 14 locks, 16 records instead of reports | Does them *more reliably* than a harness: always, measured, recorded. |
-| **Structure, with an LLM inside** | 6 diagnosis, 7 choosing experiments, 10 what goes in a brief, 15 judging value | Gives the LLM the loop, the measure and the gate; the LLM gives the judgement. |
-| **Where harnesses are uniquely strong** | 1 setpoints, 3 intent, 4 absorbing interruptions, 11 translation, 12 coherence, 13 learning from correction | All of these ride on semantic context. This is what we would lose. |
+| 1. Setpoints, re-planned | A worker gets a fixed task; nothing re-plans it as the work reveals more | Workers report what they learned; whoever holds the goal (a context holder, or the owner) revises the task and its successors. ergostat carries the revised goal as data, not as a fixed ticket |
+| 2. Knowing when done | The judge checks the step; whether the *intent* was met isn't checked | Judge against the intent, not only the tests: the owner's words for the task go to the judge, and a reviewer reads the result cold against them |
+| 3. Intent, ask or act | A worker can't ask the owner mid-task, and doesn't know what the owner would mind | A way for a worker to ask (a question routed to the context holder first, the owner only if needed), and the owner's known preferences in its context |
+| 4. Interruptions | A new message from the owner doesn't reach a running worker | Route the owner's messages to the affected work in flight (a context holder decides which), and let a worker be redirected, not only cancelled |
+| 5. Gating by risk | Gates exist, but their thresholds don't adapt as trust grows | Record what the owner allowed before, and apply it as the policy the gates read (standing consents), as the session's permissions did |
+| 6. Diagnosis on failure | A failed step retries, or fails; nobody diagnoses it | A failure becomes a task with its evidence (the output, the diff), given to an agent that is told to diagnose before retrying |
+| 7. Experiments | Workers don't run the small experiments that the long session ran to understand the system before acting | Prompt instructions (the improve-model skill shows the pattern): measure before designing, re-run the one test, read before editing; and the evidence of those experiments in the report |
+| 8. State before and after | A worker trusts its brief's picture of the world, which may be stale | Give workers current state with the brief (what moved on main, what is running), and check effects after, as the session did |
+| 9. Attention | The session chose what to look at and when to tell the owner; nothing does that across many workers | A summariser of what changed, for the owner, at the level they need; notifications only for what needs them |
+| 10. Delegation and trust | Briefs are written by whoever writes the ticket, without the context the session put in them | ergostat supplies context when spawning a worker: the owner's words verbatim, the decisions and why, what not to touch, what moved; and instructions to whoever writes tickets on what a good brief contains. Track which briefs led to good outcomes |
+| 11. Translation | No one turns technical state into what the owner needs to know | A reporter, given the owner's preferences and the record, writes the update the session would have |
+| 12. Coherence with decisions | A worker doesn't know the earlier decisions and their reasons, and may undo them | The decisions record, always loaded (section 8), and reviewers that check new work against it |
+| 13. Learning from correction | The owner's correction to one worker teaches no other | Corrections become entries in the decisions record (with the owner's words), loaded into every later session |
+| 14. Concurrency | Parallel workers collide without someone sequencing them | Locks and worktrees per item, merges one at a time, every worker told what moved; as the session did by hand |
+| 15. Value | Proposed work drifts toward low value (the product-owner agent) | A balancing loop on value (section 3): outcomes measured, the cost of additions as a stock, the owner's intent as the setpoint |
+| 16. Honest reporting | Reports can overstate, and no one cross-checks them | The record (what actually ran, what passed) beside each report, and reviewers that check claims against it |
+
+Almost every row comes down to the same thing: **the context the long session held, delivered to the
+right session at the right time**: the owner's words, the decisions and their reasons, the current state,
+what was learned. That is section 7.
 
 ## 7. Semantic context management
 
@@ -208,11 +236,12 @@ Known options, none sufficient alone:
 5. **Value as a balancing loop** (section 3), so proposals of work are judged against outcomes and the
    cost of what they add, with the owner's intent as the setpoint.
 
-**The framing:** ergostat brings consistency, scale, triggers and loops that correct themselves;
-harnesses bring semantic context. The design question is how context flows *through* ergostat's
-structure, not which of them sits on top. ergostat takes over the mechanical control functions (gates,
-judges, scheduling, locks, records), and the semantic ones (goals, intent, coherence, learning from
-correction) stay inside sessions that hold context. The interface between them is where the work is.
+**The framing:** the goal is parity with the long session, not dividing the work into what ergostat
+is good at and what agents are good at. Scheduling, triggers and gates are not the hard part: a harness
+can do those too. The hard part is that the long session's value came from the context it held and the
+judgement it exercised with it, and an ergostat deployment loses that unless ergostat delivers the right
+context to each session it starts, carries the owner's corrections forward, and judges outcomes against
+the owner's intent rather than steps against a checklist.
 
 ## 9. Open questions
 
