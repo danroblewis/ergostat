@@ -1,7 +1,8 @@
 """Findings that need the record (SPEC §12): what a model that compiles cannot show until it has
 run. A stock heading for its limit, a block saturating, a goal off that nothing answers, a person
 who was asked and has not answered, a sensor gone quiet, and a critical goal decaying (answering
-more slowly than it did, saturating more often, or owned by nobody)."""
+more slowly than it did, saturating more often, or owned by nobody), and a block whose claims the record
+contradicts."""
 
 from __future__ import annotations
 
@@ -79,6 +80,17 @@ def find(project, spec: Spec, window: float = WINDOW, now: float | None = None) 
         if len(failed) >= 3:
             say("failing", f"block {b.name}: failed {len(failed)} times ({failed[-1]['data'].get('note', '')})", b.where,
                 f"block.{b.name}")
+    # a block whose claims the record contradicts (SPEC §12g)
+    bad: dict[str, list[dict]] = {}
+    for e in ev.query(n=500, type="ergostat.claim.contradicted", since=since):
+        bad.setdefault(e["data"].get("block") or "", []).append(e)
+    for name, es in bad.items():
+        b = spec.blocks.get(name)
+        made = ev.query(n=1, item=es[-1]["item"], type="ergostat.claim.made")
+        says = made[-1]["data"].get("says", "") if made else ""
+        say("contradicted-claim", f"block {name}: {len(es)} claim{'s' if len(es) > 1 else ''} contradicted in the last "
+            f"{human(window)} (latest: {says!r}: {es[-1]['data'].get('why', '')}; {es[-1]['item']})",
+            b.where if b else None, f"block.{name}")
     # a person asked and not answering
     for e in ev.query(n=100, type="person.asked", since=since):
         b = spec.blocks.get(e.get("item") or "")
