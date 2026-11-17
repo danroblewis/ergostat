@@ -59,6 +59,7 @@ class Live:
         self.mtime = self._mtime()
         self._lock = threading.Lock()
         self._snaps: dict = {}
+        self._making: dict = {}            # snapshots being made: one at a time for each moment, however many ask
         self._kept: dict = {}
 
     def cached(self, key):
@@ -82,18 +83,32 @@ class Live:
     def snapshot(self, p, window: float, at: float | None):
         """The state, shared by the requests of one moment: the page asks for several parts of it
         every few seconds, and each would otherwise estimate it all again. Kept 1.5s; a past
-        moment (``at``) is kept until the model changes."""
+        moment (``at``) is kept until the model changes. Made once however many ask at once: on a
+        long record, requests that each made their own (and kept making it after their clients gave
+        up) were what left every later answer waiting."""
         key = (window, at, self.mtime)
-        with self._lock:
-            got = self._snaps.get(key)
-            if got and (at is not None or time.time() - got[0] < 1.5):
-                return got[1]
-        snap = st.snapshot(p, window, at)
-        with self._lock:
-            if len(self._snaps) > 32:
-                self._snaps.clear()
-            self._snaps[key] = (time.time(), snap)
-        return snap
+        import threading
+        while True:
+            with self._lock:
+                got = self._snaps.get(key)
+                if got and (at is not None or time.time() - got[0] < 1.5):
+                    return got[1]
+                busy = self._making.get(key)
+                if busy is None:                       # this request makes it; the others asking meanwhile wait for it
+                    busy = self._making[key] = threading.Event()
+                    break
+            busy.wait(120)
+        try:
+            snap = st.snapshot(p, window, at)
+            with self._lock:
+                if len(self._snaps) > 32:
+                    self._snaps.clear()
+                self._snaps[key] = (time.time(), snap)
+            return snap
+        finally:
+            with self._lock:
+                self._making.pop(key, None)
+            busy.set()
 
     def get(self):
         now = self._mtime()

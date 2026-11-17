@@ -85,3 +85,26 @@ def test_send_to_a_gone_client_logs_one_line(capsys):
     went_away("/api/graph?view=x", 4096 * 1024, BrokenPipeError(32, "Broken pipe"))
     err = capsys.readouterr().err
     assert err.count("\n") == 1 and "/api/graph was sent (4096 KB, BrokenPipeError)" in err and "Traceback" not in err
+
+
+def test_one_snapshot_is_made_however_many_ask_at_once(project, monkeypatch):
+    import threading
+
+    from ergostat import state as st
+    from ergostat.web.server import Live
+    made = []
+    real = st.snapshot
+
+    def slow(*a, **k):
+        made.append(1)
+        time.sleep(0.3)
+        return real(*a, **k)
+    monkeypatch.setattr(st, "snapshot", slow)
+    live = Live(project)
+    got = []
+    ts = [threading.Thread(target=lambda: got.append(live.snapshot(project, 3600.0, None))) for _ in range(8)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert len(made) == 1 and len(got) == 8 and all(g is got[0] for g in got)
