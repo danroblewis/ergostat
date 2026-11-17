@@ -139,6 +139,14 @@ class Victoria:
             if self._flusher is None:
                 self._flusher = threading.Thread(target=self._later, name="ergostat-victoria-flush", daemon=True)
                 self._flusher.start()
+                import atexit
+                atexit.register(self._last)
+
+    def _last(self) -> None:
+        try:
+            self.flush()
+        except VictoriaError:
+            pass
 
     def add_many(self, rows: list[tuple[str, float, float]]) -> None:
         self.flush()
