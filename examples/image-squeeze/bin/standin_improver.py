@@ -41,7 +41,7 @@ def declined(fit: dict) -> list[dict]:
         return []
     out = []
     for e in got.values():
-        if e.get("value") is None or not e.get("refused") or e.get("at_bound") or e.get("at_range") or not e.get("identifiable"):
+        if e.get("value") is None or not e.get("refused") or e.get("at_bound") or e.get("at_range"):
             continue
         name = e.get("parameter")
         edit = ergostat("improve", "--edit-value", f"{name}={e['value'] * 3600:.4g}s" if e.get("duration") else
@@ -98,7 +98,7 @@ def main() -> int:
     except (OSError, ValueError):
         tried = set()
     for x in declined(fit):                             # what ergostat declined, for the judge to decide
-        key = x["edit"]["files"][0]["diff"] if x["edit"]["files"] else x["title"]
+        key = x["target"]                               # each parameter once: the judge's verdict stands
         if said >= MOST or clashes(x, mine) or key in tried:
             continue
         tried.add(key)
