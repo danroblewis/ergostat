@@ -262,6 +262,15 @@ server (MetricsQL over `query_range`), raw readings exported when there are few 
 and old spans bucketed otherwise; a reading set aside (`forget`) is kept in
 `measurements.forgotten.json`.
 
+**Chosen by measurement** (`scripts/loadtest.py`, the demos' records tiled to 1, 7 and 30 days;
+the numbers in `docs/proposals/harness-parity-plan.md`, section 4). The segmented log is the
+default for events: a fifth of SQLite's size for the same record (110 MB against 557 MB for a week
+of image-squeeze), written faster, and read as fast or faster by every page. SQLite stays the
+default for measurements: VictoriaMetrics holds them in almost nothing and answers the pages as
+well, but every reading the engine reads is a request to the server, and the engine kept to under
+one reading a second where it makes six; it is for a project that already runs one, until the
+engine reads through a cache.
+
 **Upkeep.** The engine rolls items up, forgets what is past `keep`, and rolls the measurements into
 their tiers every `rollup.every` (an hour). `ergostat compact` does it now (`--dry-run` says what
 it would roll up).
