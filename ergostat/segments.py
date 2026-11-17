@@ -73,6 +73,27 @@ def _types_matcher(type: str | None, skip: tuple[str, ...]):
     return lambda t: (not want or any(one(t, w) for w in want)) and not any(one(t, s) for s in skip)
 
 
+class _Head:
+    """The head's events in memory, indexed by item and by type (positions only grow: a reader
+    takes the length it saw)."""
+
+    def __init__(self, evs=()):
+        self.evs: list[dict] = []
+        self.by_item: dict = {}
+        self.by_type: dict = {}
+        for e in evs:
+            self.add(e)
+
+    def add(self, e: dict) -> None:
+        i = len(self.evs)
+        self.evs.append(e)
+        self.by_item.setdefault(e.get("item"), []).append(i)
+        self.by_type.setdefault(e["type"], []).append(i)
+
+    def __len__(self) -> int:
+        return len(self.evs)
+
+
 class Segment:
     """A sealed segment: its header always in memory, its columns read when asked."""
 
@@ -185,7 +206,7 @@ class Segments:
         self.head_path.touch(exist_ok=True)
         self.seal = seal
         self._lock = threading.RLock()
-        self._head: list[dict] = []
+        self._head = _Head()
         self._head_off, self._head_ino = 0, None
         self._segs: list[Segment] = []
         self._dir_stamp = None
@@ -214,7 +235,7 @@ class Segments:
                     self._segs = sorted(segs, key=lambda s: s.first)
                     self._dir_stamp = stamp
                 if ino != self._head_ino:
-                    self._head, self._head_off, self._head_ino = [], 0, ino
+                    self._head, self._head_off, self._head_ino = _Head(), 0, ino
                 with open(self.head_path, "rb") as f:
                     f.seek(self._head_off)
                     chunk = f.read()
@@ -225,18 +246,23 @@ class Segments:
                         if line.strip():
                             e = json.loads(line)
                             if e["seq"] > sealed:
-                                self._head.append(e)
+                                self._head.add(e)
                     self._head_off += end + 1
                 if os.stat(self.head_path).st_ino == ino and os.stat(self.dir).st_mtime_ns == stamp:
                     sealed = self._segs[-1].last if self._segs else 0
-                    if self._head and self._head[0]["seq"] <= sealed:
-                        self._head = [e for e in self._head if e["seq"] > sealed]
+                    if self._head.evs and self._head.evs[0]["seq"] <= sealed:
+                        self._head = _Head(e for e in self._head.evs if e["seq"] > sealed)
                     return
 
     def _state(self) -> tuple[list[Segment], list[dict]]:
         self._sync()
         with self._lock:
-            return list(self._segs), list(self._head)
+            return list(self._segs), self._head.evs[:]
+
+    def _hstate(self) -> tuple[list[Segment], _Head, int]:
+        self._sync()
+        with self._lock:
+            return list(self._segs), self._head, len(self._head)
 
     @contextmanager
     def _writing(self):
@@ -249,8 +275,8 @@ class Segments:
                 fcntl.flock(lf, fcntl.LOCK_UN)
 
     def _next_seq(self) -> int:
-        if self._head:
-            return self._head[-1]["seq"] + 1
+        if self._head.evs:
+            return self._head.evs[-1]["seq"] + 1
         return (self._segs[-1].last if self._segs else 0) + 1
 
     # ---- reading a segment
@@ -327,7 +353,16 @@ class Segments:
         """Matching events, oldest first (the newest ``n``); ``test``, of a whole event, last."""
         types = _types_matcher(type, skip) if type or skip else None
         for attempt in range(3):
-            segs, head = self._state()
+            segs, hd, hn = self._hstate()
+            if item is not ...:
+                at = hd.by_item.get(item, [])
+            elif types is not None:
+                at = sorted(i for t, ix in list(hd.by_type.items()) if types(t) for i in ix)
+            elif item_test is not None:
+                at = sorted(i for it, ix in list(hd.by_item.items()) if item_test(it) for i in ix)
+            else:
+                at = range(hn)
+            head = [hd.evs[i] for i in at if i < hn]
             try:
                 out: list[dict] = []
                 hs = [e for e in head if (item is ... or e.get("item") == item) and (types is None or types(e["type"]))
@@ -423,14 +458,15 @@ class Segments:
             os.write(fd, body)
         finally:
             os.close(fd)
-        self._head.extend(evs)
+        for e in evs:
+            self._head.add(e)
         self._head_off += len(body)
         if len(self._head) >= self.seal:
             self._seal()
 
     def _seal(self) -> None:
         while len(self._head) >= self.seal:
-            part, rest = self._head[:self.seal], self._head[self.seal:]
+            part, rest = self._head.evs[:self.seal], self._head.evs[self.seal:]
             write_segment(self.dir, part)
             self._rewrite_head(rest)
             self._sync()
@@ -439,7 +475,7 @@ class Segments:
         tmp = self.dir / f"head.{uuid.uuid4().hex[:8]}.tmp"
         tmp.write_bytes("".join(json.dumps(e, separators=(",", ":"), default=str) + "\n" for e in evs).encode())
         os.replace(tmp, self.head_path)
-        self._head, self._head_off, self._head_ino = list(evs), self.head_path.stat().st_size, os.stat(self.head_path).st_ino
+        self._head, self._head_off, self._head_ino = _Head(evs), self.head_path.stat().st_size, os.stat(self.head_path).st_ino
 
     def known(self, ids: list[str]) -> set[str]:
         """Which of these event ids are recorded."""
@@ -657,7 +693,7 @@ class Segments:
                 s.path.with_suffix(suf).unlink(missing_ok=True)
             with self._lock:
                 self._open_cols.pop(s.name, None)
-        head = [e for e in self._head if keep_head(e)]
+        head = [e for e in self._head.evs if keep_head(e)]
         gone += len(self._head) - len(head)
         for q, e in extra.items():
             head.append({**e, "seq": q})

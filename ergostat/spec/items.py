@@ -207,16 +207,24 @@ _FOLDED: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 _FOLDED_LOCK = threading.Lock()
 
 
+def _kinds_key(spec) -> tuple:
+    """What a fold depends on in the model: its item kinds (a change being tried shares the kept fold
+    when it leaves them as they are)."""
+    return tuple((k.name, k.id, tuple(k.states), tuple(sorted(k.on.items())), tuple(sorted(k.fold.items())))
+                 for k in spec.items.values())
+
+
 def _folded(events, spec, kind: str | None, until: float | None, transcript: bool) -> list[Item] | None:
     if not hasattr(events, "generation"):
         return None
+    key = (_kinds_key(spec), transcript)
     with _FOLDED_LOCK:
-        mine = _FOLDED.get(events)
-        if mine is None or mine[0] is not spec:
-            mine = _FOLDED[events] = (spec, {})
-        f = mine[1].get(transcript)
+        mine = _FOLDED.setdefault(events, {})
+        f = mine.get(key)
         if f is None:
-            f = mine[1][transcript] = _Folded(spec, transcript)
+            if len(mine) >= 6:                       # a few models at once (a change being tried), not every one ever
+                mine.pop(next(iter(mine)))
+            f = mine[key] = _Folded(spec, transcript)
     return f.take(events, kind, until)
 
 
