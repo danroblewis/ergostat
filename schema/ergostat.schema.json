@@ -135,66 +135,6 @@
       "additionalProperties": {
         "$ref": "#/$defs/agent"
       }
-    },
-    "improve": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "How the model improves itself (SPEC \u00a712e): who writes a change the judge kept, the least improvement that counts, and the record it is judged on",
-      "properties": {
-        "accept": {
-          "oneOf": [
-            {
-              "enum": [
-                "owner",
-                "auto"
-              ]
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "parameter": {
-                  "enum": [
-                    "owner",
-                    "auto"
-                  ]
-                },
-                "equation": {
-                  "enum": [
-                    "owner",
-                    "auto"
-                  ]
-                },
-                "structure": {
-                  "enum": [
-                    "owner",
-                    "auto"
-                  ]
-                }
-              }
-            }
-          ]
-        },
-        "threshold": {
-          "oneOf": [
-            {
-              "type": "number",
-              "exclusiveMinimum": 0,
-              "exclusiveMaximum": 1
-            },
-            {
-              "type": "string",
-              "pattern": "^[0-9.]+%$"
-            }
-          ]
-        },
-        "hold-out": {
-          "$ref": "#/$defs/duration"
-        },
-        "description": {
-          "type": "string"
-        }
-      }
     }
   },
   "$defs": {
@@ -350,18 +290,14 @@
           ],
           "description": "On a flow: its rate from its stock's own successive readings"
         },
-        "model": {
+        "builtin": {
           "enum": [
-            "fit",
-            "unexplained",
-            "loops-unidentified",
-            "findings",
-            "model.fit",
-            "model.unexplained",
-            "model.loops-unidentified",
-            "model.findings"
+            "ergostat.model.fit",
+            "ergostat.model.unexplained",
+            "ergostat.model.unidentified-loops",
+            "ergostat.model.open-findings"
           ],
-          "description": "One of the model's own measures, read by ergostat (SPEC \u00a712e): fit (scaled error), unexplained (share of change the flows leave unexplained), loops-unidentified, findings"
+          "description": "One of ergostat's built-in measures of the model's own quality, read by ergostat (SPEC \u00a712e)"
         }
       },
       "oneOf": [
@@ -392,7 +328,7 @@
         },
         {
           "required": [
-            "model"
+            "builtin"
           ]
         }
       ],
@@ -619,7 +555,8 @@
         "expr",
         "timer",
         "counter",
-        "alarm"
+        "alarm",
+        "judge"
       ]
     },
     "machineTypes": {
@@ -773,6 +710,69 @@
         "integral-time": {
           "$ref": "#/$defs/duration",
           "description": "A machine block's integral time, when its law is PI (passed in its params)"
+        },
+        "accept": {
+          "description": "A judge's policy: who writes a change it passed (owner, the default, or auto), for every kind or by kind",
+          "oneOf": [
+            {
+              "enum": [
+                "owner",
+                "auto"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "parameter": {
+                  "enum": [
+                    "owner",
+                    "auto"
+                  ]
+                },
+                "equation": {
+                  "enum": [
+                    "owner",
+                    "auto"
+                  ]
+                },
+                "structure": {
+                  "enum": [
+                    "owner",
+                    "auto"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "threshold": {
+          "description": "A judge's least fall in scaled error that counts, in every window",
+          "oneOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "exclusiveMaximum": 1
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9.]+%$"
+            }
+          ]
+        },
+        "hold-out": {
+          "$ref": "#/$defs/duration",
+          "description": "A judge's record after a change that it is judged on"
+        },
+        "windows": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          },
+          "minItems": 1,
+          "description": "A judge's split of the record held out: [1, 2, 4], whole, halves, quarters"
         }
       },
       "additionalProperties": false,

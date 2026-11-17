@@ -1,15 +1,15 @@
-"""The model's own quality, as numbers a sensor reads (SPEC §12e): ``sensor: {model: fit}`` on a stock or an
-auxiliary, read by ergostat itself (``ergostat measure NAME``, in a process of its own, so a slow fit never
-holds up the engine). Each is a measurement of the model against the record, like any sensor's, so a goal
-can hold it and a block can act on it:
+"""The model's own quality, ergostat's built-in measures (SPEC §12e), each a reference ``ergostat.model.NAME``
+read by a sensor (``sensor: {builtin: ergostat.model.fit}``) on a stock or an auxiliary, by ergostat itself
+(``ergostat measure ergostat.model.fit``, in a process of its own, so a slow fit never holds up the engine). Each
+is a measurement of the model against the record, like any sensor's, so a goal can hold it and a block act on it:
 
-- **fit**: the scaled error of the replay on the reference window, the Fit page's total (Oliva 2003: each
+- **ergostat.model.fit**: the scaled error of the replay on the reference window, the Fit page's total (Oliva 2003: each
   stock's mean squared error over its own mean square, averaged); none while there is too little record;
-- **unexplained**: the share of each stock's change over the last hour that its flows do not explain (the
+- **ergostat.model.unexplained**: the share of each stock's change over the last hour that its flows do not explain (the
   residuals, SPEC §12b), |unexplained| / (|explained| + |unexplained|), averaged over the stocks that moved;
-- **loops-unidentified**: the goals whose loop closes and whose process (u to y) the model does not hold,
+- **ergostat.model.unidentified-loops**: the goals whose loop closes and whose process (u to y) the model does not hold,
   declared or identified (SPEC §8, §12d);
-- **findings**: what ``ergostat check`` finds, errors aside (structure, signs, extreme conditions, control).
+- **ergostat.model.open-findings**: what ``ergostat check`` finds, errors aside (structure, signs, extreme conditions, control).
 """
 
 from __future__ import annotations
@@ -60,11 +60,13 @@ def findings(p) -> float:
     return float(sum(1 for x in problems if x.level != "error"))
 
 
-READERS = {"fit": fit, "unexplained": unexplained, "loops-unidentified": loops_unidentified, "findings": findings}
+READERS = {"ergostat.model.fit": fit, "ergostat.model.unexplained": unexplained,
+           "ergostat.model.unidentified-loops": loops_unidentified, "ergostat.model.open-findings": findings}
 
 
 def measure(p, name: str) -> float | None:
-    name = name.removeprefix("model.")
+    if not name.startswith("ergostat."):           # by hand, the short name will do: fit, open-findings
+        name = "ergostat.model." + name.removeprefix("model.")
     if name not in MODEL_MEASURES:
         raise MeasureError(f"no measure {name!r}: {', '.join(MODEL_MEASURES)}")
     if getattr(p.model, "spec", None) is None:

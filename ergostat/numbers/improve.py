@@ -37,8 +37,6 @@ from . import yamledit as ye
 KINDS = ("parameter", "equation", "structure")
 WORSE = 0.10                # a proposal whose scaled error rises past this share (and not by a trifle) clearly worsens the fit
 TRIFLE = 1e-4
-STATE = "improve.json"
-KEEP_REFUSED = 40
 RULES = {                   # the modelling rules a reason may cite, each with where it is written
     "rate-driven-by-rate": "docs/MODELLING.md §1: a rate driven by a rate needs the stock between (Sterman ch. 6, 11; Forrester 1961)",
     "stock-without-outflow": "docs/MODELLING.md §2: what fills a stock leaves it somehow (Sterman ch. 6, 21)",
@@ -356,7 +354,7 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
                            + (" even refitted" if ar is not None else ""))
     kind = kind_of(spec, after, said_kind)
     j = joined(es_)
-    x = {"kind": kind, "said_kind": said_kind, "proposed_by": by, "parts": parts,
+    x = {"kind": kind, "said_kind": said_kind, "made_by": by, "parts": parts,
          "touched": [r for r in parts if r.split(".")[0] in ("stock", "flow", "auxiliary")] or
                     [r for r in sorted(_moved(spec, after)) if r.split(".")[0] in ("stock", "flow", "auxiliary")],
          "title": str(raw.get("title") or kept[0]["says"])[:200], "reasons": kept, "refused_reasons": refused,
@@ -389,27 +387,13 @@ def _moved(before: Spec, after: Spec) -> set[str]:
     return out
 
 
-# ---- landing in the queue
-
-def _state(p) -> dict:
-    try:
-        return json.loads((p.dir / STATE).read_text())
-    except (OSError, ValueError):
-        return {}
-
-
-def _save_state(p, d: dict) -> None:
-    f = p.dir / STATE
-    f.parent.mkdir(parents=True, exist_ok=True)
-    tmp = f.with_suffix(".tmp")
-    tmp.write_text(json.dumps(d, indent=1))
-    tmp.replace(f)
-
+# ---- recorded, as an ergostat.model-change item
 
 def not_proposed(p) -> list[dict]:
-    """What blocks proposed and ergostat did not take, newest first, with why (the review queue's "found, and not
-    proposed")."""
-    return list(reversed(_state(p).get("not_proposed") or []))
+    """What blocks made and ergostat refused, newest first, with why (the review queue's "found, and not proposed")."""
+    xs = [x for x in pr.stored(p).values() if x["state"] == "refused" and x.get("made_by") not in (None, "ergostat", "owner")]
+    return [{"id": x["id"], "title": x.get("title") or "a change", "why": x.get("why"), "by": x["made_by"],
+             "at": x.get("made") or x.get("created")} for x in sorted(xs, key=lambda x: -(x.get("made") or 0))]
 
 
 def _rung(spec: Spec, by: str) -> str | None:
@@ -418,68 +402,40 @@ def _rung(spec: Spec, by: str) -> str | None:
         return None
     if b.agent in spec.agents and spec.agents[b.agent].kind:
         return spec.agents[b.agent].kind
-    return {"ai": "ai", "program": "program", "person": "person", "external": "external"}.get(b.type, "rule")
+    return {"ai": "ai", "program": "program", "person": "person", "external": "external", "judge": "program"}.get(b.type, "rule")
 
 
 def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None, at: float | None = None) -> dict:
-    """A block's proposal, validated and put in the review queue (or listed as not proposed, with why). Returns
-    ``{"status": "proposed" | "also" | "not-proposed", "id", "title", "why"}``."""
+    """A block's proposal: recorded as made (``ergostat.model-change.made``, from the block, caused by its run), then
+    checked, or refused with why. Returns ``{"status": "proposed" | "not-proposed", "id", "title", "why"}``."""
     spec: Spec = p.model.spec
     now = at or time.time()
-    title = str((raw or {}).get("title") or "") if isinstance(raw, dict) else ""
-    try:
-        x = validate(p, spec, by, raw, data)
-    except (ProposeError, tr.TrialError) as e:
-        pid = _id("refused", by, json.dumps(raw, sort_keys=True, default=str))
-        with pr.locked(p):
-            st = _state(p)
-            st["not_proposed"] = ((st.get("not_proposed") or []) +
-                                  [{"id": pid, "title": title or "a change", "why": str(e), "by": by, "at": now}])[-KEEP_REFUSED:]
-            _save_state(p, st)
-        p.events.add("model.refused", item=f"proposal/{pid}", source=by, causedby=run,
-                     data={"title": title or "a change", "why": str(e), "by": by})
-        return {"status": "not-proposed", "id": pid, "title": title, "why": str(e)}
-    st_, v = ver.structure(spec), ver.version(spec)
+    title = str((raw or {}).get("title") or "a change")[:200] if isinstance(raw, dict) else "a change"
+    pid = _id("made", by, run, now, json.dumps(raw, sort_keys=True, default=str))
+    made = {"title": title, "made_by": by, "made_by_rung": _rung(spec, by), "made": now, "created": now,
+            "version": ver.version(spec), "structure": ver.structure(spec), "run": run,
+            **({k: raw.get(k) for k in ("kind", "parts", "edit", "reasons", "confidence") if k in raw} if isinstance(raw, dict) else {})}
     with pr.locked(p):
-        props = pr.stored(p)
-        same = next((y for y in props.values() if y["status"] == "pending" and y.get("structure") == st_ and
-                     (y.get("edit") or {}).get("diff") == x["edit"]["diff"]), None)
-        if same is not None:                          # already waiting (ergostat found it too, or another block did)
-            first = not same.get("proposed_by")
-            if first:
-                same.update({"proposed_by": by, "by_rung": _rung(spec, by), "reasons": x["reasons"], "confidence": x["confidence"],
-                             "findings": x["findings"], "proposed": now, "run": run})
-            elif by != same["proposed_by"] and by not in (same.get("also_by") or []):
-                same["also_by"] = [*(same.get("also_by") or []), by]
-            props[same["id"]] = same
-            pr.save(p, props)
-            if first:
-                _proposed_event(p, same, run)
-            return {"status": "also", "id": same["id"], "title": same["title"],
-                    "why": "already waiting in the review queue" + ("; now a candidate" if first else "")}
-        pid = _id("block", st_, x["edit"]["diff"])
-        if pid in props:
-            return {"status": "also", "id": pid, "title": props[pid]["title"],
-                    "why": f"made before and {props[pid]['status']}: not proposed again for this structure"}
-        x.update({"id": pid, "by_rung": _rung(spec, by), "status": "pending", "created": now, "proposed": now,
-                  "structure": st_, "version": v, "window": data.grid.until - data.grid.since if data else None, "run": run,
-                  "method": f"proposed by {by} ({_rung(spec, by) or 'a block'}); checked by ergostat on a scratch copy: "
+        pr.event(p, pid, "made", made, source=by, causedby=run)
+        try:
+            x = validate(p, spec, by, raw, data)
+            same = next((y for y in pr.stored(p).values() if y["id"] != pid and y.get("version") == made["version"] and
+                         (y.get("edit") or {}).get("diff") == x["edit"]["diff"] and y["state"] != "refused"), None)
+            if same is not None:
+                raise ProposeError(f"the same change is {'waiting' if same['status'] == 'pending' else same['status']} "
+                                   f"already: {pr.item_of(same['id'])}, made by {same.get('made_by') or 'ergostat'}")
+        except (ProposeError, tr.TrialError) as e:
+            pr.event(p, pid, "refused", {"why": str(e)})
+            return {"status": "not-proposed", "id": pid, "title": title, "why": str(e)}
+        x.update({"made_by_rung": _rung(spec, by), "window": data.grid.until - data.grid.since if data else None,
+                  "method": f"made by {by} ({_rung(spec, by) or 'a block'}); checked by ergostat on a scratch copy: "
                             f"compiled, checked, replayed and refitted on the reference window"})
         if x["window"] is None:
             g = ob.reference(p)
             x["window"] = g.until - g.since
         x["span"] = x["window"]
-        props[pid] = x
-        pr.save(p, props)
-    _proposed_event(p, x, run)
+        pr.event(p, pid, "checked", x)
     return {"status": "proposed", "id": pid, "title": x["title"], "why": None}
-
-
-def _proposed_event(p, x: dict, run: str | None) -> None:
-    p.events.add("model.proposed", item=f"proposal/{x['id']}", source=x["proposed_by"], causedby=run,
-                 data={"title": x["title"], "kind": x["kind"], "by": x["proposed_by"], "confidence": x.get("confidence"),
-                       "scaled_error_before": _nmse(x.get("fit_before")), "scaled_error_after": _nmse(x.get("fit_after")),
-                       "answers": len((x.get("findings") or {}).get("answered") or [])})
 
 
 def trial(p, raw: dict) -> dict:

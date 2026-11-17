@@ -12,7 +12,9 @@ from ..durations import DurationError, parse_duration
 from .equation import FUNCS as FUNCTIONS
 from .ir import (
     BUILTIN,
+    JUDGE_PORTS,
     MACHINE,
+    MODEL_CHANGE,
     MODEL_MEASURES,
     NAME,
     Agent,
@@ -31,11 +33,12 @@ from .ir import (
     Source,
     Spec,
     Stock,
+    model_change_kind,
 )
 from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
-SENSOR_KEYS = {"run", "query", "manual", "items", "model", "every", "cron", "timeout", "parse", "unit", "description", "averages"}
+SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "every", "cron", "timeout", "parse", "unit", "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats"}
@@ -58,6 +61,7 @@ TYPE_KEYS = {
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until"},
     "external": {"agent"},
+    "judge": {"every", "accept", "threshold", "hold-out", "windows"},
     "onoff": {"goal", "until", "min-on", "min-off"},
     "compare": {"above", "below", "back-above", "back-below"},
     "proportional": {"goal", "gain", "min", "max"},
@@ -159,33 +163,28 @@ class Compiler:
             return None
         return str(v)
 
-    def improve(self, m) -> Improve:
-        """``improve:``, the policy for changes to the model a judge kept (SPEC §12e): ``accept`` (``owner``, the
-        default, or ``auto``, for every kind or by kind), ``threshold`` (a share, ``2%``) and ``hold-out`` (a
-        duration)."""
+    def judge_policy(self, m: Map, what: str) -> Improve:
+        """A judge block's policy (SPEC §12e): ``accept`` (``owner``, the default, or ``auto``, for every kind or by
+        kind), ``threshold`` (a share, ``2%``), ``hold-out`` (a duration) and ``windows`` (how the record held out
+        is split: ``[1, 2, 4]``, whole, halves and quarters)."""
         out = Improve()
-        if not isinstance(m, Map):
-            self.err("improve: a map (accept:, threshold:, hold-out:)", None, "not-a-map")
-            return out
-        out.where = m.where
-        self.keys(m, {"accept", "threshold", "hold-out", "description"}, "improve")
         acc = m.get("accept")
         ways = ("owner", "auto")
         if isinstance(acc, str):
             if acc not in ways:
-                self.err("improve.accept: owner or auto (or by kind: parameter:, equation:, structure:)", m.at("accept"),
+                self.err(f"{what}.accept: owner or auto (or by kind: parameter:, equation:, structure:)", m.at("accept"),
                          "bad-accept")
             else:
                 out.accept = dict.fromkeys(out.accept, acc)
         elif isinstance(acc, Map):
             for k, v in acc.items():
                 if k not in out.accept or str(v) not in ways:
-                    self.err(f"improve.accept.{k}: a kind of change ({', '.join(out.accept)}) set to owner or auto",
+                    self.err(f"{what}.accept.{k}: a kind of change ({', '.join(out.accept)}) set to owner or auto",
                              acc.at(k), "bad-accept")
                     continue
                 out.accept[str(k)] = str(v)
         elif acc is not None:
-            self.err("improve.accept: owner or auto, or a map of kind to owner or auto", m.at("accept"), "bad-accept")
+            self.err(f"{what}.accept: owner or auto, or a map of kind to owner or auto", m.at("accept"), "bad-accept")
         t = m.get("threshold")
         if t is not None:
             try:
@@ -194,14 +193,22 @@ class Compiler:
                     raise ValueError
                 out.threshold = v
             except ValueError:
-                self.err("improve.threshold: a share above 0 and below 1, like 2% or 0.02", m.at("threshold"),
+                self.err(f"{what}.threshold: a share above 0 and below 1, like 2% or 0.02", m.at("threshold"),
                          "bad-threshold")
-        h = self.duration(m, "hold-out", "improve", None)
+        h = self.duration(m, "hold-out", what, None)
         if h is not None:
             if h <= 0:
-                self.err("improve.hold-out: a duration above 0", m.at("hold-out"), "bad-duration")
+                self.err(f"{what}.hold-out: a duration above 0", m.at("hold-out"), "bad-duration")
             else:
                 out.hold_out = h
+        w = m.get("windows")
+        if w is not None:
+            if not isinstance(w, list) or not w or not all(isinstance(x, int) and not isinstance(x, bool) and 1 <= x <= 16
+                                                            for x in w):
+                self.err(f"{what}.windows: how the record held out is split, a list of whole numbers ([1, 2, 4]: whole, "
+                         f"halves, quarters)", m.at("windows"), "bad-windows")
+            else:
+                out.windows = sorted(set(w))
         return out
 
     def text(self, m: Map, key: str, default: str = "") -> str:
@@ -341,20 +348,20 @@ class Compiler:
             changes = s.get("changes")
             self.keys(s, SENSOR_KEYS | (ITEM_SENSOR_KEYS if counted else set()) | ({"changes", "over"} if changes is not None
                                                                                   else {"changes"}), sw)
-            kinds = [k for k in ("run", "query", "manual", "items", "changes", "model") if s.get(k) not in (None, False)]
+            kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin") if s.get(k) not in (None, False)]
             if len(kinds) != 1:
-                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes: or model: (it has "
+                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes: or builtin: (it has "
                          f"{', '.join(kinds) or 'none'})", s.where, "sensor-kind")
             measure = None
-            if s.get("model") is not None:
-                measure = str(s["model"]).removeprefix("model.")
+            if s.get("builtin") is not None:
+                measure = str(s["builtin"])
                 if measure not in MODEL_MEASURES:
-                    self.err(f"{sw}.model: one of the model's own measures, {', '.join(MODEL_MEASURES)}", s.at("model"),
-                             "bad-measure")
+                    self.err(f"{sw}.builtin: one of ergostat's built-in measures, {', '.join(MODEL_MEASURES)}",
+                             s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
-                    self.err(f"{sw}.model: the model's measures are levels, read by a stock or an auxiliary", s.at("model"),
-                             "bad-measure")
+                    self.err(f"{sw}.builtin: the model's measures are levels, read by a stock or an auxiliary",
+                             s.at("builtin"), "bad-measure")
                     measure = None
             if changes is not None and (of.kind != "flow" or changes not in CHANGES):
                 self.err(f"{sw}.changes: on a flow, one of {', '.join(CHANGES)}: its rate from its stock's own readings (how "
@@ -384,7 +391,7 @@ class Compiler:
             run = s.get("run") and str(s["run"])
             if measure:                                 # read by ergostat itself, in a process of its own
                 run = f"{shlex.quote(sys.executable)} -m ergostat -C . measure {measure}"
-            out[str(name)] = Sensor(str(name), of, run=run, query=dict(q) if q else None, averages=averages, model=measure,
+            out[str(name)] = Sensor(str(name), of, run=run, query=dict(q) if q else None, averages=averages, builtin=measure,
                                     items=self.item_sensor(s, of, sw) if counted else None,
                                     changes={"what": changes, "over": self.duration(s, "over", sw, 3600.0)} if changes else None,
                                     manual=bool(s.get("manual")), every=self.duration(s, "every", sw, 60.0),
@@ -544,8 +551,6 @@ class Compiler:
                 spec.keep = parse_duration(d.keep, "keep")
             except DurationError as e:
                 self.err(str(e), None, "bad-duration")
-        if d.improve is not None:
-            spec.improve = self.improve(d.improve)
         for name, m, what in self.named("systems"):
             self.keys(m, {"description", "within", "show"}, what)
             spec.systems[name] = self.text(m, "description")
@@ -573,7 +578,13 @@ class Compiler:
                 self.err(f"{what}: a prometheus source needs url:", m.where, "missing-key")
             spec.sources[name] = Source(name, t, self.text(m, "url"), m.where)
         for name, m, _ in self.named("items"):
-            spec.items[name] = self.item_kind(name, m, f"item kind {name}")
+            k = self.item_kind(name, m, f"item kind {name}")
+            if k.id.startswith("ergostat."):
+                self.err(f"item kind {name}.id: ids starting ergostat. are ergostat's own ({MODEL_CHANGE}/*)", m.at("id") or m.where,
+                         "reserved-id")
+                continue
+            spec.items[name] = k
+        spec.items[MODEL_CHANGE] = model_change_kind()       # built in: every change to the model (SPEC §12e)
         self.parameters(spec)
         for name, m, what in self.named("stocks"):
             self.keys(m, STOCK_KEYS, what)
@@ -663,6 +674,13 @@ class Compiler:
             b = self.block(name, m, what)
             if b:
                 spec.blocks[name] = b
+        judges = [b for b in spec.blocks.values() if b.type == "judge"]
+        for b in judges[1:]:
+            self.err(f"block {b.name}: one judge of changes to the model at most ({judges[0].name} is one)", b.where,
+                     "two-judges")
+        if judges:
+            spec.improve = judges[0].params["policy"]
+            spec.improve.block = judges[0].name
         self.implied(spec)
         for name, m, what in self.named("loops"):
             self.keys(m, {"through", "goal", "description"}, what)
@@ -999,7 +1017,7 @@ class Compiler:
             if "\n" not in p and p.endswith((".md", ".txt")) and not (self.doc.root / p).is_file():
                 self.err(f"{what}.prompt: {p} is not a file here", m.at("prompt"), "prompt-missing")
         signs: dict[str, int] = {}
-        ins = self.refs(m, "in", what, ("stock", "flow", "auxiliary", "goal", "block"), signs if t in MACHINE else None)
+        ins = self.refs(m, "in", what, ("stock", "flow", "auxiliary", "goal", "block"), signs if t in MACHINE or t == "judge" else None)
         for port in list(signs):
             r = (ins.get(port) or [None])[-1]
             if r is not None and r.kind in ("goal", "block"):
@@ -1011,7 +1029,13 @@ class Compiler:
         for port, refs in ins.items():
             for r in refs:
                 inputs[port] = r
-        if t in BUILTIN and any(r.kind == "flow" for rs in outs.values() for r in rs):
+        if t == "judge":
+            params["policy"] = self.judge_policy(m, what)
+            for port, rs in outs.items():
+                if port not in JUDGE_PORTS or any(r.kind != "flow" for r in rs):
+                    self.err(f"{what}.out.{port}: a judge reports what it moved on its ports, {', '.join(JUDGE_PORTS)}, each "
+                             f"a flow (out: {{passed: flow.changes-passed}})", m.at("out"), "bad-ref")
+        elif t in BUILTIN and any(r.kind == "flow" for rs in outs.values() for r in rs):
             self.err(f"{what}: a built-in block computes a signal; it cannot move a flow. Point it at the block that does "
                      f"(out: block.<worker>)", m.at("out"), "builtin-moves-flow")
         if t in ONE_INPUT and len(inputs) > 1:

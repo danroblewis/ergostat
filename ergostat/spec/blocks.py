@@ -376,7 +376,7 @@ def make(block: Block, spec: Spec) -> Builtin:
 def order(spec: Spec) -> list[str]:
     """The built-ins in an order where each comes after the built-ins it reads (a delay breaks a
     cycle: it reads its input's last value)."""
-    names = [n for n, b in spec.blocks.items() if b.builtin]
+    names = [n for n, b in spec.blocks.items() if b.builtin and b.type != "judge"]   # the judge runs on its own clock
     deps: dict[str, set[str]] = {n: set() for n in names}
     for n in names:
         b = spec.blocks[n]

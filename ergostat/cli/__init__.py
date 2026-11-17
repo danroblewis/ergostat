@@ -171,6 +171,8 @@ def build() -> argparse.ArgumentParser:
     im = topic("improve", cmd_improve, "What blocks proposed and ergostat turned away; --try FILE checks a proposal", named=False)
     im.add_argument("--try", dest="try_", metavar="FILE", help="a propose line's JSON (or - for standard input): checked "
                                                                "and measured as a block's would be, and kept nowhere")
+    im.add_argument("--edit-value", metavar="NAME=VALUE", help="the edit that sets a parameter's value, in the form a "
+                                                              "propose line takes (a time with its unit: 20s); writes nothing")
     for t in PART_TOPICS:
         sp = topic(t, cmd_part, f"The {t}s, or one")
         sp.set_defaults(fn=cmd_part, topic=t)

@@ -15,7 +15,7 @@ FILE = "ergostat.yaml"
 SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
             "loops")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary"}    # variables: the old name of auxiliaries
-TOP = {"name", "include", "keep", "defaults", "improve", *SECTIONS}
+TOP = {"name", "include", "keep", "defaults", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -108,7 +108,6 @@ class Document:
     name: str
     files: list[Path] = field(default_factory=list)
     keep: object = None
-    improve: object = None
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
@@ -165,12 +164,6 @@ def load(main: Path) -> Document:
                 doc.keep = data["keep"]
             else:
                 doc.problems.append(Problem("error", "keep: belongs in the main file only", data.at("keep"), "keep-in-include"))
-        if "improve" in data:
-            if top:
-                doc.improve = data["improve"]
-            else:
-                doc.problems.append(Problem("error", "improve: belongs in the main file only", data.at("improve"),
-                                            "improve-in-include"))
         defaults = data.get("defaults") or {}
         if not isinstance(defaults, dict) or set(defaults) - {"system"}:
             doc.problems.append(Problem("error", "defaults: may only set system:", data.at("defaults"), "bad-defaults"))

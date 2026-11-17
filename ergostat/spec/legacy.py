@@ -49,7 +49,7 @@ def to_model(spec: Spec, problems) -> mdl.Model:
                                                                and not s.measured and not s.manual)
     for b in spec.blocks.values():
         kind = spec.agents[b.agent].kind if b.agent in spec.agents and spec.agents[b.agent].kind else \
-            "rule" if b.builtin else KIND[b.type]
+            "program" if b.type == "judge" else "rule" if b.builtin else KIND[b.type]
         command = b.params.get("run") or ""
         if b.type == "ai" and not command:
             command = f"(prompt: {str(b.params.get('prompt', ''))[:60]})"

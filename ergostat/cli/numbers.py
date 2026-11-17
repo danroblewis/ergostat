@@ -273,32 +273,22 @@ def cmd_measure(args) -> int:
 
 
 def cmd_judge(args) -> int:
-    """``ergostat judge``: one pass of the judge over the candidate changes to the model (SPEC §12e). Run by a
-    block, it prints what it moved on the block's ports (testing, kept, dropped, accepted)."""
-    import os
-
+    """``ergostat judge``: one pass of the judge over the changes to the model waiting (SPEC §12e), at once, as the
+    model's judge block would make it (its policy; the owner's, with nothing automatic, when it has none)."""
     from ..numbers import judge as jd
     p = open_project(args)
     spec = _spec(p)
-    block = os.environ.get("ERGOSTAT_BLOCK")
-    got = jd.run(p, by=block or "owner")
-    if block and block in spec.blocks:
-        import json
-        for v in got["verdicts"]:
-            print(f"{v['id']} {v['verdict']}: {v['why']}", file=sys.stderr)
-        for line in jd.lines(spec, block, got):
-            print(json.dumps(line))
-        return 0
+    got = jd.run(p, by=spec.improve.block or "owner")
     if args.json:
         return out_json(got)
     for v in got["verdicts"]:
-        print(f"{c(v['id'], 'accent')}  {c(v['verdict'], 'ok' if v['verdict'] == 'kept' else 'warn')}: {v['why']}")
+        print(f"{c(v['id'], 'accent')}  {c(v['verdict'], 'ok' if v['verdict'] == 'passed' else 'warn')}: {v['why']}")
     for w in got["waiting"]:
         print(c(f"{w['id']}  testing: {human(w['held'])} of {human(w['needs'])} held out", "dim"))
     if not got["verdicts"] and not got["waiting"]:
-        print("no candidate changes to judge: a block proposes them (a propose line, SPEC §12e)")
+        print("no changes to the model waiting to be judged")
     if got["accepted"]:
-        print(f"written: {got['accepted']} (improve.accept says auto); commit it")
+        print(f"written: {got['accepted']} (the judge's accept: says auto); commit it")
     return 0
 
 
@@ -310,6 +300,20 @@ def cmd_improve(args) -> int:
     from ..numbers import improve as im
     p = open_project(args)
     _spec(p)
+    if args.edit_value:
+        from ..numbers import proposals as pr
+        from ..numbers import yamledit as ye
+        spec = p.model.spec
+        name, _, value = args.edit_value.partition("=")
+        prm = spec.parameters.get(name.strip())
+        try:
+            if prm is None or prm.table:
+                raise pr.ProposalError(f"no parameter {name.strip()} with a value")
+            v = float(value) if not prm.duration else pr.parse_value(prm, value)
+            return out_json(im.joined([pr._value_edit(prm, v)]))
+        except (pr.ProposalError, ye.EditError, ValueError) as e:
+            print(e, file=sys.stderr)
+            return 2
     if args.try_:
         raw = sys.stdin.read() if args.try_ == "-" else open(args.try_, encoding="utf-8").read()
         try:

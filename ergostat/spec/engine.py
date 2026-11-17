@@ -33,6 +33,7 @@ from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
 
 TICK = 1.0
+JUDGE_EVERY = 30.0          # a judge with no every: passes this often
 SOURCE = "ergostat"
 AI_COMMAND = os.environ.get("ERGOSTAT_AI", "claude -p")
 AI_FOOTER = """
@@ -404,6 +405,29 @@ class Engine:
             self.say(f"{b.name}: {said.refused[0]}")
         return [f for f, v in said.moved.items() if v]           # moving nothing is not a reason to read again
 
+    def judge(self, b: Block) -> None:
+        """One pass of the judge, ergostat's own (no program): recorded as a run, what it moved said on its ports."""
+        from ..numbers import judge as jd
+        ev = self.p.events
+        begun = ev.add("agent.started", item=b.name, source=SOURCE, data={"trigger": "schedule"})
+        started = time.time()
+        try:
+            got = jd.run(self.p, by=b.name)
+        except Exception as e:
+            ev.add("agent.failed", item=b.name, source=SOURCE, causedby=begun["id"],
+                   data={"exit": None, "seconds": round(time.time() - started, 3), "note": f"{type(e).__name__}: {e}"})
+            self.say(f"{b.name}: {type(e).__name__}: {e}")
+            return
+        finally:
+            with self.lock:
+                self.running.discard(b.name)
+        said = Said(self, b, begun["id"])
+        for line in jd.lines(self.spec, b.name, got):
+            said.take(line)
+        ev.add("agent.ran", item=b.name, source=SOURCE, causedby=begun["id"],
+               data={"exit": 0, "seconds": round(time.time() - started, 3), "why": "schedule", **said.counts,
+                     **{k: got[k] for k in jd.PORTS}, **({"moved": said.moved} if said.moved else {})})
+
     # ---- sensors
 
     def read_soon(self, s: Sensor) -> None:
@@ -445,6 +469,7 @@ class Engine:
         due: dict[str, float] = {}
         timed = [s for s in self.spec.sensors() if s.measured and not s.cron]
         timed_blocks = [b for b in self.machines if (b.every and not b.cron) and not self.spec.commanders_of(b.name)]
+        judges = [b for b in self.spec.blocks.values() if b.type == "judge"]
         crons: dict[str, tuple] = {}
         for s in self.spec.sensors():
             if s.measured and s.cron:
@@ -465,6 +490,13 @@ class Engine:
                 if mono >= due.get(k, 0):
                     due[k] = mono + b.every
                     self.start(b, "schedule")
+            for b in judges:                                     # the judge: built in, on its own clock (SPEC §12e)
+                k = f"block/{b.name}"
+                if mono >= due.get(k, 0) and b.name not in self.running:
+                    due[k] = mono + (b.every or JUDGE_EVERY)
+                    with self.lock:
+                        self.running.add(b.name)
+                    threading.Thread(target=self.judge, args=(b,), daemon=True).start()
             wall = time.time()
             for k, at in list(nxt.items()):
                 if at is not None and wall >= at:

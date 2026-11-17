@@ -396,7 +396,21 @@ def offered(p, a: dict) -> list[dict]:
             x["key"] = a["key"]
             OFFERED[x["id"]] = x
             out.append(x)
+            if x["kind"] in ("process", "tuning"):
+                _made(p, x)
     return out
+
+
+def _made(p, x: dict) -> None:
+    """A loop's process or gain offered for the first time: an ``ergostat.model-change`` item, made by ergostat and
+    checked (its analysis is its check), like every change to the model."""
+    from ..numbers import proposals as pr
+    if x["id"] in pr.changes(p):
+        return
+    body = {"kind": x["kind"], "title": x["title"], "goal": x.get("goal"), "block": x.get("block"), "reason": x.get("reason"),
+            "target": f"goal.{x.get('goal')}", "made_by": "ergostat", "created": time.time(), "edit": x.get("edit")}
+    pr.event(p, x["id"], "made", body)
+    pr.event(p, x["id"], "checked", {})
 
 
 def dismiss(p, pid: str, reason: str | None = None) -> dict:
@@ -407,8 +421,9 @@ def dismiss(p, pid: str, reason: str | None = None) -> dict:
     d[pid] = {"status": "dismissed", "decided": time.time(), "kind": x["kind"], "goal": x["goal"], "title": x["title"],
               **({"family": x["family"]} if x.get("family") else {}), **({"reason": reason.strip()[:500]} if reason else {})}
     _save(p, d)
-    p.events.add("model.dismissed", item=p.model.name, source="owner",
-                 data={"proposal": pid, "title": x["title"], **({"reason": reason.strip()[:500]} if reason else {})})
+    from ..numbers import proposals as pr
+    _made(p, x)
+    pr.event(p, pid, "dismissed", {"dismissed_because": reason.strip()[:500]} if reason else {}, source="owner")
     OFFERED.pop(pid, None)
     return {**x, "status": "dismissed"}
 
@@ -459,8 +474,12 @@ def accept(p, pid: str, by: str = "owner", expect: str | None = None) -> dict:
     after = lp.key(p.model.spec, x["goal"])
     d[pid] = {"status": "accepted", "decided": time.time(), "kind": x["kind"], "goal": x["goal"], "title": x["title"], "by": by}
     _save(p, d)
-    p.events.add("model.accepted", item=p.model.name, source=by,
-                 data={"proposal": pid, "kind": x["kind"], "title": x["title"], "target": f"goal.{x['goal']}",
-                       "diff": x["edit"]["diff"], "loop_before": before, "loop_after": after, "values": x.get("values")})
+    from ..numbers import proposals as pr
+    _made(p, x)
+    pr.event(p, pid, "accepted", {"decided": time.time(), "by": by}, source=by)
+    p.events.add("ergostat.model.changed", item=p.model.name, source="ergostat",
+                 data={"change": pid, "item": pr.item_of(pid), "kind": x["kind"], "title": x["title"],
+                       "target": f"goal.{x['goal']}", "accepted_by": by, "diff": x["edit"]["diff"], "loop_before": before,
+                       "loop_after": after, "values": x.get("values")})
     OFFERED.pop(pid, None)
     return {**x, "status": "accepted"}

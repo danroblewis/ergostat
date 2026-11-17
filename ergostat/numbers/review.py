@@ -76,7 +76,9 @@ def refresh(p, spec: Spec, at: float | None = None, force: bool = False) -> list
     mine = {x["id"] for x in found}
     for k in [k for k, x in props.items() if x.get("kind") == "structure" and x["status"] == "pending" and
               not pr.candidate(x) and (k not in mine or x.get("structure") != st)]:
-        del props[k]
+        del props[k]                                  # superseded: no longer found
+    for x in found:
+        x["made_by"] = "ergostat"
     for x in found:
         if x["id"] in props:                           # dismissed (or accepted, or pending) already: not made again
             continue
@@ -122,7 +124,7 @@ def _what(x: dict) -> str:
         n = len(x.get("parameters") or {})
         words = {"parameter": "A parameter's value" if n <= 1 else f"{n} parameters' values", "equation": "An equation",
                  "structure": "A change to the structure"}.get(k, "A change")
-        return f"{words}, proposed by {x['proposed_by']}"
+        return f"{words}, proposed by {x['made_by']}"
     if k == "parameter":
         n = len(x.get("parameters") or {})
         what = "A parameter's value" if n == 1 else f"{n} parameters' values, fitted together"
@@ -156,7 +158,7 @@ def _how(x: dict, spec: Spec) -> dict:
         c = x.get("confidence")
         r = (x.get("refit") or {}).get("values")
         return {"method": x.get("method"), "span": span, "n": None,
-                "confidence": "; ".join(b for b in (f"{x['proposed_by']} is {c:.0%} sure" if c is not None else None,
+                "confidence": "; ".join(b for b in (f"{x['made_by']} is {c:.0%} sure" if c is not None else None,
                                                      ("refitted, " + ", ".join(f"{n} = {ye.number(v)}" for n, v in r.items()))
                                                      if r else None) if b) or None}
     if k == "parameter" and x.get("scope") == "what-if":
@@ -299,17 +301,19 @@ def entry(x: dict, spec: Spec, others: list[dict] | None = None, root: Path | No
 
 
 def _by(x: dict) -> dict:
-    """Who proposed it, when a block did (a propose line, SPEC §12e): its name and rung, its reasons with the
-    evidence each was checked against, how sure it said it is, what ergostat found it answers, and the judge's verdict."""
-    if not x.get("proposed_by"):
-        return {"proposed_by": None}
+    """Who made it (a block by its propose line, ergostat's own finders, or the owner's what-if, SPEC §12e), its item,
+    its state, and, when a block made it, its rung, its reasons with the evidence each was checked against and how sure
+    it said it is; what ergostat found it answers; and the judge's verdict."""
     v = dict(x.get("verdict") or {})
     if v:
         v["windows"] = len(v.get("windows") or [])
-    return {"proposed_by": x["proposed_by"], "proposed_by_rung": x.get("by_rung"), "also_by": x.get("also_by") or [],
-            "reasons": x.get("reasons") or [], "confidence": x.get("confidence"), "findings": x.get("findings") or {},
-            "verdict": v or ({"verdict": "testing", "why": "judged on the record after it was proposed"} if x.get("testing")
-                             else None)}
+    elif x.get("state") == "testing":
+        v = {"verdict": "testing", "why": "replayed on the record after it was made, until its hold-out is long enough"}
+    block = bool(x.get("made_by") and x["made_by"] not in ("ergostat", "owner"))
+    return {"made_by": x.get("made_by") or "ergostat", "made_by_rung": x.get("made_by_rung"), "by_block": block,
+            "item": f"ergostat.model-change/{x['id']}", "state": x.get("state"),
+            "reasons": x.get("reasons") or [] if block else [], "confidence": x.get("confidence"),
+            "findings": x.get("findings") or {}, "verdict": v or None}
 
 
 def _systems(spec: Spec, parts: list[str]) -> list[str]:

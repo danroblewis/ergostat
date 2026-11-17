@@ -1,19 +1,17 @@
-"""The judge of candidate changes to the model (SPEC §12e), as image-squeeze's rollout judges a build: each
-candidate (a proposal a block made, ``improve.py``) is replayed beside the model as it is on the record that
-came **after** it was proposed, which neither its maker nor the estimates it may rest on have seen, over
-several windows of several durations (the whole of that record, its halves and its quarters). It is kept
-only when it improves the model consistently: the scaled error falls by the threshold or more in every window
-judged, or, for a change the fit cannot see, it is no worse in any window and answers findings ``check``
-reported. It is dropped when it is worse by the threshold in any window, or better only in some, with the
-windows as its evidence. A candidate is tested until its record held out is ``improve.hold-out`` long.
+"""The judge of changes to the model (SPEC §12e), a built-in block (``type: judge``, on the program rung), as
+image-squeeze's rollout judges a build: each change waiting (``ergostat.model-change`` items checked, whoever made
+them: a block's propose line, ergostat's own finders, the owner's what-if) is replayed beside the model as it is on
+the record that came **after** it was made, which neither its maker nor any estimate it rests on has seen, over
+several windows of several durations (the whole of that record, and its halves, quarters, ..., as ``windows``
+says). It **passes** only when it improves the model consistently: the scaled error falls by the threshold or more
+in every window judged, or, for a change the fit cannot see, it is no worse in any window and answers findings
+``check`` reported. It **fails** when it is worse by the threshold in any window, or better only in some, with the
+windows as its evidence. A change is under test until its record held out is ``hold-out`` long.
 
-What happens to a kept change is the model's policy (``improve.accept``, by kind): ``owner`` (the default)
-leaves it in the review queue with the judge's verdict beside it; ``auto`` writes it, as Accept does (the
-smallest edit, ``check`` must still pass, recorded as ``model.accepted`` with its reason and effect), one a run.
-The owner commits what was written.
-
-Run by a block (``run: $ERGOSTAT_CMD judge``): ergostat adds no judge of its own accord. Its output lines say
-how many candidates it moved, on the ports its block has: ``testing``, ``kept``, ``dropped``, ``accepted``."""
+What happens to a passed change is the judge's policy (``accept``, by kind): ``owner`` (the default) leaves it in
+the review queue, its verdict beside it; ``auto`` writes it, as Accept does (the smallest edit, ``check`` must still
+pass, recorded as ``ergostat.model-change.accepted`` from the judge, naming the policy, and
+``ergostat.model.changed``), one a pass. The owner commits what was written."""
 
 from __future__ import annotations
 
@@ -21,25 +19,24 @@ import time
 
 from .. import series
 from ..durations import human as dur
-from ..spec.ir import Spec
+from ..spec.ir import JUDGE_PORTS, Spec
 from . import improve as im
 from . import observe as ob
 from . import proposals as pr
 from . import trial as tr
-from . import version as ver
 
 SPLITS = (1, 2, 4)            # the record held out, whole, in halves and in quarters
 MIN_WINDOW = 60.0             # a window shorter than this (s) is not judged
 MIN_JUDGED = 3                # windows judged before a verdict
 GIVE_UP = 3.0                 # after this many hold-outs with too few windows judged: dropped, too little record
 MOST = 3                      # candidates judged in one run
-PORTS = ("testing", "kept", "dropped", "accepted")
+PORTS = JUDGE_PORTS
 
 
-def windows(since: float, until: float) -> list[tuple[float, float]]:
+def windows(since: float, until: float, splits=SPLITS) -> list[tuple[float, float]]:
     out = []
     span = until - since
-    for k in SPLITS:
+    for k in splits:
         w = span / k
         if w < MIN_WINDOW:
             continue
@@ -96,71 +93,59 @@ def _event(p, x: dict, what: str, by: str, data: dict) -> None:
     p.events.add(f"model.{what}", item=f"proposal/{x['id']}", source=by, data={"title": x["title"], **data})
 
 
+JUDGED = ("parameter", "equation", "structure")        # what a replay can judge (a loop's process or gain is not)
+
+
 def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict:
-    """One pass of the judge over the candidates waiting: start testing the new ones, judge those whose record
-    held out is long enough, and write one kept change the policy lets it write. Returns what it moved."""
+    """One pass of the judge over the changes waiting: start testing the new ones, judge those whose record held out
+    is long enough, and write one passed change the policy lets it write. Returns what it moved."""
     spec: Spec = p.model.spec
     pol = spec.improve
     now = at or time.time()
     out = {p_: 0 for p_ in PORTS} | {"verdicts": [], "waiting": []}
-    st = ver.structure(spec)
+    for pid in pr.supersede(p, spec):
+        out["verdicts"].append({"id": pid, "verdict": "superseded", "why": "the model changed since it was made"})
     judged = 0
     with pr.locked(p):
-        props = pr.stored(p)
-        for x in sorted((x for x in props.values() if pr.candidate(x) and x["status"] == "pending"), key=lambda x: x["created"]):
-            if x.get("verdict"):
+        for x in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0):
+            if x["state"] == "passed" or x.get("kind") not in JUDGED:
                 continue
-            stale = x.get("structure") != st or not pr.current(x, spec)
-            if not stale:
-                try:
-                    after = tr.spec_after(p, tr.edits_of(x))
-                except tr.TrialError as e:
-                    stale, why = True, f"its edit no longer applies ({e})"
-                else:
-                    why = None
-            else:
-                why = "the model changed since it was proposed (another change was written)"
-            if stale:
-                x["status"], x["verdict"] = "dropped", {"verdict": "dropped", "why": why, "at": now, "windows": []}
-                _event(p, x, "dropped", by, {"why": why, "verdict": "dropped"})
-                out["dropped"] += 1
-                out["verdicts"].append({"id": x["id"], "verdict": "dropped", "why": why})
+            try:
+                after = tr.spec_after(p, tr.edits_of(x))
+            except tr.TrialError as e:
+                pr.event(p, x["id"], "superseded", {"why": f"its edit no longer applies ({e})"})
+                out["verdicts"].append({"id": x["id"], "verdict": "superseded", "why": str(e)})
                 continue
-            if not x.get("testing"):
-                x["testing"] = now
-                _event(p, x, "testing", by, {"hold_out": pol.hold_out})
+            since = x.get("made") or x.get("created") or now
+            if x["state"] == "checked":
+                pr.event(p, x["id"], "testing", {"testing": now, "hold_out": pol.hold_out, "judged_by": by})
                 out["testing"] += 1
-            since = x.get("proposed") or x["created"]
             held = now - since
             if held < pol.hold_out or judged >= most:
                 out["waiting"].append({"id": x["id"], "held": held, "needs": pol.hold_out})
                 continue
             judged += 1
-            results = [compare(p, spec, after, a, b) for a, b in windows(since, now)]
+            results = [compare(p, spec, after, a, b) for a, b in windows(since, now, pol.windows)]
             f = x.get("findings") or {}
             got = decide(results, pol.threshold, len(f.get("answered") or []), len(f.get("new") or []), held, pol.hold_out)
             if got is None:
                 out["waiting"].append({"id": x["id"], "held": held, "needs": pol.hold_out, "judged": len(results)})
                 continue
             verdict, why = got
-            x["verdict"] = {"verdict": verdict, "why": why, "at": now, "threshold": pol.threshold, "windows": results,
-                            "held": held, "by": by}
-            if verdict == "dropped":
-                x["status"] = "dropped"
-            _event(p, x, verdict, by, {"why": why, "verdict": verdict, "windows": len(results),
-                                       "scaled_error": [[r["before"], r["after"]] for r in results]})
-            out[verdict] += 1
-            out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
-        pr.save(p, props)
-    for x in sorted(pr.pending(p, spec), key=lambda x: x["created"]):      # one written a run, the oldest kept first
-        v = x.get("verdict") or {}
-        if not pr.candidate(x) or v.get("verdict") != "kept" or pol.accept.get(x["kind"]) != "auto":
+            state = "passed" if verdict == "kept" else "failed"
+            pr.event(p, x["id"], state, {"verdict": {"verdict": state, "why": why, "at": now, "threshold": pol.threshold,
+                                                      "windows": results, "held": held, "by": by}})
+            out[state] += 1
+            out["verdicts"].append({"id": x["id"], "verdict": state, "why": why})
+    for x in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0):     # one written a pass, the oldest first
+        if x["state"] != "passed" or pol.accept.get(x.get("kind")) != "auto":
             continue
         snap = {"at": now, "window": ob.reference(p, now).until - ob.reference(p, now).since}
         try:
-            pr.accept(p, x["id"], snap, by=by, why=f"the judge kept it: {v['why']}", policy=f"improve.accept.{x['kind']}: auto")
+            pr.accept(p, x["id"], snap, by=by, why=f"the judge passed it: {(x.get('verdict') or {}).get('why')}",
+                      policy=f"judge {by}: accept {x['kind']}: auto")
         except pr.ProposalError as e:
-            out["verdicts"].append({"id": x["id"], "verdict": "kept", "why": f"not written: {e}"})
+            out["verdicts"].append({"id": x["id"], "verdict": "passed", "why": f"not written: {e}"})
             continue
         out["accepted"] += 1
         break
