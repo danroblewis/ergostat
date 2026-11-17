@@ -43,6 +43,9 @@ systems:
   rhythm:
     within: job
     description: the morning brief and the ledger
+  messages:
+    within: job
+    description: what I say about the work under way, routed to it (job/messages.yaml)
   modelling:
     description: the model of the job, improved by a loop of its own (job/modelling.yaml)
     show: [stock.model-error, stock.pending-changes, stock.changes-testing, stock.accepted-changes]

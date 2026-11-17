@@ -5,6 +5,11 @@ incidents, approve or reject flag ramps, send nudges, finish and circulate docum
 postmortem actions, send the weekly update and upgrade the CI server. Nothing does these for me:
 ergostat's person blocks only ask, and the preparers only leave drafts in outbox/.
 
+Now and then I also say something about the work while it is under way (notes()): that a review
+can wait, that a flag ramp should be looked at first, that a review I answered needs another look,
+or something too vague to place. I say it to ergostat (the note watcher relays it, as
+`ergostat message` would): it routes it to the work it concerns.
+
 What I am faster on is what was prepared: with a draft in the outbox I act within hours, without
 one I get to it late or not at all. While I am in an outage, everything else takes three times as
 long. On your laptop, with JOB_GH=1, the code host's part of this is you, for real."""
@@ -13,7 +18,7 @@ from __future__ import annotations
 
 import random
 
-from world.world import GH, World, drafted_at, u
+from world.world import GH, World, days, drafted_at, u
 
 
 def due(thing: dict, prepared: float | None, slow: tuple[float, float] | None, fast: tuple[float, float],
@@ -27,8 +32,41 @@ def due(thing: dict, prepared: float | None, slow: tuple[float, float] | None, f
     return min(times) if times else None
 
 
+NOTES_PER_DAY = 1.5                               # how often I say something about the work under way
+
+
+def notes(w: World) -> None:
+    """A note, now and then, about something under way: said as I would say it, never naming an id."""
+    from world.world import DAY, STEP
+    if random.random() > NOTES_PER_DAY * STEP / DAY:
+        return
+    settled = w.now - days(0.2)                     # what I talk about has been around a while (the watchers saw it)
+    waiting = [(id, r) for id, r in w.things("review").items() if not r.get("answered") and not drafted_at(id)
+               and r["t"] < settled]
+    ramps = [(id, r) for id, r in w.things("ramp").items() if not r.get("decided") and not drafted_at(id)
+             and not r.get("went_ahead") and r["t"] < settled]
+    answered = [(id, r) for id, r in w.things("review").items() if r.get("answered") and r["answered"] < settled]
+    choices = []
+    if waiting:
+        id, r = random.choice(waiting)
+        choices.append((f"that review of {r.get('author', 'theirs')}'s, the {r.get('service', '')} one, can wait until "
+                        f"tomorrow", None))
+    if ramps:
+        id, r = random.choice(ramps)
+        choices.append((f"check the flag ramp first: {r['flag']}, before anything else", None))
+    if answered and random.random() < 0.5:
+        id, r = random.choice(answered)
+        choices.append((f"on review {id.split('/')[1]}: I missed the {r.get('area', 'config')} change in it, it needs "
+                        f"another look", None))
+    if random.random() < 0.15 or not choices:       # now and then, too vague to place
+        choices = [(random.choice(["hold that one for now", "can that wait?", "let's not do that today"]), None)]
+    text, about = random.choice(choices)
+    w.emit("note", f"note/{w.next_id('note', 0)}", "note.said", text=text, **({"about": about} if about else {}))
+
+
 def step(w: World) -> None:
     now, busy = w.now, w.busy()
+    notes(w)
 
     def ready(kind: str, done: str, slow, fast):
         for id, th in list(w.things(kind).items()):

@@ -5,7 +5,8 @@ first verb (charter §2): programs filter, nothing calls a model, nothing is wri
 
 Each is a sensor on its kind's arrival flow (review-requests, alerts-fired, ...): its number is how
 many arrived in the last ten minutes, per hour, and the lines before it are what it saw (ergostat
-records them as events, and the items fold from them). Besides passing on what happened, a watcher
+records them as events, and the items fold from them). The note watcher relays what I said about the
+work as my messages ({"message": {...}} lines), which ergostat routes to the work they concern. Besides passing on what happened, a watcher
 notices what has gone on too long: a review unanswered for a working day (review.late), a PR of
 mine with no first review after one (pr.stale), a teammate's PR stale three days (that is the only
 kind of teammate's PR it reports), a secret within 30 days of expiry, a board ticket with its
@@ -45,6 +46,7 @@ KINDS = {
     "doc": (["doc"], "doc.needed", ["doc.approved", "doc.circulated"]),
     "update": (["update"], "update.due", ["update.sent"]),
     "day": (["day"], "day.started", ["day.ended"]),
+    "note": (["note"], "note.said", []),          # what I said about the work: relayed to ergostat as my message
 }
 # kind: (working days, the event saying so): what has waited too long, and is not done yet
 LATE = {"review": (1.0, "review.late"), "pr": (2.0, "pr.late"), "mention": (0.5, "mention.late"),
@@ -74,6 +76,11 @@ def watch(kind: str, w: W.World, mem: dict) -> None:
 
     for e in lines:
         if e["kind"] not in feed_kinds:
+            continue
+        if kind == "note":                          # my words, verbatim: ergostat routes them to the work (SPEC §12h)
+            print(json.dumps({"message": {"text": e["data"]["text"], "by": "me",
+                                          **({"about": e["data"]["about"]} if e["data"].get("about") else {})}}), flush=True)
+            arrivals.append(time.time())
             continue
         data = {k: v for k, v in e["data"].items() if not SHOWN.get(kind) or k in SHOWN[kind] or e["type"] != arrival}
         if kind == "mention":
