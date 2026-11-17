@@ -27,12 +27,9 @@ def register(sub, common) -> None:
     im.add_argument("--out", metavar="DIR", help="where the scorecard goes (default ./bench-IMPROVER)")
     im.add_argument("--keep", action="store_true", help="keep each case's model and record under DIR/work")
     im.add_argument("--list", action="store_true", help="list the cases and their defects")
-    im.add_argument("--judge-fixes", action="store_true", help="the judge with the two changes proposed to it: like "
-                                                               "for like, and warm windows")
     im.add_argument("--json", action="store_true", help="print the scorecard as JSON")
     jd = bs.add_parser("judge", help="the judge's false-accept and false-reject rates over many seeds")
     jd.add_argument("--seeds", type=int, default=20)
-    jd.add_argument("--judge-fixes", action="store_true", help="with the two changes proposed to the improver's judge")
     jd.add_argument("--json", action="store_true")
     bs.add_parser("meta", parents=[common], help="the improvement loop's own measures, for this project")
     b.set_defaults(fn=cmd_bench)
@@ -52,7 +49,7 @@ def cmd_bench(args) -> int:
         return _improve(args)
     if which == "judge":
         from ..bench import judging
-        trials, got = judging.run(args.seeds, like_for_like=args.judge_fixes, warm=args.judge_fixes)
+        trials, got = judging.run(args.seeds)
         if args.json:
             print(json.dumps(got, indent=1, default=str))
             return 0
@@ -90,16 +87,14 @@ def _improve(args) -> int:
         for c in cases:
             print(f"{c.id:26s} {', '.join(d['kind'] for d in c.defects):40s} {c.title}")
         return 0
-    from ..bench import judge_fixes
-    out = Path(args.out or f"bench-{args.improver}" + ("-judge-fixes" if args.judge_fixes else ""))
+    out = Path(args.out or f"bench-{args.improver}")
     work = out / "work" if args.keep else Path(tempfile.mkdtemp(prefix="ergostat-bench-"))
     imp = improvers.make(args.improver, args.model)
     results = []
     for c in cases:
         before = dict(imp.cost)
         s = recovery.prepare(c, work / c.id, seed=args.seed, rounds=args.rounds)
-        with judge_fixes.variant(args.judge_fixes, args.judge_fixes) as judge:
-            r = recovery.run(s, imp, judge=judge)
+        r = recovery.run(s, imp)
         r.cost = {**{k: round(v - before.get(k, 0), 4) if isinstance(v, int | float) else v for k, v in imp.cost.items()},
                   "rounds": r.cost["rounds"], "seconds": r.cost["seconds"]}
         results.append(r)

@@ -536,7 +536,6 @@ ergostat bench improve --list                          # the cases and their def
 ergostat bench improve                                 # the stand-in, every case (a few minutes)
 ergostat bench improve --cases 003,tag:world           # some
 ergostat bench improve --improver ai --model sonnet --cases 002,011,063   # an AI improver, on demand (costs money)
-ergostat bench improve --judge-fixes                   # the judge with the changes proposed to it (below)
 ```
 
 The **stand-in** is a program: it knows nothing of the truth, and each round tries a fixed menu (every parameter
@@ -555,36 +554,47 @@ of the truth, or the missing delay put back), **worse**, **neutral** (nothing th
 (a drain two hundred times too slow, so its stock's replay is slower than the record and leaves the fit's total).
 It reports the false-accept rate, which must be about 0, and the false-reject rate.
 
-Two weaknesses it found in the judge as built, and the changes proposed for them (`--judge-fixes` tries both):
+Two weaknesses it found in the judge, both now fixed in it (`numbers/judge.py`):
 
-- **A stock can leave the total.** The fit's total leaves out a stock whose replay is slower than the record is
-  long; a change that slows one enough looks better in every window. *Like for like*: the judge compares the two
-  models over the same stocks, each stock's scaled error counted whatever its time constant.
-- **Windows start cold.** Each window is replayed from its own first reading, every delay in equilibrium, so a
-  correct delay is often worse in a short window than none. *Warm windows*: each window is scored on a replay
-  started six hours before it.
+- **A stock could leave the total.** The fit's total leaves out a stock whose replay is slower than the record is
+  long, so a change that slowed one enough looked better in every window. The judge now compares the two models
+  over the same stocks, each stock's scaled error counted whatever its time constant.
+- **Windows started cold.** Each window was replayed from its own first reading, every delay in equilibrium, so a
+  correct delay was often worse in a short window than none. Each window is now scored on a replay started
+  `warm-up` (six hours by default) before it.
 
 ### As measured (2026-11-17)
 
-The judge (`ergostat bench judge --seeds 10`, 120 trials): as built, 5 of 90 worse, neutral or slowed changes
-written (all five slowed: a stock pushed out of the total) and 17 of 30 better ones not (the delay world: cold
-windows); with warm windows alone, 0 and 0; like for like alone, 1 and 17; both, 0 and 0.
+**The judge** (`ergostat bench judge --seeds 10`, 120 trials: 90 changes known worse, neutral or slowed, 30 known
+better):
 
-The recovery benchmark (15 cases, 16 defects the record can see, six rounds):
+| Judge | False accepts | False rejects |
+|---|---|---|
+| now (warm windows, every stock) | 0 of 90 | 0 of 30 |
+| before (cold windows, the fit's total) | 5 of 90, all slowed: a stock pushed out of the total | 17 of 30, all on the delay world |
 
-| Improver, judge | Recall | Precision | Accepted (real fixes, damaging) | Final fit, median × truth's | Forecast better than damaged | Cost |
-|---|---|---|---|---|---|---|
-| stand-in, as built | 9/16 | 45/92 | 14 (9, 3) | 1.54 | 10 of 15 | 14 min, $0 |
-| stand-in, both fixes | 12/16 | 24/65 | 23 (15, 2) | 1.01 | 13 of 15 | 11 min, $0 |
-| calibrator, as built | 5/16 | 21/66 | 13 (8, 4) | 28 | 8 of 15 | 1.4 min, $0 |
-| AI (Sonnet), as built, 3 cases | 1/3 | 8/20 | 3 (2, 0) | 2.3 | 1 of 3 | $0.95 |
+Measured before the fix went in, each change alone: warm windows alone 0 and 0 (they count every stock too); every
+stock alone 1 and 17.
+
+**The recovery benchmark** (`ergostat bench improve`, 15 cases, 16 defects the record can see, six rounds):
+
+| Improver | Judge | Recall | Precision | Accepted (real fixes, damaging) | Final fit, median × truth's | Forecast better than damaged | Time |
+|---|---|---|---|---|---|---|---|
+| stand-in | now | 12/16 | 23/64 | 23 (15, 2) | 1.01 | 13 of 15 | 12 min |
+| stand-in | before | 9/16 | 45/92 | 14 (9, 3) | 1.54 | 10 of 15 | 14 min |
+| calibrator | before | 5/16 | 21/66 | 13 (8, 4) | 28 | 8 of 15 | 1.4 min |
+| AI (Sonnet), 3 cases | before | 1/3 | 8/20 | 3 (2, 0) | 2.3 | 1 of 3 | $0.95 |
+
+Recall by defect, stand-in now (before): delay missing 1/1 (0/1), flow removed 2/3 (2/3), parameter ×3 3/5 (3/5),
+sign flipped 2/2 (1/2), spurious link 2/3 (2/3), stock merged 2/2 (1/2).
 
 What it shows: parameter proposals made from the record they were fitted on mostly fail the judge on the record
-after them (the calibrator: 49 checked, 16 passed, 25 failed), and one in three of those it wrote moved the model
-away from the truth: a value refitted to make up for a missing flow fits better and is wrong. The damage that gets
-through is of that kind, a compensating error, which a judge of fit alone cannot see. A missing delay is recovered
-only with warm windows. Where the record barely shows a defect (a hidden stock merged away, the-job's missing
-delay) the benchmark says so and does not count it.
+after them (the calibrator: 49 checked, 16 passed, 25 failed), and of those it wrote, four moved the model away
+from the truth: a value refitted to make up for a missing flow fits better and is wrong. The damage that still gets
+through is of that kind, a compensating error, which a judge of fit alone cannot see (stand-in now: 007's lost
+outflow made up by a transfer, 012's missing rework by a slower move). A missing delay is recovered now that windows
+are warm. Where the record barely shows a defect (a hidden stock merged away, the-job's missing delay) the
+benchmark says so and does not count it.
 
 ### The prediction check
 

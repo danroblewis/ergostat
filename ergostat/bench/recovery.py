@@ -194,11 +194,11 @@ class Result:
     cost: dict = field(default_factory=dict)
 
 
-def run(s: Setup, improver, stop_after_quiet: int = 2, judge: str = "as built") -> Result:
+def run(s: Setup, improver, stop_after_quiet: int = 2) -> Result:
     """The improvement loop on ``s``'s damaged model for its rounds; the result, scored."""
     started = time.perf_counter()
     loop = ad.Loop(s.p, ad.Policy.auto(hold_out=s.round_h * 3600.0))
-    res = Result(s.case.id, improver.name, f"judge {judge}", s.planted)
+    res = Result(s.case.id, improver.name, f"judge warm-up {ad.jd.WARM_UP / 3600:g}h, every stock", s.planted)
     damaged_spec = s.p.model.spec
     quiet = 0
     for r in range(s.rounds):

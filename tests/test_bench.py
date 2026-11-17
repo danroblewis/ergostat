@@ -232,11 +232,46 @@ def test_a_good_change_is_verified_and_the_loop_measures_what_it_cost(tmp_path):
     assert set(m) == set(meta.MEASURES)
 
 
-def test_the_judge_with_its_proposed_changes_is_not_fooled_by_a_slowed_stock():
-    from ergostat.bench import judge_fixes
-    with judge_fixes.variant(like=True, warm=True):
-        t = [judging.trial("judge-delay", 2, "value", k) for k in ("slowed", "better")]
-    assert not t[0].written and t[1].written, t
+def test_the_judge_is_not_fooled_by_a_stock_slowed_out_of_the_fit():
+    """A drain two hundred times too slow takes its stock out of the fit's total; the judge counts every stock."""
+    for seed in (1, 2, 3):
+        t = judging.trial("judge-delay", seed, "value", "slowed")
+        assert not t.written, t
+
+
+def test_the_judge_passes_a_correct_delay_in_windows_shorter_than_its_settling():
+    """Windows of two hours and less on a delay of an hour and a half: each replayed warm, the delay put back passes."""
+    for seed in (1, 2, 3):
+        t = judging.trial("judge-delay", seed, "delay", "better")
+        assert t.written, t
+        t = judging.trial("judge-delay", seed, "value", "better")
+        assert t.written, t
+
+
+def test_the_judge_warms_each_window_up_as_its_policy_says(tmp_path):
+    from ergostat.spec import read
+    (tmp_path / "ergostat.yaml").write_text("name: w\nblocks:\n  judge:\n    type: judge\n    every: 10m\n    warm-up: 2h\n")
+    spec, problems = read(tmp_path / "ergostat.yaml")
+    assert not [x for x in problems if x.level == "error"], problems
+    assert spec.improve.warm_up == 7200.0
+    from ergostat.spec.ir import Improve
+    assert Improve().warm_up == 6 * 3600.0
+
+
+def test_check_finds_a_delay_that_drains_its_own_stock_late(tmp_path):
+    from ergostat.spec import read
+    m = truth.cases()["063-delay3-supply-line"].form()
+    m["description"] = None
+    (tmp_path / "ergostat.yaml").write_text(fm.render(m))
+    _, problems = read(tmp_path / "ergostat.yaml")
+    assert "delay-drains-late" not in {x.code for x in problems}         # leaves at once, arrives delayed: fine
+    m["flows"]["a-leaves"]["to"] = "b"
+    m["flows"]["a-leaves"]["equation"] = "DELAY3(a-to-b-per-a * stock.a, a-to-b-delay)"
+    del m["flows"]["b-arrives"]
+    (tmp_path / "ergostat.yaml").write_text(fm.render(m))
+    _, problems = read(tmp_path / "ergostat.yaml")
+    got = [x for x in problems if x.code == "delay-drains-late"]
+    assert got and got[0].about == "flow.a-leaves" and "below empty" in got[0].message
 
 
 def test_verified_and_regressed_are_states_of_the_change_item():

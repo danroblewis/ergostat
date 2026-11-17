@@ -764,6 +764,10 @@
           "$ref": "#/$defs/duration",
           "description": "A judge's record after a change that it is judged on"
         },
+        "warm-up": {
+          "$ref": "#/$defs/duration",
+          "description": "A judge's replay of each window starts this long before it (default 6h)"
+        },
         "windows": {
           "type": "array",
           "items": {

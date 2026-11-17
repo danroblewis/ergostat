@@ -37,7 +37,7 @@ PARSIMONY = 0.01       # each new parameter must buy this much more
 def _nmse(spec: Spec, data: ob.Data, params: dict | None = None) -> float:
     """The replay's scaled error, every measured stock counted (never the fit's total, which leaves out a stock
     slower than the record: a change that slows one would look better)."""
-    from .judge_fixes import per_stock
+    from ..numbers.judge import per_stock
     try:
         run = sim.replay(spec, data, sim.plan(spec, params or {}))
     except Exception:
@@ -114,7 +114,7 @@ class StandIn:
                 out.append((f"{fname}: without {eq.text(ts[i][1])}", "simplest-structure", b,
                             [x for x in own if x in b["parameters"]]))
             tree = eq.parse(f["equation"])
-            if not (tree[0] == "fn" and tree[1].startswith(("DELAY", "SMOOTH"))):
+            if not (tree[0] == "fn" and tree[1].startswith(("DELAY", "SMOOTH"))) and (f.get("to") or not f.get("from")):
                 for fn in ("DELAY3", "DELAY1"):
                     a = fm.copy_of(m)
                     tau = fm.free_name(a, f"{fname}-delay")

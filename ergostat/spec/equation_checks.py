@@ -113,6 +113,16 @@ def findings(spec: Spec, say) -> None:
                             f"across the range tried (∂{x.name}/∂{r.name} is positive somewhere and negative elsewhere), so "
                             f"the link has no one polarity: leave its sign off (driven-by: {ref}), or write the equation "
                             f"so it has one", e.where, f"{kind}.{x.name}")
+            if kind == "flow" and x.source:
+                own = f"stock.{x.source}"
+                for n in eq.walk(e.tree):
+                    if n[0] == "fn" and n[1] in ("DELAY1", "DELAY3") and own in eq.refs(n[2][0]):
+                        say("delay-drains-late", f"{what}: {n[1]}({eq.text(n[2][0])}, ...) takes from {x.source} what its "
+                            f"level called for a delay ago, not what is there now, so {x.source} drains late and can be "
+                            f"driven below empty. A material delay is what leaves at once arriving later: let {x.name} take "
+                            f"{eq.text(n[2][0])} from {x.source} at once, and a flow into "
+                            f"{x.target or 'the next stock'} of {n[1]}(flow.{x.name}, its time)", e.where, f"flow.{x.name}")
+                        break
             drawn = {f"{r.kind}.{r.name}" for r in x.driven_by}
             for r in e.refs:
                 if r not in drawn:

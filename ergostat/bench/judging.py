@@ -142,14 +142,11 @@ def rates(trials: list[Trial]) -> dict:
             "false_accept_examples": [vars(t) for t in fa[:5]], "false_reject_examples": [vars(t) for t in fr[:5]]}
 
 
-def run(seeds: int = 20, like_for_like: bool = False, warm: bool = False) -> tuple[list[Trial], dict]:
-    """The judge as built, or with the changes proposed to it (``judge_fixes.py``)."""
-    from . import judge_fixes
+def run(seeds: int = 20) -> tuple[list[Trial], dict]:
     trials = []
-    with judge_fixes.variant(like_for_like, warm):
-        for seed in range(1, seeds + 1):
-            for world, (_, delayed) in WORLDS.items():
-                for family in ("value", "delay") if delayed else ("value",):
-                    for kind in KINDS:
-                        trials.append(trial(world, seed, family, kind))
+    for seed in range(1, seeds + 1):
+        for world, (_, delayed) in WORLDS.items():
+            for family in ("value", "delay") if delayed else ("value",):
+                for kind in KINDS:
+                    trials.append(trial(world, seed, family, kind))
     return trials, rates(trials)

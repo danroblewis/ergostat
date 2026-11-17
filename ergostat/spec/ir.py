@@ -109,6 +109,7 @@ class Improve:
     threshold: float = 0.02
     hold_out: float = 600.0
     windows: list[int] = field(default_factory=lambda: [1, 2, 4])
+    warm_up: float = 6 * 3600.0     # each window replayed from this long before it, its stocks and delays warm
     block: str | None = None
 
 

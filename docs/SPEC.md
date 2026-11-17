@@ -578,6 +578,10 @@ part itself (what it was a moment ago is a stock); a flow with both `rate:` and 
 `exogenous` auxiliary whose equation names parts of the model; equations that need each other at
 once with no stock or delay between (an algebraic loop); a lookup used as a number. Findings:
 
+- **delay-drains-late**: a flow out of a stock whose equation is a DELAY1 or DELAY3 of its own stock's level
+  (`DELAY3(k * stock.a, t)`, from `a`): it takes what the level called for a delay ago, so the stock drains late
+  and can go below empty. A material delay is two flows: what leaves the stock at once, and, into the next stock,
+  `DELAY3(flow.leaves, t)`.
 - **equation-units**: where units are written, an equation must add like things and come out in
   its part's unit (a flow's per hour); a number written in it takes the unit it needs, and anything
   whose unit is not written is not checked;
@@ -1512,7 +1516,8 @@ blocks:
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `hold-out` | duration | `10m` | How much record after a change it is judged on |
-| `windows` | list of whole numbers | `[1, 2, 4]` | How that record is split into windows: 1 whole, 2 halves, 4 quarters (each at least a minute, and judged by the fit's own rules) |
+| `windows` | list of whole numbers | `[1, 2, 4]` | How that record is split into windows: 1 whole, 2 halves, 4 quarters (each at least a minute) |
+| `warm-up` | duration | `6h` | How long before each window its replay starts, so the window is scored with its stocks and delays as the record left them, not started cold with every delay in equilibrium (section 12f) |
 | `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better, and the most rise that counts as no worse |
 | `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged |
 | `out` | map of `testing`, `passed`, `failed`, `accepted` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
@@ -1522,7 +1527,10 @@ Each pass (`ergostat/numbers/judge.py`; `ergostat judge` makes one by hand) supe
 against a version of the model since changed, starts **testing** each checked change it can replay (a value, an
 equation, the structure; a loop's process or gain is not replayed, and waits for the owner), and replays each beside
 the model as it is on the record that came **after** it was made, which neither its maker nor any estimate it rests
-on has seen, in every window. It **passes** one when the scaled error falls by the `threshold` or more in every
+on has seen, in every window. Each window is scored on a replay started `warm-up` before it, and over every stock
+either model replays, each stock's mean squared error over its record's mean square, whatever its time constant (the
+fit's total leaves out a stock slower than its window, so a change that slowed one would look better; section 12f).
+It **passes** one when the scaled error falls by the `threshold` or more in every
 window judged, or, for a change the fit cannot see, when it is no worse in any window and answers findings without
 making any; it **fails** one that is worse by the threshold in any window, or better only in some, or that too few
 windows can judge after three hold-outs. Each verdict keeps its windows (each one's span, and the scaled error
@@ -1562,13 +1570,13 @@ and the judge run on the record after it until it gives a verdict. The change is
 (worse, neutral or slowed changes written) must be about 0; the false-reject rate (better ones not written) is
 reported. *Found:* the fit's total leaves out a stock slower than its window, so a slowed change can look better
 in every window; and each window is replayed cold (its delays in equilibrium), so a correct delay often looks
-worse in a short one. *Proposed* to the judge: compare **like for like** (each stock's scaled error over the
-stocks either model is fitted on, whatever its time constant) and score each window on a **warm** replay
-(started six hours before it). `bench/judge_fixes.py` puts both in place of the judge's `compare` while a benchmark
-runs (`--judge-fixes`).
+worse in a short one. *Fixed* in the judge (section 12e): it compares **like for like** (each stock's scaled error over the
+stocks both models replay, whatever its time constant) and scores each window on a **warm** replay (started
+`warm-up`, six hours by default, before it). Measured over 120 trials (10 seeds): before, 5 of 90 worse,
+neutral or slowed changes written and 17 of 30 better ones not; now, 0 and 0.
 
 **3. Recovery** (`ergostat/bench/recovery.py`, `ergostat bench improve [--improver standin|ai --model M]
-[--cases LIST] [--rounds N] [--judge-fixes]`). The truth cases (`bench/cases/*.yaml` and `cases.json`): SD Lab's
+[--cases LIST] [--rounds N]`). The truth cases (`bench/cases/*.yaml` and `cases.json`): SD Lab's
 ladder cases converted into ergostat YAML (`scripts/bench_ladder.py`: affine rates written with a parameter for
 every number, a DELAY3 between stocks as what leaves at once and arrives through the delay, a step three minutes)
 and the examples' worlds written as ergostat models with equations. The record is the truth simulated by the
@@ -1586,7 +1594,10 @@ written that raise it by 0.02 or more), **fit** (the scaled error over the recor
 `scorecard.md` and `scorecard.json`, with the proposals counted by kind (proposed, checked, passed, failed, real
 fixes). The improvers (`bench/improvers.py`): the **stand-in**, a program that searches a fixed menu of changes,
 deterministic, run on two cases in the test suite; the **calibrator**, what the examples' stand-ins do (the
-calibration's estimates proposed for the judge, parameters only); the **AI** (`claude -p`), run only on demand.
+calibration's estimates proposed for the judge, parameters only); the **AI** (`claude -p`), run only on demand. Measured
+(15 cases, 16 visible defects, the stand-in): with the judge as it is now, recall 12/16, 23 changes written, 15 of
+them real fixes and 2 damaging, the final fit a median 1.01 times the truth's; before the judge's fix, recall 9/16,
+14 written (9 real, 3 damaging), 1.54 times.
 
 **4. The prediction check** (`ergostat/numbers/verify.py`, `ergostat verify [--propose]`, run by a block). Each
 change written is checked once, after three hold-outs of record: the model now beside the model with that change

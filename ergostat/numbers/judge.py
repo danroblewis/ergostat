@@ -6,7 +6,10 @@ several windows of several durations (the whole of that record, and its halves, 
 says). It **passes** only when it improves the model consistently: the scaled error falls by the threshold or more
 in every window judged, or, for a change the fit cannot see, it is no worse in any window and answers findings
 ``check`` reported. It **fails** when it is worse by the threshold in any window, or better only in some, with the
-windows as its evidence. A change is under test until its record held out is ``hold-out`` long.
+windows as its evidence. A change is under test until its record held out is ``hold-out`` long. Each window is
+scored warm (its replay started ``warm-up`` before it, six hours by default), over every stock either model replays,
+whatever its time constant (SPEC §12f: as the fit's total was, cold and leaving slow stocks out, the judge wrote
+changes that slowed a stock out of the total and failed most correct delays).
 
 What happens to a passed change is the judge's policy (``accept``, by kind): ``owner`` (the default) leaves it in
 the review queue, its verdict beside it; ``auto`` writes it, as Accept does (the smallest edit, ``check`` must still
@@ -20,9 +23,9 @@ import time
 from .. import series
 from ..durations import human as dur
 from ..spec.ir import JUDGE_PORTS, Spec
-from . import improve as im
 from . import observe as ob
 from . import proposals as pr
+from . import simulate as sim
 from . import trial as tr
 
 SPLITS = (1, 2, 4)            # the record held out, whole, in halves and in quarters
@@ -30,6 +33,7 @@ MIN_WINDOW = 60.0             # a window shorter than this (s) is not judged
 MIN_JUDGED = 3                # windows judged before a verdict
 GIVE_UP = 3.0                 # after this many hold-outs with too few windows judged: dropped, too little record
 MOST = 3                      # candidates judged in one run
+WARM_UP = 6 * 3600.0          # each window is replayed from this long before it (improve.warm-up)
 PORTS = JUDGE_PORTS
 
 
@@ -48,13 +52,48 @@ def _grid(since: float, until: float) -> ob.Grid:
     return ob.Grid(since, until, max(2, min(series.POINTS, int((until - since) // ob.MIN_BUCKET))))
 
 
-def compare(p, spec: Spec, after: Spec, since: float, until: float) -> dict:
-    """The model as it is and with the change, replayed on one window: each one's scaled error, and the share by
-    which the change lowers it (negative: raises it)."""
-    grid = _grid(since, until)
-    _, fb = tr.fit_of(spec, ob.measured(p, grid))
-    _, fa = tr.fit_of(after, ob.measured(p, grid, after))
-    b, a = im._nmse(fb), im._nmse(fa)
+def per_stock(spec: Spec, data: ob.Data, run, first: int = 0) -> dict[str, float]:
+    """Each stock's scaled error (its mean squared error over the record's mean square) from bucket ``first`` on,
+    whatever its time constant: the fit's total leaves out a stock whose replay is slower than the window is long,
+    so a change that slowed a stock enough would take it out of the total, and look better."""
+    from . import fit as ft
+    out = {}
+    for ref in run.how:
+        if not ref.startswith("stock."):
+            continue
+        got = [(m, a) for i, m, a in ft.pairs(spec, data, run, ref) or [] if i >= first]
+        if len(got) < 5:
+            continue
+        mse = sum((m - a) ** 2 for m, a in got) / len(got)
+        scale = sum(a * a for _, a in got) / len(got)
+        out[ref] = mse / (scale or 1.0)
+    return out
+
+
+def scored(p, spec: Spec, since: float, until: float, warm_up: float = WARM_UP) -> dict[str, float] | None:
+    """Each stock's scaled error over [since, until], on a replay started ``warm_up`` seconds before it (so its stocks
+    and delays are as the record left them, not started cold, every delay in equilibrium, at the window's first
+    reading); None when that replay is not valid."""
+    start = since - warm_up
+    width = max(ob.MIN_BUCKET, (until - since) / 30.0)
+    grid = ob.Grid(start, until, max(2, int(round((until - start) / width))))
+    data = ob.measured(p, grid, spec)
+    run = sim.replay(spec, data)
+    if not run.valid:
+        return None
+    return per_stock(spec, data, run, int((since - start) // grid.width))
+
+
+def compare(p, spec: Spec, after: Spec, since: float, until: float, warm_up: float = WARM_UP) -> dict:
+    """The model as it is and with the change, replayed on one window (each warmed up beforehand): each one's scaled
+    error over the same stocks, and the share by which the change lowers it (negative: raises it)."""
+    sb, sa = scored(p, spec, since, until, warm_up), scored(p, after, since, until, warm_up)
+    b = a = None
+    common = sorted(set(sb or {}) & set(sa or {}))
+    if sb is not None and common:
+        b = sum(sb[r] for r in common) / len(common)
+    if sa is not None and common:
+        a = sum(sa[r] for r in common) / len(common)
     change = (b - a) / b if b and a is not None else (0.0 if b == 0 and a == 0 else None)
     return {"since": since, "until": until, "before": b, "after": a, "change": change}
 
@@ -125,7 +164,7 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                 out["waiting"].append({"id": x["id"], "held": held, "needs": pol.hold_out})
                 continue
             judged += 1
-            results = [compare(p, spec, after, a, b) for a, b in windows(since, now, pol.windows)]
+            results = [compare(p, spec, after, a, b, pol.warm_up) for a, b in windows(since, now, pol.windows)]
             f = x.get("findings") or {}
             got = decide(results, pol.threshold, len(f.get("answered") or []), len(f.get("new") or []), held, pol.hold_out)
             if got is None:
