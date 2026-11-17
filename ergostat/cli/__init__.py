@@ -11,7 +11,7 @@ from .. import __version__
 from ..durations import DurationError
 from .agents import cmd_agent
 from .common import PART_TOPICS
-from .numbers import cmd_accept, cmd_fit, cmd_proposals
+from .numbers import cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_proposals
 from .parts import cmd_part
 from .record import cmd_event, cmd_item, cmd_reset, cmd_residual
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
@@ -39,6 +39,7 @@ what is wrong, or missing
   residual       What the model can't explain
   fit            How well the model's replay fits the record: R², MAPE, Theil's U_M, U_S, U_C
   proposals      Changes to review (values, equations, structure, loops): --show ID, accept ID, --dismiss ID
+  judge          Judge the candidate changes blocks proposed for the model; measure: the model's own measures
 
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
@@ -163,6 +164,15 @@ def build() -> argparse.ArgumentParser:
                          "proposal): the fit before and after, and the edit; nothing changes until it is accepted. A time "
                          "is written with its unit (20s, 5m, 2h)")
     topic("accept", cmd_accept, "Apply a proposal (ergostat proposals lists them) as the smallest edit to the YAML")
+    topic("measure", cmd_measure, "The model's own measures (fit, unexplained, loops-unidentified, findings), as a model: "
+                                  "sensor reads them")
+    topic("judge", cmd_judge, "Judge the candidate changes blocks proposed, on the record after each (improve: says who "
+                              "writes a kept one)", named=False)
+    im = topic("improve", cmd_improve, "What blocks proposed and ergostat turned away; --try FILE checks a proposal", named=False)
+    im.add_argument("--try", dest="try_", metavar="FILE", help="a propose line's JSON (or - for standard input): checked "
+                                                               "and measured as a block's would be, and kept nowhere")
+    im.add_argument("--edit-value", metavar="NAME=VALUE", help="the edit that sets a parameter's value, in the form a "
+                                                              "propose line takes (a time with its unit: 20s); writes nothing")
     for t in PART_TOPICS:
         sp = topic(t, cmd_part, f"The {t}s, or one")
         sp.set_defaults(fn=cmd_part, topic=t)
@@ -190,7 +200,8 @@ def build() -> argparse.ArgumentParser:
     rs.add_argument("--yes", action="store_true", help="do it (without it, says what it would forget)")
     mc = sub.add_parser("mcp", parents=[common], help="Serve ergostat to an AI agent over MCP (stdio)",
                         description="An MCP server on stdin/stdout: check, explain, status, findings, residuals, fit, events, "
-                                    "spec, improve_model, report_done, read_sensor, items, record_event. "
+                                    "spec, improve_model, try_change, measures, report_done, read_sensor, items, "
+                                    "record_event. "
                                     "Add it to Claude Code: claude mcp add ergostat -- ergostat -C DIR mcp")
     mc.set_defaults(fn=cmd_mcp)
     hp = sub.add_parser("help", help="Guides: blocks (writing their programs), ai-agents, spec (the format), modelling "

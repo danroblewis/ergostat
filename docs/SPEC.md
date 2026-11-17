@@ -278,8 +278,8 @@ reporting them.
 ## 6. Sensors
 
 An instrument: it measures one stock or one flow, and nothing else. It never decides or acts. It
-is written inside the stock or flow it measures. Exactly one of `run`, `query`, `manual`, `items`
-or `changes`:
+is written inside the stock or flow it measures. Exactly one of `run`, `query`, `manual`, `items`,
+`changes` or `builtin`:
 
 ```yaml
 sensors:
@@ -327,6 +327,7 @@ flows:
 | `entering`, `leaving` | state | | On a flow: exactly one; the move it counts |
 | `changes` | `rises`, `falls` or `net` | | On a flow into or out of one stock: its rate from that stock's own successive readings, how much they rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a `two-way` flow), per hour over `over` |
 | `over` | duration | `1h` | On a flow: the window the rate is taken over |
+| `builtin` | `ergostat.model.fit`, `.unexplained`, `.unidentified-loops` or `.open-findings` | | On a stock or an auxiliary: one of ergostat's built-in measures of the model's own quality (section 12e), read by ergostat itself (`ergostat measure ergostat.model.fit`, in a process of its own; `timeout` 2m by default) |
 | `averages` | duration | none | On a flow's `run`, `query` or `manual` sensor: its reading is the average rate over this window before it (a count of the last ten minutes, per hour: `averages: 10m`). The model's rate is read through the same window before it is compared (section 12b) |
 | `where` | map of field → value (or list) | | Only items whose fields match |
 | `every` | duration | `1m` | How often it reads (`run`, `query`) |
@@ -695,6 +696,7 @@ output:
 {"out": "flow.processed", "moved": 12}
 {"out": "block.writer", "command": {"amount": 3, "item": "install.md"}}
 {"decision": "12 waiting: process them", "why": "over the goal by 12"}
+{"propose": {"kind": "parameter", "parts": ["parameter.k"], "edit": {...}, "reasons": [...], "confidence": 0.6}}
 ```
 
 ergostat records what was **commanded** and what was **moved**: the gap is the direct evidence of
@@ -718,6 +720,7 @@ A first set, kept small:
 | `timer` | one signal | 1 once it has been nonzero this long | `after` |
 | `counter` | one signal | how many times it became nonzero | `reset` (a duration) |
 | `alarm` | one signal | raises a finding while out of bounds | `above`, `below`, `for` |
+| `judge` | what it reads, for the diagram | what it moved on its ports (`testing`, `passed`, `failed`, `accepted`: flows) | `every`, `hold-out`, `windows`, `threshold`, `accept`: the judge of changes to the model, on its own clock and on the program rung (section 12e) |
 
 More (filters, rate of change, latches) can be added when a case needs them.
 
@@ -782,7 +785,8 @@ directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_COMMAND` (the am
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
 (`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
 block, or the AI agent it starts, to read and record items while it works. An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
-with its prompt, the JSON above, and how to answer.
+with its prompt, the JSON above, and how to answer. Any block, whatever its type, may also propose a change to
+the model, `{"propose": {...}}` (section 12e); `agent.ran` counts what it proposed and what was not taken.
 
 ### 9.4 Roles
 
@@ -1368,6 +1372,174 @@ on in the model changes. Shown where the loop is: the process block's panel in t
 identification, its step response and Bode plot, the process and step-test proposals), the
 controller's panel (its law with that process, margins, closed-loop step and Bode, the tuning), the
 scope (performance), and a loop's panel on the Loops page (all of it).
+
+## 12e. Improving the model, as a loop
+
+Improving the model is a control loop like the others, built from the same parts: the model's quality is
+measured, a goal holds it, a block acts while the goal is off, what it proposes is judged, and what passes changes
+the model, which the measurement then sees.
+
+**Not a block type, but a job.** A block's type says who does the work (the ladder: person, AI, narrow AI,
+decision, program, rule), not what the work is. Reviewing the model needs no context beyond what every block can
+reach (the MCP tools and the command line), no permission beyond proposing, and what is special about it, that a
+proposal is checked before anyone sees it, belongs to the `propose` output, which every type shares. So any block
+may improve the model: an AI agent reading it as a modeller would, a program applying rules, a person. The judge
+is different: it is a function ergostat itself implements (judging means replaying ergostat's model on record
+held out), so it is a built-in block, `type: judge`. Improving the improver needs nothing more: its prompt and its
+results are a model like any other.
+
+Everything ergostat owns here is named `ergostat.`, so it never collides with a project's names: the item kind
+`ergostat.model-change`, the events `ergostat.model-change.*` and `ergostat.model.changed`, and the measures
+`ergostat.model.*`. The prefix is ergostat's own (no block may publish an event under it, section 9.3).
+
+### The built-in measures
+
+| Reference | What it is |
+|---|---|
+| `ergostat.model.fit` | The scaled error of the replay on the reference window, the Fit page's total (section 12b; lower is better). None while there is too little record |
+| `ergostat.model.unexplained` | The share of each stock's change over the last hour that its flows do not explain, unexplained over explained plus unexplained (in size), averaged over the stocks that moved (the residuals) |
+| `ergostat.model.unidentified-loops` | The goals whose loop closes and whose process the model does not hold (no `process:`, section 8) |
+| `ergostat.model.open-findings` | What `ergostat check` finds, errors aside |
+
+A measure's reference is `ergostat.model.NAME`: it reads beside `stock.x`, `flow.x` and `auxiliary.x`, and is
+never one of them (a project's names have no dots). It is read by a sensor, `builtin: ergostat.model.fit`
+(section 6), on a stock or an auxiliary, by ergostat itself (`ergostat measure ergostat.model.fit`, in a process
+of its own); `ergostat measure` and the MCP tool `measures` print them all. *Decided:* a goal holds a measure
+through the part its sensor fills, not by naming the measure: a goal's loop closes through the flows of what it
+is about, and a measure has none, so the part gives it its history, its chart and the flows the loop closes
+through (it rises as the record moves on and the world drifts from the model, and falls as changes are written).
+The scaled error over the reference window is a statistic over a window, so that part is a stock (section 7a).
+
+```yaml
+stocks:
+  model-error:
+    unit: "1"
+    sensor:
+      builtin: ergostat.model.fit
+      every: 1m
+goals:
+  model-fits:
+    stock: model-error
+    hold: "<= 0.02"
+```
+
+### Every change to the model is an item
+
+`ergostat.model-change` is a built-in item kind (section 5a), present in every project and never declared (a
+project's item kinds may not take ids starting `ergostat.`). Every change to the model is one, whoever made it: a
+block's propose line, ergostat's own finders (a calibration's parameter values, an equation, the structural
+changes and simplifications, a loop's process or gain, section 12b and 12d), or the owner's what-if. Its id is
+`ergostat.model-change/<short hash>`. **The record is the only store**: every step is an event about the item,
+and the item, folded from them, is the change.
+
+| State | Reached by | Source |
+|---|---|---|
+| made | `ergostat.model-change.made` | the block that proposed it (caused by its run), `ergostat` for its own finders, or `owner` for a what-if |
+| checked | `.checked`: compiled, checked, replayed and refitted on a scratch copy | ergostat |
+| refused | `.refused` (from made): with why | ergostat |
+| testing | `.testing`: the judge replays it on the record after it | ergostat |
+| passed / failed | `.passed`, `.failed`: the judge's verdict, with its windows | ergostat |
+| accepted | `.accepted`: written into the YAML | who decided: the owner, or the judge's policy (the judge, naming the policy) |
+| dismissed | `.dismissed`: with the owner's reason | the owner |
+| superseded | `.superseded`: made against a version of the model that has since changed, or no longer found by the finder that made it | ergostat |
+
+Its fields are folded from the events (last write wins): `kind`, `parts`, `edit`, `reasons` with their evidence,
+`confidence`, the measured effect (`fit_before`, `fit_after`, `refit`, `findings`), `verdict`, `made_by` and the
+model `version` it was made against. When an accepted edit is written, `ergostat.model.changed` (from ergostat)
+records the diff, the model's version before and after, the fit before and after, the reason, who made it and who
+accepted it: the model's history.
+
+The review queue (the Fit page, `ergostat proposals`) **is** the open items (checked, testing, passed) made against
+the model as it is: a richer view of the same items, and Items → `ergostat.model-change` lists them all, decided
+ones included. Item sensors count them like any items, so the loop is plain YAML (below).
+
+### A proposal
+
+Any block may print:
+
+```json
+{"propose": {"kind": "structure", "parts": ["stock.ideas"], "title": "ideas drain as they go stale",
+             "edit": {"file": "lab.yaml", "replace": "    unit: hypotheses", "with": "..."},
+             "reasons": [{"says": "the stock only fills", "evidence": "finding:stock-without-outflow@stock.ideas"},
+                         {"says": "an idea not built in a day is dropped", "evidence": "bin/lab.py:150"}],
+             "confidence": 0.6}}
+```
+
+| Key | Meaning |
+|---|---|
+| `kind` | `parameter` (values only), `equation` or `structure`. What the edit does decides: an edit that changes only values is a parameter change, whatever it is called |
+| `parts` | The parts it touches, as references (`stock.x`, `flow.y`, `parameter.z`) |
+| `edit` | In the review queue's form, `{"files": [{"file", "hunks": [{"line", "old", "new"}]}]}`, or `{"file", "replace", "with"}` (the lines as written now, found once, and what they become), or a list of either. Files are named from the model's folder, and only the model's own files may be edited |
+| `reasons` | Each `{"says", "evidence"}` (`evidence` one, or a list). Evidence is what ergostat can check: a finding `check` reports now, by its id (`finding:CODE@PART`, the `id` in `check --json` and the MCP `check`); a statistic of the fit (`fit:total.nmse`, `fit:stock.NAME.r2`, `.mape`, `.um`, `.us`, `.uc`, and an equation's `fit:flow.NAME.r2`); a residual (`residual:stock.NAME`); a line of a document or of the code, in the project or in ergostat (`docs/MODELLING.md:120`, `bin/lab.py:40-52`), or a URL; or a modelling rule (`rule:NAME`: the guidelines of `docs/MODELLING.md` and Sterman's tests, listed in `numbers/improve.py`) |
+| `title`, `confidence` | A few words; how sure the block is, 0 to 1 (or `low`, `medium`, `high`) |
+
+ergostat records it as **made** by that block, then checks it the same way whoever made it
+(`ergostat/numbers/improve.py`): each reason's evidence is verified and what it found kept beside it (a reason
+without evidence is refused); the edit is applied to a scratch copy (in memory), compiled and checked (the
+findings it answers, and any it makes), replayed on the reference window, and the parameters to estimate that it
+adds or uses differently are refitted (each part alone, the last fifth held out), said beside it. It is
+**refused**, with why, when no reason has evidence, the edit cannot be made or does not compile, the replay it
+leaves is not valid, it clearly worsens the fit (the scaled error up by a tenth, refitted or not), or the same
+change is already an item for this version of the model; refused changes are the review queue's "found, and not
+proposed" (and `ergostat improve`). Otherwise it is **checked**, and waits in the review queue attributed to its
+block (its name and rung, its reasons with their evidence, how sure it said it was). `ergostat improve --try FILE`
+and the MCP tool `try_change` check a proposal the same way and record nothing; `ergostat improve --edit-value
+NAME=V` prints the edit that sets a parameter's value, in the form `edit` takes.
+
+### The judge
+
+`type: judge`, a built-in block on the program rung: ergostat runs it on its own clock (`every`, 30 s by default),
+not on every reading, and records each pass as a run. At most one a model.
+
+```yaml
+blocks:
+  judge:
+    type: judge
+    every: 30s
+    hold-out: 10m          # the record after a change that it is judged on
+    windows: [1, 2, 4]     # that record whole, in halves and in quarters
+    threshold: 2%          # passed when the scaled error falls by this much in every window
+    accept:                # who writes a passed change: owner (the default), or auto
+      parameter: auto      # a value passed is written at once
+      structure: owner     # waits in the review queue, its verdict beside it
+    out:                   # optional: what it moved, on its ports
+      testing: flow.tests-started
+      passed: flow.changes-passed
+      failed: flow.changes-failed
+      accepted: flow.changes-accepted
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `hold-out` | duration | `10m` | How much record after a change it is judged on |
+| `windows` | list of whole numbers | `[1, 2, 4]` | How that record is split into windows: 1 whole, 2 halves, 4 quarters (each at least a minute, and judged by the fit's own rules) |
+| `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better, and the most rise that counts as no worse |
+| `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged |
+| `out` | map of `testing`, `passed`, `failed`, `accepted` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
+| `in`, `every` | | | What it reads (signed, as a machine block's), for the diagram; how often it passes |
+
+Each pass (`ergostat/numbers/judge.py`; `ergostat judge` makes one by hand) supersedes every open change made
+against a version of the model since changed, starts **testing** each checked change it can replay (a value, an
+equation, the structure; a loop's process or gain is not replayed, and waits for the owner), and replays each beside
+the model as it is on the record that came **after** it was made, which neither its maker nor any estimate it rests
+on has seen, in every window. It **passes** one when the scaled error falls by the `threshold` or more in every
+window judged, or, for a change the fit cannot see, when it is no worse in any window and answers findings without
+making any; it **fails** one that is worse by the threshold in any window, or better only in some, or that too few
+windows can judge after three hold-outs. Each verdict keeps its windows (each one's span, and the scaled error
+before and after) as its evidence, shown with the item in the review queue. Then, where `accept` says `auto` for a
+passed change's kind, it writes the oldest, one a pass, so each is measured alone: Accept's way (section 12b), the
+smallest edit, refused and put back if `check` would then find an error, recorded as `.accepted` from the judge
+with its policy named, and `ergostat.model.changed`. Accepting writes the YAML at once; ergostat never commits it:
+the owner does.
+
+### The loop, in the model
+
+Plain YAML, like any loop (`examples/image-squeeze/model.yaml`, `examples/the-job/job/modelling.yaml`): the model's
+error a stock (`builtin: ergostat.model.fit`) and a goal on it; the changes counted by state, `items:
+ergostat.model-change` (pending: checked; testing; passed; accepted), with flows entering each state (made,
+judged, accepted); the improver, an `ai` block (or a stand-in program) that names the goal and proposes; and the
+judge. It closes the long way: the improver fills the pending changes, the judge moves them to passed and
+accepted, and what is accepted lowers the error. It is drawn, explained and checked like every loop.
 
 ## 13. Examples
 

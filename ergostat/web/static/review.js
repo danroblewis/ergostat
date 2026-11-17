@@ -115,6 +115,18 @@ function diffView(u) {
     h("div", { class: l.startsWith("+++") || l.startsWith("---") ? "muted" : l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : l.startsWith("@@") ? "muted" : "" }, l || " ")));
 }
 
+/* a change a block proposed (a propose line, SPEC §12e): the block and its rung, and each reason with the evidence
+   ergostat checked it against */
+function proposedBy(e) {
+  return h("div", {}, h("span", { class: "part-ref" }, h("span", { class: "muted" }, `${e.made_by_rung || "block"} `), e.made_by),
+    e.confidence != null ? h("span", { class: "muted small" }, ` · ${Math.round(e.confidence * 100)}% sure`) : null,
+    (e.findings?.answered || []).length ? h("div", { class: "small muted" }, `answers ${e.findings.answered.join(", ")}`) : null);
+}
+function reasonsView(rs) {
+  return h("ul", { class: "plain" }, ...rs.map((r) => h("li", {}, r.says,
+    ...(r.verified || r.evidence || []).map((v) => h("div", { class: "small muted" }, v)))));
+}
+
 /* one entry of the queue */
 function reviewEntry(e, { onDone }) {
   const open = REVIEW_OPEN.has(e.id);
@@ -177,7 +189,9 @@ function reviewEntry(e, { onDone }) {
                     where.new.length ? h("div", { class: "small muted" }, "new: ", ...partWords(where.new)) : null,
                     where.gone.length ? h("div", { class: "small muted" }, "removed: ", ...partWords(where.gone)) : null,
                     where.files.length ? h("div", { class: "small muted mono" }, where.files.map((f) => `${f.file}:${f.lines.join(",")}`).join("  ")) : null)],
-        ["why", e.why],
+        ["made by", e.by_block ? proposedBy(e) : e.made_by === "owner" ? "you (a what-if)" : null],
+        ["why", e.by_block && (e.reasons || []).length ? reasonsView(e.reasons) : e.why],
+        ["judged", e.verdict ? h("div", { class: e.verdict.verdict === "dropped" ? "s-open small" : "small" }, `${e.verdict.verdict === "testing" ? "testing" : e.verdict.verdict}: ${e.verdict.why}`) : null],
         ["how found", h("div", {}, ...howText(e.how))],
         ["benefit", benefitRows(e.benefit) ? h("div", {}, ...benefitRows(e.benefit)) : null],
         ["conflicts", e.conflicts.length ? h("div", {}, ...e.conflicts.map((c) => h("div", { class: "s-open small" }, `with ${c.id}: ${c.why}`))) : null]]),

@@ -494,7 +494,7 @@ def test_a_loop_is_identified_and_its_process_accepted_into_the_goal(tmp_path):
     assert "# q a step per unit of error" in after                       # the rest of the file as it was
     pr = p.model.spec.goals["level-held"].process
     assert pr["gain"] == pytest.approx(K, rel=0.1) and pr["identified"]
-    assert p.events.query(type="model.accepted")[-1]["data"]["kind"] == "process"
+    assert p.events.query(type="ergostat.model.changed")[-1]["data"]["kind"] == "process"
     with pytest.raises(cp.ProposalError):
         cp.accept(p, x["id"])                                               # once only
 

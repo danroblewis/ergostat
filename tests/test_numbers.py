@@ -356,7 +356,7 @@ def test_a_dismissed_proposal_is_not_made_again(tmp_path):
     [x] = pr.make(p, snap)
     pr.dismiss(p, x["id"])
     assert pr.make(p, snap) == [] and pr.stored(p)[x["id"]]["status"] == "dismissed"
-    assert p.events.query(n=1, type="model.dismissed")
+    assert p.events.query(n=1, type="ergostat.model-change.dismissed")[-1]["source"] == "owner"
 
 
 def test_a_file_changed_since_is_never_written_over(tmp_path):

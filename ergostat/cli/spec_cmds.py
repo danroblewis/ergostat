@@ -24,6 +24,7 @@ def check_yaml(args, path: Path) -> int:
     if args.json:
         return out_json({"ok": not errors, "errors": len(errors), "findings": len(findings),
                          "found": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
+                                    **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
                                     "file": str(p.where.file) if p.where else None,
                                     "line": p.where.line if p.where else None} for p in problems]}) or (1 if errors else 0)
 

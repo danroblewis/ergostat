@@ -77,6 +77,23 @@ and say why in a comment. Never silence a finding to make `check` quiet.
 Order the list by consequence: wrong structure first (missing stocks and delays change every loop
 through them), then units and signs, then the rest. Say plainly what you left alone and why.
 
+## 3a. When you run as a block
+
+When ergostat runs you as a block (an improver: its goal holds the model's fit), propose by printing each
+change as one JSON line in your final answer, instead of a list for the owner:
+
+    {"propose": {"kind": "parameter|equation|structure", "parts": ["stock.x"], "title": "...",
+                 "edit": {"file": "lab.yaml", "replace": "the lines as written now", "with": "what they become"},
+                 "reasons": [{"says": "...", "evidence": "finding:CODE@PART"}], "confidence": 0.6}}
+
+Every reason needs evidence ergostat can check: a finding by its id (`check` gives each its `id`), a fit
+statistic (`fit:total.nmse`, `fit:stock.NAME.um`), a residual (`residual:stock.NAME`), a line of the code or
+the docs (`path:LINE`, or a URL), or a modelling rule (`rule:NAME`). Try each with the MCP tool `try_change`
+first: it checks it exactly as the line will be checked (compiled, checked, replayed, refitted) and keeps it
+nowhere. Change no file yourself. What you propose is judged on the record that comes after it, and passed only
+when it is better in every window (docs/SPEC.md §12e). Every change, yours and ergostat's own, is an
+`ergostat.model-change` item: read the open ones (`fit` lists them) so you do not propose one already waiting.
+
 ## 4. Apply only with approval
 
 Show the list and stop. When the owner approves an edit (or a set), apply exactly that, then run

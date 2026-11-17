@@ -246,3 +246,98 @@ def cmd_accept(args) -> int:
     print(f"version {ap['version_before']} → {ap['version_after']}; fit in total: scaled error "
           f"{sig((ap['fit_before'] or {}).get('nmse'))} → {sig((ap['fit_after'] or {}).get('nmse'))}")
     return 0
+
+
+def cmd_measure(args) -> int:
+    """``ergostat measure [NAME]``: the model's own measures (SPEC §12e), as a ``model:`` sensor reads them."""
+    from ..numbers import measures as ms
+    p = open_project(args)
+    _spec(p)
+    if args.name:
+        try:
+            v = ms.measure(p, args.name)
+        except ms.MeasureError as e:
+            print(e, file=sys.stderr)
+            return 2
+        if v is None:
+            print(f"{args.name}: no value yet (too little record to say)", file=sys.stderr)
+            return 1
+        print(f"{v:.6g}")
+        return 0
+    got = ms.all_of(p)
+    if args.json:
+        return out_json(got)
+    from ..spec.ir import MODEL_MEASURES
+    print(table(["MEASURE", "VALUE", ""], [[n, sig(got.get(n)), MODEL_MEASURES[n]] for n in MODEL_MEASURES], ""))
+    return 0
+
+
+def cmd_judge(args) -> int:
+    """``ergostat judge``: one pass of the judge over the changes to the model waiting (SPEC §12e), at once, as the
+    model's judge block would make it (its policy; the owner's, with nothing automatic, when it has none)."""
+    from ..numbers import judge as jd
+    p = open_project(args)
+    spec = _spec(p)
+    got = jd.run(p, by=spec.improve.block or "owner")
+    if args.json:
+        return out_json(got)
+    for v in got["verdicts"]:
+        print(f"{c(v['id'], 'accent')}  {c(v['verdict'], 'ok' if v['verdict'] == 'passed' else 'warn')}: {v['why']}")
+    for w in got["waiting"]:
+        print(c(f"{w['id']}  testing: {human(w['held'])} of {human(w['needs'])} held out", "dim"))
+    if not got["verdicts"] and not got["waiting"]:
+        print("no changes to the model waiting to be judged")
+    if got["accepted"]:
+        print(f"written: {got['accepted']} (the judge's accept: says auto); commit it")
+    return 0
+
+
+def cmd_improve(args) -> int:
+    """``ergostat improve``: what blocks proposed for the model and ergostat did not take, with why; ``--try
+    FILE`` (or - for standard input) checks a proposal, as a propose line would be checked, and lands nowhere."""
+    import json
+
+    from ..numbers import improve as im
+    p = open_project(args)
+    _spec(p)
+    if args.edit_value:
+        from ..numbers import proposals as pr
+        from ..numbers import yamledit as ye
+        spec = p.model.spec
+        name, _, value = args.edit_value.partition("=")
+        prm = spec.parameters.get(name.strip())
+        try:
+            if prm is None or prm.table:
+                raise pr.ProposalError(f"no parameter {name.strip()} with a value")
+            v = float(value) if not prm.duration else pr.parse_value(prm, value)
+            return out_json(im.joined([pr._value_edit(prm, v)]))
+        except (pr.ProposalError, ye.EditError, ValueError) as e:
+            print(e, file=sys.stderr)
+            return 2
+    if args.try_:
+        raw = sys.stdin.read() if args.try_ == "-" else open(args.try_, encoding="utf-8").read()
+        try:
+            obj = json.loads(raw)
+        except ValueError as e:
+            print(f"not JSON: {e}", file=sys.stderr)
+            return 2
+        got = im.trial(p, obj.get("propose", obj) if isinstance(obj, dict) else obj)
+        if args.json:
+            return out_json(got)
+        print(f"it would {got['would']}" + (f": {got['why']}" if got.get("why") else ""))
+        if got.get("diff"):
+            print(f"  {got['kind']}: {got['title']}\n  scaled error {sig(got['scaled_error_before'])} → "
+                  f"{sig(got['scaled_error_after'])}; answers {len(got['findings']['answered'])} findings, makes "
+                  f"{len(got['findings']['new'])}")
+            for r in got["refused_reasons"]:
+                print(c(f"  reason refused: {r['says'][:80]}: {r['why']}", "warn"))
+            print("\n".join("  " + x for x in got["diff"].split("\n")))
+        return 0 if got["would"] == "be proposed" else 1
+    xs = im.not_proposed(p)
+    if args.json:
+        return out_json(xs)
+    if not xs:
+        print("nothing proposed by a block has been turned away")
+    for x in xs:
+        print(f"{c(x['by'], 'accent')}  {x['title']}\n  {c('not proposed:', 'warn')} {x['why']}")
+    return 0

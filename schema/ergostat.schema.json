@@ -63,7 +63,7 @@
     },
     "parameters": {
       "type": "object",
-      "description": "The numbers equations name (SPEC §7b)",
+      "description": "The numbers equations name (SPEC \u00a77b)",
       "propertyNames": {
         "$ref": "#/$defs/name"
       },
@@ -289,6 +289,15 @@
             "net"
           ],
           "description": "On a flow: its rate from its stock's own successive readings"
+        },
+        "builtin": {
+          "enum": [
+            "ergostat.model.fit",
+            "ergostat.model.unexplained",
+            "ergostat.model.unidentified-loops",
+            "ergostat.model.open-findings"
+          ],
+          "description": "One of ergostat's built-in measures of the model's own quality, read by ergostat (SPEC \u00a712e)"
         }
       },
       "oneOf": [
@@ -315,6 +324,11 @@
         {
           "required": [
             "changes"
+          ]
+        },
+        {
+          "required": [
+            "builtin"
           ]
         }
       ],
@@ -475,7 +489,7 @@
           "required": [
             "gain"
           ],
-          "description": "The loop's process, from what its controller moves to what the goal holds: first order with dead time, or an integrator (SPEC §8, §12c)",
+          "description": "The loop's process, from what its controller moves to what the goal holds: first order with dead time, or an integrator (SPEC \u00a78, \u00a712c)",
           "properties": {
             "gain": {
               "type": "number"
@@ -541,7 +555,8 @@
         "expr",
         "timer",
         "counter",
-        "alarm"
+        "alarm",
+        "judge"
       ]
     },
     "machineTypes": {
@@ -695,6 +710,69 @@
         "integral-time": {
           "$ref": "#/$defs/duration",
           "description": "A machine block's integral time, when its law is PI (passed in its params)"
+        },
+        "accept": {
+          "description": "A judge's policy: who writes a change it passed (owner, the default, or auto), for every kind or by kind",
+          "oneOf": [
+            {
+              "enum": [
+                "owner",
+                "auto"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "parameter": {
+                  "enum": [
+                    "owner",
+                    "auto"
+                  ]
+                },
+                "equation": {
+                  "enum": [
+                    "owner",
+                    "auto"
+                  ]
+                },
+                "structure": {
+                  "enum": [
+                    "owner",
+                    "auto"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "threshold": {
+          "description": "A judge's least fall in scaled error that counts, in every window",
+          "oneOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "exclusiveMaximum": 1
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9.]+%$"
+            }
+          ]
+        },
+        "hold-out": {
+          "$ref": "#/$defs/duration",
+          "description": "A judge's record after a change that it is judged on"
+        },
+        "windows": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          },
+          "minItems": 1,
+          "description": "A judge's split of the record held out: [1, 2, 4], whole, halves, quarters"
         }
       },
       "additionalProperties": false,
@@ -1154,7 +1232,7 @@
         "string",
         "number"
       ],
-      "description": "Its rate per hour (a flow) or its value (an auxiliary), as an equation of parameters (bare names) and parts (stock.x, flow.x, auxiliary.x): + - * / ^, MIN, MAX, ABS, EXP, LN, SQRT, DELAY1, DELAY3, SMOOTH, SMOOTH3, and a lookup parameter called like a function. Subtraction is written with spaces (a - b): names have hyphens (SPEC §7b)"
+      "description": "Its rate per hour (a flow) or its value (an auxiliary), as an equation of parameters (bare names) and parts (stock.x, flow.x, auxiliary.x): + - * / ^, MIN, MAX, ABS, EXP, LN, SQRT, DELAY1, DELAY3, SMOOTH, SMOOTH3, and a lookup parameter called like a function. Subtraction is written with spaces (a - b): names have hyphens (SPEC \u00a77b)"
     },
     "parameter": {
       "description": "A number an equation names: its value (a number, or a duration read in hours), its unit, and whether to estimate it from the record; or a lookup's table. A bare number is short for value:",

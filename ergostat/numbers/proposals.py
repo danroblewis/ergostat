@@ -23,6 +23,8 @@ kept here too, so they are accepted and dismissed the same way. All are read as 
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import math
@@ -31,7 +33,7 @@ from pathlib import Path
 
 from .. import series
 from ..spec import equation as eq
-from ..spec.ir import Equation, Spec
+from ..spec.ir import MODEL_CHANGE, Equation, Spec
 from . import estimate as es
 from . import fit as ft
 from . import observe as ob
@@ -39,31 +41,123 @@ from . import simulate as sim
 from . import version as ver
 from . import yamledit as ye
 
-FILE = "proposals.json"
 EQUATION_R2 = 0.5        # an equation is proposed when it explains this much of its flow's readings (1 − SSE/SST)
+OPEN = ("checked", "testing", "passed")                 # waiting: in the review queue
+STATUS = {"made": "made", "checked": "pending", "testing": "pending", "passed": "pending", "accepted": "accepted",
+          "refused": "refused", "failed": "failed", "dismissed": "dismissed", "superseded": "superseded"}
+_FOLDED: dict = {}
 
 
 class ProposalError(Exception):
     pass
 
 
-def path(p) -> Path:
-    return p.dir / FILE
+def item_of(pid: str) -> str:
+    return f"{MODEL_CHANGE}/{pid}"
+
+
+def changes(p) -> dict[str, tuple[str, dict]]:
+    """Every change to the model in the record, folded (``ergostat.model-change`` items): its id, its state and its
+    fields (the events' data, last write wins). The record is the only store."""
+    key = (str(p.dir), p.events.last_seq())
+    got = _FOLDED.get(key[0])
+    if got and got[0] == key[1]:
+        return got[1]
+    out: dict[str, tuple[str, dict]] = {}
+    for e in p.events.query(n=None, type=f"{MODEL_CHANGE}.*"):
+        pid = str(e.get("item") or "").split("/", 1)[-1]
+        if not pid:
+            continue
+        state, fields = out.get(pid, (None, {}))
+        fields = {**fields, **(e.get("data") or {})}
+        out[pid] = (e["type"].rsplit(".", 1)[1], fields)
+    _FOLDED[key[0]] = (key[1], out)
+    return out
 
 
 def stored(p) -> dict[str, dict]:
-    try:
-        return json.loads(path(p).read_text())
-    except (OSError, ValueError):
-        return {}
+    """The changes to the model, as the review queue reads them: each with its ``status`` (pending while it is
+    checked, testing or passed; else what became of it) and its ``state``. One superseded is as if never made: it
+    may be made again."""
+    return {pid: {**f, "id": pid, "state": st, "status": STATUS[st]} for pid, (st, f) in changes(p).items()
+            if st != "superseded"}
+
+
+@contextlib.contextmanager
+def locked(p):
+    """Held while the changes are read, changed and recorded back, so a block's proposal arriving in the engine and
+    the judge in its own thread never record over each other."""
+    p.dir.mkdir(parents=True, exist_ok=True)
+    with open(p.dir / "proposals.lock", "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def candidate(x: dict) -> bool:
+    """A change ergostat's own finders never let go when they look again: one a block made, or one under test or
+    passed by the judge."""
+    return bool(x.get("made_by") and x["made_by"] not in ("ergostat", "owner")) or x.get("state") in ("testing", "passed")
+
+
+def event(p, pid: str, state: str, data: dict | None = None, source: str = "ergostat", causedby: str | None = None) -> dict:
+    """One step of a change to the model, recorded: ``ergostat.model-change.<state>`` about its item."""
+    return p.events.add(f"{MODEL_CHANGE}.{state}", item=item_of(pid), source=source, causedby=causedby, data=data or {})
+
+
+DECIDED = {"accepted", "dismissed", "refused", "failed", "superseded"}
+LOCAL = ("id", "status", "state")
 
 
 def save(p, props: dict[str, dict]) -> None:
-    f = path(p)
-    f.parent.mkdir(parents=True, exist_ok=True)
-    tmp = f.with_suffix(".tmp")
-    tmp.write_text(json.dumps(props, indent=1))
-    tmp.replace(f)
+    """What changed in ``props`` since ``stored``, recorded as events: a new change made (by its ``made_by``, else
+    ergostat) and checked; one left out superseded; a status or state moved, with the fields that changed; fields
+    alone changed, as its state again."""
+    now = stored(p)
+    for pid, x in props.items():
+        was = now.get(pid)
+        body = {k: v for k, v in x.items() if k not in LOCAL}
+        if was is None:
+            body.setdefault("made_by", "owner" if x.get("scope") == "what-if" else "ergostat")
+            event(p, pid, "made", body, source=body["made_by"], causedby=x.get("run"))
+            st = x.get("state") if x.get("state") not in (None, "made") else \
+                {"pending": "checked", "made": None}.get(x.get("status", "pending"), x.get("status"))
+            if st and st != "made":
+                event(p, pid, st, {}, source=_decider(x, st))
+            continue
+        changed = {k: v for k, v in body.items() if json.dumps(v, sort_keys=True, default=str) !=
+                   json.dumps(was.get(k), sort_keys=True, default=str)}
+        target = x.get("state") if x.get("state") and x.get("state") != was["state"] else \
+            (x["status"] if x.get("status") in DECIDED and x["status"] != was["status"] else None)
+        if target:
+            event(p, pid, target, changed, source=_decider(x, target))
+        elif changed:
+            event(p, pid, was["state"], changed, source="ergostat")
+    for pid in set(now) - set(props):
+        event(p, pid, "superseded", {"why": "let go: found again otherwise, or no longer found"})
+
+
+def _decider(x: dict, state: str) -> str:
+    """Who an event of this state is from: who decided (the owner, or the policy, named) for accepted or dismissed;
+    ergostat for the rest."""
+    if state == "accepted":
+        return x.get("by") or "owner"
+    if state == "dismissed":
+        return x.get("dismissed_by") or "owner"
+    return "ergostat"
+
+
+def supersede(p, spec: Spec, why: str = "the model changed since it was made") -> list[str]:
+    """Every change still open that was made against a model version that has since changed: superseded."""
+    v = ver.version(spec)
+    out = []
+    for pid, x in stored(p).items():
+        if x["state"] in OPEN and x.get("version") and x["version"] != v and x.get("kind") not in ("process", "tuning"):
+            event(p, pid, "superseded", {"why": why, "version_now": v})
+            out.append(pid)
+    return out
 
 
 def current(x: dict, spec: Spec) -> bool:
@@ -77,11 +171,12 @@ def current(x: dict, spec: Spec) -> bool:
 
 
 def pending(p, spec: Spec | None = None) -> list[dict]:
-    """The proposals waiting for the owner, for the model as it is now."""
+    """The changes waiting (checked, under test, or passed), made against the model's version as it is now. A loop's
+    process or gain is offered by its analysis (``review.control_pending``), not here."""
     spec = spec or p.model.spec
-    st = ver.structure(spec)
-    return sorted((x for x in stored(p).values() if x["status"] == "pending" and x["structure"] == st and current(x, spec)),
-                  key=lambda x: x["created"])
+    v = ver.version(spec)
+    return sorted((x for x in stored(p).values() if x["status"] == "pending" and x.get("kind") not in ("process", "tuning")
+                   and x.get("version") == v and current(x, spec)), key=lambda x: x.get("created") or 0)
 
 
 def _id(*parts) -> str:
@@ -208,7 +303,8 @@ def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts"
     if which == "parts":
         found += _equations(spec, data, before)
     props = stored(p)
-    for k in [k for k, x in props.items() if x["status"] == "pending" and (x.get("structure") != st or _calibration(x) == which)]:
+    for k in [k for k, x in props.items() if x["status"] == "pending" and not candidate(x) and
+              (x.get("structure") != st or _calibration(x) == which)]:
         del props[k]
     for x in found:
         if x["id"] in props:                       # dismissed (or accepted) already: not made again
@@ -561,14 +657,14 @@ def dismiss(p, pid: str, reason: str | None = None) -> dict:
     x["status"], x["decided"] = "dismissed", time.time()
     if reason:
         x["dismissed_because"] = reason.strip()[:500]
+    x["dismissed_by"] = "owner"
     props[x["id"]] = x
-    save(p, props)
-    p.events.add("model.dismissed", item=p.model.name, source="owner",
-                 data={"proposal": x["id"], "title": x["title"], **({"reason": x["dismissed_because"]} if reason else {})})
+    save(p, props)                                  # ergostat.model-change.dismissed, from the owner, with the reason
     return x
 
 
-def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None) -> dict:
+def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None, why: str | None = None,
+           policy: str | None = None) -> dict:
     """Apply the proposal's edit, check the model still compiles (else put the file back), record the
     change with the fit before and after, and return what was done. ``expect`` is the hash of the diff the
     owner was shown (``review.diff_of``): refused unless what would be written is exactly that."""
@@ -578,9 +674,9 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
     x = find(p, pid)
     if x["status"] != "pending":
         raise ProposalError(f"proposal {x['id']} is {x['status']} already")
-    if "error" in x["edit"]:
-        raise ProposalError(f"its edit cannot be made by ergostat ({x['edit']['error']}); write it by hand")
-    if x["structure"] != ver.structure(p.model.spec):
+    if "error" in (x.get("edit") or {"error": "none"}):
+        raise ProposalError(f"its edit cannot be made by ergostat ({(x.get('edit') or {}).get('error')}); write it by hand")
+    if x["structure"] != ver.structure(p.model.spec) or (x.get("version") and x["version"] != ver.version(p.model.spec)):
         raise ProposalError("the model has changed since it was proposed: ask for proposals again")
     if not current(x, p.model.spec):
         raise ProposalError("the value it changes has been changed since it was proposed: ask for proposals again")
@@ -609,17 +705,31 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
     p.model = mdl.load(p.model.path.parent)
     _, _, fit_after = ft.compute(p, snap)
     ft.record(p, fit_after, snap["window"], force=True)
-    x["status"], x["decided"], x["by"] = "accepted", time.time(), by
+    x["status"], x["state"], x["decided"], x["by"] = "accepted", "accepted", time.time(), by
     x["applied"] = {"version_before": v_before, "version_after": ver.version(p.model.spec),
                     "fit_before": ft._slim(fit_before["total"]), "fit_after": ft._slim(fit_after["total"])}
+    if why:
+        x["applied"]["why"] = why
+    if policy:
+        x["applied"]["policy"] = policy
     props[x["id"]] = x
-    save(p, props)
-    p.events.add("model.accepted", item=p.model.name, source=by,
-                 data={"proposal": x["id"], "kind": x["kind"], "title": x["title"], "target": x["target"],
-                       "diff": x["edit"]["diff"], **x["applied"]})
+    save(p, props)                                  # ergostat.model-change.accepted, from whoever decided
+    written(p, x, by)
+    supersede(p, p.model.spec)                      # what was made against the version before is made again, or not
     return x
+
+
+def written(p, x: dict, by: str) -> dict:
+    """``ergostat.model.changed``: an accepted edit written, with its diff, the model's version before and after and
+    the fit before and after: the model's history."""
+    return p.events.add("ergostat.model.changed", item=p.model.name, source="ergostat",
+                        data={"change": x["id"], "item": item_of(x["id"]), "kind": x["kind"], "title": x["title"],
+                              "target": x.get("target"), "reason": x.get("reason"), "accepted_by": by,
+                              **({"made_by": x["made_by"]} if x.get("made_by") else {}),
+                              "diff": x["edit"]["diff"], **x.get("applied", {})})
 
 
 def accepted(p, since: float | None = None) -> list[dict]:
     """The changes accepted, oldest first: the model's history of what the record taught it."""
-    return [{"time": e["time"], **e["data"]} for e in p.events.query(n=None, type="model.accepted", since=since)]
+    return [{"time": e["time"], "proposal": e["data"].get("change"), **e["data"]}
+            for e in p.events.query(n=None, type="ergostat.model.changed", since=since)]

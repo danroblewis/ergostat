@@ -33,6 +33,17 @@ def add(type: str, item: str, data: dict, by: str) -> None:
 ALLOWED = ["Bash(bin/py:*)", "Bash(python3:*)", "Bash(git:*)", "Bash(ls:*)", "Bash(cat:*)", "Read", "Edit", "Write", "Glob", "Grep"]
 
 
+def tools(role: str) -> list[str]:
+    """What the session may use. The improver reads and proposes, and changes nothing: ergostat's tools over MCP
+    (check, fit, residuals, explain, try_change, ...), and reading the files."""
+    if role != "improver":
+        return ["--permission-mode", "acceptEdits", "--allowedTools", *ALLOWED]
+    py = ergostat()[0]
+    mcp = {"mcpServers": {"ergostat": {"command": py, "args": [*ergostat()[1:], "mcp"]}}}
+    return ["--mcp-config", json.dumps(mcp), "--strict-mcp-config", "--allowedTools", "mcp__ergostat", "Read", "Glob", "Grep",
+            "Bash(ls:*)", "Bash(cat:*)", "--disallowedTools", "Edit", "Write", "NotebookEdit"]
+
+
 def transcript_of(sid: str) -> Path:
     """Where Claude Code writes the transcript of a session run in this folder."""
     return Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9-]", "-", os.path.realpath(os.getcwd())) / f"{sid}.jsonl"
@@ -44,8 +55,7 @@ def run(role: str, model: str) -> int:
     keep = ROOT / "run" / "sessions" / f"{item.split('/')[1]}.jsonl"
     keep.parent.mkdir(parents=True, exist_ok=True)
     src = transcript_of(sid)
-    proc = subprocess.Popen(["claude", "-p", "--model", model, "--session-id", sid, "--output-format", "json",
-                             "--permission-mode", "acceptEdits", "--allowedTools", *ALLOWED],
+    proc = subprocess.Popen(["claude", "-p", "--model", model, "--session-id", sid, "--output-format", "json", *tools(role)],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     proc.stdin.write(sys.stdin.read())
     proc.stdin.close()

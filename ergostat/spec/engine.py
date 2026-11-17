@@ -33,6 +33,7 @@ from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
 
 TICK = 1.0
+JUDGE_EVERY = 30.0          # a judge with no every: passes this often
 SOURCE = "ergostat"
 AI_COMMAND = os.environ.get("ERGOSTAT_AI", "claude -p")
 AI_FOOTER = """
@@ -43,6 +44,9 @@ the JSON below. Answer with JSON lines only, one per output, for example:
 {"out": "flow.<name>", "moved": 3}          what you moved along a flow
 {"out": "block.<name>", "command": 2}       a command to the block you drive
 {"decision": "what you decided", "why": "the reason"}
+{"propose": {"kind": "parameter|equation|structure", "parts": ["stock.<name>"], "edit": {...},
+             "reasons": [{"says": "...", "evidence": "finding:CODE@PART | fit:total.nmse | residual:stock.<name> |
+             path:LINE | URL | rule:NAME"}], "confidence": 0.6}}     a change to the model (SPEC §12e)
 """
 
 
@@ -386,6 +390,9 @@ class Engine:
                 said.line(raw)
             if code == 0:                                        # a bare number only from a run that finished well
                 said.finish()
+        if said.proposals:
+            said.counts["proposed"] = sum(1 for x in said.proposals if x["status"] != "not-proposed")
+            said.counts["not_proposed"] = sum(1 for x in said.proposals if x["status"] == "not-proposed")
         data = {"exit": code, "seconds": round(time.time() - started, 3), "why": why, **said.counts,
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
                 **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {})}
@@ -397,6 +404,29 @@ class Engine:
         if said.refused:
             self.say(f"{b.name}: {said.refused[0]}")
         return [f for f, v in said.moved.items() if v]           # moving nothing is not a reason to read again
+
+    def judge(self, b: Block) -> None:
+        """One pass of the judge, ergostat's own (no program): recorded as a run, what it moved said on its ports."""
+        from ..numbers import judge as jd
+        ev = self.p.events
+        begun = ev.add("agent.started", item=b.name, source=SOURCE, data={"trigger": "schedule"})
+        started = time.time()
+        try:
+            got = jd.run(self.p, by=b.name)
+        except Exception as e:
+            ev.add("agent.failed", item=b.name, source=SOURCE, causedby=begun["id"],
+                   data={"exit": None, "seconds": round(time.time() - started, 3), "note": f"{type(e).__name__}: {e}"})
+            self.say(f"{b.name}: {type(e).__name__}: {e}")
+            return
+        finally:
+            with self.lock:
+                self.running.discard(b.name)
+        said = Said(self, b, begun["id"])
+        for line in jd.lines(self.spec, b.name, got):
+            said.take(line)
+        ev.add("agent.ran", item=b.name, source=SOURCE, causedby=begun["id"],
+               data={"exit": 0, "seconds": round(time.time() - started, 3), "why": "schedule", **said.counts,
+                     **{k: got[k] for k in jd.PORTS}, **({"moved": said.moved} if said.moved else {})})
 
     # ---- sensors
 
@@ -439,6 +469,7 @@ class Engine:
         due: dict[str, float] = {}
         timed = [s for s in self.spec.sensors() if s.measured and not s.cron]
         timed_blocks = [b for b in self.machines if (b.every and not b.cron) and not self.spec.commanders_of(b.name)]
+        judges = [b for b in self.spec.blocks.values() if b.type == "judge"]
         crons: dict[str, tuple] = {}
         for s in self.spec.sensors():
             if s.measured and s.cron:
@@ -459,6 +490,13 @@ class Engine:
                 if mono >= due.get(k, 0):
                     due[k] = mono + b.every
                     self.start(b, "schedule")
+            for b in judges:                                     # the judge: built in, on its own clock (SPEC §12e)
+                k = f"block/{b.name}"
+                if mono >= due.get(k, 0) and b.name not in self.running:
+                    due[k] = mono + (b.every or JUDGE_EVERY)
+                    with self.lock:
+                        self.running.add(b.name)
+                    threading.Thread(target=self.judge, args=(b,), daemon=True).start()
             wall = time.time()
             for k, at in list(nxt.items()):
                 if at is not None and wall >= at:
@@ -536,6 +574,7 @@ class Said:
     def __init__(self, eng: Engine, b: Block, run_id: str):
         self.e, self.b, self.run_id = eng, b, run_id
         self.counts = {"openings": 0, "commands": 0, "decisions": 0, "events": 0, "refused": 0}
+        self.proposals: list[dict] = []          # what it proposed for the model, and what became of each
         self.moved: dict[str, float] = {}
         self.refused: list[str] = []
         self.bare: float | None = None
@@ -604,6 +643,16 @@ class Said:
                 ev.add("controller.decided", item=g, source=self.b.name, causedby=self.run_id,
                        data={"decision": str(obj["decision"]), **({"why": str(obj["why"])} if "why" in obj else {})})
             self.counts["decisions"] += 1
+            return
+        if "propose" in obj:                          # a change to the model, from any block: validated, then queued
+            from ..numbers import improve
+            try:
+                got = improve.submit(self.e.p, self.b.name, obj["propose"], run=self.run_id)
+            except Exception as err:                  # a proposal that cannot even be judged is the block's to read
+                got = {"status": "not-proposed", "why": f"{type(err).__name__}: {err}", "title": ""}
+            self.proposals.append(got)
+            if got["status"] == "not-proposed":
+                self.e.say(f"{self.b.name}: not proposed: {got['why']}")
             return
         if "event" in obj:
             t = obj["event"]

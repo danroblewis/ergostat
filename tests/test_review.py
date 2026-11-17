@@ -159,8 +159,9 @@ def test_a_dismissal_is_remembered_with_its_reason_and_not_proposed_again(tmp_pa
     pr.dismiss(p, x["id"], "it is set by hand each morning")
     assert pr.stored(p)[x["id"]]["dismissed_because"] == "it is set by hand each morning"
     assert not [y for y in structural(p) if y["id"] == x["id"]]
-    ev = p.events.query(n=None, type="model.dismissed")
-    assert ev[-1]["data"]["reason"] == "it is set by hand each morning"
+    ev = p.events.query(n=None, type="ergostat.model-change.dismissed")
+    assert ev[-1]["data"]["dismissed_because"] == "it is set by hand each morning" and ev[-1]["source"] == "owner"
+    assert ev[-1]["item"] == f"ergostat.model-change/{x['id']}"
 
 
 # ---- every pending change simulated together, conflicts left out

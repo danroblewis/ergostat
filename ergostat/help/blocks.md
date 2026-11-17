@@ -74,6 +74,12 @@ A block that steps a setting (an integral controller: the quality up by the erro
 between steps; only a value the block states whole each run, from what it reads now, is an
 auxiliary it sets (`{"out": "auxiliary.mix", "value": 0.3}`).
 
+Any block may also propose a change to the model, one line each:
+`{"propose": {"kind": "parameter", "parts": [...], "edit": {"file": "x.yaml", "replace": "...", "with":
+"..."}, "reasons": [{"says": "...", "evidence": "fit:stock.queue.um"}], "confidence": 0.6}}`. ergostat checks it
+(compiles, checks, replays and refits it; every reason needs evidence it can check) and puts it in the review
+queue as the block's candidate, or says why not (`ergostat improve`). `ergostat help spec`, section 12e.
+
 Everything else it prints goes to its log. `ERGOSTAT_COMMAND` holds the amount too, for a shell
 one-liner (`find tmp -mmin +60 -delete -print | head -n "$ERGOSTAT_COMMAND" | wc -l`).
 `ERGOSTAT_CMD` runs this ergostat on this project, so a block (or the AI agent it starts) can read

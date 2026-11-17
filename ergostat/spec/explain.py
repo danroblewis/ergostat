@@ -47,7 +47,8 @@ def _changes(c: dict) -> str:
 
 
 def _sensor(s) -> str:
-    how = (f"runs `{s.run}`" if s.run else f"queries {s.query.get('source')}" if s.query else _items(s.items) if s.items
+    how = (f"reads the built-in measure {s.builtin}" if s.builtin else
+           f"runs `{s.run}`" if s.run else f"queries {s.query.get('source')}" if s.query else _items(s.items) if s.items
            else _changes(s.changes) if s.changes
            else "is read by a person" if s.manual else f"is {s.description}" if s.description else "is not read")
     when = _when(s) if not s.manual else ""

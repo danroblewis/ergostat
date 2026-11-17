@@ -193,3 +193,16 @@ by default.
   the ones of rung `program` already do their whole job without one.
 - **Me** (`world/me.py`) stands in for the owner. On your laptop, with `JOB_GH=1`, the code
   host's part of me is you.
+
+## The model, improved by a loop of its own (job/modelling.yaml)
+
+The model of the job is kept true like the job: `model-error` is ergostat's built-in measure
+`ergostat.model.fit` (the scaled error of the model's replay), the goal `model-fits` holds it at 0.05, and while
+it is off the `improver` (an `ai` block: `JOB_AI=claude` runs a Claude Code session on Sonnet,
+`JOB_IMPROVER_MODEL`, with ergostat's tools and read-only access to the files, `prompts/improver.md`; otherwise
+a free stand-in, `bin/improver.py`) proposes changes with their evidence. Every change to the model, the
+improver's and ergostat's own calibrations alike, is an `ergostat.model-change` item (Items, and the review queue
+on the Fit page). The built-in `judge` replays each on the four minutes of record after it was made, whole, in
+halves and in quarters, and passes it only when it is better by 2% in every one; a passed parameter value is
+written at once, a change to the structure waits for me. Each improver run is a `session` item with its cost.
+

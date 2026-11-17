@@ -10,7 +10,7 @@ from pathlib import Path
 from .load import Where
 
 BUILTIN = ("onoff", "compare", "proportional", "limit", "delay", "schedule", "lookup", "select", "expr", "timer",
-           "counter", "alarm")
+           "counter", "alarm", "judge")   # judge: ergostat's judge of changes to the model (SPEC §12e), on the program rung
 MACHINE = ("program", "ai", "person", "external")
 FORMATS = ("image", "markdown", "code", "text", "json", "claude-session")   # how a file an item names is shown
 SETPOINT = re.compile(r"^\s*(<=|>=|==|<|>)\s*(-?\d+(?:\.\d+)?)\s*$")
@@ -77,6 +77,41 @@ class Setpoint:
         return {"<=": y > r + band, "<": y >= r + band, ">=": y < r - band, ">": y <= r - band}.get(self.op, abs(y - r) > band)
 
 
+MEASURE = re.compile(r"^ergostat\.model\.([a-z][a-z0-9-]*)$")   # a built-in measure, beside stock.x, flow.x, auxiliary.x
+MODEL_MEASURES = {                 # the model's own quality (SPEC §12e), read by a sensor: builtin: ergostat.model.fit
+    "ergostat.model.fit": "the scaled error of the model's replay on the reference window (the Fit page's total; lower is "
+                          "better)",
+    "ergostat.model.unexplained": "the share of the stocks' change over the last hour that their flows do not explain (the "
+                                  "residuals), averaged over the stocks that moved",
+    "ergostat.model.unidentified-loops": "the goals whose loop closes and whose process the model does not hold (no process:)",
+    "ergostat.model.open-findings": "the findings ergostat check reports (structure, signs, control), errors aside",
+}
+MODEL_CHANGE = "ergostat.model-change"   # the built-in item kind: every change to the model, made, judged and decided
+MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refused", "failed", "dismissed", "superseded"]
+JUDGE_PORTS = ("testing", "passed", "failed", "accepted")
+
+
+@dataclass
+class Improve:
+    """The judge block's policy (SPEC §12e): who writes a change it passed, by its kind (``auto``: the judge writes
+    it; ``owner``: it waits in the review queue), the least fall in scaled error that counts in every window, how much
+    record after a change it is judged on, and how that record is split into windows (1: whole; 2: halves; ...)."""
+    accept: dict[str, str] = field(default_factory=lambda: {"parameter": "owner", "equation": "owner", "structure": "owner"})
+    threshold: float = 0.02
+    hold_out: float = 600.0
+    windows: list[int] = field(default_factory=lambda: [1, 2, 4])
+    block: str | None = None
+
+
+def model_change_kind() -> ItemKind:
+    on = {f"{MODEL_CHANGE}.{s}": s for s in MODEL_CHANGE_STATES if s != "made"}
+    on[f"{MODEL_CHANGE}.made"] = "made"
+    return ItemKind(MODEL_CHANGE, f"{MODEL_CHANGE}/*", list(MODEL_CHANGE_STATES), on,
+                    ["title", "kind", "made_by", "confidence", "verdict"], {}, None,
+                    "every change to the model: made by a block, ergostat's own finders or the owner; checked, judged, "
+                    "and accepted or not (built in, SPEC §12e)")
+
+
 @dataclass
 class Sensor:
     name: str
@@ -94,6 +129,7 @@ class Sensor:
     description: str = ""
     where: Where | None = None
     averages: float | None = None    # on a flow: its reading is the average rate over this window (seconds) before it
+    builtin: str | None = None  # a built-in measure (MODEL_MEASURES: ergostat.model.fit), read by ergostat (``run`` says how)
 
     @property
     def window(self) -> float:
@@ -365,6 +401,7 @@ class Spec:
     show: dict[str, list[Ref]] = field(default_factory=dict)     # a system → the measures its box shows (default: its goals')
     named_loops: dict[str, NamedLoop] = field(default_factory=dict)   # loops: the feedback loops the model names (SPEC §12a)
     parameters: dict[str, Parameter] = field(default_factory=dict)    # the numbers equations name (SPEC §7b)
+    improve: Improve = field(default_factory=Improve)                  # the judge block's policy (SPEC §12e)
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 
