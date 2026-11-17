@@ -84,11 +84,22 @@ TOOLS = [
      "inputSchema": _obj({"kind": {"type": "string"}, "state": {"type": "string"}, "id": {"type": "string"},
                           "n": {"type": "integer"}})},
     {"name": "record_event", "description": "Record something that happened outside: an event of a type (ticket.opened), "
-     "about an item (ticket/12), with data (its fields: title, priority, ...). An item kind's on: map says which types move "
-     "an item between states. The same as `ergostat event --add TYPE --item ID --data JSON`.",
+     "about an item (ticket/12), with data (its fields: title, priority, ...), folded by its kind's fold: rules (replace "
+     "by default); or, in place of data, a patch (a JSON Patch, RFC 6902: [{\"op\": \"add\", \"path\": \"/tags/-\", "
+     "\"value\": \"x\"}]), applied whole or refused with why, or set (the item's whole document). An item kind's on: map "
+     "says which types move an item between states. The same as `ergostat event --add TYPE --item ID --data JSON` "
+     "(or --patch, --set).",
      "inputSchema": _obj({"type": {"type": "string"}, "item": {"type": "string"}, "data": {"type": "object"},
+                          "patch": {"type": "array", "items": {"type": "object"}}, "set": {"type": "object"},
                           "source": {"type": "string"}}, ["type"])},
 ]
+
+
+def _refused(p, spec, ev: dict) -> str | None:
+    """Why the event just recorded did not change its item, when it did not (a patch whose test failed)."""
+    from .spec import items as its
+    it = its.one(p.events, spec, ev["item"]) if spec is not None else None
+    return next((r["why"] for r in (it.refused if it else []) if r["event"] == ev["id"]), None)
 
 
 class Server:
@@ -212,8 +223,16 @@ class Server:
             if not TYPE_NAME.match(t) or t.startswith((*OWN_TYPES, "block.", "person.")) or not isinstance(data, dict):
                 return {**_text("type: lowercase words joined by dots (ticket.opened), not ergostat's own; data: an object"),
                         "isError": True}
-            ev = p.events.add(t, item=a.get("item") or None, source=a.get("source") or "mcp", data=data)
-            return _text({"recorded": ev["id"], "type": t, "item": ev["item"]})
+            from .store import ChangesetError
+            try:
+                ev = p.events.add(t, item=a.get("item") or None, source=a.get("source") or "mcp", data=data,
+                                  patch=a.get("patch"), set=a.get("set"))
+            except ChangesetError as e:
+                return {**_text(str(e)), "isError": True}
+            out = {"recorded": ev["id"], "type": t, "item": ev["item"]}
+            if ev["item"] and (why := _refused(p, spec, ev)):
+                out["refused"] = why
+            return _text(out)
         return {**_text(f"no tool {name!r}"), "isError": True}
 
     def handle(self, msg: dict) -> dict | None:

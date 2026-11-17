@@ -443,8 +443,13 @@ class Engine:
             name = sensor_name(s.of.name, s.name)
 
             def observe(seen, refused):
+                from ..store import ChangesetError
                 for o in seen:
-                    self.p.events.add(o["type"], item=o["item"], source=name, data=o["data"])
+                    try:
+                        self.p.events.add(o["type"], item=o["item"], source=name, data=o["data"], patch=o.get("patch"),
+                                          set=o.get("set"))
+                    except ChangesetError as err:
+                        refused.append(f"{o['type']}: {err}")
                 for why in refused:
                     self.p.events.add("sensor.refused", item=name, source=SOURCE, data={"why": why})
                     self.say(f"sensor {name}: {why}")
@@ -558,6 +563,10 @@ class Engine:
         threading.Thread(target=self._schedule, daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop
+        from .. import transcripts
+        ing = transcripts.Ingester(self.p, self.spec)
+        if ing.kinds():                                          # sessions whose transcripts become events (SPEC §5a)
+            threading.Thread(target=ing.run, args=(self.stop, self.say), daemon=True).start()
 
     def close(self) -> None:
         self.stop.set()
@@ -659,8 +668,14 @@ class Said:
             if not isinstance(t, str) or not old.TYPE_NAME.match(t) or t.startswith((*old.OWN_TYPES, "block.", "person.")):
                 self.refuse(obj, "an event type is lowercase words joined by dots (backup.verified), and not ergostat's own")
                 return
-            ev.add(t, item=obj.get("item"), source=self.b.name, causedby=self.run_id,
-                   data=obj.get("data") if isinstance(obj.get("data"), dict) else {})
+            from ..store import ChangesetError
+            try:                                       # it changes its item by data, a patch or the whole of it (SPEC §5a)
+                ev.add(t, item=obj.get("item"), source=self.b.name, causedby=self.run_id,
+                       data=obj.get("data") if isinstance(obj.get("data"), dict) else {}, patch=obj.get("patch"),
+                       set=obj.get("set"))
+            except ChangesetError as err:
+                self.refuse(obj, str(err))
+                return
             self.counts["events"] += 1
             return
         r = self.target(obj)
@@ -723,7 +738,8 @@ def observations(text: str) -> tuple[list[dict], list[str]]:
         elif not isinstance(item, str) or "/" not in item:
             refused.append(f"{t}: a sensor's observation names an item (an id with a /, case/logo-3)")
         else:
-            seen.append({"type": t, "item": item, "data": obj.get("data") if isinstance(obj.get("data"), dict) else {}})
+            seen.append({"type": t, "item": item, "data": obj.get("data") if isinstance(obj.get("data"), dict) else {},
+                         **{k: obj[k] for k in ("patch", "set") if obj.get(k) is not None}})
     return seen, refused
 
 

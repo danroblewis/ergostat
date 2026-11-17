@@ -339,6 +339,7 @@ class ItemKind:
     system: str | None = None
     description: str = ""
     where: Where | None = None
+    fold: dict[str, str] = field(default_factory=dict)   # field → how plain data folds into it (changes.RULES); else replace
 
     def matches(self, id: str) -> bool:
         import fnmatch

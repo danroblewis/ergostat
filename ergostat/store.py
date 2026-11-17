@@ -22,7 +22,8 @@ create table if not exists events (
   item text,
   source text,
   causedby text,
-  data text
+  data text,
+  change text
 );
 create index if not exists events_item on events(item, seq);
 create index if not exists events_type on events(type, seq);
@@ -69,7 +70,46 @@ def _connect(path: Path, schema: str) -> sqlite3.Connection:
     c.execute("pragma journal_mode=wal")
     c.execute("pragma busy_timeout=10000")
     c.executescript(schema)
+    if schema is EVENTS and "change" not in {r[1] for r in c.execute("pragma table_info(events)")}:
+        try:                                       # a record from before changesets: every event in it is plain data
+            c.execute("alter table events add column change text")
+        except sqlite3.OperationalError:           # another connection added it first
+            pass
     return c
+
+
+def _skipping(skip: tuple[str, ...], where: list[str], args: list) -> None:
+    """Leave out these types; one ending in ``*`` is a prefix (``claude.*``)."""
+    exact = [t for t in skip if not t.endswith("*")]
+    if exact:
+        where.append(f"type not in ({','.join('?' * len(exact))})")
+        args.extend(exact)
+    for t in skip:
+        if t.endswith("*"):                        # a range, so the type index serves it
+            lo = t[:-1]
+            where.append("not (type >= ? and type < ?)")
+            args += [lo, lo[:-1] + chr(ord(lo[-1]) + 1)]
+
+
+class ChangesetError(ValueError):
+    pass
+
+
+def changeset(data, patch, set_) -> str | None:
+    """An event's changeset other than plain data, as stored: ``{"patch": [...]}`` or ``{"set": {...}}``.
+    Only one form; ``ChangesetError`` says why not."""
+    given = [n for n, v in (("data", data), ("patch", patch), ("set", set_)) if v not in (None, {}, [])]
+    if len(given) > 1:
+        raise ChangesetError(f"an event changes its item one way: {' or '.join(given)}, not both")
+    if patch is not None:
+        if not isinstance(patch, list) or not all(isinstance(o, dict) and "op" in o and "path" in o for o in patch):
+            raise ChangesetError("patch: a JSON Patch, a list of operations ({\"op\": \"add\", \"path\": \"/x\", \"value\": 1})")
+        return json.dumps({"patch": patch})
+    if set_ is not None:
+        if not isinstance(set_, dict):
+            raise ChangesetError("set: the whole document, a JSON object")
+        return json.dumps({"set": set_})
+    return None
 
 
 class _Conns:
@@ -119,19 +159,63 @@ class Events:
             pass
 
     def add(self, type: str, *, item: str | None = None, source: str | None = None, data: dict | None = None,
-            causedby: str | None = None, at: float | None = None, id: str | None = None) -> dict:
+            causedby: str | None = None, at: float | None = None, id: str | None = None, patch: list | None = None,
+            set: dict | None = None) -> dict:
+        """Record an event. About an item, it changes it one way (SPEC §5a): plain ``data``, folded by
+        its kind's rules; a JSON ``patch``; or ``set``, its whole document. An event already recorded
+        (the same ``id``) is not recorded again: its ``seq`` is None."""
+        change = changeset(data, patch, set)
+        if change and (not isinstance(item, str) or "/" not in item):
+            raise ChangesetError("a patch or a set changes an item: name it (an id with a /, ticket/12)")
         ev = {"id": id or uuid.uuid4().hex, "time": at if at is not None else time.time(), "type": type, "item": item,
               "source": source, "causedby": causedby, "data": data or {}}
+        if patch is not None:
+            ev["patch"] = patch
+        if set is not None:
+            ev["set"] = set
         with self._c() as c:
-            cur = c.execute("insert or ignore into events(id, time, type, item, source, causedby, data) values (?,?,?,?,?,?,?)",
-                            (ev["id"], ev["time"], type, item, source, causedby, json.dumps(ev["data"])))
+            cur = c.execute("insert or ignore into events(id, time, type, item, source, causedby, data, change) "
+                            "values (?,?,?,?,?,?,?,?)",
+                            (ev["id"], ev["time"], type, item, source, causedby, json.dumps(ev["data"]), change))
             ev["seq"] = cur.lastrowid if cur.rowcount else None
         return ev
+
+    def add_many(self, evs: list[dict]) -> int:
+        """Several events at once, in one transaction (a transcript's lines): each a dict of ``add``'s
+        arguments with ``type``. Those already recorded are skipped. Returns how many were new."""
+        rows = []
+        for e in evs:
+            rows.append((e.get("id") or uuid.uuid4().hex, e["at"] if e.get("at") is not None else time.time(), e["type"],
+                         e.get("item"), e.get("source"), e.get("causedby"), json.dumps(e.get("data") or {}),
+                         changeset(e.get("data"), e.get("patch"), e.get("set"))))
+        with self._c() as c:
+            before = c.total_changes
+            c.execute("begin immediate")
+            try:
+                c.executemany("insert or ignore into events(id, time, type, item, source, causedby, data, change) "
+                              "values (?,?,?,?,?,?,?,?)", rows)
+                c.execute("commit")
+            except BaseException:
+                c.execute("rollback")
+                raise
+            return c.total_changes - before
+
+    def known(self, ids: list[str]) -> set[str]:
+        """Which of these event ids are recorded."""
+        out: set[str] = set()
+        with self._c() as c:
+            for i in range(0, len(ids), 500):
+                part = ids[i:i + 500]
+                out |= {r[0] for r in c.execute(f"select id from events where id in ({','.join('?' * len(part))})", part)}
+        return out
 
     @staticmethod
     def _row(r) -> dict:
         d = dict(r)
         d["data"] = json.loads(d["data"] or "{}")
+        change = d.pop("change", None)
+        if change:
+            d.update(json.loads(change))           # "patch": [...] or "set": {...}
         return d
 
     def query(self, *, n: int | None = 100, type: str | None = None, item: str | None = None, source: str | None = None,
@@ -141,9 +225,7 @@ class Events:
         ``*``, and may be several, joined by commas; types in ``skip`` are left out. ``machine``: from
         that source or one of its instances (``<machine>/<instance>``)."""
         where, args = [], []
-        if skip:
-            where.append(f"type not in ({','.join('?' * len(skip))})")
-            args.extend(skip)
+        _skipping(skip, where, args)
         if unvoided:                                     # crossings a forgotten reading caused are left out
             where.append("id not in (select j.value from events f, json_each(f.data, '$.voids') j "
                          "where f.type = 'ergostat.forgotten')")
@@ -196,10 +278,11 @@ class Events:
         with self._c() as c:
             return [dict(r) for r in c.execute(sql, (since,) if since else ())]
 
-    def of_items(self, globs: list[str] | None = None, until: float | None = None) -> list[dict]:
+    def of_items(self, globs: list[str] | None = None, until: float | None = None, skip: tuple[str, ...] = ()) -> list[dict]:
         """Every event about an item (an id with a ``/``), or about ids matching one of ``globs``,
-        oldest first."""
+        oldest first; types in ``skip`` (``claude.*``: a prefix) left out."""
         where, args = ["item like '%/%'"], []
+        _skipping(skip, where, args)
         if globs:
             where.append("(" + " or ".join("item glob ?" for _ in globs) + ")")
             args += globs
@@ -208,6 +291,16 @@ class Events:
             args.append(until)
         with self._c() as c:
             return [self._row(r) for r in c.execute("select * from events where " + " and ".join(where) + " order by seq", args)]
+
+    def counted(self, prefix: str, until: float | None = None) -> dict[str, tuple[int, float]]:
+        """Per item, how many events of types starting ``prefix`` (``claude.*``) and the latest one's time,
+        counted by SQLite on the type index."""
+        lo = prefix.rstrip("*")
+        hi = lo[:-1] + chr(ord(lo[-1]) + 1)
+        with self._c() as c:
+            rows = c.execute("select item, count(*), max(time) from events where type >= ? and type < ? and time <= ? "
+                             "group by item", (lo, hi, until if until is not None else 1e18)).fetchall()
+        return {r[0]: (r[1], r[2]) for r in rows if r[0]}
 
     def count(self) -> int:
         with self._c() as c:

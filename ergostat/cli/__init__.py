@@ -140,12 +140,17 @@ def build() -> argparse.ArgumentParser:
     e.add_argument("--follow", "-f", action="store_true", help="keep printing as events arrive")
     e.add_argument("--runs", action="store_true", help="also each run's start and end (agent.started, agent.ran), left out by default")
     e.add_argument("--add", metavar="TYPE", help="record an event of this type (ticket.opened): what happened outside")
-    e.add_argument("--data", metavar="JSON", help="with --add: its data, a JSON object")
+    e.add_argument("--data", metavar="JSON", help="with --add: its data, a JSON object (folded by the kind's fold: rules)")
+    e.add_argument("--patch", metavar="JSON", help="with --add, in place of --data: a JSON Patch (RFC 6902) for its item, "
+                                                  "applied whole or refused with why")
+    e.add_argument("--set", dest="set_", metavar="JSON", help="with --add, in place of --data: its item's whole document")
     e.add_argument("--as", dest="by", metavar="SOURCE", help="with --add: who says so (default: the user)")
     i = topic("item", cmd_item, "The items: the record folded by id, with each kind's states")
     i.add_argument("-n", type=int, default=30, help="how many (default 30)")
     i.add_argument("--kind", help="only items of this kind")
     i.add_argument("--state", help="only items in this state")
+    i.add_argument("--history", nargs="?", const="", metavar="FIELD",
+                   help="with an item: each field's changes (or one field's), with the events that made them")
     topic("residual", cmd_residual, "What the model can't explain")
     topic("fit", cmd_fit, "How well the model's replay fits the record (each stock, the total, Theil's statistics)", named=False)
     pp = topic("proposals", cmd_proposals, "Estimate the parameters marked estimate: true, and list the changes the record "

@@ -41,7 +41,7 @@ COMMON = {"system", "description"}
 SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "every", "cron", "timeout", "parse", "unit", "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative"}
 LINK_KEYS = {"cause", "instant", "description"}      # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation"}
@@ -483,8 +483,24 @@ class Compiler:
                     self.err(f"{what}.formats.{f}: {fmt!r} is not a format ({', '.join(FORMATS)})", raw.at(f), "bad-format")
                 else:
                     formats[str(f)] = str(fmt)
+        from .changes import RULES
+        rules = {}
+        raw = m.get("fold") or {}
+        if not isinstance(raw, dict):
+            self.err(f"{what}.fold: a map of field: how its events' data folds into it ({', '.join(RULES)})", m.at("fold"),
+                     "not-a-map")
+        else:
+            for f, rule in raw.items():
+                if not isinstance(f, str) or not f:
+                    self.err(f"{what}.fold: {f!r} is not a field name", raw.at(f), "bad-fold")
+                elif str(rule) not in RULES:
+                    self.err(f"{what}.fold.{f}: {rule!r} is not a fold rule ({', '.join(RULES)})" + self.suggest(str(rule), RULES),
+                             raw.at(f), "bad-fold")
+                else:
+                    rules[f] = str(rule)
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
-                        system=self.system("items", name, m), description=self.text(m, "description"), where=m.where)
+                        system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
+                        fold=rules)
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""

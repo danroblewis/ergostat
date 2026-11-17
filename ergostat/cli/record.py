@@ -10,7 +10,7 @@ import time
 from ..durations import human, parse_duration
 from ..show import ago, c, table
 from ..state import fmt
-from .common import open_project, out_json, parts_of, snap_of
+from .common import at_of, open_project, out_json, parts_of, snap_of
 
 
 def event_line(e: dict) -> str:
@@ -47,6 +47,8 @@ def cmd_event(args) -> int:
         sys.stdout.reconfigure(line_buffering=True)        # each line as it comes, into a pipe too
     since = time.time() - parse_duration(args.since, "--since") if args.since else None
     skip = () if args.runs or args.type else RUNS
+    if not args.type and not args.item:                    # a transcript's lines: asked for by type or by item
+        skip = (*skip, "claude.*")
     evs = p.events.query(n=args.n, type=args.type, item=args.item, source=args.source, since=since, skip=skip)
     if args.json and not args.follow:
         return out_json(evs)
@@ -86,17 +88,32 @@ def cmd_item(args) -> int:
         if got["total"] > args.n:
             print(c(f"{got['total'] - args.n} more (-n)", "dim"))
         return 0
-    d = its.detail(p.events, spec, args.name)
+    at = at_of(args) if getattr(args, "at", None) else None     # as it stood then: its fields, its history to then
+    hist = getattr(args, "history", None)
+    d = its.detail(p.events, spec, args.name, until=at, history=None if hist is not None else its.HISTORY_SHOWN)
     if d is None:
-        print(f"no item {args.name!r}", file=sys.stderr)
+        print(f"no item {args.name!r}" + (" then" if at else ""), file=sys.stderr)
         return 2
+    if hist is not None:
+        if args.json:
+            return out_json({"id": d["id"], "fields": d["fields"], "history": {f: cs for f, cs in d["history"].items()
+                                                                               if not hist or f == hist},
+                             "refused": d["refused"]})
+        if hist and hist not in d["history"]:
+            print(f"{args.name}: no changes to {hist!r} (its fields: {', '.join(sorted(d['fields'])) or 'none'})", file=sys.stderr)
+            return 2
+        print("\n".join(history_lines(d, hist or None)) or "no changes: its events carry nothing")
+        return 0
     if args.json:
         return out_json(d)
     kind = f" · {d['kind']}" if d["kind"] else " · no kind (no items: entry matches it)"
     state = f" · {c(d['state'], 'accent')} since {ago(d['entered'])}" if d["state"] else ""
     print(f"{c('item', 'dim')} {args.name}{kind}{state} · {d['events']} events, first {ago(d['first'])}")
     for k, v in sorted(d["fields"].items()):
-        print(f"  {k:<14} {json.dumps(v, default=str)}")
+        n = d["changes"].get(k, 0)
+        print(f"  {k:<14} {_short(v, 200)}" + (c(f"  {n} changes (--history {k})", "dim") if n > 1 else ""))
+    for r in d["refused"]:
+        print(c(f"  refused {time.strftime('%H:%M:%S', time.localtime(r['time']))} {r['type']}: {r['why']}", "warn"))
     if d["moves"]:
         print()
         for mv in d["moves"]:
@@ -115,18 +132,63 @@ def add_event(p, args) -> int:
         print(f"{t!r}: an event type is lowercase words joined by dots (ticket.opened), and not ergostat's own",
               file=sys.stderr)
         return 2
-    try:
-        data = json.loads(args.data) if args.data else {}
-    except ValueError as e:
-        print(f"--data: not JSON ({e})", file=sys.stderr)
-        return 2
+    got = {}
+    for flag, raw in (("--data", args.data), ("--patch", getattr(args, "patch", None)), ("--set", getattr(args, "set_", None))):
+        if raw:
+            try:
+                got[flag] = json.loads(raw)
+            except ValueError as e:
+                print(f"{flag}: not JSON ({e})", file=sys.stderr)
+                return 2
+    data = got.get("--data", {})
     if not isinstance(data, dict):
         print("--data: a JSON object ({\"title\": \"...\"})", file=sys.stderr)
         return 2
+    from ..store import ChangesetError
     run = os.environ.get("ERGOSTAT_RUN") or None         # recorded during a run: caused by it
-    ev = p.events.add(t, item=args.item, source=args.by or "user", data=data, causedby=run)
+    try:
+        ev = p.events.add(t, item=args.item, source=args.by or "user", data=data, causedby=run, patch=got.get("--patch"),
+                          set=got.get("--set"))
+    except ChangesetError as e:
+        print(f"not recorded: {e}", file=sys.stderr)
+        return 2
     print(json.dumps(ev, default=str) if args.json else event_line(ev))
+    spec = getattr(p.model, "spec", None)
+    if ev["item"] and "/" in ev["item"] and spec is not None and (ev.get("patch") is not None or ev.get("set") is not None
+                                                                   or getattr(its_kind(spec, ev["item"]), "fold", None)):
+        from ..spec import items as its
+        it = its.one(p.events, spec, ev["item"])
+        why = next((r["why"] for r in (it.refused if it else []) if r["event"] == ev["id"]), None)
+        if why:                                          # recorded, as it happened; its item is as it was
+            print(f"recorded, but it changed nothing: {why}", file=sys.stderr)
+            return 1
     return 0
+
+
+def its_kind(spec, id: str):
+    from ..spec import items as its
+    return its.kind_of(spec, id)
+
+
+def _short(v, n: int = 60) -> str:
+    s = "–" if v is None else json.dumps(v, default=str)
+    return s if len(s) <= n else s[:n - 1] + "…"
+
+
+def history_lines(d: dict, only: str | None) -> list[str]:
+    out = []
+    fields = [only] if only else sorted(d["history"], key=lambda f: (f == "", f))
+    for f in fields:
+        cs = d["history"].get(f) or []
+        out.append(f"{c(f or '(the whole item)', 'accent')}  now {_short(d['fields'].get(f)) if f else ''}"
+                   f"  {c(f'{len(cs)} change' + ('s' if len(cs) != 1 else ''), 'dim')}")
+        for ch in cs:
+            t = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ch["time"]))
+            how = ch["op"] + (f" ({ch['rule']})" if ch.get("rule") not in (None, "replace") else "") + \
+                (f" by {ch['form']}" if ch["form"] != "data" else "")
+            what = ch["why"] if ch["op"] == "refused" else f"{_short(ch['before'], 40)} → {_short(ch['after'], 60)}"
+            out.append(f"  {c(t, 'dim')}  {how:<16} {ch['path'] or '/':<20} {what}  {c(ch['type'], 'dim')} {c(ch['event'][:12], 'dim')}")
+    return out
 
 
 def cmd_residual(args) -> int:
@@ -150,7 +212,7 @@ def cmd_residual(args) -> int:
 
 
 RECORD = ("events.db", "events.db-shm", "events.db-wal", "measurements.db", "measurements.db-shm", "measurements.db-wal",
-          "run.log")
+          "run.log", "transcripts.json")
 
 
 def cmd_reset(args) -> int:
