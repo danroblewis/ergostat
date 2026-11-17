@@ -215,6 +215,7 @@ class Segments:
         self._dir_stamp = None
         self._blocks: OrderedDict = OrderedDict()
         self._open_cols: OrderedDict = OrderedDict()
+        self._tallies: OrderedDict = OrderedDict()
         self._sync()
 
     # ---- following the files
@@ -628,37 +629,79 @@ class Segments:
         segs, head = self._state()
         return head[-1]["seq"] if head else (segs[-1].last if segs else 0)
 
+    def _tally(self, what: str, item: str, type: str, since: float, until: float | None, f, add, zero):
+        """``f`` of each matching event, added up with ``add`` from ``zero``. A sealed segment never
+        changes, so what it adds up to, when the span holds all of it, is kept: a week's window asked
+        for every few seconds reads only the segments at its ends."""
+        until = until if until is not None else 1e18
+        total = zero()
+        segs, head = self._state()
+        types = _types_matcher(type, ())
+        for s in segs:
+            if s.t_max < since or s.t_min > until or item not in s.item_span:
+                continue
+            whole = since <= s.t_min and s.t_max <= until
+            key = (s.name, what, item)
+            got = self._tallies.get(key) if whole else None
+            if got is None:
+                got = zero()
+                for r in self._rows(s, item, types, since, until):
+                    got = add(got, f(self._event(s, r)))
+                if whole:
+                    with self._lock:
+                        self._tallies[key] = got
+                        while len(self._tallies) > 20_000:
+                            self._tallies.popitem(last=False)
+            total = add(total, got)
+        for e in head:
+            if e.get("item") == item and types(e["type"]) and since <= e["time"] <= until:
+                total = add(total, f(e))
+        return total
+
+    @staticmethod
+    def _amount(e) -> float:
+        a = (e.get("data") or {}).get("amount")
+        return float(a) if a is not None else 1.0
+
     def opened(self, valve: str, since: float, until: float | None = None) -> dict:
-        evs = self._scan(item=valve, type="valve.opened", since=since, until=until if until is not None else 1e18)
-        amt = sum(float(e["data"].get("amount", 1) if e["data"].get("amount") is not None else 1) for e in evs)
-        return {"count": len(evs), "amount": amt, "last": max((e["time"] for e in evs), default=None)}
+        n, amt, last = self._tally("opened", valve, "valve.opened", since, until, lambda e: (1, self._amount(e), e["time"]),
+                                   lambda a, b: (a[0] + b[0], a[1] + b[1], max(a[2], b[2])), lambda: (0, 0.0, -INF))
+        return {"count": n, "amount": amt, "last": last if n else None}
 
     def last_opening(self, valve: str, until: float | None = None) -> dict | None:
         until = until if until is not None else 1e18
-        evs = self._scan(item=valve, type="valve.opened", until=until)
-        if not evs:
+        got = self._scan(n=1, item=valve, type="valve.opened", until=until)
+        if not got:
             return None
-        last = max(evs, key=lambda e: (e["time"], e["seq"]))
-        amount = lambda e: float(e["data"].get("amount") if e["data"].get("amount") is not None else 1)   # noqa: E731
+        last = got[0]
         if last["causedby"] is None:
-            return {"time": last["time"], "count": 1, "amount": amount(last)}
-        run = [e for e in evs if e["causedby"] == last["causedby"]]
-        return {"time": last["time"], "count": len(run), "amount": sum(amount(e) for e in run)}
+            return {"time": last["time"], "count": 1, "amount": self._amount(last)}
+        cause = self.get(last["causedby"])                 # the run that opened it: its lines are after it began
+        since = cause["time"] if cause else last["time"] - 86400
+        run = self._scan(item=valve, type="valve.opened", since=since, until=until, test=lambda e: e.get("causedby") == last["causedby"])
+        return {"time": last["time"], "count": len(run), "amount": sum(self._amount(e) for e in run)}
 
     def decided(self, controller: str, since: float, until: float | None = None) -> list[tuple[str, int]]:
-        out: dict[str, int] = {}
-        for e in self._scan(item=controller, type="controller.decided", since=since, until=until if until is not None else 1e18):
-            d = e["data"].get("decision")
-            k = "" if d is None else str(d)
-            out[k] = out.get(k, 0) + 1
-        return list(out.items())
+        def one(e):
+            d = (e.get("data") or {}).get("decision")
+            return {"" if d is None else str(d): 1}
+
+        def add(a, b):
+            out = dict(a)
+            for k, v in b.items():
+                out[k] = out.get(k, 0) + v
+            return out
+        return list(self._tally("decided", controller, "controller.decided", since, until, one, add, dict).items())
 
     def runs(self, item: str, since: float, until: float | None = None) -> dict:
-        evs = self._scan(item=item, type="agent.ran,agent.failed", since=since, until=until if until is not None else 1e18)
-        mine = [e for e in evs if e["data"].get("why") != "by hand"]
-        return {"runs": len(evs), "failed": sum(1 for e in evs if e["type"] == "agent.failed"),
-                "refused": sum(int(e["data"].get("refused") or 0) for e in mine),
-                "unread": sum(int(e["data"].get("unread") or 0) for e in mine)}
+        def one(e):
+            d = e.get("data") or {}
+            mine = d.get("why") != "by hand"
+            return (1, int(e["type"] == "agent.failed"), int(d.get("refused") or 0) if mine else 0,
+                    int(d.get("unread") or 0) if mine else 0)
+        r, f, ref, un = self._tally("runs", item, "agent.ran,agent.failed", since, until, one,
+                                    lambda a, b: tuple(x + y for x, y in zip(a, b, strict=True)), lambda: (0, 0, 0, 0))
+        return {"runs": r, "failed": f, "refused": ref, "unread": un}
 
     # ---- taking events out
 

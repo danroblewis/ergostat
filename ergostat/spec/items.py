@@ -232,7 +232,9 @@ def project(events, spec: Spec, kind: str | None = None, until: float | None = N
             transcript: bool | None = None) -> list[Item]:
     """Every item (of ``kind``, when given) as it stood at ``until``, the latest first. A transcript's
     events are folded in only when asked (``transcript``) or needed (``asks_transcript``, for ``fields``).
-    Folded once and kept (``_Folded``), with what is new folded in on each ask."""
+    Folded once and kept (``_Folded``), with what is new folded in on each ask. (Moves are history: a
+    count of moves in a past span reads them from the items as they are now, ``until=None``, unless it
+    also matches fields, which may have changed since.)"""
     kinds = [spec.items[kind]] if kind else list(spec.items.values())
     if kind and not kinds:
         return []

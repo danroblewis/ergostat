@@ -84,7 +84,8 @@ def counted(project, flow: str, t0: float, t1: float) -> float | None:
     from .spec import items as its
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
     where = q.get("where") or {}
-    return float(sum(1 for it in its.project(project.events, spec, q["kind"], until=t1, fields=tuple(where)) if its.matches(it, where)
+    return float(sum(1 for it in its.project(project.events, spec, q["kind"],
+                                                     until=t1 if where else None, fields=tuple(where)) if its.matches(it, where)
                      for mv in it.moves if mv[key] == state and t0 < mv["time"] <= t1))
 
 

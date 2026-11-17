@@ -105,7 +105,8 @@ def _moves(p, flow: str, since: float, until: float, n: int) -> list[float] | No
     back = max(float(q.get("over") or 3600.0), (until - since) / n)       # the sensor's window: never the page's
     start = since - back
     where = q.get("where") or {}
-    moved = [(mv["time"], 1.0) for it in its.project(p.events, spec, q["kind"], until=until, fields=tuple(where)) if its.matches(it, where)
+    moved = [(mv["time"], 1.0) for it in its.project(p.events, spec, q["kind"],
+                                                   until=until if where else None, fields=tuple(where)) if its.matches(it, where)
              for mv in it.moves if mv[key] == state and start <= mv["time"] <= until]
     return _per_hour(moved, since, until, n, back)
 
