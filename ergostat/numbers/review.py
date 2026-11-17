@@ -75,7 +75,7 @@ def refresh(p, spec: Spec, at: float | None = None, force: bool = False) -> list
     st = ver.structure(spec)
     mine = {x["id"] for x in found}
     for k in [k for k, x in props.items() if x.get("kind") == "structure" and x["status"] == "pending" and
-              (k not in mine or x.get("structure") != st)]:
+              not pr.candidate(x) and (k not in mine or x.get("structure") != st)]:
         del props[k]
     for x in found:
         if x["id"] in props:                           # dismissed (or accepted, or pending) already: not made again
@@ -118,6 +118,11 @@ def selectable(spec: Spec, parts: list[str]) -> list[str]:
 
 def _what(x: dict) -> str:
     k = x.get("kind")
+    if x.get("said_kind"):                          # made by a block (a propose line), not by ergostat's own finders
+        n = len(x.get("parameters") or {})
+        words = {"parameter": "A parameter's value" if n <= 1 else f"{n} parameters' values", "equation": "An equation",
+                 "structure": "A change to the structure"}.get(k, "A change")
+        return f"{words}, proposed by {x['proposed_by']}"
     if k == "parameter":
         n = len(x.get("parameters") or {})
         what = "A parameter's value" if n == 1 else f"{n} parameters' values, fitted together"
@@ -147,6 +152,13 @@ def _how(x: dict, spec: Spec) -> dict:
     """The method, named plainly, its data span, its points, and how sure it is."""
     k = x.get("kind")
     span = _span_of(x)
+    if x.get("said_kind"):
+        c = x.get("confidence")
+        r = (x.get("refit") or {}).get("values")
+        return {"method": x.get("method"), "span": span, "n": None,
+                "confidence": "; ".join(b for b in (f"{x['proposed_by']} is {c:.0%} sure" if c is not None else None,
+                                                     ("refitted, " + ", ".join(f"{n} = {ye.number(v)}" for n, v in r.items()))
+                                                     if r else None) if b) or None}
     if k == "parameter" and x.get("scope") == "what-if":
         return {"method": "not estimated: values you tried as a what-if, judged on the replay", "span": span, "n": None,
                 "confidence": "; ".join(x.get("warnings") or []) or None}
@@ -194,6 +206,8 @@ def _how(x: dict, spec: Spec) -> dict:
 def _why(x: dict, spec: Spec) -> str:
     """The evidence, in plain words."""
     k = x.get("kind")
+    if x.get("said_kind"):
+        return "; ".join(f"{r['says']} ({'; '.join(r.get('verified') or r.get('evidence') or [])})" for r in x.get("reasons") or []) + "."
     if k == "parameter":
         bits = []
         for r in x.get("touched") or []:
@@ -281,7 +295,21 @@ def entry(x: dict, spec: Spec, others: list[dict] | None = None, root: Path | No
                                                      "process or gain changes no replay; its effect is the step response "
                                                      "and margins on the loop's panel" if x.get("kind") in ("process", "tuning")
                                                      else d.get("error")),
-            "created": x.get("created"), "status": x.get("status", "pending")}
+            "created": x.get("created"), "status": x.get("status", "pending"), **_by(x)}
+
+
+def _by(x: dict) -> dict:
+    """Who proposed it, when a block did (a propose line, SPEC §12e): its name and rung, its reasons with the
+    evidence each was checked against, how sure it said it is, what ergostat found it answers, and the judge's verdict."""
+    if not x.get("proposed_by"):
+        return {"proposed_by": None}
+    v = dict(x.get("verdict") or {})
+    if v:
+        v["windows"] = len(v.get("windows") or [])
+    return {"proposed_by": x["proposed_by"], "proposed_by_rung": x.get("by_rung"), "also_by": x.get("also_by") or [],
+            "reasons": x.get("reasons") or [], "confidence": x.get("confidence"), "findings": x.get("findings") or {},
+            "verdict": v or ({"verdict": "testing", "why": "judged on the record after it was proposed"} if x.get("testing")
+                             else None)}
 
 
 def _systems(spec: Spec, parts: list[str]) -> list[str]:

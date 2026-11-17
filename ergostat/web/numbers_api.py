@@ -383,6 +383,9 @@ def queue(live, p, snap: dict) -> dict:
         _analyse_loops(live)
     control = rv.control_pending(p, spec)
     goals = list(spec.goals)
+    from ..numbers import improve as im
+    not_made = list(not_made) + [{"title": f"{x['title']} (proposed by {x['by']})", "why": x["why"], "code": "proposed",
+                                  "by": x["by"]} for x in im.not_proposed(p)[:12]]
     return {"queue": rv.entries(p, spec, control), "not_made": not_made,
             "loops_analysed": sum(1 for g in goals if (LOOPS_SEEN.get(g) or (None,))[0] == live.mtime), "loops": len(goals),
             "can": [{"what": a, "how": b} for a, b in rv.stc.CAN], "cannot": rv.stc.CANNOT}

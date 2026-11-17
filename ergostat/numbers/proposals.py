@@ -23,6 +23,8 @@ kept here too, so they are accepted and dismissed the same way. All are read as 
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import math
@@ -56,6 +58,24 @@ def stored(p) -> dict[str, dict]:
         return json.loads(path(p).read_text())
     except (OSError, ValueError):
         return {}
+
+
+@contextlib.contextmanager
+def locked(p):
+    """Held while the proposals are read, changed and written back, so a block's proposal arriving in the
+    engine and the judge running in a process of its own never write over each other."""
+    p.dir.mkdir(parents=True, exist_ok=True)
+    with open(p.dir / "proposals.lock", "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def candidate(x: dict) -> bool:
+    """A proposal a block made (or took up): the judge's to test, and never let go by ergostat's own finders."""
+    return bool(x.get("proposed_by"))
 
 
 def save(p, props: dict[str, dict]) -> None:
@@ -208,7 +228,8 @@ def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts"
     if which == "parts":
         found += _equations(spec, data, before)
     props = stored(p)
-    for k in [k for k, x in props.items() if x["status"] == "pending" and (x.get("structure") != st or _calibration(x) == which)]:
+    for k in [k for k, x in props.items() if x["status"] == "pending" and not candidate(x) and
+              (x.get("structure") != st or _calibration(x) == which)]:
         del props[k]
     for x in found:
         if x["id"] in props:                       # dismissed (or accepted) already: not made again
@@ -563,12 +584,13 @@ def dismiss(p, pid: str, reason: str | None = None) -> dict:
         x["dismissed_because"] = reason.strip()[:500]
     props[x["id"]] = x
     save(p, props)
-    p.events.add("model.dismissed", item=p.model.name, source="owner",
+    p.events.add("model.dismissed", item=f"proposal/{x['id']}", source="owner",
                  data={"proposal": x["id"], "title": x["title"], **({"reason": x["dismissed_because"]} if reason else {})})
     return x
 
 
-def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None) -> dict:
+def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None, why: str | None = None,
+           policy: str | None = None) -> dict:
     """Apply the proposal's edit, check the model still compiles (else put the file back), record the
     change with the fit before and after, and return what was done. ``expect`` is the hash of the diff the
     owner was shown (``review.diff_of``): refused unless what would be written is exactly that."""
@@ -612,10 +634,15 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
     x["status"], x["decided"], x["by"] = "accepted", time.time(), by
     x["applied"] = {"version_before": v_before, "version_after": ver.version(p.model.spec),
                     "fit_before": ft._slim(fit_before["total"]), "fit_after": ft._slim(fit_after["total"])}
+    if why:
+        x["applied"]["why"] = why
+    if policy:
+        x["applied"]["policy"] = policy
     props[x["id"]] = x
     save(p, props)
-    p.events.add("model.accepted", item=p.model.name, source=by,
+    p.events.add("model.accepted", item=f"proposal/{x['id']}", source=by,
                  data={"proposal": x["id"], "kind": x["kind"], "title": x["title"], "target": x["target"],
+                       "reason": x.get("reason"), **({"proposed_by": x["proposed_by"]} if x.get("proposed_by") else {}),
                        "diff": x["edit"]["diff"], **x["applied"]})
     return x
 

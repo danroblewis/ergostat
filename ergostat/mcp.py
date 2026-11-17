@@ -59,6 +59,18 @@ TOOLS = [
      "proposals waiting for the owner (parameters estimated, equations fitted). Read only: the owner accepts. since: the "
      "window, like 6h (default 1h).",
      "inputSchema": _obj({"since": {"type": "string"}})},
+    {"name": "try_change", "description": "Check a change to the model as a block's propose line would be checked, and keep "
+     "it nowhere: the edit applied to a scratch copy, compiled, checked, replayed and refitted, each reason's evidence "
+     "verified. propose: {kind (parameter, equation, structure), parts, title, edit, reasons: [{says, evidence}], confidence}. "
+     "edit: {files: [{file, hunks: [{line, old: [lines], new: [lines]}]}]} or {file, replace: 'the lines now', with: 'the "
+     "lines after'}, a file named from the model's folder. evidence: finding:CODE@PART (a finding check reports; its id), "
+     "fit:total.nmse or fit:stock.NAME.r2|mape|um|us|uc, residual:stock.NAME, a document or code line (docs/MODELLING.md:120, "
+     "bin/x.py:10-14) or a URL, or rule:NAME (a modelling rule). Says whether it would be proposed, and why not.",
+     "inputSchema": _obj({"propose": {"type": "object"}}, ["propose"])},
+    {"name": "measures", "description": "The model's own quality now: fit (the scaled error of its replay), unexplained "
+     "(the share of the stocks' change their flows leave unexplained), loops-unidentified (closed loops whose process the "
+     "model does not hold) and findings (what check reports). A model: sensor reads the same numbers.",
+     "inputSchema": _obj()},
     {"name": "report_done", "description": "Report the work a person block was asked for (type: person): how much was moved "
      "along its flow. The same as `ergostat block NAME --done N`.",
      "inputSchema": _obj({"block": {"type": "string"}, "moved": {"type": "number"}, "note": {"type": "string"}},
@@ -99,6 +111,7 @@ class Server:
             spec, problems = read(path)
             return _text({"ok": not any(p.level == "error" for p in problems),
                           "problems": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
+                                        **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
                                         "file": str(p.where.file) if p.where else None,
                                         "line": p.where.line if p.where else None} for p in problems],
                           "counts": {"stocks": len(spec.stocks), "flows": len(spec.flows), "auxiliaries": len(spec.auxiliaries),
@@ -114,6 +127,12 @@ class Server:
                          "ergostat repository")
         p = self.project()
         spec = p.model.spec
+        if name == "try_change":
+            from .numbers import improve as im
+            return _text(im.trial(p, a.get("propose") or {}))
+        if name == "measures":
+            from .numbers import measures as ms
+            return _text(ms.all_of(p))
         if name == "explain":
             from .spec.explain import explain
             return _text(explain(spec, a.get("part") or None, p))
