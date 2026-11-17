@@ -105,9 +105,6 @@ class _Doc:
     def __init__(self, doc: dict):
         self.doc, self.undo, self.changes = doc, [], []
 
-    def resolved(self, toks: list[str], par, i) -> str:
-        return pointer(*toks[:-1], i) if isinstance(par, list) else pointer(*toks)
-
     def add(self, path: str, value, op: str = "add", record: bool = True) -> None:
         toks = parse(path)
         said, value = value, copy.deepcopy(value)          # the document holds its own copy; history, what was said

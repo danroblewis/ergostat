@@ -15,7 +15,8 @@ from .common import at_of, open_project, out_json, parts_of, snap_of
 
 def event_line(e: dict) -> str:
     t = time.strftime("%H:%M:%S", time.localtime(e["time"]))
-    data = json.dumps(e["data"], separators=(",", ":")) if e["data"] else ""
+    said = {"patch": e["patch"]} if e.get("patch") is not None else {"set": e["set"]} if e.get("set") is not None else e["data"]
+    data = json.dumps(said, separators=(",", ":")) if said else ""
     src = e.get("source") or "-"
     return f"{c(t, 'dim')}  {e['type']:<20} {e.get('item') or '-':<20} {c(src, 'accent')}{' ' * max(1, 14 - len(src))}{data[:100]}"
 
