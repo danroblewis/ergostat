@@ -100,6 +100,16 @@ def _tail(path, n: int) -> list[str]:
 
 
 def api(live: Live, path: str, q: dict):
+    """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
+    shape is, and which shapes stand for each part, so one selection is lit in every view."""
+    got = _answer(live, path, q)
+    if path.strip("/") == "graph" and isinstance(got, dict):
+        from ..correspond import table
+        got["corr"] = table(got, live.get().model)
+    return got
+
+
+def _answer(live: Live, path: str, q: dict):
     p = live.get()
     m = p.model
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
