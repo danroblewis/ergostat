@@ -439,7 +439,7 @@ def accept(p, pid: str, by: str = "owner", expect: str | None = None) -> dict:
     edits = [ye.Edit.from_dict(e) for e in x["edit"]["files"]]
     if expect is not None:
         from ..numbers.review import diff_of
-        if diff_of(x).get("hash") != expect:
+        if diff_of(x, p.model.path.parent).get("hash") != expect:
             raise ProposalError("the files have changed since the diff was shown: look at it again before accepting")
     old = {e.file: Path(e.file).read_text(encoding="utf-8") for e in edits}
     try:

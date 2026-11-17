@@ -236,7 +236,7 @@ def _benefit(x: dict) -> dict:
     return out
 
 
-def diff_of(x: dict) -> dict:
+def diff_of(x: dict, root: Path | None = None) -> dict:
     """Exactly what Accept writes: each file's text now and after, as a unified diff, and its hash."""
     try:
         edits = tr.edits_of(x)
@@ -246,27 +246,29 @@ def diff_of(x: dict) -> dict:
     parts = []
     for f, text in sorted(new.items()):
         old = Path(f).read_text(encoding="utf-8")
-        parts.append(ye.unified(old, text, _rel(f)))
+        parts.append(ye.unified(old, text, _rel(f, root)))
     text = "".join(parts)
     return {"unified": text, "hash": hashlib.sha256(text.encode()).hexdigest()[:16],
-            "files": [{"file": _rel(f), "lines": sorted({h.line for e in edits if e.file == f for h in e.hunks})} for f in sorted(new)]}
+            "files": [{"file": _rel(f, root), "lines": sorted({h.line for e in edits if e.file == f for h in e.hunks})}
+                      for f in sorted(new)]}
 
 
-def _rel(f: str) -> str:
+def _rel(f: str, root: Path | None = None) -> str:
+    """A file as the repository names it (from the model's folder), else its name."""
     try:
-        return str(Path(f).resolve().relative_to(Path.cwd().resolve()))
+        return str(Path(f).resolve().relative_to((root or Path.cwd()).resolve()))
     except ValueError:
         return Path(f).name
 
 
-def entry(x: dict, spec: Spec, others: list[dict] | None = None) -> dict:
+def entry(x: dict, spec: Spec, others: list[dict] | None = None, root: Path | None = None) -> dict:
     parts = list(dict.fromkeys([*(x.get("parts") or []), *(x.get("touched") or [])]))
     if x.get("kind") in ("process", "tuning"):
         g = spec.goals.get(x.get("goal") or "")
         parts = [f"goal.{x['goal']}"] + ([f"{g.of.kind}.{g.of.name}"] if g else []) + \
             ([f"block.{x['block']}"] if x.get("block") else [])
     sel = selectable(spec, parts)
-    d = diff_of(x)
+    d = diff_of(x, root)
     clash = [{"id": y["id"], "why": w} for y in (others or []) if (w := tr.conflicts(x, y))]
     simulable = x.get("kind") in ("parameter", "equation", "structure") and "error" not in d
     return {"id": x["id"], "source": "control" if x.get("kind") in ("process", "tuning") else "numbers",
@@ -316,7 +318,8 @@ def entries(p, spec: Spec, control: list[dict] | None = None) -> list[dict]:
     xs = pr.pending(p, spec) + (control or [])
     order = {"parameter": 0, "equation": 1, "structure": 2, "process": 3, "tuning": 4}
     xs.sort(key=lambda x: (order.get(x.get("kind"), 9), x.get("created") or 0))
-    return [entry(x, spec, xs) for x in xs]
+    root = p.model.path.parent if getattr(p.model, "path", None) else None
+    return [entry(x, spec, xs, root) for x in xs]
 
 
 def find_any(p, spec: Spec, pid: str) -> dict:
@@ -417,7 +420,10 @@ def effect(p, spec: Spec, xs: list[dict], at: float | None = None, base_leverage
     except tr.TrialError as e:
         return {**out, "error": str(e), "charts": [], "operational": [], "leverage": []}
     data_a = ob.measured(p, grid, after)
-    run_a, fit_a = tr.fit_of(after, data_a)
+    run_a, _ = tr.fit_of(after, data_a)
+    ref = ob.reference(p, at)                          # the fit on the page's own grid (the Fit table's), as of now
+    _, fit_b = tr.fit_of(spec, ob.measured(p, ref))
+    _, fit_a = tr.fit_of(after, ob.measured(p, ref, after))
     from ..web.numbers_api import horizon_of
     horizon = horizon_of(run, grid.until - grid.since)
     points = max(2, round(CHART_POINTS * horizon / max(grid.until - grid.since, 1.0)))

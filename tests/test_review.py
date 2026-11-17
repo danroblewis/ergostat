@@ -123,7 +123,7 @@ def test_a_loops_process_and_gain_are_entries_with_every_field(tmp_path):
 def test_accept_writes_exactly_the_diff_shown_and_refuses_another(tmp_path):
     p, snap = queue_project(tmp_path, k_true=3.0)
     x = next(x for x in pr.make(p, snap) if x["kind"] == "parameter")
-    shown = rv.diff_of(x)
+    shown = rv.diff_of(x, p.model.path.parent)
     before = (tmp_path / "ergostat.yaml").read_text()
     with pytest.raises(pr.ProposalError):
         pr.accept(p, x["id"], snap, expect="0" * 16)                       # not what was shown: nothing written
@@ -290,7 +290,7 @@ def base_record():
 
 def accepted_cleanly(p, x, snap, gone: str | None = None):
     """Accepted: the model still compiles, and the finding it answered is gone."""
-    pr.accept(p, x["id"], snap, expect=rv.diff_of(x)["hash"])
+    pr.accept(p, x["id"], snap, expect=rv.diff_of(x, p.model.path.parent)["hash"])
     reload(p)
     spec, probs = read(p.model.path)
     assert not [q for q in probs if q.level == "error"]

@@ -89,7 +89,7 @@ def said(row: dict, of: int) -> str:
     """A flow's leverage in words: its rank, and what a tenth faster does to each goal it moves."""
     bits = []
     for g, x in sorted(row["effect"].items(), key=lambda kv: -abs(kv[1]["toward"])):
-        if abs(x["toward"]) < 1e-4:
+        if abs(x["toward"]) < 5e-4:
             continue
         bits.append(f"{x['part'].split('.', 1)[1]} {x['toward']:+.1%} {'toward' if x['toward'] > 0 else 'away from'} goal {g}")
     if not bits:

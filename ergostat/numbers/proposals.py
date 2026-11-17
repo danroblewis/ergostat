@@ -594,7 +594,7 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
         raise ProposalError(str(e)) from None
     if expect is not None:
         from .review import diff_of
-        shown = diff_of(x)
+        shown = diff_of(x, p.model.path.parent)
         if shown.get("hash") != expect:
             raise ProposalError("the files have changed since the diff was shown: look at it again before accepting")
     ft.record(p, fit_before, snap["window"], force=True)             # the version it leaves, as it fitted at the end
