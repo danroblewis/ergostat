@@ -491,7 +491,8 @@ def not_proposed(p) -> list[dict]:
     """What blocks made and ergostat refused, newest first, with why (the review queue's "found, and not proposed")."""
     xs = [x for x in pr.stored(p).values() if x["state"] == "refused" and x.get("made_by") not in (None, "ergostat", "owner")]
     return [{"id": x["id"], "title": x.get("title") or "a change", "why": x.get("why"), "by": x["made_by"],
-             "at": x.get("made") or x.get("created")} for x in sorted(xs, key=lambda x: -(x.get("made") or 0))]
+             "at": x.get("made") or x.get("created"), "held_back": x.get("held_back")}
+            for x in sorted(xs, key=lambda x: -(x.get("made") or 0))]
 
 
 def _rung(spec: Spec, by: str) -> str | None:

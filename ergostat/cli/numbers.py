@@ -154,6 +154,7 @@ def cmd_proposals(args) -> int:
         return 0
     if args.json:
         return out_json(entries)
+    _turned(p, spec)
     if not entries:
         from ..numbers import estimate as es
         why = {es.label(n, e): e.get("refused") or e.get("why") for n, e in es.load(p, spec, which).items()
@@ -170,6 +171,22 @@ def cmd_proposals(args) -> int:
     print(c("\nergostat proposals --show ID prints one in full, with the diff; ergostat accept ID applies it (ergostat check "
             "must still pass); ergostat proposals --dismiss ID [--reason TEXT] lets one go", "dim"))
     return 0
+
+
+def _turned(p, spec) -> None:
+    """What the record turned away on the model as it is (refused at the gate, failed, inconclusive), and how often each
+    was found again while held back."""
+    from ..numbers import memory as mem
+    xs = mem.turned(p, spec)
+    if not xs:
+        return
+    print(c(f"turned away on this version of the model ({len(xs)}):", "dim"))
+    for x in xs[:8]:
+        print(c(f"  {x['id']}  {x['state']}: {x['title']}", "dim"))
+        print(c(f"    {(x['why'] or '')[:300]}", "dim"))
+        if x["held_back"]:
+            print(c(f"    {x['held_back']}", "warn"))
+    print()
 
 
 def _queue(p, spec) -> list[dict]:
@@ -343,4 +360,6 @@ def cmd_improve(args) -> int:
         print("nothing proposed by a block has been turned away")
     for x in xs:
         print(f"{c(x['by'], 'accent')}  {x['title']}\n  {c('not proposed:', 'warn')} {x['why']}")
+        if x.get("held_back"):
+            print(f"  {c(x['held_back'], 'warn')}")
     return 0

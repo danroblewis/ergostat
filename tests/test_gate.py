@@ -237,7 +237,8 @@ def test_ten_unsupported_reasons_are_each_refused(tmp_path):
 
 # ---- memory: what was turned away is not proposed again until the record has grown
 
-def test_a_target_turned_away_is_held_back_counted_on_one_item_and_tried_again_once_the_record_grows(tmp_path):
+def test_a_target_turned_away_is_held_back_counted_on_one_item_and_tried_again_once_the_record_grows(tmp_path, capsys):
+    from ergostat.cli import main
     p = two_project(tmp_path)
     spec = p.model.spec
     now = time.time()
@@ -252,6 +253,9 @@ def test_a_target_turned_away_is_held_back_counted_on_one_item_and_tried_again_o
     assert x["repeats"] == 3 and x["held_until"] > now and x["held_back"].startswith("proposed again 3 times, held back until ")
     h = mem.held(p, spec, x["key"], now)
     assert h["wait"] == pytest.approx(max(mem.MIN_WAIT, mem.GROW * x["window"]))
+    assert main(["-C", str(tmp_path), "improve"]) == 0
+    assert "proposed again 3 times, held back until" in capsys.readouterr().out          # said on the item, and listed
+    assert mem.turned(p, spec)[0]["repeats"] == 3
     later = im.submit(p, "improver", k_to(40), run="r9", at=h["until"] + 1)     # the record grew: tried again
     assert later["status"] == "not-proposed" and later["id"] != first["id"] and later["why"].startswith("it clearly worsens")
     h2 = mem.held(p, spec, x["key"], h["until"] + 2)

@@ -88,3 +88,14 @@ def repeat(p, h: dict, title: str, token: str, by: str = "ergostat") -> dict:
             "repeated": {"at": time.time(), "title": title, "by": by, "token": token}}
     pr.event(p, x["id"], x["state"], data)
     return {**x, **data}
+
+
+def turned(p, spec) -> list[dict]:
+    """What the record turned away on the model as it is, newest first: each with why, and how often it was found
+    again and until when it is held back (the review queue's "turned away")."""
+    v = ver.version(spec)
+    xs = sorted((x for x in pr.stored(p).values() if turned_away(x) and x.get("version") == v), key=lambda x: -_when(x))
+    return [{"id": x["id"], "item": pr.item_of(x["id"]), "title": x.get("title") or "a change", "state": x["state"],
+             "target": x.get("target"), "by": x.get("made_by") or "ergostat",
+             "why": x.get("why") or (x.get("verdict") or {}).get("why"), "repeats": int(x.get("repeats") or 0),
+             "held_back": x.get("held_back"), "held_until": x.get("held_until"), "at": _when(x)} for x in xs]
