@@ -400,3 +400,27 @@ resource or wiring; how it is measured; dependencies.
   and transcript lines, rolled up three times over, with and without transcripts, both backends) and
   `demo_check` on each demo's own record. Next: the fold persisted (an item index), so a record of
   half a million live items starts in seconds; the engine reading VictoriaMetrics through a cache.
+- **2026-11-17 ~09:40, 2.10 recipes (part) and 2.2 the intent judge** (branches `recipes`, `intent`; merged by the
+  coordinator after their agents stalled twice each, mid-step and uncommitted; suites run and the conflicts resolved by
+  hand). Recipes: `contexts:` (named, versioned; parts decisions, corrections, owner-words, item-history, state,
+  session, docs, model, each within a budget), `ergostat context RECIPE | --list`, MCP `context`, an `ai` block's
+  `context:` started through `ergostat/session.py` (`--append-system-prompt-file`) and recorded as an
+  `ergostat.context` use with its hash, `ergostat.context.RECIPE.*` measures, and `review:` set by a measure (trust).
+  SPEC §12j. Not done: image-squeeze's blocks do not use a recipe yet; no CONTEXTS doc beyond SPEC; the session
+  table's recipe column. Parity, measured offline (run1, the same 48 cases): none 0.031, docs 0.333, fork-20 0.281,
+  memory 0.208, decisions 0.49, decisions+corrections 0.531, **+ the owner's words on topic 0.625** (the
+  recommended worker recipe), + state 0.604, fork-40 + decisions 0.573; the owner's messages whole 0.938 (an
+  upper bound). By kind, the recipes are strong on decisions (0.83) and rejected alternatives (0.88), weak on
+  meaning (0.35) and state (0.5): `state` should carry what the owner last asked for and what is in flight on
+  the item, not only commits. Benchmark spend tonight $9.28. The intent judge (SPEC §12i): finished work judged
+  against the confirmed decisions and corrections in scope and the owner's messages about it before it counts
+  as done; `ergostat.verdict` items with evidence (a free stand-in, `--model haiku`); the owner overrules or
+  reopens; `ergostat.intent.*` measures (held, false-done, by kind). In image-squeeze (inside the lab) three
+  planted ideas pass their tests and go against synthetic decisions (WebP, downscaling, stripping metadata).
+  A 5-minute demo run judged hypothesis 1 (transparent images on white) met, held to the three decisions; the
+  planted ideas come later in the notebook than 5 minutes reach, and are caught in `tests/test_intent.py` (work that
+  passes its tests and contradicts a confirmed decision; the same change with nothing decided is not held; honest
+  work is met; out-of-scope and unconfirmed decisions are not held to). The intent judge's agents never ran it with a
+  model: `--model haiku` is tested against a mocked answer only. Next: 2.3, 2.6, 2.8 (state that carries what is in
+  flight, the parity benchmark's weakest kind), the persisted item index (F2's 30-day the-job), and image-squeeze's
+  blocks started from the recommended recipe.
