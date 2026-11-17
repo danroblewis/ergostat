@@ -417,16 +417,22 @@ class Runner:
             self.queues[name].put(None)
 
     def _prune(self) -> None:
-        """Hourly: forget what is older than the model's ``keep`` (default 30 days)."""
-        while not self.stop.is_set():
-            before = time.time() - self.p.model.keep
+        """Every ``storage: rollup: every`` (an hour): roll items' old events up into snapshots, forget
+        what is older than the model's ``keep`` (default 30 days), and roll the measurements into their
+        tiers (``rollup.upkeep``)."""
+        from .rollup import upkeep
+        while not self.stop.wait(60):                      # not at once: a start is busy enough
             try:
-                gone = self.p.events.prune(before), self.p.measurements.prune(before)
-                if any(gone):
-                    self.say(f"kept {self.p.model.keep / 86400:g} days: forgot {gone[0]} events and {gone[1]} measurements")
+                got = upkeep(self.p)
+                ro, me = got["rollup"], got.get("measurements") or {}
+                if ro["items"] or got["pruned"] or me.get("forgot"):
+                    self.say(f"rolled up {ro['events']} events of {ro['items']} items; kept {self.p.model.keep / 86400:g} days: "
+                             f"forgot {got['pruned']} events; measurements: {me.get('rolled', 0)} buckets made, "
+                             f"{me.get('forgot', 0)} rows forgotten")
             except Exception as e:
-                self.say(f"pruning: {type(e).__name__}: {e}")
-            self.stop.wait(3600)
+                self.say(f"rolling up: {type(e).__name__}: {e}")
+            if self.stop.wait(getattr(self.p, "storage", None).every if getattr(self.p, "storage", None) else 3600):
+                return
 
     def _follow(self, seq: int) -> None:
         """From ``seq``, taken before any thread started, so no event that lands meanwhile is missed."""

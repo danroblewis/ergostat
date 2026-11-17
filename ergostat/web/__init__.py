@@ -49,6 +49,18 @@ class PooledServer(ThreadingHTTPServer):
     def process_request(self, request, client_address):
         self.jobs.put((request, client_address))
 
+    def handle_error(self, request, client_address):
+        """A client that went away (while its request was read, or its answer written) is a quiet line;
+        anything else is the standard traceback."""
+        import sys
+
+        from .server import GONE, went_away
+        e = sys.exc_info()[1]
+        if isinstance(e, GONE) or isinstance(e, TimeoutError):
+            went_away("a request", 0, e)
+            return
+        super().handle_error(request, client_address)
+
     def server_close(self):
         super().server_close()
         for _ in range(self.workers):

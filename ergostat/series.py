@@ -368,7 +368,10 @@ def items_flow(p, snap: dict, kind: str, n: int = POINTS) -> dict | None:
         if end is not None and since <= end <= until:
             finished.append({"id": it.id, "time": round(end, 3), "took": round(end - it.moves[0]["time"], 3)})
     finished.sort(key=lambda x: x["time"])
+    median = statistics.median([f["took"] for f in finished]) if finished else None
+    total = len(finished)
+    if total > MAX_POINTS:                    # thinned evenly: the chart shows a thousand dots at most
+        finished = finished[::-(-total // MAX_POINTS)]
     return {"kind": kind, "states": k.states, "since": since, "until": until, "points": n, "times": [round(t, 3) for t in ts],
             "counts": counts, "now": {s: sum(1 for it in items if it.state == s) for s in k.states},
-            "finished_states": done, "finished": finished,
-            "median": statistics.median([f["took"] for f in finished]) if finished else None}
+            "finished_states": done, "finished": finished, "finished_total": total, "median": median}

@@ -213,7 +213,7 @@ def cmd_residual(args) -> int:
 
 
 RECORD = ("events.db", "events.db-shm", "events.db-wal", "measurements.db", "measurements.db-shm", "measurements.db-wal",
-          "run.log", "transcripts.json")
+          "events", "archive", "measurements.forgotten.json", "run.log", "transcripts.json")   # events/: segments.py
 
 
 def cmd_reset(args) -> int:
@@ -235,9 +235,33 @@ def cmd_reset(args) -> int:
               f"ergostat reset --yes to do it")
         return 0
     for f in gone:
-        f.unlink()
+        shutil.rmtree(f) if f.is_dir() else f.unlink()
     if logs.is_dir():
         shutil.rmtree(logs)
     print(f"forgot {p.model.name}'s record ({p.dir}); the next run starts from nothing")
     return 0
 
+
+
+def cmd_compact(args) -> int:
+    """``ergostat compact``: now, what the engine does every hour (SPEC §4b): items' events older than
+    their horizon rolled up into snapshots and archived, what is older than ``keep`` forgotten, the
+    measurements rolled into their tiers."""
+    from ..rollup import Archive, compact, upkeep
+    p = open_project(args)
+    if args.dry_run:
+        got = {"rollup": compact(p, cap=p.model.keep, dry=True)}
+    else:
+        got = upkeep(p)
+    got["archive_bytes"] = Archive(p.dir).size()
+    if args.json:
+        return out_json(got)
+    ro = got["rollup"]
+    verb = "would roll up" if args.dry_run else "rolled up"
+    print(f"{verb} {ro['events']} events of {ro['items']} items into snapshots ({ro['seconds']:.1f}s)")
+    if not args.dry_run:
+        me = got.get("measurements") or {}
+        print(f"forgot {got['pruned']} events older than {human(p.model.keep)}, {got['archive_forgot']} archive segments; "
+              f"measurements: {me.get('rolled', 0)} buckets made, {me.get('forgot', 0)} rows forgotten")
+    print(c(f"archive: {got['archive_bytes'] / 1e6:.1f} MB in {p.dir / 'archive'}", "dim"))
+    return 0

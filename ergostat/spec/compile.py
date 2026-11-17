@@ -607,6 +607,11 @@ class Compiler:
                 spec.keep = parse_duration(d.keep, "keep")
             except DurationError as e:
                 self.err(str(e), None, "bad-duration")
+        from ..storage import parse as storage
+        wrong: list[str] = []
+        spec.storage = storage(d.storage, wrong)
+        for msg in wrong:
+            self.err(msg, None, "bad-storage")
         for name, m, what in self.named("systems"):
             self.keys(m, {"description", "within", "show"}, what)
             spec.systems[name] = self.text(m, "description")

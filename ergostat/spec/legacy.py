@@ -24,7 +24,7 @@ def valve_name(spec: Spec, block: str, flow: str) -> str:
 
 
 def to_model(spec: Spec, problems) -> mdl.Model:
-    m = mdl.Model(name=spec.name, path=spec.files[0] if spec.files else None, keep=spec.keep)
+    m = mdl.Model(name=spec.name, path=spec.files[0] if spec.files else None, keep=spec.keep, storage=spec.storage)
     tags = lambda x: spec.chain(x.system)                     # noqa: E731 - its system and every one that is within
     for name, desc in spec.systems.items():
         m.systems[name] = mdl.System(name, desc, spec.within.get(name))

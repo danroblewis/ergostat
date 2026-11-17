@@ -228,6 +228,7 @@ class Model:
     agents: dict[str, Agent] = field(default_factory=dict)
     systems: dict[str, System] = field(default_factory=dict)
     keep: float = 30 * 86400.0                 # how long the record is kept (the model's history always)
+    storage: object = None                     # storage.Storage (the YAML's storage:); None: the defaults
 
     # ---- lookups
 

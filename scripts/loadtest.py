@@ -45,8 +45,11 @@ def fresh_copy(demo: Path, where: Path) -> Path:
     dest = where / demo.name
     if dest.exists():
         shutil.rmtree(dest)
-    files = subprocess.run(["git", "-C", str(demo), "ls-files"], capture_output=True, text=True, check=True).stdout.split()
-    for f in files:
+    got = subprocess.run(["git", "-C", str(demo), "ls-files"], capture_output=True, text=True)
+    if got.returncode != 0:                 # not in a repository (an exported copy): the tree, less what runs write
+        shutil.copytree(demo, dest, ignore=shutil.ignore_patterns("run", "outbox", "__pycache__"))
+        return dest
+    for f in got.stdout.split():
         (dest / f).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(demo / f, dest / f)
     return dest

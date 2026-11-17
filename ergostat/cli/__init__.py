@@ -14,7 +14,7 @@ from .claims import cmd_claims
 from .common import PART_TOPICS
 from .numbers import cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_proposals
 from .parts import cmd_part
-from .record import cmd_event, cmd_item, cmd_reset, cmd_residual
+from .record import cmd_compact, cmd_event, cmd_item, cmd_reset, cmd_residual
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
 from .spec_cmds import cmd_block, cmd_convert, cmd_discover, cmd_explain, cmd_findings
 from .status import cmd_check, cmd_status
@@ -213,6 +213,9 @@ def build() -> argparse.ArgumentParser:
                    help="print a launchd agent (macOS) or systemd user unit (or the one named) that keeps it running across "
                         "reboots, on the page's current port; prints only, installs nothing")
     topic("projects", cmd_projects, "Every project on this machine, and which are running", named=False)
+    cp = topic("compact", cmd_compact, "Roll items' old events up into snapshots (archived), forget what is past keep, "
+                                       "roll measurements into their tiers: what the engine does every hour", named=False)
+    cp.add_argument("--dry-run", action="store_true", help="say what would be rolled up, and change nothing")
     rs = topic("reset", cmd_reset, "Forget this project's record (events, items, measurements, logs) and start from nothing",
                named=False)
     rs.add_argument("--yes", action="store_true", help="do it (without it, says what it would forget)")
