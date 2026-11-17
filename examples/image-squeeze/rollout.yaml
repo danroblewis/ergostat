@@ -39,6 +39,13 @@ auxiliaries:
       every: 8s
     driven-by: +stock.candidate-offset
 
+parameters:
+  images-per-hour:
+    value: 4500
+    unit: images/hypothesis/h
+    estimate: true
+    description: images served an hour while a candidate runs, each compressed by both builds (ten every 8 s, world/customers.py)
+
 stocks:
   candidate-failures:
     unit: images
@@ -77,6 +84,7 @@ flows:
     to: paired
     driven-by: +stock.experiments            # while a candidate runs, every image is compressed by both
     description: images compressed by both builds
+    equation: images-per-hour * MIN(stock.experiments, 1)    # (one candidate at a time)
     sensor:
       changes: rises
       over: 2m

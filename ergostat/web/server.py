@@ -1,4 +1,5 @@
-"""The web page's HTTP server (standard library, read only, bound to 127.0.0.1). ``/`` is the page;
+"""The web page's HTTP server (standard library, bound to 127.0.0.1; read only but for the owner accepting or dismissing a
+proposal, ``POST``). ``/`` is the page;
 ``/api/*`` returns what the command line shows, as JSON. The model is re-read when
 ``ergostat.toml`` changes, so the page follows the Supervisor's edits."""
 
@@ -7,6 +8,7 @@ from __future__ import annotations
 import html
 import json
 import mimetypes
+import secrets
 import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -48,6 +50,22 @@ class Live:
         self.mtime = self._mtime()
         self._lock = threading.Lock()
         self._snaps: dict = {}
+        self._kept: dict = {}
+
+    def cached(self, key):
+        with self._lock:
+            return self._kept.get(key)
+
+    def keep(self, key, value) -> None:
+        with self._lock:
+            if len(self._kept) > 16:
+                self._kept.clear()
+            self._kept[key] = value
+
+    def reloaded(self) -> None:
+        """The model was changed here (a proposal accepted): take it as the one loaded."""
+        self.mtime = self._mtime()
+        history.note(self.p)
 
     def _mtime(self):
         return mdl.stamp(self.p.model)
@@ -237,7 +255,21 @@ def _answer(live: Live, path: str, q: dict):
         return its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"])
     if head == "series":                          # behaviour over time: each part's values, bucketed over the window
         refs = [r for r in (one("refs") or "").split(",") if r]
-        return series.series(p, snap, refs, int(one("points") or series.POINTS), bool(one("strip")))
+        out = series.series(p, snap, refs, int(one("points") or series.POINTS), bool(one("strip")))
+        if one("replay"):                         # and what the model says: its replay, and its projection past now
+            from .numbers_api import add_to_series
+            add_to_series(live, p, snap, out, one("inputs") or "hold", one("whatif"),
+                          "replay" if one("fan") == "replay" else bool(one("fan")))
+        return out
+    if head == "dominance":                       # which feedback loops drive the behaviour, and when (Loops That Matter)
+        from .numbers_api import loop_dominance
+        return loop_dominance(live, p, snap, int(one("points") or series.POINTS), one("loop"))
+    if head == "whatif-fit":                      # a what-if's fit before anything is stored: per stock, and its payoff
+        from .numbers_api import whatif_fit
+        return whatif_fit(live, p, snap, one("whatif"))
+    if head == "fit":                             # the Fit page: the replay against the record, its history, the proposals
+        from .numbers_api import fit_page
+        return fit_page(live, p, snap)
     if head == "loop-scope":
         return series.scope(p, snap, one("goal") or "", int(one("points") or series.POINTS))
     if head == "items-flow":
@@ -278,14 +310,19 @@ def _answer(live: Live, path: str, q: dict):
         out = {"kind": x.kind if not getattr(x, "disturbance", False) else "disturbance", "model": x.__dict__}
         if kind == "stock":
             out["now"] = snap["stocks"].get(pname)
+            if pname in getattr(getattr(m, "spec", None), "auxiliaries", {}):
+                from .numbers_api import part_numbers
+                out["numbers"] = part_numbers(live, p, snap, "auxiliary", pname)
         elif kind in ("flow", "disturbance"):
             out["now"] = snap["flows"].get(pname)
             if getattr(m, "spec", None) is not None:
                 from ..dynamics import equation
                 from ..spec.findings import unit_of
                 from ..spec.ir import Ref
+                from .numbers_api import part_numbers
                 out["equation"] = equation(m.spec, pname)
                 out["unit"] = unit_of(m.spec, Ref("flow", pname))       # what moves: its own unit, else its stocks'
+                out["numbers"] = part_numbers(live, p, snap, "flow", pname)
         elif kind == "sensor":
             rd = p.measurements.range(f"sensor/{pname}", snap["at"] - snap["window"], snap["at"])
             out["now"] = {"readings": rd[-60:], "count": len(rd)}
@@ -304,6 +341,7 @@ def _answer(live: Live, path: str, q: dict):
 
 def handler(project):
     live = Live(project)
+    token = secrets.token_urlsafe(24)                    # this run's: written into the page, asked of every write
 
     class Handler(BaseHTTPRequestHandler):
         timeout = 10                                   # an idle browser connection gives its thread back
@@ -331,8 +369,40 @@ def handler(project):
                     return self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
             return self._send(404, b"not found", "text/plain")
 
+        def _host_ok(self) -> bool:
+            """Only a request addressed to this server by its own name: a page on another site whose
+            name was pointed at 127.0.0.1 (DNS rebinding) sends its own name as the Host, and is refused."""
+            port = self.server.server_address[1]
+            return (self.headers.get("Host") or "").lower() in {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+
+        def do_POST(self):
+            """The page's one kind of write: the owner accepting or dismissing a proposal, or asking for
+            estimates. Only from the page itself: addressed to this server by its own name (the Host
+            header), from its own origin (Origin, Sec-Fetch-Site), and carrying the token this run of the
+            server wrote into the page it served, which no other page can read."""
+            u = urlsplit(self.path)
+            origin = self.headers.get("Origin")
+            fetch_site = self.headers.get("Sec-Fetch-Site")
+            if (not self._host_ok() or not u.path.startswith("/api/")
+                    or (origin is not None and origin.lower() != f"http://{(self.headers.get('Host') or '').lower()}")
+                    or (fetch_site is not None and fetch_site not in ("same-origin", "none"))
+                    or not secrets.compare_digest(self.headers.get("X-Ergostat-Token") or "", token)):
+                return self._send(403, b'{"error": "only the page may ask"}', "application/json")
+            n = int(self.headers.get("Content-Length") or 0)
+            if n:
+                self.rfile.read(min(n, 65536))
+            from .numbers_api import post
+            try:
+                q = parse_qs(u.query)
+                code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
+            except Exception as e:                      # a broken request never takes the page down
+                code, data = 500, {"error": f"{type(e).__name__}: {e}"}
+            return self._send(code, json.dumps(data, default=str).encode(), "application/json")
+
         def do_GET(self):
             u = urlsplit(self.path)
+            if not self._host_ok():                        # another site's name pointed here: nothing is read
+                return self._send(403, b"not this server's name", "text/plain")
             if u.path.startswith("/api/"):
                 try:
                     data = api(live, u.path.removeprefix("/api/"), parse_qs(u.query))
@@ -350,6 +420,11 @@ def handler(project):
             f = (STATIC / name).resolve()
             if STATIC.resolve() not in f.parents or not f.is_file():
                 return self._send(404, b"not found", "text/plain")
+            if name == "index.html":                       # the page carries this run's token for its writes
+                body = f.read_bytes().replace(b'<meta charset="utf-8">',
+                                              f'<meta charset="utf-8">\n<meta name="ergostat-token" content="{token}">'.encode(), 1)
+                return self._send(200, body, "text/html; charset=utf-8")
             self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
 
+    Handler.live = live
     return Handler

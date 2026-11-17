@@ -106,7 +106,7 @@ def test_a_flow_counted_from_items_uses_its_readings_and_else_the_moves(tmp_path
         p.events.add("pr.merged", item=f"pr/{n}", at=now - 150 + n)          # four merged, in the last of four buckets
     s = by_ref(get(p, "series", refs="flow.merging", points=4))["flow.merging"]
     assert s["how"].startswith("items moving, from the record") and s["values"][:3] == [0, 0, 0]
-    assert abs(s["values"][3] - 4 * 3600 / 300) < 0.01
+    assert abs(s["values"][3] - 4 * 3600 / 600) < 0.01             # over the sensor's own window (over: 10m), not the page's
     p.measurements.add("sensor/merging.main", 7.0, at=now - 100)
     p.measurements.add("sensor/merging.main", 9.0, at=now - 50)
     s = by_ref(get(p, "series", refs="flow.merging", points=4))["flow.merging"]

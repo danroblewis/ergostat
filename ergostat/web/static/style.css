@@ -19,6 +19,9 @@
   --warn: #9f6000;            /* oklch(0.55 0.13 68): open, a warning, 5:1 */
   --warn-wash: #fbf1e3;       /* oklch(0.96 0.025 75) */
   --shadow-menu: 0 6px 20px rgba(20, 26, 33, 0.12), 0 0 0 1px rgba(20, 26, 33, 0.04);
+  /* a projection's sensitivity fan: nine in ten of its runs, and half (greys of their own, not the gridlines') */
+  --fan-90: #d2d7dd;          /* oklch(0.88 0.010 250) */
+  --fan-50: #a9b0b8;          /* oklch(0.76 0.013 250) */
   /* what the drawings name (the old control shapes and the wiring): the same neutrals */
   --panel: var(--bg); --unknown: var(--muted); --ok: var(--muted); --grid: var(--line);
   --stock: var(--bg); --stock-line: var(--ink); --pipe: var(--ink); --pipe-in: var(--bg); --info: var(--muted);
@@ -56,6 +59,8 @@
     --warn: #ebae51;          /* oklch(0.79 0.13 75) */
     --warn-wash: #352a16;     /* oklch(0.29 0.04 75) */
     --shadow-menu: 0 6px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    --fan-90: #33393f;        /* oklch(0.34 0.012 250) */
+    --fan-50: #4f565e;        /* oklch(0.44 0.014 250) */
     --sd-ink: #e3e5e8; --sd-hull: rgba(255, 255, 255, 0.035); --sd-hull-line: rgba(227, 229, 232, 0.38);
     color-scheme: dark;
   }
@@ -684,3 +689,28 @@ body.pane .toolbar { width: max-content; max-width: calc(100% - var(--sp-5)); or
 body.pane .zoom { order: 0; align-self: auto; }
 body.pane svg.canvas { height: 100%; }
 @media (max-width: 699px) { .split-grip { display: none; } }
+
+/* the model's numbers: an equation in MathML, its parameters, a proposal (equations.js); the Fit page */
+math.eq { font-size: var(--text); margin: var(--sp-2) 0; }
+math .eq-ref { font-style: normal; }
+math .eq-fn { font-style: normal; font-family: var(--font); font-size: var(--text); }
+.eq-box { overflow-x: auto; padding: var(--sp-1) 0; }
+table.params td, table.params th { vertical-align: top; }
+input.whatif-in { width: 6em; min-height: var(--sp-5); padding: 0 var(--sp-1); text-align: right; border-color: transparent;
+  border-bottom-color: var(--line-strong); border-radius: 0; background: transparent; }
+input.whatif-in:hover, input.whatif-in:focus { border-color: var(--line-strong); border-radius: var(--radius); background: var(--bg); }
+.whatif p { margin: var(--sp-2) 0 var(--sp-1); }
+.dominance { margin: var(--sp-3) 0; }
+.proposal { border-top: var(--hair) solid var(--line); margin-top: var(--sp-4); padding-top: var(--sp-3); max-width: 72ch; }
+.proposal-title { margin-bottom: var(--sp-1); }
+.proposal p { margin: var(--sp-1) 0; }
+pre.diff { font-family: var(--mono); font-size: var(--text-sm); background: var(--bg); border: var(--hair) solid var(--line); border-radius: var(--radius);
+  padding: var(--sp-2); margin: var(--sp-2) 0; overflow-x: auto; white-space: pre; }
+pre.diff .add { color: var(--ink); background: var(--fill); }
+pre.diff .del { color: var(--muted); text-decoration: line-through; }
+table.fit tr.total td { border-top: var(--hair) solid var(--line-strong); }
+.page .actions { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; margin: var(--sp-2) 0; }
+.proposal dl, .whatif dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); margin: var(--sp-2) 0; }
+.proposal dt, .whatif dt { color: var(--muted); }
+.proposal dd, .whatif dd { margin: 0; }
+.proposal dt::first-letter, .whatif dt::first-letter { text-transform: none; }

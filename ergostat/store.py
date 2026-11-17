@@ -320,6 +320,13 @@ class Measurements:
         mid = [(r[0], r[1]) for r in rows if first[0] < r[0] < last[0]]
         return [(first[0], first[1]), *mid, (last[0], last[1])]
 
+    def first(self, series: str, since: float, until: float) -> tuple[float, float] | None:
+        """The first reading in a span: (time, value)."""
+        with self._c() as c:
+            r = c.execute("select time, value from samples where series = ? and time >= ? and time <= ? order by time limit 1",
+                          (series, since, until)).fetchone()
+        return (r[0], r[1]) if r else None
+
     def bucketed(self, series: str, since: float, until: float, n: int) -> list[tuple[int, float, float, float]]:
         """The readings in ``n`` equal buckets over a span, by SQLite: (bucket, mean, the last
         reading's time, the last reading's value) for each bucket that has a reading."""

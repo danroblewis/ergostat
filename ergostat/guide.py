@@ -8,8 +8,8 @@ may leave parts of it out (``drop``) or cut a signal (``cut``): what was cut ent
 the frame as an input with its own symbol, so nothing is drawn that the model does not have. Where
 a frame shows behaviour over time, ``plot`` gives the few equations the page integrates (Euler):
 each rate or auxiliary a sum of terms, each term a coefficient times a product of variables, and
-inputs that step at given times. The equations are the frame's, not the model's: ergostat models
-hold no equations."""
+inputs that step at given times. The equations are the frame's own, a teaching model's, not the
+project's (whose equations, when it writes them, are replayed by ergostat/numbers)."""
 
 from __future__ import annotations
 

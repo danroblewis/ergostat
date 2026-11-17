@@ -1173,7 +1173,7 @@ function renderSide(side, g, view) {
     return m ? [op(says.slice(0, m.index)), h("a", { href: `#/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
   for (const a of problems.slice(0, MAX)) att.append(h("div", {}, h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what), " ", linked(a.says)));
-  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "#/loops" }, "Loops"), " and ", h("a", { href: "#/residuals" }, "Residuals"), "."));
+  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "#/loops" }, "Loops"), " and ", h("a", { href: "#/fit" }, "Fit"), "."));
   side.append(att);
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside

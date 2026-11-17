@@ -94,6 +94,14 @@ quality, holds it back.
 The market itself, the block `customers`, is not ours to command. `check` lists it as acting on
 its own (an open loop), and that is right.
 
+## The numbers
+
+The market's churn is written as an equation from `world/customers.py` (1% of users leave each
+15-second tick anyway, and more the more operations fail); what a deployed ticket fixes, adds or
+breaks depends on how well the developer and reviewer do, so those parameters are estimated from
+the record (the Fit page, `ergostat proposals`). `asks` has neither an equation nor a sensor, so the
+replay takes it as 0 and `missing-ops` drifts: the fit says where the model is silent.
+
 ## What to try
 
 The stand-ins make mistakes on purpose, and how often is yours to set:

@@ -213,16 +213,39 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 ## 8. The web page
 
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
-owner's absence*), read only. Pages: Diagram (dynamics, blocks and wiring views; the side panel:
+owner's absence*), read only but for one kind of write: the owner's answer to a proposal (Accept or
+Dismiss), asking for estimates (Calibrate) and proposing the values tried as a what-if (Propose these), each a
+`POST` the page makes. A request is served
+only when addressed to the server by its own name (the Host header is `127.0.0.1`, `localhost` or
+`[::1]` with its port: a page on another site whose name was pointed at 127.0.0.1, DNS rebinding,
+sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
+token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
+page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and wiring views; the side panel:
 attention, loops or cycles, model changes, legend), Loops, Agents (one list, by rung), Items (the
-record folded by id, by kind and state), Record (events, with runs hidden by default), Residuals,
+record folded by id, by kind and state), Record (events, with runs hidden by default), Fit (over the
+last day of record, whatever the window: the model fit, the stocks its equations move, with the
+total; each equation with its inputs as measured and replayed; accounting, the stocks moved only by
+measured flows; each with R², MAPE, Theil's U_M, U_S, U_C and what a large error says, or "too
+little record"; the total led by its scaled error; the fit's history across versions with the span each covered and
+each accepted change; Calibrate (each part alone, each system alone, or every stock integrated, with the
+loops a decision leaves open listed), the proposals waiting,
+and why the estimates not proposed were not; and the residuals),
 Check, and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
 the real dynamics and blocks renderers (`ergostat/guide.py`), with its behaviour over time beside
 it (why: what we control and what we want; system dynamics; control; then the project's own model,
 both ways). Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which
 takes the side panel's place. Behaviour over time sits beside the structure, never on a page of
 its own (`docs/proposals/charts.md`, drawn with uPlot, vendored): a part's panel in the dynamics
-view opens with its causes strip (it, then what drives it, on one time axis), parts chosen with
+view opens with its causes strip (it, then what drives it, on one time axis; where the model works a part
+out, its replay dashed over the measured line and its projection past now dashed and lighter: open
+loop, the controllers held, so it is left out downstream of a flow a block sets; the projection's
+Monte Carlo fan shaded, a short projection given the chart's last quarter on its own time axis, the
+spread over the record on request, a what-if in the accent: SPEC §12c), a
+valve's and an auxiliary's panel show its equation in MathML with each parameter's value and
+provenance, its calibrations side by side, and any proposal for it, with Accept (each value may be
+typed over: a what-if, drawn on every chart until put back, its fit shown beside it, saved only by
+Propose these and then Accept), a feedback loop's panel how much of the behaviour it drives over the
+window at each stock it runs through, beside the loops competing there (loop dominance), parts chosen with
 Shift chart in the side panel (and with none chosen, the parts charted last); a loop's panel, its
 comparator, controller or output in the blocks view, and its sparkline on the Loops page open its
 scope (y with r, u, e); the Items page draws each kind's cumulative flow and cycle times. Every
@@ -270,7 +293,13 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
   on white), so long reading is not harsh; muted text stays above 4.5:1. Hue is reserved:
   red for off or failing, amber for open or a warning, *nothing* for fine (a healthy row is
   plain); one blue accent for interaction only (links, focus, the selected thing, what is pointed
-  at), never for data or decoration. Lines in charts are ink; a setpoint is a muted dash.
+  at), never for data or decoration. Lines in charts are ink; a setpoint is a muted dash. The one
+  line in the accent is a what-if: not the record nor the model, but values the owner is trying
+  now, which go when they put them back (interaction state, so the accent). A projection's fan is
+  two greys of its own (`--fan-90`, `--fan-50`, darker than the gridlines so it never reads as one): nine
+  in ten of its runs, and half. A projection too short to see on the window's axis gets the last
+  quarter of the chart, on a time axis of its own past now (+20s, +40s). A loop's dominance draws it in
+  ink and the loops competing at the same stock in the muted grey.
 - **Themes.** Light first. The dark theme follows the system setting and is the same ramp read
   the other way, with the same hues, generated from the same OKLCH values (the hex values in the
   token block say which).

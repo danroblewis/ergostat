@@ -493,7 +493,7 @@ function sdExportItems() {
 
 const SD_WHAT = {
   stock: ["Stock", "a level: what accumulates. It changes only by its flows, filling by its inflows and draining by its outflows, and keeps its value when they stop."],
-  auxiliary: ["Auxiliary", "a converter: worked out at each moment from the parts that point into it, with no memory of its own (here it is measured, so no equation is written)."],
+  auxiliary: ["Auxiliary", "a converter: worked out at each moment from the parts that point into it, with no memory of its own: by its equation where the model writes one, else measured."],
   exogenous: ["Exogenous input", "an auxiliary from outside the model's boundary: nothing in the model drives it, and it drives what it points into."],
   desired: ["Desired level", "the level wanted, compared with the actual one in the gap (or the excess). The flow it drives pulls the actual level toward it: a balancing loop."],
   gap: ["Gap", "the discrepancy: the desired level less the actual one. It drives the flow that closes it, so the level is pulled toward the desired one: a balancing loop."],
@@ -556,7 +556,7 @@ async function openNodeSD(n) {
   const join = (xs) => (xs.length ? h("span", {}, xs.flatMap((x, i) => [i ? ", " : "", x])) : null);
   const kind = sdNodeKind(n);
   const rows = [];
-  let chart = null;
+  let chart = null, numbers = null;
   if (n.role === "desired" || n.role === "gap" || n.role === "decision") {
     rows.push(["desired level", n.goal ? `desired ${n.of} = ${n.desired ?? n.valueText}` : null],
               [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.valueText || "not known yet"}` : null],
@@ -566,12 +566,13 @@ async function openNodeSD(n) {
     let d = null;
     try { d = await api(`part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
-    rows.push(["rate now", now.rate != null ? `${fmt(now.rate)}/h` : n.rateText], ["how it is known", now.how || n.how],
+    rows.push(["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : n.rateText],
+              ["how it is known", now.how || n.how],
               ["inputs", join(causes) || h("span", { class: "muted" }, "none drawn: nothing in the model points into it")],
-              ["equation", n.equation || d?.equation || "not known"]);
+              ["equation", d?.numbers?.equation_tree ? null : n.equation || d?.equation || "not known"]);
     const flow = n.flow || n.label;
     showDetail(h("div", { class: "kind" }, "Valve"), h("h2", {}, flow), h("p", { class: "muted" }, `the rate of ${flow}`),
-      causesStrip(`flow.${flow}`), dl(rows), loopsPara(loopsOf((c) => c.nodes.includes(n.id))),
+      causesStrip(`flow.${flow}`), dl(rows), equationSection(flow, d?.numbers), loopsPara(loopsOf((c) => c.nodes.includes(n.id))),
       h("p", {}, h("a", { href: `#/diagram?view=dynamics&around=flow/${encodeURIComponent(flow)}` }, "Draw what is around it")),
       sdWhat("flow"));
     return;
@@ -583,6 +584,7 @@ async function openNodeSD(n) {
               ["measured", now.at ? ago(now.at) : null]);
     if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? `${fmt(now.inflow)}/h` : null], ["outflow", now.outflow != null ? `${fmt(now.outflow)}/h` : null]);
     for (const gl of n.goals || []) rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint}${gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)"}`]);
+    if (n.kind === "auxiliary") numbers = equationSection(n.label, d?.numbers);
   }
   const ref = partRef(n);                                // behaviour over time first: it, and what drives it (charts.js)
   if (ref) chart = causesStrip(ref);
@@ -590,7 +592,7 @@ async function openNodeSD(n) {
   const id = n.id;
   if (n.kind === "terminal") rows.unshift(["drawn in", n.in || "the model"]);
   showDetail(h("div", { class: "kind" }, (SD_WHAT[kind] || [kind])[0]), h("h2", {}, n.label),
-    chart, dl(rows),
+    chart, dl(rows), numbers,
     loopsPara(loopsOf((c) => c.nodes.includes(id))),
     n.kind === "stock" || n.kind === "valve" || n.kind === "disturbance" || (n.kind === "auxiliary" && !n.role)
       ? h("p", {}, h("a", { href: `#/diagram?view=dynamics&around=${n.kind === "stock" || n.kind === "auxiliary" ? "stock" : "flow"}/${encodeURIComponent(n.flow || n.label)}` }, "Draw what is around it")) : null,
@@ -633,7 +635,7 @@ async function openEdgeSD(e) {
       causesStrip(`flow.${e.flow}`),
       dl([["what moves", [unit, m.description].filter(Boolean).join(": ") || "not said (no unit or description)"],
           ["from", m.source ? link(`stock:${m.source}`) : "a source outside the model"], ["to", m.target ? link(`stock:${m.target}`) : "a sink outside the model"],
-          ["its valve", valve ? link(valve.id) : e.flow], ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : valve?.rateText],
+          ["its valve", valve ? link(valve.id) : e.flow], ["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : valve?.rateText],
           ["runs", (m.two_way ?? e.twoWay) ? "either way (a biflow)" : "one way"]]),
       crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops, sdWhat("pipe"));
   } else {
@@ -677,11 +679,13 @@ function openCausal(name) {
   const minus = signs.filter((x) => x === MINUS).length, unknown = signs.filter((x) => x === "?").length;
   showDetail(h("div", { class: "kind" }, `Feedback loop, ${word}`),
     h("h2", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label)), h("div", { class: "subtitle" }, c.name),
-    h("p", {}, c.polarity ? `${minus} negative link${minus === 1 ? "" : "s"} around it as drawn: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
+    h("p", {}, c.polarity && (!rows.length || signs.some((x) => x === "")) ? `${word[0].toUpperCase()}${word.slice(1)} by the signs of its links in the model; not all of them are drawn in this view (open its system to see them).`
+      : c.polarity ? `${minus} negative link${minus === 1 ? "" : "s"} around it as drawn: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
                           : `${unknown || "a"} link${unknown === 1 ? "" : "s"} along it ${unknown === 1 ? "has" : "have"} no known sign, so whether it reinforces or balances is not known.`),
     h("h3", {}, "Around the loop"),
     h("table", { class: "parts" }, rows.map(([a, b], i) => h("tr", {}, h("td", {}, part(a)), h("td", { class: "muted" }, "→"), h("td", {}, part(b)),
       h("td", { class: "num" }, signs[i])))),
+    h("h3", {}, "When it drives the behaviour"), loopDominance(c.name),
     (() => {                                            // the loops drawn alike here share its marker
       const grp = sdLoopGroups(S.graph, null, true).find((x) => x.loops.includes(c));
       const others = grp ? grp.loops.filter((x) => x !== c) : [];

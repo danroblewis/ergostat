@@ -11,6 +11,7 @@ from .. import __version__
 from ..durations import DurationError
 from .agents import cmd_agent
 from .common import PART_TOPICS
+from .numbers import cmd_accept, cmd_fit, cmd_proposals
 from .parts import cmd_part
 from .record import cmd_event, cmd_item, cmd_reset, cmd_residual
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
@@ -36,6 +37,8 @@ what is wrong, or missing
   findings       Missing feedback, a limit ahead, saturation, people not answering, decay
   discover       Loops in the record (discover loops), a draft from Prometheus (discover prometheus)
   residual       What the model can't explain
+  fit            How well the model's replay fits the record: R², MAPE, Theil's U_M, U_S, U_C
+  proposals      Changes the record supports (parameters calibrated, equations fitted): accept ID, --dismiss ID
 
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
@@ -143,6 +146,20 @@ def build() -> argparse.ArgumentParser:
     i.add_argument("--kind", help="only items of this kind")
     i.add_argument("--state", help="only items in this state")
     topic("residual", cmd_residual, "What the model can't explain")
+    topic("fit", cmd_fit, "How well the model's replay fits the record (each stock, the total, Theil's statistics)", named=False)
+    pp = topic("proposals", cmd_proposals, "Estimate the parameters marked estimate: true, and list the changes the record "
+                                           "supports", named=False)
+    pp.add_argument("--dismiss", metavar="ID", help="let a proposal go (it is not made again for this model)")
+    pp.add_argument("--stored", action="store_true", help="list the proposals already made, without estimating again")
+    pp.add_argument("--calibrate", choices=["parts", "systems", "whole"], default="parts",
+                    help="what is fitted at once: each part alone (default; equations proposed too), each system alone "
+                         "driven by its measured inputs, or every stock integrated at once (what decisions set still taken as "
+                         "measured, so loops through a decision stay open)")
+    pp.add_argument("--propose", metavar="NAME=VALUE", action="append",
+                    help="propose values you tried (a what-if; several, given together or as NAME=V,NAME=V, make one "
+                         "proposal): the fit before and after, and the edit; nothing changes until it is accepted. A time "
+                         "is written with its unit (20s, 5m, 2h)")
+    topic("accept", cmd_accept, "Apply a proposal (ergostat proposals lists them) as the smallest edit to the YAML")
     for t in PART_TOPICS:
         sp = topic(t, cmd_part, f"The {t}s, or one")
         sp.set_defaults(fn=cmd_part, topic=t)
@@ -169,7 +186,7 @@ def build() -> argparse.ArgumentParser:
                named=False)
     rs.add_argument("--yes", action="store_true", help="do it (without it, says what it would forget)")
     mc = sub.add_parser("mcp", parents=[common], help="Serve ergostat to an AI agent over MCP (stdio)",
-                        description="An MCP server on stdin/stdout: check, explain, status, findings, residuals, events, "
+                        description="An MCP server on stdin/stdout: check, explain, status, findings, residuals, fit, events, "
                                     "spec, improve_model, report_done, read_sensor, items, record_event. "
                                     "Add it to Claude Code: claude mcp add ergostat -- ergostat -C DIR mcp")
     mc.set_defaults(fn=cmd_mcp)

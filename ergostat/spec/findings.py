@@ -66,6 +66,8 @@ def find(spec: Spec) -> list[Problem]:
                 st.where, f"stock.{st.name}")
     unsigned(spec, say)
     structure(spec, say)
+    from .equation_checks import findings as numbers
+    numbers(spec, say)
     return out
 
 
@@ -121,9 +123,38 @@ def unit_of(spec: Spec, r: Ref) -> str:
     return x.unit
 
 
+def _through_a_delay(f) -> set[str]:
+    """The causes a flow's equation takes in only through a delay: the delay's own stocks are what lies
+    between, so the link is not a rate following a rate at once."""
+    from .equation import delayed_refs
+    return set(delayed_refs(f.equation.tree)) if f.equation else set()
+
+
+def _units_said(spec: Spec, f) -> bool:
+    """A flow whose equation says, in units that check, how its causes convert into it (a coflow's
+    alerts-per-outage)."""
+    if f.equation is None:
+        return False
+    from .equation_checks import units
+    got, want, problems = units(spec, "flow", f.name)
+    return not problems and got is not None and got == want
+
+
+def _drains_by_delay(spec: Spec, f) -> bool:
+    """An outflow that is a material delay of what flows into its own stock (DELAY3(flow.in, T)): the
+    delay's stages hold what is in the stock, so with it empty nothing comes out."""
+    if f.equation is None or not f.source:
+        return False
+    from .equation import delayed_refs
+    inflows = {f"flow.{g.name}" for g in spec.flows_of(f.source) if g.target == f.source}
+    parts = set(f.equation.refs)
+    return bool(parts) and parts <= set(delayed_refs(f.equation.tree, material=True)) and parts <= inflows
+
+
 def structure(spec: Spec, say) -> None:
     for f in spec.flows.values():
-        rates = [r for r in f.driven_by if r.kind == "flow" and str(r) not in f.instant]
+        delayed = _through_a_delay(f)
+        rates = [r for r in f.driven_by if r.kind == "flow" and str(r) not in f.instant and f"flow.{r.name}" not in delayed]
         if rates:
             r = rates[0]
             say("rate-driven-by-rate",
@@ -135,7 +166,7 @@ def structure(spec: Spec, say) -> None:
                 f"driven-by: [{{cause: +{r}, instant: true}}]",
                 f.where, f"flow.{f.name}")
         mine = base_unit(unit_of(spec, Ref("flow", f.name)))
-        converted = any(r.kind == "auxiliary" or r == Ref("stock", f.source or "") for r in f.driven_by)   # a ratio, or what it takes from
+        converted = any(r.kind == "auxiliary" or r == Ref("stock", f.source or "") for r in f.driven_by) or _units_said(spec, f)
         odd = [r for r in f.driven_by if r.kind == "flow" and mine and (b := base_unit(unit_of(spec, r))) and b != mine]
         if odd and not converted:
             r = odd[0]
@@ -149,7 +180,8 @@ def structure(spec: Spec, say) -> None:
                 f"of the other's (a coflow): say how many with an auxiliary (auxiliaries: {{{ratio}: {{unit: {u}/{v}}}}}) "
                 f"and drive the flow from both (driven-by: [+{r}, +auxiliary.{ratio}]){take}",
                 f.where, f"flow.{f.name}")
-        if f.source and f.driven_by and spec.actuator_of(f.name) is None and not f.two_way and not depends_on(spec, f, f.source):
+        if f.source and f.driven_by and spec.actuator_of(f.name) is None and not f.two_way and not depends_on(spec, f, f.source) \
+                and not _drains_by_delay(spec, f):
             say("outflow-ignores-stock",
                 f"flow {f.name}: drains {f.source}, but its rate follows {', '.join(str(r) for r in f.driven_by)} and not "
                 f"{f.source} itself, so with {f.source} empty it would still run and take it below zero. An outflow "
@@ -167,7 +199,7 @@ def structure(spec: Spec, say) -> None:
                 f"(spent so far, kept so far), say so: cumulative: true",
                 st.where, f"stock.{st.name}")
     for a in spec.auxiliaries.values():
-        if not a.driven_by and not a.exogenous and spec.setter_of(a.name) is None:
+        if not a.driven_by and not a.exogenous and spec.setter_of(a.name) is None and a.equation is None:
             say("auxiliary-without-causes",
                 f"auxiliary {a.name}: nothing drives it and it is not marked as an input from outside, so the model "
                 f"cannot say why it changes. Name what it is worked out from (driven-by: [+stock.x, ...]), or, if "

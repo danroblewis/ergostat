@@ -288,8 +288,10 @@ class Explainer:
     def auxiliary(self, name: str) -> str:
         s, v = self.s, self.s.auxiliaries[name]
         lines = [f"Auxiliary {name}" + (f" ({v.unit})" if v.unit else "") + (f": {v.description}" if v.description else "") + ". "
-                 "It has no memory: its value is determined at each moment by others (its equation is not written, so "
-                 "it is measured)."]
+                 "It has no memory: its value is determined at each moment by others" +
+                 (" (its equation is not written, so it is measured)." if v.equation is None else ", by its equation.")]
+        if v.equation is not None:
+            lines.append(self.equation(name, v.equation))
         if v.exogenous:
             lines.append("  Exogenous: an input from outside the model; nothing in it drives it.")
         setter = s.setter_of(name)
@@ -314,6 +316,25 @@ class Explainer:
             lines.append(f"  Now: {self.value(f'auxiliary.{name}')}.")
         return "\n".join(lines)
 
+    def equation(self, name: str, e, per_hour: bool = False) -> str:
+        """An equation, and each parameter it names with its value and where the value comes from:
+        declared, estimated (kept apart until accepted), or not known (SPEC §7b)."""
+        est = {}
+        if self.p is not None:
+            from ..numbers.estimate import load
+            est = load(self.p, self.s)
+        out = [f"  {name} = {e.text}" + (" (per hour)" if per_hour else "")]
+        for n in e.parameters:
+            x = self.s.parameters[n]
+            v = (f"a lookup of {len(x.table)} points" if x.table else f"{x.value:g}" + (f" {x.unit}" if x.unit else "")
+                 if x.value is not None else "not known yet")
+            said = "declared" if x.value is not None or x.table else ("to be estimated" if x.estimate else "no value")
+            got = est.get(n) or {}
+            if got.get("value") is not None:
+                said += f"; estimated {got['value']:.4g} from {got.get('n')} points (ergostat proposals)"
+            out.append(f"    {n} = {v} ({said})")
+        return "\n".join(out)
+
     def flow(self, name: str) -> str:
         s, f = self.s, self.s.flows[name]
         ends = f"from {f.source or 'outside'} to {f.target or 'outside'}"
@@ -324,10 +345,13 @@ class Explainer:
             lines.append(f"  Set by block {setter.name} ({setter.type}).")
         else:
             lines.append("  Nothing in the model sets it: " + (f"a declared rate of {f.rate:g}/h." if f.rate is not None else
+                                                               "its equation says its rate." if f.equation is not None else
                                                                "a disturbance, estimated from what its stocks do."))
+        if f.equation is not None:
+            lines.append(self.equation(name, f.equation, per_hour=True))
         if f.driven_by:
-            lines.append("  Its rate follows " + ", ".join(_signed(f, r) for r in f.driven_by) + " (driven-by: an influence, "
-                         "declared, not yet checked against the record).")
+            lines.append("  Its rate follows " + ", ".join(_signed(f, r) for r in f.driven_by) + " (driven-by: an influence" +
+                         (", sized by its equation)." if f.equation is not None else ", declared, not yet checked against the record)."))
         if f.sensors:
             lines.append("  Measured: " + "; ".join(_sensor(x) for x in f.sensors.values()) + " (a rate per hour).")
         return "\n".join(lines)

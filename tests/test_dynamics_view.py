@@ -160,12 +160,11 @@ def test_the_attention_cards_speak_system_dynamics():
 
 
 def test_each_valve_says_its_equation_or_what_is_not_known_yet(factory):
-    """A valve's panel says what its rate is as far as the model says: a decision that sets it, or
-    declared causes with a sign and no size yet, and which act at once."""
+    """A valve's panel says what its rate is as far as the model says: its equation where it writes
+    one, a decision that sets it, or declared causes with a sign and no size yet, and which act at once."""
     g = factory(view="dynamics", open="*")
     ids = {n["id"]: n for n in g["nodes"]}
-    assert ids["flow:regressions"]["equation"] == ("not known yet: declared causes with a sign each, their sizes not "
-                                                   "estimated; at once with deployed: no stock between")
+    assert ids["flow:regressions"]["equation"] == "auxiliary.ops-broken-per-ticket * flow.deployed (per hour, written)"
     assert ids["flow:submitted"]["equation"].startswith("set by the decision ")
     assert "not known yet: a declared cause with a sign, its size not estimated" in ids["flow:asks"]["equation"]
     from ergostat.dynamics import equation

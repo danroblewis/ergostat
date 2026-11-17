@@ -10,7 +10,8 @@ from pathlib import Path
 import yaml
 
 FILE = "ergostat.yaml"
-SECTIONS = ("sources", "systems", "items", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents", "loops")
+SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
+            "loops")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary"}    # variables: the old name of auxiliaries
 TOP = {"name", "include", "keep", "defaults", *SECTIONS}
 

@@ -70,6 +70,33 @@ stocks:
       state: open
       every: 5s
 
+# Alerts and outages (world/traffic.py): 1.2 alerts a working day on their own, and 0.25 outages of unknown
+# cause; every outage pages three to five times, a few hundredths of a day apart, and the pager groups it as an
+# outage at its third page; an unreviewed ramp that breaks its service starts exactly one outage. So outages are a
+# coflow of the ramps that break, and alerts of the outages (Sterman ch. 12): so many of one per another, none of
+# them a multiple of the ramps live. The values below are what that code implies; the record refines them.
+parameters:
+  alerts-base:
+    value: 1.2
+    unit: alerts/workday
+    estimate: true
+    description: alerts a working day that are not an outage's (the pager's own, and the odd approved ramp's)
+  alerts-per-outage:
+    value: 4
+    unit: alerts/outage
+    estimate: true
+    range: [3, 5]                              # the world's code pages three to five times an outage
+    description: the pages each outage sends (three to five)
+  outages-base:
+    value: 0.25
+    unit: outages/workday
+    estimate: true
+    description: outages a working day that no ramp started (of unknown cause, a secret that expired)
+  outages-per-break:
+    value: 1
+    unit: outages/ramp
+    description: an unreviewed ramp that breaks its service starts one outage (world/traffic.py), exactly
+
 auxiliaries:
   actions-per-postmortem:
     unit: actions/outage
@@ -89,11 +116,15 @@ auxiliaries:
 flows:
   alerts-fired:
     to: alerts-to-draft
-    description: pages from my rotation; a flag ramp live without my review may break its service and page
-    driven-by: +stock.unreviewed-ramps-live      # (not the rate it went ahead at: it breaks hours later, if at all)
+    description: pages from my rotation; most come from an outage, three to five each
+    driven-by:
+      - cause: +flow.outages-noticed
+        instant: true                            # an outage's pages come a few hundredths of a day either side of its third
+    equation: workdays-per-hour * alerts-base + alerts-per-outage * flow.outages-noticed
     sensor:
       run: python3 bin/watch.py alert
       every: 10s
+      averages: 10m                              # the watcher's number: arrivals over the last ten minutes, per hour
   comment-drafting:
     from: alerts-to-draft
     to: alerts-drafted
@@ -110,10 +141,14 @@ flows:
   outages-noticed:
     to: outages-suspected
     description: the pager groups a burst of alerts on one service as an outage (at its third alert)
-    driven-by: +stock.unreviewed-ramps-live      # what breaks; the alerts are how the pager sees it, not a cause
+    driven-by:
+      - cause: +flow.ramps-broke                 # a ramp that breaks starts an outage
+        instant: true                            # noticed at its third page, a few hundredths of a day later
+    equation: workdays-per-hour * outages-base + outages-per-break * flow.ramps-broke
     sensor:
       run: python3 bin/watch.py outage
       every: 5s
+      averages: 10m
   outages-declared:
     from: outages-suspected
     to: outages-to-review

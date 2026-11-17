@@ -32,7 +32,7 @@ const clockS = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false,
 const clockM = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
 
 /* the options every chart shares: its window, its cursor (with its group), thin axes in the muted ink */
-function baseOpts({ width, height, group, since, until, xAxis = true, yValues = null, yRange = null, hooks = {} }) {
+function baseOpts({ width, height, group, since, until, xAxis = true, yValues = null, yRange = null, hooks = {}, warp = null }) {
   const font = `${tok("--canvas-sm")} ${tok("--font")}`;
   const axis = { stroke: tok("--muted"), font, grid: { stroke: tok("--line"), width: 1 }, ticks: { show: false }, gap: 4 };
   return {
@@ -43,10 +43,11 @@ function baseOpts({ width, height, group, since, until, xAxis = true, yValues = 
     scales: { x: { time: true, auto: false, range: () => [since, until] }, y: { range: yRange || ((u, lo, hi) => padRange(lo, hi)) } },
     axes: [
       { ...axis, show: xAxis, size: xAxis ? 22 : 0, space: 64, incrs: TIME_STEPS, grid: { ...axis.grid, show: false },
-        values: (u, ts, ai, space, incr) => ts.map((t) => (incr >= 86400 ? new Date(t * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) : clockM(t))) },
+        values: (u, ts, ai, space, incr) => ts.map((t) => (incr >= 86400 ? new Date(t * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) : clockM(t))),
+        ...(warp ? { splits: warp.splits, values: warp.values } : {}) },
       { ...axis, size: 44, space: 24, values: (u, vs) => vs.map((v) => yValues ? yValues(v) : fmt(v)) },
     ],
-    hooks: { ...hooks, setCursor: [...(hooks.setCursor || []), (u) => { const i = u.cursor.idx; group.at(i == null ? null : u.data[0][i]); }] },
+    hooks: { ...hooks, setCursor: [...(hooks.setCursor || []), (u) => { const i = u.cursor.idx; group.at(i == null ? null : warp ? warp.real(u.data[0][i]) : u.data[0][i]); }] },
   };
 }
 /* the cursor's mark, on the data only (not on a dashed level beside it) */
@@ -64,7 +65,7 @@ function padRange(lo, hi) {
 }
 
 /* drawn under the data: the stretches a loop was off (the one red), a tolerance band, a zero line */
-function underlay({ off = [], band = null, zero = false }) {
+function underlay({ off = [], band = null, zero = false, now = null }) {
   return (u) => {
     const ctx = u.ctx, { left, top, width, height } = u.bbox;
     ctx.save();
@@ -78,6 +79,11 @@ function underlay({ off = [], band = null, zero = false }) {
       const y0 = u.valToPos(band[1], "y", true), y1 = u.valToPos(band[0], "y", true);
       ctx.fillStyle = tok("--fill");
       ctx.fillRect(left, y0, width, Math.max(devicePixelRatio, y1 - y0));
+    }
+    if (now != null) {                                   // now: where the record ends and the projection begins
+      const x = Math.round(u.valToPos(now, "x", true)) + 0.5;
+      ctx.strokeStyle = tok("--line-strong"); ctx.lineWidth = devicePixelRatio;
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + height); ctx.stroke();
     }
     if (zero) {
       const y = Math.round(u.valToPos(0, "y", true)) + 0.5;
@@ -105,10 +111,87 @@ function lineLabel(value, text) {
 function before(vs, i) { for (let j = i; j >= 0; j--) if (vs[j] != null) return vs[j]; return null; }
 const inkLine = (extra = {}) => ({ stroke: tok("--ink"), width: 1.5, spanGaps: true, points: { show: false }, ...extra });
 const dashLine = (extra = {}) => ({ stroke: tok("--muted"), width: 1, dash: [4, 3], points: { show: false }, ...extra });
+/* the model's own lines: its replay dashed in ink over the measured one; its projection past now dashed, lighter;
+   a what-if (the owner's own values, tried and not kept) the same in the accent: what they chose */
+const replayLine = () => ({ stroke: tok("--ink"), width: 1.25, dash: [5, 3], spanGaps: true, points: { show: false } });
+const projectionLine = () => ({ stroke: tok("--muted"), width: 1.25, dash: [2, 3], spanGaps: true, points: { show: false } });
+const whatifLine = (ahead) => ({ stroke: tok("--accent"), width: 1.25, dash: ahead ? [2, 3] : [5, 3], spanGaps: true, points: { show: false } });
+
+/* the projection's fan (sensitivity analysis): the 90% and 50% of the runs over what the model says is
+   uncertain, shaded from now (the last reading) out to the horizon, under the lines */
+function fanUnder(fan, ptimes, until, from) {
+  return (u) => {
+    if (!fan || !ptimes?.length) return;
+    const ctx = u.ctx, { left, top, width, height } = u.bbox;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(left, top, width, height); ctx.clip();
+    for (const [lo, hi, colour] of [["p5", "p95", "--fan-90"], ["p25", "p75", "--fan-50"]]) {
+      const a = fan[lo], b = fan[hi];
+      if (!a || !b) continue;
+      const ts = from != null ? [until, ...ptimes] : ptimes, ya = from != null ? [from, ...a] : a, yb = from != null ? [from, ...b] : b;
+      ctx.beginPath();
+      ts.forEach((t, i) => { const x = u.valToPos(t, "x", true), y = u.valToPos(yb[i] ?? 0, "y", true); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      for (let i = ts.length - 1; i >= 0; i--) ctx.lineTo(u.valToPos(ts[i], "x", true), u.valToPos(ya[i] ?? 0, "y", true));
+      ctx.closePath();
+      ctx.fillStyle = tok(colour);
+      ctx.fill();
+    }
+    ctx.restore();
+  };
+}
+
+/* the replay's own spread over the record (Vensim's sensitivity graph over the run): the same greys, under the
+   replay, from where the replay starts */
+function fanPast(fan, times) {
+  return (u) => {
+    if (!fan) return;
+    const ctx = u.ctx, { left, top, width, height } = u.bbox;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(left, top, width, height); ctx.clip();
+    for (const [lo, hi, colour] of [["p5", "p95", "--fan-90"], ["p25", "p75", "--fan-50"]]) {
+      const a = fan[lo], b = fan[hi];
+      if (!a || !b) continue;
+      const idx = times.map((_, i) => i).filter((i) => a[i] != null && b[i] != null);
+      if (idx.length < 2) continue;
+      ctx.beginPath();
+      idx.forEach((i, j) => { const x = u.valToPos(times[i], "x", true), y = u.valToPos(b[i], "y", true); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      for (let j = idx.length - 1; j >= 0; j--) ctx.lineTo(u.valToPos(times[idx[j]], "x", true), u.valToPos(a[idx[j]], "y", true));
+      ctx.closePath();
+      ctx.fillStyle = tok(colour);
+      ctx.fill();
+    }
+    ctx.restore();
+  };
+}
+
+/* a projection too short to see on the window's axis (a minute ahead on an hour) gets a quarter of the chart's
+   width, on a time axis of its own past now (+20s, +40s): the past keeps its clock, the projection its own scale */
+const AHEAD_SHARE = 0.25;
+const AHEAD_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400];
+function aheadWarp(since, until, end) {
+  const W = until - since, H = end - until, D = (W * AHEAD_SHARE) / (1 - AHEAD_SHARE);
+  if (!(H > 0) || H >= D) return null;
+  const k = D / H;
+  const real = (x) => (x <= until ? x : until + (x - until) / k);
+  return {
+    k, end: until + D, at: (t) => (t <= until ? t : until + (t - until) * k), real,
+    splits: (u) => {
+      const px = (u.bbox.width / devicePixelRatio) / (W + D), out = [];
+      const step = TIME_STEPS.find((s) => s * px >= 64) || TIME_STEPS[TIME_STEPS.length - 1];
+      for (let t = Math.ceil(since / step) * step; t <= until - step * 0.4; t += step) out.push(t);
+      const fits = AHEAD_STEPS.filter((s) => s <= H);
+      const r = fits.find((s) => s * k * px >= 40) || fits[fits.length - 1] || H;
+      for (let x = r; x <= H - r * 0.35 + 1e-6; x += r) out.push(until + x * k);   // none at the very edge, where it would be cut
+      return out;
+    },
+    values: (u, ts) => ts.map((t) => (t <= until + 1e-6 ? clockM(t) : `+${dur(real(t) - until)}`)),
+  };
+}
 
 /* one chart: a line, its name and its value at the cursor (or its last) above it */
 function lineChart({ group, name, role, unit, per, times, values, since, until, goal = null, off = [], height = 64, xAxis = false,
-                     zero = false, href = null, stepped = false, level = null }) {
+                     zero = false, href = null, stepped = false, level = null, replay = null, projection = null, ptimes = null,
+                     fan = null, replayFan = null, whatifReplay = null, whatifProjection = null, yRange = null }) {
   const last = [...values].reverse().find((v) => v != null);
   const unitText = per ? `${unit || ""}/h` : unit || "";
   const val = h("span", { class: "chart-val" });
@@ -120,18 +203,48 @@ function lineChart({ group, name, role, unit, per, times, values, since, until, 
   const plotEl = h("div", { class: "chart-plot" });
   const el = h("div", { class: "chart" }, head, plotEl);
   const desired = goal ? goal.value : null;
-  const data = [times, values, ...(desired != null ? [times.map(() => desired)] : [])];
+  // past now, the strip runs on to the projection's end; the measured line stops at now
+  const real = ptimes?.length ? ptimes : [], pad = (xs) => [...xs, ...real.map(() => null)];
+  const warp = real.length ? aheadWarp(since, until, real[real.length - 1]) : null;
+  const ahead = warp ? real.map(warp.at) : real;
+  const xs = [...times, ...ahead], end = warp ? warp.end : ahead.length ? ahead[ahead.length - 1] : until;
+  const data = [xs, pad(values)];
+  const series = [{}, inkLine(stepped ? { paths: uPlot.paths.stepped({ align: 1 }) } : {})];
+  if (desired != null) { data.push(xs.map(() => desired)); series.push(dashLine()); }
+  const hasReplay = replay && replay.some((v) => v != null);
+  if (hasReplay) { data.push(pad(replay)); series.push(replayLine()); }
+  const hasProj = projection && projection.some((v) => v != null) && ahead.length;
+  if (hasProj) {                                         // from the last reading (what the projection starts from)
+    const start = last ?? [...(replay || [])].reverse().find((v) => v != null) ?? null;
+    data.push([...times.map((_, i) => (i === times.length - 1 ? start : null)), ...projection]);
+    series.push(projectionLine());
+  }
+  const projIdx = hasProj ? data.length - 1 : null;
+  const from = last ?? [...(replay || [])].reverse().find((v) => v != null) ?? null;
+  if (whatifReplay && whatifReplay.some((v) => v != null)) { data.push(pad(whatifReplay)); series.push(whatifLine(false)); }
+  if (whatifProjection && whatifProjection.some((v) => v != null) && ahead.length) {
+    data.push([...times.map((_, i) => (i === times.length - 1 ? from : null)), ...whatifProjection]);
+    series.push(whatifLine(true));
+  }
+  const outer = fan?.p5 ? ["p5", "p95"] : ["p25", "p75"];
+  const hasFan = fan && ahead.length && (fan[outer[0]] || []).some((v) => v != null);
+  const fanLo = hasFan ? Math.min(...fan[outer[0]].filter((v) => v != null)) : Infinity, fanHi = hasFan ? Math.max(...fan[outer[1]].filter((v) => v != null)) : -Infinity;
+  const pastLo = replayFan ? Math.min(...(replayFan.p5 || replayFan.p25).filter((v) => v != null)) : Infinity;
+  const pastHi = replayFan ? Math.max(...(replayFan.p95 || replayFan.p75).filter((v) => v != null)) : -Infinity;
+  const valueAt = (i) => (i < times.length ? before(values, i) : projIdx != null ? data[projIdx][i] : null);
   mountPlot(plotEl, (width) => {
-    const o = baseOpts({ width, height, group, since, until, xAxis,
-      yRange: (u, lo, hi) => padRange(Math.min(lo ?? desired ?? 0, desired ?? Infinity, goal?.band?.[0] ?? Infinity, zero ? 0 : Infinity),
-                                      Math.max(hi ?? desired ?? 1, desired ?? -Infinity, goal?.band?.[1] ?? -Infinity, zero ? 0 : -Infinity)),
-      hooks: { drawClear: [underlay({ off, band: goal?.band, zero })],
+    const o = baseOpts({ width, height, group, since, until: end, xAxis, warp,
+      yRange: yRange || ((u, lo, hi) => padRange(Math.min(lo ?? desired ?? 0, desired ?? Infinity, goal?.band?.[0] ?? Infinity, zero ? 0 : Infinity, fanLo, pastLo),
+                                                 Math.max(hi ?? desired ?? 1, desired ?? -Infinity, goal?.band?.[1] ?? -Infinity, zero ? 0 : -Infinity, fanHi, pastHi))),
+      hooks: { drawClear: [underlay({ off, band: goal?.band, zero, now: ahead.length ? until : null }), ...(hasFan ? [fanUnder(fan, ahead, until, from)] : []),
+                            ...(replayFan ? [fanPast(replayFan, times)] : [])],
                draw: desired != null ? [lineLabel(desired, level || `desired ${op(goal.setpoint)}`)] : [],
-               setCursor: [(u) => show(u.cursor.idx == null ? last : before(u.data[1], u.cursor.idx))] } });
-    o.series = [{}, inkLine(stepped ? { paths: uPlot.paths.stepped({ align: 1 }) } : {}),
-                ...(desired != null ? [dashLine()] : [])];
+               setCursor: [(u) => { const i = u.cursor.idx; if (i == null) return show(last); const v = valueAt(i);
+                                    val.textContent = v == null ? "\u2013" : `${fmt(v)}${unitText ? " " + unitText : ""}${i >= times.length ? ", projected" : ""}`; }] } });
+    o.series = series;
     return new uPlot(o, data, plotEl);
   });
+  if (hasReplay || hasProj) el.classList.add("modelled");
   return el;
 }
 
@@ -149,22 +262,125 @@ function partRef(n) {
 }
 function causesStrip(ref, group = chartGroup("strip")) {
   const box = h("div", { class: "strip" }, h("div", { class: "muted small" }, "…"));
-  api("series", { refs: ref, strip: 1, points: CHART_POINTS }).then((d) => {
+  const load = () => api("series", { refs: ref, strip: 1, replay: 1, points: CHART_POINTS, ...(SNAP ? {} : { fan: S.replayFan ? "replay" : 1 }), ...whatifParams() }).then((d) => {
     const list = d.series || [];
-    if (!list.length || list.every((s) => s.values.every((v) => v == null))) {
+    if (!list.length || list.every((s) => s.values.every((v) => v == null) && !(s.replay || []).some((v) => v != null))) {
       box.replaceChildren(h("p", { class: "muted small" }, `Nothing measured in ${windowSaid(d)}.`));
       return;
     }
+    const modelled = list.some((s) => s.replay);
     box.replaceChildren(...list.map((s, i) => lineChart({
       group, name: i === 0 ? (s.kind === "flow" ? "rate" : "value") : s.name,
       role: i === 0 ? (s.kind === "flow" ? s.how : null) : ROLE_WORDS[s.role] || s.role,
       unit: s.unit, per: s.per, times: d.times, values: s.values, since: d.since, until: d.until,
       goal: s.goal, height: i === 0 ? 84 : 52, xAxis: i === list.length - 1, zero: s.kind === "flow",
+      replay: s.replay, projection: s.projection, ptimes: d.projection_times, fan: s.fan, replayFan: s.replay_fan,
+      whatifReplay: s.whatif_replay, whatifProjection: s.whatif_projection,
       href: i === 0 ? null : () => openRef(s.ref) })),
-      h("div", { class: "chart-foot" }, h("span", { class: "muted" }, list.length > 1 ? "Rates per hour, on one time axis" : ""), group.when));
+      h("div", { class: "chart-foot" }, h("span", { class: "muted" }, [list.length > 1 ? "Rates per hour, on one time axis" : "",
+        modelled ? `dashed: the model's replay; past now, lighter: its projection ${dur(d.horizon)} ahead, ${d.inputs || "inputs held where they were"}` : "",
+        modelled ? fanSaid(d, list.some((s) => s.fan)) : "", replayFanSaid(d, list.some((s) => s.replay_fan)), whatifSaid(d)].filter(Boolean).join(". ")),
+        group.when),
+      ...(!SNAP && d.fan?.parameters?.length ? [h("div", { class: "actions" }, h("button", { class: "ghost", onclick: () => { S.replayFan = !S.replayFan;
+        for (const b of document.querySelectorAll(".strip")) b.redraw?.(); } }, S.replayFan ? "Hide the spread over the record" : "Spread over the record"))] : []),
+      ...(d.whatif_invalid?.length ? [h("p", { class: "s-open small" }, `With the what-if the model cannot run: ${d.whatif_invalid.join("; ")}. ` +
+        "Each fault is taken as 0, so the blue lines are not what the model would do.")] : []));
   }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
+  load();
+  box.redraw = load;                                    // a what-if tried: drawn again with it
   if (!SNAP) rememberChart(ref);
   return box;
+}
+
+/* how much of the behaviour a feedback loop drives over the window (Loops That Matter, on the simulation at its
+   step): at each stock it runs through, its relative loop score (−1 to +1) beside every scored loop competing
+   there (in grey), as Stella's loop dominance view shows them; how often it dominated, unless loops through the
+   stock are not scored or it is tied; or why it is not worked out */
+function loopDominance(name, group = chartGroup("dominance")) {
+  const box = h("div", { class: "strip dominance" }, h("div", { class: "muted small" }, "\u2026"));
+  api("dominance", { points: CHART_POINTS }).then((d) => {      // every stock's (as a snapshot keeps it); this loop's below
+    if (!d) { box.replaceChildren(); return; }
+    const why = d.not_scored?.[name];
+    if (why) { box.replaceChildren(h("p", { class: "muted small" }, `How much of the behaviour it drives is not worked out: ${why}.`)); return; }
+    const at = (d.stocks || []).filter((x) => (x.relative?.[name] || []).some((v) => v != null));
+    if (!at.length) {
+      box.replaceChildren(h("p", { class: "muted small" }, "Its loop score was 0 throughout the window: some link along it did not move when its cause did, so it drove none of the behaviour then."));
+      return;
+    }
+    const out = [];
+    at.forEach((x, n) => {
+      const st = x.stock.split(".").slice(1).join(".");
+      const others = Object.keys(x.relative).filter((k) => k !== name);
+      out.push(dominanceChart({ group, title: `at ${st}`, times: d.times, since: d.since, until: d.until, mine: x.relative[name],
+        others: others.map((k) => x.relative[k]), xAxis: n === at.length - 1 }));
+      const share = x.share?.[name], last = [...(x.dominant || [])].reverse().find((k) => k);
+      const scored = `${x.scored} of the ${x.loops} loop${x.loops === 1 ? "" : "s"} through ${st} ${x.scored === 1 ? "is" : "are"} scored`;
+      const words = !x.named
+        ? `${scored}; the others run through decisions or parts whose response the model does not write, so no loop is named as dominant there`
+        : x.scored === 1 ? `The only loop through ${st}: it drives all of its feedback`
+        : [share != null ? `Dominant at ${st} in ${Math.round(share * 100)}% of the window${last === name ? ", and now" : last ? `; now ${last}` : ""}` : "",
+           x.ties ? `tied with another in ${x.ties} bucket${x.ties === 1 ? "" : "s"} (no loop named then)` : "",
+           others.length ? `grey: ${others.join(", ")}` : ""].filter(Boolean).join("; ");
+      out.push(h("p", { class: "muted small" }, `${words}.`));
+    });
+    out.push(h("div", { class: "chart-foot" }, h("span", { class: "muted" },
+      ["+1: it drives everything at the stock, reinforcing; \u22121: balancing. Computed on the model's replay at its integration step",
+       d.assumed?.[name]?.length ? `assumed to pass on all of their cause's change (the model does not write how they answer): ${d.assumed[name].join(", ")}` : ""].filter(Boolean).join(". ")), group.when));
+    box.replaceChildren(...out);
+  }).catch(() => box.replaceChildren());
+  return box;
+}
+/* a loop's relative score in ink over the others competing at the same stock in grey, on −1 to +1 */
+function dominanceChart({ group, title, times, since, until, mine, others, xAxis }) {
+  const val = h("span", { class: "chart-val" });
+  const last = [...mine].reverse().find((v) => v != null);
+  const show = (v) => { val.textContent = v == null ? "\u2013" : fmt(v); };
+  show(last);
+  const plotEl = h("div", { class: "chart-plot" });
+  const el = h("div", { class: "chart" }, h("div", { class: "chart-head" }, h("span", { class: "chart-name" }, "relative loop score"),
+    h("span", { class: "muted" }, title), val), plotEl);
+  mountPlot(plotEl, (width) => {
+    const o = baseOpts({ width, height: 96, group, since, until, xAxis, yRange: () => [-1.1, 1.1],
+      hooks: { drawClear: [underlay({ zero: true })], setCursor: [(u) => { const i = u.cursor.idx; show(i == null ? last : mine[i]); }] } });
+    o.series = [{}, inkLine(), ...others.map(() => ({ stroke: tok("--muted"), width: 1, spanGaps: true, points: { show: false } }))];
+    return new uPlot(o, [times, mine, ...others], plotEl);
+  });
+  return el;
+}
+
+/* the owner's what-if: parameters tried at other values, for every chart on the page, never kept (S.whatif) */
+function whatifParams() {
+  const w = Object.entries(S.whatif || {});
+  return w.length ? { whatif: w.map(([k, v]) => `${k}:${v}`).join(",") } : {};
+}
+function setWhatif(name, value) {
+  S.whatif = { ...(S.whatif || {}) };
+  if (value == null || value === "") delete S.whatif[name]; else S.whatif[name] = String(value).trim();
+  for (const b of document.querySelectorAll(".strip")) b.redraw?.();
+  for (const f of document.querySelectorAll(".whatif")) f.redraw?.();
+}
+const tried = (w) => (w.duration ? dur(w.value * 3600) : `${fmt(w.value)}${w.unit ? " " + w.unit : ""}`);
+function whatifSaid(d) {
+  if (d.whatif_error) return `What-if not drawn: ${d.whatif_error}`;
+  if (!d.whatif?.length) return "";
+  return `in blue, what if ${d.whatif.map((w) => `${w.name} were ${tried(w)}`).join(" and ")} (not saved)`;
+}
+function replayFanSaid(d, drawn) {
+  const f = d.replay_fan;
+  if (!f) return "";
+  if (!drawn) return "the replay's spread over the record is too small to draw";
+  return `before now, shaded: the replay's half${f.tails ? ", and nine in ten," : ""} of ${f.samples} replays over the same values`;
+}
+function fanSaid(d, drawn) {
+  const f = d.fan;
+  if (!f) return "";
+  if (!f.parameters?.length) return "no spread drawn: no parameter it uses has a range or an estimate's error";
+  if (!f.samples) return "no spread drawn: every run of the uncertain parameters blew up";
+  if (!drawn) return `no spread drawn: its projection is the same over ${f.parameters.map((u) => u.name).join(", ")} as far as it looks`;
+  const how = [...new Set(f.parameters.map((u) => (u.how === "range" ? "range" : "estimate \u00b12 standard errors")))];
+  return `shaded: half${f.tails ? ", and nine in ten," : ""} of ${f.samples} runs over ${f.parameters.map((u) => `${u.name} ${u.duration ? dur(u.low * 3600) : fmt(u.low)} to ${u.duration ? dur(u.high * 3600) : fmt(u.high)}`).join(", ")}` +
+    ` (${f.parameters.length > 1 ? "each its" : "its"} ${how.join(" or ")})` + (f.joint ? `; ${f.joint}` : "") +
+    (f.tails ? "" : `; nine in ten not drawn from fewer than 100 runs`);
 }
 /* a system's own measures (its show:, else its goals' measures), each a chart on one time axis: what its
    box used to draw as sparklines, now in its panel */

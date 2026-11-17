@@ -58,6 +58,30 @@ stocks:
       state: released
       every: 5s
 
+# The numbers the world's code makes known (world/traffic.py): of the ramps that go ahead unreviewed, 45% break
+# their service a tenth to half a working day later (uniform: 0.3 on average), and the rest are called fine after
+# exactly half a day live. Two delays from the one inflow, then, not one first-order drain: each is the ramps
+# waiting for their fate (Sterman ch. 11), and together they are the stock of ramps live unreviewed.
+parameters:
+  workdays-per-hour:
+    value: 60
+    unit: workdays/h
+    description: the world's clock, a working day every 60 seconds (JOB_DAY, world/world.py)
+  break-share:
+    value: 0.45
+    unit: share
+    description: of the ramps that go ahead unreviewed, the share that break their service
+  time-to-break:
+    value: 0.3
+    unit: workdays
+    estimate: true
+    range: [0.1, 0.5]                          # what it might be: no shorter or longer than any one ramp takes
+    description: how long a ramp that breaks stays live first, on average (a tenth to half a working day)
+  time-to-prove-fine:
+    value: 0.5
+    unit: workdays
+    description: how long a ramp that does not break stays live before it is called fine, half a working day exactly
+
 auxiliaries:
   ramps-late:
     unit: ramps
@@ -107,7 +131,9 @@ flows:
   ramps-broke:
     from: unreviewed-ramps-live
     description: an unreviewed ramp breaks its service, hours after it went ahead (an outage begins)
-    driven-by: +stock.unreviewed-ramps-live      # each one live may break: the more live, the more break
+    driven-by: +flow.ramps-went-ahead            # its share of those that went ahead, after the time they take to break
+    # a third-order material delay (Sterman ch. 11): what goes in comes out, spread around its delay time
+    equation: DELAY3(break-share * flow.ramps-went-ahead, time-to-break / workdays-per-hour)
     sensor:
       items: ramp
       entering: broke
@@ -115,7 +141,9 @@ flows:
   ramps-proved-fine:
     from: unreviewed-ramps-live
     description: an unreviewed ramp that has been live half a working day without breaking anything
-    driven-by: +stock.unreviewed-ramps-live
+    driven-by: +flow.ramps-went-ahead
+    # a fixed half day (a pipeline): a third-order delay is the nearest the model writes
+    equation: DELAY3((1 - break-share) * flow.ramps-went-ahead, time-to-prove-fine / workdays-per-hour)
     sensor:
       items: ramp
       entering: proved-fine

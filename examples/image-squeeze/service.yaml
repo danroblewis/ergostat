@@ -85,6 +85,19 @@ stocks:
       run: bin/py world/read.py time
       every: 8s
 
+# The windows' lag, from the code (world/customers.py): the last 48 images, ten served a batch, a batch every
+# 8 seconds, so the window is 4.8 batches long, 38.4 s. A moving average over the last L lags what it
+# averages by L/2 on average, half its length (Sterman ch. 11.5); a first-order smoothing lags by its time
+# constant. So the smoothing that has the window's lag has a time of L/2, 19.2 s: not the 38.4 s an image
+# stays in the window. Quality and time are percentiles over the window, not means, so first-order smoothing
+# is only near: estimated from the record.
+parameters:
+  window-time:
+    value: 19.2s
+    estimate: true
+    range: [9.6s, 38.4s]                       # a percentile lags less, or more, than a mean: a quarter of the window to all of it
+    description: the window's average lag, half its 38.4 s (the last 48 images served)
+
 flows:
   quality-steps:
     to: quality-setting
@@ -96,6 +109,7 @@ flows:
     two-way: true
     description: images entering the window and leaving it, as they move its 10th percentile
     driven-by: [+auxiliary.batch-quality, -stock.quality]
+    equation: (auxiliary.batch-quality - stock.quality) / window-time
     sensor:
       changes: net
       over: 2m
@@ -104,6 +118,7 @@ flows:
     to: bytes-per-mp
     two-way: true
     driven-by: [+auxiliary.batch-bytes, -stock.bytes-per-mp]
+    equation: (auxiliary.batch-bytes - stock.bytes-per-mp) / window-time
     sensor:
       changes: net
       over: 2m
@@ -112,6 +127,7 @@ flows:
     to: failures
     two-way: true
     driven-by: [+auxiliary.batch-failures, -stock.failures]
+    equation: (auxiliary.batch-failures - stock.failures) / window-time
     sensor:
       changes: net
       over: 2m
@@ -120,6 +136,7 @@ flows:
     to: time
     two-way: true
     driven-by: [+auxiliary.batch-time, -stock.time]
+    equation: (auxiliary.batch-time - stock.time) / window-time
     sensor:
       changes: net
       over: 2m

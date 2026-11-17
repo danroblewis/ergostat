@@ -22,8 +22,16 @@ Run these in the project (with the MCP server, the tools of the same names):
   then findings. The structure findings are `rate-driven-by-rate`, `stock-without-outflow`,
   `outflow-ignores-stock`, `units-mismatch`, `auxiliary-without-causes` and
   `stock-without-flows`; each ends with its fix and the YAML that writes it.
-- `ergostat residual` (or the Residuals page; MCP `findings` reports the significant ones): which
+- `ergostat residual` (or the Fit page; MCP `findings` reports the significant ones): which
   stocks move more, or less, than their flows explain, and which way.
+- `ergostat fit` (or the Fit page): how well the model's replay follows each stock its equations
+  move (R², MAPE, and Theil's U_M bias, U_S unequal variation, U_C unequal covariation), each
+  written equation against its own readings with every input as measured (the partial-model test)
+  and replayed, and the stocks moved only by measured flows (accounting: their error is a
+  measurement's or a missing flow's, not an equation's). "Too little record" means there is not yet
+  enough to judge. `ergostat proposals` lists what the record supports (parameters estimated, with
+  their standard errors, equations fitted), and says why an estimate was not proposed; proposing
+  structure is yours.
 - `ergostat explain` (MCP `explain`): the feedback loops, each R, B or of unknown polarity, and
   any part in sentences (`ergostat explain flow.x`).
 - Read the YAML itself, and the program behind any sensor whose meaning is unclear: what a stock
@@ -41,7 +49,8 @@ For each item, note what you found and where (file and line):
 5. Each decision: what does the decision maker actually see, and how late? (A perceived value is
    a stock.)
 6. Each long delay between cause and effect: is the stock of what is in transit in the model?
-7. Each significant residual: which flow or stock could explain it?
+7. Each significant residual, and each stock the replay misses (a large U_M or U_S): which flow, stock,
+   delay or equation could explain it?
 8. Each auxiliary: explained by the model, or declared as coming from outside (`exogenous: true`)?
 
 Ask the owner (one short question) when only they can know: whether something really happens at

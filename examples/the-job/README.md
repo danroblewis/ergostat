@@ -144,6 +144,24 @@ three actions, filed as it ends (`actions-filed`, driven by `postmortems` at onc
 and by `actions-per-postmortem`, the ratio). In documents, each approval opens the change's next
 document at once (`paper-trail`, the one reinforcing loop), until the board approves it.
 
+## The numbers
+
+Where the world's code makes a rate known, the model writes it as an equation (docs/SPEC.md §7b),
+in the world's own terms. A ramp that goes ahead unreviewed breaks its service at 45% a tenth to
+half a working day later, or is called fine after exactly half a day: two material delays of the
+ramps that went ahead (`DELAY3(break-share * flow.ramps-went-ahead, time-to-break /
+workdays-per-hour)`), whose stages together are the ramps live unreviewed. A ramp that breaks starts
+one outage, so outages are a coflow of the breaks (`workdays-per-hour * outages-base +
+outages-per-break * flow.ramps-broke`), and every outage pages three to five times, so alerts are a
+coflow of the outages (`workdays-per-hour * alerts-base + alerts-per-outage *
+flow.outages-noticed`). The values come from `world/traffic.py`; those marked `estimate: true` are
+fitted from the record. The watchers count arrivals over the last ten minutes (`averages: 10m` on
+their sensors), and the model's rates are read through the same ten minutes before they are
+compared. The Fit page shows how well each equation and each stock follows the record, and
+**Estimate now** proposes a value only when the record supports it (enough of it for the slowest
+time constant the value touches, more than two standard errors from the value written, and better
+on the last fifth held out): nothing changes until you accept one.
+
 ## The code host for real (optional, read only)
 
 With `JOB_GH=1`, my own open PRs and the reviews requested of me come from GitHub, read with my

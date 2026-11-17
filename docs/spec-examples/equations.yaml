@@ -1,0 +1,36 @@
+# Equations and parameters (SPEC §7b): a queue drained at a share of what is in it, a perceived
+# backlog that catches up with the real one, and a lookup.
+name: equations
+
+parameters:
+  service-rate:
+    value: 2
+    unit: 1/h
+    estimate: true                   # fitted from the record; proposed, never written here until accepted
+  time-to-notice:
+    value: 30m                       # a duration, read in hours
+  pressure-effect:
+    table: [[0, 1], [10, 1.5], [20, 2]]
+  arrivals-base: 12
+
+stocks:
+  queue:
+    unit: jobs
+    sensor:
+      run: ./queue-depth.sh
+      every: 30s
+
+auxiliaries:
+  perceived-queue:
+    unit: jobs
+    driven-by: +stock.queue
+    equation: SMOOTH(stock.queue, time-to-notice)
+
+flows:
+  arrivals:
+    to: queue
+    equation: arrivals-base
+  served:
+    from: queue
+    driven-by: [+stock.queue, +auxiliary.perceived-queue]
+    equation: service-rate * stock.queue * pressure-effect(auxiliary.perceived-queue)

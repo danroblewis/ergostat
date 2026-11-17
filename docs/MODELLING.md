@@ -22,7 +22,8 @@ The format is `docs/SPEC.md`; the five structure checks below are what `ergostat
 | A link between two things counted in different units | a converting **auxiliary** (so many of one per one of the other) | `units-mismatch` |
 | A cause far from its effect in time (a change that breaks things days later) | a **delay**: one stock or more holding what is on its way | `rate-driven-by-rate` when it is drawn rate to rate |
 | An auxiliary that changes for no reason the model gives | its **causes**, or the word that it comes from outside (`exogenous: true`) | `auxiliary-without-causes` |
-| A stock whose readings move more than its flows explain | a **flow** the model does not have (or a sensor reading wrongly) | the Residuals page |
+| A stock whose readings move more than its flows explain | a **flow** the model does not have (or a sensor reading wrongly) | the Fit page's residuals |
+| A replay that runs high or low (U_M), or swings too much or too little (U_S) | a wrong constant or gain; a missing flow or delay | the Fit page (`ergostat fit`) |
 
 ## 1. A rate driven by a rate: a missing stock
 
@@ -253,8 +254,9 @@ the YAML that writes it. Read them in this order:
    `units-mismatch`, `auxiliary-without-causes`, `stock-without-flows`): the model says something
    about how the world works that system dynamics says cannot be right. Fix these first: every
    loop drawn from a wrong structure is wrong too.
-2. **Signs** (`unsigned-link`): the loops through an unsigned link are of unknown polarity, so
-   the diagram cannot say which reinforce and which balance.
+2. **Signs** (`unsigned-link`, `equation-sign`): the loops through an unsigned link are of unknown
+   polarity, so the diagram cannot say which reinforce and which balance; a link whose equation
+   moves its effect the other way from the sign drawn makes every loop through it wrong.
 3. **Control** (`missing-feedback`, `unjudgeable-goal`, `acting-on-its-own`, `competing-commands`,
    `own-disturbance`, `unguarded-limit`): what is wanted and whether anything serves it.
 
@@ -263,11 +265,48 @@ cannot know it: `instant: true` on a link that really is immediate, `cumulative:
 running total, `exogenous: true` on an input from outside. Write the reason beside it as a
 comment, so the next reader can disagree.
 
-## Reading the Residuals page: evidence of what is missing
+## Reading the Fit page: the model against the record
+
+The Fit page (and `ergostat fit`) runs the model over the last day of record at most, whatever the
+window above it shows, and reads it the way the record was made: a stock at its reading's moment,
+a counted flow by what it moved in each bucket, a rate a sensor averages over ten minutes by the
+model's own ten-minute average. It shows three things, each as itself:
+
+- **Model fit**: the stocks an equation moves, replayed (every stock integrated from its flows).
+  These alone make the total and its history across versions.
+- **Equations, inputs as measured**: each equation against its own readings with every input as
+  measured, no stock integrated. This is Homer's partial-model test, the sharpest test of one
+  equation; **Equations, replayed** is the same equation on inputs the replay has integrated, which
+  have drifted when another equation is wrong. Read the first to judge the equation, the second to
+  see what it does in the model. A flow measured only by its stock's `changes:` is judged by its
+  stock's replay instead (its own readings are the stock's, differenced).
+- **Accounting**: stocks moved only by measured flows. They test no equation: their replay is the
+  sum of what was measured, so an error there is a measurement's, or a flow the model lacks (read
+  the residuals), never a sign that an equation is wrong.
+
+**R²** is how much of the measured variation the replay moves with; **MAPE** how far off it is, as
+a share of what was measured (where readings reach 0, the error as a share of their mean or range:
+a percentage of almost nothing says nothing). **Theil's statistics** say what kind of error it is
+(Sterman ch. 21), and the page says it in words when the error is large:
+
+- **U_M large (bias)**: the replay runs high or low throughout. A constant is wrong (a base rate,
+  a share), or an inflow or outflow is missing (and the residual says which).
+- **U_S large (unequal variation)**: the replay swings more, or less, than the record. A gain is
+  wrong (a coefficient too large or small), or a delay is missing that would smooth it.
+- **U_C large (unequal covariation)**: the error is point-by-point, at other moments: noise, or a
+  timing difference. This is where a good fit's error should be; a model need not follow the noise.
+
+A high R² beside a large U_M is a model that moves at the right moments by the wrong amount. A
+series with fewer than ten points, or a record shorter than three of its slowest time constant,
+says "too little record" instead of numbers: a fit of a few points, or of a record the model has
+not had time to answer, says nothing. A replay that blew up (a value clamped) is marked not valid
+and has no total.
+
+## Reading the residuals: evidence of what is missing
 
 A stock's **residual** is the change its readings show minus the change its known flows explain.
 The model's flows say how much should have come in and gone out; the sensor says what happened;
-the difference is what the model does not explain (`ergostat residual`, and the Residuals page).
+the difference is what the model does not explain (`ergostat residual`, and the Fit page's residuals).
 
 - **A persistent positive residual** (the stock rises more than its inflows explain): an inflow is
   missing, or an outflow is overestimated. Ask what else brings things in.
@@ -295,18 +334,94 @@ cannot be measured), it finds correlation and not cause, it is biased inside a c
 controller makes the input follow the output), and different structures can fit the same data
 equally well. The model's structure is still a claim people make and data tests.
 
-**ergostat does not do it yet.** A `driven-by` is a declared cause with a sign; its size is never
-estimated, so a valve's equation reads "not known yet: a declared cause with a sign, its size not
-estimated". What ergostat does from data is narrower: it estimates an unmeasured flow from its
-stock's residual, and `ergostat discover loops` looks for a flow that follows its stock after a
-delay (a balancing loop nobody wrote down). The residual is the one quantitative test of structure
-it makes; the structure checks above are tests made on the structure alone.
+**What ergostat does.** Equations and parameters are written in the model (`docs/SPEC.md` §7b):
+`equation: base + k * stock.unreviewed-ramps-live`, each parameter with its value and unit, and
+`estimate: true` on the ones to fit. ergostat replays the model over the record (each stock
+integrated from its flows, each equation worked out, everything else as measured), and says how
+well the replay fits (`ergostat fit`, the Fit page). It estimates the parameters marked to fit, by
+weighted least squares on the partial-model test of each equation they appear in and the replay of
+each stock they move, with a standard error for each and the correlation of those fitted together,
+on the record but its last fifth. It proposes a value only when the record supports it: the record
+spans three of the slowest time constant the value touches, the estimate is not at its bound (a
+thousand times the value written: a question of structure), the record tells it apart from the
+others, it is more than two standard errors and 2% from the value written, and it fits the last
+fifth better. It fits a coefficient to each declared cause of a measured flow that has no equation,
+by least squares on what was measured; an outflow as its stock over a time (first-order control),
+only when it names its stock as a cause; a one-way flow never below 0. Each is a **proposal**, with
+its reason, the fit before and after, and the YAML edit: nothing changes until the owner accepts it
+(`ergostat accept ID`, or Accept beside the part on the page). What ergostat still does not do is propose **structure** (a stock, a delay, a
+cause the model lacks): a residual and a poor fit say where to look, and the guidelines above say
+what to write. A `driven-by` the equation leaves out is drawn with its sign and flagged
+**size-unknown**: its size is not known.
+
+Write an equation in the model's own terms first (Sterman ch. 13: every parameter should mean
+something in the real world, and be measurable in principle): a first-order outflow is the stock
+over the time things stay (`stock.x / time-in-x`), a coflow so many of one unit per another
+(`alerts-per-outage * flow.outages`), a perceived value a `SMOOTH` of the true one, a pipeline a
+`DELAY3` (an outflow that is a material delay of its stock's own inflow, `DELAY3(flow.in, T)`,
+drains that stock: the delay's stages are what is in it). A moving average over the last L lags by
+L/2, half its length: the first-order smoothing with its lag has a time of L/2, not L (Sterman ch.
+11.5). Write time in hours: a duration (`value: 30m`) or a rate per hour; a unit counting time in
+minutes or days is refused, since its value would be read as hours. A sensor that reports an average
+over a window says so (`averages: 10m`), so the model is read through the same window. Mark `estimate: true` what you cannot know from the code or the process, and give it what
+you believe as its value: the estimate starts there.
 
 **Sources.** Ljung, *System Identification: Theory for the User* (2nd ed., 1999); Sterman ch. 21
 (parameter estimation, and behaviour reproduction as a test); Oliva, "Model calibration as a
 testing strategy for system dynamics models", *European Journal of Operational Research* (2003);
 Brunton, Proctor and Kutz, "Discovering governing equations from data by sparse identification of
 nonlinear dynamical systems", *PNAS* (2016).
+
+## Testing and using a model
+
+Once the structure reads right and the replay follows the record, system dynamics tests the model and
+then uses it (Sterman ch. 21). ergostat does each where the model already is, and none of them
+changes it by itself.
+
+- **Calibrate** (the Fit page's Calibrate; `ergostat proposals --calibrate`). Three ways, and they
+  answer different questions. *Each part alone* fits a parameter to what it touches with everything
+  else as measured: the sharpest test of one equation, and where a wrong equation elsewhere cannot
+  pull it off. *Each system alone* is Homer's partial model: the system's stocks integrated, what
+  comes in from outside it as measured, so a system is calibrated as if the rest were exactly right.
+  *Every stock integrated* integrates every stock: the values that make the model as a whole follow
+  the record, which compensate for each other's errors if a structure is wrong somewhere. What a
+  decision sets is still taken as measured (the blocks are not simulated), so every loop through a
+  decision stays open; the page lists them, and calls it "the whole model" only when there are none.
+  A parameter's `range` bounds every calibration: an estimate that runs to an end of it is said, not
+  proposed (the record wants a value the model says it cannot have: the range, or the structure, is
+  wrong). Values that
+  agree across the three are believable; a value the whole model wants and its part alone does not
+  is a question about the structure between them. Each result is a proposal with its fit before and
+  after.
+- **What if** (a valve's or an auxiliary's panel). Type another value over a parameter's (a time
+  with its unit, like `20s`): every chart draws the replay and the projection with it, in blue, beside
+  the model's own, and its fit on the record is shown beside it, stock by stock and in total, before
+  anything is kept. A value the model cannot run (one that divides by 0) is said, and never proposed. This is how a model is
+  used: "what happens to the backlog if reviews take twice as long?" Nothing is saved; **Propose these**
+  makes every value you are trying one proposal, with its fit on the record, which you then accept or
+  dismiss.
+- **Sensitivity** (the causes strip's shaded fan). Write what a number might be (`range: [0.1, 0.5]`)
+  where the code or the process says so; a number estimated is sampled by its standard error. The fan
+  is where nine in ten, and half, of two hundred runs over those ranges fall (parameters estimated
+  together drawn together, as their correlation says); **Spread over the record** draws the same over
+  the replay. A wide fan says the
+  projection depends on what is not known: measure that, or say so when you use it. A narrow fan
+  around a projection that is wrong says the structure is wrong, not the numbers.
+- **Extreme conditions** (`ergostat check`, **extreme-conditions**). The equations alone, pushed to
+  the extreme: every stock empty with nothing coming in, nothing coming in, each input alone at 0 and
+  at a hundred times its largest, and each estimated or timed parameter alone at its extremes (its
+  range's ends, else a hundredth and a hundred times it). Each failure names what caused it. A real queue never holds fewer than nothing, a one-way flow never runs back, a rate never
+  divides by an empty stock: when the model does, an equation is wrong where it was never tested,
+  and will be wrong there when the system gets there (guideline 3 is the structural form of this test).
+- **Loop dominance** (a feedback loop's panel). Which loop drives the behaviour, and when, by the
+  Loops That Matter method, on the replay at its integration step: each link scored by how much of its
+  effect's change its cause made, a loop's score the product of its links', and at each stock its share
+  of the scores of the loops through that stock, from −1 (a balancing loop drives everything there) to
+  +1 (a reinforcing one). Loops of stocks that do not interact are never compared, and no loop is named
+  where two are tied or where a loop through the stock cannot be scored. Growth with a reinforcing loop near +1 that
+  turns over to a balancing loop is the S-shape; a goal-seeking loop that dominates all the time is a
+  controller doing its job. A loop through a decision with several inputs is not scored: how much of
+  the decision's change came from each input is not written in the model.
 
 ## A checklist for reviewing a model
 
@@ -317,8 +432,12 @@ nonlinear dynamical systems", *PNAS* (2016).
 4. For each link: is it signed, and do its units convert?
 5. For each decision: what does the decision maker actually see, and how late?
 6. For each long delay between cause and effect: is the stock of what is in transit in the model?
-7. On the Residuals page: which stocks are not explained, which way, and what moves with them?
+7. On the Fit page: which stocks the replay does not follow, and how (Theil's U_M, U_S, U_C); which
+   are not explained (the residuals), which way, and what moves with them?
 8. For each auxiliary: is it explained by the model, or declared as coming from outside?
+9. Calibrate each part alone and the whole model: do the values agree? Where they do not, look at the
+   structure between them.
+10. Give the numbers you are unsure of a `range`, and read the fan before you act on a projection.
 
 ## Sources
 
@@ -327,7 +446,17 @@ nonlinear dynamical systems", *PNAS* (2016).
   ch. 8 (first-order systems), ch. 11 (delays), ch. 12 (aging chains and coflows), ch. 13 (modelling
   decision making), ch. 15 (bounded rationality), ch. 21 (truth and beauty: validation and model
   testing: boundary adequacy, structure assessment, dimensional consistency, extreme conditions,
-  behaviour reproduction).
+  behaviour reproduction); and Sterman, "Appropriate summary statistics for evaluating the historical fit
+  of system dynamics models", *Dynamica* 10(2), 1984 (R², MAPE, Theil's inequality statistics).
+- Jack Homer, "Partial-model testing as a validation tool for system dynamics", *System Dynamics
+  Review* 28(3), 2012.
+- Jay W. Forrester and Peter M. Senge, "Tests for building confidence in system dynamics models",
+  *TIMS Studies in the Management Sciences* 14, 1980 (extreme conditions, sensitivity).
+- Kim Schoenberg, Pål Davidsen and Robert Eberlein, "Understanding model behavior using the Loops that
+  Matter method", *System Dynamics Review* 36(2), 2020 (loop dominance).
+- Michael D. McKay, Richard J. Beckman and William J. Conover, "A comparison of three methods for
+  selecting values of input variables in the analysis of output from a computer code", *Technometrics*
+  21(2), 1979 (Latin hypercube sampling).
 - Jay W. Forrester, *Industrial Dynamics* (MIT Press, 1961) and *Principles of Systems*
   (Wright-Allen, 1968): levels and rates, and the information that rate equations may use.
 - The references under "Improving from data" above.

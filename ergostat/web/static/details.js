@@ -19,7 +19,7 @@ function showDetail(...kids) {
 /* what each kind of thing on the diagram is: said first, in plain words, before how it is now */
 const WHAT = {
   stock: ["Stock", "something that accumulates. It rises and falls only by its flows, and its level is what a goal holds."],
-  auxiliary: ["Auxiliary", "a quantity without memory: determined at each moment by others (a score, a ratio, a share), through an equation not written here, so it is measured. What keeps its value between changes is a stock. What a goal holds is its loop's process variable; what a controller turns is its manipulated variable: roles in a loop, not kinds of quantity."],
+  auxiliary: ["Auxiliary", "a quantity without memory: determined at each moment by others (a score, a ratio, a share), through its equation where the model writes one, else measured. What keeps its value between changes is a stock. What a goal holds is its loop's process variable; what a controller turns is its manipulated variable: roles in a loop, not kinds of quantity."],
   valve: ["Flow, controlled (a valve)", "material moving into or out of a stock, set by something in the model: a block opens it when its controller commands."],
   disturbance: ["Flow, uncontrolled (a disturbance)", "material moving into or out of a stock that nothing in the model sets. The world pushes it; the loops on its stocks must make up for it."],
   sensor: ["Sensor", "an instrument. It reads one stock or flow; a loop sees only what its sensor reads."],
@@ -344,7 +344,7 @@ async function openEdge(e) {
     const valve = g.nodes.find((n) => (n.kind === "valve" || n.kind === "disturbance") && n.flow === e.flow);
     what = `Here: ${e.flow} moves material from ${m.source || "outside the model"} to ${m.target || "outside the model"}.`;
     rows.push(["flow", e.flow], ["from", m.source || "outside the model"], ["to", m.target || "outside the model"],
-              ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : (valve?.rateText || "not known yet")],
+              ["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : (valve?.rateText || "not known yet")],
               ["how we know", now.how || valve?.how],
               ["moved by", valve?.kind === "valve" ? [valve.label, valve.agent ? ` (${badgeText(valve.agent)})` : ""] :
                            "nothing in the model: a disturbance to the loops on its stocks"],
