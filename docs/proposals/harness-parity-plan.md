@@ -300,3 +300,13 @@ resource or wiring; how it is measured; dependencies.
 ## 4. Progress log
 
 (Appended as work lands: date, item, branch and commit, measure, what's next.)
+
+- **2026-11-17 ~03:30, F1 landed** (ce593ba). Items fold events as changesets: JSON Patch (own RFC 6902
+  implementation, all-or-nothing), `set` as remove-all-and-add, per-kind `fold:` rules; every field's
+  history (`ergostat item ID --history`, the item page); as-of for fields. Claude transcripts ingested as
+  `claude.*` events into their session items (2,000 lines of a real transcript in ~55 ms; item counts
+  unaffected thanks to a partial index). Every example folds exactly as before where no rules were added
+  (a property test). 562 unit tests pass. Next: F2 (storage) and 2.12/2.13 (decisions, corrections) are
+  running; they rebase onto this.
+- **Flaky browser test fixed**: the line-panel link test waited a fixed 400 ms for a panel; it now polls
+  up to 5 s. It failed only under load.

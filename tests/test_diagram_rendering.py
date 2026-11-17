@@ -783,8 +783,12 @@ LINE_LINKS = """async () => {
       const a = [...document.querySelectorAll("#detail dl a")].filter((a) => !/^(the evidence|close)$/.test(a.textContent))[i];
       const want = a.textContent, before = document.querySelector("#detail h2")?.textContent;
       a.click();
-      await new Promise((r) => setTimeout(r, 400));
-      const now = document.querySelector("#detail h2")?.textContent;
+      let now = null;                                       // wait for the panel to change (slow under load), up to 5s
+      for (let t = 0; t < 50; t++) {
+        await new Promise((r) => setTimeout(r, 100));
+        now = document.querySelector("#detail h2")?.textContent;
+        if (!document.querySelector("#detail").hidden && now && now !== before) break;
+      }
       if (document.querySelector("#detail").hidden || !now || now === before) bad.push(`${e.id}: link ${want} opened nothing`);
     }
   }
