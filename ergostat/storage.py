@@ -26,7 +26,7 @@ from .durations import DurationError, parse_duration
 
 EVENT_BACKENDS = ("sqlite", "segments")
 MEASUREMENT_BACKENDS = ("sqlite", "victoriametrics")
-DEFAULT_EVENTS = "sqlite"
+DEFAULT_EVENTS = "segments"
 RAW = 2 * 86400.0
 TIERS = ((60.0, 14 * 86400.0), (600.0, 90 * 86400.0), (3600.0, 730 * 86400.0))
 ROLLUP_AFTER = 7 * 86400.0

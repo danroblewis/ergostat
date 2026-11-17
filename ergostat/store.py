@@ -61,6 +61,7 @@ create table if not exists tiers (
   last_v real not null,
   primary key (series, every, t)
 ) without rowid;
+create table if not exists late (series text not null, time real not null, value real not null);
 create table if not exists meta (key text primary key, value);
 """
 
@@ -473,18 +474,21 @@ class Measurements:
             self._marks = (now, {float(k.split(".", 1)[1]): v for k, v in rows})
         return self._marks[1]
 
-    def _late(self, c, oldest: float) -> None:
-        """Readings written into a span already rolled up: that span is rolled again."""
-        if self.tiers and (mark := self._mark().get(self.tiers[0][0])) is not None and oldest < mark:
-            c.execute("insert into meta(key, value) values ('dirty', ?) on conflict(key) do update set value = min(value, ?)",
-                      (oldest, oldest))
+    def _late(self, c, rows: list[tuple[str, float, float]]) -> None:
+        """Readings written into a span already rolled up: kept aside too, to be merged into the
+        buckets they belong in at the next roll (``_merge_late``)."""
+        mark = self._mark().get(self.tiers[0][0]) if self.tiers else None
+        if mark is not None:
+            late = [r for r in rows if r[1] < mark]
+            if late:
+                c.executemany("insert into late(series, time, value) values (?,?,?)", late)
 
     def add(self, series: str, value: float, at: float | None = None) -> None:
         t = at if at is not None else time.time()
         with self._c() as c:
             c.execute("insert into samples(series, time, value) values (?,?,?)", (series, t, float(value)))
             if at is not None:
-                self._late(c, t)
+                self._late(c, [(series, t, float(value))])
 
     def add_many(self, rows: list[tuple[str, float, float]]) -> None:
         """Many readings at once, ``(series, time, value)``, in one transaction (a record written whole: the
@@ -493,36 +497,55 @@ class Measurements:
             return
         with self._c() as c:
             c.execute("begin")
-            c.executemany("insert into samples(series, time, value) values (?,?,?)",
-                          [(s, float(t), float(v)) for s, t, v in rows])
-            self._late(c, min(float(t) for _, t, _ in rows))
+            rows = [(s, float(t), float(v)) for s, t, v in rows]
+            c.executemany("insert into samples(series, time, value) values (?,?,?)", rows)
+            self._late(c, rows)
             c.execute("commit")
 
     # ---- the sources a span is read from
 
     def _sources(self, c, series: str, since: float, until: float, fine: float = 0.0) -> list[tuple[float, float, float]]:
         """``(every, lo, hi)``: which source answers each part of ``[since, until]``, oldest part first.
-        ``every`` 0 is the raw readings; a tier is used where raw is no longer kept, the coarsest one
-        no coarser than ``fine`` that holds the span (the finest that does, when none is that fine)."""
+        ``every`` 0 is the raw readings, else a tier, which holds from its oldest bucket of this
+        series up to where it was last rolled. Where several hold a part, the coarsest no wider than
+        ``fine`` is used, then the raw readings, then the finest wider one."""
         if not self.tiers:
             return [(0.0, since, until)]
         r = c.execute("select min(time) from samples where series = ?", (series,)).fetchone()[0]
-        raw_from = r if r is not None else float("inf")
+        e0 = self.tiers[0][0]                          # raw is forgotten in whole buckets of the finest tier
+        held = {0.0: (r // e0 * e0 if r is not None else float("inf"), float("inf"))}
+        marks = self._mark()
+        for e, _ in self.tiers:
+            lo = c.execute("select min(t) from tiers where series = ? and every = ?", (series, e)).fetchone()[0]
+            if lo is not None and marks.get(e) is not None:
+                held[e] = (lo, marks[e])
+        prefer = [e for e, _ in sorted(self.tiers, reverse=True) if 0 < e <= fine] + [0.0] + \
+                 [e for e, _ in self.tiers if e > fine]
+        prefer = [e for e in prefer if e in held]
         out: list[tuple[float, float, float]] = []
-        if since < raw_from:
-            marks = self._mark()
-            usable = [e for e, _ in self.tiers if e <= fine] or [self.tiers[0][0]]
-            order = sorted(usable, reverse=True) + [e for e, _ in self.tiers if e not in usable]
-            cursor = since
-            for e in order:                             # each tier holds up to where it was last rolled
-                if cursor >= min(raw_from, until):
+        cursor = since
+        while cursor <= until:
+            here = [e for e in prefer if held[e][0] <= cursor < held[e][1]]
+            if not here:                               # nothing holds this moment: on to where the next one starts
+                nxt = min((held[e][0] for e in prefer if held[e][0] > cursor), default=None)
+                if nxt is None or nxt > until:
                     break
-                hi = min(marks.get(e, cursor), raw_from, until)
-                if hi > cursor:
-                    out.append((e, cursor, hi))
-                    cursor = hi
-        if raw_from <= until:
-            out.append((0.0, max(since, raw_from) if out else since, until))
+                cursor = nxt
+                continue
+            e = here[0]
+            better = [held[x][0] for x in prefer[:prefer.index(e)] if held[x][0] > cursor]
+            hi = min([held[e][1], *better, until])
+            if out and out[-1][0] == e:
+                out[-1] = (e, out[-1][1], hi)
+            else:
+                out.append((e, cursor, hi))
+            if hi >= until:
+                break
+            cursor = hi
+        if out and out[-1][0] == 0.0:                  # the raw readings' end is the span's own
+            out[-1] = (0.0, out[-1][1], until)
+        if out and out[0][0] and out[0][1] == since:   # a bucket that began before the span, and ends in it
+            out[0] = (out[0][0], since // out[0][0] * out[0][0], out[0][2])
         return out
 
     # ---- reading
@@ -551,9 +574,9 @@ class Measurements:
                     sql = "select time, value from samples where series = ? and time >= ? and time <= ? order by time desc"
                     args: tuple = (series, lo, hi)
                 else:
-                    sql = ("select last_t, last_v from tiers where series = ? and every = ? and last_t >= ? and last_t < ? "
-                           "order by t desc")
-                    args = (series, e, lo, hi)
+                    sql = ("select last_t, last_v from tiers where series = ? and every = ? and t >= ? and t < ? "
+                           "and last_t >= ? order by t desc")
+                    args = (series, e, lo, hi, since)
                 rows = c.execute(sql + (" limit ?" if last else ""), (*args, last - len(out)) if last else args).fetchall()
                 out += [(r[0], r[1]) for r in rows]
                 if last and len(out) >= last:
@@ -572,8 +595,8 @@ class Measurements:
                     total += c.execute("select count(*) from samples where series = ? and time >= ? and time <= ?",
                                        (series, lo, hi)).fetchone()[0]
                 else:
-                    total += c.execute("select coalesce(sum(n), 0) from tiers where series = ? and every = ? and last_t >= ? "
-                                       "and last_t < ?", (series, e, lo, hi)).fetchone()[0]
+                    total += c.execute("select coalesce(sum(n), 0) from tiers where series = ? and every = ? and t >= ? "
+                                       "and t < ?", (series, e, lo, hi)).fetchone()[0]
         return total
 
     def bucketed(self, series: str, since: float, until: float, n: int) -> list[tuple[int, float, float, float]]:
@@ -590,8 +613,8 @@ class Measurements:
                                      "from samples where series = ? and time >= ? and time <= ? group by 1",
                                      (since, width, n - 1, series, lo, hi)).fetchall()
                 else:
-                    rows = c.execute("select min(cast((last_t - ?) / ? as integer), ?), sum(sum), sum(n), max(last_t), last_v "
-                                     "from tiers where series = ? and every = ? and last_t >= ? and last_t < ? group by 1",
+                    rows = c.execute("select max(min(cast((last_t - ?) / ? as integer), ?), 0), sum(sum), sum(n), max(last_t), last_v "
+                                     "from tiers where series = ? and every = ? and t >= ? and t < ? group by 1",
                                      (since, width, n - 1, series, e, lo, hi)).fetchall()
                 for b, s, k, t, v in rows:
                     a = acc.setdefault(b, [0.0, 0, -1e18, 0.0])
@@ -620,8 +643,8 @@ class Measurements:
                     r = c.execute("select time, value from samples where series = ? and time >= ? and time <= ? "
                                   "order by time limit 1", (series, lo, hi)).fetchone()
                 else:
-                    r = c.execute("select first_t, first_v from tiers where series = ? and every = ? and last_t >= ? "
-                                  "and last_t < ? and first_t >= ? order by t limit 1", (series, e, lo, hi, since)).fetchone()
+                    r = c.execute("select first_t, first_v from tiers where series = ? and every = ? and t >= ? "
+                                  "and t < ? and first_t >= ? order by t limit 1", (series, e, lo, hi, since)).fetchone()
                 if r:
                     return (r[0], r[1])
         return None
@@ -680,6 +703,22 @@ class Measurements:
                   "min(first_t) ft, max(last_t) lt from tiers where every = ? and t >= ? and t < ? group by series, b) g",
                   (e, prev, e, prev, e, e, e, prev, lo, hi))
 
+    def _merge_late(self, c, e: float, mark: float) -> int:
+        before = c.total_changes
+        c.execute("insert into tiers(series, every, t, n, sum, min, max, first_t, first_v, last_t, last_v) "
+                  "select g.series, ?, g.b, g.n, g.s, g.mn, g.mx, g.ft, "
+                  "(select value from late x where x.series = g.series and x.time = g.ft limit 1), g.lt, "
+                  "(select value from late x where x.series = g.series and x.time = g.lt order by rowid desc limit 1) "
+                  "from (select series, cast(time / ? as integer) * ? b, count(*) n, sum(value) s, min(value) mn, "
+                  "max(value) mx, min(time) ft, max(time) lt from late where time < ? group by series, b) g where true "
+                  "on conflict(series, every, t) do update set n = n + excluded.n, sum = sum + excluded.sum, "
+                  "min = min(min, excluded.min), max = max(max, excluded.max), "
+                  "first_v = case when excluded.first_t < first_t then excluded.first_v else first_v end, "
+                  "first_t = min(first_t, excluded.first_t), "
+                  "last_v = case when excluded.last_t >= last_t then excluded.last_v else last_v end, "
+                  "last_t = max(last_t, excluded.last_t)", (e, e, e, mark // e * e))
+        return c.total_changes - before
+
     def roll(self, now: float | None = None, chunk: float = 6 * 3600.0) -> dict:
         """Roll the readings up into each tier (whole buckets only, a few hours of record per
         transaction, so writers are never kept waiting long), then forget what each source keeps no
@@ -691,7 +730,12 @@ class Measurements:
             return done
         with self._c() as c:
             marks = {float(k.split(".", 1)[1]): v for k, v in c.execute("select key, value from meta where key like 'rolled.%'")}
-            dirty = (c.execute("select value from meta where key = 'dirty'").fetchone() or (None,))[0]
+            c.execute("begin immediate")
+            for e, _ in self.tiers:                         # late readings first, into the buckets already made
+                if marks.get(e) is not None:
+                    done["rolled"] += self._merge_late(c, e, marks[e])
+            c.execute("delete from late")
+            c.execute("commit")
         prev = 0.0
         for e, _ in self.tiers:
             settle = max(prev, 60.0)                        # late readings of the newest bucket: wait a little
@@ -701,10 +745,7 @@ class Measurements:
                     oldest = c.execute("select min(time) from samples").fetchone()[0]
                 else:
                     oldest = c.execute("select min(t) from tiers where every = ?", (prev,)).fetchone()[0]
-            start = marks.get(e, oldest if oldest is not None else to)
-            if dirty is not None:
-                start = min(start, dirty)
-            start = start // e * e
+            start = marks.get(e, oldest if oldest is not None else to) // e * e
             while start < to:
                 hi = min(to, start + max(chunk, e))
                 hi = hi // e * e if hi < to else to
@@ -724,16 +765,15 @@ class Measurements:
             prev = e
         with self._c() as c:
             c.execute("begin immediate")
-            if dirty is not None:
-                c.execute("delete from meta where key = 'dirty' and value = ?", (dirty,))
             if self.raw is not None:
-                cut = min(now - self.raw, marks[self.tiers[0][0]])
+                cut = min(now - self.raw, marks[self.tiers[0][0]]) // self.tiers[0][0] * self.tiers[0][0]
                 done["forgot"] += c.execute("delete from samples where time < ?", (cut,)).rowcount
                 c.execute("delete from forgotten where time < ?", (cut,))
             for i, (e, keep) in enumerate(self.tiers):
                 cut = now - keep
-                if i + 1 < len(self.tiers):
-                    cut = min(cut, marks[self.tiers[i + 1][0]])
+                if i + 1 < len(self.tiers):                 # whole buckets of the next tier only
+                    nxt = self.tiers[i + 1][0]
+                    cut = min(cut, marks[nxt]) // nxt * nxt
                 done["forgot"] += c.execute("delete from tiers where every = ? and t + ? <= ?", (e, e, cut)).rowcount
             c.execute("commit")
         self._marks = (0.0, {})

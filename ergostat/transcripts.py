@@ -35,6 +35,17 @@ FORMAT = "claude-session"
 META = ("isMeta", "isSidechain", "isCompactSummary", "isVisibleInTranscriptOnly")   # the harness's, not said: ``meta``
 
 
+def archived_ids(p, item: str) -> set[str]:
+    """The ids of an item's events rolled up into its snapshot (``rollup.py``), from the archive: a
+    transcript read again from its start records none of them again."""
+    snap = p.events.query(n=1, item=item, type="ergostat.item.snapshot")
+    if not snap:
+        return set()
+    from .rollup import Archive
+    segs = (snap[0]["data"].get("rollup") or {}).get("archived", {}).get("segments") or []
+    return {e["id"] for e in Archive(p.dir).read(item, segs)}
+
+
 def event_id(item: str, key: str) -> str:
     return hashlib.sha1(f"{item}\n{key}".encode()).hexdigest()[:32]
 
@@ -198,6 +209,7 @@ class Ingester:
             return 0
         if st.st_size < f.offset:                                # written again from the start: read it again
             self.files[key] = f = _File()
+        start = f.offset
         with open(path, "rb") as fh:
             fh.seek(f.offset)
             chunk = fh.read()
@@ -218,6 +230,9 @@ class Ingester:
         f.stat = stamp if f.offset == st.st_size else None
         if f.stat:
             self.done[f"{item}\n{path}"] = stamp
+        if evs and start == 0:                                  # read from the start:
+            gone = archived_ids(self.p, item)                  # lines rolled up into its snapshot are not new
+            evs = [e for e in evs if e["id"] not in gone]
         return self.p.events.add_many(evs) if evs else 0
 
     def _save(self) -> None:

@@ -169,6 +169,8 @@ def test_ingesting_and_querying_a_two_thousand_line_session(tmp_path):
     assert ingest < 2.0
     assert after["count"] < before["count"] * 3 + 0.01 and after["listing"] < before["listing"] * 3 + 0.01
     assert full < 3.0
+    if p.events.name != "sqlite":                       # the segmented log reads the lines' columns, never their payload
+        return
     with p.events._c() as c:
         plan = " ".join(str(r[3]) for r in c.execute(
             "explain query plan select * from events where item like '%/%' and not (type >= 'claude.' and type < 'claude/') "

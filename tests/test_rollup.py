@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import random
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -184,3 +185,28 @@ def test_keep_forgets_an_item_whole_and_rolls_up_a_live_one(tmp_path, backend):
     left = {i.id: i for i in its.project(p.events, p.model.spec)}
     assert set(left) == {"t/live"} and left["t/live"].fields == {"a": 1, "b": 1, "c": 1} and left["t/live"].n == 3
     assert [e["type"] for e in p.events.query(n=None)] == [its.SNAPSHOT, "t.x", "model.changed"]
+
+
+def test_a_transcript_read_again_records_none_of_its_rolled_up_lines(tmp_path):
+    import json
+
+    from ergostat.transcripts import Ingester as Transcripts
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+        items:
+          session:
+            id: session/*
+            formats: {transcript: claude-session}
+            fold: {messages: append}
+        """))
+    lines = [{"type": "user", "uuid": f"u{i}", "timestamp": "2023-11-14T22:13:20Z", "message": {"role": "user", "content": f"m{i}"}}
+             for i in range(6)]
+    (tmp_path / "s.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines))
+    p = Project(mdl.load(tmp_path))
+    p.events.add("session.started", item="session/1", data={"transcript": "file:s.jsonl"}, at=T0)
+    assert Transcripts(p, p.model.spec).once() == 6
+    compact(p, now=time.time() + 30 * 86400)
+    assert p.events.count() == 1
+    more = {**lines[0], "uuid": "u6", "message": {"role": "user", "content": "m6"}}
+    with open(tmp_path / "s.jsonl", "a") as f:                                      # it grew: read again, from the start
+        f.write(json.dumps(more) + "\n")
+    assert Transcripts(p, p.model.spec).once() == 1 and p.events.count() == 2
