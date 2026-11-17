@@ -8,7 +8,8 @@ seconds (default 1), after running ``$ERGOSTAT_ECHO_RUN`` (``{role}`` in it: the
 input, when it is set: a stand-in program that does the block's work, its lines the turn's result. Messages that
 arrive while a turn works are folded into it, as Claude Code does ("The user sent a new message while you were
 working"); each is echoed in the result, and a message that names an ergostat message id is answered with an
-``answer`` line."""
+``answer`` line. A starting context (``--append-system-prompt-file``) is said in its first reply: its first line and
+its size."""
 
 from __future__ import annotations
 
@@ -39,6 +40,7 @@ class Echo:
         self.stream_in = flag(args, "--input-format") == "stream-json"
         self.out_format = flag(args, "--output-format") or "text"
         self.model = flag(args, "--model") or "echo"
+        self.system = flag(args, "--append-system-prompt-file")
         self.path = transcript_of(self.sid)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.parent = None
@@ -90,6 +92,10 @@ class Echo:
         first = prompt.strip().splitlines()[0][:200] if prompt.strip() else ""
         lines = [out.rstrip()] if out.strip() else []
         lines.append(f"echo: received {first!r}" + (f" (resumed: {self.before} messages before)" if self.resumed else ""))
+        if self.system and not self.turns and os.path.isfile(self.system):
+            text = open(self.system, encoding="utf-8").read()
+            head = text.strip().splitlines()[0][:200] if text.strip() else ""
+            lines.append(f"echo: started from {head!r} ({len(text)} characters)")
         for t in ([prompt] if self.turns or self.resumed else []) + took:
             body = t.strip().split("\n\n")
             said = body[1] if len(body) > 1 else body[0]

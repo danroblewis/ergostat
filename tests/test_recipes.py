@@ -378,6 +378,38 @@ def test_a_block_with_a_context_starts_from_its_recipe_and_records_the_use(tmp_p
     assert any("claim verified" in x["says"] for x in u["evidence"])
 
 
+SESSION_WORKER = """
+blocks:
+  w:
+    type: ai
+    prompt: do the oldest ticket
+    run: $ERGOSTAT_CMD session w --model haiku --no-live
+    context: {recipe: worker, item: {kind: ticket, state: [building, open]}}
+    timeout: 1m
+    out: flow.done
+"""
+
+
+def test_a_session_started_by_the_helper_is_given_the_context_and_records_it(tmp_path, monkeypatch):
+    """ergostat session (the shared helper) starts claude -p with the rendered context as its appended system prompt,
+    and its session item says which recipe, version and text it started from; the use names the session."""
+    monkeypatch.setenv("ERGOSTAT_CLAUDE", "echo")
+    monkeypatch.setenv("ERGOSTAT_ECHO_WORK", "0")
+    p = with_recipes(tmp_path, SESSION_WORKER)
+    p.events.add("ticket.opened", item="ticket/7", source="owner", data={"title": "postcode at checkout"})
+    run = run_once(p)
+    started = p.events.query(n=1, type="session.started")[-1]
+    c = started["data"]["context"]
+    u = uses.stored(p, p.model.spec)[0]
+    assert c["recipe"] == "worker@3" and c["name"] == "worker" and c["version"] == 3
+    assert c["hash"] == u["hash"] and c["item"] == "ticket/7" and c["run"] == run and c["chars"] == u["chars"]
+    ran = p.events.query(n=1, item=started["item"], type="session.ran")[-1]
+    assert "echo: started from '# Starting context: worker (version 3)'" in ran["data"]["said"]
+    s = its.one(p.events, p.model.spec, started["item"])
+    assert s.fields["recipe"] == "worker@3"            # shown on the session's row (show: [role, recipe, outcome])
+    assert u["session"] == started["item"]
+
+
 def test_a_contradicted_claim_or_a_dropped_item_fails_the_use_and_the_session_shows_it(tmp_path):
     (tmp_path / "w.sh").write_text(SCRIPT % ("ticket/7 is done", "done") +
                                    'echo \'{"event": "session.started", "item": "session/w-1", '
