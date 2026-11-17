@@ -214,9 +214,13 @@ def covariance(prob: Problem, best: dict[str, float], logged: list[bool]) -> dic
             return None
         e1 = {(r, i): x for r, v in got.items() for i, x in v}
         cols.append([(e1.get(k, e0[k]) - e0[k]) / h for k in keys])
-    p, n = len(names), len(keys)
-    if n <= p:
-        return None
+    n = len(keys)
+    felt = [j for j, col in enumerate(cols) if sum(x * x for x in col) > 1e-18]       # a parameter that moves nothing measured
+    unseen = [names[j] for j in range(len(names)) if j not in felt]
+    names, cols = [names[j] for j in felt], [cols[j] for j in felt]
+    p = len(names)
+    if n <= p or not p:
+        return {"identifiable": False, "unseen": unseen} if not p else None
     jtj = [[sum(a * b for a, b in zip(cols[i], cols[j], strict=True)) for j in range(p)] for i in range(p)]
     inv = _invert(jtj)
     sse = sum(e0[k] ** 2 for k in keys)
@@ -225,12 +229,12 @@ def covariance(prob: Problem, best: dict[str, float], logged: list[bool]) -> dic
     rho = max(0.0, min(rho, 0.95))
     s2 = sse / (n - p) * (1 + rho) / (1 - rho)
     if inv is None:
-        return {"identifiable": False, "rho": rho}
+        return {"identifiable": False, "rho": rho, "unseen": unseen}
     cov = [[s2 * v for v in row] for row in inv]
     se = [math.sqrt(max(cov[i][i], 0.0)) for i in range(p)]
     corr = {names[i]: {names[j]: (cov[i][j] / (se[i] * se[j]) if se[i] and se[j] else None) for j in range(p) if j != i}
             for i in range(p)}
-    return {"identifiable": True, "se": dict(zip(names, se, strict=True)), "corr": corr, "rho": rho, "n": n}
+    return {"identifiable": True, "se": dict(zip(names, se, strict=True)), "corr": corr, "rho": rho, "n": n, "unseen": unseen}
 
 
 def solve(prob: Problem, start: dict[str, float]) -> tuple[dict[str, float], float, float, dict]:
@@ -249,6 +253,9 @@ def solve(prob: Problem, start: dict[str, float]) -> tuple[dict[str, float], flo
     got = values(best)
     at_bound = [n for i, (n, lg) in enumerate(zip(names, logged, strict=True)) if lg and abs(best[i] - x0[i]) >= SPAN * 0.98]
     sure = covariance(prob, got, logged) or {"identifiable": False}
+    for n in sure.get("unseen") or []:                   # it moves nothing measured: the search wandered on a flat cost
+        got[n] = start[n]
+        at_bound = [x for x in at_bound if x != n]
     sure["at_bound"] = at_bound
     sure["logged"] = dict(zip(names, logged, strict=True))
     return got, before, after, sure
@@ -302,7 +309,8 @@ def estimate(p, snap: dict | None = None, n: int | None = None) -> dict:
             out[nm] = {**common, "value": best[nm], "declared": spec.parameters[nm].value, "before": before, "after": after,
                        "held_before": held_before, "held_after": held_after, "with": [x for x in group if x != nm],
                        "se": se, "logged": sure["logged"][nm], "corr": (sure.get("corr") or {}).get(nm, {}),
-                       "identifiable": sure.get("identifiable", False), "at_bound": nm in sure["at_bound"],
+                       "identifiable": sure.get("identifiable", False) and nm not in (sure.get("unseen") or []),
+                       "unseen": nm in (sure.get("unseen") or []), "at_bound": nm in sure["at_bound"],
                        "weights": prob.spread, "evaluations": prob.evaluations}
     f = path(p, ver.structure(spec))
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -322,6 +330,8 @@ def judged(e: dict, declared: float | None) -> str | None:
     if e.get("at_bound"):
         return ("it ran to its bound (a thousand times from the value written): no value of it fits, a question of "
                 "structure, not of size")
+    if e.get("unseen"):
+        return "nothing it moves is measured in the record: there is nothing to estimate it from"
     if not e.get("identifiable") or e.get("se") is None:
         return "the record does not tell it apart (it moves what it fits too little, or as another parameter does)"
     if declared is not None:

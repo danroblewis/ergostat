@@ -153,6 +153,7 @@ def make(p, snap: dict | None = None, n: int | None = None) -> list[dict]:
         objective = {"before": e["before"], "after": e["after"], "held_before": e.get("held_before"),
                      "held_after": e.get("held_after")}
         fall = 1 - e["after"] / e["before"] if e["before"] > 0 else None
+        weights = ", ".join(f"{r} {ye.number(w)}" for r, w in sorted((e.get("weights") or {}).items()))
         held = (1 - e["held_after"] / e["held_before"] if e.get("held_before") and e.get("held_after") is not None else None)
         found.append({
             "id": _id("parameter", st, sorted(moved.items())), "kind": "parameter",
@@ -168,6 +169,7 @@ def make(p, snap: dict | None = None, n: int | None = None) -> list[dict]:
                        (f"their weighted error falls by {fall:.0%} on the record fitted" if fall is not None else "it fits better") +
                        (f" and by {held:.0%} on the record held out" if held is not None else "") +
                        "".join(f"; {a} and {b} are correlated {c:+.2f}" for a, b, c in corr if abs(c) > 0.5) +
+                       (f"; each series weighted by its spread ({weights})" if weights else "") +
                        (f" (±: one standard error; {', '.join(sorted(set(group) - set(sure)))} not proposed: "
                         f"{'; '.join(estimates[x]['refused'] for x in sorted(set(group) - set(sure)))})" if set(group) - set(sure)
                         else " (±: one standard error)")),

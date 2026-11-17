@@ -408,4 +408,5 @@ def handler(project):
                 return self._send(200, body, "text/html; charset=utf-8")
             self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
 
+    Handler.live = live
     return Handler

@@ -55,11 +55,31 @@ class PooledServer(ThreadingHTTPServer):
             self.jobs.put(None)
 
 
+def record_fits(live, every: float = 300.0, stop: threading.Event | None = None) -> None:
+    """Each version's fit kept in its history every few minutes, on the reference window, whether or
+    not anyone opens the Fit page (so the history compares versions on like spans of record)."""
+    import time
+
+    from .numbers_api import reference, spec_of
+    stop = stop or threading.Event()
+    while not stop.wait(every):
+        try:
+            p = live.get()
+            if spec_of(p) is None:
+                continue
+            got = reference(live, p, {"at": time.time(), "live": True})
+            from ..numbers import fit as ft
+            ft.record(p, got["fit"])
+        except Exception:                               # a bad moment is skipped; the page never depends on it
+            continue
+
+
 def serve(project, port: int | None = None):
     port = _free(port or DEFAULT_PORT)
     server = PooledServer(("127.0.0.1", port), handler(project))
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(target=record_fits, args=(server.RequestHandlerClass.live,), name="ergostat-fit-history", daemon=True).start()
     url = f"http://127.0.0.1:{port}"
     (project.dir / "web.json").write_text(json.dumps({"url": url}))
     return server, url
