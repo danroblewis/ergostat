@@ -32,11 +32,17 @@ def register(sub, common) -> None:
     jd.add_argument("--seeds", type=int, default=20)
     jd.add_argument("--json", action="store_true")
     bs.add_parser("meta", parents=[common], help="the improvement loop's own measures, for this project")
+    _parity(bs)
     b.set_defaults(fn=cmd_bench)
     v = sub.add_parser("verify", parents=[common], help="Score the changes written to the model again, on the record "
                                                         "since; flag the ones whose forecasts got worse")
     v.add_argument("--propose", action="store_true", help="propose undoing a change flagged (the judge and the owner decide)")
     v.set_defaults(fn=cmd_verify)
+
+
+def _parity(bs) -> None:
+    from .bench_parity import register
+    register(bs)
 
 
 def _g(x) -> str:
@@ -71,7 +77,10 @@ def cmd_bench(args) -> int:
         for n, v in got.items():
             print(f"{n:36s} {_g(v):>10s}  {meta.MEASURES[n]}")
         return 0
-    print("ergostat bench improve | judge | meta (ergostat bench --help)", file=sys.stderr)
+    if which == "parity":
+        from .bench_parity import cmd_parity
+        return cmd_parity(args)
+    print("ergostat bench improve | judge | meta | parity (ergostat bench --help)", file=sys.stderr)
     return 2
 
 

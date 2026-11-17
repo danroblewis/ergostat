@@ -310,3 +310,10 @@ resource or wiring; how it is measured; dependencies.
   running; they rebase onto this.
 - **Flaky browser test fixed**: the line-panel link test waited a fixed 400 ms for a panel; it now polls
   up to 5 s. It failed only under load.
+- **2026-11-17, F3 harness** (branch `parity`). `ergostat bench parity run | context | draft`
+  (`ergostat/bench/parity.py`, `contexts.py`, `parity_draft.py`; [docs/parity-bench.md](../parity-bench.md)):
+  fresh `claude -p` sessions per case and variant, the context as their system prompt, judged by a separate
+  session (correct / partly / wrong / contradicts) plus exact checks; scorecards in Markdown and JSON with cost
+  and tokens; resumable, with a cost cap. Built-in variants: none, docs, the owner's words, a fork, memory files;
+  any projection (`ergostat context ...`, when it lands) is a file. The first run's dataset, answers and scores
+  are private (outside the repository). Tests on made-up data (`tests/test_parity.py`).
