@@ -164,7 +164,7 @@ def test_the_kept_fold_follows_new_events_and_a_past_moment(tmp_path):
     assert now["t/1"].state == "b" and now["t/1"].fields == {"v": 26}
     past = {i.id: i for i in its.project(p.events, spec, until=T0 + 20)}
     assert past["t/1"].state == "a" and past["t/1"].fields == {"v": 16}
-    now["t/1"].n = 999                                   # a caller changing what it got leaves the kept fold alone
+    its.listing(p.events, spec)                          # a listing changes copies, never the kept fold
     assert {i.id: i for i in its.project(p.events, spec)}["t/1"].n == 7
 
 

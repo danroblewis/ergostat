@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import array
 import base64
+import bisect
 import fcntl
 import gzip
 import hashlib
@@ -79,6 +80,7 @@ class _Head:
 
     def __init__(self, evs=()):
         self.evs: list[dict] = []
+        self.seqs: list[int] = []
         self.by_item: dict = {}
         self.by_type: dict = {}
         for e in evs:
@@ -87,6 +89,7 @@ class _Head:
     def add(self, e: dict) -> None:
         i = len(self.evs)
         self.evs.append(e)
+        self.seqs.append(e["seq"])
         self.by_item.setdefault(e.get("item"), []).append(i)
         self.by_type.setdefault(e["type"], []).append(i)
 
@@ -367,7 +370,8 @@ class Segments:
                 at = sorted(i for it, ix in list(hd.by_item.items()) if item_test(it) for i in ix)
             else:
                 at = range(hn)
-            head = [hd.evs[i] for i in at if i < hn]
+            lo = bisect.bisect_right(hd.seqs, after_seq, 0, hn) if after_seq is not None else 0   # seqs only grow
+            head = [hd.evs[i] for i in at if lo <= i < hn]
             try:
                 out: list[dict] = []
                 hs = [e for e in head if (item is ... or e.get("item") == item) and (types is None or types(e["type"]))

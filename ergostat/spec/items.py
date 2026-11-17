@@ -167,7 +167,8 @@ class _Folded:
         self.seq, self.gen = 0, gen
 
     def take(self, events, kind: str | None, until: float | None) -> list[Item] | None:
-        """Every item (of ``kind``) as it stood at ``until``, copied. An item with something after
+        """Every item (of ``kind``) as it stood at ``until``: the kept ones themselves, so a caller must not
+        change them (``listing`` copies what it changes). An item with something after
         ``until`` is folded again from the record up to then; None when that is most of them (a
         moment long past: the caller folds the record itself)."""
         skip = () if self.transcript else (TRANSCRIPT_TYPES,)
@@ -180,7 +181,7 @@ class _Folded:
             if len(late) > max(50, len(self.items) // 10):
                 return None
             gone = set(late)
-            out = [copy.copy(it) for i, it in self.items.items() if i not in gone and (not kind or it.kind == kind)]
+            out = [it for i, it in self.items.items() if i not in gone and (not kind or it.kind == kind)]
         for i in late:
             k = kind_of(self.spec, i)
             if kind and (k is None or k.name != kind):
@@ -312,6 +313,7 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
         its = project(events, spec, until=until, fields=tuple(f for k in kinds.values() for f in k.show))
     from ..transcripts import FIELDS
     lines = events.counted(TRANSCRIPT_TYPES, until=until)            # left out of the fold: counted, not read
+    its = [copy.copy(i) for i in its]                                  # the kept fold's own: changed only as copies
     for i in its:
         if (i.id in lines or i.rolled) and not any(f in i.fields for f in FIELDS):
             n_, last = lines.get(i.id, (0, i.last))
