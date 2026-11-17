@@ -307,10 +307,12 @@ changes and how many there were, all with `history=all`). An item can be read as
 time (`--at`, the pages' time travel): its fields, its state and its history are folded from
 the events up to then.
 
-**Built-in kinds.** Four kinds are ergostat's own, present in every project and never declared (a project's
+**Built-in kinds.** Five kinds are ergostat's own, present in every project and never declared (a project's
 kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every change to the model (section 12e),
-`ergostat.claim`, what a block said it did, checked (section 12g), and the owner's intent,
-`ergostat.decision` and `ergostat.correction` (below).
+`ergostat.claim`, what a block said it did, checked (section 12g), the owner's intent, `ergostat.decision` and
+`ergostat.correction` (below), and `ergostat.message`, the owner's messages, routed to the work they concern
+(section 12h). ergostat may also move any item: `ergostat.item.reopened` moves it to the state its data names
+(`reopened.to`, else its kind's first), and `ergostat.item.follow-up` starts one (section 12h).
 
 **Decisions and corrections.** What the owner decided, and what the owner corrected, are items, so that every
 later session can start from them (`docs/DECISIONS.md` is how to use them):
@@ -845,7 +847,10 @@ output:
 {"decision": "12 waiting: process them", "why": "over the goal by 12"}
 {"propose": {"kind": "parameter", "parts": ["parameter.k"], "edit": {...}, "reasons": [...], "confidence": 0.6}}
 {"claim": {"says": "tests pass", "about": "hypothesis/3"}}
+{"answer": {"message": "ergostat.message/1a2b3c4d5e", "says": "left review/2041 for later"}}
 ```
+
+Its input also carries, under `messages`, the owner's messages that waited for it (section 12h), when there are any.
 
 ergostat records what was **commanded** and what was **moved**: the gap is the direct evidence of
 saturation.
@@ -937,7 +942,9 @@ block, or the AI agent it starts, to read and record items while it works. An `a
 with its prompt, the JSON above, and how to answer. Any block, whatever its type, may also propose a change to
 the model, `{"propose": {...}}` (section 12e); `agent.ran` counts what it proposed and what was not taken. And any
 block may say what it did, `{"claim": {"says": "tests pass", "about": ...}}`: ergostat checks it after the run,
-against the record and the world, never taking the block's word (section 12g).
+against the record and the world, never taking the block's word (section 12g). And any block may answer a message the
+owner sent, `{"answer": {"message": ID, "says": ...}}`; a classifier answers where one goes with `route` lines (section
+12h).
 
 ### 9.4 Roles
 
@@ -1889,6 +1896,151 @@ prints one, and `ergostat measure` all of them for every block.
 **A contradicted claim is a finding** (`contradicted-claim`, about `block.NAME`: how many in the window, the
 latest's words and why; `ergostat findings`, the status, the MCP `findings`), and needs attention: the page's and
 `ergostat`'s list says it against the block's agent, as bad.
+
+## 12h. Messages: absorbing interruptions
+
+A long session folds the owner's mid-work messages into the work: "that review can wait", "check the flag ramp
+first", "on review 2041: I missed the migration". Work that ergostat runs as many short runs and sessions must do
+the same: a message the work never hears is work done wrong, and redone. So the owner's words are a **message**: an
+item ergostat routes to the work in flight it concerns and delivers to it, and how messages reach the work is
+measured. (Harness parity, function 4: `docs/proposals/harness-parity-plan.md` §2.4.)
+
+### Every message is an item
+
+`ergostat.message` is a built-in item kind (section 5a). Its id is `ergostat.message/<short hash>`; every step is an
+event about it, and the item, folded from them, is the message:
+
+| State | Reached by | Source |
+|---|---|---|
+| received | `ergostat.message.received`: the text verbatim, who sent it (`by`), when (`sent`), what it is about when they said (`about`), how it came (`via`: cli, page, mcp, a sensor) | the sender |
+| routed | `.routed`: what it matched (`matched`: `explicit`, `mention`, `classifier:NAME`), why, and the work it was routed to (`routed_to`) | ergostat, or the classifier block |
+| delivered | `.delivered`: each delivery (`deliveries`, appended): how (`live`, `resume`, `context`, `follow-up`, `reopen`), and to which run, session, block or item | ergostat, or the session helper |
+| unrouted | `.unrouted`: why nothing took it | ergostat |
+| answered | `.answered`: what the work said back (`answers`, appended) | the block, or its session |
+
+Two more events change no state: `.queued` (held for a session's next step) and `.missed` (the work it was routed to
+finished before it was delivered). Each step restates `outcome`, in words. Items → `ergostat.message` lists them, with
+a box to send one; a message's page shows where it went and how, and routes an unrouted one by hand.
+
+### Sending one
+
+- `ergostat message "that review can wait" [--about ITEM|PART ...] [--as WHO] [--reopen]`; `ergostat messages` lists
+  them and what became of each, `ergostat messages ID` shows one, `ergostat messages ID --about X` routes it by hand.
+- The page: Items → `ergostat.message` has a Message box; every item's page has "Send a note about this" (its
+  `about` is the item) and lists the messages about it. (`POST /api/message`, JSON `{"text", "about"}`.)
+- MCP: `message` (`text`, `about`, `by`), so an AI front-end can relay the owner's words verbatim; `messages` lists them.
+- A sensor may relay them, one line each, like an observation: `{"message": {"text": "...", "by": "me", "about": ...}}`
+  (the-job's note watcher).
+
+### Routing
+
+At once, in order, the first that finds anything:
+
+1. **explicit**: what `about` names: an item (`review/2041`), or a part (`block.developer`, `stock.inbox`, `goal.x`,
+   or a part's bare name, blocks first);
+2. **mention**: item ids in the words (`hypothesis/3`), part references (`stock.queue`), and a machine block's name
+   as a word ("the developer");
+3. **classifier**: the block `messages: {classifier: NAME}` names, run once for the message (below); else ergostat's
+   free **stand-in**, which scores the items by the words they share with the message (their kind's name, its plural
+   or its words: +2; the number in their id: +3; each word of their shown fields and title: +1, at most 3) and takes
+   the best scoring 2 or more, open items first, then those worked on now, then the newest, at most three. A finished
+   item is a candidate only when its number is said ("on review 2041").
+
+What it matched becomes its **targets**:
+
+- an **open item**: the item, and each **block run going now that works on it**: a run (`agent.started` with no
+  `agent.ran` or `agent.failed` after it, within its timeout) works on an item when an event about the item was caused
+  by the run (`causedby`, which `ergostat event --add` sets from `ERGOSTAT_RUN`) or its command named the item; with
+  the run's session, when the run is a session (below);
+- a **part**: each machine block acting on it (a block; a goal's actuators; the block setting a flow; the blocks
+  setting a stock's flows), with its run when one is going;
+- a **finished item**: by the policy, below.
+
+A message that matched nothing, or only parts nothing acts on, is **unrouted**: it needs attention (the status and the
+page's list say it, with how to route it) until the owner routes it by hand. An item is finished in the states
+`messages: {done:}` gives for its kind, else in its kind's last state and any state after the first that no item has
+left while some item reached a later one (a review waiting for its reviewer is not finished; a ramp approved is).
+
+**The classifier** is a machine block, typically an `ai` block on a cheap model (`model: haiku`). It is run like any
+block (recorded as a run, `trigger: message`), its input carrying the `message`, the `candidates` (the open items, those
+worked on now first, each with its kind, state, shown fields and `worked_on_by`) and the `blocks`; it answers with a
+**route line**, `{"route": {"message": ID, "to": ["review/2041", "block.developer"], "why": "..."}}` (`to` empty: it
+concerns none of them). A classifier with one flow output moves it by one for each message it routes. A run that fails,
+or says nothing about the message, leaves it to the stand-in.
+
+### Delivery
+
+- **A running Claude Code session.** `ergostat session ROLE --model M [-- CLAUDE-ARGS]` (`$ERGOSTAT_CMD session ...`
+  in a block's `run:`; the prompt on standard input) runs `claude -p` as the block's run with a session id it chose,
+  records the session as an item (`session/ROLE-RUN`: `session.started`, caused by the run, with `session_id`, `model`,
+  `live` and its `transcript`, copied as it grows), and gives it the messages routed to its run, its session, its
+  block or an item it works on:
+  - **live** (the default): the session runs with `--input-format stream-json`, its input kept open, and each message
+    is written into it as a user message. Claude Code takes a message written while it works at its next step (after
+    the tool call under way: "The user sent a new message while you were working"), within the same turn; one written
+    after the turn's result starts a turn of its own. The input is closed three seconds after a result with nothing
+    more to give. `delivered`, how `live`.
+  - **resume**: with `--no-live` the prompt is given whole and a message cannot reach the session mid-run: it is
+    `queued`. After the turn (and after a live session's last), ergostat resumes the session, `claude -p --resume ID`,
+    the messages its input: its next turn. `delivered`, how `resume`; the reply answers them.
+
+  It prints `session.ran` (or `.failed`) about the session item, with its cost, turns, time and the messages it was
+  given, then the JSON lines of every turn's result, its claims marked with the session and model. `$ERGOSTAT_CLAUDE`
+  names the program it runs (`echo`: ergostat's stand-in session, `ergostat/session_echo.py`, which folds a message
+  that arrives mid-turn into the turn and echoes it; `$ERGOSTAT_ECHO_RUN` runs a stand-in program as its work).
+  *Decided:* live delivery is the default, because Claude Code takes messages on an open stream-json input mid-turn
+  (tested with Claude Code 2.1: a message sent during a ten-second tool call was answered in the same turn); resuming
+  remains for a session that cannot keep its input open.
+- **A block that is no session, or not running now.** Its next run's input carries, under `messages`, the messages
+  routed to it, or to open items of the kinds it works on (those counted by the sensors of the flows it sets, of the
+  stocks they move, and of what its goals hold), and to no run going now: each `{"id", "text", "by", "sent", "about",
+  "items", "matched"}`, `delivered` how `context` with the run. An `ai` block's prompt footer says to take them in.
+- **Answering.** Any block may print `{"answer": {"message": ID, "says": "..."}}`: the message is `answered`, by it.
+- **Finished work**, by `messages: {finished:}`: `follow-up` (the default) makes a new item linked to it
+  (`ergostat.item.follow-up`, its fields `follows`, `message`, `note`, and the shown fields of the item it follows),
+  of the kind `follow-up:` names or the finished item's own (`review/2041.1`), arriving in its kind's first state so
+  the work that does that kind takes it up; `reopen` moves the item back, `ergostat.item.reopened` (to the state
+  `reopen-to:` gives for its kind, else its first; its field `reopened` says from where and by which message);
+  `attention` leaves it unrouted, for the owner. `ergostat message --reopen` reopens whatever the policy.
+- **Missed.** ergostat's clock sweeps the messages every five seconds: one left received is routed, and one routed
+  to items that have all finished since, with no work having taken it, is handled by the policy and **missed**
+  (`.missed`): the work finished without it, and is redone. A message about an item that had finished before it was
+  sent is not missed.
+
+```yaml
+messages:
+  classifier: router            # optional: a block that routes what no id or name in a message does
+  finished: reopen              # follow-up (default), reopen, attention
+  follow-up: note               # the kind a follow-up is made as (default: the finished item's own)
+  reopen-to: {hypothesis: proposed}
+  done: {ramp: [approved, rejected, broke, proved-fine]}
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `classifier` | a machine block | the stand-in | Routes a message nothing in it names (route lines) |
+| `finished` | `follow-up`, `reopen`, `attention` | `follow-up` | What a message about finished work does |
+| `follow-up` | an item kind | the finished item's | The kind a follow-up is made as |
+| `reopen-to` | map of kind → state | its first state | Where reopening moves an item |
+| `done` | map of kind → states | inferred (above) | The states an item of that kind is finished in |
+
+`messages:` is written once, in any of the model's files.
+
+### Messages, as measures
+
+| Reference | What it is |
+|---|---|
+| `ergostat.messages.unrouted` | Messages that reached no work, now |
+| `ergostat.messages.awaiting` | Messages routed and not yet delivered, now |
+| `ergostat.messages.received`, `.routed`, `.delivered`, `.answered` | Those over the last week |
+| `ergostat.messages.missed` | Messages whose work finished before they reached it, over the last week (work redone) |
+| `ergostat.messages.reached` | Of the messages received over the last week, the share delivered (0 while none is) |
+
+Built-in measures like the model's own (section 12e): read by a sensor (`builtin: ergostat.messages.unrouted`) on a
+stock or an auxiliary, so a goal can hold it; `ergostat measure messages.unrouted` prints one. Item sensors count the
+messages by state like any items (`items: ergostat.message, state: routed`; `entering: delivered`).
+`examples/image-squeeze/messages.yaml` and `examples/the-job/job/messages.yaml` model them: unrouted and awaiting as
+stocks, routed, delivered and missed as flows, and a goal holding the unrouted at 0.
 
 ## 13. Examples
 

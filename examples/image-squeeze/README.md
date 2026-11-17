@@ -79,7 +79,8 @@ Claude Code folds it in at its next step. Otherwise the developer gets it in its
 the stand-in answers that it noted it. A message about a hypothesis already kept or dropped reopens it (back to the
 ideas, built again); one that waited while its hypothesis finished without it is **missed** (`messages-missed`: work
 redone). A message that reaches no work needs attention until it is routed by hand (`ergostat messages ID --about X`,
-or its page). The page: Items → `ergostat.message` (a box to send one), and every item's page has "Send a note
+or its page): the goal `messages-reach-work` holds the unrouted at zero, and nothing but the owner acts on it (its
+loop is open on purpose). The page: Items → `ergostat.message` (a box to send one), and every item's page has "Send a note
 about this".
 
 To see the delivery without spending tokens, run the AI mode with ergostat's stand-in session, which runs the
