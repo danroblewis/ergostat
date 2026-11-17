@@ -36,7 +36,14 @@ def claim(says: str, about: str, **check) -> None:
     print(json.dumps({"claim": {"says": says, "about": about, **({"check": check} if check else {})}}))
 
 
-sys.stdin.read()
+given = sys.stdin.read()                                 # the prompt, then the block's JSON input
+try:
+    notes = json.loads(given[given.rfind("\n{") + 1:]).get("messages") or []
+except ValueError:
+    notes = []
+for n in notes:                                          # the owner's messages that waited for this run (SPEC §12h)
+    print(json.dumps({"answer": {"message": n["id"], "says": "the stand-in builds what its notebook has for an idea; "
+                                 f"noted, for whoever builds it next: {n['text'][:200]}"}}))
 me = os.environ.get("ERGOSTAT_BLOCK", "developer")
 h = lab.claim(me)
 if h is None:

@@ -4,10 +4,11 @@ what it receives, so the delivery of the owner's messages can be seen and tested
 It takes the ``claude -p`` flags ``ergostat session`` gives (``--session-id`` or ``--resume``, ``--input-format
 stream-json``, ``--output-format json|stream-json``) and keeps a transcript where Claude Code would
 (``$CLAUDE_CONFIG_DIR/projects/<folder>/<id>.jsonl``), in its format. A turn "works" for ``$ERGOSTAT_ECHO_WORK``
-seconds (default 1), or runs ``$ERGOSTAT_ECHO_RUN`` with the prompt's JSON input (a stand-in program that does the
-block's work: its lines become the turn's result). Messages that arrive while a turn works are folded into it, as
-Claude Code does ("The user sent a new message while you were working"); each is echoed in the result, and a message
-that names an ergostat message id is answered with an ``answer`` line."""
+seconds (default 1), after running ``$ERGOSTAT_ECHO_RUN`` (``{role}`` in it: the session's role) with the prompt's JSON
+input, when it is set: a stand-in program that does the block's work, its lines the turn's result. Messages that
+arrive while a turn works are folded into it, as Claude Code does ("The user sent a new message while you were
+working"); each is echoed in the result, and a message that names an ergostat message id is answered with an
+``answer`` line."""
 
 from __future__ import annotations
 
@@ -70,7 +71,7 @@ class Echo:
         """One turn on the prompt; the messages that came while it worked, folded in."""
         took: list[str] = []
         out = ""
-        run = os.environ.get("ERGOSTAT_ECHO_RUN")
+        run = (os.environ.get("ERGOSTAT_ECHO_RUN") or "").replace("{role}", os.environ.get("ERGOSTAT_SESSION_ROLE", ""))
         if run and self.turns == 0 and not self.resumed:
             start = prompt.rfind("\n{")                       # the block's JSON input, after its prompt
             given = prompt[start + 1:] if start >= 0 else prompt

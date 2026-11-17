@@ -97,6 +97,8 @@ class Session:
         self.keep = keep_dir / f"{self.item.split('/', 1)[1]}.jsonl"
         self.keep.parent.mkdir(parents=True, exist_ok=True)
         self.cmd, self.env = claude_command(self.p.dir)
+        self.env["ERGOSTAT_SESSION_ROLE"] = role
+        self.env["ERGOSTAT_SESSION"] = self.item
         self.src = transcript_of(self.sid, env=self.env)
         self.given: set[str] = set()              # messages given to it (live or by resume)
         self.queued: set[str] = set()
