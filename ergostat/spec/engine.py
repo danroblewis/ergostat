@@ -724,7 +724,8 @@ class Said:
             with self.e.lock:
                 self.e.outputs.setdefault(self.b.name, {})[port] = amount
                 self.e.commands.setdefault(self.b.name, {})[port] = {**detail, "amount": amount}
-                self.e.cause[self.b.name] = self.run_id         # the run that gave the command            self.counts["commands"] += 1
+                self.e.cause[self.b.name] = self.run_id         # the run that gave the command
+            self.counts["commands"] += 1
         elif r.kind == "goal":
             with self.e.lock:
                 self.e.setpoint[r.name] = amount
