@@ -1592,7 +1592,7 @@ def test_a_summing_junction_chosen_in_blocks_lights_its_stock_and_flows_in_the_d
         assert pane.evaluate("() => S.graph.kind") == "blocks"
         fit(pg)
         fit(pane)
-        pane.locator('g.node[data-id="psum:stock.capabilities"]').dispatch_event("click")   # (the zoom control may sit over it at this size)
+        pane.locator('g.node[data-id="psum:stock.capabilities"]').dispatch_event("click")   # (the zoom may cover it)
         pg.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.selected').length === 3", timeout=5000)
         assert pg.evaluate(LIT) == ["flow:gained", "flow:lost", "stock:capabilities"]
         total = pg.evaluate("() => document.querySelectorAll('svg.canvas g.node').length")
