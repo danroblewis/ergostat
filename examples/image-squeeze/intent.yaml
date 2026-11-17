@@ -12,12 +12,7 @@
 # The judge is free (a stand-in that matches what the owner ruled out against what the work brings in). With a model
 # it reads the work as a reviewer: `ergostat intent judge ITEM --model haiku --again`, or `model: haiku` below.
 defaults:
-  system: intent
-
-systems:
-  intent:
-    description: finished work held to what the owner meant, before it counts as done
-    show: [stock.decisions, stock.work-held, auxiliary.false-done]
+  system: lab                            # the lab's own: its finished work held to what the owner meant
 
 stocks:
   decisions:
