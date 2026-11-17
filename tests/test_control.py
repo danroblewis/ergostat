@@ -396,3 +396,43 @@ def test_the_process_edit_keeps_the_files_comments_and_replaces_an_old_process(t
     (tmp_path / "ergostat.yaml").write_text(new)
     spec2, probs = sp.read(tmp_path / "ergostat.yaml")
     assert spec2.goals["level-held"].process["tau"] == 60 and not [x for x in probs if x.level == "error"]
+
+
+def test_a_step_test_identifies_what_the_loop_working_cannot(tmp_path):
+    """Closed loop, with disturbances nothing measures, the integral controller moves u against them,
+    and an output-error fit is biased past use; the step test, the controller held, is open loop."""
+    (tmp_path / "ergostat.yaml").write_text(TUNE)
+    p = Project(mdl.load(tmp_path))
+    rnd = random.Random(7)
+    n, t0 = 3600, time.time() - 3630
+    a = math.exp(-1 / TAU)
+    x, u, dist, buf = None, 25.0, 0.0, [25.0] * int(THETA)
+    test_at, hold = n - 900, 420
+    for k in range(n):
+        if k % 600 == 0 and k < test_at - 300:
+            dist = rnd.choice([-0.4, -0.2, 0.2, 0.4])
+        buf.append(u)
+        ud = buf.pop(0)
+        x = K * u if x is None else a * x + (1 - a) * K * ud
+        T = t0 + k
+        if k == test_at:
+            p.events.add("steptest.started", item="level-held", source="ergostat", at=T - 1, data={"test": "s", "amount": 5.0, "hold": hold})
+            u += 5.0
+            p.events.add("steptest.stepped", item="level-held", source="ergostat", at=T, data={"test": "s", "phase": "up"})
+        if k == test_at + hold:
+            u -= 5.0
+            p.events.add("steptest.stepped", item="level-held", source="ergostat", at=T, data={"test": "s", "phase": "back"})
+        if k == test_at + 2 * hold:
+            p.events.add("steptest.finished", item="level-held", source="ergostat", at=T, data={"test": "s", "how": "done"})
+        if k % 10 == 0:
+            y = x + dist + rnd.gauss(0, 0.01)
+            p.measurements.add("sensor/setting.main", u, T)
+            p.measurements.add("sensor/level.main", y, T + 0.5)
+            if not test_at <= k < test_at + 2 * hold:
+                u += 0.5 * (5.0 - y)
+    a_ = lp.analyse(p, "level-held")
+    r = a_["identified"]
+    assert r["test"]["id"] == "s" and not r["closed_loop"] and r["proposable"], r["why"]
+    assert r["K"] == pytest.approx(K, rel=0.05) and r["tau"] == pytest.approx(TAU, rel=0.1) and r["theta"] == pytest.approx(THETA, abs=H)
+    assert r["instead_of"]["from"] == "the loop working" and r["instead_of"]["why"]
+    assert a_["record"]["since"] > a_["record"]["t"][0] - 60                 # its chart is the test's

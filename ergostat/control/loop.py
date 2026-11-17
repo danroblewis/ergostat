@@ -70,7 +70,12 @@ def key(spec: Spec, goal: str) -> str:
 
 
 def _thin(xs: list, k: int) -> list:
-    return [None if x is None else (round(x, 6) if isinstance(x, float) else x) for x in xs[::k]]
+    """Every k-th value, each the last reading in its k (a bucket with none does not hide its neighbours')."""
+    out = []
+    for i in range(0, len(xs), k):
+        x = next((v for v in reversed(xs[i:i + k]) if v is not None), None)
+        out.append(None if x is None else round(x, 6) if isinstance(x, float) else x)
+    return out
 
 
 def tests_in(p, goal: str, since: float, until: float) -> list[dict]:
@@ -142,12 +147,18 @@ def analyse(p, goal: str, at: float | None = None) -> dict | None:
     if d is None:
         since, until, n = record.grid(p, sig, at)
         d = record.read(p, sig, since, until, n)
-    k = max(1, len(d["t"]) // DECIMATE)
-    out["record"] = {"t": _thin(d["t"], k), "u": _thin(d["u"], k), "y": _thin(d["y"], k), "since": d["since"],
-                     "until": d["until"], "h": d["h"]}
+    lo, hi = d["since"], d["until"]
+    t = r.get("test")
+    if t and t.get("finished"):                       # identified from a step test: its chart shows the test
+        lo, hi = max(lo, t["started"] - 0.25 * (t["finished"] - t["started"])), min(hi, t["finished"] + 30)
+    idx = [i for i, x in enumerate(d["t"]) if lo <= x <= hi]
+    k = max(1, len(idx) // DECIMATE)
+    sub = lambda xs: [xs[i] for i in idx]       # noqa: E731
+    out["record"] = {"t": [round(x, 3) for x in sub(d["t"])[::k]], "u": _thin(sub(d["u"]), k), "y": _thin(sub(d["y"]), k),
+                     "since": lo, "until": hi, "h": d["h"]}
     pred = r.pop("pred", None)
     if pred is not None:
-        out["record"]["yhat"] = _thin(pred, k)
+        out["record"]["yhat"] = _thin(sub(pred), k)
         out["record"]["held_from"] = r["test"]["back"] if r.get("test") else d["t"][int(len(d["t"]) * (1 - ident.HOLD_OUT))]
     out["identified"] = r
     out["tests"] = tests_in(p, goal, d["since"], d["until"])

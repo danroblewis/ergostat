@@ -16,7 +16,7 @@ async function loopControl(goal) {
   return d;
 }
 
-const secs = (x) => (x == null ? "–" : x < 1 ? `${fmt(x)} s` : dur(x));
+const secs = (x) => (x == null ? "–" : x < 600 ? `${fmt(x)} s` : dur(x));
 const pmText = (v, se) => (se != null ? `${fmt(v)} ± ${fmt(se)}` : fmt(v));
 
 /* P(s) as MathML: K e^(−θs)/(τs + 1), or k e^(−θs)/s */
@@ -74,7 +74,7 @@ function stepChart(name, role, st, { other = null, final = null, label = "" } = 
     const xs = st.t, data = [xs, st.y], series = [{}, inkLine()];
     if (other) { data.push(xs.map((t) => interp(other.t, other.y, t))); series.push(replayLine()); }
     if (final != null) { data.push(xs.map(() => final)); series.push(dashLine()); }
-    const o = xyOpts({ width, height: 84, xValues: (u, vs) => vs.map((v) => (v ? secs(v) : "0")),
+    const o = xyOpts({ width, height: 84, xValues: (u, vs) => vs.map((v) => (v == null ? "" : v ? (v < 600 ? `${fmt(v)}s` : dur(v)) : "0")),
       hooks: { draw: final != null ? [lineLabel(final, label)] : [] } });
     o.series = series;
     return new uPlot(o, data, plotEl);
@@ -101,7 +101,7 @@ function bodeCharts(b, m, { loop = false } = {}) {
     if (second) { data.push(second.mag); series.push(replayLine()); }
     if (loop) { data.push(ws.map(() => 1)); series.push(dashLine()); }
     const o = xyOpts({ width, height: 96, xlog: true, ylog: true, xValues: (u, vs) => vs.map(() => ""),
-      hooks: { draw: [...(loop ? [lineLabel(1, "1")] : []), vline(wc, wc ? `ω_c ${fmt(wc)}` : "")] } });
+      hooks: { draw: [...(loop ? [lineLabel(1, "1")] : []), vline(wc, wc ? `ωc ${fmt(wc)}` : "")] } });
     o.series = series;
     return new uPlot(o, data, magEl);
   });
@@ -110,7 +110,7 @@ function bodeCharts(b, m, { loop = false } = {}) {
     if (second) { data.push(second.phase); series.push(replayLine()); }
     data.push(ws.map(() => -180)); series.push(dashLine());
     const o = xyOpts({ width, height: 84, xlog: true, yValues: (u, vs) => vs.map((v) => `${Math.round(v)}°`),
-      hooks: { draw: [lineLabel(-180, "−180°"), vline(w180, w180 ? `ω₁₈₀ ${fmt(w180)}` : "")] } });
+      hooks: { draw: [lineLabel(-180, "−180°"), vline(w180, w180 ? `ω180 ${fmt(w180)}` : "")] } });
     o.series = series;
     return new uPlot(o, data, phEl);
   });

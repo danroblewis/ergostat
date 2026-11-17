@@ -591,7 +591,7 @@ function bdNode(n, c) {
       bdSym(g, w / 2, top, fn);
       if (frac) {
         const fw = Math.max(bdTextW(frac[0]), bdTextW(frac[1])) + 6;
-        g.append(s("text", { x: w / 2, y: hgt / 2 + 6, class: "bd-expr", "text-anchor": "middle" }, frac[0]),
+        g.append(bdPower(s("text", { x: w / 2, y: hgt / 2 + 6, class: "bd-expr", "text-anchor": "middle" }), frac[0]),
                  s("path", { d: `M${w / 2 - fw / 2},${hgt / 2 + 10} H${w / 2 + fw / 2}`, class: "bd-line" }),
                  s("text", { x: w / 2, y: hgt / 2 + 23, class: "bd-expr", "text-anchor": "middle" }, frac[1]));
       } else if (fn.expr) g.append(richSvg(s("text", { x: w / 2, y: hgt / 2 + 14, class: "bd-note", "text-anchor": "middle" }), fn.expr));   // K_p: K with a subscript p
@@ -604,6 +604,12 @@ function bdNode(n, c) {
     }
   }
   return g;
+}
+function bdPower(textEl, text) {                       // "0.2 e^(−20s)": the exponent raised, as the textbooks write a delay
+  const m = /^(.*)\^\((.*)\)$/.exec(String(text || ""));
+  if (!m) { textEl.textContent = text; return textEl; }
+  textEl.append(s("tspan", {}, m[1]), s("tspan", { dy: -6, "font-size": "75%" }, m[2]));
+  return textEl;
 }
 function bdFnText(n) {                                  // what is inside the block, as text (for the tests and a tooltip)
   const fn = n.fn || {};
