@@ -737,3 +737,10 @@ table.fit tr.total td { border-top: var(--hair) solid var(--line-strong); }
 input.reason { min-width: 24em; min-height: var(--sp-5); padding: 0 var(--sp-2); }
 ul.plain { margin: var(--sp-1) 0; padding-left: var(--sp-4); }
 ul.plain li { margin: var(--sp-0) 0; }
+
+/* an item's field: its history, a disclosure under its value */
+details.history { margin-top: var(--sp-2); }
+details.history > summary { font-size: var(--text-sm); color: var(--muted); }
+details.history table.history td { font-size: var(--text-sm); vertical-align: top; }
+details.history table.history td.cell { max-width: 22em; overflow-wrap: anywhere; }
+table.fields th .rule { font-weight: normal; }

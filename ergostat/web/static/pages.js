@@ -91,8 +91,8 @@ async function pageRecord(main, q) {
   const runs = h("input", { type: "checkbox" });
   const box = h("div");
   // from the wiring: one machine's events (its instances too), in the page's window
-  const machine = q.get("machine") || "", inWindow = q.get("window") === "1";
-  const scope = machine || inWindow ? h("span", { class: "muted" }, [machine ? `from ${machine}` : "", inWindow ? "in the window" : ""].filter(Boolean).join(", "),
+  const machine = q.get("machine") || "", inWindow = q.get("window") === "1", item = q.get("item") || "";
+  const scope = machine || inWindow || item ? h("span", { class: "muted" }, [item ? `about ${item}` : "", machine ? `from ${machine}` : "", inWindow ? "in the window" : ""].filter(Boolean).join(", "),
     " ", h("a", { href: "#/record" + (filt.value ? "?type=" + encodeURIComponent(filt.value) : "") }, "Show all")) : null;
   p.append(h("div", { class: "filters" }, filt, h("button", { onclick: () => tick() }, "Filter"), scope,
                 h("label", { class: "check" }, runs, "Show runs", h("span", { class: "muted" }, "(agent.started, agent.ran)"))), box);
@@ -102,7 +102,7 @@ async function pageRecord(main, q) {
     let evs;
     try {
       evs = await api("events", { n: 80, ...(runs.checked ? { runs: 1 } : {}), ...(filt.value ? { type: filt.value } : {}),
-                                  ...(machine ? { machine } : {}), ...(inWindow ? { window: 1 } : {}) });
+                                  ...(machine ? { machine } : {}), ...(item ? { item } : {}), ...(inWindow ? { window: 1 } : {}) });
     } catch (err) { box.replaceChildren(h("p", { class: "muted" }, String(err.message || err))); return; }
     box.replaceChildren(evs.length ? eventsTable(evs, false) : h("p", { class: "muted" }, "Nothing recorded yet."));
   }
@@ -120,6 +120,7 @@ function formatOf(path, declared) {                      // how a file is shown:
   const ext = (path.split(".").pop() || "").toLowerCase();
   return IMAGE.test(path) ? "image" : ext === "md" ? "markdown" : ext === "json" ? "json" : CODE[ext] ? "code" : "text";
 }
+const LIST_SHOWN = 40;      // a long list (a session's messages) shows its latest; the API and the CLI give all of it
 function fieldView(v, small = false, depth = 0, declared = null) {
   if (v == null || v === "") return h("span", { class: "muted" }, "–");
   if (typeof v === "string" && v.startsWith("file:")) {
@@ -136,9 +137,10 @@ function fieldView(v, small = false, depth = 0, declared = null) {
   if (small || depth > 2) return h("span", { class: "mono muted" }, JSON.stringify(v).slice(0, 80));
   if (Array.isArray(v)) {
     if (v.length && v.every((x) => x && typeof x === "object" && !Array.isArray(x))) {
-      const cols = [...new Set(v.flatMap((x) => Object.keys(x)))];
-      return h("table", { class: "sub" }, h("tr", {}, cols.map((c) => h("th", {}, c))),
-        v.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1))))));
+      const shown = v.slice(-LIST_SHOWN), cols = [...new Set(shown.flatMap((x) => Object.keys(x)))];
+      return h("div", {}, v.length > shown.length ? h("p", { class: "note" }, `The latest ${shown.length} of ${v.length}.`) : null,
+        h("table", { class: "sub" }, h("tr", {}, cols.map((c) => h("th", {}, c))),
+          shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1)))))));
     }
     return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1)]) : h("span", { class: "muted" }, "none");
   }
@@ -310,6 +312,30 @@ async function pageItems(main, q) {
   S.timer = setInterval(tick, 4000);
 }
 
+/* a field's history: each change, oldest first, with the event that made it (a click opens it) */
+const when = (t) => new Date(t * 1000).toLocaleString([], { hour12: false });
+function eventLink(eid, type, d) {
+  return h("a", { href: "#", class: "plain", title: `event ${eid}`, onclick: async (ev) => {
+    ev.preventDefault();
+    const e = (d.record || []).find((x) => x.id === eid) || await api(`events/${encodeURIComponent(eid)}`).catch(() => null);
+    if (e) showEvent(e);
+  } }, type);
+}
+function recordLinkItem(id) {
+  return h("a", { href: `#/record?item=${encodeURIComponent(id)}` }, "all of them in the Record");
+}
+function historyView(cs, total, d) {
+  if (!total) return null;
+  const how = (c) => c.op === "refused" ? "refused" : c.op + (c.rule && c.rule !== "replace" ? ` (${c.rule})` : "") + (c.form !== "data" ? ` by ${c.form}` : "");
+  const val = (v) => (v == null ? h("span", { class: "muted" }, "–") : fieldView(v, true));
+  const rows = cs.slice().reverse().map((c) => h("tr", {}, h("td", { class: "nowrap" }, when(c.time)), h("td", { class: "nowrap" }, how(c)),
+    h("td", { class: "mono small" }, c.path || "/"), h("td", { class: "cell" }, c.op === "refused" ? c.why : val(c.before)),
+    h("td", { class: "cell" }, c.op === "refused" ? "" : val(c.after)), h("td", { class: "nowrap" }, eventLink(c.event, c.type, d))));
+  return h("details", { class: "history" }, h("summary", {}, `history (${total} change${total > 1 ? "s" : ""})`),
+    total > cs.length ? h("p", { class: "note" }, `The latest ${cs.length} of ${total}; `, h("code", {}, `ergostat item ${d.id} --history`), " lists all.") : null,
+    table(["when", "change", "path", "before", "after", "by event"], rows, "history"));
+}
+
 async function pageItem(main, id) {
   const p = page(main, id);
   const body = h("div");
@@ -331,12 +357,20 @@ async function pageItem(main, id) {
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");
     // its kind's chosen fields first, in their order, then the rest by name
     const first = (k?.show || []).filter((f) => f in d.fields);
-    const order = [...first, ...Object.keys(d.fields).filter((f) => !first.includes(f)).sort()];
-    const fields = order.length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, order.map((f) => h("tr", {},
-      h("th", {}, f), h("td", {}, fieldView(d.fields[f], false, 0, (k?.formats || {})[f]))))))
+    const hist = d.history || {}, gone = Object.keys(hist).filter((f) => f && !(f in d.fields));   // removed since: still have a history
+    const order = [...first, ...Object.keys(d.fields).filter((f) => !first.includes(f)).sort(), ...gone.sort()];
+    const fields = order.length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, order.map((f) => h("tr", { "data-field": f },
+      h("th", {}, f, k?.fold?.[f] ? h("span", { class: "muted small rule", title: "how its events' data folds into it" }, ` ${k.fold[f]}`) : null),
+      h("td", {}, f in d.fields ? fieldView(d.fields[f], false, 0, (k?.formats || {})[f]) : h("span", { class: "muted" }, "removed"),
+        historyView(hist[f] || [], (d.changes || {})[f] || 0, d))))))
       : h("p", { class: "muted" }, "No fields: its events carry no data.");
-    body.replaceChildren(head, track || "", h("h2", {}, "Fields"), fields, h("h2", {}, "How it moved"), moves,
-      h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), eventsTable(d.record, true));
+    const refused = (d.refused || []).length ? [h("h2", {}, "Refused"), h("p", { class: "note" }, "Events recorded that changed nothing: their changeset could not apply, so none of it did."),
+      table(["when", "event", "as", "why"], d.refused.slice().reverse().map((r) => h("tr", {}, h("td", { class: "nowrap" }, when(r.time)),
+        h("td", { class: "nowrap" }, eventLink(r.event, r.type, d)), h("td", { class: "muted" }, r.form), h("td", {}, r.why))), "refused")] : [];
+    const said = d.transcript_events ? h("p", { class: "note" }, `${d.transcript_events} more events are its transcript's lines (claude.*), folded into its fields above; `,
+      recordLinkItem(id), ".") : null;
+    body.replaceChildren(head, track || "", h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+      h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said || "", eventsTable(d.record, true));
   }
   await tick();
   S.timer = setInterval(() => { if (!body.querySelector("details[open]")) tick(); }, 4000);

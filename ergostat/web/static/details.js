@@ -229,14 +229,16 @@ function eventsTable(evs, compact) {
     evs.slice().reverse().map((e) => h("tr", {}, h("td", { class: "nowrap", title: new Date(e.time * 1000).toLocaleString() }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
       h("td", { class: "nowrap" }, h("a", { href: "#", class: "plain", title: `event ${e.id}`, onclick: (ev) => { ev.preventDefault(); showEvent(e); } }, e.type)),
       compact ? null : h("td", { class: "nowrap" }, e.item ? itemLink(e.item) : "–"),
-      h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(e.data)))));
+      h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(changeOf(e))))));
 }
 function showEvent(e) {                                 // one event, all of it, in the side panel
   showDetail(h("div", { class: "kind" }, "Event"), h("h2", {}, e.type),
     dl([["item", e.item ? itemLink(e.item) : null], ["source", e.source], ["when", new Date(e.time * 1000).toLocaleString()], ["id", e.id],
         ["caused by", e.causedby]]),
-    h("pre", {}, JSON.stringify(e.data || {}, null, 2)));
+    h("pre", {}, JSON.stringify(changeOf(e), null, 2)));
 }
+/* what an event says of its item: its data, or the JSON Patch or whole document it carries (SPEC §5a) */
+const changeOf = (e) => (e.patch ? { patch: e.patch } : e.set ? { set: e.set } : e.data || {});
 
 
 /* the wiring: a machine, with what it published and listened for in the window */
