@@ -428,6 +428,39 @@ changes it by itself.
   controller doing its job. A loop through a decision with several inputs is not scored: how much of
   the decision's change came from each input is not written in the model.
 
+## Letting the model improve itself
+
+The checks, the fit, the residuals and the proposals above wait for someone to look. The model can also be kept
+true the way anything else in ergostat is kept: as a control loop (`docs/SPEC.md` §12e). Measure the model's
+quality with one of ergostat's built-in measures (`sensor: {builtin: ergostat.model.fit}`, the scaled error of its
+replay; or `ergostat.model.unexplained`, `.unidentified-loops`, `.open-findings`), hold it with a goal, and give
+the goal a block that reviews the model while it is off.
+
+That block is any block: reviewing the model is a job, not a kind of block. An `ai` block given a prompt like a
+senior modeller's (the examples' `prompts/improver.md`: look for bad practice by the guidelines above and Sterman's
+tests, for what is probably missing or hidden, for what disagrees with the system's own code and documents, and for
+what could be simpler) reads the model with ergostat's tools and proposes; so can a program that applies rules, or a
+person. Each proposal is a line, `{"propose": {...}}`, with its edit and its reasons, and **every reason needs
+evidence ergostat can check**: a finding (`finding:stock-without-outflow@stock.ideas`), a statistic of the fit
+(`fit:stock.quality.um`), a residual, a line of the code or the documents, or one of the rules here
+(`rule:missing-delay`). A proposal that does not compile, has no evidenced reason, or clearly worsens the fit is
+refused, with why; `ergostat improve --try FILE` (the MCP tool `try_change`) says so beforehand.
+
+Every change to the model, the block's and ergostat's own calibrations and structural proposals alike, is an item
+(`ergostat.model-change`, Items and the review queue), and a judge (`type: judge`, a built-in block) tests each the
+way a rollout tests a build: beside the model as it is, on the record that comes after it was made, over the whole
+of that record, its halves and its quarters. It passes only when it is better in every window (or, for a change the
+fit cannot see, no worse anywhere and answering findings), and fails otherwise, with the windows as its evidence.
+This matters because a change fitted to the record it was found on will always look good on that record: the judge
+looks only at record the change has not seen (Sterman ch. 21, behaviour reproduction; Ljung ch. 16,
+cross-validation).
+
+Who writes a passed change is the owner's choice, in the judge's `accept:`: by default nothing is written by
+itself. A sensible start is to let a parameter's value be written once passed (`accept: {parameter: auto}`), since
+the structure stays as people declared it, and to keep every change to the structure for the owner to read in the
+review queue, the judge's verdict beside it. Everything written is recorded with its reason and its effect
+(`ergostat.model.changed`), and committed by the owner.
+
 ## A checklist for reviewing a model
 
 1. Run `ergostat check`; answer every structure finding, by a change or by a word with a reason.

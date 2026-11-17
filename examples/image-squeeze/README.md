@@ -97,6 +97,26 @@ is empty (`one-running`). `small-images` (bytes per megapixel served ≤ 20) is 
 lab chases: `ergostat explain small-images` traces it from the researcher, through the ideas and the
 experiment, to the release kept, the benchmark points it gains and the bytes served.
 
+## The fourth loop: the model of all this (model.yaml)
+
+The model itself is kept true by a loop of its own (ergostat's SPEC §12e). Its fit to the record is measured
+like anything else: `model-error` is ergostat's built-in measure `ergostat.model.fit`, the scaled error of the
+model's replay, and the goal `model-fits` holds it at 0.02. While it is off, the `improver` (an `ai` block:
+with `FACTORY_AI=claude` a Claude Code session on Sonnet with ergostat's tools, `prompts/improver.md`, which
+reads the model, the code and the record and changes no file; otherwise a free stand-in) proposes changes with
+their evidence. Every change to the model, the improver's and ergostat's own calibrations and structural
+proposals alike, is an item, `ergostat.model-change/…` (Items → `ergostat.model-change`, and the review queue
+on the Fit page, each with who made it, its reasons and their evidence): made → checked → testing → passed →
+accepted, or refused, failed, dismissed, superseded.
+
+The `judge` is a built-in block: it replays each change beside the model as it is on the four minutes of record
+after it was made, whole, in halves and in quarters, and passes it only when the scaled error falls by 2% in
+every window. A passed change to a parameter's value is written into the YAML at once (`accept: {parameter:
+auto}`), and recorded as `ergostat.model.changed` with its diff and the fit before and after; a change to the
+structure waits in the review queue. Commit what was written. The stand-in proposes what ergostat's calibration
+declined to (an estimate within two standard errors of the value written): the judge, not the stand-in,
+decides. Each improver run is a session item with its cost (0 for the stand-in).
+
 ## The benchmark: what squeeze can do
 
 Bytes served depend on what customers happen to send. How good squeeze *is* does not: thirty fixed
