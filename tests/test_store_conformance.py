@@ -99,6 +99,8 @@ def test_items_of_items_and_globs(ev):
     assert len(ev.of_items(until=T + 5)) == 6
     s = ev.of_items()[7]["seq"]
     assert len(ev.of_items(after_seq=s)) == 4
+    assert [e["seq"] for e in ev.of_items(limit=5)] == [e["seq"] for e in ev.of_items()][:5]
+    assert [e["seq"] for e in ev.of_items(after_seq=s, limit=2)] == [e["seq"] for e in ev.of_items(after_seq=s)][:2]
 
 
 def test_valves_controllers_and_runs(ev):

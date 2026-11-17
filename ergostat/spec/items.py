@@ -24,6 +24,7 @@ from .ir import ItemKind, Sensor, Spec
 
 TRANSCRIPT_TYPES = "claude.*"     # a Claude Code transcript, line by line (transcripts.py): left out unless asked for
 SNAPSHOT = "ergostat.item.snapshot"    # an item's older events, folded into one (rollup.py): its document as a set
+CHUNK = 50_000                         # events folded at a time into the kept fold
 LISTED = 500                           # the most items one listing carries; page through with offset
 
 
@@ -176,7 +177,11 @@ class _Folded:
             gen = events.generation()
             if gen != self.gen:
                 self.reset(gen)
-            self._fold(events.of_items(None, after_seq=self.seq, skip=skip))
+            while True:                                  # a chunk at a time: the whole record is never in memory at once
+                new = events.of_items(None, after_seq=self.seq, skip=skip, limit=CHUNK)
+                self._fold(new)
+                if len(new) < CHUNK:
+                    break
             late = [] if until is None else [i for i, t in self.newest.items() if t > until]
             if len(late) > max(50, len(self.items) // 10):
                 return None

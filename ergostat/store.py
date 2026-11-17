@@ -309,7 +309,7 @@ class Events:
             return [dict(r) for r in c.execute(sql, (since,) if since else ())]
 
     def of_items(self, globs: list[str] | None = None, until: float | None = None, skip: tuple[str, ...] = (),
-                 after_seq: int | None = None) -> list[dict]:
+                 after_seq: int | None = None, limit: int | None = None) -> list[dict]:
         """Every event about an item (an id with a ``/``), or about ids matching one of ``globs``,
         oldest first; types in ``skip`` (``claude.*``: a prefix) left out; after ``after_seq`` when
         given (what is new since a fold)."""
@@ -325,7 +325,8 @@ class Events:
             where.append("time <= ?")
             args.append(until)
         with self._c() as c:
-            return [self._row(r) for r in c.execute("select * from events where " + " and ".join(where) + " order by seq", args)]
+            return [self._row(r) for r in c.execute("select * from events where " + " and ".join(where) + " order by seq"
+                                                    + (f" limit {int(limit)}" if limit else ""), args)]
 
     def counted(self, prefix: str, until: float | None = None) -> dict[str, tuple[int, float]]:
         """Per item, how many events of types starting ``prefix`` (``claude.*``) and the latest one's time,

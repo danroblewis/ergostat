@@ -357,7 +357,7 @@ class Segments:
                 and (after_seq is None or q[r] > after_seq) and (before_seq is None or q[r] < before_seq)]
 
     def _scan(self, *, n=None, item=..., type=None, skip=(), since=None, until=None, after_seq=None, before_seq=None,
-              item_test=None, test=None):
+              item_test=None, test=None, limit=None):
         """Matching events, oldest first (the newest ``n``); ``test``, of a whole event, last."""
         types = _types_matcher(type, skip) if type or skip else None
         for attempt in range(3):
@@ -394,11 +394,14 @@ class Segments:
                         out = got[::-1] + out
                     return out[-n:] if n else []
                 for s in segs:
+                    if limit and len(out) >= limit:
+                        return out[:limit]
                     for r in self._rows(s, item, types, since, until, after_seq, before_seq, item_test):
                         e = self._event(s, r)
                         if test is None or test(e):
                             out.append(_row(e))
-                return out + [_row(e, True) for e in hs]
+                out += [_row(e, True) for e in hs]
+                return out[:limit] if limit else out
             except FileNotFoundError:                    # rewritten under us: ask again
                 if attempt == 2:
                     raise
@@ -584,14 +587,14 @@ class Segments:
         return sorted(rows, key=lambda r: -r["last"])
 
     def of_items(self, globs: list[str] | None = None, until: float | None = None, skip: tuple[str, ...] = (),
-                 after_seq: int | None = None) -> list[dict]:
+                 after_seq: int | None = None, limit: int | None = None) -> list[dict]:
         import fnmatch
         pats = [fnmatch.translate(g) for g in globs] if globs else None
         import re
         rx = re.compile("|".join(pats)) if pats else None
         def test(it) -> bool:
             return isinstance(it, str) and "/" in it and (rx is None or rx.match(it) is not None)
-        return self._scan(item_test=test, skip=tuple(skip), until=until, after_seq=after_seq or None)
+        return self._scan(item_test=test, skip=tuple(skip), until=until, after_seq=after_seq or None, limit=limit)
 
     def counted(self, prefix: str, until: float | None = None) -> dict[str, tuple[int, float]]:
         """Per item, how many events of types starting ``prefix`` (``claude.*``) and the latest one's time:
