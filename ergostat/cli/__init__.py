@@ -55,7 +55,7 @@ run it
   projects       Every project on this machine, which run, and their pages
   reset          Forget this project's record and start from nothing (--yes)
   verify         Score the changes written to the model again on the record since (--propose)
-  bench          How we know the improver works: bench improve, bench judge, bench meta
+  bench          How we know it works: bench improve, judge, meta; bench parity (fresh sessions vs a long one)
   help blocks    How to write a sensor's and a block's program (also: help ai-agents, help spec, help model-tools)
 
 flags
