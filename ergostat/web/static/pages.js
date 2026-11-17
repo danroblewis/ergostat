@@ -18,6 +18,7 @@ const table = (head, rows, cls = "") => h("div", { class: "table-wrap" }, h("tab
 async function pageLoops(main) {
   const p = page(main, "Loops");
   const box = h("div"), cap = h("p", { class: "note" });
+  const perf = {};
   p.append(box, cap);
   async function tick() {
     const loops = await api("loops");
@@ -28,7 +29,13 @@ async function pageLoops(main) {
     cap.textContent = w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "";
     const pts = Object.fromEntries(stocks.nodes.filter((n) => n.kind === "stock").map((n) => [n.label, n.points]));
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
-    box.replaceChildren(table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["error", "num"], ["time off", "num"], ["back in", "num"], "trend", "acted"],
+    // how each loop is doing, as a control engineer reads its scope (control.js): asked for now and then, not every tick
+    if (!perf.at || Date.now() - perf.at > 30000) {
+      perf.at = Date.now();
+      for (const [n] of rows) loopControl(n).then((d) => { perf[n] = performanceWord(d); if (cells[n]) cells[n].textContent = perf[n]; }).catch(() => {});
+    }
+    const cells = {};
+    box.replaceChildren(table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["error", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map(([n, lp]) => h("tr", { class: "click", onclick: () => openLoop(n) },
         h("td", { class: "nowrap" }, h("b", {}, n), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
         h("td", {}, statusEl(lp.status)), h("td", { class: "nowrap" }, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
@@ -39,6 +46,7 @@ async function pageLoops(main) {
           lp.back_in != null ? dur(lp.back_in) : "–"),
         h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
           (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 120, 24, setpointOf(lp.setpoint)) : ""),
+        cells[n] = h("td", { class: "nowrap", title: "Oscillating, saturated, or its Harris index: from its scope, over the last day of record" }, perf[n] || ""),
         h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
   }
   await tick();

@@ -247,17 +247,32 @@ def abandon(hid: str, why: str, by: str) -> None:
 def tune(ctx: dict) -> float:
     """Integral control: production's quality setting (a stock) is stepped by the quality error each
     time, so it settles where the measured quality meets the setpoint whatever the mix (no steady
-    error). Returns the step."""
+    error): q ← q + gain × e, acting at once on the error just read, with no step inside its dead
+    band, q rounded to its resolution and kept within its limits: all as ergostat.yaml writes them
+    (``params``). In a step test the owner approved, it moves the setting by exactly the step it is
+    given, or puts it at the value given ("to"), and decides nothing. Returns the step it made."""
+    law = ctx.get("params") or {}
+    lo, hi = (float(x) for x in law.get("limits", [5, 95]))
+    res = float(law.get("resolution", 0.1))
+    band = float(law.get("deadband", 0.004))
+    keep = lambda v: round(round(max(lo, min(hi, v)) / res) * res, 6)      # noqa: E731
     s = load(RUN / "settings.json", {"quality": 80})
     q = was = float(s.get("quality", 80))
+    if ctx.get("trigger") == "step-test":
+        cmd = ctx.get("command") or {}
+        q = keep(float(cmd["to"]) if cmd.get("to") is not None else q + float(cmd.get("amount") or 0))
+        s["quality"] = q
+        save(RUN / "settings.json", s)
+        return round(q - was, 3)
+    gain = float(law.get("gain", 350))
     g = (ctx.get("goals") or {}).get("quality-held") or {}
     y = g.get("value")
     if y is None or not g.get("hold"):
         return 0.0
     r = float(str(g["hold"]).split()[-1])                    # the setpoint, as ergostat.yaml's goal says ("== 0.93")
     e = r - float(y)                                         # e = r − y: positive when it looks too poor
-    if abs(e) > 0.004:                                       # a dead band: hold steady inside the tolerance
-        q = round(max(5.0, min(95.0, q + 350 * e)), 1)
+    if abs(e) > band:                                        # a dead band: hold steady inside the tolerance
+        q = keep(q + gain * e)
     s["quality"] = q
     save(RUN / "settings.json", s)
     return round(q - was, 3)

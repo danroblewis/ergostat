@@ -66,6 +66,5 @@ Both disciplines read behaviour beside the structure, never on a separate dashbo
 ## Later
 
 Comparative runs on the causes strip beyond one what-if (the replay, the projection, its sensitivity fan and a
-what-if are built: SPEC §12b, §12c); step response
-and Bode plots in the block panel (needs identified process models); phase plots; SPC charts
-on measured auxiliaries.
+what-if are built: SPEC §12b); phase plots; SPC charts on measured auxiliaries. (Step responses and Bode
+plots in the block panels are built, from identified processes: SPEC §12d.)

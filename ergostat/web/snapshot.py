@@ -44,6 +44,7 @@ def _requests(project) -> list[tuple[str, dict]]:
     reqs += [("loop-scope", {"goal": n, **pts}) for n in m.controllers]
     if getattr(m, "spec", None) is not None:
         reqs.append(("dominance", pts))                  # which feedback loops drive the behaviour, for every loop's panel
+        reqs += [("loop-control", {"goal": n}) for n in m.spec.goals]   # each loop as a control engineer reads it
     reqs += [("items-flow", {"kind": k, **pts}) for k in (getattr(getattr(m, "spec", None), "items", None) or {})]
     for kind, table in m.tables().items():
         for n in table:

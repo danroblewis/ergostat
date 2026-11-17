@@ -19,7 +19,7 @@ function bdSymW(fn) {                                   // C_tuner(z): the symbo
   if (fn.name) return bdTextW(fn.name) + 8;
   return (fn.sym ? 10 : 0) + (fn.sub ? bdTextW(fn.sub, true) + 2 : 0) + (fn.arg ? 22 : 0);
 }
-function bdFrac(expr) {                                 // "1/s", "Kᵢ T/(z − 1)": a fraction drawn stacked
+function bdFrac(expr) {                                 // "1/s", "Kᵢ T z/(z − 1)": a fraction drawn stacked
   const m = /^([^/]+)\/\(?([^()/]+)\)?$/.exec(expr || "");
   return m && expr.length <= 16 ? [m[1].trim(), m[2].trim()] : null;
 }
@@ -32,7 +32,7 @@ function bdSize(n) {
   const fn = n.fn || {};
   const sideN = Math.max(n.ins.length, n.outs.length);
   let w = Math.max(84, bdSymW(fn) + 28), hgt = 46;
-  const frac = bdFrac(fn.expr);
+  const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
   if (fn.name) {                                       // a nonlinear block: its name, its kind, a sketch of it
     w = Math.max(w, bdTextW(fn.name) + 28 + (fn.sketch ? 40 : 0));
     hgt = 46;
@@ -550,6 +550,7 @@ function bdSketch(kind, x, y) {                        // a static nonlinearity,
   if (kind === "relay") g.append(s("path", { d: "M2,18 H16 V5 H26 M8,18 V5 H16", class: "bd-curve" }));
   else if (kind === "saturation") g.append(s("path", { d: "M2,20 H8 L20,4 H26", class: "bd-curve" }));
   else if (kind === "zoh") g.append(s("path", { d: "M2,20 H8 V15 H14 V9 H20 V5 H26", class: "bd-curve" }));
+  else if (kind === "deadzone") g.append(s("path", { d: "M2,22 L9,12 H19 L26,2", class: "bd-curve" }));
   else g.append(s("path", { d: "M2,20 C8,20 10,6 16,8 S22,4 26,3", class: "bd-curve" }));
   return g;
 }
@@ -586,12 +587,12 @@ function bdNode(n, c) {
       // its name only: who fills it (a program, an AI agent, a person) and how often is the side panel's
       g.append(s("text", { x: sk + (w - sk) / 2, y: hgt / 2 + 4, class: "bd-name", "text-anchor": "middle" }, fn.name));
     } else {
-      const frac = bdFrac(fn.expr);
+      const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
       const top = frac ? hgt / 2 - 12 : fn.expr ? hgt / 2 - 2 : hgt / 2 + 5;
       bdSym(g, w / 2, top, fn);
       if (frac) {
         const fw = Math.max(bdTextW(frac[0]), bdTextW(frac[1])) + 6;
-        g.append(s("text", { x: w / 2, y: hgt / 2 + 6, class: "bd-expr", "text-anchor": "middle" }, frac[0]),
+        g.append(bdPower(s("text", { x: w / 2, y: hgt / 2 + 6, class: "bd-expr", "text-anchor": "middle" }), frac[0]),
                  s("path", { d: `M${w / 2 - fw / 2},${hgt / 2 + 10} H${w / 2 + fw / 2}`, class: "bd-line" }),
                  s("text", { x: w / 2, y: hgt / 2 + 23, class: "bd-expr", "text-anchor": "middle" }, frac[1]));
       } else if (fn.expr) g.append(richSvg(s("text", { x: w / 2, y: hgt / 2 + 14, class: "bd-note", "text-anchor": "middle" }), fn.expr));   // K_p: K with a subscript p
@@ -604,6 +605,12 @@ function bdNode(n, c) {
     }
   }
   return g;
+}
+function bdPower(textEl, text) {                       // "0.2 e^(−20s)": the exponent raised, as the textbooks write a delay
+  const m = /^(.*)\^\((.*)\)$/.exec(String(text || ""));
+  if (!m) { textEl.textContent = text; return textEl; }
+  textEl.append(s("tspan", {}, m[1]), s("tspan", { dy: -6, "font-size": "75%" }, m[2]));
+  return textEl;
 }
 function bdFnText(n) {                                  // what is inside the block, as text (for the tests and a tooltip)
   const fn = n.fn || {};
@@ -876,6 +883,10 @@ function openBlock(n) {
   if (n.says) kids.push(h("p", { class: "what" }, rich(op(n.says))));
   if (defs.length) kids.push(h("h3", {}, fn.linear === false || fn.name ? "What it computes" : "Its function"), ...defs);
   if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, typeof v === "string" ? rich(op(v)) : v])));
+  // the loop it is the process of, identified (control.js); a controller's law with that process, and its tuning
+  if (n.role === "process") for (const l of n.y_of || []) kids.push(controlBox(l, "process"));
+  if (n.role === "controller" && n.id?.startsWith("blk:")) for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x]))
+    kids.push(controlBox(l, "controller", { block: n.id.slice(4) }));
   const loops = n.loops || [];
   if (loops.length) kids.push(h("h3", {}, `In the loop${loops.length > 1 ? "s" : ""} of`),
     h("p", {}, ...loops.flatMap((l, i) => [i ? ", " : "", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(l); } }, l)])));
@@ -931,7 +942,7 @@ function blocksLegend() {
     row(`<rect x="3" y="4" width="24" height="12" rx="6" ${ink}/>`, "an In or Out port: a signal crossing the edge of a system drawn alone"),
     row(`<path d="M15,0 V20" stroke="currentColor" stroke-width="0.8"/><path d="M2,10 H28" ${ink}/><rect x="11" y="6" width="8" height="8" rx="2" ${ink} fill="var(--bg, #fff)"/>`,
         "a port mark: where a signal crosses the frame of an open system, named"),
-    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off controller: a relay; a program, an AI agent, a person): named, with a sketch where there is a standard one (relay, saturation); no transfer function is claimed"),
+    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off controller: a relay; a program, an AI agent, a person): named, with a sketch where there is a standard one (relay, saturation, dead zone); no transfer function is claimed"),
     row(`<circle cx="15" cy="10" r="7" ${ink}/><text x="5" y="8" font-size="9" fill="currentColor">+</text><text x="19" y="21" font-size="9" fill="currentColor">−</text>`, "a summing junction, with the sign of each input"),
     row(`<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
     row(`<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux)"),

@@ -171,4 +171,8 @@ blocks:
     run: bin/py bin/lab.py tune
     in: goal.quality-held.error
     every: 16s                             # two batches of fresh images between moves
+    gain: 350                              # q per unit of error, each step: u ← u + 350 e (its program reads it)
+    deadband: 0.004                        # no step while |e| is within it
+    resolution: 0.1                        # q is rounded to this
+    limits: [5, 95]                        # the encoder's quality range
     out: flow.quality-steps

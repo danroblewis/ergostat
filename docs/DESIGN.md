@@ -213,9 +213,9 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 ## 8. The web page
 
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
-owner's absence*), read only but for one kind of write: the owner's answer to a proposal (Accept or
-Dismiss), asking for estimates (Calibrate) and proposing the values tried as a what-if (Propose these), each a
-`POST` the page makes. A request is served
+owner's absence*), read only but for one kind of write: the owner's answer to a proposal (Accept,
+Approve or Dismiss), asking for estimates (Calibrate, Estimate now) and proposing the values tried as a
+what-if (Propose these), each a `POST` the page makes. A request is served
 only when addressed to the server by its own name (the Host header is `127.0.0.1`, `localhost` or
 `[::1]` with its port: a page on another site whose name was pointed at 127.0.0.1, DNS rebinding,
 sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
@@ -248,7 +248,15 @@ Propose these and then Accept), a feedback loop's panel how much of the behaviou
 window at each stock it runs through, beside the loops competing there (loop dominance), parts chosen with
 Shift chart in the side panel (and with none chosen, the parts charted last); a loop's panel, its
 comparator, controller or output in the blocks view, and its sparkline on the Loops page open its
-scope (y with r, u, e); the Items page draws each kind's cumulative flow and cycle times. Every
+scope (y with r, u, e), and under it how the loop is doing (Harris index or, for a ceiling or a floor,
+how often and how far past it, oscillation, settling and overshoot, saturation, step tests and starts
+left out; the Loops page says it in a word, or what it lacks); in the blocks view, the process block a
+loop's y comes out of shows that loop's process identified (K, τ, θ, how sure, how tested, its step
+response and Bode plot, with Accept, or a step test to Approve, or why none is offered yet), and its
+controller's panel the closed loop with it (margins, at the worst the process could be too, its own
+delay, what the linear numbers leave out, step response, Bode) and a SIMC tuning or a detuning (SPEC
+§12c); a block's dead band is drawn before its law as a dead zone; the Items page draws each
+kind's cumulative flow and cycle times. Every
 chart in one place shares its cursor and covers the page's window. One control in the header
 holds the window and the moment: its menu sets the window and slides the page to a past moment
 (the API's `at`), with "Back to live". Light theme first, a dark one from the same tokens; usable at

@@ -270,6 +270,9 @@ def _answer(live: Live, path: str, q: dict):
     if head == "fit":                             # the Fit page: the replay against the record, its history, the proposals
         from .numbers_api import fit_page
         return fit_page(live, p, snap)
+    if head == "loop-control":                    # the loop as a control engineer reads it: identified, analysed, monitored
+        from .control_api import get as control
+        return control(live, p, snap, one("goal") or "")
     if head == "loop-scope":
         return series.scope(p, snap, one("goal") or "", int(one("points") or series.POINTS))
     if head == "items-flow":
@@ -394,7 +397,11 @@ def handler(project):
             from .numbers_api import post
             try:
                 q = parse_qs(u.query)
-                code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
+                if u.path.startswith("/api/control/"):     # a loop's process, tuning or step test: the owner's answer
+                    from .control_api import post as control
+                    code, data = control(live, u.path.removeprefix("/api/"))
+                else:
+                    code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
             except Exception as e:                      # a broken request never takes the page down
                 code, data = 500, {"error": f"{type(e).__name__}: {e}"}
             return self._send(code, json.dumps(data, default=str).encode(), "application/json")

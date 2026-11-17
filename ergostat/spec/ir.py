@@ -222,6 +222,7 @@ class Goal:
     system: str | None = None
     description: str = ""
     where: Where | None = None
+    process: dict | None = None    # the loop's process, u to y (SPEC §8): form, gain, tau and theta (s), identified
 
     def status(self, y: float, was_off: bool, r: float | None = None) -> str:
         """Off past the setpoint by more than the tolerance; once off, holding again only back

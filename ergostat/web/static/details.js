@@ -136,6 +136,7 @@ async function openLoop(name, asController = false) {
           : h("span", { class: "muted" }, pt.open_loop ? "acts on its schedule, reads nothing" : "no decision yet"))
         : (pt.last ? `opened ${ago(pt.last.time)}: ${fmt(pt.last.amount)}${pt.last.count > 1 ? ` in ${pt.last.count} openings` : ""}`
           : h("span", { class: "muted" }, "never opened")))))));
+  kids.push(controlBox(name, "loop"));                  // its process identified, its controller with it (control.js)
   for (const g of lp.gaps || []) kids.push(h("p", {}, h("b", { class: "lvl-warn" }, "Cannot close: "), g));
   for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
   if (lp.crossings?.length) {
