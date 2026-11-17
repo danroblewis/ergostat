@@ -49,7 +49,7 @@ class Loop:
         return {**got, "status": "proposed" if got["status"] == "proposed" else "refused"}
 
     def judge(self, at: float | None = None, by: str = "judge") -> dict:
-        """One pass: ``{"verdicts": [{"id", "verdict": passed|failed|superseded, "why"}], "accepted": [ids]}``."""
+        """One pass: ``{"verdicts": [{"id", "verdict": passed|failed|inconclusive|superseded, "why"}], "accepted": [ids]}``."""
         now = at or time.time()
         before = {x["id"] for x in self.accepted()}
         pol = self.p.model.spec.improve

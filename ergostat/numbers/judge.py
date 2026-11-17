@@ -118,17 +118,18 @@ def dominant(p, spec: Spec, parts: list[str], until: float) -> float | None:
 
 def needs(p, spec: Spec, after: Spec, x: dict, since: float, hold_out: float, warm_up: float) -> dict:
     """How much record after the change it is judged on, and how long each window's warm-up is: at least the hold-out
-    and the dominant time constant of what it touches (in the model as it is and with the change), at most a day;
-    warmed up for a few of those time constants, never longer than the configured warm-up nor the record before it.
+    and the dominant time constant of what it touches in the model as it is, at most a day; warmed up for a few time
+    constants (with the change too), never longer than the configured warm-up nor the record before it.
     Each window is at least that time constant long, so the record it needs holds ``MIN_JUDGED`` of them: twice it."""
     fc = focus(spec, after, x)
-    taus = [t for t in (dominant(p, spec, fc["parts"], since), dominant(p, after, fc["parts"], since)) if t]
-    tau = max(taus) if taus else None
+    tau = dominant(p, spec, fc["parts"], since)              # the record's dynamics, as the model sees them
+    with_it = dominant(p, after, fc["parts"], since)         # a change that slows a part buys no more time to be judged in,
+    warm_tau = max((t for t in (tau, with_it) if t), default=None)   # but its delays are warmed up
     oldest = min((t for t in (p.events.first_time(), p.measurements.first_time()) if t), default=since)
     held_before = max(0.0, since - oldest)
-    warm = min(warm_up, held_before, WARM_TAUS * tau if tau else warm_up)
+    warm = min(warm_up, held_before, WARM_TAUS * warm_tau if warm_tau else warm_up)
     need = min(MAX_HOLD, max(hold_out, 2 * (tau or 0.0)))
-    return {**fc, "tau": tau, "warm_up": warm, "needs": need, "record_before": held_before}
+    return {**fc, "tau": tau, "tau_with_it": with_it, "warm_up": warm, "needs": need, "record_before": held_before}
 
 
 def scored(p, spec: Spec, since: float, until: float, warm_up: float = WARM_UP) -> dict[str, float] | None:

@@ -1691,6 +1691,7 @@ and the item, folded from them, is the change.
 | refused | `.refused` (from made): with why | ergostat |
 | testing | `.testing`: the judge replays it on the record after it | ergostat |
 | passed / failed | `.passed`, `.failed`: the judge's verdict, with its windows | ergostat |
+| inconclusive | `.inconclusive`: the record held out could not tell it from the model as it is; it needs more record, and is not failed | ergostat |
 | accepted | `.accepted`: written into the YAML | who decided: the owner, or the judge's policy (the judge, naming the policy) |
 | dismissed | `.dismissed`: with the owner's reason | the owner |
 | superseded | `.superseded`: made against a version of the model that has since changed, or no longer found by the finder that made it | ergostat |
@@ -1721,7 +1722,7 @@ Any block may print:
 
 | Key | Meaning |
 |---|---|
-| `kind` | `parameter` (values only), `equation` or `structure`. What the edit does decides: an edit that changes only values is a parameter change, whatever it is called |
+| `kind` | `parameter` (values only), `equation`, `structure`, `measurement` (a sensor of a part already there) or `control` (a goal, a block, an agent, the judge's policy). What the edit does decides, whatever it is called: an edit to a goal, a block or an agent is a control change and one to a sensor a measurement change (`version.changed_control`, `changed_sensors`); else one that changes only values is a parameter change. Only the first three are judged by the replay or written by the judge; the others wait for the owner |
 | `parts` | The parts it touches, as references (`stock.x`, `flow.y`, `parameter.z`) |
 | `edit` | In the review queue's form, `{"files": [{"file", "hunks": [{"line", "old", "new"}]}]}`, or `{"file", "replace", "with"}` (the lines as written now, found once, and what they become), or a list of either. Files are named from the model's folder, and only the model's own files may be edited |
 | `reasons` | Each `{"says", "evidence"}` (`evidence` one, or a list). Evidence is what ergostat can check: a finding `check` reports now, by its id (`finding:CODE@PART`, the `id` in `check --json` and the MCP `check`); a statistic of the fit (`fit:total.nmse`, `fit:stock.NAME.r2`, `.mape`, `.um`, `.us`, `.uc`, and an equation's `fit:flow.NAME.r2`); a residual (`residual:stock.NAME`); a line of a document or of the code, in the project or in ergostat (`docs/MODELLING.md:120`, `bin/lab.py:40-52`), or a URL; or a modelling rule (`rule:NAME`: the guidelines of `docs/MODELLING.md` and Sterman's tests, listed in `numbers/improve.py`) |
@@ -1733,9 +1734,34 @@ without evidence is refused); the edit is applied to a scratch copy (in memory),
 findings it answers, and any it makes), replayed on the reference window, and the parameters to estimate that it
 adds or uses differently are refitted (each part alone, the last fifth held out), said beside it. It is
 **refused**, with why, when no reason has evidence, the edit cannot be made or does not compile, the replay it
-leaves is not valid, it clearly worsens the fit (the scaled error up by a tenth, refitted or not), or the same
-change is already an item for this version of the model; refused changes are the review queue's "found, and not
-proposed" (and `ergostat improve`). Otherwise it is **checked**, and waits in the review queue attributed to its
+leaves is not valid, it clearly worsens the fit, no reason's evidence supports it, or the same change is already an
+item for this version of the model; refused changes are the review queue's "found, and not proposed" (and
+`ergostat improve`).
+
+**The gate** (`ergostat/numbers/gate.py`), for every change whoever made it, ergostat's own calibration, equations
+and structural finds included: it clearly worsens the fit when the scaled error rises by more than a tenth (and not
+by a trifle), refitted or not, either over the **whole model** (like for like: over the stocks both fits judge) or
+**near what it touches**: the stocks of its neighbourhood, which is what it names or moves (a parameter through the
+equations that use it, a flow through its stocks) and every part one link from them. That holds even when the part
+it was fitted to improves: a value fitted on one stock alone may fit that stock at once and the whole replay many
+times worse. The reason says both numbers ("the whole model's scaled error 0.788 → 18.5, 23.4× worse; near what it
+touches (stock.paired) ...; though fitted each part alone, its weighted error on stock.paired falls by 100%"), and
+the benefit shown in the review queue says worse as worse, never as a gain.
+
+**Evidence that supports, not only exists.** Each reason's evidence is checked to exist, then to bear on the change:
+a finding about a part it touches or one next to it (or, about no part, one it answers); a fit statistic of such a
+part, or the total when the change does not raise it; a residual of such a stock, and significant; a rule that
+`check` applies to such a part now. A rule `check` does not test, a line of a document or of the code, and a URL
+are kept beside the reason as cited, and never alone carry it: a proposal needs one reason whose evidence supports it.
+
+**Turned away, remembered** (`ergostat/numbers/memory.py`). A change refused at the gate, failed by the judge, or
+inconclusive is not proposed again for the same target (its kind, what it is to, and how it was found: the
+calibration or the rule, or a block's proposal) on the same version of the model until the record has grown enough
+for an estimate to say something new: a quarter of the record it was estimated on, at least ten minutes and the
+judge's hold-out, doubling with each turn-away, at most a day. Found again meanwhile, it makes no new item: its
+item counts it (`repeats`, `held_until`, and `held_back`: "proposed again 3 times, held back until 16:20"), shown on
+the item, in `ergostat proposals` ("turned away on this version"), `ergostat improve` and the Model page. A change
+refused for its form (no evidence, an edit that cannot be made) is never held back: it is said so at once. Otherwise it is **checked**, and waits in the review queue attributed to its
 block (its name and rung, its reasons with their evidence, how sure it said it was). `ergostat improve --try FILE`
 and the MCP tool `try_change` check a proposal the same way and record nothing; `ergostat improve --edit-value
 NAME=V` prints the edit that sets a parameter's value, in the form `edit` takes.
@@ -1767,23 +1793,31 @@ blocks:
 |---|---|---|---|
 | `hold-out` | duration | `10m` | How much record after a change it is judged on |
 | `windows` | list of whole numbers | `[1, 2, 4]` | How that record is split into windows: 1 whole, 2 halves, 4 quarters (each at least a minute) |
-| `warm-up` | duration | `6h` | How long before each window its replay starts, so the window is scored with its stocks and delays as the record left them, not started cold with every delay in equilibrium (section 12f) |
+| `warm-up` | duration | `6h` | The longest before each window its replay starts, so the window is scored with its stocks and delays as the record left them, not started cold with every delay in equilibrium (section 12f): three time constants of what the change touches, and never more than the record held before the window |
 | `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better, and the most rise that counts as no worse |
 | `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged |
-| `out` | map of `testing`, `passed`, `failed`, `accepted` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
+| `out` | map of `testing`, `passed`, `failed`, `accepted`, `inconclusive` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
 | `in`, `every` | | | What it reads (signed, as a machine block's), for the diagram; how often it passes |
 
 Each pass (`ergostat/numbers/judge.py`; `ergostat judge` makes one by hand) supersedes every open change made
 against a version of the model since changed, starts **testing** each checked change it can replay (a value, an
 equation, the structure; a loop's process or gain is not replayed, and waits for the owner), and replays each beside
 the model as it is on the record that came **after** it was made, which neither its maker nor any estimate it rests
-on has seen, in every window. Each window is scored on a replay started `warm-up` before it, and over every stock
-either model replays, each stock's mean squared error over its record's mean square, whatever its time constant (the
-fit's total leaves out a stock slower than its window, so a change that slowed one would look better; section 12f).
-It **passes** one when the scaled error falls by the `threshold` or more in every
-window judged, or, for a change the fit cannot see, when it is no worse in any window and answers findings without
-making any; it **fails** one that is worse by the threshold in any window, or better only in some, or that too few
-windows can judge after three hold-outs. Each verdict keeps its windows (each one's span, and the scaled error
+on has seen, in every window. It scores **what the change touches**: the stocks of its neighbourhood (as the gate
+finds them), the goals' own stocks among them, each stock's mean squared error over its record's mean square,
+whatever its time constant (the fit's total leaves out a stock slower than its window, so a change that slowed one
+would look better; section 12f); the rest of the model and each goal's stock must be no worse. A mean over every
+stock let one far stock's error dilute any change to 0%. It waits for **record long enough for the change to show**:
+the hold-out, and at least twice the dominant time constant of what it touches (in the model as it is and with the
+change), at most a day; a window shorter than that time constant is not judged. Each window is replayed warm, from
+three of those time constants before it, never longer than `warm-up` nor than the record held before the window (on
+a young record a six-hour warm-up integrated the stocks from where the record did not reach, and scored a regime of
+its own: errors of 12 to 700 where the goal read 0.03 to 0.14). It **passes** one when the scaled error falls by the
+`threshold` or more in every window judged and is no worse elsewhere; when it is no worse in any window and answers
+findings without making any; or when it is no worse and **simpler** (fewer parts, parameters and terms). It
+**fails** one that is worse by the threshold in any window, near it, elsewhere or on a goal's stock, or better only
+in some. One that no window can tell from the model as it is stays under test for more record, up to three times
+what it needs, and is then **inconclusive** ("needs more record"), not failed; as is one too few windows can judge. Each verdict keeps its windows (each one's span, and the scaled error
 before and after) as its evidence, shown with the item in the review queue. Then, where `accept` says `auto` for a
 passed change's kind, it writes the oldest, one a pass, so each is measured alone: Accept's way (section 12b), the
 smallest edit, refused and put back if `check` would then find an error, recorded as `.accepted` from the judge
@@ -1823,7 +1857,11 @@ in every window; and each window is replayed cold (its delays in equilibrium), s
 worse in a short one. *Fixed* in the judge (section 12e): it compares **like for like** (each stock's scaled error over the
 stocks both models replay, whatever its time constant) and scores each window on a **warm** replay (started
 `warm-up`, six hours by default, before it). Measured over 120 trials (10 seeds): before, 5 of 90 worse,
-neutral or slowed changes written and 17 of 30 better ones not; now, 0 and 0.
+neutral or slowed changes written and 17 of 30 better ones not; now, 0 and 0. *Then* (2026-11-17, from the owner's
+image-squeeze run, where 89 re-estimates failed as "0 of 7 windows, from -0% to 0%"): the judge scores the stocks
+near what the change touches, waits for windows as long as their dominant time constant, bounds the warm-up by
+that and by the record, and says inconclusive where it cannot tell; still 0 false accepts and 0 false rejects over
+the same 120 trials, the neutral changes now inconclusive rather than failed.
 
 **3. Recovery** (`ergostat/bench/recovery.py`, `ergostat bench improve [--improver standin|ai --model M]
 [--cases LIST] [--rounds N]`). The truth cases (`bench/cases/*.yaml` and `cases.json`): SD Lab's
