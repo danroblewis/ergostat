@@ -60,8 +60,16 @@ def findings(p) -> float:
     return float(sum(1 for x in problems if x.level != "error"))
 
 
+def _meta():
+    from . import meta
+    return meta.READERS
+
+
 READERS = {"ergostat.model.fit": fit, "ergostat.model.unexplained": unexplained,
-           "ergostat.model.unidentified-loops": loops_unidentified, "ergostat.model.open-findings": findings}
+           "ergostat.model.unidentified-loops": loops_unidentified, "ergostat.model.open-findings": findings,
+           **{n: (lambda p, n=n: _meta()[n](p)) for n in ("ergostat.model.accepted-per-day", "ergostat.model.regressed",
+                                                          "ergostat.model.verified-share", "ergostat.model.fit-gained",
+                                                          "ergostat.model.cost-per-accepted")}}
 
 
 def measure(p, name: str) -> float | None:

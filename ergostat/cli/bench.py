@@ -17,7 +17,9 @@ def register(sub, common) -> None:
                                                        "judge's error rates, the loop's own measures")
     bs = b.add_subparsers(dest="bench")
     im = bs.add_parser("improve", help="damage true models, run the improvement loop on each, score it against the truth")
-    im.add_argument("--improver", choices=["standin", "ai"], default="standin", help="who proposes (default: the stand-in)")
+    im.add_argument("--improver", choices=["standin", "calibrator", "ai"], default="standin",
+                    help="who proposes: the stand-in (default), the calibrator (the calibration's estimates, as the "
+                         "examples' stand-ins do), or an AI agent")
     im.add_argument("--model", default="sonnet", help="with --improver ai: the model (default sonnet)")
     im.add_argument("--cases", metavar="LIST", help="cases by id, prefix or tag:NAME, comma-separated (default: all)")
     im.add_argument("--rounds", type=int, default=6, help="rounds of propose and judge, two hours of record each (default 6)")
@@ -25,8 +27,8 @@ def register(sub, common) -> None:
     im.add_argument("--out", metavar="DIR", help="where the scorecard goes (default ./bench-IMPROVER)")
     im.add_argument("--keep", action="store_true", help="keep each case's model and record under DIR/work")
     im.add_argument("--list", action="store_true", help="list the cases and their defects")
-    im.add_argument("--judge-fixes", action="store_true", help="the stand-in loop's judge with the two changes proposed "
-                                                               "to the improver's: like for like, and warm windows")
+    im.add_argument("--judge-fixes", action="store_true", help="the judge with the two changes proposed to it: like "
+                                                               "for like, and warm windows")
     im.add_argument("--json", action="store_true", help="print the scorecard as JSON")
     jd = bs.add_parser("judge", help="the judge's false-accept and false-reject rates over many seeds")
     jd.add_argument("--seeds", type=int, default=20)
@@ -88,8 +90,7 @@ def _improve(args) -> int:
         for c in cases:
             print(f"{c.id:26s} {', '.join(d['kind'] for d in c.defects):40s} {c.title}")
         return 0
-    from ..bench import shim
-    shim.LIKE_FOR_LIKE = shim.WARM = bool(args.judge_fixes)
+    from ..bench import judge_fixes
     out = Path(args.out or f"bench-{args.improver}" + ("-judge-fixes" if args.judge_fixes else ""))
     work = out / "work" if args.keep else Path(tempfile.mkdtemp(prefix="ergostat-bench-"))
     imp = improvers.make(args.improver, args.model)
@@ -97,8 +98,10 @@ def _improve(args) -> int:
     for c in cases:
         before = dict(imp.cost)
         s = recovery.prepare(c, work / c.id, seed=args.seed, rounds=args.rounds)
-        r = recovery.run(s, imp)
-        r.cost = {**r.cost, **{k: (v - before.get(k, 0)) if isinstance(v, int | float) else v for k, v in imp.cost.items()}}
+        with judge_fixes.variant(args.judge_fixes, args.judge_fixes) as judge:
+            r = recovery.run(s, imp, judge=judge)
+        r.cost = {**{k: round(v - before.get(k, 0), 4) if isinstance(v, int | float) else v for k, v in imp.cost.items()},
+                  "rounds": r.cost["rounds"], "seconds": r.cost["seconds"]}
         results.append(r)
         sc = r.scores
         print(f"{c.id:26s} fixed {sum(d['fixed'] for d in sc['defects'])}/{len(sc['defects'])}, proposals "

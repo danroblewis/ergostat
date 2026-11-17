@@ -185,7 +185,7 @@ def spec_after(p, x: dict) -> Spec | None:
 class Result:
     case: str
     improver: str
-    backend: str
+    judge: str
     planted: list[dict]
     rounds: list[dict] = field(default_factory=list)
     proposals: list[dict] = field(default_factory=list)
@@ -194,14 +194,11 @@ class Result:
     cost: dict = field(default_factory=dict)
 
 
-def run(s: Setup, improver, stop_after_quiet: int = 2) -> Result:
+def run(s: Setup, improver, stop_after_quiet: int = 2, judge: str = "as built") -> Result:
     """The improvement loop on ``s``'s damaged model for its rounds; the result, scored."""
     started = time.perf_counter()
     loop = ad.Loop(s.p, ad.Policy.auto(hold_out=s.round_h * 3600.0))
-    from . import shim
-    judge = "as built" if loop.backend == "improver" or not (shim.LIKE_FOR_LIKE or shim.WARM) else \
-        ", ".join(n for n, on in (("like for like", shim.LIKE_FOR_LIKE), ("warm windows", shim.WARM)) if on)
-    res = Result(s.case.id, improver.name, f"{loop.backend}, judge {judge}", s.planted)
+    res = Result(s.case.id, improver.name, f"judge {judge}", s.planted)
     damaged_spec = s.p.model.spec
     quiet = 0
     for r in range(s.rounds):
@@ -217,8 +214,8 @@ def run(s: Setup, improver, stop_after_quiet: int = 2) -> Result:
             after = spec_after(s.p, x) if x else None
             if after is None and got["status"] != "proposed":
                 try:
-                    from . import shim
-                    es_ = shim.edits(spec_now, (raw or {}).get("edit"))
+                    from ..numbers import improve as im
+                    es_ = im.edits(spec_now, (raw or {}).get("edit"))
                     sp, errors = tr.compiled(s.p.model.path, ye.apply_together(es_))
                     after = None if errors else sp
                 except Exception:
@@ -253,7 +250,7 @@ def run(s: Setup, improver, stop_after_quiet: int = 2) -> Result:
         if quiet >= stop_after_quiet:
             break
     res.scores = score(s, damaged_spec, s.p.model.spec, res)
-    res.cost = {"rounds": len(res.rounds), "seconds": round(time.perf_counter() - started, 1), **improver.cost}
+    res.cost = {**improver.cost, "rounds": len(res.rounds), "seconds": round(time.perf_counter() - started, 1)}
     return res
 
 
@@ -269,9 +266,17 @@ def score(s: Setup, damaged: Spec, final: Spec, res: Result) -> dict:
                         "halved": visible and after <= before / 2})
     props = res.proposals
     acc = res.accepted
+    by_kind: dict[str, dict] = {}
+    for x in props:
+        k = by_kind.setdefault(x.get("kind") or "?", {"proposed": 0, "checked": 0, "passed": 0, "failed": 0, "real_fixes": 0})
+        k["proposed"] += 1
+        k["checked"] += x["status"] == "proposed"
+        k["passed"] += x.get("verdict") == "passed" or x["id"] in {a["id"] for a in acc}
+        k["failed"] += x.get("verdict") == "failed"
+        k["real_fixes"] += x["real_fix"]
     t0, t1, t2 = s.since, s.rounds_end, s.end
     return {
-        "defects": defects,
+        "defects": defects, "by_kind": by_kind,
         "recall": (sum(d["fixed"] for d in defects) / sum(d["visible"] for d in defects)
                    if any(d["visible"] for d in defects) else None),
         "proposals": len(props), "checked": sum(1 for x in props if x["status"] == "proposed"),
@@ -286,7 +291,7 @@ def score(s: Setup, damaged: Spec, final: Spec, res: Result) -> dict:
 
 
 def as_dict(r: Result) -> dict:
-    return {"case": r.case, "improver": r.improver, "backend": r.backend, "planted": r.planted, "scores": r.scores,
+    return {"case": r.case, "improver": r.improver, "judge": r.judge, "planted": r.planted, "scores": r.scores,
             "cost": r.cost, "rounds": r.rounds, "proposals": r.proposals, "accepted": r.accepted}
 
 

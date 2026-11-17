@@ -4,7 +4,7 @@ benchmark can say whether it was fixed.
 | Kind | What is planted | Parameters |
 |---|---|---|
 | ``flow-removed`` | a flow taken out (its causes and the parameters only it used with it) | ``flow`` |
-| ``sign-flipped`` | one term of a flow's equation added where it was subtracted, or the reverse (its cause's sign too) | ``flow``, ``term`` |
+| ``sign-flipped`` | a term of a flow's equation added where it was subtracted, or the reverse | ``flow``, ``term`` |
 | ``parameter-x3`` | a parameter's value three times what it is (or ``factor``) | ``parameter``, ``factor`` |
 | ``delay-missing`` | a flow's DELAY3 (or DELAY1, SMOOTH) taken away: it moves at once | ``flow`` |
 | ``stock-merged`` | a stock between two flows merged away: its inflow goes straight on, its outflow is gone | ``stock`` |

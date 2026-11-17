@@ -10,7 +10,8 @@ forecast error: a free replay from each window's start, the inputs as measured).
 
 A change is checked once, after ``AFTER`` hold-outs of record; one whose edit can no longer be undone (a later
 change rewrote its lines) is said so and not judged. Run by a block (``ergostat verify``), like the judge: ergostat
-adds no check of its own accord. Everything about the changes themselves goes through ``bench/adapter.py``."""
+adds no check of its own accord. The two verdicts are states of the change's ``ergostat.model-change`` item
+(its status stays accepted)."""
 
 from __future__ import annotations
 
@@ -47,8 +48,7 @@ def _nmse(p, spec, since: float, until: float) -> float | None:
 def checked(p) -> dict[str, str]:
     """The changes already checked: id → verified or regressed."""
     out = {}
-    for t, state in ((ad.VERIFIED, "verified"), (ad.REGRESSED, "regressed"), (ad.VERIFIED_OUT, "verified"),
-                     (ad.REGRESSED_OUT, "regressed")):
+    for t, state in ((ad.VERIFIED, "verified"), (ad.REGRESSED, "regressed")):
         for e in p.events.query(n=None, type=t):
             out[str((e.get("data") or {}).get("change") or str(e.get("item") or "").rsplit("/", 1)[-1])] = state
     return out
@@ -115,7 +115,7 @@ def _run(p, now: float, hold_out, threshold, by: str, propose: bool) -> dict:
         data = {"change": x["id"], "title": x.get("title"), "why": got["why"], "windows": got["windows"], "by": by}
         if got["verdict"] == "regressed":
             data["revert"] = {"files": [e.as_dict() for e in revert(x)]}
-        ad.verdict_event(loop, x["id"], got["verdict"], data, source=by)
+        ad.event(p, x["id"], got["verdict"], data, source=by)
         out[got["verdict"]].append({"id": x["id"], "why": got["why"]})
         if got["verdict"] == "regressed" and propose:
             raw = {"kind": x.get("kind") or "structure", "title": f"undo: {x.get('title')}", "parts": [],

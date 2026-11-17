@@ -10,24 +10,20 @@ model is). Over the last ``WEEK`` of record:
 - ``ergostat.model.cost-per-accepted``: what the blocks that make changes spent (the ``cost_usd`` their runs
   record), over the changes written (none while nothing is written).
 
-``ergostat bench meta`` prints them. Read through ``bench/adapter.py``, so they mean the same on either loop."""
+Each is read by a sensor like the model's own (``builtin: ergostat.model.accepted-per-day``); ``ergostat measure``
+and ``ergostat bench meta`` print them."""
 
 from __future__ import annotations
 
 import time
 
 from ..bench import adapter as ad
+from ..spec.ir import MODEL_MEASURES
 
 WEEK = 7 * 86400.0
-MEASURES = {
-    "ergostat.model.accepted-per-day": "changes written to the model a day, over the last week",
-    "ergostat.model.regressed": "changes written over the last week that the prediction check flagged for revert",
-    "ergostat.model.verified-share": "of the changes the prediction check scored over the last week, the share whose "
-                                     "forecasts held",
-    "ergostat.model.fit-gained": "what the changes written over the last week lowered the scaled error by, together",
-    "ergostat.model.cost-per-accepted": "dollars the blocks that make changes spent over the last week, over the "
-                                        "changes written",
-}
+MEASURES = {n: d for n, d in MODEL_MEASURES.items() if n in (
+    "ergostat.model.accepted-per-day", "ergostat.model.regressed", "ergostat.model.verified-share",
+    "ergostat.model.fit-gained", "ergostat.model.cost-per-accepted")}
 
 
 def _since(p, now: float) -> float:
@@ -44,8 +40,7 @@ def accepted_per_day(p, now: float | None = None) -> float:
 
 def _verdicts(p, since: float, now: float) -> dict[str, int]:
     out = {"verified": 0, "regressed": 0}
-    for t, k in ((ad.VERIFIED, "verified"), (ad.VERIFIED_OUT, "verified"), (ad.REGRESSED, "regressed"),
-                 (ad.REGRESSED_OUT, "regressed")):
+    for t, k in ((ad.VERIFIED, "verified"), (ad.REGRESSED, "regressed")):
         out[k] += len(p.events.query(n=None, type=t, since=since, until=now))
     return out
 

@@ -7,6 +7,8 @@
   read was measured. Each is tuned (its new numbers, by a search on the replay's scaled error) and scored; the best
   two that lower the error by ``GAIN`` or more, not on the same part, are proposed with the statistic that says so
   and the rule they follow. What the judge failed, or ergostat refused, is not proposed again.
+- **calibrator** (``Calibrator``, a program): what the examples' stand-ins do, the calibration's estimates proposed
+  for the judge; parameters only.
 - **AI** (``AI``, ``claude -p``): the model, its fit, its findings and the series it does not read, and how to
   propose; it answers with propose lines. Run only on demand (``ergostat bench improve --improver ai``)."""
 
@@ -35,14 +37,14 @@ PARSIMONY = 0.01       # each new parameter must buy this much more
 def _nmse(spec: Spec, data: ob.Data, params: dict | None = None) -> float:
     """The replay's scaled error, every measured stock counted (never the fit's total, which leaves out a stock
     slower than the record: a change that slows one would look better)."""
-    from . import shim
+    from .judge_fixes import per_stock
     try:
         run = sim.replay(spec, data, sim.plan(spec, params or {}))
     except Exception:
         return math.inf
     if not run.valid:
         return math.inf
-    per = shim.like_nmse(spec, data, run)
+    per = per_stock(spec, data, run)
     want = [r for r in data.values if r.startswith("stock.") and data.first(r) is not None]
     if not per or any(r not in per for r in want if r[6:] in spec.stocks):
         return math.inf
@@ -231,7 +233,7 @@ class StandIn:
             if len(out) >= MOST:
                 break
         self.cost["calls"] += 1
-        self.cost["seconds"] = round(self.cost.get("seconds", 0.0) + time.perf_counter() - t0, 1)
+        self.cost["improver_seconds"] = round(self.cost.get("improver_seconds", 0.0) + time.perf_counter() - t0, 1)
         return out
 
 
@@ -330,8 +332,8 @@ class AI:
         self.history: list[str] = []
 
     def prompt(self, p, loop, data: ob.Data) -> str:
+        from ..numbers import improve as im
         from ..spec import read
-        from . import shim
         spec = p.model.spec
         fit = _fit(spec, data)
         lines = [f"- total: {((fit.get('total') or {}).get('nmse')) if fit.get('total') else 'not valid'}"]
@@ -345,7 +347,7 @@ class AI:
         hist = ("\nWhat became of your earlier proposals:\n" + "\n".join(self.history[-8:]) + "\n") if self.history else ""
         return PROMPT.format(most=2, model=p.model.path.read_text(encoding="utf-8").rstrip(), fit="\n".join(lines),
                              findings="\n".join(fs) or "- nothing", orphans=", ".join(orphans) or "none", history=hist,
-                             rules=", ".join(shim.RULES))
+                             rules=", ".join(im.RULES))
 
     def propose(self, p, loop, at: float, data: ob.Data) -> list[dict]:
         for x in loop.changes().values():
@@ -364,7 +366,7 @@ class AI:
             self.cost["failed"] += 1
             return []
         self.cost["calls"] += 1
-        self.cost["seconds"] = round(self.cost.get("seconds", 0.0) + time.perf_counter() - t0, 1)
+        self.cost["improver_seconds"] = round(self.cost.get("improver_seconds", 0.0) + time.perf_counter() - t0, 1)
         self.cost["usd"] += float(out.get("total_cost_usd") or 0.0)
         u = out.get("usage") or {}
         tin = int(u.get("input_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0)
@@ -386,9 +388,58 @@ class AI:
         return props[:2]
 
 
+class Calibrator:
+    """What the examples' stand-in improvers do (``examples/image-squeeze/bin/standin_improver.py``): propose the
+    calibration's own estimates (each part alone, the last fifth of the record held out), the ones ergostat would
+    not propose itself too, and let the judge decide on the record after them. A parameter's value only: it never
+    changes the structure."""
+
+    name = "calibrator"
+
+    def __init__(self):
+        self.tried: set[tuple[str, str]] = set()
+        self.cost = {"usd": 0.0, "tokens": 0, "calls": 0}
+
+    def propose(self, p, loop, at: float, data: ob.Data) -> list[dict]:
+        from ..numbers import estimate as es
+        from . import clock
+        t0 = time.perf_counter()
+        with clock.at(at):
+            got = es.estimate(p, {"at": at})
+        spec = p.model.spec
+        text = p.model.path.read_text(encoding="utf-8")
+        v = ver.version(spec)
+        out = []
+        for e in sorted(got.values(), key=lambda e: str(e.get("parameter"))):
+            n, val, was = e.get("parameter"), e.get("value"), e.get("declared")
+            if n not in spec.parameters or val is None or was is None or e.get("at_bound") or abs(val - was) <= 0.02 * abs(was):
+                continue
+            if (v, n) in self.tried:
+                continue
+            m = fm.of_spec(spec)
+            m["parameters"][n]["value"] = float(ye.number(val))
+            hunks = fm.hunks(text, fm.render(m))
+            if not hunks:
+                continue
+            self.tried.add((v, n))
+            out.append({"kind": "parameter", "parts": [f"parameter.{n}"], "title": f"{n}: the calibration's estimate",
+                        "edit": {"files": [{"file": "ergostat.yaml", "hunks": hunks}]}, "confidence": 0.3,
+                        "reasons": [{"says": f"the record's estimate of {n} is {ye.number(val)}, not {ye.number(was)}",
+                                     "evidence": "fit:total.nmse"},
+                                    {"says": "a parameter is measurable: the record says its value",
+                                     "evidence": "rule:parameter-assessment"}]})
+            if len(out) >= MOST:
+                break
+        self.cost["calls"] += 1
+        self.cost["improver_seconds"] = round(self.cost.get("improver_seconds", 0.0) + time.perf_counter() - t0, 1)
+        return out
+
+
 def make(name: str, model: str = "sonnet"):
     if name in ("standin", "stand-in"):
         return StandIn()
+    if name == "calibrator":
+        return Calibrator()
     if name == "ai":
         return AI(model)
-    raise KeyError(f"no improver {name}: standin, ai")
+    raise KeyError(f"no improver {name}: standin, calibrator, ai")

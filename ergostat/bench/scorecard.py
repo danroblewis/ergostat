@@ -20,7 +20,14 @@ def overall(results) -> dict:
     acc = sum(s["accepted"] for s in sc)
     usd = sum(float(r.cost.get("usd") or 0.0) for r in results)
     accepted_real = sum(s["accepted_real"] for s in sc)
+    kinds: dict[str, dict] = {}
+    for s_ in sc:
+        for k, row in (s_.get("by_kind") or {}).items():
+            got = kinds.setdefault(k, dict.fromkeys(row, 0))
+            for f, v in row.items():
+                got[f] += v
     return {
+        "by_kind": kinds,
         "cases": len(results), "defects": len(defects), "not_visible": len(every) - len(defects),
         "fixed": sum(d["fixed"] for d in defects),
         "recall": sum(d["fixed"] for d in defects) / len(defects) if defects else None,
@@ -63,8 +70,8 @@ def markdown(data: dict) -> str:
     o = data["overall"]
     cases = data["cases"]
     imp = cases[0]["improver"] if cases else "?"
-    be = cases[0]["backend"] if cases else "?"
-    out = [f"# Recovery benchmark: {imp} (loop: {be})", "",
+    be = cases[0]["judge"] if cases else "?"
+    out = [f"# Recovery benchmark: {imp} ({be})", "",
            f"{o['cases']} cases, {o['defects']} defects planted and visible in the record"
            + (f" ({o['not_visible']} more planted that the record cannot tell from the truth)" if o.get("not_visible") else "")
            + f", {o['fixed']} fixed (recall {_g(o['recall'])}); "
@@ -77,6 +84,9 @@ def markdown(data: dict) -> str:
            f"Cost: {o['rounds']} rounds, {o['seconds']} s, {o['tokens']} tokens, ${o['usd']}"
            + (f" (${o['usd_per_accepted_fix']} an accepted fix)" if o.get("usd_per_accepted_fix") else "") + ".", "",
            "Recall by defect: " + ", ".join(f"{k} {v}" for k, v in o["recall_by_kind"].items()) + ".", "",
+           "Proposals by kind (proposed, checked by ergostat, passed by the judge, failed by it, real fixes): "
+           + "; ".join(f"{k} {r['proposed']}, {r['checked']}, {r['passed']}, {r['failed']}, {r['real_fixes']}"
+                       for k, r in sorted(o.get("by_kind", {}).items())) + ".", "",
            "| Case | Defects | Fixed | Proposals (real) | Accepted (real, damage) | Fit damaged / final / truth | "
            "Forecast damaged / final / truth | Rounds | s |",
            "|---|---|---|---|---|---|---|---|---|"]

@@ -162,8 +162,8 @@ def test_the_catalogue_plants_each_defect_and_says_where_it_shows():
         assert planted[0]["locus"] and text != fm.render(t)
         if gone:
             assert gone.split(".")[1] not in (m["stocks"] if gone.startswith("stock") else m["flows"])
-    m, _ = df.damaged(truth.cases()["063-delay3-supply-line"].form(), [{"kind": "delay-missing", "flow": "a-to-b"}])
-    assert "DELAY3" not in m["flows"]["a-to-b"]["equation"]
+    m, _ = df.damaged(truth.cases()["063-delay3-supply-line"].form(), [{"kind": "delay-missing", "flow": "b-arrives"}])
+    assert "DELAY3" not in m["flows"]["b-arrives"]["equation"]
     m, _ = df.damaged(truth.cases()["011-goal-gap"].form(), [{"kind": "sign-flipped", "flow": "orders"}])
     assert m["flows"]["orders"]["equation"] == "orders-base + orders-per-i * stock.i"
     assert m["flows"]["orders"]["driven_by"] == ["+stock.i"]
@@ -232,6 +232,15 @@ def test_a_good_change_is_verified_and_the_loop_measures_what_it_cost(tmp_path):
     assert set(m) == set(meta.MEASURES)
 
 
-def test_the_adapter_names_the_backend_and_normalises_states():
-    assert ad.backend() in ("shim", "improver")
-    assert set(ad.STATES) >= {"checked", "testing", "passed", "accepted", "failed", "superseded", "refused"}
+def test_the_judge_with_its_proposed_changes_is_not_fooled_by_a_slowed_stock():
+    from ergostat.bench import judge_fixes
+    with judge_fixes.variant(like=True, warm=True):
+        t = [judging.trial("judge-delay", 2, "value", k) for k in ("slowed", "better")]
+    assert not t[0].written and t[1].written, t
+
+
+def test_verified_and_regressed_are_states_of_the_change_item():
+    from ergostat.numbers.proposals import STATUS
+    from ergostat.spec.ir import MODEL_CHANGE_STATES, MODEL_MEASURES
+    assert {"verified", "regressed"} <= set(MODEL_CHANGE_STATES) and STATUS["verified"] == STATUS["regressed"] == "accepted"
+    assert set(meta.MEASURES) <= set(MODEL_MEASURES)

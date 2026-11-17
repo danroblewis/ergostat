@@ -7,7 +7,9 @@ The ladder's format: ``stocks: {A: 0, H: 0 hidden}``, flows ``outside -> A: 20``
 and ``injections``. Only cases whose
 rates are affine in the stocks (or a DELAY3 of one) are converted; a DELAY3 between two stocks is written as what
 leaves the first at once and what arrives in the second through the delay (two flows: the material in transit is in
-the delay, as SD writes a material delay), since a delayed rate taken from the first stock would drain it late; each rate is written as its affine form, every
+the delay, as SD writes a material delay), since a delayed rate taken from the first stock would drain it late;
+each rate is written as its affine
+form, every
 number a parameter (``a-to-b-per-a``), so a defect and a fix are changes to named parameters and terms. A step is
 three minutes (rates per step are multiplied by 20 to be per hour). A constant outside inflow is an input, measured;
 a case with no schedule has one added (the first input doubles every 100 steps), so the record is excited, as

@@ -68,7 +68,7 @@ def _edit(text: str, after: dict) -> dict:
     return {"files": [{"file": "ergostat.yaml", "hunks": fm.hunks(text, fm.render(after))}]}
 
 
-def trial(world: str, seed: int, family: str, kind: str, work: Path | None = None, backend: str | None = None) -> Trial:
+def trial(world: str, seed: int, family: str, kind: str, work: Path | None = None) -> Trial:
     case = tt.cases()[world]
     rng = random.Random(f"{world}:{seed}:{family}")
     truth = case.form()
@@ -110,7 +110,7 @@ def trial(world: str, seed: int, family: str, kind: str, work: Path | None = Non
            "title": title,
            "edit": edit, "reasons": [{"says": "the replay drifts from the record", "evidence": "fit:total.nmse"}],
            "confidence": 0.5}
-    loop = ad.Loop(s.p, ad.Policy.auto(hold_out=HOLD * 3600.0), force=backend)
+    loop = ad.Loop(s.p, ad.Policy.auto(hold_out=HOLD * 3600.0))
     at = s.t(TRAIN)
     got = loop.submit("judge-test", raw, data=ob.measured(s.p, ob.reference(s.p, at)), at=at)
     verdict, why = None, got.get("why")
@@ -142,22 +142,14 @@ def rates(trials: list[Trial]) -> dict:
             "false_accept_examples": [vars(t) for t in fa[:5]], "false_reject_examples": [vars(t) for t in fr[:5]]}
 
 
-def run(seeds: int = 20, backend: str | None = None, like_for_like: bool = False, warm: bool = False) -> tuple[list[Trial], dict]:
-    """``like_for_like`` and ``warm`` try the shim's judge with the two changes proposed to the improver's (SPEC §12f)."""
-    from . import shim
-    was = shim.LIKE_FOR_LIKE, shim.WARM
-    shim.LIKE_FOR_LIKE, shim.WARM = like_for_like, warm
-    try:
-        return _run(seeds, backend)
-    finally:
-        shim.LIKE_FOR_LIKE, shim.WARM = was
-
-
-def _run(seeds: int, backend: str | None) -> tuple[list[Trial], dict]:
+def run(seeds: int = 20, like_for_like: bool = False, warm: bool = False) -> tuple[list[Trial], dict]:
+    """The judge as built, or with the changes proposed to it (``judge_fixes.py``)."""
+    from . import judge_fixes
     trials = []
-    for seed in range(1, seeds + 1):
-        for world, (_, delayed) in WORLDS.items():
-            for family in ("value", "delay") if delayed else ("value",):
-                for kind in KINDS:
-                    trials.append(trial(world, seed, family, kind, backend=backend))
+    with judge_fixes.variant(like_for_like, warm):
+        for seed in range(1, seeds + 1):
+            for world, (_, delayed) in WORLDS.items():
+                for family in ("value", "delay") if delayed else ("value",):
+                    for kind in KINDS:
+                        trials.append(trial(world, seed, family, kind))
     return trials, rates(trials)

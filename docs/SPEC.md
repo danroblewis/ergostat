@@ -1543,11 +1543,11 @@ accepted, and what is accepted lowers the error. It is drawn, explained and chec
 
 ## 12f. Verifying the improver
 
-How we know the loop that improves the model (section 12e) works. Everything here reads and drives that loop
-through one adapter (`ergostat/bench/adapter.py`: submit a proposal, run the judge at a moment with a policy,
-Accept with the diff's hash, the changes and their states, the changes written), so it means the same whichever
-version of the loop is installed; until the improver's own modules are, the adapter uses `bench/shim.py`, which
-keeps the same contract on the review queue.
+How we know the loop that improves the model (section 12e) works. The benchmark drives that loop's own modules
+(`propose` lines through `improve.submit`, the built-in judge, Accept, the `ergostat.model-change` items) through a
+small handle, `ergostat/bench/adapter.py`, which runs each call at a moment of a simulated record (the benchmark's
+clock, `bench/clock.py`, so what is recorded then is stamped then) and gives the judge the policy the benchmark
+asks for, in memory, so the models it damages stay as written.
 
 **1. The pipeline** (`tests/test_bench.py`). A proposal with no reason whose evidence ergostat can check is
 refused; so is one whose edit cannot be made or does not compile. Accept writes exactly the diff shown, and refuses
@@ -1564,7 +1564,8 @@ reported. *Found:* the fit's total leaves out a stock slower than its window, so
 in every window; and each window is replayed cold (its delays in equilibrium), so a correct delay often looks
 worse in a short one. *Proposed* to the judge: compare **like for like** (each stock's scaled error over the
 stocks either model is fitted on, whatever its time constant) and score each window on a **warm** replay
-(started six hours before it). `--judge-fixes` tries both on the shim's judge.
+(started six hours before it). `bench/judge_fixes.py` puts both in place of the judge's `compare` while a benchmark
+runs (`--judge-fixes`).
 
 **3. Recovery** (`ergostat/bench/recovery.py`, `ergostat bench improve [--improver standin|ai --model M]
 [--cases LIST] [--rounds N] [--judge-fixes]`). The truth cases (`bench/cases/*.yaml` and `cases.json`): SD Lab's
@@ -1582,8 +1583,10 @@ less; a defect already that close as planted is not visible and not counted), **
 the mean locus error over every measured stock by 0.02 or more and raise none by as much), **damage** (changes
 written that raise it by 0.02 or more), **fit** (the scaled error over the record, damaged, final and the truth's),
 **forecast** (the same on the four later hours) and **cost** (rounds, seconds, tokens, dollars). Written as
-`scorecard.md` and `scorecard.json`. The stand-in improver (`bench/improvers.py`) is deterministic and runs on two
-cases in the test suite; the AI improver (`claude -p`) runs only on demand.
+`scorecard.md` and `scorecard.json`, with the proposals counted by kind (proposed, checked, passed, failed, real
+fixes). The improvers (`bench/improvers.py`): the **stand-in**, a program that searches a fixed menu of changes,
+deterministic, run on two cases in the test suite; the **calibrator**, what the examples' stand-ins do (the
+calibration's estimates proposed for the judge, parameters only); the **AI** (`claude -p`), run only on demand.
 
 **4. The prediction check** (`ergostat/numbers/verify.py`, `ergostat verify [--propose]`, run by a block). Each
 change written is checked once, after three hold-outs of record: the model now beside the model with that change
@@ -1591,9 +1594,9 @@ undone (its hunks reversed where they sit now), replayed on the record since it 
 `ergostat.model-change.verified` when it forecasts no worse; `ergostat.model-change.regressed`, with the edit that
 undoes it, when without it the scaled error is lower by the threshold over the whole record since and in at least
 half the windows; with `--propose` the undoing is proposed, by `verify`, for the judge and the owner. *Decided:*
-the check never undoes a change itself. A change whose lines a later one rewrote is said so and not judged. Until
-the item kind `ergostat.model-change` folds these two states, they are recorded as `ergostat.model.verified` and
-`.regressed` about the model, the change's item in their data.
+the check never undoes a change itself. A change whose lines a later one rewrote is said so and not judged.
+`verified` and `regressed` are states of the `ergostat.model-change` item kind, after `accepted` (its status stays
+accepted).
 
 **5. The loop's own measures** (`ergostat/numbers/meta.py`, `ergostat bench meta`), over the last week:
 
@@ -1605,7 +1608,8 @@ the item kind `ergostat.model-change` folds these two states, they are recorded 
 | `ergostat.model.fit-gained` | What the changes written lowered the scaled error by, together (each one's fit before minus after, as Accept measured it) |
 | `ergostat.model.cost-per-accepted` | The `cost_usd` the blocks that make changes recorded, over the changes written |
 
-They join the model's measures of section 12e (`MODEL_MEASURES`, read by a sensor) when the two are merged.
+They are built-in measures like the model's own of section 12e (`MODEL_MEASURES`): read by a sensor
+(`builtin: ergostat.model.accepted-per-day`), or printed by `ergostat measure`.
 
 ## 13. Examples
 
