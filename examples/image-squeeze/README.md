@@ -203,8 +203,9 @@ stays off; with `FACTORY_AI=claude` the researcher reads the results and keeps g
 ## The numbers
 
 Each window of the last 48 images is a first-order smoothing of what the batch just served, written
-as an equation: `(auxiliary.batch-quality - stock.quality) / window-time`, with `window-time` the
-38.4 s an image stays in the window (`world/customers.py`); the images compared while a candidate
+as an equation: `(auxiliary.batch-quality - stock.quality) / window-time`. The window is 38.4 s
+long (`world/customers.py`), and a moving average lags by half its length, so `window-time`, the
+smoothing with the same lag, is 19.2 s (Sterman ch. 11.5); the images compared while a candidate
 runs, `images-per-hour * MIN(stock.experiments, 1)`. Both are marked to estimate, since a percentile
 is only nearly a mean: the Fit page shows how well the replay follows each window, and proposes what
 the record supports.

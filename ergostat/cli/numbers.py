@@ -43,25 +43,40 @@ def cmd_fit(args) -> int:
     spec = _spec(p)
     snap = light_snap(p, args)
     _, run, got = ft.compute(p, snap)
-    ft.record(p, got, snap["window"])
+    ft.record(p, got)
     if args.json:
         return out_json({"version": ver.version(spec), "structure": ver.structure(spec), **got, "notes": run.notes,
                          "words": ft.WORDS, "history": ft.versions(p), "accepted": pr.accepted(p),
                          "proposals": pr.pending(p, spec)})
-    rows = []
-    for part, label in (("stocks", ""), ("equations", "equation ")):
-        for ref, s in sorted(got[part].items()):
-            name = label + ref.split(".", 1)[1]
-            rows.append([name] + (["", "", "", "", "", "too few points"] if not s else
-                                  [str(s["n"]), two(s["r2"]), pct(s["mape"]), two(s["um"]), two(s["us"]), two(s["uc"])]))
-    t = got["total"]
-    if t:
-        rows.append([c("total", "bold"), str(t["n"]), two(t["r2"]), pct(t["mape"]), two(t["um"]), two(t["us"]), two(t["uc"])])
-    print(table(["REPLAYED", "N", "R²", "MAPE", "U_M", "U_S", "U_C"], rows, "nothing measured to replay in this window"))
+
+    def cells(s):
+        if not s:
+            return ["", "", "", "", "", "too few points"]
+        if s.get("too_little"):
+            return [str(s["n"]), "", "", "", "", f"too little record: {s['too_little']}"]
+        if s.get("exact"):
+            return [str(s["n"]), "", "", "", "", "no error"]
+        err = pct(s["mape"]) if s["mape"] is not None else \
+            (f"{pct(s['error_share'])} of {s['error_of']}" if s.get("error_share") is not None else "")
+        return [str(s["n"]), two(s["r2"]), err, two(s["um"]), two(s["us"]), two(s["uc"]) + (f"  {s['says']}" if s.get("says") else "")]
+    for part, head, empty in (("stocks", "MODEL FIT", "no stock is moved by an equation"),
+                              ("partial", "EQUATION, INPUTS AS MEASURED", "no equation's part is measured"),
+                              ("equations", "EQUATION, REPLAYED", ""),
+                              ("accounting", "ACCOUNTING", "")):
+        rows = [[ref.split(".", 1)[1], *cells(s)] for ref, s in sorted(got[part].items())]
+        if part == "stocks" and got["total"]:
+            t = got["total"]
+            rows.append([c("total", "bold"), str(t["n"]), two(t["r2"]), pct(t["mape"]), two(t["um"]), two(t["us"]), two(t["uc"])])
+        if rows or empty:
+            print(table([head, "N", "R²", "MAPE", "U_M", "U_S", "U_C"], rows, empty))
+    for ref, stock in sorted(got["judged_by_stock"].items()):
+        print(c(f"  {ref}: measured from its stock's changes, so judged by {stock}'s replay", "dim"))
+    for n in got["invalid"]:
+        print(c(f"  not valid: {n}", "warn"))
     for n in run.notes:
         print(c(f"  {n}", "dim"))
-    print(c(f"\nversion {ver.version(spec)}, over {human(snap['window'])}. R² {ft.WORDS['r2']}; MAPE {ft.WORDS['mape']}; "
-            f"Theil's U_M {ft.WORDS['um']}, U_S {ft.WORDS['us']}, U_C {ft.WORDS['uc']}.", "dim"))
+    print(c(f"\nversion {ver.version(spec)}, over the last {human(got['span'])} of record. R² {ft.WORDS['r2']}; MAPE {ft.WORDS['mape']}; "
+            f"Theil's U_M {ft.WORDS['um']}, U_S {ft.WORDS['us']}, U_C {ft.WORDS['uc']}. Accounting: {ft.WORDS['accounting']}.", "dim"))
     waiting = pr.pending(p, spec)
     if waiting:
         print(f"\n{len(waiting)} proposal{'s' if len(waiting) > 1 else ''} waiting: ergostat proposals")
@@ -104,8 +119,12 @@ def cmd_proposals(args) -> int:
     if args.json:
         return out_json(got)
     if not got:
-        print("no proposals: every parameter to estimate fits as written, or too little is measured to say "
+        from ..numbers import estimate as es
+        why = {n: e.get("refused") or e.get("why") for n, e in es.load(p, spec).items() if e.get("refused") or e.get("why")}
+        print("no proposals: every parameter to estimate fits as written, or the record does not support a change "
               "(estimate: true marks a parameter to fit)")
+        for n, w in sorted(why.items()):
+            print(c(f"  {n}: {w}", "dim"))
         return 0
     for i, x in enumerate(got):
         if i:

@@ -7,7 +7,8 @@ names, the way Vensim and Stella write them.
 
 A bare name is a parameter (``parameters:``); a part is a reference (``stock.x``, ``flow.x``,
 ``auxiliary.x``). Names have hyphens in them, so subtraction is written with spaces: ``a - b``.
-Functions: MIN, MAX, ABS, EXP, LN, SQRT, and system dynamics' delays, DELAY1 and DELAY3 (a
+Functions: MIN, MAX, ABS, EXP, LN, SQRT, ZIDZ(a, b) and XIDZ(a, b, x) (a / b, or 0, or x, where b is 0:
+Vensim's, for a division by 0 that is meant), and system dynamics' delays, DELAY1 and DELAY3 (a
 material delay of the first or third order: what goes in comes out after the delay time, on
 average) and SMOOTH and SMOOTH3 (an information delay: exponential smoothing); a parameter with a
 ``table:`` is a lookup, called like a function (``effect-of-load(stock.queue)``).
@@ -22,7 +23,7 @@ import re
 from fractions import Fraction
 
 FUNCS = {"MIN": (2, None), "MAX": (2, None), "ABS": (1, 1), "EXP": (1, 1), "LN": (1, 1), "SQRT": (1, 1),
-         "DELAY1": (2, 2), "DELAY3": (2, 2), "SMOOTH": (2, 2), "SMOOTH3": (2, 2)}
+         "ZIDZ": (2, 2), "XIDZ": (3, 3), "DELAY1": (2, 2), "DELAY3": (2, 2), "SMOOTH": (2, 2), "SMOOTH3": (2, 2)}
 DELAYS = {"DELAY1": 1, "DELAY3": 3, "SMOOTH": 1, "SMOOTH3": 3}     # each keeps this many hidden stocks
 TOKEN = re.compile(r"""\s*(?:
     (?P<num>(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)
@@ -191,6 +192,30 @@ def instant_refs(tree) -> list[str]:
     return out
 
 
+def delayed_refs(tree, material: bool = False) -> list[str]:
+    """The parts it names only inside a delay's input (only a material one, DELAY1 or DELAY3, with
+    ``material``): what reaches it through the delay's own stocks, never at once."""
+    inside: list[str] = []
+
+    def go(n, held):
+        tag = n[0]
+        if tag == "ref" and held and f"{n[1]}.{n[2]}" not in inside:
+            inside.append(f"{n[1]}.{n[2]}")
+        elif tag == "neg":
+            go(n[1], held)
+        elif tag == "bin":
+            go(n[2], held)
+            go(n[3], held)
+        elif tag == "fn":
+            for i, a in enumerate(n[2]):
+                go(a, held or (n[1] in DELAYS and i == 0 and (not material or n[1].startswith("DELAY"))))
+        elif tag == "lookup":
+            go(n[2], held)
+    go(tree, False)
+    now = set(instant_refs(tree))
+    return [r for r in inside if r not in now]
+
+
 def names(tree) -> list[str]:
     """The parameters it names (a lookup's table among them)."""
     out: list[str] = []
@@ -267,12 +292,24 @@ class Compiled:
     """An equation ready to run: ``fn(values, params, state, change, init)`` (V, P, S, D, N). ``values`` maps a
     reference to its value now; ``state`` holds the hidden stocks of its delays (``slots`` of them),
     and ``change`` receives their rates of change; with ``init``, each delay starts in equilibrium
-    with its input."""
+    with its input. ``decay`` holds, for each hidden stock, the share of it that leaves an hour (one
+    over its stage time, T/order), for the integrator to choose its step and integrate it stably.
+
+    Nothing that fails is hidden: a division by 0 (``/``, where ZIDZ or XIDZ was not written), the
+    logarithm or square root of a number not above 0, a negative number to a fractional power and an
+    overflow are each taken as 0, as Vensim's ZIDZ would, and counted in ``faults`` for the run's notes."""
 
     def __init__(self, tree, tables: dict[str, list] | None = None):
         self.tree = tree
         self.slots = 0
+        self.decay: list[float] = []
+        self.faults: dict[str, int] = {}
         tables = tables or {}
+        faults = self.faults
+
+        def fault(what: str) -> float:
+            faults[what] = faults.get(what, 0) + 1
+            return 0.0
 
         def build(n):
             tag = n[0]
@@ -299,15 +336,18 @@ class Compiled:
                 if op == "/":
                     def div(V, P, S, D, N):
                         y = b(V, P, S, D, N)
-                        return a(V, P, S, D, N) / y if y else 0.0       # Vensim's ZIDZ: nothing over nothing is nothing
+                        return a(V, P, S, D, N) / y if y else fault("divided by 0")
                     return div
+
                 def pw(V, P, S, D, N):
                     x, y = a(V, P, S, D, N), b(V, P, S, D, N)
                     try:
                         r = x ** y
                     except (OverflowError, ZeroDivisionError):
-                        return 0.0
-                    return r if isinstance(r, float) else 0.0         # a negative to a fractional power: no real answer
+                        return fault("overflow, or 0 to a negative power")
+                    if isinstance(r, complex):
+                        return fault("a negative number to a fractional power")
+                    return r
                 return pw
             if tag == "lookup":
                 a, table = build(n[2]), tables.get(n[1]) or [(0.0, 0.0)]
@@ -317,14 +357,27 @@ class Compiled:
                 return lambda V, P, S, D, N: min(f(V, P, S, D, N) for f in args)
             if name == "MAX":
                 return lambda V, P, S, D, N: max(f(V, P, S, D, N) for f in args)
+            if name in ("ZIDZ", "XIDZ"):
+                a, b = args[0], args[1]
+                x = args[2] if name == "XIDZ" else (lambda V, P, S, D, N: 0.0)
+
+                def idz(V, P, S, D, N):
+                    y = b(V, P, S, D, N)
+                    return a(V, P, S, D, N) / y if y else x(V, P, S, D, N)
+                return idz
             one = args[0]
             if name in ("ABS", "EXP", "LN", "SQRT"):
-                g = {"ABS": abs, "EXP": lambda x: math.exp(min(x, 700.0)), "LN": lambda x: math.log(x) if x > 0 else 0.0,
-                     "SQRT": lambda x: math.sqrt(x) if x > 0 else 0.0}[name]
+                def exp(x):
+                    return math.exp(x) if x <= 700.0 else fault("overflow, or 0 to a negative power")
+                g = {"ABS": abs, "EXP": exp,
+                     "LN": lambda x: math.log(x) if x > 0 else fault("the logarithm of a number not above 0"),
+                     "SQRT": lambda x: math.sqrt(x) if x >= 0 else fault("the square root of a negative number")}[name]
                 return lambda V, P, S, D, N: g(one(V, P, S, D, N))
             k, order, T = self.slots, DELAYS[name], args[1]
             self.slots += order
+            self.decay += [0.0] * order
             material = name.startswith("DELAY")
+            decay = self.decay
 
             def delay(V, P, S, D, N):
                 x, t = one(V, P, S, D, N), max(T(V, P, S, D, N), 1e-12) / order
@@ -333,6 +386,7 @@ class Compiled:
                         S[k + j] = x * t if material else x
                 inflow = x
                 for j in range(order):
+                    decay[k + j] = 1.0 / t
                     if material:
                         out = S[k + j] / t
                         D[k + j] = inflow - out
@@ -470,6 +524,13 @@ def units_of(tree, unit_of_ref, unit_of_par, tables_unit=None) -> tuple[dict | N
             return u
         if name == "ABS":
             return args[0]
+        if name in ("ZIDZ", "XIDZ"):
+            a, b = args[0], args[1]
+            if a == UNKNOWN or b == UNKNOWN:
+                q = UNKNOWN
+            else:
+                q = _mul(a if a is not WILD else {}, b if b is not WILD else {}, -1) if (a, b) != (WILD, WILD) else WILD
+            return same(q, args[2], f"{name}'s value where its divisor is 0 is not in its unit") if name == "XIDZ" else q
         if name in ("EXP", "LN"):
             if args[0] not in (WILD, UNKNOWN) and args[0]:
                 problems.append(f"{name} of {text(n[2][0])}, which has a unit ({unit_text(args[0])}): it takes a pure number")

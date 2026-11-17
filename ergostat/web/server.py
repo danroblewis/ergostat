@@ -8,6 +8,7 @@ from __future__ import annotations
 import html
 import json
 import mimetypes
+import secrets
 import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -323,6 +324,7 @@ def api(live: Live, path: str, q: dict):
 
 def handler(project):
     live = Live(project)
+    token = secrets.token_urlsafe(24)                    # this run's: written into the page, asked of every write
 
     class Handler(BaseHTTPRequestHandler):
         timeout = 10                                   # an idle browser connection gives its thread back
@@ -350,12 +352,24 @@ def handler(project):
                     return self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
             return self._send(404, b"not found", "text/plain")
 
+        def _host_ok(self) -> bool:
+            """Only a request addressed to this server by its own name: a page on another site whose
+            name was pointed at 127.0.0.1 (DNS rebinding) sends its own name as the Host, and is refused."""
+            port = self.server.server_address[1]
+            return (self.headers.get("Host") or "").lower() in {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+
         def do_POST(self):
             """The page's one kind of write: the owner accepting or dismissing a proposal, or asking for
-            estimates. Only from the page itself: a request another site's page could send is refused
-            (it cannot set this header without the server's leave, which it never gives)."""
+            estimates. Only from the page itself: addressed to this server by its own name (the Host
+            header), from its own origin (Origin, Sec-Fetch-Site), and carrying the token this run of the
+            server wrote into the page it served, which no other page can read."""
             u = urlsplit(self.path)
-            if self.headers.get("X-Ergostat") != "owner" or not u.path.startswith("/api/"):
+            origin = self.headers.get("Origin")
+            fetch_site = self.headers.get("Sec-Fetch-Site")
+            if (not self._host_ok() or not u.path.startswith("/api/")
+                    or (origin is not None and origin.lower() != f"http://{(self.headers.get('Host') or '').lower()}")
+                    or (fetch_site is not None and fetch_site not in ("same-origin", "none"))
+                    or not secrets.compare_digest(self.headers.get("X-Ergostat-Token") or "", token)):
                 return self._send(403, b'{"error": "only the page may ask"}', "application/json")
             n = int(self.headers.get("Content-Length") or 0)
             if n:
@@ -369,6 +383,8 @@ def handler(project):
 
         def do_GET(self):
             u = urlsplit(self.path)
+            if not self._host_ok():                        # another site's name pointed here: nothing is read
+                return self._send(403, b"not this server's name", "text/plain")
             if u.path.startswith("/api/"):
                 try:
                     data = api(live, u.path.removeprefix("/api/"), parse_qs(u.query))
@@ -386,6 +402,10 @@ def handler(project):
             f = (STATIC / name).resolve()
             if STATIC.resolve() not in f.parents or not f.is_file():
                 return self._send(404, b"not found", "text/plain")
+            if name == "index.html":                       # the page carries this run's token for its writes
+                body = f.read_bytes().replace(b'<meta charset="utf-8">',
+                                              f'<meta charset="utf-8">\n<meta name="ergostat-token" content="{token}">'.encode(), 1)
+                return self._send(200, body, "text/html; charset=utf-8")
             self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
 
     return Handler

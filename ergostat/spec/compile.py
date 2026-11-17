@@ -31,7 +31,7 @@ from .ir import (
 from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
-SENSOR_KEYS = {"run", "query", "manual", "items", "every", "cron", "timeout", "parse", "unit", "description"}
+SENSOR_KEYS = {"run", "query", "manual", "items", "every", "cron", "timeout", "parse", "unit", "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats"}
@@ -71,6 +71,20 @@ NEEDS = {"program": ["run"], "ai": ["prompt"], "person": ["ask"], "onoff": ["goa
 ONE_INPUT = ("compare", "limit", "delay", "lookup", "timer", "counter", "alarm")
 KIND_RUNS = {"person": {"person", "external"}, "ai": {"ai", "program", "external"}, "narrow-ai": {"ai", "program", "external"},
              "decision": {"program", "external"}, "program": {"program", "external"}, "rule": {"program", "external"}}
+
+
+CLOCK = {"s", "sec", "second", "min", "minute", "d", "day", "week", "wk"}     # times other than the model's hour
+
+
+def _clock_words(text: str | None) -> list[str]:
+    """The words of a unit that count time in something other than hours (min, s, d, week): a value
+    in them would be read as hours. ``ms`` is left alone: it is how a latency is measured, a quantity."""
+    from . import equation as eq
+    try:
+        u = eq.unit(text) if text else None
+    except Exception:
+        return []
+    return sorted(w for w in (u or {}) if w in CLOCK)
 
 
 class Compiler:
@@ -297,7 +311,15 @@ class Compiler:
                         self.err(f"{sw}.parse: one group, around the number: 'cleaned (\\d+)'", s.at("parse"), "bad-parse")
                 except re.error as e:
                     self.err(f"{sw}.parse: not a regular expression ({e})", s.at("parse"), "bad-parse")
-            out[str(name)] = Sensor(str(name), of, run=s.get("run") and str(s["run"]), query=dict(q) if q else None,
+            averages = None
+            if s.get("averages") is not None:
+                if of.kind != "flow" or counted or changes is not None:
+                    self.err(f"{sw}.averages: on a flow's run:, query: or manual: sensor, the window its reading is an average "
+                             f"over (a count of the last ten minutes, per hour: averages: 10m); items: and changes: say theirs "
+                             f"with over:", s.at("averages"), "bad-averages")
+                else:
+                    averages = self.duration(s, "averages", sw, 0.0)
+            out[str(name)] = Sensor(str(name), of, run=s.get("run") and str(s["run"]), query=dict(q) if q else None, averages=averages,
                                     items=self.item_sensor(s, of, sw) if counted else None,
                                     changes={"what": changes, "over": self.duration(s, "over", sw, 3600.0)} if changes else None,
                                     manual=bool(s.get("manual")), every=self.duration(s, "every", sw, 60.0),
@@ -638,6 +660,12 @@ class Compiler:
                              "bad-number")
             elif v is not None:
                 p.value = self.number(m, "value", what)
+            clock = _clock_words(p.unit) if not p.duration else []
+            if clock:
+                self.err(f"{what}: its unit ({p.unit}) counts time in {', '.join(clock)}, and the model's time is hours "
+                         f"(a rate is per hour, a time in h), so {v} would be read as hours or per hour. Write a time as a "
+                         f"duration (value: 30m, read in hours), or the rate per hour (unit: x/h, its value converted)",
+                         m.at("unit"), "units")
             if m.get("table") is not None:
                 if v is not None:
                     self.err(f"{what}: a value or a table (a lookup), not both", m.at("table"), "bad-table")

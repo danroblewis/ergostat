@@ -151,7 +151,7 @@ async function api(path, params = {}) {
 /* the page's one kind of write: the owner's answer to a proposal, or asking for estimates (never in a snapshot) */
 async function apiPost(path) {
   if (SNAP) throw new Error("a snapshot changes nothing: ergostat accept, where the model is");
-  const r = await fetch(`/api/${path}?${new URLSearchParams({ since: S.since })}`, { method: "POST", headers: { "X-Ergostat": "owner" } });
+  const r = await fetch(`/api/${path}?${new URLSearchParams({ since: S.since })}`, { method: "POST", headers: { "X-Ergostat-Token": document.querySelector('meta[name="ergostat-token"]')?.content || "" } });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.error || `${path}: ${r.status}`);
   return body;

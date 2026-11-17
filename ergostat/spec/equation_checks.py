@@ -1,6 +1,8 @@
 """What ``check`` says about a model's numbers (SPEC §7b): an equation's units that disagree, a
-declared cause an equation leaves out (its size unknown), a part an equation uses that the diagram
-does not draw, a parameter with no value nothing will estimate, and one nothing uses."""
+declared cause an equation leaves out (its size unknown), a cause whose effect in the equation has
+the other sign from the one drawn (link polarity is the sign of the partial derivative, Sterman
+ch. 5.2), a part an equation uses that the diagram does not draw, a parameter with no value nothing
+will estimate, and one nothing uses."""
 
 from __future__ import annotations
 
@@ -37,6 +39,37 @@ def units(spec: Spec, kind: str, name: str) -> tuple[dict | None, dict | None, l
     return got, (None if want is None else eq.unit(want)), problems
 
 
+SIGN_POINTS = (0.25, 0.5, 1.0, 2.0, 4.0, 10.0, 50.0)     # where each cause's effect is tried, every part at once
+
+
+def signs(spec: Spec, x) -> dict[str, set[int]]:
+    """For each part an equation names, the signs of its partial derivative (∂y/∂x, by central
+    differences) across a range of operating points: every part at each value of SIGN_POINTS, the
+    parameters at their values (1 where they have none), each delay in equilibrium with its input."""
+    e = x.equation
+    tables = {n: p.table for n, p in spec.parameters.items() if p.table}
+    params = {n: (p.value if p.value is not None else 1.0) for n, p in spec.parameters.items()}
+    c = eq.Compiled(e.tree, tables)
+    out: dict[str, set[int]] = {r: set() for r in e.refs}
+
+    def at(V):
+        try:
+            return c.fn(V, params, [0.0] * c.slots, [0.0] * c.slots, True)
+        except (ArithmeticError, ValueError, KeyError):
+            return None
+    for v in SIGN_POINTS:
+        base = {r: v for r in e.refs}
+        for r in e.refs:
+            h = 1e-4 * max(1.0, abs(v))
+            up, down = at({**base, r: v + h}), at({**base, r: v - h})
+            if up is None or down is None:
+                continue
+            d = (up - down) / (2 * h)
+            if abs(d) > 1e-9 * max(1.0, abs(up), abs(down)):
+                out[r].add(1 if d > 0 else -1)
+    return out
+
+
 def findings(spec: Spec, say) -> None:
     used: set[str] = set()
     for kind, table in (("flow", spec.flows), ("auxiliary", spec.auxiliaries)):
@@ -60,6 +93,26 @@ def findings(spec: Spec, say) -> None:
                     say("size-unknown", f"{what}: driven-by {r}, and its equation does not use it: the link is drawn, with "
                         f"its sign, and its size is not known (the equation says {r.name} has no effect). Write it into the "
                         f"equation, or take the link away if it has none", e.where, f"{kind}.{x.name}")
+            pol = getattr(x, "polarity", {}) or {}
+            if pol:
+                found = signs(spec, x)
+                for r in x.driven_by:
+                    ref = f"{r.kind}.{r.name}"
+                    want = pol.get(str(r), pol.get(ref))
+                    got = found.get(ref) or set()
+                    if want is None or not got or got == {want}:
+                        continue
+                    drawn_as = "+" if want > 0 else "-"
+                    if got == {-want}:
+                        say("equation-sign", f"{what}: driven-by {drawn_as}{ref}, but its equation moves it the other way "
+                            f"(∂{x.name}/∂{r.name} is {'negative' if want > 0 else 'positive'} wherever it was tried), so every "
+                            f"loop drawn through the link has the wrong polarity. Correct the sign in driven-by, or the "
+                            f"equation", e.where, f"{kind}.{x.name}")
+                    else:
+                        say("equation-sign", f"{what}: driven-by {drawn_as}{ref}, and its equation's effect changes sign "
+                            f"across the range tried (∂{x.name}/∂{r.name} is positive somewhere and negative elsewhere), so "
+                            f"the link has no one polarity: leave its sign off (driven-by: {ref}), or write the equation "
+                            f"so it has one", e.where, f"{kind}.{x.name}")
             drawn = {f"{r.kind}.{r.name}" for r in x.driven_by}
             for r in e.refs:
                 if r not in drawn:

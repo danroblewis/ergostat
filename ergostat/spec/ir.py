@@ -93,6 +93,17 @@ class Sensor:
     unit: str = ""
     description: str = ""
     where: Where | None = None
+    averages: float | None = None    # on a flow: its reading is the average rate over this window (seconds) before it
+
+    @property
+    def window(self) -> float:
+        """How far back a reading of a flow's rate looks (seconds; 0: the rate at that moment): what
+        ``averages:`` says, or the ``over:`` an items or changes sensor counts over."""
+        if self.items and self.of.kind == "flow":
+            return float(self.items.get("over") or 3600.0)
+        if self.changes:
+            return float(self.changes.get("over") or 3600.0)
+        return float(self.averages or 0.0)
 
     @property
     def ref(self) -> Ref:

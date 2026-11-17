@@ -152,7 +152,10 @@ class Server:
             oldest = min((t for t in (p.events.first_time(), p.measurements.first_time()) if t), default=None)
             _, run, got = ft.compute(p, {"at": _t.time(), "window": window, "starts": oldest})
             return _text({"total": ft._slim(got["total"]), "stocks": {r: ft._slim(x) for r, x in got["stocks"].items()},
-                          "equations": {r: ft._slim(x) for r, x in got["equations"].items()}, "notes": run.notes,
+                          "accounting": {r: ft._slim(x) for r, x in got["accounting"].items()},
+                          "partial": {r: ft._slim(x) for r, x in got["partial"].items()},
+                          "equations": {r: ft._slim(x) for r, x in got["equations"].items()},
+                          "judged_by_stock": got["judged_by_stock"], "invalid": got["invalid"], "span": got["span"], "notes": run.notes,
                           "words": ft.WORDS, "proposals": pr.pending(p)})
         if name == "events":
             evs = p.events.query(n=min(int(a.get("n") or 30), 500), type=a.get("type") or None, item=a.get("item") or None)

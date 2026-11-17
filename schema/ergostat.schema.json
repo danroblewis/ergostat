@@ -275,6 +275,10 @@
         "over": {
           "$ref": "#/$defs/duration"
         },
+        "averages": {
+          "$ref": "#/$defs/duration",
+          "description": "On a flow's run, query or manual sensor: its reading is the average rate over this window before it"
+        },
         "where": {
           "type": "object"
         },

@@ -1,16 +1,24 @@
 """Parameters estimated from the record (system identification, as system dynamics calibrates:
-Oliva 2003; Sterman ch. 21): each parameter marked ``estimate: true`` is given the value that makes
-the replay fit the record best, and a flow with declared causes and no equation may be given one
-(a coefficient for each cause, fitted by least squares on what was measured).
+Oliva 2003; Sterman ch. 21.4.7; Ljung ch. 7 and 9): each parameter marked ``estimate: true`` is given
+the value that makes what it touches fit the record best, with how sure that value is.
 
 What is fitted is the part of the model a parameter touches: each equation using it, against its
-part's own readings where it has them (a partial-model test, every input as measured), and every
-stock its flow fills or drains, replayed. Nelder–Mead over the parameters together (in their
-logarithm when they start positive, so a rate never turns negative), deterministic.
+part's own readings with every input as measured (the partial-model test), and every stock its flows
+fill or drain, replayed; each through the record's own measurement (``fit.pairs``). Weighted least
+squares: each series' errors over its own spread (its readings' standard deviation, with a floor
+of 1% of their mean), so a stock that barely moves is not drowned by one that swings. Nelder–Mead
+over the parameters together, in their logarithm when they start positive (a rate never turns
+negative), within a factor of a thousand of the value written; deterministic.
+
+How sure: the covariance of the estimates from the Jacobian of the weighted errors at the optimum
+(Gauss–Newton, Ljung ch. 9), widened for errors that run together in time (each series' lag-one
+autocorrelation), so each estimate has a standard error and parameters fitted together their
+correlation. The last fifth of the record is held out: fitted on the rest, the estimate must fit
+it better too.
 
 An estimate is data: kept in the state directory under the model's structure (version.py), never
 written into the YAML. It becomes part of the model only when the owner accepts the proposal it
-makes (proposals.py)."""
+makes (proposals.py), and a proposal is made only when the record supports it."""
 
 from __future__ import annotations
 
@@ -18,13 +26,18 @@ import json
 import math
 import time
 
+from ..durations import human as dur
 from ..spec.ir import Spec
 from . import fit as ft
+from . import observe as ob
 from . import simulate as sim
 from . import version as ver
 
 ITERATIONS = 160
 SPAN = math.log(1000.0)      # how far an estimate may move from the value written, as a factor either way
+HOLD_OUT = 0.2               # the last share of the record kept out of the fit, to test the estimate on
+FLOOR = 0.01                 # a series' spread is at least this share of its mean, for its weight
+CHANGED = 0.02               # an estimate moving a value by less than this share is not worth a change to the model
 
 
 def nelder_mead(f, x0: list[float], scale: list[float], iterations: int = ITERATIONS, tol: float = 1e-9) -> tuple[list[float], float]:
@@ -83,51 +96,146 @@ def touched(spec: Spec, names: set[str], extra: dict | None = None) -> tuple[set
     return seen, stocks
 
 
-def _from_its_stock(spec: Spec, ref: str) -> bool:
-    """A flow measured only by its stock's own changes (``changes:``): its readings are the stock's,
-    differenced and smoothed, so the stock's replay tests its equation, and better."""
-    kind, _, name = ref.partition(".")
-    f = spec.flows.get(name) if kind == "flow" else None
-    return bool(f and f.sensors and all(x.changes for x in f.sensors.values()))
+_from_its_stock = ob.from_its_stock
 
 
 class Problem:
-    """The fit of some parameters: run the touched part of the model with trial values."""
+    """The fit of some parameters: run the touched part of the model with trial values, and read it
+    through the record's measurement. Buckets before ``cut`` are fitted; from ``cut`` on, held out."""
 
-    def __init__(self, spec: Spec, data: sim.Data, names: list[str], extra: dict | None = None,
-                 extra_params: dict | None = None):
+    def __init__(self, spec: Spec, data: ob.Data, names: list[str], extra: dict | None = None,
+                 extra_params: dict | None = None, cut: int | None = None):
         self.spec, self.data, self.names = spec, data, names
         self.extra, self.extra_params = extra or {}, extra_params or {}
         self.owners, self.stocks = touched(spec, set(names), self.extra)
         self.measured_owners = {r for r in self.owners if any(v is not None for v in data.values.get(r) or [])
-                                and not _from_its_stock(spec, r)}
+                                and not ob.from_its_stock(spec, r)}
+        self.cut = data.grid.n if cut is None else cut
         self.evaluations = 0
+        self.spread = self._spread()
 
-    def fit(self, values: dict[str, float], integrate: bool = True) -> dict:
-        pl = sim.plan(self.spec, values, self.extra, self.extra_params, self.stocks if integrate else set())
-        run = sim.replay(self.spec, self.data, pl)
+    def targets(self) -> list[tuple[str, str]]:
+        """(series, which run it is read from): each measured equation in the partial test, each
+        touched stock in the replay."""
+        return [(r, "partial") for r in sorted(self.measured_owners)] + [(f"stock.{s}", "replay") for s in sorted(self.stocks)]
+
+    def _spread(self) -> dict[str, float]:
+        """Each series' weight: the standard deviation of its readings in the fitted part, at least
+        FLOOR of their mean (and never 0)."""
+        out = {}
+        for r, _ in self.targets():
+            vals = [v for i, v in enumerate(self.data.values.get(r) or []) if v is not None and i < self.cut]
+            if not vals:
+                continue
+            m = sum(vals) / len(vals)
+            sd = math.sqrt(sum((v - m) ** 2 for v in vals) / len(vals))
+            out[r] = max(sd, FLOOR * abs(m), 1e-9)
+        return out
+
+    def runs(self, values: dict[str, float]) -> dict[str, sim.Run]:
+        out = {}
+        if self.measured_owners:
+            out["partial"] = sim.replay(self.spec, self.data, sim.plan(self.spec, values, self.extra, self.extra_params, set()))
+        if self.stocks:
+            out["replay"] = sim.replay(self.spec, self.data, sim.plan(self.spec, values, self.extra, self.extra_params, self.stocks))
         self.evaluations += 1
-        return ft.compare(self.spec, self.data, run)
+        return out
+
+    def errors(self, values: dict[str, float], runs: dict | None = None) -> dict[str, list[tuple[int, float]]] | None:
+        """Each series' weighted errors, (bucket, (model − measured) / spread); None when a run blew up."""
+        runs = runs or self.runs(values)
+        if any(not r.valid for r in runs.values()):
+            return None
+        out = {}
+        for ref, which in self.targets():
+            got = ft.pairs(self.spec, self.data, runs[which], ref) if which in runs else None
+            if got and ref in self.spread:
+                out[ref] = [(i, (m - a) / self.spread[ref]) for i, m, a in got]
+        return out
+
+    @staticmethod
+    def _cost(errs: dict | None, part: str, cut: int) -> float:
+        if errs is None:
+            return math.inf
+        e = [x for v in errs.values() for i, x in v if (i < cut) == (part == "fit")]
+        return sum(x * x for x in e) / len(e) if e else 0.0
 
     def cost(self, values: dict[str, float]) -> float:
-        """The partial test (every input as measured) of each measured equation, plus the replay of
-        each stock it moves."""
-        total = 0.0
-        if self.measured_owners:
-            got = ft.objective(self.fit(values, integrate=False), self.measured_owners)
-            total += got if got is not None else 0.0
-        if self.stocks:
-            got = ft.objective(self.fit(values), {f"stock.{s}" for s in self.stocks})
-            total += got if got is not None else 0.0
-        return total
+        """The weighted mean squared error over the fitted part of the record."""
+        return self._cost(self.errors(values), "fit", self.cut)
+
+    def both(self, values: dict[str, float]) -> tuple[float, float | None]:
+        """The cost over the fitted part, and over the part held out (None when none is)."""
+        errs = self.errors(values)
+        held = self._cost(errs, "held", self.cut) if self.cut < self.data.grid.n else None
+        return self._cost(errs, "fit", self.cut), held
 
     def n(self) -> int:
         refs = self.measured_owners | {f"stock.{s}" for s in self.stocks}
-        return sum(1 for r in refs for v in self.data.values.get(r) or [] if v is not None)
+        return sum(1 for r in refs for i, v in enumerate(self.data.values.get(r) or []) if v is not None and i < self.cut)
 
 
-def solve(prob: Problem, start: dict[str, float]) -> tuple[dict[str, float], float, float]:
-    """The best values, with the cost before and after."""
+def _invert(a: list[list[float]]) -> list[list[float]] | None:
+    """A small matrix's inverse, Gauss–Jordan with partial pivoting; None when it is singular."""
+    m = len(a)
+    x = [row[:] + [1.0 if i == j else 0.0 for j in range(m)] for i, row in enumerate(a)]
+    big = max((abs(v) for row in a for v in row), default=0.0) or 1.0
+    for c in range(m):
+        piv = max(range(c, m), key=lambda r: abs(x[r][c]))
+        if abs(x[piv][c]) < 1e-12 * big:
+            return None
+        x[c], x[piv] = x[piv], x[c]
+        p = x[c][c]
+        x[c] = [v / p for v in x[c]]
+        for r in range(m):
+            if r != c and x[r][c]:
+                k = x[r][c]
+                x[r] = [u - k * v for u, v in zip(x[r], x[c], strict=True)]
+    return [row[m:] for row in x]
+
+
+def covariance(prob: Problem, best: dict[str, float], logged: list[bool]) -> dict | None:
+    """The estimates' covariance, in the coordinates they were searched in (the logarithm of a
+    positive one): Gauss–Newton, s²·(JᵀJ)⁻¹ over the fitted part, widened by (1 + ρ)/(1 − ρ) for
+    errors that run together (ρ, their lag-one autocorrelation)."""
+    names = prob.names
+    base = prob.errors(best)
+    if base is None:
+        return None
+    keys = [(r, i) for r, v in base.items() for i, _ in v if i < prob.cut]
+    e0 = {(r, i): x for r, v in base.items() for i, x in v}
+    cols = []
+    for j, nm in enumerate(names):
+        h = 1e-3 if logged[j] else 1e-3 * max(abs(best[nm]), 1e-6)
+        trial = dict(best)
+        trial[nm] = best[nm] * math.exp(h) if logged[j] else best[nm] + h
+        got = prob.errors(trial)
+        if got is None:
+            return None
+        e1 = {(r, i): x for r, v in got.items() for i, x in v}
+        cols.append([(e1.get(k, e0[k]) - e0[k]) / h for k in keys])
+    p, n = len(names), len(keys)
+    if n <= p:
+        return None
+    jtj = [[sum(a * b for a, b in zip(cols[i], cols[j], strict=True)) for j in range(p)] for i in range(p)]
+    inv = _invert(jtj)
+    sse = sum(e0[k] ** 2 for k in keys)
+    lagged = [(x, y) for r, v in base.items() for (i, x), (i2, y) in zip(v, v[1:], strict=False) if i2 < prob.cut]
+    rho = sum(x * y for x, y in lagged) / max(sum(x * x for x, _ in lagged), 1e-300) if lagged else 0.0
+    rho = max(0.0, min(rho, 0.95))
+    s2 = sse / (n - p) * (1 + rho) / (1 - rho)
+    if inv is None:
+        return {"identifiable": False, "rho": rho}
+    cov = [[s2 * v for v in row] for row in inv]
+    se = [math.sqrt(max(cov[i][i], 0.0)) for i in range(p)]
+    corr = {names[i]: {names[j]: (cov[i][j] / (se[i] * se[j]) if se[i] and se[j] else None) for j in range(p) if j != i}
+            for i in range(p)}
+    return {"identifiable": True, "se": dict(zip(names, se, strict=True)), "corr": corr, "rho": rho, "n": n}
+
+
+def solve(prob: Problem, start: dict[str, float]) -> tuple[dict[str, float], float, float, dict]:
+    """The best values, the cost before and after, and how sure they are: each one's standard error
+    (in the coordinate it was searched in), their correlations, and which ended at their bound."""
     names = prob.names
     logged = [start[n] > 0 for n in names]
     x0 = [math.log(start[n]) if lg else start[n] for n, lg in zip(names, logged, strict=True)]
@@ -138,7 +246,12 @@ def solve(prob: Problem, start: dict[str, float]) -> tuple[dict[str, float], flo
                 for i, (n, v, lg) in enumerate(zip(names, x, logged, strict=True))}
     before = prob.cost(start)
     best, after = nelder_mead(lambda x: prob.cost(values(x)), x0, scale)
-    return values(best), before, after
+    got = values(best)
+    at_bound = [n for i, (n, lg) in enumerate(zip(names, logged, strict=True)) if lg and abs(best[i] - x0[i]) >= SPAN * 0.98]
+    sure = covariance(prob, got, logged) or {"identifiable": False}
+    sure["at_bound"] = at_bound
+    sure["logged"] = dict(zip(names, logged, strict=True))
+    return got, before, after, sure
 
 
 def path(p, structure: str):
@@ -146,54 +259,89 @@ def path(p, structure: str):
 
 
 def load(p, spec: Spec) -> dict:
-    """The estimates kept for this structure: name → {value, before, after, n, when, window}."""
+    """The estimates kept for this structure: name → {value, se, before, after, n, when, window, ...}."""
     try:
         return json.loads(path(p, ver.structure(spec)).read_text())
     except (OSError, ValueError):
         return {}
 
 
-def estimate(p, snap: dict, n: int | None = None) -> dict:
-    """Estimate every ``estimate: true`` parameter from the record in the window, keep the estimates
-    under the model's structure, and return them."""
+def slowest(spec: Spec, run: sim.Run, owners: set[str], stocks: set[str]) -> float | None:
+    """The slowest time constant (hours) the replay met in what a parameter touches."""
+    got = [run.time_constants[r] for r in (*owners, *(f"stock.{s}" for s in stocks)) if r in run.time_constants]
+    return max(got) if got else None
+
+
+def estimate(p, snap: dict | None = None, n: int | None = None) -> dict:
+    """Estimate every ``estimate: true`` parameter from the record on the reference window, keep the
+    estimates under the model's structure, and return them."""
     spec: Spec = p.model.spec
-    since, until = ft.series.span(p, snap)
-    data = sim.measured(p, sim.Grid(since, until, n or ft.series.POINTS))
+    data = ob.measured(p, ob.reference(p, (snap or {}).get("at"), n))
     names = sorted(n for n, x in spec.parameters.items() if x.estimate and not x.table)
     out = load(p, spec)
     if not names:
         return out
-    groups = _groups(spec, names)
+    base = sim.replay(spec, data)
+    span = data.grid.until - data.grid.since
     now = time.time()
-    for group in groups:
-        prob = Problem(spec, data, group)
-        if prob.n() < 3:
+    cut = max(1, int(round(data.grid.n * (1 - HOLD_OUT))))
+    for group in _groups(spec, names):
+        prob = Problem(spec, data, group, cut=cut)
+        tc = slowest(spec, base, prob.owners, prob.stocks)
+        common = {"when": now, "window": span, "n": prob.n(), "slowest": tc, "with": [], "fitted_to": [r for r, _ in prob.targets()]}
+        if prob.n() < ft.MIN_POINTS:
             for nm in group:
-                out[nm] = {"value": None, "why": "too little measured of what it moves to estimate it", "when": now,
-                           "window": until - since, "n": prob.n()}
+                out[nm] = {**common, "value": None, "why": f"too little measured of what it moves ({prob.n()} points; at least "
+                           f"{ft.MIN_POINTS} are needed)"}
             continue
         start = {nm: (spec.parameters[nm].value if spec.parameters[nm].value is not None else 1.0) for nm in group}
-        best, before, after = solve(prob, start)
-        r2 = _r2(prob, best)
+        best, before, after, sure = solve(prob, start)
+        held_before, held_after = prob.both(start)[1], prob.both(best)[1]
         for nm in group:
-            out[nm] = {"value": best[nm], "declared": spec.parameters[nm].value, "before": before, "after": after,
-                       "r2": r2, "n": prob.n(), "when": now, "window": until - since, "with": [x for x in group if x != nm],
-                       "fitted_to": sorted(prob.measured_owners | {f"stock.{s}" for s in prob.stocks})}
+            se = (sure.get("se") or {}).get(nm)
+            out[nm] = {**common, "value": best[nm], "declared": spec.parameters[nm].value, "before": before, "after": after,
+                       "held_before": held_before, "held_after": held_after, "with": [x for x in group if x != nm],
+                       "se": se, "logged": sure["logged"][nm], "corr": (sure.get("corr") or {}).get(nm, {}),
+                       "identifiable": sure.get("identifiable", False), "at_bound": nm in sure["at_bound"],
+                       "weights": prob.spread, "evaluations": prob.evaluations}
     f = path(p, ver.structure(spec))
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(json.dumps(out, indent=1))
     return out
 
 
-def _r2(prob: Problem, values: dict) -> float | None:
-    """How well what it was fitted to follows, with the estimates: the mean R² over those series."""
-    got = prob.fit(values, integrate=bool(prob.stocks))
-    if prob.measured_owners:
-        part = prob.fit(values, integrate=False)
-        got["equations"] = part["equations"]
-    r2 = [s["r2"] for refs, part in ((prob.measured_owners, "equations"), ({f"stock.{s}" for s in prob.stocks}, "stocks"))
-          for r, s in got[part].items() if r in refs and s and s["r2"] is not None]
-    return sum(r2) / len(r2) if r2 else None
+def judged(e: dict, declared: float | None) -> str | None:
+    """Why an estimate is not to be proposed, or None when the record supports it: enough record
+    for the slowest time constant it touches, not at its bound, identifiable, more than two
+    standard errors from the value written, and better on the record held out."""
+    if e.get("value") is None:
+        return e.get("why") or "not estimated"
+    if e.get("slowest") and e["window"] < ft.COVER * e["slowest"] * 3600:
+        return (f"the record spans {dur(e['window'])}, under {ft.COVER:g} of the slowest time constant it touches "
+                f"({dur(e['slowest'] * 3600)}): too little to say")
+    if e.get("at_bound"):
+        return ("it ran to its bound (a thousand times from the value written): no value of it fits, a question of "
+                "structure, not of size")
+    if not e.get("identifiable") or e.get("se") is None:
+        return "the record does not tell it apart (it moves what it fits too little, or as another parameter does)"
+    if declared is not None:
+        moved = (math.log(e["value"] / declared) if e.get("logged") and declared > 0 and e["value"] > 0
+                 else e["value"] - declared)
+        if abs(moved) <= 2 * e["se"]:
+            return "within two standard errors of the value written: the record does not say it is wrong"
+        if abs(e["value"] - declared) <= CHANGED * max(abs(declared), 1e-12):
+            return f"it moves the value written by less than {CHANGED:.0%}"
+    if e.get("held_before") is not None and e.get("held_after") is not None and not e["held_after"] < e["held_before"]:
+        return "it fits the record held out (its last fifth) no better than the value written"
+    return None
+
+
+def said_se(e: dict, value: float) -> float | None:
+    """A standard error in the value's own units (from the logarithm's, when it was searched there)."""
+    se = e.get("se")
+    if se is None:
+        return None
+    return value * se if e.get("logged") else se
 
 
 def _groups(spec: Spec, names: list[str]) -> list[list[str]]:
@@ -230,18 +378,33 @@ def solve_linear(rows: list[list[float]], ys: list[float]) -> list[float] | None
     return [a[i][m] / a[i][i] for i in range(m)]
 
 
-def linear(data: sim.Data, target: str, causes: list[str], intercept: bool) -> dict | None:
-    """``target`` as a + Σ bᵢ·causeᵢ over the buckets where all are measured: the coefficients, R²
-    and n."""
-    pts = [(row, y) for i, y in enumerate(data.values.get(target) or [])
-           if y is not None and None not in (row := [data.values[c][i] if data.values.get(c) else None for c in causes])]
-    if len(pts) < max(6, len(causes) + 3):
+def r_squared(fitted: list[float], ys: list[float]) -> float | None:
+    """1 − SSE/SST: the share of the readings' variation about their mean the fit explains (with or
+    without a constant term: never the squared correlation, which a fit through 0 overstates)."""
+    my = sum(ys) / len(ys)
+    sst = sum((y - my) ** 2 for y in ys)
+    if sst <= 0:
         return None
-    rows = [([1.0] if intercept else []) + list(r) for r, _ in pts]
-    ys = [y for _, y in pts]
+    return 1.0 - sum((f - y) ** 2 for f, y in zip(fitted, ys, strict=True)) / sst
+
+
+def linear(data: ob.Data, target: str, causes: list[str], intercept: bool, times: str | None = None) -> dict | None:
+    """``target`` as a + Σ bᵢ·causeᵢ (or, with ``times``, ``times`` · (Σ bᵢ·causeᵢ), the first cause
+    then 1: a first-order outflow, its stock times a fraction) over the buckets where all are
+    measured: the coefficients, R² (1 − SSE/SST) and n."""
+    cols = [*(c for c in causes if c != times)]
+    pts = []
+    for i, y in enumerate(data.values.get(target) or []):
+        row = [data.values[c][i] if data.values.get(c) else None for c in cols]
+        s = data.values[times][i] if times and data.values.get(times) else (1.0 if not times else None)
+        if y is None or s is None or None in row:
+            continue
+        pts.append(([s] + [s * x for x in row] if times else ([1.0] if intercept else []) + row, y))
+    if len(pts) < max(ft.MIN_POINTS, len(cols) + 3):
+        return None
+    rows, ys = [r for r, _ in pts], [y for _, y in pts]
     coef = solve_linear(rows, ys)
     if coef is None:
         return None
     fitted = [sum(c * x for c, x in zip(coef, r, strict=True)) for r in rows]
-    st = ft.stats(fitted, ys)
-    return {"coef": coef, "r2": st["r2"] if st else None, "n": len(pts), "intercept": intercept}
+    return {"coef": coef, "r2": r_squared(fitted, ys), "n": len(pts), "intercept": intercept and not times, "columns": cols}
