@@ -108,3 +108,13 @@ def test_one_snapshot_is_made_however_many_ask_at_once(project, monkeypatch):
     for t in ts:
         t.join()
     assert len(made) == 1 and len(got) == 8 and all(g is got[0] for g in got)
+
+
+def test_a_record_made_before_the_segmented_log_stays_on_sqlite(tmp_path):
+    """Upgrading never hides a project's history: an existing events.db is read unless the YAML names a backend."""
+    from ergostat.storage import Storage, events_backend, parse
+    (tmp_path / "events.db").write_bytes(b"")
+    assert events_backend(Storage(), tmp_path) == "sqlite"
+    named = parse({"events": "segments"}, [])
+    assert events_backend(named, tmp_path) == "segments"
+    assert events_backend(Storage(), tmp_path / "fresh") == "segments"

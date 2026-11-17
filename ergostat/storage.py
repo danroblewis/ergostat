@@ -36,6 +36,7 @@ EVERY = 3600.0
 @dataclass
 class Storage:
     events: str = DEFAULT_EVENTS
+    events_set: bool = False                       # the YAML named the events backend (else: an existing record decides)
     measurements: str = "sqlite"
     url: str | None = None                         # victoriametrics
     raw: float | None = RAW
@@ -78,6 +79,7 @@ def parse(raw, problems: list[str]) -> Storage:
             problems.append(f"storage.events: {ev!r} is not a backend ({', '.join(EVENT_BACKENDS)})")
         else:
             s.events = ev
+            s.events_set = True
     me = raw.get("measurements")
     if isinstance(me, str):
         me = {"backend": me}
@@ -127,8 +129,16 @@ def parse(raw, problems: list[str]) -> Storage:
     return s
 
 
+def events_backend(cfg: Storage, directory: Path) -> str:
+    """The events backend: the one the YAML names; else a record made before the segmented log was the default
+    (an ``events.db``) stays where it is, so upgrading never hides a project's history; else the default."""
+    if not cfg.events_set and (Path(directory) / "events.db").exists():
+        return "sqlite"
+    return cfg.events
+
+
 def open_events(cfg: Storage, directory: Path):
-    if cfg.events == "segments":
+    if events_backend(cfg, directory) == "segments":
         from .segments import Segments
         return Segments(directory)
     from .store import Events
