@@ -202,7 +202,8 @@ def finished(p, spec: Spec, msg: dict, it: dict, by: str = "ergostat", policy: s
             keep = {f: it["fields"][f] for f in [*k.show, "title"] if f in it["fields"] and kind == it["kind"]
                     and not str(it["fields"][f]).startswith("file:")}
             p.events.add(FOLLOW_UP, item=new, source=by, causedby=cause,
-                         data={**keep, "follows": it["id"], "message": msg["id"], "note": text[:2000], "missed": missed})
+                         data={**keep, "follows": it["id"], "message": msg["id"], "note": text[:2000], "missed": missed,
+                               "done_when": text[:2000]})      # the owner's words, verbatim: what it is judged by (§12i)
             return delivered(p, msg, "follow-up", item=it["id"], by=by, follow_up=new, missed=missed)
         why = f"about {it['id']}, finished ({it['state']}); no id of kind {kind} could be made for a follow-up"
     else:

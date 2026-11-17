@@ -44,6 +44,8 @@ what is wrong, or missing
   claims         What blocks said they did, checked against the record: verified, contradicted, unchecked;
                  trust by block, rung and model (--check: check those left unchecked)
   judge          Judge the candidate changes blocks proposed for the model; measure: the model's own measures
+  intent         Finished work held to what the owner meant (decisions, corrections, messages, done-when):
+                 verdicts, the false-done rates; judge, overrule ID, reopen ITEM
 
 the owner's messages
   message        Send the work in flight a message: ergostat message "that review can wait" [--about ITEM|PART];
@@ -266,6 +268,8 @@ def build() -> argparse.ArgumentParser:
     bench_topics(sub, common)
     from .decisions import register as intent_topics
     intent_topics(sub, common)
+    from .intent import register as judge_topics
+    judge_topics(sub, common)
     return ap
 
 

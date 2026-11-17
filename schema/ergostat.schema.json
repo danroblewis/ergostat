@@ -460,7 +460,7 @@
           "description": "On a flow: its rate from its stock's own successive readings"
         },
         "builtin": {
-          "description": "One of ergostat's built-in measures: the model's own quality (SPEC \u00a712e, \u00a712f), how far blocks' claims hold (SPEC \u00a712g), or how the owner's messages reach the work (SPEC \u00a712h)",
+          "description": "One of ergostat's built-in measures: the model's own quality (SPEC \u00a712e, \u00a712f), how far blocks' claims hold (SPEC \u00a712g), how the owner's messages reach the work (SPEC \u00a712h), or how far finished work holds to what the owner meant (SPEC \u00a712i)",
           "anyOf": [
             {
               "enum": [
@@ -490,6 +490,10 @@
                 "ergostat.messages.missed",
                 "ergostat.messages.reached"
               ]
+            },
+            {
+              "type": "string",
+              "pattern": "^ergostat\\.intent\\.(false-done|false-done-tests|accepted|reopened|judged|met|unmet|contradicted|unjudged|overruled|cost)(@[A-Za-z0-9][A-Za-z0-9._/-]*)?$"
             }
           ]
         }
@@ -971,6 +975,100 @@
           },
           "minItems": 1,
           "description": "A judge's split of the record held out: [1, 2, 4], whole, halves, quarters"
+        },
+        "judge": {
+          "enum": [
+            "model",
+            "intent"
+          ],
+          "description": "A judge's job: model (changes to the model, SPEC \u00a712e, the default) or intent (finished work held to what the owner meant, SPEC \u00a712i)"
+        },
+        "kinds": {
+          "type": "object",
+          "description": "An intent judge's: the item kinds it judges, each the state it is judged in (at:) and more",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "at"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "accepted": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "work": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "repo": {
+                    "type": "string"
+                  },
+                  "base": {
+                    "type": "string"
+                  },
+                  "reopen-to": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "max-cost": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "An intent judge on a model: dollars a verdict, at most"
+        },
+        "held": {
+          "enum": [
+            "attention",
+            "reopen"
+          ],
+          "description": "An intent judge's: what a verdict that the work is not done as meant does"
+        },
+        "within": {
+          "$ref": "#/$defs/duration",
+          "description": "An intent judge's: work that entered its judged state longer ago is not judged late"
         }
       },
       "additionalProperties": false,

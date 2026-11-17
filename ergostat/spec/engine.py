@@ -428,13 +428,17 @@ class Engine:
         return [f for f, v in said.moved.items() if v]           # moving nothing is not a reason to read again
 
     def judge(self, b: Block) -> None:
-        """One pass of the judge, ergostat's own (no program): recorded as a run, what it moved said on its ports."""
-        from ..numbers import judge as jd
+        """One pass of the judge, ergostat's own (no program): recorded as a run, what it moved said on its ports. A
+        judge of changes to the model (SPEC §12e), or the intent judge of finished work (``judge: intent``, §12i)."""
+        if b.judge_mode == "intent":
+            from ..intent import judge as jd
+        else:
+            from ..numbers import judge as jd
         ev = self.p.events
         begun = ev.add("agent.started", item=b.name, source=SOURCE, data={"trigger": "schedule"})
         started = time.time()
         try:
-            got = jd.run(self.p, by=b.name)
+            got = jd.run(self.p, self.spec, by=b.name) if b.judge_mode == "intent" else jd.run(self.p, by=b.name)
         except Exception as e:
             ev.add("agent.failed", item=b.name, source=SOURCE, causedby=begun["id"],
                    data={"exit": None, "seconds": round(time.time() - started, 3), "note": f"{type(e).__name__}: {e}"})
@@ -448,7 +452,13 @@ class Engine:
             said.take(line)
         ev.add("agent.ran", item=b.name, source=SOURCE, causedby=begun["id"],
                data={"exit": 0, "seconds": round(time.time() - started, 3), "why": "schedule", **said.counts,
-                     **{k: got[k] for k in jd.PORTS}, **({"moved": said.moved} if said.moved else {})})
+                     **{k: got[k] for k in getattr(jd, "PORTS", ())},
+                     **({k: got[k] for k in ("judged", "met", "held", "missed", "cost_usd")} if b.judge_mode == "intent" else {}),
+                     **({"moved": said.moved} if said.moved else {})})
+        if b.judge_mode == "intent":
+            for v in got.get("verdicts") or []:
+                if v["verdict"] in ("unmet", "contradicted"):
+                    self.say(f"{b.name}: {v['work']} not done as meant ({v['verdict']}): {v['why'][:200]}")
 
     # ---- sensors
 
