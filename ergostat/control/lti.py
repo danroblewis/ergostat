@@ -1,7 +1,8 @@
 """A loop as a linear system: the process identified (first order plus dead time, or an integrator
 plus dead time), the controller as its block says it is, and what follows from the two: the step
 response of each, the frequency response (Bode), and the stability margins (Åström & Murray,
-*Feedback Systems*, ch. 9-11; Skogestad & Postlethwaite, ch. 2).
+*Feedback Systems*, ch. 9-11; Åström & Wittenmark, *Computer-Controlled Systems*, ch. 2, 3 and 8;
+Skogestad & Postlethwaite, ch. 2 and 7).
 
 Time is in seconds here, frequency in rad/s. A process is a dict:
 
@@ -10,13 +11,26 @@ Time is in seconds here, frequency in rad/s. A process is a dict:
 
 A controller is a dict too:
 
-- ``{"form": "I", "g": step per unit of error, "T": s}``: integral action sampled every T, written as
-  the blocks view writes it, C(z) = g / (z − 1) (u_(k+1) = u_k + g e_k);
-- ``{"form": "PI", "Kc": gain, "Ti": s, "T": s or None}`` and ``{"form": "P", "Kc": gain, "T": ...}``:
-  continuous laws, through a zero-order hold when the block runs every T.
+- ``{"form": "I", "g": step per unit of error, "T": s}``: integral action in velocity form, run every
+  T and acting at once on the error it has just read: u_k = u_(k−1) + g e_k, C(z) = g z / (z − 1);
+- ``{"form": "PI", "Kc": gain, "Ti": s, "T": s}``: PI in velocity form, u_k = u_(k−1) + Kc (e_k −
+  e_(k−1)) + Kc (T/τI) e_k; with ``T`` None, the continuous PI;
+- ``{"form": "P", "Kc": gain, "T": ...}``: u_k = Kc e_k.
 
-A controller run every T acts through its sampler and hold: seen from the continuous loop, its
-frequency response times (1 − e^(−jωT)) / (jωT), valid below the Nyquist frequency π/T."""
+Any of them may carry ``delay``: the controller's own delay, how old the reading it acts on is plus
+how long its run takes before the move is made (Åström & Wittenmark §8.3, the computational delay).
+It adds to the process's dead time; it is never taken as a whole period.
+
+A controller run every T is analysed exactly in discrete time: the process sampled through the
+zero-order hold (its dead time split into whole periods and a fraction, the modified z-transform),
+L(z) = C(z) P(z) evaluated on the unit circle up to the Nyquist frequency π/T, and the closed loop
+stable when every root of 1 + L(z) = 0 lies inside the unit circle (the Schur–Cohn test). A
+continuous controller is judged by the Nyquist criterion on L(jω): with no open-loop poles in the
+right half-plane, stable when the gain margin is past 1 and the phase margin past 0.
+
+What a block does that is not linear (a dead band on the error, a setting rounded to its
+resolution, a clamp at its limits) is left out of the linear numbers and said beside them
+(``nonlinear``)."""
 
 from __future__ import annotations
 
@@ -24,6 +38,13 @@ import cmath
 import math
 
 MAX_STEPS = 40000
+MAX_ORDER = 800                     # past this many periods of delay, the Nyquist criterion instead of the roots
+
+
+def effective(p: dict, c: dict | None) -> dict:
+    """The process as the controller sees it: its dead time and the controller's own delay."""
+    d = (c or {}).get("delay") or 0.0
+    return {**p, "theta": (p.get("theta") or 0.0) + d} if d else p
 
 
 def process_at(p: dict, w: float) -> complex:
@@ -34,23 +55,106 @@ def process_at(p: dict, w: float) -> complex:
     return p["K"] * delay / (p["tau"] * s + 1)
 
 
-def hold_at(T: float | None, w: float) -> complex:
-    """The sampler and zero-order hold of a block run every T, as the continuous loop sees them."""
-    if not T:
-        return 1.0 + 0j
-    x = 1j * w * T
-    return (1 - cmath.exp(-x)) / x
+# ---- discrete time: polynomials in q = z^(−1), lowest power first
+
+def _mul(a: list[float], b: list[float]) -> list[float]:
+    out = [0.0] * (len(a) + len(b) - 1)
+    for i, x in enumerate(a):
+        for j, y in enumerate(b):
+            out[i + j] += x * y
+    return out
+
+
+def _add(a: list[float], b: list[float]) -> list[float]:
+    n = max(len(a), len(b))
+    return [(a[i] if i < len(a) else 0.0) + (b[i] if i < len(b) else 0.0) for i in range(n)]
+
+
+def _at(poly: list[float], q: complex) -> complex:
+    v = 0j
+    for x in reversed(poly):
+        v = v * q + x
+    return v
+
+
+def sampled(p: dict, T: float) -> tuple[list[float], list[float]]:
+    """The process seen from a zero-order hold and a sampler every T, exactly: (numerator,
+    denominator) in q. Its dead time θ = dT + εT, 0 ≤ ε < 1, delays the input by d whole periods and
+    splits each period's input over two samples (Åström & Wittenmark §2.3)."""
+    th = max(p.get("theta") or 0.0, 0.0)
+    d = int(th // T)
+    eps = th / T - d
+    if eps > 1 - 1e-9:
+        d, eps = d + 1, 0.0
+    if p["form"] == "integrating":
+        b0, b1 = p["K"] * T * (1 - eps), p["K"] * T * eps
+        den = [1.0, -1.0]
+    else:
+        a = math.exp(-T / p["tau"])
+        a1 = math.exp(-(1 - eps) * T / p["tau"])
+        b0, b1 = p["K"] * (1 - a1), p["K"] * (a1 - a)
+        den = [1.0, -a]
+    num = [0.0] * (d + 1) + [b0, b1]
+    return num, den
+
+
+def controller_poly(c: dict) -> tuple[list[float], list[float]]:
+    """A sampled controller's law as (numerator, denominator) in q."""
+    if c["form"] == "I":
+        return [c["g"]], [1.0, -1.0]
+    if c["form"] == "PI":
+        return [c["Kc"] * (1 + c["T"] / c["Ti"]), -c["Kc"]], [1.0, -1.0]
+    return [c["Kc"]], [1.0]
 
 
 def controller_at(c: dict, w: float) -> complex:
-    s = 1j * w
+    """The controller's frequency response: C(e^(jωT)) for a sampled one, C(jω) for a continuous one."""
     T = c.get("T")
+    if T:
+        num, den = controller_poly(c)
+        q = cmath.exp(-1j * w * T)
+        return _at(num, q) / _at(den, q)
+    s = 1j * w
     if c["form"] == "I":
-        z = cmath.exp(s * T)
-        return c["g"] / (z - 1) * hold_at(T, w)
+        return c.get("Ki", c.get("g", 0.0)) / s
     if c["form"] == "PI":
-        return c["Kc"] * (1 + 1 / (c["Ti"] * s)) * hold_at(T, w)
-    return c["Kc"] * hold_at(T, w)
+        return c["Kc"] * (1 + 1 / (c["Ti"] * s))
+    return c["Kc"] + 0j
+
+
+def loop_at(p: dict, c: dict, w: float) -> complex:
+    """The loop opened, L = C P, at ω: in discrete time for a sampled controller."""
+    pe = effective(p, c)
+    T = c.get("T")
+    if T:
+        num, den = sampled(pe, T)
+        q = cmath.exp(-1j * w * T)
+        return controller_at(c, w) * _at(num, q) / _at(den, q)
+    return controller_at(c, w) * process_at(pe, w)
+
+
+def characteristic(p: dict, c: dict) -> list[float]:
+    """The closed loop's characteristic polynomial in q, Dc Dp + Nc Np (sampled controllers)."""
+    nc, dc = controller_poly(c)
+    np_, dp = sampled(effective(p, c), c["T"])
+    return _add(_mul(dc, dp), _mul(nc, np_))
+
+
+def schur_stable(a: list[float]) -> bool:
+    """Whether every root z of Σ a_i z^(−i) = 0 lies inside the unit circle (Schur–Cohn): the
+    polynomial in z has a_0 leading and a_n constant; each step takes out the reflection
+    coefficient k = a_n/a_0, which must be inside (−1, 1)."""
+    c = list(a)
+    while len(c) > 1 and abs(c[-1]) < 1e-15 * max(abs(x) for x in c):
+        c.pop()                                    # a zero root (a pure delay's): inside
+    while len(c) > 1:
+        if c[0] == 0:
+            return False
+        k = c[-1] / c[0]
+        if abs(k) >= 1 - 1e-12:
+            return False
+        c = [(c[i] - k * c[-1 - i]) for i in range(len(c) - 1)]
+    return True
 
 
 def nyquist(c: dict | None) -> float:
@@ -61,8 +165,9 @@ def nyquist(c: dict | None) -> float:
 def grid(p: dict, c: dict | None = None, n: int = 240) -> list[float]:
     """Frequencies to draw: from well below the slowest corner to the Nyquist frequency (or well past
     the fastest), evenly on a log scale."""
-    slow = max(p.get("tau") or 0.0, p.get("theta") or 0.0, (c or {}).get("Ti") or 0.0, (c or {}).get("T") or 0.0, 1e-3)
-    fast = min([x for x in (p.get("tau"), p.get("theta"), (c or {}).get("T")) if x] or [slow])
+    th = (p.get("theta") or 0.0) + ((c or {}).get("delay") or 0.0)
+    slow = max(p.get("tau") or 0.0, th, (c or {}).get("Ti") or 0.0, (c or {}).get("T") or 0.0, 1e-3)
+    fast = min([x for x in (p.get("tau"), th, (c or {}).get("T")) if x] or [slow])
     lo = 0.01 / slow
     hi = min(nyquist(c) * 0.999, 30.0 / max(fast, 1e-3))
     hi = max(hi, lo * 100)
@@ -86,12 +191,13 @@ def _unwrapped(vals: list[complex]) -> list[float]:
 
 def bode(p: dict, c: dict | None = None, n: int = 240) -> dict:
     """The process's frequency response, and with a controller the loop's L = CP and the closed
-    loop's T = L/(1 + L): magnitude (as a ratio, drawn on a log axis) and phase (degrees)."""
+    loop's T = L/(1 + L): magnitude (as a ratio, drawn on a log axis) and phase (degrees). A sampled
+    loop's L is the discrete one, up to the Nyquist frequency."""
     ws = grid(p, c, n)
     P = [process_at(p, w) for w in ws]
     out = {"w": ws, "process": {"mag": [abs(x) for x in P], "phase": _unwrapped(P)}}
     if c is not None:
-        L = [controller_at(c, w) * x for w, x in zip(ws, P, strict=True)]
+        L = [loop_at(p, c, w) for w in ws]
         Tc = [x / (1 + x) for x in L]
         out["loop"] = {"mag": [abs(x) for x in L], "phase": _unwrapped(L)}
         out["closed"] = {"mag": [abs(x) for x in Tc], "phase": _unwrapped(Tc)}
@@ -102,9 +208,10 @@ def bode(p: dict, c: dict | None = None, n: int = 240) -> dict:
 def margins(p: dict, c: dict, n: int = 1200) -> dict:
     """Gain margin (how much more gain before it oscillates without end), phase margin and delay
     margin (how much more dead time), and the peak of the sensitivity Ms = max |1/(1 + L)|: the
-    textbooks' robustness numbers (Åström & Murray §10.3; Skogestad's SIMC aims at Ms ≈ 1.6-1.7)."""
+    textbooks' robustness numbers (Åström & Murray §10.3: Ms between 1.2 and 2; Skogestad's SIMC aims
+    at Ms ≈ 1.6-1.7)."""
     ws = grid(p, c, n)
-    L = [controller_at(c, w) * process_at(p, w) for w in ws]
+    L = [loop_at(p, c, w) for w in ws]
     mag = [abs(x) for x in L]
     ph = _unwrapped(L)
     wc = gm = w180 = pm = None
@@ -120,9 +227,24 @@ def margins(p: dict, c: dict, n: int = 1200) -> dict:
             gm = 1 / m180 if m180 > 0 else math.inf
     ms = max(abs(1 / (1 + x)) for x in L)
     dm = math.radians(pm) / wc if pm is not None and wc and pm > 0 else None
-    stable = closed_stable(p, c)
     return {"gain_margin": gm, "phase_margin": pm, "crossover": wc, "phase_crossover": w180,
-            "delay_margin": dm, "ms": ms, "stable": stable}
+            "delay_margin": dm, "ms": ms, "stable": _stable(p, c, gm, pm)}
+
+
+def _stable(p: dict, c: dict, gm: float | None, pm: float | None) -> bool:
+    """Whether the closed loop settles: for a sampled controller, the roots of its characteristic
+    polynomial (Schur–Cohn); for a continuous one, or a delay too long for the roots, the Nyquist
+    criterion on the margins (no open-loop poles in the right half-plane: the process is stable or
+    integrating, the controller at most integrating)."""
+    if c.get("T"):
+        a = characteristic(p, c)
+        if len(a) <= MAX_ORDER:
+            return schur_stable(a)
+    return (gm is None or gm > 1) and (pm is None or pm > 0)
+
+
+def closed_stable(p: dict, c: dict) -> bool:
+    return margins(p, c, n=600)["stable"]
 
 
 def process_step(p: dict, t_end: float | None = None, n: int = 160) -> dict:
@@ -145,12 +267,13 @@ def process_step(p: dict, t_end: float | None = None, n: int = 160) -> dict:
 
 def closed_step(p: dict, c: dict, t_end: float | None = None, n: int = 200) -> dict:
     """The closed loop's response to a unit step in r at 0, simulated: the process continuous (exact
-    over each small step), its dead time a delay line, the controller sampled every T (or every
-    small step when it is continuous). With the overshoot, the settling time (into 2% for good)
-    and the rise time (10% to 90%)."""
-    th = p.get("theta", 0.0)
+    over each small step), its dead time and the controller's own delay a delay line, the controller
+    sampled every T and acting at once (or every small step when it is continuous). With the
+    overshoot, the settling time (into 2% for good) and the rise time (10% to 90%)."""
+    pe = effective(p, c)
+    th = pe.get("theta", 0.0)
     T = c.get("T") or 0.0
-    tau = p.get("tau") or 0.0
+    tau = pe.get("tau") or 0.0
     scale = max(th + tau, T, 1e-3)
     t_end = t_end or max(20 * scale, 40 * T, 10 * (c.get("Ti") or 0.0))
     dt = min(x for x in (T / 8 if T else None, tau / 20 if tau else None, th / 10 if th else None, t_end / 2000) if x)
@@ -158,10 +281,11 @@ def closed_step(p: dict, c: dict, t_end: float | None = None, n: int = 200) -> d
     dt = t_end / (steps - 1)
     lag = int(round(th / dt))
     buf = [0.0] * lag                                # what u was θ ago: popped as each new u goes in
-    a = math.exp(-dt / tau) if p["form"] == "fopdt" else None
+    a = math.exp(-dt / tau) if pe["form"] == "fopdt" else None
     x = 0.0
-    u = nxt = 0.0
+    u = 0.0
     integ = 0.0
+    e_last = 0.0
     every = max(1, int(round(T / dt))) if T else 1
     ts, ys, us = [], [], []
     stride = max(1, steps // n)
@@ -170,20 +294,28 @@ def closed_step(p: dict, c: dict, t_end: float | None = None, n: int = 200) -> d
         y = x
         if k % every == 0:
             e = 1.0 - y
-            if c["form"] == "I":
-                u, nxt = nxt, nxt + c["g"] * e          # u_(k+1) = u_k + g e_k: in effect from the next sample
+            if T:                                    # velocity form, acting on the error it has just read
+                if c["form"] == "I":
+                    u = u + c["g"] * e
+                elif c["form"] == "PI":
+                    u = u + c["Kc"] * (e - e_last) + c["Kc"] * T / c["Ti"] * e
+                else:
+                    u = c["Kc"] * e
+                e_last = e
             elif c["form"] == "PI":
-                h = (T or dt)
-                integ += e * h
+                integ += e * dt
                 u = c["Kc"] * (e + integ / c["Ti"])
+            elif c["form"] == "I":
+                integ += e * dt
+                u = c.get("Ki", 0.0) * integ
             else:
                 u = c["Kc"] * e
         buf.append(u)
         ud = buf.pop(0)
-        if p["form"] == "integrating":
-            x = x + p["K"] * ud * dt
+        if pe["form"] == "integrating":
+            x = x + pe["K"] * ud * dt
         else:
-            x = a * x + (1 - a) * p["K"] * ud
+            x = a * x + (1 - a) * pe["K"] * ud
         if k % stride == 0:
             ts.append(k * dt)
             ys.append(y)
@@ -214,15 +346,68 @@ def step_numbers(ts: list[float], ys: list[float], final: float, band: float = 0
             t90 is not None else None, "settled": settled}
 
 
-def closed_stable(p: dict, c: dict) -> bool:
-    """Whether the closed loop settles: simulated for a hundred of its slowest times, it neither blows
-    up nor swings as much at the end as it did early on."""
-    scale = max(p.get("theta", 0.0) + (p.get("tau") or 0.0), c.get("T") or 0.0, c.get("Ti") or 0.0, 1e-3)
-    st = closed_step(p, c, t_end=100 * scale, n=800)
-    if st.get("unstable"):
-        return False
-    ys = st["y"]
-    q = len(ys) // 4
-    tail, head = ys[-q:], ys[q:2 * q]
-    swing = max(tail) - min(tail)
-    return swing < 1e-3 or swing < 0.5 * (max(head) - min(head))
+# ---- how sure: the margins over what the process could be
+
+def corners(p: dict, se: dict, k: float = 2.0) -> list[dict] | None:
+    """The process at the corners of its uncertainty: K ± kσ, θ + kσ (a longer delay is the danger)
+    and τ ± kσ, each kept positive. None when K's sign is not told apart (K − kσ past 0)."""
+    K, sK = p["K"], se.get("K") or 0.0
+    if sK and abs(K) - k * sK <= 0:
+        return None
+    sgn = 1 if K > 0 else -1
+    Ks = sorted({K, sgn * (abs(K) - k * sK), sgn * (abs(K) + k * sK)})
+    ths = sorted({p.get("theta") or 0.0, (p.get("theta") or 0.0) + k * (se.get("theta") or 0.0)})
+    taus = [None]
+    if p["form"] == "fopdt":
+        st = se.get("tau") or 0.0
+        taus = sorted({p["tau"], max(p["tau"] - k * st, 0.05 * p["tau"]), p["tau"] + k * st})
+    return [{**p, "K": a, "theta": b, **({"tau": c} if c is not None else {})} for a in Ks for b in ths for c in taus]
+
+
+def robust(p: dict, c: dict, se: dict, k: float = 2.0) -> dict:
+    """The worst margins over the process's uncertainty (Skogestad & Postlethwaite ch. 7): the least
+    gain and phase margin, the largest Ms, and whether every corner is stable."""
+    cs = corners(p, se, k)
+    if cs is None:
+        return {"known": False, "why": "the record does not tell the sign of K apart (K ± 2σ spans 0): the margins cannot be bounded"}
+    worst = {"gain_margin": math.inf, "phase_margin": math.inf, "ms": 0.0, "stable": True}
+    at = None
+    for q in cs:
+        m = margins(q, c, n=400)
+        if not m["stable"]:
+            worst["stable"] = False
+            at = at or q
+        if m["gain_margin"] is not None and m["gain_margin"] < worst["gain_margin"]:
+            worst["gain_margin"] = m["gain_margin"]
+            at = q if worst["stable"] else at
+        if m["phase_margin"] is not None and m["phase_margin"] < worst["phase_margin"]:
+            worst["phase_margin"] = m["phase_margin"]
+        worst["ms"] = max(worst["ms"], m["ms"])
+    return {"known": True, **{x: (None if v == math.inf else v) for x, v in worst.items()}, "worst": at, "k": k,
+            "corners": len(cs)}
+
+
+# ---- what the linear numbers leave out
+
+def nonlinear(p: dict, c: dict, m: dict) -> list[str]:
+    """What the block does that is not linear, and what that means for the loop (describing
+    functions, Åström & Hägglund, *Advanced PID Control*, §3.5 and ch. 7)."""
+    out = []
+    db = c.get("deadband")
+    if db:
+        out.append(f"its dead band (±{db:.3g} of error, where it does not move) is left out of the linear numbers: inside it the "
+                   "loop is open, so y may rest anywhere within ±dead band of r; a dead zone's describing function is at most 1, "
+                   "so with the loop stable it adds no limit cycle")
+    res = c.get("resolution")
+    if res:
+        gm = m.get("gain_margin")
+        lim = 4 / math.pi
+        cyc = gm is not None and gm < lim
+        out.append(f"its setting is rounded to steps of {res:.3g}: a quantizer's describing function peaks at 4/π ≈ 1.27, so "
+                   + (f"with a gain margin of {gm:.3g} a limit cycle of about one step is predicted"
+                      if cyc else "with a gain margin past it, no limit cycle is predicted from the rounding"))
+    lim = c.get("limits")
+    if lim:
+        out.append(f"its setting is clamped to [{lim[0]:g}, {lim[1]:g}]: in velocity form the clamp does not wind up, "
+                   "but at a limit the loop is open")
+    return out

@@ -221,11 +221,14 @@ valve's and an auxiliary's panel show its equation in MathML with each parameter
 provenance and any proposal for it, with Accept, parts chosen with
 Shift chart in the side panel (and with none chosen, the parts charted last); a loop's panel, its
 comparator, controller or output in the blocks view, and its sparkline on the Loops page open its
-scope (y with r, u, e), and under it how the loop is doing (Harris index, oscillation, settling and
-overshoot, saturation; the Loops page says it in a word); in the blocks view, the process block a
+scope (y with r, u, e), and under it how the loop is doing (Harris index or, for a ceiling or a floor,
+how often and how far past it, oscillation, settling and overshoot, saturation, step tests and starts
+left out; the Loops page says it in a word, or what it lacks); in the blocks view, the process block a
 loop's y comes out of shows that loop's process identified (K, τ, θ, how sure, how tested, its step
-response and Bode plot, with Accept, or a step test to Approve), and its controller's panel the closed
-loop with it (margins, step response, Bode) and a SIMC tuning (SPEC §12c); the Items page draws each
+response and Bode plot, with Accept, or a step test to Approve, or why none is offered yet), and its
+controller's panel the closed loop with it (margins, at the worst the process could be too, its own
+delay, what the linear numbers leave out, step response, Bode) and a SIMC tuning or a detuning (SPEC
+§12c); a block's dead band is drawn before its law as a dead zone; the Items page draws each
 kind's cumulative flow and cycle times. Every
 chart in one place shares its cursor and covers the page's window. One control in the header
 holds the window and the moment: its menu sets the window and slides the page to a past moment

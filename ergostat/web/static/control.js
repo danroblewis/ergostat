@@ -117,18 +117,23 @@ function bodeCharts(b, m, { loop = false } = {}) {
   return out;
 }
 
-/* y as measured, and the model's own simulation from u (ŷ, dashed), with where the record held out starts */
+/* y as measured, and the model's own simulation (ŷ, dashed) from u and the measured inputs beside it,
+   with u's own part dotted when there are any; where the record held out starts is marked */
 function validationChart(d) {
   const rec = d.record;
   if (!rec?.yhat) return null;
   const plotEl = h("div", { class: "chart-plot" });
-  const el = chartBox("y and ŷ", "measured, and the model driven by u alone (dashed)", plotEl);
+  const r = d.identified || {};
+  const role = rec.yhat_u ? "measured; dashed, the model driven by u and the measured inputs; dotted, u's own part"
+    : "measured, and the model driven by u (dashed)";
+  const el = chartBox("y and ŷ", role, plotEl);
   const group = chartGroup("ident");
+  const mark = (r.tests_used || []).length > 1 ? "the last test, held out" : r.test ? "stepped back" : "held out";
   mountPlot(plotEl, (width) => {
     const o = baseOpts({ width, height: 84, group, since: rec.since, until: rec.until, xAxis: true,
-      hooks: { draw: [vline(rec.held_from, d.identified?.test ? "stepped back" : "held out")] } });
-    o.series = [{}, inkLine(), replayLine()];
-    return new uPlot(o, [rec.t, rec.y, rec.yhat], plotEl);
+      hooks: { draw: [vline(rec.held_from, mark)] } });
+    o.series = [{}, inkLine(), replayLine(), ...(rec.yhat_u ? [projectionLine()] : [])];
+    return new uPlot(o, [rec.t, rec.y, rec.yhat, ...(rec.yhat_u ? [rec.yhat_u] : [])], plotEl);
   });
   return el;
 }
@@ -173,8 +178,9 @@ function identRows(d) {
   if (!r.found) return [];
   return [["gain K", pmText(r.K, se.K)], ["time constant τ", r.form === "integrating" ? "none: an integrator" : `${pmText(r.tau, se.tau)} s`],
     ["dead time θ", `${pmText(r.theta, se.theta)} s`],
-    ["fit", r.fit_val != null ? `${Math.max(0, Math.round(r.fit_val))}% of the record held out, ${Math.max(0, Math.round(r.fit_est ?? 0))}% of what it was fitted to` : null],
-    ["from", `${r.test ? "a step test (open loop)" : "the loop working (closed loop)"}, ${dur(r.span)}, ${r.n_est} readings fitted, ${r.n_val} held out${r.moves ? `, u stepped ${r.moves} time${r.moves === 1 ? "" : "s"}` : ""}`],
+    ["fit", r.fit_val != null ? `${Math.max(0, Math.round(r.fit_val))}% of the record held out, of the ${Math.max(0, Math.round(r.fit_best ?? 0))}% its noise allows; ${Math.max(0, Math.round(r.fit_est ?? 0))}% of what it was fitted to` : null],
+    ["left", r.rms_val != null && r.noise ? `${fmt(r.rms_val / r.noise)} × the noise, of the record held out` : null],
+    ["from", `${(r.tests_used || []).length > 1 ? `${r.tests_used.length} step tests, fitted together (open loop)` : r.test ? "a step test (open loop)" : "the loop working (closed loop)"}, ${dur(r.span)}, ${r.n_est} readings fitted, ${r.n_val} held out${r.moves ? `, u stepped ${r.moves} time${r.moves === 1 ? "" : "s"}` : ""}`],
     ["errors held out", r.whiteness ? `${r.whiteness.white ? "white" : "not white"} (Ljung–Box Q ${fmt(r.whiteness.q)} against ${fmt(r.whiteness.limit)}, ${r.whiteness.lags} lags)` : null],
     ["against u", r.independence ? (r.independence.ok ? "independent of u" : `not independent (cross-correlation ${fmt(r.independence.max)}, past ±${fmt(r.independence.bound)})`) : null],
     ["also fitted", Object.keys(r.gains || {}).length ? Object.entries(r.gains).map(([k, v]) => `${k.split(".").slice(1).join(".")} ×${fmt(v)}`).join(", ") : null]];
@@ -209,8 +215,10 @@ function processSection(d, done) {
                         { final: d.process.form === "fopdt" ? d.process.K : null, label: d.process.form === "fopdt" ? `K ${fmt(d.process.K)}` : "" }));
     kids.push(bodeCharts(d.bode, null));
   }
-  for (const t of (d.tests || []).slice(-2)) kids.push(h("p", { class: "muted small" },
-    `Step test ${t.id}: started ${ago(t.started)}${t.finished ? `, ${t.how}` : ", running"}.`));
+  for (const t of (d.tests || []).slice(-3)) kids.push(h("p", { class: "muted small" },
+    `Step test ${t.id}: started ${ago(t.started)}${t.from != null ? ` from ${fmt(t.from)}` : ""}${t.finished ? `, ${t.how}` : ", running"}.`));
+  if (d.step_test_waiting) kids.push(h("p", { class: "muted small" }, `No step test yet: ${d.step_test_waiting}.`));
+  if (d.step_test_refused) kids.push(h("p", { class: "muted small" }, `No step test: ${d.step_test_refused}.`));
   for (const x of (d.proposals || []).filter((p) => p.kind !== "tuning")) kids.push(controlProposal(x, d.goal, done));
   return kids;
 }
@@ -222,8 +230,10 @@ function controllerSection(d, done) {
     kids.push(h("p", { class: "muted small" }, `${c.says || "Its law is not known"}: no closed loop worked out.`));
   } else if (!d.process) {
     kids.push(h("p", { class: "muted small" }, "Its process is not identified yet (its panel offers a step test): no closed loop worked out."));
+    if (d.robust) kids.push(dl([["at the worst", robustText(d.robust)]]));
   } else {
     const m = d.margins || {};
+    const weak = (m.phase_margin ?? 90) < 30 || (m.ms ?? 0) > 2;
     kids.push(h("p", { class: "muted small" }, d.process_from === "model" ? "With the process in the model." :
       "With the process the record suggests, not yet in the model."),
       dl([["gain margin", m.gain_margin != null ? `${fmt(m.gain_margin)}×` : "no phase crossover"],
@@ -231,7 +241,10 @@ function controllerSection(d, done) {
           ["delay margin", m.delay_margin != null ? secs(m.delay_margin) : null],
           ["Ms", m.ms != null ? `${fmt(m.ms)} (the sensitivity's peak)` : null],
           ["closed loop", m.stable === false ? h("span", { class: "s-off" }, "does not settle")
-            : (m.phase_margin ?? 90) < 20 || (m.gain_margin ?? 9) < 1.3 ? h("span", { class: "s-open" }, "settles, barely: it rings a long time") : "settles"]]));
+            : weak ? h("span", { class: "s-open" }, `settles, but not robustly: ${(m.ms ?? 0) > 2 ? "Ms past 2" : "phase margin under 30°"} (the textbooks' limits: Ms 1.2 to 2, phase margin 30° or more)`) : "settles"],
+          ["its own delay", c.law.delay ? `${secs(c.law.delay)}: the reading it acts on ${secs(c.law.age || 0)} old, its run ${secs(c.law.run || 0)}; added to θ` : null],
+          ["at the worst", d.robust ? robustText(d.robust) : null]]));
+    for (const x of d.nonlinear || []) kids.push(h("p", { class: "muted small" }, `Left out: ${x}.`));
     const t = d.tuning || {};
     kids.push(stepChart("y", t.step ? "r stepped by 1; dashed: SIMC" : "r stepped by 1", d.closed_step, { other: t.step, final: 1, label: "r" }));
     kids.push(bodeCharts(d.bode, m, { loop: true }));
@@ -243,8 +256,24 @@ function controllerSection(d, done) {
       `gain margin ${fmt(tm.gain_margin)}×, phase margin ${fmt(tm.phase_margin)}°, Ms ${fmt(tm.ms)}.`));
     if (t.why) kids.push(h("p", { class: "muted small" }, `Not proposed: ${t.why}.`));
   } else if (t.why && c.law) kids.push(h("p", { class: "muted small" }, `No tuning: ${t.why}.`));
+  if (t.detune) {
+    const dc = t.detune.controller, rb = t.detune.robust || {};
+    kids.push(h("p", { class: "small" }, `Detuned for robustness: ${dc.form === "I" ? `gain ${fmt(dc.g)} a step` : `K_c ${fmt(dc.Kc)}`}; ` +
+      `at the worst the process could be, gain margin ${fmt(rb.gain_margin)}×, phase margin ${fmt(rb.phase_margin)}°.`));
+  }
   for (const x of (d.proposals || []).filter((p) => p.kind === "tuning")) kids.push(controlProposal(x, d.goal, done));
   return kids;
+}
+
+/* the loop's margins at the worst its process could be, in words */
+function robustText(rb) {
+  if (!rb.known) return rb.why;
+  const se = rb.se || {};
+  const word = rb.stable ? (rb.gain_margin != null && rb.gain_margin < 2 ? "stable, but with little to spare" : "robustly stable") : "may be unstable";
+  const span = `over K ± 2σ, θ + 2σ${se.tau != null ? ", τ ± 2σ" : ""} (σ: K ${fmt(se.K)}, θ ${secs(se.theta)})`;
+  const cls = rb.stable ? (rb.gain_margin != null && rb.gain_margin < 2 ? "s-open" : null) : "s-off";
+  return h("span", {}, h("span", cls ? { class: cls } : {}, word), `: gain margin ${rb.gain_margin != null ? fmt(rb.gain_margin) + "×" : "–"}, ` +
+    `phase margin ${rb.phase_margin != null ? fmt(rb.phase_margin) + "°" : "–"}, Ms ${fmt(rb.ms)}, ${span}`);
 }
 
 /* how the loop is doing, under its scope */
@@ -254,12 +283,16 @@ function performanceRows(d) {
   const harris = hr.index != null ? `${fmt(hr.index)}; at 1 it leaves no more variance than the best controller could, given the dead time` : hr.why;
   const osc = os.oscillating ? `yes: every ${secs(os.period)}, ±${fmt(os.amplitude)} (regularity ${fmt(os.regularity)})`
     : os.crossings != null ? "no" : null;
-  return [["Harris index", harris], ["oscillating", osc],
+  const cn = pf.constraint;
+  const nl = d.predicted?.nonlinear?.length ? "; linear, the dead band and the setting's steps left out (the controller's panel says what they do)" : "";
+  return [["Harris index", harris], ["past its bound", cn ? `${Math.round(cn.share * 100)}% of the time (${Math.round(cn.share_off * 100)}% past its tolerance), by ${fmt(cn.mean)} typically, ${fmt(cn.worst)} at worst` : null],
+    ["oscillating", osc],
     ["settles", ex.count ? `in ${secs(ex.settling)}, typically (slowest ${secs(ex.slowest)}, ${ex.count} times)` : null],
     ["overshoot", ex.overshoot != null ? `${Math.round(ex.overshoot * 100)}% past the setpoint, typically` : null],
-    ["saturated", pf.saturation != null ? `${Math.round(pf.saturation * 100)}% of the time` : null],
+    ["saturated", pf.saturation != null ? `${Math.round(pf.saturation * 100)}% of the ${d.how === "valve" ? "openings, at its most" : "time, at a limit"}` : null],
+    ["left out", pf.left_out ? `${dur(pf.left_out)} of step tests and starts` : null],
     ["predicted", d.predicted && d.predicted.overshoot != null ? `for a step of r: overshoot ${Math.round(d.predicted.overshoot * 100)}%, ` +
-      (d.predicted.settling != null ? `settling in ${secs(d.predicted.settling)}` : "not settled in view") : null]];
+      (d.predicted.settling != null ? `settling in ${secs(d.predicted.settling)}` : "not settled in view") + nl : null]];
 }
 
 /* the box each place shows: "process", "controller", "scope", or "loop" (the Loops page's panel) */
@@ -280,9 +313,14 @@ function controlBox(goal, part, { block = null } = {}) {
 
 /* one word or two for the Loops page: how the loop is doing */
 function performanceWord(d) {
-  const pf = d?.performance || {};
+  if (!d) return "";
+  if (d.why) return "no one process";
+  const pf = d.performance || {};
   if (pf.oscillation?.oscillating) return `oscillates, ${secs(pf.oscillation.period)}`;
   if (pf.saturation != null && pf.saturation > 0.2) return `saturated ${Math.round(pf.saturation * 100)}%`;
+  if (pf.constraint) return pf.constraint.share ? `past its bound ${Math.round(pf.constraint.share * 100)}%` : "within its bound";
   if (pf.harris?.index != null) return `Harris ${fmt(pf.harris.index)}`;
+  if (pf.harris?.short) return "too little record";
+  if (pf.harris?.needs_theta) return "needs θ";
   return "";
 }

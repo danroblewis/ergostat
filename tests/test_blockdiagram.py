@@ -216,6 +216,8 @@ def test_a_discrete_controller_meets_the_continuous_process_through_a_sampler_an
         for b in [x for x in g["nodes"] if (x.get("fn") or {}).get("arg") == "z"]:
             name = b["id"].split(":", 1)[1]
             into = [e for e in g["edges"] if e["target"] == b["id"]]
+            if [e["source"] for e in into] == [f"dz:{name}"]:          # its dead band, a nonlinearity between them
+                into = [e for e in g["edges"] if e["target"] == f"dz:{name}"]
             assert [e["source"] for e in into] == [f"smp:{name}"], (where, b["id"], into)
             assert n[f"smp:{name}"]["kind"] == "sampler"
             # one hold per output: each output is its own continuous signal, held between samples

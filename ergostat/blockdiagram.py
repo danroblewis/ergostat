@@ -8,7 +8,7 @@ What each part of the model becomes:
   program, an AI agent, a person), drawn once however many loops it serves. A setting a controller
   steps (a stock moved by a two-way flow only it moves) is the controller's own memory: its value
   is the controller's output u, and a block that reads its goal's error and steps a setting on a
-  schedule is integral action, C(z) = K_i T/(z − 1).
+  schedule is integral action, C(z) = K_i T z/(z − 1) (it acts at once on the error it has read).
 - A **process** is the part of the world between what the blocks move and what they read. A stock
   whose flows are all inputs (moved by blocks, or disturbances) is an integrator, 1/s, with its
   flows summed in front of it (each a + or −). Anything else (flows that follow others,
@@ -474,8 +474,26 @@ class _Diagram:
             first["target"], first["targetPort"] = sid, f"{sid}|in|x"
             self.produce(f"samp:{name}", sid, "x[k]")
             self.sig[f"samp:{name}"] = {"key": f"samp:{name}", "sym": sg["sym"], "sub": "k", "what": "sampled"}
-            self.wires.append({"key": f"samp:{name}", "source": sid, "sourcePort": self.prod[f"samp:{name}"][1],
-                               "target": nid, "targetPort": self.port(nid, "in", "e[k]")})
+            into = nid
+            db = n.get("deadband")
+            if db:                                             # its dead band: a nonlinearity before the linear law
+                did = f"dz:{name}"
+                self.node(did, kind="block", role="deadband", system=system, label="dead band", loops=loops,
+                          fn={"name": "dead band", "sketch": "deadzone", "kind": "dead zone", "linear": False},
+                          says=f"a dead zone: {name} does not step while |e| ≤ {_num(db)}; outside it, the error passes on. "
+                               "Not linear: left out of the loop's margins, and said beside them.",
+                          math=[eq(["msub", mi("ẽ"), mi("k")], row(mt(f"0 when |e_k| ≤ {_num(db)}, else e_k")))],
+                          rows=[["dead band", f"±{_num(db)} of error"], ["of", name]])
+                self.wires.append({"key": f"samp:{name}", "source": sid, "sourcePort": self.prod[f"samp:{name}"][1],
+                                   "target": did, "targetPort": self.port(did, "in", "e[k]")})
+                self.produce(f"dz:{name}", did, "ẽ[k]")
+                self.sig[f"dz:{name}"] = {"key": f"dz:{name}", "sym": "ẽ", "sub": "k", "what": "sampled"}
+                self.wires.append({"key": f"dz:{name}", "source": did, "sourcePort": self.prod[f"dz:{name}"][1],
+                                   "target": nid, "targetPort": self.port(nid, "in", "e[k]")})
+                added.append(did)
+            else:
+                self.wires.append({"key": f"samp:{name}", "source": sid, "sourcePort": self.prod[f"samp:{name}"][1],
+                                   "target": into, "targetPort": self.port(into, "in", "e[k]")})
             added.append(sid)
         ports = list(dict.fromkeys(w["sourcePort"] for w in outs))
         knob = self.setting_of.get(name)
@@ -848,24 +866,34 @@ class _Diagram:
         reads_error = any(k.startswith("goal.") and k.endswith(".e") for _, k in self.reads.get(n, []))
         e = next((k.split(".")[1] for _, k in self.reads.get(n, []) if k.startswith("goal.") and k.endswith(".e")), None)
         # integral action only when its error is all it reads: a block that weighs several signals (a program reading
-        # two errors and a measurement) is its own nonlinear map that happens to step a setting, not K_i T/(z − 1)
+        # two errors and a measurement) is its own nonlinear map that happens to step a setting, not K_i T z/(z − 1)
         only_error = len(self.reads.get(n, [])) == 1
         if knob and reads_error and only_error and b.type not in ("onoff", "compare"):
             g = b.params.get("gain")                                      # the step per unit of error: K_i T
             gain = row(["msub", mi("K"), mi("i")], mo("\u2062"), mn(T) if T else mi("T")) if g is None else mn(g)
-            math = [eq(sym("C", n, "z"), frac(gain, row(mi("z"), mo("−"), mn(1)))),
-                    eq(["msub", mi("u"), row(mi("k"), mo("+"), mn(1))],
-                       row(["msub", mi("u"), mi("k")], mo("+"), gain, mo("\u2062"), ["msub", mi("e"), mi("k")]))]
+            uk, uk1, ek = ["msub", mi("u"), mi("k")], ["msub", mi("u"), row(mi("k"), mo("−"), mn(1))], ["msub", mi("e"), mi("k")]
+            # velocity form, acting at once on the error it has just read: u_k = u_(k−1) + g e_k, g z/(z − 1)
+            math = [eq(sym("C", n, "z"), frac(row(gain, mo("\u2062"), mi("z")), row(mi("z"), mo("−"), mn(1)))),
+                    eq(uk, row(uk1, mo("+"), gain, mo("\u2062"), ek))]
+            db, res, lim = b.params.get("deadband"), b.params.get("resolution"), b.params.get("limits")
             math.append(mt(f"integral action: it steps {knob.split('.', 1)[1]} (a setting that keeps its value between steps) "
-                           f"by its goal's error e = e_{e}, sampled every {_dur(T) or 'T'}; u is the setting. "
+                           f"by its goal's error e = e_{e}, sampled every {_dur(T) or 'T'}, at once from the error it has just "
+                           "read; u is the setting. "
                            + ("K_i is not written (gain: on the block)." if g is None else
                               f"Its gain, written: {_num(g)} a step per unit of error"
-                              + (f", K_i = {_num(round(float(g) / T, 4))} per second." if T else "."))))
+                              + (f", K_i = {_num(round(float(g) / T, 4))} per second." if T else "."))
+                           + (f" Not linear: no step while |e| ≤ {_num(db)} (its dead band, drawn before it)." if db else "")
+                           + (f" The setting is rounded to steps of {_num(res)}." if res else "")
+                           + (f" It is kept within [{_num(lim[0])}, {_num(lim[1])}]." if lim else "")))
+            extra = ([["dead band", f"±{_num(db)} of error: no step inside it"]] if db else []) + \
+                ([["resolution", f"{_num(res)} a step at least"]] if res else []) + \
+                ([["limits", f"{_num(lim[0])} to {_num(lim[1])}"]] if lim else [])
             return {"role": role, "fn": {"sym": "C", "sub": n, "arg": "z",
-                    "expr": "Kᵢ T/(z − 1)" if g is None else f"{_num(g)}/(z − 1)",
+                    "expr": "Kᵢ T z/(z − 1)" if g is None else f"{_num(g)} z/(z − 1)",
                                          "linear": True, "kind": kind},
                     "says": f"integral controller: {n} steps the setting {knob.split('.', 1)[1]} by the error, {when}.",
-                    "math": math, "rows": rows + ([["gain", f"{_num(g)} a step per unit of error"]] if g is not None else [])}
+                    "math": math, "rows": rows + ([["gain", f"{_num(g)} a step per unit of error"]] if g is not None else []) + extra,
+                    **({"deadband": db} if db else {})}
         if b.type == "proportional":
             k = b.params.get("gain")
             sat = [x for x in (b.params.get("min"), b.params.get("max")) if x is not None]

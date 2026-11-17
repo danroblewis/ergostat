@@ -732,14 +732,20 @@ and `min` (limits on one run's amount), `timeout`, `every`/`cron` (its schedule 
 is the least time between runs),
 `mode` (`auto`, or `advise`: its commands wait for a person to approve), and its control law's
 constants when it says them: `gain` (for a block that steps a setting by its goal's error, the step
-per unit of error, u ← u + gain × e: integral action, C(z) = gain/(z − 1)) and `integral-time` (with
-`gain`, a PI law in velocity form). They are given to it in its input as `params`, so the program
-reads them from the model rather than holding its own copy, and a tuning accepted (section 12c)
-reaches it at its next run.
+per unit of error, acting at once on the error it has just read, u_k = u_(k−1) + gain × e_k: integral
+action, C(z) = gain·z/(z − 1)), `integral-time` (with `gain`, a PI law in velocity form), `deadband`
+(no step while the error is within ± it), `resolution` (the setting is rounded to steps of it) and
+`limits` (`[least, most]`: the setting it steps is kept within them; not `min`/`max`, which limit one
+run's amount). They are given to it in its input as `params`, so the program reads them from the
+model rather than holding its own copy, and a tuning accepted (section 12c) reaches it at its next
+run.
 
 **A step test.** A block run for a step test the owner approved (section 12c) is given
-`"trigger": "step-test"` and `"command": {"amount": Δ, "test": ID}`: it moves its flow by exactly Δ
-and decides nothing else. A block that cannot is not offered one.
+`"trigger": "step-test"` and `"command": {"amount": Δ, "test": ID}`, to move its flow by exactly Δ,
+or, to put the setting back, `"command": {"amount": Δ, "to": value, "test": ID}`, to put it at that
+value; it decides nothing else, and says what it moved (its output line), which must be the step
+commanded to within the setting's resolution, or the test stops. A block that cannot is not offered
+one.
 
 **A machine block may name its goal.** `goal: inbox-short` (and optionally `until:`) on a
 `program`, `ai` or `person` block means "run while this goal is off, until it is back to `until`
@@ -1097,55 +1103,114 @@ it sets). That is u; what its goal holds is y. A loop that closes the long way t
 one process, and says so; a valve that drains or fills the goal's stock directly is an integrator
 known from the model, and only its dead time is not.
 
-**Identification** (`ident.py`; Ljung, *System Identification*, ch. 4, 7, 16): the process from u to
+**The record** (`record.py`). For a setting, u is its sensor's readings with each change put at the
+moment its block made it (the move recorded, `valve.opened`), not when the sensor next read it, so the
+delay identified is the process's (Ljung §13.5). The loop working is read over the recent record at
+half y's sensor period (some ten samples a rise time, Ljung §13.7), each step test over its own span
+at the same resolution, whatever the reference window's buckets (a day of record makes them a minute
+long); how the loop is doing is read over the reference window.
+
+**Identification** (`ident.py`; Ljung, *System Identification*, ch. 4, 7, 14, 16): the process from u to
 y as first order with dead time, K e^(−θs)/(τs + 1), or an integrator with dead time, k e^(−θs)/s
-(when it follows the record held out better), fitted as an output-error model: driven by the
+(when it leaves less of the record held out), fitted as an output-error model: driven by the
 measured u alone from the state the record starts in, never one step ahead. The measured inputs
 beside the path (an input from outside the model, a stock that also drives y) are fitted with it,
-each its own gain through the same lag. The record is the reference window's, in buckets of half
-y's sensor period; the gains are linear for each (τ, θ), which are searched (a grid, then
-Nelder–Mead). The last fifth is held out; for a step test, the step up is fitted and the step back
-held out. Said of it: the fit on each part, 100(1 − ‖y − ŷ‖/‖y − ȳ‖); the standard errors of K, τ and
-θ (Gauss–Newton, widened for errors that run together); the **whiteness** of the errors held out
-(Ljung–Box against χ² at 95%) and their **independence** from u (cross-correlation within
-±1.96/√n); and, identified from the loop working, that it is closed loop, where the estimate leans
-toward the controller's inverse (Ljung ch. 13). It is proposed (written into the goal's `process:`)
-only with u stepped three times or more in the part fitted (or a step test), forty readings fitted
-spanning five of τ + θ, half or more of the record held out followed, and K, τ and θ each told apart
-(a standard error under half of it); otherwise it says why.
+each its own gain through the same lag. The gains are linear for each (τ, θ), which are searched (a
+grid, then Nelder–Mead). From the loop working, the last fifth is held out. Every step test that
+finished is used, as one data set of several experiments (Ljung §14.3): the same K, τ and θ, each
+test its own start and its own level; one test has its step up fitted and its step back held out,
+several have all but the last fitted and the last held out whole. Said of it: the fit on each part,
+100(1 − ‖y − ŷ‖/‖y − ȳ‖), beside the most the record's noise allows; what it leaves of the record held
+out, against the noise (the larger of what it leaves of the part fitted and y's own jitter); the
+standard errors of K, τ and θ (Gauss–Newton, widened for errors that run together); the
+**whiteness** of the errors held out (Ljung–Box against χ² at 95%) and their **independence** from u
+(the cross-correlation within Bartlett's 95% bound, which a held step widens); and, identified from
+the loop working, that it is closed loop, where the estimate leans toward the controller's inverse
+(Ljung ch. 13). It is proposed (written into the goal's `process:`) only with u stepped three times or
+more in the part fitted (or a step test), forty readings fitted spanning five of τ + θ, a record held
+out that moves past its noise (15% of it at least) and of which the model leaves at most 1.5 times the
+noise (not a fit percentage: a correct model of a noisy step back follows little of it, Ljung
+§16.5-16.6), its errors independent of u (from a step test: in closed loop the feedback correlates
+them whatever the model), and K, τ and θ each told apart (a standard error under half of it). A
+number at the edge of what was searched (θ at the longest, τ at the longest the record can tell) has
+no confidence interval and is said so (Ljung §11.4). The step tests' estimate and the loop working's
+are held out on different records, so they are ranked by how precise they are, not by their fits;
+otherwise it says why.
 
-**Analysis** (`lti.py`): with the process (the model's, else the one identified, said as such) and
-the controller as its block writes it (integral action u ← u + gain × e every T, C(z) = gain/(z − 1);
-PI with `integral-time`; through its sampler and hold), the process's step response, the closed
-loop's step response to a unit step of r (overshoot, settling into 2%, rise), the Bode plot (|P|, or
-the loop L = CP and the closed loop T = L/(1 + L), and their phase) and the **stability margins**:
-gain margin, phase margin, delay margin and Ms, the peak of the sensitivity.
+**Analysis** (`lti.py`; Åström & Wittenmark, *Computer-Controlled Systems*, ch. 2, 3, 8): with the
+process (the model's, else the one identified, said as such) and the controller as its block writes
+it, in velocity form and acting at once on the error it has just read: integral action u_k = u_(k−1)
++ gain × e_k, C(z) = gain·z/(z − 1); PI with `integral-time`, u_k = u_(k−1) + Kc(e_k − e_(k−1)) +
+Kc(T/τI)e_k. Its own delay, how old the reading it acts on is and how long its run takes before the
+move is made (from its last runs), is added to the dead time; never a whole period. A sampled
+controller is worked out exactly in discrete time: the process through the zero-order hold (its dead
+time split into whole periods and a fraction), L(z) = C(z)P(z) on the unit circle up to the Nyquist
+frequency, stable when every root of 1 + L(z) lies inside it (Schur–Cohn); a continuous one by the
+Nyquist criterion (no open-loop poles in the right half-plane: stable with the gain margin past 1 and
+the phase margin past 0). Said: the process's step response, the closed loop's step response to a
+unit step of r (simulated; overshoot, settling into 2%, rise), the Bode plot (|P|, or the loop L = CP
+and the closed loop T = L/(1 + L), and their phase), the **stability margins** (gain, phase and
+delay margin, and Ms, the peak of the sensitivity: "not robustly" past Ms 2 or under 30° of phase
+margin), and the margins **at the worst the process could be**, K ± 2σ, θ + 2σ and τ ± 2σ by the
+identification's standard errors (robustly stable, or may be unstable: Skogestad & Postlethwaite ch.
+7), said even when the process is not proposable; when K ± 2σ spans 0, that the margins cannot be
+bounded. What the block does that is not linear is left out of the numbers and said beside them
+(Åström & Hägglund, *Advanced PID Control*, §3.5 and ch. 7): a dead band (`deadband:`, inside it the
+loop is open; a dead zone's describing function is at most 1, so a stable loop gets no limit cycle
+from it), a setting rounded to its `resolution:` (a quantizer's describing function peaks at 4/π, so
+a limit cycle of about one step is predicted with a gain margin under 1.27), and its `limits:` (in
+velocity form the clamp does not wind up; at a limit the loop is open).
 
-**Performance monitoring** (`monitor.py`; Desborough and Harris 1992, Thornhill et al. 2003): the
-**Harris index**, the variance a minimum-variance controller would leave given the dead time over
-the loop's own (an autoregression of the error at the controller's period; it needs θ); whether
-the error **oscillates** (regular zero crossings: mean period over three times its spread past 1,
-four periods or more, past the tolerance), with its period and amplitude; the share of time u was
-at a limit; and, each time the loop went off and came back to stay, how long it took to **settle**,
-and for a level held (==) how far it **overshot** to the other side. Shown under the scope, and in a
-word on the Loops page.
+**Performance monitoring** (`monitor.py`; Desborough and Harris 1992, Thornhill, Huang and Zhang 2003,
+Jelali 2013): over the reference window, less each step test and each start (ten controller periods
+or three of τ + θ after ergostat starts or the record begins, two minutes at least). For a level held
+(==), the **Harris index**, the variance a minimum-variance controller would leave given the dead time
+(the process's and the controller's own) over the loop's mean squared error (an autoregression of the
+error at the controller's period, never across a gap; it needs θ); a ceiling or a floor (<=, >=) is
+not regulated to zero error, so instead how often y was past its bound (and past its tolerance) and
+by how much, typically and at worst. Whether the error **oscillates**: from the zero crossings of its
+autocorrelation, which noise does not break up as it does the error's own (the intervals' mean over
+three times their spread past 1, five crossings or more, the record four periods or more, the
+amplitude past the tolerance), with its period and amplitude; the share of time u was at a limit (a
+setting at the end of its block's `limits:`, or a valve's openings at its most); and, each time the
+loop went off and came back to stay, how long it took to **settle**, and for a level held (==) how
+far it **overshot** to the other side. Shown under the scope, and in a word on the Loops page (which
+says what it lacks, "needs θ" or "too little record", rather than nothing).
 
 **Tuning** (`tuning.py`; Skogestad's SIMC, 2003): for a controller whose law its block writes and the
 process the model holds: PI, Kc = τ/(K(τc + θ)), τI = min(τ, 4(τc + θ)); on an integrator, Kc =
-1/(k(τc + θ)), τI = 4(τc + θ); integral action only, K_I = 1/(K(τc + θ + τ)), the lag taken as delay,
-gain = K_I T; τc = θ (the rules' own "tight" default), a block run every T adding T/2 to θ. It is
-offered with its margins and closed-loop step beside the controller's own, when it moves the gain by
-more than a fifth and settles the loop; never on a process not yet in the model.
+1/(k(τc + θ)), τI = 4(τc + θ); integral action only, K_I = 1/(K(τc + θ + τ)), the lag taken as delay
+(safe, and slow when τ is much longer than θ), gain = K_I T; τc = θ (the rules' own "tight" default;
+a tenth of τ only when there is no dead time at all, and said), θ the process's dead time with the
+controller's own delay and half its period (its sampler and hold). It is offered with its margins
+and closed-loop step beside the controller's own, when it moves the gain by more than a fifth and
+settles the loop; never on a process not yet in the model. When it is not offered and the gain
+margin at the worst the process could be is under 2 (or that worst does not settle), a **detuning**
+is: the gain scaled so that worst gain margin is 2 (Åström & Hägglund §4.8), from a process the model
+holds or one identified with its numbers told apart.
 
 **Step test** (`steptest.py`): when the record does not identify the process of a loop whose setting
-its own controller steps by this loop's error alone, ergostat offers a test: the size of the step
-(enough to move y past twice its tolerance and four times its jitter, as the record's best guess of
-K says, and no more than the setting is used to moving), how long each way is held (five of τ + θ,
-ten controller periods, forty readings, within 2 to 30 minutes), when it stops early (the error past
-a bound), and the blocks held still: the loop's own, and those that move the inputs beside the path
-(not the world). Only once the owner approves it (and while ergostat runs) does `ergostat run` hold
-those blocks, step, wait, step back, wait, and give the loop back, recording each move
-(`steptest.approved`, `.started`, `.stepped`, `.finished`).
+its own controller steps by this loop's error alone, and once the loop is in steady operation (Seborg
+et al. §7.2: the record past its start covers ten controller periods, three of τ + θ and ten minutes,
+and over the last five periods, three minutes at least, the error has been within its tolerance on
+average and not drifting, and u away from its limits; until then the panel says it is waiting, and why), ergostat offers a test.
+The size of the step: from the process identified only when the record tells its numbers apart
+(enough to move y past twice its tolerance and four times its jitter, no more than the setting is
+used to moving); otherwise from the tolerance and the jitter against the most y moved per unit of u
+in the record, no less than the setting is used to moving, half again for each test before (Ljung
+§13.2: a poor prior, a conservative design). Never under ten of the setting's least steps (its
+block's `resolution:`, else the least change the record shows), and signed and sized so the setting
+stays within its block's `limits:`, else refused with why. How long each way is held (five of τ + θ
+when told apart, else ten minutes; ten controller periods, forty readings, within 2 to 30 minutes);
+when it stops early (the error past a bound); and the blocks held still: the loop's own, and those
+that move the inputs beside the path (not the world). The proposal is bound to that plan: another
+size or hold is another proposal (a dismissal holds for the loop until a test is done or the model
+changes). Only once the owner approves it (and while ergostat runs) does `ergostat run` hold those
+blocks, record the setting's value, check the step fits its limits (else it is not run), step, wait,
+put the setting back to the value it recorded (commanded `"to"`, not back by the step), wait, and
+give the loop back, recording each move and what the block said it moved (`steptest.approved`,
+`.started`, `.stepped`, `.finished`). A block that moves anything but what it was commanded (to
+within the setting's resolution) stops the test, the setting put back at once.
 
 **Proposals.** Each is worked out afresh when the loop is looked at; Accept applies what the page was
 shown (the goal's `process:`, a block's `gain:`, made on the file's text so its comments stay, and

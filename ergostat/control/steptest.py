@@ -1,7 +1,11 @@
 """A step test, run by ``ergostat run`` only once the owner has approved it (SPEC §12c): the loop's
-controller is held still, the block that moves u is run once with ``"trigger": "step-test"`` and a
-command of exactly the step, the loop is left to answer for the hold, then the same block steps
-back and the loop answers again; then the controller takes over. Each move is recorded
+controller is held still, the setting's value is recorded, the block that moves u is run once with
+``"trigger": "step-test"`` and a command of exactly the step, the loop is left to answer for the
+hold, then the same block puts the setting back to the value it had (``"to"``), not back by the
+step (a step a limit cut short would otherwise leave it elsewhere), and the loop answers again;
+then the controller takes over. Before it starts, the step must fit within the setting's limits;
+after each move, the block must say it moved what it was commanded (to within the setting's
+resolution), else the test puts the setting back and stops (Seborg et al. §7). Each move is recorded
 (``steptest.started``, ``steptest.stepped``, ``steptest.finished``), so the identification can read
 the test as an open-loop experiment: the step up fitted, the step back held out.
 
@@ -52,13 +56,15 @@ def begin(eng, approval: dict) -> None:
     threading.Thread(target=run, args=(eng, plan), name=f"ergostat-step-test-{plan.get('id')}", daemon=True).start()
 
 
-def _step(eng, b, plan: dict, amount: float) -> list[str]:
-    """Run the block once, commanded to move exactly ``amount``."""
+def _step(eng, b, plan: dict, amount: float, to: float | None = None) -> float | None:
+    """Run the block once, commanded to move exactly ``amount`` (or to put the setting at ``to``);
+    what it said it moved of the plan's flow, None when it said nothing."""
     with eng.lock:
         eng.running.add(b.name)
         eng.began[b.name] = time.time()
-    eng.testing[b.name] = {"amount": amount, "id": plan["id"]}
+    eng.testing[b.name] = {"amount": amount, "id": plan["id"], **({"to": to} if to is not None else {})}
     moved: list[str] = []
+    getattr(eng, "moved_by", {}).pop(b.name, None)
     try:
         moved = eng.run_block(b, "step-test")
     finally:
@@ -68,7 +74,11 @@ def _step(eng, b, plan: dict, amount: float) -> list[str]:
                 eng.read_soon(s)
             eng.running.discard(b.name)
             eng.finished[b.name] = time.time()
-    return moved
+    said = getattr(eng, "moved_by", {}).get(b.name)
+    if said is None:
+        return None
+    flow = plan.get("flow")
+    return float(said.get(flow, 0.0)) if flow else float(sum(said.values()))
 
 
 def _wait(eng, plan: dict, seconds: float) -> str | None:
@@ -83,24 +93,56 @@ def _wait(eng, plan: dict, seconds: float) -> str | None:
     return None
 
 
+def _close(moved: float | None, want: float, res: float | None) -> bool:
+    return moved is not None and abs(moved - want) <= max((res or 0.0) / 2, 1e-6 * abs(want)) + 1e-9
+
+
+def _fits(u0: float, amount: float, limits) -> bool:
+    lo, hi = (limits or [None, None])[:2]
+    v = u0 + amount
+    return (lo is None or v >= lo - 1e-9) and (hi is None or v <= hi + 1e-9)
+
+
 def run(eng, plan: dict) -> None:
     p = eng.p
     tid, goal = plan["id"], plan["goal"]
     b = eng.spec.blocks[plan["block"]]
     hold = [x for x in plan.get("hold_blocks", [b.name]) if x in eng.spec.blocks]
+    res = plan.get("resolution")
+    amount = plan["amount"]
     eng.held.update(hold)
     how = "done"
+    u0 = None
     try:
-        p.events.add("steptest.started", item=goal, source=SOURCE, data={"test": tid, "block": b.name, "held": hold,
-                                                                          "amount": plan["amount"], "hold": plan["hold"]})
         deadline = time.monotonic() + 120
         while any(x in eng.running for x in hold) and time.monotonic() < deadline and not eng.stop.is_set():
             time.sleep(0.2)                                     # a run already under way finishes first
-        _step(eng, b, plan, plan["amount"])
-        p.events.add("steptest.stepped", item=goal, source=SOURCE, data={"test": tid, "amount": plan["amount"], "phase": "up"})
-        why = _wait(eng, plan, plan["hold"])
-        _step(eng, b, plan, -plan["amount"])
-        p.events.add("steptest.stepped", item=goal, source=SOURCE, data={"test": tid, "amount": -plan["amount"], "phase": "back"})
+        u0 = eng.signals.get(plan["u"]) if plan.get("u") else None
+        p.events.add("steptest.started", item=goal, source=SOURCE, data={"test": tid, "block": b.name, "held": hold,
+                                                                          "amount": amount, "hold": plan["hold"], "from": u0})
+        if plan.get("u") and u0 is None:
+            how = f"not run: {plan['u']} has no reading to put it back to"
+            return
+        if u0 is not None and not _fits(u0, amount, plan.get("limits")):
+            lo, hi = plan["limits"]
+            how = f"not run: {u0:g} {'+' if amount > 0 else '−'} {abs(amount):g} is outside {lo:g} to {hi:g}"
+            return
+        moved = _step(eng, b, plan, amount)
+        p.events.add("steptest.stepped", item=goal, source=SOURCE,
+                     data={"test": tid, "amount": amount, "moved": moved, "phase": "up"})
+        why = None
+        if not _close(moved, amount, res):
+            why = (f"{b.name} said it moved {moved:g}, not the {amount:g} commanded" if moved is not None
+                   else f"{b.name} did not say what it moved")
+        if why is None:
+            why = _wait(eng, plan, plan["hold"])
+        back = -(moved if moved is not None else amount)
+        moved_back = _step(eng, b, plan, back, to=u0)
+        p.events.add("steptest.stepped", item=goal, source=SOURCE,
+                     data={"test": tid, "amount": back, "moved": moved_back, "to": u0, "phase": "back"})
+        if why is None and not _close(moved_back, back, res):
+            why = (f"{b.name} said it moved {moved_back:g} putting it back, not the {back:g} to {u0:g}"
+                   if moved_back is not None else f"{b.name} did not say what it moved putting it back")
         if why is None:
             why = _wait(eng, plan, plan["hold"])
         if why:
@@ -109,5 +151,5 @@ def run(eng, plan: dict) -> None:
         how = f"stopped: {type(e).__name__}: {e}"
     finally:
         eng.held.difference_update(hold)
-        p.events.add("steptest.finished", item=goal, source=SOURCE, data={"test": tid, "how": how})
+        p.events.add("steptest.finished", item=goal, source=SOURCE, data={"test": tid, "how": how, "from": u0})
         eng.say(f"step test {tid} on {goal}: {how}")

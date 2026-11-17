@@ -121,6 +121,87 @@ def test_the_bode_plot_of_a_delay_falls_in_phase_without_end():
     assert b["process"]["phase"][-1] < -360                             # unwrapped, never folded back
 
 
+def tuner_law(K_, tau, theta, g, T, t_end, dt=0.05, delay=0.0):
+    """The image-squeeze tuner's own law in discrete time, against the process in continuous time:
+    every T it reads y and at once sets q ← q + g (r − y); the process sees q after its dead time
+    and the tuner's own delay. How far y is from r over the last tenth, as a share of the first."""
+    lag = int(round((theta + delay) / dt))
+    buf, x, q = [0.0] * lag, 0.0, 0.0
+    a = math.exp(-dt / tau)
+    every = int(round(T / dt))
+    errs = []
+    for k in range(int(t_end / dt)):
+        if k % every == 0:
+            q = q + g * (1.0 - x)
+            errs.append(abs(1.0 - x))
+        buf.append(q)
+        x = a * x + (1 - a) * K_ * buf.pop(0)
+    n = len(errs)
+    return max(errs[-n // 10:]) / max(errs[: n // 10])
+
+
+def test_the_tuner_acts_on_the_error_it_has_just_read_and_its_margins_are_the_real_loop_s():
+    """u_k = u_(k−1) + g e_k, g z/(z − 1): the image-squeeze loop as the reviewer worked it out (PM
+    43.3°, GM 2.57, Ms 2.0), not one period later (25°, 1.5, 3.6); and its gain margin is where the
+    tuner's own law, simulated, stops settling."""
+    p = {"form": "fopdt", "K": 0.001, "tau": 22.0, "theta": 20.0}
+    c = {"form": "I", "g": 350.0, "T": 16.0}
+    m = lti.margins(p, c)
+    assert m["phase_margin"] == pytest.approx(43.3, abs=0.5) and m["gain_margin"] == pytest.approx(2.58, abs=0.03)
+    assert m["ms"] == pytest.approx(2.02, abs=0.03) and m["stable"]
+    gm = m["gain_margin"]
+    assert tuner_law(0.001, 22, 20, 350 * gm * 0.95, 16, 6000) < 0.5             # inside the margin: it settles
+    assert tuner_law(0.001, 22, 20, 350 * gm * 1.05, 16, 6000) > 2                # past it: it swings without end
+    st = lti.closed_step(p, c)
+    assert st["settled"] and 0.1 < st["overshoot"] < 0.5
+
+
+def test_the_controller_s_own_delay_is_counted_and_not_as_a_whole_period():
+    p = {"form": "fopdt", "K": 0.001, "tau": 22.0, "theta": 20.0}
+    c = {"form": "I", "g": 350.0, "T": 16.0}
+    late = lti.margins(p, {**c, "delay": 4.0})
+    assert 30 < late["phase_margin"] < lti.margins(p, c)["phase_margin"]
+    gm = late["gain_margin"]
+    assert tuner_law(0.001, 22, 20, 350 * gm * 0.95, 16, 6000, delay=4.0) < 0.5
+    assert tuner_law(0.001, 22, 20, 350 * gm * 1.05, 16, 6000, delay=4.0) > 2
+
+
+def test_a_loop_just_inside_its_gain_margin_is_stable_by_the_nyquist_criterion():
+    p = {"form": "fopdt", "K": 1.0, "tau": 10.0, "theta": 2.0}
+    c = {"form": "PI", "Kc": 2.5 * 3.0, "Ti": 10.0, "T": None}               # gain margin 3.14 / 3 = 1.047
+    m = lti.margins(p, c)
+    assert m["gain_margin"] == pytest.approx(1.047, abs=0.01) and m["stable"]
+    s = {"form": "I", "g": 350.0 * 2.5, "T": 16.0}
+    assert lti.margins({"form": "fopdt", "K": 0.001, "tau": 22.0, "theta": 20.0}, s)["stable"]   # GM 1.03: stable
+
+
+def test_simc_says_the_tau_c_it_uses():
+    s = tuning.simc({"form": "fopdt", "K": 1.0, "tau": 100.0, "theta": 5.0}, "PI")
+    assert s["tc"] == 5.0 and s["Kc"] == pytest.approx(10.0) and "τc = θ = 5s" in s["rule"]
+    z = tuning.simc({"form": "fopdt", "K": 1.0, "tau": 100.0, "theta": 0.0}, "PI")
+    assert z["tc"] == pytest.approx(10.0) and "a tenth of τ" in z["rule"]
+
+
+def test_the_margins_at_the_worst_the_process_could_be_and_a_detuning():
+    p = {"form": "fopdt", "K": 0.001, "tau": 22.0, "theta": 20.0}
+    c = {"form": "I", "g": 350.0, "T": 16.0}
+    rob = lti.robust(p, c, {"K": 0.0004, "theta": 2.0, "tau": 4.0})            # K × 1.8 at its worst corner
+    assert rob["known"] and rob["gain_margin"] < 1.5
+    dt = tuning.detuned(c, rob["gain_margin"])
+    after = lti.robust(p, dt, {"K": 0.0004, "theta": 2.0, "tau": 4.0})
+    assert after["stable"] and after["gain_margin"] == pytest.approx(2.0, abs=0.05) and dt["g"] < 350
+    assert not lti.robust(p, c, {"K": 0.002, "theta": 2.0})["known"]           # K's sign not told apart
+
+
+def test_what_the_linear_numbers_leave_out_is_said():
+    p = {"form": "fopdt", "K": 0.001, "tau": 22.0, "theta": 20.0}
+    c = {"form": "I", "g": 350.0, "T": 16.0, "deadband": 0.004, "resolution": 0.1, "limits": [5, 95]}
+    said = " ".join(lti.nonlinear(p, c, lti.margins(p, c)))
+    assert "dead band (±0.004" in said and "no limit cycle is predicted from the rounding" in said and "[5, 95]" in said
+    tight = lti.nonlinear(p, {**c, "g": 350 * 2.2}, lti.margins(p, {**c, "g": 350 * 2.2}))
+    assert any("limit cycle of about one step is predicted" in x for x in tight)
+
+
 # ---- identification
 
 def test_a_first_order_process_with_dead_time_is_identified_and_validated():
@@ -167,6 +248,86 @@ def test_a_lag_longer_than_the_record_is_an_integrator():
     assert r["form"] == "integrating" and r["K"] == pytest.approx(0.01, rel=0.1) and r["theta"] == pytest.approx(30, abs=H)
 
 
+def loop_with_tests(d, tests, noise=0.01, n=3600, seed=7, dist_every=600):
+    """A loop run for n seconds: closed loop (an integral controller, disturbances nothing measures),
+    but for the step tests (start, amount, hold), the controller held: open loop."""
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "ergostat.yaml").write_text(TUNE)
+    p = Project(mdl.load(d))
+    rnd = random.Random(seed)
+    t0 = time.time() - n - 30
+    a = math.exp(-1 / TAU)
+    x, u, dist, buf = None, 25.0, 0.0, [25.0] * int(THETA)
+
+    def inside(k):
+        return any(s <= k < s + 2 * h for s, _, h in tests)
+    for k in range(n):
+        if k % dist_every == 0 and not inside(k) and not inside(k + 300):
+            dist = rnd.choice([-0.4, -0.2, 0.2, 0.4])
+        buf.append(u)
+        ud = buf.pop(0)
+        x = K * u if x is None else a * x + (1 - a) * K * ud
+        T = t0 + k
+        for i, (s0, amt, h) in enumerate(tests):
+            tid = f"s{i}"
+            if k == s0:
+                p.events.add("steptest.started", item="level-held", source="ergostat", at=T - 1,
+                             data={"test": tid, "amount": amt, "hold": h})
+                u += amt
+                p.events.add("steptest.stepped", item="level-held", source="ergostat", at=T, data={"test": tid, "phase": "up"})
+            if k == s0 + h:
+                u -= amt
+                p.events.add("steptest.stepped", item="level-held", source="ergostat", at=T, data={"test": tid, "phase": "back"})
+            if k == s0 + 2 * h:
+                p.events.add("steptest.finished", item="level-held", source="ergostat", at=T, data={"test": tid, "how": "done"})
+        if k % 10 == 0:
+            y = x + dist + rnd.gauss(0, noise)
+            p.measurements.add("sensor/setting.main", u, T)
+            p.measurements.add("sensor/level.main", y, T + 0.5)
+            if not inside(k):
+                u += 0.5 * (5.0 - y)
+    return p
+
+
+def test_a_correct_model_of_a_noisy_step_test_is_proposed_though_it_follows_little_of_what_was_held_out(tmp_path):
+    """Most of a step back is level and noise, so even the true model follows little of it (Ljung
+    §16.5): judged by what it leaves against the noise, not by a fit of 50%."""
+    p = loop_with_tests(tmp_path, [(2400, 2.0, 1500)], noise=0.06, n=5460)
+    r = lp.analyse(p, "level-held")["identified"]
+    assert r["test"]["id"] == "s0" and r["proposable"], r["why"]
+    assert r["fit_val"] < 50 and r["fit_val"] >= r["fit_best"] - 10 and r["rms_val"] <= ident.RES_MAX * r["noise"]
+    assert r["K"] == pytest.approx(K, rel=0.1)
+
+
+def test_step_tests_are_fitted_together_each_on_its_own_span_after_a_day_of_record(tmp_path):
+    """Three tests, each too noisy to tell θ apart alone, fitted as one data set of three experiments
+    (Ljung §14.3), the last held out; each read at the sensor's resolution, not the day's 58 s buckets."""
+    D = 86400
+    tests = [(D + 1800, 2.0, 600), (D + 3200, -2.0, 600), (D + 4600, 2.0, 600)]
+    p = loop_with_tests(tmp_path, tests, noise=0.06, n=D + 6000)
+    sig = record.signals(p.model.spec, "level-held")
+    assert record.grid(p, sig)[1] - record.grid(p, sig)[0] > 0.9 * D       # a day of record: its buckets are long
+    r = lp.analyse(p, "level-held")["identified"]
+    assert r["tests_used"] == ["s0", "s1", "s2"] and r["experiments"] == 3 and r["h"] <= 5.1
+    assert r["proposable"], r["why"]
+    assert r["K"] == pytest.approx(K, rel=0.1) and r["tau"] == pytest.approx(TAU, rel=0.3)
+    alone = []
+    for t in lp.tests_in(p, "level-held", 0, time.time())[:1]:
+        dt, segs, est, val = lp._test_windows(p, sig, [t])
+        alone.append(ident.identify(dt["h"], dt["t"], dt["u"], dt["y"], {}, est, val, closed_loop=False, segments=segs))
+    assert r["se"]["theta"] < alone[0]["se"]["theta"] and r["se"]["K"] < alone[0]["se"]["K"]
+
+
+def test_a_dead_time_at_the_edge_of_what_was_searched_says_so_and_has_no_confidence_interval():
+    n = 60
+    u = [20.0 if k < 10 else 25.0 for k in range(n)]
+    x = ident.filtered(u, H, TAU, 200.0)
+    y = [K * a + random.Random(k).gauss(0, 0.002) for k, a in enumerate(x)]
+    r = ident.identify(H, [k * H for k in range(n)], u, y)
+    assert r["theta"] >= r["theta_max"] - H and not r["told_apart"]
+    assert any("reached the longest searched" in w for w in r["why"]) and r["se"]["theta"] is None
+
+
 # ---- performance monitoring
 
 def test_the_harris_index_of_an_autoregressive_error_is_its_minimum_variance_share():
@@ -197,6 +358,61 @@ def test_settling_and_overshoot_of_each_time_it_went_off_and_came_back():
         e[k] = 0.2                        # past the setpoint on the other side, inside the band
     ex = monitor.excursions(t, e, "==", 0.3, hold_for=20)
     assert ex["count"] == 1 and ex["settling"] == pytest.approx(30) and ex["overshoot"] == pytest.approx(0.2)
+
+
+def test_an_oscillation_under_noise_is_found_from_the_autocorrelation():
+    rnd = random.Random(4)
+    t = [k * 5.0 for k in range(400)]
+    e = [0.3 * math.sin(2 * math.pi * x / 120) + rnd.gauss(0, 0.1) for x in t]
+    osc = monitor.oscillation(t, e, 0.05)
+    assert osc["oscillating"] and osc["period"] == pytest.approx(120, rel=0.05)
+    assert osc["amplitude"] == pytest.approx(0.3, rel=0.2)
+    rough = [rnd.gauss(0, 0.3) for _ in t]
+    assert not monitor.oscillation(t, rough, 0.05)["oscillating"]
+
+
+def test_monitoring_leaves_out_step_tests_and_the_start_and_judges_a_ceiling_by_its_violations():
+    t = [k * 10.0 for k in range(400)]
+    e = [0.0] * 400
+    for k in range(0, 30):
+        e[k] = -2.0 + k / 15                         # the start: far off, coming in
+    for k in range(200, 260):
+        e[k] = 0.8                                   # a step test: off on purpose
+    d = {"t": t, "e": e, "h": 10.0, "u": [50.0] * 400}
+    all_in = monitor.performance(d, "==", 0.1, 10.0, 20.0, [5, 95], "setting")
+    kept = monitor.performance(d, "==", 0.1, 10.0, 20.0, [5, 95], "setting", left_out=[(0, 400), (1995, 2605)])
+    assert all_in["excursions"]["count"] == 2 and kept["excursions"]["count"] == 0
+    assert kept["left_out"] == pytest.approx(1010, abs=20)
+    ceiling = monitor.performance({**d, "e": [-0.2 if 100 <= k < 140 else 0.1 for k in range(400)]}, "<=", 0.1, 10.0, 20.0,
+                                  [None, None], "setting")
+    assert "ceiling" in ceiling["harris"]["why"] and ceiling["constraint"]["share"] == pytest.approx(0.1)
+    assert ceiling["constraint"]["worst"] == pytest.approx(0.2) and ceiling["constraint"]["share_off"] == pytest.approx(0.1)
+
+
+def test_a_setting_at_the_end_of_its_range_is_saturated(tmp_path):
+    p = flat_project(tmp_path, LIMITED, u=lambda k: 95.0 if k > 60 else 80.0, secs=3000)
+    a = lp.analyse(p, "level-held")
+    assert a["performance"]["saturation"] == pytest.approx(239 / 300, abs=0.03)
+    assert "limit" in a["steady"]
+
+
+def test_a_setting_s_moves_are_put_at_the_moment_they_were_made_not_when_its_sensor_next_read(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(TUNE)
+    p = Project(mdl.load(tmp_path))
+    t0 = time.time() - 600
+    u = 20.0
+    for k in range(60):
+        T = t0 + k * 10
+        if k in (20, 40):
+            u += 5.0
+            p.events.add("valve.opened", item="tuner", source="tuner", at=T + 1, data={"amount": 5.0, "flow": "steps"})
+        p.measurements.add("sensor/setting.main", u, T + 8)            # the sensor reads 7 s after the move
+    sig = record.signals(p.model.spec, "level-held")
+    us = record.setting(p, sig, t0, t0 + 600, 300)                     # buckets of 2 s
+    ts = series_times = [t0 + (i + 0.5) * 2 for i in range(300)]
+    at = lambda t: us[min(range(300), key=lambda i: abs(series_times[i] - t))]   # noqa: E731
+    assert at(t0 + 203) == 25.0 and at(t0 + 199) == 20.0                # from the move on, before the sensor saw it
+    assert at(t0 + 403) == 30.0 and ts
 
 
 # ---- the model: a goal's process, a block's law
@@ -238,7 +454,19 @@ def test_the_diagram_draws_the_process_the_model_declares(tmp_path):
     n = next(x for x in g["nodes"] if x.get("y_of") == ["level-held"])
     assert n["fn"]["frac"] == ["0.2 e^(−20s)", "60s + 1"] and "declared" in n["says"]
     tuner = next(x for x in g["nodes"] if x["id"] == "blk:tuner")
-    assert tuner["fn"]["expr"] == "0.5/(z − 1)"
+    assert tuner["fn"]["expr"] == "0.5 z/(z − 1)"                         # it acts at once on the error it has read
+
+
+def test_the_blocks_view_draws_the_tuners_dead_band_before_its_law(tmp_path):
+    from ergostat.blockdiagram import diagram
+    (tmp_path / "ergostat.yaml").write_text(LIMITED.replace("    resolution: 0.1\n", "    resolution: 0.1\n    deadband: 0.004\n"))
+    g = diagram(mdl.load(tmp_path))
+    dz = next(x for x in g["nodes"] if x["id"] == "dz:tuner")
+    assert dz["fn"]["sketch"] == "deadzone" and not dz["fn"]["linear"]
+    wires = {(e["source"], e["target"]) for e in g["edges"]}
+    assert ("smp:tuner", "dz:tuner") in wires and ("dz:tuner", "blk:tuner") in wires
+    tuner = next(x for x in g["nodes"] if x["id"] == "blk:tuner")
+    assert ["limits", "5 to 95"] in tuner["rows"] and any("dead band" in r[0] for r in tuner["rows"])
 
 
 # ---- the loop, end to end: identified, proposed, accepted, tuned
@@ -251,7 +479,7 @@ def test_a_loop_is_identified_and_its_process_accepted_into_the_goal(tmp_path):
     r = a["identified"]
     assert r["proposable"], r["why"]
     assert r["K"] == pytest.approx(K, rel=0.1) and r["theta"] == pytest.approx(THETA, abs=H)
-    assert a["controller"]["law"] == {"form": "I", "g": 0.5, "T": 10.0}
+    assert a["controller"]["law"] == {"form": "I", "g": 0.5, "T": 10.0, "delay": 0.0}
     assert a["margins"]["gain_margin"] > 1 and a["closed_step"]["t"]
     assert a["tuning"]["why"].startswith("the process it is tuned for is not in the model")
     offered = cp.offered(p, a)
@@ -280,6 +508,25 @@ def test_a_loop_is_identified_and_its_process_accepted_into_the_goal(tmp_path):
     assert "# q a step per unit of error" in (tmp_path / "ergostat.yaml").read_text()
 
 
+def test_a_gain_with_little_margin_at_the_worst_the_process_could_be_is_offered_a_detuning(tmp_path):
+    p = tune_project(tmp_path)
+    text = (tmp_path / "ergostat.yaml").read_text().replace("    gain: 0.5 ", "    gain: 1.2 ")
+    (tmp_path / "ergostat.yaml").write_text(text)
+    p.model = mdl.load(tmp_path)
+    a = lp.analyse(p, "level-held")
+    assert a["robust"]["known"] and a["robust"]["gain_margin"] < 2 and a["robust"]["words"] == "stable, with little to spare"
+    assert a["tuning"]["why"].startswith("the process it is tuned for is not in the model")    # SIMC waits for it
+    x = next(x for x in cp.offered(p, a) if x["kind"] == "tuning")
+    assert "detuned for robustness" in x["title"] and "K + 2σ" in x["reason"]
+    assert x["values"]["g"] < 1.2 and a["tuning"]["detune"]["robust"]["gain_margin"] == pytest.approx(2.0, abs=0.05)
+    cp.accept(p, x["id"])
+    assert p.model.spec.blocks["tuner"].params["gain"] == pytest.approx(x["values"]["g"], rel=1e-3)
+
+
+def test_a_valve_at_its_most_is_saturated():
+    assert monitor.at_most([2.0, 5.0, 5.0, 1.0], [0.0, 5.0]) == 0.5 and monitor.at_most([], [0, 5]) is None
+
+
 def test_a_dismissed_proposal_is_not_offered_again_until_the_loop_changes(tmp_path):
     p = tune_project(tmp_path)
     a = lp.analyse(p, "level-held")
@@ -288,16 +535,21 @@ def test_a_dismissed_proposal_is_not_offered_again_until_the_loop_changes(tmp_pa
     assert not [y for y in cp.offered(p, lp.analyse(p, "level-held")) if y["kind"] == "process"]
 
 
-def test_a_loop_the_record_cannot_identify_is_offered_a_step_test_only_approved_while_running(tmp_path):
-    (tmp_path / "ergostat.yaml").write_text(TUNE)
+def flat_project(tmp_path, text=TUNE, u=25.0, secs=1500, y=lambda k: 5.0 + 0.01 * math.sin(k)):
+    (tmp_path / "ergostat.yaml").write_text(text)
     p = Project(mdl.load(tmp_path))
-    t0 = time.time() - 600
-    for k in range(60):                                                      # the setting never moved
-        p.measurements.add("sensor/setting.main", 25.0, t0 + k * 10)
-        p.measurements.add("sensor/level.main", 5.0 + 0.01 * math.sin(k), t0 + k * 10)
+    t0 = time.time() - secs
+    for k in range(int(secs // 10)):                                        # the setting never moved
+        p.measurements.add("sensor/setting.main", u(k) if callable(u) else u, t0 + k * 10)
+        p.measurements.add("sensor/level.main", y(k), t0 + k * 10)
+    return p
+
+
+def test_a_loop_the_record_cannot_identify_is_offered_a_step_test_only_approved_while_running(tmp_path):
+    p = flat_project(tmp_path)
     a = lp.analyse(p, "level-held")
     tests = [x for x in cp.offered(p, a) if x["kind"] == "step-test"]
-    assert len(tests) == 1
+    assert len(tests) == 1, a.get("step_test_waiting")
     pl = tests[0]["plan"]
     assert pl["block"] == "tuner" and pl["hold_blocks"] == ["tuner"] and pl["hold"] >= 120 and pl["amount"]
     with pytest.raises(cp.ProposalError, match="not running"):
@@ -305,21 +557,70 @@ def test_a_loop_the_record_cannot_identify_is_offered_a_step_test_only_approved_
     assert not p.events.query(type="steptest.approved")
 
 
-class FakeEngine:
-    """What steptest.run uses of an engine: a block run records its command; the goal's error is set."""
+def test_no_step_test_is_offered_while_the_loop_is_starting_up(tmp_path):
+    p = flat_project(tmp_path, secs=400)                            # minutes after the start
+    a = lp.analyse(p, "level-held")
+    assert not [x for x in cp.offered(p, a) if x["kind"] == "step-test"]
+    assert a["step_test_waiting"].startswith("waiting for steady operation")
+    (tmp_path / "far").mkdir()
+    p2 = flat_project(tmp_path / "far", secs=1500, y=lambda k: 4.0 + 0.01 * math.sin(k))
+    a2 = lp.analyse(p2, "level-held")                              # far off its setpoint: not steady
+    assert "settled within its tolerance" in a2["steady"]
 
-    def __init__(self, p, error=0.0):
+
+LIMITED = TUNE.replace("    gain: 0.5                 # q a step per unit of error\n",
+                       "    gain: 0.5                 # q a step per unit of error\n    resolution: 0.1\n    limits: [5, 95]\n")
+
+
+def test_a_step_test_fits_within_the_setting_s_limits_and_its_resolution(tmp_path):
+    p = flat_project(tmp_path, LIMITED, u=94.0)
+    a = lp.analyse(p, "level-held")
+    pl = cp.plan(a)
+    assert a["limits"] == [5.0, 95.0] and a["resolution"] == 0.1
+    assert pl["amount"] < 0 and 5 <= 94.0 + pl["amount"] <= 95                # no room up: it steps down
+    assert pl["amount"] <= -1.0 + 1e-9                                          # ten of its least steps at least
+    assert abs(pl["amount"] / 0.1 - round(pl["amount"] / 0.1)) < 1e-6
+    assert "not used" in pl["sized"]                                            # nothing told apart: not sized from K
+    x = next(x for x in cp.offered(p, a) if x["kind"] == "step-test")
+    assert "put back to the value it had" in x["reason"]
+    a["noise"] = (a["noise"] or 0) * 3                                          # another plan: another proposal
+    y = cp._step_test(p, p.model.spec, a, {})
+    assert y["plan"]["amount"] != x["plan"]["amount"] or y["plan"]["hold"] != x["plan"]["hold"] or y["id"] == x["id"]
+    if y["plan"]["amount"] != x["plan"]["amount"]:
+        assert y["id"] != x["id"]
+
+
+def test_a_step_test_with_no_room_inside_the_limits_is_refused_and_says_why(tmp_path):
+    p = flat_project(tmp_path, LIMITED.replace("limits: [5, 95]", "limits: [93.5, 94.5]"), u=94.0)
+    a = lp.analyse(p, "level-held")
+    assert not [x for x in cp.offered(p, a) if x["kind"] == "step-test"] and "fits between" in a["step_test_refused"]
+
+
+class FakeEngine:
+    """What steptest.run uses of an engine: a block run moves the setting as the image-squeeze tuner
+    does (clamped to its limits, rounded to its resolution) and says what it moved; the goal's error
+    is set."""
+
+    def __init__(self, p, error=0.0, u=25.0, limits=(5.0, 95.0), res=0.1):
         self.p, self.spec = p, p.model.spec
         self.lock = threading.RLock()
-        self.running, self.held, self.testing = set(), set(), {}
-        self.began, self.finished, self.signals = {}, {}, {"goal.level-held.error": error}
+        self.running, self.held, self.testing, self.moved_by = set(), set(), {}, {}
+        self.began, self.finished = {}, {}
+        self.signals = {"goal.level-held.error": error, "stock.setting": u}
         self.stop = threading.Event()
         self.moves: list[float] = []
+        self.limits, self.res = limits, res
 
     def run_block(self, b, why):
         assert why == "step-test" and b.name in self.held
-        self.moves.append(self.testing[b.name]["amount"])
-        return []
+        cmd = self.testing[b.name]
+        was = self.signals["stock.setting"]
+        q = cmd["to"] if cmd.get("to") is not None else was + cmd["amount"]
+        q = round(max(self.limits[0], min(self.limits[1], q)) / self.res) * self.res
+        self.signals["stock.setting"] = q
+        self.moves.append(round(q - was, 6))
+        self.moved_by[b.name] = {"steps": q - was}
+        return ["steps"]
 
     def after_acting(self, flows):
         return []
@@ -328,17 +629,22 @@ class FakeEngine:
         pass
 
 
-def test_an_approved_step_test_holds_the_controller_steps_and_steps_back(tmp_path, monkeypatch):
+PLAN = {"goal": "level-held", "block": "tuner", "abort": 1.0, "hold_blocks": ["tuner"], "u": "stock.setting",
+        "limits": [5.0, 95.0], "resolution": 0.1, "flow": "steps"}
+
+
+def test_an_approved_step_test_holds_the_controller_steps_and_puts_the_setting_back(tmp_path, monkeypatch):
     (tmp_path / "ergostat.yaml").write_text(TUNE)
     p = Project(mdl.load(tmp_path))
     monkeypatch.setattr(steptest, "POLL", 0.01)
-    eng = FakeEngine(p)
-    plan = {"id": "t1", "goal": "level-held", "block": "tuner", "amount": 3.0, "hold": 0.05, "abort": 1.0, "hold_blocks": ["tuner"]}
-    steptest.run(eng, plan)
-    assert eng.moves == [3.0, -3.0] and not eng.held
+    eng = FakeEngine(p, u=40.0)
+    steptest.run(eng, {**PLAN, "id": "t1", "amount": 3.0, "hold": 0.05})
+    assert eng.moves == [3.0, -3.0] and not eng.held and eng.signals["stock.setting"] == pytest.approx(40.0)
     types = [e["type"] for e in p.events.query(type="steptest.*")]
     assert types == ["steptest.started", "steptest.stepped", "steptest.stepped", "steptest.finished"]
     assert p.events.query(type="steptest.finished")[-1]["data"]["how"] == "done"
+    back = p.events.query(type="steptest.stepped")[-1]["data"]
+    assert back["to"] == 40.0 and back["moved"] == pytest.approx(-3.0)
 
 
 def test_a_step_test_steps_back_at_once_when_the_error_passes_its_bound(tmp_path, monkeypatch):
@@ -346,9 +652,29 @@ def test_a_step_test_steps_back_at_once_when_the_error_passes_its_bound(tmp_path
     p = Project(mdl.load(tmp_path))
     monkeypatch.setattr(steptest, "POLL", 0.01)
     eng = FakeEngine(p, error=2.0)
-    steptest.run(eng, {"id": "t2", "goal": "level-held", "block": "tuner", "amount": 3.0, "hold": 30, "abort": 1.0})
+    steptest.run(eng, {**PLAN, "id": "t2", "amount": 3.0, "hold": 30})
     assert eng.moves == [3.0, -3.0]
     assert p.events.query(type="steptest.finished")[-1]["data"]["how"].startswith("stopped early: the error reached 2")
+
+
+def test_a_step_test_that_would_leave_the_setting_s_limits_is_not_run(tmp_path, monkeypatch):
+    (tmp_path / "ergostat.yaml").write_text(TUNE)
+    p = Project(mdl.load(tmp_path))
+    eng = FakeEngine(p, u=95.0)
+    steptest.run(eng, {**PLAN, "id": "t3", "amount": 4.8, "hold": 30})
+    assert eng.moves == [] and "outside 5 to 95" in p.events.query(type="steptest.finished")[-1]["data"]["how"]
+
+
+def test_a_step_cut_short_by_a_clamp_stops_the_test_and_puts_the_setting_back_where_it_was(tmp_path, monkeypatch):
+    (tmp_path / "ergostat.yaml").write_text(TUNE)
+    p = Project(mdl.load(tmp_path))
+    monkeypatch.setattr(steptest, "POLL", 0.01)
+    eng = FakeEngine(p, u=93.0)
+    eng.limits = (5.0, 94.0)                          # the program clamps tighter than the plan knew
+    steptest.run(eng, {**PLAN, "id": "t4", "amount": 2.0, "hold": 30})
+    assert eng.moves == [1.0, -1.0] and eng.signals["stock.setting"] == pytest.approx(93.0)
+    how = p.events.query(type="steptest.finished")[-1]["data"]["how"]
+    assert "said it moved 1, not the 2 commanded" in how
 
 
 def test_a_held_block_is_not_started_by_its_schedule(tmp_path):

@@ -305,7 +305,11 @@ def scope(p, snap: dict, goal: str, n: int = POINTS) -> dict | None:
             vals = level(p, knob, since, until, n)
             setter = spec.setter_of(knob) if spec else None
             lim = [None, None]
-            if setter is not None:
+            stepper = next((b for f in spec.flows_of(knob) if (b := spec.actuator_of(f.name)) is not None
+                            and b.params.get("limits")), None) if spec and setter is None else None
+            if stepper is not None:                      # a setting a block steps: its law's range
+                lim = [float(x) for x in stepper.params["limits"]]
+            elif setter is not None:
                 lim = [setter.min if setter.min is not None else setter.params.get("min"),
                        setter.max if setter.max is not None else setter.params.get("max")]
                 lim = [None if x is None else float(x) for x in lim]

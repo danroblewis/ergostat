@@ -76,6 +76,7 @@ class Engine:
         self.read_cause: dict[str, str] = {}
         self.testing: dict[str, dict] = {}             # block → the step it moves in an approved step test
         self.held: set[str] = set()                    # blocks held still while a step test runs
+        self.moved_by: dict[str, dict[str, float]] = {}  # block → what its last run said it moved, by flow
 
     # ---- signals
 
@@ -303,12 +304,13 @@ class Engine:
                            "status": self.status.get(name, "unknown")}
         out = {"block": b.name, "type": b.type, "trigger": why, "inputs": inputs, "goals": goals,
                "outputs": {p: [str(r) for r in rs] for p, rs in b.outputs.items()}}
-        law = {k: b.params[k] for k in ("gain", "integral-time") if b.params.get(k) is not None}
+        law = {k: b.params[k] for k in ("gain", "integral-time", "deadband", "resolution", "limits") if b.params.get(k) is not None}
         if law:
             out["params"] = law                                   # its control law's constants, as the model writes them
         test = self.testing.get(b.name)
         if why == "step-test" and test:                           # a step test the owner approved: move exactly this
-            out["command"] = {"amount": test["amount"], "test": test["id"], "from": "step-test"}
+            out["command"] = {"amount": test["amount"], "test": test["id"], "from": "step-test",
+                              **({"to": test["to"]} if test.get("to") is not None else {})}
             return out
         if cmd is not None:
             out["command"] = {**{k: v for k, v in detail.items() if k != "amount"}, "amount": amount}
@@ -387,6 +389,7 @@ class Engine:
         data = {"exit": code, "seconds": round(time.time() - started, 3), "why": why, **said.counts,
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
                 **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {})}
+        self.moved_by[b.name] = dict(said.moved)
         failed = bool(note) and note != old.STOPPED_WITH_US
         ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
         if failed:

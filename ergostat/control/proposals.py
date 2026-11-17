@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import time
 from pathlib import Path
@@ -190,46 +191,77 @@ def _process(p, spec, a: dict, done: dict) -> dict | None:
             "values": {"form": r["form"], "K": r["K"], "tau": r.get("tau"), "theta": r["theta"]}}
 
 
+def _said(m: dict, st: dict) -> str:
+    bits = [f"gain margin {_pm(m.get('gain_margin'))}", f"phase margin {_pm(m.get('phase_margin'))}°",
+            f"Ms {_pm(m.get('ms'))}"]
+    if st.get("overshoot") is not None:
+        bits.append(f"overshoot {st['overshoot'] * 100:.0f}%")
+    if st.get("settling") is not None:
+        bits.append(f"settles in {dur(st['settling'])}")
+    if not m.get("stable", True):
+        bits.append("does not settle")
+    return ", ".join(bits)
+
+
+def _law_values(s: dict, law: dict) -> tuple[dict, str]:
+    """A law's new constants as the block writes them, and the change in words."""
+    three = ye.number
+    if s["form"] == "I":
+        return {"gain": three(s["g"])}, f"gain {ye.number(law['g'])} → {three(s['g'])} a step"
+    return ({"gain": three(s["Kc"]), "integral-time": _sec(s["Ti"])},
+            f"gain {ye.number(law['Kc'])} → {three(s['Kc'])}, integral time {_sec(law['Ti'])} → {_sec(s['Ti'])}")
+
+
 def _tuning(p, spec, a: dict, done: dict) -> dict | None:
     t = a.get("tuning") or {}
-    if t.get("why") or not t.get("simc"):
+    law = (a.get("controller") or {}).get("law")
+    if not law:
         return None
-    pid = _id("tuning", a["goal"], a["key"])
+    if t.get("simc") and not t.get("why"):
+        s = t["simc"]
+        pid = _id("tuning", a["goal"], a["key"])
+        if pid in done:
+            return None
+        values, change = _law_values(s, law)
+        edit = gain_edit(spec, t["block"], values)
+        reason = (f"{s['rule']}, for the process the model holds. As it is: {_said(a.get('margins') or {}, a.get('closed_step') or {})}. "
+                  f"Tuned: {_said(t['margins'], t['step'])}.")
+        return {"id": pid, "kind": "tuning", "goal": a["goal"], "title": f"{t['block']}: {change} (SIMC)", "reason": reason,
+                "edit": {"files": [edit.as_dict()], "diff": edit.diff()}, "values": s}
+    dt = t.get("detune")
+    if not dt:
+        return None
+    pid = _id("detune", a["goal"], a["key"])
     if pid in done:
         return None
-    s, law = t["simc"], a["controller"]["law"]
-    now, new = a.get("margins") or {}, t["margins"]
-    st_now, st_new = a.get("closed_step") or {}, t["step"]
-
-    def said(m, st):
-        bits = [f"gain margin {_pm(m.get('gain_margin'))}", f"phase margin {_pm(m.get('phase_margin'))}°",
-                f"Ms {_pm(m.get('ms'))}"]
-        if st.get("overshoot") is not None:
-            bits.append(f"overshoot {st['overshoot'] * 100:.0f}%")
-        if st.get("settling") is not None:
-            bits.append(f"settles in {dur(st['settling'])}")
-        if not m.get("stable", True):
-            bits.append("does not settle")
-        return ", ".join(bits)
-    if s["form"] == "I":
-        values = {"gain": ye.number(s["g"])}
-        change = f"gain {ye.number(law['g'])} → {ye.number(s['g'])} a step"
-    else:
-        values = {"gain": ye.number(s["Kc"]), "integral-time": _sec(s["Ti"])}
-        change = f"gain {ye.number(law['Kc'])} → {ye.number(s['Kc'])}, integral time {_sec(law['Ti'])} → {_sec(s['Ti'])}"
+    c, rob, rb = dt["controller"], a.get("robust") or {}, dt.get("robust") or {}
+    values, change = _law_values(c, law)
     edit = gain_edit(spec, t["block"], values)
-    reason = (f"{s['rule']}, τc = {s['tc']:.3g}s, for the process the model holds. As it is: {said(now, st_now)}. "
-              f"Tuned: {said(new, st_new)}.")
-    return {"id": pid, "kind": "tuning", "goal": a["goal"], "title": f"{t['block']}: {change} (SIMC)", "reason": reason,
-            "edit": {"files": [edit.as_dict()], "diff": edit.diff()}, "values": s}
+    se = rob.get("se") or {}
+    reason = (f"How sure the process is: K ± {_pm(se.get('K'))}, θ ± {_pm(se.get('theta'))}s (standard errors). At the worst "
+              f"it could be (K + 2σ, θ + 2σ), the loop as it is has a gain margin of {_pm(rob.get('gain_margin'))}"
+              + ("" if rob.get("stable") else " and may not settle") + f"; {c['rule']}. At the worst then: gain margin "
+              f"{_pm(rb.get('gain_margin'))}, phase margin {_pm(rb.get('phase_margin'))}°, Ms {_pm(rb.get('ms'))}. "
+              f"As it is, with the process as found: {_said(a.get('margins') or {}, a.get('closed_step') or {})}. Detuned: "
+              f"{_said(dt['margins'], dt['step'])}. Slower, and stable over all the process could be.")
+    return {"id": pid, "kind": "tuning", "goal": a["goal"], "title": f"{t['block']}: {change} (detuned for robustness)",
+            "reason": reason, "edit": {"files": [edit.as_dict()], "diff": edit.diff()}, "values": c}
+
+
+def _round_to(x: float, res: float | None) -> float:
+    return round(x / res) * res if res else float(f"{x:.2g}")
 
 
 def plan(a: dict) -> dict | None:
-    """A step of u, its size, how long it is held, and when it stops early."""
+    """A step of u: its size and sign, how long it is held, and when it stops early (Seborg et al. §7:
+    in the linear range, inside the setting's limits, back to where it was). Sized from the process
+    identified only when the record tells its numbers apart; otherwise from the tolerance and the
+    noise against the most the record shows y moving per unit of u, never less than ten of the
+    setting's least steps (Ljung §13.2: a poor prior, a conservative design). ``refused`` says why
+    no step fits."""
     if a.get("how") != "setting" or not a.get("blocks") or a.get("known") or not (a.get("controller") or {}).get("integral"):
         return None                     # only a setting its own controller steps by this loop's error alone
-    rec = a["record"]
-    us = [x for x in rec["u"] if x is not None]
+    us = [x for x in a["record"]["u"] if x is not None]
     if not us:
         return None
     r = a.get("identified") or {}
@@ -237,32 +269,66 @@ def plan(a: dict) -> dict | None:
     tol = a.get("tolerance") or 0.0
     noise = a.get("noise") or 0.0
     want = max(2 * tol, 4 * noise)
-    K = r.get("K") if r.get("found") else None
-    u_now = us[-1]
-    rng = max(us) - min(us)
+    res = a.get("resolution") or 0.0
+    lo, hi = (a.get("limits") or [None, None])[:2]
+    u_now = a["u_now"] if a.get("u_now") is not None else us[-1]       # now, not the end of a test's chart
+    ur = a.get("u_range") or [min(us), max(us)]
+    rng = ur[1] - ur[0]
     modest = max(0.15 * abs(u_now), 0.25 * rng) or 1.0         # never far past what the setting is used to moving
-    amount = min(want / abs(K), modest) if K and want > 0 else max(0.05 * abs(u_now), 0.1 * rng) or 1.0
-    op = a.get("op", "==")
-    sign = 1.0
-    if K:
-        down = op in ("<=", "<") or (op == "==" and (a.get("error") or 0) < 0)
-        sign = -1.0 if (K > 0) == down else 1.0
+    floor = 10 * res
+    sure = bool(r.get("found") and r.get("told_apart"))
+    K = r.get("K") if r.get("found") else None
     done = [t for t in a.get("tests") or [] if t.get("finished") and t.get("amount")]
-    if done:                               # the last test did not tell it apart: twice the step, held twice as long
-        amount = min(2 * abs(done[-1]["amount"]), max(0.3 * abs(u_now), 0.5 * rng) or 2 * abs(done[-1]["amount"]))
-    amount = float(f"{sign * amount:.2g}")
-    lag = (r.get("tau") or 0) + (r.get("theta") or 0) if r.get("found") else 0
     T = a.get("period") or 10.0
     every = a.get("sensor_every") or 0.0                     # enough readings each way to fit and to test on
-    hold = min(HOLD_MOST, max(HOLD_LEAST, 5 * lag, 10 * T, ident.POINTS_MIN * every * 1.1))
-    if done:
-        hold = min(HOLD_MOST, max(hold, 2 * (done[-1].get("hold") or 0)))
-    dy = abs(K * amount) if K else (want or tol or noise)
+    least = max(HOLD_LEAST, 10 * T, ident.POINTS_MIN * every * 1.1)
+    if sure:
+        amount = want / abs(K) if want > 0 else modest
+        amount = min(amount, modest)
+        lag = (r.get("tau") or 0) + (r.get("theta") or 0)
+        hold = max(least, 5 * lag)
+        how = (f"sized from the process identified (K {K:.3g}): enough to move y by {want:.3g}, twice its tolerance or "
+               f"four times its noise; held five of τ + θ")
+    else:
+        sens = a.get("sensitivity")
+        amount = max(want / sens if sens and want > 0 else 0.0, modest)
+        amount *= 1 + 0.5 * len(done)                         # each test that did not tell it apart: half again
+        hold = max(least, 600.0) * (1 + 0.5 * len(done))
+        how = ("the record does not tell the process's numbers apart, so they are not used: sized to move y by "
+               f"{want:.3g} (twice its tolerance or four times its noise) even at the most y moved per unit of u in the record, "
+               "and no less than the setting is used to moving" + (f", half again for each of the {len(done)} tests before"
+                                                                    if done else "") + f"; held {dur(hold)}")
+    amount = max(amount, floor)
+    hold = min(HOLD_MOST, hold)
+    op = a.get("op", "==")
+    sign = 1.0
+    if K and sure:
+        down = op in ("<=", "<") or (op == "==" and (a.get("error") or 0) < 0)
+        sign = -1.0 if (K > 0) == down else 1.0
+    room = {1.0: (hi - u_now) if hi is not None else math.inf, -1.0: (u_now - lo) if lo is not None else math.inf}
+    if room[sign] < amount and room[-sign] >= amount:
+        sign = -sign                                          # the other way has room for it
+    if room[sign] < amount:
+        best = max(room.values())
+        if best - res < max(floor, 1e-9):
+            return {"refused": f"no step of at least {floor:g} fits between {lo:g} and {hi:g} from {u_now:g}", "goal": g}
+        sign = 1.0 if room[1.0] >= room[-1.0] else -1.0
+        amount = best - res
+        how += f"; cut to {amount:.3g} to stay within {lo:g} to {hi:g}"
+    amount = sign * _round_to(amount, res)
+    if res and abs(amount) < floor - 1e-9:
+        return {"refused": f"the step would be under ten of the setting's least steps ({res:g})", "goal": g}
+    dy = abs(K * amount) if K and sure else (want or tol or noise)
     abort = max(3 * dy, 3 * tol, 6 * noise)
     abort = abort + abs(a.get("error") or 0) if abort > 0 else None
     hold_blocks = sorted(set(a["blocks"]) | set(a.get("controllers") or []) | set(a.get("quiet") or []))
     return {"goal": g, "block": a["blocks"][0], "amount": amount, "hold": round(hold), "abort": abort,
-            "hold_blocks": hold_blocks, "u": a["u"], "u_now": u_now}
+            "hold_blocks": hold_blocks, "u": a["u"], "u_now": u_now, "limits": [lo, hi], "resolution": res or None,
+            "flow": a.get("flow"), "sized": how}
+
+
+def _family(a: dict) -> str:
+    return f"{a['key']}/{len(a.get('tests') or [])}"
 
 
 def _step_test(p, spec, a: dict, done: dict) -> dict | None:
@@ -272,10 +338,19 @@ def _step_test(p, spec, a: dict, done: dict) -> dict | None:
     tests = a.get("tests") or []
     if any(not t.get("finished") for t in tests):
         return None                                        # one under way: its answer first
+    if a.get("steady"):
+        a["step_test_waiting"] = a["steady"]              # waiting for steady operation: not offered yet
+        return None
     pl = plan(a)
     if pl is None:
         return None
-    pid = _id("step-test", a["goal"], f"{a['key']}/{len(tests)}")      # each test done may be followed by another
+    if pl.get("refused"):
+        a["step_test_refused"] = pl["refused"]
+        return None
+    fam = _family(a)                                      # each test done may be followed by another
+    if any(v.get("family") == fam and v.get("status") == "dismissed" for v in done.values()):
+        return None
+    pid = _id("step-test", a["goal"], f"{fam}/{pl['amount']:.6g}/{pl['hold']}/{pl['abort'] or 0:.6g}")   # binds to this plan
     if pid in done:
         return None
     pl["id"] = pid
@@ -285,14 +360,19 @@ def _step_test(p, spec, a: dict, done: dict) -> dict | None:
     step = ye.number(pl["amount"]).replace("-", "−")
     held_for = dur(pl["hold"])
     verb = "takes" if len(pl["hold_blocks"]) == 1 else "take"
+    lim = pl["limits"]
     reason = (f"The record does not identify this loop's process ({why}). The test: {held} held still; "
-              f"{pl['block']} moves {u} by {step} at once, the loop is left to answer for {held_for}, "
-              f"then {u} goes back by the same and the loop answers for {held_for} again; then {held} {verb} over. "
-              + (f"It stops early, stepping back at once, if the error passes {pl['abort']:.3g}. " if pl["abort"] else "")
-              + "The step up is fitted, the step back "
-              "held out, with no feedback to bias it. ergostat must be running; its program is given "
-              '"trigger": "step-test" and must move exactly the step.')
-    return {"id": pid, "kind": "step-test", "goal": a["goal"],
+              f"{pl['block']} moves {u} by {step} at once (from about {ye.number(round(pl['u_now'], 3))}"
+              + (f", within {ye.number(lim[0])} to {ye.number(lim[1])}" if lim[0] is not None and lim[1] is not None else "")
+              + f"), the loop is left to answer for {held_for}, then {u} is put back to the value it had when the test "
+              f"started and the loop answers for {held_for} again; then {held} {verb} over. "
+              f"The step is {pl['sized']}. "
+              + (f"It stops early, putting {u} back at once, if the error passes {pl['abort']:.3g}, or if {pl['block']} "
+                 "moves anything but the step. " if pl["abort"] else "")
+              + "The step up is fitted, the step back held out (with tests before, all fitted together), with no feedback "
+              'to bias it. ergostat must be running; its program is given "trigger": "step-test" and must move exactly '
+              'the step, or put the setting to the value given ("to"), and say what it moved.')
+    return {"id": pid, "kind": "step-test", "goal": a["goal"], "family": fam,
             "title": f"{a['goal']}: a step test, {u} {'+' if pl['amount'] > 0 else '−'}{ye.number(abs(pl['amount']))} for "
                      f"{dur(pl['hold'])}, then back", "reason": reason, "plan": pl}
 
@@ -320,7 +400,8 @@ def dismiss(p, pid: str) -> dict:
     if x is None:
         raise ProposalError(f"no proposal {pid} on offer: open the loop again")
     d = decisions(p)
-    d[pid] = {"status": "dismissed", "decided": time.time(), "kind": x["kind"], "goal": x["goal"], "title": x["title"]}
+    d[pid] = {"status": "dismissed", "decided": time.time(), "kind": x["kind"], "goal": x["goal"], "title": x["title"],
+              **({"family": x["family"]} if x.get("family") else {})}
     _save(p, d)
     p.events.add("model.dismissed", item=p.model.name, source="owner", data={"proposal": pid, "title": x["title"]})
     OFFERED.pop(pid, None)

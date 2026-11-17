@@ -48,7 +48,7 @@ AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role"}
 MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode"}
-LAW_KEYS = {"gain", "integral-time"}                 # a machine block's control law, when it says it (passed in its params)
+LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
     "program": MACHINE_COMMON | LAW_KEYS | {"run", "parse", "goal", "until"},
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until"},
@@ -855,6 +855,23 @@ class Compiler:
                 self.number(m, k, what)
         if t in MACHINE and m.get("integral-time") is not None:
             params["integral-time"] = self.duration(m, "integral-time", what)
+        if t in MACHINE:
+            for k in ("deadband", "resolution"):
+                if m.get(k) is not None:
+                    v = self.number(m, k, what)
+                    if v is not None and (v < 0 or (k == "resolution" and v == 0)):
+                        self.err(f"{what}.{k}: {'more than 0' if k == 'resolution' else '0 or more'}", m.at(k), "bad-number")
+                    params[k] = v
+            if m.get("limits") is not None:
+                lim = m.get("limits")
+                ok = isinstance(lim, list) and len(lim) == 2 and all(isinstance(x, int | float) and not isinstance(x, bool)
+                                                                     for x in lim) and lim[0] < lim[1]
+                if not ok:
+                    self.err(f"{what}.limits: two numbers, the least and the most the setting it steps may take ([5, 95])",
+                             m.at("limits"), "bad-number")
+                    params.pop("limits", None)
+                else:
+                    params["limits"] = [float(lim[0]), float(lim[1])]
         for k in ("min-on", "min-off", "delay", "after", "reset", "for"):
             if m.get(k) is not None:
                 params[k] = self.duration(m, k, what)
