@@ -125,7 +125,7 @@ MESSAGE_MEASURES = {               # how the owner's messages reach the work (SP
                                    "as a follow-up on finished work)",
     "ergostat.messages.answered": "messages the work answered over the last week",
     "ergostat.messages.missed": "messages that did not reach the work before it finished, over the last week: the "
-                                "work was reopened, citing them (work redone)",
+                                "work was reopened or followed up, citing them (work redone)",
     "ergostat.messages.reached": "of the messages received over the last week, the share delivered to work (0 while none "
                                  "is received)",
 }

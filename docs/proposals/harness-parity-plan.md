@@ -350,3 +350,24 @@ resource or wiring; how it is measured; dependencies.
   characters, all still proposed) scores **0.49** (none 0.03, docs 0.33, fork 0.28, memory 0.21, owner's
   messages 0.94): strong on decisions and rejections (0.71, 0.63), weak on meanings and state. Everything waits
   for the owner to confirm.
+- **2026-11-17, 2.4 messages** (branch `messages`). The owner's messages as the built-in item kind `ergostat.message`
+  (received, unrouted, routed, delivered, answered; events `ergostat.message.*`), sent with `ergostat message TEXT
+  [--about X]`, the Items page's message box, "Send a note about this" on any item's page, MCP `message`, or a sensor's
+  relayed line. Routed at once: what `--about` names, else ids and part names in the words, else a classifier (a block
+  the model names, an `ai` block on haiku answering with `route` lines; by default a free stand-in scoring open items by
+  kind name, number and field words), to the open items and the block runs working on them now (by `causedby` and the
+  run's command), with their sessions. Delivered: into a **running `claude -p` session, live**: `ergostat session`
+  (image-squeeze's session.py generalised) keeps the session's input open in stream-json and writes the message in;
+  Claude Code takes it at its next step, within the turn (tested with Claude Code 2.1 and Haiku: a note sent five
+  seconds into a ten-second tool call was in that turn's reply, and through the helper, "DONE BANANA" with an answer
+  line); else queued and resumed after the turn (`claude -p --resume ID`, the message its input); to other blocks in
+  their next run's input (`messages`); finished work followed up or reopened by a policy key; missed when the work
+  finished first. Measures `ergostat.messages.*`; SPEC §12h, docs/MESSAGES.md. the-job's simulated owner says things
+  mid-work (115 messages over ~1.5 simulated weeks: 96 routed, 94 delivered, 61 answered by the preparers, 19 unrouted
+  (the vague ones, by design), 11 missed, reached 0.82); image-squeeze's developer session takes a note live (tested
+  with ergostat's echo session). Learned: a run that records what it works on only when it ends (the-job's preparers
+  print their events last) is invisible as work in flight, so a note about its item waits for the next run and is
+  often missed; a block that records its item as it starts (image-squeeze's `lab.py claim`) gets it live. A real haiku
+  classifier routed "the money people want their new thing out today" to the payments team's flag ramp. Next: 2.11's
+  intake (a message that is new work becomes an item), 2.14 telling running sessions what moved on main (a message
+  from ergostat itself).
