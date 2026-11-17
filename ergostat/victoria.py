@@ -14,6 +14,7 @@ set aside (``forget``) is kept in ``measurements.forgotten.json`` in the state d
 from __future__ import annotations
 
 import json
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -43,6 +44,31 @@ class Victoria:
         self.project = project or directory.name
         self.raw = raw
         self.tiers = sorted(tiers or [])
+        self._pending: list[tuple[str, float, float]] = []    # written here, not yet sent: sent within FLUSH
+        self._lock = threading.Lock()
+        self._flusher: threading.Thread | None = None
+
+    FLUSH = 0.5                   # seconds a reading waits before it is sent (one import for many)
+
+    def flush(self) -> None:
+        """Send what is pending, now (every read does first: what was written here is read here)."""
+        with self._lock:
+            rows, self._pending = self._pending, []
+        if rows:
+            try:
+                self._import(rows)
+            except VictoriaError:
+                with self._lock:                       # the server away: kept, and sent with the next
+                    self._pending[:0] = rows
+                raise
+
+    def _later(self) -> None:
+        while True:
+            time.sleep(self.FLUSH)
+            try:
+                self.flush()
+            except VictoriaError:
+                pass                                       # kept (flush put them back) for the next try
 
     # ---- the API
 
@@ -101,16 +127,28 @@ class Victoria:
 
     # ---- writing
 
+    def _sync_reads(self) -> None:
+        if self._pending:
+            self.flush()
+
     def add(self, series: str, value: float, at: float | None = None) -> None:
-        self._import([(series, at if at is not None else time.time(), value)])
+        """A reading, sent with the others written within ``FLUSH`` (the engine writes one at a time,
+        and one import and flush each would hold it back)."""
+        with self._lock:
+            self._pending.append((series, at if at is not None else time.time(), float(value)))
+            if self._flusher is None:
+                self._flusher = threading.Thread(target=self._later, name="ergostat-victoria-flush", daemon=True)
+                self._flusher.start()
 
     def add_many(self, rows: list[tuple[str, float, float]]) -> None:
+        self.flush()
         for i in range(0, len(rows), 200_000):
             self._import(rows[i:i + 200_000])
 
     # ---- reading
 
     def latest(self, series: str, before: float | None = None) -> tuple[float, float] | None:
+        self._sync_reads()
         before = before if before is not None else time.time() + 86400
         for back in (3600, 86400, 30 * 86400, None):
             pts = self._export(series, None if back is None else before - back, before).get(series) or []
@@ -123,6 +161,7 @@ class Victoria:
     def range(self, series: str, since: float, until: float | None = None, last: int | None = None) -> list[tuple[float, float]]:
         """The readings, one by one when there are few (or for the recent ``raw``); otherwise, before
         that, each bucket of the finest tier that keeps them to ``RAW_MOST`` as its last reading."""
+        self._sync_reads()
         until = until if until is not None else time.time() + 1
         if last:
             got: list[tuple[float, float]] = []
@@ -147,12 +186,14 @@ class Victoria:
         return out
 
     def count(self, series: str | None = None, since: float | None = None, until: float | None = None) -> int:
+        self._sync_reads()
         until = until if until is not None else time.time() + 86400
         span = f"{max(1.0, until - since) + EPS:.3f}s" if since is not None else FOREVER
         got = self._query(f"sum(count_over_time({self._sel(series)}[{span}]))", until)
         return int(got[0][1]) if got else 0
 
     def bucketed(self, series: str, since: float, until: float, n: int) -> list[tuple[int, float, float, float]]:
+        self._sync_reads()
         w = (until - since) / max(n, 1) or 1.0
         sel, win = self._sel(series), f"{w:.3f}s"
         start, end = since + w - EPS, since + n * w - EPS
@@ -175,6 +216,7 @@ class Victoria:
         return [first, *mid, last]
 
     def first(self, series: str, since: float, until: float) -> tuple[float, float] | None:
+        self._sync_reads()
         step = 3600.0
         lo = since
         while lo <= until:
@@ -187,6 +229,7 @@ class Victoria:
         return None
 
     def series(self) -> list[dict]:
+        self._sync_reads()
         sel = self._sel()
         n = {m["series"]: v for m, v in self._query(f"count_over_time({sel}[{FOREVER}])", time.time() + 86400)}
         last = {m["series"]: v for m, v in self._query(f"tlast_over_time({sel}[{FOREVER}])", time.time() + 86400)}
@@ -194,6 +237,7 @@ class Victoria:
         return [{"series": s, "n": int(n[s]), "last": last.get(s), "value": val.get(s)} for s in sorted(n)]
 
     def first_time(self) -> float | None:
+        self._sync_reads()
         got = self._query(f"min(tfirst_over_time({self._sel()}[{FOREVER}]))", time.time() + 86400)
         return got[0][1] if got else None
 
@@ -202,6 +246,7 @@ class Victoria:
     def forget(self, series: str, above: float | None = None, below: float | None = None) -> list[tuple[float, float]]:
         """Readings above ``above`` or below ``below`` set aside: the series written again without them
         (VictoriaMetrics deletes whole series), what went kept beside the state."""
+        self._sync_reads()
         if above is None and below is None:
             return []
         pts = self._export(series, 0).get(series) or []
