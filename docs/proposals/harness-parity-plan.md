@@ -324,3 +324,15 @@ resource or wiring; how it is measured; dependencies.
   memory carry outcomes, not reasons or rejections; fresh sessions repeat corrected mistakes on tasks (what
   2.13 should carry); truths need "as of" (a decision later reversed). Next dataset: truths from the
   assistant's turns and the commits, not only the owner's words.
+- **2026-11-17, 2.16 claims** (branch `claims`). A `claim` output line any block may print
+  (`{"claim": {"says", "about", "check"}}`), recorded as the built-in item kind `ergostat.claim` (made → verified,
+  contradicted or unchecked; events `ergostat.claim.*`) and checked by ergostat after the run, never by the claimant:
+  `tests` (the declared test command, `claims: {tests: {run, in}}`, run in a folder or on an exported copy of a
+  commit or an item's branch; else the latest test run in the record), `changed`, `state`, `exit`, `level`, and
+  checks a project declares. Trust: `ergostat.trust.contradicted[@block | @rung:K | @model:M]` and counts, built-in
+  measures; a contradicted claim is the finding `contradicted-claim` and needs attention. `ergostat claims`, MCP
+  `trust`, Items → `ergostat.claim` (trust table, a claim's verdict and evidence); SPEC §12g, docs/CLAIMS.md. The
+  test case: pytest piped through tail, a run exiting 0, a claim that tests pass; contradicted by running the
+  declared command. image-squeeze: the developer claims "tests pass" and "submitted hypothesis/N"; `FACTORY_LIE=1`
+  plants a liar: 16 claims, 8 contradicted (every lie), 8 verified; honest, 10 of 10 verified; goal
+  `developer-honest`. Next: 2.10's trust stock reading these, a reviewer depth set by it.

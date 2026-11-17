@@ -51,7 +51,7 @@ Run by ergostat after the run ends, one claim at a time (the block is not run ag
 A claim no check knows, or one its check cannot run (no test command and no test run recorded, no reading yet, a
 command that times out), is **unchecked**, with why. Unchecked is recorded and never counted as trust.
 
-**Why the tests are run again.** This project's own history had it: a worker ran `pytest | tail -n 3`, saw the
+**Why the tests are run again.** This project's own history had it: an AI agent ran `pytest | tail -n 3`, saw the
 summary scroll by, and reported the tests passed. The pipe's exit code is `tail`'s, so the run exited 0 and an
 exit-code check agrees with the claim. Only running the declared test command catches it.
 `tests/test_claims.py::test_a_pipe_that_hid_a_failing_exit_code_is_caught_by_running_the_declared_tests` is that
@@ -82,7 +82,9 @@ that needs the project's own tools from inside the copy.
 and the verdict; under the table, **Trust**: per block, per rung and per model, the claims made, verified,
 contradicted and unchecked, and the share contradicted.
 
-![Items: the claims and the trust table](screenshots/claims/items-claims.png)
+![Items: the claims](screenshots/claims/items-claims.png)
+
+![The trust table under them](screenshots/claims/trust.png)
 
 **A claim's page** (click a row): the verdict first, with the evidence (the command, the commit it ran at, its exit
 code, the end of what it printed), then its fields and their history.
@@ -136,3 +138,7 @@ claims carry the session and its model (`bin/session.py`), so trust is kept per 
 tests through `tail` (so it sees an exit code of 0), and claims the tests pass and that it submitted, whatever
 `submit` said. `submit` runs the tests itself and abandons the hypothesis; ergostat's checks contradict both claims:
 the tests fail on the branch, and the hypothesis is dropped, not testing.
+
+Measured (2026-11-17, stand-ins, about eight minutes each): with `FACTORY_LIE=1`, 16 claims, 8 verified and 8
+contradicted: every lie told (two claims on each of hypotheses 1, 3, 5 and 7) caught, every true claim verified,
+none unchecked; `developer-contradicted` read 0.5 and the goal was off. Without it, 10 claims, all verified.
