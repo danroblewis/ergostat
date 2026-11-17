@@ -295,8 +295,9 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
     kinds = kinds_of(spec)
     plain = spec is None or not kinds
     if plain:
+        every = events.items()
         its = [fold(i["item"], events.query(n=None, item=i["item"], until=until, skip=(TRANSCRIPT_TYPES,)), None, transcript=False)
-               for i in events.items()[offset:offset + n]]
+               for i in every[offset:offset + n]]
     else:
         its = project(events, spec, until=until, fields=tuple(f for k in kinds.values() for f in k.show))
     from ..transcripts import FIELDS
@@ -314,7 +315,7 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
                        "description": k.description,
                        "counts": counts.get(k.name, {})} for k in kinds.values()],
             "unkinded": sum(counts.get("", {}).values()),
-            "total": len(shown), "offset": offset,
+            "total": len(every) if plain else len(shown), "offset": offset,
             "items": [_listed(i, kinds) for i in (shown if plain else shown[offset:offset + n])]}
 
 

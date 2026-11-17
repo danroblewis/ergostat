@@ -11,6 +11,7 @@ each answer takes, its size, the server's memory. Last, the demo itself runs on 
 record for a while, to see whether the engine keeps up.
 
     uv run python scripts/loadtest.py [--days 1,7,30] [--capture 120] [--live 60] [--out DIR] [demo ...]
+    uv run python scripts/loadtest.py --compare before/results.json after/results.json
 
 The result is ``DIR/results.json`` and a table on stdout. Ports are the server's own choice (set
 ERGOSTAT's web port range from outside when several agents share the machine)."""
@@ -278,7 +279,53 @@ def live(copy: Path, home: Path, p, seconds: float) -> dict:
             "log_errors": sum(1 for line in log.splitlines() if "Error" in line or "Traceback" in line)}
 
 
+def _after(r: dict, k: str) -> str:
+    return f"{r['compacted'][k] / 1e6:.1f}" if r.get("compacted") else "-"
+
+
+def _rate(r: dict, k: str) -> str:
+    return f"{r['live'][k] / r['live']['seconds']:.2f}" if r.get("live") and k in r["live"] else "-"
+
+
+def compare(paths: list[Path]) -> int:
+    """Results side by side: per demo and length, the stores' sizes, the roll-up, the engine's rate,
+    and every answer's time and size, one column per results file."""
+    rs = [json.loads(p.read_text()) for p in paths]
+    print("columns: " + " | ".join(str(p) for p in paths))
+    for demo in rs[0]["demos"]:
+        for i, run in enumerate(rs[0]["demos"][demo]["runs"]):
+            runs = [r["demos"].get(demo, {}).get("runs", [])[i] if i < len(r["demos"].get(demo, {}).get("runs", [])) else None
+                    for r in rs]
+            print(f"\n## {demo}, {run['days']:g} days ({run['events']} events, {run['measurements']} readings written)")
+
+            def row(name, f, runs=runs):
+                print(f"{name:<34}" + " | ".join(f"{f(r):>18}" if r else f"{'-':>18}" for r in runs))
+            row("events MB (as written)", lambda r: f"{r['events_bytes'] / 1e6:.1f}")
+            row("measurements MB (as written)", lambda r: f"{r['measurements_bytes'] / 1e6:.1f}")
+            row("compact s", lambda r: f"{r['compact']['seconds']:.0f}" if r.get("compact") else "-")
+            row("events MB after compact", lambda r: _after(r, "events_bytes"))
+            row("measurements MB after compact", lambda r: _after(r, "measurements_bytes"))
+            row("archive MB", lambda r: f"{r['compact'].get('archive_bytes', 0) / 1e6:.1f}" if r.get("compact") else "-")
+            row("server RSS peak MB", lambda r: f"{r['server']['rss_peak_kb'] / 1024:.0f}")
+            row("live events/s", lambda r: _rate(r, "events"))
+            row("live readings/s", lambda r: _rate(r, "measurements"))
+            keys = [(a["window"], a["api"]) for a in run["server"]["answers"]]
+            for w, api in keys:
+                def cell(r, w=w, api=api):
+                    a = next((x for x in r["server"]["answers"] if x["window"] == w and (x["api"] == api or
+                              (api.startswith("item (") and x["api"].startswith("item (")))), None)
+                    if a is None:
+                        return "-"
+                    if a["status"] != 200:
+                        return "timeout" if "timed out" in (a.get("error") or "") else str(a["status"] or a.get("error", "")[:12])
+                    return f"{a['seconds']:.2f}s {a['bytes'] / 1024:.0f}KB"
+                row(f"{w} {api[:30]}", cell)
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) > 2 and sys.argv[1] == "--compare":
+        return compare([Path(x) for x in sys.argv[2:]])
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("demos", nargs="*", default=["image-squeeze", "the-job"])
     ap.add_argument("--days", default="1,7,30", help="how long each long record is, comma separated")
