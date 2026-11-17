@@ -234,3 +234,9 @@ def upkeep(p, now: float | None = None) -> dict:
     if hasattr(p.measurements, "roll"):
         out["measurements"] = p.measurements.roll(now)
     return out
+
+
+def vacuum(p) -> int:
+    """``ergostat compact``: the SQLite stores' files made as small as what they hold."""
+    from .store import vacuum as one
+    return one(p.events) + one(p.measurements)

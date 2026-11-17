@@ -247,12 +247,13 @@ def cmd_compact(args) -> int:
     """``ergostat compact``: now, what the engine does every hour (SPEC §4b): items' events older than
     their horizon rolled up into snapshots and archived, what is older than ``keep`` forgotten, the
     measurements rolled into their tiers."""
-    from ..rollup import Archive, compact, upkeep
+    from ..rollup import Archive, compact, upkeep, vacuum
     p = open_project(args)
     if args.dry_run:
         got = {"rollup": compact(p, cap=p.model.keep, dry=True)}
     else:
         got = upkeep(p)
+        got["vacuumed"] = vacuum(p)
     got["archive_bytes"] = Archive(p.dir).size()
     if args.json:
         return out_json(got)
@@ -262,6 +263,7 @@ def cmd_compact(args) -> int:
     if not args.dry_run:
         me = got.get("measurements") or {}
         print(f"forgot {got['pruned']} events older than {human(p.model.keep)}, {got['archive_forgot']} archive segments; "
-              f"measurements: {me.get('rolled', 0)} buckets made, {me.get('forgot', 0)} rows forgotten")
+              f"measurements: {me.get('rolled', 0)} buckets made, {me.get('forgot', 0)} rows forgotten; "
+              f"{got['vacuumed'] / 1e6:.1f} MB given back")
     print(c(f"archive: {got['archive_bytes'] / 1e6:.1f} MB in {p.dir / 'archive'}", "dim"))
     return 0

@@ -86,8 +86,9 @@ def state_dir(project: str, repo: Path | None = None) -> Path:
 def _connect(path: Path, schema: str) -> sqlite3.Connection:
     c = sqlite3.connect(path, timeout=10, isolation_level=None, check_same_thread=False)   # lent to one thread at a time
     c.row_factory = sqlite3.Row
-    c.execute("pragma journal_mode=wal")
     c.execute("pragma busy_timeout=10000")
+    c.execute("pragma auto_vacuum=incremental")    # a new file gives back what is forgotten (an old one: vacuum())
+    c.execute("pragma journal_mode=wal")
     c.executescript(schema)
     if schema is EVENTS and "change" not in {r[1] for r in c.execute("pragma table_info(events)")}:
         try:                                       # a record from before changesets: every event in it is plain data
@@ -777,6 +778,9 @@ class Measurements:
                 done["forgot"] += c.execute("delete from tiers where every = ? and t + ? <= ?", (e, e, cut)).rowcount
             c.execute("commit")
         self._marks = (0.0, {})
+        if done["forgot"]:
+            with self._c() as c:
+                c.execute("pragma incremental_vacuum")
         return done
 
     def prune(self, before: float) -> int:
@@ -808,6 +812,23 @@ class Measurements:
             if self.tiers:
                 got.append(c.execute("select min(first_t) from tiers").fetchone()[0])
         return min((t for t in got if t is not None), default=None)
+
+
+def vacuum(store) -> int:
+    """A SQLite store's file made as small as what it holds, when much of it is free (rows forgotten,
+    in a file made before it gave pages back as it went). Returns the bytes given back."""
+    if getattr(store, "name", None) != "sqlite":
+        return 0
+    with store._c() as c:
+        free, pages, size = (c.execute(f"pragma {k}").fetchone()[0] for k in ("freelist_count", "page_count", "page_size"))
+        if pages and free / pages > 0.2:
+            before = store.path.stat().st_size
+            c.execute("vacuum")
+            if c.execute("pragma auto_vacuum").fetchone()[0] != 2:
+                c.execute("pragma auto_vacuum=incremental")
+                c.execute("vacuum")
+            return max(0, before - store.path.stat().st_size)
+    return 0
 
 
 class Project:
