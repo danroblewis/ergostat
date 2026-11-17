@@ -114,6 +114,29 @@ def tiled_id(item: str | None, k: int) -> str | None:
     return f"{item}-t{k}"
 
 
+def _add(p, batch: list[dict]) -> int:
+    import inspect
+    if "new" in inspect.signature(p.events.add_many).parameters:     # a record written whole: no id is looked for
+        return p.events.add_many(batch, new=True)
+    return p.events.add_many(batch)
+
+
+def with_storage(copy: Path, storage: str | None) -> None:
+    """The copy's ergostat.yaml, with a ``storage:`` section (YAML, as given) when one is asked for."""
+    if storage:
+        y = copy / "ergostat.yaml"
+        y.write_text(y.read_text() + "\nstorage:\n" + "".join(f"  {line}\n" for line in storage.splitlines()))
+
+
+def compact(copy: Path, home: Path) -> dict:
+    """``ergostat compact``, timed: the roll-up, keep, and the measurements' tiers."""
+    t = time.time()
+    r = sh("-C", str(copy), "compact", "--json", env=env_with(home), timeout=7200)
+    if r.returncode != 0:
+        return {"error": (r.stderr or r.stdout)[-2000:], "seconds": time.time() - t}
+    return {**json.loads(r.stdout), "seconds": time.time() - t}
+
+
 def synthesize(p, evs, series, t0: float, t1: float, days: float, end: float, chunk: int = 50000) -> dict:
     span = max(t1 - t0, 1.0)
     tiles = max(1, int(days * 86400 // span))
@@ -134,14 +157,14 @@ def synthesize(p, evs, series, t0: float, t1: float, days: float, end: float, ch
         for s, pts in series.items():
             rows += [(s, t + shift, v) for t, v in pts]
         if len(batch) >= chunk:
-            n_ev += p.events.add_many(batch)
+            n_ev += _add(p, batch)
             batch = []
         if len(rows) >= chunk * 4:
             p.measurements.add_many(rows)
             n_me += len(rows)
             rows = []
     if batch:
-        n_ev += p.events.add_many(batch)
+        n_ev += _add(p, batch)
     if rows:
         p.measurements.add_many(rows)
         n_me += len(rows)
@@ -265,6 +288,9 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=60, help="a client's patience, seconds")
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--keep", action="store_true", help="keep the long records")
+    ap.add_argument("--storage", help="a storage: section for the long records (YAML, newlines as \\n), e.g. "
+                                      "'events: segments\\nmeasurements: {backend: victoriametrics, url: http://127.0.0.1:8428}'")
+    ap.add_argument("--no-compact", action="store_true", help="ask the long record as written, without ergostat compact")
     a = ap.parse_args()
     work = Path(tempfile.mkdtemp(prefix="ergostat-load-"))
     out_dir = a.out or work
@@ -280,16 +306,28 @@ def main() -> int:
         results["demos"][demo] = {"template": {"events": len(evs), "series": len(series), "seconds": t1 - t0, **rate}, "runs": []}
         for days in [float(x) for x in a.days.split(",")]:
             home = work / f"home-{demo}-{days:g}d"
-            p = project(copy, home)
+            long_copy = fresh_copy(DEMOS / demo, work / f"long-{days:g}d")
+            with_storage(long_copy, (a.storage or "").replace("\\n", "\n"))
+            p = project(long_copy, home)
             print(f"  {days:g} days: writing", flush=True)
             made = synthesize(p, evs, series, t0, t1, days, time.time())
-            run = {"days": days, **made, **store_bytes(p.dir)}
+            run = {"days": days, "storage": a.storage, **made, **store_bytes(p.dir)}
             print(f"    {made['events']} events, {made['measurements']} readings in {made['write_seconds']:.0f}s; "
                   f"events {run['events_bytes'] / 1e6:.1f} MB, measurements {run['measurements_bytes'] / 1e6:.1f} MB", flush=True)
-            run["server"] = serve_and_ask(copy, home, p, a.windows.split(","), a.timeout)
+            if not a.no_compact:
+                run["compact"] = cp = compact(long_copy, home)
+                p = project(long_copy, home)
+                run["compacted"] = {**store_bytes(p.dir), "events": p.events.count(), "measurements": p.measurements.count()}
+                ro = cp.get("rollup") or {}
+                print(f"    compact: {cp['seconds']:.0f}s, rolled up {ro.get('events', 0)} events of {ro.get('items', 0)} items; "
+                      f"now events {run['compacted']['events_bytes'] / 1e6:.1f} MB ({run['compacted']['events']}), "
+                      f"measurements {run['compacted']['measurements_bytes'] / 1e6:.1f} MB ({run['compacted']['measurements']} rows), "
+                      f"archive {cp.get('archive_bytes', 0) / 1e6:.1f} MB" + (f"; {cp['error'][-300:]}" if "error" in cp else ""),
+                      flush=True)
+            run["server"] = serve_and_ask(long_copy, home, p, a.windows.split(","), a.timeout)
             if a.live:
                 print(f"    running the demo on it for {a.live:g}s", flush=True)
-                run["live"] = lv = live(copy, home, p, a.live)
+                run["live"] = lv = live(long_copy, home, p, a.live)
                 if "error" not in lv:
                     print(f"    live: {lv['events'] / a.live:.2f} events/s, {lv['measurements'] / a.live:.2f} readings/s "
                           f"(template {rate['events_per_s']:.2f}, {rate['measurements_per_s']:.2f}); "

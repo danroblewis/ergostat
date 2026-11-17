@@ -424,7 +424,8 @@ function recordLinkItem(id) {
 }
 function historyView(cs, total, d) {
   if (!total) return null;
-  const how = (c) => c.op === "refused" ? "refused" : c.op + (c.rule && c.rule !== "replace" ? ` (${c.rule})` : "") + (c.form !== "data" ? ` by ${c.form}` : "");
+  const how = (c) => c.op === "rolled up" ? `${c.count} change${c.count > 1 ? "s" : ""} from ${when(c.first.time)}, rolled up`
+    : c.op === "refused" ? "refused" : c.op + (c.rule && c.rule !== "replace" ? ` (${c.rule})` : "") + (c.form !== "data" ? ` by ${c.form}` : "");
   const val = (v) => (v == null ? h("span", { class: "muted" }, "–") : fieldView(v, true));
   const rows = cs.slice().reverse().map((c) => h("tr", {}, h("td", { class: "nowrap" }, when(c.time)), h("td", { class: "nowrap" }, how(c)),
     h("td", { class: "mono small" }, c.path || "/"), h("td", { class: "cell" }, c.op === "refused" ? c.why : val(c.before)),
@@ -438,6 +439,7 @@ async function pageItem(main, id) {
   const p = page(main, id);
   const body = h("div");
   p.append(body);
+  let full = null;                                   // its full history, once asked for: kept across refreshes
   async function tick() {
     let d;
     try { d = await api(`items/${encodeURIComponent(id)}`); } catch (e) { d = null; }
@@ -469,8 +471,14 @@ async function pageItem(main, id) {
       recordLinkItem(id), ".") : null;
     const verdict = k?.name === CLAIM_KIND ? [h("h2", {}, "Verdict"), claimView(d)]
       : k?.name === DECISION_KIND || k?.name === CORRECTION_KIND ? [h("h2", {}, k.name === DECISION_KIND ? "The decision" : "The correction"), intentView(d, tick)] : [];
+    // its oldest events rolled up into a snapshot (SPEC §4b): the originals are in the archive, read when asked for
+    const ro = d.rollup;
+    const rolled = ro ? h("p", { class: "note" }, `Its ${ro.archived.events} oldest events, up to ${when(ro.last)}, are rolled up into one snapshot and archived. `,
+      full ? null : h("button", { class: "ghost", onclick: async () => { full = await api(`items/${encodeURIComponent(id)}`, { archived: 1, n: 1000 }); tick(); } }, "Show the full history"),
+      full && full.total > full.events.length ? h("span", { class: "muted" }, ` (the first ${full.events.length} of ${full.total})`) : null) : null;
     body.replaceChildren(head, track || "", ...verdict, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
-      h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said || "", eventsTable(d.record, true));
+      h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said || "", rolled || "",
+      eventsTable(full ? full.events : d.record, true));
   }
   await tick();
   S.timer = setInterval(() => { if (!body.querySelector("details[open], .intent-act:not([hidden])")) tick(); }, 4000);

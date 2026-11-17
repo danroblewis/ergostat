@@ -384,7 +384,9 @@ class Segments:
             self._append([ev])
         return ev
 
-    def add_many(self, evs: list[dict]) -> int:
+    def add_many(self, evs: list[dict], new: bool = False) -> int:
+        """As ``store.Events.add_many``; ``new``: the caller knows none of them is recorded (a record
+        written whole), so their ids are not looked for."""
         from .store import changeset
         rows = []
         for e in evs:
@@ -397,7 +399,7 @@ class Segments:
                     ev[k] = e[k]
             rows.append(ev)
         with self._writing():
-            given = [e["id"] for e, x in zip(rows, evs, strict=True) if x.get("id")]
+            given = [] if new else [e["id"] for e, x in zip(rows, evs, strict=True) if x.get("id")]
             have = self.known(given) if given else set()
             fresh, seen = [], set()
             for e in rows:

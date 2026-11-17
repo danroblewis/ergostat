@@ -213,7 +213,7 @@ def _answer(live: Live, path: str, q: dict):
                                                                                until=snap["at"])), key=lambda o: o["time"])
             n_open = len(openings)
             openings = openings[::max(1, n_open // 300)]
-            crossings = p.events.query(n=None, item=name, type="loop.*", until=snap["at"], unvoided=True)
+            crossings = st.crossings_of(p, name, since, snap["at"])
             stretches = off_stretches(p, name, since, snap["at"])
             in_window = [e for e in crossings if e["time"] >= since]
             c = m.controllers[name]

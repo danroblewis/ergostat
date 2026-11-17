@@ -110,6 +110,8 @@ name: checkout                  # the project's name (default: the folder's)
 include:
   - systems/*.yaml
 keep: 30d                       # how long the record is kept
+storage:                        # optional: where it is kept, rolled up and downsampled (section 4b)
+  ...
 defaults:
   system: core
 sources:                        # where existing metrics live
@@ -188,6 +190,88 @@ the model's control panel. A box opens in place (its parts, laid out
 together inside its outline, its own systems still boxed), or is drawn alone: its parts, and
 what it reaches outside as terminals at its edge, each naming the system it is in. A system alone
 at its level starts open; the others start as boxes.
+
+## 4b. Storage: where the record is kept
+
+The record is two stores, kept apart (few events, many measurements), each behind one interface
+with several backends, all held to one conformance suite (`tests/test_store_conformance.py`).
+The defaults need no services; a project names another backend in `storage:` (main file only):
+
+```yaml
+storage:
+  events: segments                 # or sqlite
+  measurements:
+    backend: sqlite                # or victoriametrics, with url: http://127.0.0.1:8428
+    raw: 2d                        # raw readings kept this long (never: kept until keep)
+    tiers: {1m: 14d, 10m: 90d, 1h: 2y}   # then buckets of each width, each kept this long
+  rollup:
+    after: 7d                      # an item's events older than this become one snapshot (never: not rolled up)
+    kinds: {session: 1d}           # per item kind
+    every: 1h                      # how often the engine rolls up and forgets
+```
+
+**Events.** `segments` (the default) is an append-only log in `<state>/events/`: the newest events
+in `head.jsonl`, appended under a file lock by whichever process records them (the runner, the
+page, the command line); every 32,768 events sealed into a segment of gzip blocks (512 events a
+block, read alone) with an index (each item's and each type's rows, the times and seqs as
+columns, a Bloom filter of the ids), so a query by item, type and time reads only the rows and
+blocks that match. `sqlite` is `events.db`, as before. Both keep a transcript's lines
+(`claude.*`) out of item counts without reading them (SQLite by a partial index, the log by its
+type columns).
+
+**Items rolled up.** An item's events older than its horizon (`rollup.after`, or its kind's) are
+replaced by one event, `ergostat.item.snapshot`, the item as it stood after them:
+
+- its document as a `set` (section 5a), and in `data.rollup` the rest of what the fold keeps: the
+  state and when it was entered, every move, the first and last times, how many events, the latest
+  type, what was refused, and each field's history summarised (how many changes, the first and the
+  last, by time, event and type); where a transcript's lines were among them, the fold with them
+  beside the fold without (`rollup.transcript`), so a count of items reads the same as one that
+  folds the conversation;
+- it takes the `seq` of the last event it replaces, so it folds where they did. Only a prefix of the
+  item's events (by `seq`), every one older than the horizon, is rolled up; a later roll-up folds
+  the snapshot with what followed it into the next.
+
+Folding the snapshot and what came after gives the same item as folding the originals (fields,
+state, moves, counts, refusals; `tests/test_rollup.py`, for every example's kinds, with and
+without transcripts, rolled up again and again; `scripts/demo_check.py` on each demo's own record).
+What is lost is detail before the horizon: an item read as it stood before its snapshot (time
+travel) is not there, and its field history before the horizon is the summary. The originals are
+moved to `<state>/archive/<kind>/<YYYY-MM>.jsonl.gz` (a gzip member per roll-up, an event per line)
+with `<YYYY-MM>.idx.jsonl` beside it (per item and member: where, how many, first and last time);
+the item's page shows "Show the full history", which reads them (`/api/items/ID?archived=1`, a page
+at a time). A transcript read again from its start records none of its rolled-up lines.
+
+**Keeping.** `keep:` (top level, default 30 days) is how long events are kept: older ones are
+forgotten, except the model's history (`model.changed`) and each loop's last crossing. An item is
+forgotten whole, once nothing about it is newer than `keep`; until then its older events are in its
+snapshot (the engine never keeps more than `keep` outside one). Archive months older than `keep`
+are deleted.
+
+**Measurements.** Raw readings are kept for `raw`; older ones are rolled into tiers of buckets,
+each bucket keeping the count, sum, min, max, and first and last reading (time and value), each
+tier for its own time. A tier is made from the one before it (raw, then 1m, then 10m...), in whole
+buckets, a few hours of record per transaction; a source is forgotten only once the next tier has
+taken it. A reading that arrives for a span already rolled up is merged into its buckets. Every
+read stitches the sources: raw where it is kept, buckets before that; a bucketed read (a chart's
+points) takes the coarsest tier no wider than its own buckets; a read of readings one by one gets
+each old bucket's last reading. `victoriametrics` keeps every reading as
+`ergostat_reading{project, series}` in the server, which compresses and keeps them for its own
+`-retentionPeriod` (the open-source server does not downsample): buckets are computed by the
+server (MetricsQL over `query_range`), raw readings exported when there are few (20,000 at most),
+and old spans bucketed otherwise; a reading set aside (`forget`) is kept in
+`measurements.forgotten.json`.
+
+**Upkeep.** The engine rolls items up, forgets what is past `keep`, and rolls the measurements into
+their tiers every `rollup.every` (an hour). `ergostat compact` does it now (`--dry-run` says what
+it would roll up).
+
+**The page's answers are bounded.** No answer grows with the record: events are at most 1,000 an
+answer (`n`, paged by `after` and `before`), items 500 (`offset`), a kind's finished items a thousand
+dots (and how many there were), a chart's series a thousand buckets, a sensor's readings its latest
+60 and how many; a loop's crossings are read for the window (and the one before it), never the
+whole record. A client that hangs up before its answer is written is one line in the log, not a
+traceback.
 
 ## 5. Stocks
 

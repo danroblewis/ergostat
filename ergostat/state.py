@@ -20,6 +20,13 @@ WINDOW = 3600.0
 STALE_RUNS = 3          # a reading older than this many of its agent's periods is stale
 
 
+
+def crossings_of(project, loop: str, since: float, until: float) -> list[dict]:
+    """A loop's crossings in a span, and the last one before it (whether it was off when the span
+    began): never every crossing of the whole record."""
+    before = project.events.query(n=1, item=loop, type="loop.*", until=since - 1e-6, unvoided=True)
+    return before + project.events.query(n=None, item=loop, type="loop.*", since=since, until=until, unvoided=True)
+
 def _sensor_for(m, target: str) -> list:
     return [s for s in m.sensors.values() if s.measures == target]
 
@@ -222,7 +229,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         reads = [project.measurements.latest(f"sensor/{s}", now) for s in lp.sensors]
         last_read = max((r[0] for r in reads if r), default=None)
         # how much of the recorded window the loop spent off, from its crossings
-        crossings = project.events.query(n=None, item=lp.name, type="loop.*", until=now, unvoided=True)
+        crossings = crossings_of(project, lp.name, start, now)
         off_time, off_from = 0.0, None
         before = [e for e in crossings if e["time"] < start]
         if before and before[-1]["type"] == "loop.off":

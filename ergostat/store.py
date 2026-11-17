@@ -203,7 +203,7 @@ class Events:
 
     name = "sqlite"
 
-    def add_many(self, evs: list[dict]) -> int:
+    def add_many(self, evs: list[dict], new: bool = False) -> int:
         """Several events at once, in one transaction (a transcript's lines): each a dict of ``add``'s
         arguments with ``type``. Those already recorded are skipped. Returns how many were new."""
         rows = []

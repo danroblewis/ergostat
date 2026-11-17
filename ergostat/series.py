@@ -259,7 +259,8 @@ def series(p, snap: dict, refs: list[str], n: int = POINTS, strip: bool = False)
 
 def off_stretches(p, loop: str, since: float, until: float) -> list[list[float]]:
     """When a loop was off in a span, from every crossing."""
-    crossings = p.events.query(n=None, item=loop, type="loop.*", until=until, unvoided=True)
+    from .state import crossings_of
+    crossings = crossings_of(p, loop, since, until)
     out, off_from = [], None
     for e in crossings:
         if e["type"] == "loop.off" and off_from is None:
