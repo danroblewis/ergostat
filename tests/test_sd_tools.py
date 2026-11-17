@@ -249,7 +249,8 @@ def test_a_one_way_flow_running_backwards_and_a_division_by_zero_are_found(tmp_p
     driven-by: +stock.other
     equation: stock.other / 2h
 """.replace("2h", "two-hours")
-    text = text.replace("parameters:\n", "parameters:\n  two-hours: 2h\n").replace("stocks:\n", "stocks:\n  other:\n    unit: jobs\n    sensor:\n      manual: true\n")
+    other = "stocks:\n  other:\n    unit: jobs\n    sensor:\n      manual: true\n"
+    text = text.replace("parameters:\n", "parameters:\n  two-hours: 2h\n").replace("stocks:\n", other)
     spec, probs = read(tmp_path, text)
     assert not [p for p in probs if p.level == "error"], [str(p) for p in probs if p.level == "error"]
     got = {(r, m.split(",")[0]) for _, m, r in found(spec, "extreme-conditions")}
@@ -322,3 +323,10 @@ def test_a_loop_through_a_decision_with_several_inputs_is_not_scored_and_says_wh
     data = ob.measured(p, ob.Grid(time.time() - 3600, time.time(), 30))
     got = dm.dominance(p.model.spec, data, sim.replay(p.model.spec, data))
     assert any("decision with 2 inputs" in w for w in got["not_scored"].values()), got["not_scored"]
+
+
+def test_a_replay_that_does_not_move_has_no_r_squared_from_its_rounding():
+    from ergostat.numbers import fit as ft
+    flat = [132.0 + (1e-12 if i % 3 else 0.0) for i in range(20)]
+    got = ft.stats(flat, [250.0 + 10 * (i % 4) for i in range(20)])
+    assert got["r2"] is None and got["says"] == "runs low"

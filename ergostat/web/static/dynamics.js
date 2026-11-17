@@ -684,6 +684,7 @@ function openCausal(name) {
     h("h3", {}, "Around the loop"),
     h("table", { class: "parts" }, rows.map(([a, b], i) => h("tr", {}, h("td", {}, part(a)), h("td", { class: "muted" }, "→"), h("td", {}, part(b)),
       h("td", { class: "num" }, signs[i])))),
+    h("h3", {}, "When it drives the behaviour"), loopDominance(c.name),
     (() => {                                            // the loops drawn alike here share its marker
       const grp = sdLoopGroups(S.graph, null, true).find((x) => x.loops.includes(c));
       const others = grp ? grp.loops.filter((x) => x !== c) : [];

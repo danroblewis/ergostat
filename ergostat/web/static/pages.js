@@ -361,10 +361,10 @@ async function pageFit(main) {
   const p = page(main, "Fit");
   const fitBox = h("div"), eqBox = h("div"), accBox = h("div"), notes = h("div"), propBox = h("div"), histBox = h("div"), resBox = h("div"), cap = h("p", { class: "note" });
   p.append(fitBox, eqBox, accBox, notes, h("h2", {}, "Proposals"), propBox, h("h2", {}, "History"), histBox, h("h2", {}, "Residuals"), resBox, cap);
-  let propSig = null, busy = false;
-  async function estimateNow(btn, said) {
-    btn.disabled = true; busy = true; said.textContent = "Estimating\u2026";
-    try { await apiPost("estimate"); said.textContent = ""; propSig = null; }
+  let propSig = null, busy = false, chosen = "parts";
+  async function estimateNow(btn, said, which = "parts") {
+    btn.disabled = true; busy = true; said.textContent = which === "parts" ? "Estimating\u2026" : "Calibrating\u2026";
+    try { await apiPost("estimate", { calibrate: which }); said.textContent = ""; propSig = null; }
     catch (e) { said.textContent = String(e.message || e); }
     busy = false; btn.disabled = false; tick();
   }
@@ -394,9 +394,14 @@ async function pageFit(main) {
     if (sig !== propSig && !busy && !propBox.querySelector("button:disabled")) {
       propSig = sig;
       const said = h("span", { class: "muted small" });
-      const btn = h("button", { onclick: () => estimateNow(btn, said) }, "Estimate now");
+      // calibration: each part alone (and equations for flows with none), each system alone driven by its
+      // measured inputs, or the whole model's replay; each a set of proposals with the fit before and after
+      const ways = (d.calibrations || []).filter((c) => c.key === "parts" || c.count);
+      const pick = ways.length > 1 ? h("select", { "aria-label": "what to fit at once", onchange: (ev) => { chosen = ev.target.value; } },
+        ways.map((c) => h("option", { value: c.key, selected: c.key === chosen ? "selected" : null }, c.words))) : null;
+      const btn = h("button", { onclick: () => estimateNow(btn, said, pick ? pick.value : "parts") }, d.to_estimate.length ? "Calibrate" : "Estimate now");
       const head = d.to_estimate.length
-        ? h("div", { class: "actions" }, SNAP ? null : btn, h("span", { class: "muted small" }, `${d.to_estimate.length} parameter${d.to_estimate.length > 1 ? "s" : ""} to estimate (${d.to_estimate.join(", ")})${d.estimated_at ? `, last estimated ${ago(d.estimated_at)}` : ", not estimated yet"}`), said)
+        ? h("div", { class: "actions" }, SNAP ? null : btn, SNAP ? null : pick, h("span", { class: "muted small" }, `${d.to_estimate.length} parameter${d.to_estimate.length > 1 ? "s" : ""} to estimate (${d.to_estimate.join(", ")})${d.estimated_at ? `, last calibrated ${ago(d.estimated_at)}` : ", not calibrated yet"}`), said)
         : h("div", { class: "actions" }, SNAP ? null : btn, h("span", { class: "muted small" }, "No parameter is marked estimate: true; equations may still be proposed for flows with declared causes."), said);
       propBox.replaceChildren(head, ...(d.proposals.length ? d.proposals.map((x) => proposalBlock(x, { onDone: () => { propSig = null; setTimeout(tick, 600); } }))
         : [h("p", { class: "muted" }, "No proposals waiting.")]),

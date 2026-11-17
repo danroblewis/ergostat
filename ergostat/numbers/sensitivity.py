@@ -9,8 +9,9 @@ Every other number is held at its value. The samples are a Latin hypercube (each
 into as many equal-probability strata as there are samples, each stratum used once: McKay, Beckman and
 Conover, 1979), from a fixed seed, so the same model and record draw the same fan.
 
-Each sample is the model run again, its replay over the record and its projection past now, so the
-delays' hidden stocks are each sample's own. What is drawn is the spread of the projections: for each
+Each sample is the projection run again from the state now, with the sample's values: the stocks
+from their last readings, the delays' contents as the model's replay left them (what is in a pipeline
+is what it is; a sample changes how fast it comes out). What is drawn is the spread of the projections: for each
 part and each moment ahead, the 5th, 25th, 75th and 95th percentiles across the samples. Nothing here
 changes the model: it says how far the projection could be off for what the model admits it does not
 know, and nothing about what it leaves out."""
@@ -88,19 +89,20 @@ def quantile(xs: list[float], q: float) -> float:
 
 
 def fan(spec: Spec, data: ob.Data, horizon: float, points: int, inputs: str = "hold", estimates: dict | None = None,
-        k: int = SAMPLES, base: dict[str, float] | None = None) -> dict:
+        k: int = SAMPLES, base: dict[str, float] | None = None, run: sim.Run | None = None) -> dict:
     """The projection's spread over the uncertain parameters: for each part the projection works out,
     its percentiles at each moment ahead; which parameters were sampled and how; how many runs were
-    not valid (left out of the fan)."""
+    not valid (left out of the fan). ``run`` is the model's replay the projections start from (else
+    the model is replayed with its values as written)."""
     unc = uncertain(spec, estimates)
     sets = draws(unc, k)
     runs: dict[str, list[list[float]]] = {}
     invalid = 0
+    run = run if run is not None or not sets else sim.replay(spec, data, sim.plan(spec, base or None))
     for d in sets:
         pl = sim.plan(spec, {**(base or {}), **d})
-        run = sim.replay(spec, data, pl)
         proj = sim.project(spec, data, run, horizon, pl, points=points, inputs=inputs)
-        if not run.valid or not proj.valid:
+        if not proj.valid:
             invalid += 1
             continue
         for ref, vals in proj.values.items():
@@ -114,6 +116,26 @@ def fan(spec: Spec, data: ob.Data, horizon: float, points: int, inputs: str = "h
         cols = [sorted(col) for col in zip(*rows, strict=True)]
         bands[ref] = {f"p{round(q * 100)}": [quantile(c, q) for c in cols] for q in QUANTILES}
     return {"bands": bands, "samples": len(sets) - invalid, "invalid": invalid, "parameters": unc}
+
+
+def upstream(spec: Spec, refs: list[str]) -> set[str]:
+    """The parameters the model's values of these parts depend on: their equations', and those of every
+    part their equations read, back through stocks to the flows that fill and drain them."""
+    seen, todo, out = set(), list(refs), set()
+    while todo:
+        r = todo.pop()
+        if r in seen:
+            continue
+        seen.add(r)
+        kind, _, name = r.partition(".")
+        if kind == "stock":
+            todo += [f"flow.{f.name}" for f in spec.flows_of(name)]
+            continue
+        x = (spec.flows if kind == "flow" else spec.auxiliaries if kind == "auxiliary" else {}).get(name)
+        if x is not None and x.equation:
+            out |= set(x.equation.parameters)
+            todo += list(x.equation.refs)
+    return out
 
 
 def said(unc: list[dict], dur=None) -> str:

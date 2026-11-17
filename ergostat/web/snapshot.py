@@ -42,6 +42,8 @@ def _requests(project) -> list[tuple[str, dict]]:
     pts = {"points": series.POINTS}
     reqs += [("series", {"refs": f"{series.kind_of(m, n)}.{n}", "strip": 1, "replay": 1, **pts}) for n in [*m.stocks, *m.flows]]
     reqs += [("loop-scope", {"goal": n, **pts}) for n in m.controllers]
+    if getattr(m, "spec", None) is not None:
+        reqs.append(("dominance", pts))                  # which feedback loops drive the behaviour, for every loop's panel
     reqs += [("items-flow", {"kind": k, **pts}) for k in (getattr(getattr(m, "spec", None), "items", None) or {})]
     for kind, table in m.tables().items():
         for n in table:

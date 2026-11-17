@@ -195,7 +195,8 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
 owner's absence*), read only but for one kind of write: the owner's answer to a proposal (Accept or
-Dismiss) and asking for estimates (Estimate now), each a `POST` the page makes. A request is served
+Dismiss), asking for estimates (Calibrate) and proposing a value tried as a what-if (Propose it), each a
+`POST` the page makes. A request is served
 only when addressed to the server by its own name (the Host header is `127.0.0.1`, `localhost` or
 `[::1]` with its port: a page on another site whose name was pointed at 127.0.0.1, DNS rebinding,
 sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
@@ -207,7 +208,8 @@ last day of record, whatever the window: the model fit, the stocks its equations
 total; each equation with its inputs as measured and replayed; accounting, the stocks moved only by
 measured flows; each with R², MAPE, Theil's U_M, U_S, U_C and what a large error says, or "too
 little record"; the fit's history across versions with the span each covered and each accepted
-change; the proposals waiting, and why the estimates not proposed were not; and the residuals),
+change; Calibrate (each part alone, each system alone or the whole model), the proposals waiting,
+and why the estimates not proposed were not; and the residuals),
 Check, and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
 the real dynamics and blocks renderers (`ergostat/guide.py`), with its behaviour over time beside
 it (why: what we control and what we want; system dynamics; control; then the project's own model,
@@ -216,9 +218,12 @@ takes the side panel's place. Behaviour over time sits beside the structure, nev
 its own (`docs/proposals/charts.md`, drawn with uPlot, vendored): a part's panel in the dynamics
 view opens with its causes strip (it, then what drives it, on one time axis; where the model works a part
 out, its replay dashed over the measured line and its projection past now dashed and lighter: open
-loop, the controllers held, so it is left out downstream of a flow a block sets), a
+loop, the controllers held, so it is left out downstream of a flow a block sets; the projection's
+Monte Carlo fan shaded, a what-if in the accent: SPEC §12c), a
 valve's and an auxiliary's panel show its equation in MathML with each parameter's value and
-provenance and any proposal for it, with Accept, parts chosen with
+provenance and any proposal for it, with Accept (each value may be typed over: a what-if, drawn on
+every chart until put back, saved only by Propose it and then Accept), a feedback loop's panel how
+much of the behaviour it drives over the window (loop dominance), parts chosen with
 Shift chart in the side panel (and with none chosen, the parts charted last); a loop's panel, its
 comparator, controller or output in the blocks view, and its sparkline on the Loops page open its
 scope (y with r, u, e); the Items page draws each kind's cumulative flow and cycle times. Every
@@ -266,7 +271,10 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
   on white), so long reading is not harsh; muted text stays above 4.5:1. Hue is reserved:
   red for off or failing, amber for open or a warning, *nothing* for fine (a healthy row is
   plain); one blue accent for interaction only (links, focus, the selected thing, what is pointed
-  at), never for data or decoration. Lines in charts are ink; a setpoint is a muted dash.
+  at), never for data or decoration. Lines in charts are ink; a setpoint is a muted dash. The one
+  line in the accent is a what-if: not the record nor the model, but values the owner is trying
+  now, which go when they put them back (interaction state, so the accent). A projection's fan is
+  the fill and line greys: nine in ten of its runs, and half.
 - **Themes.** Light first. The dark theme follows the system setting and is the same ramp read
   the other way, with the same hues, generated from the same OKLCH values (the hex values in the
   token block say which).

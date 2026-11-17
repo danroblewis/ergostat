@@ -76,14 +76,55 @@ function provenance(p) {
   const e = p.estimated;
   if (e) bits.push(`estimated ${amount(p, e.value, false)}${e.se != null ? ` \u00b1 ${amount(p, e.se, false)}` : ""} (${e.n} points, ${ago(e.when)})`);
   if (p.estimate_note) bits.push(e ? `not proposed: ${p.estimate_note}` : p.estimate_note);
+  for (const c of p.calibrated || []) {
+    bits.push(c.value != null ? `calibrated on ${c.scope_words}: ${amount(p, c.value, false)}${c.se != null ? ` \u00b1 ${amount(p, c.se, false)}` : ""}` +
+      (c.note ? `, not proposed: ${c.note}` : "") : `calibrated on ${c.scope_words}: ${c.note || "no value"}`);
+  }
+  if (p.range) bits.push(`might be ${amount(p, p.range[0], false)} to ${amount(p, p.range[1], false)} (its range)`);
   return bits.join("; ");
 }
+/* a value as the owner would type it: a time in seconds (read as a duration), else the number */
+const typed = (p, v) => (v == null ? "" : p.duration ? `${+(v * 3600).toPrecision(4)}s` : String(+v.toPrecision(6)));
 function parameterTable(params) {
   if (!params?.length) return null;
+  const cell = (p) => {
+    if (p.table) return `${p.table.length} points`;
+    if (SNAP || p.value == null) return p.value != null ? amount(p, p.value) : "?";
+    // what if it were another value? typed here, drawn on every chart, kept nowhere unless proposed and accepted
+    const input = h("input", { class: "whatif-in num", value: S.whatif?.[p.name] ?? typed(p, p.value), size: 7, "aria-label": `what if ${p.name} were`,
+      "data-name": p.name, "data-declared": typed(p, p.value),
+      title: `Type another value to see what the model does with it (${p.duration ? "a duration, like 40s" : p.unit || "a number"}); nothing is saved` });
+    input.addEventListener("change", () => setWhatif(p.name, input.value.trim() === typed(p, p.value) ? null : input.value));
+    return h("span", { class: "nowrap" }, input, p.duration || !p.unit ? null : h("span", { class: "muted" }, ` ${p.unit}`));
+  };
   return h("table", { class: "params" }, h("tr", {}, h("th", {}, "parameter"), h("th", { class: "num" }, "value"), h("th", {}, "from")),
     params.map((p) => h("tr", {}, h("td", { title: p.description || null }, p.name),
-      h("td", { class: "num nowrap" }, p.table ? `${p.table.length} points` : p.value != null ? amount(p, p.value) : "?"),
+      h("td", { class: "num nowrap" }, cell(p)),
       h("td", { class: "muted small" }, provenance(p)))));
+}
+/* the what-ifs tried on this panel's parameters: what they are, and the owner's two answers (propose one, or
+   put them back); redrawn whenever one changes */
+function whatifBox(params) {
+  const box = h("div", { class: "whatif" });
+  const mine = new Set((params || []).filter((p) => !p.table).map((p) => p.name));
+  box.redraw = () => {
+    const tried = Object.entries(S.whatif || {}).filter(([k]) => mine.has(k));
+    if (!tried.length || SNAP) { box.replaceChildren(); return; }
+    const said = h("p", { class: "small" });
+    const out = h("div");
+    box.replaceChildren(h("p", { class: "small" }, "What if ", tried.map(([k, v], i) => [i ? " and " : "", h("b", {}, k), ` were ${v}`]),
+      ": drawn in blue on the charts above. Nothing is saved."),
+      h("div", { class: "actions" }, ...tried.map(([k, v]) => h("button", { onclick: async (ev) => {
+        ev.target.disabled = true; said.textContent = "Fitting it to the record\u2026";
+        try { const x = await apiPost("propose", { parameter: k, value: v }); said.textContent = ""; out.replaceChildren(proposalBlock(x, { onDone: () => setWhatif(k, null) })); }
+        catch (e) { said.className = "s-open small"; said.textContent = String(e.message || e); }
+        ev.target.disabled = false;
+      } }, tried.length > 1 ? `Propose ${k}` : "Propose it")),
+      h("button", { class: "ghost", onclick: () => { for (const [k] of tried) setWhatif(k, null); for (const i of document.querySelectorAll(".whatif-in")) if (mine.has(i.dataset.name)) i.value = i.dataset.declared; } }, "Put it back")),
+      said, out);
+  };
+  box.redraw();
+  return box;
 }
 
 /* a valve's or an auxiliary's numbers: its equation, its parameters, how its replay fits, its proposals */
@@ -91,7 +132,7 @@ function equationSection(name, nb) {
   if (!nb) return null;
   const out = [];
   if (nb.equation_tree) {
-    out.push(h("h3", {}, "Equation"), equationBox(name, nb.equation_tree), parameterTable(nb.parameters));
+    out.push(h("h3", {}, "Equation"), equationBox(name, nb.equation_tree), parameterTable(nb.parameters), whatifBox(nb.parameters));
     const notes = [];
     if (nb.unit_problems?.length) notes.push(h("p", { class: "s-open small" }, op(nb.unit_problems.join("; "))));
     else if (nb.equation_ok === false) notes.push(h("p", { class: "s-open small" }, `It comes out in ${nb.equation_unit}: its units do not agree (ergostat check says how).`));
@@ -148,7 +189,9 @@ function proposalBlock(x, { onDone = null } = {}) {
     }
   }
   return h("div", { class: "proposal" },
-    h("div", { class: "proposal-title" }, h("span", { class: "muted small" }, x.kind === "parameter" ? "Proposed value" : "Proposed equation"), h("div", {}, op(x.title).replaceAll(" * ", " \u00d7 "))),
+    h("div", { class: "proposal-title" }, h("span", { class: "muted small" }, x.kind === "parameter"
+      ? (x.scope === "what-if" ? "Your value, proposed" : x.scope && x.scope !== "parts" ? `Proposed value, calibrated on ${x.scope_words}` : "Proposed value") : "Proposed equation"),
+      h("div", {}, op(x.title).replaceAll(" * ", " \u00d7 "))),
     h("p", { class: "muted small" }, x.reason),
     dl([...(x.objective ? [["fitted to", objectiveText(x.objective)]] : []), ...touchedFits(x), ["fit, in total", b || a ? beforeAfter(b, a) : null]]),
     x.edit?.diff ? h("pre", { class: "diff" }, x.edit.diff.split("\n").map((l) => h("div", { class: l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : "muted" }, l)))

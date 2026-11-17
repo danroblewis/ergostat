@@ -72,7 +72,8 @@ def stats(sim_: list, meas: list) -> dict | None:
     sa = math.sqrt(sum((a - ma) ** 2 for _, a in pts) / n)
     mse = sum((s - a) ** 2 for s, a in pts) / n
     mae = sum(abs(s - a) for s, a in pts) / n
-    r = (sum((s - ms) * (a - ma) for s, a in pts) / n / (ss * sa)) if ss > 0 and sa > 0 else None
+    flat = 1e-9 * max(abs(ms), abs(ma), 1e-12)       # a spread below this is rounding, not a movement to correlate
+    r = (sum((s - ms) * (a - ma) for s, a in pts) / n / (ss * sa)) if ss > flat and sa > flat else None
     size = sum(abs(a) for _, a in pts) / n
     lo, hi = min(a for _, a in pts), max(a for _, a in pts)
     near = lo < 0 < hi or size == 0 or any(abs(a) < NEAR_ZERO * size for _, a in pts)

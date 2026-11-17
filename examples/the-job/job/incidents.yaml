@@ -85,6 +85,7 @@ parameters:
     value: 4
     unit: alerts/outage
     estimate: true
+    range: [3, 5]                              # the world's code pages three to five times an outage
     description: the pages each outage sends (three to five)
   outages-base:
     value: 0.25

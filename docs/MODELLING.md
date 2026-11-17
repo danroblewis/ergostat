@@ -372,6 +372,44 @@ testing strategy for system dynamics models", *European Journal of Operational R
 Brunton, Proctor and Kutz, "Discovering governing equations from data by sparse identification of
 nonlinear dynamical systems", *PNAS* (2016).
 
+## Testing and using a model
+
+Once the structure reads right and the replay follows the record, system dynamics tests the model and
+then uses it (Sterman ch. 21). ergostat does each where the model already is, and none of them
+changes it by itself.
+
+- **Calibrate** (the Fit page's Calibrate; `ergostat proposals --calibrate`). Three ways, and they
+  answer different questions. *Each part alone* fits a parameter to what it touches with everything
+  else as measured: the sharpest test of one equation, and where a wrong equation elsewhere cannot
+  pull it off. *Each system alone* is Homer's partial model: the system's stocks integrated, what
+  comes in from outside it as measured, so a system is calibrated as if the rest were exactly right.
+  *The whole model* integrates every stock: the values that make the model as a whole follow the
+  record, which compensate for each other's errors if a structure is wrong somewhere. Values that
+  agree across the three are believable; a value the whole model wants and its part alone does not
+  is a question about the structure between them. Each result is a proposal with its fit before and
+  after.
+- **What if** (a valve's or an auxiliary's panel). Type another value over a parameter's: every chart
+  draws the replay and the projection with it, in blue, beside the model's own. This is how a model is
+  used: "what happens to the backlog if reviews take twice as long?" Nothing is saved; **Propose it**
+  makes it a proposal, with its fit on the record, which you then accept or dismiss.
+- **Sensitivity** (the causes strip's shaded fan). Write what a number might be (`range: [0.1, 0.5]`)
+  where the code or the process says so; a number estimated is sampled by its standard error. The fan
+  is where nine in ten, and half, of forty runs over those ranges fall. A wide fan says the
+  projection depends on what is not known: measure that, or say so when you use it. A narrow fan
+  around a projection that is wrong says the structure is wrong, not the numbers.
+- **Extreme conditions** (`ergostat check`, **extreme-conditions**). The equations alone, pushed to
+  the extreme: every stock empty with nothing coming in, nothing coming in, and a million an hour
+  coming in. A real queue never holds fewer than nothing, a one-way flow never runs back, a rate never
+  divides by an empty stock: when the model does, an equation is wrong where it was never tested,
+  and will be wrong there when the system gets there (guideline 3 is the structural form of this test).
+- **Loop dominance** (a feedback loop's panel). Which loop drives the behaviour, and when, by the
+  Loops That Matter method: each link scored by how much of its effect's change its cause made, a
+  loop's score the product of its links', and its share of all the loops' scores from −1 (a balancing
+  loop drives everything) to +1 (a reinforcing one). Growth with a reinforcing loop near +1 that
+  turns over to a balancing loop is the S-shape; a goal-seeking loop that dominates all the time is a
+  controller doing its job. A loop through a decision with several inputs is not scored: how much of
+  the decision's change came from each input is not written in the model.
+
 ## A checklist for reviewing a model
 
 1. Run `ergostat check`; answer every structure finding, by a change or by a word with a reason.
@@ -384,6 +422,9 @@ nonlinear dynamical systems", *PNAS* (2016).
 7. On the Fit page: which stocks the replay does not follow, and how (Theil's U_M, U_S, U_C); which
    are not explained (the residuals), which way, and what moves with them?
 8. For each auxiliary: is it explained by the model, or declared as coming from outside?
+9. Calibrate each part alone and the whole model: do the values agree? Where they do not, look at the
+   structure between them.
+10. Give the numbers you are unsure of a `range`, and read the fan before you act on a projection.
 
 ## Sources
 
@@ -396,6 +437,13 @@ nonlinear dynamical systems", *PNAS* (2016).
   of system dynamics models", *Dynamica* 10(2), 1984 (R², MAPE, Theil's inequality statistics).
 - Jack Homer, "Partial-model testing as a validation tool for system dynamics", *System Dynamics
   Review* 28(3), 2012.
+- Jay W. Forrester and Peter M. Senge, "Tests for building confidence in system dynamics models",
+  *TIMS Studies in the Management Sciences* 14, 1980 (extreme conditions, sensitivity).
+- Kim Schoenberg, Pål Davidsen and Robert Eberlein, "Understanding model behavior using the Loops that
+  Matter method", *System Dynamics Review* 36(2), 2020 (loop dominance).
+- Michael D. McKay, Richard J. Beckman and William J. Conover, "A comparison of three methods for
+  selecting values of input variables in the analysis of output from a computer code", *Technometrics*
+  21(2), 1979 (Latin hypercube sampling).
 - Jay W. Forrester, *Industrial Dynamics* (MIT Press, 1961) and *Principles of Systems*
   (Wright-Allen, 1968): levels and rates, and the information that rate equations may use.
 - The references under "Improving from data" above.

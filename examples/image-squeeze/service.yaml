@@ -95,6 +95,7 @@ parameters:
   window-time:
     value: 19.2s
     estimate: true
+    range: [9.6s, 38.4s]                       # a percentile lags less, or more, than a mean: a quarter of the window to all of it
     description: the window's average lag, half its 38.4 s (the last 48 images served)
 
 flows:

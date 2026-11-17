@@ -76,7 +76,7 @@ def fan_of(live, p, snap: dict, mr: dict, inputs: str) -> dict | None:
     for which in ("whole", "systems", "parts"):              # an estimate's standard error; each part alone's first
         for k, x in kept.get(which, {}).items():
             est[x.get("parameter", k)] = x
-    got = sens.fan(spec, mr["data"], mr["horizon"], mr["points"], inputs, est)
+    got = sens.fan(spec, mr["data"], mr["horizon"], mr["points"], inputs, est, run=mr["run"])
     live.keep(key, got)
     return got
 
@@ -137,8 +137,9 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
             if mw is not None and ref in mw["run"].how:
                 s["whatif_replay"] = _round(mw["run"].values[ref])
                 s["whatif_projection"] = _round(mw["projection"].values.get(ref) or [])
-            if fn is not None and ref in fn["bands"]:
-                s["fan"] = {k: _round(v) for k, v in fn["bands"][ref].items()}
+            band = (fn or {}).get("bands", {}).get(ref)
+            if band and max(b - a for a, b in zip(band["p5"], band["p95"], strict=True)) > 0:   # a spread to draw
+                s["fan"] = {k: _round(v) for k, v in band.items()}
     if any("replay" in s for s in out["series"]):
         out["projection_times"] = [round(t, 3) for t in proj.times]
         out["horizon"] = mr["horizon"]
@@ -149,8 +150,10 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
                               "duration": spec.parameters[k].duration} for k, v in tried.items()]
             if mw is not None and not (mw["run"].valid and mw["projection"].valid):
                 out["whatif_invalid"] = mw["run"].invalid + mw["projection"].invalid
-        if fn is not None:
-            out["fan"] = {"samples": fn["samples"], "invalid": fn["invalid"], "parameters": fn["parameters"]}
+        if fn is not None:                          # the parameters sampled that these parts depend on
+            mine = sens.upstream(spec, [s["ref"] for s in out["series"] if "replay" in s])
+            out["fan"] = {"samples": fn["samples"], "invalid": fn["invalid"],
+                          "parameters": [u for u in fn["parameters"] if u["name"] in mine]}
     return out
 
 

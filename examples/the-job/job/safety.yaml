@@ -75,6 +75,7 @@ parameters:
     value: 0.3
     unit: workdays
     estimate: true
+    range: [0.1, 0.5]                          # what it might be: no shorter or longer than any one ramp takes
     description: how long a ramp that breaks stays live first, on average (a tenth to half a working day)
   time-to-prove-fine:
     value: 0.5

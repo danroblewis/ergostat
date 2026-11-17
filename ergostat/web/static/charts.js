@@ -110,13 +110,39 @@ function lineLabel(value, text) {
 function before(vs, i) { for (let j = i; j >= 0; j--) if (vs[j] != null) return vs[j]; return null; }
 const inkLine = (extra = {}) => ({ stroke: tok("--ink"), width: 1.5, spanGaps: true, points: { show: false }, ...extra });
 const dashLine = (extra = {}) => ({ stroke: tok("--muted"), width: 1, dash: [4, 3], points: { show: false }, ...extra });
-/* the model's own lines: its replay dashed in ink over the measured one; its projection past now dashed, lighter */
+/* the model's own lines: its replay dashed in ink over the measured one; its projection past now dashed, lighter;
+   a what-if (the owner's own values, tried and not kept) the same in the accent: what they chose */
 const replayLine = () => ({ stroke: tok("--ink"), width: 1.25, dash: [5, 3], spanGaps: true, points: { show: false } });
 const projectionLine = () => ({ stroke: tok("--muted"), width: 1.25, dash: [2, 3], spanGaps: true, points: { show: false } });
+const whatifLine = (ahead) => ({ stroke: tok("--accent"), width: 1.25, dash: ahead ? [2, 3] : [5, 3], spanGaps: true, points: { show: false } });
+
+/* the projection's fan (sensitivity analysis): the 90% and 50% of the runs over what the model says is
+   uncertain, shaded from now (the last reading) out to the horizon, under the lines */
+function fanUnder(fan, ptimes, until, from) {
+  return (u) => {
+    if (!fan || !ptimes?.length) return;
+    const ctx = u.ctx, { left, top, width, height } = u.bbox;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(left, top, width, height); ctx.clip();
+    for (const [lo, hi, colour] of [["p5", "p95", "--line"], ["p25", "p75", "--line-strong"]]) {
+      const a = fan[lo], b = fan[hi];
+      if (!a || !b) continue;
+      const ts = from != null ? [until, ...ptimes] : ptimes, ya = from != null ? [from, ...a] : a, yb = from != null ? [from, ...b] : b;
+      ctx.beginPath();
+      ts.forEach((t, i) => { const x = u.valToPos(t, "x", true), y = u.valToPos(yb[i] ?? 0, "y", true); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      for (let i = ts.length - 1; i >= 0; i--) ctx.lineTo(u.valToPos(ts[i], "x", true), u.valToPos(ya[i] ?? 0, "y", true));
+      ctx.closePath();
+      ctx.fillStyle = tok(colour);
+      ctx.fill();
+    }
+    ctx.restore();
+  };
+}
 
 /* one chart: a line, its name and its value at the cursor (or its last) above it */
 function lineChart({ group, name, role, unit, per, times, values, since, until, goal = null, off = [], height = 64, xAxis = false,
-                     zero = false, href = null, stepped = false, level = null, replay = null, projection = null, ptimes = null }) {
+                     zero = false, href = null, stepped = false, level = null, replay = null, projection = null, ptimes = null,
+                     fan = null, whatifReplay = null, whatifProjection = null, yRange = null }) {
   const last = [...values].reverse().find((v) => v != null);
   const unitText = per ? `${unit || ""}/h` : unit || "";
   const val = h("span", { class: "chart-val" });
@@ -138,16 +164,25 @@ function lineChart({ group, name, role, unit, per, times, values, since, until, 
   if (hasReplay) { data.push(pad(replay)); series.push(replayLine()); }
   const hasProj = projection && projection.some((v) => v != null) && ahead.length;
   if (hasProj) {                                         // from the last reading (what the projection starts from)
-    const from = last ?? [...(replay || [])].reverse().find((v) => v != null) ?? null;
-    data.push([...times.map((_, i) => (i === times.length - 1 ? from : null)), ...projection]);
+    const start = last ?? [...(replay || [])].reverse().find((v) => v != null) ?? null;
+    data.push([...times.map((_, i) => (i === times.length - 1 ? start : null)), ...projection]);
     series.push(projectionLine());
   }
-  const valueAt = (i) => (i < times.length ? before(values, i) : hasProj ? data[data.length - 1][i] : null);
+  const projIdx = hasProj ? data.length - 1 : null;
+  const from = last ?? [...(replay || [])].reverse().find((v) => v != null) ?? null;
+  if (whatifReplay && whatifReplay.some((v) => v != null)) { data.push(pad(whatifReplay)); series.push(whatifLine(false)); }
+  if (whatifProjection && whatifProjection.some((v) => v != null) && ahead.length) {
+    data.push([...times.map((_, i) => (i === times.length - 1 ? from : null)), ...whatifProjection]);
+    series.push(whatifLine(true));
+  }
+  const hasFan = fan && ahead.length && (fan.p5 || []).some((v) => v != null);
+  const fanLo = hasFan ? Math.min(...fan.p5.filter((v) => v != null)) : Infinity, fanHi = hasFan ? Math.max(...fan.p95.filter((v) => v != null)) : -Infinity;
+  const valueAt = (i) => (i < times.length ? before(values, i) : projIdx != null ? data[projIdx][i] : null);
   mountPlot(plotEl, (width) => {
     const o = baseOpts({ width, height, group, since, until: end, xAxis,
-      yRange: (u, lo, hi) => padRange(Math.min(lo ?? desired ?? 0, desired ?? Infinity, goal?.band?.[0] ?? Infinity, zero ? 0 : Infinity),
-                                      Math.max(hi ?? desired ?? 1, desired ?? -Infinity, goal?.band?.[1] ?? -Infinity, zero ? 0 : -Infinity)),
-      hooks: { drawClear: [underlay({ off, band: goal?.band, zero, now: ahead.length ? until : null })],
+      yRange: yRange || ((u, lo, hi) => padRange(Math.min(lo ?? desired ?? 0, desired ?? Infinity, goal?.band?.[0] ?? Infinity, zero ? 0 : Infinity, fanLo),
+                                                 Math.max(hi ?? desired ?? 1, desired ?? -Infinity, goal?.band?.[1] ?? -Infinity, zero ? 0 : -Infinity, fanHi))),
+      hooks: { drawClear: [underlay({ off, band: goal?.band, zero, now: ahead.length ? until : null }), ...(hasFan ? [fanUnder(fan, ahead, until, from)] : [])],
                draw: desired != null ? [lineLabel(desired, level || `desired ${op(goal.setpoint)}`)] : [],
                setCursor: [(u) => { const i = u.cursor.idx; if (i == null) return show(last); const v = valueAt(i);
                                     val.textContent = v == null ? "\u2013" : `${fmt(v)}${unitText ? " " + unitText : ""}${i >= times.length ? ", projected" : ""}`; }] } });
@@ -172,7 +207,7 @@ function partRef(n) {
 }
 function causesStrip(ref, group = chartGroup("strip")) {
   const box = h("div", { class: "strip" }, h("div", { class: "muted small" }, "…"));
-  api("series", { refs: ref, strip: 1, replay: 1, points: CHART_POINTS }).then((d) => {
+  const load = () => api("series", { refs: ref, strip: 1, replay: 1, points: CHART_POINTS, ...(SNAP ? {} : { fan: 1 }), ...whatifParams() }).then((d) => {
     const list = d.series || [];
     if (!list.length || list.every((s) => s.values.every((v) => v == null) && !(s.replay || []).some((v) => v != null))) {
       box.replaceChildren(h("p", { class: "muted small" }, `Nothing measured in ${windowSaid(d)}.`));
@@ -184,13 +219,69 @@ function causesStrip(ref, group = chartGroup("strip")) {
       role: i === 0 ? (s.kind === "flow" ? s.how : null) : ROLE_WORDS[s.role] || s.role,
       unit: s.unit, per: s.per, times: d.times, values: s.values, since: d.since, until: d.until,
       goal: s.goal, height: i === 0 ? 84 : 52, xAxis: i === list.length - 1, zero: s.kind === "flow",
-      replay: s.replay, projection: s.projection, ptimes: d.projection_times,
+      replay: s.replay, projection: s.projection, ptimes: d.projection_times, fan: s.fan,
+      whatifReplay: s.whatif_replay, whatifProjection: s.whatif_projection,
       href: i === 0 ? null : () => openRef(s.ref) })),
       h("div", { class: "chart-foot" }, h("span", { class: "muted" }, [list.length > 1 ? "Rates per hour, on one time axis" : "",
-        modelled ? `dashed: the model's replay; past now, lighter: its projection ${dur(d.horizon)} ahead, ${d.inputs || "inputs held where they were"}` : ""].filter(Boolean).join(". ")), group.when));
+        modelled ? `dashed: the model's replay; past now, lighter: its projection ${dur(d.horizon)} ahead, ${d.inputs || "inputs held where they were"}` : "",
+        modelled ? fanSaid(d, list.some((s) => s.fan)) : "", whatifSaid(d)].filter(Boolean).join(". ")), group.when));
   }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
+  load();
+  box.redraw = load;                                    // a what-if tried: drawn again with it
   if (!SNAP) rememberChart(ref);
   return box;
+}
+
+/* how much of the behaviour a feedback loop drives over the window (Loops That Matter): its relative loop
+   score, −1 to +1, with how often it dominated; or why it is not worked out */
+function loopDominance(name, group = chartGroup("dominance")) {
+  const box = h("div", { class: "strip dominance" }, h("div", { class: "muted small" }, "\u2026"));
+  api("dominance", { points: CHART_POINTS }).then((d) => {
+    if (!d) { box.replaceChildren(); return; }
+    const why = d.not_scored?.[name];
+    if (why) { box.replaceChildren(h("p", { class: "muted small" }, `How much of the behaviour it drives is not worked out: ${why}.`)); return; }
+    const rel = d.relative?.[name];
+    if (!rel || rel.every((v) => v == null)) {
+      box.replaceChildren(h("p", { class: "muted small" }, "Nothing along it changed in the window, so how much of the behaviour it drives is not known."));
+      return;
+    }
+    const share = d.share?.[name], last = [...(d.dominant || [])].reverse().find((x) => x);
+    box.replaceChildren(lineChart({ group, name: "its share of the behaviour", role: "relative loop score", unit: "", times: d.times, values: rel,
+      since: d.since, until: d.until, height: 110, xAxis: true, zero: true, yRange: () => [-1.1, 1.1] }),
+      h("div", { class: "chart-foot" }, h("span", { class: "muted" },
+        [share != null ? `Dominant in ${Math.round(share * 100)}% of the window${last === name ? ", and now" : last ? `; now ${last}` : ""}` : "",
+         `+1: it drives everything, reinforcing; \u22121: balancing. Of the ${d.scored} loop${d.scored === 1 ? "" : "s"} whose every link the model writes`].filter(Boolean).join(". ")), group.when));
+  }).catch(() => box.replaceChildren());
+  return box;
+}
+
+/* the owner's what-if: parameters tried at other values, for every chart on the page, never kept (S.whatif) */
+function whatifParams() {
+  const w = Object.entries(S.whatif || {});
+  return w.length ? { whatif: w.map(([k, v]) => `${k}:${v}`).join(",") } : {};
+}
+function setWhatif(name, value) {
+  S.whatif = { ...(S.whatif || {}) };
+  if (value == null || value === "") delete S.whatif[name]; else S.whatif[name] = String(value).trim();
+  for (const b of document.querySelectorAll(".strip")) b.redraw?.();
+  for (const f of document.querySelectorAll(".whatif")) f.redraw?.();
+}
+const tried = (w) => (w.duration ? dur(w.value * 3600) : `${fmt(w.value)}${w.unit ? " " + w.unit : ""}`);
+function whatifSaid(d) {
+  if (d.whatif_error) return `What-if not drawn: ${d.whatif_error}`;
+  if (!d.whatif?.length) return "";
+  return `in blue, what if ${d.whatif.map((w) => `${w.name} were ${tried(w)}`).join(" and ")} (not saved)` +
+    (d.whatif_invalid?.length ? `: it blows up (${d.whatif_invalid[0]})` : "");
+}
+function fanSaid(d, drawn) {
+  const f = d.fan;
+  if (!f) return "";
+  if (!f.parameters?.length) return "no spread drawn: no parameter it uses has a range or an estimate's error";
+  if (!f.samples) return "no spread drawn: every run of the uncertain parameters blew up";
+  if (!drawn) return `no spread drawn: its projection is the same over ${f.parameters.map((u) => u.name).join(", ")} as far as it looks`;
+  const how = [...new Set(f.parameters.map((u) => (u.how === "range" ? "range" : "estimate \u00b12 standard errors")))];
+  return `shaded: half, and nine in ten, of ${f.samples} runs over ${f.parameters.map((u) => `${u.name} ${u.duration ? dur(u.low * 3600) : fmt(u.low)} to ${u.duration ? dur(u.high * 3600) : fmt(u.high)}`).join(", ")}` +
+    ` (${f.parameters.length > 1 ? "each its" : "its"} ${how.join(" or ")})`;
 }
 /* a system's own measures (its show:, else its goals' measures), each a chart on one time axis: what its
    box used to draw as sparklines, now in its panel */
