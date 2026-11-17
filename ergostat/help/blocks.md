@@ -139,5 +139,13 @@ stocks:
       every: 30s
 ```
 
+Each event is a changeset to the item's fields. Its `data` replaces each field it names, unless
+the kind folds that field otherwise (`fold: {notes: append, hours: sum, labels: union}`; also
+`min`, `max`, `merge`, `first`). Or it carries a JSON Patch in place of `data`, applied whole or
+refused with why: `{"event": "ticket.tagged", "item": "ticket/12", "patch": [{"op": "add", "path":
+"/labels/-", "value": "bug"}]}` (`ergostat event --add ... --patch '[...]'`), or the whole document,
+`"set": {...}`.
+
 `ergostat item` lists them by kind and state; `ergostat item ticket/12` shows one, how it moved,
-and every event about it. The page's Items tab shows the same.
+and every event about it; `--history` shows every change to each field, with the event that made
+it. The page's Items tab shows the same.

@@ -121,7 +121,8 @@ ergostat run [--stop]        run it, in the background, with the web page (--for
 ergostat mcp                 ergostat for an AI agent, over MCP: claude mcp add ergostat -- ergostat -C DIR mcp
 ergostat system [NAME]       draw a system (--all, --around loop/NAME, --blocks, --wiring, --list, --open)
 ergostat loop [NAME]         the loops, or one part by part
-ergostat event [--follow]    the raw record;  ergostat item [NAME]: events folded by id
+ergostat event [--follow]    the raw record;  ergostat item [NAME]: events folded by id, each a changeset
+ergostat item NAME --history every change to each field, with the event that made it (--at: as it stood then)
 ergostat sensor STOCK.SENSOR --read V    a person's reading of a manual sensor
 ergostat snapshot            the page, as of now, in one HTML file that opens offline
 ergostat projects            every project on this machine, which are running, and their pages

@@ -63,7 +63,12 @@ flows:
 ```
 
 Measure the new stock honestly: if its items have no state for it, give them one (here the world
-says when a ramp that went ahead broke or proved fine: `ramp.broke`, `ramp.proved-fine`).
+says when a ramp that went ahead broke or proved fine: `ramp.broke`, `ramp.proved-fine`). When what
+you need to count is in the items' fields rather than their states, check how those fields fold:
+each event's data replaces a field unless the kind says otherwise (`fold: {incidents: sum}`,
+`{comments: append}`; SPEC §5a), and `ergostat item ID --history FIELD` shows every change and the
+event that made it, so a count built on a field that was overwritten when it should have been
+added to is found there.
 
 **When it really is immediate**, say so on the link, written out, and the finding is answered:
 a release fixes what it fixes as it goes live; the next document is needed the moment the last is
@@ -447,7 +452,8 @@ evidence ergostat can check**: a finding (`finding:stock-without-outflow@stock.i
 refused, with why; `ergostat improve --try FILE` (the MCP tool `try_change`) says so beforehand.
 
 Every change to the model, the block's and ergostat's own calibrations and structural proposals alike, is an item
-(`ergostat.model-change`, Items and the review queue), and a judge (`type: judge`, a built-in block) tests each the
+(`ergostat.model-change`, Items and the review queue; its page keeps each field's history, so the reasons as made and
+as checked, and each verdict, stay readable), and a judge (`type: judge`, a built-in block) tests each the
 way a rollout tests a build: beside the model as it is, on the record that comes after it was made, over the whole
 of that record, its halves and its quarters. It passes only when it is better in every window (or, for a change the
 fit cannot see, no worse anywhere and answering findings), and fails otherwise, with the windows as its evidence.
