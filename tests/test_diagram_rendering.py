@@ -1516,7 +1516,7 @@ def queued(tmp_path: Path, monkeypatch) -> Path:
 def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page(browser, tmp_path, monkeypatch):
     """A valve with an equation shows it in MathML, each parameter with its value and where it comes
     from; its causes strip draws the replay (dashed) over the measured line and the projection past
-    now. The Fit page has each stock's fit with Theil's breakdown; Estimate now makes a proposal,
+    now. The Fit page has each stock's fit with Theil's breakdown; Calibrate makes a proposal,
     shown there and in the valve's panel with Accept; accepting writes the smallest edit to the YAML
     and the history records it. A snapshot shows the same, and offers no Accept."""
     d = queued(tmp_path, monkeypatch)
@@ -1546,18 +1546,29 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         assert maths == ["served", "k", "queue"], maths
         assert pg.locator("#detail math.eq mo", has_text="×").count() == 1
         row = pg.locator("#detail table.params tr").nth(1).inner_text()
-        assert "k" in row and "2 1/h" in row and "declared" in row, row
+        assert "k" in row and "1/h" in row and "declared" in row, row
+        assert pg.locator("#detail input.whatif-in[data-name=k]").input_value() == "2"     # the value, to type over
         # the strip: the rate measured (none: it is worked out), its replay, and past now its projection
         pg.wait_for_function(f"() => ({CHARTS.format('#detail')})() >= 2", timeout=20000)
         assert "the model's replay" in pg.locator("#detail .chart-foot").first.inner_text()
         assert pg.locator("#detail .chart.modelled").count() >= 2
+        # a what-if: typed over, drawn on the strip, put back; the file never touched
+        before = (d / "ergostat.yaml").read_text()
+        box = pg.locator("#detail input.whatif-in[data-name=k]")
+        box.fill("4")
+        box.press("Enter")
+        pg.wait_for_function("() => /what if k were 4/.test(document.querySelector('#detail .chart-foot')?.textContent || '')", timeout=20000)
+        assert "Nothing is saved" in pg.locator("#detail .whatif").inner_text()
+        pg.locator("#detail .whatif button", has_text="Put it back").click()
+        pg.wait_for_function("() => !/what if k/.test(document.querySelector('#detail .chart-foot')?.textContent || '')", timeout=20000)
+        assert (d / "ergostat.yaml").read_text() == before
         # the Fit page: the stock's fit, Theil's breakdown, and a proposal once estimated
         pg.goto(url + "/#/fit")
         pg.wait_for_function("() => document.querySelector('table.fit td')", timeout=20000)
         head = pg.locator("table.fit tr").first.inner_text()
         assert all(x in head for x in ("R²", "MAPE", "UM", "US", "UC")), head
         assert "queue" in pg.locator("table.fit").first.inner_text()
-        pg.get_by_role("button", name="Estimate now").click()
+        pg.get_by_role("button", name="Calibrate").click()
         pg.wait_for_function("() => document.querySelector('.proposal')", timeout=30000)
         prop = pg.locator(".proposal").first.inner_text()
         assert "k: 2 1/h → 3" in prop and "value: 2" in prop and "Accept" in prop, prop
