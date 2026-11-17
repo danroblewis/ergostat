@@ -362,20 +362,25 @@ class Segments:
         types = _types_matcher(type, skip) if type or skip else None
         for attempt in range(3):
             segs, hd, hn = self._hstate()
+            # each type and item of the head tested once, not once for each of its events
+            ok_types = None if types is None else {t for t in list(hd.by_type) if types(t)}
+            ok_items = None if item_test is None else {it for it in list(hd.by_item) if item_test(it)}
             if item is not ...:
                 at = hd.by_item.get(item, [])
-            elif types is not None:
-                at = sorted(i for t, ix in list(hd.by_type.items()) if types(t) for i in ix)
+            elif types is not None and len(ok_types) < len(hd.by_type):
+                at = sorted(i for t in ok_types for i in hd.by_type.get(t, ()))
+            elif types is not None:                       # every type the head holds: all of it, in order
+                at = range(hn)
             elif item_test is not None:
-                at = sorted(i for it, ix in list(hd.by_item.items()) if item_test(it) for i in ix)
+                at = sorted(i for it in ok_items for i in hd.by_item.get(it, ()))
             else:
                 at = range(hn)
             lo = bisect.bisect_right(hd.seqs, after_seq, 0, hn) if after_seq is not None else 0   # seqs only grow
             head = [hd.evs[i] for i in at if lo <= i < hn]
             try:
                 out: list[dict] = []
-                hs = [e for e in head if (item is ... or e.get("item") == item) and (types is None or types(e["type"]))
-                      and (item_test is None or item_test(e.get("item")))
+                hs = [e for e in head if (item is ... or e.get("item") == item) and (ok_types is None or e["type"] in ok_types)
+                      and (ok_items is None or e.get("item") in ok_items)
                       and (since is None or e["time"] >= since) and (until is None or e["time"] <= until)
                       and (after_seq is None or e["seq"] > after_seq) and (before_seq is None or e["seq"] < before_seq)
                       and (test is None or test(e))]
@@ -608,7 +613,7 @@ class Segments:
                 x = out.setdefault(it, [0, -INF])
                 x[0] += 1
                 x[1] = max(x[1], t)
-        segs, head = self._state()
+        segs, hd, hn = self._hstate()
         for s in segs:
             if s.t_min > until:
                 continue
@@ -618,23 +623,25 @@ class Segments:
                     c = c or self._cols(s)
                     for r in c["by_type"][a:a + n]:
                         note(s.items[c["item"][r]], c["time"][r])
-        for e in head:
-            if e["type"].startswith(lo):
-                note(e.get("item"), e["time"])
+        for ty, ix in list(hd.by_type.items()):          # the head's, by its index of types
+            if ty.startswith(lo):
+                for i in ix:
+                    if i < hn:
+                        note(hd.evs[i].get("item"), hd.evs[i]["time"])
         return {k: (v[0], v[1]) for k, v in out.items()}
 
     def count(self) -> int:
-        segs, head = self._state()
-        return sum(s.count for s in segs) + len(head)
+        segs, _, hn = self._hstate()
+        return sum(s.count for s in segs) + hn
 
     def first_time(self) -> float | None:
-        segs, head = self._state()
-        got = [s.t_min for s in segs] + [e["time"] for e in head]
+        segs, hd, hn = self._hstate()
+        got = [s.t_min for s in segs] + [hd.evs[i]["time"] for i in range(hn)]
         return min(got) if got else None
 
     def last_seq(self) -> int:
-        segs, head = self._state()
-        return head[-1]["seq"] if head else (segs[-1].last if segs else 0)
+        segs, hd, hn = self._hstate()
+        return hd.evs[hn - 1]["seq"] if hn else (segs[-1].last if segs else 0)
 
     def _tally(self, what: str, item: str, type: str, since: float, until: float | None, f, add, zero):
         """``f`` of each matching event, added up with ``add`` from ``zero``. A sealed segment never
@@ -642,7 +649,8 @@ class Segments:
         for every few seconds reads only the segments at its ends."""
         until = until if until is not None else 1e18
         total = zero()
-        segs, head = self._state()
+        segs, hd, hn = self._hstate()
+        head = [hd.evs[i] for i in hd.by_item.get(item, ()) if i < hn]    # the head's events about it, by its index
         types = _types_matcher(type, ())
         for s in segs:
             if s.t_max < since or s.t_min > until or item not in s.item_span:
