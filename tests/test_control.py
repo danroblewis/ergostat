@@ -525,6 +525,7 @@ def test_a_gain_with_little_margin_at_the_worst_the_process_could_be_is_offered_
 
 def test_a_valve_at_its_most_is_saturated():
     assert monitor.at_most([2.0, 5.0, 5.0, 1.0], [0.0, 5.0]) == 0.5 and monitor.at_most([], [0, 5]) is None
+    assert monitor.at_most([1.0, 1.0], [0, 1]) is None                  # one at a time, always: its unit
 
 
 def test_a_dismissed_proposal_is_not_offered_again_until_the_loop_changes(tmp_path):

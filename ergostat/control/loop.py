@@ -369,6 +369,9 @@ def robustness(proc: dict, r: dict, declared: bool, law: dict) -> dict:
     (K ± 2σ, θ + 2σ, τ ± 2σ); for a process the model holds, its own numbers with the identification's
     relative errors. Said even when the process is not proposable."""
     se = {k: v for k, v in (r.get("se") or {}).items() if k in ("K", "tau", "theta")}
+    if proc["form"] == "integrating" and law["form"] == "I":
+        return {"known": False, "why": ("the record's best guess is an integrator, and integral action alone never settles "
+                                        "one; the record does not yet tell a long lag from an integrator")}
     if not r.get("found") or not se:
         return {"known": False, "why": "the record does not say how sure the process is (no standard errors)"}
     if declared:

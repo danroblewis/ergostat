@@ -366,7 +366,7 @@ def _step_test(p, spec, a: dict, done: dict) -> dict | None:
               + (f", within {ye.number(lim[0])} to {ye.number(lim[1])}" if lim[0] is not None and lim[1] is not None else "")
               + f"), the loop is left to answer for {held_for}, then {u} is put back to the value it had when the test "
               f"started and the loop answers for {held_for} again; then {held} {verb} over. "
-              f"The step is {pl['sized']}. "
+              f"How it is sized: {pl['sized']}. "
               + (f"It stops early, putting {u} back at once, if the error passes {pl['abort']:.3g}, or if {pl['block']} "
                  "moves anything but the step. " if pl["abort"] else "")
               + "The step up is fitted, the step back held out (with tests before, all fitted together), with no feedback "

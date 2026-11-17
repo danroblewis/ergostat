@@ -219,7 +219,7 @@ def margins(p: dict, c: dict, n: int = 1200) -> dict:
         if wc is None and (mag[i - 1] - 1) * (mag[i] - 1) <= 0 and mag[i - 1] != mag[i]:
             f = (1 - mag[i - 1]) / (mag[i] - mag[i - 1])
             wc = ws[i - 1] * (ws[i] / ws[i - 1]) ** f
-            pm = 180 + (ph[i - 1] + f * (ph[i] - ph[i - 1]))
+            pm = (180 + (ph[i - 1] + f * (ph[i] - ph[i - 1])) + 180) % 360 - 180      # in (−180°, 180°]
         if w180 is None and (ph[i - 1] + 180) * (ph[i] + 180) <= 0 and ph[i - 1] != ph[i]:
             f = (-180 - ph[i - 1]) / (ph[i] - ph[i - 1])
             w180 = ws[i - 1] * (ws[i] / ws[i - 1]) ** f

@@ -153,8 +153,8 @@ def saturation(u: list, limits: list) -> float | None:
 def at_most(openings: list[float], limits: list) -> float | None:
     """The share of a valve's openings at its most (each run's amount capped there)."""
     hi = (limits or [None, None])[1]
-    if hi is None or not openings:
-        return None
+    if hi is None or not openings or min(abs(a) for a in openings) >= hi - 1e-9:
+        return None                                   # it always opens by the same amount: its unit, not a limit
     return sum(1 for a in openings if abs(a) >= hi - 1e-9) / len(openings)
 
 
