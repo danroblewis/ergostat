@@ -1099,6 +1099,7 @@ async function pageDiagram(main, q) {
         if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
       }
       renderSide(side, g, "blocks");
+      if (typeof toolArrived === "function") toolArrived();    // a model tool asked for from the Model page (review.js)
       return;
     }
     if (!g.nodes.length) {
@@ -1132,6 +1133,7 @@ async function pageDiagram(main, q) {
     drawGraph(svg, g, S.layout);
     if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
     renderSide(side, g, view);
+    if (typeof toolArrived === "function") toolArrived();
   }
   S.relayout = () => { S.graphSig = ""; return tick(); };      // after a part is pinned or unpinned
   S.redrawSide = () => { if (S.graph) renderSide(side, S.graph, view); };       // the parts chosen changed (charts.js)
@@ -1173,7 +1175,7 @@ function renderSide(side, g, view) {
     return m ? [op(says.slice(0, m.index)), h("a", { href: `#/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
   for (const a of problems.slice(0, MAX)) att.append(h("div", {}, h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what), " ", linked(a.says)));
-  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "#/loops" }, "Loops"), " and ", h("a", { href: "#/fit" }, "Fit"), "."));
+  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "#/loops" }, "Loops"), " and ", h("a", { href: "#/model" }, "Model"), "."));
   side.append(att);
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside

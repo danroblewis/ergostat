@@ -572,7 +572,7 @@ async function openNodeSD(n) {
               ["equation", d?.numbers?.equation_tree ? null : n.equation || d?.equation || "not known"]);
     const flow = n.flow || n.label;
     showDetail(h("div", { class: "kind" }, "Valve"), h("h2", {}, flow), h("p", { class: "muted" }, `the rate of ${flow}`),
-      causesStrip(`flow.${flow}`), dl(rows), equationSection(flow, d?.numbers), loopsPara(loopsOf((c) => c.nodes.includes(n.id))),
+      causesStrip(`flow.${flow}`), dl(rows), equationSection(flow, d?.numbers, { said: d?.equation || n.equation }), loopsPara(loopsOf((c) => c.nodes.includes(n.id))),
       h("p", {}, h("a", { href: `#/diagram?view=dynamics&around=flow/${encodeURIComponent(flow)}` }, "Draw what is around it")),
       sdWhat("flow"));
     return;
@@ -584,7 +584,7 @@ async function openNodeSD(n) {
               ["measured", now.at ? ago(now.at) : null]);
     if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? `${fmt(now.inflow)}/h` : null], ["outflow", now.outflow != null ? `${fmt(now.outflow)}/h` : null]);
     for (const gl of n.goals || []) rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint}${gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)"}`]);
-    if (n.kind === "auxiliary") numbers = equationSection(n.label, d?.numbers);
+    if (n.kind === "auxiliary") numbers = equationSection(n.label, d?.numbers, { exogenous: n.exogenous });
   }
   const ref = partRef(n);                                // behaviour over time first: it, and what drives it (charts.js)
   if (ref) chart = causesStrip(ref);

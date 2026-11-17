@@ -342,7 +342,9 @@ async function pageItem(main, id) {
   S.timer = setInterval(() => { if (!body.querySelector("details[open]")) tick(); }, 4000);
 }
 
-/* Fit: how well the model follows the record, on the reference window (the last day at most, whatever
+/* Model: first what is available for this project (each loop, each parameter to estimate, and where each
+   model tool lives: a link chooses the part and opens its view and panel); then the review queue; then the
+   fit: how well the model follows the record, on the reference window (the last day at most, whatever
    the window above): the stocks its equations move (the model's fit, and the total), each equation
    with its inputs as measured and replayed, the stocks moved only by measured flows (accounting), with
    Theil's breakdown of each error and what it says; the history across versions; the proposals
@@ -369,13 +371,15 @@ function fitRows(rows, total) {
 function fitHead(words, first) {
   return [first, ...["n", "R\u00b2", "MAPE", "U_M", "U_S", "U_C"].map((label) => [rich(label), "num"]), ""];
 }
-async function pageFit(main) {
-  const p = page(main, "Fit");
+async function pageModel(main) {
+  const p = page(main, "Model");
+  const availBox = h("div", { class: "available" });
+  p.append(h("h2", {}, "What's available"), availBox);
   const fitBox = h("div"), eqBox = h("div"), accBox = h("div"), notes = h("div"), histBox = h("div"), resBox = h("div"), cap = h("p", { class: "note" });
-  const qHead = h("h2", {}, "Changes to review"), qActions = h("div", { class: "actions" }), allBox = h("div", { class: "review-all" });
+  const qHead = h("h2", { id: "review-queue" }, "Changes to review"), qActions = h("div", { class: "actions" }), allBox = h("div", { class: "review-all" });
   const queueBox = h("div", { class: "review" }), whyBox = h("div"), canBox = h("div");
   p.append(qHead, qActions, allBox, queueBox, whyBox, h("h2", {}, "What ergostat can propose"), canBox,
-           h("h2", {}, "How well the model fits"), fitBox, eqBox, accBox, notes, h("h2", {}, "History"), histBox, h("h2", {}, "Residuals"), resBox, cap);
+           h("h2", { id: "model-fit" }, "How well the model fits"), fitBox, eqBox, accBox, notes, h("h2", {}, "History"), histBox, h("h2", {}, "Residuals"), resBox, cap);
   let propSig = null, busy = false, chosen = "parts";
   async function estimateNow(btn, said, which = "parts") {
     btn.disabled = true; busy = true; said.textContent = which === "parts" ? "Estimating\u2026" : "Calibrating\u2026";
@@ -389,6 +393,7 @@ async function pageFit(main) {
     let d;
     try { d = await api("fit"); } catch (e) { d = null; }
     if (!d) { fitBox.replaceChildren(h("p", { class: "muted" }, "The model is an ergostat.toml: equations and their fit come with ergostat.yaml.")); return; }
+    availableView(d, availBox);
     const span = d.until && d.since ? dur(d.until - d.since) : "";
     fitBox.replaceChildren(
       ...(d.invalid?.length ? [h("p", { class: "s-off" }, `The replay is not valid: ${d.invalid.join("; ")}.`)] : []),

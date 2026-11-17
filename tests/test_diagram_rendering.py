@@ -1820,7 +1820,7 @@ def queued(tmp_path: Path, monkeypatch) -> Path:
 def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page(browser, tmp_path, monkeypatch):
     """A valve with an equation shows it in MathML, each parameter with its value and where it comes
     from; its causes strip draws the replay (dashed) over the measured line and the projection past
-    now. The Fit page has each stock's fit with Theil's breakdown; Calibrate makes a proposal,
+    now. The Model page has each stock's fit with Theil's breakdown; Calibrate makes a proposal,
     shown there and in the valve's panel with Accept; accepting writes the smallest edit to the YAML
     and the history records it. A snapshot shows the same, and offers no Accept."""
     d = queued(tmp_path, monkeypatch)
@@ -1869,8 +1869,12 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         pg.locator("#detail .whatif button", has_text="Put it back").click()
         pg.wait_for_function(f"() => !/what if k/.test({foot})", timeout=20000)
         assert (d / "ergostat.yaml").read_text() == before
-        # the Fit page: the stock's fit, Theil's breakdown, and a proposal once estimated
-        pg.goto(url + "/#/fit")
+        # the Model page: what is available (k, where it lives, whether the record is long enough), the stock's fit,
+        # Theil's breakdown, and a proposal once estimated
+        pg.goto(url + "/#/model")
+        pg.wait_for_function("() => document.querySelector('.available table.avail')", timeout=20000)
+        k = pg.locator(".available table.avail tr", has_text="k").filter(has_text="served").first.inner_text()
+        assert "served" in k and "not calibrated yet" in k, k
         pg.wait_for_function("() => document.querySelector('table.fit td')", timeout=20000)
         head = pg.locator("table.fit tr").first.inner_text()
         assert all(x in head for x in ("R²", "MAPE", "UM", "US", "UC")), head
@@ -1892,7 +1896,7 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         pg.wait_for_function("() => /Accepted/.test(document.querySelector('#detail .proposal').textContent)", timeout=20000)
         text = (d / "ergostat.yaml").read_text()
         assert re.search(r"    value: (3|2\.99\d*|3\.0\d*) ", text) and "# what we believe" in text and "# the queue drains" in text, text
-        pg.goto(url + "/#/fit")
+        pg.goto(url + "/#/model")
         pg.wait_for_function("() => /accepted: k/.test(document.body.textContent)", timeout=20000)
         assert "Nothing waiting." in pg.locator(".page").inner_text()
         pg.close()
@@ -1914,14 +1918,46 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
     pg.wait_for_function("() => S.graph && document.querySelectorAll('svg.canvas g.node').length", timeout=60000)
     pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'flow:served'))")
     pg.wait_for_function(f"() => document.querySelector('#detail math.eq') && ({CHARTS.format('#detail')})() >= 2", timeout=20000)
-    pg.goto(f"file://{out}#/fit")
+    pg.goto(f"file://{out}#/model")
     pg.wait_for_function("() => document.querySelector('table.fit td')", timeout=20000)
     assert pg.get_by_role("button", name="Estimate now").count() == 0
     pg.close()
     assert not errors and not asked, (errors, asked)
 
 
-# ---- the Fit page's review queue: Show on diagram
+# ---- the Model page's review queue: Show on diagram
+
+def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browser, tmp_path):
+    """The Model page (the Fit page's old address goes there) opens with what is available for the project: each
+    loop, whether its process is identified and what would identify it, each parameter to estimate with the parts
+    it is in; a loop's "process" link opens the block diagram with that loop's process block chosen and its panel
+    open, and a parameter's part opens the dynamics view with its valve's panel (its equation and what-if)."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/?v=1#/fit")
+        pg.wait_for_function("() => location.hash === '#/model' && document.querySelector('.available table.avail')", timeout=30000)
+        assert pg.locator("h1").inner_text() == "Model"
+        assert pg.locator("#nav a.on").inner_text() == "Model"
+        avail = pg.locator(".available")
+        pg.wait_for_function("() => !/analysing/.test(document.querySelector('.available').textContent)", timeout=120000)
+        row = avail.locator("tr", has_text="quality-held").first.inner_text()
+        assert "quality-setting → quality" in row and "not identified" in row, row
+        assert "small-images" in avail.locator("p", has_text="no one process").inner_text()
+        assert "window-time" in avail.inner_text() and "quality-turnover" in avail.inner_text()
+        avail.locator("tr", has_text="quality-held").first.get_by_role("link", name="process", exact=True).click()
+        pg.wait_for_function("() => S.graph?.kind === 'blocks' && !document.querySelector('#detail').hidden", timeout=60000)
+        pg.wait_for_function("() => /The loop quality-held/.test(document.querySelector('#detail').textContent)", timeout=60000)
+        assert pg.evaluate("() => S.graph.nodes.find((n) => n.id === S.bdSel?.node)?.role") == "process"
+        pg.goto(url + "/?v=1#/model")
+        pg.wait_for_function("() => document.querySelector('.available table.avail')", timeout=30000)
+        pg.locator(".available tr", has_text="window-time").first.get_by_role("link", name="quality-turnover").click()
+        pg.wait_for_function("() => S.graph?.kind === 'dynamics' && document.querySelector('#detail input.whatif-in')", timeout=60000)
+        assert pg.evaluate("() => [...S.sel]") == ["flow.quality-turnover"]
+        assert not errors, errors
+        pg.close()
+
 
 def flip_turnover_sign(d: Path) -> None:
     """A link drawn with the sign its equation contradicts: check finds it, and proposes the sign flipped."""
@@ -1937,7 +1973,7 @@ def test_show_on_diagram_chooses_a_proposals_parts_in_both_views(browser, tmp_pa
         pg = browser.new_page(viewport={"width": 1440, "height": 900})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.goto(url + "/?v=1#/fit")
+        pg.goto(url + "/?v=1#/model")
         entry = pg.locator('.entry[data-kind="structure"]', has_text="quality-turnover").first
         entry.wait_for(timeout=60000)
         assert "A link's sign flipped" in entry.locator("h3").inner_text()

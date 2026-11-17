@@ -57,7 +57,7 @@ class PooledServer(ThreadingHTTPServer):
 
 def record_fits(live, every: float = 300.0, stop: threading.Event | None = None) -> None:
     """Each version's fit kept in its history every few minutes, on the reference window, whether or
-    not anyone opens the Fit page (so the history compares versions on like spans of record)."""
+    not anyone opens the Model page (so the history compares versions on like spans of record)."""
     import time
 
     from .numbers_api import reference, spec_of

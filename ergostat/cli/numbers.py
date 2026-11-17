@@ -173,7 +173,7 @@ def cmd_proposals(args) -> int:
 
 
 def _queue(p, spec) -> list[dict]:
-    """The review queue, as the Fit page lists it: the structural proposals looked for, each loop analysed."""
+    """The review queue, as the Model page lists it: the structural proposals looked for, each loop analysed."""
     from ..control import loop as lp
     from ..control import proposals as cp
     from ..numbers import review as rv

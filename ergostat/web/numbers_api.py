@@ -1,5 +1,5 @@
 """The page's view of the model's numbers: the replay and projection drawn on the causes strip, an
-equation and its parameters in a valve's or an auxiliary's panel, the Fit page, and the one thing
+equation and its parameters in a valve's or an auxiliary's panel, the Model page, and the one thing
 the page may change: a proposal the owner accepts or dismisses (``POST``)."""
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ def _estimates(p, spec) -> dict:
 
 def reference(live, p, snap: dict) -> dict | None:
     """The fit on the reference window (the last day of record), whatever window the page shows: the
-    Fit page's, the panels', and what the history records."""
+    Model page's, the panels', and what the history records."""
     spec = spec_of(p)
     if spec is None:
         return None
@@ -330,8 +330,31 @@ def fit_page(live, p, snap: dict) -> dict | None:
             "calibrations": [{"key": w, "words": es.scope_words(spec, w), "count": len(es.scopes(spec, names, w)) if names else 0,
                               "when": max((e.get("when") or 0 for e in kept.get(w, {}).values()), default=None) or None}
                              for w in es.SCOPES],
-            "not_proposed": not_proposed,
+            "not_proposed": not_proposed, "readiness": readiness(spec, rf, names),
             "residuals": snap.get("residuals", {}), **queue(live, p, snap)}
+
+
+def readiness(spec, rf: dict, names: list[str]) -> dict:
+    """For the Model page's "What's available": each parameter to estimate, the parts whose equations use it
+    (where its what-if and calibrations are), and whether the reference window is long enough yet for a
+    proposal: three of the slowest time constant it touches, and forty points fitted (``estimate.judged``);
+    the rest (independent errors, told apart, held out) is said once it is calibrated."""
+    out = {}
+    data = rf["data"]
+    span = data.grid.until - data.grid.since
+    cut = max(1, int(round(data.grid.n * (1 - es.HOLD_OUT))))
+    for n in names:
+        owners, stocks = es.touched(spec, {n})
+        tc = es.slowest(spec, rf["run"], owners, stocks, rf["data"])
+        uses = sorted(r for r in owners if (r.startswith("flow.") and r[5:] in spec.flows and spec.flows[r[5:]].equation
+                                              and n in spec.flows[r[5:]].equation.parameters)
+                      or (r.startswith("auxiliary.") and r[10:] in spec.auxiliaries and spec.auxiliaries[r[10:]].equation
+                          and n in spec.auxiliaries[r[10:]].equation.parameters))
+        refs = owners | {f"stock.{s}" for s in stocks}
+        points = sum(1 for r in refs for i, v in enumerate(data.values.get(r) or []) if v is not None and i < cut)
+        out[n] = {"parts": uses, "span": span, "points": points, "points_needed": es.PROPOSE, "slowest": tc * 3600 if tc else None,
+                  "needs": ft.COVER * tc * 3600 if tc else None, "range": bool(spec.parameters[n].range)}
+    return out
 
 
 def _structural(live, p, snap: dict) -> list[dict]:

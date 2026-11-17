@@ -1,4 +1,4 @@
-"""The Fit page as a review queue (numbers/review.py, structural.py, trial.py): each proposal an entry with
+"""The Model page as a review queue (numbers/review.py, structural.py, trial.py): each proposal an entry with
 what, where, why, how found, effect, benefit and the exact diff; Show on diagram's parts; every pending
 change simulated together; Accept writing exactly what was shown; Dismiss remembered with its reason;
 each kind of structural proposal from a crafted model; the command line's same fields."""
