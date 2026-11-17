@@ -79,6 +79,28 @@ def snapshot_errors(demo: Path) -> list[str]:
     return errs
 
 
+def items_as_before(url: str, spec) -> list[str]:
+    """Each item of a kind with no fold rules, whose events carry plain data, folds as it did before
+    changesets (SPEC §5a): each key's latest value."""
+    from urllib.parse import quote
+    out = []
+    kinds = getattr(spec, "items", None) or {}
+    for it in get(f"{url}/api/items")["items"][:60]:
+        k = kinds.get(it["kind"] or "")
+        if k is not None and k.fold:
+            continue
+        evs = get(f"{url}/api/events?item={quote(it['id'], safe='')}&n=5000&runs=1")
+        if any(e.get("patch") is not None or e.get("set") is not None for e in evs):
+            continue
+        was: dict = {}
+        for e in evs:
+            was.update(e.get("data") or {})
+        now = get(f"{url}/api/items/{quote(it['id'], safe='')}")["fields"]
+        if now != was:
+            out.append(f"item {it['id']}: folds to {json.dumps(now)[:200]}, not {json.dumps(was)[:200]} as before")
+    return out
+
+
 def fresh_copy(demo: Path) -> Path:
     """The demo's tracked files in a new folder, so a check never shares files (a simulation, a
     working repository) with a copy of the demo that is already running."""
@@ -137,6 +159,7 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
         url = st["web"]
         for path in ("status", "graph", "graph?view=wiring", "loops", "agents", "events", "items", "residuals", "parts"):
             get(f"{url}/api/{path}")
+        problems += items_as_before(url, spec)
         if spec is not None:                                     # each loop as a control engineer reads it
             from urllib.parse import quote
             for g in spec.goals:

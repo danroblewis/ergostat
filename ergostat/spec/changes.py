@@ -5,8 +5,8 @@ one of three ways, which it chooses:
 - ``set``: the whole document at once: a patch that removes every field and adds the new
   document's back, so it takes the one path and shows in history as a full replacement;
 - ``data`` (what blocks and scripts emit): each key folded by its kind's rule for it (``fold:``),
-  turned into patch operations, so it takes the same path too. With no rule, a key replaces
-  its field.
+  turned into patch operations (a key with no rule replaces its field: an ``add`` at its
+  path, made directly, as the operation would, since it cannot fail).
 
 A changeset is applied whole or not at all: a ``test`` that fails, a path not there, a ``sum`` of
 something that is not a number refuses the whole event, with why, and leaves the document as it
@@ -14,6 +14,7 @@ was. Refusal is a fact of the fold (the record keeps the event), shown in the it
 
 from __future__ import annotations
 
+import copy
 import json
 
 from .jsonpatch import PatchError, apply, pointer
@@ -108,8 +109,30 @@ def ops_of(doc: dict, e: dict, rules: dict[str, str]) -> list[dict]:
     return ops
 
 
+def _plain(doc: dict, data: dict, rules: dict[str, str]) -> list[tuple]:
+    """Plain data, the usual case, folded straight in: the same changes the patch operations would
+    make (a key replaced is an ``add`` at its path), without their undo log. Every key's operations
+    are worked out first, so a key that cannot fold refuses the event before anything changes."""
+    staged = [(k, v, rules.get(k, "replace")) for k, v in data.items()]
+    ops = {k: rule_ops(doc, k, v, r) for k, v, r in staged if r != "replace"}
+    out = []
+    for k, v, r in staged:
+        if r != "replace":
+            out += apply(doc, ops[k])
+            continue
+        had = k in doc
+        out.append(("replace" if had else "add", pointer(k), doc.get(k) if had else None, v))
+        doc[k] = copy.deepcopy(v) if isinstance(v, (dict, list)) else v
+    return out
+
+
 def fold_event(doc: dict, e: dict, rules: dict[str, str]) -> tuple[list[tuple], str | None]:
     """Apply one event to ``doc``: what changed, or why it was refused (and nothing changed)."""
+    if form_of(e) == "data":
+        try:
+            return _plain(doc, e.get("data") or {}, rules), None
+        except PatchError as err:
+            return [], str(err)
     try:
         ops = ops_of(doc, e, rules)
     except PatchError as err:
