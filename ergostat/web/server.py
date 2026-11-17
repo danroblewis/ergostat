@@ -141,6 +141,29 @@ def _tail(path, n: int) -> list[str]:
         return []
 
 
+def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool) -> dict:
+    """The Items page's list: only the items matching its search (``q``, in the id or any field), the
+    newest ``per_kind`` of each kind (how many matched is ``matched``), and with ``shown`` each item's
+    fields cut to its kind's columns. A kind whose items carry large fields (the model's changes)
+    otherwise made every refresh of the list hundreds of KB, most of it never shown."""
+    items = got["items"]
+    if needle:
+        low = needle.strip().lower()
+        text = lambda i: i["id"] + " " + json.dumps(i["fields"], separators=(",", ":"), ensure_ascii=False, default=str)   # noqa: E731
+        items = [i for i in items if low in text(i).lower()]
+    matched: dict[str, int] = {}
+    kept = []
+    for i in items:
+        k = i.get("kind") or ""
+        matched[k] = matched.get(k, 0) + 1
+        if not per_kind or matched[k] <= per_kind:
+            kept.append(i)
+    if shown:
+        show = {k["name"]: set(k["show"]) for k in got["kinds"]}
+        kept = [{**i, "fields": {f: v for f, v in i["fields"].items() if f in show.get(i.get("kind") or "", ())}} for i in kept]
+    return {**got, "items": kept, "matched": matched, "listed": len(got["items"])}
+
+
 def api(live: Live, path: str, q: dict):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
     shape is, and which shapes stand for each part, so one selection is lit in every view."""
@@ -286,8 +309,9 @@ def _answer(live: Live, path: str, q: dict):
         if name:
             return its.detail(p.events, spec, name, until=snap["at"],
                               history=None if one("history") == "all" else its.HISTORY_SHOWN)
-        return its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"],
-                           n=max(1, min(int(one("n") or its.LISTED), its.LISTED)), offset=int(one("offset") or 0))
+        got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"],
+                          n=max(1, min(int(one("n") or its.LISTED), its.LISTED)), offset=int(one("offset") or 0))
+        return _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")))
     if head == "series":                          # behaviour over time: each part's values, bucketed over the window
         refs = [r for r in (one("refs") or "").split(",") if r]
         out = series.series(p, snap, refs, int(one("points") or series.POINTS), bool(one("strip")))

@@ -46,7 +46,7 @@ if (SNAP) {                                   // one moment, one window: nothing
 }
 (async () => {
   await refreshHeader();
-  setInterval(refreshHeader, 3000);
+  poll(refreshHeader, 5000);
   if (!location.hash && window.innerWidth < 700) location.hash = "#/loops";   // on a phone, the loops first
   route();
 })();

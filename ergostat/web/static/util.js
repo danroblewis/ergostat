@@ -177,20 +177,21 @@ async function refreshHeader() {
       sel.dataset.filled = "1";
       sel.addEventListener("change", () => { if (sel.value) location.href = sel.value + "/" + location.hash; });
     }
-    // the other projects, refreshed with the header (not while the list is open): running ones to
-    // switch to, with what is off or unknown; stopped ones shown, not offered
-    if (document.activeElement !== sel && (!S.projectsAt || Date.now() - S.projectsAt > 9000)) {
+    // the other projects, now and then (not while the list is open): running ones to switch to, with
+    // what is off or unknown; stopped ones shown, not offered. Not waited for: the header goes on
+    if (document.activeElement !== sel && (!S.projectsAt || Date.now() - S.projectsAt > 60000)) {
       S.projectsAt = Date.now();
-      try {
+      if (!sel.options.length) sel.replaceChildren(h("option", { value: "" }, st.name));
+      api("projects").then((ps) => {
         const opts = [h("option", { value: "" }, st.name)];
-        for (const p of await api("projects")) {
+        for (const p of ps) {
           if (p.name === st.name) continue;
           const bits = [p.off?.length ? `${p.off.length} off` : "", p.unknown?.length ? `${p.unknown.length} unknown` : "",
                         p.web ? "" : "stopped"].filter(Boolean);
           opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "" }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));
         }
-        sel.replaceChildren(...opts);
-      } catch (e) { if (!sel.options.length) sel.replaceChildren(h("option", { value: "" }, st.name)); }
+        if (document.activeElement !== sel) sel.replaceChildren(...opts);
+      }).catch(() => { /* kept as it was */ });
     }
     const off = Object.values(st.loops).filter((l) => l.status === "off").length;
     const run = $("#running");
@@ -202,6 +203,32 @@ async function refreshHeader() {
   } catch (e) { /* the server may be restarting */ }
 }
 
+/* a page's refresh: ``fn`` again ``ms`` after the last one finished (never two at once, however slow
+   the server), not while the tab is hidden (at once when it is shown again), and never after its page
+   is gone (``el`` no longer in the document): a page left while its first answer was on its way
+   stops by itself. ``ERGOSTAT_POLL_SPEED`` shortens every wait (the tests' lever). */
+const POLLS = new Set();
+function poll(fn, ms, el = null) {
+  const p = { timer: null, running: false, stopped: false, stop() { p.stopped = true; clearTimeout(p.timer); POLLS.delete(p); } };
+  const gone = () => p.stopped || (el && !el.isConnected);
+  p.run = async () => {
+    clearTimeout(p.timer); p.timer = null;
+    if (gone()) return p.stop();
+    if (document.hidden || p.running) return;          // shown again: run at once (below)
+    p.running = true;
+    try { await fn(); } catch (e) { /* the server may be restarting: the next one asks again */ }
+    p.running = false;
+    if (gone()) return p.stop();
+    p.timer = setTimeout(p.run, ms / (window.ERGOSTAT_POLL_SPEED || 1));
+  };
+  POLLS.add(p);
+  p.timer = setTimeout(p.run, ms / (window.ERGOSTAT_POLL_SPEED || 1));
+  return p;
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) for (const p of [...POLLS]) if (!p.timer && !p.running) p.run();
+});
+
 function parseRoute() {
   const [path, query] = (location.hash.slice(1) || "/diagram").split("?");
   return { path, q: new URLSearchParams(query || "") };
@@ -210,7 +237,7 @@ function parseRoute() {
 async function route() {
   const { path, q } = parseRoute();
   for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", a.getAttribute("href") === "#" + path.split("/").slice(0, 2).join("/"));
-  clearInterval(S.timer);
+  S.timer?.stop?.();
   closeDetail();
   const main = $("#main");
   main.replaceChildren();

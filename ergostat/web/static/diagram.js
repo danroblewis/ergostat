@@ -601,6 +601,7 @@ function arrowHead(pts, cls, size = 7) {
 }
 
 function drawGraph(svg, g, lay) {
+  S.drawN = (S.drawN || 0) + 1;                        // (what the geometry alone decides is kept across draws: dynamics.js)
   squareLines(lay, g);                                 // no line drawn across: a stand-in is drawn square, greyed (interact.js)
   portSides(g);
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
@@ -1139,7 +1140,7 @@ async function pageDiagram(main, q) {
   S.redrawSide = () => { if (S.graph) renderSide(side, S.graph, view); };       // the parts chosen changed (charts.js)
   S.redraw = () => { if (!S.pressed && !S.nodeDrag && !S.hullDrag && S.layout) drawGraph(svg, S.graph, S.layout); };   // libavoid's lines came
   await tick();
-  S.timer = setInterval(tick, 2500);
+  S.timer = poll(tick, 2500, shell);
 }
 
 /* the legend: open the first time, then as the reader left it (remembered in this browser) */

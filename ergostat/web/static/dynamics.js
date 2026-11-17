@@ -165,6 +165,20 @@ function sdCurve(pts, blocked) {
   return { d: roundedPath(pts, 6), tail: pts[n - 2], tip: pts[n - 1], mid: pts[Math.floor(n / 2)] };   // (its corners only eased)
 }
 
+/* what a drawing's geometry alone decides (where each loop marker goes, each connector's curve), kept on its
+   layout until the drawing moves (a new layout, its lines routed, a part dragged): the searches for them
+   were most of a redraw's time, and the page redraws every few seconds with new values in the same places.
+   Worked out once for each draw (S.drawN: diagram.js) */
+function sdMemo(lay) {
+  if (lay.memo && lay.memoDraw === S.drawN) return lay.memo;
+  const geo = [lay.children.map((c) => `${c.id}:${c.x},${c.y},${c.width},${c.height}:${(c.labels || []).map((l) => `${l.x},${l.y},${l.width},${l.height}`).join(";")}`).join("|"),
+               (lay.containers || []).map((h) => `${h.x},${h.y},${h.width},${h.height}`).join("|"),
+               lay.edges.map((le) => `${le.id}:${edgePoints(le).map((q) => `${q.x},${q.y}`).join(" ")}`).join("|")].join("#");
+  if (!lay.memo || lay.memo.geo !== geo) lay.memo = { geo, spots: {}, curves: {} };
+  lay.memoDraw = S.drawN;
+  return lay.memo;
+}
+
 /* what a connector may not cut through: every part but its two ends (and clouds), a little inside */
 function sdBlocked(lay, e) {
   const own = new Set([e.source, e.target]);
@@ -186,7 +200,8 @@ function sdEdgeContent(e, pts, lay) {
     if (two) out.push(sdPipeHead(pts.slice().reverse(), "pipe-tail"));
     return out;
   }
-  const c = sdCurve(pts, sdBlocked(lay, e));
+  const memo = sdMemo(lay), ck = `${e.source}>${e.target}:${pts.map((q) => `${q.x},${q.y}`).join(" ")}`;
+  const c = memo.curves[ck] ||= sdCurve(pts, sdBlocked(lay, e));
   out.push(s("path", { d: c.d, class: "info sd-connector" }));
   const head = arrowHead([c.tail, c.tip], "head sd-head", 7);
   out.push(head);
@@ -240,6 +255,7 @@ function sdLoopMarkers(g, lay) {
   const free = (r, tier) => !hit(taken, r) && (tier >= 1 || !hit(lines, r)) && (tier >= 2 || !hit(pipeLines, r));
   const out = s("g", { class: "loop-markers" });
   const placed = {};
+  const memo = sdMemo(lay);
   for (const { rep, loops } of sdLoopGroups(g, box)) {
     const { poly, members } = sdPolygon(rep, g, box);
     if (poly.length < 2) continue;
@@ -253,9 +269,10 @@ function sdLoopMarkers(g, lay) {
     const rect = (x, y) => ({ x: x - w / 2, y: y - r - 3, x1: x + w / 2, y1: y - r - 3 + hgt });
     const inside = poly.length >= 3 && Math.abs(area) > 400 ? (x, y) => sdInPolygon(x, y, poly) : () => true;
     const reach = Math.max(80, ...poly.map((p) => Math.hypot(p.x - cx, p.y - cy)));
-    let spot = null;
+    const mk = `${loops.map((c) => c.name).join("|")}#${label}#${lines.join("/")}#${poly.map((q) => `${q.x},${q.y}`).join(" ")}`;
+    let spot = memo.spots[mk] || null;
     const ring = (x, y) => ({ x: x - r - 4, y: y - r - 4, x1: x + r + 4, y1: y + r + 4 });
-    for (const tier of [0, 1, 2, 3, 4]) {               // inside and clear; across a connector; across a pipe; its circle alone clear; near it
+    for (const tier of spot ? [] : [0, 1, 2, 3, 4]) {               // inside and clear; across a connector; across a pipe; its circle alone clear; near it
       for (let rr = 0; rr <= reach && !spot; rr += 8) {
         const k = Math.max(1, Math.round((2 * Math.PI * rr) / 14));
         for (let i = 0; i < k; i++) {
@@ -267,6 +284,7 @@ function sdLoopMarkers(g, lay) {
       if (spot) break;
     }
     spot ||= { x: cx, y: cy };
+    memo.spots[mk] = spot;
     taken.push(rect(spot.x, spot.y));
     for (const c of loops) placed[c.name] = spot;
     const m = sdMarker(rep, spot.x, spot.y, area >= 0, lines, loops);

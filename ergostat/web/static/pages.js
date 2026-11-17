@@ -19,15 +19,20 @@ async function pageLoops(main) {
   const p = page(main, "Loops");
   const box = h("div"), cap = h("p", { class: "note" });
   const perf = {};
+  let pts = {}, ptsAt = 0;
   p.append(box, cap);
   async function tick() {
     const loops = await api("loops");
-    // the stocks' trends: every system open (or, where that is not at hand, a snapshot, each closed system's measures)
-    const stocks = await api("graph", { open: "*" }).catch(() => api("graph"));
-    for (const n of stocks.nodes) for (const m of n.measures || []) if (m.points) stocks.nodes.push({ kind: "stock", label: m.label, points: m.points });
+    // the stocks' trends: every system open (or, where that is not at hand, a snapshot, each closed system's measures);
+    // the whole graph is a large answer and a trend over the window hardly moves in seconds: asked for every 30s
+    if (Date.now() - ptsAt > 30000) {
+      const stocks = await api("graph", { open: "*" }).catch(() => api("graph"));
+      for (const n of stocks.nodes) for (const m of n.measures || []) if (m.points) stocks.nodes.push({ kind: "stock", label: m.label, points: m.points });
+      pts = Object.fromEntries(stocks.nodes.filter((n) => n.kind === "stock").map((n) => [n.label, n.points]));
+      ptsAt = Date.now();
+    }
     const w = windowNote();
     cap.textContent = w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "";
-    const pts = Object.fromEntries(stocks.nodes.filter((n) => n.kind === "stock").map((n) => [n.label, n.points]));
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
     // how each loop is doing, as a control engineer reads its scope (control.js): asked for now and then, not every tick
     if (!perf.at || Date.now() - perf.at > 30000) {
@@ -50,7 +55,7 @@ async function pageLoops(main) {
         h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
   }
   await tick();
-  S.timer = setInterval(tick, 3000);
+  S.timer = poll(tick, 3000, p);
 }
 
 /* the ladder: one list, by rung, from the most general agent to none; the ladder itself one line of counts */
@@ -82,7 +87,7 @@ async function pageAgents(main) {
           h("td", { class: "muted" }, a.schedule || a.every || ""))))))));
   }
   await tick();
-  S.timer = setInterval(tick, 3000);
+  S.timer = poll(tick, 3000, p);
 }
 
 async function pageRecord(main, q) {
@@ -107,7 +112,7 @@ async function pageRecord(main, q) {
     box.replaceChildren(evs.length ? eventsTable(evs, false) : h("p", { class: "muted" }, "Nothing recorded yet."));
   }
   await tick();
-  S.timer = setInterval(() => { if (!box.querySelector("details[open]")) tick(); }, 3000);
+  S.timer = poll(() => (box.querySelector("details[open]") ? null : tick()), 3000, p);
 }
 
 /* an item's field, as what it is: a file the project holds (file:PATH) as the image it is, or a link;
@@ -399,6 +404,7 @@ async function pageItems(main, q) {
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => tick() });
   p.append(kinds, notes, h("div", { class: "filters" }, search), compose, box, more);
   const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
+  let flows = {}, flowsAt = 0;
   const keep = (key, sig, make) => {
     const was = drawn[key];
     if (was && (was.sig === sig || was.el.matches(":hover"))) return was.el;
@@ -410,12 +416,20 @@ async function pageItems(main, q) {
   search.addEventListener("input", () => go());
   async function tick() {
     compose.hidden = kind !== MESSAGE_KIND || !!SNAP;
-    const d = await api("items", { ...(kind ? { kind } : {}), ...(state ? { state } : {}) });
+    // the list as the page shows it: the newest of each kind (all a chosen kind's, up to 300), matched to the
+    // search where it is kept, each with its kind's columns only (a snapshot holds the whole list: filtered here)
+    const needle = search.value.trim().toLowerCase();
+    const d = await api("items", { ...(kind ? { kind } : {}), ...(state ? { state } : {}),
+                                   ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}) }) });
     // each kind: its states stacked over the window (a cumulative flow diagram), each named with its count,
-    // a click on one shows its items; a kind without states, one line of its count
-    const flows = Object.fromEntries(await Promise.all(d.kinds.map(async (k) =>
-      [k.name, k.states.length ? await api("items-flow", { kind: k.name, points: CHART_POINTS }).catch(() => null) : null])));
-    for (const [name, fl] of Object.entries(flows)) if (fl && !Object.values(fl.counts).some((c) => c.some((x) => x))) flows[name] = null;   // none yet: its counts
+    // a click on one shows its items; a kind without states, one line of its count. A flow over the window
+    // hardly moves in seconds: each asked for every 30s, not on every refresh of the list
+    if (Date.now() - flowsAt > 30000) {
+      flowsAt = Date.now();
+      flows = Object.fromEntries(await Promise.all(d.kinds.map(async (k) =>
+        [k.name, k.states.length ? await api("items-flow", { kind: k.name, points: CHART_POINTS }).catch(() => null) : null])));
+      for (const [name, fl] of Object.entries(flows)) if (fl && !Object.values(fl.counts).some((c) => c.some((x) => x))) flows[name] = null;   // none yet: its counts
+    }
     const pick = (k, st) => { [kind, state] = kind === k.name && state === st ? [null, null] : [k.name, st]; go(); };
     kinds.replaceChildren(...d.kinds.map((k) => {
       const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; go(); } },
@@ -431,8 +445,7 @@ async function pageItems(main, q) {
     notes.replaceChildren(...[
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind under items: in ergostat.yaml; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
-    const needle = search.value.trim().toLowerCase();
-    const rows = d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle));
+    const rows = SNAP ? d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) : d.items;
     const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
     const kindOf = Object.fromEntries(d.kinds.map((x) => [x.name, x]));
     const isNum = (its, f) => its.some((i) => typeof i.fields[f] === "number") && its.every((i) => i.fields[f] == null || typeof i.fields[f] === "number");
@@ -451,8 +464,8 @@ async function pageItems(main, q) {
     for (const [name, show] of groups) {                   // one table per kind, each with its own columns
       const its = rows.filter((i) => (i.kind || "") === name);
       if (!its.length) continue;
-      const limit = kind ? 300 : 25;
-      parts.push(h("h2", {}, name || "No kind", h("span", { class: "muted" }, ` ${its.length}`)));
+      const limit = kind ? 300 : 25, many = d.matched?.[name] ?? its.length;
+      parts.push(h("h2", {}, name || "No kind", h("span", { class: "muted" }, ` ${many}`)));
       parts.push(tableOf(its, show, limit));
       if (name === CLAIM_KIND) {                          // how far each block's claims held
         const t = await api("trust").catch(() => null);
@@ -460,13 +473,14 @@ async function pageItems(main, q) {
       }
       const fl = flows[name];                              // under its table: how long its finished items took
       if (fl) parts.push(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group)));
-      if (its.length > limit) parts.push(h("p", { class: "note" }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `All ${its.length}`)));
+      if (many > limit) parts.push(h("p", { class: "note" }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `All ${many}`)));
     }
-    box.replaceChildren(...(parts.length ? parts : [d.items.length ? h("p", { class: "muted" }, "Nothing matches.") : ""]));
-    more.textContent = d.total > d.items.length ? `${d.total - d.items.length} older items not loaded.` : "";
+    const listed = d.listed ?? d.items.length;          // what the server's list held, before the search and the cut per kind
+    box.replaceChildren(...(parts.length ? parts : [listed ? h("p", { class: "muted" }, "Nothing matches.") : ""]));
+    more.textContent = d.total > listed ? `${d.total - listed} older items not loaded.` : "";
   }
   await tick();
-  S.timer = setInterval(tick, 4000);
+  S.timer = poll(tick, 4000, p);
 }
 
 /* a field's history: each change, oldest first, with the event that made it (a click opens it) */
@@ -548,7 +562,7 @@ async function pageItem(main, id) {
       eventsTable(full ? full.events : d.record, true));
   }
   await tick();
-  S.timer = setInterval(() => { if (!body.querySelector("details[open], .intent-act:not([hidden])")) tick(); }, 4000);
+  S.timer = poll(() => (body.querySelector("details[open], .intent-act:not([hidden])") ? null : tick()), 4000, p);
 }
 
 /* Model: first what is available for this project (each loop, each parameter to estimate, and where each
@@ -675,7 +689,7 @@ async function pageModel(main) {
       "Residuals: what each stock did against what its known flows explain; a disturbance nothing measures is estimated from the rest."));
   }
   await tick();
-  S.timer = setInterval(tick, 5000);
+  S.timer = poll(tick, 5000, p);
 }
 
 async function pageCheck(main) {
