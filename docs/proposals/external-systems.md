@@ -70,3 +70,26 @@ it oscillates or over-provisions, propose a change, and show the projection.
 The vendors hold measurements and their own rules, one system each. None holds the model that
 relates them: which controller acts on what, how they interact, what will happen next. ergostat
 reads from them and holds that model. It replaces none of them.
+
+## Deployment: a shared reference model, imported like a library
+
+(Owner, 2026-11-16.) At work: a **reference model** of production (clusters, managed databases,
+queues, networks) runs on a server with read-only access, recalibrates hourly (estimates, identified
+controllers), and publishes each version (structure plus `ergostat.estimates.yaml`) like a library
+release, with a diff and a fit report. Day-to-day models **import** it instead of re-modelling it:
+
+```yaml
+include:
+  - remote: git@github.com:yourco/prod-model.git//gke/checkout
+    version: 2026.11.16-14        # pinned, as in a lockfile
+```
+
+- A module's **ports** are its public interface (`exports:`); internals change freely, removing or
+  renaming a port is a breaking change with a deprecation period.
+- Updating a pinned version is a reviewable change: `ergostat check` against the new version lists
+  what broke, which numbers you depend on moved, and how your model's fit and projections change.
+- Structure changes rarely and with review; numbers update hourly in the estimates file, every change a
+  readable diff. (This is why estimates live in their own file, beside the hand-written `ergostat.yaml`.)
+
+Needs: remote `include:` with a version and a lockfile; `exports:`; version comparison in `check`;
+a serve mode that recalibrates on a schedule and publishes. After equations and calibration.
