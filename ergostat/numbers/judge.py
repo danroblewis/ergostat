@@ -47,6 +47,7 @@ MOST = 3                      # candidates judged in one run
 WARM_UP = 6 * 3600.0          # each window is replayed from at most this long before it (improve.warm-up)
 WARM_TAUS = 3.0               # ... and from this many of the dominant time constant before it, when that is less
 MAX_HOLD = ob.REFERENCE       # the most record a change waits for, however slow what it touches
+TAU_POINTS = 120              # the time constants are read from a replay of the reference window in this many buckets
 PORTS = JUDGE_PORTS
 
 
@@ -106,7 +107,7 @@ def dominant(p, spec: Spec, parts: list[str], until: float) -> float | None:
     key = (str(p.dir), ver.version(spec), tuple(parts), int(until // 600))
     if key in _TAU:
         return _TAU[key]
-    data = ob.measured(p, ob.reference(p, until), spec)
+    data = ob.measured(p, ob.reference(p, until, TAU_POINTS), spec)
     run = sim.replay(spec, data)
     taus = [run.time_constants[r] for r in parts if run.time_constants.get(r)]
     got = max(taus) * 3600.0 if taus else None
@@ -119,7 +120,8 @@ def dominant(p, spec: Spec, parts: list[str], until: float) -> float | None:
 def needs(p, spec: Spec, after: Spec, x: dict, since: float, hold_out: float, warm_up: float) -> dict:
     """How much record after the change it is judged on, and how long each window's warm-up is: at least the hold-out
     and the dominant time constant of what it touches in the model as it is, at most a day; warmed up for a few time
-    constants (with the change too), never longer than the configured warm-up nor the record before it.
+    constants (with the change too), never longer than the configured warm-up nor the record before it, and not at
+    all when nothing it touches has a time constant (its stocks only accumulate: there is nothing to settle).
     Each window is at least that time constant long, so the record it needs holds ``MIN_JUDGED`` of them: twice it."""
     fc = focus(spec, after, x)
     tau = dominant(p, spec, fc["parts"], since)              # the record's dynamics, as the model sees them
@@ -127,7 +129,8 @@ def needs(p, spec: Spec, after: Spec, x: dict, since: float, hold_out: float, wa
     warm_tau = max((t for t in (tau, with_it) if t), default=None)   # but its delays are warmed up
     oldest = min((t for t in (p.events.first_time(), p.measurements.first_time()) if t), default=since)
     held_before = max(0.0, since - oldest)
-    warm = min(warm_up, held_before, WARM_TAUS * warm_tau if warm_tau else warm_up)
+    warm = min(warm_up, held_before, WARM_TAUS * warm_tau) if warm_tau else 0.0   # what only accumulates has nothing to
+    # settle: started at its first reading in the window it is exact, where hours of warm-up integrate drift into it
     need = min(MAX_HOLD, max(hold_out, 2 * (tau or 0.0)))
     return {**fc, "tau": tau, "tau_with_it": with_it, "warm_up": warm, "needs": need, "record_before": held_before}
 

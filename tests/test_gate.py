@@ -367,3 +367,10 @@ def test_the_verdict_rules_inconclusive_elsewhere_and_simpler():
     v, why = jd.decide([w(1, 0.5, 1, 1.5)] * 3, 0.02, 0, 0, 600, 600)
     assert v == "dropped" and why.startswith("worse elsewhere in 3 of 3") and "the rest of the model 50% worse" in why
     assert jd.decide([], 0.02, 0, 0, 1800, 600)[0] == "inconclusive"                    # too little record: not failed
+
+
+def test_what_only_accumulates_is_judged_without_a_warm_up(tmp_path):
+    text = TWO.replace("    driven-by: +stock.backlog\n    equation: m * stock.backlog\n", "    sensor:\n      manual: true\n")
+    p = two_project(tmp_path, text=text + judge_block())
+    nd = jd.needs(p, p.model.spec, p.model.spec, {"parts": ["stock.backlog"]}, time.time() - 3600, 600.0, 6 * 3600.0)
+    assert nd["tau"] is None and nd["warm_up"] == 0.0 and nd["needs"] == 600.0     # nothing to settle: started at its reading
