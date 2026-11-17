@@ -117,6 +117,30 @@ clock.
 
 The goals that are off are my to-do list, built for me: the morning brief ranks them first.
 
+## Saying something while the work is under way (job/messages.yaml)
+
+I talk about the work as it happens, the way I would to someone doing it: "that review of Ben's, the search one,
+can wait until tomorrow", "check the flag ramp first: storage-async-write", "on review 2041: I missed the metrics
+change in it". Here the simulated me says such things now and then (`world/me.py`, `notes()`); on a laptop it is
+`ergostat message "..."`, the box on Items → `ergostat.message`, or "Send a note about this" on any item's page.
+
+Each is my message, verbatim (an `ergostat.message` item), and ergostat routes it to the work it concerns
+(ergostat's SPEC §12h): the item it names, or else the open items whose words it shares (a review of Ben's about
+search is the open review whose author is Ben and whose title says search). Then it is delivered:
+
+- the preparer that works on that kind of item gets it in its next run (`messages` in its input): "can wait" puts
+  the review off half a working day, "first" briefs that ramp before the others, anything else goes into the draft
+  under "My note"; each is answered (`ergostat messages ID` shows the answer);
+- a note about work already finished (review 2041, answered yesterday) becomes a follow-up, `note/…`, linked to it,
+  which the next morning brief puts in front of me ("My notes on finished work");
+- a note too vague to place ("hold that one for now") reaches no work: it needs attention, and the morning brief
+  lists it ("What I said that reached no work") until I route it, `ergostat messages ID --about review/2049`.
+
+`messages` is a system like the others: what I said (`notes-said`), routed and waiting (`messages-awaiting`),
+delivered, unrouted (`messages-unrouted`, held at 0 by `notes-reach-work`, which nothing but I can answer), missed
+(`messages-missed`: a note about an item a preparer was already working on, or that waited for me, which finished
+before the note reached it, and was followed up), and the follow-ups the brief puts in front of me.
+
 ## The loops
 
 Each domain has two balancing loops, one inside the other:

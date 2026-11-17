@@ -87,6 +87,12 @@ the item, reads the exit code or the part's reading) and records it as verified,
 (`ergostat claims`; Items → `ergostat.claim`). A contradicted claim is a finding against the block, and lowers its
 trust (`ergostat.trust.contradicted@BLOCK`). `ergostat help spec`, section 12g.
 
+The owner's messages that waited for a block's run (`ergostat message "that review can wait"`, routed to the work it
+concerns) come in its input, under `messages`: each `{"id", "text", "by", "sent", "items"}`. Take them into the work,
+and answer one with `{"answer": {"message": ID, "says": "..."}}`. A Claude Code session run through `ergostat session
+ROLE --model M` (as the block's `run:`, `$ERGOSTAT_CMD session ...`) gets a message while it works, as its next turn.
+`ergostat help messages`.
+
 Everything else it prints goes to its log. `ERGOSTAT_COMMAND` holds the amount too, for a shell
 one-liner (`find tmp -mmin +60 -delete -print | head -n "$ERGOSTAT_COMMAND" | wc -l`).
 `ERGOSTAT_CMD` runs this ergostat on this project, so a block (or the AI agent it starts) can read

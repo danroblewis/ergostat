@@ -1,0 +1,79 @@
+# The owner's messages to the lab while it works (ergostat's SPEC §12h): `ergostat message "try a lossless path for
+# logos" --about developer`, or the Items page's ergostat.message kind. Each is routed to the work it concerns (the
+# hypothesis or block it names, else what its words match) and delivered: to the developer's Claude Code session, if
+# one is running, as its next turn (written into it live); otherwise in the developer's next run. A message about a
+# hypothesis already kept or dropped reopens it: it goes back to the ideas, and is built again with the note. One that
+# waited while its hypothesis finished without it was missed: the work is redone.
+defaults:
+  system: lab                            # the lab's own: what the owner tells it while it works
+
+messages:
+  finished: reopen
+  reopen-to: {hypothesis: proposed}
+  done: {hypothesis: [kept, dropped]}
+
+stocks:
+  messages-unrouted:
+    unit: messages
+    description: the owner's messages that reached no work (each needs attention until routed by hand)
+    sensor:
+      builtin: ergostat.messages.unrouted
+      every: 10s
+  messages-awaiting:
+    unit: messages
+    description: routed to work and not yet delivered to it (waiting for the developer's next run, say)
+    sensor:
+      items: ergostat.message
+      state: routed
+      every: 10s
+  messages-missed:
+    unit: messages
+    description: messages whose work finished before they reached it, over the last week (the work was redone)
+    cumulative: true                    # (over the week the measure counts)
+    sensor:
+      builtin: ergostat.messages.missed
+      every: 30s
+
+flows:
+  messages-routed:                       # the owner writes when they will: a disturbance, measured
+    to: messages-awaiting
+    description: messages routed to the work they concern, as they arrive or by hand
+    sensor:
+      items: ergostat.message
+      entering: routed
+      over: 30m
+  messages-delivered:
+    from: messages-awaiting
+    description: messages delivered (a session's next turn, a run's context, a hypothesis reopened)
+    sensor:
+      items: ergostat.message
+      entering: delivered
+      over: 30m
+  messages-unrouting:
+    to: messages-unrouted
+    description: messages that reached no work
+    sensor:
+      items: ergostat.message
+      entering: unrouted
+      over: 30m
+  messages-routed-by-hand:
+    from: messages-unrouted
+    description: unrouted messages the owner routed by hand (they arrive in messages-routed)
+    sensor:
+      items: ergostat.message
+      leaving: unrouted
+      over: 30m
+  messages-missing:
+    to: messages-missed
+    description: work redone because a message did not reach it in time
+    sensor:
+      changes: rises
+      over: 30m
+      every: 30s
+
+goals:
+  messages-reach-work:
+    stock: messages-unrouted
+    hold: "<= 0"
+    description: every message the owner sends reaches the work it is about. Nothing here acts on it; a message
+      that reached no work needs attention, and the owner routes it by hand (ergostat messages ID --about X)

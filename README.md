@@ -125,6 +125,8 @@ ergostat event [--follow]    the raw record;  ergostat item [NAME]: events folde
 ergostat item NAME --history every change to each field, with the event that made it (--at: as it stood then)
 ergostat sensor STOCK.SENSOR --read V    a person's reading of a manual sensor
 ergostat snapshot            the page, as of now, in one HTML file that opens offline
+ergostat message "TEXT"      tell the work in flight something (--about ITEM|PART); routed to what it concerns,
+                             delivered to a running session as its next turn; ergostat messages: what became of each
 ergostat projects            every project on this machine, which are running, and their pages
 ergostat run --service       a launchd agent or systemd unit that keeps it running across reboots (printed only)
 ```
@@ -152,6 +154,10 @@ improve-model` and `ergostat help modelling`.
 The model tools (fit, checks, the review queue, calibration, replay, projection, what-if, loop dominance,
 identification, margins, tuning, step tests), each with where it shows up and what it needs:
 [docs/MODEL-TOOLS.md](docs/MODEL-TOOLS.md).
+
+Telling running work something mid-way (a message routed to the items and sessions it concerns, delivered to a
+running Claude Code session as its next turn, followed up on finished work, and measured):
+[docs/MESSAGES.md](docs/MESSAGES.md), "Messages and interruptions".
 
 Improving a model, for someone new to system dynamics: [docs/MODELLING.md](docs/MODELLING.md) (the
 tells of a wrong structure, what `check`'s structure findings and the Model page are evidence

@@ -16,6 +16,7 @@ from .ir import (
     CLAIM_CHECKS,
     JUDGE_PORTS,
     MACHINE,
+    MESSAGE,
     MODEL_CHANGE,
     MODEL_MEASURES,
     NAME,
@@ -28,6 +29,7 @@ from .ir import (
     Goal,
     Improve,
     ItemKind,
+    Messages,
     NamedLoop,
     Parameter,
     Ref,
@@ -38,6 +40,7 @@ from .ir import (
     Stock,
     claim_kind,
     is_measure,
+    message_kind,
     model_change_kind,
 )
 from .load import SINGULAR, Document, Map, Problem, Where
@@ -370,7 +373,8 @@ class Compiler:
                 if not is_measure(measure):
                     self.err(f"{sw}.builtin: one of ergostat's built-in measures, {', '.join(MODEL_MEASURES)}, or "
                              f"ergostat.trust.contradicted (or contradictions, verified, unchecked, claims), with @BLOCK, "
-                             f"@rung:KIND or @model:MODEL when about one",
+                             f"@rung:KIND or @model:MODEL when about one, or ergostat.messages.unrouted (or awaiting, "
+                             f"received, routed, delivered, answered, missed, reached)",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
@@ -582,6 +586,61 @@ class Compiler:
             spec.claims[name] = ClaimCheck(name, str(m["run"]), where, None if says is None else str(says),
                                            self.duration(m, "timeout", what, 600.0), self.text(m, "description"), m.where)
 
+    def messages(self, spec: Spec) -> None:
+        """``messages:``: how the owner's messages are routed and what a message about finished work does (SPEC §12h)."""
+        m, w = self.doc.messages, self.doc.messages_at
+        if m is None:
+            return
+        if not isinstance(m, dict):
+            self.err("messages: a map (classifier:, finished:, follow-up:, reopen-to:, done:)", w, "not-a-map")
+            return
+        self.keys(m, {"classifier", "finished", "follow-up", "reopen-to", "done", "description"}, "messages")
+        got = Messages(where=getattr(m, "where", None) or w)
+        c = m.get("classifier")
+        if c is not None:
+            b = spec.blocks.get(str(c).removeprefix("block."))
+            if b is None or not b.machine:
+                self.err(f"messages.classifier: a machine block (an ai block on a cheap model, or a program) that routes "
+                         f"what nothing in a message names; {c!r} is not one" + self.suggest(str(c), spec.blocks),
+                         m.at("classifier"), "unknown-ref", f"block.{c}")
+            else:
+                got.classifier = b.name
+        fin = str(m.get("finished") or "follow-up")
+        if fin not in ("follow-up", "reopen", "attention"):
+            self.err("messages.finished: follow-up (a new item linked to the finished one), reopen (it moves back) or "
+                     "attention (it waits for the owner)", m.at("finished"), "bad-value")
+            fin = "follow-up"
+        got.finished = fin
+        fu = m.get("follow-up")
+        if fu is not None:
+            if str(fu) not in spec.items or str(fu).startswith("ergostat."):
+                self.err(f"messages.follow-up: the kind of item a follow-up is made as; {fu!r} is not one of the model's "
+                         f"kinds" + self.suggest(str(fu), spec.items), m.at("follow-up"), "unknown-ref")
+            else:
+                got.follow_up = str(fu)
+        for key, attr in (("reopen-to", "reopen_to"), ("done", "done")):
+            raw = m.get(key)
+            if raw is None:
+                continue
+            if not isinstance(raw, dict):
+                self.err(f"messages.{key}: a map of item kind to {'a state' if key == 'reopen-to' else 'its states'}",
+                         m.at(key), "not-a-map")
+                continue
+            for kind, v in raw.items():
+                k = spec.items.get(str(kind))
+                vals = [str(x) for x in (v if isinstance(v, list) else [v])]
+                if k is None:
+                    self.err(f"messages.{key}: {kind!r} is not an item kind" + self.suggest(str(kind), spec.items),
+                             raw.at(kind) if hasattr(raw, "at") else m.at(key), "unknown-ref")
+                    continue
+                bad = [x for x in vals if x not in k.states]
+                if bad or (key == "reopen-to" and len(vals) != 1):
+                    self.err(f"messages.{key}.{kind}: {'one of' if key == 'reopen-to' else 'states of'} its states "
+                             f"({', '.join(k.states)})", raw.at(kind) if hasattr(raw, "at") else m.at(key), "bad-value")
+                    continue
+                getattr(got, attr)[str(kind)] = vals[0] if key == "reopen-to" else vals
+        spec.messages = got
+
     def named(self, section: str):
         for name, m in self.doc.sections[section].items():
             what = f"{SINGULAR.get(section, section[:-1])} {name}"
@@ -642,6 +701,7 @@ class Compiler:
             spec.items[name] = k
         spec.items[MODEL_CHANGE] = model_change_kind()       # built in: every change to the model (SPEC §12e)
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
+        spec.items[MESSAGE] = message_kind()                 # built in: the owner's messages, routed (SPEC §12h)
         self.claims(spec)
         from ..decisions.kinds import builtin as intent_kinds
         spec.items.update(intent_kinds())                    # built in: the owner's decisions and corrections (SPEC §5a)
@@ -762,6 +822,7 @@ class Compiler:
                 if v is not None and "set" not in v.sensors:
                     v.sensors["set"] = Sensor("set", Ref("auxiliary", v.name), every=None,
                                               description=f"the value block {b.name} set it to", where=b.where)
+        self.messages(spec)
         self.counted(spec)
         self.references(spec)
         self.equations(spec)

@@ -95,6 +95,15 @@ def brief(day: dict, everything: list[dict], w: dict) -> str:
         if its:
             out.append(f"**{label}** ({len(its)})")
             out += [f"- {i['id']} {title(i)}{link(i, field)}" for i in its[:6]] + [""]
+    follow = [i for i in everything if i["kind"] == "note" and i["state"] == "open"]
+    if follow:                                        # my notes on finished work (SPEC §12h follow-ups)
+        out += ["## My notes on finished work", ""]
+        out += [f"- {i['id']} on {i['fields'].get('follows')}: \u201c{i['fields'].get('note', '')}\u201d" for i in follow[:8]] + [""]
+    lost = [i for i in everything if i["kind"] == "ergostat.message" and i["state"] == "unrouted"]
+    if lost:                                          # what I said that reached no work
+        out += ["## What I said that reached no work", ""]
+        out += [f"- \u201c{i['fields'].get('text', '')}\u201d ({i['id'].split('/')[1]}: `ergostat messages "
+                f"{i['id'].split('/')[1]} --about ITEM`)" for i in lost[-6:]] + [""]
     out += ["## Today's meetings", ""]
     boards = [i for i in everything if i["kind"] == "doc" and i["fields"].get("stage") == "board" and
               i["state"] != "approved"]
@@ -138,6 +147,9 @@ def main() -> int:
         date = day["id"].split("/")[1]
         path = OUTBOX / f"{what}-{date}.md"
         event(f"day.{'briefed' if what == 'brief' else 'recorded'}", day["id"], **{field: write_draft(day["id"], make(day), path)})
+        if what == "brief":                           # the follow-ups it put in front of me
+            for i in [i for i in everything if i["kind"] == "note" and i["state"] == "open"][:8]:
+                event("note.briefed", i["id"], day=day["id"])
         n += 1
     moved(n)
     return 0

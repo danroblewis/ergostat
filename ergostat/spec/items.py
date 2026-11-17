@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from .changes import fold_event, form_of
 from .ir import ItemKind, Sensor, Spec
 
+REOPENED = "ergostat.item.reopened"   # any item moved back, by ergostat, to a state its data names (SPEC §12h)
 TRANSCRIPT_TYPES = "claude.*"     # a Claude Code transcript, line by line (transcripts.py): left out unless asked for
 
 
@@ -98,6 +99,9 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
                     c["rule"] = rules.get(field_of(path), "replace")
                 it.changes.append(c)
         to = kind.on.get(e["type"]) if kind else None
+        if e["type"] == REOPENED and kind and kind.states:     # reopened: back to the state it names (else the first)
+            want = ((e.get("data") or {}).get("reopened") or {}).get("to")
+            to = want if want in kind.states else kind.states[0]
         if to and to != it.state:
             it.moves.append({"time": e["time"], "from": it.state, "to": to, "event": e["id"], "type": e["type"]})
             it.state, it.entered = to, e["time"]

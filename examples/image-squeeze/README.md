@@ -63,6 +63,34 @@ ergostat run --stop
   passed), and claims they passed and that it submitted: both claims are contradicted, the goal goes off, and
   the developer needs attention. `docs/CLAIMS.md` in ergostat says how it works.
 
+## Telling the lab something while it works
+
+```bash
+ergostat message "try a lossless path for the logos" --about developer
+ergostat message "hypothesis/3 was dropped too early: the logos were still black"
+ergostat messages                 # each message: what it was routed to, how it was delivered, the answer
+```
+
+A message is routed to the work it concerns (`messages.yaml`; ergostat's SPEC §12h): what `--about` names, or the
+hypothesis or block its words name, or else the open items whose words it shares. With `FACTORY_AI=claude` the
+developer's Claude Code session takes it **while it runs**, as its next turn: ergostat's session helper
+(`ergostat session`, which `bin/session.py` calls) keeps the session's input open and writes the message into it, and
+Claude Code folds it in at its next step. Otherwise the developer gets it in its next run's input (`messages`), and
+the stand-in answers that it noted it. A message about a hypothesis already kept or dropped reopens it (back to the
+ideas, built again); one that waited while its hypothesis finished without it is **missed** (`messages-missed`: work
+redone). A message that reaches no work needs attention until it is routed by hand (`ergostat messages ID --about X`,
+or its page): the goal `messages-reach-work` holds the unrouted at zero, and nothing but the owner acts on it (its
+loop is open on purpose). The page: Items → `ergostat.message` (a box to send one), and every item's page has "Send a note
+about this".
+
+To see the delivery without spending tokens, run the AI mode with ergostat's stand-in session, which runs the
+stand-in programs as the sessions' work and echoes every message it receives:
+
+```bash
+FACTORY_AI=claude ERGOSTAT_CLAUDE=echo ERGOSTAT_ECHO_RUN='bin/py bin/standin_{role}.py' ergostat run
+ergostat message "developer: keep the alpha channel for the logos"   # while the developer's session runs
+```
+
 ## Three loops, fastest first
 
 **1. The quality loop (seconds): regulation that optimises.** Every image is compressed at one encoder

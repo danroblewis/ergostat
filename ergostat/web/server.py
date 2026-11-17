@@ -283,6 +283,9 @@ def _answer(live: Live, path: str, q: dict):
         return control(live, p, snap, one("goal") or "")
     if head == "loop-scope":
         return series.scope(p, snap, one("goal") or "", int(one("points") or series.POINTS))
+    if head == "messages":                        # the owner's messages, about one item or all (SPEC §12h)
+        from .messages_api import listing
+        return listing(p, one("item") or None)
     if head == "trust":                           # how far blocks' claims hold, by block, rung and model (SPEC §12g)
         from ..claims import trust
         return trust.table(p, snap["at"] - max(snap["window"], trust.WEEK), snap["at"])
@@ -390,8 +393,8 @@ def handler(project):
             return (self.headers.get("Host") or "").lower() in {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
         def do_POST(self):
-            """The page's one kind of write: the owner accepting or dismissing a proposal, or asking for
-            estimates. Only from the page itself: addressed to this server by its own name (the Host
+            """The page's one kind of write: the owner accepting or dismissing a proposal, asking for
+            estimates, or sending the work a message. Only from the page itself: addressed to this server by its own name (the Host
             header), from its own origin (Origin, Sec-Fetch-Site), and carrying the token this run of the
             server wrote into the page it served, which no other page can read."""
             u = urlsplit(self.path)
@@ -403,12 +406,14 @@ def handler(project):
                     or not secrets.compare_digest(self.headers.get("X-Ergostat-Token") or "", token)):
                 return self._send(403, b'{"error": "only the page may ask"}', "application/json")
             n = int(self.headers.get("Content-Length") or 0)
-            if n:
-                self.rfile.read(min(n, 65536))
+            body = self.rfile.read(min(n, 65536)) if n else b""
             from .numbers_api import post
             try:
                 q = parse_qs(u.query)
-                if u.path.startswith("/api/control/"):     # a loop's process, tuning or step test: the owner's answer
+                if u.path == "/api/message":                # the owner's words to the work in flight (SPEC §12h)
+                    from .messages_api import post as message
+                    code, data = message(live, q, body)
+                elif u.path.startswith("/api/control/"):   # a loop's process, tuning or step test: the owner's answer
                     from .control_api import post as control
                     code, data = control(live, u.path.removeprefix("/api/"))
                 elif u.path.startswith("/api/intent/"):    # a proposed decision or correction: the owner's answer

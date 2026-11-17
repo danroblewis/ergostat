@@ -746,3 +746,13 @@ details.history > summary { font-size: var(--text-sm); color: var(--muted); }
 details.history table.history td { font-size: var(--text-sm); vertical-align: top; }
 details.history table.history td.cell { max-width: 22em; overflow-wrap: anywhere; }
 table.fields th .rule { font-weight: normal; }
+
+/* the owner's messages (SPEC §12h) */
+.message-box { margin: var(--sp-3) 0; max-width: 48em; }
+.message-box h3 { margin: 0 0 var(--sp-1); }
+.message-box textarea { display: block; width: 100%; box-sizing: border-box; font: inherit; color: var(--ink); background: var(--bg);
+  border: var(--hair) solid var(--line-strong); border-radius: var(--radius); padding: var(--sp-1) var(--sp-2); resize: vertical; }
+.message-box .row, .claim .row { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-1); flex-wrap: wrap; }
+.message-box .row input { flex: 1; min-width: 12em; }
+.message-box .row button { margin-left: auto; }
+blockquote.said { margin: var(--sp-2) 0; padding: var(--sp-1) var(--sp-3); border-left: var(--sp-0) solid var(--line-strong); font-size: var(--text-lg); white-space: pre-wrap; }

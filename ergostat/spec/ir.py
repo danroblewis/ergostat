@@ -114,11 +114,27 @@ TRUST_MEASURES = {                 # how far a block's claims hold (SPEC §12g),
     "ergostat.trust.claims": "claims made over the last week",
 }
 
+MESSAGE = "ergostat.message"      # the built-in item kind: the owner's messages, routed to the work they concern (SPEC §12h)
+MESSAGE_STATES = ["received", "unrouted", "routed", "delivered", "answered"]   # unrouted: routed by hand later
+MESSAGE_MEASURES = {               # how the owner's messages reach the work (SPEC §12h)
+    "ergostat.messages.unrouted": "messages that reached no work, now (each needs attention)",
+    "ergostat.messages.awaiting": "messages routed to work and not yet delivered to it, now",
+    "ergostat.messages.received": "messages received over the last week",
+    "ergostat.messages.routed": "messages routed to work over the last week",
+    "ergostat.messages.delivered": "messages delivered to work over the last week (to a session, a run's context, or "
+                                   "as a follow-up on finished work)",
+    "ergostat.messages.answered": "messages the work answered over the last week",
+    "ergostat.messages.missed": "messages that did not reach the work before it finished, over the last week: the "
+                                "work was reopened or followed up, citing them (work redone)",
+    "ergostat.messages.reached": "of the messages received over the last week, the share delivered to work (0 while none "
+                                 "is received)",
+}
+
 
 def is_measure(name: str) -> bool:
-    """A built-in measure a sensor may read: the model's own (``ergostat.model.*``) or trust's (``ergostat.trust.*``,
-    with an optional ``@who``)."""
-    return name in MODEL_MEASURES or bool(TRUST.match(name))
+    """A built-in measure a sensor may read: the model's own (``ergostat.model.*``), trust's (``ergostat.trust.*``,
+    with an optional ``@who``) or the messages' (``ergostat.messages.*``)."""
+    return name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
 
 
 @dataclass
@@ -148,6 +164,30 @@ def claim_kind() -> ItemKind:
     return ItemKind(CLAIM, f"{CLAIM}/*", list(CLAIM_STATES), on, ["says", "about", "block", "kind", "why"], {}, None,
                     "what a block said it did (a claim line), checked by ergostat against the record and the world: "
                     "verified, contradicted, or unchecked (built in, SPEC §12g)")
+
+
+def message_kind() -> ItemKind:
+    on = {f"{MESSAGE}.{s}": s for s in MESSAGE_STATES}
+    return ItemKind(MESSAGE, f"{MESSAGE}/*", list(MESSAGE_STATES), on, ["text", "by", "matched", "outcome"], {},
+                    None, "the owner's messages: received, routed to the work in flight they concern, and delivered to it "
+                    "(a running session's next turn, a run's context, a follow-up on finished work), or unrouted "
+                    "(built in, SPEC §12h)", fold={"deliveries": "append", "answers": "append"})
+
+
+@dataclass
+class Messages:
+    """How the owner's messages are handled (``messages:``, SPEC §12h). ``classifier``: a block that routes a message
+    no id or name in it routes (else ergostat's stand-in, matching words); ``finished``: what a message about finished
+    work does, ``follow-up`` (a new item linked to it), ``reopen`` (the item moves back) or ``attention`` (it waits for
+    the owner); ``follow_up``: the kind a follow-up is made as (else the finished item's own); ``reopen_to``: by kind,
+    the state reopening moves an item to (else its kind's first); ``done``: by kind, the states an item is finished in
+    (else those the record shows no item leaving)."""
+    classifier: str | None = None
+    finished: str = "follow-up"
+    follow_up: str | None = None
+    reopen_to: dict[str, str] = field(default_factory=dict)
+    done: dict[str, list[str]] = field(default_factory=dict)
+    where: Where | None = None
 
 
 @dataclass
@@ -457,6 +497,7 @@ class Spec:
     parameters: dict[str, Parameter] = field(default_factory=dict)    # the numbers equations name (SPEC §7b)
     improve: Improve = field(default_factory=Improve)                  # the judge block's policy (SPEC §12e)
     claims: dict[str, ClaimCheck] = field(default_factory=dict)       # the checks the project declares (SPEC §12g)
+    messages: Messages = field(default_factory=Messages)               # how the owner's messages are routed (SPEC §12h)
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 

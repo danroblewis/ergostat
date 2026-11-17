@@ -295,7 +295,21 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             "stocks": stocks, "flows": flows, "loops": loops, "residuals": residuals,
             "agents": agents}
     snap["hints"] = ladder_hints(project, snap)
+    snap["messages"] = unrouted_messages(project, now)
     return snap
+
+
+def unrouted_messages(project, now: float) -> list[dict]:
+    """The owner's messages that reached no work (SPEC §12h), as of now: each needs attention."""
+    if getattr(project.model, "spec", None) is None:
+        return []
+    from .messages import record
+    try:
+        got = record.stored(project, until=now, n=2000)
+    except Exception:
+        return []
+    return [{"id": m["id"], "text": m.get("text") or "", "why": m.get("why") or "", "time": m["time"]}
+            for m in got.values() if m["state"] == "unrouted"][-20:]
 
 
 def decisions(project, controller: str, since: float, until: float | None = None) -> dict:
@@ -493,6 +507,11 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                         f"contradicted by the record (latest: {a.get('contradicted_latest')}; Items: ergostat.claim)"})
         if a["stale"] and running:
             out.append({"level": "warn", "what": f"agent {name}", "says": f"no recent reading from {', '.join(a['stale'])}"})
+    for m in snap.get("messages", []):               # the owner's words that reached no work (SPEC §12h)
+        short = m["id"].split("/", 1)[1]
+        text = m["text"] if len(m["text"]) <= 80 else m["text"][:77] + "..."
+        out.append({"level": "warn", "what": f"message {short}", "says": f"\u201c{text}\u201d reached no work: {m['why']}. "
+                    f"Route it: ergostat messages {short} --about ITEM|PART, or on its page"})
     for h in snap.get("hints", []):
         out.append({"level": "hint", "what": f"controller {h['controller']}", "says": h["says"]})
     for name, r in snap["residuals"].items():

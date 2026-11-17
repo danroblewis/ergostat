@@ -61,7 +61,7 @@ def found(p, spec=None) -> list[dict]:
                     "correction": r[:acts.TEXT_MAX], "words": [{"text": r, **_when(e)}],
                     "corrects": f"{it.id} taken as {m['from']} when it was not", "kind_of_work": [it.kind or "general"],
                     "scope": [it.kind] if it.kind else [], "source": {"type": "reopened", "event": e["id"], "item": it.id}}})
-    for e in p.events.query(n=None, type="ergostat.message"):
+    for e in p.events.query(n=None, type="ergostat.message,ergostat.message.received"):   # the owner's messages (SPEC §12h)
         d = e.get("data") or {}
         text = str(d.get("text") or d.get("message") or "").strip()
         cls = d.get("class")
@@ -76,8 +76,10 @@ def found(p, spec=None) -> list[dict]:
         else:
             sentence = text.split("\n", 1)[0][:acts.TEXT_MAX]
         work = d.get("kind_of_work") or standin.topics(text) or ["general"]
+        about = d.get("about")
+        about = ", ".join(map(str, about)) if isinstance(about, list) else about
         out.append({"item": f"{CORRECTION}/from-{e['id'][:12]}", "data": {
-            "correction": sentence, "words": [{"text": text, **_when(e)}], "corrects": str(d.get("about") or e.get("item") or ""),
+            "correction": sentence, "words": [{"text": text, **_when(e)}], "corrects": str(about or e.get("item") or ""),
             "kind_of_work": work, "scope": standin.topics(text),
             "source": {"type": "message", "event": e["id"], **({"item": e["item"]} if e.get("item") else {})}}})
     return out
