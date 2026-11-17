@@ -336,3 +336,17 @@ resource or wiring; how it is measured; dependencies.
   declared command. image-squeeze: the developer claims "tests pass" and "submitted hypothesis/N"; `FACTORY_LIE=1`
   plants a liar: 16 claims, 8 contradicted (every lie), 8 verified; honest, 10 of 10 verified; goal
   `developer-honest`. Next: 2.10's trust stock reading these, a reviewer depth set by it.
+- **2026-11-17, 2.12 decisions and 2.13 corrections** (branch `decisions`). Built-in item kinds
+  `ergostat.decision` (proposed → confirmed → superseded; dismissed) and `ergostat.correction` (proposed →
+  confirmed → retired; dismissed), the owner's words verbatim with session, line and time, folded as `append`;
+  a supersede needs a reason and the replacing decision; a correction given again is linked to the first and
+  raised (`correction-repeated`). The extractor is an ordinary block: a free stand-in and an `ai` mode
+  (`ergostat decisions extract FILE|DIR|ITEM [--since] [--model sonnet --max-cost N] [--print --new]`), every AI
+  quote checked against the owner's turn. `ergostat context decisions [--scope] [--budget]`, `ergostat context
+  corrections --kind`, MCP `context`; the item page's Confirm, Dismiss, Supersede, Retire, each with a reason;
+  SPEC §5a, docs/DECISIONS.md. On this session (private run): the AI extractor proposed 45 decisions and 30
+  corrections (5 linked repeats) from 161 owner turns for $1.28; sampled precision 0.75 (decisions), 0.95
+  (corrections), 0.5 (repeats); the stand-in 0.28 and 0.83. As a parity variant, the decisions context (34k
+  characters, all still proposed) scores **0.49** (none 0.03, docs 0.33, fork 0.28, memory 0.21, owner's
+  messages 0.94): strong on decisions and rejections (0.71, 0.63), weak on meanings and state. Everything waits
+  for the owner to confirm.
