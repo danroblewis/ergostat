@@ -374,3 +374,11 @@ def test_what_only_accumulates_is_judged_without_a_warm_up(tmp_path):
     p = two_project(tmp_path, text=text + judge_block())
     nd = jd.needs(p, p.model.spec, p.model.spec, {"parts": ["stock.backlog"]}, time.time() - 3600, 600.0, 6 * 3600.0)
     assert nd["tau"] is None and nd["warm_up"] == 0.0 and nd["needs"] == 600.0     # nothing to settle: started at its reading
+
+
+def test_simpler_passes_only_where_the_record_replays_what_it_touches():
+    def w(fallback):
+        return {"since": 0, "until": 600, "before": 1.0, "after": 1.0, "change": 0.0, "scored": ["stock.a"],
+                "rest_before": None, "rest_after": None, "rest_change": None, "fallback": fallback}
+    assert jd.decide([w(False)] * 3, 0.02, 0, 0, 600, 600, simpler=True)[0] == "kept"
+    assert jd.decide([w(True)] * 3, 0.02, 0, 0, 1800, 600, simpler=True)[0] == "inconclusive"   # no evidence about it

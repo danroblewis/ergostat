@@ -15,7 +15,9 @@ the stocks from where the record did not reach, and scored in a regime of its ow
 
 It **passes** a change that is better by the threshold in every window, or that is no worse in any and answers
 findings ``check`` reported (making none), or that is no worse and simpler (fewer parts, parameters and terms:
-Occam). It **fails** one worse by the threshold in any window, near it, elsewhere or on a goal's measure, or better
+Occam) where the record replays what it touches (a part removed whose stocks nothing replays has no evidence for or
+against it: that is inconclusive).
+It **fails** one worse by the threshold in any window, near it, elsewhere or on a goal's measure, or better
 only in some. One the record cannot tell from the model as it is (no window better or worse by the threshold) is
 kept under test for more record, up to three times what it needs, then said **inconclusive**: needs more record,
 not failed.
@@ -170,12 +172,15 @@ def compare(p, spec: Spec, after: Spec, since: float, until: float, warm_up: flo
     the rest's, each goal's own stock's, and the share by which the change lowers each (negative: raises it)."""
     sb, sa = scored(p, spec, since, until, warm_up), scored(p, after, since, until, warm_up)
     common = sorted(set(sb or {}) & set(sa or {}))
-    near = [r for r in common if r in set(stocks or ())] or common
+    near = [r for r in common if r in set(stocks or ())]
+    fallback = not near                         # nothing it touches is replayed: every stock, and no evidence about it
+    near = near or common
     rest = [r for r in common if r not in near]
     b = _mean(sb, near) if sb is not None else None
     a = _mean(sa, near) if sa is not None else None
     rb, ra = (_mean(sb, rest), _mean(sa, rest)) if sb is not None and sa is not None else (None, None)
     out = {"since": since, "until": until, "before": b, "after": a, "change": _change(b, a), "scored": near,
+           "fallback": fallback and bool(stocks),
            "rest_before": rb, "rest_after": ra, "rest_change": _change(rb, ra) if rest else None}
     if goals and sb is not None and sa is not None:
         out["goals"] = {g: {"stock": r, "before": sb[r], "after": sa[r], "change": _change(sb[r], sa[r])}
@@ -243,7 +248,7 @@ def decide(results: list[dict], threshold: float, answers: int, new: int, held: 
     if not better and answers and not new:
         return "kept", (f"no worse in any of {n} windows held out (within {_pct(threshold)}), and it answers {answers} "
                         f"finding{'s' if answers > 1 else ''} check reported, making none")
-    if not better and simpler and not new:
+    if not better and simpler and not new and not any(r.get("fallback") for r in judged):
         return "kept", (f"simpler, and no worse in any of {n} windows held out (within {_pct(threshold)}, near what it "
                         f"touches: {near}, and elsewhere)")
     if not better and not new:
