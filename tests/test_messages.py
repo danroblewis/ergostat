@@ -224,7 +224,7 @@ def test_a_running_session_receives_the_message_live_as_its_next_turn(tmp_path, 
     users = [x["message"]["content"] for x in lines if x["type"] == "user"]
     assert any("while you were working" in u and "indexes" in u for u in users)
     ran = p.events.query(n=1, item=started["item"], type="session.ran")[-1]
-    assert ran["data"]["messages"] == [m["id"]]
+    assert ran["data"]["owner_messages"] == [m["id"]]
 
 
 def test_a_session_that_cannot_take_it_mid_run_gets_it_queued_then_resumed(tmp_path, echo):
@@ -390,3 +390,16 @@ def test_the_stand_in_reads_a_possessive_as_the_name(tmp_path):
     p.events.add("review.requested", item="review/2043", source="watch", data={"title": "Migrate the search index", "author": "bo"})
     m = send(p, "that review of Bo's, the search one, can wait")
     assert [t["item"] for t in m["routed_to"]] == ["review/2043"]    # Bo's and search: 2042 is Bo's, not search
+
+
+def test_a_note_about_a_running_session_goes_to_its_run(tmp_path, echo):
+    p = session_project(tmp_path)
+    items(p)
+    t = run_in_background(p, "dev")
+    started = p.events.query(n=1, type="session.started")[-1]
+    m = send(p, "stop after this one", about=started["item"])
+    assert m["routed_to"][0]["run"] == started["causedby"]
+    t.join(60)
+    assert record.get(p, m["id"])["deliveries"][0]["how"] == "live"
+    from ergostat.web.messages_api import listing
+    assert [x["id"] for x in listing(p, started["item"])["messages"]] == [m["id"]]

@@ -1985,9 +1985,10 @@ or says nothing about the message, leaves it to the stand-in.
     the messages its input: its next turn. `delivered`, how `resume`; the reply answers them.
 
   It prints `session.ran` (or `.failed`) about the session item, with its cost, turns, time and the messages it was
-  given, then the JSON lines of every turn's result, its claims marked with the session and model. `$ERGOSTAT_CLAUDE`
-  names the program it runs (`echo`: ergostat's stand-in session, `ergostat/session_echo.py`, which folds a message
-  that arrives mid-turn into the turn and echoes it; `$ERGOSTAT_ECHO_RUN` runs a stand-in program as its work).
+  given (`owner_messages`; `messages` is what a session kind folds its transcript into), then the JSON lines of
+  every turn's result, its claims marked with the session and model. `$ERGOSTAT_CLAUDE` names the program it runs
+  (`echo`: ergostat's stand-in session, `ergostat/session_echo.py`, which folds a message that arrives mid-turn into
+  the turn and echoes it; `$ERGOSTAT_ECHO_RUN` runs a stand-in program as its work).
   *Decided:* live delivery is the default, because Claude Code takes messages on an open stream-json input mid-turn
   (tested with Claude Code 2.1: a message sent during a ten-second tool call was answered in the same turn); resuming
   remains for a session that cannot keep its input open.

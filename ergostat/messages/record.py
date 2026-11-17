@@ -17,7 +17,7 @@ import uuid
 from ..spec.ir import MESSAGE, message_kind
 
 TEXT_MAX = 4000
-STATES = ("received", "routed", "delivered", "unrouted", "answered")
+STATES = ("received", "unrouted", "routed", "delivered", "answered")
 
 
 class MessageError(ValueError):

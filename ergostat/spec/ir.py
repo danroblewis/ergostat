@@ -115,7 +115,7 @@ TRUST_MEASURES = {                 # how far a block's claims hold (SPEC §12g),
 }
 
 MESSAGE = "ergostat.message"      # the built-in item kind: the owner's messages, routed to the work they concern (SPEC §12h)
-MESSAGE_STATES = ["received", "routed", "delivered", "unrouted", "answered"]
+MESSAGE_STATES = ["received", "unrouted", "routed", "delivered", "answered"]   # unrouted: routed by hand later
 MESSAGE_MEASURES = {               # how the owner's messages reach the work (SPEC §12h)
     "ergostat.messages.unrouted": "messages that reached no work, now (each needs attention)",
     "ergostat.messages.awaiting": "messages routed to work and not yet delivered to it, now",

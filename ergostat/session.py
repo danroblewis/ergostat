@@ -287,7 +287,7 @@ class Session:
         rec = {"cost_usd": round(cost, 4), "turns": sum(int(r.get("num_turns") or 0) for r in counted),
                "seconds": round(sum(float(r.get("duration_ms") or 0) for r in counted) / 1000, 1),
                "error": bool(last.get("is_error")), "said": (last.get("result") or "")[-1500:],
-               "messages": sorted(self.given), **({"queued": sorted(self.queued)} if self.queued else {}),
+               "owner_messages": sorted(self.given), **({"queued": sorted(self.queued)} if self.queued else {}),
                "resumed": sum(1 for r in self.results[1:] if r.get("_resumed"))}
         print(json.dumps({"event": "session.failed" if rec["error"] else "session.ran", "item": self.item, "data": rec}))
         for r in self.results:

@@ -36,8 +36,9 @@ def listing(p, item: str | None = None) -> dict:
     from ..messages import measures, record
     ms = sorted(record.stored(p).values(), key=lambda m: -m["time"])
     if item:
-        ms = [m for m in ms if item in (m.get("about") or []) or any(t.get("item") == item for t in m.get("routed_to") or [])
-              or any(d.get("item") == item or d.get("follow_up") == item for d in m.get("deliveries") or [])]
+        ms = [m for m in ms if item in (m.get("about") or [])
+              or any(item in (t.get("item"), t.get("session")) for t in m.get("routed_to") or [])
+              or any(item in (d.get("item"), d.get("follow_up"), d.get("session")) for d in m.get("deliveries") or [])]
     keep = ("id", "state", "text", "by", "sent", "time", "matched", "why", "routed_to", "deliveries", "answers", "outcome",
             "missed", "queued", "about")
     return {"messages": [{k: m.get(k) for k in keep} for m in ms[:100]], "counts": measures.counts(p)}

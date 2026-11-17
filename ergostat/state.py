@@ -510,8 +510,8 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
     for m in snap.get("messages", []):               # the owner's words that reached no work (SPEC §12h)
         short = m["id"].split("/", 1)[1]
         text = m["text"] if len(m["text"]) <= 80 else m["text"][:77] + "..."
-        out.append({"level": "warn", "what": f"message {short}", "says": f"\u201c{text}\u201d reached no work ({m['why']}): "
-                    f"route it, ergostat messages {short} --about ITEM|PART, or on its page"})
+        out.append({"level": "warn", "what": f"message {short}", "says": f"\u201c{text}\u201d reached no work: {m['why']}. "
+                    f"Route it: ergostat messages {short} --about ITEM|PART, or on its page"})
     for h in snap.get("hints", []):
         out.append({"level": "hint", "what": f"controller {h['controller']}", "says": h["says"]})
     for name, r in snap["residuals"].items():

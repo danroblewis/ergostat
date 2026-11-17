@@ -231,7 +231,7 @@ def targets(p, spec: Spec, its: list[str], parts: list[str], items: dict[str, di
         if it is not None and it["finished"]:
             finished.append(i)
             continue
-        on = [r for r in runs if i in r["items"]]
+        on = [r for r in runs if i in r["items"] or r["session"] == i]   # the work on it, or the session it is
         if not on:
             out.append({"item": i})
         for r in on:
