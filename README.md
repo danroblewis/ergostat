@@ -12,7 +12,8 @@ a System Dynamics stock-and-flow diagram (what is), and **Blocks**, a control bl
 control); plus **Wiring**, what actually passed between the machines.
 
 New here: [docs/QUICKSTART.md](docs/QUICKSTART.md) (ten minutes, from install to your own model) and
-[docs/WHY.md](docs/WHY.md) (why model systems this way, for a team deciding whether to).
+[docs/WHY.md](docs/WHY.md) (why model systems this way, for a team deciding whether to), and
+[docs/DISCIPLINES.md](docs/DISCIPLINES.md) (every discipline and diagram one file gives you).
 
 The terms are in [NOTES.md](NOTES.md), the design in [docs/DESIGN.md](docs/DESIGN.md), and the rules for
 working on it in [CLAUDE.md](CLAUDE.md).
