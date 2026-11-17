@@ -35,6 +35,7 @@ from .legacy import sensor_name, valve_name
 TICK = 1.0
 JUDGE_EVERY = 30.0          # a judge with no every: passes this often
 SWEEP = 5.0                 # how often the owner's messages are swept: left received, or about work since finished
+OUTCOMES_EVERY = 30.0       # how often the outcomes of the recipes' uses are found again (SPEC §12i)
 SOURCE = "ergostat"
 AI_COMMAND = os.environ.get("ERGOSTAT_AI", "claude -p")
 AI_FOOTER = """
@@ -88,6 +89,7 @@ class Engine:
         self.moved_by: dict[str, dict[str, float]] = {}  # block → what its last run said it moved, by flow
         self._sweeping = threading.Lock()
         self.routes: dict[str, list[dict]] = {}       # block → the route lines its runs printed (a classifier, SPEC §12h)
+        self.outcomes_lock = threading.Lock()
 
     # ---- signals
 
@@ -374,6 +376,15 @@ class Engine:
                "ERGOSTAT_CMD": f"{shlex.quote(sys.executable)} -m ergostat -C {shlex.quote(str(self.spec.root))}"}
         if "command" in ctx:
             env["ERGOSTAT_COMMAND"] = f"{ctx['command']['amount']:g}"
+        if (ctx.get("command") or {}).get("review"):             # a review asked of it: the ask is answered by this run
+            with self.lock:
+                frm = ctx["command"].get("from")
+                if frm in self.outputs:
+                    self.outputs[frm][f"review-{b.name}"] = 0.0
+        given = self.start_context(b, ctx, begun["id"], env) if b.params.get("context") else None
+        cmd, stdin = self.program(b, ctx)                         # (its input, with the context it was given)
+        if given and b.type == "ai" and "run" not in b.params:   # claude -p itself: the context after its own prompt
+            cmd += f" --append-system-prompt-file {shlex.quote(given['file'])}"
         log = old.log_path(self.p, b.name)
         note, code, lines = "", None, []
         with open(log, "a", encoding="utf-8") as lf:
@@ -425,7 +436,72 @@ class Engine:
             for c in checks.check_all(self.p, self.spec, said.claims):
                 if c["state"] == "contradicted":
                     self.say(f"{b.name}: claim contradicted: {c['says']!r}: {c['why']}")
+        if self.spec.contexts:                                   # how the work each recipe started turned out
+            self.outcomes()
+        if not failed and b.params.get("review"):                # who reviews its work, and how deeply, by its trust
+            self.review(b, begun["id"], given)
         return [f for f, v in said.moved.items() if v]           # moving nothing is not a reason to read again
+
+    def start_context(self, b: Block, ctx: dict, run: str, env: dict) -> dict | None:
+        """The block's recipe rendered for this run's item (SPEC §12i): written to a file in the state directory,
+        recorded as a use (``ergostat.context.used``), named in its input (``context``) and its environment
+        (``ERGOSTAT_CONTEXT``, the file; ``_RECIPE``, ``_HASH``, ``_ITEM``) for the session it starts."""
+        from ..recipes import render as rd
+        from ..recipes import uses
+        want = b.params["context"]
+        try:
+            item = rd.item_for(self.p, self.spec, want.get("item"), (ctx.get("command") or {}).get("item"), b.name, run)
+            r = rd.render(self.p, self.spec, want["recipe"], item, b.name, run)
+        except Exception as e:                                   # a context that cannot be rendered: the run goes on without
+            self.p.events.add("agent.refused", item=b.name, source=SOURCE, causedby=run,
+                              data={"why": f"context {want['recipe']}: {type(e).__name__}: {e}"})
+            self.say(f"{b.name}: context {want['recipe']}: {type(e).__name__}: {e}")
+            return None
+        d = self.p.dir / "contexts"
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / f"{b.name}-{run[:8]}.md"
+        f.write_text(r.text, encoding="utf-8")
+        uses.used(self.p, r, b.name, run, str(f))
+        given = {"recipe": r.recipe, "version": r.version, "tag": r.tag, "hash": r.hash, "chars": len(r.text),
+                 "item": r.item, "file": str(f)}
+        ctx["context"] = given
+        env.update({"ERGOSTAT_CONTEXT": str(f), "ERGOSTAT_CONTEXT_RECIPE": r.tag, "ERGOSTAT_CONTEXT_HASH": r.hash,
+                    "ERGOSTAT_CONTEXT_ITEM": r.item or ""})
+        return given
+
+    def outcomes(self) -> None:
+        from ..recipes import uses
+        if not self.outcomes_lock.acquire(blocking=False):      # one pass at a time; one under way will see it
+            return
+        try:
+            uses.refresh(self.p, self.spec)
+        except Exception as e:                                   # the next pass tries again
+            self.say(f"contexts: outcomes: {type(e).__name__}: {e}")
+        finally:
+            self.outcomes_lock.release()
+
+    def review(self, b: Block, run: str, given: dict | None) -> None:
+        """After a run that ended well: whether its work is reviewed, by whom and how deeply (SPEC §12i)."""
+        from ..recipes import review as rv
+        d = rv.decide(self.p, b)
+        if d is None:
+            return
+        item = (given or {}).get("item")
+        if item is None:
+            from ..claims import record
+            item = next((c["about"]["item"] for c in record.of_run(self.p, run) if (c.get("about") or {}).get("item")), None)
+        data = {**d, "of": run, **({"item": item} if item else {})}
+        if not d["by"]:
+            self.p.events.add("review.skipped", item=b.name, source=SOURCE, causedby=run, data=data)
+            return
+        ev = self.p.events.add("review.required", item=b.name, source=SOURCE, causedby=run, data=data)
+        port = f"review-{d['by']}"
+        with self.lock:
+            self.outputs.setdefault(b.name, {})[port] = 1.0
+            self.commands.setdefault(b.name, {})[port] = {"amount": 1.0, **({"item": item} if item else {}),
+                                                          "review": {"of": run, "depth": d["depth"], "why": d["why"]}}
+            self.cause[b.name] = ev["id"]
+        self.say(f"{b.name}: review by {d['by']} ({d['depth']}): {d['why']}")   # (it starts at the next pass)
 
     def judge(self, b: Block) -> None:
         """One pass of the judge, ergostat's own (no program): recorded as a run, what it moved said on its ports."""
@@ -533,6 +609,9 @@ class Engine:
                     with self.lock:
                         self.running.add(b.name)
                     threading.Thread(target=self.judge, args=(b,), daemon=True).start()
+            if self.spec.contexts and mono >= due.get("contexts", 0):   # outcomes found later (an item kept, reopened)
+                due["contexts"] = mono + OUTCOMES_EVERY
+                threading.Thread(target=self.outcomes, daemon=True).start()
             wall = time.time()
             for k, at in list(nxt.items()):
                 if at is not None and wall >= at:

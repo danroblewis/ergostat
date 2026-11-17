@@ -15,7 +15,12 @@ owner's messages while it works:
 It prints what the block's run reports: ``session.ran`` (or ``.failed``) about the session item, with its cost, turns
 and time, then the JSON lines of every turn's result (claims marked with the session and its model). ``$ERGOSTAT_CLAUDE``
 names the program to run in place of ``claude`` (``echo``: ergostat's stand-in session, ``session_echo.py``, which
-echoes what it receives). Arguments after ``--`` are passed to it (the tools the session may use)."""
+echoes what it receives). Arguments after ``--`` are passed to it (the tools the session may use).
+
+A block with ``context:`` (SPEC §12i) has its recipe rendered for the run, into a file named by
+``$ERGOSTAT_CONTEXT``: the session starts from it (``--append-system-prompt-file``, after Claude Code's own prompt),
+and ``session.started`` records which context it was given (``context``: the recipe and its version, the hash of the
+text, its size, the item, the use), so the session's outcome can be told by the recipe it started from."""
 
 from __future__ import annotations
 
@@ -100,6 +105,7 @@ class Session:
         self.env["ERGOSTAT_SESSION_ROLE"] = role
         self.env["ERGOSTAT_SESSION"] = self.item
         self.src = transcript_of(self.sid, env=self.env)
+        self.context = given_context(self.env)
         self.given: set[str] = set()              # messages given to it (live or by resume)
         self.queued: set[str] = set()
         self.results: list[dict] = []
@@ -141,6 +147,8 @@ class Session:
     def args(self, resume: bool) -> list[str]:
         base = [*self.cmd, "-p", "--model", self.model]
         base += ["--resume", self.sid] if resume else ["--session-id", self.sid]
+        if self.context and not resume:                   # its starting context (a resumed session already has it)
+            base += ["--append-system-prompt-file", self.context["file"]]
         if self.live and not resume:
             base += ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]
         else:
@@ -151,7 +159,10 @@ class Session:
         self.lost()
         self.add("session.started", {"role": self.role, "model": self.model, "started": time.time(), "session_id": self.sid,
                                      "transcript": "file:" + display_path(self.keep, self.p), "run": self.run,
-                                     "block": os.environ.get("ERGOSTAT_BLOCK"), "live": self.live})
+                                     "block": os.environ.get("ERGOSTAT_BLOCK"), "live": self.live,
+                                     **({"context": {k: v for k, v in self.context.items() if k != "file"}}
+                                        if self.context else {}),
+                                     **({"recipe": self.context["recipe"]} if self.context else {})})
         stop = threading.Event()
         copier = threading.Thread(target=self._copying, args=(stop,), daemon=True)
         copier.start()
@@ -294,6 +305,19 @@ class Session:
             for line in tagged(r.get("result") or "", self.item, self.model):
                 print(line)
         return 1 if rec["error"] else 0
+
+
+def given_context(env: dict) -> dict | None:
+    """The starting context the block's run rendered for this session (``$ERGOSTAT_CONTEXT`` and its ``_RECIPE``,
+    ``_HASH``, ``_ITEM``), when there is one and its file is there."""
+    f = env.get("ERGOSTAT_CONTEXT")
+    if not f or not Path(f).is_file():
+        return None
+    recipe = env.get("ERGOSTAT_CONTEXT_RECIPE") or ""
+    name, _, version = recipe.partition("@")
+    return {"file": f, "recipe": recipe, "name": name, "version": int(version) if version.isdigit() else None,
+            "hash": env.get("ERGOSTAT_CONTEXT_HASH") or "", "chars": len(Path(f).read_text(encoding="utf-8")),
+            "item": env.get("ERGOSTAT_CONTEXT_ITEM") or None, "run": env.get("ERGOSTAT_RUN") or None}
 
 
 def display_path(path: Path, p) -> str:

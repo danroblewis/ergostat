@@ -89,11 +89,15 @@ TOOLS = [
      "refused, and its events.",
      "inputSchema": _obj({"kind": {"type": "string"}, "state": {"type": "string"}, "id": {"type": "string"},
                           "n": {"type": "integer"}})},
-    {"name": "context", "description": "A starting context, as Markdown: recipe decisions (the owner's confirmed decisions, "
-     "most relevant to scope first) or corrections (what the owner corrected before, for kind: a kind of work such as ui, "
-     "docs, git, testing, modelling). budget: characters (6000) or tokens (1500t). The same as `ergostat context RECIPE`.",
-     "inputSchema": _obj({"recipe": {"type": "string", "enum": ["decisions", "corrections"]}, "scope": {"type": "string"},
-                          "kind": {"type": "string"}, "budget": {"type": "string"}}, ["recipe"])},
+    {"name": "context", "description": "A starting context, as Markdown: a projection recipe the model names under "
+     "contexts: (its parts in order, each within its budget: decisions, corrections, the owner's words, an item's history, "
+     "the state now, a session's turns, documents, the model's parts), rendered for item when given; or the built-ins "
+     "decisions (the owner's confirmed decisions, most relevant to scope first) and corrections (what the owner corrected "
+     "before, for kind: ui, docs, git, testing, ...). list: true gives the recipes; outcomes: true, how the work each "
+     "started turned out. budget: characters (6000) or tokens (1500t). The same as `ergostat context RECIPE`.",
+     "inputSchema": _obj({"recipe": {"type": "string"}, "item": {"type": "string"}, "scope": {"type": "string"},
+                          "kind": {"type": "string"}, "budget": {"type": "string"}, "list": {"type": "boolean"},
+                          "outcomes": {"type": "boolean"}})},
     {"name": "record_event", "description": "Record something that happened outside: an event of a type (ticket.opened), "
      "about an item (ticket/12), with data (its fields: title, priority, ...), folded by its kind's fold: rules (replace "
      "by default); or, in place of data, a patch (a JSON Patch, RFC 6902: [{\"op\": \"add\", \"path\": \"/tags/-\", "
@@ -245,8 +249,20 @@ class Server:
             from .decisions import context as cx
             from .decisions.kinds import CORRECTION, DECISION
             recipe = a.get("recipe")
+            if a.get("list"):
+                return _text({n: {"version": r.version, "description": r.description,
+                                  "parts": [x.label() for x in r.parts]} for n, r in spec.contexts.items()})
+            if a.get("outcomes"):
+                from .recipes import uses
+                return _text(uses.table(p, spec))
             if recipe not in ("decisions", "corrections"):
-                return {**_text("recipe: decisions or corrections"), "isError": True}
+                from .recipes import render as rd
+                try:
+                    r = rd.render(p, spec, str(recipe or ""), a.get("item") or None,
+                                  budget=cx.budget_of(a["budget"]) if a.get("budget") else None)
+                except (rd.RecipeError, ValueError) as e:
+                    return {**_text(str(e)), "isError": True}
+                return _text(r.text)
             kind = DECISION if recipe == "decisions" else CORRECTION
             return _text(cx.render(p, kind, a.get("scope") if kind == DECISION else (a.get("kind") or a.get("scope")),
                                    cx.budget_of(a.get("budget"))))

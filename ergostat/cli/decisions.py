@@ -66,9 +66,14 @@ def register(sub, common) -> None:
     ls.add_argument("--state", help="only these (proposed, confirmed, retired, dismissed)")
     c.set_defaults(fn=cmd_corrections)
 
-    x = sub.add_parser("context", parents=[common], help="A starting context for a session, as Markdown: decisions, "
-                                                         "corrections")
-    x.add_argument("recipe", choices=["decisions", "corrections"])
+    x = sub.add_parser("context", parents=[common], help="A starting context for a session, as Markdown: a recipe "
+                                                         "under contexts:, or decisions, corrections")
+    x.add_argument("recipe", nargs="?", help="a recipe (ergostat context --list), or decisions or corrections")
+    x.add_argument("--item", help="a recipe: the item the work is on (its history, its parts, the owner's words on it)")
+    x.add_argument("--block", help="a recipe: the block the context is for (its findings, {block})")
+    x.add_argument("--list", action="store_true", help="the recipes: each one's version and parts")
+    x.add_argument("--outcomes", action="store_true", help="each recipe's uses and how the work they started turned "
+                                                           "out, over the last week")
     x.add_argument("--scope", help="decisions: the parts or topic the session works on (most relevant first)")
     x.add_argument("--kind", help="corrections: the kind of work (ui, docs, git, testing, modelling, ...)")
     x.add_argument("--budget", help="its size: characters (6000, the default 8000) or tokens (1500t)")
@@ -210,10 +215,13 @@ def cmd_context(args) -> int:
     from .common import open_project
     p = open_project(args)
     try:
-        budget = cx.budget_of(args.budget)
+        budget = cx.budget_of(args.budget) if args.budget or args.recipe in ("decisions", "corrections") else None
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
+    if args.list or args.outcomes or args.recipe not in ("decisions", "corrections"):
+        from .context_cmd import recipes
+        return recipes(p, args, budget)
     kind = DECISION if args.recipe == "decisions" else CORRECTION
     scope = args.scope if kind == DECISION else (args.kind or args.scope)
     text = cx.render(p, kind, scope, budget, args.proposed)
