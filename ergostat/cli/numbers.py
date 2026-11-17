@@ -110,11 +110,12 @@ def _show(x: dict) -> None:
 
 def cmd_proposals(args) -> int:
     from ..numbers import proposals as pr
+    from ..numbers import review as rv
     p = open_project(args)
     spec = _spec(p)
     if args.dismiss:
         try:
-            x = pr.dismiss(p, args.dismiss)
+            x = pr.dismiss(p, args.dismiss, getattr(args, "reason", None))
         except pr.ProposalError as e:
             print(e, file=sys.stderr)
             return 2
@@ -138,25 +139,80 @@ def cmd_proposals(args) -> int:
         print(c(f"\nergostat accept {x['id']} applies it", "dim"))
         return 0
     which = getattr(args, "calibrate", None) or "parts"
-    got = pr.pending(p, spec) if args.stored else pr.make(p, light_snap(p, args), which=which)
+    if not args.stored and not getattr(args, "show", None):
+        pr.make(p, light_snap(p, args), which=which)
+    entries = _queue(p, spec)
+    if getattr(args, "show", None):
+        hit = [e for e in entries if e["id"].startswith(args.show)]
+        if len(hit) != 1:
+            print(f"no proposal {args.show} waiting" if not hit else f"{args.show} is the start of {len(hit)} proposals: give more of it",
+                  file=sys.stderr)
+            return 2
+        if args.json:
+            return out_json(hit[0])
+        print("\n".join(_coloured(x) for x in rv.show(hit[0])))
+        return 0
     if args.json:
-        return out_json(got)
-    if not got:
+        return out_json(entries)
+    if not entries:
         from ..numbers import estimate as es
         why = {es.label(n, e): e.get("refused") or e.get("why") for n, e in es.load(p, spec, which).items()
                if e.get("refused") or e.get("why")}
-        print("no proposals: every parameter to estimate fits as written, or the record does not support a change "
-              "(estimate: true marks a parameter to fit)")
+        print("no proposals: every parameter to estimate fits as written, the record does not support a change "
+              "(estimate: true marks a parameter to fit), and check finds nothing ergostat can propose a fix for")
         for n, w in sorted(why.items()):
             print(c(f"  {n}: {w}", "dim"))
         return 0
-    for i, x in enumerate(got):
+    for i, e in enumerate(entries):
         if i:
             print()
-        _show(x)
-    print(c("\nergostat accept ID applies one (the edit above; ergostat check must still pass); "
-            "ergostat proposals --dismiss ID lets one go", "dim"))
+        _brief(e)
+    print(c("\nergostat proposals --show ID prints one in full, with the diff; ergostat accept ID applies it (ergostat check "
+            "must still pass); ergostat proposals --dismiss ID [--reason TEXT] lets one go", "dim"))
     return 0
+
+
+def _queue(p, spec) -> list[dict]:
+    """The review queue, as the Fit page lists it: the structural proposals looked for, each loop analysed."""
+    from ..control import loop as lp
+    from ..control import proposals as cp
+    from ..numbers import review as rv
+    rv.refresh(p, spec)
+    control = []
+    for g in spec.goals:
+        try:
+            a = lp.analyse(p, g)
+        except Exception:                                   # a loop that cannot be analysed offers nothing
+            continue
+        if a is not None:
+            control += [x for x in cp.offered(p, a) if x["kind"] in ("process", "tuning")]
+    return rv.entries(p, spec, control)
+
+
+def _coloured(line: str) -> str:
+    t = line.lstrip()
+    if t.startswith(("---", "+++", "@@")):
+        return c(line, "dim")
+    return line
+
+
+def _brief(e: dict) -> None:
+    """One entry, as the queue lists it: what, the change, where, why, how found, benefit."""
+    h = e["how"]
+    print(f"{c(e['id'], 'accent')}  {c(e['what'], 'bold')}")
+    print(f"  {e['title']}")
+    print(f"  {c('where', 'dim')}    {', '.join(e['where']['words']) or '–'}" +
+          (f"; new: {', '.join(e['where']['new'])}" if e["where"]["new"] else ""))
+    print(f"  {c('why', 'dim')}      {e['why']}")
+    print(f"  {c('how', 'dim')}      {h.get('method') or '–'}" + (f", over {human(h['span'])} of record" if h.get("span") else "") +
+          (f", {h['n']} points" if h.get("n") else "") + (f"; {h['confidence']}" if h.get("confidence") else ""))
+    b = e["benefit"]
+    if b.get("nmse_before") is not None or b.get("nmse_after") is not None:
+        print(f"  {c('benefit', 'dim')}  scaled error {sig(b['nmse_before'])} → {sig(b['nmse_after'])} (lower is better)")
+    elif b.get("margins"):
+        print(f"  {c('benefit', 'dim')}  {b['margins']}")
+    for x in e["conflicts"]:
+        print(c(f"  conflicts with {x['id']}: {x['why']}", "warn"))
 
 
 def cmd_accept(args) -> int:
@@ -166,6 +222,18 @@ def cmd_accept(args) -> int:
     if not args.name:
         print("ergostat accept ID: which proposal (ergostat proposals lists them)", file=sys.stderr)
         return 2
+    spec = p.model.spec
+    if not any(k.startswith(args.name) for k, x in pr.stored(p).items() if x["status"] == "pending"):
+        loop = [e for e in _queue(p, spec) if e["source"] == "control" and e["id"].startswith(args.name)]
+        if len(loop) == 1:                                  # a loop's process or gain, offered again just now
+            from ..control import proposals as cp
+            try:
+                x = cp.accept(p, loop[0]["id"], by="owner")
+            except cp.ProposalError as e:
+                print(e, file=sys.stderr)
+                return 2
+            print(f"accepted {x['id']}: {x['title']}\n{x['edit']['diff']}")
+            return 0
     try:
         x = pr.accept(p, args.name, light_snap(p, args), by="owner")
     except pr.ProposalError as e:

@@ -188,7 +188,9 @@ def _process(p, spec, a: dict, done: dict) -> dict | None:
     edit = process_edit(spec, a["goal"], _process_lines(spec, a, r))
     return {"id": pid, "kind": "process", "goal": a["goal"], "title": f"{a['goal']}: its process P(s) = {num}/({den})",
             "reason": "; ".join(parts) + ".", "edit": {"files": [edit.as_dict()], "diff": edit.diff()},
-            "values": {"form": r["form"], "K": r["K"], "tau": r.get("tau"), "theta": r["theta"]}}
+            "values": {"form": r["form"], "K": r["K"], "tau": r.get("tau"), "theta": r["theta"]},
+            "block": (a.get("blocks") or [None])[0],
+            "identified": {k: r.get(k) for k in ("form", "moves", "test", "span", "n_est", "n_val", "fit_val", "fit_est")}}
 
 
 def _said(m: dict, st: dict) -> str:
@@ -226,7 +228,8 @@ def _tuning(p, spec, a: dict, done: dict) -> dict | None:
         edit = gain_edit(spec, t["block"], values)
         reason = (f"{s['rule']}, for the process the model holds. As it is: {_said(a.get('margins') or {}, a.get('closed_step') or {})}. "
                   f"Tuned: {_said(t['margins'], t['step'])}.")
-        return {"id": pid, "kind": "tuning", "goal": a["goal"], "title": f"{t['block']}: {change} (SIMC)", "reason": reason,
+        return {"id": pid, "kind": "tuning", "goal": a["goal"], "block": t["block"], "title": f"{t['block']}: {change} (SIMC)",
+                "reason": reason,
                 "edit": {"files": [edit.as_dict()], "diff": edit.diff()}, "values": s}
     dt = t.get("detune")
     if not dt:
@@ -244,7 +247,8 @@ def _tuning(p, spec, a: dict, done: dict) -> dict | None:
               f"{_pm(rb.get('gain_margin'))}, phase margin {_pm(rb.get('phase_margin'))}°, Ms {_pm(rb.get('ms'))}. "
               f"As it is, with the process as found: {_said(a.get('margins') or {}, a.get('closed_step') or {})}. Detuned: "
               f"{_said(dt['margins'], dt['step'])}. Slower, and stable over all the process could be.")
-    return {"id": pid, "kind": "tuning", "goal": a["goal"], "title": f"{t['block']}: {change} (detuned for robustness)",
+    return {"id": pid, "kind": "tuning", "goal": a["goal"], "block": t["block"],
+            "title": f"{t['block']}: {change} (detuned for robustness)",
             "reason": reason, "edit": {"files": [edit.as_dict()], "diff": edit.diff()}, "values": c}
 
 
@@ -395,21 +399,23 @@ def offered(p, a: dict) -> list[dict]:
     return out
 
 
-def dismiss(p, pid: str) -> dict:
+def dismiss(p, pid: str, reason: str | None = None) -> dict:
     x = OFFERED.get(pid)
     if x is None:
         raise ProposalError(f"no proposal {pid} on offer: open the loop again")
     d = decisions(p)
     d[pid] = {"status": "dismissed", "decided": time.time(), "kind": x["kind"], "goal": x["goal"], "title": x["title"],
-              **({"family": x["family"]} if x.get("family") else {})}
+              **({"family": x["family"]} if x.get("family") else {}), **({"reason": reason.strip()[:500]} if reason else {})}
     _save(p, d)
-    p.events.add("model.dismissed", item=p.model.name, source="owner", data={"proposal": pid, "title": x["title"]})
+    p.events.add("model.dismissed", item=p.model.name, source="owner",
+                 data={"proposal": pid, "title": x["title"], **({"reason": reason.strip()[:500]} if reason else {})})
     OFFERED.pop(pid, None)
     return {**x, "status": "dismissed"}
 
 
-def accept(p, pid: str, by: str = "owner") -> dict:
-    """Apply what the page was shown: an edit (checked, else put back), or a step test's approval."""
+def accept(p, pid: str, by: str = "owner", expect: str | None = None) -> dict:
+    """Apply what the page was shown: an edit (checked, else put back), or a step test's approval. ``expect``
+    is the hash of the diff shown (``numbers.review.diff_of``): refused unless that is what would be written."""
     from .. import model as mdl
     from ..spec import read
     from . import loop as lp
@@ -431,6 +437,10 @@ def accept(p, pid: str, by: str = "owner") -> dict:
         OFFERED.pop(pid, None)
         return {**x, "status": "approved"}
     edits = [ye.Edit.from_dict(e) for e in x["edit"]["files"]]
+    if expect is not None:
+        from ..numbers.review import diff_of
+        if diff_of(x, p.model.path.parent).get("hash") != expect:
+            raise ProposalError("the files have changed since the diff was shown: look at it again before accepting")
     old = {e.file: Path(e.file).read_text(encoding="utf-8") for e in edits}
     try:
         new = {e.file: ye.apply(e) for e in edits}

@@ -1876,8 +1876,11 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         assert all(x in head for x in ("R²", "MAPE", "UM", "US", "UC")), head
         assert "queue" in pg.locator("table.fit").first.inner_text()
         pg.get_by_role("button", name="Calibrate").click()
-        pg.wait_for_function("() => document.querySelector('.proposal')", timeout=30000)
-        prop = pg.locator(".proposal").first.inner_text()
+        pg.wait_for_function("() => document.querySelector('.entry')", timeout=30000)
+        entry = pg.locator(".entry").first
+        assert entry.locator("h3").inner_text() == "A parameter's value"            # the kind of change, its title
+        entry.get_by_role("button", name="Effect and diff").click()
+        prop = entry.inner_text()
         assert "k: 2 1/h → 3" in prop and "value: 2" in prop and "Accept" in prop, prop
         # its valve's panel offers it too; accepted there, the file says the new value, its comment kept
         drawn(pg, url, "view=dynamics", 1)
@@ -1891,7 +1894,7 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         assert re.search(r"    value: (3|2\.99\d*|3\.0\d*) ", text) and "# what we believe" in text and "# the queue drains" in text, text
         pg.goto(url + "/#/fit")
         pg.wait_for_function("() => /accepted: k/.test(document.body.textContent)", timeout=20000)
-        assert "No proposals waiting." in pg.locator(".page").inner_text()
+        assert "Nothing waiting." in pg.locator(".page").inner_text()
         pg.close()
         assert not errors, errors
     finally:
@@ -1916,3 +1919,42 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
     assert pg.get_by_role("button", name="Estimate now").count() == 0
     pg.close()
     assert not errors and not asked, (errors, asked)
+
+
+# ---- the Fit page's review queue: Show on diagram
+
+def flip_turnover_sign(d: Path) -> None:
+    """A link drawn with the sign its equation contradicts: check finds it, and proposes the sign flipped."""
+    f = d / "service.yaml"
+    f.write_text(f.read_text().replace("driven-by: [+auxiliary.batch-quality, -stock.quality]",
+                                       "driven-by: [-auxiliary.batch-quality, -stock.quality]"))
+
+
+def test_show_on_diagram_chooses_a_proposals_parts_in_both_views(browser, tmp_path):
+    """A proposal's Show on diagram chooses the parts it touches and opens the diagram with the other view
+    beside it: lit in the dynamics view and in the block diagram's pane, the same parts chosen in both."""
+    with served("image-squeeze", tmp_path, flip_turnover_sign) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/?v=1#/fit")
+        entry = pg.locator('.entry[data-kind="structure"]', has_text="quality-turnover").first
+        entry.wait_for(timeout=60000)
+        assert "A link's sign flipped" in entry.locator("h3").inner_text()
+        for label in ("where", "why", "how found"):
+            assert entry.locator("dt", has_text=label).count() == 1
+        entry.get_by_role("button", name="Show on diagram").click()
+        pg.wait_for_function(READY, timeout=60000)
+        want = {"flow.quality-turnover", "auxiliary.batch-quality"}
+        assert set(pg.evaluate("() => [...S.sel]")) == want
+        assert pg.evaluate("() => S.graph.kind") == "dynamics"
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.selected').length >= 1", timeout=10000)
+        lit = pg.evaluate(LIT)                       # the parts, or the closed system holding them, marked
+        assert "flow:quality-turnover" in lit, lit          # its system opened: the part itself, not the box holding it
+        pane = pane_of(pg)
+        assert pane.evaluate("() => S.graph.kind") == "blocks"
+        pane.wait_for_function("() => S.sel.size === 2 && document.querySelectorAll('svg.canvas g.node.selected').length > 0",
+                               timeout=10000)
+        assert set(pane.evaluate("() => [...S.sel]")) == want
+        assert not errors, errors
+        pg.close()

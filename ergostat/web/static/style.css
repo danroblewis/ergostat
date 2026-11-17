@@ -714,3 +714,25 @@ table.fit tr.total td { border-top: var(--hair) solid var(--line-strong); }
 .proposal dt, .whatif dt { color: var(--muted); }
 .proposal dd, .whatif dd { margin: 0; }
 .proposal dt::first-letter, .whatif dt::first-letter { text-transform: none; }
+/* the Fit page's review queue: each change an entry, its kind the title, the rest labelled rows (review.js) */
+.review { max-width: 88ch; }
+.entry { border-top: var(--hair) solid var(--line); padding: var(--sp-4) 0 var(--sp-3); }
+.entry h3 { font-size: var(--text); font-weight: 600; margin: 0; }
+.entry-change { margin: var(--sp-1) 0 var(--sp-2); color: var(--ink-2); overflow-wrap: anywhere; }
+.entry dl { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: var(--sp-2) var(--sp-3); margin: var(--sp-2) 0; }
+.entry dt { color: var(--muted); font-size: var(--text-sm); padding-top: var(--sp-0); }
+.entry dd { margin: 0; }
+.entry .actions { margin: var(--sp-2) 0 0; }
+.entry-body { margin-top: var(--sp-3); padding-left: var(--sp-3); border-left: var(--hair) solid var(--line); }
+.entry-label { color: var(--muted); font-size: var(--text-sm); margin: var(--sp-3) 0 var(--sp-1); }
+.entry-body .entry-label:first-child { margin-top: 0; }
+.review-charts { max-width: 64ch; }
+.review-all { max-width: 88ch; }
+.review-all h3 { font-size: var(--text); font-weight: 600; margin: var(--sp-3) 0 var(--sp-1); }
+.review-all dl { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: var(--sp-2) var(--sp-3); margin: var(--sp-2) 0; }
+.review-all dt { color: var(--muted); font-size: var(--text-sm); }
+.review-all dd { margin: 0; }
+.entry-effect dl { margin-top: var(--sp-2); }
+input.reason { min-width: 24em; min-height: var(--sp-5); padding: 0 var(--sp-2); }
+ul.plain { margin: var(--sp-1) 0; padding-left: var(--sp-4); }
+ul.plain li { margin: var(--sp-0) 0; }

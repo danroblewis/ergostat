@@ -349,9 +349,14 @@ fifth better. It fits a coefficient to each declared cause of a measured flow th
 by least squares on what was measured; an outflow as its stock over a time (first-order control),
 only when it names its stock as a cause; a one-way flow never below 0. Each is a **proposal**, with
 its reason, the fit before and after, and the YAML edit: nothing changes until the owner accepts it
-(`ergostat accept ID`, or Accept beside the part on the page). What ergostat still does not do is propose **structure** (a stock, a delay, a
-cause the model lacks): a residual and a poor fit say where to look, and the guidelines above say
-what to write. A `driven-by` the equation leaves out is drawn with its sign and flagged
+(`ergostat accept ID`, or Accept beside the part on the page, or in the Fit page's review queue).
+It also proposes **structure** where a check or an estimate gives a concrete fix (SPEC §12b): a stock
+between a rate and the rate that follows it, an outflow for a stock nothing drains (sized by Little's
+law), a converting auxiliary, a sign flipped, a guard, an auxiliary marked exogenous, a term with no
+effect taken out with its link, and SD Lab's simplifications (a dead flow removed, two flows merged, a
+pass-through joined, a still, empty, twin or lone stock removed). What it does not yet do is find a
+stock, a delay or a cause the model lacks from the pattern in the residuals, or replace a part by
+another form: a residual and a poor fit say where to look, and the guidelines above say what to write. A `driven-by` the equation leaves out is drawn with its sign and flagged
 **size-unknown**: its size is not known.
 
 Write an equation in the model's own terms first (Sterman ch. 13: every parameter should mean

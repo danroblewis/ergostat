@@ -371,8 +371,11 @@ function fitHead(words, first) {
 }
 async function pageFit(main) {
   const p = page(main, "Fit");
-  const fitBox = h("div"), eqBox = h("div"), accBox = h("div"), notes = h("div"), propBox = h("div"), histBox = h("div"), resBox = h("div"), cap = h("p", { class: "note" });
-  p.append(fitBox, eqBox, accBox, notes, h("h2", {}, "Proposals"), propBox, h("h2", {}, "History"), histBox, h("h2", {}, "Residuals"), resBox, cap);
+  const fitBox = h("div"), eqBox = h("div"), accBox = h("div"), notes = h("div"), histBox = h("div"), resBox = h("div"), cap = h("p", { class: "note" });
+  const qHead = h("h2", {}, "Changes to review"), qActions = h("div", { class: "actions" }), allBox = h("div", { class: "review-all" });
+  const queueBox = h("div", { class: "review" }), whyBox = h("div"), canBox = h("div");
+  p.append(qHead, qActions, allBox, queueBox, whyBox, h("h2", {}, "What ergostat can propose"), canBox,
+           h("h2", {}, "How well the model fits"), fitBox, eqBox, accBox, notes, h("h2", {}, "History"), histBox, h("h2", {}, "Residuals"), resBox, cap);
   let propSig = null, busy = false, chosen = "parts";
   async function estimateNow(btn, said, which = "parts") {
     btn.disabled = true; busy = true; said.textContent = which === "parts" ? "Estimating\u2026" : "Calibrating\u2026";
@@ -380,6 +383,8 @@ async function pageFit(main) {
     catch (e) { said.textContent = String(e.message || e); }
     busy = false; btn.disabled = false; tick();
   }
+  const answering = () => busy || queueBox.querySelector("button:disabled, .confirm:not([hidden])") ||
+    (queueBox.contains(document.activeElement) && document.activeElement.tagName === "INPUT");
   async function tick() {
     let d;
     try { d = await api("fit"); } catch (e) { d = null; }
@@ -402,8 +407,9 @@ async function pageFit(main) {
       table(fitHead(d.words, "stock"), fitRows(d.accounting, null), "fit")] : []));
     notes.replaceChildren(...d.notes.map((n) => h("p", { class: "muted small" }, n)));
     const why = Object.entries(d.not_proposed || {});
-    const sig = JSON.stringify(d.proposals.map((x) => x.id)) + (d.estimated_at || "") + JSON.stringify(why);
-    if (sig !== propSig && !busy && !propBox.querySelector("button:disabled")) {
+    const q = d.queue || [];
+    const sig = JSON.stringify(q.map((x) => [x.id, x.diff?.hash, x.conflicts.length])) + (d.estimated_at || "") + JSON.stringify(why) + d.loops_analysed;
+    if (sig !== propSig && !answering()) {
       propSig = sig;
       const said = h("span", { class: "muted small" });
       // calibration: each part alone (and equations for flows with none), each system alone driven by its
@@ -412,15 +418,24 @@ async function pageFit(main) {
       const pick = ways.length > 1 ? h("select", { "aria-label": "what to fit at once", onchange: (ev) => { chosen = ev.target.value; } },
         ways.map((c) => h("option", { value: c.key, selected: c.key === chosen ? "selected" : null },
           c.key === "whole" && d.open_loops?.length ? `${c.words} (${d.open_loops.length} loop${d.open_loops.length > 1 ? "s" : ""} left open)` : c.words))) : null;
-      const open = d.open_loops?.length && ways.some((c) => c.key === "whole")
-        ? h("p", { class: "muted small" }, `Every stock integrated still leaves open ${d.open_said}, since the replay takes what a decision sets as measured.`) : null;
-      const btn = h("button", { onclick: () => estimateNow(btn, said, pick ? pick.value : "parts") }, d.to_estimate.length ? "Calibrate" : "Estimate now");
-      const head = d.to_estimate.length
-        ? h("div", { class: "actions" }, SNAP ? null : btn, SNAP ? null : pick, h("span", { class: "muted small" }, `${d.to_estimate.length} parameter${d.to_estimate.length > 1 ? "s" : ""} to estimate (${d.to_estimate.join(", ")})${d.estimated_at ? `, last calibrated ${ago(d.estimated_at)}` : ", not calibrated yet"}`), said)
-        : h("div", { class: "actions" }, SNAP ? null : btn, h("span", { class: "muted small" }, "No parameter is marked estimate: true; equations may still be proposed for flows with declared causes."), said);
-      propBox.replaceChildren(head, open || "", ...(d.proposals.length ? d.proposals.map((x) => proposalBlock(x, { onDone: () => { propSig = null; setTimeout(tick, 600); } }))
-        : [h("p", { class: "muted" }, "No proposals waiting.")]),
-        ...(why.length ? [table(["not proposed", "why"], why.map(([n, w]) => h("tr", {}, h("td", {}, h("b", {}, n)), h("td", { class: "small" }, w))), "fit")] : []));
+      const btn = h("button", { class: "ghost", onclick: () => estimateNow(btn, said, pick ? pick.value : "parts") }, d.to_estimate.length ? "Calibrate" : "Estimate now");
+      const sims = q.filter((x) => x.simulable).map((x) => x.id);
+      const all = h("button", { onclick: () => simulateAll(sims, allBox, all), disabled: sims.length < 1 ? "" : null }, "Simulate all pending");
+      const kinds = {};
+      for (const x of q) kinds[x.what] = (kinds[x.what] || 0) + 1;
+      qHead.replaceChildren("Changes to review", h("span", { class: "muted" }, q.length ? ` ${q.length} waiting` : ""));
+      qActions.replaceChildren(...[SNAP ? null : all, SNAP ? null : btn, SNAP ? null : pick,
+        h("span", { class: "muted small" }, d.to_estimate.length
+          ? `${d.to_estimate.length} parameter${d.to_estimate.length > 1 ? "s" : ""} to estimate${d.estimated_at ? `, last calibrated ${ago(d.estimated_at)}` : ", not calibrated yet"}`
+          : "no parameter is marked estimate: true"),
+        d.loops_analysed < d.loops ? h("span", { class: "muted small" }, `loops analysed for proposals: ${d.loops_analysed} of ${d.loops}`) : null,
+        said].filter(Boolean));
+      queueBox.replaceChildren(...(q.length ? q.map((x) => reviewEntry(x, { onDone: () => { propSig = null; allBox.replaceChildren(); setTimeout(tick, 600); } }))
+        : [h("p", { class: "muted" }, "Nothing waiting.")]));
+      whyBox.replaceChildren(...(why.length ? [h("h3", {}, "Estimates not proposed"),
+        table(["parameter", "why"], why.map(([n, w]) => h("tr", {}, h("td", {}, h("b", {}, n)), h("td", { class: "small" }, w))), "can")] : []),
+        ...(d.open_loops?.length ? [h("p", { class: "muted small" }, `Every stock integrated still leaves open ${d.open_said}, since the replay takes what a decision sets as measured.`)] : []));
+      canBox.replaceChildren(proposableView(d));
     }
     const events = [...d.history.map((v) => ({ t: v.first, v })), ...d.accepted.map((a) => ({ t: a.time, a }))].sort((x, y) => y.t - x.t);
     histBox.replaceChildren(events.length ? table(["when", "version", ["scaled error", "num"], ["over", "num"], ""], events.slice(0, 30).map(({ v, a }) => (v

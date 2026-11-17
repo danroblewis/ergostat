@@ -13,6 +13,7 @@ from ..numbers import estimate as es
 from ..numbers import fit as ft
 from ..numbers import observe as ob
 from ..numbers import proposals as pr
+from ..numbers import review as rv
 from ..numbers import sensitivity as sens
 from ..numbers import simulate as sim
 from ..numbers import version as ver
@@ -330,7 +331,88 @@ def fit_page(live, p, snap: dict) -> dict | None:
                               "when": max((e.get("when") or 0 for e in kept.get(w, {}).values()), default=None) or None}
                              for w in es.SCOPES],
             "not_proposed": not_proposed,
-            "residuals": snap.get("residuals", {})}
+            "residuals": snap.get("residuals", {}), **queue(live, p, snap)}
+
+
+def _structural(live, p, snap: dict) -> list[dict]:
+    """The structural proposals looked for again (at most every few minutes, or when the model changes):
+    what was found and could not be made."""
+    spec = spec_of(p)
+    key = ("structural", live.mtime, round(snap["at"] / rv.STRUCTURAL_EVERY))
+    got = live.cached(key)
+    if got is None:
+        got = rv.refresh(p, spec, None if snap.get("live", True) else snap["at"]) if snap.get("live", True) else []
+        live.keep(key, got)
+    return got
+
+
+LOOPS = threading.Lock()
+LOOPS_SEEN: dict = {}            # goal → (model mtime, when analysed)
+
+
+def _analyse_loops(live) -> None:
+    """Each loop analysed in turn, in the background, so its proposals (a process, a gain) join the queue."""
+    if not LOOPS.acquire(blocking=False):
+        return
+
+    def work():
+        try:
+            from .control_api import get as control
+            p = live.get()
+            spec = spec_of(p)
+            for g in list(spec.goals) if spec else []:
+                seen = LOOPS_SEEN.get(g)
+                if seen and seen[0] == live.mtime and time.time() - seen[1] < 300:
+                    continue
+                try:
+                    control(live, p, {"at": time.time(), "live": True}, g)
+                except Exception:                       # a loop that cannot be analysed offers nothing
+                    pass
+                LOOPS_SEEN[g] = (live.mtime, time.time())
+        finally:
+            LOOPS.release()
+    threading.Thread(target=work, name="ergostat-loops", daemon=True).start()
+
+
+def queue(live, p, snap: dict) -> dict:
+    """The review queue (``numbers/review.py``): every change waiting, each with what, where, why, how it
+    was found, its benefit and the exact diff; and what ergostat can and cannot propose yet."""
+    spec = spec_of(p)
+    not_made = _structural(live, p, snap)
+    if snap.get("live", True):
+        _analyse_loops(live)
+    control = rv.control_pending(p, spec)
+    goals = list(spec.goals)
+    return {"queue": rv.entries(p, spec, control), "not_made": not_made,
+            "loops_analysed": sum(1 for g in goals if (LOOPS_SEEN.get(g) or (None,))[0] == live.mtime), "loops": len(goals),
+            "can": [{"what": a, "how": b} for a, b in rv.stc.CAN], "cannot": rv.stc.CANNOT}
+
+
+def effect(live, p, snap: dict, ids: str | None) -> dict:
+    """``GET /api/proposal-effect?ids=a,b``: the changes simulated together, in memory (nothing written)."""
+    spec = spec_of(p)
+    if spec is None:
+        return {}
+    want = [x for x in (ids or "").split(",") if x]
+    key = ("effect", tuple(want), live.mtime, round(snap["at"] / 30))
+    got = live.cached(key)
+    if got is not None:
+        return got
+    pending = pr.pending(p, spec) + rv.control_pending(p, spec)
+    xs = [x for w in want for x in pending if x["id"] == w]
+    if not xs:
+        return {"error": "no such proposal waiting"}
+    lkey = ("leverage", live.mtime, round(snap["at"] / 120))
+    base = live.cached(lkey)
+    if base is None:
+        try:
+            base = rv.base_leverage(p, spec) or {}
+        except Exception:
+            base = {}
+        live.keep(lkey, base)
+    got = rv.effect(p, spec, xs, None, base or None, most=rv.CHARTS if len(xs) == 1 else rv.CHARTS_ALL)
+    live.keep(key, got)
+    return got
 
 
 def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, dict]:
@@ -363,9 +445,22 @@ def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, di
                 return 200, pr.propose_values(p, {k.strip(): v.strip() for k, v in raw.items()}, snap)
             return 200, pr.propose_value(p, (q.get("parameter") or [""])[0], (q.get("value") or [""])[0], snap)
         if len(parts) == 3 and parts[0] == "proposals" and parts[2] in ("accept", "dismiss"):
+            reason = (q.get("reason") or [""])[0] or None
+            expect = (q.get("expect") or [""])[0] or None
+            if parts[1] in {x["id"] for x in rv.control_pending(p, spec_of(p))}:     # a loop's process or gain
+                from ..control import proposals as cp
+                from .control_api import forget
+                try:
+                    got = cp.dismiss(p, parts[1], reason) if parts[2] == "dismiss" else cp.accept(p, parts[1], "owner", expect)
+                except cp.ProposalError as e:
+                    return 409, {"error": str(e)}
+                if parts[2] == "accept":
+                    live.reloaded()
+                forget(live)
+                return 200, got
             if parts[2] == "dismiss":
-                return 200, pr.dismiss(p, parts[1])
-            got = pr.accept(p, parts[1], snap, by="owner")
+                return 200, pr.dismiss(p, parts[1], reason)
+            got = pr.accept(p, parts[1], snap, by="owner", expect=expect)
             live.reloaded()
             return 200, got
     except pr.ProposalError as e:

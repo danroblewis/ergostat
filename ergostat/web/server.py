@@ -267,6 +267,9 @@ def _answer(live: Live, path: str, q: dict):
     if head == "whatif-fit":                      # a what-if's fit before anything is stored: per stock, and its payoff
         from .numbers_api import whatif_fit
         return whatif_fit(live, p, snap, one("whatif"))
+    if head == "proposal-effect":                 # proposals simulated, alone or all pending together: nothing written
+        from .numbers_api import effect
+        return effect(live, p, snap, one("ids"))
     if head == "fit":                             # the Fit page: the replay against the record, its history, the proposals
         from .numbers_api import fit_page
         return fit_page(live, p, snap)
