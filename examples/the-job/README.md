@@ -137,8 +137,9 @@ search is the open review whose author is Ben and whose title says search). Then
   lists it ("What I said that reached no work") until I route it, `ergostat messages ID --about review/2049`.
 
 `messages` is a system like the others: what I said (`notes-said`), routed and waiting (`messages-awaiting`),
-delivered, unrouted (`messages-unrouted`, held at 0 by `notes-reach-work`, which nothing but I can answer), and the
-follow-ups the brief puts in front of me.
+delivered, unrouted (`messages-unrouted`, held at 0 by `notes-reach-work`, which nothing but I can answer), missed
+(`messages-missed`: a note about an item a preparer was already working on, or that waited for me, which finished
+before the note reached it, and was followed up), and the follow-ups the brief puts in front of me.
 
 ## The loops
 

@@ -37,6 +37,13 @@ stocks:
       items: ergostat.message
       state: routed
       every: 5s
+  messages-missed:
+    unit: messages
+    description: notes whose work finished before they reached it, over the last week (the work followed up)
+    cumulative: true                     # (over the week the measure counts)
+    sensor:
+      builtin: ergostat.messages.missed
+      every: 10s
   follow-ups-open:
     unit: notes
     description: notes on finished work, not yet in a morning brief
@@ -75,6 +82,14 @@ flows:
       items: ergostat.message
       leaving: unrouted
       over: 10m
+  messages-missing:
+    to: messages-missed
+    description: work redone because a note did not reach it in time (it was being prepared, or waited for me, and
+      finished first)
+    sensor:
+      changes: rises
+      over: 10m
+      every: 10s
   follow-ups:
     to: follow-ups-open
     description: notes on finished work, made follow-ups
