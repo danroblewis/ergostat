@@ -175,8 +175,9 @@ def _changes(p, spec: Spec, name: str, what: str, since: float, until: float) ->
     return out
 
 
-def measured(p, grid: Grid) -> Data:
-    spec: Spec = p.model.spec
+def measured(p, grid: Grid, spec: Spec | None = None) -> Data:
+    """The record on ``grid``, for the model as it is (or ``spec``: a change being tried)."""
+    spec = spec or p.model.spec
     d = Data(grid)
     g, w = grid, grid.width
     for name in (*spec.stocks, *spec.auxiliaries):

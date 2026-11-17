@@ -219,6 +219,8 @@ def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts"
 
 def _calibration(x: dict) -> str:
     """Which calibration made a proposal (``estimate.SCOPES``; a what-if is the owner's own)."""
+    if x.get("kind") == "structure":
+        return "structure"
     sc = x.get("scope", "parts")
     return "systems" if sc.startswith("system:") else sc
 
@@ -547,21 +549,27 @@ def find(p, pid: str) -> dict:
     return hits[0]
 
 
-def dismiss(p, pid: str) -> dict:
+def dismiss(p, pid: str, reason: str | None = None) -> dict:
+    """Let a proposal go, with the owner's reason when they give one: kept, so the same change is not
+    proposed again (a changed one, another value or another edit, is a new proposal)."""
     props = stored(p)
     x = find(p, pid)
     if x["status"] != "pending":
         raise ProposalError(f"proposal {x['id']} is {x['status']} already")
     x["status"], x["decided"] = "dismissed", time.time()
+    if reason:
+        x["dismissed_because"] = reason.strip()[:500]
     props[x["id"]] = x
     save(p, props)
-    p.events.add("model.dismissed", item=p.model.name, source="owner", data={"proposal": x["id"], "title": x["title"]})
+    p.events.add("model.dismissed", item=p.model.name, source="owner",
+                 data={"proposal": x["id"], "title": x["title"], **({"reason": x["dismissed_because"]} if reason else {})})
     return x
 
 
-def accept(p, pid: str, snap: dict, by: str = "owner") -> dict:
+def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None) -> dict:
     """Apply the proposal's edit, check the model still compiles (else put the file back), record the
-    change with the fit before and after, and return what was done."""
+    change with the fit before and after, and return what was done. ``expect`` is the hash of the diff the
+    owner was shown (``review.diff_of``): refused unless what would be written is exactly that."""
     from .. import model as mdl
     from ..spec import read
     props = stored(p)
@@ -579,9 +587,14 @@ def accept(p, pid: str, snap: dict, by: str = "owner") -> dict:
     _, _, fit_before = ft.compute(p, snap)
     v_before = ver.version(p.model.spec)
     try:
-        new_text = {e.file: ye.apply(e) for e in edits}           # every file checked before any is written
+        new_text = ye.apply_together(edits)                       # every file checked before any is written
     except ye.EditError as e:
         raise ProposalError(str(e)) from None
+    if expect is not None:
+        from .review import diff_of
+        shown = diff_of(x)
+        if shown.get("hash") != expect:
+            raise ProposalError("the files have changed since the diff was shown: look at it again before accepting")
     ft.record(p, fit_before, snap["window"], force=True)             # the version it leaves, as it fitted at the end
     for f, text in new_text.items():
         Path(f).write_text(text, encoding="utf-8")

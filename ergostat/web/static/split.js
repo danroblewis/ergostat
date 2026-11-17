@@ -23,7 +23,7 @@ function splitSave() {
 }
 let splitPane = null, splitSep = null, splitFrame = null;
 
-const OTHER_PAGES = ["/loops", "/agents", "/record", "/items", "/residuals", "/check", "/guide", "/item/"];
+const OTHER_PAGES = ["/loops", "/agents", "/record", "/items", "/fit", "/residuals", "/check", "/guide", "/item/"];
 function diagramHash(hash) {
   const path = (String(hash || "").replace(/^#/, "") || "/diagram").split("?")[0];
   return !OTHER_PAGES.some((p) => path === p || (p.endsWith("/") && path.startsWith(p)));

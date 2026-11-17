@@ -3,6 +3,8 @@ thing was written (file and line), so every error can point at it (SPEC §2)."""
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import glob
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +16,20 @@ SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variabl
             "loops")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary"}    # variables: the old name of auxiliaries
 TOP = {"name", "include", "keep", "defaults", *SECTIONS}
+
+
+TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
+
+
+@contextlib.contextmanager
+def texts(over: dict):
+    """Read these files' text from ``over`` (path → text) instead of the disk, in this thread only: a
+    change tried on the model before it is written (a proposal simulated, or checked)."""
+    tok = TEXTS.set({Path(k).resolve(): v for k, v in over.items()})
+    try:
+        yield
+    finally:
+        TEXTS.reset(tok)
 
 
 class SpecError(Exception):
@@ -100,7 +116,8 @@ class Document:
 
 def read_file(path: Path, problems: list[Problem]):
     try:
-        text = path.read_text(encoding="utf-8")
+        over = TEXTS.get()
+        text = over[path.resolve()] if over and path.resolve() in over else path.read_text(encoding="utf-8")
     except OSError as e:
         problems.append(Problem("error", f"cannot read {path}: {e.strerror or e}", None, "unreadable"))
         return None

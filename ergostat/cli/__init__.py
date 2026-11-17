@@ -38,7 +38,7 @@ what is wrong, or missing
   discover       Loops in the record (discover loops), a draft from Prometheus (discover prometheus)
   residual       What the model can't explain
   fit            How well the model's replay fits the record: R², MAPE, Theil's U_M, U_S, U_C
-  proposals      Changes the record supports (parameters calibrated, equations fitted): accept ID, --dismiss ID
+  proposals      Changes to review (values, equations, structure, loops): --show ID, accept ID, --dismiss ID
 
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
@@ -150,6 +150,9 @@ def build() -> argparse.ArgumentParser:
     pp = topic("proposals", cmd_proposals, "Estimate the parameters marked estimate: true, and list the changes the record "
                                            "supports", named=False)
     pp.add_argument("--dismiss", metavar="ID", help="let a proposal go (it is not made again for this model)")
+    pp.add_argument("--reason", metavar="TEXT", help="with --dismiss: why, remembered with it")
+    pp.add_argument("--show", metavar="ID", help="one proposal in full: what, where, why, how found, benefit, and the diff "
+                                                 "accept writes")
     pp.add_argument("--stored", action="store_true", help="list the proposals already made, without estimating again")
     pp.add_argument("--calibrate", choices=["parts", "systems", "whole"], default="parts",
                     help="what is fitted at once: each part alone (default; equations proposed too), each system alone "
