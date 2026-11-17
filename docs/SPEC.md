@@ -327,6 +327,7 @@ flows:
 | `entering`, `leaving` | state | | On a flow: exactly one; the move it counts |
 | `changes` | `rises`, `falls` or `net` | | On a flow into or out of one stock: its rate from that stock's own successive readings, how much they rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a `two-way` flow), per hour over `over` |
 | `over` | duration | `1h` | On a flow: the window the rate is taken over |
+| `averages` | duration | none | On a flow's `run`, `query` or `manual` sensor: its reading is the average rate over this window before it (a count of the last ten minutes, per hour: `averages: 10m`). The model's rate is read through the same window before it is compared (section 12b) |
 | `where` | map of field → value (or list) | | Only items whose fields match |
 | `every` | duration | `1m` | How often it reads (`run`, `query`) |
 | `cron` | cron expression | | Instead of `every` |
@@ -519,19 +520,22 @@ parameters:
     value: 60
     unit: workdays/h
   alerts-base:
-    value: 2.2
+    value: 1.2
     unit: alerts/workday
     estimate: true                              # fitted from the record (section 12b)
+  alerts-per-outage:
+    value: 4
+    unit: alerts/outage
   window-time:
-    value: 38.4s                                # a duration, read in hours
+    value: 19.2s                                # a duration, read in hours
   effect-of-load:
     table: [[0, 1], [10, 0.5], [20, 0.2]]       # a lookup: linear between its points
   k: 0.45                                       # short for value: 0.45
 flows:
   alerts-fired:
     to: alerts-to-draft
-    driven-by: +stock.unreviewed-ramps-live
-    equation: workdays-per-hour * (alerts-base + alerts-per-ramp-live * stock.unreviewed-ramps-live)
+    driven-by: [{cause: +flow.outages-noticed, instant: true}]
+    equation: workdays-per-hour * alerts-base + alerts-per-outage * flow.outages-noticed   # a coflow
   quality-turnover:
     to: quality
     two-way: true
@@ -543,19 +547,22 @@ flows:
 |---|---|---|---|
 | `equation` | expression | none | On a flow: its rate per hour; on an auxiliary: its value. Not with `rate:` on the same flow |
 | a parameter's `value` | number or duration | none (not known) | What it is believed to be; a duration (`40s`, `2h`) is read in hours, the model's time |
-| `unit` | string | none | Its unit, products and quotients of words (`alerts/ramp/workday`, `1/h`); `share` and `1` are pure numbers |
+| `unit` | string | none | Its unit, products and quotients of words (`alerts/ramp/workday`, `1/h`); `share` and `1` are pure numbers. Time is counted in hours: a unit counting it in `s`, `min`, `d` or `week` is an error (*decided*: 30 with `unit: min` would be read as 30 hours), so a time is written as a duration and a rate per hour; a model's own clock (`workdays`, with `workdays-per-hour`) is a word like any other |
 | `estimate` | bool | false | Fitted from the record (section 12b): the estimate is kept apart and proposed, never written here until it is accepted |
 | `table` | points | none | A lookup, called like a function: `effect-of-load(stock.queue)` |
 | `system`, `description` | | | |
 
 **Expressions.** Numbers; parameters by their bare name; parts by reference (`stock.x`, `flow.x`,
 `auxiliary.x`: a flow is its rate per hour); `+ - * / ^` and brackets; `MIN`, `MAX`, `ABS`, `EXP`,
-`LN`, `SQRT`; and system dynamics' delays: `DELAY1(x, T)` and `DELAY3(x, T)`, material delays of
+`LN`, `SQRT`, `ZIDZ(a, b)` and `XIDZ(a, b, x)` (a / b, or 0, or x, where b is 0); and system dynamics' delays: `DELAY1(x, T)` and `DELAY3(x, T)`, material delays of
 the first and third order (what goes in comes out after `T` on average, and nothing is lost), and
 `SMOOTH(x, T)` and `SMOOTH3(x, T)`, information delays (exponential smoothing toward `x` over `T`).
 Each delay keeps hidden stocks of its own, starting in equilibrium with its input. Names have
-hyphens in them, so subtraction is written with spaces: `a - b`. Division by 0 gives 0 (Vensim's
-ZIDZ).
+hyphens in them, so subtraction is written with spaces: `a - b`. Nothing that fails is hidden: a
+division by 0 written with `/`, the logarithm or square root of a number out of range, a negative
+number to a fractional power and an overflow are each taken as 0 and counted, and the run's notes
+say which equation did it how often (write `ZIDZ(a, b)` where 0 is meant); a value past 10¹² is
+clamped and makes the run not valid.
 
 **Every number says where it comes from**, its **provenance**: *declared* (its value is written
 here), *estimated* (fitted from the record, with how well, from how many points, and when: kept in
@@ -572,6 +579,11 @@ once with no stock or delay between (an algebraic loop); a lookup used as a numb
 - **equation-units**: where units are written, an equation must add like things and come out in
   its part's unit (a flow's per hour); a number written in it takes the unit it needs, and anything
   whose unit is not written is not checked;
+- **equation-sign**: a `driven-by` written with a sign the equation contradicts. A link's polarity is
+  the sign of the partial derivative (Sterman ch. 5.2), so each is worked out by finite differences
+  across a range of operating points (every part at 0.25 to 50, the parameters at their values,
+  each delay in equilibrium): the other sign wherever it was tried, or a sign that changes across
+  the range, is said, since every loop drawn through the link would have the wrong polarity;
 - **size-unknown**: a `driven-by` the equation does not use: the link is drawn, with its sign, and
   its size is not known (the equation says it has none);
 - **equation-not-drawn**: a part the equation uses that `driven-by` does not name, so the diagram
@@ -978,50 +990,94 @@ description), from which stock, to which.
 
 ## 12b. Replay, projection, fit and proposals
 
-**Replay** (`ergostat/numbers/simulate.py`): the model run over the window, as system dynamics
-calibrates a model (Oliva 2003; Homer 2012, partial-model testing). Each stock starts where it was
-first measured and is integrated from its flows; each flow and auxiliary with an equation is worked
-out from it; every other input (a flow a block moves, a rate a sensor reads, an auxiliary from
-outside) is driven by what was measured. So the replay tests exactly the equations the model
-writes. Euler integration, a step a fraction of the window's bucket and of the shortest time the
-model names (a quarter of it), deterministic. **Projection**: from the state now (each stock as last
-read, each delay as the replay left it) for a quarter of the window, the inputs held where they were
-(or carried on along their recent trend).
+**What is compared** (`ergostat/numbers/observe.py`): the record on a grid of equal buckets, and how
+each part's record was made, so the model can be read the same way (Oliva 2003: fit the model's
+output to the data through the same aggregation; Ljung ch. 4: an output-error predictor includes
+the measurement). A **level** (a stock, an auxiliary) is its last reading in each bucket, and is
+compared with the model at that reading's moment. A **counted** flow (items entering or leaving a
+state, a valve's openings, a stock's own changes) is the amounts at the times they moved: it drives
+the replay as it happened, and an equation for it is compared bucket by bucket with what it moved,
+the model's own integral over the same bucket on the other side. A flow **read** as a rate is its
+readings' mean in each bucket, compared with the model's rate averaged over the window the sensor
+says its readings average over (`averages:`). The fit and the estimates look at the **reference
+window**, the last day of record at most, in buckets of at least ten seconds, whatever window the
+page shows (*decided*: a fit that changed with the page's window was not a fit of the model).
 
-**Fit** (`ergostat fit`, the Fit page): each stock's replay against its readings, and in total, by
-Sterman's measures (*Business Dynamics* ch. 21; "Appropriate summary statistics for evaluating the
-historical fit of system dynamics models", 1984): **R²** (the squared correlation: how much of the
-measured variation the replay moves with), **MAPE** (the mean absolute error as a share of what was
-measured, over the points not 0), and **Theil's inequality statistics**, which split the mean
-squared error into **U_M**, bias (the replay runs high or low), **U_S**, unequal variation (it
-swings more or less than the record) and **U_C**, unequal covariation (it moves at other moments:
-noise a model need not follow); they sum to 1, and a good fit's error is mostly U_C. The total
-averages R² and MAPE over the stocks, and takes Theil's shares from each stock's squared error over
-its own size, so no unit outweighs another. An equation whose part is measured is also compared
-with its readings. Each **version** of the model (a hash of its structure and the numbers written
-in it) has its fit recorded as it is computed (`<state>/fit/history.jsonl`, at most every five
-minutes a version).
+**Replay** (`ergostat/numbers/simulate.py`): the model run over the record, as system dynamics
+calibrates a model (Oliva 2003; Homer 2012, partial-model testing). Each stock starts at its first
+reading, at that reading's moment, and is integrated from its flows; each flow and auxiliary with an
+equation is worked out from it; every other input (a flow a block moves, a rate a sensor reads, an
+auxiliary from outside) is driven by what was measured, a counted flow by what moved when it moved.
+So a stock whose flows are all counted replays its own readings exactly, and the replay tests
+exactly the equations the model writes. With no stock integrated, every input is as measured: the
+**partial-model test** of each equation. **The step** follows the model's dynamics, never its units
+(Sterman app. A): at each bucket, how fast each stock answers itself and the others (|∂net/∂stock|
+by finite differences of the compiled equations at the operating point, bounded by Gershgorin's
+circles), a step a quarter of the fastest; a delay whose stages (T/order) are faster is stepped
+through each step in smaller steps of its own, so what leaves its stages is what its flow moves.
+Past 256 steps a bucket a stock's own drain is integrated implicitly (stable, settled at once) and
+the notes say so; a run that hit the clamp, or whose stocks drive each other faster than its step,
+is not valid, and is neither fitted nor shown as a fit.
+
+**Projection**: open loop (*decided*, until the blocks' laws are simulated): from the state now
+(each stock the mean of its last few readings, each delay as the replay left it), the inputs held
+where they were (or carried on along their recent trend), the controllers held, for a horizon of
+three of the slowest time constant the replay met, within a twentieth and a quarter of the window.
+What a flow a block sets moves (that flow, its stocks, and what follows from them) is left out of
+the projection, and the chart says so.
+
+**Fit** (`ergostat fit`, the Fit page), by Sterman's measures (*Business Dynamics* ch. 21;
+"Appropriate summary statistics for evaluating the historical fit of system dynamics models",
+1984): **R²** (the squared correlation: how much of the measured variation the replay moves with),
+**MAPE** (the mean absolute error as a share of what was measured; where a reading is near 0 or
+they cross it, the mean absolute error as a share of their mean or range instead), and **Theil's
+inequality statistics**, which split the mean squared error into **U_M**, bias, **U_S**, unequal
+variation and **U_C**, unequal covariation; they sum to 1, and a good fit's error is mostly U_C. A
+large error (past a tenth of the readings' size) with U_M or U_S past 0.1 is said in words (runs
+high, swings less than the record). Three tables: the **model fit**, the stocks an equation moves,
+which alone make the total (R² and MAPE averaged, Theil's shares from each stock's squared error
+over its own size) and its history; the **equations**, each with its inputs as measured (the
+partial-model test, the sharpest test of one equation) and replayed; and **accounting**, the stocks
+moved only by measured flows, which test no equation (their error is a measurement's or a missing
+flow's: the residuals). A flow measured only by its stock's `changes:` is judged by its stock's
+replay, not against its own differenced readings. A series is judged only on ten points or more,
+over at least three of the slowest time constant the replay met in it; else it says "too little
+record". Each **version** of the model (a hash of its structure and the numbers written in it) has
+its fit recorded with the span it covered (`<state>/fit/history.jsonl`, at most every five minutes
+a version).
 
 **Estimates** (`ergostat/numbers/estimate.py`): every `estimate: true` parameter is given the value
-that makes what it touches fit best: each equation using it against its own readings, every input
-as measured (the partial-model test), and every stock its flows move, replayed. Parameters that
-share an equation or a stock are fitted together (Nelder–Mead, on their logarithm when they start
-positive). An estimate is data: kept in `<state>/estimates/<structure>.json`, keyed by the model's
-**structure** (a hash of what moves what: stocks, flows, links, equations, parameters' names and
-units, not their values), so a value accepted keeps its estimates, and a changed structure starts
-afresh.
+that makes what it touches fit best: each equation using it in the partial-model test, and every
+stock its flows move, replayed; weighted least squares, each series' errors over its own spread
+(the readings' standard deviation, at least 1% of their mean). Parameters that share an equation or
+a stock are fitted together (Nelder–Mead, on their logarithm when they start positive, within a
+factor of a thousand of the value written), on the record but its last fifth, which is held out.
+Each estimate has a standard error, and those fitted together their correlations, from the Jacobian
+of the weighted errors at the optimum (Gauss–Newton, Ljung ch. 9), widened for errors that run
+together in time. An estimate is data: kept in `<state>/estimates/<structure>.json`, keyed by the
+model's **structure** (a hash of what moves what: stocks, flows, links, equations, parameters' names
+and units, not their values), so a value accepted keeps its estimates, and a changed structure
+starts afresh.
 
 **Proposals** (`ergostat proposals`, `ergostat accept ID`, `ergostat proposals --dismiss ID`, and an
 Accept beside the part on the page): each a concrete change with its reason, the fit before and
 after, and the smallest edit to the YAML that makes it, made on the file's text so its comments and
-order stay. Two kinds so far: a parameter set to its estimate (when it moves the value by more than
-2% and fits better), and an equation for a flow that has declared causes and none: a coefficient
-for each cause, by least squares on what was measured, proposed when it explains half or more of
-the flow's readings and agrees with every declared sign (an outflow has no constant term, so with
-its stock empty it stops). Nothing is applied by itself. Accepting applies the edit, refuses it (and
-puts the file back) if `check` would then find an error, and records `model.accepted` with the
-change, the versions before and after, and the fit of each; a dismissed proposal is not made again
-for that structure.
+order stay. Two kinds so far. A **parameter** set to its estimate, only when the record supports it:
+it spans three of the slowest time constant the parameter touches, the estimate is not at its
+bound (one there is a question of structure), the record tells it apart, it is more than two
+standard errors and 2% from the value written, and it fits the record held out better; otherwise it
+is kept with why, shown beside the parameter and on the Fit page, and proposes nothing. Its reason
+and the numbers first shown are those of the objective it minimised, on the record fitted and the
+record held out. An **equation** for a flow that has declared causes and none, a coefficient for
+each cause by least squares on what was measured, proposed when it explains half or more of the
+variation in the flow's readings (R² as 1 − SSE/SST) and agrees with every declared sign: an
+outflow is first-order in its stock, written with the time things stay (`stock.x / time-in-x`), and
+is proposed only when it names its stock as a cause; a one-way flow never gets a constant below 0
+and never runs backwards (`MAX(0, …)`); a flow and a cause in a loop a controller closes carry the
+warning that a regression there is biased (Ljung ch. 13). Nothing is applied by itself. Accepting
+applies the edit, refuses it (and puts the file back) if `check` would then find an error, and
+records `model.accepted` with the change, the versions before and after, and the fit of each on the
+same record; a dismissed proposal is not made again for that structure.
 
 ## 13. Examples
 

@@ -66,8 +66,26 @@ def mean_rate(project, flow: str, t0: float, t1: float) -> float | None:
     return sum(rates) / len(rates) if rates else None
 
 
+def counted(project, flow: str, t0: float, t1: float) -> float | None:
+    """How many items a flow counted from the record moved between ``t0`` and ``t1``, as they moved
+    (its readings, a rate over a trailing window, lag what happened): the replay's accounting basis."""
+    spec = getattr(project.model, "spec", None)
+    f = spec.flows.get(flow) if spec else None
+    q = next((s.items for s in (f.sensors.values() if f else []) if s.items), None)
+    if not q or q.get("kind") not in spec.items:
+        return None
+    from .spec import items as its
+    key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
+    return float(sum(1 for it in its.project(project.events, spec, q["kind"], until=t1) if its.matches(it, q.get("where") or {})
+                     for mv in it.moves if mv[key] == state and t0 < mv["time"] <= t1))
+
+
 def moved(project, flow: str, t0: float, t1: float) -> float | None:
-    """How much a measured flow moved between ``t0`` and ``t1`` (its readings are rates per hour)."""
+    """How much a measured flow moved between ``t0`` and ``t1``: what it counted, when it counts items;
+    else from its readings, rates per hour."""
+    got = counted(project, flow, t0, t1)
+    if got is not None:
+        return got
     r = mean_rate(project, flow, t0, t1)
     return None if r is None else r * (t1 - t0) / 3600.0
 

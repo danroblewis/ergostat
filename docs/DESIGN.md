@@ -195,12 +195,19 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
 owner's absence*), read only but for one kind of write: the owner's answer to a proposal (Accept or
-Dismiss) and asking for estimates (Estimate now), each a `POST` the page makes with its own header
-(`X-Ergostat: owner`), which another site's page cannot send; a snapshot offers none. Pages: Diagram (dynamics, blocks and wiring views; the side panel:
+Dismiss) and asking for estimates (Estimate now), each a `POST` the page makes. A request is served
+only when addressed to the server by its own name (the Host header is `127.0.0.1`, `localhost` or
+`[::1]` with its port: a page on another site whose name was pointed at 127.0.0.1, DNS rebinding,
+sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
+token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
+page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and wiring views; the side panel:
 attention, loops or cycles, model changes, legend), Loops, Agents (one list, by rung), Items (the
-record folded by id, by kind and state), Record (events, with runs hidden by default), Fit (each
-stock's replay against its readings: R², MAPE and Theil's U_M, U_S, U_C, the total, the fit's
-history across versions with each accepted change, the proposals waiting, and the residuals),
+record folded by id, by kind and state), Record (events, with runs hidden by default), Fit (over the
+last day of record, whatever the window: the model fit, the stocks its equations move, with the
+total; each equation with its inputs as measured and replayed; accounting, the stocks moved only by
+measured flows; each with R², MAPE, Theil's U_M, U_S, U_C and what a large error says, or "too
+little record"; the fit's history across versions with the span each covered and each accepted
+change; the proposals waiting, and why the estimates not proposed were not; and the residuals),
 Check, and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
 the real dynamics and blocks renderers (`ergostat/guide.py`), with its behaviour over time beside
 it (why: what we control and what we want; system dynamics; control; then the project's own model,
@@ -208,7 +215,8 @@ both ways). Clicking a part opens what `ergostat <topic> <name>` shows, in the d
 takes the side panel's place. Behaviour over time sits beside the structure, never on a page of
 its own (`docs/proposals/charts.md`, drawn with uPlot, vendored): a part's panel in the dynamics
 view opens with its causes strip (it, then what drives it, on one time axis; where the model works a part
-out, its replay dashed over the measured line and its projection past now dashed and lighter), a
+out, its replay dashed over the measured line and its projection past now dashed and lighter: open
+loop, the controllers held, so it is left out downstream of a flow a block sets), a
 valve's and an auxiliary's panel show its equation in MathML with each parameter's value and
 provenance and any proposal for it, with Accept, parts chosen with
 Shift chart in the side panel (and with none chosen, the parts charted last); a loop's panel, its

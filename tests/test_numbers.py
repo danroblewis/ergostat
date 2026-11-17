@@ -907,3 +907,21 @@ blocks:
     assert proj.notes[0].startswith("open loop") and "controllers held" in proj.notes[0]
     assert all(v is None for v in proj.values["stock.queue"]) and all(v is None for v in proj.values["flow.served"])
     assert "stock.queue" in proj.notes[1]
+
+
+def test_the_residuals_and_the_replay_count_on_one_basis(tmp_path):
+    """The replay of a stock whose flows are all counted and the residual's 'explained' agree: both are
+    what moved between its first and last readings, not the trailing rates its sensors report."""
+    from ergostat import state
+    p, snap = tickets_project(tmp_path)
+    for name in ("opened", "closed"):                       # readings of a trailing count, as the runner records them
+        for k in range(181):
+            at = snap["at"] - 3600 + k * 20
+            p.measurements.add(f"sensor/{name}.main", 6.0, at=at)
+    st_ = state.snapshot(p, 3600, snap["at"])
+    r = st_["residuals"]["open-tickets"]
+    data = sim.measured(p, sim.Grid(snap["at"] - 3600, snap["at"], 120))
+    run = sim.replay(p.model.spec, data)
+    t0, v0 = data.started["stock.open-tickets"]
+    assert r["explained"] == pytest.approx(run.state["open-tickets"] - v0, abs=1e-9)
+    assert abs(r["unexplained"]) < 1e-9

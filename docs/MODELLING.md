@@ -254,8 +254,9 @@ the YAML that writes it. Read them in this order:
    `units-mismatch`, `auxiliary-without-causes`, `stock-without-flows`): the model says something
    about how the world works that system dynamics says cannot be right. Fix these first: every
    loop drawn from a wrong structure is wrong too.
-2. **Signs** (`unsigned-link`): the loops through an unsigned link are of unknown polarity, so
-   the diagram cannot say which reinforce and which balance.
+2. **Signs** (`unsigned-link`, `equation-sign`): the loops through an unsigned link are of unknown
+   polarity, so the diagram cannot say which reinforce and which balance; a link whose equation
+   moves its effect the other way from the sign drawn makes every loop through it wrong.
 3. **Control** (`missing-feedback`, `unjudgeable-goal`, `acting-on-its-own`, `competing-commands`,
    `own-disturbance`, `unguarded-limit`): what is wanted and whether anything serves it.
 
@@ -264,12 +265,29 @@ cannot know it: `instant: true` on a link that really is immediate, `cumulative:
 running total, `exogenous: true` on an input from outside. Write the reason beside it as a
 comment, so the next reader can disagree.
 
-## Reading the Fit page: the replay against the record
+## Reading the Fit page: the model against the record
 
-The Fit page (and `ergostat fit`) replays the model over the window and compares each stock with
-its readings. **R²** is how much of the measured variation the replay moves with; **MAPE** how far
-off it is, as a share of what was measured. **Theil's statistics** say what kind of error it is
-(Sterman ch. 21):
+The Fit page (and `ergostat fit`) runs the model over the last day of record at most, whatever the
+window above it shows, and reads it the way the record was made: a stock at its reading's moment,
+a counted flow by what it moved in each bucket, a rate a sensor averages over ten minutes by the
+model's own ten-minute average. It shows three things, each as itself:
+
+- **Model fit**: the stocks an equation moves, replayed (every stock integrated from its flows).
+  These alone make the total and its history across versions.
+- **Equations, inputs as measured**: each equation against its own readings with every input as
+  measured, no stock integrated. This is Homer's partial-model test, the sharpest test of one
+  equation; **Equations, replayed** is the same equation on inputs the replay has integrated, which
+  have drifted when another equation is wrong. Read the first to judge the equation, the second to
+  see what it does in the model. A flow measured only by its stock's `changes:` is judged by its
+  stock's replay instead (its own readings are the stock's, differenced).
+- **Accounting**: stocks moved only by measured flows. They test no equation: their replay is the
+  sum of what was measured, so an error there is a measurement's, or a flow the model lacks (read
+  the residuals), never a sign that an equation is wrong.
+
+**R²** is how much of the measured variation the replay moves with; **MAPE** how far off it is, as
+a share of what was measured (where readings reach 0, the error as a share of their mean or range:
+a percentage of almost nothing says nothing). **Theil's statistics** say what kind of error it is
+(Sterman ch. 21), and the page says it in words when the error is large:
 
 - **U_M large (bias)**: the replay runs high or low throughout. A constant is wrong (a base rate,
   a share), or an inflow or outflow is missing (and the residual says which).
@@ -278,8 +296,11 @@ off it is, as a share of what was measured. **Theil's statistics** say what kind
 - **U_C large (unequal covariation)**: the error is point-by-point, at other moments: noise, or a
   timing difference. This is where a good fit's error should be; a model need not follow the noise.
 
-An equation whose own flow is measured is compared with its readings too; that is the sharpest test
-of one equation (Homer's partial-model test), since every input is as measured.
+A high R² beside a large U_M is a model that moves at the right moments by the wrong amount. A
+series with fewer than ten points, or a record shorter than three of its slowest time constant,
+says "too little record" instead of numbers: a fit of a few points, or of a record the model has
+not had time to answer, says nothing. A replay that blew up (a value clamped) is marked not valid
+and has no total.
 
 ## Reading the residuals: evidence of what is missing
 
@@ -317,11 +338,18 @@ equally well. The model's structure is still a claim people make and data tests.
 `equation: base + k * stock.unreviewed-ramps-live`, each parameter with its value and unit, and
 `estimate: true` on the ones to fit. ergostat replays the model over the record (each stock
 integrated from its flows, each equation worked out, everything else as measured), and says how
-well the replay fits (`ergostat fit`, the Fit page). It estimates the parameters marked to fit, and
-fits a coefficient to each declared cause of a measured flow that has no equation, by least squares
-on what was measured. Each is a **proposal**, with its reason, the fit before and after, and the
-YAML edit: nothing changes until the owner accepts it (`ergostat accept ID`, or Accept beside the
-part on the page). What ergostat still does not do is propose **structure** (a stock, a delay, a
+well the replay fits (`ergostat fit`, the Fit page). It estimates the parameters marked to fit, by
+weighted least squares on the partial-model test of each equation they appear in and the replay of
+each stock they move, with a standard error for each and the correlation of those fitted together,
+on the record but its last fifth. It proposes a value only when the record supports it: the record
+spans three of the slowest time constant the value touches, the estimate is not at its bound (a
+thousand times the value written: a question of structure), the record tells it apart from the
+others, it is more than two standard errors and 2% from the value written, and it fits the last
+fifth better. It fits a coefficient to each declared cause of a measured flow that has no equation,
+by least squares on what was measured; an outflow as its stock over a time (first-order control),
+only when it names its stock as a cause; a one-way flow never below 0. Each is a **proposal**, with
+its reason, the fit before and after, and the YAML edit: nothing changes until the owner accepts it
+(`ergostat accept ID`, or Accept beside the part on the page). What ergostat still does not do is propose **structure** (a stock, a delay, a
 cause the model lacks): a residual and a poor fit say where to look, and the guidelines above say
 what to write. A `driven-by` the equation leaves out is drawn with its sign and flagged
 **size-unknown**: its size is not known.
@@ -330,7 +358,12 @@ Write an equation in the model's own terms first (Sterman ch. 13: every paramete
 something in the real world, and be measurable in principle): a first-order outflow is the stock
 over the time things stay (`stock.x / time-in-x`), a coflow so many of one unit per another
 (`alerts-per-outage * flow.outages`), a perceived value a `SMOOTH` of the true one, a pipeline a
-`DELAY3`. Mark `estimate: true` what you cannot know from the code or the process, and give it what
+`DELAY3` (an outflow that is a material delay of its stock's own inflow, `DELAY3(flow.in, T)`,
+drains that stock: the delay's stages are what is in it). A moving average over the last L lags by
+L/2, half its length: the first-order smoothing with its lag has a time of L/2, not L (Sterman ch.
+11.5). Write time in hours: a duration (`value: 30m`) or a rate per hour; a unit counting time in
+minutes or days is refused, since its value would be read as hours. A sensor that reports an average
+over a window says so (`averages: 10m`), so the model is read through the same window. Mark `estimate: true` what you cannot know from the code or the process, and give it what
 you believe as its value: the estimate starts there.
 
 **Sources.** Ljung, *System Identification: Theory for the User* (2nd ed., 1999); Sterman ch. 21

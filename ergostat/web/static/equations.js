@@ -74,8 +74,8 @@ function provenance(p) {
   else if (p.value != null) bits.push("declared");
   else bits.push(p.estimate ? "not known yet: to be estimated" : "not known yet");
   const e = p.estimated;
-  if (e) bits.push(`estimated ${amount(p, e.value, false)} (${e.r2 != null ? `R² ${e.r2.toFixed(2)}, ` : ""}${e.n} points, ${ago(e.when)})`);
-  else if (p.estimate_note) bits.push(p.estimate_note);
+  if (e) bits.push(`estimated ${amount(p, e.value, false)}${e.se != null ? ` \u00b1 ${amount(p, e.se, false)}` : ""} (${e.n} points, ${ago(e.when)})`);
+  if (p.estimate_note) bits.push(e ? `not proposed: ${p.estimate_note}` : p.estimate_note);
   return bits.join("; ");
 }
 function parameterTable(params) {
@@ -96,17 +96,34 @@ function equationSection(name, nb) {
     if (nb.unit_problems?.length) notes.push(h("p", { class: "s-open small" }, op(nb.unit_problems.join("; "))));
     else if (nb.equation_ok === false) notes.push(h("p", { class: "s-open small" }, `It comes out in ${nb.equation_unit}: its units do not agree (ergostat check says how).`));
     if (nb.left_out) notes.push(h("p", { class: "muted small" }, nb.left_out.split(": ").slice(1).join(": ")));
-    if (nb.fit) notes.push(h("p", { class: "muted small" }, `Against its readings, replayed: ${[nb.fit.r2 != null ? `R\u00b2 ${nb.fit.r2.toFixed(2)}` : "",
-      nb.fit.mape != null ? `MAPE ${Math.round(nb.fit.mape * 100)}%` : ""].filter(Boolean).join(", ") || "no error"} (${nb.fit.n} points).`));
+    if (nb.invalid?.length) notes.push(h("p", { class: "s-off small" }, `The replay is not valid: ${nb.invalid.join("; ")}.`));
+    if (nb.judged_by_stock) {
+      const st = nb.judged_by_stock.split(".").slice(1).join(".");
+      notes.push(h("p", { class: "muted small" }, `Measured from its stock's changes, so judged by ${st}'s replay` +
+        (nb.stock_fit ? `: ${fitWords(nb.stock_fit)}.` : ".")));
+    } else {
+      if (nb.partial) notes.push(h("p", { class: "muted small" }, `Inputs as measured (the partial-model test): ${fitWords(nb.partial)}.`));
+      if (nb.replay) notes.push(h("p", { class: "muted small" }, `Replayed, every stock integrated: ${fitWords(nb.replay)}.`));
+      if ((nb.partial || nb.replay) && nb.fit_span) notes.push(h("p", { class: "muted small" }, `Over the last ${dur(nb.fit_span)} of record.`));
+    }
     out.push(...notes);
   }
   for (const x of nb.proposals || []) out.push(proposalBlock(x));
   return out.length ? h("div", { class: "numbers" }, out) : null;
 }
 
+/* one series' fit, in a line: its R², its error (MAPE, or as a share of the readings' mean or range),
+   what a large error says; or why there is too little to judge */
+function fitWords(s) {
+  if (s.too_little) return `too little record (${s.too_little})`;
+  if (s.exact) return `no error (${s.n} points)`;
+  const err = s.mape != null ? `MAPE ${Math.round(s.mape * 100)}%` : s.error_share != null ? `error ${Math.round(s.error_share * 100)}% of the ${s.error_of}` : "";
+  return [s.r2 != null ? `R\u00b2 ${s.r2.toFixed(2)}` : "", err, s.says || "", `${s.n} points`].filter(Boolean).join(", ");
+}
+
 /* a proposal: what it changes, why, the fit before and after, the edit, and the owner's two answers */
 const r2Text = (t) => (t?.r2 != null ? t.r2.toFixed(2) : "–");
-const mapeText = (t) => (t?.mape != null ? `${Math.round(t.mape * 100)}%` : "–");
+const mapeText = (t) => (t?.mape != null ? `${Math.round(t.mape * 100)}%` : t?.error_share != null ? `${Math.round(t.error_share * 100)}% of ${t.error_of}` : "–");
 function proposalBlock(x, { onDone = null } = {}) {
   const b = x.fit_before?.total, a = x.fit_after?.total;
   const said = h("p", { class: "small" });
@@ -132,7 +149,7 @@ function proposalBlock(x, { onDone = null } = {}) {
   return h("div", { class: "proposal" },
     h("div", { class: "proposal-title" }, h("span", { class: "muted small" }, x.kind === "parameter" ? "Proposed value" : "Proposed equation"), h("div", {}, op(x.title).replaceAll(" * ", " \u00d7 "))),
     h("p", { class: "muted small" }, x.reason),
-    dl([...touchedFits(x), ["fit, in total", b || a ? beforeAfter(b, a) : null]]),
+    dl([...(x.objective ? [["fitted to", objectiveText(x.objective)]] : []), ...touchedFits(x), ["fit, in total", b || a ? beforeAfter(b, a) : null]]),
     x.edit?.diff ? h("pre", { class: "diff" }, x.edit.diff.split("\n").map((l) => h("div", { class: l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : "muted" }, l)))
       : h("p", { class: "s-open small" }, `ergostat cannot make this edit (${x.edit?.error}); write it by hand.`),
     SNAP ? h("p", { class: "muted small" }, `ergostat accept ${x.id} applies it.`) : h("div", { class: "actions" }, accept, dismiss),
@@ -146,6 +163,11 @@ function touchedFits(x) {
     const said = beforeAfter(fb, fa);
     return said !== "\u2013" ? [r.split(".").slice(1).join("."), said] : null;
   }).filter(Boolean);
+}
+/* the weighted error the estimate minimised, before and after, on the record fitted and the record held out */
+function objectiveText(o) {
+  const f = (v) => (v == null ? "\u2013" : fmt(v));
+  return `weighted error ${f(o.before)} \u2192 ${f(o.after)}` + (o.held_before != null ? `; held out ${f(o.held_before)} \u2192 ${f(o.held_after)}` : "");
 }
 /* R² and MAPE, before and after, leaving out what neither has */
 function beforeAfter(b, a) {

@@ -77,10 +77,11 @@ def over(since: float, until: float, n: int) -> float:
     return max((until - since) / n, (until - since) / 12)
 
 
-def _per_hour(events: list[tuple[float, float]], since: float, until: float, n: int) -> list[float]:
-    """Amounts at times, as a rate per hour at each bucket's end, over the time before it."""
+def _per_hour(events: list[tuple[float, float]], since: float, until: float, n: int, back: float | None = None) -> list[float]:
+    """Amounts at times, as a rate per hour at each bucket's end, over the time before it (``back``:
+    the sensor's own window, when it has one)."""
     import bisect
-    w, back = (until - since) / n, over(since, until, n)
+    w, back = (until - since) / n, back or over(since, until, n)
     events = sorted(events)
     ts, sums = [t for t, _ in events], [0.0]
     for _, a in events:
@@ -101,10 +102,11 @@ def _moves(p, flow: str, since: float, until: float, n: int) -> list[float] | No
     if not q or q.get("kind") not in spec.items:
         return None
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
-    start = since - over(since, until, n)
+    back = max(float(q.get("over") or 3600.0), (until - since) / n)       # the sensor's window: never the page's
+    start = since - back
     moved = [(mv["time"], 1.0) for it in its.project(p.events, spec, q["kind"], until=until) if its.matches(it, q.get("where") or {})
              for mv in it.moves if mv[key] == state and start <= mv["time"] <= until]
-    return _per_hour(moved, since, until, n)
+    return _per_hour(moved, since, until, n, back)
 
 
 def _opened(p, valves: list[str], since: float, until: float, n: int) -> list[float]:
@@ -157,7 +159,8 @@ def rate(p, flow: str, since: float, until: float, n: int, changes: bool = True)
     back = dur(over(since, until, n))
     got = _moves(p, flow, since, until, n)
     if got is not None:
-        return got, f"items moving, from the record, over {back}"
+        q = next((s.items for s in m.spec.flows[flow].sensors.values() if s.items), {}) if getattr(m, "spec", None) else {}
+        return got, f"items moving, from the record, over {dur(max(float(q.get('over') or 3600.0), (until - since) / n))}"
     valves = [v.name for v in m.valves.values() if v.flow == flow]
     if valves:
         return _opened(p, valves, since, until, n), f"opened by {', '.join(valves)}, over {back}"

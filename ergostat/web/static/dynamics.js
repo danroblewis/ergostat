@@ -566,7 +566,8 @@ async function openNodeSD(n) {
     let d = null;
     try { d = await api(`part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
-    rows.push(["rate now", now.rate != null ? `${fmt(now.rate)}/h` : n.rateText], ["how it is known", now.how || n.how],
+    rows.push(["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : n.rateText],
+              ["how it is known", now.how || n.how],
               ["inputs", join(causes) || h("span", { class: "muted" }, "none drawn: nothing in the model points into it")],
               ["equation", d?.numbers?.equation_tree ? null : n.equation || d?.equation || "not known"]);
     const flow = n.flow || n.label;
@@ -634,7 +635,7 @@ async function openEdgeSD(e) {
       causesStrip(`flow.${e.flow}`),
       dl([["what moves", [unit, m.description].filter(Boolean).join(": ") || "not said (no unit or description)"],
           ["from", m.source ? link(`stock:${m.source}`) : "a source outside the model"], ["to", m.target ? link(`stock:${m.target}`) : "a sink outside the model"],
-          ["its valve", valve ? link(valve.id) : e.flow], ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : valve?.rateText],
+          ["its valve", valve ? link(valve.id) : e.flow], ["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : valve?.rateText],
           ["runs", (m.two_way ?? e.twoWay) ? "either way (a biflow)" : "one way"]]),
       crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops, sdWhat("pipe"));
   } else {

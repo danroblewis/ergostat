@@ -24,10 +24,14 @@ Run these in the project (with the MCP server, the tools of the same names):
   `stock-without-flows`; each ends with its fix and the YAML that writes it.
 - `ergostat residual` (or the Fit page; MCP `findings` reports the significant ones): which
   stocks move more, or less, than their flows explain, and which way.
-- `ergostat fit` (or the Fit page): how well the model's replay follows each stock (R², MAPE, and
-  Theil's U_M bias, U_S unequal variation, U_C unequal covariation), and each written equation
-  against its own readings. `ergostat proposals` lists what the record supports (parameters
-  estimated, equations fitted); proposing structure is yours.
+- `ergostat fit` (or the Fit page): how well the model's replay follows each stock its equations
+  move (R², MAPE, and Theil's U_M bias, U_S unequal variation, U_C unequal covariation), each
+  written equation against its own readings with every input as measured (the partial-model test)
+  and replayed, and the stocks moved only by measured flows (accounting: their error is a
+  measurement's or a missing flow's, not an equation's). "Too little record" means there is not yet
+  enough to judge. `ergostat proposals` lists what the record supports (parameters estimated, with
+  their standard errors, equations fitted), and says why an estimate was not proposed; proposing
+  structure is yours.
 - `ergostat explain` (MCP `explain`): the feedback loops, each R, B or of unknown polarity, and
   any part in sentences (`ergostat explain flow.x`).
 - Read the YAML itself, and the program behind any sensor whose meaning is unclear: what a stock

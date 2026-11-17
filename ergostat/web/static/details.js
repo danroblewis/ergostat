@@ -343,7 +343,7 @@ async function openEdge(e) {
     const valve = g.nodes.find((n) => (n.kind === "valve" || n.kind === "disturbance") && n.flow === e.flow);
     what = `Here: ${e.flow} moves material from ${m.source || "outside the model"} to ${m.target || "outside the model"}.`;
     rows.push(["flow", e.flow], ["from", m.source || "outside the model"], ["to", m.target || "outside the model"],
-              ["rate now", now.rate != null ? `${fmt(now.rate)}/h` : (valve?.rateText || "not known yet")],
+              ["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : (valve?.rateText || "not known yet")],
               ["how we know", now.how || valve?.how],
               ["moved by", valve?.kind === "valve" ? [valve.label, valve.agent ? ` (${badgeText(valve.agent)})` : ""] :
                            "nothing in the model: a disturbance to the loops on its stocks"],
