@@ -143,7 +143,7 @@ def model_change_kind() -> ItemKind:
 
 def claim_kind() -> ItemKind:
     on = {f"{CLAIM}.{s}": s for s in CLAIM_STATES}
-    return ItemKind(CLAIM, f"{CLAIM}/*", list(CLAIM_STATES), on, ["says", "about", "block", "check", "verdict"], {}, None,
+    return ItemKind(CLAIM, f"{CLAIM}/*", list(CLAIM_STATES), on, ["says", "about", "block", "kind", "why"], {}, None,
                     "what a block said it did (a claim line), checked by ergostat against the record and the world: "
                     "verified, contradicted, or unchecked (built in, SPEC §12g)")
 

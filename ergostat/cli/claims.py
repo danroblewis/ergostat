@@ -42,10 +42,10 @@ def cmd_claims(args) -> int:
         print(f"{got['id']}  {c(got['state'], 'bold')}\n  says   {got['says']}\n  about  {got.get('about') or '-'}\n"
               f"  by     {got.get('block')} ({got.get('rung') or '?'}{', ' + got['model'] if got.get('model') else ''})"
               f"{', session ' + got['session'] if got.get('session') else ''}, run {str(got.get('run') or '')[:8]}\n"
-              f"  check  {got.get('kind') or 'none'}\n  why    {got.get('why') or '(not checked yet)'}")
+              f"  check  {got.get('kind') or 'none'}\n  why    {got.get('why') or '(not checked yet)'}\n  evidence")
         for k, v in (got.get("evidence") or {}).items():
             text = str(v)
-            print(f"  {k:<7}{text if len(text) < 200 and chr(10) not in text else chr(10) + text}")
+            print(f"    {k:<8} {text if len(text) < 200 and chr(10) not in text else chr(10) + text}")
         return 0
     t = trust.table(p, since)
     if args.json:
