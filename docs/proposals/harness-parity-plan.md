@@ -317,3 +317,10 @@ resource or wiring; how it is measured; dependencies.
   and tokens; resumable, with a cost cap. Built-in variants: none, docs, the owner's words, a fork, memory files;
   any projection (`ergostat context ...`, when it lands) is a file. The first run's dataset, answers and scores
   are private (outside the repository). Tests on made-up data (`tests/test_parity.py`).
+- **F3 first run** (48 cases from the session: 40 questions, 8 tasks; sonnet answering and judging; ~$5.6).
+  Score by starting context: none 0.03 · docs 0.33 · fork of the last 20 turns 0.28 (0.95 inside its window,
+  0.11 outside) · memory files 0.21 · all the owner's messages 0.94 (an upper bound: the truths are quoted
+  from them). Learned: the owner's messages are small (~30k tokens) and carry most of what matters; docs and
+  memory carry outcomes, not reasons or rejections; fresh sessions repeat corrected mistakes on tasks (what
+  2.13 should carry); truths need "as of" (a decision later reversed). Next dataset: truths from the
+  assistant's turns and the commits, not only the owner's words.
