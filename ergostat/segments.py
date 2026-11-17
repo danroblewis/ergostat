@@ -38,7 +38,7 @@ SEAL = 32768              # events per sealed segment
 BLOCK = 512               # lines per gzip block
 BLOOM_BITS = 10           # per id: about one false hit in a hundred, with K hashes
 BLOOM_K = 7
-COLS = (("seq", "q"), ("time", "d"), ("item", "i"), ("type", "I"), ("by_item", "I"), ("by_type", "I"))
+COLS = (("seq", "q"), ("time", "d"), ("item", "i"), ("type", "I"), ("by_item", "I"), ("by_type", "I"), ("pos", "I"))
 SNAPSHOT = "ergostat.item.snapshot"
 INF = float("inf")
 
@@ -140,22 +140,25 @@ def write_segment(d: Path, events: list[dict]) -> Path:
     """Seal these events (in seq order) as a segment: blocks, ids, index (last). Returns the index."""
     name = f"seg-{events[0]['seq']:012d}-{uuid.uuid4().hex[:8]}"
     gz, ids, idx = d / f"{name}.gz", d / f"{name}.ids", d / f"{name}.idx"
-    blocks = []
-    with open(gz, "wb") as f:
-        for i in range(0, len(events), BLOCK):
-            body = gzip.compress(("\n".join(json.dumps(e, separators=(",", ":"), default=str)
-                                            for e in events[i:i + BLOCK]) + "\n").encode(), compresslevel=6)
-            blocks.append([f.tell(), len(body)])
-            f.write(body)
-        f.flush()
-        os.fsync(f.fileno())
-    ids.write_text("\n".join(e["id"] for e in events) + "\n")
     items = sorted({e.get("item") for e in events}, key=lambda x: (x is None, x or ""))
     types = sorted({e["type"] for e in events})
     item_ix = {x: i for i, x in enumerate(items)}
     type_ix = {x: i for i, x in enumerate(types)}
     by_item = sorted(range(len(events)), key=lambda r: (item_ix[events[r].get("item")], r))
     by_type = sorted(range(len(events)), key=lambda r: (type_ix[events[r]["type"]], r))
+    pos = array.array("I", bytes(4 * len(events)))       # each row's place in the blocks, which hold the rows by item:
+    for p_, r in enumerate(by_item):                     # one item's events are a block or two, read alone
+        pos[r] = p_
+    blocks = []
+    with open(gz, "wb") as f:
+        for i in range(0, len(events), BLOCK):
+            body = gzip.compress(("\n".join(json.dumps(events[r], separators=(",", ":"), default=str)
+                                            for r in by_item[i:i + BLOCK]) + "\n").encode(), compresslevel=6)
+            blocks.append([f.tell(), len(body)])
+            f.write(body)
+        f.flush()
+        os.fsync(f.fileno())
+    ids.write_text("\n".join(e["id"] for e in events) + "\n")
 
     def spans(order, key, names):
         out, at = {}, 0
@@ -182,7 +185,7 @@ def write_segment(d: Path, events: list[dict]) -> Path:
     cols = {"seq": array.array("q", (e["seq"] for e in events)), "time": array.array("d", (e["time"] for e in events)),
             "item": array.array("i", (item_ix[e.get("item")] for e in events)),
             "type": array.array("I", (type_ix[e["type"]] for e in events)),
-            "by_item": array.array("I", by_item), "by_type": array.array("I", by_type)}
+            "by_item": array.array("I", by_item), "by_type": array.array("I", by_type), "pos": pos}
     tmp = idx.with_suffix(".tmp")
     with open(tmp, "wb") as f:
         f.write((json.dumps(header, separators=(",", ":")) + "\n").encode())
@@ -313,7 +316,8 @@ class Segments:
         return evs
 
     def _event(self, s: Segment, row: int) -> dict:
-        return json.loads(self._block(s, row // BLOCK)[row % BLOCK])
+        p = self._cols(s)["pos"][row]
+        return json.loads(self._block(s, p // BLOCK)[p % BLOCK])
 
     def _rows(self, s: Segment, item=..., types=None, since=None, until=None, after_seq=None, before_seq=None,
               item_test=None) -> list[int]:
@@ -679,7 +683,7 @@ class Segments:
             rows = drop_rows(s)
             if not rows and not here:
                 continue
-            evs = [json.loads(x) for b in range(len(s.blocks)) for x in self._block(s, b)]
+            evs = sorted((json.loads(x) for b in range(len(s.blocks)) for x in self._block(s, b)), key=lambda e: e["seq"])
             new = [e for r, e in enumerate(evs) if r not in rows]
             gone += len(evs) - len(new)
             for q, e in here.items():
