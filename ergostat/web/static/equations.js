@@ -105,6 +105,7 @@ function equationSection(name, nb) {
       if (nb.partial) notes.push(h("p", { class: "muted small" }, `Inputs as measured (the partial-model test): ${fitWords(nb.partial)}.`));
       if (nb.replay) notes.push(h("p", { class: "muted small" }, `Replayed, every stock integrated: ${fitWords(nb.replay)}.`));
       if ((nb.partial || nb.replay) && nb.fit_span) notes.push(h("p", { class: "muted small" }, `Over the last ${dur(nb.fit_span)} of record.`));
+      else if (nb.replayed && !nb.left_out) notes.push(h("p", { class: "muted small" }, "Not compared with its readings yet: too little record, or nothing measures it."));
     }
     out.push(...notes);
   }

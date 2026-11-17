@@ -907,7 +907,7 @@ blocks:
     proj = sim.project(p.model.spec, data, run, 1800)
     assert proj.notes[0].startswith("open loop") and "controllers held" in proj.notes[0]
     assert all(v is None for v in proj.values["stock.queue"]) and all(v is None for v in proj.values["flow.served"])
-    assert "stock.queue" in proj.notes[1]
+    assert "left out downstream of a controller's flow" in proj.notes[1]
 
 
 def test_the_residuals_and_the_replay_count_on_one_basis(tmp_path):

@@ -534,7 +534,7 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
     notes = [f"open loop: inputs {'held where they were' if inputs == 'hold' else 'carried on along their trend'}, "
              f"controllers held"]
     if left:
-        notes.append(f"left out downstream of a controller's flow: {', '.join(left)}")
+        notes.append(f"left out downstream of a controller's flow ({len(left)} part{'s' if len(left) > 1 else ''})")
     how = {f"stock.{s}": "integrated" for s in pl.integrate} | {r: "equation" for r in pl.eqs}
     return Run(times, out, how, notes + st.clamps(), {s: v for s, v in state.items() if v is not None}, st.S,
                invalid=st.clamps())
