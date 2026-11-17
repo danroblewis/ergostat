@@ -382,3 +382,11 @@ def test_image_squeeze_developer_session_takes_a_note_while_it_builds(tmp_path, 
     assert its.one(p.events, p.model.spec, "hypothesis/1").state == "testing"    # and it did the work
     claims = [e for e in p.events.query(n=None, type="ergostat.claim.made")]
     assert claims and all(c["data"]["session"] == started["item"] for c in claims)
+
+
+def test_the_stand_in_reads_a_possessive_as_the_name(tmp_path):
+    p = project(tmp_path, BRIEFER)
+    items(p)
+    p.events.add("review.requested", item="review/2043", source="watch", data={"title": "Migrate the search index", "author": "bo"})
+    m = send(p, "that review of Bo's, the search one, can wait")
+    assert [t["item"] for t in m["routed_to"]] == ["review/2043"]    # Bo's and search: 2042 is Bo's, not search

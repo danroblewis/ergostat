@@ -24,7 +24,7 @@ from . import record
 
 PART = re.compile(r"\b(stock|flow|block|goal|auxiliary)\.([a-z][a-z0-9-]*)\b")
 ID = re.compile(r"(?<![\w/.-])([a-z][a-z0-9_-]*(?:/[A-Za-z0-9_.:-]*[A-Za-z0-9])+)")
-WORD = re.compile(r"[a-z0-9][a-z0-9'-]*")
+WORD = re.compile(r"[a-z0-9][a-z0-9'\u2019-]*")
 STOP = set("""a an and are as at be been but by can could did do does done for from had has have how i if in into is it
 its it's just me my no not now of on one or our please so some than that the their them then there these they this to too
 up us was we were what when where which who why will with would you your can't don't won't first next later wait again
@@ -161,11 +161,16 @@ def mentions(spec: Spec, text: str, items: dict[str, dict]) -> tuple[list[str], 
     return its, parts
 
 
+def words_of(text: str) -> set[str]:
+    """Its words, lowercased, a possessive's "'s" left off (Ben's: ben)."""
+    return {w.removesuffix("'s").removesuffix("\u2019s").strip("'-") for w in WORD.findall(text.lower())}
+
+
 def _words(v) -> set[str]:
     if isinstance(v, str):
         if v.startswith("file:"):
             return set()
-        return {w.strip("'-") for w in WORD.findall(v.lower())} - STOP
+        return words_of(v) - STOP
     if isinstance(v, list):
         return set().union(*(_words(x) for x in v[:20])) if v else set()
     return set()
@@ -174,11 +179,13 @@ def _words(v) -> set[str]:
 def standin(spec: Spec, text: str, items: list[dict], runs: list[dict]) -> tuple[list[str], str]:
     """ergostat's free classifier: the open items scored by the words they share with the message. Their kind's name
     (or its plural, or each of its words) +2; the number in their id +3; each word of their shown fields (and title)
-    +1, at most 3. Finished items only when their number is said. The best scores of 2 or more win, open items
-    first, then those being worked on now, then the newest; at most ``MOST``. Returns the items and why."""
-    words = {w.strip("'-") for w in WORD.findall(text.lower())}
+    +1, at most 3, other kinds' names aside (a note that says "review" is not a review). Finished items only when
+    their number is said. The best scores of 2 or more win, open items first, then those being worked on now, then
+    the newest; at most ``MOST``. Returns the items and why."""
+    words = words_of(text)
     nums = set(re.findall(r"\b\d{2,}\b", text))
     busy = {i for r in runs for i in r["items"]}
+    kind_words = {w for k in spec.items for w in (k, k + "s", *k.split("-"))}   # a kind's name counts for its own items
     scored = []
     for it in items:
         if it["kind"] in OWN_KINDS:
@@ -199,7 +206,7 @@ def standin(spec: Spec, text: str, items: list[dict], runs: list[dict]) -> tuple
         shown = set()
         for f in [*k.show, "title"]:
             shown |= _words(it["fields"].get(f))
-        common = sorted((shown & words) - names)[:3]
+        common = sorted((shown & words) - names - kind_words)[:3]
         if common:
             score += len(common)
             why.append("the words " + ", ".join(common))

@@ -46,7 +46,7 @@ def week_ledger(since: str) -> str:
     return "\n".join(lines[:15])
 
 
-DEFER = ROOT / "run" / "watch" / "deferred.json"
+DEFER = ROOT / "run" / "watch"                   # deferred-<kind>.json: what I said can wait, until when
 
 
 def notes(kind: str, waiting: list[dict]) -> tuple[list[dict], dict[str, str]]:
@@ -59,7 +59,11 @@ def notes(kind: str, waiting: list[dict]) -> tuple[list[dict], dict[str, str]]:
         msgs = json.loads(raw[raw.rfind("\n{") + 1:]).get("messages") or [] if raw.strip() else []
     except ValueError:
         msgs = []
-    deferred = json.loads(DEFER.read_text()) if DEFER.exists() else {}
+    path = DEFER / f"deferred-{kind}.json"
+    try:
+        deferred = json.loads(path.read_text())
+    except (OSError, ValueError):
+        deferred = {}
     now = time.time()
     order = [it["id"] for it in waiting]
     said: dict[str, str] = {}
@@ -80,8 +84,10 @@ def notes(kind: str, waiting: list[dict]) -> tuple[list[dict], dict[str, str]]:
             else:
                 said[i] = m["text"]
                 answer(m, f"your note is in the draft for {i}")
-    DEFER.parent.mkdir(parents=True, exist_ok=True)
-    DEFER.write_text(json.dumps({k: v for k, v in deferred.items() if v > now}))
+    DEFER.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({k: v for k, v in deferred.items() if v > now}))
+    tmp.replace(path)
     by = {it["id"]: it for it in waiting}
     return [by[i] for i in order if deferred.get(i, 0) <= now], said
 
