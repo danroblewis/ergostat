@@ -80,10 +80,12 @@ function splitTotal(edge) { return edge === "left" || edge === "right" ? innerWi
 function splitLayout(loose = false) {
   const on = splitShown();
   const B = document.body;
+  const shown = on && !B.classList.contains("split-on");
   B.classList.toggle("split-on", on);
   for (const e of SPLIT_EDGES) B.classList.toggle(`split-${e}`, on && SPLIT.edge === e);
   if (splitPane) { splitPane.hidden = !on; splitSep.hidden = !on; }
   if (!on) { S.xhover = new Set(); return; }
+  if (shown && splitPane) peerSay({ type: "sel", parts: [...S.sel] });    // shown again: what is chosen now (when new, it asks)
   splitMake();
   const top = splitTop(), total = splitTotal(SPLIT.edge);
   const want = Math.round(SPLIT.frac * total);

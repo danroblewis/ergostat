@@ -1459,3 +1459,308 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
         assert "What is a flow?" in text
         assert not errors, errors
         pg.close()
+
+
+# ---- two views at once: one selection of model parts, lit in both (correspond.py, interact.js, split.js)
+
+SHOTS = Path(os.environ.get("SPLIT_SHOTS", str(ROOT.parent / "split-shots")))
+LIT = "() => [...document.querySelectorAll('svg.canvas g.node.selected')].map((e) => e.dataset.id).sort()"
+PANE_READY = "() => typeof S !== 'undefined' && S.layout && S.graphSig && document.querySelectorAll('svg.canvas g.node').length > 0"
+
+
+def pane_of(pg):
+    """The second pane's frame, drawn."""
+    for _ in range(100):
+        fr = next((f for f in pg.frames if "pane=1" in f.url), None)
+        if fr is not None:
+            break
+        pg.wait_for_timeout(100)
+    assert fr is not None, "no second pane"
+    fr.wait_for_function(PANE_READY, timeout=60000)
+    return fr
+
+
+def drag(pg, x0, y0, x1, y1, steps=12):
+    pg.mouse.move(x0, y0)
+    pg.mouse.down()
+    for i in range(1, steps + 1):
+        pg.mouse.move(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)
+    pg.mouse.up()
+    pg.wait_for_timeout(200)
+
+
+def split_state(pg) -> dict:
+    return pg.evaluate("""() => { const r = document.querySelector('.split-pane')?.getBoundingClientRect();
+      return { on: document.body.classList.contains('split-on'), edge: SPLIT.edge, open: SPLIT.open, frac: SPLIT.frac,
+               pane: r && !document.querySelector('.split-pane').hidden ? [r.left, r.top, r.width, r.height] : null,
+               main: (() => { const m = document.querySelector('svg.canvas').getBoundingClientRect();
+                              return [m.left, m.top, m.width, m.height]; })(),
+               saved: JSON.parse(localStorage.getItem('ergostat.split') || 'null') }; }""")
+
+
+def open_split(pg, edge="right", frac=0.5):
+    """The split opened by dragging the edge's grip inward to ``frac`` of the way."""
+    g = pg.locator(f'.split-grip[data-edge="{edge}"]').bounding_box()
+    x, y = g["x"] + g["width"] / 2, g["y"] + g["height"] / 2
+    W, H = pg.viewport_size["width"], pg.viewport_size["height"]
+    top = pg.evaluate("() => document.querySelector('header.bar').getBoundingClientRect().bottom")
+    to = {"right": (W * (1 - frac), y), "left": (W * frac, y), "top": (x, top + (H - top) * frac),
+          "bottom": (x, H - (H - top) * frac)}[edge]
+    drag(pg, x, y, *to)
+    return pane_of(pg)
+
+
+def click_part(pg, nid: str) -> None:
+    """A part of the canvas clicked where nothing is drawn over it (its title may be)."""
+    pt = pg.evaluate("""(id) => { const r = document.querySelector(`g.node[data-id="${id}"] .hit`).getBoundingClientRect();
+      for (let y = r.top + 2; y < r.bottom; y += 3) for (let x = r.left + 2; x < r.right; x += 3) {
+        const el = document.elementFromPoint(x, y); if (el && el.closest('g.node')?.dataset.id === id) return [x, y]; }
+      return [r.left + r.width / 2, r.top + r.height / 2]; }""", nid)
+    pg.mouse.click(*pt)
+
+
+LOOK_AT_CHOSEN = """() => {
+  // the view moved to what is chosen, at a size to read it (for the pictures)
+  const ids = new Set([...document.querySelectorAll('svg.canvas g.node.selected')].map((e) => e.dataset.id));
+  const cs = S.layout.children.filter((c) => ids.has(c.id)), svg = document.querySelector('svg.canvas');
+  const r = svg.getBoundingClientRect();
+  const x0 = Math.min(...cs.map((c) => c.x)), y0 = Math.min(...cs.map((c) => c.y));
+  const x1 = Math.max(...cs.map((c) => c.x + c.width)), y1 = Math.max(...cs.map((c) => c.y + c.height));
+  const k = Math.max(0.5, Math.min(1.2, (r.width - 160) / (x1 - x0 + 1), (r.height - 200) / (y1 - y0 + 1)));
+  S.view = { k, x: r.width / 2 - ((x0 + x1) / 2) * k, y: r.height / 2 + 20 - ((y0 + y1) / 2) * k };
+  applyView(svg);
+}"""
+
+
+def fit(page_or_frame):
+    page_or_frame.get_by_role("button", name="Fit", exact=True).click()
+    page_or_frame.wait_for_timeout(150)
+
+
+def test_a_selection_is_model_parts_and_survives_switching_view(browser, tmp_path):
+    """A part chosen in the dynamics view is chosen in the block diagram after switching: the same parts,
+    lit there by the shapes that are them (a stock: its integrator and its output y)."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        fit(pg)
+        click_part(pg, "stock:capabilities")
+        pg.wait_for_function("() => S.sel.size > 0", timeout=5000)
+        assert pg.evaluate("() => [...S.sel]") == ["stock.capabilities"]
+        assert pg.evaluate(LIT) == ["stock:capabilities"]
+        pg.locator(".toolbar .seg button", has_text="Blocks").click()
+        pg.wait_for_function("() => S.graph?.kind === 'blocks' && document.querySelectorAll('svg.canvas g.node.selected').length > 0",
+                             timeout=60000)
+        assert pg.evaluate("() => [...S.sel]") == ["stock.capabilities"]
+        assert pg.evaluate(LIT) == ["out:stock.capabilities", "proc:stock.capabilities"]
+        # Shift adds and takes away, in the block diagram too; the background lets everything go
+        fit(pg)
+        pg.keyboard.down("Shift")
+        pg.locator('g.node[data-id="ref:every-case"]').click()
+        pg.keyboard.up("Shift")
+        assert set(pg.evaluate("() => [...S.sel]")) == {"stock.capabilities", "goal.every-case.r"}
+        pg.keyboard.down("Shift")
+        pg.locator('g.node[data-id="ref:every-case"]').click()
+        pg.keyboard.up("Shift")
+        assert pg.evaluate("() => [...S.sel]") == ["stock.capabilities"]
+        pg.keyboard.press("Escape")
+        assert pg.evaluate("() => S.sel.size") == 0 and pg.evaluate(LIT) == []
+        assert not errors, errors
+        pg.close()
+
+
+def test_a_summing_junction_chosen_in_blocks_lights_its_stock_and_flows_in_the_dynamics_pane(browser, tmp_path):
+    """With the split open (dynamics here, the block diagram in the second pane), a stock's summing
+    junction chosen in blocks lights, in the dynamics pane, the stock and its flows: three shapes of
+    some hundred, not everything it touches; its panel opens over the pane clicked in only. Hovering a
+    shape lights what it is in the other pane, lightly, and chooses nothing."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        pane = open_split(pg, "right")
+        assert pane.evaluate("() => S.graph.kind") == "blocks"
+        fit(pg)
+        fit(pane)
+        pane.locator('g.node[data-id="psum:stock.capabilities"]').click()
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.selected').length === 3", timeout=5000)
+        assert pg.evaluate(LIT) == ["flow:gained", "flow:lost", "stock:capabilities"]
+        total = pg.evaluate("() => document.querySelectorAll('svg.canvas g.node').length")
+        assert total > 60
+        assert set(pane.evaluate("() => [...S.sel]")) == {"stock.capabilities", "flow.gained", "flow.lost"}
+        assert "psum:stock.capabilities" in pane.evaluate(LIT)
+        assert not pane.evaluate("() => document.querySelector('#detail').hidden")          # its panel, over its pane
+        assert pg.evaluate("() => document.querySelector('#detail').hidden")
+        # a turnover chosen in dynamics: in blocks, the process holding it, dashed, and its panel says so
+        fit(pg)
+        click_part(pg, "flow:quality-turnover")
+        pane.wait_for_function("() => document.querySelector('svg.canvas g.node.selected.within')", timeout=5000)
+        assert pane.evaluate(LIT) == ["proc:service"]
+        assert pane.evaluate("() => document.querySelector('#detail').hidden")             # the other pane's panel let go
+        pg.wait_for_function("() => document.querySelector('#detail .where-else')", timeout=10000)
+        assert "inside P" in pg.locator("#detail .where-else").inner_text()
+        # pointing at a shape: what it is, lightly, over there; nothing chosen
+        pg.keyboard.press("Escape")
+        pane.wait_for_function("() => S.sel.size === 0", timeout=5000)
+        pg.locator('g.node[data-id="stock:capabilities"]').hover(position={"x": 4, "y": 4})
+        pane.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.xhover').length > 0", timeout=5000)
+        assert pane.evaluate("() => [...document.querySelectorAll('svg.canvas g.node.xhover')].map((e) => e.dataset.id).sort()") == \
+            ["out:stock.capabilities", "proc:stock.capabilities"]
+        assert pane.evaluate("() => S.sel.size") == 0 and pg.evaluate("() => S.sel.size") == 0
+        pg.mouse.move(2, 400)
+        pane.wait_for_function("() => !document.querySelector('svg.canvas .xhover')", timeout=5000)
+        pane.locator('g.node[data-id="sum:every-case"]').hover()
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.xhover').length === 2", timeout=5000)
+        assert pg.evaluate("() => [...document.querySelectorAll('svg.canvas g.node.xhover')].map((e) => e.dataset.id).sort()") == \
+            ["desired:every-case", "gap:every-case"]
+        assert not errors, errors
+        pg.close()
+
+
+def test_the_split_opens_from_each_edge_resizes_halves_and_closes_at_the_edge(browser, tmp_path):
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        W, H = 1440, 900
+        for edge in ("right", "left", "top", "bottom"):
+            open_split(pg, edge, 0.35)
+            st = split_state(pg)
+            assert st["on"] and st["edge"] == edge and st["saved"]["open"], st
+            assert abs(st["frac"] - 0.35) < 0.03, st
+            pane, main = st["pane"], st["main"]
+            horiz = edge in ("left", "right")
+            assert (pane[0] >= main[0] + main[2] - 1) if edge == "right" else (pane[0] + pane[2] <= main[0] + 1) if edge == "left" else \
+                (pane[1] + pane[3] <= main[1] + 1) if edge == "top" else (pane[1] >= main[1] + main[3] - 1), (edge, st)
+            # the separator dragged: the pane follows
+            sep = pg.locator(".split-sep").bounding_box()
+            sx, sy = sep["x"] + sep["width"] / 2, sep["y"] + sep["height"] / 2
+            to = {"right": (W * 0.4, sy), "left": (W * 0.6, sy), "top": (sx, 120 + (H - 120) * 0.6), "bottom": (sx, H * 0.4)}[edge]
+            drag(pg, sx, sy, *to)
+            st2 = split_state(pg)
+            assert st2["frac"] > 0.5, (edge, st2)
+            # double-click: half and half
+            sep = pg.locator(".split-sep").bounding_box()
+            pg.mouse.dblclick(sep["x"] + sep["width"] / 2, sep["y"] + sep["height"] / 2)
+            pg.wait_for_timeout(150)
+            st3 = split_state(pg)
+            k = 2 if horiz else 3
+            assert abs(st3["frac"] - 0.5) < 1e-6 and abs(st3["pane"][k] - st3["main"][k]) < 30, st3
+            # remembered: a reload opens it again, on its edge, at its size
+            pg.reload()
+            pg.wait_for_function(READY, timeout=60000)
+            st4 = split_state(pg)
+            assert st4["on"] and st4["edge"] == edge and abs(st4["frac"] - 0.5) < 1e-6, st4
+            pane_of(pg)
+            # dragged back to its edge: closed
+            sep = pg.locator(".split-sep").bounding_box()
+            sx, sy = sep["x"] + sep["width"] / 2, sep["y"] + sep["height"] / 2
+            to = {"right": (W - 3, sy), "left": (3, sy), "top": (sx, 60), "bottom": (sx, H - 3)}[edge]
+            drag(pg, sx, sy, *to)
+            st5 = split_state(pg)
+            assert not st5["on"] and not st5["open"] and not st5["saved"]["open"] and st5["pane"] is None, st5
+            assert st5["main"][2] > W - 400, st5                        # the canvas has its room back
+        # on a phone, no split, whatever was remembered
+        open_split(pg, "right", 0.4)
+        pg.set_viewport_size({"width": 400, "height": 800})
+        pg.wait_for_timeout(300)
+        assert not split_state(pg)["on"] and pg.locator(".split-grip").first.is_hidden()
+        assert not errors, errors
+        pg.close()
+
+
+def test_with_the_split_open_the_side_panel_slides_over_the_pane_clicked_in(browser, tmp_path):
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        pane = open_split(pg, "right", 0.5)
+        main = split_state(pg)["main"]
+        assert main[2] > 650, main                                       # the side panel gives its column up
+        assert pg.locator(".diagram > .side").is_hidden()
+        fit(pg)
+        click_part(pg, "stock:backlog")
+        pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail h2')", timeout=5000)
+        pg.wait_for_timeout(300)                                         # (it slides in)
+        d = pg.locator("#detail").bounding_box()
+        assert d["x"] >= main[0] - 1 and d["x"] + d["width"] <= main[0] + main[2] + 1, (d, main)   # over the main pane only
+        assert d["width"] <= 0.9 * main[2] + 1
+        assert split_state(pg)["main"] == main                          # nothing moved
+        pg.locator("#detail button.close").click()
+        assert pg.locator("#detail").is_hidden()
+        click_part(pg, "stock:backlog")
+        pg.wait_for_function("() => !document.querySelector('#detail').hidden", timeout=5000)
+        pg.keyboard.press("Escape")
+        assert pg.locator("#detail").is_hidden()
+        # in the second pane: its own panel, over it
+        fit(pane)
+        pane.locator('g.node[data-id="sum:backlog-clear"]').click()
+        pane.wait_for_function("() => !document.querySelector('#detail').hidden", timeout=5000)
+        pane.wait_for_timeout(300)
+        pd = pane.evaluate("() => { const r = document.querySelector('#detail').getBoundingClientRect(); "
+                           "return [r.left, r.width, innerWidth]; }")
+        assert pd[0] + pd[1] <= pd[2] + 1 and pd[1] < pd[2], pd
+        assert pg.locator("#detail").is_hidden()
+        pane.locator("#detail button.close").click()
+        assert pane.locator("#detail").is_hidden()
+        # the background clicked: first what is chosen lets go; then the side panel (its loops) over the pane; again: gone
+        box = pg.locator("svg.canvas").bounding_box()
+        assert pg.evaluate("() => S.sel.size") > 0
+        pg.mouse.click(box["x"] + box["width"] - 30, box["y"] + box["height"] / 2)
+        assert pg.evaluate("() => S.sel.size") == 0 and pg.locator(".diagram > .side").is_hidden()
+        pg.mouse.click(box["x"] + box["width"] - 30, box["y"] + box["height"] / 2)
+        assert pg.locator(".diagram > .side").is_visible()
+        pg.mouse.click(box["x"] + 30, box["y"] + box["height"] / 2 + 60)
+        assert pg.locator(".diagram > .side").is_hidden()
+        assert not errors, errors
+        pg.close()
+
+
+def test_a_loop_clicked_chooses_its_members_in_both_panes_and_the_split_is_pictured(browser, tmp_path):
+    """A feedback loop's marker clicked in the dynamics pane chooses its members, lit in the block
+    diagram pane too; and the pictures of the split (side by side, stacked) with a choice lit in both."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900}, color_scheme="light")
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        pane = open_split(pg, "right", 0.5)
+        fit(pg)
+        fit(pane)
+        pg.locator('.loop-marker[data-loop="backlog-clear"]').dispatch_event("click")
+        pg.wait_for_function("() => S.sel.size > 2", timeout=5000)
+        members = set(pg.evaluate("() => [...S.sel]"))
+        assert {"stock.backlog", "goal.backlog-clear"} <= members, members
+        pane.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.selected').length > 1", timeout=5000)
+        assert set(pane.evaluate("() => [...S.sel]")) == members
+        lit_there = pane.evaluate(LIT)
+        assert "sum:backlog-clear" in lit_there and "proc:stock.backlog" in lit_there, lit_there
+        # the pictures: a stock's summing junction chosen in the block diagram, side by side; a loop, stacked
+        pg.keyboard.press("Escape")
+        SHOTS.mkdir(parents=True, exist_ok=True)
+        pane.locator('g.node[data-id="psum:stock.in-review"]').click()
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.selected').length >= 4", timeout=5000)
+        assert pg.evaluate(LIT) == ["flow:merged", "flow:rejected", "flow:submitted", "stock:in-review"]
+        pane.locator("#detail button.close").click()
+        for x in (pg, pane):
+            x.evaluate(LOOK_AT_CHOSEN)
+        pg.wait_for_timeout(300)
+        pg.screenshot(path=str(SHOTS / "split-side-by-side.png"))
+        sep = pg.locator(".split-sep").bounding_box()
+        drag(pg, sep["x"] + 3, sep["y"] + sep["height"] / 2, 1437, sep["y"] + sep["height"] / 2)
+        assert not split_state(pg)["on"]
+        pane = open_split(pg, "bottom", 0.5)
+        pg.locator('.loop-marker[data-loop="backlog-clear"]').dispatch_event("click")
+        pane.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.selected').length >= 3", timeout=5000)
+        pg.locator("#detail button.close").click()
+        for x in (pg, pane):
+            x.evaluate(LOOK_AT_CHOSEN)
+        pg.wait_for_timeout(300)
+        pg.screenshot(path=str(SHOTS / "split-stacked.png"))
+        assert not errors, errors
+        pg.close()
