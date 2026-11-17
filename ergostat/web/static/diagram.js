@@ -807,6 +807,7 @@ function sideHidden() {
 function toggleSide() {
   const d = document.querySelector(".diagram");
   if (!d) return;
+  if (document.body.classList.contains("split-on")) { d.classList.toggle("side-shown"); return; }   // split: over the pane (split.js)
   const hide = !d.classList.contains("side-hidden");
   d.classList.toggle("side-hidden", hide);
   try { localStorage.setItem("ergostat.side", hide ? "hidden" : "shown"); } catch (e) { /* not remembered */ }
@@ -1052,6 +1053,7 @@ async function pageDiagram(main, q) {
       { label: "PNG", hint: "twice the size", onclick: () => exportPng(svg, file()) },
     ], { right: true, up: true, title: "Save the diagram as a file" }));
   wrap.append(svg, toolbar, zoom);
+  if (typeof splitGrips === "function") splitGrips(wrap);         // a second pane, dragged in from an edge (split.js)
   S.legendEl = legend(view);   // blocks, wiring and dynamics each read differently
   const side = h("div", { class: "side" });
   const shell = h("div", { class: "diagram" + (sideHidden() ? " side-hidden" : "") }, wrap, side);
