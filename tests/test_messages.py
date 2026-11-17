@@ -403,3 +403,15 @@ def test_a_note_about_a_running_session_goes_to_its_run(tmp_path, echo):
     assert record.get(p, m["id"])["deliveries"][0]["how"] == "live"
     from ergostat.web.messages_api import listing
     assert [x["id"] for x in listing(p, started["item"])["messages"]] == [m["id"]]
+
+
+def test_a_message_that_corrects_is_found_by_the_corrections_scan(tmp_path):
+    """The decisions' scan (SPEC §5a) reads the owner's messages as this kind records them."""
+    from ergostat.decisions import fromrecord
+    p = project(tmp_path, BRIEFER)
+    items(p)
+    send(p, "no, don't brief reviews in that much detail; keep the brief to five lines", about="review/2041",
+         )
+    got = fromrecord.found(p, p.model.spec)
+    msgs = [x for x in got if x["data"]["source"]["type"] == "message"]
+    assert msgs and msgs[0]["data"]["corrects"] == "review/2041"
