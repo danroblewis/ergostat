@@ -103,6 +103,16 @@ CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
 CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
 DECISION = "ergostat.decision"    # the built-in item kinds of the owner's intent (SPEC §5a): what was decided,
 CORRECTION = "ergostat.correction"   # and what the owner corrected (decisions/kinds.py)
+CONTEXT = "ergostat.context"      # the built-in item kind: one use of a projection recipe, and its outcome (SPEC §12i)
+CONTEXT_MEASURE = re.compile(r"^ergostat\.context\.([a-z][a-z0-9-]*)\.(outcome|cost|uses|succeeded|failed)$")
+CONTEXT_MEASURES = {               # how the work a recipe started turned out (SPEC §12i), over the last week
+    "ergostat.context.RECIPE.outcome": "of the uses of the recipe whose outcome is known over the last week, the share "
+                                       "that succeeded (0 while none is known)",
+    "ergostat.context.RECIPE.cost": "the mean cost, in USD, of a session started from the recipe over the last week",
+    "ergostat.context.RECIPE.uses": "the recipe's uses over the last week",
+    "ergostat.context.RECIPE.succeeded": "uses whose work succeeded over the last week",
+    "ergostat.context.RECIPE.failed": "uses whose work failed over the last week",
+}
 TRUST = re.compile(r"^ergostat\.trust\.(contradicted|contradictions|verified|unchecked|claims)"
                    r"(?:@((?:rung:|model:)?[A-Za-z0-9][A-Za-z0-9._:-]*))?$")   # ergostat.trust.contradicted@developer
 TRUST_MEASURES = {                 # how far a block's claims hold (SPEC §12g), over the last week; @WHO narrows them
@@ -133,8 +143,9 @@ MESSAGE_MEASURES = {               # how the owner's messages reach the work (SP
 
 def is_measure(name: str) -> bool:
     """A built-in measure a sensor may read: the model's own (``ergostat.model.*``), trust's (``ergostat.trust.*``,
-    with an optional ``@who``) or the messages' (``ergostat.messages.*``)."""
-    return name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
+    with an optional ``@who``), the messages' (``ergostat.messages.*``) or a recipe's (``ergostat.context.*``)."""
+    return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
+            or bool(CONTEXT_MEASURE.match(name)))
 
 
 @dataclass
@@ -499,6 +510,7 @@ class Spec:
     improve: Improve = field(default_factory=Improve)                  # the judge block's policy (SPEC §12e)
     claims: dict[str, ClaimCheck] = field(default_factory=dict)       # the checks the project declares (SPEC §12g)
     messages: Messages = field(default_factory=Messages)               # how the owner's messages are routed (SPEC §12h)
+    contexts: dict = field(default_factory=dict)                       # name → Recipe: the projection recipes (SPEC §12i)
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 

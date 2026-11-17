@@ -14,6 +14,7 @@ from .ir import (
     BUILTIN,
     CLAIM,
     CLAIM_CHECKS,
+    CONTEXT,
     JUDGE_PORTS,
     MACHINE,
     MESSAGE,
@@ -65,9 +66,9 @@ BLOCK_COMMON = COMMON | {"type", "in", "out", "role"}
 MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
-    "program": MACHINE_COMMON | LAW_KEYS | {"run", "parse", "goal", "until"},
-    "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until"},
-    "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until"},
+    "program": MACHINE_COMMON | LAW_KEYS | {"run", "parse", "goal", "until", "review"},
+    "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review"},
+    "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
     "external": {"agent"},
     "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up"},
     "onoff": {"goal", "until", "min-on", "min-off"},
@@ -710,6 +711,8 @@ class Compiler:
         self.claims(spec)
         from ..decisions.kinds import builtin as intent_kinds
         spec.items.update(intent_kinds())                    # built in: the owner's decisions and corrections (SPEC §5a)
+        from ..recipes.uses import context_kind
+        spec.items[CONTEXT] = context_kind()                 # built in: each use of a recipe, and its outcome (SPEC §12i)
         self.parameters(spec)
         for name, m, what in self.named("stocks"):
             self.keys(m, STOCK_KEYS, what)
@@ -795,10 +798,13 @@ class Compiler:
             spec.agents[name] = Agent(name, kind, bool(m.get("external")), n, m.get("model") and str(m["model"]),
                                       m.get("cost") and str(m["cost"]), m.get("host") and str(m["host"]),
                                       self.text(m, "description"), m.where)
+        from ..recipes import compile as recipes
+        recipes.contexts(self, spec)                         # contexts: the projection recipes (SPEC §12i)
         for name, m, what in self.named("blocks"):
             b = self.block(name, m, what)
             if b:
                 spec.blocks[name] = b
+        recipes.blocks(self, spec)                           # a block's context: and review:
         judges = [b for b in spec.blocks.values() if b.type == "judge"]
         for b in judges[1:]:
             self.err(f"block {b.name}: one judge of changes to the model at most ({judges[0].name} is one)", b.where,
