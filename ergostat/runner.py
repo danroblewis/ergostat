@@ -229,7 +229,13 @@ class Recorder:
             if line.get("item") is not None and not isinstance(line["item"], str):
                 self.refuse(line, "item must be a string: what the event is about")
                 return True
-            ev.add(t, item=line.get("item"), source=self.agent.name, causedby=self.run_id, data=line.get("data") or {})
+            from .store import ChangesetError
+            try:
+                ev.add(t, item=line.get("item"), source=self.agent.name, causedby=self.run_id, data=line.get("data") or {},
+                       patch=line.get("patch"), set=line.get("set"))
+            except ChangesetError as e:
+                self.refuse(line, str(e))
+                return True
             self.counts["events"] += 1
             return True
         self.not_read(json.dumps(line))                      # an object that names no part and no event

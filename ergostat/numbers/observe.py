@@ -150,7 +150,8 @@ def _item_moves(p, spec: Spec, q: dict, since: float, until: float) -> list[tupl
     if not q or q.get("kind") not in spec.items:
         return None
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
-    return [(mv["time"], 1.0) for it in its.project(p.events, spec, q["kind"], until=until) if its.matches(it, q.get("where") or {})
+    where = q.get("where") or {}
+    return [(mv["time"], 1.0) for it in its.project(p.events, spec, q["kind"], until=until, fields=tuple(where)) if its.matches(it, where)
             for mv in it.moves if mv[key] == state and since <= mv["time"] <= until]
 
 

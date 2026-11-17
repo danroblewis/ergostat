@@ -639,6 +639,136 @@ def test_an_items_files_show_as_what_they_are_and_nothing_in_them_runs(browser, 
         proc.wait(10)
 
 
+def test_an_items_page_shows_each_fields_history_and_a_session_folded_from_its_transcript(browser, tmp_path, monkeypatch):
+    """Each field with its current value and a history disclosure: each change, oldest last, with
+    the event that made it (a click opens it); a refused patch said; and a session item whose
+    transcript's lines became events, folded into its conversation. ERGOSTAT_SHOTS=DIR keeps
+    screenshots of both."""
+    from ergostat import model as mdl
+    from ergostat import transcripts as tr
+    from ergostat.store import Project
+    d = tmp_path / "hist"
+    (d / "run").mkdir(parents=True)
+    (d / "ergostat.yaml").write_text(textwrap.dedent("""
+        items:
+          ticket:
+            id: ticket/*
+            states: [open, review, done]
+            on:
+              ticket.submitted: review
+              ticket.merged: done
+            show: [title, owner]
+            fold:
+              notes: append
+              hours: sum
+              labels: union
+          session:
+            id: session/*
+            states: [open, done]
+            on:
+              session.ran: done
+            show: [role, cost_usd, transcript]
+            formats:
+              transcript: claude-session
+            fold:
+              messages: append
+              tool_calls: append
+              tool_results: append
+              thinking: append
+              tokens_in: sum
+              tokens_out: sum
+        """))
+    home = tmp_path / "home"
+    monkeypatch.setenv("ERGOSTAT_HOME", str(home))
+    p = Project(mdl.load(d))
+    t = time.time() - 3 * 3600
+    p.events.add("ticket.opened", item="ticket/7", source="support", at=t,
+                 data={"title": "Thumbnails are blurry", "owner": "ann", "notes": "reported by a customer", "hours": 0.5,
+                       "labels": ["images"]})
+    p.events.add("ticket.started", item="ticket/7", source="developer", at=t + 1800,
+                 data={"owner": "bob", "notes": "the encoder's quality is 60", "hours": 2, "labels": ["encoder"]})
+    p.events.add("ticket.retitled", item="ticket/7", source="developer", at=t + 2400,
+                 patch=[{"op": "test", "path": "/title", "value": "Thumbnails are blurry"},
+                        {"op": "replace", "path": "/title", "value": "Thumbnails are blurry at quality 60"}])
+    p.events.add("ticket.retitled", item="ticket/7", source="pm", at=t + 2500,
+                 patch=[{"op": "test", "path": "/title", "value": "Thumbnails are blurry"},
+                        {"op": "replace", "path": "/title", "value": "Blurry"}])
+    p.events.add("ticket.submitted", item="ticket/7", source="developer", at=t + 5400,
+                 data={"notes": "raised it to 75; tests pass", "hours": 1.5})
+    sess = [
+        {"type": "user", "uuid": "u1", "parentUuid": None, "timestamp": "2026-11-15T10:00:00Z",
+         "message": {"role": "user", "content": "Raise the thumbnail quality and check the sizes."}},
+        {"type": "assistant", "uuid": "a1", "parentUuid": "u1", "timestamp": "2026-11-15T10:00:04Z",
+         "message": {"role": "assistant", "id": "m1", "usage": {"input_tokens": 1200, "output_tokens": 80},
+                     "content": [{"type": "text", "text": "I'll look at the encoder settings first."},
+                                 {"type": "tool_use", "id": "t1", "name": "Grep", "input": {"pattern": "quality"}}]}},
+        {"type": "user", "uuid": "r1", "parentUuid": "a1", "timestamp": "2026-11-15T10:00:05Z",
+         "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1",
+                                                  "content": "squeeze/encode.py:12: QUALITY = 60"}]}},
+        {"type": "assistant", "uuid": "a2", "parentUuid": "r1", "timestamp": "2026-11-15T10:00:09Z",
+         "message": {"role": "assistant", "id": "m2", "usage": {"input_tokens": 1400, "output_tokens": 40},
+                     "content": [{"type": "text", "text": "Quality is 60; raising it to 75 keeps every case under its size target."}]}},
+    ]
+    (d / "run" / "s.jsonl").write_text("".join(json.dumps(x) + "\n" for x in sess))
+    p.events.add("session.started", item="session/developer-1a2b", source="developer", at=t,
+                 data={"role": "developer", "model": "opus", "transcript": "file:run/s.jsonl"})
+    assert tr.Ingester(p, p.model.spec).once() == 4
+    p.events.add("session.ran", item="session/developer-1a2b", source="developer", data={"cost_usd": 0.31, "turns": 2})
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    shots = Path(os.environ["ERGOSTAT_SHOTS"]) if os.environ.get("ERGOSTAT_SHOTS") else None
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1400, "height": 1300})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/#/item/ticket%2F7")
+        pg.wait_for_selector("table.fields tr[data-field=title] details.history", timeout=10000)
+        assert "Thumbnails are blurry at quality 60" in pg.locator("table.fields tr[data-field=title] > td").first.inner_text()
+        notes = pg.locator("tr[data-field=notes] details.history")
+        assert notes.locator("summary").inner_text() == "history (4 changes)"
+        notes.locator("summary").click()
+        rows = notes.locator("table.history tr")
+        assert rows.count() == 5                                           # the head and four changes, the latest first
+        assert "add (append)" in rows.nth(1).inner_text() and "/notes/2" in rows.nth(1).inner_text()
+        assert "raised it to 75" in rows.nth(1).inner_text() and "ticket.submitted" in rows.nth(1).inner_text()
+        pg.locator("tr[data-field=hours] details.history summary").click()
+        assert "(sum)" in pg.locator("tr[data-field=hours] table.history").inner_text()
+        title = pg.locator("tr[data-field=title] details.history")
+        title.locator("summary").click()
+        assert "replace by patch" in title.inner_text()
+        assert pg.locator("h2", has_text="Refused").count() == 1 and "test /title" in pg.locator("table.refused").inner_text()
+        if shots:
+            shots.mkdir(parents=True, exist_ok=True)
+            pg.screenshot(path=str(shots / "item-history.png"), full_page=True)
+        title.locator("table.history a", has_text="ticket.retitled").first.click()
+        pg.wait_for_selector("#detail h2", timeout=5000)
+        assert pg.locator("#detail h2").inner_text() == "ticket.retitled" and "/title" in pg.locator("#detail").inner_text()
+        pg.goto(f"{url}/#/item/session%2Fdeveloper-1a2b")
+        pg.wait_for_selector("tr[data-field=messages] table.sub", timeout=10000)
+        msgs = pg.locator("tr[data-field=messages] > td").first.inner_text()
+        assert "Raise the thumbnail quality" in msgs and "keeps every case under its size target" in msgs
+        assert "Grep" in pg.locator("tr[data-field=tool_calls] > td").first.inner_text()
+        assert "2,600" in pg.locator("tr[data-field=tokens_in] > td").first.inner_text() or \
+            "2600" in pg.locator("tr[data-field=tokens_in] > td").first.inner_text()
+        assert "4 more events are its transcript" in pg.locator("main").inner_text()
+        pg.wait_for_selector(".convo .turn.tool", timeout=10000)                  # the file still shows the conversation
+        if shots:
+            pg.screenshot(path=str(shots / "session-folded.png"), full_page=True)
+        assert not errors, errors
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 LINE_LINKS = """async () => {
   // every line's panel: each part it names is a link, and the link opens that part's panel (also a
   // part inside a closed system, which only its system's port stands for)

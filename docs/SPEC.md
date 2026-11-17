@@ -230,10 +230,11 @@ order. An item is not written in the model; it is every event about one id, repl
 Its id names it the way the system it lives in does, with a `/` in it: `ticket/12`,
 `github/pull_request/4231`. (ergostat's own events are about the model's parts, whose names never
 have a `/`; the two never mix.) An event about an item comes from a block's output
-(`{"event": "pr.merged", "item": "github/pull_request/4231", "data": {...}}`), from
-`ergostat event --add`, or from an agent over MCP (`record_event`).
+(`{"event": "pr.merged", "item": "github/pull_request/4231", "data": {...}}`), from a sensor's
+observations, from `ergostat event --add`, or from an agent over MCP (`record_event`).
 
-A kind of item says which ids are that kind, and the states they move through:
+A kind of item says which ids are that kind, the states they move through, and how its events'
+data folds into it:
 
 ```yaml
 items:
@@ -245,6 +246,10 @@ items:
       pr.merged: merged
       pr.closed: closed
     show: [title, author]            # fields worth a column on the Items page
+    fold:                            # field: how the data events carry folds into it (else replace)
+      reviewers: union
+      comments: append
+      hours: sum
 ```
 
 | Key | Type | Default | Meaning |
@@ -253,14 +258,59 @@ items:
 | `states` | list of names | none | The states, in their usual order; a new item starts in the first |
 | `on` | map of event type → state | none | Which events move an item, and where to |
 | `show` | list of field names | none | Columns for the Items page and `ergostat item` |
-| `formats` | map of field → format | by extension | How a file a field names is shown: `image`, `markdown`, `code`, `text`, `json`, or `claude-session` (a Claude Code transcript, as the conversation) |
+| `formats` | map of field → format | by extension | How a file a field names is shown: `image`, `markdown`, `code`, `text`, `json`, or `claude-session` (a Claude Code transcript, as the conversation; its lines are also recorded as events, below) |
+| `fold` | map of field → rule | `replace` | How the plain `data` of its events folds into each field (the rules below) |
 | `system`, `description` | | | |
 
-**Folding.** An item's fields are its events' `data`, merged in order (the latest value of each
-field wins). It arrives in the first state (a move from nowhere, so a flow can count arrivals
-with `entering:`), and stays there until an event its kind maps moves it; every move is kept
-(from, to, when, by which event), so how long it spent in each state is known. An item no
-kind matches is still shown, with its fields and no state.
+**Changesets.** An item's fields are one JSON document, and every event about it is a changeset
+folded into that document in sequence. The event chooses how it changes it, in one of three forms
+(never two at once):
+
+- **`patch`**: a JSON Patch (RFC 6902): a list of operations, `add`, `remove`, `replace`, `move`,
+  `copy` and `test`, each at a JSON Pointer (RFC 6901) `path` (`/reviewers/0`; `~1` for a `/`
+  in a name, `~0` for a `~`), with `/-` appending to an array. They are applied in order.
+  `{"event": "pr.labelled", "item": "...", "patch": [{"op": "add", "path": "/labels/-", "value": "bug"}]}`.
+- **`set`**: the whole document, at once. It is the patch that removes every field and adds each
+  field of the new document back, and it is applied, and kept in history, as exactly that.
+- **`data`**: what blocks and scripts emit. Each key is folded into the field of that name by its
+  kind's rule for it, and becomes the patch operations that do so; a key with no rule replaces its
+  field (an `add` at its path, a `replace` when it was there).
+
+A changeset applies whole or not at all. A `test` that does not hold, a path that is not there,
+an index past an array's end, an operation that is not one, or a rule that cannot fold its value
+(`sum` of a word) refuses the whole event: none of it changes the item, and the item says which
+event was refused and why (its `refused` list, and its history). The event itself is recorded as
+it was sent: the record holds what was said; the fold, what came of it. A changeset that is not
+even the right shape (a patch that is not a list of operations, `set` that is not an object, or
+two forms in one event) is refused before it is recorded, as a bad line is. `ergostat event --add`
+and MCP's `record_event` say at once when a patch they recorded changed nothing.
+
+**Fold rules**, for plain data (`fold:`; any other name is an error `ergostat check` reports):
+
+| Rule | The field becomes |
+|---|---|
+| `replace` | the value given (the default) |
+| `append` | a list, the value appended (each value of a list given, in order) |
+| `sum` | the sum of the numbers given |
+| `min`, `max` | the least, the greatest, of the values given (numbers, or text) |
+| `union` | a set of the values given (a list given is each of its values), kept as a sorted list |
+| `merge` | an object, each object given deep-merged into it (an object's keys merged, anything else replaced) |
+| `first` | the first value given, kept |
+
+**History.** Every change is kept, per path, in order: when, by which event (its id and type),
+the operation (with its rule, or `patch` or `set`), the path, and the value before and after. A
+change deeper in a field (`/comments/3`) is that field's. The item's `fields` is the folded
+document as it stands, so whatever reads fields reads them as before; its history is beside it
+(`ergostat item ID --history [FIELD]`; the item's page, where each field shows its value and a
+history disclosure, each change linked to its event; `/api/items/ID`, each field's latest 100
+changes and how many there were, all with `history=all`). An item can be read as it stood at any
+time (`--at`, the pages' time travel): its fields, its state and its history are folded from
+the events up to then.
+
+**States.** An item arrives in its kind's first state (a move from nowhere, so a flow can count
+arrivals with `entering:`), and stays there until an event its kind maps moves it; every move is
+kept (from, to, when, by which event), so how long it spent in each state is known. An item no
+kind matches is still shown, with its fields (folded with no rules) and no state.
 
 A field whose value is `file:PATH` names a file in the project (a picture a program made, a report,
 an agent's transcript): the page shows it where the item is shown, as what it is (`formats`, or its
@@ -269,6 +319,44 @@ conversation, re-read while it grows; raw HTML in Markdown is shown as text, nev
 only files inside the project and its state directory, at `/file/PATH` (a path, so a Markdown file's
 relative links open the files beside it: opened in the browser, a Markdown file is shown rendered). A file is kept apart from the record: the
 record holds what happened, the file what was said.
+
+**Claude Code transcripts as events.** While ergostat runs, a field its kind shows as
+`claude-session` that names a file (`transcript: file:run/sessions/developer-1a2b.jsonl`) is read
+every two seconds as it grows, and each complete line is recorded as an event about the item,
+once: its id is made from the item and the line's `uuid` (a line without one, from its number and
+content), so reading it again records nothing. Its time is the line's `timestamp`; it is caused by
+(`causedby`) the event of its `parentUuid`; its source is whoever started the item. The types:
+
+| Type | `data` |
+|---|---|
+| `claude.message` | `messages`: `[{role, text, line, uuid}]`, what the user or the assistant said |
+| `claude.tool-use` | `tool_calls`: `[{id, name, input, line}]` |
+| `claude.tool-result` | `tool_results`: `[{tool_use_id, text, error, line}]` |
+| `claude.thinking` | `thinking`: `[{text, line}]` |
+| `claude.other` | `other`: `{type, line, text}`, any other line (a summary, a snapshot, ...) |
+
+An assistant message's first line also carries `tokens_in` (input, cache writes and reads) and
+`tokens_out`; a message split over several lines repeats its usage, and is counted once. A text
+over 4 KB keeps its head in the event, with `truncated`, its size in `bytes`, and `full`, the file
+and line where all of it is: the transcript file stays the full record of what was said, and the
+conversation the page shows. A line is one event, typed by what it holds (a tool call first, then
+a result, text, thinking). The kind folds them with its rules, so the item folds into its
+conversation:
+
+```yaml
+  session:
+    id: session/*
+    formats: {transcript: claude-session}
+    fold: {messages: append, tool_calls: append, tool_results: append, thinking: append,
+           tokens_in: sum, tokens_out: sum}
+```
+
+What does not ask for a transcript leaves its events out: a sensor counting sessions, the Items
+list and `ergostat item` (which count them, without reading them), the Record and `ergostat event`
+(unless a type or the item is asked for), and the wiring. A fold reads them when its kind moves on
+a `claude.*` type, or when a sensor's `where:` or a column names a field they fold into. The item's
+own page and `ergostat item ID` fold them all. A session of 2,000 lines is recorded in well under a
+second, and leaves a count of sessions as fast as it was.
 
 Items are counted by sensors (section 6): a stock may be the number of items in some states, and
 a flow the rate at which items enter or leave one. The record is then the instrument: what is
@@ -784,7 +872,8 @@ amount and, when they differ, what was asked.
 **Reading a machine block's output.** A bare number goes to its single output (a flow: what it
 moved; a block: a command; a goal: a setpoint). JSON lines may also be `{"moved": n}` without
 `out` when it moves one flow, and `{"event": "backup.verified", "item": "backup/nightly"}` for
-anything else that happened (an event about an item, section 5a; `data` holds its fields). Lines that are not JSON go to its log (`logs/<block>.log` in the state
+anything else that happened (an event about an item, section 5a: `data` holds its fields, folded by
+its kind's rules; or, in place of `data`, a JSON `patch` or the whole document, `set`). Lines that are not JSON go to its log (`logs/<block>.log` in the state
 directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_COMMAND` (the amount),
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
 (`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
@@ -1447,9 +1536,11 @@ and the item, folded from them, is the change.
 | dismissed | `.dismissed`: with the owner's reason | the owner |
 | superseded | `.superseded`: made against a version of the model that has since changed, or no longer found by the finder that made it | ergostat |
 
-Its fields are folded from the events (last write wins): `kind`, `parts`, `edit`, `reasons` with their evidence,
-`confidence`, the measured effect (`fit_before`, `fit_after`, `refit`, `findings`), `verdict`, `made_by` and the
-model `version` it was made against. When an accepted edit is written, `ergostat.model.changed` (from ergostat)
+Its fields are folded from the events as any item's are (section 5a): `kind`, `parts`, `edit`, `reasons` with their
+evidence, `confidence`, the measured effect (`fit_before`, `fit_after`, `refit`, `findings`), `verdict`, `made_by` and
+the model `version` it was made against. Each is replaced, never appended: every event that carries one states it whole
+(`checked` restates the reasons it verified in place of those `made` gave, and a verdict is the judge's whole
+finding), so its history keeps each earlier statement, linked to the event that made it. When an accepted edit is written, `ergostat.model.changed` (from ergostat)
 records the diff, the model's version before and after, the fit before and after, the reason, who made it and who
 accepted it: the model's history.
 

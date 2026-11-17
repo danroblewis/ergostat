@@ -338,7 +338,7 @@ def wiring(model, project, snap: dict, parts: set[str]) -> dict:
     involved = set(m.agents) if whole else {
         p.agent for t in (m.sensors, m.controllers, m.valves, m.flows) for p in t.values()
         if p.name in parts and getattr(p, "agent", None) in m.agents}
-    evs = project.events.query(n=MOST_EVENTS, since=since, until=at)
+    evs = project.events.query(n=MOST_EVENTS, since=since, until=at, skip=("claude.*",))   # a transcript is its item's
     by_id = {e["id"]: e for e in evs}
     looked: dict[str, dict | None] = {}
 

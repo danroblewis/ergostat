@@ -1152,6 +1152,22 @@
               "claude-session"
             ]
           }
+        },
+        "fold": {
+          "type": "object",
+          "description": "How each field folds the plain data its events carry: replace (the default), append (to a list), sum, min, max, union (a set, kept as a sorted list), merge (a deep merge of objects), first (keep the first value)",
+          "additionalProperties": {
+            "enum": [
+              "replace",
+              "append",
+              "sum",
+              "min",
+              "max",
+              "union",
+              "merge",
+              "first"
+            ]
+          }
         }
       }
     },

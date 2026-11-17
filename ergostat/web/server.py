@@ -242,8 +242,12 @@ def _answer(live: Live, path: str, q: dict):
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name]}
         return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n]} for n, a in snap["agents"].items()}
     if head == "events":
+        if name:                                  # one event, by id
+            return p.events.get(name)
         after = one("after")
         skip = () if one("runs") or one("type") else ("agent.started", "agent.ran")   # as `ergostat event`
+        if not one("type") and not one("item"):   # a transcript's lines are on its item's page, asked by type or item
+            skip = (*skip, "claude.*")
         return p.events.query(n=int(one("n") or 100), type=one("type"), item=one("item"), source=one("source"),
                               machine=one("machine"), after_seq=int(after) if after else None, skip=skip,
                               **({"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}))
@@ -251,7 +255,8 @@ def _answer(live: Live, path: str, q: dict):
         from ..spec import items as its
         spec = getattr(m, "spec", None)
         if name:
-            return its.detail(p.events, spec, name, until=snap["at"])
+            return its.detail(p.events, spec, name, until=snap["at"],
+                              history=None if one("history") == "all" else its.HISTORY_SHOWN)
         return its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"])
     if head == "series":                          # behaviour over time: each part's values, bucketed over the window
         refs = [r for r in (one("refs") or "").split(",") if r]

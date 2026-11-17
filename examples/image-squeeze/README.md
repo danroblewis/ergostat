@@ -47,7 +47,10 @@ ergostat run --stop
 - **Items → `hypothesis`**: every idea, its state, and on its page what it is, what it measured,
   why it was kept or dropped, and examples (the original, production's output, the candidate's).
 - **Items → `session`** (with `FACTORY_AI=claude`): every Claude Code session, its cost, and the
-  path of its full transcript.
+  path of its full transcript. ergostat records each line of the transcript as an event about the
+  session as it runs (`claude.message`, `claude.tool-use`, ...), and the session's kind folds them into
+  its conversation (`fold:` in `lab.yaml`): its page lists what was said, each tool called and what came
+  back, and the tokens, each with its history.
 - `run/product`: squeeze's own repository; every kept experiment is a merge (`git -C run/product
   log --graph`).
 

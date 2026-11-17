@@ -58,20 +58,24 @@ def item_of(pid: str) -> str:
 
 
 def changes(p) -> dict[str, tuple[str, dict]]:
-    """Every change to the model in the record, folded (``ergostat.model-change`` items): its id, its state and its
-    fields (the events' data, last write wins). The record is the only store."""
+    """Every change to the model in the record, folded (``ergostat.model-change`` items) as every item is
+    (SPEC §5a: each event's changeset in turn, by the built-in kind's rules): its id, its state and its fields.
+    The record is the only store."""
+    from ..spec import items as its
+    from ..spec.ir import model_change_kind
     key = (str(p.dir), p.events.last_seq())
     got = _FOLDED.get(key[0])
     if got and got[0] == key[1]:
         return got[1]
-    out: dict[str, tuple[str, dict]] = {}
+    by: dict[str, list[dict]] = {}
     for e in p.events.query(n=None, type=f"{MODEL_CHANGE}.*"):
-        pid = str(e.get("item") or "").split("/", 1)[-1]
-        if not pid:
-            continue
-        state, fields = out.get(pid, (None, {}))
-        fields = {**fields, **(e.get("data") or {})}
-        out[pid] = (e["type"].rsplit(".", 1)[1], fields)
+        if "/" in str(e.get("item") or ""):
+            by.setdefault(e["item"], []).append(e)
+    kind = model_change_kind()
+    out: dict[str, tuple[str, dict]] = {}
+    for item, evs in by.items():
+        it = its.fold(item, evs, kind)
+        out[item.split("/", 1)[1]] = (it.state, it.fields)
     _FOLDED[key[0]] = (key[1], out)
     return out
 
