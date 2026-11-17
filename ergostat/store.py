@@ -781,6 +781,7 @@ class Measurements:
         if done["forgot"]:
             with self._c() as c:
                 c.execute("pragma incremental_vacuum")
+                c.execute("pragma wal_checkpoint(truncate)")   # and the write-ahead log, which grew with it
         return done
 
     def prune(self, before: float) -> int:
@@ -820,6 +821,7 @@ def vacuum(store) -> int:
     if getattr(store, "name", None) != "sqlite":
         return 0
     with store._c() as c:
+        c.execute("pragma wal_checkpoint(truncate)")
         free, pages, size = (c.execute(f"pragma {k}").fetchone()[0] for k in ("freelist_count", "page_count", "page_size"))
         if pages and free / pages > 0.2:
             before = store.path.stat().st_size
