@@ -53,7 +53,7 @@ run it
   mcp            ergostat for an AI agent, over MCP
   projects       Every project on this machine, which run, and their pages
   reset          Forget this project's record and start from nothing (--yes)
-  help blocks    How to write a sensor's and a block's program (also: help ai-agents, help spec)
+  help blocks    How to write a sensor's and a block's program (also: help ai-agents, help spec, help model-tools)
 
 flags
   -C DIR             Run as if in DIR

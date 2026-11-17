@@ -78,6 +78,7 @@ function provenance(p) {
   const n = (p.calibrated || []).length;
   if (n) bits.push(`${n} calibration${n > 1 ? "s" : ""} below`);
   else if (p.estimate_note) bits.push(p.estimate_note);
+  else if (p.estimate && p.value != null) bits.push("to estimate: not calibrated yet (the Model page's Calibrate)");
   return bits.join("; ");
 }
 /* each calibration of a parameter side by side (Oliva 2003): which, its estimate ± one standard error (marked
@@ -161,12 +162,16 @@ function whatifBox(params) {
 }
 
 /* a valve's or an auxiliary's numbers: its equation, its parameters, how its replay fits, its proposals */
-function equationSection(name, nb) {
+function equationSection(name, nb, { said = "", exogenous = false } = {}) {
   if (!nb) return null;
   const out = [];
+  if (!nb.equation_tree) out.push(h("p", { class: "muted small" }, noEquationWords(said, exogenous)));
   if (nb.equation_tree) {
     out.push(h("h3", {}, "Equation"), equationBox(name, nb.equation_tree), parameterTable(nb.parameters), whatifBox(nb.parameters),
       calibrationTable(nb.parameters));
+    const ps = (nb.parameters || []).filter((p) => !p.table);
+    if (ps.length && !ps.some((p) => p.estimate || p.range))
+      out.push(h("p", { class: "muted small" }, "No calibration and no fan: none of its parameters is marked estimate: true or has a range."));
     const notes = [];
     if (nb.unit_problems?.length) notes.push(h("p", { class: "s-open small" }, op(nb.unit_problems.join("; "))));
     else if (nb.equation_ok === false) notes.push(h("p", { class: "s-open small" }, `It comes out in ${nb.equation_unit}: its units do not agree (ergostat check says how).`));
@@ -186,6 +191,16 @@ function equationSection(name, nb) {
   }
   for (const x of nb.proposals || []) out.push(proposalBlock(x));
   return out.length ? h("div", { class: "numbers" }, out) : null;
+}
+
+/* why a valve or an auxiliary has no equation, what-if or calibration in its panel, and what would give it one
+   (said: the model's own words for its rate, dynamics.equation) */
+function noEquationWords(said, exogenous) {
+  const setter = /^set by the decision ([^:]+)/.exec(said || "");
+  if (setter) return `No equation, what-if or calibration: ${setter[1]} sets it, and the replay takes what it moved as measured. Its loop's process, margins and tuning are in the blocks view.`;
+  if (exogenous) return "No equation, what-if or calibration: it comes from outside the model (exogenous), and the replay takes it as measured.";
+  if (/declared cause/.test(said || "")) return "No equation yet, so no what-if or calibration: the Model page's Calibrate proposes one from its measured rate and its declared causes, when they explain half its variation; or write equation:.";
+  return "No equation, so no replay, what-if or calibration: write equation: (or give it causes with driven-by:, for Calibrate to propose one).";
 }
 
 /* one series' fit, in a line: its R², its error (MAPE, or as a share of the readings' mean or range),

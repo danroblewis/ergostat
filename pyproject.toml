@@ -23,6 +23,7 @@ packages = ["ergostat"]
 [tool.hatch.build.targets.wheel.force-include]
 "docs/SPEC.md" = "ergostat/help/spec.md"
 "docs/MODELLING.md" = "ergostat/help/modelling.md"
+"docs/MODEL-TOOLS.md" = "ergostat/help/model-tools.md"
 
 [tool.ruff]
 line-length = 140

@@ -690,7 +690,7 @@ body.pane .zoom { order: 0; align-self: auto; }
 body.pane svg.canvas { height: 100%; }
 @media (max-width: 699px) { .split-grip { display: none; } }
 
-/* the model's numbers: an equation in MathML, its parameters, a proposal (equations.js); the Fit page */
+/* the model's numbers: an equation in MathML, its parameters, a proposal (equations.js); the Model page */
 math.eq { font-size: var(--text); margin: var(--sp-2) 0; }
 math .eq-ref { font-style: normal; }
 math .eq-fn { font-style: normal; font-family: var(--font); font-size: var(--text); }
@@ -710,11 +710,12 @@ pre.diff .add { color: var(--ink); background: var(--fill); }
 pre.diff .del { color: var(--muted); text-decoration: line-through; }
 table.fit tr.total td { border-top: var(--hair) solid var(--line-strong); }
 .page .actions { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; margin: var(--sp-2) 0; }
+.page .actions[hidden], .detail .actions[hidden] { display: none; }   /* a confirm row, until it is asked for */
 .proposal dl, .whatif dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); margin: var(--sp-2) 0; }
 .proposal dt, .whatif dt { color: var(--muted); }
 .proposal dd, .whatif dd { margin: 0; }
 .proposal dt::first-letter, .whatif dt::first-letter { text-transform: none; }
-/* the Fit page's review queue: each change an entry, its kind the title, the rest labelled rows (review.js) */
+/* the Model page's review queue: each change an entry, its kind the title, the rest labelled rows (review.js) */
 .review { max-width: 88ch; }
 .entry { border-top: var(--hair) solid var(--line); padding: var(--sp-4) 0 var(--sp-3); }
 .entry h3 { font-size: var(--text); font-weight: 600; margin: 0; }

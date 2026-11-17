@@ -11,9 +11,11 @@ It shows each system from two perspectives, each drawn the way its discipline dr
 a System Dynamics stock-and-flow diagram (what is), and **Blocks**, a control block diagram (what we
 control); plus **Wiring**, what actually passed between the machines.
 
-New here: [docs/QUICKSTART.md](docs/QUICKSTART.md) (ten minutes, from install to your own model) and
-[docs/WHY.md](docs/WHY.md) (why model systems this way, for a team deciding whether to), and
-[docs/DISCIPLINES.md](docs/DISCIPLINES.md) (every discipline and diagram one file gives you).
+New here: [docs/QUICKSTART.md](docs/QUICKSTART.md) (ten minutes, from install to your own model),
+[docs/WHY.md](docs/WHY.md) (why model systems this way, for a team deciding whether to),
+[docs/DISCIPLINES.md](docs/DISCIPLINES.md) (every discipline and diagram one file gives you) and
+[docs/MODEL-TOOLS.md](docs/MODEL-TOOLS.md) (every tool for testing, improving, projecting and tuning a model,
+where each shows up and what it needs; the web page's **Model** page starts with what is available).
 
 The terms are in [NOTES.md](NOTES.md), the design in [docs/DESIGN.md](docs/DESIGN.md), and the rules for
 working on it in [CLAUDE.md](CLAUDE.md).
@@ -146,8 +148,12 @@ improve-model` and `ergostat help modelling`.
 
 ## More
 
+The model tools (fit, checks, the review queue, calibration, replay, projection, what-if, loop dominance,
+identification, margins, tuning, step tests), each with where it shows up and what it needs:
+[docs/MODEL-TOOLS.md](docs/MODEL-TOOLS.md).
+
 Improving a model, for someone new to system dynamics: [docs/MODELLING.md](docs/MODELLING.md) (the
-tells of a wrong structure, what `check`'s structure findings and the Fit page are evidence
+tells of a wrong structure, what `check`'s structure findings and the Model page are evidence
 of, and what to write instead, each with its source in Sterman's *Business Dynamics* or Forrester).
 
 The ideas: [docs/CONCEPTS.md](docs/CONCEPTS.md) (the factory as a control system), why controllers
@@ -169,7 +175,7 @@ plant, y, the sensor H feeding ym back, and feedforward when a controller measur
 The Export menu's "SVG" and "PNG" write the diagram as a standalone file, with a header and a legend; "Design SVG" writes only
 the structure (parts, flows, roles and schedules, no live values or status), for a design document. `ergostat snapshot` writes the whole page, with
 what it shows now, to one HTML file that opens anywhere with no ergostat running (every view, page and part, as of then). The wiring view draws the agents and how each
-one's output reaches another, and lists the cycles among them, declared as loops or not. Loops, Agents (by rung), Items, Record, Fit and Check show
+one's output reaches another, and lists the cycles among them, declared as loops or not. Loops, Agents (by rung), Items, Record, Model and Check show
 what the command line shows; the Guide steps through tiny models, drawn by the same renderers, that introduce system dynamics and control, then shows your own model both ways. The header's "Last 1h" menu sets the window and looks at any past moment; "Back to live"
 returns.
 

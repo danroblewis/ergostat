@@ -48,7 +48,9 @@ everything, hides the loop markers, unpins what you dragged.
 **Items** lists what moves through the system (each review, alert, PR) with its states and history.
 In the-job, **Items → day** holds each morning's brief and each evening's ledger, rendered.
 
-**Loops** lists every goal, holding or off. **Check** says what is missing from the model.
+**Loops** lists every goal, holding or off. **Model** says what the model can do with the record
+(test it, improve it, project it, identify and tune its loops) and what each tool still needs.
+**Check** says what is missing from the model.
 **Guide** is a two-minute illustrated introduction to both disciplines.
 
 ## 4. Write your own
@@ -115,6 +117,11 @@ controllers**: blocks ergostat reads but does not run (`type: external`); see
 
 - `ergostat check` names structural problems with their fix (a rate driven by a rate hides a
   delay; a stock nothing drains; units that don't match).
+- The **Model** page starts with **What's available**: each loop and what would identify it, each
+  parameter to estimate and whether the record is long enough, and a link to the panel of each tool.
+  Below it, the changes ergostat proposes (review, simulate, accept) and how well the model fits.
+- [MODEL-TOOLS.md](MODEL-TOOLS.md): every tool (fit, checks, calibration, replay, projection, what-if,
+  loop dominance, identification, margins, tuning, step tests), where it is and what it needs.
 - [MODELLING.md](MODELLING.md) is the guide: the tells, the System Dynamics reason, the YAML fix.
 - For an AI agent: `ergostat help improve-model` (also an MCP tool) reviews a model and proposes
   edits, never applying one without you.
@@ -131,3 +138,4 @@ each did, and measures whether it helped. See [writing-agents.md](writing-agents
 - [WHY.md](WHY.md): why model systems this way, for a team deciding whether to.
 - [SPEC.md](SPEC.md): the whole format.
 - [MODELLING.md](MODELLING.md): making a model better.
+- [MODEL-TOOLS.md](MODEL-TOOLS.md): the model tools, where each shows up and what it needs.

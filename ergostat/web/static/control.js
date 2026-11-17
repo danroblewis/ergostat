@@ -229,7 +229,7 @@ function controllerSection(d, done) {
   if (!c.law) {
     kids.push(h("p", { class: "muted small" }, `${c.says || "Its law is not known"}: no closed loop worked out.`));
   } else if (!d.process) {
-    kids.push(h("p", { class: "muted small" }, "Its process is not identified yet (its panel offers a step test): no closed loop worked out."));
+    kids.push(h("p", { class: "muted small" }, `Its process is not identified yet, so no margins, closed-loop step or tuning: ${d.step_test_waiting ? "a step test is offered once the loop is steady" : (d.proposals || []).some((x) => x.kind === "step-test") ? "the process's panel offers a step test" : "the process's panel says what would identify it"}.`));
     if (d.robust) kids.push(dl([["at the worst", robustText(d.robust)]]));
   } else {
     const m = d.margins || {};
@@ -303,7 +303,8 @@ function controlBox(goal, part, { block = null } = {}) {
     if (part === "controller" && block && d.controller?.block !== block && !(d.controllers || []).includes(block)) return box.replaceChildren();
     const done = () => { CTL.delete(goal); draw(); };
     const kids = part === "process" ? processSection(d, done) : part === "controller" ? controllerSection(d, done)
-      : part === "scope" ? [h("h3", {}, "How it is doing"), dl(performanceRows(d))]
+      : part === "scope" ? [h("h3", {}, "How it is doing"), performanceRows(d).some(([, v]) => v != null && v !== "") ? dl(performanceRows(d))
+          : h("p", { class: "muted small" }, d.why ? "Not worked out: it has no one process." : "Not worked out yet: too little record since the loop started (its first ten controller periods, two minutes at least, are left out).")]
       : [...processSection(d, done), ...(d.controller?.law ? controllerSection(d, done) : [])];
     box.replaceChildren(...kids);
   }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));

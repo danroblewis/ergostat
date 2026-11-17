@@ -206,7 +206,8 @@ async function route() {
   const main = $("#main");
   main.replaceChildren();
   const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
-                  "/fit": pageFit, "/residuals": pageFit, "/check": pageCheck, "/guide": pageGuide };
+                  "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
+  if (path === "/fit" || path === "/residuals") return location.replace(`#/model${q.toString() ? `?${q}` : ""}`);   // the Model page's old names
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)));
   return (pages[path] || pageDiagram)(main, q);
 }

@@ -1054,7 +1054,7 @@ three of the slowest time constant the replay met, within a twentieth and a quar
 What a flow a block sets moves (that flow, its stocks, and what follows from them) is left out of
 the projection, and the chart says so.
 
-**Fit** (`ergostat fit`, the Fit page), by Sterman's measures (*Business Dynamics* ch. 21;
+**Fit** (`ergostat fit`, the Model page), by Sterman's measures (*Business Dynamics* ch. 21;
 "Appropriate summary statistics for evaluating the historical fit of system dynamics models",
 1984): **R²** (the squared correlation: how much of the measured variation the replay moves with),
 **MAPE** (the mean absolute error as a share of what was measured; where a reading is near 0 or
@@ -1079,7 +1079,7 @@ its fit recorded with the span it covered (`<state>/fit/history.jsonl`, at most 
 a version).
 
 **Estimates** (`ergostat/numbers/estimate.py`): **calibration**, by optimisation over the replay
-(Oliva 2003), in one of three ways, each the owner's choice (`ergostat proposals --calibrate`, the Fit
+(Oliva 2003), in one of three ways, each the owner's choice (`ergostat proposals --calibrate`, the Model
 page's Calibrate): **each part alone** (the default: what a parameter touches, each equation using it
 in the partial-model test and every stock its flows move, replayed, the rest as measured; equations
 are proposed only here), **each system alone** (Homer's partial model: a system's stocks integrated
@@ -1090,7 +1090,7 @@ outside the model as measured; every `estimate: true` parameter together, fitted
 equation moves and every measured equation). The replay does not simulate the blocks, so what a
 decision sets is still taken as measured, and every loop through a decision stays open: this one is
 called "the whole model" only when no loop runs through one, else "every stock integrated; decisions
-taken as measured", and the loops left open are listed in its proposals' reasons and on the Fit page
+taken as measured", and the loops left open are listed in its proposals' reasons and on the Model page
 (Homer 2012: name what is driven by data). Every `estimate: true` parameter is given
 the value that makes what it is fitted to fit best; weighted least squares, each series' errors over its own spread
 (the readings' standard deviation, at least 1% of their mean). Parameters that share an equation or
@@ -1113,7 +1113,7 @@ it is fitted on forty points or more spanning three of the slowest time constant
 its range (the record would take it outside what the model says it might be: said first) nor at its
 bound (one there is a question of structure), the record tells it apart, it is more than two
 standard errors and 2% from the value written, and it fits the record held out better; otherwise it
-is kept with why, shown beside the parameter and on the Fit page, and proposes nothing. Its reason
+is kept with why, shown beside the parameter and on the Model page, and proposes nothing. Its reason
 and the numbers first shown are those of the objective it minimised, on the record fitted and the
 record held out. An **equation** for a flow that has declared causes and none, a coefficient for
 each cause by least squares on what was measured, proposed when it explains half or more of the
@@ -1156,7 +1156,7 @@ compiled from it: one that would leave an error, or not answer its finding, is n
 listed with why. *Not yet*: a missing stock, flow or delay, or a part replaced, found from the pattern
 in the residuals (the residual-pattern structure finder, `structural.from_residuals`).
 
-**The review queue** (`ergostat/numbers/review.py`; the Fit page; `ergostat proposals`, `--show ID`):
+**The review queue** (`ergostat/numbers/review.py`; the Model page; `ergostat proposals`, `--show ID`):
 every proposal waiting, the loops' process and gain proposals (§12d) with them, each read like a pull
 request: **what** kind of change, **where** (its parts, and the systems holding them: Show on diagram
 chooses them and opens the dynamics view with the block diagram beside it), **why** (the evidence in

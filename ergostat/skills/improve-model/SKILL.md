@@ -22,9 +22,9 @@ Run these in the project (with the MCP server, the tools of the same names):
   then findings. The structure findings are `rate-driven-by-rate`, `stock-without-outflow`,
   `outflow-ignores-stock`, `units-mismatch`, `auxiliary-without-causes` and
   `stock-without-flows`; each ends with its fix and the YAML that writes it.
-- `ergostat residual` (or the Fit page; MCP `findings` reports the significant ones): which
+- `ergostat residual` (or the Model page; MCP `findings` reports the significant ones): which
   stocks move more, or less, than their flows explain, and which way.
-- `ergostat fit` (or the Fit page): how well the model's replay follows each stock its equations
+- `ergostat fit` (or the Model page): how well the model's replay follows each stock its equations
   move (R², MAPE, and Theil's U_M bias, U_S unequal variation, U_C unequal covariation), each
   written equation against its own readings with every input as measured (the partial-model test)
   and replayed, and the stocks moved only by measured flows (accounting: their error is a

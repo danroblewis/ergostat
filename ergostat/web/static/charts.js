@@ -279,7 +279,8 @@ function causesStrip(ref, group = chartGroup("strip")) {
       href: i === 0 ? null : () => openRef(s.ref) })),
       h("div", { class: "chart-foot" }, h("span", { class: "muted" }, [list.length > 1 ? "Rates per hour, on one time axis" : "",
         modelled ? `dashed: the model's replay; past now, lighter: its projection ${dur(d.horizon)} ahead, ${d.inputs || "inputs held where they were"}` : "",
-        modelled ? fanSaid(d, list.some((s) => s.fan)) : "", replayFanSaid(d, list.some((s) => s.replay_fan)), whatifSaid(d)].filter(Boolean).join(". ")),
+        modelled ? fanSaid(d, list.some((s) => s.fan)) : "", replayFanSaid(d, list.some((s) => s.replay_fan)), whatifSaid(d),
+        list[0].replay ? "" : noReplaySaid(list[0])].filter(Boolean).join(". ")),
         group.when),
       ...(!SNAP && d.fan?.parameters?.length ? [h("div", { class: "actions" }, h("button", { class: "ghost", onclick: () => { S.replayFan = !S.replayFan;
         for (const b of document.querySelectorAll(".strip")) b.redraw?.(); } }, S.replayFan ? "Hide the spread over the record" : "Spread over the record"))] : []),
@@ -370,6 +371,12 @@ function replayFanSaid(d, drawn) {
   if (!f) return "";
   if (!drawn) return "the replay's spread over the record is too small to draw";
   return `before now, shaded: the replay's half${f.tails ? ", and nine in ten," : ""} of ${f.samples} replays over the same values`;
+}
+/* why the part itself has no replay, projection or fan: the replay works out a stock with flows and a part with an
+   equation; anything else it takes as measured */
+function noReplaySaid(s) {
+  if (s.kind === "stock") return "no replay or projection: no flow fills or drains it in the model";
+  return "no replay, projection or fan: no equation works it out, so the replay takes it as measured";
 }
 function fanSaid(d, drawn) {
   const f = d.fan;

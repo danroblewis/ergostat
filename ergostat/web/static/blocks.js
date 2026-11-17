@@ -885,6 +885,8 @@ function openBlock(n) {
   if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, typeof v === "string" ? rich(op(v)) : v])));
   // the loop it is the process of, identified (control.js); a controller's law with that process, and its tuning
   if (n.role === "process") for (const l of n.y_of || []) kids.push(controlBox(l, "process"));
+  if (n.role === "process" && !(n.y_of || []).length && !n.mimo)
+    kids.push(h("p", { class: "muted small" }, "Not identified: no goal holds what comes out of it, so no loop's record or step test can tell its dynamics."));
   if (n.role === "controller" && n.id?.startsWith("blk:")) for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x]))
     kids.push(controlBox(l, "controller", { block: n.id.slice(4) }));
   const loops = n.loops || [];
