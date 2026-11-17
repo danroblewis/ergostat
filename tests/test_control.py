@@ -416,7 +416,8 @@ def test_a_step_test_identifies_what_the_loop_working_cannot(tmp_path):
         x = K * u if x is None else a * x + (1 - a) * K * ud
         T = t0 + k
         if k == test_at:
-            p.events.add("steptest.started", item="level-held", source="ergostat", at=T - 1, data={"test": "s", "amount": 5.0, "hold": hold})
+            p.events.add("steptest.started", item="level-held", source="ergostat", at=T - 1,
+                         data={"test": "s", "amount": 5.0, "hold": hold})
             u += 5.0
             p.events.add("steptest.stepped", item="level-held", source="ergostat", at=T, data={"test": "s", "phase": "up"})
         if k == test_at + hold:
