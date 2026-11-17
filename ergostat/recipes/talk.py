@@ -140,7 +140,7 @@ def owner_words(ctx: For, params: dict, budget: int) -> str:
     for _, s in chosen:
         lead = f"**The owner** ({s.where}{', ' + str(s.at) if isinstance(s.at, str) else (', ' + when(s.at) if s.at else '')}):\n\n"
         body = s.text.strip() + "\n"
-        room = budget - used - len(lead) - 2
+        room = budget - used - len(lead) - 2 - 120          # (room kept for saying how many did not fit)
         if room < len(body):
             if room < 400 or parts and room < len(body) // 2:
                 left += 1
@@ -233,7 +233,7 @@ def session(ctx: For, params: dict, budget: int) -> str:
     if of.endswith(".jsonl") or path.is_file():
         if not path.is_file():
             return f"## A session\n\nNo transcript at {of}.\n"
-        ts, name = turns(path), path.stem[:8]
+        ts, name = turns(path), path.stem
     else:
         ts, name = session_turns(ctx, of), of
     total = len(ts)
