@@ -1,4 +1,4 @@
-"""Review depth set by a measure (SPEC §12i): a machine block's ``review:`` says who reviews its work, and how
+"""Review depth set by a measure (SPEC §12j): a machine block's ``review:`` says who reviews its work, and how
 deeply, by its trust (or any built-in measure). After each run that ended well, ergostat reads the rules in order;
 the first whose ``when`` holds (a rule without one always does) decides: ``by: reviewer`` commands that block to review
 the work (``{"amount": 1, "item": ..., "review": {"of": RUN, "depth": ..., "why": ...}}``); ``by: none`` (or no

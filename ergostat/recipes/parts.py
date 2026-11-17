@@ -1,4 +1,4 @@
-"""Each kind of part of a recipe, rendered as Markdown within its budget (SPEC §12i). ``talk.py`` has the parts made
+"""Each kind of part of a recipe, rendered as Markdown within its budget (SPEC §12j). ``talk.py`` has the parts made
 of what was said (``owner-words``, ``session``, and the sessions in an item's history)."""
 
 from __future__ import annotations

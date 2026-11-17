@@ -1,4 +1,4 @@
-"""Each use of a recipe, and how the work it started turned out (SPEC §12i).
+"""Each use of a recipe, and how the work it started turned out (SPEC §12j).
 
 A block with ``context:`` renders its recipe at every run; the run records the use as an ``ergostat.context`` item,
 ``ergostat.context/<block>-<run>``: ``ergostat.context.used`` (the recipe, its version and definition, the hash of
@@ -36,7 +36,7 @@ def context_kind() -> ItemKind:
     return ItemKind(CONTEXT, f"{CONTEXT}/*", list(CONTEXT_STATES), on,
                     ["recipe", "item", "block", "session", "chars", "cost_usd"], {}, None,
                     "each use of a projection recipe: the context a block's run started from (its recipe, version and "
-                    "the hash of the text), and how the work turned out (built in, SPEC §12i)",
+                    "the hash of the text), and how the work turned out (built in, SPEC §12j)",
                     fold={"evidence": "replace"})
 
 

@@ -1,4 +1,4 @@
-"""The parts made of what was said (SPEC §12i): ``owner-words`` (the owner's messages, verbatim, most relevant
+"""The parts made of what was said (SPEC §12j): ``owner-words`` (the owner's messages, verbatim, most relevant
 first), ``session`` (a session's turns: a fork of all of it, its last N, or those matching a pattern) and the
 sessions in an item's history (their key turns).
 

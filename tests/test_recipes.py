@@ -1,4 +1,4 @@
-"""Projection recipes (SPEC §12i): named, versioned recipes for a session's starting context (``contexts:``), each part
+"""Projection recipes (SPEC §12j): named, versioned recipes for a session's starting context (``contexts:``), each part
 rendered within its budget from the record; ``ergostat context RECIPE``; an ``ai`` block started from one, the use
 recorded with its recipe, version and the hash of the text; the outcome of the work it started found in the record
 and folded onto the use and its session; the measures that compare recipes; and review depth set by trust.

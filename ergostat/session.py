@@ -17,7 +17,7 @@ and time, then the JSON lines of every turn's result (claims marked with the ses
 names the program to run in place of ``claude`` (``echo``: ergostat's stand-in session, ``session_echo.py``, which
 echoes what it receives). Arguments after ``--`` are passed to it (the tools the session may use).
 
-A block with ``context:`` (SPEC §12i) has its recipe rendered for the run, into a file named by
+A block with ``context:`` (SPEC §12j) has its recipe rendered for the run, into a file named by
 ``$ERGOSTAT_CONTEXT``: the session starts from it (``--append-system-prompt-file``, after Claude Code's own prompt),
 and ``session.started`` records which context it was given (``context``: the recipe and its version, the hash of the
 text, its size, the item, the use), so the session's outcome can be told by the recipe it started from."""

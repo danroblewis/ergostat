@@ -89,21 +89,23 @@ def render(batch, earlier: dict[str, list[tuple[str, str]]]) -> str:
     return "\n".join(out)
 
 
-def command(model: str | None, budget: float | None) -> list[str]:
+def command(model: str | None, budget: float | None, system: str | None = None) -> list[str]:
     cmd = shlex.split(os.environ.get("ERGOSTAT_AI", "claude -p"))
     if model:
         cmd += ["--model", model]
     if Path(cmd[0]).name == "claude":
-        cmd += ["--output-format", "json", "--tools", "", "--no-session-persistence", "--system-prompt", SYSTEM]
+        cmd += ["--output-format", "json", "--tools", "", "--no-session-persistence", "--system-prompt", system or SYSTEM]
         if budget:
             cmd += ["--max-budget-usd", f"{budget:.2f}"]
     return cmd
 
 
-def call(prompt: str, model: str | None, budget: float | None, spent: Spent, timeout: float = 600) -> str:
-    """One call: what it answered, and its cost added to ``spent``."""
+def call(prompt: str, model: str | None, budget: float | None, spent: Spent, timeout: float = 600,
+         system: str | None = None) -> str:
+    """One call: what it answered, and its cost added to ``spent`` (``system``: its system prompt, else the extractor's;
+    the intent judge's is its own, SPEC §12i)."""
     try:
-        r = subprocess.run(command(model, budget), input=prompt, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(command(model, budget, system), input=prompt, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         spent.failed += 1
         spent.notes.append(f"call failed: {type(e).__name__}: {e}"[:300])

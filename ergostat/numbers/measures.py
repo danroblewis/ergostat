@@ -14,7 +14,7 @@ is a measurement of the model against the record, like any sensor's, so a goal c
 and how far blocks' claims hold (SPEC §12g, ``claims/trust.py``): ``ergostat.trust.contradicted`` and its counts, each
 for every block or, with ``@WHO``, one block, rung or model; how the owner's messages reach the work (SPEC §12h,
 ``messages/measures.py``): ``ergostat.messages.unrouted``, ``.awaiting``, ``.missed`` and the rest; and how the work
-each projection recipe started turned out (SPEC §12i, ``recipes/uses.py``): ``ergostat.context.RECIPE.outcome``,
+each projection recipe started turned out (SPEC §12j, ``recipes/uses.py``): ``ergostat.context.RECIPE.outcome``,
 ``.cost`` and counts.
 """
 
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import time
 
-from ..spec.ir import CONTEXT_MEASURE, CONTEXT_MEASURES, MESSAGE_MEASURES, MODEL_MEASURES, TRUST, TRUST_MEASURES
+from ..spec.ir import CONTEXT_MEASURE, CONTEXT_MEASURES, INTENT, INTENT_MEASURES, MESSAGE_MEASURES, MODEL_MEASURES, TRUST, TRUST_MEASURES
 
 
 class MeasureError(Exception):
@@ -79,7 +79,7 @@ READERS = {"ergostat.model.fit": fit, "ergostat.model.unexplained": unexplained,
 
 
 def measure(p, name: str) -> float | None:
-    if name.startswith(("trust.", "messages.")):   # by hand: trust.contradicted@developer, messages.unrouted
+    if name.startswith(("trust.", "messages.", "intent.")):   # by hand: trust.contradicted@developer, intent.false-done
         name = "ergostat." + name
     if not name.startswith("ergostat."):           # by hand, the short name will do: fit, open-findings
         name = "ergostat.model." + name.removeprefix("model.")
@@ -89,15 +89,18 @@ def measure(p, name: str) -> float | None:
     if name in MESSAGE_MEASURES:                   # how the owner's messages reach the work (SPEC §12h)
         from ..messages import measures as mm
         return mm.measure(p, name)
-    if CONTEXT_MEASURE.match(name):                # how the work each recipe started turned out (SPEC §12i)
+    if CONTEXT_MEASURE.match(name):                # how the work each recipe started turned out (SPEC §12j)
         spec = getattr(p.model, "spec", None)
         if spec is None:
             raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
         from ..recipes import uses
         return uses.measure(p, spec, name)
+    if INTENT.match(name):                         # how far finished work holds to what the owner meant (SPEC §12i)
+        from ..intent import measures as im
+        return im.measure(p, name)
     if name not in MODEL_MEASURES:
         raise MeasureError(f"no measure {name!r}: "
-                           f"{', '.join([*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *CONTEXT_MEASURES])}")
+                           f"{', '.join([*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *CONTEXT_MEASURES, *INTENT_MEASURES])}")
     if getattr(p.model, "spec", None) is None:
         raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
     return READERS[name](p)
@@ -105,7 +108,7 @@ def measure(p, name: str) -> float | None:
 
 def all_of(p) -> dict[str, float | None]:
     out = {}
-    for n in [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES]:
+    for n in [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *INTENT_MEASURES]:
         try:
             out[n] = measure(p, n)
         except Exception as e:                        # one measure that cannot be read leaves the others

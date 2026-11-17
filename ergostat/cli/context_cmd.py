@@ -1,4 +1,4 @@
-"""``ergostat context RECIPE [--item X] [--budget N]``: a projection recipe rendered (SPEC §12i); ``--list``, the
+"""``ergostat context RECIPE [--item X] [--budget N]``: a projection recipe rendered (SPEC §12j); ``--list``, the
 recipes; ``--outcomes``, how the work each recipe started turned out. ``decisions`` and ``corrections`` are the
 one-part built-ins (``cli/decisions.py``)."""
 

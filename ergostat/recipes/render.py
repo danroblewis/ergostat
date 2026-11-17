@@ -1,4 +1,4 @@
-"""A recipe rendered (SPEC §12i): its parts in order, each within its budget, as one Markdown starting context, with
+"""A recipe rendered (SPEC §12j): its parts in order, each within its budget, as one Markdown starting context, with
 what it was rendered for and a hash of the text, so a session started from it can say exactly what it was given."""
 
 from __future__ import annotations

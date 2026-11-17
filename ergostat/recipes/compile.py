@@ -1,4 +1,4 @@
-"""Reading ``contexts:`` (SPEC §12i), and a block's ``context:`` and ``review:``, into the spec, every mistake said with
+"""Reading ``contexts:`` (SPEC §12j), and a block's ``context:`` and ``review:``, into the spec, every mistake said with
 where it was written. Called by the spec compiler (``spec/compile.py``) with itself, for its ``named``, ``keys`` and
 ``err``."""
 

@@ -15,12 +15,15 @@ from .ir import (
     CLAIM,
     CLAIM_CHECKS,
     CONTEXT,
+    INTENT_PORTS,
+    JUDGE_MODES,
     JUDGE_PORTS,
     MACHINE,
     MESSAGE,
     MODEL_CHANGE,
     MODEL_MEASURES,
     NAME,
+    VERDICT,
     Agent,
     Auxiliary,
     Block,
@@ -29,6 +32,8 @@ from .ir import (
     Flow,
     Goal,
     Improve,
+    IntentKind,
+    IntentPolicy,
     ItemKind,
     Messages,
     NamedLoop,
@@ -43,6 +48,7 @@ from .ir import (
     is_measure,
     message_kind,
     model_change_kind,
+    verdict_kind,
 )
 from .load import SINGULAR, Document, Map, Problem, Where
 
@@ -70,7 +76,8 @@ TYPE_KEYS = {
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
     "external": {"agent"},
-    "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up"},
+    "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up",                # judge: model (SPEC §12e)
+              "judge", "kinds", "model", "max-cost", "held", "within"},                      # judge: intent (SPEC §12i)
     "onoff": {"goal", "until", "min-on", "min-off"},
     "compare": {"above", "below", "back-above", "back-below"},
     "proportional": {"goal", "gain", "min", "max"},
@@ -171,6 +178,53 @@ class Compiler:
             self.err(f"{what}.cron: {e}", m.at(key), "bad-cron")
             return None
         return str(v)
+
+    def intent_policy(self, m: Map, what: str) -> IntentPolicy:
+        """An intent judge's policy (SPEC §12i): ``kinds`` (each item kind it judges: ``at``, the state it is judged in;
+        ``accepted``, where it counts as done; ``scope``, ``work``, ``repo``, ``base``, ``reopen-to``), ``model`` (an AI
+        judge on it, else the stand-in), ``max-cost`` (dollars a verdict), ``held`` (attention or reopen), ``within``."""
+        out = IntentPolicy()
+        kinds = m.get("kinds")
+        if not isinstance(kinds, Map) or not kinds:
+            self.err(f"{what}.kinds: the item kinds it judges, each with at: (the state the work says it is done in): "
+                     f"kinds: {{ticket: {{at: review}}}}", m.at("kinds") or m.where, "missing-key")
+            kinds = {}
+        for kn, km in kinds.items():
+            w = f"{what}.kinds.{kn}"
+            if isinstance(km, str):                      # kinds: {ticket: review}
+                km = {"at": km}
+            if not isinstance(km, dict) or not km.get("at"):
+                self.err(f"{w}: at: (the state the work is judged in)", kinds.at(kn), "missing-key")
+                continue
+            if isinstance(km, Map):
+                self.keys(km, {"at", "accepted", "scope", "work", "repo", "base", "reopen-to"}, w)
+
+            def strs(v):
+                return [str(x) for x in v] if isinstance(v, list) else [str(v)] if v not in (None, "") else []
+            repo = km.get("repo")
+            if repo is not None and (str(repo).startswith("/") or ".." in str(repo).split("/")):
+                self.err(f"{w}.repo: a folder inside the model's, written from it", kinds.at(kn), "bad-path")
+                repo = None
+            out.kinds[str(kn)] = IntentKind(str(kn), str(km["at"]), strs(km.get("accepted")), strs(km.get("scope")) or [str(kn)],
+                                            strs(km.get("work")), None if repo is None else str(repo),
+                                            str(km.get("base") or "main"), km.get("reopen-to") and str(km["reopen-to"]))
+        if m.get("model") is not None:
+            out.model = str(m["model"])
+        if m.get("max-cost") is not None:
+            v = self.number(m, "max-cost", what)
+            if v is not None and v <= 0:
+                self.err(f"{what}.max-cost: dollars a verdict, more than 0", m.at("max-cost"), "bad-number")
+            elif v is not None:
+                out.max_cost = float(v)
+        held = m.get("held", "attention")
+        if held not in ("attention", "reopen"):
+            self.err(f"{what}.held: attention (the verdict needs the owner's attention) or reopen (the work goes back)",
+                     m.at("held"), "bad-policy")
+        else:
+            out.held = str(held)
+        if m.get("within") is not None:
+            out.within = self.duration(m, "within", what, out.within)
+        return out
 
     def judge_policy(self, m: Map, what: str) -> Improve:
         """A judge block's policy (SPEC §12e): ``accept`` (``owner``, the default, or ``auto``, for every kind or by
@@ -375,7 +429,9 @@ class Compiler:
                     self.err(f"{sw}.builtin: one of ergostat's built-in measures, {', '.join(MODEL_MEASURES)}, or "
                              f"ergostat.trust.contradicted (or contradictions, verified, unchecked, claims), with @BLOCK, "
                              f"@rung:KIND or @model:MODEL when about one, or ergostat.messages.unrouted (or awaiting, "
-                             f"received, routed, delivered, answered, missed, reached)",
+                             f"received, routed, delivered, answered, missed, reached), or ergostat.intent.false-done (or "
+                             f"false-done-tests, accepted, reopened, judged, met, unmet, contradicted, held, unjudged, "
+                             f"overruled, cost), with @KIND when about one",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
@@ -708,11 +764,12 @@ class Compiler:
         spec.items[MODEL_CHANGE] = model_change_kind()       # built in: every change to the model (SPEC §12e)
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
         spec.items[MESSAGE] = message_kind()                 # built in: the owner's messages, routed (SPEC §12h)
+        spec.items[VERDICT] = verdict_kind()                 # built in: the intent judge's verdicts on work (SPEC §12i)
         self.claims(spec)
         from ..decisions.kinds import builtin as intent_kinds
         spec.items.update(intent_kinds())                    # built in: the owner's decisions and corrections (SPEC §5a)
         from ..recipes.uses import context_kind
-        spec.items[CONTEXT] = context_kind()                 # built in: each use of a recipe, and its outcome (SPEC §12i)
+        spec.items[CONTEXT] = context_kind()                 # built in: each use of a recipe, and its outcome (SPEC §12j)
         self.parameters(spec)
         for name, m, what in self.named("stocks"):
             self.keys(m, STOCK_KEYS, what)
@@ -799,16 +856,35 @@ class Compiler:
                                       m.get("cost") and str(m["cost"]), m.get("host") and str(m["host"]),
                                       self.text(m, "description"), m.where)
         from ..recipes import compile as recipes
-        recipes.contexts(self, spec)                         # contexts: the projection recipes (SPEC §12i)
+        recipes.contexts(self, spec)                         # contexts: the projection recipes (SPEC §12j)
         for name, m, what in self.named("blocks"):
             b = self.block(name, m, what)
             if b:
                 spec.blocks[name] = b
         recipes.blocks(self, spec)                           # a block's context: and review:
-        judges = [b for b in spec.blocks.values() if b.type == "judge"]
+        judges = [b for b in spec.blocks.values() if b.type == "judge" and b.params.get("judge", "model") == "model"]
         for b in judges[1:]:
             self.err(f"block {b.name}: one judge of changes to the model at most ({judges[0].name} is one)", b.where,
                      "two-judges")
+        intents = [b for b in spec.blocks.values() if b.type == "judge" and b.params.get("judge") == "intent"]
+        for b in intents[1:]:
+            self.err(f"block {b.name}: one intent judge at most ({intents[0].name} is one)", b.where, "two-judges")
+        for b in intents:
+            for kn, ik in b.params["intent"].kinds.items():
+                k = spec.items.get(kn)
+                where = f"block {b.name}.kinds.{kn}"
+                if k is None or kn.startswith("ergostat."):
+                    own = ", ".join(x for x in spec.items if not x.startswith("ergostat."))
+                    self.err(f"{where}: an item kind of the model's own ({own})", b.where, "bad-ref")
+                    continue
+                for st in [ik.at, *ik.accepted, *([ik.reopen_to] if ik.reopen_to else [])]:
+                    if st not in k.states:
+                        self.err(f"{where}: {st!r} is not a state of {kn} ({', '.join(k.states) or 'it has none'})", b.where,
+                                 "bad-state")
+                if not ik.accepted:
+                    ik.accepted = [k.states[-1]] if k.states and k.states[-1] != ik.at else []
+                if ik.repo is None and "tests" in spec.claims:
+                    ik.repo = spec.claims["tests"].in_
         if judges:
             spec.improve = judges[0].params["policy"]
             spec.improve.block = judges[0].name
@@ -1161,7 +1237,19 @@ class Compiler:
         for port, refs in ins.items():
             for r in refs:
                 inputs[port] = r
-        if t == "judge":
+        if t == "judge" and m.get("judge", "model") not in JUDGE_MODES:
+            self.err(f"{what}.judge: {' or '.join(JUDGE_MODES)} (of changes to the model, or of finished work against "
+                     f"the owner's intent)", m.at("judge"), "bad-type")
+        if t == "judge" and m.get("judge") == "intent":
+            params["intent"] = self.intent_policy(m, what)
+            for port, rs in outs.items():
+                if port not in INTENT_PORTS or any(r.kind != "flow" for r in rs):
+                    self.err(f"{what}.out.{port}: an intent judge reports what it moved on its ports, {', '.join(INTENT_PORTS)}, "
+                             f"each a flow (out: {{held: flow.work-held}})", m.at("out"), "bad-ref")
+        elif t == "judge":
+            for k in ("kinds", "model", "max-cost", "held", "within"):
+                if m.get(k) is not None:
+                    self.err(f"{what}.{k}: only an intent judge (judge: intent) takes {k}:", m.at(k), "unknown-key")
             params["policy"] = self.judge_policy(m, what)
             for port, rs in outs.items():
                 if port not in JUDGE_PORTS or any(r.kind != "flow" for r in rs):

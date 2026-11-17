@@ -103,9 +103,9 @@ CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
 CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
 DECISION = "ergostat.decision"    # the built-in item kinds of the owner's intent (SPEC §5a): what was decided,
 CORRECTION = "ergostat.correction"   # and what the owner corrected (decisions/kinds.py)
-CONTEXT = "ergostat.context"      # the built-in item kind: one use of a projection recipe, and its outcome (SPEC §12i)
+CONTEXT = "ergostat.context"      # the built-in item kind: one use of a projection recipe, and its outcome (SPEC §12j)
 CONTEXT_MEASURE = re.compile(r"^ergostat\.context\.([a-z][a-z0-9-]*)\.(outcome|cost|uses|succeeded|failed)$")
-CONTEXT_MEASURES = {               # how the work a recipe started turned out (SPEC §12i), over the last week
+CONTEXT_MEASURES = {               # how the work a recipe started turned out (SPEC §12j), over the last week
     "ergostat.context.RECIPE.outcome": "of the uses of the recipe whose outcome is known over the last week, the share "
                                        "that succeeded (0 while none is known)",
     "ergostat.context.RECIPE.cost": "the mean cost, in USD, of a session started from the recipe over the last week",
@@ -140,12 +140,39 @@ MESSAGE_MEASURES = {               # how the owner's messages reach the work (SP
                                  "is received)",
 }
 
+VERDICT = "ergostat.verdict"      # the built-in item kind: the intent judge's verdict on a piece of work (SPEC §12i)
+VERDICT_STATES = ["asked", "met", "unmet", "contradicted", "unjudged", "overruled", "missed"]
+JUDGE_MODES = ("model", "intent")  # a judge block's judge: of changes to the model (SPEC §12e), or of work (§12i)
+INTENT_PORTS = ("judged", "met", "held")   # what an intent judge moved on a pass: judged, passed, held back
+INTENT = re.compile(r"^ergostat\.intent\.(false-done|false-done-tests|accepted|reopened|judged|met|unmet|contradicted|"
+                    r"held|unjudged|overruled|cost)(?:@([A-Za-z0-9][A-Za-z0-9._/-]*))?$")   # ergostat.intent.false-done@hypothesis
+INTENT_MEASURES = {                # how far finished work holds to what the owner meant (SPEC §12i); @KIND narrows them
+    "ergostat.intent.false-done": "of the work accepted over the last week, the share the owner later reopened, followed "
+                                  "up or corrected (0 while none is accepted); @KIND for one kind of item",
+    "ergostat.intent.false-done-tests": "the same had the tests alone decided: of the work that reached its judged state "
+                                        "over the last week, the share found not done as meant, by the intent judge (not "
+                                        "overruled) or by the owner after it was accepted",
+    "ergostat.intent.accepted": "work accepted over the last week (it entered a state where it counts as done)",
+    "ergostat.intent.reopened": "of that work, how much the owner reopened, followed up or corrected after accepting it",
+    "ergostat.intent.judged": "verdicts the intent judge gave over the last week",
+    "ergostat.intent.met": "verdicts that the work is done as meant",
+    "ergostat.intent.unmet": "verdicts that the work does not do what it was meant to (its done-when, the owner's words)",
+    "ergostat.intent.contradicted": "verdicts that the work contradicts a confirmed decision, a correction or the owner's "
+                                    "messages about it",
+    "ergostat.intent.held": "work held back: verdicts unmet or contradicted that the owner has not overruled",
+    "ergostat.intent.unjudged": "work the judge could not hold to anything (nothing in scope), or whose verdict it could "
+                                "not support with evidence",
+    "ergostat.intent.overruled": "verdicts the owner overruled (a false alarm, or a pass that was not)",
+    "ergostat.intent.cost": "dollars the intent judge spent over the last week",
+}
+
 
 def is_measure(name: str) -> bool:
     """A built-in measure a sensor may read: the model's own (``ergostat.model.*``), trust's (``ergostat.trust.*``,
-    with an optional ``@who``), the messages' (``ergostat.messages.*``) or a recipe's (``ergostat.context.*``)."""
+    with an optional ``@who``), the messages' (``ergostat.messages.*``), a recipe's (``ergostat.context.*``) or the
+    intent judge's (``ergostat.intent.*``, with an optional ``@kind``)."""
     return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
-            or bool(CONTEXT_MEASURE.match(name)))
+            or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)))
 
 
 @dataclass
@@ -183,6 +210,43 @@ def message_kind() -> ItemKind:
                     None, "the owner's messages: received, routed to the work in flight they concern, and delivered to it "
                     "(a running session's next turn, a run's context, a follow-up on finished work), or unrouted "
                     "(built in, SPEC §12h)", fold={"deliveries": "append", "answers": "append"})
+
+
+def verdict_kind() -> ItemKind:
+    on = {f"{VERDICT}.{s}": s for s in VERDICT_STATES}
+    return ItemKind(VERDICT, f"{VERDICT}/*", list(VERDICT_STATES), on, ["work", "verdict", "why", "block"], {}, None,
+                    "the intent judge's verdict on a piece of work that said it was done: held to its done-when, the "
+                    "confirmed decisions and corrections in its scope and the owner's messages about it; met, unmet, "
+                    "contradicted or unjudged, with evidence; overruled by the owner, or missed (built in, SPEC §12i)")
+
+
+@dataclass
+class IntentKind:
+    """What an intent judge holds one kind of item to (SPEC §12i): judged when an item enters ``at`` (the work says it
+    is done, its tests passed); counted as accepted when it enters one of ``accepted``; held to the confirmed decisions
+    whose scope names one of ``scope`` (or that name no scope), the corrections for ``work`` (kinds of work), and the
+    owner's messages about it; its change read from the git repository ``repo`` (its ``commit`` or ``branch`` field,
+    against ``base``)."""
+    kind: str
+    at: str
+    accepted: list[str] = field(default_factory=list)
+    scope: list[str] = field(default_factory=list)
+    work: list[str] = field(default_factory=list)
+    repo: str | None = None
+    base: str = "main"
+    reopen_to: str | None = None
+
+
+@dataclass
+class IntentPolicy:
+    """An intent judge's policy (``judge: intent``, SPEC §12i): the kinds it judges, how (``model``: an AI on that
+    model, else ergostat's free stand-in), at most ``max_cost`` dollars a verdict, and what a verdict that the work is
+    not done as meant does (``held``: ``attention``, the default, or ``reopen``)."""
+    kinds: dict[str, IntentKind] = field(default_factory=dict)
+    model: str | None = None
+    max_cost: float = 0.05
+    held: str = "attention"
+    within: float = 86400.0          # work that entered its judged state longer ago than this is not judged late
 
 
 @dataclass
@@ -401,6 +465,20 @@ class Block:
         return self.type in MACHINE and self.type != "external"
 
     @property
+    def judge_mode(self) -> str | None:
+        """A judge's: ``model`` (changes to the model, SPEC §12e) or ``intent`` (finished work, §12i); else None."""
+        return str(self.params.get("judge") or "model") if self.type == "judge" else None
+
+    @property
+    def builtin_rung(self) -> str:
+        """The rung of a block ergostat computes: a judge is a program, or a narrow AI when an intent judge names a
+        model; every other built-in is a rule."""
+        if self.type != "judge":
+            return "rule"
+        pol = self.params.get("intent")
+        return "narrow-ai" if pol is not None and getattr(pol, "model", None) else "program"
+
+    @property
     def goal(self) -> str | None:
         g = self.params.get("goal")
         return g if isinstance(g, str) else None
@@ -510,7 +588,7 @@ class Spec:
     improve: Improve = field(default_factory=Improve)                  # the judge block's policy (SPEC §12e)
     claims: dict[str, ClaimCheck] = field(default_factory=dict)       # the checks the project declares (SPEC §12g)
     messages: Messages = field(default_factory=Messages)               # how the owner's messages are routed (SPEC §12h)
-    contexts: dict = field(default_factory=dict)                       # name → Recipe: the projection recipes (SPEC §12i)
+    contexts: dict = field(default_factory=dict)                       # name → Recipe: the projection recipes (SPEC §12j)
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 

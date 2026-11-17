@@ -35,7 +35,7 @@ def rung_of(spec: Spec, block: str) -> str | None:
         return None
     if b.agent in spec.agents and spec.agents[b.agent].kind:
         return spec.agents[b.agent].kind
-    return {"ai": "ai", "program": "program", "person": "person", "external": "external"}.get(b.type, "rule")
+    return {"ai": "ai", "program": "program", "person": "person", "external": "external"}.get(b.type, b.builtin_rung)
 
 
 def model_of(spec: Spec, block: str, raw: dict) -> str | None:

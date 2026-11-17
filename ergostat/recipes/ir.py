@@ -1,4 +1,4 @@
-"""What a projection recipe is (SPEC §12i): a name, a version, and a list of parts, each with a budget, rendered in
+"""What a projection recipe is (SPEC §12j): a name, a version, and a list of parts, each with a budget, rendered in
 order into one Markdown starting context."""
 
 from __future__ import annotations

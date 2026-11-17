@@ -402,7 +402,7 @@ def _rung(spec: Spec, by: str) -> str | None:
         return None
     if b.agent in spec.agents and spec.agents[b.agent].kind:
         return spec.agents[b.agent].kind
-    return {"ai": "ai", "program": "program", "person": "person", "external": "external", "judge": "program"}.get(b.type, "rule")
+    return {"ai": "ai", "program": "program", "person": "person", "external": "external"}.get(b.type, b.builtin_rung)
 
 
 def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None, at: float | None = None) -> dict:
