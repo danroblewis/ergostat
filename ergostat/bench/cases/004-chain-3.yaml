@@ -1,0 +1,49 @@
+# The truth of SD Lab's ladder case 004-chain-3, converted by scripts/bench_ladder.py: a step is three minutes,
+# every number a parameter. Chain of three
+# Chain of three
+name: ladder-004
+parameters:
+  a-to-b-per-a:
+    value: 10
+    unit: 1/h
+    estimate: true
+  b-to-c-per-b:
+    value: 5
+    unit: 1/h
+    estimate: true
+  c-out-per-c:
+    value: 2
+    unit: 1/h
+    estimate: true
+stocks:
+  a:
+    unit: units
+    sensor:
+      manual: true
+  b:
+    unit: units
+    sensor:
+      manual: true
+  c:
+    unit: units
+    sensor:
+      manual: true
+flows:
+  a-in:
+    to: a
+    sensor:
+      manual: true
+  a-to-b:
+    from: a
+    to: b
+    driven-by: [+stock.a]
+    equation: a-to-b-per-a * stock.a
+  b-to-c:
+    from: b
+    to: c
+    driven-by: [+stock.b]
+    equation: b-to-c-per-b * stock.b
+  c-out:
+    from: c
+    driven-by: [+stock.c]
+    equation: c-out-per-c * stock.c

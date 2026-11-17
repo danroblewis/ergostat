@@ -61,7 +61,7 @@ TYPE_KEYS = {
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until"},
     "external": {"agent"},
-    "judge": {"every", "accept", "threshold", "hold-out", "windows"},
+    "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up"},
     "onoff": {"goal", "until", "min-on", "min-off"},
     "compare": {"above", "below", "back-above", "back-below"},
     "proportional": {"goal", "gain", "min", "max"},
@@ -165,8 +165,9 @@ class Compiler:
 
     def judge_policy(self, m: Map, what: str) -> Improve:
         """A judge block's policy (SPEC §12e): ``accept`` (``owner``, the default, or ``auto``, for every kind or by
-        kind), ``threshold`` (a share, ``2%``), ``hold-out`` (a duration) and ``windows`` (how the record held out
-        is split: ``[1, 2, 4]``, whole, halves and quarters)."""
+        kind), ``threshold`` (a share, ``2%``), ``hold-out`` (a duration), ``windows`` (how the record held out
+        is split: ``[1, 2, 4]``, whole, halves and quarters) and ``warm-up`` (how long before each window its replay
+        starts, 6h by default)."""
         out = Improve()
         acc = m.get("accept")
         ways = ("owner", "auto")
@@ -201,6 +202,12 @@ class Compiler:
                 self.err(f"{what}.hold-out: a duration above 0", m.at("hold-out"), "bad-duration")
             else:
                 out.hold_out = h
+        wu = self.duration(m, "warm-up", what, None)
+        if wu is not None:
+            if wu < 0:
+                self.err(f"{what}.warm-up: a duration, 0 or more", m.at("warm-up"), "bad-duration")
+            else:
+                out.warm_up = wu
         w = m.get("windows")
         if w is not None:
             if not isinstance(w, list) or not w or not all(isinstance(x, int) and not isinstance(x, bool) and 1 <= x <= 16

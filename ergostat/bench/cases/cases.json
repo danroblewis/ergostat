@@ -1,0 +1,758 @@
+{
+ "002-inflow-outflow": {
+  "title": "One stock, in and out",
+  "source": "SD Lab ladder 002-inflow-outflow (a constant outside inflow and a proportional outflow of one stock are recovered)",
+  "file": "002-inflow-outflow.yaml",
+  "inputs": {
+   "flow.a-in": {
+    "base": 400.0,
+    "steps": [
+     [
+      0.0,
+      400.0
+     ],
+     [
+      5.0,
+      800.0
+     ]
+    ],
+    "every": 10.0,
+    "excitation": "added: the input doubles every 100 steps"
+   }
+  },
+  "start": {
+   "a": 0.0
+  },
+  "tags": [
+   "ladder",
+   "inflow",
+   "outflow"
+  ],
+  "defects": [
+   {
+    "kind": "parameter-x3",
+    "parameter": "a-out-per-a"
+   }
+  ]
+ },
+ "003-chain-2": {
+  "title": "Chain of two",
+  "source": "SD Lab ladder 003-chain-2 (a proportional move between two measured stocks, with the chain's inflow and exit, is recovered)",
+  "file": "003-chain-2.yaml",
+  "inputs": {
+   "flow.a-in": {
+    "base": 400.0,
+    "steps": [
+     [
+      0.0,
+      400.0
+     ],
+     [
+      5.0,
+      800.0
+     ]
+    ],
+    "every": 10.0,
+    "excitation": "added: the input doubles every 100 steps"
+   }
+  },
+  "start": {
+   "a": 0.0,
+   "b": 0.0
+  },
+  "tags": [
+   "ladder",
+   "chain",
+   "move"
+  ],
+  "defects": [
+   {
+    "kind": "flow-removed",
+    "flow": "b-out"
+   }
+  ]
+ },
+ "004-chain-3": {
+  "title": "Chain of three",
+  "source": "SD Lab ladder 004-chain-3 (two moves in a row are recovered, each at its own rate)",
+  "file": "004-chain-3.yaml",
+  "inputs": {
+   "flow.a-in": {
+    "base": 400.0,
+    "steps": [
+     [
+      0.0,
+      400.0
+     ],
+     [
+      5.0,
+      800.0
+     ]
+    ],
+    "every": 10.0,
+    "excitation": "added: the input doubles every 100 steps"
+   }
+  },
+  "start": {
+   "a": 0.0,
+   "b": 0.0,
+   "c": 0.0
+  },
+  "tags": [
+   "ladder",
+   "chain",
+   "move"
+  ],
+  "defects": [
+   {
+    "kind": "stock-merged",
+    "stock": "b"
+   }
+  ]
+ },
+ "007-link": {
+  "title": "A link",
+  "source": "SD Lab ladder 007-link (an outside inflow whose rate follows another stock's level (nothing leaves that stock) is a link, not a move)",
+  "file": "007-link.yaml",
+  "inputs": {
+   "flow.a-in": {
+    "base": 400.0,
+    "steps": [
+     [
+      0.0,
+      400.0
+     ],
+     [
+      5.0,
+      800.0
+     ]
+    ],
+    "every": 10.0,
+    "excitation": "added: the input doubles every 100 steps"
+   }
+  },
+  "start": {
+   "a": 0.0,
+   "b": 0.0
+  },
+  "tags": [
+   "ladder",
+   "link"
+  ],
+  "defects": [
+   {
+    "kind": "parameter-x3",
+    "parameter": "b-in-per-a",
+    "factor": 0.3333333333
+   },
+   {
+    "kind": "flow-removed",
+    "flow": "a-out"
+   }
+  ]
+ },
+ "008-link-loop": {
+  "title": "A reinforcing link loop",
+  "source": "SD Lab ladder 008-link-loop (a feedback loop closed by a link (B's level drives A's inflow, A feeds B) is recovered)",
+  "file": "008-link-loop.yaml",
+  "inputs": {
+   "flow.a-in": {
+    "base": 200.0,
+    "steps": [
+     [
+      0.0,
+      200.0
+     ],
+     [
+      5.0,
+      400.0
+     ]
+    ],
+    "every": 10.0,
+    "excitation": "added: the input doubles every 100 steps"
+   }
+  },
+  "start": {
+   "a": 0.0,
+   "b": 0.0
+  },
+  "tags": [
+   "ladder",
+   "loop",
+   "link",
+   "move"
+  ],
+  "defects": [
+   {
+    "kind": "spurious-link",
+    "flow": "a-to-b",
+    "cause": "stock.b"
+   }
+  ]
+ },
+ "011-goal-gap": {
+  "title": "Goal-seeking orders",
+  "source": "SD Lab ladder 011-goal-gap (a balancing loop: orders into a supply line follow the gap between a goal and the inventory it feeds)",
+  "file": "011-goal-gap.yaml",
+  "inputs": {},
+  "start": {
+   "p": 0.0,
+   "i": 0.0
+  },
+  "tags": [
+   "ladder",
+   "gap",
+   "balancing",
+   "loop"
+  ],
+  "defects": [
+   {
+    "kind": "sign-flipped",
+    "flow": "orders"
+   }
+  ]
+ },
+ "012-rework": {
+  "title": "Rework",
+  "source": "SD Lab ladder 012-rework (a back-flow (B -> A) beside the forward move (A -> B) is recovered, both directions)",
+  "file": "012-rework.yaml",
+  "inputs": {
+   "flow.a-in": {
+    "base": 400.0,
+    "steps": [
+     [
+      0.0,
+      400.0
+     ],
+     [
+      5.0,
+      800.0
+     ]
+    ],
+    "every": 10.0,
+    "excitation": "added: the input doubles every 100 steps"
+   }
+  },
+  "start": {
+   "a": 0.0,
+   "b": 0.0
+  },
+  "tags": [
+   "ladder",
+   "loop",
+   "move",
+   "rework"
+  ],
+  "defects": [
+   {
+    "kind": "flow-removed",
+    "flow": "rework"
+   }
+  ]
+ },
+ "015-hidden-stock": {
+  "title": "A hidden stock between two measured ones",
+  "source": "SD Lab ladder 015-hidden-stock (things leave A, wait in an unmeasured stock, and arrive in B: an inferred stock with the right delay)",
+  "file": "015-hidden-stock.yaml",
+  "inputs": {
+   "flow.a-in": {
+    "base": 400.0,
+    "steps": [
+     [
+      0.0,
+      400.0
+     ],
+     [
+      5.0,
+      800.0
+     ]
+    ],
+    "every": 10.0,
+    "excitation": "added: the input doubles every 100 steps"
+   }
+  },
+  "start": {
+   "a": 0.0,
+   "h": 0.0,
+   "b": 0.0
+  },
+  "tags": [
+   "ladder",
+   "hidden",
+   "delay"
+  ],
+  "defects": [
+   {
+    "kind": "stock-merged",
+    "stock": "h"
+   }
+  ]
+ },
+ "020-unannounced-step": {
+  "title": "Unannounced steps in an inflow",
+  "source": "SD Lab ladder 020-unannounced-step (an outside inflow that steps between 10 and 30 without announcement is tracked, and the chain's rates stay right)",
+  "file": "020-unannounced-step.yaml",
+  "inputs": {
+   "flow.a-in": {
+    "base": 200.0,
+    "steps": [
+     [
+      0.0,
+      200.0
+     ],
+     [
+      5.0,
+      600.0
+     ]
+    ],
+    "every": 10.0
+   }
+  },
+  "start": {
+   "a": 0.0,
+   "b": 0.0
+  },
+  "tags": [
+   "ladder",
+   "inflow-change",
+   "unannounced"
+  ],
+  "defects": [
+   {
+    "kind": "parameter-x3",
+    "parameter": "a-to-b-per-a"
+   },
+   {
+    "kind": "spurious-link",
+    "flow": "b-out",
+    "cause": "stock.a"
+   }
+  ]
+ },
+ "026-hidden-stock-driven": {
+  "title": "A hidden stock behind a stepping inflow",
+  "source": "SD Lab ladder 026-hidden-stock-driven (015's hidden stock with the sender's outside inflow stepping between 10 and 30 without announcement: the delay is excited, and the steps must not be mistaken for the hidden stock or the reverse)",
+  "file": "026-hidden-stock-driven.yaml",
+  "inputs": {
+   "flow.a-in": {
+    "base": 200.0,
+    "steps": [
+     [
+      0.0,
+      200.0
+     ],
+     [
+      5.0,
+      600.0
+     ]
+    ],
+    "every": 10.0
+   }
+  },
+  "start": {
+   "a": 0.0,
+   "h": 0.0,
+   "b": 0.0
+  },
+  "tags": [
+   "ladder",
+   "hidden",
+   "delay",
+   "inflow-change",
+   "unannounced"
+  ],
+  "defects": [
+   {
+    "kind": "stock-merged",
+    "stock": "h"
+   },
+   {
+    "kind": "parameter-x3",
+    "parameter": "b-out-per-b"
+   }
+  ]
+ },
+ "063-delay3-supply-line": {
+  "title": "A third-order delay (DELAY3) between two measured stocks",
+  "source": "SD Lab ladder 063-delay3-supply-line (what leaves A (0.1 x A) reaches B through a third-order material delay of 6 steps (DELAY3: three hidden stocks, each drained at 3/6): one hidden path from A to B with its total delay of 6, not a direct move or a first-order delay of another length; announced injections into A every 100 steps show the delay's shape)",
+  "file": "063-delay3-supply-line.yaml",
+  "inputs": {
+   "flow.a-in": {
+    "base": 200.0,
+    "pulses": [
+     [
+      2.5,
+      0.05,
+      6000.0
+     ],
+     [
+      7.5,
+      0.05,
+      6000.0
+     ],
+     [
+      12.5,
+      0.05,
+      6000.0
+     ],
+     [
+      17.5,
+      0.05,
+      6000.0
+     ],
+     [
+      22.5,
+      0.05,
+      6000.0
+     ],
+     [
+      27.5,
+      0.05,
+      6000.0
+     ],
+     [
+      32.5,
+      0.05,
+      6000.0
+     ],
+     [
+      37.5,
+      0.05,
+      6000.0
+     ],
+     [
+      42.5,
+      0.05,
+      6000.0
+     ],
+     [
+      47.5,
+      0.05,
+      6000.0
+     ],
+     [
+      52.5,
+      0.05,
+      6000.0
+     ],
+     [
+      57.5,
+      0.05,
+      6000.0
+     ],
+     [
+      62.5,
+      0.05,
+      6000.0
+     ],
+     [
+      67.5,
+      0.05,
+      6000.0
+     ],
+     [
+      72.5,
+      0.05,
+      6000.0
+     ],
+     [
+      77.5,
+      0.05,
+      6000.0
+     ],
+     [
+      82.5,
+      0.05,
+      6000.0
+     ],
+     [
+      87.5,
+      0.05,
+      6000.0
+     ],
+     [
+      92.5,
+      0.05,
+      6000.0
+     ],
+     [
+      97.5,
+      0.05,
+      6000.0
+     ]
+    ]
+   }
+  },
+  "start": {
+   "a": 100.0,
+   "b": 120.0
+  },
+  "tags": [
+   "ladder",
+   "hidden",
+   "delay",
+   "chain",
+   "injection"
+  ],
+  "defects": [
+   {
+    "kind": "delay-missing",
+    "flow": "b-arrives"
+   }
+  ]
+ },
+ "image-squeeze-lab": {
+  "title": "image-squeeze: the lab's hypotheses, and the service's bytes following each release",
+  "source": "examples/image-squeeze (lab.yaml, service.yaml, world/)",
+  "file": "image-squeeze-lab.yaml",
+  "inputs": {
+   "flow.hypotheses-proposed": {
+    "base": 0.6,
+    "pulses": [
+     [
+      1,
+      0.25,
+      14
+     ],
+     [
+      5,
+      0.25,
+      18
+     ],
+     [
+      9,
+      0.25,
+      10
+     ]
+    ],
+    "every": 12
+   },
+   "auxiliary.batch-bytes": {
+    "steps": [
+     [
+      0,
+      120
+     ],
+     [
+      3,
+      95
+     ],
+     [
+      7,
+      105
+     ],
+     [
+      10,
+      80
+     ]
+    ],
+    "every": 12
+   }
+  },
+  "tags": [
+   "world",
+   "chain",
+   "smoothing"
+  ],
+  "defects": [
+   {
+    "kind": "flow-removed",
+    "flow": "went-stale"
+   },
+   {
+    "kind": "parameter-x3",
+    "parameter": "window-time"
+   }
+  ]
+ },
+ "judge-delay": {
+  "title": "the judge: a third-order delay between two stocks",
+  "source": "written for the judge's tests",
+  "file": "judge-delay.yaml",
+  "inputs": {
+   "flow.a-in": {
+    "steps": [
+     [
+      0,
+      10
+     ],
+     [
+      2,
+      25
+     ],
+     [
+      4,
+      5
+     ]
+    ],
+    "every": 6
+   }
+  },
+  "start": {
+   "a": 8,
+   "b": 10
+  },
+  "tags": [
+   "judge"
+  ],
+  "defects": []
+ },
+ "judge-queue": {
+  "title": "the judge: a queue drained first-order",
+  "source": "written for the judge's tests (tests/test_numbers.py's queue)",
+  "file": "judge-queue.yaml",
+  "inputs": {
+   "flow.arrivals": {
+    "steps": [
+     [
+      0,
+      10
+     ],
+     [
+      1.5,
+      18
+     ],
+     [
+      3,
+      6
+     ],
+     [
+      4.5,
+      14
+     ]
+    ],
+    "every": 6
+   }
+  },
+  "start": {
+   "queue": 4
+  },
+  "tags": [
+   "judge"
+  ],
+  "defects": []
+ },
+ "kube-hpa": {
+  "title": "kube: an HPA scaling ready pods on CPU, the queue served up to their capacity",
+  "source": "~/kube-sim-prometheus and SD Lab ladder 308-k8s-hpa (smoothed)",
+  "file": "kube-hpa.yaml",
+  "inputs": {
+   "auxiliary.traffic": {
+    "steps": [
+     [
+      0,
+      30000
+     ],
+     [
+      4,
+      46000
+     ],
+     [
+      5.5,
+      30000
+     ]
+    ],
+    "every": 8,
+    "sine": [
+     9000,
+     6
+    ]
+   }
+  },
+  "tags": [
+   "world",
+   "loop",
+   "kubernetes",
+   "min"
+  ],
+  "defects": [
+   {
+    "kind": "spurious-link",
+    "flow": "scaling",
+    "cause": "stock.queue"
+   }
+  ]
+ },
+ "software-factory-product": {
+  "title": "software-factory: users, live bugs and missing operations under deploys",
+  "source": "examples/software-factory (product.yaml, world/customers.py)",
+  "file": "software-factory-product.yaml",
+  "inputs": {
+   "auxiliary.deploys": {
+    "steps": [
+     [
+      0,
+      1
+     ],
+     [
+      3,
+      3
+     ],
+     [
+      6,
+      0.5
+     ],
+     [
+      9,
+      2
+     ]
+    ],
+    "every": 12
+   }
+  },
+  "tags": [
+   "world",
+   "nonlinear",
+   "loop"
+  ],
+  "defects": [
+   {
+    "kind": "sign-flipped",
+    "flow": "churn"
+   }
+  ]
+ },
+ "the-job-incidents": {
+  "title": "the-job: ramps go ahead, break through a DELAY3, start outages that page",
+  "source": "examples/the-job (job/safety.yaml, job/incidents.yaml, world/traffic.py)",
+  "file": "the-job-incidents.yaml",
+  "inputs": {
+   "flow.ramps-went-ahead": {
+    "steps": [
+     [
+      0,
+      0.4
+     ],
+     [
+      2,
+      2.0
+     ],
+     [
+      5,
+      0.8
+     ],
+     [
+      8,
+      2.5
+     ],
+     [
+      10,
+      0.3
+     ]
+    ],
+    "every": 12
+   }
+  },
+  "tags": [
+   "world",
+   "delay",
+   "chain"
+  ],
+  "defects": [
+   {
+    "kind": "delay-missing",
+    "flow": "ramps-broke"
+   }
+  ]
+ }
+}

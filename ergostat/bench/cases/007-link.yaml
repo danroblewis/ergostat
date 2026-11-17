@@ -1,0 +1,43 @@
+# The truth of SD Lab's ladder case 007-link, converted by scripts/bench_ladder.py: a step is three minutes,
+# every number a parameter. A link
+# A link
+name: ladder-007
+parameters:
+  a-out-per-a:
+    value: 4
+    unit: 1/h
+    estimate: true
+  b-in-per-a:
+    value: 2
+    unit: 1/h
+    estimate: true
+  b-out-per-b:
+    value: 4
+    unit: 1/h
+    estimate: true
+stocks:
+  a:
+    unit: units
+    sensor:
+      manual: true
+  b:
+    unit: units
+    sensor:
+      manual: true
+flows:
+  a-in:
+    to: a
+    sensor:
+      manual: true
+  a-out:
+    from: a
+    driven-by: [+stock.a]
+    equation: a-out-per-a * stock.a
+  b-in:
+    to: b
+    driven-by: [+stock.a]
+    equation: b-in-per-a * stock.a
+  b-out:
+    from: b
+    driven-by: [+stock.b]
+    equation: b-out-per-b * stock.b

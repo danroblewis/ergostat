@@ -85,9 +85,18 @@ MODEL_MEASURES = {                 # the model's own quality (SPEC §12e), read 
                                   "residuals), averaged over the stocks that moved",
     "ergostat.model.unidentified-loops": "the goals whose loop closes and whose process the model does not hold (no process:)",
     "ergostat.model.open-findings": "the findings ergostat check reports (structure, signs, control), errors aside",
+    # how the improvement loop itself is doing (SPEC §12f, numbers/meta.py), over the last week
+    "ergostat.model.accepted-per-day": "changes written to the model a day, over the last week",
+    "ergostat.model.regressed": "changes written over the last week that the prediction check flagged for revert",
+    "ergostat.model.verified-share": "of the changes the prediction check scored over the last week, the share whose "
+                                     "forecasts held",
+    "ergostat.model.fit-gained": "what the changes written over the last week lowered the scaled error by, together",
+    "ergostat.model.cost-per-accepted": "dollars the blocks that make changes spent over the last week, over the changes "
+                                        "written",
 }
 MODEL_CHANGE = "ergostat.model-change"   # the built-in item kind: every change to the model, made, judged and decided
-MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refused", "failed", "dismissed", "superseded"]
+MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refused", "failed", "dismissed", "superseded",
+                       "verified", "regressed"]   # verified, regressed: an accepted change scored again later (SPEC §12f)
 JUDGE_PORTS = ("testing", "passed", "failed", "accepted")
 
 
@@ -100,6 +109,7 @@ class Improve:
     threshold: float = 0.02
     hold_out: float = 600.0
     windows: list[int] = field(default_factory=lambda: [1, 2, 4])
+    warm_up: float = 6 * 3600.0     # each window replayed from this long before it, its stocks and delays warm
     block: str | None = None
 
 

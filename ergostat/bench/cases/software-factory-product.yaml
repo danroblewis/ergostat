@@ -1,0 +1,84 @@
+# The truth of software-factory's product (examples/software-factory: product.yaml, world/customers.py), in hours:
+# users come while what they ask for works and leave the more operations fail or are missing; each deployed ticket
+# breaks some operations and fixes or adds others.
+name: software-factory-product
+parameters:
+  signup-rate:
+    value: 12
+    unit: users/h
+    estimate: true
+  signup-loss:
+    value: 0.4
+    unit: users/op/h
+    estimate: true
+  base-churn:
+    value: 0.04
+    unit: 1/h
+    estimate: true
+  churn-per-failing-op:
+    value: 0.004
+    unit: 1/op/h
+    estimate: true
+  regression-rate:
+    value: 0.3
+    unit: ops/ticket
+    estimate: true
+  fixes-per-ticket:
+    value: 0.5
+    unit: ops/ticket
+    estimate: true
+  asks-per-user:
+    value: 0.01
+    unit: ops/user/h
+    estimate: true
+  ops-per-ticket:
+    value: 0.4
+    unit: ops/ticket
+    estimate: true
+stocks:
+  users:
+    unit: users
+    initial: 150
+    sensor:
+      manual: true
+  bugs-live:
+    unit: ops
+    initial: 3
+    sensor:
+      manual: true
+  missing-ops:
+    unit: ops
+    initial: 4
+    sensor:
+      manual: true
+auxiliaries:
+  deploys:
+    unit: tickets/h
+    exogenous: true
+    sensor:
+      manual: true
+flows:
+  signups:
+    to: users
+    driven-by: [-stock.bugs-live, -stock.missing-ops]
+    equation: "MAX(0, signup-rate - signup-loss * (stock.bugs-live + stock.missing-ops))"
+  churn:
+    from: users
+    driven-by: [+stock.users, +stock.bugs-live, +stock.missing-ops]
+    equation: base-churn * stock.users + churn-per-failing-op * stock.users * (stock.bugs-live + stock.missing-ops)
+  regressions:
+    to: bugs-live
+    driven-by: [+auxiliary.deploys]
+    equation: regression-rate * auxiliary.deploys
+  fixes:
+    from: bugs-live
+    driven-by: [+auxiliary.deploys, +stock.bugs-live]
+    equation: "fixes-per-ticket * auxiliary.deploys * stock.bugs-live / MAX(stock.bugs-live, 1)"
+  asks:
+    to: missing-ops
+    driven-by: [+stock.users]
+    equation: asks-per-user * stock.users
+  shipped:
+    from: missing-ops
+    driven-by: [+auxiliary.deploys, +stock.missing-ops]
+    equation: "ops-per-ticket * auxiliary.deploys * stock.missing-ops / MAX(stock.missing-ops, 1)"

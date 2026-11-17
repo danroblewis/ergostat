@@ -44,7 +44,8 @@ from . import yamledit as ye
 EQUATION_R2 = 0.5        # an equation is proposed when it explains this much of its flow's readings (1 − SSE/SST)
 OPEN = ("checked", "testing", "passed")                 # waiting: in the review queue
 STATUS = {"made": "made", "checked": "pending", "testing": "pending", "passed": "pending", "accepted": "accepted",
-          "refused": "refused", "failed": "failed", "dismissed": "dismissed", "superseded": "superseded"}
+          "refused": "refused", "failed": "failed", "dismissed": "dismissed", "superseded": "superseded",
+          "verified": "accepted", "regressed": "accepted"}           # scored again after it was written (verify.py)
 _FOLDED: dict = {}
 
 

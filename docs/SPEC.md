@@ -578,6 +578,10 @@ part itself (what it was a moment ago is a stock); a flow with both `rate:` and 
 `exogenous` auxiliary whose equation names parts of the model; equations that need each other at
 once with no stock or delay between (an algebraic loop); a lookup used as a number. Findings:
 
+- **delay-drains-late**: a flow out of a stock whose equation is a DELAY1 or DELAY3 of its own stock's level
+  (`DELAY3(k * stock.a, t)`, from `a`): it takes what the level called for a delay ago, so the stock drains late
+  and can go below empty. A material delay is two flows: what leaves the stock at once, and, into the next stock,
+  `DELAY3(flow.leaves, t)`.
 - **equation-units**: where units are written, an equation must add like things and come out in
   its part's unit (a flow's per hour); a number written in it takes the unit it needs, and anything
   whose unit is not written is not checked;
@@ -1512,7 +1516,8 @@ blocks:
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `hold-out` | duration | `10m` | How much record after a change it is judged on |
-| `windows` | list of whole numbers | `[1, 2, 4]` | How that record is split into windows: 1 whole, 2 halves, 4 quarters (each at least a minute, and judged by the fit's own rules) |
+| `windows` | list of whole numbers | `[1, 2, 4]` | How that record is split into windows: 1 whole, 2 halves, 4 quarters (each at least a minute) |
+| `warm-up` | duration | `6h` | How long before each window its replay starts, so the window is scored with its stocks and delays as the record left them, not started cold with every delay in equilibrium (section 12f) |
 | `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better, and the most rise that counts as no worse |
 | `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged |
 | `out` | map of `testing`, `passed`, `failed`, `accepted` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
@@ -1522,7 +1527,10 @@ Each pass (`ergostat/numbers/judge.py`; `ergostat judge` makes one by hand) supe
 against a version of the model since changed, starts **testing** each checked change it can replay (a value, an
 equation, the structure; a loop's process or gain is not replayed, and waits for the owner), and replays each beside
 the model as it is on the record that came **after** it was made, which neither its maker nor any estimate it rests
-on has seen, in every window. It **passes** one when the scaled error falls by the `threshold` or more in every
+on has seen, in every window. Each window is scored on a replay started `warm-up` before it, and over every stock
+either model replays, each stock's mean squared error over its record's mean square, whatever its time constant (the
+fit's total leaves out a stock slower than its window, so a change that slowed one would look better; section 12f).
+It **passes** one when the scaled error falls by the `threshold` or more in every
 window judged, or, for a change the fit cannot see, when it is no worse in any window and answers findings without
 making any; it **fails** one that is worse by the threshold in any window, or better only in some, or that too few
 windows can judge after three hold-outs. Each verdict keeps its windows (each one's span, and the scaled error
@@ -1540,6 +1548,79 @@ ergostat.model-change` (pending: checked; testing; passed; accepted), with flows
 judged, accepted); the improver, an `ai` block (or a stand-in program) that names the goal and proposes; and the
 judge. It closes the long way: the improver fills the pending changes, the judge moves them to passed and
 accepted, and what is accepted lowers the error. It is drawn, explained and checked like every loop.
+
+## 12f. Verifying the improver
+
+How we know the loop that improves the model (section 12e) works. The benchmark drives that loop's own modules
+(`propose` lines through `improve.submit`, the built-in judge, Accept, the `ergostat.model-change` items) through a
+small handle, `ergostat/bench/adapter.py`, which runs each call at a moment of a simulated record (the benchmark's
+clock, `bench/clock.py`, so what is recorded then is stamped then) and gives the judge the policy the benchmark
+asks for, in memory, so the models it damages stay as written.
+
+**1. The pipeline** (`tests/test_bench.py`). A proposal with no reason whose evidence ergostat can check is
+refused; so is one whose edit cannot be made or does not compile. Accept writes exactly the diff shown, and refuses
+when the file has changed since (the diff's hash). A change made against a model since changed, even only in its
+numbers, is superseded and never written, by the judge or by hand. Under the default policy (`accept: owner`) the
+judge passes a change and nothing is written.
+
+**2. The judge** (`ergostat/bench/judging.py`, `ergostat bench judge`). On synthetic worlds whose truth is known
+(`bench/cases/judge-*.yaml`), each written with one number off by a factor drawn per seed, one change is proposed
+and the judge run on the record after it until it gives a verdict. The change is known **better**, **worse**,
+**neutral** or **slowed** (a drain made so slow its stock's replay outlasts the record). The false-accept rate
+(worse, neutral or slowed changes written) must be about 0; the false-reject rate (better ones not written) is
+reported. *Found:* the fit's total leaves out a stock slower than its window, so a slowed change can look better
+in every window; and each window is replayed cold (its delays in equilibrium), so a correct delay often looks
+worse in a short one. *Fixed* in the judge (section 12e): it compares **like for like** (each stock's scaled error over the
+stocks both models replay, whatever its time constant) and scores each window on a **warm** replay (started
+`warm-up`, six hours by default, before it). Measured over 120 trials (10 seeds): before, 5 of 90 worse,
+neutral or slowed changes written and 17 of 30 better ones not; now, 0 and 0.
+
+**3. Recovery** (`ergostat/bench/recovery.py`, `ergostat bench improve [--improver standin|ai --model M]
+[--cases LIST] [--rounds N]`). The truth cases (`bench/cases/*.yaml` and `cases.json`): SD Lab's
+ladder cases converted into ergostat YAML (`scripts/bench_ladder.py`: affine rates written with a parameter for
+every number, a DELAY3 between stocks as what leaves at once and arrives through the delay, a step three minutes)
+and the examples' worlds written as ergostat models with equations. The record is the truth simulated by the
+replay from its inputs' schedules and its stocks' starts, read every minute with Gaussian noise (2% of each
+series' RMS, seeded). The defect catalogue (`bench/defects.py`) plants one or two of: `flow-removed`,
+`sign-flipped`, `parameter-x3`, `delay-missing`, `stock-merged`, `spurious-link`, each with its **locus** (the
+measured stocks it shows at). Eight hours of record, then rounds of two hours: the improver proposes on the record
+so far, the judge judges at the round's end with `accept: auto`, hold-out two hours; four hours more are kept for
+the forecast. Scores: **recall** (a visible defect is fixed when its locus error, the model's inflow and outflow at
+each locus stock worked out on the truth's record against the truth's, as a share of the truth's RMS, is 0.15 or
+less; a defect already that close as planted is not visible and not counted), **precision** (proposals that lower
+the mean locus error over every measured stock by 0.02 or more and raise none by as much), **damage** (changes
+written that raise it by 0.02 or more), **fit** (the scaled error over the record, damaged, final and the truth's),
+**forecast** (the same on the four later hours) and **cost** (rounds, seconds, tokens, dollars). Written as
+`scorecard.md` and `scorecard.json`, with the proposals counted by kind (proposed, checked, passed, failed, real
+fixes). The improvers (`bench/improvers.py`): the **stand-in**, a program that searches a fixed menu of changes,
+deterministic, run on two cases in the test suite; the **calibrator**, what the examples' stand-ins do (the
+calibration's estimates proposed for the judge, parameters only); the **AI** (`claude -p`), run only on demand. Measured
+(15 cases, 16 visible defects, the stand-in): with the judge as it is now, recall 12/16, 23 changes written, 15 of
+them real fixes and 2 damaging, the final fit a median 1.01 times the truth's; before the judge's fix, recall 9/16,
+14 written (9 real, 3 damaging), 1.54 times.
+
+**4. The prediction check** (`ergostat/numbers/verify.py`, `ergostat verify [--propose]`, run by a block). Each
+change written is checked once, after three hold-outs of record: the model now beside the model with that change
+undone (its hunks reversed where they sit now), replayed on the record since it was written and its halves.
+`ergostat.model-change.verified` when it forecasts no worse; `ergostat.model-change.regressed`, with the edit that
+undoes it, when without it the scaled error is lower by the threshold over the whole record since and in at least
+half the windows; with `--propose` the undoing is proposed, by `verify`, for the judge and the owner. *Decided:*
+the check never undoes a change itself. A change whose lines a later one rewrote is said so and not judged.
+`verified` and `regressed` are states of the `ergostat.model-change` item kind, after `accepted` (its status stays
+accepted).
+
+**5. The loop's own measures** (`ergostat/numbers/meta.py`, `ergostat bench meta`), over the last week:
+
+| Measure | What it is |
+|---|---|
+| `ergostat.model.accepted-per-day` | Changes written to the model, a day |
+| `ergostat.model.regressed` | Changes written that the prediction check flagged for revert |
+| `ergostat.model.verified-share` | Of the changes checked, the share whose forecasts held (none until one is) |
+| `ergostat.model.fit-gained` | What the changes written lowered the scaled error by, together (each one's fit before minus after, as Accept measured it) |
+| `ergostat.model.cost-per-accepted` | The `cost_usd` the blocks that make changes recorded, over the changes written |
+
+They are built-in measures like the model's own of section 12e (`MODEL_MEASURES`): read by a sensor
+(`builtin: ergostat.model.accepted-per-day`), or printed by `ergostat measure`.
 
 ## 13. Examples
 

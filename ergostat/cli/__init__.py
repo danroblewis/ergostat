@@ -54,6 +54,8 @@ run it
   mcp            ergostat for an AI agent, over MCP
   projects       Every project on this machine, which run, and their pages
   reset          Forget this project's record and start from nothing (--yes)
+  verify         Score the changes written to the model again on the record since (--propose)
+  bench          How we know the improver works: bench improve, bench judge, bench meta
   help blocks    How to write a sensor's and a block's program (also: help ai-agents, help spec, help model-tools)
 
 flags
@@ -220,6 +222,8 @@ def build() -> argparse.ArgumentParser:
     chat.add_argument("message", nargs="*", help="what to say first (optional)")
     chat.add_argument("--print-prompt", action="store_true", help="print the Supervisor's brief instead of starting it")
     chat.set_defaults(fn=cmd_chat)
+    from .bench import register as bench_topics
+    bench_topics(sub, common)
     return ap
 
 

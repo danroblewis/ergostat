@@ -1,0 +1,22 @@
+# The judge's first synthetic world: a queue filled by a stepping input, drained first-order (k an hour of what is in
+# it). Changes to k are known better, worse or neutral against the truth's k.
+name: judge-queue
+parameters:
+  k:
+    value: 3
+    unit: 1/h
+    estimate: true
+stocks:
+  queue:
+    unit: jobs
+    sensor:
+      manual: true
+flows:
+  arrivals:
+    to: queue
+    sensor:
+      manual: true
+  served:
+    from: queue
+    driven-by: [+stock.queue]
+    equation: k * stock.queue
