@@ -1557,10 +1557,11 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         box = pg.locator("#detail input.whatif-in[data-name=k]")
         box.fill("4")
         box.press("Enter")
-        pg.wait_for_function("() => /what if k were 4/.test(document.querySelector('#detail .chart-foot')?.textContent || '')", timeout=20000)
+        foot = "document.querySelector('#detail .chart-foot')?.textContent || ''"
+        pg.wait_for_function(f"() => /what if k were 4/.test({foot})", timeout=20000)
         assert "Nothing is saved" in pg.locator("#detail .whatif").inner_text()
         pg.locator("#detail .whatif button", has_text="Put it back").click()
-        pg.wait_for_function("() => !/what if k/.test(document.querySelector('#detail .chart-foot')?.textContent || '')", timeout=20000)
+        pg.wait_for_function(f"() => !/what if k/.test({foot})", timeout=20000)
         assert (d / "ergostat.yaml").read_text() == before
         # the Fit page: the stock's fit, Theil's breakdown, and a proposal once estimated
         pg.goto(url + "/#/fit")
