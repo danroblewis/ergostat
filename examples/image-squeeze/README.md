@@ -83,6 +83,15 @@ or its page): the goal `messages-reach-work` holds the unrouted at zero, and not
 loop is open on purpose). The page: Items → `ergostat.message` (a box to send one), and every item's page has "Send a note
 about this".
 
+**Done as meant** (`intent.yaml`, SPEC §12i). A hypothesis that passes its tests is still judged, before the rollout
+may keep it, against the owner's confirmed decisions (made up for the demo by `bin/owner.py`: squeeze writes JPEG and
+PNG only, an image keeps its size, metadata stays), the corrections for this kind of work, and the owner's messages
+about it. Three ideas in the stand-in researcher's notebook pass their tests and go against those decisions (WebP,
+downscaling, stripping metadata): the judge (a free stand-in; `ergostat intent judge ITEM --model haiku` for a model)
+holds each back with its evidence, an `ergostat.verdict` item. The goal `done-as-meant` holds the share of kept work the
+owner later reopens or corrects at most 0.1; nothing but the owner acts on it (its loop is open on purpose), and the
+owner overrules a false alarm with `ergostat intent overrule ID --reason`.
+
 To see the delivery without spending tokens, run the AI mode with ergostat's stand-in session, which runs the
 stand-in programs as the sessions' work and echoes every message it receives:
 
