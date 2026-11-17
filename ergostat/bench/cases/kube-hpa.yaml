@@ -1,0 +1,76 @@
+# The truth of an HPA loop like kube-sim's (~/kube-sim-prometheus; SD Lab ladder 308-k8s-hpa, smoothed), in hours:
+# traffic fills the request queue, ready pods serve it up to their capacity; CPU follows the traffic through its
+# scrape window, the autoscaler's desired replicas are CPU over the target a pod, and ready pods follow desired.
+name: kube-hpa
+parameters:
+  cpu-per-request:
+    value: 0.05
+    unit: millicores/(request/h)
+    estimate: true
+  cpu-window:
+    value: 0.15
+    unit: h
+    estimate: true
+  target-per-pod:
+    value: 175
+    unit: millicores/pod
+    estimate: true
+  scale-time:
+    value: 0.25
+    unit: h
+    estimate: true
+  drain-rate:
+    value: 30
+    unit: 1/h
+    estimate: true
+  capacity-per-pod:
+    value: 4500
+    unit: requests/pod/h
+    estimate: true
+stocks:
+  queue:
+    unit: requests
+    initial: 100
+    sensor:
+      manual: true
+  cpu:
+    unit: millicores
+    initial: 1500
+    sensor:
+      manual: true
+  ready:
+    unit: pods
+    initial: 9
+    sensor:
+      manual: true
+auxiliaries:
+  traffic:
+    unit: requests/h
+    exogenous: true
+    sensor:
+      manual: true
+  desired:
+    unit: pods
+    driven-by: [+stock.cpu]
+    equation: stock.cpu / target-per-pod
+    sensor:
+      manual: true
+flows:
+  requests:
+    to: queue
+    driven-by: [+auxiliary.traffic]
+    equation: auxiliary.traffic
+  served:
+    from: queue
+    driven-by: [+stock.queue, +stock.ready]
+    equation: "MIN(drain-rate * stock.queue, capacity-per-pod * stock.ready)"
+  cpu-adjust:
+    to: cpu
+    two-way: true
+    driven-by: [+auxiliary.traffic, -stock.cpu]
+    equation: cpu-per-request * auxiliary.traffic / cpu-window - stock.cpu / cpu-window
+  scaling:
+    to: ready
+    two-way: true
+    driven-by: [+auxiliary.desired, -stock.ready]
+    equation: auxiliary.desired / scale-time - stock.ready / scale-time

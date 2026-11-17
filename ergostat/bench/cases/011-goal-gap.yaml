@@ -1,0 +1,44 @@
+# The truth of SD Lab's ladder case 011-goal-gap, converted by scripts/bench_ladder.py: a step is three minutes,
+# every number a parameter. Goal-seeking orders
+# Goal-seeking orders
+name: ladder-011
+parameters:
+  orders-base:
+    value: 1200
+    unit: units/h
+    estimate: true
+  orders-per-i:
+    value: 4
+    unit: 1/h
+    estimate: true
+  arrive-per-p:
+    value: 5
+    unit: 1/h
+    estimate: true
+  demand-per-i:
+    value: 2
+    unit: 1/h
+    estimate: true
+stocks:
+  p:
+    unit: units
+    sensor:
+      manual: true
+  i:
+    unit: units
+    sensor:
+      manual: true
+flows:
+  orders:
+    to: p
+    driven-by: [-stock.i]
+    equation: orders-base - orders-per-i * stock.i
+  arrive:
+    from: p
+    to: i
+    driven-by: [+stock.p]
+    equation: arrive-per-p * stock.p
+  demand:
+    from: i
+    driven-by: [+stock.i]
+    equation: demand-per-i * stock.i

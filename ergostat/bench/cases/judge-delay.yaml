@@ -1,0 +1,43 @@
+# The judge's second synthetic world: what leaves a measured stock reaches another through a third-order delay
+# (it leaves at once, and arrives through the delay).
+# Changes to the delay's time, and the delay itself, are known better, worse or neutral.
+name: judge-delay
+parameters:
+  move-rate:
+    value: 1.5
+    unit: 1/h
+    estimate: true
+  move-delay:
+    value: 1.5
+    unit: h
+    estimate: true
+  out-rate:
+    value: 1
+    unit: 1/h
+    estimate: true
+stocks:
+  a:
+    unit: units
+    sensor:
+      manual: true
+  b:
+    unit: units
+    sensor:
+      manual: true
+flows:
+  a-in:
+    to: a
+    sensor:
+      manual: true
+  move-out:
+    from: a
+    driven-by: [+stock.a]
+    equation: move-rate * stock.a
+  move-in:
+    to: b
+    driven-by: [+flow.move-out]
+    equation: "DELAY3(flow.move-out, move-delay)"
+  b-out:
+    from: b
+    driven-by: [+stock.b]
+    equation: out-rate * stock.b

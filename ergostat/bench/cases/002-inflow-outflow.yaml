@@ -1,0 +1,23 @@
+# The truth of SD Lab's ladder case 002-inflow-outflow, converted by scripts/bench_ladder.py: a step is three minutes,
+# every number a parameter. One stock, in and out
+# One stock, in and out
+name: ladder-002
+parameters:
+  a-out-per-a:
+    value: 2
+    unit: 1/h
+    estimate: true
+stocks:
+  a:
+    unit: units
+    sensor:
+      manual: true
+flows:
+  a-in:
+    to: a
+    sensor:
+      manual: true
+  a-out:
+    from: a
+    driven-by: [+stock.a]
+    equation: a-out-per-a * stock.a

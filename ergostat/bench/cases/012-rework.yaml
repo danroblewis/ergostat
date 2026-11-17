@@ -1,0 +1,45 @@
+# The truth of SD Lab's ladder case 012-rework, converted by scripts/bench_ladder.py: a step is three minutes,
+# every number a parameter. Rework
+# Rework
+name: ladder-012
+parameters:
+  a-to-b-per-a:
+    value: 8
+    unit: 1/h
+    estimate: true
+  rework-per-b:
+    value: 2
+    unit: 1/h
+    estimate: true
+  b-out-per-b:
+    value: 4
+    unit: 1/h
+    estimate: true
+stocks:
+  a:
+    unit: units
+    sensor:
+      manual: true
+  b:
+    unit: units
+    sensor:
+      manual: true
+flows:
+  a-in:
+    to: a
+    sensor:
+      manual: true
+  a-to-b:
+    from: a
+    to: b
+    driven-by: [+stock.a]
+    equation: a-to-b-per-a * stock.a
+  rework:
+    from: b
+    to: a
+    driven-by: [+stock.b]
+    equation: rework-per-b * stock.b
+  b-out:
+    from: b
+    driven-by: [+stock.b]
+    equation: b-out-per-b * stock.b

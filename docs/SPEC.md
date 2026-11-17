@@ -1541,6 +1541,72 @@ judged, accepted); the improver, an `ai` block (or a stand-in program) that name
 judge. It closes the long way: the improver fills the pending changes, the judge moves them to passed and
 accepted, and what is accepted lowers the error. It is drawn, explained and checked like every loop.
 
+## 12f. Verifying the improver
+
+How we know the loop that improves the model (section 12e) works. Everything here reads and drives that loop
+through one adapter (`ergostat/bench/adapter.py`: submit a proposal, run the judge at a moment with a policy,
+Accept with the diff's hash, the changes and their states, the changes written), so it means the same whichever
+version of the loop is installed; until the improver's own modules are, the adapter uses `bench/shim.py`, which
+keeps the same contract on the review queue.
+
+**1. The pipeline** (`tests/test_bench.py`). A proposal with no reason whose evidence ergostat can check is
+refused; so is one whose edit cannot be made or does not compile. Accept writes exactly the diff shown, and refuses
+when the file has changed since (the diff's hash). A change made against a model since changed, even only in its
+numbers, is superseded and never written, by the judge or by hand. Under the default policy (`accept: owner`) the
+judge passes a change and nothing is written.
+
+**2. The judge** (`ergostat/bench/judging.py`, `ergostat bench judge`). On synthetic worlds whose truth is known
+(`bench/cases/judge-*.yaml`), each written with one number off by a factor drawn per seed, one change is proposed
+and the judge run on the record after it until it gives a verdict. The change is known **better**, **worse**,
+**neutral** or **slowed** (a drain made so slow its stock's replay outlasts the record). The false-accept rate
+(worse, neutral or slowed changes written) must be about 0; the false-reject rate (better ones not written) is
+reported. *Found:* the fit's total leaves out a stock slower than its window, so a slowed change can look better
+in every window; and each window is replayed cold (its delays in equilibrium), so a correct delay often looks
+worse in a short one. *Proposed* to the judge: compare **like for like** (each stock's scaled error over the
+stocks either model is fitted on, whatever its time constant) and score each window on a **warm** replay
+(started six hours before it). `--judge-fixes` tries both on the shim's judge.
+
+**3. Recovery** (`ergostat/bench/recovery.py`, `ergostat bench improve [--improver standin|ai --model M]
+[--cases LIST] [--rounds N] [--judge-fixes]`). The truth cases (`bench/cases/*.yaml` and `cases.json`): SD Lab's
+ladder cases converted into ergostat YAML (`scripts/bench_ladder.py`: affine rates written with a parameter for
+every number, a DELAY3 between stocks as what leaves at once and arrives through the delay, a step three minutes)
+and the examples' worlds written as ergostat models with equations. The record is the truth simulated by the
+replay from its inputs' schedules and its stocks' starts, read every minute with Gaussian noise (2% of each
+series' RMS, seeded). The defect catalogue (`bench/defects.py`) plants one or two of: `flow-removed`,
+`sign-flipped`, `parameter-x3`, `delay-missing`, `stock-merged`, `spurious-link`, each with its **locus** (the
+measured stocks it shows at). Eight hours of record, then rounds of two hours: the improver proposes on the record
+so far, the judge judges at the round's end with `accept: auto`, hold-out two hours; four hours more are kept for
+the forecast. Scores: **recall** (a visible defect is fixed when its locus error, the model's inflow and outflow at
+each locus stock worked out on the truth's record against the truth's, as a share of the truth's RMS, is 0.15 or
+less; a defect already that close as planted is not visible and not counted), **precision** (proposals that lower
+the mean locus error over every measured stock by 0.02 or more and raise none by as much), **damage** (changes
+written that raise it by 0.02 or more), **fit** (the scaled error over the record, damaged, final and the truth's),
+**forecast** (the same on the four later hours) and **cost** (rounds, seconds, tokens, dollars). Written as
+`scorecard.md` and `scorecard.json`. The stand-in improver (`bench/improvers.py`) is deterministic and runs on two
+cases in the test suite; the AI improver (`claude -p`) runs only on demand.
+
+**4. The prediction check** (`ergostat/numbers/verify.py`, `ergostat verify [--propose]`, run by a block). Each
+change written is checked once, after three hold-outs of record: the model now beside the model with that change
+undone (its hunks reversed where they sit now), replayed on the record since it was written and its halves.
+`ergostat.model-change.verified` when it forecasts no worse; `ergostat.model-change.regressed`, with the edit that
+undoes it, when without it the scaled error is lower by the threshold over the whole record since and in at least
+half the windows; with `--propose` the undoing is proposed, by `verify`, for the judge and the owner. *Decided:*
+the check never undoes a change itself. A change whose lines a later one rewrote is said so and not judged. Until
+the item kind `ergostat.model-change` folds these two states, they are recorded as `ergostat.model.verified` and
+`.regressed` about the model, the change's item in their data.
+
+**5. The loop's own measures** (`ergostat/numbers/meta.py`, `ergostat bench meta`), over the last week:
+
+| Measure | What it is |
+|---|---|
+| `ergostat.model.accepted-per-day` | Changes written to the model, a day |
+| `ergostat.model.regressed` | Changes written that the prediction check flagged for revert |
+| `ergostat.model.verified-share` | Of the changes checked, the share whose forecasts held (none until one is) |
+| `ergostat.model.fit-gained` | What the changes written lowered the scaled error by, together (each one's fit before minus after, as Accept measured it) |
+| `ergostat.model.cost-per-accepted` | The `cost_usd` the blocks that make changes recorded, over the changes written |
+
+They join the model's measures of section 12e (`MODEL_MEASURES`, read by a sensor) when the two are merged.
+
 ## 13. Examples
 
 ### First loop: an inbox kept short (ergostat closes the loop)

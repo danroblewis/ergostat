@@ -289,6 +289,15 @@ class Measurements:
             c.execute("insert into samples(series, time, value) values (?,?,?)",
                       (series, at if at is not None else time.time(), float(value)))
 
+    def add_many(self, rows: list[tuple[str, float, float]]) -> None:
+        """Many readings at once, ``(series, time, value)``, in one transaction (a record written whole: the
+        benchmark's simulated worlds)."""
+        with self._c() as c:
+            c.execute("begin")
+            c.executemany("insert into samples(series, time, value) values (?,?,?)",
+                          [(s, float(t), float(v)) for s, t, v in rows])
+            c.execute("commit")
+
     def latest(self, series: str, before: float | None = None) -> tuple[float, float] | None:
         with self._c() as c:
             r = c.execute("select time, value from samples where series = ? and time <= ? order by time desc limit 1",

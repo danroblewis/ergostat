@@ -22,6 +22,7 @@ the panel says why in one line and what would change that (for example "33 readi
 | [Is my model right?](#is-my-model-right) | fit, residuals, structure checks, equation signs, extreme conditions | Model page, a part's panel, Check page |
 | [What should I change?](#what-should-i-change) | the review queue, calibration, parameter, equation and structural proposals, fit history | Model page, a valve's or auxiliary's panel |
 | [What will happen?](#what-will-happen) | replay, projection, sensitivity fan, what-if, leverage, loop dominance | a part's panel in the Dynamics view, a feedback loop's panel, a proposal's effect |
+| [How we know the improver works](#how-we-know-the-improver-works) | the pipeline tests, the judge's error rates, the recovery benchmark, the prediction check, the loop's own measures | `ergostat bench`, `ergostat verify`, the test suite |
 | [How do my loops behave, and how should they be tuned?](#how-do-my-loops-behave-and-how-should-they-be-tuned) | identification, process step response and Bode, margins, closed-loop step and Bode, monitoring, SIMC tuning, detuning, step tests | Blocks view: the process block, the controller, the summing junction; Loops page |
 
 Where a tool's numbers and thresholds come from is in `docs/SPEC.md` §12b (fit, calibration,
@@ -489,6 +490,96 @@ and over the last five periods (three minutes at least) the error within its tol
 not drifting, u away from its limits. It runs only while `ergostat run` is running.
 
 ![A step test offered](screenshots/model-tools/step-test.png)
+
+## How we know the improver works
+
+The model can improve itself as a loop (SPEC §12e): any block proposes a change with its evidence, ergostat
+checks it, a judge replays it on the record that came after it, and what passes is written (by the owner, or
+by the judge where `improve.accept` says `auto`). Five layers check that loop, each from a different side
+(SPEC §12f); everything they need of the loop goes through one adapter, `ergostat/bench/adapter.py`.
+
+| Layer | What it shows | Where |
+|---|---|---|
+| 1. The pipeline | A proposal without checkable evidence, or whose edit does not compile, is refused; Accept writes exactly the diff shown; a change made against a model since changed is never written; under the default policy nothing is written without the owner | `tests/test_bench.py` |
+| 2. The judge | Its false-accept rate (a worse, neutral or slowed change written) and false-reject rate (a better one not written), over many seeds, on worlds where the truth is known | `ergostat bench judge` |
+| 3. Recovery | True models damaged by known defects; the loop run on each with the truth's record; recall, precision, damage, fit, forecast and cost | `ergostat bench improve` |
+| 4. The prediction check | Each change written, scored again later on the record since; flagged for revert when the model forecasts worse with it | `ergostat verify` |
+| 5. The loop's own measures | Changes written a day, flagged, the share verified, the fit they gained, what each cost | `ergostat bench meta`; a sensor (`builtin: ergostat.model.accepted-per-day`) once the improver's measures take them |
+
+### The recovery benchmark
+
+**What it is.** Fifteen cases with known true models (`ergostat/bench/cases/`, ergostat YAML with equations):
+eleven of SD Lab's ladder cases, converted by `scripts/bench_ladder.py` (a step is three minutes, every number a
+parameter), and four written from the examples' worlds (the-job's ramps, DELAY3, outages and alerts;
+software-factory's users, bugs and missing operations; image-squeeze's lab and service; an HPA loop like
+kube-sim's). Each truth is simulated by ergostat's own replay, read every minute with 2% measurement noise.
+A defect from the catalogue is planted (two in four cases): a flow removed, a sign flipped, a parameter three times
+off, a delay missing, a stock merged away, a spurious link. The improver then works on the damaged model for six
+rounds: it proposes seeing only the record so far, the judge judges on the two hours after, and what passes is
+written (`accept: auto`). Four hours of record after the last round are kept for the forecast.
+
+**What you get.** A scorecard per case and overall (`scorecard.md`, `scorecard.json`):
+
+- **recall**: the planted defects fixed, judged at the stocks each shows at by the model's inflow and outflow worked
+  out on the truth's own record (the partial-model test) against the truth's; a defect the record cannot tell
+  from the truth is said so and left out;
+- **precision**: the improver's proposals that move the model towards the truth;
+- **damage**: changes written that moved it away;
+- **fit** over the record and **forecast** on the later record, damaged, final and truth (the noise floor);
+- **cost**: rounds, seconds, tokens and dollars.
+
+**How.**
+
+```bash
+ergostat bench improve --list                          # the cases and their defects
+ergostat bench improve                                 # the stand-in, every case (a few minutes)
+ergostat bench improve --cases 003,tag:world           # some
+ergostat bench improve --improver ai --model sonnet --cases 002,011,063   # an AI improver, on demand (costs money)
+ergostat bench improve --judge-fixes                   # the judge with the changes proposed to it (below)
+```
+
+The **stand-in** is a program: it knows nothing of the truth, and each round tries a fixed menu (every parameter
+retuned, a term dropped or its sign flipped, a drain, inflow or transfer added, a delay put on a flow, a stock put
+back where a series the model does not read was measured), tunes each and proposes the best two. The **AI**
+improver is `claude -p` given the model, its fit, its findings and the unread series. A small subset of the
+stand-in's benchmark runs in the test suite.
+
+### The judge's error rates
+
+`ergostat bench judge --seeds 20` proposes changes whose worth is known on two synthetic worlds (a queue; a
+third-order delay between two stocks), each world written with one number off: **better** (the number within 5%
+of the truth, or the missing delay put back), **worse**, **neutral** (nothing the record can tell) and **slowed**
+(a drain two hundred times too slow, so its stock's replay is slower than the record and leaves the fit's total).
+It reports the false-accept rate, which must be about 0, and the false-reject rate.
+
+Two weaknesses it found in the judge as built, and the changes proposed for them (`--judge-fixes` tries both):
+
+- **A stock can leave the total.** The fit's total leaves out a stock whose replay is slower than the record is
+  long; a change that slows one enough looks better in every window. *Like for like*: the judge compares the two
+  models over the same stocks, each stock's scaled error counted whatever its time constant.
+- **Windows start cold.** Each window is replayed from its own first reading, every delay in equilibrium, so a
+  correct delay is often worse in a short window than none. *Warm windows*: each window is scored on a replay
+  started six hours before it.
+
+### The prediction check
+
+**What it is.** Each change written is scored again once three hold-outs of record have come after it: the
+model as it is now beside the same model with that change undone, over the record since it was written and its
+halves (a free replay, the inputs as measured). **Verified** (`ergostat.model-change.verified`) when it forecasts
+no worse; **regressed** (`ergostat.model-change.regressed`) when without it the forecast is better by the threshold
+over the whole record since and in half the windows, with the edit that undoes it.
+
+**How.** `ergostat verify` (run by a block, like the judge; `--propose` proposes the undoing, for the judge and the
+owner to decide). A change a later one rewrote is said so and not judged.
+
+### The loop's own measures
+
+`ergostat bench meta` prints, over the last week: `ergostat.model.accepted-per-day`, `ergostat.model.regressed`,
+`ergostat.model.verified-share`, `ergostat.model.fit-gained` (what the changes written lowered the scaled error
+by, together) and `ergostat.model.cost-per-accepted` (the `cost_usd` the blocks that make changes recorded, over
+the changes written). They sit beside the improver's own `ergostat.model.fit`, `.unexplained`,
+`.unidentified-loops` and `.open-findings`, so a goal can hold how well the loop works as well as how good the
+model is.
 
 ## A walkthrough on image-squeeze
 

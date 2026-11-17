@@ -1,0 +1,47 @@
+# The truth of SD Lab's ladder case 015-hidden-stock, converted by scripts/bench_ladder.py: a step is three minutes,
+# every number a parameter. A hidden stock between two measured ones
+# A hidden stock between two measured ones
+name: ladder-015
+parameters:
+  a-h-per-a:
+    value: 4
+    unit: 1/h
+    estimate: true
+  h-b-per-h:
+    value: 2
+    unit: 1/h
+    estimate: true
+  b-out-per-b:
+    value: 4
+    unit: 1/h
+    estimate: true
+stocks:
+  a:
+    unit: units
+    sensor:
+      manual: true
+  h:
+    unit: units
+  b:
+    unit: units
+    sensor:
+      manual: true
+flows:
+  a-in:
+    to: a
+    sensor:
+      manual: true
+  a-h:
+    from: a
+    to: h
+    driven-by: [+stock.a]
+    equation: a-h-per-a * stock.a
+  h-b:
+    from: h
+    to: b
+    driven-by: [+stock.h]
+    equation: h-b-per-h * stock.h
+  b-out:
+    from: b
+    driven-by: [+stock.b]
+    equation: b-out-per-b * stock.b

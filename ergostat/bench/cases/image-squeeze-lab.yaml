@@ -1,0 +1,66 @@
+# The truth of image-squeeze's lab and service (examples/image-squeeze: lab.yaml, service.yaml, world/), in hours:
+# hypotheses arrive in bursts, are built one by one or go stale, and are tested; the service's bytes per megapixel
+# follow each release's batch through a window.
+name: image-squeeze-lab
+parameters:
+  build-rate:
+    value: 0.5
+    unit: 1/h
+    estimate: true
+  stale-time:
+    value: 4
+    unit: h
+    estimate: true
+  test-time:
+    value: 1.5
+    unit: h
+    estimate: true
+  window-time:
+    value: 0.75
+    unit: h
+    estimate: true
+stocks:
+  ideas:
+    unit: hypotheses
+    initial: 3
+    sensor:
+      manual: true
+  experiments:
+    unit: hypotheses
+    initial: 1
+    sensor:
+      manual: true
+  bytes-per-mp:
+    unit: kB/MP
+    initial: 120
+    sensor:
+      manual: true
+auxiliaries:
+  batch-bytes:
+    unit: kB/MP
+    exogenous: true
+    sensor:
+      manual: true
+flows:
+  hypotheses-proposed:
+    to: ideas
+    sensor:
+      manual: true
+  built:
+    from: ideas
+    to: experiments
+    driven-by: [+stock.ideas]
+    equation: build-rate * stock.ideas
+  went-stale:
+    from: ideas
+    driven-by: [+stock.ideas]
+    equation: stock.ideas / stale-time
+  tested:
+    from: experiments
+    driven-by: [+stock.experiments]
+    equation: stock.experiments / test-time
+  bytes-drift:
+    to: bytes-per-mp
+    two-way: true
+    driven-by: [+auxiliary.batch-bytes, -stock.bytes-per-mp]
+    equation: auxiliary.batch-bytes / window-time - stock.bytes-per-mp / window-time

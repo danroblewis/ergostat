@@ -1,0 +1,86 @@
+# The truth of the-job's incident chain (examples/the-job: job/safety.yaml, job/incidents.yaml, world/traffic.py),
+# in hours: flag ramps that go ahead without review break their service through a third-order delay, a broken ramp
+# starts an outage, an outage's pages fill the alerts waiting for a comment.
+name: the-job-incidents
+parameters:
+  break-share:
+    value: 0.3
+    unit: "1"
+    estimate: true
+  time-to-break:
+    value: 3
+    unit: h
+    estimate: true
+  time-to-prove-fine:
+    value: 4
+    unit: h
+    estimate: true
+  outages-base:
+    value: 0.05
+    unit: outages/h
+    estimate: true
+  outages-per-break:
+    value: 1
+    unit: outages/ramp
+    estimate: true
+  time-to-handle:
+    value: 1.5
+    unit: h
+    estimate: true
+  alerts-base:
+    value: 0.5
+    unit: alerts/h
+    estimate: true
+  alerts-per-outage:
+    value: 4
+    unit: alerts/outage
+    estimate: true
+  time-to-comment:
+    value: 2
+    unit: h
+    estimate: true
+stocks:
+  unreviewed-ramps-live:
+    unit: ramps
+    initial: 4
+    sensor:
+      manual: true
+  outages-suspected:
+    unit: outages
+    initial: 0.5
+    sensor:
+      manual: true
+  alerts-to-draft:
+    unit: alerts
+    initial: 3
+    sensor:
+      manual: true
+flows:
+  ramps-went-ahead:
+    to: unreviewed-ramps-live
+    sensor:
+      manual: true
+  ramps-broke:
+    from: unreviewed-ramps-live
+    driven-by: [+flow.ramps-went-ahead]
+    equation: "DELAY3(break-share * flow.ramps-went-ahead, time-to-break)"
+  ramps-proved-fine:
+    from: unreviewed-ramps-live
+    driven-by: [+flow.ramps-went-ahead]
+    equation: "DELAY3((1 - break-share) * flow.ramps-went-ahead, time-to-prove-fine)"
+  outages-noticed:
+    to: outages-suspected
+    driven-by: [{cause: +flow.ramps-broke, instant: true}]
+    equation: outages-base + outages-per-break * flow.ramps-broke
+  outages-handled:
+    from: outages-suspected
+    driven-by: [+stock.outages-suspected]
+    equation: stock.outages-suspected / time-to-handle
+  alerts-fired:
+    to: alerts-to-draft
+    driven-by: [{cause: +flow.outages-noticed, instant: true}]
+    equation: alerts-base + alerts-per-outage * flow.outages-noticed
+  comments-posted:
+    from: alerts-to-draft
+    driven-by: [+stock.alerts-to-draft]
+    equation: stock.alerts-to-draft / time-to-comment
