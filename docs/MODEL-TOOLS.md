@@ -27,6 +27,8 @@ the panel says why in one line and what would change that (for example "33 readi
 
 Whether the blocks' own reports can be believed (what each said it did, checked against the record, and its
 trust) is in [CLAIMS.md](CLAIMS.md), "Claims and trust".
+What the owner decided and corrected, kept as items and put at the start of every session (`ergostat context
+decisions`, `ergostat context corrections`), is in [DECISIONS.md](DECISIONS.md), "Decisions and corrections".
 
 Where a tool's numbers and thresholds come from is in `docs/SPEC.md` §12b (fit, calibration,
 proposals, the review queue), §12c (what-if, sensitivity, extreme conditions, loop dominance) and §12d

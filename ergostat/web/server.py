@@ -1,5 +1,5 @@
 """The web page's HTTP server (standard library, bound to 127.0.0.1; read only but for the owner accepting or dismissing a
-proposal, ``POST``). ``/`` is the page;
+proposal, or confirming, dismissing or superseding a decision, ``POST``). ``/`` is the page;
 ``/api/*`` returns what the command line shows, as JSON. The model is re-read when
 ``ergostat.toml`` changes, so the page follows the Supervisor's edits."""
 
@@ -411,6 +411,9 @@ def handler(project):
                 if u.path.startswith("/api/control/"):     # a loop's process, tuning or step test: the owner's answer
                     from .control_api import post as control
                     code, data = control(live, u.path.removeprefix("/api/"))
+                elif u.path.startswith("/api/intent/"):    # a proposed decision or correction: the owner's answer
+                    from .intent_api import post as intent
+                    code, data = intent(live, u.path.removeprefix("/api/"), q)
                 else:
                     code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
             except Exception as e:                      # a broken request never takes the page down

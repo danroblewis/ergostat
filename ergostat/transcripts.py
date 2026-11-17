@@ -6,7 +6,8 @@ file (``file:run/sessions/x.jsonl``), is read: each new complete line becomes on
 made from the item and the line's ``uuid`` (so reading a line again records nothing new), caused
 by its ``parentUuid``'s event. The types:
 
-- ``claude.message``: what the user or the assistant said (``messages``);
+- ``claude.message``: what the user or the assistant said (``messages``; ``meta`` on a line the harness
+  wrote in the user's name, a side chain's or a compacted summary);
 - ``claude.tool-use``: a tool called (``tool_calls``: id, name, input);
 - ``claude.tool-result``: what came back (``tool_results``);
 - ``claude.thinking``: the assistant's thinking (``thinking``);
@@ -31,6 +32,7 @@ LIMIT = 4096                     # bytes of one text kept in its event; the rest
 FIELDS = ("messages", "tool_calls", "tool_results", "thinking", "other", "tokens_in", "tokens_out")
 EVERY = 2.0                      # seconds between looks at the files
 FORMAT = "claude-session"
+META = ("isMeta", "isSidechain", "isCompactSummary", "isVisibleInTranscriptOnly")   # the harness's, not said: ``meta``
 
 
 def event_id(item: str, key: str) -> str:
@@ -93,7 +95,8 @@ def line_event(item: str, raw: str, n: int, file: str, seen: set, before: float)
             continue
         t = b.get("type")
         if t == "text" and (b.get("text") or "").strip():
-            data.setdefault("messages", []).append({"role": role, "line": n, "uuid": uid, **_head(b["text"], where)})
+            data.setdefault("messages", []).append({"role": role, "line": n, "uuid": uid, **_head(b["text"], where),
+                                                    **({"meta": True} if any(line.get(k) for k in META) else {})})
         elif t == "thinking" and (b.get("thinking") or "").strip():
             data.setdefault("thinking", []).append({"line": n, **_head(b["thinking"], where)})
         elif t == "tool_use":

@@ -683,6 +683,15 @@ class Said:
             return
         if "event" in obj:
             t = obj["event"]
+            if isinstance(t, str) and t.startswith(("ergostat.decision.", "ergostat.correction.")):
+                from ..decisions import acts  # a proposal of the owner's intent: checked like any
+                try:
+                    acts.take_line(self.e.p, t, obj.get("item"), obj.get("data") if isinstance(obj.get("data"), dict) else {},
+                                   self.b.name, causedby=self.run_id)
+                    self.counts["events"] += 1
+                except acts.ActError as err:
+                    self.refuse(obj, str(err))
+                return
             if not isinstance(t, str) or not old.TYPE_NAME.match(t) or t.startswith((*old.OWN_TYPES, "block.", "person.")):
                 self.refuse(obj, "an event type is lowercase words joined by dots (backup.verified), and not ergostat's own")
                 return
