@@ -48,6 +48,9 @@ see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
   loop           The feedback loops: what each holds, how far off, each part along it
   item           The items (ticket/12): each one's kind, state and fields, folded from its events
+  decisions      The owner's decisions: extract them from transcripts, confirm, dismiss, supersede
+  corrections    The owner's corrections: confirm, dismiss, retire; scan the record for them
+  context        A session's starting context: context decisions --scope X, context corrections --kind Y
   event          The raw record (--follow to watch; --add TYPE records one from outside)
   snapshot       The page, as of now, in one HTML file to send
 
@@ -237,6 +240,8 @@ def build() -> argparse.ArgumentParser:
     chat.set_defaults(fn=cmd_chat)
     from .bench import register as bench_topics
     bench_topics(sub, common)
+    from .decisions import register as intent_topics
+    intent_topics(sub, common)
     return ap
 
 

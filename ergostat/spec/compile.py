@@ -643,6 +643,8 @@ class Compiler:
         spec.items[MODEL_CHANGE] = model_change_kind()       # built in: every change to the model (SPEC §12e)
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
         self.claims(spec)
+        from ..decisions.kinds import builtin as intent_kinds
+        spec.items.update(intent_kinds())                    # built in: the owner's decisions and corrections (SPEC §5a)
         self.parameters(spec)
         for name, m, what in self.named("stocks"):
             self.keys(m, STOCK_KEYS, what)

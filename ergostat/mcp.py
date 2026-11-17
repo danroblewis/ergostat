@@ -89,12 +89,19 @@ TOOLS = [
      "refused, and its events.",
      "inputSchema": _obj({"kind": {"type": "string"}, "state": {"type": "string"}, "id": {"type": "string"},
                           "n": {"type": "integer"}})},
+    {"name": "context", "description": "A starting context, as Markdown: recipe decisions (the owner's confirmed decisions, "
+     "most relevant to scope first) or corrections (what the owner corrected before, for kind: a kind of work such as ui, "
+     "docs, git, testing, modelling). budget: characters (6000) or tokens (1500t). The same as `ergostat context RECIPE`.",
+     "inputSchema": _obj({"recipe": {"type": "string", "enum": ["decisions", "corrections"]}, "scope": {"type": "string"},
+                          "kind": {"type": "string"}, "budget": {"type": "string"}}, ["recipe"])},
     {"name": "record_event", "description": "Record something that happened outside: an event of a type (ticket.opened), "
      "about an item (ticket/12), with data (its fields: title, priority, ...), folded by its kind's fold: rules (replace "
      "by default); or, in place of data, a patch (a JSON Patch, RFC 6902: [{\"op\": \"add\", \"path\": \"/tags/-\", "
      "\"value\": \"x\"}]), applied whole or refused with why, or set (the item's whole document). An item kind's on: map "
      "says which types move an item between states. The same as `ergostat event --add TYPE --item ID --data JSON` "
-     "(or --patch, --set).",
+     "(or --patch, --set). To propose a decision or a correction the owner gave: ergostat.decision.proposed ({decision, "
+     "words: [{text, session, line, time}], reasons, alternatives: [{option, why}], scope, supersedes}) or "
+     "ergostat.correction.proposed ({correction, words, corrects, kind_of_work, scope}); the owner confirms it.",
      "inputSchema": _obj({"type": {"type": "string"}, "item": {"type": "string"}, "data": {"type": "object"},
                           "patch": {"type": "array", "items": {"type": "object"}}, "set": {"type": "object"},
                           "source": {"type": "string"}}, ["type"])},
@@ -223,6 +230,15 @@ class Server:
                 return {**_text(f"{a['sensor']!r} is not a manual sensor"), "isError": True}
             p.measurements.add(s.series, float(a["value"]))
             return _text(f"recorded: {a['sensor']} = {a['value']}")
+        if name == "context":
+            from .decisions import context as cx
+            from .decisions.kinds import CORRECTION, DECISION
+            recipe = a.get("recipe")
+            if recipe not in ("decisions", "corrections"):
+                return {**_text("recipe: decisions or corrections"), "isError": True}
+            kind = DECISION if recipe == "decisions" else CORRECTION
+            return _text(cx.render(p, kind, a.get("scope") if kind == DECISION else (a.get("kind") or a.get("scope")),
+                                   cx.budget_of(a.get("budget"))))
         if name == "items":
             from .spec import items as its
             if a.get("id"):
@@ -233,6 +249,13 @@ class Server:
         if name == "record_event":
             from .runner import OWN_TYPES, TYPE_NAME
             t, data = str(a.get("type", "")), a.get("data") or {}
+            if t.startswith(("ergostat.decision.", "ergostat.correction.")) and isinstance(data, dict):
+                from .decisions import acts                  # a proposal of the owner's intent, checked; never the owner's act
+                try:
+                    got = acts.take_line(p, t, a.get("item") or None, data, a.get("source") or "mcp")
+                except acts.ActError as e:
+                    return {**_text(str(e)), "isError": True}
+                return _text(got)
             if not TYPE_NAME.match(t) or t.startswith((*OWN_TYPES, "block.", "person.")) or not isinstance(data, dict):
                 return {**_text("type: lowercase words joined by dots (ticket.opened), not ergostat's own; data: an object"),
                         "isError": True}

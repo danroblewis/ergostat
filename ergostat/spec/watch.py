@@ -135,7 +135,28 @@ def find(project, spec: Spec, window: float = WINDOW, now: float | None = None) 
             if a > 1.5 * b and a - b > 60:
                 say("critical-decaying", f"goal {g.name} (critical): recovers in {human(a)} on average now, against "
                     f"{human(b)} before: its loop is answering more slowly", g.where, f"goal.{g.name}")
+    repeated(project, say)
     return out
+
+
+def repeated(project, say) -> None:
+    """A correction the owner gave again: the first did not change what was done. Raised while the latest repeat
+    waits for the owner (proposed), or the correction it repeats is in force (confirmed)."""
+    from ..decisions import acts
+    from ..decisions.kinds import CORRECTION
+    its = {i.id: i for i in acts.items(project, CORRECTION)}
+    by: dict[str, list] = {}
+    for i in its.values():
+        r = i.fields.get("repeats")
+        if r in its and i.state != "dismissed":
+            by.setdefault(r, []).append(i)
+    for first, reps in by.items():
+        f = its[first]
+        if f.state in ("dismissed", "retired") or not (f.state == "confirmed" or any(r.state == "proposed" for r in reps)):
+            continue
+        last = max(reps, key=lambda r: r.first)
+        say("correction-repeated", f"correction {first}: given {len(reps) + 1} times (last {human(time.time() - last.first)} "
+            f"ago, {last.id}): {f.fields.get('correction', '')}", None, first)
 
 
 def project_running(project) -> bool:
