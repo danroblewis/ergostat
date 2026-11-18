@@ -151,7 +151,10 @@ Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` a
 
 **Setting up ergostat for someone? Start with [docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md):** how to turn a
 described workflow into a model of the right shape (one connected chain per kind of work, a collector,
-a block per step), then check it and look at both diagrams before calling it done.
+a block per step), then check it and look at both diagrams before calling it done. Then
+[docs/MODELLING-WELL.md](docs/MODELLING-WELL.md) (`ergostat help modelling-well`): the craft beyond correctness, so
+that the Dynamics, Blocks and Process views each look as a professional in that discipline would draw them, with
+good and poor models side by side.
 
 `ergostat mcp` serves the tools an agent needs to work on a system: `spec` (the format), `check`
 (after every edit), `explain`, `status`, `findings`, `events`, and `report_done` and `read_sensor`
