@@ -41,11 +41,20 @@ def moved_on(b, it) -> bool:
 
 class Dispatcher:
     def __init__(self, eng):
-        self.e, self.p, self.spec = eng, eng.p, eng.spec
-        self.blocks = [b for b in self.spec.blocks.values() if b.takes and b.machine]
-        self.going: dict[str, dict[str, dict]] = {b.name: {} for b in self.blocks}   # block → item → {run, fence}
+        self.e, self.p = eng, eng.p
+        self.going: dict[str, dict[str, dict]] = {}   # block → item → {run, fence}: the runs going here
+        self.holding = False                          # whether the last watch found a lease held (one outlives its block)
         self.lock = threading.RLock()
         self.seq = 0
+
+    @property
+    def spec(self):
+        """The model as it is now: a lease taken under an earlier one is still held, renewed and fenced as it was."""
+        return self.e.spec
+
+    @property
+    def blocks(self) -> list:
+        return [b for b in self.spec.blocks.values() if b.takes and b.machine]
 
     def kinds(self) -> list[str]:
         """The kinds whose leases are watched: every kind of the model's own (a lease outlives the block that took it)."""
@@ -63,7 +72,8 @@ class Dispatcher:
                     self.seq = seq
                     if mono - last >= EVERY:
                         last = mono
-                        self.watch()
+                        if self.blocks or self.holding:      # (a model with no block that takes: nothing to watch)
+                            self.watch()
                     self.tick()
             except Exception as e:                             # the next look tries again
                 self.e.say(f"leases: {type(e).__name__}: {e}")
@@ -86,7 +96,7 @@ class Dispatcher:
             with self.lock:
                 every = its.project(self.p.events, self.spec, b.takes.kind, transcript=False)
                 mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
-                room = b.pool - len(mine | set(self.going[b.name]))
+                room = b.pool - len(mine | set(self.going.get(b.name, {})))
                 if room <= 0:
                     continue
                 for it in self.ready(b, every, now)[:room]:
@@ -123,7 +133,7 @@ class Dispatcher:
         got = held(now.fields) if now else None
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
             return None
-        self.going[b.name][it.id] = {"run": run, "fence": fence}
+        self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence}
         self.e.say(f"{b.name}: took {it.id} (lease {fence}, {t['ttl'] / 60:g} min)")
         item = {"id": it.id, "kind": it.kind, "state": it.state, "fields": {k: v for k, v in it.fields.items() if k != "lease"}}
         given = {"fence": fence, "ttl": t["ttl"], "expires": got.get("expires"), "attempt": int(lease.get("attempts") or 0) + 1,
@@ -156,7 +166,7 @@ class Dispatcher:
             except Exception as e:                                 # the watchdog ends it later
                 self.e.say(f"{b.name}: ending the lease on {item['id']}: {type(e).__name__}: {e}")
             with self.lock:
-                self.going[b.name].pop(item["id"], None)
+                self.going.get(b.name, {}).pop(item["id"], None)
             with self.e.lock:
                 for s in self.e.after_acting(moved):
                     self.e.read_cause[s.series] = run
@@ -195,9 +205,11 @@ class Dispatcher:
     def watch(self, now: float | None = None) -> None:
         """Every held lease past its expiry: renewed by what its holder was seen to do since, or expired."""
         now = time.time() if now is None else now
+        holding = False
         for kind in self.kinds():
             for it in its.project(self.p.events, self.spec, kind, transcript=False):
                 lease = held(it.fields)
+                holding = holding or lease is not None
                 if not lease or now <= float(lease.get("expires") or 0):
                     continue
                 ttl = float(lease.get("ttl") or 0)
@@ -214,6 +226,7 @@ class Dispatcher:
                 dead = after is not None and after.state == DEAD
                 self.e.say(f"{lease.get('block')}: the lease on {it.id} expired (silent {silent / 60:.1f} min)"
                            + (": a dead letter now" if dead else ""))
+        self.holding = holding
 
     def activity(self, item: str, lease: dict) -> float | None:
         """The latest thing the holder was seen to do since its lease was renewed: a line of the item's transcript, an

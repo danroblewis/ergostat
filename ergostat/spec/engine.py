@@ -829,8 +829,8 @@ class Engine:
         threading.Thread(target=self._schedule, daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop
-        if self.dispatch.blocks:                                 # blocks that take items, and their leases (SPEC §9.5)
-            threading.Thread(target=self.dispatch.run, daemon=True).start()
+        self.dispatch.holding = True                             # leases held when it last stopped are watched at once
+        threading.Thread(target=self.dispatch.run, daemon=True).start()   # blocks that take items, their leases (SPEC §9.5)
         self._ingest()
 
     def _ingest(self) -> None:
