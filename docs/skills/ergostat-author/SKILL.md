@@ -5,6 +5,12 @@ description: Use whenever an ergostat project (ergostat.yaml) gets a request for
 
 # Add a small control system to an ergostat project
 
+**Read first, when you are building more than one template instance:** `ergostat help agent-guide` (the method
+for turning a described workflow into a model of the right shape, the check-look-fix loop, common mistakes).
+Then, as needed: `ergostat help adding` (the templates and a worked example), `ergostat help modelling`
+(improving a model from its record), `ergostat help spec` (the whole format). An installed ergostat carries all
+of these; nothing else needs copying.
+
 The owner asks for something small. You build it from **templates**: each is a reusable shape (a generic structure
 in system dynamics, a library block in control) that expands into ordinary items, stocks, flows, goals and blocks,
 grouped as one system per use. You write one `uses:` entry, and scripts only where the template needs a command.
