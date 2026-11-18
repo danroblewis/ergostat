@@ -1,4 +1,4 @@
-/* the control and wiring diagrams: shapes, ELK layout, drawing, pan and zoom, the side panel */
+/* the diagrams: shapes, ELK layout, drawing, pan and zoom, the side panel (the Blocks view: blocks.js; the Process view: process.js) */
 "use strict";
 /* ------------------------------------------------------------------ the diagram */
 
@@ -160,7 +160,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     layoutOptions: {
       ...(open.size ? { "elk.hierarchyHandling": "INCLUDE_CHILDREN" } : {}),
       "elk.layered.mergeEdges": "true",
-      "elk.algorithm": "layered", "elk.direction": g.kind === "wiring" ? "DOWN" : "RIGHT", "elk.edgeRouting": "ORTHOGONAL",
+      "elk.algorithm": "layered", "elk.direction": "RIGHT", "elk.edgeRouting": "ORTHOGONAL",
       // with systems in it, wider lanes between parts: lines between boxes run straight instead of hooking round
       "elk.layered.spacing.nodeNodeBetweenLayers": roomy ? "120" : "64", "elk.spacing.nodeNode": roomy ? "56" : "36",
       "elk.spacing.edgeNode": roomy ? "28" : "18",
@@ -192,7 +192,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
   if (ELK_PRESETS[LAYOUT]?.upright) standUpright(lay, g);   // drains and inflows stood upright where there is room
   applyPins(lay, g);
   orientValves(lay, g);                                  // valves face their pipes and their links (valves.js)
-  if (g.kind !== "wiring") avoidStart(lay, g);           // every line, by libavoid (avoid.js): ELK's until it is done
+  avoidStart(lay, g);                                    // every line, by libavoid (avoid.js): ELK's until it is done
   return lay;
 }
 
@@ -448,7 +448,7 @@ function drawAgent(n, w, hgt) {
 }
 
 /* each kind of line has one colour, whatever it is part of: what it is, not how it is doing */
-const LINE_COLOR = { measure: "var(--sensor-line)", signal: "var(--sensor-line)", action: "var(--ctl-line)", influence: "var(--dist)", wire: "var(--accent)" };
+const LINE_COLOR = { measure: "var(--sensor-line)", signal: "var(--sensor-line)", action: "var(--ctl-line)", influence: "var(--dist)" };
 
 /* a port's twin: the same part crossing the other way on the same side, named once with it (the dynamics view's
    ⇄); none in the control view */
@@ -572,7 +572,7 @@ function redrawLine(svg, id) {                         // a line's new way, whil
     else if (p.classList.contains("info") || p.classList.contains("edge-hit")) p.setAttribute("d", d);
     else {                                              // a head: drawn again at the new end
       const fill = p.getAttribute("fill") || p.style.fill;
-      const head = e.kind === "pipe" ? pipeHead(pts, fill) : arrowHead(pts, "head", e.kind === "wire" ? 9 : 7);
+      const head = e.kind === "pipe" ? pipeHead(pts, fill) : arrowHead(pts, "head", 7);
       if (e.kind !== "pipe") head.style.setProperty("--head", p.style.getPropertyValue("--head"));
       p.replaceWith(head);
     }
@@ -716,7 +716,7 @@ function drawGraph(svg, g, lay) {
       if (e.arrow) eg.append(pipeHead(pts, dist ? "var(--dist)" : "var(--pipe)"));
     } else {
       eg.append(s("path", { d, class: "info" }));
-      const ah = arrowHead(pts, "head", e.kind === "wire" ? 9 : 7);
+      const ah = arrowHead(pts, "head", 7);
       ah.style.setProperty("--head", LINE_COLOR[e.kind] || "var(--info)");
       eg.append(ah);
       if ((le.labels || []).length) {
@@ -939,25 +939,10 @@ function highlightLoop(name) {
   for (const r of document.querySelectorAll(".looprow")) r.classList.toggle("hl", r.dataset.loop === name);
 }
 
-function highlightAgents(names) {
-  const svg = $("svg.canvas");
-  if (!svg) return;
-  const ids = new Set((names || []).map((n) => "agent:" + n));
-  for (const n of svg.querySelectorAll(".node")) n.classList.toggle("dim", !!names && !ids.has(n.dataset.id));
-  for (const e of svg.querySelectorAll(".edge")) {
-    const [a, b] = (e.dataset.nodes || "").split(" ");
-    e.classList.toggle("dim", !!names && !(ids.has(a) && ids.has(b)));
-  }
-}
-
 function legend(view) {
   if (view === "dynamics") return sdLegend();
   if (view === "blocks") return blocksLegend();
-  if (view === "wiring") {
-    return h("div", { class: "legend" },
-      h("span", { html: '<svg width="26" height="16"><rect x="2" y="2" width="22" height="12" fill="var(--bg)" stroke="var(--ink)" stroke-width="1.4"/></svg>' }), "an agent",
-      h("span", { html: '<svg width="26" height="16"><path d="M2 8 H20" stroke="var(--ink)" stroke-width="1.4"/><path d="M18 4 L24 8 L18 12 Z" fill="var(--ink)"/></svg>' }), "its output reaches another agent");
-  }
+  if (view === "process") return processLegend();          // (process.js)
   const row = (svgTxt, text) => [h("span", { html: `<svg width="26" height="18">${svgTxt}</svg>` }), h("span", {}, text)];
   return h("div", { class: "legend" },
     row('<rect x="2" y="2" width="22" height="14" rx="2" fill="var(--stock)" stroke="var(--stock-line)" stroke-width="2"/>', "stock: what accumulates"),
@@ -986,7 +971,14 @@ function legend(view) {
 
 async function pageDiagram(main, q) {
   // the system dynamics view is the first; "control", its old name, still reaches it
+  if (q.get("view") === "wiring") {                             // the wiring the process map replaced: its address reaches it
+    q.set("view", "process");
+    replaceRoute("/diagram?" + q.toString());
+  }
   const view = !q.get("view") || q.get("view") === "control" ? "dynamics" : q.get("view");
+  // the Process view's own: which kinds, states or events, the paths slider; counts or times (the page's)
+  const pq = { kinds: q.get("kinds") || "", by: q.get("by") || "", paths: q.get("paths") || "", show: q.get("show") || "" };
+  S.pmShow = pq.show;
   const system = q.get("system") || "";
   const around = q.get("around") || "";
   const openQ = q.has("open") ? q.get("open") : null;          // the systems opened; absent: the server's default
@@ -999,7 +991,8 @@ async function pageDiagram(main, q) {
   const sysSel = h("select", { title: "The system drawn", "aria-label": "System", onchange: (ev) => go({ system: ev.target.value, around: "" }) }, h("option", { value: "" }, "Everything"));
   for (const name of S.status?.systems || []) sysSel.append(h("option", { value: name, selected: name === system ? "" : null }, name));
   function go(over) {
-    const p = new URLSearchParams({ view, system, around, ...(openQ != null ? { open: openQ } : {}), ...over });
+    const to = over.view || view;
+    const p = new URLSearchParams({ view, system, around, ...(openQ != null ? { open: openQ } : {}), ...(to === "process" ? pq : {}), ...over });
     for (const [k, v] of [...p]) if (!v) p.delete(k);
     navigate("/diagram?" + p.toString());
   }
@@ -1017,26 +1010,60 @@ async function pageDiagram(main, q) {
   const wrapOn = () => S.wrap === true || (S.wrap == null && S.wrapAuto);
   const loopsOn = () => !document.body.classList.contains("no-loops");   // the loop markers, hidden or shown (remembered)
   const more = menu("\u22ef", () => [
-    view !== "blocks" && view !== "wiring" ? { label: "Wrap loops into rows", checked: wrapOn(), hint: "at the pipes between loops",
+    view !== "blocks" && view !== "process" ? { label: "Wrap loops into rows", checked: wrapOn(), hint: "at the pipes between loops",
       onclick: () => { S.wrap = !wrapOn(); S.graphSig = ""; S.fitted = false; route(); } } : null,
     view === "dynamics" ? { label: "Show loop markers", checked: loopsOn(), hint: "R and B, inside each loop",
       onclick: () => { const on = !loopsOn(); document.body.classList.toggle("no-loops", !on);
                        try { localStorage.setItem("ergostat.loops", on ? "1" : "0"); } catch (e) { /* not remembered */ } } } : null,
-    view !== "wiring" ? { label: "Colour by correspondence", checked: CORR.on, hint: "or hold C",
+    view !== "process" ? { label: "Colour by correspondence", checked: CORR.on, hint: "or hold C",
       onclick: () => corrSet(!CORR.on) } : null,
-    { label: "Open all systems", onclick: () => { S.graphSig = ""; go({ open: "*" }); } },
-    { label: "Close all systems", onclick: () => { S.graphSig = ""; go({ open: "-" }); } },
-    { sep: true },
-    { label: "Unpin all parts", hint: "drag a part to pin it", onclick: () => { S.pins = {}; savePins(); S.relayout?.(); } },
-  ], { cls: "dots", title: "More: wrap, open or close every system, unpin" });
+    ...(view === "process" ? pmKindItems() : [
+      { label: "Open all systems", onclick: () => { S.graphSig = ""; go({ open: "*" }); } },
+      { label: "Close all systems", onclick: () => { S.graphSig = ""; go({ open: "-" }); } },
+      { sep: true },
+      { label: "Unpin all parts", hint: "drag a part to pin it", onclick: () => { S.pins = {}; savePins(); S.relayout?.(); } }]),
+  ], { cls: "dots", title: view === "process" ? "More: which kinds of item" : "More: wrap, open or close every system, unpin" });
+  function pmKindItems() {                         // the kinds drawn: the system's by default, any of them by choice
+    const g = S.graph?.kind === "process" ? S.graph : null;
+    if (!g) return [];
+    const now = new Set(g.kinds.map((k) => k.name));
+    const toggle = (name) => {
+      const next = (g.offered || []).map((k) => k.name).filter((k) => (k === name ? !now.has(k) : now.has(k)));
+      const same = next.length === (g.default || []).length && next.every((k) => (g.default || []).includes(k));
+      S.graphSig = ""; S.fitted = false;
+      go({ kinds: same ? "" : next.join(",") || name });
+    };
+    return [h("div", { class: "menu-label" }, "Kinds of item"),
+      ...(g.offered || []).map((k) => ({ label: k.name, checked: now.has(k.name), hint: k.system || "", onclick: () => toggle(k.name) })),
+      pq.kinds ? { label: "The system's kinds", hint: "as at first", onclick: () => { S.graphSig = ""; S.fitted = false; go({ kinds: "" }); } } : null];
+  }
+  // the Process view's controls, in the view bar: states or events, counts or times, the paths slider
+  const pmBar = view !== "process" ? [] : (() => {
+    const by = pq.by || "", show = S.pmShow || "counts";
+    const paths = h("input", { type: "range", min: 0, max: 100, step: 5, value: pq.paths || 0, class: "pm-paths", "aria-label": "Paths shown",
+                               title: "Hide lines rarer than this share of their kind's most frequent" });
+    const pathsWord = h("span", { class: "muted small pm-paths-word" }, `paths ≥ ${pq.paths || 0}%`);
+    paths.addEventListener("input", () => { pathsWord.textContent = `paths ≥ ${paths.value}%`; });
+    paths.addEventListener("change", () => { S.fitted = false; go({ paths: paths.value === "0" ? "" : paths.value }); });
+    const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
+      h("button", { class: on ? "on" : "", title, onclick: fn }, text)));
+    const isBy = (x) => (by || S.graph?.by) === x;
+    const bySeg = seg("Nodes", [[isBy("states"), "States", "Nodes are the states items entered (where the kind declares states)", () => { S.fitted = false; go({ by: "states" }); }],
+                                [isBy("events"), "Events", "Nodes are the event types about items", () => { S.fitted = false; go({ by: "events" }); }]]);
+    bySeg.dataset.pm = "by";
+    const showSeg = seg("Numbers", [[show !== "times", "Counts", "Each line: how many times", () => { S.pmShow = pq.show = ""; S.graphSig = ""; go({ show: "" }); }],
+                                    [show === "times", "Times", "Each line: the median time between its ends", () => { S.pmShow = pq.show = "times"; S.graphSig = ""; go({ show: "times" }); }]]);
+    return [h("span", { class: "sep" }), bySeg, h("span", { class: "sep" }), showSeg, h("span", { class: "sep" }), paths, pathsWord];
+  })();
   const toolbar = h("div", { class: "toolbar" },
     h("span", { class: "seg", role: "group", "aria-label": "View" },
       h("button", { class: view === "dynamics" ? "on" : "", title: "The stock-and-flow diagram, as system dynamics draws it",
                     onclick: () => go({ view: "dynamics" }) }, "Dynamics"),
       h("button", { class: view === "blocks" ? "on" : "", title: "The control system as a block diagram", onclick: () => go({ view: "blocks" }) }, "Blocks"),
-      h("button", { class: view === "wiring" ? "on" : "", title: "What passed between the agents, from the record", onclick: () => go({ view: "wiring" }) }, "Wiring")),
+      h("button", { class: view === "process" ? "on" : "", title: "The process map: how items really moved, from the record (a directly-follows graph per kind)",
+                    onclick: () => go({ view: "process" }) }, "Process")),
     h("span", { class: "sep" }),
-    sysSel, crumbs,
+    sysSel, crumbs, ...pmBar,
     around ? h("span", { class: "around" }, "around ", h("b", {}, around), " ", h("button", { class: "ghost", title: "Draw everything again", "aria-label": "Clear", onclick: () => go({ around: "" }) }, "\u00d7")) : null,
     more);
   const zoom = h("div", { class: "zoom" },
@@ -1052,7 +1079,7 @@ async function pageDiagram(main, q) {
     ], { right: true, up: true, title: "Save the diagram as a file" }));
   wrap.append(svg, toolbar, zoom);
   if (typeof splitGrips === "function") splitGrips(wrap);         // a second pane, dragged in from an edge (split.js)
-  S.legendEl = legend(view);   // blocks, wiring and dynamics each read differently
+  S.legendEl = legend(view);   // blocks, process and dynamics each read differently
   const side = h("div", { class: "side" });
   const shell = h("div", { class: "diagram" + (sideHidden() ? " side-hidden" : "") }, wrap, side);
   main.append(shell);
@@ -1064,9 +1091,10 @@ async function pageDiagram(main, q) {
   async function tick() {
     let g;
     // the blocks view draws every loop, each in its system's outline: it asks for everything opened
-    const openArg = openQ != null && view !== "wiring" ? { open: openQ } : {};
+    const openArg = openQ != null && view !== "process" ? { open: openQ } : {};
     S.graphQ = { system, around, ...openArg };      // (the other view's answer is asked the same: interact.js)
-    try { g = await api("graph", { view, system, around, ...openArg }); fails = 0; }
+    const pmArg = view !== "process" ? {} : Object.fromEntries(["kinds", "by", "paths"].filter((k) => pq[k]).map((k) => [k, pq[k]]));
+    try { g = await api("graph", { view, system, around, ...openArg, ...pmArg }); fails = 0; }
     catch (e) {
       if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "This view is not in the snapshot; the whole system and each system are." : "The server is not answering. Is ergostat still running?")); }
       return;
@@ -1087,6 +1115,21 @@ async function pageDiagram(main, q) {
       patch(crumbs, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); S.drill(""); } }, "Everything"),
         ...up.flatMap((x, i) => [" › ", i < up.length - 1 ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); S.drill(x); } }, x) : h("b", {}, x)]));
     } else patch(crumbs);
+    if (view === "process") {
+      wrap.querySelector(".empty")?.remove();
+      if (!g.nodes.length) {
+        svg.replaceChildren();
+        S.layout = null; S.graphSig = "";
+        wrap.append(h("div", { class: "empty" }, !g.kinds.length ? "No kinds of item here: the process map draws how items moved."
+          : `Nothing on the record in the window for ${g.kinds.map((k) => k.name).join(", ")}.`));
+      } else if (!S.pressed) {
+        await drawProcessView(svg, g);
+        if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
+      }
+      for (const b of toolbar.querySelectorAll('[data-pm="by"] button')) b.classList.toggle("on", b.textContent.toLowerCase() === g.by);
+      renderSide(side, g, "process");
+      return;
+    }
     if (view === "blocks") {
       wrap.querySelector(".empty")?.remove();
       if (!g.nodes.length) {
@@ -1105,7 +1148,7 @@ async function pageDiagram(main, q) {
     if (!g.nodes.length) {
       svg.replaceChildren();
       wrap.querySelector(".empty")?.remove();
-      wrap.append(h("div", { class: "empty" }, view === "wiring" ? "No agents fill roles here yet." : "Nothing to draw: the model is empty."));
+      wrap.append(h("div", { class: "empty" }, "Nothing to draw: the model is empty."));
       renderSide(side, g, view);
       return;
     }
@@ -1114,7 +1157,7 @@ async function pageDiagram(main, q) {
     if (sg !== S.graphSig) {
       const r = svg.getBoundingClientRect();
       const aspect = r.width && r.height ? r.width / Math.max(r.height - 80, 200) : 1.6;
-      const asp = g.kind === "wiring" ? aspect * 2.5 : aspect;      // wiring: pack the components side by side
+      const asp = aspect;
       // a chain of loops far wider than the window is folded at the pipes between loops, unless told not to
       let lay = await layoutGraph(g, asp, S.wrap === true && (g.kind === "control" || g.kind === "dynamics"));
       S.wrapAuto = false;
@@ -1137,7 +1180,7 @@ async function pageDiagram(main, q) {
   }
   S.relayout = () => { S.graphSig = ""; return tick(); };      // after a part is pinned or unpinned
   S.redrawSide = () => { if (S.graph) renderSide(side, S.graph, view); };       // the parts chosen changed (charts.js)
-  S.redraw = () => { if (!S.pressed && !S.nodeDrag && !S.hullDrag && S.layout) drawGraph(svg, S.graph, S.layout); };   // libavoid's lines came
+  S.redraw = () => { if (!S.pressed && !S.nodeDrag && !S.hullDrag && S.layout) (S.graph?.kind === "process" ? pmDraw : drawGraph)(svg, S.graph, S.layout); };   // libavoid's lines came
   await tick();
   S.timer = poll(tick, 2500, shell);
 }
@@ -1209,20 +1252,7 @@ function renderSide(side, g, view) {
         h("b", {}, name), exceptional(lp.status) ? statusEl(lp.status) : h("span"),
         h("div", { class: "sub" }, `${lp.stock} ${fmt(lp.value)}, setpoint ${op(lp.setpoint)}${lp.band || ""}`)));
     }
-  } else {
-    if (g.cycles?.length) {
-      side.append(h("h3", {}, "Cycles among the agents", h("span", { class: "muted" }, ` ${g.cycles.length}`)));
-      for (const cy of g.cycles) {
-        side.append(h("div", { class: "looprow", onmouseenter: () => highlightAgents(cy.agents), onmouseleave: () => highlightAgents(null) },
-          h("b", {}, cy.agents.concat(cy.agents[0]).join(" \u2192 ")),
-          cy.loop ? h("span") : h("span", { class: "status s-open" }, "undeclared"),
-          h("div", { class: "sub" }, cy.loop ? `The loop ${cy.loop} accounts for it.` : "Runs in a circle no loop declares.")));
-      }
-    }
-    side.append(h("h3", {}, "Agents in this view", h("span", { class: "muted" }, ` ${g.nodes.length}`)));
-    for (const n of g.nodes) side.append(h("div", { class: "looprow", onclick: () => openAgent(n.label) },
-      h("b", {}, n.label), h("span"), h("div", { class: "sub" }, n.agentKind)));
-  }
+  } else if (view === "process") pmSide(side, g);          // (process.js)
   if (st.changes?.length) {
     const last = st.changes[st.changes.length - 1];
     const n = (c) => c.added.length + c.removed.length + c.changed.length;

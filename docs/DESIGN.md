@@ -153,11 +153,12 @@ The control diagram is the product's main view. Conventions:
   would be far wider than the window, or with "Wrap loops into rows" (the toolbar's ⋯ menu, beside "Open
   all systems", "Close all systems" and "Unpin all parts"). The first view keeps text legible (9px or
   more) and says when more lies beyond the edge; "Fit" shows everything.
-- **The wiring view** draws agents (with their rung, schedule and roles) and an arrow when
-  one agent's output reaches another: through a sensor or valve it hands on, through a stock, or
-  through an event type it listens for. It runs top to bottom. The cycles among the agents are
-  listed, each with the declared loop that accounts for it; a cycle no loop declares is something
-  running in a circle that nobody designed.
+- **The process view** (`process.py`, `process.js`; SPEC §5b) is process mining's process map: a
+  directly-follows graph per item kind, from the record in the window (the states items entered, or
+  the event types about them), each kind's map laid out left to right in time order in a frame of its
+  own, how often as line weight, rework marked, and dashed lines where an event on one kind's item
+  caused one on another's. It replaced the wiring view (machines and what passed between them),
+  which stays on the command line (`ergostat system --wiring`).
 - **The block view** draws each loop as a classic negative-feedback block diagram, one row per
   loop: the setpoint r into a summing junction (Σ, + and −), the error e into the controller C, its
   output u into the actuator (the valve), a second junction where the disturbance d joins, the
@@ -252,8 +253,8 @@ only when addressed to the server by its own name (the Host header is `127.0.0.1
 `[::1]` with its port: a page on another site whose name was pointed at 127.0.0.1, DNS rebinding,
 sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
 token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
-page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and wiring views; the side panel:
-attention, loops or cycles, model changes, legend), Loops, Agents (one list, by rung), Items (the
+page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and process views; the side panel:
+attention, loops or the process map's kinds, model changes, legend), Loops, Agents (one list, by rung), Items (the
 record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`/model`;
 its old address `/fit` goes there; first **What's available**: each loop, whether its process is
 identified and what would identify it, or that it closes through queues; each parameter to estimate,

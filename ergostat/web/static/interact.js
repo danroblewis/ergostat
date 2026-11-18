@@ -114,7 +114,6 @@ function markInteraction(svg) {
 /* a line with a slanted piece (a stand-in from part to part, until libavoid's way comes) drawn square
    instead, and greyed: the diagram never shows a line across */
 function squareLines(lay, g) {
-  if (g?.kind === "wiring") return;
   for (const le of lay.edges || []) {
     const sec = (le.sections || [])[0];
     if (!sec) continue;
@@ -172,7 +171,7 @@ function putDown(svg, pins, placed) {
   settle(S.layout, S.graph, placed);
   if (S.graph.kind === "blocks") { bdDraw(svg, S.graph, S.layout); bdRouteDraw(svg, S.layout); return; }   // (blocks.js)
   drawGraph(svg, S.graph, S.layout);
-  if (S.graph.kind !== "wiring") avoidStart(S.layout, S.graph);
+  avoidStart(S.layout, S.graph);
 }
 
 /* what is drawn apart from a part but goes with it while it is dragged: a summing junction's signs */

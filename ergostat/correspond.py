@@ -16,7 +16,7 @@ two views at once. The rule is identity, never "everything it touches":
   auxiliary; G, the flows that follow other signals, is those flows; a stock's process sum is the
   stock and its flows, a multi-input multi-output process every part inside it, and a closed
   system's Q block its system and every part inside: regions;
-- wiring: an agent is the blocks it fills.
+- process: an activity of items is no model part.
 
 A part with a shape of its own is stood for by it; one without (a turnover, a point gained inside a
 process, a part inside a closed system) by the smallest region holding it, which the page says
@@ -220,16 +220,6 @@ def _old_var(model, name: str) -> list[str]:
     return [f"auxiliary.{name}" if s is not None and s.auxiliary else f"stock.{name}"]
 
 
-def wiring_shapes(g: dict, spec) -> dict[str, dict]:
-    """An agent of the wiring is the blocks it fills (a block's runs are its own)."""
-    out: dict[str, dict] = {}
-    for n in g["nodes"]:
-        name = n["id"].split(":", 1)[1]
-        blocks = [f"block.{b}" for b, x in (spec.blocks.items() if spec is not None else []) if b == name or x.agent == name]
-        out[n["id"]] = {"is": blocks, "region": False, "name": name}
-    return out
-
-
 def table(g: dict, model) -> dict:
     """The correspondence for one drawn view: ``shapes`` (each shape: the parts it is, and whether it
     is a region holding them), ``parts`` (each part: the shapes standing for it here) and ``inside``
@@ -240,8 +230,8 @@ def table(g: dict, model) -> dict:
     if kind == "blocks":
         spec = spec_of(model)
         shapes = blocks_shapes(g, spec) if spec is not None else {}
-    elif kind == "events":
-        shapes = wiring_shapes(g, spec)
+    elif kind == "process":                        # activities of items: no model part is drawn
+        shapes = {}
     else:
         shapes = dynamics_shapes(g, spec, model)
     own: dict[str, list[str]] = {}
@@ -269,7 +259,7 @@ def table(g: dict, model) -> dict:
     if spec is not None and kind in ("dynamics", "blocks"):
         _stand_ins(spec, g, parts, within)
     loops = _loops(spec, g, shapes) if spec is not None else {}
-    return {"view": {"blocks": "blocks", "events": "wiring"}.get(kind, "dynamics"),
+    return {"view": {"blocks": "blocks", "process": "process"}.get(kind, "dynamics"),
             "shapes": {k: {"is": v["is"], **({"region": True} if v["region"] else {}),
                            **({"system": v.get("system") or v.get("box")} if v.get("system") or v.get("box") else {}),
                            **({"aside": True} if v.get("aside") else {})} for k, v in shapes.items()},

@@ -215,7 +215,7 @@ def paths(p) -> list[tuple[str, str]]:
     m = p.model
     spec = getattr(m, "spec", None)
     out = [("status", "status"), ("graph", "graph"), ("graph dynamics", "graph?view=dynamics"),
-           ("graph blocks", "graph?view=blocks"), ("graph wiring", "graph?view=wiring"), ("loops", "loops"),
+           ("graph blocks", "graph?view=blocks"), ("graph process", "graph?view=process"), ("loops", "loops"),
            ("agents", "agents"), ("parts", "parts"), ("residuals", "residuals"),
            ("record", "events?n=200"), ("record (window)", "events?n=200&window=1"),
            ("items", "items")]

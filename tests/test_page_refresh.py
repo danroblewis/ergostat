@@ -328,10 +328,12 @@ def test_the_record_changes_only_the_new_row_and_keeps_what_is_open(browser, sit
     assert after["connected"] and abs(after["top"] - before["anchorTop"]) <= 1, (before, after)
 
 
-@pytest.mark.parametrize("route,asks", [("loops", "loops"), ("agents", "agents")])
+@pytest.mark.parametrize("route,asks", [("loops", "loops"), ("agents", "agents"), ("diagram?view=process&by=events", "graph")])
 def test_other_pages_left_open_change_nothing(browser, site, route, asks):
     pg, errors, asked = open_page(browser, site, route, asks)
     pg.wait_for_timeout(1500)
+    if route.startswith("diagram"):                       # the process map drawn, its lines routed
+        pg.wait_for_function("() => S.layout && !S.layout.routing && document.querySelectorAll('svg.canvas g.node').length > 0")
     pg.evaluate(OBSERVE)
     wait_refreshes(pg, asked, 3)
     ms = muts(pg)

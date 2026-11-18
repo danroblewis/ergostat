@@ -9,7 +9,7 @@ already exists in production but was never written down.
 
 It shows each system from two perspectives, each drawn the way its discipline draws it: **Dynamics**,
 a System Dynamics stock-and-flow diagram (what is), and **Blocks**, a control block diagram (what we
-control); plus **Wiring**, what actually passed between the machines.
+control); plus **Process**, how the work really moved: a process map per kind of item, from the record.
 
 New here: [docs/QUICKSTART.md](docs/QUICKSTART.md) (ten minutes, from install to your own model),
 [docs/WHY.md](docs/WHY.md) (why model systems this way, for a team deciding whether to),
@@ -217,8 +217,8 @@ plant, y, the sensor H feeding ym back, and feedforward when a controller measur
 `ergostat system --blocks` prints the same in text.
 The Export menu's "SVG" and "PNG" write the diagram as a standalone file, with a header and a legend; "Design SVG" writes only
 the structure (parts, flows, roles and schedules, no live values or status), for a design document. `ergostat snapshot` writes the whole page, with
-what it shows now, to one HTML file that opens anywhere with no ergostat running (every view, page and part, as of then). The wiring view draws the agents and how each
-one's output reaches another, and lists the cycles among them, declared as loops or not. Loops, Agents (by rung), Items, Record, Model and Check show
+what it shows now, to one HTML file that opens anywhere with no ergostat running (every view, page and part, as of then). The process view draws the process map of each
+kind of item from the record (a directly-follows graph: states or events, how often, what came next, rework), and where work on one kind caused work on another. Loops, Agents (by rung), Items, Record, Model and Check show
 what the command line shows; the Guide steps through tiny models, drawn by the same renderers, that introduce system dynamics and control, then shows your own model both ways. The header's "Last 1h" menu sets the window and looks at any past moment; "Back to live"
 returns.
 

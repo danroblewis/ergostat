@@ -169,7 +169,7 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         st, body = get("/api/status")
         assert st == 200 and json.loads(body)["loops"]["disk-under-80"]["status"] == "holding"
         assert json.loads(get("/api/graph?view=control")[1])["kind"] == "control"
-        assert json.loads(get("/api/graph?view=wiring")[1])["kind"] == "events"
+        assert json.loads(get("/api/graph?view=wiring")[1])["kind"] == "process"     # the wiring's address: the process map
         assert json.loads(get("/api/part/stock/disk-used")[1])["now"]["value"] == 70
         assert "cleaner" in json.loads(get("/api/agents")[1])
         parts = json.loads(get("/api/parts")[1])
@@ -444,7 +444,7 @@ def test_a_snapshot_is_one_file_holding_the_answers_the_page_asks_for(project):
     assert html.lower().count("<script") == html.lower().count("</script>")          # no script closed early
     body = _re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1)
     data = _json.loads(body.replace("<\\/", "</"))["data"]
-    for k in ("status", "graph", "graph?view=control", "graph?system=host&view=wiring", "loops/disk-under-80",
+    for k in ("status", "graph", "graph?view=control", "graph?system=host&view=process", "loops/disk-under-80",
               "agents/cleaner", "part/valve/delete-old-files", "part/disturbance/logs-written", "projects"):
         assert k in data, k
     assert key("graph", {"view": "control", "system": "", "around": "undefined", "since": "1h"}) == "graph?view=control"

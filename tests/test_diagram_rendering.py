@@ -939,53 +939,160 @@ def test_scroll_pans_and_command_scroll_or_a_pinch_zooms_at_the_pointer(browser,
         pg.close()
 
 
-WIRE_PANELS = """() => {
+PROCESS_PANELS = """() => {
   const bad = [];
   for (const e of S.graph.edges) {
     openEdge(e);
     const kind = (document.querySelector('#detail .kind')?.textContent || '').toLowerCase();   // (in sentence case)
-    if (!kind.startsWith('wire')) bad.push(`${e.id}: ${kind}`);
+    if (!(e.kind === 'caused' ? kind.startsWith('caused') : kind.startsWith('directly follows'))) bad.push(`${e.id}: ${kind}`);
   }
   for (const n of S.graph.nodes) {
     openNode(n);
-    const kind = (document.querySelector('#detail .kind')?.textContent || '').toLowerCase();   // (in sentence case)
-    if (!kind.startsWith('machine')) bad.push(`${n.id}: ${kind}`);
+    const kind = (document.querySelector('#detail .kind')?.textContent || '').toLowerCase();
+    if (!['state', 'activity', 'start', 'end'].includes(kind)) bad.push(`${n.id}: ${kind}`);
   }
-  const dashed = [...document.querySelectorAll('g.edge.wire')].filter((g) => g.dataset.id.startsWith('wire-unseen:')).length;
-  return { bad, dashed, unseen: S.graph.edges.filter((e) => !e.seen).length, edges: S.graph.edges.length,
-           nodes: document.querySelectorAll('svg.canvas g.node').length, want: S.graph.nodes.length };
+  closeDetail();
+  const dashed = document.querySelectorAll('svg.canvas g.edge.pm-caused').length;
+  return { bad, dashed, caused: S.graph.edges.filter((e) => e.kind === 'caused').length, edges: S.graph.edges.length,
+           drawnEdges: document.querySelectorAll('svg.canvas g.edge').length,
+           nodes: document.querySelectorAll('svg.canvas g.node').length, want: S.graph.nodes.length,
+           rework: document.querySelectorAll('svg.canvas g.edge.rework').length };
 }"""
 
 
+def item_id(glob: str, n: str) -> str:
+    """An id its kind's glob matches."""
+    out = re.sub(r"\[[^\]]*\]", "x", glob)
+    return out.replace("**", n).replace("*", n).replace("?", "x")
+
+
+def seed_workflows(p, now: float, items: int = 4) -> dict:
+    """A record for every kind of item the example declares: each item arrives, moves through its kind's states
+    by the events its kind maps (one item in two goes back a state and on again: rework), and the first events
+    of each kind's items are caused by an event on an item of the kind before it (a fan-out across kinds)."""
+    from ergostat.spec.item_systems import BUILT_IN
+    spec = p.model.spec
+    kinds = [k for k in spec.items.values() if not k.name.startswith(BUILT_IN + ".")]
+    last = None
+    t = now - 3000
+    seen = {}
+    for ki, k in enumerate(kinds):
+        to = {}
+        for ty, st in k.on.items():
+            to.setdefault(st, ty)
+        made, cause = 0, last
+        for i in range(items):
+            it = item_id(k.id, f"pm{ki}x{i}")
+            if not k.matches(it) or any(x.matches(it) for x in kinds[:ki]):
+                continue
+            e = p.events.add(f"{k.name}.opened", item=it, causedby=cause["id"] if cause and i < 2 else None, at=t)
+            made += 1
+            t += 7
+            path = [st for st in k.states[1:] if st in to]
+            if i % 2 and len(path) >= 2:
+                path = path[:2] + [path[0]] + path[1:]
+            for st in path:
+                e = p.events.add(to[st], item=it, at=t)
+                t += 11
+            if not k.states:
+                p.events.add(f"{k.name}.noted", item=it, at=t)
+                e = p.events.add(f"{k.name}.noted", item=it, at=t + 3)
+            last = e
+            t += 5
+        seen[k.name] = made
+    return {k: n for k, n in seen.items() if n}
+
+
 @pytest.mark.parametrize("example", EXAMPLES)
-def test_every_wiring_view_draws_what_the_record_shows(browser, tmp_path, example):
-    """The wiring of each example, with a record that shows half of what its model declares (and
-    two machines it never names): drawn cleanly, the declared but unseen dashed, every panel opening."""
-    from ergostat import graph
+def test_every_process_view_draws_its_workflows_cleanly(browser, tmp_path, example):
+    """The Process view of each example, with a record of every kind's items moving through their states (rework
+    and a fan-out across kinds among them): drawn cleanly (no line through a part, none on top of another, no
+    part on another or on another kind's frame), in states and in events, every line's and node's panel opening."""
     from ergostat import model as mdl
     from ergostat.store import Project
     with served(example, tmp_path) as url:
         p = Project(mdl.load(tmp_path / example))
-        for i, (a, b) in enumerate(sorted(graph.declared_wires(p.model))):
-            if i % 2:
-                continue
-            sent = p.events.add("thing.sent", source=a)
-            p.events.add("agent.started", item=b, source="ergostat", causedby=sent["id"])
-        inv = p.events.add("invoice.sent", source="billing/1")
-        p.events.add("mail.sent", source="mailer", causedby=inv["id"])
+        seeded = seed_workflows(p, time.time())
         time.sleep(1.6)                                   # past the page's snapshot of the moment it started
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        drawn(pg, url, "view=wiring", 0)
-        r = pg.evaluate(AUDIT)
-        problems = [f"{k}: {x}" for k in ("through", "overlap", "partOverlap") for x in r[k]]
-        w = pg.evaluate(WIRE_PANELS)
+        problems, panels = [], []
+        kinds = ",".join(seeded)
+        for i, v in enumerate([f"view=process&kinds={kinds}", f"view=process&by=events&kinds={kinds}", "view=process"]):
+            pg.goto(f"{url}/diagram?v={i}&{v}")
+            if not seeded:
+                pg.wait_for_selector(".canvas-wrap .empty")
+                break
+            if v == "view=process" and not pg.evaluate("async () => (await api('graph', { view: 'process' })).nodes.length"):
+                continue                                  # the system's kinds are ergostat's own: nothing seeded there
+            pg.wait_for_function(READY, timeout=60000)
+            r = pg.evaluate(AUDIT)
+            problems += [f"[{v}] {k}: {x}" for k in ("through", "overlap", "partOverlap") for x in r[k]]
+            panels.append(pg.evaluate(PROCESS_PANELS))
         pg.close()
     assert not errors, errors
     assert not problems, f"{example}: " + "\n".join(problems)
-    assert w["nodes"] == w["want"] and w["dashed"] == w["unseen"] and 0 < w["unseen"] < w["edges"], w
-    assert not w["bad"], w["bad"][:8]
+    for w in panels:
+        assert w["nodes"] == w["want"] and w["dashed"] == w["caused"] and w["drawnEdges"] == w["edges"], w
+        assert not w["bad"], w["bad"][:8]
+    if len(seeded) > 1:
+        assert panels[0]["caused"] > 0, panels[0]
+    if any(len(k.states) > 2 for k in p.model.spec.items.values() if k.name in seeded):
+        assert panels[0]["rework"] > 0, panels[0]
+
+
+def test_a_process_lines_panel_lists_its_items_and_the_paths_slider_hides_rare_ones(browser, tmp_path):
+    """Clicking a line of the process map lists the items that went along it, and links to the Items page
+    filtered to exactly them; the Paths slider leaves out the lines rarer than its share; Times shows the median
+    time on each line; the old wiring address opens the Process view."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served("the-job", tmp_path) as url:
+        p = Project(mdl.load(tmp_path / "the-job"))
+        now = time.time()
+        for i in range(10):                               # ten tickets: all triaged, one in five back to new (rework)
+            it = f"ticket/pm{i}"
+            p.events.add("ticket.filed", item=it, at=now - 2000 + i)
+            for j, ty in enumerate(["ticket.triaged", *(["ticket.reopened", "ticket.triaged"] if i % 5 == 0 else [])]):
+                p.events.add(ty, item=it, at=now - 1500 + i * 10 + j)
+        kind = next(k for k in p.model.spec.items.values() if k.matches("ticket/pm0"))
+        time.sleep(1.6)
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=wiring&by=events&kinds={kind.name}")
+        pg.wait_for_function(READY, timeout=60000)
+        assert "view=process" in pg.url
+        busy = pg.evaluate("() => S.graph.edges.filter((e) => e.kind === 'follows').sort((a, b) => b.count - a.count)[0]")
+        rare = pg.evaluate("() => S.graph.edges.filter((e) => e.kind === 'follows').sort((a, b) => a.count - b.count)[0]")
+        assert rare["count"] < busy["count"] / 2, (rare, busy)
+        at = pg.evaluate("""(id) => { const el = document.querySelector(`.edge[data-id="${CSS.escape(id)}"] .edge-hit`);
+          const q = el.getPointAtLength(el.getTotalLength() / 2), m = el.getScreenCTM(); return [m.a * q.x + m.e, m.d * q.y + m.f]; }""",
+                         busy["id"])
+        pg.mouse.click(*at)
+        pg.wait_for_selector("#detail .item-set table.item-list")
+        listed = pg.evaluate("() => [...document.querySelectorAll('#detail .item-list a')].map((a) => a.textContent)")
+        assert len(listed) == min(10, busy["items"]) and all(x.startswith("ticket/pm") for x in listed), listed
+        href = pg.evaluate("() => [...document.querySelectorAll('#detail .item-set a')].find((a) => /Items page/.test(a.textContent)).href")
+        assert "followed=" in href and "by=events" in href, href
+        pg.goto(href)
+        pg.wait_for_selector(".set-chip .n")
+        assert pg.inner_text(".set-chip .n").strip().startswith(f"{busy['items']} items")
+        # the slider: the rare line goes, the busy one stays
+        pg.goto(f"{url}/diagram?view=process&by=events&kinds={kind.name}")
+        pg.wait_for_function(READY, timeout=60000)
+        pg.evaluate("() => { const r = document.querySelector('.pm-paths'); r.value = 50; r.dispatchEvent(new Event('change')); }")
+        pg.wait_for_function("() => S.graph && S.graph.paths === 0.5 && S.layout && !S.layout.routing", timeout=30000)
+        ids = pg.evaluate("() => S.graph.edges.map((e) => e.id)")
+        assert busy["id"] in ids and rare["id"] not in ids and "paths=50" in pg.url
+        drawn = pg.evaluate("() => [...document.querySelectorAll('svg.canvas g.edge')].map((g) => g.dataset.id)")
+        assert sorted(drawn) == sorted(ids)
+        pg.get_by_role("button", name="Times").click()
+        pg.wait_for_function("() => S.pmShow === 'times' && document.querySelector('svg.canvas g.edge .elabel')")
+        assert "show=times" in pg.url
+        pg.close()
+    assert not errors, errors
 
 
 BLOCKS_DOM = """() => {
