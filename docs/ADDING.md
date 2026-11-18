@@ -221,7 +221,15 @@ a flow from each state's stock into the next one's, never an outflow to a cloud.
    `state-stocks-disconnected` and `loops-not-connected`, each with the edit that fixes it. Then look at both
    diagrams (`/diagram?view=dynamics` and `view=blocks`): one connected chain per kind, arrivals in at the start,
    completions out at the end, each step's loop sharing the chain's stocks, and no stock without an inflow unless
-   things come from it.
+   things come from it;
+9. last, **reconcile the three views**: run it (a minute on its stand-ins, `try_use`, or the live record), then
+   `ergostat check` again (or the MCP `coherence` tool). Its Coherence section holds what the items really did (the
+   Process view) against the chain (Dynamics) and what moves the work (Blocks): a score per kind, and each mismatch
+   with its file, line and fix. Fix the model, or the blocks, until every kind agrees (`N of N agree`); a kind that
+   needs more record has not run long enough. A move the record shows and no flow carries is a missing flow (rework
+   needs one running back); a flow no block moves needs its block, or an external one; a block seen moving what it
+   does not declare needs its `takes:` or `out:`; a block with work that something else moved on is not recording its
+   own events, or is the wrong mover. `docs/MODELLING.md` explains each.
 
 When every state is a step a block works on, `steps` is this method in one entry. Written by hand,
 `examples/ticket-factory` is the worked example (its `ticket.yaml`, `factory/intake.yaml` and `steps/*.yaml`; the

@@ -333,6 +333,35 @@ cannot know it: `instant: true` on a link that really is immediate, `cumulative:
 running total, `exogenous: true` on an input from outside. Write the reason beside it as a
 comment, so the next reader can disagree.
 
+## Reconciling the three views: the model against what happened
+
+The model is drawn three ways, and each is a claim the others can test. The **Process** view is what
+the record says the items did (process mining's map: the states they entered and the moves between
+them); the **Dynamics** view is the structure that is meant to produce it (a chain of state stocks,
+and the flows between them); the **Blocks** view is what is meant to move the work (each block's
+`takes:` and `out:`, each goal's loop). In Sterman's terms (ch. 21) this is the boundary and
+structure assessment done against the data: does every move the system makes have a flow in the
+model, and does every flow in the model have a cause? `ergostat check` makes the comparison over the
+record (SPEC §12l), once the model has run:
+
+- **Process ↔ Dynamics**: a move the record shows that no flow carries is structure the model lacks
+  (rework back to an earlier state is the common one: a review sending work back needs a flow running
+  back); a step the record skips, or an order it runs against, says the chain's order is not the
+  work's; arrivals and completions where the chain does not start or end. A flow the record never
+  moved is a note, not a fault: quiet is not absent (section 9).
+- **Dynamics ↔ Blocks**: a queue where work waits for a block with no goal is a step with no loop;
+  a flow nothing moves and nothing measures is work the model cannot account for. Say what moves it:
+  a block's `out:`, or, when the outside moves it, an external block or the sensor that observes it.
+- **Blocks ↔ Process**: who moved each item (the run that caused its event, a collector, the
+  outside) against who the model says does. A block moving what it does not declare, or a block
+  declared for work that something else did, is a model of the control system that is not the one
+  running.
+
+Each kind has a score, its agreements over its comparisons; each mismatch its file and line, its fix,
+and the `check` finding it is the same as. Too little record says how much more it needs. Fix the
+model where the record is right; fix the blocks (their events, what they declare) where the model is
+right; and run again until every kind agrees.
+
 ## Reading the Model page: the model against the record
 
 The Model page (and `ergostat fit`) runs the model over the last day of record at most, whatever the
@@ -558,6 +587,8 @@ whatever the policy. Everything written is recorded with its reason and its effe
 10. Give the numbers you are unsure of a `range`, and read the fan before you act on a projection.
 11. For each part the record has not exercised (`not-exercised`): keep it with its reason, and plan
     the step test or disturbance that would exercise it, rather than removing it.
+12. Once it has run: does every kind's coherence read `N of N agree`? Each mismatch is the record,
+    the structure or the blocks disagreeing; decide which is wrong, and fix that one.
 
 ## Sources
 
