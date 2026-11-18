@@ -292,6 +292,22 @@ class Events:
             r = c.execute("select * from events where id = ? or id like ?", (id, id + "%")).fetchone()
         return self._row(r) if r else None
 
+    def times(self, items: list[str], type: str, since: float, until: float) -> dict[str, list[tuple[float, str, int]]]:
+        """For each of ``items``, (time, type, seq) of its events of ``type`` in the span, in seq order."""
+        out: dict[str, list] = {i: [] for i in items}
+        ors, args = [], []
+        for t in (x.strip() for x in type.split(",") if x.strip()):
+            ors.append("type like ?" if t.endswith("*") else "type = ?")
+            args.append(t[:-1] + "%" if t.endswith("*") else t)
+        for i in range(0, len(items), 500):
+            part = items[i:i + 500]
+            with self._c() as c:
+                for it, t, ty, q in c.execute(f"select item, time, type, seq from events where ({' or '.join(ors)}) and "
+                                              f"time >= ? and time <= ? and item in ({','.join('?' * len(part))}) order by seq",
+                                              (*args, since, until, *part)):
+                    out[it].append((t, ty, q))
+        return out
+
     def caused_by(self, id: str) -> list[dict]:
         with self._c() as c:
             return [self._row(r) for r in c.execute("select * from events where causedby = ? order by seq", (id,))]

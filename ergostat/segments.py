@@ -74,6 +74,53 @@ def _row(e: dict, shared: bool = False) -> dict:
     return out
 
 
+def _amount(e) -> float:
+    a = (e.get("data") or {}).get("amount")
+    return float(a) if a is not None else 1.0
+
+
+def _decision(e) -> dict:
+    d = (e.get("data") or {}).get("decision")
+    return {"" if d is None else str(d): 1}
+
+
+def _merge(a: dict, b: dict) -> dict:
+    out = dict(a)
+    for k, v in b.items():
+        out[k] = out.get(k, 0) + v
+    return out
+
+
+def _run(e) -> tuple:
+    d = e.get("data") or {}
+    mine = d.get("why") != "by hand"
+    return (1, int(e["type"] == "agent.failed"), int(d.get("refused") or 0) if mine else 0,
+            int(d.get("unread") or 0) if mine else 0)
+
+
+# what each tally adds up, over an item's events of some types: (types, of each event, adding two, nothing yet).
+# A segment adds up its own when it is sealed (its header's "tallies"), so a month's window is read from headers.
+TALLIES = {
+    "opened": ("valve.opened", lambda e: (1, _amount(e), e["time"]),
+               lambda a, b: (a[0] + b[0], a[1] + b[1], max(a[2], b[2])), lambda: (0, 0.0, -INF)),
+    "decided": ("controller.decided", _decision, _merge, dict),
+    "runs": ("agent.ran,agent.failed", _run, lambda a, b: tuple(x + y for x, y in zip(a, b, strict=True)), lambda: (0, 0, 0, 0)),
+}
+
+
+def tallies_of(events: list[dict]) -> dict:
+    """Each tally of each item, over these events (a segment's, as it is sealed)."""
+    out: dict = {}
+    for what, (types, f, add, zero) in TALLIES.items():
+        test = _types_matcher(types, ())
+        mine: dict = {}
+        for e in events:
+            if test(e["type"]) and e.get("item") is not None:
+                mine[e["item"]] = add(mine.get(e["item"], zero()), f(e))
+        out[what] = {k: (v if isinstance(v, dict) else list(v)) for k, v in mine.items()}
+    return out
+
+
 def _types_matcher(type: str | None, skip: tuple[str, ...]):
     """A test of a type: one of ``type`` (comma separated, ``*`` a prefix), none of ``skip``."""
     want = [t.strip() for t in (type or "").split(",") if t.strip()]
@@ -126,6 +173,7 @@ class Segment:
         self._times = array.array("d", (x for t in h["item_times"] for x in t))      # per item: its first and last time
         self.type_span = dict(zip(self.types, (tuple(s) for s in h["type_span"]), strict=True))
         self.bloom = base64.b64decode(h["bloom"])
+        self.tallies: dict | None = h.get("tallies")     # what it adds up to, per tally and item (TALLIES); older segments: none
         self.m = len(self.bloom) * 8
         self._cols: dict | None = None
 
@@ -216,7 +264,7 @@ def write_segment(d: Path, events: list[dict]) -> Path:
               "type_span": spans(by_type, lambda e: e["type"], types),
               "item_times": [[min(events[r]["time"] for r in by_item[a:a + n]), max(events[r]["time"] for r in by_item[a:a + n])]
                              for a, n in spans(by_item, lambda e: e.get("item"), items)],
-              "bloom": base64.b64encode(bytes(bloom)).decode()}
+              "bloom": base64.b64encode(bytes(bloom)).decode(), "tallies": tallies_of(events)}
     cols = {"seq": array.array("q", (e["seq"] for e in events)), "time": array.array("d", (e["time"] for e in events)),
             "item": array.array("i", (item_ix[e.get("item")] for e in events)),
             "type": array.array("I", (type_ix[e["type"]] for e in events)),
@@ -593,6 +641,32 @@ class Segments:
         self._sync()
         return True
 
+    def times(self, items: list[str], type: str, since: float, until: float) -> dict[str, list[tuple[float, str, int]]]:
+        """For each of ``items``, (time, type, seq) of its events of ``type`` in the span, in seq order:
+        from the segments' columns, no event read, each segment's columns once for all of them."""
+        test = _types_matcher(type, ())
+        want = set(items)
+        out: dict[str, list] = {i: [] for i in items}
+        segs, hd, hn = self._hstate()
+        for s in segs:
+            if s.t_max < since or s.t_min > until:
+                continue
+            here = [(i, sp) for i in want if (sp := s.span(i)) is not None]
+            types = [t for t in s.types if test(t)]
+            if not here or not types:
+                continue
+            ok = {s.types.index(t) for t in types}
+            c = self._cols(s)
+            tm, ty, sq = c["time"], c["type"], c["seq"]
+            for i, (a, n) in here:
+                out[i] += [(tm[r], s.types[ty[r]], sq[r]) for r in sorted(c["by_item"][a:a + n])
+                           if ty[r] in ok and since <= tm[r] <= until]
+        for j in range(hn):
+            e = hd.evs[j]
+            if e.get("item") in want and test(e["type"]) and since <= e["time"] <= until:
+                out[e["item"]].append((e["time"], e["type"], e["seq"]))
+        return out
+
     def caused_by(self, id: str) -> list[dict]:
         return self._scan(test=lambda e: e.get("causedby") == id)
 
@@ -726,10 +800,11 @@ class Segments:
         segs, hd, hn = self._hstate()
         return hd.evs[hn - 1]["seq"] if hn else (segs[-1].last if segs else 0)
 
-    def _tally(self, what: str, item: str, type: str, since: float, until: float | None, f, add, zero):
-        """``f`` of each matching event, added up with ``add`` from ``zero``. A sealed segment never
-        changes, so what it adds up to, when the span holds all of it, is kept: a week's window asked
-        for every few seconds reads only the segments at its ends."""
+    def _tally(self, what: str, item: str, since: float, until: float | None):
+        """A tally (``TALLIES``) of an item's events in a span. A sealed segment never changes: what it
+        adds up to, when the span holds all of it, is in its header (or, for a segment sealed before
+        headers had them, worked out once and kept), so a month's window reads only the segments at its ends."""
+        type, f, add, zero = TALLIES[what]
         until = until if until is not None else 1e18
         total = zero()
         segs, hd, hn = self._hstate()
@@ -741,6 +816,11 @@ class Segments:
             whole = since <= s.t_min and s.t_max <= until
             key = (s.name, what, item)
             got = self._tallies.get(key) if whole else None
+            if whole and got is None and s.tallies is not None:
+                got = s.tallies[what].get(item)
+                got = zero() if got is None else got if isinstance(got, dict) else tuple(got)
+                total = add(total, got)
+                continue
             if got is None:
                 got = zero()
                 for r in self._rows(s, item, types, since, until):
@@ -756,14 +836,8 @@ class Segments:
                 total = add(total, f(e))
         return total
 
-    @staticmethod
-    def _amount(e) -> float:
-        a = (e.get("data") or {}).get("amount")
-        return float(a) if a is not None else 1.0
-
     def opened(self, valve: str, since: float, until: float | None = None) -> dict:
-        n, amt, last = self._tally("opened", valve, "valve.opened", since, until, lambda e: (1, self._amount(e), e["time"]),
-                                   lambda a, b: (a[0] + b[0], a[1] + b[1], max(a[2], b[2])), lambda: (0, 0.0, -INF))
+        n, amt, last = self._tally("opened", valve, since, until)
         return {"count": n, "amount": amt, "last": last if n else None}
 
     def last_opening(self, valve: str, until: float | None = None) -> dict | None:
@@ -773,32 +847,17 @@ class Segments:
             return None
         last = got[0]
         if last["causedby"] is None:
-            return {"time": last["time"], "count": 1, "amount": self._amount(last)}
+            return {"time": last["time"], "count": 1, "amount": _amount(last)}
         cause = self.get(last["causedby"])                 # the run that opened it: its lines are after it began
         since = cause["time"] if cause else last["time"] - 86400
         run = self._scan(item=valve, type="valve.opened", since=since, until=until, test=lambda e: e.get("causedby") == last["causedby"])
-        return {"time": last["time"], "count": len(run), "amount": sum(self._amount(e) for e in run)}
+        return {"time": last["time"], "count": len(run), "amount": sum(_amount(e) for e in run)}
 
     def decided(self, controller: str, since: float, until: float | None = None) -> list[tuple[str, int]]:
-        def one(e):
-            d = (e.get("data") or {}).get("decision")
-            return {"" if d is None else str(d): 1}
-
-        def add(a, b):
-            out = dict(a)
-            for k, v in b.items():
-                out[k] = out.get(k, 0) + v
-            return out
-        return list(self._tally("decided", controller, "controller.decided", since, until, one, add, dict).items())
+        return list(self._tally("decided", controller, since, until).items())
 
     def runs(self, item: str, since: float, until: float | None = None) -> dict:
-        def one(e):
-            d = e.get("data") or {}
-            mine = d.get("why") != "by hand"
-            return (1, int(e["type"] == "agent.failed"), int(d.get("refused") or 0) if mine else 0,
-                    int(d.get("unread") or 0) if mine else 0)
-        r, f, ref, un = self._tally("runs", item, "agent.ran,agent.failed", since, until, one,
-                                    lambda a, b: tuple(x + y for x, y in zip(a, b, strict=True)), lambda: (0, 0, 0, 0))
+        r, f, ref, un = self._tally("runs", item, since, until)
         return {"runs": r, "failed": f, "refused": ref, "unread": un}
 
     # ---- taking events out
