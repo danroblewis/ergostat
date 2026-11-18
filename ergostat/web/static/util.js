@@ -16,12 +16,17 @@ const UI_PAGES = ["diagram", "loops", "agents", "items", "item", "record", "mode
 function isPagePath(path) { return path === "/" || UI_PAGES.includes(String(path).split(/[/?#]/)[1]); }
 function appHref(v) { return HASHED && typeof v === "string" && v.startsWith("/") && isPagePath(v) ? "#" + v : v; }
 
+/* an element: ``on…`` a listener (kept on the element, so a refresh in place hands it the newest one), ``key``
+   what it is among its siblings (a row's item or event id: patch() matches by it), ``sig`` what it was made from
+   (a part whose sig is the same is kept as it is, one whose sig differs is made again whole) */
 function h(tag, attrs = {}, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v == null || v === false) continue;
     if (k === "class") el.className = v;
-    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "key") el.__key = String(v);
+    else if (k === "sig") el.__sig = typeof v === "string" ? v : JSON.stringify(v);
+    else if (k.startsWith("on")) listen(el, k.slice(2), v);
     else if (k === "html") el.innerHTML = v;
     else el.setAttribute(k, k === "href" ? appHref(v) : v);
   }
@@ -31,11 +36,131 @@ function h(tag, attrs = {}, ...kids) {
 function s(tag, attrs = {}, ...kids) {
   const el = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs || {})) if (v != null && v !== false) {
-    if (k.startsWith("on")) el.addEventListener(k.slice(2), v); else el.setAttribute(k, v);
+    if (k === "key") el.__key = String(v);
+    else if (k.startsWith("on")) listen(el, k.slice(2), v); else el.setAttribute(k, v);
   }
   for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   return el;
 }
+/* one listener of each type an element has, calling the handler it holds now */
+function listen(el, type, fn) {
+  if (!el.__onTypes) el.__onTypes = new Set();
+  if (!el.__onTypes.has(type)) {
+    el.__onTypes.add(type);
+    el.addEventListener(type, function (ev) { const f = this.__on?.[type]; return f ? f.call(this, ev) : undefined; });
+  }
+  (el.__on ||= {})[type] = fn;
+}
+
+/* ------------------------------------------------------------------ refreshing in place */
+
+/* a page refreshes by building what it would show and patching it into what is there: only what differs is
+   touched, so a refresh that changed nothing changes nothing, and what the reader has open, selected, typed
+   or scrolled to stays as it is. Rows are matched by their key, the rest by place and tag. */
+function patch(parent, ...kids) {
+  const list = kids.flat(Infinity).filter((k) => k != null && k !== false && k !== "")
+    .map((k) => (k.nodeType ? k : document.createTextNode(String(k))));
+  const anchor = anchorByHand() ? scrollAnchor(parent) : null;
+  patchKids(parent, list);
+  if (anchor) keepAnchor(anchor);
+  return parent;
+}
+/* a node that lives across refreshes (a chart, a file's view, a box being written in): put in a tree being
+   built, it is left where it is on the page, and only moved if its place changed */
+function live(node) {
+  if (!node?.nodeType) return node;
+  node.__persist = true;
+  if (!node.isConnected) return node;
+  const stub = document.createElement("x-live");
+  stub.__ref = node;
+  return stub;
+}
+/* the text of an element, set only when it differs */
+function setText(el, t) {
+  t = t == null ? "" : String(t);
+  if (el.textContent !== t) el.textContent = t;
+  return el;
+}
+const alike = (o, n) => o.nodeType === n.nodeType && o.nodeName === n.nodeName && !o.__persist && !n.__persist && !n.__ref &&
+  o.__key == null && n.__key == null && (o.nodeType !== 1 || o.namespaceURI === n.namespaceURI);
+function patchKids(parent, kids) {
+  const keyed = new Map();
+  for (let c = parent.firstChild; c; c = c.nextSibling) if (c.__key != null && !keyed.has(c.__key)) keyed.set(c.__key, c);
+  let cur = parent.firstChild;
+  for (const n of kids) {
+    let m = null;
+    if (n.__ref) m = n.__ref;
+    else if (n.__key != null) {
+      const o = keyed.get(n.__key);
+      if (o && o.nodeName === n.nodeName && !o.__persist && !n.__persist) { m = o; keyed.delete(n.__key); }
+    } else if (cur && alike(cur, n)) m = cur;
+    let placed;
+    if (m) {
+      if (m !== cur) parent.insertBefore(m, cur);
+      placed = n.__ref ? m : patchNode(m, n);
+    } else {
+      parent.insertBefore(n, cur);
+      unstub(n);
+      placed = n;
+    }
+    cur = placed.nextSibling;
+  }
+  while (cur) { const next = cur.nextSibling; parent.removeChild(cur); cur = next; }
+}
+function unstub(n) {                                    // a node new to the page: the live nodes it names, in their places
+  if (n.nodeType === 1 && n.firstChild) for (const st of n.querySelectorAll("x-live")) st.replaceWith(st.__ref);
+}
+function patchNode(o, n) {
+  if (o.nodeType !== 1) { if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue; return o; }
+  if (o.__sig !== undefined || n.__sig !== undefined) {
+    if (o.__sig === n.__sig) { n.replaceChildren(); return o; }
+    if (o.tagName === "DETAILS" && o.open) n.open = true;           // made again, as the reader left it
+    o.parentNode.replaceChild(n, o);
+    unstub(n);
+    return n;
+  }
+  const details = o.tagName === "DETAILS";                           // open or closed: the reader's
+  // by name, never through .attributes (each Attr it hands out is a node the element then keeps)
+  for (const name of n.getAttributeNames()) {
+    if (details && name === "open") continue;
+    const v = n.getAttribute(name);
+    if (o.getAttribute(name) !== v) o.setAttribute(name, v);
+  }
+  for (const name of o.getAttributeNames()) if (!n.hasAttribute(name) && !(details && name === "open")) o.removeAttribute(name);
+  if (n.__on || o.__on) {
+    for (const t of n.__onTypes || []) if (!o.__onTypes?.has(t)) listen(o, t, n.__on[t]);
+    o.__on = n.__on || null;
+  }
+  patchKids(o, [...n.childNodes]);
+  // what is left of the tree built is let go: the handlers just handed over share its scope, and would keep it
+  n.replaceChildren();
+  return o;
+}
+/* the reader's place: kept by the browser (overflow-anchor) where it can; elsewhere measured and kept here */
+const anchorByHand = () => window.ERGOSTAT_ANCHOR_BY_HAND || !(window.CSS?.supports?.("overflow-anchor", "auto"));
+function scrollerOf(el) {
+  for (let x = el; x && x !== document.body && x !== document.documentElement; x = x.parentElement) {
+    const oy = getComputedStyle(x).overflowY;
+    if ((oy === "auto" || oy === "scroll") && x.scrollHeight > x.clientHeight) return x;
+  }
+  return document.scrollingElement;
+}
+function scrollAnchor(parent) {
+  const sc = scrollerOf(parent);
+  if (!sc || !sc.scrollTop || !parent.isConnected) return null;
+  const box = sc === document.scrollingElement ? { left: 0, top: 0, width: innerWidth } : sc.getBoundingClientRect();
+  for (const dy of [box.top + 8, box.top + 40, box.top + 120]) {
+    const el = document.elementFromPoint(box.left + box.width / 2, dy);
+    if (el && sc.contains(el) && el !== sc) return { sc, el, y: el.getBoundingClientRect().top };
+  }
+  return null;
+}
+function keepAnchor(a) {
+  if (!a.el.isConnected) return;
+  const dy = a.el.getBoundingClientRect().top - a.y;
+  if (Math.abs(dy) >= 1) a.sc.scrollTop += dy;
+}
+
 /* the one number formatter: integers as they are (thousands separated from 10,000), others to three
    significant figures, a real minus */
 function fmt(x) {
@@ -163,17 +288,36 @@ function snapKey(path, params) {
   return path + (kept.length ? "?" + kept.map(([k, v]) => `${k}=${v}`).join("&") : "");
 }
 
-async function api(path, params = {}) {
+/* an answer as its text, and the address it came from */
+async function apiText(path, params = {}) {
   if (SNAP) {
     const k = snapKey(path, params);
     if (!(k in SNAP.data)) throw new Error(`${path}: not in this snapshot`);
-    return JSON.parse(JSON.stringify(SNAP.data[k]));
+    return [k, JSON.stringify(SNAP.data[k])];
   }
   const q = new URLSearchParams({ since: S.since, ...(S.at ? { at: String(S.at) } : {}) });
   for (const [k, v] of Object.entries(params)) { q.delete(k); for (const x of [].concat(v)) q.append(k, x); }   // a list: the key repeated
-  const r = await fetch(`/api/${path}?${q}`);
+  const url = `/api/${path}?${q}`;
+  const r = await fetch(url);
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
-  return r.json();
+  return [url, await r.text()];
+}
+async function api(path, params = {}) { return JSON.parse((await apiText(path, params))[1]); }
+/* a page's answers, remembered: ``changed`` says whether any asked since ``begin()`` differed from the last
+   time it was asked (an unchanged answer is a 304, given as the same body): a refresh that changed nothing
+   then draws nothing */
+function answers() {
+  const last = new Map();
+  const a = {
+    changed: true,
+    begin() { a.changed = false; },
+    async api(path, params = {}) {
+      const [key, text] = await apiText(path, params);
+      if (last.get(key) !== text) { last.set(key, text); a.changed = true; }
+      return JSON.parse(text);
+    },
+  };
+  return a;
 }
 
 /* the page's one kind of write: the owner's answer to a proposal, or asking for estimates (never in a snapshot) */
@@ -214,10 +358,11 @@ async function refreshHeader() {
     }
     const off = Object.values(st.loops).filter((l) => l.status === "off").length;
     const run = $("#running");
-    run.className = "runstate" + (off ? " bad" : !SNAP && !st.running ? " warn" : "");
-    run.textContent = SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
-      : off ? `${off} loop${off > 1 ? "s" : ""} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running";
-    document.title = `${st.name} · ergostat`;
+    const cls = "runstate" + (off ? " bad" : !SNAP && !st.running ? " warn" : "");
+    if (run.className !== cls) run.className = cls;
+    setText(run, SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
+      : off ? `${off} loop${off > 1 ? "s" : ""} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running");
+    if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
   } catch (e) { /* the server may be restarting */ }
 }

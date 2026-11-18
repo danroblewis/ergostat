@@ -329,7 +329,7 @@ function availableView(d, box) {
       ["review queue, calibrate", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); document.getElementById("review-queue")?.scrollIntoView(); } }, "below")],
       ["fit, residuals, history", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); document.getElementById("model-fit")?.scrollIntoView(); } }, "below")],
     ];
-    box.replaceChildren(
+    patch(box,
       h("h3", {}, "Loops"),
       goals.length ? table(["loop", "u \u2192 y, process", "what would identify or tune it", "panels"], loopRows(one), "avail") : h("p", { class: "muted" }, "No goal: no loop to identify."),
       queues.length ? h("p", { class: "small muted" }, "Closing through queues, with no one process to identify: ",
