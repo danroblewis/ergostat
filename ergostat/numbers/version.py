@@ -90,6 +90,14 @@ def changed_control(before: Spec, after: Spec) -> list[str]:
     return out
 
 
+def whole(spec: Spec) -> str:
+    """The whole model's version: the dynamics (``version``), the control and the measurement together. What a run
+    records it ran under: a change to any of them is a new model for the runs that start after it."""
+    sensors = {kind: {n: x.sensors for n, x in sorted(t.items())}
+               for kind, t in (("stocks", spec.stocks), ("flows", spec.flows), ("auxiliaries", spec.auxiliaries))}
+    return _hash([version(spec), control(spec), _hash(_plain(sensors))])
+
+
 def changed_sensors(before: Spec, after: Spec) -> list[str]:
     """The parts whose sensors a change alters (``stock.x``)."""
     out = []
