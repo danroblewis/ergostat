@@ -699,6 +699,15 @@
         },
         "inferred": {
           "$ref": "#/$defs/inferred"
+        },
+        "rate-unit": {
+          "enum": [
+            "minute",
+            "hour",
+            "day",
+            "week"
+          ],
+          "description": "How the rates of its flows are shown, where a flow says none (display only: rates are kept per hour)"
         }
       },
       "not": {
@@ -748,6 +757,15 @@
         },
         "inferred": {
           "$ref": "#/$defs/inferred"
+        },
+        "rate-unit": {
+          "enum": [
+            "minute",
+            "hour",
+            "day",
+            "week"
+          ],
+          "description": "How the rate is shown (display only: rates are kept per hour)"
         }
       },
       "anyOf": [

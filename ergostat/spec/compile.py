@@ -62,9 +62,10 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "every", "cron", "t
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease"}
-STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred"}
+STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
-FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred"}
+FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred",
+                      "rate-unit"}
 GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner", "process"}
 PROCESS_KEYS = {"gain", "time-constant", "dead-time", "integrating", "identified", "description"}
 AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous", "equation", "inferred"}
@@ -287,6 +288,18 @@ class Compiler:
             else:
                 out.windows = sorted(set(w))
         return out
+
+    def rate_unit(self, m: Map, what: str) -> str | None:
+        """``rate-unit:``: how a flow's rate is shown (minute, hour, day or week); display only."""
+        from ..rates import UNITS
+        v = m.get("rate-unit")
+        if v is None:
+            return None
+        if str(v) not in UNITS:
+            self.err(f"{what}.rate-unit: {v!r} is not one of {', '.join(UNITS)} (how its rate is shown; it is kept "
+                     "per hour)", m.at("rate-unit"), "bad-value")
+            return None
+        return str(v)
 
     def text(self, m: Map, key: str, default: str = "") -> str:
         v = m.get(key)
@@ -810,6 +823,7 @@ class Compiler:
                        self.system("stocks", name, m), self.text(m, "description"),
                        cumulative=self.flag(m, "cumulative", what), inferred=self.inferred(m, what), where=m.where)
             st.sensors = self.sensors(m, Ref("stock", name), what)
+            st.rate_unit = self.rate_unit(m, what)
             spec.stocks[name] = st
         for name, m, what in self.named("flows"):
             self.keys(m, FLOW_KEYS, what)
@@ -824,6 +838,7 @@ class Compiler:
                     self.err(f"{what}.{key}: {end!r} is not a stock" + self.suggest(end, d.sections["stocks"]),
                              m.at(key), "unknown-ref", f"stock.{end}")
             f.sensors = self.sensors(m, Ref("flow", name), what)
+            f.rate_unit = self.rate_unit(m, what)
             f.driven_by, f.polarity, f.instant, f.inferred_links = self.driven(m, what)
             f.defined = d.defined[("flows", name)]
             spec.flows[name] = f

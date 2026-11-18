@@ -151,7 +151,7 @@ def test_the_stated_cases_on_image_squeeze_all_open(squeeze):
     # an integrator and its output y: the stock
     assert lit(dyn, chosen(blk, "proc:stock.capabilities")) == {"stock:capabilities"}
     assert lit(dyn, chosen(blk, "out:stock.capabilities")) == {"stock:capabilities"}
-    assert lit(blk, {"stock.capabilities"}) == {"proc:stock.capabilities", "out:stock.capabilities"}
+    assert lit(blk, {"stock.capabilities"}) == {"proc:stock.capabilities", "out:stock.capabilities", "sen:stock.capabilities"}
     # a disturbance input: its flow
     assert lit(dyn, chosen(blk, "dist:flow.lost")) == {"flow:lost"}
     # the multi-input multi-output process of service: every part inside it, a region
@@ -182,6 +182,7 @@ def test_no_cascade_a_shape_lights_only_what_it_is(squeeze):
             got = lit(there, set(x["is"]))
             reach = sum(len(_reaches(spec, p[6:])) for p in x["is"] if p.startswith("block."))
             groups = {re.sub(r"^(smp|zoh|jsum):([^:]+).*$", r"blk:\2", s) for s in got}   # a controller drawn with its T, ZOH, Σ
+            groups = {re.sub(r"^sen:", "out:", s) for s in groups}          # a variable's output y and its sensor H on it
             assert len(groups) <= 2 * max(1, len(x["is"])) + reach, (sid, x["is"], got)
             for s in got:                             # each is what it lights, or stands for a block chosen
                 stand_in = any(s in there["parts"].get(p, []) and set(there["shapes"][s]["is"]) <= set(_reaches(spec, p[6:]))

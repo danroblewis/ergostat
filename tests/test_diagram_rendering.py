@@ -1062,6 +1062,39 @@ def test_the_control_view_draws_every_example_cleanly_as_a_block_diagram(browser
     assert not problems, f"{name}: " + "\n".join(problems)
 
 
+# no hover tooltips on a diagram's parts: no <title> in the drawing, no title attribute on anything in it
+NO_TOOLTIPS = ("() => [...document.querySelectorAll('svg.canvas title, svg.canvas [title]')]"
+               ".map((x) => (x.closest('[data-id]')?.dataset.id || x.tagName) + ': ' + "
+               "(x.textContent || x.getAttribute('title')).slice(0, 60))")
+# every sensor block drawn: its function and what it reads, as text in it
+SENSORS = ("() => [...document.querySelectorAll('svg.canvas g.bd-sensor, svg.canvas g.bd-collector')]"
+           ".map((g) => ({ id: g.dataset.id, fn: g.dataset.fn, "
+           "text: [...g.querySelectorAll('text')].map((t) => t.textContent).join(' | ') }))")
+
+
+def test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip(browser, page_of):
+    name, url = page_of
+    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    problems: list[str] = []
+    for i, v in enumerate(["view=blocks&open=*", "view=dynamics&open=*", "view=blocks", "view=dynamics"]):
+        drawn(pg, url, v, i)
+        problems += [f"[{v}] tooltip on {x}" for x in pg.evaluate(NO_TOOLTIPS)]
+        if v.startswith("view=blocks"):
+            for s in pg.evaluate(SENSORS):
+                if s["id"].startswith("sen:") and not re.search(r"H(\(s\))? [=:]", s["text"]):
+                    problems.append(f"[{v}] sensor {s['id']} draws no function: {s['text']}")
+                if not re.search(r"every|by hand|on cron|reading|ergostat", s["text"]):
+                    problems.append(f"[{v}] {s['id']} does not say what it reads and how often: {s['text']}")
+    if name == "the-job":                                  # its alerts loop: H = 1, reading the alerts its collector records
+        drawn(pg, url, "view=blocks&system=incidents", 9)
+        got = {s["id"]: s for s in pg.evaluate(SENSORS)}
+        sen, col = got.get("sen:stock.alerts-to-draft"), got.get("col:alerts-fired.main")
+        assert sen and "H = 1" in sen["text"] and "items: alert, fired, every" in sen["text"], got
+        assert col and "watch.py alert" in col["text"] and "records alert items" in col["text"], got
+    pg.close()
+    assert not problems, f"{name}: " + "\n".join(problems)
+
+
 def test_the_control_view_nests_a_cascades_inner_loop_and_opens_a_blocks_definition(browser, tmp_path):
     from tests.test_spec_systems import MODEL
     d = tmp_path / "cascade"
@@ -1282,6 +1315,7 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
         assert set(again) == set(after) and all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after)
         # a block put by hand inside intake: its place in intake's frame kept through closing and opening it
         nid = "blk:support"
+        pg.get_by_role("button", name="fit").click()                 # (wider with its sensors: all of it on the screen)
         bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{nid}"]').bounding_box(), 0, 110)
         pg.wait_for_function(f"() => S.pins['{nid}'] && ({BD_ROUTED})()", timeout=20000)
         offset = ("(id) => { const c = S.layout.children.find((c) => c.id === id), "
@@ -1986,7 +2020,7 @@ def test_a_selection_is_model_parts_and_survives_switching_view(browser, tmp_pat
         pg.wait_for_function("() => S.graph?.kind === 'blocks' && document.querySelectorAll('svg.canvas g.node.selected').length > 0",
                              timeout=60000)
         assert pg.evaluate("() => [...S.sel]") == ["stock.capabilities"]
-        assert pg.evaluate(LIT) == ["out:stock.capabilities", "proc:stock.capabilities"]
+        assert pg.evaluate(LIT) == ["out:stock.capabilities", "proc:stock.capabilities", "sen:stock.capabilities"]
         # Shift adds and takes away, in the block diagram too; the background lets everything go
         fit(pg)
         pg.keyboard.down("Shift")
@@ -2040,7 +2074,7 @@ def test_a_summing_junction_chosen_in_blocks_lights_its_stock_and_flows_in_the_d
         pg.locator('g.node[data-id="stock:capabilities"]').hover(position={"x": 4, "y": 4})
         pane.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.xhover').length > 0", timeout=5000)
         assert pane.evaluate("() => [...document.querySelectorAll('svg.canvas g.node.xhover')].map((e) => e.dataset.id).sort()") == \
-            ["out:stock.capabilities", "proc:stock.capabilities"]
+            ["out:stock.capabilities", "proc:stock.capabilities", "sen:stock.capabilities"]
         assert pane.evaluate("() => S.sel.size") == 0 and pg.evaluate("() => S.sel.size") == 0
         pg.mouse.move(2, 400)
         pane.wait_for_function("() => !document.querySelector('svg.canvas .xhover')", timeout=5000)

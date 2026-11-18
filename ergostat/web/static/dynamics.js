@@ -33,6 +33,7 @@ function sdSize(n) {
 function sdLabelLines(n) {
   if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "–" : n.rateText];
   if (n.kind === "cloud" && n.beyond) return [`<${n.beyond}>`];      // where the flow goes on to, beyond this system
+  if (n.kind === "cloud" && n.from) return [`from ${n.from}`];        // an inflow from outside: where it comes from, where the model knows it
   return [];
 }
 function sdAuxLines(n) {
@@ -58,16 +59,10 @@ function sdStock(n, w, hgt) {
 /* an auxiliary, unadorned as Vensim draws it: its name alone (its value under it, muted) */
 function sdAux(n, w, hgt) {
   const g = s("g");
-  g.append(s("rect", { class: "hit sd-aux", width: w, height: hgt, rx: 3 }), s("title", {}, sdTitle(n)));
+  g.append(s("rect", { class: "hit sd-aux", width: w, height: hgt, rx: 3 }));
   sdAuxLines(n).forEach((t, i) => g.append(s("text", { x: w / 2, y: 14 + i * 14, "text-anchor": "middle",
     class: i === 0 ? "t-label sd-name" : t === "(exogenous)" ? "t-sub sd-exo" : "t-sub sd-value" + (n.role === "desired" ? "" : " live") }, t)));
   return g;
-}
-function sdTitle(n) {
-  if (n.role === "desired") return `desired ${n.of} = ${n.valueText}: the level wanted`;
-  if (n.role === "gap") return n.excess ? `excess ${n.of} = ${n.of} − desired ${n.of}` : `${n.of} gap = desired ${n.of} − ${n.of}`;
-  if (n.role === "decision") return `${n.label}: a decision, from what it reads to what it moves`;
-  return n.exogenous ? `${n.label}: an exogenous input` : `${n.label}: an auxiliary`;
 }
 function sdValve(n, w, hgt, ln) {
   const t = turnTransform(ln?.turn, w, hgt);          // turned with its pipe (valves.js)
@@ -83,8 +78,7 @@ function sdCloud(n, w, hgt) {                           // (a cloud a flow leave
              C${w * 0.22},${hgt * 0.12} ${w * 0.55},${hgt * 0.08} ${w * 0.6},${hgt * 0.32}
              C${w * 0.7},${hgt * 0.12} ${w * 0.95},${hgt * 0.22} ${w * 0.86},${hgt * 0.5}
              C${w * 1.02},${hgt * 0.56} ${w * 0.98},${hgt * 0.84} ${w * 0.8},${hgt * 0.82} Z`;
-  return s("g", {}, s("path", { class: "hit sd-cloud", d }),
-    n.beyond ? s("title", {}, `the flow goes on to ${n.beyond}${n.in ? `, in ${n.in}` : ""}, outside this system (click to go there)`) : null);
+  return s("g", {}, s("path", { class: "hit sd-cloud", d }));
 }
 /* a system closed: a module (Stella) or a view (Vensim): its name, and its ports, what crosses its edge */
 function sdSystem(n, w, hgt) {
@@ -94,7 +88,7 @@ function sdSystem(n, w, hgt) {
   const inside = sdInside(S.graph, n.id).length;
   g.append(s("text", { x: 16, y: 42, class: "t-sub" }, inside ? `${inside} feedback loop${inside > 1 ? "s" : ""} inside` : "a module: open it to see its structure"));
   const btn = (x, label, title, fn) => s("g", { class: "sys-btn", transform: `translate(${x},10)`, onclick: (ev) => { ev.stopPropagation(); fn(); } },
-    s("title", {}, title), s("rect", { width: textWidth(label) + 14, height: 20, rx: 4 }), s("text", { x: 7, y: 14 }, label));
+    s("rect", { width: textWidth(label) + 14, height: 20, rx: 4 }), s("text", { x: 7, y: 14 }, label));
   const into = "Into", open = "Open";
   g.append(btn(w - textWidth(into) - 24, into, "Draw this system alone, with what it reaches outside at its edge", () => S.drill?.(n.label)));
   g.append(btn(w - textWidth(into) - textWidth(open) - 46, open, "Open it here: its parts in place of the box", () => S.toggleSystem?.(n.label)));
@@ -108,7 +102,6 @@ function sdSystem(n, w, hgt) {
     const left = side === "west";
     // a named connection point (as Stella's module connectors): no square, the line meets the edge at its name
     g.append(s("text", { x: left ? 8 : w - 8, y: y + 4, class: "t-sub sd-port-name", "text-anchor": left ? "start" : "end", "data-part": p.part, "data-side": side },
-      s("title", {}, `${p.both ? "in and out" : p.side === "in" ? "in" : "out"}: ${sdKindWord(p.kind)} ${p.label}`),
       p.both ? "⇄ " : "", p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
   }
   return g;
@@ -120,9 +113,7 @@ function sdTerminal(n, w, hgt) {
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 4, fill: "transparent", stroke: "transparent" }));
   const stub = n.role === "stub";
   g.append(s("text", { x: stub ? 2 : w / 2, y: hgt / 2 + 4, "text-anchor": stub ? "start" : "middle", class: "t-sub sd-shadow" },
-    stub ? n.label : `<${n.label}>`,
-    s("title", {}, stub ? `drives ${n.label}, outside this system${n.in ? `, in ${n.in}` : ""} (click to go there)`
-                        : `${n.label}: drawn ${n.orig ? "in" : "outside this system, in"} ${n.in || "the model"} (click to go there)`)));
+    stub ? n.label : `<${n.label}>`));
   return g;
 }
 const SD_DRAW = { stock: sdStock, auxiliary: sdAux, valve: sdValve, disturbance: sdValve, cloud: sdCloud, system: sdSystem, terminal: sdTerminal };
@@ -379,13 +370,10 @@ function sdMarker(c, x, y, clockwise, lines, loops = [c]) {
   const [x0, y0] = P(start), [x1, y1] = P(end), rad = (end * Math.PI) / 180;
   const dx = clockwise ? -Math.sin(rad) : Math.sin(rad), dy = clockwise ? Math.cos(rad) : -Math.cos(rad);   // the way it turns, at the end
   const tip = [x1 + dx * 6, y1 + dy * 6], base = [x1 - dx * 2, y1 - dy * 2], px = -dy * 5, py = dx * 5;   // a clear arrowhead
-  const words = { R: "reinforcing", B: "balancing" }[c.polarity] || "polarity not known";
   const g = s("g", { class: `loop-marker pol-${c.polarity || "unknown"}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join("|"),
                      "data-act": "loop", "data-x": x, "data-y": y, transform: `translate(${x},${y})`,
                      onclick: (ev) => { ev.stopPropagation(); sdToggle(c.name, loops); },
                      onpointerenter: () => { if (!S.dragging) sdHover(c.name); }, onpointerleave: () => sdHover(null) },
-    s("title", {}, `${label} ${c.name}: a ${words} feedback loop (click: its parts, and what it is)` +
-      (loops.length > 1 ? `\nand ${loops.length - 1} more drawn alike here: ${loops.slice(1).map((x2) => `${x2.label} ${x2.name}`).join(", ")}` : "")),
     s("circle", { class: "marker-hit", r: r + 4 }),
     s("path", { class: "marker-arc", d: `M${x0},${y0} A${r},${r} 0 1 ${clockwise ? 1 : 0} ${x1},${y1}` }),
     s("path", { class: "marker-head", d: `M${tip[0]},${tip[1]} L${base[0] + px},${base[1] + py} L${base[0] - px},${base[1] - py} Z` }),
@@ -497,7 +485,8 @@ function sdLegend() {
     (g.open || []).length > 0 && g.nodes.some((n) => (n.systems || []).length) && row("sector", "sector: a system open, its parts on a tinted ground, its name at the top left (drag it by its name)"),
     has((n) => n.kind === "terminal" && n.role !== "stub") && row("shadow", "shadow variable: a part drawn elsewhere, an input here (click to go there)"),
     has((n) => n.role === "stub") && row("stub", "a connector out of this system: it ends at the name of what it drives"),
-    has((n) => n.kind === "cloud" && n.beyond) && row("cloud", "cloud named <x>: the flow goes on to x, outside this system"));
+    has((n) => n.kind === "cloud" && n.beyond) && row("cloud", "cloud named <x>: the flow goes on to x, outside this system"),
+    has((n) => n.kind === "cloud" && n.from) && row("cloud", "cloud named from x: an inflow from outside the model, coming from x (the outside system its sensor reads, or what drives it)"));
 }
 /* the same, in one row under a saved picture */
 function sdExportItems() {
@@ -509,6 +498,12 @@ function sdExportItems() {
 
 /* ------------------------------------------------------------------ panels */
 
+/* a flow of a stock, whose rate-unit: its inflow or outflow total is shown in (S.status.rate_units: a stock's own
+   rate-unit: is given to each of its flows that sets none) */
+function sdStockFlow(stock, way) {
+  const ends = (S.graph?.edges || []).filter((e) => e.kind === "pipe" && (way === "in" ? e.target === `stock:${stock}` : e.source === `stock:${stock}`));
+  return ends.map((e) => e.flow).find((f) => rateOver(f)) || null;
+}
 const SD_WHAT = {
   stock: ["Stock", "a level: what accumulates. It changes only by its flows, filling by its inflows and draining by its outflows, and keeps its value when they stop."],
   auxiliary: ["Auxiliary", "a converter: worked out at each moment from the parts that point into it, with no memory of its own: by its equation where the model writes one, else measured."],
@@ -517,7 +512,7 @@ const SD_WHAT = {
   gap: ["Gap", "the discrepancy: the desired level less the actual one. It drives the flow that closes it, so the level is pulled toward the desired one: a balancing loop."],
   excess: ["Excess", "the discrepancy for a level kept down: the actual level less the desired one. It drives the flow that brings it down (+), so the level is pulled back to the desired one: a balancing loop."],
   decision: ["Decision", "what it reads (the connectors into it) decides the flows it sets (the connectors out of it). A link into it is signed where the model says which way it acts."],
-  flow: ["Valve", "where a flow's rate is set: how much moves along its pipe per hour. The connectors into it are its inputs, what the rate depends on; its equation says how. A connector acts at once, so a cause that acts over time reaches a valve through a stock."],
+  flow: ["Valve", "where a flow's rate is set: how much moves along its pipe in a time (shown per minute, hour or day, whichever reads best; kept per hour). The connectors into it are its inputs, what the rate depends on; its equation says how. A connector acts at once, so a cause that acts over time reaches a valve through a stock."],
   pipe: ["Flow", "what moves, along its pipe, from the stock it drains to the stock it fills (or a cloud: outside the model's boundary). Only flows change stocks; its valve sets how fast."],
   connector: ["Connector", "an information link: the cause at its tail changes the effect at its head. Nothing moves along it. Its sign is its polarity: + when the effect moves the same way as the cause, − when the opposite way."],
   loop: ["Feedback loop", "a closed chain of cause and effect. Reinforcing (R): the product of its signs is +, so a change comes back amplified (growth or collapse). Balancing (B): the product is −, so a change comes back opposed (it seeks a desired level). ?: a sign along it is not known, so it is listed beside the diagram and not marked on it."],
@@ -584,7 +579,7 @@ async function openNodeSD(n) {
     let d = null;
     try { d = await api(`part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
-    rows.push(["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : n.rateText],
+    rows.push(["rate, over the window", now.rate != null ? rateText(now.rate, d?.unit, n.flow || n.label) : n.rateText],
               ["how it is known", now.how || n.how],
               ["inputs", join(causes) || h("span", { class: "muted" }, "none drawn: nothing in the model points into it")],
               ["equation", d?.numbers?.equation_tree ? null : n.equation || d?.equation || "not known"]);
@@ -602,7 +597,8 @@ async function openNodeSD(n) {
     rows.push(["description", m.description || n.description], ...(d?.inferred ? [inferredRow(d.inferred)] : []),
               ["now", `${fmt(now.value ?? n.value)} ${m.unit || n.unit || ""}`],
               ["measured", now.at ? ago(now.at) : null]);
-    if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? `${fmt(now.inflow)}/h` : null], ["outflow", now.outflow != null ? `${fmt(now.outflow)}/h` : null]);
+    if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? rateText(now.inflow, "", sdStockFlow(n.label, "in")) : null],
+                                      ["outflow", now.outflow != null ? rateText(now.outflow, "", sdStockFlow(n.label, "out")) : null]);
     for (const gl of n.goals || []) rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint}${gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)"}`]);
     if (n.kind === "auxiliary") numbers = equationSection(n.label, d?.numbers, { exogenous: n.exogenous });
     found = findingsNote(d);
@@ -657,7 +653,7 @@ async function openEdgeSD(e) {
       causesStrip(`flow.${e.flow}`),
       dl([["what moves", [unit, m.description].filter(Boolean).join(": ") || "not said (no unit or description)"],
           ["from", m.source ? link(`stock:${m.source}`) : "a source outside the model"], ["to", m.target ? link(`stock:${m.target}`) : "a sink outside the model"],
-          ["its valve", valve ? link(valve.id) : e.flow], ["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : valve?.rateText],
+          ["its valve", valve ? link(valve.id) : e.flow], ["rate, over the window", now.rate != null ? rateText(now.rate, d?.unit, e.flow) : valve?.rateText],
           ["runs", (m.two_way ?? e.twoWay) ? "either way (a biflow)" : "one way"]]),
       crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops, sdWhat("pipe"));
   } else {

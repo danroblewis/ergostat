@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import time
 
-from .. import graph, show
+from .. import graph, rates, show
 from .. import state as st
 from ..durations import human
 from ..show import ago, c, table
@@ -172,7 +172,7 @@ def cmd_loop(args) -> int:
         moved = f"{fmt(op['amount'])}" + (f" in {op['count']} openings" if op and op["count"] > 1 else "") if op else ""
         rows.append(["valve", f"{v} {c('(mode ' + mode + ')', 'dim')}", show.agent_tag(m, m.valves[v].agent),
                      f"opened {ago(op['time'])}: {moved}" if op else c("never opened", "dim")])
-    flows = [f"{f} {fmt(snap['flows'][f]['rate'])}/h" for f in lp["flows"]]
+    flows = [f"{f} {rates.text(snap['flows'][f]['rate'], '', rates.override_of(getattr(m, 'spec', None), f))}" for f in lp["flows"]]
     rows.append(["moves", ", ".join(flows) or "-", "", ""])
     print(table(["PART", "NAME", "FILLED BY", "LAST"], rows))
     all_crossings = p.events.query(n=None, item=args.name, type="loop.*", since=snap["at"] - snap["window"], until=snap["at"])
