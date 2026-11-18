@@ -172,18 +172,44 @@ def _counts(f, kind: str, key: str) -> str | None:
 def analyse(spec: Spec, moves: dict[str, Counter] | None = None) -> list[Found]:
     moves = recorded(spec) if moves is None else moves
     out: list[Found] = []
+    ix = _Index(spec)
     for c in _kinds(spec).values():
-        out += _one(spec, c, moves.get(c.kind) or Counter())
+        out += _one(spec, c, moves.get(c.kind) or Counter(), ix)
     return out
 
 
-def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
+class _Index:
+    """The flows into and out of each stock, and the blocks taking each kind, in the model's order: once for every
+    kind's chain, not scanned for each (docs/proposals/scale.md, #7)."""
+
+    def __init__(self, spec: Spec):
+        self.place = {n: i for i, n in enumerate(spec.flows)}
+        self.into: dict[str | None, list] = {}
+        self.out_of: dict[str | None, list] = {}
+        for f in spec.flows.values():
+            self.into.setdefault(f.target, []).append(f)
+            self.out_of.setdefault(f.source, []).append(f)
+        self.names = frozenset(spec.flows) | set(spec.stocks) | set(spec.auxiliaries) | set(spec.parameters) | \
+            set(spec.goals) | set(spec.blocks)
+        self.takers: dict[str, list] = {}
+        for b in spec.blocks.values():
+            if b.takes:
+                self.takers.setdefault(b.takes.kind, []).append(b)
+
+    def touching(self, stocks: set[str]) -> list:
+        """The flows with an end in these stocks, in the model's order."""
+        got = {f.name: f for s in stocks for f in (*self.into.get(s, ()), *self.out_of.get(s, ()))}
+        return [got[n] for n in sorted(got, key=self.place.__getitem__)]
+
+
+def _one(spec: Spec, c: Chain, seen: Counter, ix: _Index | None = None) -> list[Found]:
+    ix = ix or _Index(spec)
     k = c.kind
     stocks = set(c.stock_of.values()) | c.stages
     rank = {s: i for i, s in enumerate(c.order)}
     modelled = sorted(c.stock_of, key=lambda s: rank.get(s, len(rank)))
-    inflows = {s: [f for f in spec.flows.values() if f.target == s] for s in stocks}
-    outflows = {s: [f for f in spec.flows.values() if f.source == s] for s in stocks}
+    inflows = {s: list(ix.into.get(s, ())) for s in stocks}
+    outflows = {s: list(ix.out_of.get(s, ())) for s in stocks}
 
     def reach(a: str, b: str, through: set[str]) -> bool:
         """A path of flows from stock a to stock b, through these stocks only."""
@@ -212,13 +238,13 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
     for (p, s), n in seen.items():
         if p is not None:
             says(p, s, f"{n} move{'s' if n != 1 else ''} in the record")
-    for b in spec.blocks.values():
+    for b in ix.takers.get(k, ()):
         t = b.takes
         if t and t.kind == k:
             for p in t.at:
                 for s in t.to:
                     says(p, s, f"block {b.name} takes them at {p} to {s}")
-    for f in spec.flows.values():
+    for f in ix.touching(stocks):
         if f.source in stocks and f.target is None and (s := _counts(f, k, "entering")):
             for p in [x for x, st in c.stock_of.items() if st == f.source][:1]:
                 says(p, s, f"flow {f.name} counts them entering {s}")
@@ -280,11 +306,11 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
                            f"({name}-oldest: {{sensor: {{items: {k}, state: {', '.join(q['state'])}, measure: oldest}}}}), "
                            f"with no flows, for a goal on how long they wait"))
     by_about: dict[tuple[str, str], Found] = {}
-    taken = set(spec.flows) | set(spec.stocks) | set(spec.auxiliaries) | set(spec.parameters) | set(spec.goals) | set(spec.blocks)
+    taken: set[str] = set()                     # the names given here, over the model's own (ix.names)
 
     def free(name: str) -> str:
         out, i = name, 2
-        while out in taken:
+        while out in ix.names or out in taken:
             out, i = f"{name}-{i}", i + 1
         taken.add(out)
         return out
