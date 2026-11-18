@@ -124,7 +124,11 @@ def main(argv: list[str]) -> int:
         if not a.command and not a.url:
             recs = stand_in(mem, a.kind, a.stand_in, a.answer_after)
         else:
-            text = from_command(a.command, cursor, a.timeout) if a.command else from_url(a.url, cursor, a.header, a.timeout)
+            try:
+                text = from_command(a.command, cursor, a.timeout) if a.command else from_url(a.url, cursor, a.header, a.timeout)
+            except (OSError, subprocess.TimeoutExpired) as e:   # (urllib's errors are OSErrors)
+                why = getattr(e, "reason", None) or getattr(e, "code", None) or e
+                raise SystemExit(f"cannot read {a.url or a.command}: {why}") from None
             recs = records_of(text, a.path)
         seen: dict = mem.setdefault("seen", {})
         arrivals: list = mem.setdefault("arrivals", [])

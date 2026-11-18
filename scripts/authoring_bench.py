@@ -93,14 +93,15 @@ def grade(copy: Path, before: set[str]) -> dict:
     new = {k: v for k, v in uses.items() if k not in before}
     trials = {}
     for inst in new:
-        t = subprocess.run([py, "-c", "import json,sys; from pathlib import Path; from ergostat.library import author; "
-                            "r=author.trial(Path(sys.argv[1]), sys.argv[2], seconds=30); "
-                            "print(json.dumps({'verdict': r.get('verdict'), 'check': r.get('check'), 'error': r.get('error')}))",
-                            str(copy), inst], capture_output=True, text=True, env=env, timeout=400)
-        try:
-            trials[inst] = json.loads(t.stdout.strip().splitlines()[-1])
-        except (ValueError, IndexError):
-            trials[inst] = {"error": (t.stderr or t.stdout)[-800:]}
+        for how, standins in (("as_written", False), ("on_stand_ins", True)):
+            t = subprocess.run([py, "-c", "import json,sys; from pathlib import Path; from ergostat.library import author; "
+                                "r=author.trial(Path(sys.argv[1]), sys.argv[2], seconds=30, standins=sys.argv[3]=='1'); "
+                                "print(json.dumps({'verdict': r.get('verdict'), 'check': r.get('check'), 'error': r.get('error')}))",
+                                str(copy), inst, "1" if standins else "0"], capture_output=True, text=True, env=env, timeout=400)
+            try:
+                trials.setdefault(inst, {})[how] = json.loads(t.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                trials.setdefault(inst, {})[how] = {"error": (t.stderr or t.stdout)[-800:]}
     return {"check_ok": chk.returncode == 0, "check": chk.stdout.strip().splitlines()[:1] + [
                 x for x in chk.stdout.splitlines() if x.startswith("error")][:8],
             "uses": new, "trials": trials}
@@ -168,12 +169,17 @@ def main() -> int:
     with cf.ThreadPoolExecutor(len(which)) as ex:
         got = list(ex.map(lambda n: run_one(base, n, a.model, a.timeout), which))
     (base / "results.json").write_text(json.dumps(got, indent=1, default=str))
-    print(f"{'#':<3}{'request':<9}{'add 1st':<9}{'try 1st':<9}{'check':<7}{'written':<9}{'runs':<6}{'turns':<7}{'cost':<8}")
+    print(f"{'#':<3}{'request':<9}{'skill':<7}{'add 1st':<9}{'try 1st':<9}{'check':<7}{'written':<18}{'runs':<6}{'stand-ins':<10}"
+          f"{'turns':<7}{'cost':<8}")
+
+    def runs(t: dict) -> bool:
+        return bool(t) and not t.get("error") and t.get("check", {}).get("ok") and \
+            not any("failed" in v for v in t.get("verdict") or [])
     for r in got:
-        runs = all(not t.get("error") and t.get("check", {}).get("ok") and not any("failed" in v for v in t.get("verdict") or [])
-                   for t in r["trials"].values()) and bool(r["trials"])
-        print(f"{r['n']:<3}{r['request']:<9}{str(r['first_add_ok']):<9}{str(r['first_try_ok']):<9}{str(r['check_ok']):<7}"
-              f"{','.join(r['uses']) or '-':<9}{str(runs):<6}{str(r['turns']):<7}{(r['cost_usd'] or 0):<8.3f}")
+        ts = r["trials"].values()
+        print(f"{r['n']:<3}{r['request']:<9}{str(r['skill_used']):<7}{str(r['first_add_ok']):<9}{str(r['first_try_ok']):<9}"
+              f"{str(r['check_ok']):<7}{','.join(r['uses']) or '-':<18}{str(bool(ts) and all(runs(t.get('as_written')) for t in ts)):<6}"
+              f"{str(bool(ts) and all(runs(t.get('on_stand_ins')) for t in ts)):<10}{str(r['turns']):<7}{(r['cost_usd'] or 0):<8.3f}")
     return 0
 
 

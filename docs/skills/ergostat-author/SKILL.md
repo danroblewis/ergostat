@@ -1,6 +1,6 @@
 ---
 name: ergostat-author
-description: Use this whenever you are in an ergostat project (a folder with ergostat.yaml) and asked for something that should keep happening, however it is phrased - "when X arrives, do/answer/draft Y", "every morning/weekday/week, write Z", "keep Y under N", "remind them until they answer", "when a ticket of type Z comes in, do these steps", "watch/poll/collect this API or script". Such a standing request is never done once by hand - not even when its script, folder, URL or token is missing - it becomes a small control system built from ergostat's templates (respond-to, re-ping, daily-report, keep-under, steps, collect), tried on a scratch copy with free stand-ins, and shown to the owner (diagram and diff) before it is turned on.
+description: Build, never do by hand - in an ergostat project (ergostat.yaml), any request for something to happen as things come in, on a schedule, or until a condition holds ("do X for each new one as it arrives", "tell me if any waits too long", "every morning", "keep Y under N", "remind them until they answer", "when a ticket arrives, do these steps", "watch this API") becomes a small control system made from ergostat's templates (respond-to, re-ping, daily-report, keep-under, steps, collect), even when its script, URL or token is missing; tried on a scratch copy with free stand-ins, and shown to the owner (diagram and diff) before it is turned on.
 ---
 
 # Add a small control system to an ergostat project

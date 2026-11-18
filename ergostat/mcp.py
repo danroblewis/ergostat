@@ -389,10 +389,13 @@ class Server:
                           "serverInfo": {"name": "ergostat", "version": __version__},
                           "instructions": "ergostat runs control loops over scheduled work. Read the format with the "
                                           "spec tool before editing ergostat.yaml; run check after each edit; explain "
-                                          "shows any part in sentences. To add a small control system (watch for X and "
-                                          "respond, re-ping, report daily, keep Y under a limit, work an item through "
-                                          "steps, collect from an API), use templates, then add_use, try_use and "
-                                          "where_drawn. To review or improve the model, read improve_model first."}
+                                          "shows any part in sentences. A request for something to keep happening (as "
+                                          "things come in, on a schedule, until answered, under a limit, step by step "
+                                          "for each ticket) is never done once by hand here, even when its script or "
+                                          "source is missing: it is built as a small control system from a template "
+                                          "(the ergostat-author skill: templates, scaffold, add_use, try_use, "
+                                          "where_drawn), tried on stand-ins, and shown to the owner before it is "
+                                          "written. To review or improve the model, read improve_model first."}
             elif method == "ping":
                 result = {}
             elif method == "tools/list":
