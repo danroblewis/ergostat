@@ -79,6 +79,7 @@ function bdPortPos(n, w, hgt) {                        // the ports of the parts
   }
   if (["mux", "demux", "input", "output", "port", "sampler"].includes(n.kind)) {
     const place = (ps, x, side) => ps.forEach((p, i) => { at[p.id] = { x, y: ((i + 1) * hgt) / (ps.length + 1), side }; });
+    if (n.role === "bus") { place(n.ins, w, "E"); place(n.outs, 0, "W"); return at; }   // on the feedback path: right to left
     place(n.ins, 0, "W");
     place(n.outs, w, "E");
     return at;
@@ -120,7 +121,7 @@ function bdElkGraph(g) {
   // a sensor sits on the feedback path: given to the layering between where its reading goes and what it
   // reads (its lines reversed), it is placed beneath the forward path, not after it
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
-  const onPath = (id) => ["sensor", "collector"].includes(byId[id]?.role);
+  const onPath = (id) => ["sensor", "collector", "bus"].includes(byId[id]?.role);
   const back = (e) => e.feedback || onPath(e.source) || onPath(e.target);
   const edges = g.edges.map((e) => (back(e) ? { id: e.id, sources: [e.targetPort], targets: [e.sourcePort], reversed: true }
                                             : { id: e.id, sources: [e.sourcePort], targets: [e.targetPort] }));
@@ -140,7 +141,7 @@ function bdElkGraph(g) {
    so that only the feedback (a sensor's lines, and a process output read back) runs against it */
 function bdOrder(g) {
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
-  const sensor = (id) => ["sensor", "collector"].includes(byId[id]?.role);    // (a collector: on the same path)
+  const sensor = (id) => ["sensor", "collector", "bus"].includes(byId[id]?.role);   // (a collector and its bus: on the same path)
   const next = {};
   for (const e of g.edges) if (!e.feedback && !sensor(e.source) && !sensor(e.target)) (next[e.source] ||= []).push(e.target);
   const out = [], seen = new Set();
@@ -173,7 +174,7 @@ function bdOrder(g) {
     const moved = [...refs, ...path];
     moved.forEach((id, i) => { rank[id] = rank[S0] - 1 + (i + 1) / (moved.length + 2); });
   }
-  for (const role of ["sensor", "collector"]) for (const n of g.nodes.filter((x) => x.role === role)) {   // just after the first part its reading goes to
+  for (const role of ["sensor", "bus", "collector"]) for (const n of g.nodes.filter((x) => x.role === role)) {   // just after the first part its reading goes to
     const to = g.edges.filter((e) => e.source === n.id).map((e) => rank[e.target]).filter((x) => x != null);
     rank[n.id] = (to.length ? Math.min(...to) : out.length * 2) + 1;
   }
@@ -1084,7 +1085,7 @@ function blocksLegend() {
     row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off controller: a relay; a program, an AI agent, a person): named, with a sketch where there is a standard one (relay, saturation, dead zone); no transfer function is claimed"),
     row(`<circle cx="15" cy="10" r="7" ${ink}/><text x="5" y="8" font-size="9" fill="currentColor">+</text><text x="19" y="21" font-size="9" fill="currentColor">−</text>`, "a summing junction, with the sign of each input"),
     row(`<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
-    row(`<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux)"),
+    row(`<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux), or takes what a collector records to each of the counts that read it (a bus)"),
     row(`<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
     h("span", { class: "sym" }, "r e u y d"), h("span", {}, "reference (its value), error (r − y", h("sub", {}, "m"), "), control signal, output (y", h("sub", {}, "m"), " measured through H), disturbance; subscripts name the loop or the part; k a sample"));
 }
