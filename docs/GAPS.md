@@ -54,7 +54,9 @@ review). Newest decisions from the owner first within each section.
   (`yaml-1.1`, at its file and line, with the quoted form to write; shown beside errors too). The format follows
   YAML 1.2's core schema (SPEC §2, *Which YAML*); loading with 1.2 semantics is planned after one release of the
   warnings. No example or demo was flagged.
-- **`where:` compares strings** (open): a field holding `1.0` does not match `1`.
+- **`where:` compares strings** (done, `modelfix`): typed JSON equality (numbers as numbers, strings as strings,
+  booleans as booleans), for sensors and `takes:`; a filter typed as text (the Items page) matches either type;
+  `check` notes each bare number or boolean in a `where:` (`where-typed`). No example has one.
 - **Listing projects writes `repo.json` into other projects' state folders** (open).
 - **`try_use` trials can leave Claude sessions running** (open).
 - **Three tests fail only under heavy load** (open): `test_a_selection_is_model_parts_and_survives_switching_view`,

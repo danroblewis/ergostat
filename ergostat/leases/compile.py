@@ -71,7 +71,10 @@ def takes(c, m, what: str) -> Takes | None:
     if not isinstance(where, dict):
         c.err(f"{what}.takes.where: a map of field: value (or a list of values)", raw.at("where"), "not-a-map")
         where = {}
-    return Takes(kind, list(states), list(to), dict(where))
+    where = dict(where)
+    if where:
+        c.where_values(where, raw["where"], f"{what}.takes", what.replace(" ", ".", 1))
+    return Takes(kind, list(states), list(to), where)
 
 
 def pool(c, m, what: str) -> int:
