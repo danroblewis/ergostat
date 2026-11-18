@@ -771,8 +771,6 @@ class Compiler:
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
         spec.items[MESSAGE] = message_kind()                 # built in: the owner's messages, routed (SPEC §12h)
         spec.items[VERDICT] = verdict_kind()                 # built in: the intent judge's verdicts on work (SPEC §12i)
-        spec.items[ACTION] = action_kind()                   # built in: gated actions sessions asked for (SPEC §12k)
-        spec.items[WORKSPACE] = workspace_kind()             # built in: the workspaces of the pools (SPEC §12k)
         self.claims(spec)
         from ..decisions.kinds import builtin as intent_kinds
         spec.items.update(intent_kinds())                    # built in: the owner's decisions and corrections (SPEC §5a)
@@ -875,6 +873,10 @@ class Compiler:
         pools.workspaces(self, spec)                         # workspaces: the pools AI blocks' runs work in (SPEC §12k)
         gated.actions(self, spec)                            # actions: what sessions may ask for, gated (SPEC §12k)
         gated.blocks(self, spec)                             # an ai block's workdir:, workspace:, read:, tools:, actions:
+        if spec.actions:
+            spec.items[ACTION] = action_kind()               # built in, when there are any: gated actions asked for
+        if spec.workspaces:
+            spec.items[WORKSPACE] = workspace_kind()         # built in, when there are any: the pools' workspaces
         judges = [b for b in spec.blocks.values() if b.type == "judge" and b.params.get("judge", "model") == "model"]
         for b in judges[1:]:
             self.err(f"block {b.name}: one judge of changes to the model at most ({judges[0].name} is one)", b.where,

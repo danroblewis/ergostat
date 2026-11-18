@@ -53,7 +53,6 @@ def prepare(p, spec, b, ctx: dict, run: str, env: dict, given: dict | None) -> P
            "writes": (out.workspace or {}).get("writes") or [], "tools": b.params.get("tools"),
            "actions": [a.name for a in acts], "waits": [a.wait + a.timeout for a in acts]}
     cfg["file"] = str(sb.write(p, b.name, run, cfg))
-    sb.write(p, b.name, run, cfg)
     out.cfg = cfg
     env["ERGOSTAT_SANDBOX"] = cfg["file"]
     env["ERGOSTAT_WORKDIR"] = cfg["workdir"]

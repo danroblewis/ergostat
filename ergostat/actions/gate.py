@@ -53,8 +53,7 @@ def request(p, spec, name: str, args: dict, ctx: dict) -> dict:
     if missing:
         raise GateError(f"{name} needs {', '.join(missing)}")
     args = {k: str(args[k]) for k in a.args}
-    where = str(Path(ctx["workdir"]) if not a.in_ else (spec.root / a.in_).resolve()) if (a.in_ or ctx.get("workdir")) \
-        else str(spec.root)
+    where = str((spec.root / a.in_).resolve()) if a.in_ else str(ctx.get("workdir") or spec.root)
     aid = rec.new_id(name)
     data = {"action": name, "class": a.cls or name, "gate": a.gate, "args": args, "command": render(a, args, ctx),
             "in": where, **{k: ctx.get(k) for k in ("block", "run", "session", "item", "workdir", "branch")},
