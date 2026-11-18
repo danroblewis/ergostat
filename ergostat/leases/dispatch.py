@@ -24,6 +24,7 @@ from ..spec import items as its
 from ..spec.ir import DEAD, LEASED
 from . import ENDED, EXPIRED, RENEWED, TAKEN
 from .fold import held
+from .ready import Ready
 from .terms import terms
 
 SOURCE = "ergostat"
@@ -55,6 +56,7 @@ class Dispatcher:
         self.holding = False                          # whether the last watch found a lease held (one outlives its block)
         self.lock = threading.RLock()
         self.seq = 0
+        self.kept = Ready()                           # the items a look needs, followed as events arrive (ready.py)
 
     @property
     def spec(self):
@@ -90,6 +92,23 @@ class Dispatcher:
 
     # ---- dispatch
 
+    def items_of(self, kind: str) -> tuple[list, object]:
+        """A kind's items a look needs, the latest first: those in a state a block takes from, and those held (every
+        item of the kind, read whole, when the record has no item index); and the index they were read from."""
+        ix = self.kept.follow(self.p.events, self.spec, self.kinds, lambda: self.blocks)
+        if ix is None:
+            return its.project(self.p.events, self.spec, kind, transcript=False), None
+        return self.kept.of(kind), ix
+
+    @staticmethod
+    def whole(ix, it):
+        """An item as ``items.project`` reads it, its moves with it (a look reads them only of the items it takes)."""
+        if ix is None:
+            return it
+        with ix.lock:
+            got = ix.items(it.kind, ids=[it.id])
+        return got[0] if got else it
+
     def going_items(self) -> set[str]:
         return {i for g in self.going.values() for i in g}
 
@@ -103,13 +122,13 @@ class Dispatcher:
             if cmd is not None and not cmd:                    # commanded, and nothing commands it now: it takes nothing
                 continue
             with self.lock:
-                every = its.project(self.p.events, self.spec, b.takes.kind, transcript=False)
+                every, ix = self.items_of(b.takes.kind)
                 mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
                 room = b.pool - len(mine | set(self.going.get(b.name, {})))
                 if room <= 0:
                     continue
                 for it in self.ready(b, every, now)[:room]:
-                    self.take(b, it)
+                    self.take(b, self.whole(ix, it))
 
     def ready(self, b, every, now: float) -> list:
         """The items a block may take now, in the order it takes them: oldest in its first state first."""
@@ -244,7 +263,7 @@ class Dispatcher:
         now = time.time() if now is None else now
         holding = False
         for kind in self.kinds():
-            for it in its.project(self.p.events, self.spec, kind, transcript=False):
+            for it in self.items_of(kind)[0]:
                 lease = held(it.fields)
                 holding = holding or lease is not None
                 if not lease or now <= float(lease.get("expires") or 0):
