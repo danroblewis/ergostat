@@ -152,9 +152,9 @@ class Plant:
         age = self.age_of_direction(it)
         base = FLOOR + (PEAK - FLOOR) * math.exp(-age / TAU_Q)
         learnt = 1 / (1 + 0.12 * self.rules_for(it["dir"]))
-        cut = self.s["window"].get("last_cut")
-        after_cut = 1 + 0.2 * math.exp(-(self.t - cut) / 4) if cut is not None and self.t >= cut else 1.0
-        return min(0.9, base * learnt * brief * after_cut)
+        # No term for the window's fill or a recent cut: RM14 found neither raising errors, and 02 §5 asks the
+        # model not to reproduce one. A cut acts only through what it takes (B9: corrections held in the window).
+        return min(0.9, base * learnt * brief)
 
     # -- actuators: what the Coordinator may do ---------------------------------------------------------------
     def lease(self, i: str, brief: float = 1.0, brief_tokens: int = 960) -> str:
@@ -340,7 +340,6 @@ class Plant:
     def step(self, dt: float) -> None:
         self.s["t"] += dt
         self.s["k"] = self.s.get("k", 0) + 1                 # the step's number: what each draw in it is keyed by
-        t = self.t
         self.directions()
         self.workers(dt)
         self.discovery(dt)

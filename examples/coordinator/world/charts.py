@@ -59,10 +59,10 @@ def marks(ax, r: dict, away: bool = True) -> None:
 
 def rework(h: dict, d: dict, out: Path) -> None:
     fig, ax = plt.subplots(2, 1, figsize=(8, 5.2), sharex=True)
-    for a, r, st, title in ((ax[0], h, H, "(a) harness as it was"), (ax[1], d, D, "(b) designed Coordinator")):
+    for a, r, title in ((ax[0], h, "(a) harness as it was"), (ax[1], d, "(b) designed Coordinator")):
         x, add = per(r, "lines-added", 12, r["days"])
         _, rw = per(r, "lines-reworked", 12, r["days"])
-        ys = [w / a_ if a_ >= 3000 else float("nan") for w, a_ in zip(rw, add)]
+        ys = [w / a_ if a_ >= 3000 else float("nan") for w, a_ in zip(rw, add, strict=True)]
         a.bar(x, ys, width=0.42, color="black" if r is h else "0.55", lw=0)
         marks(a, r, away=False)
         a.set_ylabel("reworked per\nline added")
@@ -113,7 +113,7 @@ def corrections(h: dict, d: dict, out: Path) -> None:
     for r, st in ((h, H), (d, D)):
         x, c = per(r, "corrections", 12, r["days"])
         _, m = per(r, "owner-messages", 12, r["days"])
-        ax[0].step(x, [a / b if b >= 5 else float("nan") for a, b in zip(c, m)], where="mid", **st)
+        ax[0].step(x, [a / b if b >= 5 else float("nan") for a, b in zip(c, m, strict=True)], where="mid", **st)
         ax[1].plot([q["t"] / 24 for q in r["hours"]], [q["rules"] for q in r["hours"]], **st)
     _, lost = per(h, "lost-at-cut", 1, h["days"])
     cum, s = [], 0
@@ -142,7 +142,7 @@ def checking(h: dict, d: dict, out: Path) -> None:
     for r, st in ((h, H), (d, D)):
         x, hid = per(r, "hidden-runs", 6, r["days"])
         _, tr = per(r, "test-runs", 6, r["days"])
-        ax.step(x, [a / b if b >= 3 else float("nan") for a, b in zip(hid, tr)], where="mid", **st)
+        ax.step(x, [a / b if b >= 3 else float("nan") for a, b in zip(hid, tr, strict=True)], where="mid", **st)
     _, inc = per(h, "incidents", 1, h["days"])
     for i, v in enumerate(inc):
         if v:
@@ -373,13 +373,60 @@ def table(runs: Path) -> None:
         print(f"| {k} | {f(v['harness'])} | {f(v['designed'])} | {f(v['designed-no-quality'])} |")
 
 
+LIVE = [("auxiliary.oldest-silence", "oldest silence\n(factory hours)"), ("auxiliary.unread-test-runs", "test runs with the\nexit status unread"),
+        ("stock.owner-queue", "blockers waiting\nfor the owner"), ("stock.decisions-waiting", "decisions\nawaiting confirmation")]
+
+
+def live(urls: dict[str, str], hours: float, hour_s: float, out: Path) -> None:
+    """The two live runs as ergostat recorded them (its /api/series), on the factory's clock."""
+    import urllib.request
+    got = {}
+    for pol, url in urls.items():
+        q = f"{url}/api/series?refs={','.join(r for r, _ in LIVE)},auxiliary.owner-present&since={int(hours * hour_s)}s&points={max(20, int(hours * hour_s / 20))}"
+        got[pol] = json.loads(urllib.request.urlopen(q, timeout=60).read())
+    fig, ax = plt.subplots(len(LIVE), 1, figsize=(8, 7), sharex=True)
+    for pol, st in (("harness", H), ("designed", D)):
+        d = got[pol]
+        t0 = d["times"][0]
+        xs = [(t - t0) / hour_s / 24 for t in d["times"]]
+        by = {s["ref"]: s["values"] for s in d["series"]}
+        for a, (ref, label) in zip(ax, LIVE, strict=True):
+            pts = [(x, v) for x, v in zip(xs, by[ref], strict=True) if v is not None]     # buckets with a reading
+            a.plot([x for x, _ in pts], [v for _, v in pts], **st)
+            a.set_ylabel(label)
+        if pol == "harness":
+            pres = by["auxiliary.owner-present"]
+            start = None
+            for x, v in zip(xs + [xs[-1]], pres + [1], strict=True):
+                if v is not None and v < 0.5 and start is None:
+                    start = x
+                if (v is None or v >= 0.5) and start is not None:
+                    for a in ax:
+                        a.axvspan(start, x, color="0.93", lw=0)
+                    start = None
+    ax[0].axhline(0.7, color="0.6", lw=0.6, ls=":")
+    ax[2].axhline(3, color="0.6", lw=0.6, ls=":")
+    ax[0].legend(frameon=False, fontsize=8, loc="upper right")
+    ax[-1].set_xlabel("factory days of each live run (shaded: the owner away, in the harness's run)")
+    fig.suptitle("The same model run by ergostat: its own record of the two live runs", fontsize=10)
+    fig.tight_layout()
+    fig.savefig(out / "model-live.png", dpi=150)
+    plt.close(fig)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=Path, default=ROOT / "run" / "experiment")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--live", nargs=2, metavar=("HARNESS_URL", "DESIGNED_URL"), help="chart two live runs instead")
+    ap.add_argument("--hours", type=float, default=96, help="--live: factory hours of record")
+    ap.add_argument("--hour-seconds", type=float, default=30, help="--live: seconds per factory hour")
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
+    if a.live:
+        live({"harness": a.live[0], "designed": a.live[1]}, a.hours, a.hour_seconds, a.out)
+        return 0
     h, d = load(a.runs, "harness", a.seed), load(a.runs, "designed", a.seed)
     for f in (rework, discovery, corrections, checking, stalls, owner, context, code, throughput):
         f(h, d, a.out)

@@ -1,9 +1,10 @@
 # The rework cycle (03 R1) and the quality cascade that acts on it (07 LP1 inside LP2), over the work queue's
 # reported and accepted stocks (work.yaml). A run reports its item done; the acceptance check (LP1) chooses its depth
-# per item - claims, tests with their exit status read, inspection
-# against the acceptance criteria, deep review by an AI agent, a hold point for the owner - the least whose expected
-# escapes fall under h*, and sends it back or passes it to the merge queue (LP4). What it lets through wrong is undiscovered rework, found hours
-# later (RM2) and reopened. Once a factory day, LP2 moves h* by integral action on the escaped rework of the week.
+# per item - claims, tests with their exit status read, inspection against the acceptance criteria, deep review by
+# an AI agent, a hold point for the owner - the least whose expected escapes fall under h*, and sends it back or
+# passes it to the merge queue (LP4). What it lets through wrong is undiscovered rework, found hours later (RM2) and
+# reopened. Once a factory day, LP2 moves h* by integral action on the escaped rework of the week. H1 is a critical
+# goal on the checking habit (03's B4): memory under the harness, structure under the design.
 defaults:
   system: quality
 
