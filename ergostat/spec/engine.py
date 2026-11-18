@@ -361,7 +361,17 @@ class Engine:
         return out
 
     def served(self, b: Block) -> set[str]:
-        return {g for g in self.spec.goals if b.name in self.spec.loop(g).actuators}
+        """The goals whose loop it acts in (as an actuator): worked out once per model (docs/proposals/scale.md)."""
+        spec = self.spec
+        kept = spec.lookups().kept
+        by = kept.get("engine.served")
+        if by is None:
+            by = {}
+            for g in spec.goals:
+                for a in spec.loop(g).actuators:
+                    by.setdefault(a, set()).add(g)
+            kept["engine.served"] = by
+        return set(by.get(b.name, ()))
 
     def program(self, b: Block, ctx: dict, spec: Spec | None = None) -> tuple[str, str]:
         """The command to run and what to give it on standard input."""
