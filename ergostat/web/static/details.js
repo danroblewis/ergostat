@@ -103,7 +103,7 @@ async function openNode(n) {
       h("td", { class: "nowrap" }, new Date(r.time * 1000).toLocaleTimeString([], { hour12: false })),
       h("td", { class: "num" }, fmt(r.amount)), h("td", { class: "muted" }, [r.n > 1 ? `in ${r.n} openings` : "", r.source, r.note].filter(Boolean).join(", "))))));
   }
-  kids.push(h("p", {}, h("a", { href: `#/diagram?around=${kind}/${encodeURIComponent(name)}` }, "Draw what is around it")));
+  kids.push(h("p", {}, h("a", { href: `/diagram?around=${kind}/${encodeURIComponent(name)}` }, "Draw what is around it")));
   showDetail(...kids);
 }
 
@@ -150,7 +150,7 @@ async function openLoop(name, asController = false) {
     kids.push(h("h3", {}, `Decisions (${lp.decisions.count})`), h("div", { class: "note" }, "Alike when only their numbers differ."));
     kids.push(h("table", {}, lp.decisions.kinds.slice(0, 6).map(([w, n]) => h("tr", {}, h("td", { class: "num" }, n), h("td", {}, w.replaceAll("#", "N"))))));
   }
-  kids.push(h("p", {}, h("a", { href: `#/diagram?around=loop/${encodeURIComponent(name)}` }, "Draw this loop alone")));
+  kids.push(h("p", {}, h("a", { href: `/diagram?around=loop/${encodeURIComponent(name)}` }, "Draw this loop alone")));
   showDetail(...kids);
 }
 
@@ -215,7 +215,7 @@ function partLink(name) {                              // ergostat's own events 
   return h("a", { href: "#", class: "muted", title: "a part of the model", onclick: (ev) => { ev.preventDefault(); openAgent(name).catch(() => {}); } }, name);
 }
 function itemLink(id) {
-  return id.includes("/") ? h("a", { href: `#/item/${encodeURIComponent(id)}` }, id) : partLink(id);
+  return id.includes("/") ? h("a", { href: `/item/${encodeURIComponent(id)}` }, id) : partLink(id);
 }
 function dataCell(d) {                                  // the whole of it, one click away (rounded: the event's panel has it exactly)
   const flat = JSON.stringify(tidy(d || {}));
@@ -244,7 +244,7 @@ const changeOf = (e) => (e.patch ? { patch: e.patch } : e.set ? { set: e.set } :
 /* the wiring: a machine, with what it published and listened for in the window */
 function recordLink(type, machine, text) {
   const q = new URLSearchParams({ ...(type ? { type } : {}), ...(machine ? { machine } : {}), window: "1" });
-  return h("a", { href: `#/record?${q}`, title: "The Record, filtered to these events in the window" }, text || "Record");
+  return h("a", { href: `/record?${q}`, title: "The Record, filtered to these events in the window" }, text || "Record");
 }
 function windowWords() {
   const g = S.graph || {};

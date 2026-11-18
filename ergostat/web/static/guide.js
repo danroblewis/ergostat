@@ -41,7 +41,7 @@ async function pageGuide(main, q) {
   async function show(k) {
     i = at(k);
     const f = frames[i];
-    history.replaceState(null, "", `#/guide?frame=${i}`);
+    replaceRoute(`/guide?frame=${i}`);
     for (const b of steps.querySelectorAll(".g-dot")) b.classList.toggle("on", +b.dataset.frame === i);
     for (const s0 of steps.querySelectorAll(".g-part")) s0.classList.toggle("on", s0.dataset.part === f.part);
     text.textContent = f.text;
@@ -116,7 +116,7 @@ async function guideYours(box) {
   for (const [view, name] of [["dynamics", "system dynamics"], ["blocks", "control"]]) {
     let g = null;
     try { g = await api("graph", { view }); } catch (e) { g = null; }
-    const link = h("a", { href: `#/diagram?view=${view}` }, `Open the ${name} diagram`);
+    const link = h("a", { href: `/diagram?view=${view}` }, `Open the ${name} diagram`);
     if (!g || !g.nodes.length) {
       box.append(h("div", { class: "g-view" }, h("p", { class: "muted" }, view === "blocks" ? "Nothing controlled yet: no goal, and no block that acts." : "Your model is empty. Describe your system with ergostat chat."), link));
       continue;

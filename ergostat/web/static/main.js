@@ -38,7 +38,8 @@ function showAt() {
   whenMenu.button.textContent = whenLabel();
   whenMenu.button.classList.toggle("past", !!S.at);
 }
-window.addEventListener("hashchange", route);
+window.addEventListener("popstate", route);                  // back and forward
+window.addEventListener("hashchange", () => { if (HASHED || oldAddress()) route(); });   // a snapshot's route; an old #/ address
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeDetail(); });
 if (SNAP) {                                   // one moment, one window: nothing to slide or switch
   for (const el of [$("#when"), $("#project")]) el.style.display = "none";
@@ -47,6 +48,8 @@ if (SNAP) {                                   // one moment, one window: nothing
 (async () => {
   await refreshHeader();
   poll(refreshHeader, 5000);
-  if (!location.hash && window.innerWidth < 700) location.hash = "#/loops";   // on a phone, the loops first
+  oldAddress();                                                // #/items, an old address: shown at /items
+  const bare = HASHED ? !location.hash.startsWith("#/") : location.pathname === "/";
+  if (bare && window.innerWidth < 700) replaceRoute("/loops");    // on a phone, the loops first
   route();
 })();

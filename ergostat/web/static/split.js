@@ -24,11 +24,11 @@ function splitSave() {
 let splitPane = null, splitSep = null, splitFrame = null;
 
 const OTHER_PAGES = ["/loops", "/agents", "/record", "/items", "/model", "/fit", "/residuals", "/check", "/guide", "/item/"];
-function diagramHash(hash) {
-  const path = (String(hash || "").replace(/^#/, "") || "/diagram").split("?")[0];
+function diagramHash(r) {                            // a route (or an old #/ address) that draws a diagram
+  const path = (String(r || "").replace(/^#/, "") || "/diagram").split("?")[0];
   return !OTHER_PAGES.some((p) => path === p || (p.endsWith("/") && path.startsWith(p)));
 }
-function splitShown() { return !PANE && SPLIT.open && diagramHash(location.hash) && innerWidth >= SPLIT_NARROW; }
+function splitShown() { return !PANE && SPLIT.open && diagramHash(currentRoute()) && innerWidth >= SPLIT_NARROW; }
 
 /* the other pane, and what is said to it */
 function peerWin() { return PANE ? window.parent : splitFrame && splitShown() ? splitFrame.contentWindow : null; }
@@ -50,22 +50,22 @@ window.addEventListener("message", (ev) => {
   } else if (m.type === "hello" && !PANE) {
     peerSay({ type: "sel", parts: [...S.sel] });
   } else if (m.type === "go" && !PANE) {
-    location.hash = m.hash;                            // a page that is not a diagram opens in the page itself
+    navigate(m.route);                                 // a page that is not a diagram opens in the page itself
   }
 });
 
 /* ---------------------------------------------------------------- the page with a second pane */
 
 function otherView() {
-  const q = new URLSearchParams((location.hash.split("?")[1]) || "");
+  const q = parseRoute().q;
   const view = q.get("view") || "dynamics";
   const p = new URLSearchParams({ view: view === "blocks" ? "dynamics" : "blocks" });       // the same system, the same ones open
   for (const k of ["system", "open"]) if (q.has(k)) p.set(k, q.get(k));
-  return `#/diagram?${p}`;
+  return `/diagram?${p}`;
 }
 function splitMake() {
   if (splitPane) return;
-  splitFrame = h("iframe", { title: "The second view", src: `${location.pathname}?pane=1${otherView()}` });
+  splitFrame = h("iframe", { title: "The second view", src: HASHED ? `${location.pathname}?pane=1#${otherView()}` : `${otherView()}&pane=1` });
   splitPane = h("div", { class: "split-pane" }, splitFrame);
   splitSep = h("div", { class: "split-sep", role: "separator", title: "Drag to resize; double-click for half and half; drag to the edge to close",
                         onpointerdown: (ev) => splitDrag(ev, SPLIT.edge, true),
@@ -148,17 +148,10 @@ if (PANE) {
   /* the second pane: no header; the side panel over it; a page that is not a diagram opens in the page */
   document.body.classList.add("pane", "split-on");
   for (const k of ["--main-top", "--main-right", "--main-bottom", "--main-left"]) document.body.style.setProperty(k, "0px");
-  document.addEventListener("click", (ev) => {
-    const a = ev.target.closest?.("a[href^='#/']");
-    if (a && !diagramHash(a.getAttribute("href"))) { ev.preventDefault(); ev.stopPropagation(); peerSay({ type: "go", hash: a.getAttribute("href") }); }
-  }, true);
-  window.addEventListener("hashchange", () => {
-    if (!diagramHash(location.hash)) { peerSay({ type: "go", hash: location.hash }); history.back(); }
-  });
+  // (a link to a page that is not a diagram is sent to the page itself: navigate, util.js)
   peerSay({ type: "hello" });                         // what is chosen already, please
 } else {
   window.addEventListener("resize", () => splitLayout());
-  window.addEventListener("hashchange", () => splitLayout());
   const bar = document.querySelector("header.bar");
   if (bar && typeof ResizeObserver === "function") new ResizeObserver(() => splitLayout()).observe(bar);
   splitLayout();

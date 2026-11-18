@@ -52,10 +52,13 @@ def cmd_system(args) -> int:
         if not url:
             print("the web page is not running: ergostat run (or ergostat web)", file=sys.stderr)
             return 2
-        q = f"?system={args.name}" if args.name else ("?around=" + args.around if args.around else "")
+        from urllib.parse import urlencode
+        q = {"view": "wiring" if args.wiring else "dynamics", **({"system": args.name} if args.name else {}),
+             **({"around": args.around} if args.around and not args.name else {})}
+        page = f"{url}/diagram?{urlencode(q)}"
         import webbrowser
-        webbrowser.open(url + "/" + q + ("&" if q else "?") + ("view=wiring" if args.wiring else "view=control"))
-        print(url)
+        webbrowser.open(page)
+        print(page)
         return 0
     title = args.name or ("around " + args.around if args.around else "everything")
     print(c(f"system {title}", "bold"))

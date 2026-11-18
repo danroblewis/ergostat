@@ -99,7 +99,7 @@ async function pageRecord(main, q) {
   // from the wiring: one machine's events (its instances too), in the page's window
   const machine = q.get("machine") || "", inWindow = q.get("window") === "1", item = q.get("item") || "";
   const scope = machine || inWindow || item ? h("span", { class: "muted" }, [item ? `about ${item}` : "", machine ? `from ${machine}` : "", inWindow ? "in the window" : ""].filter(Boolean).join(", "),
-    " ", h("a", { href: "#/record" + (filt.value ? "?type=" + encodeURIComponent(filt.value) : "") }, "Show all")) : null;
+    " ", h("a", { href: "/record" + (filt.value ? "?type=" + encodeURIComponent(filt.value) : "") }, "Show all")) : null;
   p.append(h("div", { class: "filters" }, filt, h("button", { onclick: () => tick() }, "Filter"), scope,
                 h("label", { class: "check" }, runs, "Show runs", h("span", { class: "muted" }, "(agent.started, agent.ran)"))), box);
   runs.addEventListener("change", () => tick());
@@ -361,8 +361,8 @@ function messageBox({ about = null, title = "Message", hint = null, done = null 
 }
 function messagesAbout(ms) {
   if (!ms.length) return h("p", { class: "muted" }, "No messages about it yet.");
-  return table(["message", "state", "sent", "text", "outcome"], ms.map((m) => h("tr", { class: "click", onclick: () => { location.hash = `#/item/${encodeURIComponent(m.id)}`; } },
-    h("td", { class: "nowrap" }, h("b", {}, m.id.split("/")[1])), h("td", { class: m.state === "unrouted" ? "s-off" : "" }, m.state), h("td", { class: "muted nowrap" }, ago(m.time)),
+  return table(["message", "state", "sent", "text", "outcome"], ms.map((m) => h("tr", { class: "click", ...rowLink(`/item/${encodeURIComponent(m.id)}`) },
+    h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(m.id)}`, class: "plain" }, h("b", {}, m.id.split("/")[1]))), h("td", { class: m.state === "unrouted" ? "s-off" : "" }, m.state), h("td", { class: "muted nowrap" }, ago(m.time)),
     h("td", { class: "cell" }, m.text), h("td", { class: "cell muted" }, m.outcome))), "messages");
 }
 function messageView(d, refresh) {
@@ -413,7 +413,7 @@ async function pageItems(main, q) {
     return drawn[key].el;
   };
   const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state); if (search.value) u.set("q", search.value);
-                     history.replaceState(null, "", "#/items" + (u.toString() ? "?" + u : "")); tick(); };
+                     replaceRoute("/items" + (u.toString() ? "?" + u : "")); tick(); };
   search.addEventListener("input", () => go());
   async function tick() {
     compose.hidden = kind !== MESSAGE_KIND || !!SNAP;
@@ -453,8 +453,8 @@ async function pageItems(main, q) {
     const tableOf = (its, show, limit) => {
       const nums = new Set(show.filter((f) => isNum(its, f)));
       return table(["item", "state", ...show.map((f) => (nums.has(f) ? [f, "num"] : f)), ["in state", "num"], ["events", "num"], "latest", "last"],
-        its.slice(0, limit).map((i) => h("tr", { class: "click", onclick: () => { location.hash = `#/item/${encodeURIComponent(i.id)}`; } },
-          h("td", { class: "nowrap" }, h("b", {}, i.id)), h("td", { class: "nowrap" }, stateWord(i.state)),
+        its.slice(0, limit).map((i) => h("tr", { class: "click", ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
+          h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),
           show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldView(i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
           h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
           h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items");
@@ -494,7 +494,7 @@ function eventLink(eid, type, d) {
   } }, type);
 }
 function recordLinkItem(id) {
-  return h("a", { href: `#/record?item=${encodeURIComponent(id)}` }, "all of them in the Record");
+  return h("a", { href: `/record?item=${encodeURIComponent(id)}` }, "all of them in the Record");
 }
 function historyView(cs, total, d) {
   if (!total) return null;
@@ -523,7 +523,7 @@ async function pageItem(main, id) {
     const k = d.kind_of;
     const pair = (label, value) => h("span", {}, h("span", {}, label), value);
     const head = h("div", { class: "meta" },
-      pair("Kind", k ? h("a", { href: `#/items?kind=${encodeURIComponent(k.name)}` }, k.name) : h("span", { class: "muted" }, "none (nothing under items: matches this id)")),
+      pair("Kind", k ? h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name) : h("span", { class: "muted" }, "none (nothing under items: matches this id)")),
       d.state ? pair("State", h("span", {}, h("b", {}, d.state), ` for ${dur(nowS() - d.entered)}`)) : null,
       pair("Events", String(d.events)), pair("First", ago(d.first)), pair("Latest", h("span", {}, d.latest, h("span", { class: "muted" }, `, ${ago(d.last)}`))));
     const track = k && k.states.length ? h("div", { class: "track" }, k.states.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,

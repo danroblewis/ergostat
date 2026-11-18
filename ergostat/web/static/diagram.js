@@ -1006,7 +1006,7 @@ async function pageDiagram(main, q) {
   function go(over) {
     const p = new URLSearchParams({ view, system, around, ...(openQ != null ? { open: openQ } : {}), ...over });
     for (const [k, v] of [...p]) if (!v) p.delete(k);
-    location.hash = "#/diagram?" + p.toString();
+    navigate("/diagram?" + p.toString());
   }
   S.toggleSystem = (name) => {                     // open a box in place, or close an outline back into one
     rememberAnchor(name);                          // it stays where it is on the screen (interact.js)
@@ -1173,10 +1173,10 @@ function renderSide(side, g, view) {
   // a command the CLI would suggest becomes a link to the same view here
   const linked = (says) => {
     const m = /ergostat event --type (\S+?)\)?$/.exec(says);
-    return m ? [op(says.slice(0, m.index)), h("a", { href: `#/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
+    return m ? [op(says.slice(0, m.index)), h("a", { href: `/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
   for (const a of problems.slice(0, MAX)) att.append(h("div", {}, h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what), " ", linked(a.says)));
-  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "#/loops" }, "Loops"), " and ", h("a", { href: "#/model" }, "Model"), "."));
+  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
   side.append(att);
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside

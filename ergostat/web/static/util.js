@@ -7,6 +7,15 @@ const elk = new ELK();
 const S = { since: "1h", route: "", graphSig: "", layout: null, view: { x: 0, y: 0, k: 1 }, fitted: false,
             timer: null, status: null, sel: null, hl: null };
 
+/* addresses: each page is a path (/items, /item/ID, /diagram?view=blocks), so a link is an ordinary link: it
+   opens in a new tab, is copied and reloaded as it is. A link is written as its path; in a snapshot (one file,
+   opened with no server) the same path is kept in the hash instead, as #/items. UI_PAGES are the first parts
+   of the paths the page answers (the server's UI_PAGES, the same list) */
+const HASHED = !!window.SNAPSHOT || location.protocol === "file:";
+const UI_PAGES = ["diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
+function isPagePath(path) { return path === "/" || UI_PAGES.includes(String(path).split(/[/?#]/)[1]); }
+function appHref(v) { return HASHED && typeof v === "string" && v.startsWith("/") && isPagePath(v) ? "#" + v : v; }
+
 function h(tag, attrs = {}, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
@@ -14,7 +23,7 @@ function h(tag, attrs = {}, ...kids) {
     if (k === "class") el.className = v;
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else if (k === "html") el.innerHTML = v;
-    else el.setAttribute(k, v);
+    else el.setAttribute(k, k === "href" ? appHref(v) : v);
   }
   for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   return el;
@@ -176,7 +185,7 @@ async function refreshHeader() {
     if (!sel.dataset.filled) {
       sel.dataset.filled = "1";
       sel.replaceChildren(h("option", { value: "" }, st.name));
-      sel.addEventListener("change", () => { if (sel.value) location.href = sel.value + "/" + location.hash; });
+      sel.addEventListener("change", () => { if (sel.value) location.href = sel.value + location.pathname + location.search; });
       // the other projects: once, and again when the reader comes to the list (each is a model loaded and a
       // snapshot of its record on the server: not asked for while the page is only left open)
       const fresh = () => { if (Date.now() - (S.projectsAt || 0) > 30000) refreshProjects(sel); };
@@ -237,21 +246,91 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) for (const p of [...POLLS]) if (!p.timer && !p.running) p.run();
 });
 
-function parseRoute() {
-  const [path, query] = (location.hash.slice(1) || "/diagram").split("?");
-  return { path, q: new URLSearchParams(query || "") };
+/* the route: the page's path and query ("/item/a%2Fb", "/diagram?view=blocks"), from the address; in a
+   snapshot, from the hash. The second pane's own mark (?pane=1) is not part of it */
+function currentRoute() {
+  if (HASHED) return location.hash.startsWith("#/") ? location.hash.slice(1) : "/diagram";
+  const q = new URLSearchParams(location.search);
+  q.delete("pane");
+  const path = location.pathname === "/" ? "/diagram" : location.pathname;
+  return path + (q.toString() ? "?" + q : "");
 }
+function parseRoute() {
+  const r = currentRoute(), i = r.indexOf("?");
+  return { path: i < 0 ? r : r.slice(0, i), q: new URLSearchParams(i < 0 ? "" : r.slice(i + 1)) };
+}
+/* the address a route is shown at (the second pane keeps its mark) */
+function routeUrl(r) {
+  if (HASHED) return "#" + r;
+  if (!PANE) return r;
+  return r + (r.includes("?") ? "&" : "?") + "pane=1";
+}
+/* go to a route in this page: a new entry in the history (or, ``replace``, the same entry changed), then the
+   page drawn for it. The same route again does nothing, as a link to where one is. A page that is not a
+   diagram asked for in the second pane opens in the page itself */
+function navigate(r, replace = false) {
+  if (PANE && !diagramHash(r)) return peerSay({ type: "go", route: r });
+  if (r === currentRoute()) return;
+  history[replace ? "replaceState" : "pushState"](null, "", routeUrl(r));
+  route();
+}
+/* the address changed without drawing (a page's filters, the guide's frame): the history entry only */
+function replaceRoute(r) { history.replaceState(null, "", routeUrl(r)); }
+/* a link's route, when it is one of the page's own: "/items", "#/items" (an old address), or the same as a full URL */
+function routeOfHref(href) {
+  if (!href) return null;
+  if (href.startsWith("#/")) return href.slice(1);
+  if (HASHED) return null;
+  let u;
+  try { u = new URL(href, location.href); } catch (e) { return null; }
+  if (u.origin !== location.origin || !isPagePath(u.pathname)) return null;
+  if (u.hash.startsWith("#/")) return u.hash.slice(1);
+  return (u.pathname === "/" ? "/diagram" : u.pathname) + u.search;
+}
+/* a plain left click on a link to one of the page's own: drawn here, with no reload. A click with ctrl, cmd,
+   shift or alt, the middle button, or on a link to another tab is left to the browser (a new tab, a window) */
+document.addEventListener("click", (ev) => {
+  if (ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+  const a = ev.target.closest?.("a[href]");
+  if (!a || (a.target && a.target !== "_self") || a.hasAttribute("download")) return;
+  const r = routeOfHref(a.getAttribute("href"));
+  if (r == null) return;
+  ev.preventDefault();
+  navigate(r);
+});
+/* a table row that opens a page: a click goes there; with ctrl, cmd or shift, or the middle button, a new tab
+   opens on it (the row's own link, its first cell, is the ordinary link) */
+function rowLink(r) {
+  return {
+    onclick: (ev) => {
+      if (ev.target.closest?.("a")) return;
+      if (ev.metaKey || ev.ctrlKey || ev.shiftKey) window.open(appHref(r), "_blank");
+      else navigate(r);
+    },
+    onauxclick: (ev) => { if (ev.button === 1 && !ev.target.closest?.("a")) window.open(appHref(r), "_blank"); },
+  };
+}
+/* an old address (#/items, from a bookmark, a message, a brief) is shown at its path; the page's own header
+   links in a snapshot are kept in the hash */
+function oldAddress() {
+  if (!HASHED && location.hash.startsWith("#/")) { history.replaceState(null, "", routeUrl(location.hash.slice(1))); return true; }
+  return false;
+}
+if (HASHED) for (const a of document.querySelectorAll("a[href^='/']")) a.setAttribute("href", appHref(a.getAttribute("href")));
 
 async function route() {
+  oldAddress();
   const { path, q } = parseRoute();
-  for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", a.getAttribute("href") === "#" + path.split("/").slice(0, 2).join("/"));
+  const top = path.split("/").slice(0, 2).join("/");
+  for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", routeOfHref(a.getAttribute("href")) === top);
   S.timer?.stop?.();
   closeDetail();
+  if (typeof splitLayout === "function" && !PANE) splitLayout();
   const main = $("#main");
   main.replaceChildren();
   const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
-  if (path === "/fit" || path === "/residuals") return location.replace(`#/model${q.toString() ? `?${q}` : ""}`);   // the Model page's old names
+  if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)));
   return (pages[path] || pageDiagram)(main, q);
 }
