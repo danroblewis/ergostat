@@ -6,13 +6,11 @@ into a local model. Its model is served by the remote instance and changes while
 metrics are queried where they live; its agents run on the remote machine, never locally. The local ergostat
 reads it, links to its parts and draws it as a subsystem; it never runs it.
 
-This is not a shared library. A library (`docs/proposals/external-systems.md`, *a shared reference model*) is a
-**copy** of a reusable model, pinned by version, that the importing model then runs as its own. A remote system
-is **one running system seen from two places**: the remote runs it, the local reads it. Two library mechanics
-are reused: how an imported part is named and placed (the template mechanism of SPEC §2a: `NAME-PART`, a
-system of its own, every part pointing at the line that brought it in), and refusing edits to a part that
-belongs to someone else (a template's part is changed only through its `with:`; a remote part only by the
-remote's owner).
+This is not a shared library. A library (`docs/proposals/external-systems.md`) is a **copy** of a reusable
+model, pinned by version, that the importing model runs as its own. A remote system is **one running system seen
+from two places**: the remote runs it, the local reads it. Two library mechanics are reused: how an imported part
+is named and placed (SPEC §2a's instances: `NAME-PART`, a system of its own, every part pointing at the line that
+brought it in), and refusing edits to a part that belongs to someone else.
 
 ## In the disciplines' terms
 
@@ -113,8 +111,8 @@ the engine and the page reload it exactly as they do when `ergostat.yaml` is edi
 its own systems inside it (`incidents-triage`), and every part it serves named `incidents-PART` and placed in
 them, the way a template's instance is. Every part points at the `remotes:` line that brought it in
 (`ergostat.yaml:12 (remote incidents)`), and `spec.remotes` says, per remote, its URL, version, when it was read,
-and which parts are its. Its kinds of item and its agents come with it, named the same way; its agents are
-`external: true`, so each part still shows its rung.
+and which parts are its. Its agents come with it, named the same way and `external: true`, so each part still
+shows its rung; its kinds of item stay there (section 5).
 
 **Drawn as a subsystem, closed by default.** In Dynamics and Blocks the remote is one box, marked *remote*
 (its border dashed, its subtitle saying where it runs, its version, and how old its readings are), with its
@@ -174,16 +172,16 @@ attention.
 
 **Events in place, with a cursor.** The remote's events are read by `seq` cursor, a page of at most 1,000 at a
 time, at most five pages a refresh, into a cache kept in memory and bounded by the window (one day by default,
-20,000 events at most). The cursor is the last `seq` read. The cache serves `ergostat remote events NAME` and
-`/api/remotes/NAME/events`; the remote's items are read in place through its own `/items` and `/counts`.
+20,000 events at most). The cursor is the last `seq` read. The cache serves `ergostat remote events NAME` (and,
+later, the Record page); the remote's items are read in place through its own `/items` and `/counts`.
 
 **What the local fold sees of remote items: nothing.** The local item index is the fold of the local record
 (invariant 10); the remote's items are folded where they live. So:
 
 - local `items:` sensors count local items only; to count the remote's, read the remote stock that counts
   them (its sensor is mirrored), or `query: {source: incidents, ref: stock.open}`;
-- the Items page and `ergostat item` list local items; a remote's items are listed through its API, marked
-  remote, linking to its own page;
+- the Items page and `ergostat item` list local items; a remote's items are to be listed through its API,
+  marked remote, linking to its own page (a later slice);
 - the process map draws the remote's own map (from `/remote/v1/process`) beside ours; a line between one of
   our items and one of theirs needs an id both logs carry (a reference in an event's data) and is not drawn
   in the first slice;
@@ -237,10 +235,10 @@ model reads the cache and fetches only when the cache is older than `every`.
    remote *incidents* model; the remote's model changes while both run and the local follows; the remote
    stops and the local marks its data stale.
 
-**Left for later**: the event cache feeding the Items page and the Record page; cross-log lines in the
-process map; proposals written for the remote's owner (refusal is built, the text is not); serving the IR;
-`?format=ir`; a remote that is itself composed of remotes (refused for now: a remote's own `remotes:` are not
-served); mutual TLS.
+**Left for later**: the event cache feeding the Items and Record pages; cross-log lines in the process map;
+proposals written for the remote's owner (the refusal is built, the text is not); serving the IR
+(`?format=ir`); a remote that is itself composed of remotes (a remote's own imported parts are not served);
+mutual TLS.
 
 ## 9. Decisions, in one place
 
