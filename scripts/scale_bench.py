@@ -438,16 +438,21 @@ def record_stats(sd: Path) -> dict:
 # ---- the page
 
 
-def free_port() -> int:
+def free_port(wait: float = 180) -> int:
+    """A port of ours that is free, waiting for one (a server just stopped holds its port a while: TIME_WAIT)."""
     import socket
-    for p in PORTS:
-        with socket.socket() as s:
-            try:
-                s.bind(("127.0.0.1", p))
-                return p
-            except OSError:
-                continue
-    raise SystemExit("no port free in 8791-8799")
+    end = time.time() + wait
+    while True:
+        for p in PORTS:
+            with socket.socket() as s:
+                try:
+                    s.bind(("127.0.0.1", p))
+                    return p
+                except OSError:
+                    continue
+        if time.time() > end:
+            raise SystemExit("no port free in 8791-8799")
+        time.sleep(2)
 
 
 def get(url: str, timeout: float) -> tuple[float, int, int]:
