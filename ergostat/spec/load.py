@@ -16,7 +16,7 @@ SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variabl
             "loops", "claims", "contexts", "actions", "workspaces", "leases")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
             "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of"}
-TOP = {"name", "include", "keep", "messages", "storage", "defaults", *SECTIONS}
+TOP = {"name", "include", "keep", "messages", "storage", "defaults", "uses", "library", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -116,6 +116,8 @@ class Document:
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
     problems: list[Problem] = field(default_factory=list)
+    library: list[Path] = field(default_factory=list)   # the owner's folders of templates (library:, main file only)
+    uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
 
 
 def read_file(path: Path, problems: list[Problem]):
@@ -183,6 +185,18 @@ def load(main: Path) -> Document:
         if not isinstance(defaults, dict) or set(defaults) - {"system"}:
             doc.problems.append(Problem("error", "defaults: may only set system:", data.at("defaults"), "bad-defaults"))
             defaults = {}
+        if "library" in data:
+            if top:
+                lib = data["library"]
+                lib = [lib] if isinstance(lib, str) else lib
+                if not isinstance(lib, list) or not all(isinstance(x, str) for x in lib):
+                    doc.problems.append(Problem("error", "library: a folder of templates, or a list of them", data.at("library"),
+                                                "bad-library"))
+                else:
+                    doc.library = [(path.parent / Path(x).expanduser()).resolve() for x in lib]
+            else:
+                doc.problems.append(Problem("error", "library: belongs in the main file only", data.at("library"),
+                                            "library-in-include"))
         for section in SECTIONS:
             body = data.get(section)
             if body is None:
@@ -192,19 +206,10 @@ def load(main: Path) -> Document:
                                             data.at(section), "not-a-map"))
                 continue
             for name, entry in body.items():
-                w = body.at(name)
-                if (section, name) in doc.defined:
-                    first = doc.defined[(section, name)]
-                    one = SINGULAR.get(section, section[:-1])
-                    doc.problems.append(Problem("error", f"{one} {name} is defined twice: here and at {first}", w,
-                                                "defined-twice", f"{one}.{name}"))
-                    continue
-                if entry is None:
-                    entry = Map()
-                    entry.where, entry.lines = w, {}
-                doc.defined[(section, name)] = w
-                doc.sections[section][name] = entry
-                doc.defaults[(section, name)] = dict(defaults)
+                put(section, name, entry, body.at(name), defaults)
+        if data.get("uses") is not None:
+            from ..library import uses
+            uses.take(doc, data, defaults, put)
         inc = data.get("include")
         if inc is None:
             return
@@ -223,6 +228,20 @@ def load(main: Path) -> Document:
                     doc.problems.append(Problem("error", f"include: {pat}: no such file", data.at("include"), "include-missing"))
                     continue
                 take(h.resolve(), False, data.at("include"))
+
+    def put(section: str, name, entry, w: Where | None, defaults: dict) -> None:
+        if (section, name) in doc.defined:
+            first = doc.defined[(section, name)]
+            one = SINGULAR.get(section, section[:-1])
+            doc.problems.append(Problem("error", f"{one} {name} is defined twice: here and at {first}", w,
+                                        "defined-twice", f"{one}.{name}"))
+            return
+        if entry is None:
+            entry = Map()
+            entry.where, entry.lines = w, {}
+        doc.defined[(section, name)] = w
+        doc.sections[section][name] = entry
+        doc.defaults[(section, name)] = dict(defaults)
 
     take(main, True, None)
     return doc

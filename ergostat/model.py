@@ -532,6 +532,7 @@ def stamp(m: Model) -> tuple:
                 reached = None
             was = _INCLUDES[m.path] = (times, reached, now)
         out.append(was[1])
+        out.append(tuple(_mtime(Path(f)) for f in getattr(m.spec, "template_files", ())))   # the owner's templates
     return tuple(out)
 
 

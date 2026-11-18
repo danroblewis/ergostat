@@ -1,0 +1,146 @@
+template: respond-to
+description: Items arriving from a source, each answered within a time; a goal on the age of the oldest unanswered, and a block that answers.
+reading: |
+  System dynamics: a stock of items waiting, filled by the arrivals (an inflow the source sets: a disturbance to
+  every loop here) and drained by the answers (the outflow). The age of the oldest waiting item is an auxiliary of
+  the stock and the clock.
+  Control: two balancing loops on that age, one inside the other. The fast one, `picked-up`, is an on-off
+  controller with its setpoint at `act-after` (0: act as soon as anything waits); its actuator, `answer`, runs the
+  `answer` command once for each item, the longest waiting first. The slow one, `on-time`, is the commitment
+  (`within`); while it is off, the escalation asks a person (`escalate`), a second actuator on the same stock.
+  Preparing fast keeps the slow loop quiet, as in the-job's domains.
+example: |
+  uses:
+    questions:
+      use: respond-to
+      with:
+        within: 4h
+        command: ./bin/questions.sh          # prints the open questions as JSON: [{"id": 7, "title": ...}]
+        answer: ./bin/draft-answer.sh        # given each question on standard input; prints {"draft": ...}
+params:
+  kind:
+    type: name
+    default: ${name}
+    description: the kind of item; its ids are KIND/<the record's id>, its events KIND.arrived and KIND.answered
+  within:
+    type: duration
+    default: 4h
+    description: the commitment, as a duration (2h, 1d); the goal on-time holds the oldest unanswered item's age at or under it
+  act-after:
+    type: duration
+    default: 0
+    description: how long an item may wait before the answer block acts (0, at once); keep it under within
+  command:
+    type: command
+    stand-in: a made-up feed
+    description: the source, a command printing its records as JSON (an array, an object holding one, or one per line), each with an id; the cursor is in $ERGOSTAT_CURSOR
+  url:
+    type: url
+    stand-in: a made-up feed
+    description: the source, an HTTP endpoint answering with records as JSON ({cursor} in it is replaced)
+  headers:
+    type: list
+    description: 'HTTP headers for url, each "Name: value"; $VARIABLES are read from the environment'
+  id-field:
+    default: id
+    description: the field of a record that names it
+  cursor-field:
+    description: a field that only grows (a time, a sequence number); only records past the greatest seen are taken
+  path:
+    description: where the list of records is in the answer (data.items), when it is not the answer itself
+  poll:
+    type: duration
+    default: 1m
+    description: how often the source is read
+  stand-in-rate:
+    type: number
+    default: 120
+    description: the stand-in feed's records per hour
+  answer:
+    type: command
+    stand-in: a pretend answer
+    description: the command run for each waiting item, given it on standard input ({id, kind, state, fields}) and in $ITEM_ID, $ITEM_FIELDS; exit 0 when answered; the last JSON object it prints is folded into the item
+  rung:
+    type: rung
+    default: program
+    choices: [program, ai]
+    description: who fills the answer block, for the diagram and the ladder; an ai rung needs prompt
+  prompt:
+    type: path
+    description: the answer block's prompt (a file), when its rung is ai
+  batch:
+    type: integer
+    default: 5
+    description: the most items one run of the answer block takes
+  escalate:
+    default: Items have waited past their time unanswered. Look at the oldest and answer it, or say why not.
+    description: what a person is asked when the commitment is missed; false for nobody
+items:
+  ${kind}:
+    id: ${kind}/*
+    description: an item that arrived and wants an answer
+    states: [waiting, answered]
+    on:
+      ${kind}.answered: answered
+    show: [title, from, result]
+stocks:
+  waiting:
+    unit: items
+    description: arrived, not answered yet
+    sensor:
+      items: ${kind}
+      state: waiting
+      every: 10s
+auxiliaries:
+  oldest:
+    unit: h
+    description: how long the oldest unanswered item has waited, in hours
+    driven-by: [+stock.waiting]
+    sensor:
+      items: ${kind}
+      state: waiting
+      measure: oldest
+      every: 10s
+flows:
+  arriving:
+    to: waiting
+    description: items arriving from the source, as the collector sees them (per hour, over ten minutes)
+    sensor:
+      run: ${lib} collect --name ${name} --kind ${kind} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} ${cursor-field:arg} ${path:arg} --stand-in ${stand-in-rate} --window 600
+      every: ${poll}
+      averages: 10m
+  answered:
+    from: waiting
+    description: items the answer block answered
+    sensor:
+      items: ${kind}
+      entering: answered
+      over: 10m
+  answered-by-hand:
+    if: ${escalate}
+    from: waiting
+    description: items a person answered, as they report it
+goals:
+  picked-up:
+    auxiliary: oldest
+    hold: "<= ${act-after:hours}"
+    description: nothing waits longer than act-after before the answer block takes it
+  on-time:
+    auxiliary: oldest
+    hold: "<= ${within:hours}"
+    description: every item is answered within ${within}
+blocks:
+  answer:
+    type: ${rung}
+    goal: picked-up
+    prompt: ${prompt}
+    run: ${lib} each --kind ${kind} --state waiting --done answered --run ${answer:quote} --max ${batch} --flow flow.answered
+    max: ${batch}
+    every: 10s
+    out: flow.answered
+  escalate:
+    if: ${escalate}
+    type: person
+    goal: on-time
+    ask: ${escalate}
+    out: flow.answered-by-hand

@@ -1,0 +1,125 @@
+"""Finding and reading templates: ergostat's own, and the owner's folders of their own.
+
+A template file is YAML: ``template:`` (its name), ``description:``, ``reading:`` (what it is in control theory and
+in system dynamics), ``params:`` (each with ``description``, ``type``, and ``default`` or ``stand-in`` or
+``required``), ``example:`` (a ``uses:`` entry), and then the ordinary sections (``items:``, ``stocks:``, ``flows:``,
+``auxiliaries:``, ``parameters:``, ``goals:``, ``blocks:``, ``systems:``, ``uses:``)."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+HERE = Path(__file__).resolve().parent / "templates"
+ENV = "ERGOSTAT_LIBRARY"
+BODY = ("items", "systems", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents", "uses")
+HEAD = {"template", "description", "reading", "params", "example", "standins"}
+TYPES = ("string", "number", "integer", "duration", "setpoint", "command", "url", "cron", "bool", "name", "names",
+         "reference", "list", "map", "glob", "rung", "path")
+
+
+class TemplateError(Exception):
+    pass
+
+
+@dataclass
+class Param:
+    name: str
+    type: str = "string"
+    description: str = ""
+    default: object = None
+    standin: object = None              # what stands in, free and offline, when it is left out (said in a finding)
+    required: bool = False
+    has_default: bool = False
+    choices: list | None = None
+
+
+@dataclass
+class Template:
+    name: str
+    path: Path
+    builtin: bool
+    description: str = ""
+    reading: str = ""
+    example: str = ""
+    params: dict[str, Param] = field(default_factory=dict)
+    body: dict = field(default_factory=dict)
+
+    def summary(self) -> dict:
+        return {"template": self.name, "description": self.description, "from": "ergostat" if self.builtin else str(self.path),
+                "params": {n: {k: v for k, v in (("type", p.type), ("description", p.description),
+                                                ("default", p.default if p.has_default else None),
+                                                ("stand-in", p.standin), ("required", p.required or None),
+                                                ("choices", p.choices)) if v is not None}
+                           for n, p in self.params.items()}}
+
+
+class _Loader(yaml.SafeLoader):
+    """YAML 1.2 booleans only (yes and no stay words), as the model's own files are read."""
+
+
+_Loader.yaml_implicit_resolvers = {k: [(t, r) for t, r in v if t != "tag:yaml.org,2002:bool"]
+                                   for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()}
+_Loader.add_implicit_resolver("tag:yaml.org,2002:bool", __import__("re").compile(r"^(?:true|True|TRUE|false|False|FALSE)$"),
+                              list("tTfF"))
+
+
+def read(path: Path, builtin: bool) -> Template:
+    try:
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_Loader)  # noqa: S506 (a SafeLoader subclass)
+    except (OSError, yaml.YAMLError) as e:
+        raise TemplateError(f"template {path}: {e}") from e
+    if not isinstance(data, dict) or not isinstance(data.get("template"), str):
+        raise TemplateError(f"template {path}: a map starting template: NAME")
+    unknown = set(data) - HEAD - set(BODY)
+    if unknown:
+        raise TemplateError(f"template {path}: unknown section {sorted(unknown)[0]!r} (known: "
+                            f"{', '.join(sorted(HEAD | set(BODY)))})")
+    t = Template(data["template"], path, builtin, str(data.get("description") or "").strip(),
+                 str(data.get("reading") or "").strip(), str(data.get("example") or "").strip())
+    for n, spec in (data.get("params") or {}).items():
+        spec = spec if isinstance(spec, dict) else {"default": spec}
+        ty = str(spec.get("type") or "string")
+        if ty not in TYPES:
+            raise TemplateError(f"template {t.name}: param {n}: type {ty!r} (known: {', '.join(TYPES)})")
+        t.params[str(n)] = Param(str(n), ty, str(spec.get("description") or "").strip(), spec.get("default"),
+                                 spec.get("stand-in"), bool(spec.get("required")), "default" in spec,
+                                 spec.get("choices"))
+    t.body = {k: data[k] for k in BODY if data.get(k) is not None}
+    return t
+
+
+def folders(extra: list[Path] | None = None) -> list[Path]:
+    """The owner's folders first (``library:`` in the main file, then ``$ERGOSTAT_LIBRARY``), then ergostat's own."""
+    out = list(extra or [])
+    for x in (os.environ.get(ENV) or "").split(os.pathsep):
+        if x.strip():
+            out.append(Path(x.strip()).expanduser())
+    return [*out, HERE]
+
+
+def find_all(extra: list[Path] | None = None) -> tuple[dict[str, Template], list[str]]:
+    """Every template, by name: an owner's template shadows ergostat's own of the same name (said in the notes),
+    and the first folder wins between the owner's own. Also what could not be read, and what was shadowed."""
+    got: dict[str, Template] = {}
+    notes: list[str] = []
+    for d in folders(extra):
+        if not d.is_dir():
+            if d != HERE:
+                notes.append(f"library folder {d} does not exist")
+            continue
+        for f in sorted([*d.glob("*.yaml"), *d.glob("*.yml"), *d.glob("*/template.yaml")]):
+            try:
+                t = read(f, d == HERE)
+            except TemplateError as e:
+                notes.append(str(e))
+                continue
+            if t.name in got:
+                if t.builtin and not got[t.name].builtin:
+                    notes.append(f"template {t.name}: {got[t.name].path} is used in place of ergostat's own")
+                continue
+            got[t.name] = t
+    return got, notes

@@ -7,6 +7,7 @@ import re
 import shlex
 import sys
 import time
+from pathlib import Path
 
 from ..durations import DurationError, parse_duration
 from .equation import FUNCS as FUNCTIONS
@@ -747,6 +748,8 @@ class Compiler:
     def run(self) -> Spec:
         d = self.doc
         spec = Spec(d.name, d.root, d.files)
+        spec.uses = dict(d.uses)
+        spec.template_files = sorted({Path(u["path"]) for u in d.uses.values() if u.get("owners")})
         if d.keep is not None:
             try:
                 spec.keep = parse_duration(d.keep, "keep")
