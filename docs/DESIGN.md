@@ -86,7 +86,8 @@ serves the web page and runs every agent that has a command and is not a person:
   becomes an event.
 - **The model's history**: each load that differs from the last recorded one records
   `model.changed` (added, removed, changed parts). A running ergostat notices an edited file; when
-  it loads without errors it restarts itself in place (same process, same page).
+  it loads without errors it swaps the model in place at run boundaries: runs under way finish under
+  the model they started with, new runs start under the new one, and nothing is killed (SPEC §9.1).
 
 ## 5. The state estimate
 
