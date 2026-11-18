@@ -110,14 +110,37 @@ class Segment:
         self.first, self.last, self.count = h["first"], h["last"], h["count"]
         self.t_min, self.t_max = h["t_min"], h["t_max"]
         self.blocks = h["blocks"]
-        self.items: list[str | None] = h["items"]
+        self.items: list[str | None] = h["items"]          # sorted, None last: found by bisection
         self.types: list[str] = h["types"]
-        self.item_span = {it: tuple(s) for it, s in zip(self.items, h["item_span"], strict=True)}
-        self.item_times = {it: tuple(t) for it, t in zip(self.items, h["item_times"], strict=True)}   # (first, last)
+        self._named = len(self.items) - (1 if self.items and self.items[-1] is None else 0)
+        self._span = array.array("I", (x for sp in h["item_span"] for x in sp))      # per item: its first row by item, how many
+        self._times = array.array("d", (x for t in h["item_times"] for x in t))      # per item: its first and last time
         self.type_span = dict(zip(self.types, (tuple(s) for s in h["type_span"]), strict=True))
         self.bloom = base64.b64decode(h["bloom"])
         self.m = len(self.bloom) * 8
         self._cols: dict | None = None
+
+    def at(self, item) -> int | None:
+        """Where ``item`` is in ``items``, or None."""
+        if item is None:
+            return self._named if self._named < len(self.items) else None
+        i = bisect.bisect_left(self.items, item, 0, self._named)
+        return i if i < self._named and self.items[i] == item else None
+
+    def span(self, item) -> tuple[int, int] | None:
+        """``item``'s rows (in by_item order): the first and how many; None when it has none here."""
+        i = self.at(item)
+        return None if i is None else (self._span[2 * i], self._span[2 * i + 1])
+
+    def times(self, item) -> tuple[float, float]:
+        i = self.at(item)
+        return self._times[2 * i], self._times[2 * i + 1]
+
+    def spans(self):
+        """(item, first row, how many, first time, last time) for each item."""
+        sp, ts = self._span, self._times
+        for i, it in enumerate(self.items):
+            yield it, sp[2 * i], sp[2 * i + 1], ts[2 * i], ts[2 * i + 1]
 
     def maybe(self, id: str) -> bool:
         return all(self.bloom[i >> 3] & (1 << (i & 7)) for i in _hashes(id, self.m))
@@ -333,15 +356,21 @@ class Segments:
         want_types = None if types is None else [t for t in s.types if types(t)]
         if want_types is not None and not want_types:
             return []
-        if item is not ... and item not in s.item_span:
+        if item is not ... and s.span(item) is None:
             return []
-        items_ok = None if item_test is None else [x for x in s.items if item_test(x)]
+        items_ok = None if item_test is None else [i for i, x in enumerate(s.items) if item_test(x)]
         if items_ok is not None and not items_ok:
             return []
         c = self._cols(s)
         if item is not ...:
-            a, n = s.item_span[item]
+            a, n = s.span(item)
             rows = list(c["by_item"][a:a + n])
+            if want_types is not None and len(want_types) < len(s.types):
+                ok = {s.types.index(t) for t in want_types}
+                rows = [r for r in rows if c["type"][r] in ok]
+        elif items_ok is not None and len(items_ok) < len(s.items) // 4:     # a few items: their rows alone
+            rows = sorted(r for i in items_ok for r in c["by_item"][s._span[2 * i]:s._span[2 * i] + s._span[2 * i + 1]])
+            items_ok = None
             if want_types is not None and len(want_types) < len(s.types):
                 ok = {s.types.index(t) for t in want_types}
                 rows = [r for r in rows if c["type"][r] in ok]
@@ -350,7 +379,7 @@ class Segments:
         else:
             rows = range(s.count)
         if items_ok is not None and len(items_ok) < len(s.items):
-            ok = {s.items.index(x) for x in items_ok}
+            ok = set(items_ok)
             rows = [r for r in rows if c["item"][r] in ok]
         t, q = c["time"], c["seq"]
         return [r for r in rows if (since is None or t[r] >= since) and (until is None or t[r] <= until)
@@ -568,10 +597,9 @@ class Segments:
                 x[3], x[4] = seq, ty
         for s in segs:
             c = None
-            for it, (a, n) in s.item_span.items():
+            for it, a, n, t0, t1 in s.spans():
                 if it is None or (not own and "/" not in it):
                     continue
-                t0, t1 = s.item_times[it]
                 if since is not None and t1 < since:
                     continue
                 c = c or self._cols(s)
@@ -594,7 +622,7 @@ class Segments:
     def item_ids(self) -> set[str]:
         """Every item (an id with a ``/``) the record holds an event about: from the segments' headers."""
         segs, hd, hn = self._hstate()
-        out = {it for s in segs for it in s.item_span if it and "/" in it}
+        out = {it for s in segs for it in s.items if it and "/" in it}
         return out | {it for it in list(hd.by_item) if it and "/" in it}
 
     def last_times(self) -> dict[str, float]:
@@ -602,7 +630,7 @@ class Segments:
         segs, hd, hn = self._hstate()
         out: dict[str, float] = {}
         for s in segs:
-            for it, (_, t1) in s.item_times.items():
+            for it, _, _, _, t1 in s.spans():
                 if it and "/" in it and t1 > out.get(it, -INF):
                     out[it] = t1
         for i in range(hn):
@@ -679,7 +707,7 @@ class Segments:
         head = [hd.evs[i] for i in hd.by_item.get(item, ()) if i < hn]    # the head's events about it, by its index
         types = _types_matcher(type, ())
         for s in segs:
-            if s.t_max < since or s.t_min > until or item not in s.item_span:
+            if s.t_max < since or s.t_min > until or s.span(item) is None:
                 continue
             whole = since <= s.t_min and s.t_max <= until
             key = (s.name, what, item)
