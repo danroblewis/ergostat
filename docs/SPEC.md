@@ -1812,8 +1812,9 @@ the hold-out, and at least twice the dominant time constant of what it touches (
 change), at most a day; a window shorter than that time constant is not judged. Each window is replayed warm, from
 three of those time constants before it, never longer than `warm-up` nor than the record held before the window (on
 a young record a six-hour warm-up integrated the stocks from where the record did not reach, and scored a regime of
-its own: errors of 12 to 700 where the goal read 0.03 to 0.14). It **passes** one when the scaled error falls by the
-`threshold` or more in every window judged and is no worse elsewhere; when it is no worse in any window and answers
+its own: errors of 12 to 700 where the goal read 0.03 to 0.14). Two scaled errors closer than 0.005 are within the record's noise
+and count neither way. It **passes** one when the scaled error falls by the `threshold` or more in every window
+judged that can tell (the rest within the noise) and is no worse elsewhere; when it is no worse in any window and answers
 findings without making any; or when it is no worse and **simpler** (fewer parts, parameters and terms). It
 **fails** one that is worse by the threshold in any window, near it, elsewhere or on a goal's stock, or better only
 in some. One that no window can tell from the model as it is stays under test for more record, up to three times

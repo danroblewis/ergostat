@@ -13,7 +13,8 @@ touches, at most a day; each window is replayed warm, from a few of those time c
 than the configured ``warm-up`` nor than the record held before it (on a young record a six-hour warm-up integrated
 the stocks from where the record did not reach, and scored in a regime of its own).
 
-It **passes** a change that is better by the threshold in every window, or that is no worse in any and answers
+Scaled errors closer than ``FLOOR`` are within the record's noise and count neither way. It **passes** a change
+that is better by the threshold in every window that can tell, or that is no worse in any and answers
 findings ``check`` reported (making none), or that is no worse and simpler (fewer parts, parameters and terms:
 Occam) where the record replays what it touches (a part removed whose stocks nothing replays has no evidence for or
 against it: that is inconclusive).
@@ -49,6 +50,7 @@ MOST = 3                      # candidates judged in one run
 WARM_UP = 6 * 3600.0          # each window is replayed from at most this long before it (improve.warm-up)
 WARM_TAUS = 3.0               # ... and from this many of the dominant time constant before it, when that is less
 MAX_HOLD = ob.REFERENCE       # the most record a change waits for, however slow what it touches
+FLOOR = 0.005                 # scaled errors closer than this are within the record's noise: neither better nor worse
 TAU_POINTS = 120              # the time constants are read from a replay of the reference window in this many buckets
 PORTS = JUDGE_PORTS
 
@@ -203,12 +205,17 @@ def _pct(v: float) -> str:
     return f"{v * 100:.0f}%"
 
 
+def _apart(r: dict) -> bool:
+    """The scaled errors differ by more than the record's noise (``FLOOR``), so a share of either says something."""
+    return r.get("before") is None or r.get("after") is None or abs(r["before"] - r["after"]) > FLOOR
+
+
 def _worst_elsewhere(r: dict, threshold: float) -> str | None:
     """Why a window is worse away from what the change touches: the rest of the model, or a goal's own measure."""
-    if r.get("rest_change") is not None and r["rest_change"] <= -threshold:
+    if r.get("rest_change") is not None and r["rest_change"] <= -threshold and r["rest_after"] - r["rest_before"] > FLOOR:
         return f"the rest of the model {_pct(-r['rest_change'])} worse ({r['rest_before']:.3g} → {r['rest_after']:.3g})"
     for g, x in (r.get("goals") or {}).items():
-        if x["change"] is not None and x["change"] <= -threshold:
+        if x["change"] is not None and x["change"] <= -threshold and x["after"] - x["before"] > FLOOR:
             return f"goal {g}'s {x['stock']} {_pct(-x['change'])} worse ({x['before']:.3g} → {x['after']:.3g})"
     return None
 
@@ -227,9 +234,9 @@ def decide(results: list[dict], threshold: float, answers: int, new: int, held: 
                             f"{'s' if answers > 1 else ''} check reported, and makes none")
         return "inconclusive", (f"too little record to judge it: {n} window{'s' if n != 1 else ''} with a fit in "
                                 f"{dur(held)} held out (at least {MIN_JUDGED} are needed); it needs more record")
-    worse = [r for r in judged if r["change"] <= -threshold]
+    worse = [r for r in judged if r["change"] <= -threshold and _apart(r)]
     away = [(r, w) for r in judged if (w := _worst_elsewhere(r, threshold))]
-    better = [r for r in judged if r["change"] >= threshold]
+    better = [r for r in judged if r["change"] >= threshold and _apart(r)]
     lo, hi = min(r["change"] for r in judged), max(r["change"] for r in judged)
     sc = judged[0].get("scored") or []
     near = (", ".join(sc[:4]) + (f" and {len(sc) - 4} more" if len(sc) > 4 else "")) or "every stock"
@@ -242,7 +249,8 @@ def decide(results: list[dict], threshold: float, answers: int, new: int, held: 
         r, why = away[0]
         return "dropped", (f"worse elsewhere in {len(away)} of {n} windows held out: {why} over {dur(r['until'] - r['since'])}, "
                            f"though near what it touches ({near}) {_pct(r['change'])} better")
-    if len(better) == n:
+    noise = [r for r in judged if not _apart(r)]
+    if better and len(better) + len(noise) == n:          # better wherever the record can tell, never worse
         return "kept", (f"better in every one of {n} windows held out: near what it touches ({near}) the scaled error "
                         f"falls by {_pct(lo)} to {_pct(hi)} (the threshold is {_pct(threshold)}), and no worse elsewhere")
     if not better and answers and not new:
