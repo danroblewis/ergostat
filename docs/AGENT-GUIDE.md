@@ -64,6 +64,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    have the step ask for them (`$ERGOSTAT_CMD act NAME --arg k=v` from a script, or as a tool from an
    AI session). See SPEC section 12k.
 8. **Check and look** (section 3), and fix everything it finds before showing the person.
+9. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
+   **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
+   against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
+   views*).
 
 ### A small example, connected
 
@@ -159,6 +163,8 @@ You are not done when the YAML loads. Do this every time you change the model:
    (SPEC §5b) is the process map the record draws: for each kind, the states its items really
    entered and the moves between them, how often, and the median time each took. Hold it against
    the chain you modelled (below).
+6. **Reconcile the three views** (the last step): `ergostat check` once the model has run, or the MCP
+   `coherence` tool, and fix until every kind agrees (below).
 
 ### The Process view: does the workflow behave as modelled?
 
@@ -180,6 +186,37 @@ The Dynamics view is the workflow you declared; the Process view is the one that
       second's results finish the first. None means the runs do not record `causedby`.
 - [ ] Switch **Events** on to see what happens between the moves (comments, retries, a session's
       steps), and **Times** to see where the time goes. Click a line to list the items that took it.
+
+The first four are what `ergostat check`'s Coherence section checks for you, with the fix for each
+(below); the map is where you see why.
+
+### Reconcile the three views
+
+The Process view (what the items did), the Dynamics view (the chain you modelled) and the Blocks view
+(what moves the work) are one system drawn three ways, and they must agree. `ergostat check` holds
+them against each other over the record (SPEC §12l; the MCP tool `coherence`, the Check page's
+Coherence section): per kind a score, `ticket: 41 of 44 agree (93%)`, or how much more record it
+needs; and each mismatch with its file and line, its fix, the pair of views that disagrees, and the
+`check` finding it is linked to. This is your feedback loop: run, check, change the model (or the
+blocks), run again, until every kind reads `N of N agree`. How to read each:
+
+| Mismatch | Pair | What it means | What to change |
+|---|---|---|---|
+| `move-without-flow` | Process ↔ Dynamics | items moved between two states with stocks, and no flow carries them | add the flow it names (or re-point the cloud flow it names) |
+| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (↺ on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
+| `chain-skipped` | Process ↔ Dynamics | items went straight from A to C; the chain only carries them through B | a flow from A's stock to C's, or fix the `on:` mapping if B was meant to be entered |
+| `order-contradicted` | Process ↔ Dynamics | items went from A to B; the chain's flows run from B to A | the flows are the wrong way round: re-point them |
+| `arrival-not-modelled`, `completion-not-modelled` | Process ↔ Dynamics | items arrive where no flow brings them in, or finish where no flow takes them out | the arrivals flow from outside into that stock, or the completions flow out |
+| `waiting-without-goal`, `goal-without-loop` | Dynamics ↔ Blocks | items wait for the model's blocks in a stock no goal holds, or no loop closes | a goal on the stock (`hold: "<= 0"`), served by the block that moves them on |
+| `flow-moved-by-nothing` | Dynamics ↔ Blocks | a flow of the chain no block moves and nothing measures | the block's `out:`, or an external block or a sensor when the outside moves it |
+| `loops-not-connected`, `block-moves-no-flow` | Dynamics ↔ Blocks | the steps' loops share no stock; a block takes items and moves no flow | chain the stocks; give the block `out:` the flow it moves |
+| `acts-undeclared` | Blocks ↔ Process | a block's runs moved items it does not declare | add the state to its `takes:` (`at:`, `to:`), or the flow to its `out:` |
+| `moved-without-its-block` | Blocks ↔ Process | items moved with no block's run behind them, along a flow the model says a block moves | make the block record its events (event lines from its run), or say the outside does it (an external block) |
+| `declared-not-seen-acting` | Blocks ↔ Process | a block had work and something else moved it on | as above: its events are not its own, or the model names the wrong mover |
+
+Notes are not mismatches: `flow-not-seen` (a path the record has not taken yet: a retry, a dead letter), a block with
+no work in the window, a kind whose states no chain models. Too little record says how much more it needs: run
+longer, then check again.
 
 ### What "looks right" means
 
@@ -213,7 +250,8 @@ The Dynamics view is the workflow you declared; the Process view is the one that
 
 - **CLI**: `ergostat check`, `explain`, `run`, `status`, `item`, `lease`, `actions`, `help TOPIC`.
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
-  `explain`, `status`, `items`, `try_change` (test a change before writing it) and more.
+  `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
+  change before writing it) and more.
 - **Docs**: [SPEC.md](SPEC.md) (the format; sections 5a items, 6 sensors, 7 flows, 8 goals, 9 blocks,
   9.5 leases, 12k gated actions), [MODELLING.md](MODELLING.md) (improving a model from its record),
   [QUICKSTART.md](QUICKSTART.md), `examples/ticket-factory/` and `examples/the-job/`.

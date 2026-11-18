@@ -10,7 +10,7 @@ in system dynamics, a library block in control) that expands into ordinary items
 grouped as one system per use. You write one `uses:` entry, and scripts only where the template needs a command.
 
 You need the ergostat MCP server (`claude mcp add ergostat -- ergostat -C PROJECT mcp`). Its tools: `templates`,
-`add_use`, `scaffold`, `try_use`, `where_drawn`, plus `check` and `explain`.
+`add_use`, `scaffold`, `try_use`, `where_drawn`, plus `check`, `coherence` and `explain`.
 
 **A standing request is built, not done.** "Keep the cache under 20 GB", "remind them until they answer", "when a
 ticket arrives, do these steps": each is a rule for every time, so measuring, deleting or fetching once now is not
@@ -71,7 +71,12 @@ row of separate loops, and says nothing about the workflow.
    `gate: approve`, asked for by the step that needs them, never done by the step's own code.
 8. **Then run `check` and fix every structure finding** (`outflow-not-chained`, `state-stock-without-inflow`,
    `move-without-flow`, `state-stocks-disconnected`, `loops-not-connected`: each names the exact edit), and
-   **review both diagrams** before calling it done (below).
+   **review both diagrams** (below).
+9. **Last, reconcile the three views.** Run the model (`try_use`, a minute on its stand-ins, or the live record),
+   then call `coherence` (`project:` the scratch folder `try_use` gave; `ergostat check` prints the same section): it holds
+   the Process view (what the items really did) against the Dynamics view (the chain) and the Blocks view (what
+   moves the work). Fix the model, or the blocks, until every kind reads `N of N agree`, then look again. A kind that
+   says it needs more record has not run long enough to judge.
 
 When every state is a step a block works on, the `steps` template is this method in one entry (`steps: [research,
 approve, ramp, confirm]`: the kind, a stock per step and its work in progress, the chained flows, a block, a goal
@@ -160,6 +165,32 @@ pages. It looks right when:
 
 If any does not hold, fix the model (the findings name each edit) and look again. Show the owner both views.
 
+### Reconcile the three views: the final step
+
+Once the system has run (`try_use` for a minute, then `coherence` with `project:` its scratch folder; or the
+project's own record, `coherence` alone), read what it says. Each kind gets a
+score (`ticket: 41 of 44 agree (93%)`) and each mismatch its file and line, its fix, the pair of views that disagrees
+and the `check` finding it is linked to. Change the model (or the blocks) and run again until every kind agrees. How
+to read each:
+
+| Mismatch | Pair | What it means | What to change |
+|---|---|---|---|
+| `move-without-flow` | Process ↔ Dynamics | items moved between two states with stocks, and no flow carries them | add the flow it names (or re-point the cloud flow it names) |
+| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (↺ on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
+| `chain-skipped` | Process ↔ Dynamics | items went straight from A to C; the chain only carries them through B | a flow from A's stock to C's, or fix the `on:` mapping if B was meant to be entered |
+| `order-contradicted` | Process ↔ Dynamics | items went from A to B; the chain's flows run from B to A | the flows are the wrong way round: re-point them |
+| `arrival-not-modelled`, `completion-not-modelled` | Process ↔ Dynamics | items arrive where no flow brings them in, or finish where no flow takes them out | the arrivals flow from outside into that stock, or the completions flow out |
+| `waiting-without-goal`, `goal-without-loop` | Dynamics ↔ Blocks | items wait for the model's blocks in a stock no goal holds, or no loop closes | a goal on the stock (`hold: "<= 0"`), served by the block that moves them on |
+| `flow-moved-by-nothing` | Dynamics ↔ Blocks | a flow of the chain no block moves and nothing measures | the block's `out:`, or an external block or a sensor when the outside moves it |
+| `loops-not-connected`, `block-moves-no-flow` | Dynamics ↔ Blocks | the steps' loops share no stock; a block takes items and moves no flow | chain the stocks; give the block `out:` the flow it moves |
+| `acts-undeclared` | Blocks ↔ Process | a block's runs moved items it does not declare | add the state to its `takes:` (`at:`, `to:`), or the flow to its `out:` |
+| `moved-without-its-block` | Blocks ↔ Process | items moved with no block's run behind them, along a flow the model says a block moves | make the block record its events (event lines from its run), or say the outside does it (an external block) |
+| `declared-not-seen-acting` | Blocks ↔ Process | a block had work and something else moved it on | as above: its events are not its own, or the model names the wrong mover |
+
+Notes are not mismatches: `flow-not-seen` (a path the record has not taken yet: a retry, a dead letter), a block with
+no work in the window, a kind whose states no chain models. Too little record says how much more it needs: run
+longer, then check again.
+
 ## 2. Ask only what is needed
 
 Ask the owner (one short question each, at most two) only for what has no safe default and changes what is built:
@@ -209,7 +240,7 @@ Before anything is written to the project:
    (its text drawing, its `shape`, and the pages: `/diagram?view=dynamics&system=INSTANCE`, the stock-and-flow
    view, and `view=blocks`, the control view), reviewed against the checklist above: never call it done before
    both views look right;
-3. what the trial showed, in two or three sentences, and what still runs on stand-ins;
+3. what the trial showed, in two or three sentences, what still runs on stand-ins, and each kind's coherence score;
 4. your assumptions.
 
 Ask "turn it on?" Only on yes, call `add_use` with `write: true`, then `check`. When the owner has already said to

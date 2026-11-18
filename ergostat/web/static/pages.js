@@ -914,5 +914,35 @@ async function pageCheck(main) {
   const p = page(main, words.length ? `Check: ${words.join(", ")}` : "The model is whole");
   if (st.check.length) p.append(h("div", { class: "att" }, st.check.map((c) => h("div", {},
     h("b", { class: c.level === "error" ? "lvl-error" : "lvl-warning" }, c.level === "error" ? "Error" : "Warning"), " ", op(c.message)))));
-  p.append(h("h2", {}, "Counts"), h("dl", { class: "counts" }, Object.entries(st.counts).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, fmt(v))])));
+  const slot = h("div");                                   // the three views held against each other (SPEC §12l), when read
+  p.append(slot, h("h2", {}, "Counts"), h("dl", { class: "counts" }, Object.entries(st.counts).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, fmt(v))])));
+  let coh = null;
+  try { coh = await api("coherence"); } catch (e) { coh = null; }
+  if (coh && Object.keys(coh.kinds || {}).length) slot.append(coherenceSection(coh));
+}
+
+/* Coherence: each kind's score (agreements of comparisons, or the record it still needs), then each mismatch grouped
+   by the pair of views that disagrees, with its file and line, its fix and the check findings it is linked to */
+function coherenceSection(coh) {
+  const box = h("section", { class: "coherence" }, h("h2", {}, "Coherence",
+    h("span", { class: "muted" }, " the Process, Dynamics and Blocks views held against each other, over the record")));
+  box.append(h("ul", { class: "coh-scores" }, Object.entries(coh.kinds).map(([k, x]) => {
+    const all = x.compared && x.agree === x.compared;
+    const cls = x.compared ? (all ? "s-holding" : "s-open") : "muted";
+    return h("li", {}, h("b", {}, k), " ", x.compared ? h("span", { class: cls }, `${x.agree} of ${x.compared} agree`) : "",
+      x.needs ? h("span", { class: "muted" }, `${x.compared ? "; the record not compared yet: " : ""}needs ${x.needs}`) : "");
+  })));
+  const finds = coh.findings || [];
+  for (const [pair, title] of Object.entries(coh.pairs || {})) {
+    const mine = finds.filter((f) => f.pair === pair);
+    if (!mine.length) continue;
+    const bad = mine.filter((f) => f.level === "mismatch").length;
+    box.append(h("h3", {}, title, h("span", { class: "muted" }, bad ? ` ${bad} mismatch${bad > 1 ? "es" : ""}` : " notes only")),
+      h("div", { class: "att" }, mine.map((f) => h("div", { class: f.level === "note" ? "muted" : "" },
+        h("b", { class: f.level === "note" ? "" : "lvl-warning" }, f.code), " ",
+        f.file ? h("span", { class: "muted" }, `${f.file.split("/").pop()}:${f.line} `) : "", op(f.message),
+        f.fix ? h("div", { class: "note" }, "Fix: ", op(f.fix)) : "",
+        f.links?.length ? h("div", { class: "note" }, `See: ${f.links.join(", ")}`) : ""))));
+  }
+  return box;
 }
