@@ -1027,6 +1027,8 @@ async function pageDiagram(main, q) {
     view === "dynamics" ? { label: "Show loop markers", checked: loopsOn(), hint: "R and B, inside each loop",
       onclick: () => { const on = !loopsOn(); document.body.classList.toggle("no-loops", !on);
                        try { localStorage.setItem("ergostat.loops", on ? "1" : "0"); } catch (e) { /* not remembered */ } } } : null,
+    view !== "wiring" ? { label: "Colour by correspondence", checked: CORR.on, hint: "or hold C",
+      onclick: () => corrSet(!CORR.on) } : null,
     { label: "Open all systems", onclick: () => { S.graphSig = ""; go({ open: "*" }); } },
     { label: "Close all systems", onclick: () => { S.graphSig = ""; go({ open: "-" }); } },
     { sep: true },

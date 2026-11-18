@@ -7,7 +7,8 @@
    it touches is added (as Figma's and tldraw's Shift: a plain drag still pans, and two fingers
    scroll); a loop clicked chooses its members; a click on the background, or Escape, lets them all
    go. What stands for a part chosen is marked, a region holding it (and nothing of its own) dashed;
-   what a shape pointed at in the other pane is, lightly.
+   what a shape pointed at in the other pane is, boldly (and the rest of this pane steps back), so it is
+   found at a glance.
 
    Moving: a part dragged moves alone, or with all the chosen ones if it is one of them; an open system
    dragged by its top moves with everything in it. While they move, their lines keep the shape they last
@@ -85,6 +86,8 @@ function partDown(ev, n) {
 /* the chosen parts marked, and the lines waiting for libavoid greyed (after every drawing) */
 function markInteraction(svg) {
   const lit = litShapes(), near = litShapes(S.xhover);
+  if (typeof paintGroups === "function") paintGroups(svg);   // each shape's colours, shown when asked (colours.js)
+  svg.classList.toggle("xhovering", [...near.keys()].some((id) => !lit.has(id)));   // pointed at from the other pane: the rest steps back
   const mark = (el, id) => {
     el.classList.toggle("selected", lit.has(id));
     el.classList.toggle("within", lit.get(id) === "within");
@@ -95,6 +98,7 @@ function markInteraction(svg) {
     const id = el.dataset.hull.startsWith("frame:") ? el.dataset.hull : "hull:" + el.dataset.hull;   // a mark over it
     const how = lit.get(id), pointed = near.has(id) && !how;
     let m = el.querySelector(":scope > rect.hull-mark");
+    el.classList.toggle("xhover", pointed);
     if (!how && !pointed) { m?.remove(); continue; }
     const r = el.querySelector(":scope > rect:not(.hull-grip):not(.hull-mark)");
     if (!m && r) el.append(m = s("rect", { class: "hull-mark", x: r.getAttribute("x"), y: r.getAttribute("y"), width: r.getAttribute("width"),
