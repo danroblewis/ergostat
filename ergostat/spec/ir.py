@@ -720,12 +720,12 @@ class Spec:
     leases: dict[str, LeaseTerms] = field(default_factory=dict)        # tier → its lease terms, over the defaults (SPEC §9.5)
     uses: dict = field(default_factory=dict)                           # instance → its template, values, stand-ins (SPEC §2a)
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
-    _ix: object = field(default=None, init=False, repr=False, compare=False)   # its lookups (lookups.py), once asked
 
     def lookups(self):
-        """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed."""
+        """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept
+        as a plain attribute, not a field: what a model is (its fields, its hashes, its equality) never includes it."""
         from .lookups import Lookups, stamp
-        ix = self._ix
+        ix = getattr(self, "_ix", None)
         if ix is None or ix.stamp != stamp(self):
             ix = self._ix = Lookups(self)
         return ix
