@@ -98,7 +98,7 @@ def test_too_little_record_says_how_much_more_it_needs(tmp_path):
     work(p, n=2)
     got, _ = found(p)
     k = got["kinds"]["ticket"]
-    assert k["needs"].startswith("4 more moves and 1 more item of ticket in the window (has 6 moves of 2 items")
+    assert k["needs"].startswith("2 more moves and 1 more item of ticket in the window (has 8 moves of 2 items")
     assert k["pairs"]["process-dynamics"]["compared"] == 0 and k["pairs"]["blocks-process"]["compared"] == 0
     assert k["pairs"]["dynamics-blocks"]["compared"] > 0                # the model alone is always compared
     assert "needs" in co.score_line("ticket", k)
@@ -291,3 +291,40 @@ def test_the_examples_model_alone_has_no_dynamics_blocks_mismatch(example):
     got = co.compare(spec, None, problems=[])
     assert mismatches(got) == []
     assert all(k["needs"] == "a record (none yet)" for k in got["kinds"].values())
+
+
+def _fresh(example: str, dest: Path) -> Path:
+    import shutil
+    import subprocess
+    src = Path(__file__).resolve().parent.parent / "examples" / example
+    files = subprocess.run(["git", "-C", str(src), "ls-files"], capture_output=True, text=True, check=True).stdout.split()
+    for f in files:
+        (dest / f).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src / f, dest / f)
+    return dest
+
+
+def test_the_coherent_examples_agree_after_a_short_run_on_their_stand_ins(tmp_path):
+    """ticket-factory and coordinator, run on their stand-ins for half a minute (no page): where the record is enough to
+    compare, every comparison agrees; the rest says how much more it needs."""
+    import os
+    import subprocess
+    import sys
+    env = {**os.environ, "TF_OFFLINE": "1"}
+    ds = [_fresh(x, tmp_path / x) for x in ("ticket-factory", "coordinator")]
+    try:
+        for d in ds:
+            subprocess.run([sys.executable, "-m", "ergostat", "-C", str(d), "run", "--no-web"], env=env, check=True,
+                           capture_output=True, timeout=60)
+        time.sleep(25)
+    finally:
+        for d in ds:
+            subprocess.run([sys.executable, "-m", "ergostat", "-C", str(d), "run", "--stop"], env=env, capture_output=True,
+                           timeout=60)
+    compared = 0
+    for d in ds:
+        p = Project(mdl.load(d))
+        got = co.of_project(p, p.model.spec)
+        assert mismatches(got) == [], (d.name, [f["message"] for f in got["findings"] if f["level"] == "mismatch"])
+        compared += sum(x["compared"] for x in got["kinds"].values() if not x["needs"])
+    assert compared > 20                                  # the record was compared, not only waited for

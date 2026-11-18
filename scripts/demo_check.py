@@ -107,6 +107,21 @@ def items_as_before(url: str, spec) -> list[str]:
     return out
 
 
+def incoherent(demo: Path, notes: list[str]) -> list[str]:
+    """The coherence check (coherence.py) on what the run recorded: a coherent demo's three views agree wherever there
+    is record enough to compare; each kind's score is a note."""
+    from ergostat import coherence as co
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    p = Project(mdl.load(demo))
+    spec = getattr(p.model, "spec", None)
+    if spec is None:
+        return []
+    got = co.of_project(p, spec)
+    notes.extend(f"note: coherence: {co.score_line(k, x)}" for k, x in got["kinds"].items() if x["compared"])
+    return [f"coherence: {f['code']} ({f['pair']}): {f['message'][:300]}" for f in got["findings"] if f["level"] == "mismatch"]
+
+
 def fresh_copy(demo: Path) -> Path:
     """The demo's tracked files in a new folder, so a check never shares files (a simulation, a
     working repository) with a copy of the demo that is already running."""
@@ -167,6 +182,7 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
         for path in ("status", "graph", "graph?view=process", "loops", "agents", "events", "items", "residuals", "parts"):
             get(f"{url}/api/{path}")
         problems += items_as_before(url, spec)
+        problems += incoherent(demo, notes)
         if spec is not None:                                     # each loop as a control engineer reads it
             from urllib.parse import quote
             for g in spec.goals:
