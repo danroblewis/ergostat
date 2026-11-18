@@ -42,7 +42,7 @@ _conf = {**_read_conf(EXAMPLE), **({} if OFFLINE else _read_conf(CONF))}
 if OFFLINE:   # fast, local and free: nothing here reaches a service
     _conf.update({"AI": "standin", "SCRATCH": str(ROOT / "run"), "REPING_AFTER": "5s", "TEAMMATE_AFTER": "9s",
                   "TEAMMATE": "yes", "JIRA_URL": "https://jira.invalid", "JIRA_EMAIL": "owner@example.invalid",
-                  "GITHUB_REPO": "example/sample", "GITHUB_REPOS": "example/sample", "REVIEWERS": ""})
+                  "GITHUB_REPO": "example/sample", "REVIEWERS": "", "POLL_EVERY": "2s", "ACT_WAIT": "8s"})
 
 
 def conf(key: str, default: str = "") -> str:
@@ -62,6 +62,7 @@ def yes(key: str) -> bool:
 
 SCRATCH = Path(os.path.expanduser(conf("SCRATCH")))
 RUN = ROOT / "run"                       # what the example writes in its own folder (ignored by git)
+REPO = RUN / "repo"                      # the repository's clone: the workspace pool's (ergostat.yaml)
 REPORTS = ROOT / "reports"               # the daily summaries, shown on the Items page
 SESSIONS = RUN / "sessions"              # each AI session's answer, linked from its ticket
 
@@ -159,8 +160,8 @@ def write_json(path: Path, data) -> None:
 
 
 def throttled(what: str, every: str | None = None) -> bool:
-    """True when `what` was looked at less than POLL_EVERY ago (15s; offline never): steps that wait on a
-    service (review, ci) run every few seconds, and look at each ticket no more often than this."""
+    """True when `what` was looked at less than POLL_EVERY ago (15s; offline never): the teammate, which runs
+    every few seconds, looks at each pull request no more often than this."""
     if OFFLINE:
         return False
     path = RUN / "polled.json"

@@ -1,17 +1,25 @@
 # The ticket factory: a software engineer's ticket workflow, end to end
 
-A Jira issue labelled for the factory is picked up, its repository found, a git worktree and a branch
-made, the work done by an AI agent (Claude Code on haiku) or a free stand-in, a pull request opened with
-a description linking the issue, a review asked for and re-pinged, the review answered with a commit, the
-SAIL label added on approval, CI watched (and, when it fails, triaged, fixed and run again), the pull
-request merged, and the issue moved to Done. A daily summary and an OKR are kept from the counts. It runs
-against real services (Jira Cloud, GitHub, a Prometheus of its own), or offline against fakes.
+A Jira issue labelled for the factory is picked up, its repository found, the work done in a git worktree of its
+own by an AI agent (Claude Code on haiku) or a free stand-in, a pull request opened with a description linking the
+issue, a review asked for and re-pinged, the review answered with a commit, the SAIL label added on approval, CI
+watched (and, when it fails, triaged, fixed and run again), the pull request merged, and the issue moved to Done. A
+daily summary and an OKR are kept from the counts. It runs against real services (Jira Cloud, GitHub, a Prometheus
+of its own), or offline against fakes.
 
-It is a template: copy the folder, change `factory.conf`, and point it at your own Jira and repositories.
-Every call to Jira is in `bin/jira.py`, every call to GitHub in `bin/github.py`, and every outward act goes
-through a gate (`gates.conf`), so nothing reaches a work system that you did not allow.
+It is a template: copy the folder, change `factory.conf` (and the gates in `factory/actions.yaml`), and point it at
+your own Jira and repository. Every call to Jira is in `bin/jira.py`, every call to GitHub in `bin/github.py`, and
+every write to either is a **gated action** of ergostat's (`factory/actions.yaml`): asked for by a step, held for
+your approval or let through by its gate, and run by ergostat, never by the step.
 
-ergostat knows no tickets: the ticket is this example's own unit of work, an item kind (`ticket.yaml`).
+ergostat knows no tickets: the ticket is this example's own unit of work, an item kind (`ticket.yaml`). What it uses
+of ergostat's core:
+
+- **leases and item-driven dispatch** (SPEC 9.5): each step's block `takes` the tickets in its state, a run per
+  ticket, at most `pool` at once, each run holding a lease on its ticket;
+- **workspace pools** (SPEC 12k): the work steps get the ticket's own git worktree from the pool `code`, on its own
+  branch, kept through review and CI and cleaned when the ticket is done;
+- **gated actions** (SPEC 12k), asked for by the steps' programs with `$ERGOSTAT_CMD act NAME --arg K=V`.
 
 ## Setup
 
@@ -27,7 +35,7 @@ cp -r examples/ticket-factory ~/ticket-factory && cd ~/ticket-factory   # or wor
 `./setup` checks the tools and the sign-ins (who the Jira token signs in as, the project and its statuses,
 what `gh` can see), downloads Prometheus (`PROM_VERSION`, its checksum checked) into `SCRATCH`
 (`~/.cache/ergostat-ticket-factory`, outside the folder), starts it on `PROM_PORT` (8797) and the exporter
-on `EXPORTER_PORT` (8796), clones or refreshes the repository into `SCRATCH/repos/`, checks the model,
+on `EXPORTER_PORT` (8796), clones or fetches the repository into `run/repo` (the workspace pool's), checks the model,
 starts ergostat with its page on `WEB_PORT` (8795), and prints what to open. `./setup --no-run` does all
 but the last; `./setup --teardown` stops ergostat, the exporter and Prometheus (the downloads, the clone
 and the record stay; `ergostat reset --yes` clears the record).
@@ -37,9 +45,9 @@ Then give it work, as a test:
 ```bash
 bin/demo_issues.py create              # a test issue in JIRA_PROJECT, labelled JIRA_LABEL (at most 3 at once)
 bin/tickets.py list                    # where each ticket is
-bin/act.py list                        # what waits for your approval
-bin/act.py approve --all               # (or one ID) approve it: the step that asked does it on its next run
-bin/demo_issues.py cleanup             # close the demo's open pull requests, delete their branches, issues to Done
+ergostat actions                       # what waits for your approval (and every action, counted per class)
+ergostat actions ID --approve          # approve one: ergostat runs it, and its step finds it done (--deny: never)
+bin/demo_issues.py cleanup --delete    # close the demo's open pull requests, delete their branches and issues
 ```
 
 `bin/demo_issues.py` is the test harness, not the factory: it writes down what it created
@@ -47,35 +55,61 @@ bin/demo_issues.py cleanup             # close the demo's open pull requests, de
 
 **Offline.** Without a `factory.conf` (a fresh copy), or with `TF_OFFLINE=1`, nothing leaves the folder:
 Jira and GitHub are the fakes in `bin/fakes.py` (issues arrive on their own; the repository is a local bare
-repository whose CI runs the sample's own check), the work is the stand-in's, and the timings are seconds.
-`ergostat run` and watch it go round; `scripts/demo_check.py ticket-factory` runs it that way.
+repository whose CI runs the sample's own check), the work is the stand-in's, the scripted teammate also plays
+you and approves every held action, and the timings are seconds. `ergostat run` and watch it go round;
+`scripts/demo_check.py ticket-factory` runs it that way.
 
 ## The steps
 
-The workflow is one item kind, `ticket`. Its `states` (in `ticket.yaml`) are the step list, and each step
-is a file in `steps/`: the stock of tickets that step leaves behind, the flow it moves them along, the goal
-that runs it ("nothing waits here"), and its block, which runs `bin/step.py NAME --from STATE`. The runner
-takes the oldest ticket waiting in that state, runs the step's script (`steps/NAME.py`), and records
-`ticket.NAME`, which the kind's `on:` maps to the next state. A step's script returns `Move(fields)` (done),
-`Wait(why)` (not yet: an approval, a reviewer, CI) or `Stop(why)` (it cannot go on: the ticket moves to
-`stopped`, for you).
+The workflow is one item kind, `ticket`. Its `states` (in `ticket.yaml`) are the step list, and each step is a
+file in `steps/`: the stock of tickets that step leaves behind, the flow it moves them along, the goal that runs
+it ("nothing waits here"), and its block, which takes the tickets waiting in its state:
 
-| # | Step | From → to | What it does | Outward acts (gated) |
+```yaml
+blocks:
+  open-pr:
+    type: program
+    goal: worked-opened
+    run: python3 bin/step.py open-pr
+    takes: {kind: ticket, at: worked, to: [pr-open, stopped]}   # a run per ticket that reaches worked
+    pool: 3                                                    # three tickets at once
+    workspace: code                                            # the ticket's worktree (ERGOSTAT_WORKSPACE)
+    actions: [git-push, open-pr, jira-transition, jira-comment] # what its runs may ask for
+    out: flow.open-pr
+```
+
+ergostat starts a run for each ticket that reaches `at`, holding a lease on it (the ticket is `leased` meanwhile:
+its step's stock counts it before and after). `bin/step.py NAME` runs the step's script (`steps/NAME.py`) for the
+ticket `ERGOSTAT_ITEM` names, and its `run(ticket)` returns:
+
+- `Move(fields)`: done; `ticket.NAME` is recorded, which the kind's `on:` maps to the next state (a state in `to`:
+  the lease ends, acked);
+- `Wait(why)`: not yet (an approval, a reviewer, CI); the ticket is given back, put off for `POLL_EVERY` and not
+  counted (`{"nack": {"why": ..., "after": "15s", "count": false}}`), and its next run asks again;
+- `Stop(why)`: it cannot go on (an action denied or failed, a repository not its own); the ticket moves to
+  `stopped`, for you (`bin/tickets.py retry KEY` sends it back).
+
+A step that crashes (exits non-zero) has its attempt counted; after three (`lease: {attempts: 3}` on the kind, two
+on the AI steps) the ticket is a dead letter, `dead`: `ergostat lease` lists them, and `ergostat lease ITEM
+--redrive` gives one another go once its cause is fixed. A run silent past its lease's TTL (5 minutes for the
+program steps, 20 for the AI ones) loses its ticket to the next run, and anything it says about it afterwards,
+gated actions included, is refused.
+
+| # | Step | From → to | What it does | Gated actions |
 |---|---|---|---|---|
 | | watcher | → `new` | `bin/watch.py`, a sensor: the issues in `JIRA_PICK_FROM` labelled `JIRA_LABEL` become tickets | none (reads) |
-| 1 | `pick-up` | `new` → `picked` | the issue to In Progress, by whichever transition the project has (looked up, never assumed) | `jira.transition` |
-| 2 | `locate` | `picked` → `located` | the repository the issue names (`repo: owner/name`, or a GitHub link), else `GITHUB_REPO`; only those in `GITHUB_REPOS` | none |
-| 3 | `branch` | `located` → `branched` | a git worktree (`bin/workspace.py`, at most `WORKSPACES` out) and a branch by `BRANCH_TEMPLATE` | none |
-| 4 | `work` | `branched` → `worked` | the AI agent does the issue (`prompts/work.md`), or the stand-in writes a file; committed. Its cost is recorded | none: the agent cannot push or call gh |
-| 5 | `open-pr` | `worked` → `pr-open` | push; the pull request, its description linking the issue and saying who did it and for how much; the issue to In Review, with a comment linking the pull request | `github.push`, `github.open-pr`, `jira.transition`, `jira.comment` |
-| 6 | `ask-review` | `pr-open` → `review-asked` | a review request to `REVIEWERS`, or with none a comment asking | `github.request-review` or `github.comment` |
-| 7 | `review` | `review-asked` → `approved` or `changes-asked` | reads what people wrote (whatever the factory did not mark as its own): an approval (or a comment starting `APPROVE_WORD`) approves; anything else asks for a change. No answer within `REPING_AFTER`: re-ping, at most `REPING_MAX` | `github.comment` (re-pings) |
-| 8 | `address` | `changes-asked` → `review-asked` | the agent answers the comments with a change (`prompts/review.md`), pushed, and a reply saying what it did | `github.push`, `github.comment` |
-| 9 | `sail` | `approved` → `sailed` | the `SAIL_LABEL` label | `github.label` |
-| 10 | `ci` | `sailed` → `ci-green` or `ci-failed` | CI on the pull request's head (GitHub Actions); a failure keeps its log | none (reads) |
-| 11 | `fix-ci` | `ci-failed` → `sailed` | the agent triages the log and fixes it (`prompts/ci.md`), pushed, and a comment saying what failed; with nothing to fix, the run is run again | `github.push`, `github.comment`, `github.rerun` |
-| 12 | `merge` | `ci-green` → `merged` | merged (`MERGE_METHOD`) if `MERGE=yes` and the repository allows it; otherwise, or when the gate denies it, it stops at approved and says why (`merged: false`) | `github.merge` |
-| 13 | `close` | `merged` → `done` | the issue to Done, with a comment: the pull request, merged or not, the cycle time, re-pings, CI failures, the AI's cost; the workspace given back | `jira.transition`, `jira.comment` |
+| 1 | `pick-up` | `new` → `picked` | the issue to In Progress, by whichever transition the project has (looked up, never assumed) | `jira-transition` |
+| 2 | `locate` | `picked` → `located` | the repository the issue names (`repo: owner/name`, or a GitHub link), else `GITHUB_REPO`; any other stops it. Its clone (`run/repo`) made or fetched | none |
+| 3 | `work` | `located` → `worked` | in the ticket's workspace (a worktree from the pool `code`, on `ergostat/KEY-slug`), the AI agent does the issue (`prompts/work.md`), or the stand-in writes a file; committed. Its cost is recorded | none: the agent cannot push or call gh |
+| 4 | `open-pr` | `worked` → `pr-open` | push; the pull request, its description linking the issue and saying who did it and for how much; the issue to In Review, with a comment linking the pull request | `git-push`, `open-pr`, `jira-transition`, `jira-comment` |
+| 5 | `ask-review` | `pr-open` → `review-asked` | a review request to `REVIEWERS`, or with none a comment asking | `request-review` or `pr-comment` |
+| 6 | `review` | `review-asked` → `approved` or `changes-asked` | reads what people wrote (whatever the factory did not mark as its own): an approval (or a comment starting `APPROVE_WORD`) approves; anything else asks for a change. No answer within `REPING_AFTER`: re-ping, at most `REPING_MAX` | `pr-comment` (re-pings) |
+| 7 | `address` | `changes-asked` → `review-asked` | in its workspace, the agent answers the comments with a change (`prompts/review.md`), pushed, and a reply saying what it did | `git-push`, `pr-comment` |
+| 8 | `sail` | `approved` → `sailed` | the `SAIL_LABEL` label | `pr-label` |
+| 9 | `ci` | `sailed` → `ci-green` or `ci-failed` | CI on the pull request's head (GitHub Actions); a failure keeps its log | none (reads) |
+| 10 | `fix-ci` | `ci-failed` → `sailed` | in its workspace, the agent triages the log and fixes it (`prompts/ci.md`), pushed, and a comment saying what failed; with nothing to fix, the run is run again | `git-push`, `pr-comment`, `ci-rerun` |
+| 11 | `merge` | `ci-green` → `merged` | merged (`MERGE_METHOD`) if `MERGE=yes` and the repository allows it; otherwise, or when you deny it, it stops at approved and says why (`merged: false`) | `pr-merge` |
+| 12 | `close` | `merged` → `done` | the issue to Done, with a comment: the pull request, merged or not, the cycle time, re-pings, CI failures, the AI's cost. Its workspace is cleaned by ergostat | `jira-transition`, `jira-comment` |
 | | `reporter` | | every 30 seconds: the daily summary and the OKR (below) | none |
 
 The two rework loops are drawn as such: a review that asks for a change sends the ticket back round
@@ -88,74 +122,125 @@ approve its own pull request). At work, `TEAMMATE=no`: your reviewers are people
 count. The stand-in leaves an empty notes file (`STANDIN_PLACEHOLDER=yes`) so the repository's CI fails
 once and `fix-ci` has something to fix.
 
+## Workspaces
+
+```yaml
+workspaces:                          # ergostat.yaml
+  code:
+    repo: run/repo                   # the clone; locate makes it and fetches it
+    size: 3                          # three tickets' worktrees at once
+    branch: "ergostat/{id}-{slug}"   # ergostat/SCRUM-12-fix-the-login-page
+    base: origin/main
+messages:
+  done: {ticket: [done]}             # finished here: its workspace is cleaned
+```
+
+The blocks with `workspace: code` (`work`, `open-pr`, `address`, `fix-ci`) get the ticket's worktree: made on its
+first run from `base` on the ticket's branch, and given back as it was on every later one (a retry, the answer to a
+review, a CI fix). Between them it is **held** for the ticket; once the ticket is `done` (or a dead letter), ergostat
+**cleans** it (detached, untracked files removed; the branch stays in the clone) for the next ticket. A ticket that
+`stopped` keeps its workspace, for a retry. With all three out, a ticket waits in `located` (its run is put off ten
+seconds, not counted as a failure). `ergostat workspaces` lists them; one found dirty or broken is quarantined, never
+reused, until you free it (`ergostat workspaces code --free N`).
+
+An `ai` block's own `claude -p` would start in the workspace; here the block's `run:` is `bin/step.py`, which runs in
+the model's folder and passes `ERGOSTAT_WORKSPACE` to `bin/agent.py`, which starts Claude Code there.
+
+## Gated actions: what is gated, and how to promote one
+
+Every write to Jira or GitHub is a named action in `factory/actions.yaml`, a command template and its gate:
+`approve` (held until you approve it), `auto` (run at once) or `deny` (never). All are `approve` as shipped:
+
+| Action | Command (ergostat runs it) | Asked for by |
+|---|---|---|
+| `jira-transition` | `bin/jira.py transition {key} {status}` | pick-up, open-pr, close |
+| `jira-comment` | `bin/jira.py comment {key} {text}` | open-pr, close |
+| `git-push` | `git push --force-with-lease origin HEAD:refs/heads/{branch}`, in the workspace | open-pr, address, fix-ci |
+| `open-pr` | `bin/github.py open-pr {repo} {branch} {title} {body} {base}` | open-pr |
+| `request-review` | `bin/github.py request-review ...` | ask-review (with `REVIEWERS`) |
+| `pr-comment` | `bin/github.py comment {repo} {pr} {body}` | ask-review, review (re-pings), address, fix-ci |
+| `pr-label` | `bin/github.py label {repo} {pr} {label}` | sail |
+| `ci-rerun` | `bin/github.py rerun {repo} {run_id}` | fix-ci |
+| `pr-merge` | `bin/github.py merge {repo} {pr} {method}` | merge |
+
+A step asks with `act(name, **args)` (`bin/gated.py`, which runs `$ERGOSTAT_CMD act NAME --arg K=V`). An `approve`
+action is held: the step waits `ACT_WAIT` (10 seconds) for you, then gives its ticket back and asks again on its next
+run, where the same request (the same action and arguments) is the same action, never a second one. You answer with
+`ergostat actions ID --approve` (or `--deny`, with `--note`), or Approve / Deny on the action's page; ergostat runs
+it at once, and the step finds it done, its output with it. An action that ran is never run again; one that failed
+stops its ticket. A denied action stops its ticket too, except the merge, whose denial means "stop at approved".
+
+Every request and answer is an `ergostat.action/...` item (`ergostat.action.requested`, `.approved`, `.ran`, ...):
+who approved what, when, the exact command and its output. The ones held are a stock, `actions-waiting`
+(`ergostat.actions.held`), held at 0 by a person block, `approve` (you), which asks while anything waits.
+
+**Promoting a gate** is your edit to the model: `gate: auto` on the action in `factory/actions.yaml` (ergostat
+reloads it as it runs). `ergostat actions` counts each class's approvals this week and says when one has been
+approved five times or more and never denied. A local promotion you don't want to commit stays a local edit.
+
+**What is enforced.** ergostat runs the actions, in its own process with its own environment, so a step needs no
+write credentials of its own; the steps' code makes no write except through `act`. But nothing stops a step's script
+from calling `gh` or Jira itself: it runs as you, with your sign-ins, and the gate holds only the acts that go
+through it (SPEC 12k, "From a program block"). The steps here also read Jira and GitHub with the same sign-ins. To
+make the gate a wall, run the steps' command as another user, or in a container, with read-only credentials, and
+leave the write credentials to the user running ergostat. Whatever the gate, `bin/jira.py` refuses to write to an
+issue without `JIRA_LABEL`, and `bin/github.py` to any repository but `GITHUB_REPO`. The AI agent is held by its own
+Claude Code flags (`bin/agent.py`: file tools and read-only git, no `git push`, `gh` or `curl`), not by ergostat's
+OS sandbox, which only a session ergostat starts (`ergostat session`) gets.
+
 ## Adding a step
 
 A YAML change, and a script if the step acts. Say a `lint` step between `work` and `open-pr`:
 
 1. In `ticket.yaml`, add the state `linted` after `worked` in `states`, and `ticket.lint: linted` in `on`.
-2. Copy a step file: `cp steps/09-sail.yaml steps/04b-lint.yaml`, and in it name the stock `linted`, the flow
-   and the block `lint` (`from: worked`, `to: linted`), the goal on the stock `worked`, and the block's
-   `run: python3 bin/step.py lint --from worked`.
-3. In `steps/05-open-pr.yaml`, the next step now starts where lint ends: `from: linted`, the goal on
-   `linted`, `--from linted`.
+2. Copy a step file: `cp steps/08-sail.yaml steps/03b-lint.yaml`, and in it name the stock `linted`, the flow and the
+   block `lint` (`from: worked`, `to: linted`), the goal on the stock `worked`, and the block's
+   `run: python3 bin/step.py lint` and `takes: {kind: ticket, at: worked, to: [linted, stopped]}`. Give it
+   `workspace: code` if it reads or changes the code.
+3. In `steps/04-open-pr.yaml`, the next step now starts where lint ends: `takes: {at: linted, ...}`, its flow
+   `from: linted`, and its goal on `linted`.
 4. Optionally, `steps/lint.py`, with `run(ticket)` returning `Move(fields)`, `Wait(why)` or `Stop(why)`. With
-   no script, the step moves every ticket on at once: a state for a person or a program outside to act on.
-   An outward act goes through `act(name, ticket, step, sentence, function, *args)`, and its name gets a
-   line in `gates.conf`.
+   no script, the step moves every ticket on at once: a state for a person or a program outside to act on. An
+   outward act is `act("name", arg=value, ...)` (`from gated import act`): add the action to
+   `factory/actions.yaml` (its command and gate) and its name to the block's `actions:`.
 
 `ergostat check` says what is not connected; ergostat reloads the model while it runs.
 
-## Gates: what is gated, and how to promote one
+## Adapting it at work
 
-Every outward act is a named action, and each name has a gate in `gates.conf`: `auto` (done at once),
-`approve` (asked, and done once you approve it) or `deny` (never done). Every Jira and GitHub write is
-`approve` by default: `jira.transition`, `jira.comment`, `github.push`, `github.open-pr`,
-`github.request-review`, `github.comment`, `github.label`, `github.rerun`, `github.merge`. Reading is not
-gated. Offline (the third column), all are `auto` but the merge, which the offline stand-in for you
-approves after four seconds.
+The owner's work agent (the Supervisor, or whoever sets it up) copies the folder and changes three things:
+`factory.conf`, the credentials, and the gates. Set `TEAMMATE=no` (the reviewers are people), and never run
+`bin/demo_issues.py` there.
 
-Each action is an item (`action/<ticket>.<step>.<name>.<hash>`): what was asked, approved, done, denied or
-failed is in the record, and an act is never done twice (a step that runs again finds its action done). The
-waiting ones are a stock, `actions-waiting`, held at 0 by a person block, `approve` (you): it asks while
-anything waits. A denied action stops its ticket (`bin/tickets.py list` says why), except the merge,
-whose denial means "stop at approved".
+**Jira Data Center.** Everything Jira is in `factory.conf` and `bin/jira.py`, one function per call (`waiting`,
+`counts`, `get`, `transitions`, `transition`, `comment`):
 
-To promote a gate on one laptop, write it again in `gates.local.conf` (ignored by git), which overrides
-`gates.conf`:
+- `JIRA_URL`, `JIRA_PROJECT`, `JIRA_LABEL`, and the status names (`JIRA_PICK_FROM`, `JIRA_IN_PROGRESS`,
+  `JIRA_IN_REVIEW`, `JIRA_DONE`). Transitions are looked up by the status they lead to, so a project's own workflow
+  works as long as it has those statuses (`./setup` checks).
+- `JIRA_API=2` and `JIRA_AUTH=bearer`, with a personal access token in `JIRA_TOKEN_FILE`. The differences are marked
+  `DC` in `bin/jira.py`: search is `GET /rest/api/2/search` (Cloud's is `POST /rest/api/3/search/jql`), and comment
+  bodies are plain text (Cloud's are Atlassian Document Format). A different scheme (a custom field for the
+  repository, a JQL of your own) is a change to `_scope`, `waiting` or `_issue` there.
+- GitHub Enterprise: `gh auth login --hostname ...` and `GH_HOST`. Another code host is `bin/github.py`, one function
+  per call, and the commands the actions run.
 
-```
-jira.transition   auto
-github.label      auto
-github.merge      deny
-```
+**Credentials.** The Jira token is read from `JIRA_TOKEN_FILE` at each call, never printed, logged or recorded;
+`gh` uses its own sign-in. Both are used by the actions ergostat runs (writes) and by the steps (reads). With
+read-only credentials available, give the steps those (run their command as another user), and keep the write
+credentials with ergostat alone (above).
 
-`bin/act.py gates` prints every gate as it stands. Jira writes are also refused, whatever the gate, on an
-issue that does not carry `JIRA_LABEL`, and GitHub writes on a repository not in `GITHUB_REPOS`.
-
-## Another Jira, or Jira Data Center
-
-Everything Jira is in `factory.conf` and `bin/jira.py`, one function per call (`waiting`, `counts`, `get`,
-`transitions`, `transition`, `comment`):
-
-- **Another Jira Cloud**: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_TOKEN_FILE`, `JIRA_PROJECT`, `JIRA_LABEL`, and the
-  status names (`JIRA_PICK_FROM`, `JIRA_IN_PROGRESS`, `JIRA_IN_REVIEW`, `JIRA_DONE`). Transitions are looked
-  up by the status they lead to, so a project's own workflow works as long as it has those statuses
-  (`./setup` checks).
-- **Data Center**: `JIRA_API=2` and `JIRA_AUTH=bearer` with a personal access token in `JIRA_TOKEN_FILE`.
-  The differences are marked `DC` in `bin/jira.py`: search is `GET /rest/api/2/search` (Cloud's is
-  `POST /rest/api/3/search/jql`), and comment bodies are plain text (Cloud's are Atlassian Document Format).
-  A different scheme (a custom field for the repository, a JQL of your own) is a change to `_scope`,
-  `waiting` or `_issue` there.
-
-GitHub Enterprise: `gh auth login --hostname ...` and `GH_HOST`. Another code host is `bin/github.py`, one
-function per call.
+**Gates.** Start with every action at `approve`, as shipped, and approve from `ergostat actions` or the page. As a
+class proves itself (`ergostat actions` says when), promote it to `auto` in `factory/actions.yaml`; keep `deny` for
+what the factory must never do there (`pr-merge: {gate: deny}` makes every ticket stop at approved). A class of your
+own (`class: jira-write` on both Jira actions) is counted, and promoted, as one.
 
 ## Measurements
 
 In ergostat (the page, `ergostat loop`, `ergostat item --kind ticket`):
 
 - **stocks**, counted from the tickets: one per state (`new`, `picked`, ... `review-asked`, `changes-asked`,
-  `ci-failed`, ..., `done`, `stopped`), the actions waiting for approval, and three read from the record by
+  `ci-failed`, ..., `done`, `stopped`), the actions held for approval (`ergostat.actions.held`), and three read from the record by
   `bin/measure.py`: `ai-spend` (dollars), `repings`, and the reports written;
 - **flows**: each step's, counted as tickets enter its state, arrivals measured by the watcher, and the AI
   spending as each session ends;
@@ -173,7 +258,7 @@ In Prometheus (`bin/exporter.py`, scraped every 15 seconds): `tf_tickets{state}`
 `tf_jira_issues{status}` and `tf_github_open_prs`.
 
 **Equations**, where the flows are clear, so projection and what-if show something (the Model page): each
-step drains its stock at a rate set by how long it takes (`stock.located / branch-time`), the review splits
+step drains its stock at a rate set by how long it takes (`stock.located / work-time`), the review splits
 into approvals and changes by `change-share` over `review-time`, CI into passes and failures by
 `ci-fail-share` over `ci-time`, and the AI spending is a coflow of the sessions
 (`cost-per-session * (flow.work + flow.address + flow.fix-ci)`). The times and shares are marked
@@ -191,46 +276,6 @@ Try a what-if on `review-time` (a slower team) or `ci-fail-share`, and watch `pr
   keyboard"), five key results against their targets (Done this quarter, median cycle time, re-pings per
   pull request, the share passing CI first time, AI dollars per ticket: `OKR_*` in `factory.conf`), and its
   state, `on-track`, `at-risk` or `off-track`, from how many are met.
-
-## Where ergostat's coming features plug in
-
-Two features are being built in ergostat, on branches not yet merged (`leases`: SPEC §9.5; `workspaces`:
-SPEC §12k). Until they land, this example does their part itself, and each place is marked `PLUG POINT` in
-the code. Once they are on main:
-
-- **Leases and item-driven dispatch.** A step's block takes its tickets instead of polling for them:
-
-  ```yaml
-  blocks:
-    work:
-      type: ai
-      takes: {kind: ticket, at: branched, to: [worked, stopped]}   # a run per ticket that reaches branched
-      pool: 2                                                     # two tickets worked at once
-      lease: {ttl: 20m, attempts: 2}
-      run: python3 bin/step.py work --from branched               # no max:, no every:
-  ```
-
-  `bin/step.py` already takes only the ticket `ERGOSTAT_ITEM` names when it is set. Two things change with it:
-  a taken ticket is in the state `leased` while its run works (so the step's stock counts it only before and
-  after), and a ticket whose runs keep failing becomes a dead letter (`ergostat lease ITEM --redrive`) where
-  today it moves to `stopped`. A `Wait` (an approval, a reviewer, CI) becomes a nack put off and not counted:
-  `{"nack": {"why": "...", "after": "30s", "count": false}}`.
-- **Workspaces and gated actions.** A pool replaces `bin/workspace.py`, and the `branch` step goes:
-
-  ```yaml
-  workspaces:
-    code: {repo: ~/.cache/ergostat-ticket-factory/repos/danroblewis__orchestra-live-delivery, size: 3,
-           branch: "ergostat/{id}-{slug}", base: origin/main}
-  ```
-
-  and an AI block gets `workspace: code`, `tools: [...]` and the actions it may ask for, each with its gate
-  (`actions: {git-push: {run: ..., gate: approve}, open-pr: {...}}`), enforced by Claude Code's permissions and
-  OS sandbox rather than only by the tool list in `bin/agent.py`. ergostat's actions are asked for by an AI
-  session; here most outward acts are made by the steps' programs, so `gates.conf` maps onto the model's
-  `actions:` one name for one name (`github.push` → `git-push`, `github.open-pr` → `open-pr`, ...), approved
-  with `ergostat actions ID --approve` or on the item's page instead of `bin/act.py approve`, and promoted by
-  writing `gate: auto` in the model. ergostat also counts each class's approvals and says when one is ready to
-  promote.
 
 ## Costs measured
 
@@ -256,17 +301,15 @@ the re-run has started, and `fix-ci` stops after `CI_MAX_FIXES`.
 |---|---|
 | `setup` | the one command: set up, run, `--teardown` |
 | `factory.conf.example` | every setting, with its default (copied to `factory.conf`) |
-| `gates.conf` | every outward act's gate (`gates.local.conf` overrides it) |
-| `ergostat.yaml`, `ticket.yaml` | the model's top; the item kinds (the step list) |
+| `ergostat.yaml`, `ticket.yaml` | the model's top and the workspace pool; the item kinds (the step list) |
 | `steps/` | one YAML file and one script per step |
-| `factory/` | arrivals (`intake.yaml`), the owner's view (`oversight.yaml`), the teammate (`world.yaml`) |
+| `factory/` | the gated actions (`actions.yaml`), arrivals (`intake.yaml`), the owner's view (`oversight.yaml`), the teammate (`world.yaml`) |
 | `local/` | `prometheus.yaml`, written by `./setup` from `prometheus.yaml.in` |
 | `prompts/` | what the AI agent is asked: the work, a review, a CI failure |
-| `bin/jira.py`, `bin/github.py` | every call to Jira, every call to GitHub |
-| `bin/act.py` | the gates |
+| `bin/jira.py`, `bin/github.py` | every call to Jira, every call to GitHub (and the actions' commands) |
+| `bin/gated.py` | a step's outward act: `act(name, **args)`, through `ergostat act` |
 | `bin/step.py` | the step runner |
 | `bin/agent.py` | Claude Code or the stand-in, and what each session cost |
-| `bin/workspace.py` | the git worktrees |
 | `bin/watch.py`, `bin/measure.py`, `bin/exporter.py` | sensors, and the measurements for Prometheus |
 | `bin/report.py` | the daily summary and the OKR |
 | `bin/teammate.py` | the scripted reviewer (and, offline, the owner's approvals) |

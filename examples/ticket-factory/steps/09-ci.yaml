@@ -1,4 +1,4 @@
-# Step 10, ci: sailed -> ci-green, or -> ci-failed when CI fails (steps/ci.py). CI is GitHub Actions on the
+# Step 9, ci: sailed -> ci-green, or -> ci-failed when CI fails (steps/ci.py). CI is GitHub Actions on the
 # repository: a delay outside the factory, like the reviewers.
 defaults:
   system: shipping
@@ -62,7 +62,7 @@ blocks:
   ci:
     type: program
     goal: ci-watched
-    run: python3 bin/step.py ci --from sailed
-    max: 1
-    every: 3s
+    run: python3 bin/step.py ci
+    takes: {kind: ticket, at: sailed, to: [ci-green, ci-failed, stopped]}
+    pool: 3
     out: [flow.ci, flow.ci-failing]

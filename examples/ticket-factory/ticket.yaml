@@ -2,15 +2,16 @@
 # ergostat knows no tickets (README.md).
 #
 # THE STEP LIST is the ticket's `states`, in order, and `on`, the event each step records when it is done
-# and the state that takes the ticket to. Each step has a file in steps/ (its stock, flow, goal and block)
-# and, when it acts, a script beside it (steps/<name>.py). Adding a step: add its state here and its `on`
-# line, copy a step file, and point the next step's `--from` and flow at it (README.md, "Adding a step").
+# and the state that takes the ticket to. Each step has a file in steps/ (its stock, flow, goal and block,
+# which takes the tickets in its state: a run per ticket, under a lease) and, when it acts, a script beside it
+# (steps/<name>.py). Adding a step: add its state here and its `on` line, copy a step file, and point the next
+# step's `takes: {at:}` and flow at it (README.md, "Adding a step"). While a step's run works a ticket, the
+# ticket is `leased` (ergostat adds that state, and `dead` for one whose runs keep failing).
 #
 #   step          from            to              what it does
 #   pick-up       new             picked          the Jira issue to In Progress
-#   locate        picked          located         which repository it names
-#   branch        located         branched        a workspace (git worktree) and a branch by BRANCH_TEMPLATE
-#   work          branched        worked          the AI agent (or the stand-in) does it; committed
+#   locate        picked          located         which repository it names; its clone fetched
+#   work          located         worked          the AI agent (or the stand-in) does it in its workspace; committed
 #   open-pr       worked          pr-open         push, open the pull request, the issue to In Review
 #   ask-review    pr-open         review-asked    ask the reviewers
 #   review        review-asked    approved        wait for them; re-ping; -> changes-asked when they comment
@@ -24,12 +25,11 @@ items:
   ticket:
     id: ticket/*
     description: a Jira issue labelled for the factory, from pick-up to Done
-    states: [new, picked, located, branched, worked, pr-open, review-asked, changes-asked, approved, sailed,
+    states: [new, picked, located, worked, pr-open, review-asked, changes-asked, approved, sailed,
              ci-failed, ci-green, merged, done, stopped]
     on:
       ticket.pick-up: picked
       ticket.locate: located
-      ticket.branch: branched
       ticket.work: worked
       ticket.open-pr: pr-open
       ticket.ask-review: review-asked
@@ -56,17 +56,7 @@ items:
       ai_seconds: sum
       sessions: append
       answered: union
-
-  action:
-    id: action/*
-    description: an outward act under its gate (gates.conf, bin/act.py)
-    states: [requested, approved, done, denied, failed]
-    on:
-      action.approved: approved
-      action.done: done
-      action.denied: denied
-      action.failed: failed
-    show: [what, gate, ticket, result]
+    lease: {attempts: 3}               # a step whose runs fail three times (exit not 0): a dead letter
 
   report:
     id: report/*

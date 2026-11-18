@@ -38,7 +38,8 @@ blocks:
   pick-up:
     type: program
     goal: new-picked-up
-    run: python3 bin/step.py pick-up --from new
-    max: 1
-    every: 3s
+    run: python3 bin/step.py pick-up
+    takes: {kind: ticket, at: new, to: [picked, stopped]}
+    pool: 3
+    actions: [jira-transition]
     out: flow.pick-up

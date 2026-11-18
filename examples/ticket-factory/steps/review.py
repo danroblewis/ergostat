@@ -1,12 +1,13 @@
 """review: wait for the reviewers. Each comment or review a person wrote (whatever the factory did not mark as
 its own) that is not answered yet: an approval (a review that approves, or a comment starting APPROVE_WORD)
 moves the ticket to approved; anything else to changes-asked, for `address`. No answer within REPING_AFTER of
-asking: ask again, at most REPING_MAX times (each one counted in `repings`)."""
+asking: ask again, at most REPING_MAX times (each one counted in `repings`). While it waits, the ticket is
+given back and looked at again after POLL_EVERY."""
 
 import github
-from act import act
+from gated import act
 from step import Move, Wait
-from tf import conf, key_of, now, seconds, throttled
+from tf import conf, now, seconds
 
 
 def entries(p):
@@ -25,9 +26,7 @@ def approves(e):
 
 def run(ticket):
     f = ticket["fields"]
-    key, repo, pr = key_of(ticket), f["repo"], f["pr"]
-    if throttled(f"review:{ticket['id']}"):
-        return Wait("looked a moment ago")
+    repo, pr = f["repo"], f["pr"]
     p = github.pr(repo, pr)
     if p["state"] != "OPEN":
         return Wait(f"#{pr} is {p['state'].lower()}")
@@ -44,8 +43,6 @@ def run(ticket):
         return Wait(f"no answer yet ({waited:.0f}s)")
     if n >= int(conf("REPING_MAX", "3")):
         return Wait(f"no answer after {n} re-pings")
-    act("github.comment", key, "review", f"Re-ping the reviewers on #{pr} ({n + 1})", github.comment, repo, pr,
-        f"Friendly re-ping ({n + 1}): this is waiting for a review." + (
-            " " + " ".join("@" + r for r in conf("REVIEWERS").replace(",", " ").split()) if conf("REVIEWERS") else ""),
-        extra=str(n + 1))
+    act("pr-comment", repo=repo, pr=pr, body=f"Friendly re-ping ({n + 1}): this is waiting for a review." + (
+        " " + " ".join("@" + r for r in conf("REVIEWERS").replace(",", " ").split()) if conf("REVIEWERS") else ""))
     return Wait("re-pinged", {"repings": 1, "asked_at": now()})

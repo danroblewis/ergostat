@@ -1,6 +1,8 @@
 """work: the AI agent (AI=claude, on AI_MODEL) or the stand-in does what the ticket asks, in its workspace
-(prompts/work.md). What it changed is committed here; it cannot push. Its cost is recorded on the ticket."""
+(ERGOSTAT_WORKSPACE: a git worktree from the pool `code`, on the ticket's branch, ERGOSTAT_BRANCH), with
+prompts/work.md. What it changed is committed here; it cannot push. Its cost is recorded on the ticket."""
 
+import os
 from pathlib import Path
 
 import agent
@@ -10,13 +12,12 @@ from tf import key_of, once
 
 def run(ticket):
     f = ticket["fields"]
-    ws = Path(f["workspace"])
+    ws, branch = Path(os.environ["ERGOSTAT_WORKSPACE"]), os.environ["ERGOSTAT_BRANCH"]
     def work():
         got = agent.run("work", ticket, ws)
         return {**got, "head": agent.commit(ws, f"{key_of(ticket)}: {f.get('title', 'the work')}")}
     got = once(f"{key_of(ticket)}.work", work)
     head = got["head"]
-    spent = agent.spent(got)
     if not head:
         return Stop(f"the agent changed nothing: {got['said'][:200]}")
-    return Move({**spent, "head": head, "work_said": got["said"]})
+    return Move({**agent.spent(got), "head": head, "work_said": got["said"], "branch": branch, "workspace": str(ws)})

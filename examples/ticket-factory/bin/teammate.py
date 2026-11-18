@@ -4,8 +4,8 @@ As the reviewer: TEAMMATE_AFTER after a pull request first waits for review, it 
 one change; once the factory has answered it, it approves (a comment starting APPROVE_WORD: one GitHub
 account cannot approve its own pull request). It only looks at the factory's own pull requests.
 
-Offline only, as the owner: it approves each gated action that has waited four seconds, so the offline demo
-runs through. Online, the owner approves (bin/act.py).
+Offline only, as the owner: it approves each gated action held for approval (`ergostat actions ID --approve`),
+so the offline demo runs through. Online, the owner approves.
 
 Prints how many pull requests it is looking at (the auxiliary team-reviewing)."""
 
@@ -16,7 +16,9 @@ import time
 from datetime import datetime
 
 import github
-from tf import OFFLINE, RUN, conf, items, read_json, record, seconds, throttled, write_json, yes
+import json
+
+from tf import OFFLINE, RUN, conf, items, read_json, run_ergostat, seconds, throttled, write_json, yes
 
 ASK = ("Could the file also say which ticket it is for, with the ticket's link? "
        "(A scripted review by the ticket factory's teammate.)")
@@ -55,9 +57,9 @@ def main() -> int:
                 m.update(phase=2, approved=time.time())
     write_json(RUN / "teammate.json", mem)
     if OFFLINE:                                          # the owner's stand-in: only ever offline
-        for a in items("action", "requested"):
-            if time.time() - float(a.get("entered") or 0) > 4:
-                record("action.approved", a["id"], {"approved_by": "owner (offline stand-in)"}, by="owner")
+        for a in json.loads(run_ergostat("actions", "--json", "-n", "200"))["actions"]:
+            if a["state"] == "requested":
+                run_ergostat("actions", a["id"].split("/", 1)[1], "--approve", "--note", "the owner's offline stand-in")
     print(looking)
     return 0
 
