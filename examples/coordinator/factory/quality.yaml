@@ -121,13 +121,6 @@ blocks:
       rejected: flow.rejected
       asked: flow.asked
       habit: flow.habit-changed
-  merge-queue:
-    type: program
-    description: LP4 - what passed its check merged onto the mainline in order, one at a time (u4); H1's read exit status is the check's
-    run: python3 bin/coord.py merge
-    in: [+stock.reported-done]
-    every: 2s
-    out: flow.accepted
   quality-integrator:
     type: program
     description: LP2, integral action run to run (program tier) - once a factory day, h* moves by -Ki times CV1's error outside a deadband, clamped to 0.02 to 0.3, not while LP1 is saturated or the week holds under ten acceptances

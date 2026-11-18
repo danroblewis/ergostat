@@ -71,9 +71,8 @@ blocks:
   attention:
     type: program
     description: LP7 - a token bucket on interruptions (S1), the rest batched; the handover report on the owner's return, in which the owner answers what was batched and confirms the proposed decisions
-    goal: decisions-drained
-    run: python3 bin/coord.py attention
-    in: [+auxiliary.owner-present]
+    run: python3 bin/coord.py attention   # on its clock, not gated by its goal: the report goes out on the owner's return
+    in: [goal.decisions-drained.error, +auxiliary.owner-present]
     every: 2s
     out: flow.decisions-confirmed
   the-owner:

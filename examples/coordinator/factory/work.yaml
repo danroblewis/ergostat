@@ -210,6 +210,7 @@ flows:
       where:
         via: rejected
       over: 10m
+
   reopened:
     from: accepted-work
     to: ready-work
@@ -288,3 +289,10 @@ blocks:
     out:
       admitted: flow.admitted
       declined: flow.declined
+  merge-queue:
+    type: program
+    description: LP4 - what passed its check merged onto the mainline in order, one at a time (u4); H1's read exit status is the check's
+    run: python3 bin/coord.py merge
+    in: [+stock.reported-done]
+    every: 2s
+    out: flow.accepted

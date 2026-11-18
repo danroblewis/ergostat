@@ -103,7 +103,7 @@ blocks:
   externaliser:
     type: program
     description: LP9 - each correction written down within the hour and used in briefs at once, marked uncertain; one absorbed into a check that held, or dormant, retired by ergostat itself
-    goal: knowledge-recorded
+    goal: knowledge-recorded          # runs while a correction waits; it retires what is absorbed on those runs
     run: python3 bin/coord.py externalise
     every: 5s
     out:
