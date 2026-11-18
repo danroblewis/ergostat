@@ -429,6 +429,9 @@ def record_stats(sd: Path) -> dict:
     try:
         m = sqlite3.connect(f"file:{sd / 'measurements.db'}?mode=ro", uri=True, timeout=30)
         out["readings"] = m.execute("select count(*) from samples").fetchone()[0]
+        n_, t0_, t1_ = m.execute("select count(*), min(time), max(time) from samples where series like 'sensor/%'").fetchone()
+        out["sensor_readings"] = n_                         # the sensors' readings recorded, whatever took them
+        out["sensor_readings_per_s"] = round(n_ / max(1.0, (t1_ or 0) - (t0_ or 0)), 2) if n_ else 0.0
         out["series"] = m.execute("select count(distinct series) from samples").fetchone()[0]
     except sqlite3.Error as e:
         out["readings_error"] = str(e)

@@ -28,6 +28,7 @@ import sqlite3
 import sys
 import threading
 import time
+import uuid
 from collections import OrderedDict
 from pathlib import Path
 
@@ -221,7 +222,7 @@ class Index:
         self.names, self.rnames = {None: None}, {None: None}
         self.cache.clear()
         self._left.clear()
-        self._set_meta(version=VERSION)
+        self._set_meta(version=VERSION, epoch=uuid.uuid4().hex)   # (what follows its rows sees it was made again: counts.py)
 
     def _reconcile(self, events) -> None:
         """After events were taken out: an item none of whose events is left is forgotten."""
