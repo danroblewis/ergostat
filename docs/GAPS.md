@@ -57,7 +57,9 @@ review). Newest decisions from the owner first within each section.
 - **`where:` compares strings** (done, `modelfix`): typed JSON equality (numbers as numbers, strings as strings,
   booleans as booleans), for sensors and `takes:`; a filter typed as text (the Items page) matches either type;
   `check` notes each bare number or boolean in a `where:` (`where-typed`). No example has one.
-- **Listing projects writes `repo.json` into other projects' state folders** (open).
+- **Listing projects writes `repo.json` into other projects' state folders** (done, `modelfix`): the listing opens
+  each project without its note (`Project(..., note=False)`), and the event log's head is made once rather than
+  touched on every open. SQLite still does its own WAL bookkeeping when a store is opened to read.
 - **`try_use` trials can leave Claude sessions running** (open).
 - **Three tests fail only under heavy load** (open): `test_a_selection_is_model_parts_and_survives_switching_view`,
   `test_a_page_left_open_does_not_grow`, `test_a_lease_held_by_a_run_survives_a_model_edit`.
