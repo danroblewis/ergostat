@@ -583,6 +583,9 @@ def _answer(live: Live, path: str, q: dict):
     return None
 
 
+PUSH_LIMIT = 4 * 1024 * 1024        # the largest push read (bytes)
+
+
 def handler(project):
     live = Live(project)
     token = secrets.token_urlsafe(24)                    # this run's: written into the page, asked of every write
@@ -632,12 +635,25 @@ def handler(project):
             port = self.server.server_address[1]
             return (self.headers.get("Host") or "").lower() in {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
+        def _local(self) -> bool:
+            from ..intake.token import allowed
+            return allowed(self.client_address[0], [])
+
         def do_POST(self):
             """The page's one kind of write: the owner accepting or dismissing a proposal, asking for
             estimates, or sending the work a message. Only from the page itself: addressed to this server by its own name (the Host
             header), from its own origin (Origin, Sec-Fetch-Site), and carrying the token this run of the
-            server wrote into the page it served, which no other page can read."""
+            server wrote into the page it served, which no other page can read. Events pushed (``/api/events``,
+            ``/api/hooks/NAME``) carry the state directory's token instead (``intake/``)."""
             u = urlsplit(self.path)
+            if u.path == "/api/events" or u.path.startswith("/api/hooks/"):
+                from .push_api import post as push
+                n = int(self.headers.get("Content-Length") or 0)
+                code, data = push(live, u.path, parse_qs(u.query), self.headers, self.client_address[0],
+                                  self.rfile.read(n) if 0 < n <= PUSH_LIMIT else None, n)
+                return self._send(code, json.dumps(data, default=str).encode(), "application/json")
+            if not self._local():                         # another machine may only push
+                return self._send(403, b'{"error": "only events may be pushed from another machine"}', "application/json")
             origin = self.headers.get("Origin")
             fetch_site = self.headers.get("Sec-Fetch-Site")
             if (not self._host_ok() or not u.path.startswith("/api/")
@@ -673,6 +689,8 @@ def handler(project):
 
         def do_GET(self):
             u = urlsplit(self.path)
+            if not self._local():                         # another machine may only push (intake: bind:)
+                return self._send(403, b"only events may be pushed from another machine", "text/plain")
             if not self._host_ok():                        # another site's name pointed here: nothing is read
                 return self._send(403, b"not this server's name", "text/plain")
             if u.path.startswith("/api/"):

@@ -13,12 +13,12 @@ from .server import handler
 DEFAULT_PORT = 8781
 
 
-def _free(port: int) -> int:
+def _free(port: int, host: str = "127.0.0.1") -> int:
     for p in range(port, port + 40):
         with socket.socket() as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
-                s.bind(("127.0.0.1", p))
+                s.bind((host, p))
                 return p
             except OSError:
                 continue
@@ -87,8 +87,14 @@ def record_fits(live, every: float = 300.0, stop: threading.Event | None = None)
 
 
 def serve(project, port: int | None = None):
-    port = _free(port or DEFAULT_PORT)
-    server = PooledServer(("127.0.0.1", port), handler(project))
+    """The page on ``port`` (or the next free one), on this machine only unless ``intake: bind:`` says where else; from
+    another machine only events may be pushed (``intake: allow:``). The push token is made now (``intake/token.py``)."""
+    spec = getattr(project.model, "spec", None)
+    host = getattr(getattr(spec, "intake", None), "bind", None) or "127.0.0.1"
+    port = _free(port or DEFAULT_PORT, host)
+    from ..intake.token import token
+    token(project.dir)
+    server = PooledServer((host, port), handler(project))
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     threading.Thread(target=record_fits, args=(server.RequestHandlerClass.live,), name="ergostat-fit-history", daemon=True).start()

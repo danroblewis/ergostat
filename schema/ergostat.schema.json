@@ -316,6 +316,87 @@
         }
       }
     },
+    "intake": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What may push events to the running ergostat (POST /api/events, /api/hooks/NAME): who besides this machine, where the page listens, and each webhook's mapping (docs/proposals/latency.md)",
+      "properties": {
+        "allow": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "description": "Addresses or networks that may push besides this machine"
+        },
+        "bind": {
+          "type": "string",
+          "description": "The address the page listens on (default 127.0.0.1)"
+        },
+        "hooks": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "event": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "from",
+                      "map"
+                    ],
+                    "properties": {
+                      "from": {
+                        "type": "string"
+                      },
+                      "map": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "item": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "each": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "data": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "event"
+            ]
+          }
+        }
+      }
+    },
     "contexts": {
       "type": "object",
       "propertyNames": {
