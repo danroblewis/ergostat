@@ -900,9 +900,11 @@ class Engine:
                     self.outputs.pop(n, None)
                     self.commands.pop(n, None)
             self.machines = [b for b in new.blocks.values() if b.machine]
-            carried = sorted(n for n in self.running if n in before.blocks)
-            finishing = {"removed": [n for n in carried if n not in new.blocks],
-                         "changed": [n for n in carried if n in new.blocks and not same(before.blocks[n], new.blocks[n])]}
+            carried = sorted(n for n in self.running if n.split(" ", 1)[0] in before.blocks)   # ("block item": a leased run)
+            blk = lambda n: n.split(" ", 1)[0]                                                    # noqa: E731
+            finishing = {"removed": [n for n in carried if blk(n) not in new.blocks],
+                         "changed": [n for n in carried if blk(n) in new.blocks
+                                     and not same(before.blocks[blk(n)], new.blocks[blk(n)])]}
             self.spec = new
             self.p.model = model
             self.version = history.version(model)

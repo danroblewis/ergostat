@@ -501,3 +501,32 @@ def test_the_command_line_renews_gives_back_and_redrives(tmp_path):
     assert item(p, "ticket/1").state == "ready"
     assert main(["-C", str(tmp_path), "lease", "ticket/1", "--redrive"]) == 1, "only a dead letter"
     assert main(["-C", str(tmp_path), "lease"]) == 0 and main(["-C", str(tmp_path), "lease", "ticket/1"]) == 0
+
+
+def test_a_lease_held_by_a_run_survives_a_model_edit(tmp_path):
+    """A model swapped in place (SPEC §9.1) while a run holds a lease: the run keeps its lease, what it records still
+    renews it, its fencing number stands, and it ends the lease when it finishes; the next item is taken under the new
+    model's terms."""
+    run = ('for i in 1 2 3 4 5 6; do $ERGOSTAT_CMD event --add ticket.progress --item $ERGOSTAT_ITEM --data "{\\"step\\": $i}"; '
+           'sleep 0.4; done; echo "{\\"event\\": \\"ticket.done\\", \\"data\\": {\\"fence\\": $ERGOSTAT_LEASE}}"')
+    text = model(run, "{ttl: 1s}").replace("pool: 2", "pool: 1")
+    p = project(tmp_path, text)
+    p.events.add("ticket.opened", item="ticket/1", source="t")
+    e = start(p)
+    try:
+        assert wait_for(lambda: item(p, "ticket/1").state == "leased", 5)
+        held = item(p, "ticket/1").fields["lease"]
+        (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(text.replace("{ttl: 1s}", "{ttl: 7s}")))
+        said = e.swap(mdl.load(tmp_path))
+        assert said["runs"] == ["worker ticket/1"], "the leased run carried over"
+        p.events.add("ticket.opened", item="ticket/2", source="t")
+        assert wait_for(lambda: item(p, "ticket/1").state == "done", 15)
+        assert wait_for(lambda: item(p, "ticket/2").state == "done", 15)
+    finally:
+        e.close()
+    one = item(p, "ticket/1")
+    lease = one.fields["lease"]
+    assert [h["how"] for h in lease["history"]] == ["ack"], "kept across the edit: renewed by its events, not expired"
+    assert lease["history"][0]["run"] == held["holder"] and one.fields["fence"] == 1
+    assert item(p, "ticket/2").fields["lease"]["history"][0]["how"] == "ack"
+    assert p.events.query(n=None, type=TAKEN, item="ticket/2")[0]["data"]["ttl"] == 7, "the next lease on the new terms"

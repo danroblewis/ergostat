@@ -140,6 +140,7 @@ class Dispatcher:
                  "attempts": t["attempts"], "tier": t["tier"], "back": it.state}
         with self.e.lock:
             self.e.running.add(f"{b.name} {it.id}")
+            given["model"] = (self.e.spec, self.e.version)       # it runs to its end under the model it was taken under
         if inline:
             return b, item, given, run, ev["id"]
         threading.Thread(target=self._work, args=(b, item, given, run, ev["id"]), daemon=True).start()
@@ -153,7 +154,9 @@ class Dispatcher:
             if slot:
                 slot.acquire()
             try:
-                moved = self.e.run_block(b, why, extra={"item": item, "lease": lease}, item=item["id"], fence=lease["fence"],
+                spec, version = lease.pop("model", (None, None))
+                moved = self.e.run_block(b, why, extra={"item": item, "lease": lease}, spec=spec, version=version,
+                                         item=item["id"], fence=lease["fence"],
                                          run_id=run, cause=taken, outcome=out)
             except Exception as e:
                 self.e.say(f"{b.name}: {type(e).__name__}: {e}")

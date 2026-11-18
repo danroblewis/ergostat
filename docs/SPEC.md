@@ -1196,6 +1196,12 @@ letter has `dead` (when), and an item put off `not_before`. An engine that start
 from the record: a lease held when the last one stopped is still held, counts against its block's
 pool, and expires on its TTL unless its holder (a run left behind) is seen to work.
 
+**Across a model change.** A model changed while runs hold leases (swapped in place, section 9.1) changes no
+lease: each leased run finishes under the model it was taken under (its block, its `takes`, its terms), keeps its
+lease, renews it by what it records as before, and ends it, ack or nack, by its own block's `to`; its fencing number
+stands, for the fold, not the model, holds it. New leases are taken under the new model: its blocks, pools and terms.
+A lease whose block was removed is still watched, and expires on its TTL if its run goes silent.
+
 **What a run is given.** Its input carries `"trigger": "item"`, the item (`item`: `id`, `kind`,
 `state`, `fields`, without the lease) and its lease (`lease`: `fence`, `ttl`, `expires`, `attempt`,
 `attempts`, `tier`, `back`); its environment `ERGOSTAT_ITEM` (the item's id), `ERGOSTAT_LEASE` (the
