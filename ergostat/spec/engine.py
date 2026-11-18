@@ -1080,8 +1080,8 @@ class Engine:
         due: dict[str, float] = {}
         spec = self.spec
         timed, timed_blocks, judges, crons, nxt = self._plan(spec, {}, {})
-        by = {s.series: s for s in timed}
-        heap = [(0.0, k) for k in by]                            # every sensor reads at once
+        heap = [(0.0, i) for i in range(len(timed))]             # every sensor reads at once (by its place: two of a
+                                                                 # series, the first in the model's order reads)
         last_eval = last_sweep = 0.0
         while not self.stop.is_set():
             self.wake.clear()
@@ -1095,17 +1095,17 @@ class Engine:
                 for k, every in [(s.series, s.every or 60.0) for s in timed] + [(f"block/{b.name}", b.every) for b in timed_blocks]:
                     if k in due:
                         due[k] = min(due[k], mono + every)
-                by = {s.series: s for s in timed}
-                heap = [(due.get(k, 0.0), k) for k in by]
+                heap = [(due.get(s.series, 0.0), i) for i, s in enumerate(timed)]
                 heapq.heapify(heap)
             mono = time.monotonic()
             while heap and heap[0][0] <= mono:
-                at, k = heapq.heappop(heap)
-                s = by.get(k)
-                if s is None or due.get(k, 0.0) != at:           # (a schedule moved since: its newer entry stands)
+                at, i = heapq.heappop(heap)
+                s = timed[i]
+                if due.get(s.series, 0.0) > mono:               # another sensor of its series just read: due with it
+                    heapq.heappush(heap, (due[s.series], i))
                     continue
-                due[k] = mono + (s.every or 60.0)
-                heapq.heappush(heap, (due[k], k))
+                due[s.series] = mono + (s.every or 60.0)
+                heapq.heappush(heap, (due[s.series], i))
                 self.read_soon(s)
             for b in timed_blocks:
                 k = f"block/{b.name}"
