@@ -181,9 +181,18 @@ The control diagram is the product's main view. Conventions:
   a double-click halves it, dragged back to the edge it closes; the edge and size are remembered in the
   browser. The second pane is the page itself in a frame, a whole diagram with its own pan, zoom, open
   systems and view (the other one at first), and its own view switch; the panes never follow each
-  other's pan or zoom. They share the selection, and a shape pointed at in one lights what it is,
-  lightly, in the other. While the split is open the side panel and a part's panel are drawn over the
-  pane clicked in, so the diagrams keep the whole width. At phone width there is no split.
+  other's pan or zoom. They share the selection, and a shape pointed at in one lights what it is in
+  the other, to be found at a glance: a thick ring that keeps its width at any zoom, haloed and pulsed
+  once, with the rest of that pane stepped back. While the split is open the side panel and a part's
+  panel are drawn over the pane clicked in, so the diagrams keep the whole width. At phone width there
+  is no split.
+- **Colour by correspondence** (the ⋯ menu, remembered; or C held). Off by default. Every shape of the
+  dynamics and block views, in both panes, a closed system's box and an open one's outline included, is
+  ringed in the colour of the model part it is (`correspond.colours`: one slot per part, the same in
+  every view), so what stands for each other in the two views shares a colour; a shape that is several
+  parts (a controller: its block, its valves, its setting) takes turns of each round its outline. Ten
+  muted qualitative hues, then each again darker, then lighter; parts that touch get different hues.
+  The ring for a part pointed at in the other pane takes its colours while they are shown.
 - **Export** (the zoom bar's Export menu): "SVG" and "PNG" write a standalone file with a header (project, system, view,
   when) and, for the control view, a one-line legend, every style resolved; "Design SVG" leaves out
   what changes minute to minute (values, rates, status, decisions, trends) for a design document; `ergostat snapshot` writes the whole page and its answers as one
