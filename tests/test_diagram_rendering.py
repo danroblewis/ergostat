@@ -1111,7 +1111,7 @@ SD_CHECK = """() => {
   // the system dynamics view as drawn: no sensor, controller or agent; every loop that shows here (two of its
   // parts drawn as themselves) has its marker; every connector whose polarity is known shows it at its head;
   // connectors are curves that cut through no part; and the drawing is in one ink (no fill or stroke in colour
-  // but what is pointed at)
+  // but what is pointed at; the correspondence colours' rings are not drawn unless asked for)
   const bad = [], svg = document.querySelector("svg.canvas");
   if (!svg.classList.contains("sd")) bad.push("not drawn as the dynamics view");
   for (const n of S.graph.nodes) if (["sensor", "controller", "agent"].includes(n.kind)) bad.push(`drawn: ${n.kind} ${n.id}`);
@@ -1142,6 +1142,7 @@ SD_CHECK = """() => {
     const [r, g, b] = m.map(Number); return Math.max(r, g, b) - Math.min(r, g, b) < 24; };
   for (const el of svg.querySelectorAll(".node *, .edge *, .loop-marker *")) {
     const cs = getComputedStyle(el);
+    if (cs.display === "none") continue;
     for (const v of [cs.fill, cs.stroke]) {
       if (v && v !== "none" && !v.startsWith("rgba(0,") && !grey(v)) { bad.push(`colour ${v}: ${el.getAttribute("class")}`); break; }
     }
@@ -2003,6 +2004,145 @@ def test_a_loop_clicked_chooses_its_members_in_both_panes_and_the_split_is_pictu
         pg.screenshot(path=str(SHOTS / "split-stacked.png"))
         assert not errors, errors
         pg.close()
+
+# ---- colour by correspondence (colours.js): each part ringed in its group's colour, on demand; and what is
+# pointed at in one pane found at a glance in the other
+
+RINGS = """(id) => [...(document.querySelector(`svg.canvas g.node[data-id="${id}"]`)?.querySelectorAll('.corr-ring') || [])]
+  .map((r) => { const cs = getComputedStyle(r); return { display: cs.display, stroke: cs.stroke, width: parseFloat(cs.strokeWidth),
+                                                         dash: cs.strokeDasharray }; })"""
+SHOWN = ("(id) => [...document.querySelectorAll(`svg.canvas g.node[data-id=\"${id}\"] .corr-ring`)]"
+         ".some((r) => getComputedStyle(r).display !== 'none')")
+ACCENT = "() => { const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); r.style.stroke = 'var(--accent)'; " \
+         "document.querySelector('svg.canvas').append(r); const c = getComputedStyle(r).stroke; r.remove(); return c; }"
+
+
+def toggle_colours(pg):
+    pg.get_by_title("More: wrap, open or close every system, unpin").click()
+    pg.get_by_text("Colour by correspondence").click()
+
+
+def test_colour_by_correspondence_rings_matching_parts_alike_in_both_panes_and_is_remembered(browser, tmp_path):
+    """Off at first. The ⋯ menu's toggle rings every part in both panes in its group's colour: a stock in
+    the dynamics view and its integrator and output y in the block diagram alike, its flow otherwise; a
+    controller, which is its block and the valves it moves, in segments of several; a closed system's
+    box in its system's colour, as its outline is when open. A reload keeps it; the toggle again hides it."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900}, color_scheme="light")
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        pane = open_split(pg, "right")
+        assert not pg.evaluate(SHOWN, "stock:capabilities") and not pane.evaluate(SHOWN, "out:stock.capabilities")
+        toggle_colours(pg)
+        pane.wait_for_function("() => document.body.classList.contains('corr-on')", timeout=5000)
+        stock = pg.evaluate(RINGS, "stock:capabilities")
+        assert len(stock) == 1 and stock[0]["display"] != "none" and stock[0]["width"] >= 3, stock
+        for there in ("out:stock.capabilities", "proc:stock.capabilities"):
+            rings = pane.evaluate(RINGS, there)
+            assert [r["stroke"] for r in rings] == [stock[0]["stroke"]], (there, rings, stock)
+        gained = pg.evaluate(RINGS, "flow:gained")
+        assert gained and gained[0]["stroke"] != stock[0]["stroke"]
+        # every part drawn in either pane ringed, and many colours among them
+        for x in (pg, pane):
+            left = x.evaluate("""() => [...document.querySelectorAll('svg.canvas g.node')].filter((n) =>
+                (S.graph.corr.shapes[n.dataset.id]?.is || []).length && !S.graph.corr.shapes[n.dataset.id].aside &&
+                ![...n.querySelectorAll('.corr-ring')].some((r) => getComputedStyle(r).display !== 'none')).map((n) => n.dataset.id)""")
+            assert not left, left
+            hues = x.evaluate("() => new Set([...document.querySelectorAll('svg.canvas .corr-ring')]"
+                              ".map((r) => getComputedStyle(r).stroke)).size")
+            assert hues >= 15, hues
+        # a controller: its block and its valves, a segment of each colour in turn
+        tuner = pane.evaluate(RINGS, "blk:tuner")
+        assert len({r["stroke"] for r in tuner}) >= 2 and all(r["dash"] not in ("none", "") for r in tuner), tuner
+        steps = pg.evaluate(RINGS, "flow:quality-steps")
+        assert {r["stroke"] for r in steps} <= {r["stroke"] for r in tuner} and steps, (steps, tuner)
+        # remembered; a closed system's box in the colour its outline has when open
+        hull = pane.evaluate("() => getComputedStyle(document.querySelector('svg.canvas g.hull[data-hull] > .corr-ring')).stroke")
+        name = pane.evaluate("() => S.graph.corr.shapes[document.querySelector('svg.canvas g.hull[data-hull]').dataset.hull]?.system")
+        drawn(pg, url, "open=-", 1)
+        assert pg.evaluate("() => document.body.classList.contains('corr-on')")
+        box = pg.evaluate(f"() => S.graph.nodes.find((n) => n.kind === 'system' && n.label === {name!r})?.id")
+        assert box and [r["stroke"] for r in pg.evaluate(RINGS, box)] == [hull]
+        toggle_colours(pg)
+        assert not pg.evaluate(SHOWN, box)
+        drawn(pg, url, "open=-", 2)
+        assert not pg.evaluate(SHOWN, box)
+        assert not errors, errors
+        pg.close()
+
+
+def test_holding_c_shows_the_colours_in_both_panes_until_let_go_but_not_while_typing(browser, tmp_path):
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        drawn(pg, url, "open=*", 0)
+        pane = open_split(pg, "right")
+        pg.mouse.click(5, 300)
+        pg.keyboard.down("c")
+        assert pg.evaluate(SHOWN, "stock:capabilities")
+        pane.wait_for_function(f"() => ({SHOWN})('out:stock.capabilities')", timeout=5000)
+        pg.keyboard.up("c")
+        assert not pg.evaluate(SHOWN, "stock:capabilities")
+        pane.wait_for_function(f"() => !({SHOWN})('out:stock.capabilities')", timeout=5000)
+        assert pg.evaluate("() => localStorage.getItem('ergostat.colours')") is None      # held, not remembered
+        pg.evaluate("() => { const i = document.createElement('input'); i.id = 'typing'; document.body.append(i); i.focus(); }")
+        pg.keyboard.down("c")
+        assert not pg.evaluate(SHOWN, "stock:capabilities")
+        pg.keyboard.up("c")
+        assert pg.evaluate("() => document.getElementById('typing').value") == "c"
+        pg.close()
+
+
+def test_a_part_pointed_at_is_found_at_a_glance_in_the_other_pane(browser, tmp_path):
+    """Pointing at a stock in the dynamics pane rings its integrator and output y in the block diagram pane
+    thick, in the accent, wider on the screen than the stock's own outline, and the rest of that pane steps
+    back; with the colours on, the ring is the stock's own colour. Letting go, all is as it was."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900}, color_scheme="light")
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        pane = open_split(pg, "right")
+        fit(pg)
+        fit(pane)
+        accent = pane.evaluate(ACCENT)
+        pg.locator('g.node[data-id="stock:capabilities"]').hover(position={"x": 4, "y": 4})
+        pane.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.xhover').length > 0", timeout=5000)
+        own = pg.evaluate("""() => { const h = document.querySelector('svg.canvas g.node[data-id="stock:capabilities"] .hit');
+          return parseFloat(getComputedStyle(h).strokeWidth) * S.view.k; }""")
+        for there in ("out:stock.capabilities", "proc:stock.capabilities"):
+            rings = pane.evaluate(RINGS, there)
+            strong = all(r["display"] != "none" and r["width"] >= 4 and r["width"] >= own and r["stroke"] == accent for r in rings)
+            assert rings and strong, (there, rings, own, accent)
+        pane.wait_for_timeout(400)                                       # (it steps back over a moment)
+        dim = pane.evaluate("""() => { const ns = [...document.querySelectorAll('svg.canvas g.node:not(.xhover)')];
+          return ns.filter((n) => parseFloat(getComputedStyle(n).opacity) < 0.5).length / ns.length; }""")
+        assert dim > 0.9, dim
+        assert pane.evaluate("() => parseFloat(getComputedStyle(document.querySelector('svg.canvas g.node.xhover')).opacity)") == 1
+        # the pane pointed in: as it is
+        assert pg.evaluate("() => document.querySelector('svg.canvas').classList.contains('xhovering')") is False
+        pg.mouse.move(2, 400)
+        pane.wait_for_function("() => !document.querySelector('svg.canvas.xhovering') && !document.querySelector('svg.canvas .xhover')",
+                               timeout=5000)
+        assert not pane.evaluate(SHOWN, "out:stock.capabilities")
+        # with the colours on: the same thick ring, in the stock's colour
+        toggle_colours(pg)
+        colour = pg.evaluate(RINGS, "stock:capabilities")[0]["stroke"]
+        assert colour != accent
+        pg.locator('g.node[data-id="stock:capabilities"]').hover(position={"x": 4, "y": 4})
+        pane.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.xhover').length > 0", timeout=5000)
+        rings = pane.evaluate(RINGS, "out:stock.capabilities")
+        assert rings and all(r["width"] >= 4 and r["stroke"] == colour for r in rings), (rings, colour)
+        # and the other way: a controller pointed at in blocks, its valve in dynamics, ringed in segments of its colours
+        pg.mouse.move(2, 400)
+        pane.locator('g.node[data-id="blk:tuner"]').hover(position={"x": 3, "y": 3}, force=True)
+        pg.wait_for_function("() => document.querySelector('svg.canvas g.node.xhover')", timeout=5000)
+        steps = pg.evaluate(RINGS, "flow:quality-steps")
+        assert pg.evaluate("() => document.querySelector('svg.canvas g.node[data-id=\"flow:quality-steps\"]').classList.contains('xhover')")
+        assert len({r["stroke"] for r in steps}) >= 2 and all(r["width"] >= 4 for r in steps), steps
+        assert not errors, errors
+        pg.close()
+
 
 QUEUE = """\
 name: queue
