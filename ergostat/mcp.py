@@ -35,7 +35,8 @@ TOOLS = [
      "(agreements of comparisons, or how much more record it needs) and each mismatch with its file and line, the fix when "
      "it is clear, the pair of views that disagrees, and the findings of check it is linked to. Run it after the model has "
      "run for a while (try_use, or the live record), and change the model (or the blocks) until the three agree. since: "
-     "the record compared, like 6h (default 1d).", "inputSchema": _obj({"since": {"type": "string"}})},
+     "the record compared, like 6h (default 1d); project: a scratch copy try_use made, to read its record instead.",
+     "inputSchema": _obj({"since": {"type": "string"}, "project": {"type": "string"}})},
     {"name": "explain", "description": "The model, or one part of it, in sentences: what it is, what measures it, what serves "
      "it, what it is doing now. part: a goal, block, stock, flow or auxiliary, as goal.x or just x; leave it out for the "
      "whole model, with its feedback loops (each R reinforcing, B balancing, or of unknown sign).",
@@ -207,6 +208,13 @@ class Server:
             return _text(helpdocs.read("spec") or "the specification is docs/SPEC.md in the ergostat repository")
         if name in ("templates", "add_use", "scaffold", "try_use", "where_drawn"):
             return self.author(name, a)
+        if name == "coherence" and a.get("project"):        # a scratch copy try_use made: its own record
+            from . import coherence as co
+            from .durations import parse_duration
+            from .store import Project
+            sp = Project(mdl.load(Path(a["project"]).expanduser()))
+            got = co.of_project(sp, sp.model.spec, parse_duration(a["since"], "since") if a.get("since") else co.WINDOW)
+            return _text({"scores": [co.score_line(k, x) for k, x in got["kinds"].items()], **got})
         if name == "improve_model":
             from . import helpdocs
             skill, guide = helpdocs.read("improve-model"), helpdocs.read("modelling")
