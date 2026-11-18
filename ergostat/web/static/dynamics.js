@@ -498,6 +498,12 @@ function sdExportItems() {
 
 /* ------------------------------------------------------------------ panels */
 
+/* a flow of a stock, whose rate-unit: its inflow or outflow total is shown in (S.status.rate_units: a stock's own
+   rate-unit: is given to each of its flows that sets none) */
+function sdStockFlow(stock, way) {
+  const ends = (S.graph?.edges || []).filter((e) => e.kind === "pipe" && (way === "in" ? e.target === `stock:${stock}` : e.source === `stock:${stock}`));
+  return ends.map((e) => e.flow).find((f) => rateOver(f)) || null;
+}
 const SD_WHAT = {
   stock: ["Stock", "a level: what accumulates. It changes only by its flows, filling by its inflows and draining by its outflows, and keeps its value when they stop."],
   auxiliary: ["Auxiliary", "a converter: worked out at each moment from the parts that point into it, with no memory of its own: by its equation where the model writes one, else measured."],
@@ -506,7 +512,7 @@ const SD_WHAT = {
   gap: ["Gap", "the discrepancy: the desired level less the actual one. It drives the flow that closes it, so the level is pulled toward the desired one: a balancing loop."],
   excess: ["Excess", "the discrepancy for a level kept down: the actual level less the desired one. It drives the flow that brings it down (+), so the level is pulled back to the desired one: a balancing loop."],
   decision: ["Decision", "what it reads (the connectors into it) decides the flows it sets (the connectors out of it). A link into it is signed where the model says which way it acts."],
-  flow: ["Valve", "where a flow's rate is set: how much moves along its pipe per hour. The connectors into it are its inputs, what the rate depends on; its equation says how. A connector acts at once, so a cause that acts over time reaches a valve through a stock."],
+  flow: ["Valve", "where a flow's rate is set: how much moves along its pipe in a time (shown per minute, hour or day, whichever reads best; kept per hour). The connectors into it are its inputs, what the rate depends on; its equation says how. A connector acts at once, so a cause that acts over time reaches a valve through a stock."],
   pipe: ["Flow", "what moves, along its pipe, from the stock it drains to the stock it fills (or a cloud: outside the model's boundary). Only flows change stocks; its valve sets how fast."],
   connector: ["Connector", "an information link: the cause at its tail changes the effect at its head. Nothing moves along it. Its sign is its polarity: + when the effect moves the same way as the cause, − when the opposite way."],
   loop: ["Feedback loop", "a closed chain of cause and effect. Reinforcing (R): the product of its signs is +, so a change comes back amplified (growth or collapse). Balancing (B): the product is −, so a change comes back opposed (it seeks a desired level). ?: a sign along it is not known, so it is listed beside the diagram and not marked on it."],
@@ -573,7 +579,7 @@ async function openNodeSD(n) {
     let d = null;
     try { d = await api(`part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
-    rows.push(["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : n.rateText],
+    rows.push(["rate, over the window", now.rate != null ? rateText(now.rate, d?.unit, n.flow || n.label) : n.rateText],
               ["how it is known", now.how || n.how],
               ["inputs", join(causes) || h("span", { class: "muted" }, "none drawn: nothing in the model points into it")],
               ["equation", d?.numbers?.equation_tree ? null : n.equation || d?.equation || "not known"]);
@@ -591,7 +597,8 @@ async function openNodeSD(n) {
     rows.push(["description", m.description || n.description], ...(d?.inferred ? [inferredRow(d.inferred)] : []),
               ["now", `${fmt(now.value ?? n.value)} ${m.unit || n.unit || ""}`],
               ["measured", now.at ? ago(now.at) : null]);
-    if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? `${fmt(now.inflow)}/h` : null], ["outflow", now.outflow != null ? `${fmt(now.outflow)}/h` : null]);
+    if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? rateText(now.inflow, "", sdStockFlow(n.label, "in")) : null],
+                                      ["outflow", now.outflow != null ? rateText(now.outflow, "", sdStockFlow(n.label, "out")) : null]);
     for (const gl of n.goals || []) rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint}${gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)"}`]);
     if (n.kind === "auxiliary") numbers = equationSection(n.label, d?.numbers, { exogenous: n.exogenous });
     found = findingsNote(d);
@@ -645,7 +652,7 @@ async function openEdgeSD(e) {
       causesStrip(`flow.${e.flow}`),
       dl([["what moves", [unit, m.description].filter(Boolean).join(": ") || "not said (no unit or description)"],
           ["from", m.source ? link(`stock:${m.source}`) : "a source outside the model"], ["to", m.target ? link(`stock:${m.target}`) : "a sink outside the model"],
-          ["its valve", valve ? link(valve.id) : e.flow], ["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : valve?.rateText],
+          ["its valve", valve ? link(valve.id) : e.flow], ["rate, over the window", now.rate != null ? rateText(now.rate, d?.unit, e.flow) : valve?.rateText],
           ["runs", (m.two_way ?? e.twoWay) ? "either way (a biflow)" : "one way"]]),
       crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops, sdWhat("pipe"));
   } else {

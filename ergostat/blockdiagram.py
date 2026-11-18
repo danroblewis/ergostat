@@ -37,7 +37,7 @@ What each part of the model becomes:
 
 from __future__ import annotations
 
-from . import sensing
+from . import rates, sensing
 from .spec.ir import Ref, Spec
 
 WORLD_NOTE = "a block that reads nothing and is commanded by nothing: the world, from the control system's side"
@@ -378,7 +378,7 @@ class _Diagram:
         kind, name = var.split(".", 1)
         if kind == "flow":
             r = (self.snap.get("flows") or {}).get(name, {}).get("rate")
-            return f"{_num(r)}/h" if r is not None else ""
+            return rates.text(r, "", rates.override_of(self.s, name)) if r is not None else ""
         v = (self.snap.get("stocks") or {}).get(name, {}).get("value")
         return _num(v) if v is not None else ""
 
@@ -618,7 +618,7 @@ class _Diagram:
             loop_T = self.loop_period(var)
             sampled = not dyn and period > 0 and period >= loop_T / 10
             Tw = sensing.every_words(period)
-            rows = [["measures", name], ["reads", reads], ["sensors", ", ".join(x.name for x in sensors)],
+            rows = [["measures", name], ["reads", reads], ["command", ex.run or ""], ["sensors", ", ".join(x.name for x in sensors)],
                     ["collected by", ", ".join(sensing.reads(self.s, c) for c in cols)], ["now", self.now(var)]]
             ym = eq(sym("y", f"m,{name}"), row(sym("H", name, "s" if dyn or sampled else None), sym("y", name)))
             if dyn:

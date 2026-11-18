@@ -191,9 +191,21 @@ function aheadWarp(since, until, end) {
 /* one chart: a line, its name and its value at the cursor (or its last) above it */
 function lineChart({ group, name, role, unit, per, times, values, since, until, goal = null, off = [], height = 64, xAxis = false,
                      zero = false, href = null, stepped = false, level = null, replay = null, projection = null, ptimes = null,
-                     fan = null, replayFan = null, whatifReplay = null, whatifProjection = null, yRange = null }) {
+                     fan = null, replayFan = null, whatifReplay = null, whatifProjection = null, yRange = null, flow = name }) {
+  if (per) {                                           // a rate: in the unit that reads best for its size, its axis too (util.js)
+    const all = [values, replay, projection, whatifReplay, whatifProjection].flatMap((xs) => xs || []).filter((v) => v != null && Number.isFinite(v));
+    // (a goal on a rate keeps the unit its setpoint is written in, per hour, unless the flow says another)
+    const ru = goal && !rateOver(flow) ? "hour" : rateUnit(all.length ? Math.max(...all.map(Math.abs)) : null, rateOver(flow));
+    const k = RATE_PER_HOUR[ru], sc = (xs) => xs && xs.map((v) => (v == null ? v : v * k));
+    const scFan = (f) => f && Object.fromEntries(Object.entries(f).map(([q, xs]) => [q, Array.isArray(xs) ? sc(xs) : xs]));
+    [values, replay, projection, whatifReplay, whatifProjection] = [values, replay, projection, whatifReplay, whatifProjection].map(sc);
+    [fan, replayFan] = [scFan(fan), scFan(replayFan)];
+    if (goal && k !== 1) goal = { ...goal, value: goal.value == null ? goal.value : goal.value * k, band: goal.band && goal.band.map((v) => v * k),
+                                  setpoint: `${goal.setpoint} /h` };
+    per = RATE_SUFFIX[ru];
+  }
   const last = [...values].reverse().find((v) => v != null);
-  const unitText = per ? `${unit || ""}/h` : unit || "";
+  const unitText = per ? `${unit || ""}${per}` : unit || "";
   const val = h("span", { class: "chart-val" });
   const show = (v) => { val.textContent = v == null ? "–" : `${fmt(v)}${unitText ? " " + unitText : ""}`; };
   show(last);
@@ -272,12 +284,12 @@ function causesStrip(ref, group = chartGroup("strip")) {
     box.replaceChildren(...list.map((s, i) => lineChart({
       group, name: i === 0 ? (s.kind === "flow" ? "rate" : "value") : s.name,
       role: i === 0 ? (s.kind === "flow" ? s.how : null) : ROLE_WORDS[s.role] || s.role,
-      unit: s.unit, per: s.per, times: d.times, values: s.values, since: d.since, until: d.until,
+      unit: s.unit, per: s.per, flow: s.name, times: d.times, values: s.values, since: d.since, until: d.until,
       goal: s.goal, height: i === 0 ? 84 : 52, xAxis: i === list.length - 1, zero: s.kind === "flow",
       replay: s.replay, projection: s.projection, ptimes: d.projection_times, fan: s.fan, replayFan: s.replay_fan,
       whatifReplay: s.whatif_replay, whatifProjection: s.whatif_projection,
       href: i === 0 ? null : () => openRef(s.ref) })),
-      h("div", { class: "chart-foot" }, h("span", { class: "muted" }, [list.length > 1 ? "Rates per hour, on one time axis" : "",
+      h("div", { class: "chart-foot" }, h("span", { class: "muted" }, [list.length > 1 ? "On one time axis; each rate in the unit that reads best for it" : "",
         modelled ? `dashed: the model's replay; past now, lighter: its projection ${dur(d.horizon)} ahead, ${d.inputs || "inputs held where they were"}` : "",
         modelled ? fanSaid(d, list.some((s) => s.fan)) : "", replayFanSaid(d, list.some((s) => s.replay_fan)), whatifSaid(d),
         list[0].replay ? "" : noReplaySaid(list[0])].filter(Boolean).join(". ")),

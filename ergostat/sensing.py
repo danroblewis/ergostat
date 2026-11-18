@@ -69,7 +69,8 @@ def what(spec: Spec, x: Sensor) -> str:
         return x.description or "a person's reading"
     if x.description and len(x.description) <= 60:
         return x.description
-    return f"run: {_command(x.run or '')}"
+    cmd = _command(x.run or "")
+    return f"run: {cmd if len(cmd) <= 32 else cmd[:31] + '…'}"                # (the whole command: in its panel)
 
 
 def reads(spec: Spec, x: Sensor) -> str:

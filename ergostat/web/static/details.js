@@ -74,10 +74,10 @@ async function openNode(n) {
   if (kind === "stock") rows.push(["now", `${fmt(now.value)} ${m.unit}`],
     knob ? ["set", h("span", {}, now.at ? `${ago(now.at)} by ` : "never yet, by ", agentLink(n.agent))]
          : ["measured", now.at ? `${ago(now.at)} by its sensor ${now.sensor}` : "never"],
-    ...(n.kind === "auxiliary" ? [] : [["in", `${fmt(now.inflow)}/h`], ["out", `${fmt(now.outflow)}/h`]]));
-  if (kind === "disturbance") rows.push(["pushes", m.target ? `into ${m.target}` : `out of ${m.source}`], ["rate", `${fmt(now.rate)}/h`], ["how we know", now.how]);
+    ...(n.kind === "auxiliary" ? [] : [["in", rateText(now.inflow)], ["out", rateText(now.outflow)]]));
+  if (kind === "disturbance") rows.push(["pushes", m.target ? `into ${m.target}` : `out of ${m.source}`], ["rate", rateText(now.rate, "", name)], ["how we know", now.how]);
   if (kind === "valve") rows.push(["acts on", m.flow], ["mode", m.mode], ["most a run", m.max != null ? fmt(m.max) : null],
-                                  ["filled by", agentLink(d.agent)], ["rate", `${fmt(now.flow?.rate)}/h`]);
+                                  ["filled by", agentLink(d.agent)], ["rate", rateText(now.flow?.rate, "", m.flow)]);
   const rd = now.readings || [], last = rd[rd.length - 1];
   if (kind === "sensor") rows.push(["measures", m.measures], ["filled by", agentLink(d.agent)],
                                    ["last reading", last ? `${fmt(last[1])}, ${ago(last[0])}` : "none yet"], ["in the window", `${now.count ?? rd.length} readings`]);
@@ -124,7 +124,7 @@ async function openLoop(name, asController = false) {
       lp.answers_in != null ? `its valve opens ${dur(lp.answers_in)} after it goes off` : null,
       lp.back_in != null ? `it holds again ${dur(lp.back_in)} after (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times)` : null,
     ].filter(Boolean).join("; ") : null],
-    ["moves", lp.flows.map((f) => `${f} ${fmt(lp.rates?.[f])}/h`).join(", ") || "nothing"],
+    ["moves", lp.flows.map((f) => `${f} ${rateText(lp.rates?.[f], "", f)}`).join(", ") || "nothing"],
     ["cycled", lp.observed ? "yes, in this window" : "not in this window"]]));
   // each part along the loop, who fills it, and what it last did: as `ergostat loop NAME`
   kids.push(h("table", { class: "parts" }, h("tr", {}, ["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
@@ -272,8 +272,8 @@ function openMachine(n) {
         ["instances", n.instances?.length ? n.instances.join(", ") : null],
         ["runs", n.runs ? String(n.runs) : null], ["runs when", n.schedule || null]]),
     h("h3", {}, `Published, in ${windowWords()}`),
-    pub.length ? h("table", {}, h("tr", {}, h("th", {}, "type"), h("th", { class: "num" }, "count"), h("th", { class: "num" }, "an hour"), h("th", {}, "last"), h("th", {}, "")),
-      pub.map((p) => h("tr", {}, h("td", { class: "mono" }, p.type), h("td", { class: "num" }, String(p.count)), h("td", { class: "num" }, fmt(p.perHour)),
+    pub.length ? h("table", {}, h("tr", {}, h("th", {}, "type"), h("th", { class: "num" }, "count"), h("th", { class: "num" }, "rate"), h("th", {}, "last"), h("th", {}, "")),
+      pub.map((p) => h("tr", {}, h("td", { class: "mono" }, p.type), h("td", { class: "num" }, String(p.count)), h("td", { class: "num" }, rateText(p.perHour)),
         h("td", { class: "muted nowrap" }, ago(p.last)), h("td", {}, recordLink(p.type, n.label)))))
       : h("p", { class: "muted" }, "nothing"),
     h("h3", {}, "Listens for"),
@@ -294,12 +294,12 @@ function openWire(e, link, nameOf) {
     : h("p", {}, h("b", {}, "Undeclared. "), `Nothing in the model says ${a} reaches ${b}; the record shows it does.`);
   const kids = [h("div", { class: "kind" }, e.seen ? "Wire, seen on the record" : "Wire, declared, never seen"), h("h2", {}, a, " \u2192 ", b), whatIs("wire"), model];
   if (e.seen) {
-    kids.push(dl([["from", link(e.source)], ["to", link(e.target)], ["events", `${e.count} in ${windowWords()}, ${fmt(e.perHour)} an hour`],
+    kids.push(dl([["from", link(e.source)], ["to", link(e.target)], ["events", `${e.count} in ${windowWords()}, ${rateText(e.perHour)}`],
                   ["last seen", ago(e.last)], ["evidence", e.evidence.join(", ")]]),
       h("h3", {}, "What passed"),
       h("table", {}, h("tr", {}, h("th", {}, "event type"), h("th", { class: "num" }, "count"), h("th", {}, "last"), h("th", {}, "")),
         e.types.map((t) => h("tr", {}, h("td", {}, h("span", { class: "mono" }, t.type), h("div", { class: "muted small" }, [how(t), evidence(t)].filter(Boolean).join("; "))),
-          h("td", { class: "num", title: `${fmt(t.perHour)} an hour` }, String(t.count)), h("td", { class: "muted nowrap" }, ago(t.last)),
+          h("td", { class: "num", title: rateText(t.perHour) }, String(t.count)), h("td", { class: "muted nowrap" }, ago(t.last)),
           h("td", { class: "nowrap" }, recordLink(t.type, t.publisher))))),
       h("p", { class: "note" }, "Caused by: an event's causedby names the other's event or run. Listened and ran: it listens (on:) for that type, and ran after it."));
   } else {
@@ -347,7 +347,7 @@ async function openEdge(e) {
     const valve = g.nodes.find((n) => (n.kind === "valve" || n.kind === "disturbance") && n.flow === e.flow);
     what = `Here: ${e.flow} moves material from ${m.source || "outside the model"} to ${m.target || "outside the model"}.`;
     rows.push(["flow", e.flow], ["from", m.source || "outside the model"], ["to", m.target || "outside the model"],
-              ["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : (valve?.rateText || "not known yet")],
+              ["rate, over the window", now.rate != null ? rateText(now.rate, d?.unit, e.flow) : (valve?.rateText || "not known yet")],
               ["how we know", now.how || valve?.how],
               ["moved by", valve?.kind === "valve" ? [valve.label, valve.agent ? ` (${badgeText(valve.agent)})` : ""] :
                            "nothing in the model: a disturbance to the loops on its stocks"],

@@ -4,6 +4,7 @@ what the log proves passed between them). Both are plain data; the web page lays
 
 from __future__ import annotations
 
+from . import rates
 from .state import fmt
 
 
@@ -49,13 +50,6 @@ def select(model, system: str | None = None, around: str | None = None, depth: i
         edge = {n for e in edge for n in adj.get(e, ())} - seen
         seen |= edge
     return seen
-
-
-def _rate(rate, unit: str) -> str:
-    """``12 jobs/h``; ``?/h`` when unknown."""
-    if rate is None:
-        return "?" + unit
-    return fmt(rate) + (" " if unit != "/h" else "") + unit
 
 
 def _when(a) -> str:
@@ -105,6 +99,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
     readings = readings or {}
     nodes, edges, loops = [], [], {}
     m = model
+    spec = getattr(m, "spec", None)
     agent_of = {}
     for t in (m.sensors, m.controllers, m.valves):
         for p in t.values():
@@ -138,9 +133,8 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         glyph = "disturbance" if f.disturbance else "valve"
         pos = readings.get(f"valve/{v.name}") if v else None
         end = m.stocks.get(f.target or "") or m.stocks.get(f.source or "")
-        unit = (end.unit + "/h") if end and end.unit else "/h"
         nodes.append(_node(f"flow:{n}", glyph, v.name if v else n, flow=n, rate=fl.get("rate"), position=pos,
-                           rateText=_rate(fl.get("rate"), unit),
+                           rateText=rates.text(fl.get("rate"), end.unit if end else "", rates.override_of(spec, n)),
                            how=fl.get("how"), estimated=fl.get("estimated", False), mode=v.mode if v else None, max=v.max if v else None,
                            agent=agent_of.get(v.name) if v else _badge(m, f.agent), load=not v and bool(f.agent),
                            twoWay=f.two_way,
@@ -167,9 +161,9 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
             continue
         target = f"stock:{s.measures}" if s.measures in m.stocks else f"flow:{s.measures}"
         got = readings.get(n)
-        unit = "/h" if s.measures in m.flows else ""
         nodes.append(_node(f"sensor:{n}", "sensor", n, measures=s.measures, agent=agent_of.get(n), description=s.description,
-                           reading=(fmt(got) + unit) if got is not None else None, systems=in_system.get(n, [])))
+                           reading=(rates.text(got, "", rates.override_of(spec, s.measures)) if s.measures in m.flows else fmt(got))
+                           if got is not None else None, systems=in_system.get(n, [])))
         if (s.measures in stocks_drawn) or (s.measures in flows_drawn):
             edges.append(_edge(target, f"sensor:{n}", "measure"))
     for n in (x for x in m.controllers if x in parts):

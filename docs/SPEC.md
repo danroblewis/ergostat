@@ -46,7 +46,30 @@ There is one model, and two ways of looking at it, each true to its own discipli
   controller acts on, and the loop it closes. For engineers; classical block diagrams.
 
 Neither is derived from the other: both are read from the same stocks, flows, auxiliaries, goals
-and blocks. A kind of quantity (stock, auxiliary) belongs to the model; a role in a loop (process
+and blocks.
+
+How each draws what measures and what comes in from outside:
+
+- In the control view every loop's feedback path goes through a **sensor block**, beneath the loop,
+  as Franklin, Powell & Emami-Naeini draw the standard loop. Inside it, its function: `H = 1` when
+  the model gives it no dynamics; `H(s)` and its window (`avg 10 min`) for a rate over a window; a
+  sampler's switch and `e^(−sT)` when it polls at a period T that is a tenth or more of the loop's
+  own (its controller's `every`, else its identified process's τ + θ, else ten minutes). Beneath
+  that, what it reads and how often (`items: alert, fired, every 5 s`; `prometheus: <query>, every
+  30 s`; a `run` sensor's description when it has one, `Jira: FF tickets approved, every 5 min`,
+  else its command). A sensor that counts items is preceded, on the same path, by its kind's
+  **collector**: a `run` or `query` sensor on a flow that brings a stock counted by that kind in
+  from outside (it polls the outside system and records what it saw as items, section 6), so a
+  count is only as fresh as its collector.
+- In the dynamics view a cloud an inflow comes from names its source where the model knows it
+  (`from Jira`): the external block or the block outside the control system that drives it, the
+  source its sensor queries, or what its sensor's description names before a colon.
+- **Rates read naturally.** Every rate is kept, written, fitted and compared per hour (equations,
+  `rate:`, a flow sensor's reading, stored series). The pages, the diagrams and the terminal show
+  each one in the unit that reads best for its size: per minute above about 60 an hour, per day
+  below about 1 an hour, else per hour (a chart picks one unit for its whole axis, by its largest
+  value). A flow's `rate-unit:` (minute, hour, day or week), or its stock's for the flows it shows,
+  overrides the choice. It is display only: nothing is converted where it is kept. A kind of quantity (stock, auxiliary) belongs to the model; a role in a loop (process
 variable, manipulated variable, controller, actuator) belongs to the control view, and is worked
 out, never written.
 
@@ -336,6 +359,7 @@ stocks:
 | `limit` | number | none | The physical limit: a full disk, a queue's capacity. Used to estimate time to failure |
 | `initial` | number | none | A starting value, for simulation only |
 | `cumulative` | bool | false | A running total that by its nature never drains (spent so far, kept so far): no outflow is missing, and `check` does not ask for one (**stock-without-outflow**) |
+| `rate-unit` | `minute`, `hour`, `day` or `week` | chosen by size | How the rates of its flows are shown, for each flow that says none (section 1a); display only, kept per hour |
 | `inferred` | model-change id, or `true` | none (declared) | Added by ergostat: the model change that added it (section 12e, *Inferred and declared*) |
 | `system` | name | the file's default | The group it belongs to |
 | `description` | string | none | |
@@ -651,6 +675,7 @@ flows:
 | `sensors` / `sensor` | | none | Measurements of its rate |
 | `driven-by` | flow, stock or auxiliary references, each optionally signed | none | What its rate follows: an influence from elsewhere in the system (see below) |
 | `two-way` | bool | false | It may run either way (system dynamics' biflow): a block may move it by a negative amount, and its sensor may read a negative rate |
+| `rate-unit` | `minute`, `hour`, `day` or `week` | chosen by size | How its rate is shown (section 1a): display only; its `rate`, equation and readings stay per hour |
 | `inferred` | model-change id, or `true` | none (declared) | Added by ergostat: the model change that added it (section 12e, *Inferred and declared*) |
 | `system`, `description` | | | |
 

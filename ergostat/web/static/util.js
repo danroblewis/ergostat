@@ -49,6 +49,24 @@ function fmt(x) {
   else t = String(+x.toPrecision(3));
   return t.replace(/^-/, "\u2212");
 }
+/* a rate, as it reads naturally (display only: every rate is kept per hour, rates.py): per minute above about
+   60 an hour, per day below about 1 an hour, else per hour; a flow's rate-unit: (S.status.rate_units) wins */
+const RATE_PER_HOUR = { minute: 1 / 60, hour: 1, day: 24, week: 168 };
+const RATE_SUFFIX = { minute: "/min", hour: "/h", day: "/day", week: "/week" };
+const RATE_WORD = { minute: "per minute", hour: "per hour", day: "per day", week: "per week" };
+function rateOver(flow) { return (flow && S.status?.rate_units?.[flow]) || null; }
+function rateUnit(r, over = null) {
+  if (RATE_PER_HOUR[over]) return over;
+  if (r == null || !Number.isFinite(r) || r === 0) return "hour";
+  return Math.abs(r) > 60 ? "minute" : Math.abs(r) < 1 ? "day" : "hour";
+}
+function rateIn(r, unit) { return r == null ? r : r * RATE_PER_HOUR[unit]; }
+/* "12 alerts/min": a rate per hour in the unit that reads best for it (or the flow's own) */
+function rateText(r, unit = "", flow = null) {
+  const u = rateUnit(r, rateOver(flow));
+  const tail = (unit || "") + RATE_SUFFIX[u];
+  return r == null ? "?" + tail : `${fmt(rateIn(r, u))}${unit ? " " : ""}${tail}`;
+}
 /* a condition or setpoint as it is written in print: <= as ≤, >= as ≥, == as =, != as ≠ */
 const op = (x) => x == null ? "" : String(x).replaceAll("<=", "\u2264").replaceAll(">=", "\u2265").replaceAll("!=", "\u2260").replaceAll("==", "=")
   .replace(/(^|[\s(=:])-(?=\.?\d)/g, "$1\u2212");                // and a negative number's real minus
