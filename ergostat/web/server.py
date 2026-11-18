@@ -1,6 +1,7 @@
 """The web page's HTTP server (standard library, bound to 127.0.0.1; read only but for the owner accepting or dismissing a
 proposal, or confirming, dismissing or superseding a decision, ``POST``). ``/`` is the page;
-``/api/*`` returns what the command line shows, as JSON. The model is re-read when
+``/api/*`` returns what the command line shows, as JSON; ``/static/*`` the page's files; ``/file/PATH`` a file
+an item names; every other address of the page (``/items``, ``/item/ID``, ``/diagram?view=blocks``) is the page. The model is re-read when
 ``ergostat.toml`` changes, so the page follows the Supervisor's edits."""
 
 from __future__ import annotations
@@ -24,6 +25,14 @@ STATIC = Path(__file__).parent / "static"
 GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)    # the client went away mid-answer
 EVENTS_MOST = 1000                   # the most events one answer carries (``n``); page through with ``after``
 FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this size
+# the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
+# names; the same list as the page's (``UI_PAGES``, util.js). /api, /static and /file are never among them
+UI_PAGES = ("diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals")
+
+
+def is_page_path(path: str) -> bool:
+    """``path`` (as sent, still encoded) is one of the page's own addresses: the root, or under one of UI_PAGES."""
+    return path in ("", "/") or path.split("/")[1] in UI_PAGES
 
 
 def went_away(path: str, size: int, e: BaseException) -> None:
@@ -47,6 +56,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({{"&": "&amp;", "<": "&l
 marked.use({{ renderer: {{ html: (t) => esc(typeof t === "string" ? t : t.text || "") }} }});
 const el = document.getElementById("doc");
 el.innerHTML = marked.parse({data});
+for (const a of el.querySelectorAll('a[href^="#/"]')) a.setAttribute("href", a.getAttribute("href").slice(1));   // an old page address
 for (const c of el.querySelectorAll("pre code")) {{ try {{ hljs.highlightElement(c); }} catch (e) {{}} }}
 </script></body></html>""".encode()
 
@@ -516,7 +526,12 @@ def handler(project):
             if u.path.startswith("/file/"):                # the same, as a path: a Markdown file's relative links resolve
                 navigating = "text/html" in (self.headers.get("Accept") or "") and "raw" not in parse_qs(u.query)
                 return self._file(unquote(u.path.removeprefix("/file/")), page=navigating)
-            name = "index.html" if u.path in ("/", "") else u.path.removeprefix("/static/")
+            if is_page_path(u.path):
+                name = "index.html"
+            elif u.path.startswith("/static/"):
+                name = u.path.removeprefix("/static/")
+            else:
+                return self._send(404, b"not found", "text/plain")
             f = (STATIC / name).resolve()
             if STATIC.resolve() not in f.parents or not f.is_file():
                 return self._send(404, b"not found", "text/plain")

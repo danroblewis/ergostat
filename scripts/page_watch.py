@@ -1,7 +1,7 @@
 """Leave pages of a running ergostat open in a real browser and record what they cost over time.
 
     uv run --with playwright==1.63.0 python scripts/page_watch.py http://127.0.0.1:8791 \
-        --minutes 12 --every 30 --out /tmp/watch.json '#/diagram' '#/items' ...
+        --minutes 12 --every 30 --out /tmp/watch.json diagram items 'diagram?view=blocks' ...
 
 Each page is opened in its own browser context (its own renderer), all at once, and sampled every
 ``--every`` seconds: the JS heap after a forced collection (what is retained, not garbage), DOM
@@ -63,7 +63,7 @@ async def watch(browser, base: str, route: str, seconds: float, every: float, sp
            lambda e: got.append((time.time(), reqs.pop(e["requestId"], "?"), int(e.get("encodedDataLength", 0)),
                                  e["timestamp"] - sent.pop(e["requestId"], e["timestamp"]))))
     t0 = time.time()
-    await page.goto(base + "/" + route, wait_until="load", timeout=300_000)
+    await page.goto(base.rstrip("/") + "/" + route.lstrip("#/"), wait_until="load", timeout=300_000)   # (an old #/ route too)
     samples = []
 
     async def sample():

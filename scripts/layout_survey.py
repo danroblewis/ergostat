@@ -103,12 +103,12 @@ def main() -> None:
                     errors: list[str] = []
                     pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
                     q = f"layout={lay}&" if lay else ""
-                    pg.goto(f"{url}/?{q}v=0#/diagram")
+                    pg.goto(f"{url}/diagram?{q}v=0")
                     pg.wait_for_function(READY, timeout=20000)
                     tree = pg.evaluate("() => S.graph.tree || {}")
                     views = ["", "open=*", *(f"open={s}" for s in tree), *(f"system={s}" for s in tree)]
                     for i, v in enumerate(views):
-                        pg.goto(f"{url}/?{q}v={i + 1}#/diagram?{v}")
+                        pg.goto(f"{url}/diagram?{q}v={i + 1}" + (f"&{v}" if v else ""))
                         try:
                             pg.wait_for_function(READY, timeout=20000)
                         except Exception as e:

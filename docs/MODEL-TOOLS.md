@@ -5,7 +5,7 @@ read and tune its loops. Each tool says what it is, what you get from it, where 
 clicks), what it needs before it appears, and how to use it. The screenshots are from a 20-minute run
 of `examples/image-squeeze` with its stand-in researcher and developer.
 
-Start on the **Model** page (the header's **Model**, `#/model`; it was called Fit). Its first section,
+Start on the **Model** page (the header's **Model**, `/model`; it was called Fit). Its first section,
 **What's available**, lists for this project each loop and whether it can be analysed yet, each
 parameter to estimate and whether the record is long enough yet, and a link into the panel where each
 tool lives: a link chooses the part, opens the diagram in the view the tool lives in, and opens the

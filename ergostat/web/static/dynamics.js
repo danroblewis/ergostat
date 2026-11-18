@@ -591,7 +591,7 @@ async function openNodeSD(n) {
     const flow = n.flow || n.label;
     showDetail(h("div", { class: "kind" }, "Valve"), h("h2", {}, flow), h("p", { class: "muted" }, `the rate of ${flow}`),
       causesStrip(`flow.${flow}`), dl(rows), equationSection(flow, d?.numbers, { said: d?.equation || n.equation }), loopsPara(loopsOf((c) => c.nodes.includes(n.id))),
-      h("p", {}, h("a", { href: `#/diagram?view=dynamics&around=flow/${encodeURIComponent(flow)}` }, "Draw what is around it")),
+      h("p", {}, h("a", { href: `/diagram?view=dynamics&around=flow/${encodeURIComponent(flow)}` }, "Draw what is around it")),
       sdWhat("flow"));
     return;
   } else {
@@ -613,7 +613,7 @@ async function openNodeSD(n) {
     chart, dl(rows), numbers,
     loopsPara(loopsOf((c) => c.nodes.includes(id))),
     n.kind === "stock" || n.kind === "valve" || n.kind === "disturbance" || (n.kind === "auxiliary" && !n.role)
-      ? h("p", {}, h("a", { href: `#/diagram?view=dynamics&around=${n.kind === "stock" || n.kind === "auxiliary" ? "stock" : "flow"}/${encodeURIComponent(n.flow || n.label)}` }, "Draw what is around it")) : null,
+      ? h("p", {}, h("a", { href: `/diagram?view=dynamics&around=${n.kind === "stock" || n.kind === "auxiliary" ? "stock" : "flow"}/${encodeURIComponent(n.flow || n.label)}` }, "Draw what is around it")) : null,
     sdWhat(kind));
   void byId;
 }

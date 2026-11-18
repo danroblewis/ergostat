@@ -15,7 +15,7 @@ function showOnDiagram(parts, systems = []) {
   if (!PANE && typeof SPLIT === "object" && innerWidth >= SPLIT_NARROW && !SPLIT.open) { SPLIT.open = true; SPLIT.edge = "right"; SPLIT.frac = 0.5; }
   const q = new URLSearchParams({ view: "dynamics", ...(systems.length ? { open: systems.join(",") } : {}) });
   S.graphSig = "";
-  location.hash = `#/diagram?${q}`;
+  navigate(`/diagram?${q}`);
 }
 
 /* a model tool's panel, from the Model page: the diagram in the view the tool lives in, every system open so
@@ -25,7 +25,7 @@ function showOnDiagram(parts, systems = []) {
 function openTool({ view, part = null, find = null, causal = null, goal = null }) {
   S.toolOpen = { view, part, find, causal, goal, at: Date.now() };
   S.graphSig = ""; S.fitted = false;
-  location.hash = `#/diagram?${new URLSearchParams({ view, open: "*" })}`;
+  navigate(`/diagram?${new URLSearchParams({ view, open: "*" })}`);
 }
 function toolArrived() {
   const t = S.toolOpen, g = S.graph;
@@ -325,7 +325,7 @@ function availableView(d, box) {
       ["what-if, calibrations", eqParts.length ? h("span", {}, "a part with an equation: ", ...linkList(eqParts.map((r) => toolLink(r.split(".").slice(1).join("."), { view: "dynamics", part: r }))))
         : "no equation uses a parameter marked estimate: true"],
       ["loop dominance", modelled || goals.length ? h("span", {}, "a feedback loop's panel: ", toolLink(modelled?.name || goals[0], { view: "dynamics", causal: modelled?.name || goals[0] })) : "no feedback loop"],
-      ["extreme conditions, signs", h("span", {}, h("a", { href: "#/check" }, "Check"), findings ? `: ${findings} found` : ": nothing found")],
+      ["extreme conditions, signs", h("span", {}, h("a", { href: "/check" }, "Check"), findings ? `: ${findings} found` : ": nothing found")],
       ["review queue, calibrate", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); document.getElementById("review-queue")?.scrollIntoView(); } }, "below")],
       ["fit, residuals, history", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); document.getElementById("model-fit")?.scrollIntoView(); } }, "below")],
     ];

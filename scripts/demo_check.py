@@ -43,7 +43,7 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
         pg.on("pageerror", lambda e: errs.append(str(e)))
         for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "items",
                       "record", "residuals", "check", "guide"):
-            pg.goto(f"{url}/#/{route}")
+            pg.goto(f"{url}/{route}")
             pg.wait_for_timeout(1800)
             if shot and route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "agents"):
                 pg.screenshot(path=str(shot.with_name(f"{shot.stem}-{route.replace('?view=', '-')}.png")))
