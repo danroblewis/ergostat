@@ -73,8 +73,18 @@ class Map(dict):
 
 
 def _loader(path: Path, problems: list[Problem]):
+    from .yaml12 import ambiguous
+
     class Loader(yaml.SafeLoader):
-        pass
+        key = False                      # constructing a mapping's key
+
+        def construct_object(self, node, deep=False):
+            got = super().construct_object(node, deep=deep)
+            if isinstance(node, yaml.ScalarNode) and node.style is None:        # plain, not quoted
+                said = ambiguous(node.value, got, self.key)
+                if said:
+                    problems.append(Problem("finding", said, Where(path, node.start_mark.line + 1), "yaml-1.1"))
+            return got
 
     def mapping(loader, node, deep=False):
         m = Map()
@@ -82,7 +92,11 @@ def _loader(path: Path, problems: list[Problem]):
         m.lines = {}
         loader.flatten_mapping(node)
         for k_node, v_node in node.value:
-            k = loader.construct_object(k_node, deep=True)
+            loader.key = True
+            try:
+                k = loader.construct_object(k_node, deep=True)
+            finally:
+                loader.key = False
             if k in m:
                 problems.append(Problem("error", f"{k!r} is written twice in the same map (the second would win silently)",
                                         Where(path, k_node.start_mark.line + 1), "duplicate-key"))
