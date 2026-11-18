@@ -43,7 +43,6 @@ from .legacy import sensor_name, valve_name
 TICK = 1.0
 READERS = 8                 # the fixed pool that runs sensors' commands and queries: no thread per reading (scale.md #1)
 BATCH = 0.05                # after a pass, what lands within this long (readings, runs ending) waits for one pass together
-KEEPS_TIME = {"onoff", "delay", "schedule", "timer", "counter", "alarm"}   # built-ins whose output moves with time alone
 MISSING = object()
 JUDGE_EVERY = 30.0          # a judge with no every: passes this often
 POOL_FULL_AFTER = 10.0      # seconds an item whose run found its workspace pool full is put off (SPEC §12k)
@@ -70,6 +69,19 @@ the JSON below. Answer with JSON lines only, one per output, for example:
 Messages the owner sent about this work while it waited are in the JSON under "messages": take them into it.
 Gated actions an earlier session of yours asked for, and what became of them, are under "actions" (SPEC §12k).
 """
+
+
+def every_pass(b: Block) -> bool:
+    """Whether a built-in is stepped at every pass: its output can move with time alone, its inputs as they were (an
+    ``onoff`` with a ``min-on`` or ``min-off``, an ``alarm`` with a ``for``, a ``counter`` that resets, a ``limit`` with a
+    ``rate``, every ``delay``, ``timer`` and ``schedule``), or need not settle in one step (an ``onoff`` with an
+    ``until`` other than its goal). The others are functions of their inputs and of their own last output, which a
+    step with the same inputs keeps: stepped when what they read changed."""
+    p = b.params
+    return b.type in ("delay", "timer", "schedule") or \
+        (b.type == "onoff" and bool(p.get("min-on") or p.get("min-off") or p.get("until"))) or \
+        (b.type == "alarm" and bool(p.get("for"))) or (b.type == "counter" and bool(p.get("reset"))) or \
+        (b.type == "limit" and p.get("rate") is not None)
 
 
 class Engine:
@@ -233,7 +245,7 @@ class Engine:
     def evaluate(self, causes: dict | None = None, full: bool = False, tick: bool = False) -> None:
         """A pass (SPEC §9.1). The first, and the first after a model swap, works out everything; each after it only what
         is downstream of what changed since the last (scale.md, #1): the series with a new reading and the signals they
-        move, the goals on those, the built-ins reading what changed (and every built-in that keeps time), and the
+        move, the goals on those, the built-ins reading what changed (and those stepped every pass: ``every_pass``), and the
         machine blocks commanded by what changed, bearing on those readings, or whose run or reading ended; on the
         clock's pass (``tick``) also the blocks commanded on and not running (paced by ``every``, held by a step test). The lock is
         held only while the signals are worked out: the readings are read before it, the events and the built-ins'
@@ -344,7 +356,7 @@ class Engine:
                 late.add(key)
 
     def _builtin_wiring(self) -> tuple[list[str], dict[str, int], dict[str, list[str]], list[str]]:
-        """The built-ins in order, each one's place, who reads each signal, and those that keep time: worked out once per
+        """The built-ins in order, each one's place, who reads each signal, and those stepped every pass: worked out once per
         set of built-ins (a swap makes another)."""
         got = getattr(self, "_bw", None)
         if got is not None and got[0] is self.builtins:
@@ -360,7 +372,7 @@ class Engine:
                 keys |= {f"goal.{g.name}", f"goal.{g.name}.error", f"goal.{g.name}.off", str(g.of)}
             for k in keys:
                 readers.setdefault(k, []).append(n)
-            if b.type in KEEPS_TIME or (b.type == "limit" and b.params.get("rate") is not None):
+            if every_pass(b):
                 timed.append(n)
         out = (names, {n: i for i, n in enumerate(names)}, readers, timed)
         self._bw = (self.builtins, out)

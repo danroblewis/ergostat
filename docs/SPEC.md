@@ -1181,8 +1181,9 @@ after readings land, after a run ends, and every second (the clock's pass):
 - A pass works out **what changed**: the parts with a new reading, the goals on them, the built-ins that read
   what changed (in the built-ins' order, as always), and the machine blocks commanded by what changed, whose stocks or
   goals have a new reading, or whose run ended. The first pass after ergostat starts or the model changes works out
-  everything. Built-ins that keep time (`onoff`, `delay`, `schedule`, `timer`, `counter`, `alarm`, `limit` with a
-  `rate`) step at every pass.
+  everything. Built-ins whose output can move with time alone step at every pass: every `delay`, `timer` and
+  `schedule`, an `onoff` with `min-on`, `min-off` or `until`, an `alarm` with `for`, a `counter` with `reset`, a `limit`
+  with a `rate`.
 - What only time makes due is seen at the clock's pass: a block paced by `every` whose pace has run out starts at the
   next whole second, as does a block a step test stops holding.
 - The events a pass makes (`loop.off`, `loop.holding`, `controller.decided`, `person.asked`, `block.advised`) are
