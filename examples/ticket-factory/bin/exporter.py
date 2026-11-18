@@ -55,7 +55,7 @@ def from_record() -> list[str]:
     out = ["# TYPE tf_tickets gauge"] + [_line("tf_tickets", n, state=s) for s, n in sorted(states.items())]
     out += ["# TYPE tf_prs_awaiting_review gauge",
             _line("tf_prs_awaiting_review", sum(states.get(s, 0) for s in ("pr-open", "review-asked", "changes-asked"))),
-            "# TYPE tf_actions_waiting gauge", _line("tf_actions_waiting", len(items("action", "requested")))]
+            "# TYPE tf_actions_waiting gauge", _line("tf_actions_waiting", len(items("ergostat.action", "requested")))]
     for name, field in (("ci_failures", "ci_failures"), ("repings", "repings"), ("review_rounds", "review_rounds"),
                         ("ai_cost_usd", "ai_cost_usd"), ("ai_sessions", "ai_runs"), ("ai_seconds", "ai_seconds")):
         out += [f"# TYPE tf_{name}_total counter", _line(f"tf_{name}_total", round(total(field), 6))]
@@ -72,7 +72,7 @@ def from_services() -> list[str]:
         out += [_line("tf_jira_issues", n, status=s) for s, n in sorted(jira.counts().items())]
     except Exception as e:                                       # noqa: BLE001: a service down is a gap, not a crash
         out.append(f"# jira: {type(e).__name__}")
-    prefix = conf("BRANCH_TEMPLATE", "ergostat/{key}").split("{", 1)[0]
+    prefix = "ergostat/"                                         # the pool's branches (ergostat.yaml)
     try:
         n = sum(1 for p in github.open_prs(conf("GITHUB_REPO")) if p.get("headRefName", "").startswith(prefix))
         out += ["# TYPE tf_github_open_prs gauge", _line("tf_github_open_prs", n)]

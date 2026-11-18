@@ -5,9 +5,10 @@ by the stand-in (AI=standin: free, a scripted change). Three jobs, each with its
     review    answer the reviewers' comments with a change
     ci        read the failing CI log, and fix what it says
 
-The agent only edits files in the workspace. It cannot push, call gh, or reach Jira: its tools are the
-file tools and read-only git. The step commits what it changed, and pushing is a gated action
-(bin/act.py). Every session's cost is recorded on its ticket (ai_cost_usd, ai_runs, ai_seconds), and its
+The agent edits files in the ticket's workspace (a git worktree ergostat's pool gave the step). It is told
+not to push, call gh, or reach Jira, and its tools here are the file tools and read-only git (Claude Code's
+--allowedTools and --disallowedTools, below; not ergostat's OS sandbox, which only a session ergostat starts
+gets). The step commits what it changed, and pushing is a gated action (factory/actions.yaml). Every session's cost is recorded on its ticket (ai_cost_usd, ai_runs, ai_seconds), and its
 whole answer kept in run/sessions/.
 """
 

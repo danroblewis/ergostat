@@ -5,7 +5,7 @@ defaults:
 stocks:
   located:
     unit: tickets
-    description: the repository found; no workspace yet
+    description: its repository found and fetched; not worked yet
     sensor:
       items: ticket
       state: located
@@ -38,7 +38,7 @@ blocks:
   locate:
     type: program
     goal: picked-located
-    run: python3 bin/step.py locate --from picked
-    max: 1
-    every: 3s
+    run: python3 bin/step.py locate
+    takes: {kind: ticket, at: picked, to: [located, stopped]}
+    pool: 3
     out: flow.locate

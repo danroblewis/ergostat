@@ -17,13 +17,13 @@ JIRA_IN_REVIEW=In Review
 JIRA_DONE=Done
 
 # --- GitHub (bin/github.py, through gh) -------------------------------------------------------------
-GITHUB_REPO=danroblewis/orchestra-live-delivery   # the repository used when an issue names none
-GITHUB_REPOS=danroblewis/orchestra-live-delivery  # the only repositories it will work in (space-separated)
-BRANCH_TEMPLATE=ergostat/{key}-{slug}
+GITHUB_REPO=danroblewis/orchestra-live-delivery   # the repository it works in (cloned to run/repo, the workspace pool's);
+                                        # writes to any other are refused. The branch template is the pool's (ergostat.yaml)
 REVIEWERS=                              # GitHub logins asked for review; empty: a comment asks instead
 REPING_AFTER=90s                        # no answer from a reviewer this long after asking: ask again
 REPING_MAX=3
-POLL_EVERY=15s                          # look at a pull request (reviews, CI) no more often than this
+POLL_EVERY=15s                          # a step that waits (reviews, CI, an approval) gives its ticket back for this long
+ACT_WAIT=10s                            # how long a step waits for the owner's answer to an approval before it gives the ticket back
 APPROVE_WORD=/approve                   # a reviewer's comment starting with this counts as approval
                                         # (a test account cannot approve its own pull request)
 SAIL_LABEL=SAIL                         # added on approval
@@ -40,8 +40,7 @@ STANDIN_PLACEHOLDER=yes                 # the stand-in leaves an empty notes fil
 CI_MAX_FIXES=3                          # CI fixed this many times and still failing: stop, for a person
 
 # --- where it runs ----------------------------------------------------------------------------------
-SCRATCH=~/.cache/ergostat-ticket-factory   # Prometheus, the sample repository's clone and the workspaces
-WORKSPACES=3                            # the most worktrees out at once
+SCRATCH=~/.cache/ergostat-ticket-factory   # Prometheus (the clone is run/repo; the workspaces are ergostat's, in its state)
 PROM_VERSION=3.5.0
 PROM_PORT=8797
 EXPORTER_PORT=8796

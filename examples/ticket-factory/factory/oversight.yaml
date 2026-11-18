@@ -22,10 +22,9 @@ stocks:
       every: 3s
   actions-waiting:
     unit: actions
-    description: outward acts waiting for the owner's approval (bin/act.py list)
+    description: outward acts held for the owner's approval (ergostat actions)
     sensor:
-      items: action
-      state: requested
+      builtin: ergostat.actions.held
       every: 3s
   ai-spend:
     unit: usd
@@ -82,14 +81,14 @@ flows:
     to: actions-waiting
     description: outward acts whose gate is approve, asked for
     sensor:
-      items: action
+      items: ergostat.action
       entering: requested
       over: 10m
   approvals:
     from: actions-waiting
     description: approved or denied by the owner
     sensor:
-      items: action
+      items: ergostat.action
       leaving: requested
       over: 10m
   ai-spending:
@@ -152,9 +151,10 @@ blocks:
     agent: owner
     goal: nothing-awaits-approval
     ask: >-
-      Outward acts wait for your approval. `bin/act.py list` shows them; `bin/act.py approve ID` (or --all)
-      lets each be done on its step's next run, `bin/act.py deny ID` refuses it. To stop being asked for one
-      kind of act, promote its gate in gates.local.conf.
+      Outward acts wait for your approval. `ergostat actions` lists them (and the page, on each one's
+      item); `ergostat actions ID --approve` runs it, and its step finds it done on its next run;
+      `--deny` refuses it. To stop being asked for one kind of act, promote it: `gate: auto` in
+      factory/actions.yaml.
     out: flow.approvals
   unstick:
     type: person

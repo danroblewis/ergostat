@@ -1,4 +1,4 @@
-# Step 7, review: review-asked -> approved, or -> changes-asked when a reviewer comments (steps/review.py).
+# Step 6, review: review-asked -> approved, or -> changes-asked when a reviewer comments (steps/review.py).
 # The reviewers are people outside the factory (here, the scripted teammate in world.yaml): how long they
 # take is a delay the factory does not set. It can only ask again, after REPING_AFTER.
 defaults:
@@ -63,7 +63,8 @@ blocks:
   review:
     type: program
     goal: reviews-answered
-    run: python3 bin/step.py review --from review-asked
-    max: 1
-    every: 3s
+    run: python3 bin/step.py review
+    takes: {kind: ticket, at: review-asked, to: [approved, changes-asked, stopped]}
+    pool: 3
+    actions: [pr-comment]
     out: [flow.review, flow.review-changes]

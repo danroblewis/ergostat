@@ -1,39 +1,37 @@
-"""One step of the ticket workflow, run by its block: take a ticket waiting in the step's state, do the step's
-script (steps/<name>.py) for it, and move it on.
+"""One step of the ticket workflow, run by its block for one ticket: the block takes the tickets in its state
+(`takes:`), a run per ticket under a lease, ERGOSTAT_ITEM naming it. This runs the step's script
+(steps/<name>.py) for that ticket, and says how it went:
 
-    step.py NAME --from STATE
+    step.py NAME
 
-The tickets in STATE are tried oldest first. The script's run(ticket) returns:
+The script's run(ticket) returns:
 
     Move(fields)     done: the event ticket.<NAME> is recorded with these fields, and the kind's `on:` moves
                      the ticket to the step's next state (ticket.yaml); the block reports it moved along
                      flow.<NAME>. Move(fields, event="ticket.x", out="flow.y") for another way out (a review
                      that asks for changes, a CI run that failed)
-    Wait(why)        not yet (an approval, a reviewer, CI): the next ticket is tried, and this one next run
+    Wait(why)        not yet (an approval, a reviewer, CI): the ticket is given back, put off for POLL_EVERY and
+                     not counted as a failure ({"nack": {..., "count": false}}); its next run asks again
     Stop(why)        it cannot go on: the ticket moves to `stopped`, for the owner
 
-A step with no script moves every ticket on at once (Move()): a step that is only a state, for a person or a
-program outside to act on. At most one ticket moves per run (the block's max: 1); the block reports it as
-the amount moved along its flow. A gated action that waits (act.Pending) is a Wait; one denied (act.Denied)
-or failed (act.Failed) is a Stop unless the script catches it.
-
-PLUG POINT (branch `leases`, SPEC 9.5): with `takes: {kind: ticket, at: STATE}` and `pool:` on the block,
-ergostat runs it once per ticket under a lease, ERGOSTAT_ITEM naming it and ERGOSTAT_LEASE the fence. This
-runner then takes that one ticket (below), the oldest-first loop goes, and a Wait becomes a nack put off
-({"nack": {"why": ..., "after": "30s", "count": false}}).
+A step with no script moves its ticket on at once (Move()): a step that is only a state, for a person or a
+program outside to act on. A gated action held for the owner (gated.Pending) is a Wait; one denied
+(gated.Denied) or failed (gated.Failed) is a Stop unless the script catches it. A step that crashes exits 1:
+ergostat counts the attempt, and after the kind's attempts the ticket is a dead letter (`ergostat lease`).
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import sys
 import traceback
 from dataclasses import dataclass, field
 
-import act
-from tf import ROOT, items, log, say
+import gated
+from tf import ROOT, conf, item, log, say
 
 
 @dataclass
@@ -70,9 +68,9 @@ def attempt(mod, ticket: dict):
         return Move()
     try:
         return mod.run(ticket)
-    except act.Pending as e:
+    except gated.Pending as e:
         return Wait(str(e))
-    except (act.Denied, act.Failed) as e:
+    except (gated.Denied, gated.Failed) as e:
         return Stop(str(e))
     except Exception as e:                                 # noqa: BLE001: a step's bug stops its ticket, said why
         log(traceback.format_exc())
@@ -83,29 +81,32 @@ def main() -> int:
     sys.modules.setdefault("step", sys.modules[__name__])   # the scripts' `from step import Move` is this module
     ap = argparse.ArgumentParser()
     ap.add_argument("name")
-    ap.add_argument("--from", dest="state", required=True)
     a = ap.parse_args()
-    mod = load(a.name)
-    waiting = sorted(items("ticket", a.state), key=lambda t: t.get("entered") or 0)
-    leased = os.environ.get("ERGOSTAT_ITEM")              # PLUG POINT (leases): the one ticket this run is for
-    if leased:
-        waiting = [t for t in waiting if t["id"] == leased]
-    for ticket in waiting:
-        got = attempt(mod, ticket)
-        if isinstance(got, Move):
-            say({"event": got.event or f"ticket.{a.name}", "item": ticket["id"], "data": got.fields})
-            log(f"{ticket['id']}: {a.name} done" + (f" ({got.note})" if got.note else ""))
-            say({"out": got.out or f"flow.{a.name}", "moved": 1})
-            return 0
-        if isinstance(got, Stop):
-            say({"event": "ticket.stopped", "item": ticket["id"], "data": {"stopped_why": got.why, "stopped_at": a.name,
-                                                                          "stopped_from": a.state}})
-            log(f"{ticket['id']}: stopped at {a.name}: {got.why}")
-            continue
+    try:
+        given = json.loads(sys.stdin.read() or "{}")       # its input: the ticket and its lease (SPEC 9.5)
+    except json.JSONDecodeError:
+        given = {}
+    tid = os.environ.get("ERGOSTAT_ITEM")
+    ticket = item(tid) if tid else None
+    if ticket is None:
+        log(f"{a.name}: no ticket (ERGOSTAT_ITEM: {tid!r}): a step runs for the ticket its block takes")
+        return 1
+    got = attempt(load(a.name), ticket)
+    if isinstance(got, Move):
+        say({"event": got.event or f"ticket.{a.name}", "item": tid, "data": got.fields})
+        say({"out": got.out or f"flow.{a.name}", "moved": 1})
+        log(f"{tid}: {a.name} done" + (f" ({got.note})" if got.note else ""))
+    elif isinstance(got, Stop):
+        say({"event": "ticket.stopped", "item": tid, "data": {"stopped_why": got.why, "stopped_at": a.name,
+                                                              "stopped_from": (given.get("lease") or {}).get("back")}})
+        say({"out": f"flow.{a.name}", "moved": 0})
+        log(f"{tid}: stopped at {a.name}: {got.why}")
+    else:
         if got.fields:
-            say({"event": "ticket.noted", "item": ticket["id"], "data": got.fields})
-        log(f"{ticket['id']}: waits at {a.name}: {got.why}")
-    say({"out": f"flow.{a.name}", "moved": 0})
+            say({"event": "ticket.noted", "item": tid, "data": got.fields})
+        say({"nack": {"why": got.why, "after": conf("POLL_EVERY", "15s"), "count": False}})
+        say({"out": f"flow.{a.name}", "moved": 0})
+        log(f"{tid}: waits at {a.name}: {got.why}")
     return 0
 
 

@@ -1,4 +1,4 @@
-# Step 12, merge: ci-green -> merged. Merge, if the repository allows (steps/merge.py).
+# Step 11, merge: ci-green -> merged. Merge, if the repository allows (steps/merge.py).
 defaults:
   system: shipping
 
@@ -38,7 +38,8 @@ blocks:
   merge:
     type: program
     goal: green-merged
-    run: python3 bin/step.py merge --from ci-green
-    max: 1
-    every: 3s
+    run: python3 bin/step.py merge
+    takes: {kind: ticket, at: ci-green, to: [merged, stopped]}
+    pool: 3
+    actions: [pr-merge]
     out: flow.merge

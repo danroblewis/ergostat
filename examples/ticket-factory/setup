@@ -37,7 +37,7 @@ if [ "${1:-}" = "--teardown" ]; then
     stop exporter
     stop prometheus
     rm -f local/prometheus.yaml
-    say "torn down. Kept: $SCRATCH (Prometheus, the clone, the workspaces) and the record (ergostat reset --yes clears it)."
+    say "torn down. Kept: $SCRATCH (Prometheus), run/repo (the clone), the workspaces and the record (ergostat reset --yes clears it)."
     exit 0
 fi
 
@@ -116,7 +116,7 @@ fi
 sed "s/@PROM_PORT@/$PROM_PORT/" local/prometheus.yaml.in > local/prometheus.yaml
 
 # --- the sample repository -----------------------------------------------------------------------------
-say "repository: $(cd bin && python3 workspace.py refresh "$REPO")"
+say "repository: $(cd bin && python3 github.py refresh "$REPO")"
 
 # --- the project's state, and ergostat -----------------------------------------------------------------
 "${ERGOSTAT[@]}" check | head -3
@@ -127,11 +127,11 @@ fi
 
 cat <<EOF
 
-The ticket factory is set up ($(conf AI) doing the work; gates in gates.conf, gates.local.conf).
+The ticket factory is set up ($(conf AI) doing the work; the gates in factory/actions.yaml).
   the page          http://127.0.0.1:$WEB_PORT      (Items: the tickets, actions, the daily summary and the OKR)
   Prometheus        http://127.0.0.1:$PROM_PORT/graph?g0.expr=tf_tickets
   a test issue      bin/demo_issues.py create        (labelled $(conf JIRA_LABEL) in $(conf JIRA_PROJECT); at most 3)
-  approvals         bin/act.py list, bin/act.py approve ID (or --all)
+  approvals         ergostat actions, then ergostat actions ID --approve (or the action's page)
   the tickets       bin/tickets.py list
   clean up          bin/demo_issues.py cleanup       (closes the demo's pull requests, moves its issues to Done)
   stop it all       ./setup --teardown

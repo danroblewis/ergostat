@@ -1,4 +1,4 @@
-# Step 6, ask-review: pr-open -> review-asked. Ask the reviewers (steps/ask-review.py).
+# Step 5, ask-review: pr-open -> review-asked. Ask the reviewers (steps/ask-review.py).
 defaults:
   system: review
 
@@ -38,7 +38,8 @@ blocks:
   ask-review:
     type: program
     goal: opened-asked
-    run: python3 bin/step.py ask-review --from pr-open
-    max: 1
-    every: 3s
+    run: python3 bin/step.py ask-review
+    takes: {kind: ticket, at: pr-open, to: [review-asked, stopped]}
+    pool: 3
+    actions: [request-review, pr-comment]
     out: flow.ask-review

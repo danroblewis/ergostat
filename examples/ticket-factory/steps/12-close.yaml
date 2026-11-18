@@ -1,4 +1,4 @@
-# Step 13, close: merged -> done. The issue to Done, the workspace given back (steps/close.py).
+# Step 12, close: merged -> done. The issue to Done (steps/close.py); ergostat cleans its workspace then.
 defaults:
   system: shipping
 
@@ -29,7 +29,8 @@ blocks:
   close:
     type: program
     goal: merged-closed
-    run: python3 bin/step.py close --from merged
-    max: 1
-    every: 3s
+    run: python3 bin/step.py close
+    takes: {kind: ticket, at: merged, to: [done, stopped]}
+    pool: 3
+    actions: [jira-transition, jira-comment]
     out: flow.close

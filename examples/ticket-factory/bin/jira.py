@@ -15,10 +15,11 @@ personal access token) differ only in what is marked DC below: the search endpoi
 Document Format (Cloud) or plain text (Data Center).
 
 The token is read from JIRA_TOKEN_FILE at each call and never printed, logged or recorded. Offline, the same
-calls go to bin/fakes.py. Writes (transition, comment) are only ever made through bin/act.py, under a gate,
-and only on issues carrying JIRA_LABEL: refused here otherwise.
+calls go to bin/fakes.py. Writes (transition, comment) are made only by the gated actions (factory/actions.yaml),
+which run the commands below, and only on issues carrying JIRA_LABEL: refused here otherwise.
 
     jira.py waiting | get KEY | transitions KEY      read, for a person checking the setup
+    jira.py transition KEY STATUS | comment KEY TEXT  the gated actions' commands
 """
 
 from __future__ import annotations
@@ -218,5 +219,9 @@ def delete(key: str) -> None:
 if __name__ == "__main__":
     what = sys.argv[1:] or ["waiting"]
     fn = {"waiting": waiting, "counts": counts, "get": get, "transitions": transitions, "whoami": whoami,
-          "check": check}[what[0]]
-    print(json.dumps(fn(*what[1:]), indent=1))
+          "check": check, "transition": transition, "comment": comment}[what[0]]
+    try:
+        got = fn(*what[1:])
+    except JiraError as e:
+        sys.exit(str(e))
+    print(got if isinstance(got, str) else json.dumps(got, indent=1))

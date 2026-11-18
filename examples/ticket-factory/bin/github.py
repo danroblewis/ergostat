@@ -1,21 +1,27 @@
 """GitHub: every call the factory makes to it, each in one function, through the gh command line (signed in
 with `gh auth login`; GitHub Enterprise with GH_HOST). Offline, the same calls go to bin/fakes.py.
 
-Writes (push, open_pr, comment, request_review, add_label, rerun, merge) are only ever made through
-bin/act.py, under a gate; the AI agent never calls these, nor gh, nor git push.
+Writes (open_pr, comment, request_review, add_label, rerun, merge) are made only by the gated actions
+(factory/actions.yaml), which run this file's commands below; the steps ask for them, and the AI agent never
+calls these, nor gh, nor git push. Every write is refused on a repository other than GITHUB_REPO.
 
-    github.py pr REPO N | checks REPO N | repo REPO      read, for a person checking the setup
+    github.py pr REPO N | checks REPO N | repo REPO       read, for a person checking the setup
+    github.py refresh REPO                               clone the repository into run/repo, or fetch it
+    github.py open-pr REPO BRANCH TITLE BODY BASE        the gated actions' commands: each prints its result
+    github.py comment | request-review | label REPO PR X
+    github.py rerun REPO RUN | merge REPO PR METHOD
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
 import subprocess
 import sys
 from pathlib import Path
 
 import fakes
-from tf import OFFLINE, conf, git
+from tf import OFFLINE, REPO, conf, git
 
 MARK = "<!-- ergostat ticket-factory -->"          # on everything the factory writes: whatever lacks it is a person's
 
@@ -32,8 +38,34 @@ def _gh(*args: str) -> str:
 
 
 def allowed(repo: str) -> None:
-    if repo not in conf("GITHUB_REPOS").split():
-        raise GitHubError(f"{repo} is not in GITHUB_REPOS: the factory works only in the repositories it is given")
+    if repo != conf("GITHUB_REPO"):
+        raise GitHubError(f"{repo} is not GITHUB_REPO: the factory works only in the repository it is given")
+
+
+def refresh(repo: str) -> Path:
+    """The repository's clone, run/repo (the workspace pool's, ergostat.yaml): made the first time, fetched after."""
+    allowed(repo)
+    REPO.parent.mkdir(parents=True, exist_ok=True)
+    with open(REPO.parent / "repo.lock", "w") as lock:   # two steps at once: one clones, the other waits
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _refresh(repo)
+
+
+def _refresh(repo: str) -> Path:
+    if not (REPO / ".git").exists():
+        if OFFLINE:
+            subprocess.run(["git", "clone", "-q", str(fakes.origin(repo)), str(REPO)], check=True, capture_output=True)
+        else:
+            r = subprocess.run(["gh", "repo", "clone", repo, str(REPO), "--", "-q"], capture_output=True, text=True)
+            if r.returncode != 0:
+                raise GitHubError(f"cloning {repo}: {r.stderr.strip()}")
+    git("fetch", "-q", "--prune", "origin", cwd=REPO)
+    return REPO
+
+
+def default_branch() -> str:
+    ref = git("symbolic-ref", "--short", "refs/remotes/origin/HEAD", cwd=REPO, check=False)
+    return ref.split("/", 1)[1] if "/" in ref else "main"
 
 
 def repo_settings(repo: str) -> dict:
@@ -41,12 +73,6 @@ def repo_settings(repo: str) -> dict:
         return fakes.gh_repo(repo)
     return json.loads(_gh("repo", "view", repo, "--json",
                           "mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed,defaultBranchRef"))
-
-
-def push(workspace: Path, branch: str) -> str:
-    """The workspace's branch to the repository (git, but an act on GitHub all the same)."""
-    git("push", "-q", "--force-with-lease", "origin", f"HEAD:refs/heads/{branch}", cwd=workspace)
-    return git("rev-parse", "HEAD", cwd=workspace)
 
 
 def find_pr(repo: str, branch: str) -> dict | None:
@@ -194,7 +220,31 @@ def from_people(entries: list[dict]) -> list[dict]:
     return [e for e in entries if MARK not in (e.get("body") or "")]
 
 
+def main(what: list[str]):
+    cmd, repo, rest = what[0], what[1], what[2:]
+    if cmd in ("pr", "checks", "repo"):
+        return {"pr": pr, "checks": checks, "repo": repo_settings}[cmd](repo, *[int(x) for x in rest])
+    if cmd == "refresh":
+        return str(refresh(repo))
+    if cmd == "open-pr":                                 # the gated actions' commands (factory/actions.yaml)
+        return open_pr(repo, *rest)
+    n = int(rest[0])
+    if cmd == "comment":
+        return comment(repo, n, rest[1])
+    if cmd == "request-review":
+        return request_review(repo, n, rest[1].replace(",", " ").split())
+    if cmd == "label":
+        return add_label(repo, n, rest[1])
+    if cmd == "rerun":
+        return rerun(repo, n)
+    if cmd == "merge":
+        return merge(repo, n, rest[1])
+    sys.exit(f"github.py: no command {cmd}")
+
+
 if __name__ == "__main__":
-    what = sys.argv[1:]
-    fn = {"pr": pr, "checks": checks, "repo": repo_settings}[what[0]]
-    print(json.dumps(fn(what[1], *[int(x) for x in what[2:]]), indent=1))
+    try:
+        got = main(sys.argv[1:])
+    except GitHubError as e:
+        sys.exit(str(e))
+    print(got if isinstance(got, str) else json.dumps(got))

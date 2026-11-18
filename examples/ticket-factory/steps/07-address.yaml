@@ -1,4 +1,4 @@
-# Step 8, address: changes-asked -> review-asked. The agent answers the review with a commit (steps/address.py).
+# Step 7, address: changes-asked -> review-asked. The agent answers the review with a commit (steps/address.py).
 defaults:
   system: review
 
@@ -31,8 +31,11 @@ blocks:
     goal: changes-answered
     agent: ai
     prompt: prompts/review.md
-    run: python3 bin/step.py address --from changes-asked
-    max: 1
-    every: 3s
+    run: python3 bin/step.py address
+    takes: {kind: ticket, at: changes-asked, to: [review-asked, stopped]}
+    pool: 1
+    lease: {ttl: 20m, attempts: 2}
+    workspace: code
+    actions: [git-push, pr-comment]
     timeout: 15m
     out: flow.address

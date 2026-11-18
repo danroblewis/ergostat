@@ -1,4 +1,4 @@
-# Step 5, open-pr: worked -> pr-open. Push, open the pull request, the issue to In Review (steps/open-pr.py).
+# Step 4, open-pr: worked -> pr-open. Push, open the pull request, the issue to In Review (steps/open-pr.py).
 defaults:
   system: making
 
@@ -38,7 +38,9 @@ blocks:
   open-pr:
     type: program
     goal: worked-opened
-    run: python3 bin/step.py open-pr --from worked
-    max: 1
-    every: 3s
+    run: python3 bin/step.py open-pr
+    takes: {kind: ticket, at: worked, to: [pr-open, stopped]}
+    pool: 3
+    workspace: code
+    actions: [git-push, open-pr, jira-transition, jira-comment]
     out: flow.open-pr

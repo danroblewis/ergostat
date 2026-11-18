@@ -73,7 +73,7 @@ def summary(today: str, tickets: list[dict], krs: list[dict], okr_state: str) ->
     for t in tickets:
         if t["state"] not in ("done",):
             flight[t["state"]] = flight.get(t["state"], 0) + 1
-    waiting = items("action", "requested")
+    waiting = items("ergostat.action", "requested")
     lines = [f"# The ticket factory, {today}", "", f"_Written {time.strftime('%H:%M')}, from the record._", "",
              f"## Done today: {len(done)}", ""]
     for t in done:
@@ -86,7 +86,8 @@ def summary(today: str, tickets: list[dict], krs: list[dict], okr_state: str) ->
     lines += [f"| {s} | {n} |" for s, n in flight.items()] or ["| (none) | 0 |"]
     if waiting:
         lines += ["", f"## Waiting for your approval: {len(waiting)}", ""]
-        lines += [f"- `{a['id']}`: {a['fields'].get('what')}" for a in waiting]
+        lines += [f"- `{a['id']}`: {a['fields'].get('action')}, `{(a['fields'].get('command') or '')[:120]}`"
+                  for a in waiting]
     stopped = [t for t in tickets if t["state"] == "stopped"]
     if stopped:
         lines += ["", f"## Stopped: {len(stopped)}", ""]

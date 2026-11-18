@@ -1,15 +1,14 @@
 """ci: watch CI on the pull request's head. Green: on to merge. Failed: to ci-failed, with the failing log,
-for `fix-ci`. A repository with no CI is taken as green once five minutes pass with no run."""
+for `fix-ci`. A repository with no CI is taken as green once five minutes pass with no run. While CI runs,
+the ticket is given back and looked at again after POLL_EVERY."""
 
 import github
 from step import Move, Wait
-from tf import now, throttled
+from tf import now
 
 
 def run(ticket):
     f = ticket["fields"]
-    if throttled(f"ci:{ticket['id']}"):
-        return Wait("looked a moment ago")
     got = github.checks(f["repo"], f["pr"], since=f.get("ci_since"))
     if got["state"] == "success":
         return Move({"ci_green_at": now()})
