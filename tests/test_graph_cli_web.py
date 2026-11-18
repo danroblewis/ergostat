@@ -213,7 +213,7 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
                      "/record?type=x.y", "/model", "/check", "/guide?frame=3", "/fit", "/residuals"):
             code, ctype, body = get(path)
             assert code == 200 and ctype.startswith("text/html") and b'name="ergostat-token"' in body, path
-            assert b'src="/static/util.js"' in body, path            # its scripts by absolute path: a deep address loads them
+            assert b'src="/static/util.js?v=' in body, path          # its scripts by absolute path: a deep address loads them
         code, ctype, body = get("/api/status")
         assert code == 200 and ctype == "application/json" and "loops" in json.loads(body)
         assert get("/api/nope/nope")[0] == 404 and get("/api/items/ticket%2F7")[1] == "application/json"
@@ -223,6 +223,55 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
         assert code == 200 and b"marked.parse" in body and b"ergostat-token" not in body
         for path in ("/favicon.ico", "/nope", "/itemsx", "/util.js", "/static"):
             assert get(path)[0] == 404, path
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_static_files_are_versioned_and_the_page_is_revalidated(project, tmp_path, monkeypatch):
+    """After an update the browser runs the new scripts without a manual reload: every file the page loads is
+    referenced with its content's version, a file asked for with its version is kept for good, and the page
+    itself is always asked again (no-cache, with an ETag)."""
+    import re
+    import shutil
+    from http.server import ThreadingHTTPServer
+
+    from ergostat.web import server
+    static = tmp_path / "static"
+    shutil.copytree(server.STATIC, static)
+    monkeypatch.setattr(server, "STATIC", static)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(project))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+
+    def get(path, **headers):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url + path, headers=headers), timeout=10) as r:
+                return r.status, r.headers, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, e.read()
+    try:
+        code, headers, page = get("/diagram")
+        assert code == 200 and headers["Cache-Control"] == "no-cache" and headers["ETag"]
+        assert get("/diagram", **{"If-None-Match": headers["ETag"]})[0] == 304       # revalidated, not kept stale
+        refs = re.findall(rb'(?:src|href)="(/static/[^"]+)"', page)
+        assert refs and all(b"?v=" in r for r in refs), refs                          # every script and stylesheet
+        assert re.search(rb'name="ergostat-assets" content="[^"]*libavoid/libavoid\.wasm', page)   # the worker's files
+        util = next(r.decode() for r in refs if r.startswith(b"/static/util.js"))
+        code, headers, _ = get(util)
+        assert code == 200 and "immutable" in headers["Cache-Control"] and "max-age=31536000" in headers["Cache-Control"]
+        assert get("/static/util.js")[1]["Cache-Control"] == "no-cache"              # unversioned: asked again each time
+        assert get("/static/util.js?v=old")[1]["Cache-Control"] == "no-cache"
+        (static / "util.js").write_text((static / "util.js").read_text() + "\n// an update\n")
+        code, headers2, page2 = get("/diagram", **{"If-None-Match": headers["ETag"]})
+        assert code == 200 and page2 != page                                          # the page names the new version
+        util2 = next(r.decode() for r in re.findall(rb'(?:src|href)="(/static/[^"]+)"', page2) if r.startswith(b"/static/util.js"))
+        assert util2 != util and get(util)[1]["Cache-Control"] == "no-cache"
+        other = next(r for r in refs if r.startswith(b"/static/main.js"))
+        assert other in page2                                                         # an unchanged file keeps its address
+        (project.dir / "notes.md").write_text("# N\n")
+        code, headers, body = get("/file/notes.md", Accept="text/html")          # a Markdown file's page: the same
+        assert code == 200 and b'href="/static/style.css?v=' in body
     finally:
         srv.shutdown()
         srv.server_close()

@@ -10,6 +10,7 @@ import hashlib
 import html
 import json
 import mimetypes
+import re
 import secrets
 import time
 from http.server import BaseHTTPRequestHandler
@@ -30,6 +31,43 @@ FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this 
 UI_PAGES = ("diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals")
 
 
+_VERSIONS: dict = {}                 # a static file's version, by name: (mtime, size, hash of its content)
+_STATIC_REF = re.compile(r'((?:src|href)=")/static/([\w./-]+)(")')
+FOREVER = "public, max-age=31536000, immutable"
+
+
+def asset_version(name: str) -> str | None:
+    """A static file's version: a hash of its content, kept until the file changes (its mtime or size). The page
+    references every file with it (``/static/NAME?v=VERSION``), so an update changes the address the browser asks
+    for, and a file asked for with its current version may be kept by the browser for good."""
+    f = STATIC / name
+    try:
+        st_ = f.stat()
+    except OSError:
+        return None
+    got = _VERSIONS.get(name)
+    if got and got[:2] == (st_.st_mtime_ns, st_.st_size):
+        return got[2]
+    v = hashlib.blake2b(f.read_bytes(), digest_size=6).hexdigest()
+    _VERSIONS[name] = (st_.st_mtime_ns, st_.st_size, v)
+    return v
+
+
+def versioned(name: str) -> str:
+    """The address of a static file, with its version."""
+    v = asset_version(name)
+    return f"/static/{name}?v={v}" if v else f"/static/{name}"
+
+
+def with_versions(page: str) -> str:
+    """A page with every ``/static/`` file it loads given its version, and the versions of the files the
+    scripts load themselves (libavoid's module and WebAssembly, in its worker) as a meta tag they read."""
+    page = _STATIC_REF.sub(lambda m: m.group(1) + versioned(m.group(2)) + m.group(3), page)
+    late = {n: asset_version(n) for n in ("libavoid/libavoid.js", "libavoid/libavoid.wasm")}
+    meta = f'<meta name="ergostat-assets" content="{html.escape(json.dumps(late))}">'
+    return page.replace('<meta charset="utf-8">', '<meta charset="utf-8">\n' + meta, 1)
+
+
 def is_page_path(path: str) -> bool:
     """``path`` (as sent, still encoded) is one of the page's own addresses: the root, or under one of UI_PAGES."""
     return path in ("", "/") or path.split("/")[1] in UI_PAGES
@@ -46,7 +84,7 @@ def md_page(name: str, text: str) -> bytes:
     """A Markdown file opened in the browser, rendered with the page's own Markdown and styles: raw HTML in
     it is shown as text, never run; its relative links stay relative, so they open the files beside it."""
     data = json.dumps(text).replace("<", "\\u003c")
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+    page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(name)}</title>
 <link rel="stylesheet" href="/static/style.css"></head>
 <body class="file-page"><main class="md" id="doc"></main>
@@ -58,7 +96,8 @@ const el = document.getElementById("doc");
 el.innerHTML = marked.parse({data});
 for (const a of el.querySelectorAll('a[href^="#/"]')) a.setAttribute("href", a.getAttribute("href").slice(1));   // an old page address
 for (const c of el.querySelectorAll("pre code")) {{ try {{ hljs.highlightElement(c); }} catch (e) {{}} }}
-</script></body></html>""".encode()
+</script></body></html>"""
+    return with_versions(page).encode()
 
 
 class Live:
@@ -446,10 +485,11 @@ def handler(project):
         def log_message(self, *a):
             pass
 
-        def _send(self, code: int, body: bytes, ctype: str, tagged: bool = False):
+        def _send(self, code: int, body: bytes, ctype: str, tagged: bool = False, cache: str = "no-cache"):
             """An answer; ``tagged`` (a GET's 200): with its ETag, and asked again by the browser with it each
             time (``no-cache``), so an answer that did not change since is a 304 with no body: the page
-            refreshes every few seconds, and an item's images and files are drawn again each time."""
+            refreshes every few seconds, and an item's images and files are drawn again each time. A static
+            file asked for with its current version is kept for good instead (``cache``)."""
             try:
                 tag = f'"{hashlib.blake2b(body, digest_size=12).hexdigest()}"' if tagged and code == 200 else None
                 same = tag is not None and tag in (self.headers.get("If-None-Match") or "")
@@ -459,7 +499,7 @@ def handler(project):
                 if not same:
                     self.send_header("Content-Type", ctype)
                     self.send_header("Content-Length", str(len(body)))
-                self.send_header("Cache-Control", "no-cache" if tag else "no-store")
+                self.send_header("Cache-Control", cache if tag else "no-store")
                 self.end_headers()
                 if not same:
                     self.wfile.write(body)
@@ -547,11 +587,13 @@ def handler(project):
             f = (STATIC / name).resolve()
             if STATIC.resolve() not in f.parents or not f.is_file():
                 return self._send(404, b"not found", "text/plain")
-            if name == "index.html":                       # the page carries this run's token for its writes
-                body = f.read_bytes().replace(b'<meta charset="utf-8">',
-                                              f'<meta charset="utf-8">\n<meta name="ergostat-token" content="{token}">'.encode(), 1)
-                return self._send(200, body, "text/html; charset=utf-8", True)
-            self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream", True)
+            if name == "index.html":                       # the page carries this run's token for its writes, and its files' versions
+                body = with_versions(f.read_text()).replace('<meta charset="utf-8">',
+                                                            f'<meta charset="utf-8">\n<meta name="ergostat-token" content="{token}">', 1)
+                return self._send(200, body.encode(), "text/html; charset=utf-8", True)   # never kept stale: no-cache, ETag
+            asked = (parse_qs(u.query).get("v") or [""])[0]
+            cache = FOREVER if asked and asked == asset_version(name) else "no-cache"
+            self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream", True, cache)
 
     Handler.live = live
     return Handler
