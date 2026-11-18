@@ -2,7 +2,7 @@ import json
 import os
 import time
 
-from ergostat import runner, state
+from ergostat import history, runner, state
 
 
 def run_with(project, repo, script):
@@ -109,7 +109,7 @@ def test_an_agent_on_an_event_runs_when_it_arrives(project, repo):
         r.close()
     assert p.measurements.latest("sensor/disk-usage")[1] == 50
     started = p.events.query(type="agent.started")
-    assert started and json.dumps(started[-1]["data"]) == '{"trigger": "disk.check.requested"}'
+    assert started and started[-1]["data"] == {"trigger": "disk.check.requested", "model": history.version(p.model)}
 
 
 def test_a_residual_no_bigger_than_an_ordinary_step_is_noise(project, repo):
