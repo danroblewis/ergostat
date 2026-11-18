@@ -229,6 +229,26 @@ class Model:
     systems: dict[str, System] = field(default_factory=dict)
     keep: float = 30 * 86400.0                 # how long the record is kept (the model's history always)
     storage: object = None                     # storage.Storage (the YAML's storage:); None: the defaults
+    _problems = None                           # a YAML model's problems as it compiled (not a field: never compared)
+    _late = None                               # and how to find the rest, the first time they are asked for
+
+    @property
+    def problems(self) -> list:
+        """A YAML model's problems: its errors and findings. The extreme-conditions findings run the model
+        many times over (a second or more), so they are found the first time this is read, not when the
+        model loads: a command that never shows findings (``ergostat item``, the run) never pays for them."""
+        if self._late is not None:
+            late, self._late = self._late, None
+            self._problems = list(self._problems or []) + late()
+        return self._problems
+
+    @problems.setter
+    def problems(self, value) -> None:
+        self._problems, self._late = value, None
+
+    def errors(self) -> list:
+        """A YAML model's errors (none of the late findings is one): without finding the rest."""
+        return [p for p in (self._problems or []) if p.level == "error"]
 
     # ---- lookups
 
@@ -463,12 +483,15 @@ def load(start: Path | None = None) -> Model:
         raise FileNotFoundError(f"{YAML} (or {FILE})")
     if path.name == YAML:
         from . import spec
+        from .spec.findings import late
         from .spec.legacy import to_model
-        compiled, problems = spec.read(path)
+        compiled, problems = spec.read(path, extremes=False)
         errors = [p for p in problems if p.level == "error"]
         if errors:
             raise ModelError(f"{len(errors)} error{'s' if len(errors) > 1 else ''}:\n" + "\n".join(f"  {e}" for e in errors))
-        return to_model(compiled, problems)
+        m = to_model(compiled, problems)
+        m._late = lambda: late(compiled)         # found when first asked for (Model.problems)
+        return m
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as e:
@@ -518,11 +541,14 @@ def file_name(m: Model) -> str:
 
 # ---- checking what the types alone do not
 
-def check(m: Model) -> list[tuple[str, str]]:
+def check(m: Model, warnings: bool = True) -> list[tuple[str, str]]:
     """(level, message): errors are references that do not resolve; warnings are loops that cannot
     close, parts nothing fills, and agents with nothing to do. A YAML model was checked as it
-    compiled: its findings are the warnings."""
+    compiled: its findings are the warnings. ``warnings=False``: only what must stop the model running,
+    without finding the YAML model's late findings (``Model.problems``)."""
     if getattr(m, "spec", None) is not None:
+        if not warnings:
+            return [("error", str(p)) for p in m.errors()]
         return [("error" if p.level == "error" else "warn", str(p)) for p in m.problems]
     out: list[tuple[str, str]] = []
 

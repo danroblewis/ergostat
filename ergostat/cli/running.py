@@ -38,7 +38,7 @@ def cmd_run(args) -> int:
         print(body, end="")
         print(c(how, "dim"), file=sys.stderr)
         return 0
-    errors = [msg for lv, msg in mdl.check(p.model) if lv == "error"]
+    errors = [msg for lv, msg in mdl.check(p.model, warnings=False) if lv == "error"]
     if errors:
         print("the model has errors; fix them first (ergostat check):", file=sys.stderr)
         for e in errors:
@@ -94,7 +94,7 @@ def cmd_run(args) -> int:
                 except Exception as e:
                     print(f"{mdl.file_name(p.model)} changed but does not load ({e}); still running the last one", flush=True)
                     continue
-                errors = [msg for lv, msg in mdl.check(fresh) if lv == "error"]
+                errors = [msg for lv, msg in mdl.check(fresh, warnings=False) if lv == "error"]
                 if errors:                                  # each one, so the log alone is enough to fix it
                     print(f"{mdl.file_name(p.model)} changed but has {len(errors)} error{'s' if len(errors) > 1 else ''}; "
                           f"still running the last one:", flush=True)

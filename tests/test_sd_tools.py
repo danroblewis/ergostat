@@ -234,6 +234,22 @@ def test_an_outflow_that_takes_what_is_not_there_is_found_by_the_extreme_conditi
     assert not found(spec, "extreme-conditions")                               # first-order: it stops when empty
 
 
+def test_the_extreme_conditions_test_runs_only_where_findings_are_shown(tmp_path, monkeypatch):
+    """It runs the model many times over (seconds on a large model): loading the model, as every command
+    and the run do, never runs it; the findings (check, the Check page, the model tools) do, once."""
+    from ergostat import model as mdl
+    bad = QUEUE.replace("equation: k * stock.queue", "equation: k * 5")
+    write(tmp_path, bad)
+    runs = []
+    real = extremes.findings
+    monkeypatch.setattr(extremes, "findings", lambda spec, say: (runs.append(1), real(spec, say)))
+    m = mdl.load(tmp_path)
+    assert not runs and not mdl.check(m, warnings=False) and not runs     # loaded, and checked for errors: not run
+    assert any("extreme-conditions" == x.code for x in m.problems) and runs == [1]
+    assert any("falls below empty" in msg for lv, msg in mdl.check(m) if lv == "warn") and runs == [1]   # once
+    assert [x.code for x in m.problems] == [x.code for x in sp.read(tmp_path / "ergostat.yaml")[1]]   # as check finds them
+
+
 def test_a_one_way_flow_running_backwards_and_a_division_by_zero_are_found(tmp_path):
     text = QUEUE + """\
   spill:
