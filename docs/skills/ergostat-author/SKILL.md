@@ -1,6 +1,6 @@
 ---
 name: ergostat-author
-description: Build, never do by hand - in an ergostat project (ergostat.yaml), any request for something to happen as things come in, on a schedule, or until a condition holds ("do X for each new one as it arrives", "tell me if any waits too long", "every morning", "keep Y under N", "remind them until they answer", "when a ticket arrives, do these steps", "watch this API") becomes a small control system made from ergostat's templates (respond-to, re-ping, daily-report, keep-under, steps, collect), even when its script, URL or token is missing; tried on a scratch copy with free stand-ins, and shown to the owner (diagram and diff) before it is turned on.
+description: Use whenever an ergostat project (ergostat.yaml) gets a request for ongoing work, and build it instead of doing it by hand - any request for something to happen as things come in, on a schedule, or until a condition holds ("do X for each new one as it arrives", "tell me if any waits too long", "every morning", "keep Y under N", "remind them until they answer", "when a ticket arrives, do these steps", "watch this API") becomes a small control system made from ergostat's templates (respond-to, re-ping, daily-report, keep-under, steps, collect), even when its script, URL or token is missing; tried on a scratch copy with free stand-ins, and shown to the owner (diagram and diff) before it is turned on.
 ---
 
 # Add a small control system to an ergostat project
@@ -12,7 +12,9 @@ grouped as one system per use. You write one `uses:` entry, and scripts only whe
 You need the ergostat MCP server (`claude mcp add ergostat -- ergostat -C PROJECT mcp`). Its tools: `templates`,
 `add_use`, `scaffold`, `try_use`, `where_drawn`, plus `check` and `explain`.
 
-**A standing request is built, not done.** Do not run the work yourself (no deleting files now, no fetching the
+**A standing request is built, not done.** "Keep the cache under 20 GB", "remind them until they answer", "when a
+ticket arrives, do these steps": each is a rule for every time, so measuring, deleting or fetching once now is not
+the answer, even to see the state of things. Do not run the work yourself (no deleting files now, no fetching the
 ticket now, no drafting the answer now): what you deliver is the system that will do it every time. And do not stop
 because something is missing:
 
@@ -87,7 +89,9 @@ Before anything is written to the project:
 3. what the trial showed, in two or three sentences, and what still runs on stand-ins;
 4. your assumptions.
 
-Ask "turn it on?" Only on yes, call `add_use` with `write: true`, then `check`. Writing it is the owner's own
+Ask "turn it on?" Only on yes, call `add_use` with `write: true`, then `check`. When the owner has already said to
+turn it on once it checks and runs (a standing approval), that is the yes: write it, then show the same four
+things as what was done. Writing it is the owner's own
 change: the running ergostat picks it up. Never change the model's other parts to make room for it, and never
 call `try_change` or propose model changes for it: that is the modelling subsystem's job.
 
