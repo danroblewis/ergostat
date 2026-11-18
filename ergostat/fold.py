@@ -11,6 +11,8 @@ Only a YAML model has the tree (``spec.within``); an older model is drawn as it 
 
 from __future__ import annotations
 
+from .remote import box as remote_box
+
 WORST = ("off", "open", "unknown", "holding")
 
 
@@ -32,7 +34,7 @@ def default_open(spec, focus: str | None) -> set[str]:
         nxt = []
         for parent in level:
             kids = spec.subsystems(parent)
-            if len(kids) == 1:
+            if len(kids) == 1 and kids[0] not in (getattr(spec, "remotes", None) or {}):   # a remote starts closed
                 out.add(kids[0])
             nxt += [k for k in kids if k in out]
         level = nxt
@@ -93,7 +95,7 @@ def fold(g: dict, model, open_: set[str] | None, focus: str | None = None) -> di
             boxes[r] = {"id": r, "kind": "system", "label": name, "description": spec.systems.get(name, ""),
                         "systems": [s for s in ch[1:] if s in open_ and s != focus and (not focus or focus in ch[1:])],
                         "ports": [], "loops": {}, "status": None, "inner": spec.inner_loops(name),
-                        "subsystems": spec.subsystems(name), "parts": 0}
+                        "subsystems": spec.subsystems(name), "parts": 0, "remote": remote_box(spec, name)}
         if r.startswith("system:"):
             boxes[r]["parts"] += 1
             boxes[r].setdefault("holds", []).append(i)            # (correspond.py: what it holds, as drawn)
@@ -169,5 +171,6 @@ def fold(g: dict, model, open_: set[str] | None, focus: str | None = None) -> di
     for e in edges:
         e["loops"] = [k for k, lp in (g.get("loops") or {}).items() if e["source"] in lp["nodes"] and e["target"] in lp["nodes"]]
     return {**g, "nodes": [*out_nodes.values(), *boxes.values(), *(terms[t] for t in sorted(used_terms))], "edges": edges,
-            "open": sorted(open_), "focus": focus, "tree": {s: {"within": spec.within.get(s), "description": d}
+            "open": sorted(open_), "focus": focus, "tree": {s: {"within": spec.within.get(s), "description": d,
+                                                               **({"remote": True} if s in getattr(spec, "remotes", {}) else {})}
                                                            for s, d in spec.systems.items()}}

@@ -832,3 +832,7 @@ blockquote.said { margin: var(--sp-2) 0; padding: var(--sp-1) var(--sp-3); borde
 
 /* an item's lease (SPEC §9.5): overdue, a dead letter, an attempt that did not end well */
 td.bad, b.bad, .lease .bad { color: var(--bad); }
+/* a remote system (run by another ergostat, read here): its outline dashed; not answering, its line in warning */
+.bd-remote > rect.hit { stroke-dasharray: 9 5; }
+.remote-unreachable > text.t-sub.live, .bd-remote.remote-unreachable > text.bd-note { fill: var(--warn); }
+.remote-note { border-left: 3px dashed var(--system-line); padding-left: var(--sp-2); }

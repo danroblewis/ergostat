@@ -1192,6 +1192,7 @@ def _chain(spec: Spec, system: str | None) -> list[str]:
 
 def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
     from .fold import default_open
+    from .remote import box as remote_box
     spec = d.s
     if open_ is None:
         open_ = default_open(spec, focus) if spec.systems else set()
@@ -1226,7 +1227,8 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
                         "ins": [], "outs": [], "parts": 0, "loops": [],
                         "fn": {"sym": "Q", "sub": name, "arg": arg(name), "expr": "", "linear": None},
                         "says": (spec.systems.get(name) or "") and spec.systems.get(name) + ". ",
-                        "subsystems": spec.subsystems(name), "inner": inner, "system_name": name}
+                        "subsystems": spec.subsystems(name), "inner": inner, "system_name": name,
+                        "remote": remote_box(spec, name)}
         if r.startswith("sys:"):
             boxes[r]["parts"] += 1
             boxes[r].setdefault("holds", []).append(nid)          # (correspond.py: what it holds, as drawn)

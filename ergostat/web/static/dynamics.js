@@ -82,11 +82,12 @@ function sdCloud(n, w, hgt) {                           // (a cloud a flow leave
 }
 /* a system closed: a module (Stella) or a view (Vensim): its name, and its ports, what crosses its edge */
 function sdSystem(n, w, hgt) {
-  const g = s("g");
-  g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8 }));
+  const g = s("g", n.remote ? { class: `sys-remote remote-${n.remote.state}` } : {});
+  g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8, ...(n.remote ? { "stroke-dasharray": "9 5" } : {}) }));
   g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
   const inside = sdInside(S.graph, n.id).length;
-  g.append(s("text", { x: 16, y: 42, class: "t-sub" }, inside ? `${inside} feedback loop${inside > 1 ? "s" : ""} inside` : "a module: open it to see its structure"));
+  g.append(s("text", { x: 16, y: 42, class: "t-sub" + (n.remote ? " live" : "") }, n.remote ? n.remote.says   // run by another ergostat, read here
+    : inside ? `${inside} feedback loop${inside > 1 ? "s" : ""} inside` : "a module: open it to see its structure"));
   const btn = (x, label, title, fn) => s("g", { class: "sys-btn", transform: `translate(${x},10)`, onclick: (ev) => { ev.stopPropagation(); fn(); } },
     s("rect", { width: textWidth(label) + 14, height: 20, rx: 4 }), s("text", { x: 7, y: 14 }, label));
   const into = "Into", open = "Open";
@@ -623,9 +624,10 @@ function sdOpenSystem(n) {
   const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, sdKindWord(p.kind)),
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
   const inside = (S.graph?.causalLoops || []).filter((c) => c.nodes.includes(n.id) && sdVisible(c, S.graph).length < 2);
-  showDetail(h("div", { class: "kind" }, "Module"), h("h2", {}, n.label),
+  showDetail(h("div", { class: "kind" }, n.remote ? "Module, remote" : "Module"), h("h2", {}, n.label),
     moduleCharts(n),
     n.description ? h("p", { class: "muted" }, n.description) : null,
+    remoteNote(n.remote),
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),
     h("h3", {}, "Out, to outside"), list(side("out"), "Nothing outside depends on it here."),
     inside.length ? h("p", {}, `${inside.length} feedback loop${inside.length > 1 ? "s" : ""} inside it or through it, not drawn here: open it to see them`) : null,
