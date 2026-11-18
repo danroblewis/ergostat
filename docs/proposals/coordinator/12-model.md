@@ -11,7 +11,7 @@ express, each with the workaround used and the feature that would remove it. Tha
 
 | Part | Files | What it is |
 |---|---|---|
-| The model | `ergostat.yaml`, `factory/*.yaml` | 22 stocks, 38 flows, 9 auxiliaries, 13 goals, 15 blocks (5 more implied), 3 agents; 96 feedback loops |
+| The model | `ergostat.yaml`, `factory/*.yaml` | 22 stocks, 38 flows, 9 auxiliaries, 13 goals, 15 blocks (4 more implied), 3 agents; 96 feedback loops |
 | The plant | `world/plant.py` | the work, the workers, the codebase and the owner, simulated, as a function of the clock |
 | The laws | `world/policy.py` | each loop's law twice: `harness` (the long session as the record shows it) and `designed` (07's loop sheets with their *proposed* defaults) |
 | The wiring | `bin/coord.py`, `bin/watch.py`, `world/read.py`, `world/sim.py` | a block runs one loop's law on the world and reports what it moved; the watcher relays the tracker's events as item events; the sensors read the world |
@@ -231,9 +231,33 @@ Halving the time step (two minutes to one) moves no median by more than the seed
 
 ## 6. The live run under ergostat
 
-The same model was run by ergostat itself, `COORD_POLICY=harness` and `designed` in two fresh copies, for four
-factory days each (48 minutes). Every block ran without a failure or a refused line, and the record shows the same
-differences as the headless runs. LIVE_TEXT
+The same model was run by ergostat itself (`ergostat run`), `COORD_POLICY=harness` and `designed` in two fresh
+copies, for three factory days each, on a factory hour every 10 seconds. Every block ran without a failure or a
+refused line, and ergostat's own record shows the differences of §4 and §5: the harness's unread test runs
+settling near half (the record's third, at the same age), stalls silent up to 1.5 factory hours while the owner is
+away, and its decisions waiting climbing to 31; the design's stalls caught at 0.7 hours (45 minutes, one block
+period past the lease), no unread runs, and decisions drained at each return. Over the three days the harness let
+33 items escape against 10, and caught 2 at acceptance against 12.
+
+![Live](img/model-live.png)
+
+**What the live run found that the headless one could not.** The first live run gave the attention block
+`goal: decisions-drained`. That shorthand puts an on/off block in front of it, so it ran only while more than twenty
+decisions waited: the handover report, meant to go on the owner's return, went out once in a day and a half, and
+S5 stood full of batched hold points all that time. The headless runner calls every law on its clock and could not
+see it. The block now reads its goal and runs on its clock (gap 13).
+
+ergostat draws the cascade as 07 does, the integrator's output entering the acceptance check's summing junction:
+
+![The cascade, as ergostat draws it](img/model-ergostat-cascade.png)
+
+**The fit is poor, and says why.** On the first live run, at the clock its durations are written for, the replay's
+scaled error was 0.8. `reported` (runs over a run time) ignores stalls; `reopened` and `rework-found` are first
+order where the plant has a fast branch (a red test within the hour) beside a slow one, so they swing less than the
+record (U_S near 0.9), which is RM2's shape; `lines-per-item` is half what is written, because rework lands few
+lines (calibration proposed 100 against 200). The modelling loop ran as in the-job: the judge turned away four
+changes, one of which would have made the fit 20,000 times worse. A discovery of two branches is a structural
+change only the residuals can suggest, which 10's milestone 7 (structure from residuals) is for.
 
 ## 7. What ergostat could not express
 
@@ -289,6 +313,10 @@ Each gap names the loop that needs it, what was done instead, and a short specif
 12. **Budgets.** S1's token bucket and S5's count are inside programs; `limit`'s `rate` bounds a change, not a
     count in a window. *Feature*: a `budget` block (tokens a day, at most a day's worth saved, a reserve for the
     top priority).
+13. **A block run by an event.** A machine block runs on its clock, or while commanded, or (with `goal:`) while its
+    goal is off. *Needed by*: LP7's handover report on the owner's return, LP9 on each owner message, LP5's redrive
+    on a run's end. *Instead*: the block runs every two seconds and checks for the event itself (§6). *Feature*:
+    `on:` on a machine block, a measured transition (`auxiliary.owner-present` rising) or an item event type.
 
 ## 8. What the model cannot say
 

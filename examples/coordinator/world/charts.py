@@ -373,7 +373,8 @@ def table(runs: Path) -> None:
         print(f"| {k} | {f(v['harness'])} | {f(v['designed'])} | {f(v['designed-no-quality'])} |")
 
 
-LIVE = [("auxiliary.oldest-silence", "oldest silence\n(factory hours)"), ("auxiliary.unread-test-runs", "test runs with the\nexit status unread"),
+LIVE = [("auxiliary.oldest-silence", "oldest silence\n(factory hours)"),
+        ("auxiliary.unread-test-runs", "test runs with the\nexit status unread"),
         ("stock.owner-queue", "blockers waiting\nfor the owner"), ("stock.decisions-waiting", "decisions\nawaiting confirmation")]
 
 
@@ -382,7 +383,9 @@ def live(urls: dict[str, str], hours: float, hour_s: float, out: Path) -> None:
     import urllib.request
     got = {}
     for pol, url in urls.items():
-        q = f"{url}/api/series?refs={','.join(r for r, _ in LIVE)},auxiliary.owner-present&since={int(hours * hour_s)}s&points={max(20, int(hours * hour_s / 20))}"
+        refs = ",".join([*(r for r, _ in LIVE), "auxiliary.owner-present"])
+        span = int(hours * hour_s)
+        q = f"{url}/api/series?refs={refs}&since={span}s&points={max(20, span // 20)}"
         got[pol] = json.loads(urllib.request.urlopen(q, timeout=60).read())
     fig, ax = plt.subplots(len(LIVE), 1, figsize=(8, 7), sharex=True)
     for pol, st in (("harness", H), ("designed", D)):
