@@ -721,6 +721,9 @@ the side panel says how many were hidden.
 latest moved), and the 60 most frequent nodes and 160 most frequent lines drawn; the side panel says when
 any was reached. The answer is kept for five seconds.
 
+**Held against the model.** `check`'s coherence (§12l) compares this map with the Dynamics and Blocks views:
+each move it draws against the chain's flows, and who made each against the blocks that declare it.
+
 **Layout.** Each kind's map is laid out alone by ELK (layered, left to right, in time order: its start
 first, its states in their declared order, its end last), in a frame named with its kind, how many items
 and by what; the frames are packed in rows to the screen's shape. The lines between kinds are routed by
