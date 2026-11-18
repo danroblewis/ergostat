@@ -332,18 +332,27 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
         c = counts.setdefault(i.kind or "", {})
         c[i.state or ""] = c.get(i.state or "", 0) + 1
     shown = [i for i in its if (kind is None or (i.kind or "") == kind) and (state is None or (i.state or "") == state)]
+    from .item_systems import OTHER, groups, kind_systems
+    where = kind_systems(spec)               # each kind's system (item_systems.py): the page groups by it
+    unkinded = sum(counts.get("", {}).values())
+    systems = groups(spec, {**where, **({"": {"system": OTHER}} if unkinded else {})})
+    for g in systems:
+        g["kinds"] = [k for k in g["kinds"] if k]
     return {"kinds": [{"name": k.name, "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
-                       "description": k.description,
+                       "description": k.description, "system": where[k.name]["system"], "system_why": where[k.name]["why"],
                        "counts": counts.get(k.name, {})} for k in kinds.values()],
-            "unkinded": sum(counts.get("", {}).values()),
+            "systems": systems, "unkinded": unkinded,
             "total": len(every) if plain else len(shown), "offset": offset,
-            "items": [_listed(i, kinds) for i in (shown if plain else shown[offset:offset + n])]}
+            "items": [_listed(i, kinds, where) for i in (shown if plain else shown[offset:offset + n])]}
 
 
-def _listed(i: Item, kinds: dict) -> dict:
-    """An item as a list shows it: a conversation folded from its transcript only when a column asks."""
+def _listed(i: Item, kinds: dict, where: dict | None = None) -> dict:
+    """An item as a list shows it, with its kind's system: a conversation folded from its transcript
+    only when a column asks."""
     from ..transcripts import FIELDS
+    from .item_systems import OTHER
     d = i.as_dict()
+    d["system"] = ((where or {}).get(i.kind or "") or {}).get("system", OTHER)
     k = kinds.get(i.kind or "")
     if any(f in d["fields"] for f in FIELDS):
         d["fields"] = {f: v for f, v in d["fields"].items() if f not in FIELDS or (k and f in k.show)}
@@ -365,6 +374,8 @@ def detail(events, spec, id: str, until: float | None = None, history: int | Non
     d["changes"] = {f: len(cs) for f, cs in d["history"].items()}
     if history is not None:
         d["history"] = {f: cs[-history:] for f, cs in d["history"].items()}
+    from .item_systems import OTHER, kind_systems
+    d["system"] = kind_systems(spec)[k.name]["system"] if k else OTHER
     own = [e for e in evs if not e["type"].startswith("claude.")]
     snap = next((e for e in evs if e["type"] == SNAPSHOT), None)
     return {**d,

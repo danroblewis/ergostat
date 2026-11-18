@@ -142,12 +142,16 @@ def _tail(path, n: int) -> list[str]:
         return []
 
 
-def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool) -> dict:
+def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: str | None = None) -> dict:
     """The Items page's list: only the items matching its search (``q``, in the id or any field), the
     newest ``per_kind`` of each kind (how many matched is ``matched``), and with ``shown`` each item's
     fields cut to its kind's columns. A kind whose items carry large fields (the model's changes)
-    otherwise made every refresh of the list hundreds of KB, most of it never shown."""
+    otherwise made every refresh of the list hundreds of KB, most of it never shown. The systems in
+    ``hide`` (comma-separated: the page's collapsed groups) send no items, only their kinds' counts."""
     items = got["items"]
+    if hide:
+        gone = set(hide.split(","))
+        items = [i for i in items if i.get("system") not in gone]
     if needle:
         low = needle.strip().lower()
         text = lambda i: i["id"] + " " + json.dumps(i["fields"], separators=(",", ":"), ensure_ascii=False, default=str)   # noqa: E731
@@ -312,7 +316,7 @@ def _answer(live: Live, path: str, q: dict):
                               history=None if one("history") == "all" else its.HISTORY_SHOWN)
         got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"],
                           n=max(1, min(int(one("n") or its.LISTED), its.LISTED)), offset=int(one("offset") or 0))
-        return _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")))
+        return _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
     if head == "series":                          # behaviour over time: each part's values, bucketed over the window
         refs = [r for r in (one("refs") or "").split(",") if r]
         out = series.series(p, snap, refs, int(one("points") or series.POINTS), bool(one("strip")))
