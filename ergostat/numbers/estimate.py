@@ -467,12 +467,15 @@ def estimate(p, snap: dict | None = None, n: int | None = None, which: str = "pa
     span = data.grid.until - data.grid.since
     now = time.time()
     cut = max(1, int(round(data.grid.n * (1 - HOLD_OUT))))
+    from . import exercised as ex
+    q = ex.quiet(spec, data)
     for sc in scopes(spec, names, which):
         group = sc.names
         prob = Problem(spec, data, group, cut=cut, scope=sc)
         tc = slowest(spec, base, prob.owners, prob.stocks, data)
         common = {"when": now, "window": span, "n": prob.n(), "slowest": tc, "with": [], "fitted_to": [r for r, _ in prob.targets()],
                   "scope": sc.key, "scope_words": sc.label}
+        held = {nm: got for nm in group if (got := ex.parameter_quiet(spec, data, nm, q))}
         if prob.n() < ft.MIN_POINTS:
             for nm in group:
                 out[key_of(sc, nm)] = {**common, "parameter": nm, "value": None, "why": f"too little measured of what it moves "
@@ -491,7 +494,8 @@ def estimate(p, snap: dict | None = None, n: int | None = None, which: str = "pa
                        "unseen": nm in (sure.get("unseen") or []), "at_bound": nm in sure["at_bound"],
                        "at_range": sure["at_range"].get(nm), "range": list(spec.parameters[nm].range or []) or None,
                        "n_eff": sure.get("n_eff"), "rho": sure.get("rho"), "duration": spec.parameters[nm].duration,
-                       "weights": prob.spread, "evaluations": prob.evaluations}
+                       "weights": prob.spread, "evaluations": prob.evaluations,
+                       **({"not_exercised": held[nm]} if nm in held else {})}
     f = path(p, ver.structure(spec), which)
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(json.dumps(out, indent=1))
@@ -499,12 +503,18 @@ def estimate(p, snap: dict | None = None, n: int | None = None, which: str = "pa
 
 
 def judged(e: dict, declared: float | None) -> str | None:
-    """Why an estimate is not to be proposed, or None when the record supports it: not at an end of its
+    """Why an estimate is not to be proposed, or None when the record supports it: what it acts through exercised
+    by the record (else it is held, inconclusive: ``exercised.py``), not at an end of its
     range (the record would take it outside what the model says it might be: said first), enough record
     for the slowest time constant it touches, not at its bound, identifiable, more than two standard
     errors from the value written, and better on the record held out."""
     if e.get("value") is None:
         return e.get("why") or "not estimated"
+    if e.get("not_exercised"):
+        q = e["not_exercised"]
+        return (f"held, inconclusive: the record has not exercised it: {q['says']}, over {dur(q['span'])} of record. "
+                f"Its value cannot be identified from that record, and nothing says the value written is wrong: it is "
+                f"proposed once the record moves what it acts through")
     if e.get("at_range"):
         rg = e.get("range") or [None, None]
         end = rg[0] if e["at_range"] == "low" else rg[1]

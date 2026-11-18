@@ -56,7 +56,10 @@ RULES = {                   # the modelling rules a reason may cite, each with w
     "parameter-assessment": "Sterman ch. 21, parameter assessment: every parameter means something real, and is measurable",
     "behaviour-reproduction": "Sterman ch. 21, behaviour reproduction: the replay follows the record (R², MAPE, Theil)",
     "partial-model-test": "Homer 2012: each equation against its own inputs as measured",
-    "simplest-structure": "SD Lab's simplify rules (structural.py): what explains nothing goes",
+    "simplest-structure": "SD Lab's simplify rules (structural.py): structure with no declared reason that the record shows "
+                          "redundant goes, and the owner decides; a declared part the record has not exercised stays",
+    "not-exercised": "Sterman ch. 21: a record that has not exercised a part cannot identify its rate; quiet is not absent "
+                     "(docs/MODELLING.md §9)",
     "first-order-drain": "Sterman ch. 8: an outflow is its stock over the time things stay",
     "moving-average-lag": "Sterman ch. 11.5: a moving average over L lags by L/2",
 }
@@ -411,6 +414,15 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
     if g["worse"]:
         key = mem.key({"kind": kind, "target": _target(spec, after, said_parts, kind), "made_by": by})
         raise GateError(f"it clearly worsens the fit: {g['worse']}" + (" even refitted" if ar is not None else ""), key)
+    from . import exercised as ex
+    q = ex.quiet(spec, data)
+    for r in sorted(_parts(spec) - _parts(after)):            # a declared part taken away for being quiet: not proposed
+        kind_, _, name = r.partition(".")
+        if r in q and not ex.inferred(spec.measured(kind_).get(name)):
+            key = mem.key({"kind": kind, "target": _target(spec, after, said_parts, kind), "made_by": by})
+            raise GateError(f"it removes {r}, which the model declares and the record has not exercised ({q[r]['says']}): "
+                            f"quiet is not absent, so the record is no evidence against it (rule:not-exercised). A removal "
+                            f"needs the record to show the part redundant, and waits for the owner", key)
     answered = before_f - after_f
     supported = 0
     for r in kept:
@@ -435,6 +447,9 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
         x["parameters"], x["previous"] = moved, {n: spec.parameters[n].value for n in moved}
         x["target"] = _target(spec, after, parts, kind)
         x["parts"] = parts or sorted({r for n in moved for r in pr.users_of(spec, n)})
+        held = [h for n in moved if (h := ex.parameter_quiet(spec, data, n, q))]
+        if held and len(held) == len(moved):              # nothing it sets is exercised: held, not judged on this record
+            x["not_exercised"] = "; ".join(f"{h['ref']}: {h['says']}" for h in held)
     else:
         moved_ctl = ver.changed_control(spec, after) if kind == "control" else ver.changed_sensors(spec, after) \
             if kind == "measurement" else []
@@ -545,6 +560,12 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
             g = ob.reference(p)
             x["window"] = g.until - g.since
         x["span"] = x["window"]
+        if x.get("not_exercised"):                       # a value the record cannot identify yet: held, inconclusive
+            why = (f"held, inconclusive: the record has not exercised what it sets ({x['not_exercised']}); its value "
+                   f"cannot be identified from this record, and nothing says the value written is wrong")
+            pr.event(p, pid, "inconclusive", {**x, "why": why, "verdict": {"verdict": "inconclusive", "why": why, "at": now,
+                                                                              "by": "ergostat"}})
+            return {"status": "not-proposed", "id": pid, "title": x["title"], "why": why}
         pr.event(p, pid, "checked", x)
     return {"status": "proposed", "id": pid, "title": x["title"], "why": None}
 
