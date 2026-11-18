@@ -14,6 +14,14 @@ class EditError(Exception):
     pass
 
 
+def own(where, what: str) -> None:
+    """A part a template made is written nowhere of its own: its instance's use: line stands for it. Changing it is
+    changing the instance's with: (or the template), which the owner does, so an edit to it is refused."""
+    if getattr(where, "template", None):
+        raise EditError(f"{what} is made by template {where.template} (use {where.instance}, at {where.file.name}:"
+                        f"{where.line}): change the instance's with:, or the template, instead")
+
+
 @dataclass
 class Hunk:
     line: int                    # 1-based: where the old lines start (for an insertion, the line it goes before)
