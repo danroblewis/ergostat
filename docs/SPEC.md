@@ -649,7 +649,7 @@ conversation:
 
 What does not ask for a transcript leaves its events out: a sensor counting sessions, the Items
 list and `ergostat item` (which count them, without reading them), the Record and `ergostat event`
-(unless a type or the item is asked for), and the wiring. A fold reads them when its kind moves on
+(unless a type or the item is asked for), and the Process view (§5b). A fold reads them when its kind moves on
 a `claude.*` type, or when a sensor's `where:` or a column names a field they fold into. The item's
 own page and `ergostat item ID` fold them all. A session of 2,000 lines is recorded in well under a
 second, and leaves a count of sessions as fast as it was.
@@ -687,6 +687,62 @@ each item's latest matching move is a column. The API answers the set alone, new
 latest move), at most 500 a page (`n`, `offset`), with `total` (and `moves`); `alone=1` leaves out the page's
 kinds and counts. A filter that is not one (an unknown state, `where` without a `:`) is a 400 that says why.
 Sets are read from the item index: a state's items counted and paged there, a span's moves read there alone.
+
+## 5b. The Process view: how the items really moved
+
+The Diagram page's third view, beside Dynamics and Blocks, draws the work as the record says it went:
+process mining's **process map**, a **directly-follows graph** (DFG; van der Aalst, *Process Mining:
+Data Science in Action*; the map Disco and Celonis draw), **object-centric** (van der Aalst's
+object-centric process mining, OCEL): one map per kind of item, and between the maps the lines where
+work on one kind caused work on another. Nothing is declared for it: it is read from the record in the
+page's window (`process.py`), with the item index's moves for the states.
+
+| Part | What it is |
+|---|---|
+| a node | an **activity** of a kind's items: by **States**, a state they entered (a move, from the item index); by **Events**, an event type about them. Its number is how many times in the window, and how many items; the more, the darker |
+| start, end | where the kind's items **start** (their first event is in the window) and **end** (they reached a state the kind counts as finished, as §12h's `done` or the item index says; `leased` never counts) |
+| a line A → B | **directly follows**: on one item, B came next after A with nothing about that item between. Its weight is how often (one scale for the map); its number how many times (**Counts**) or the median time between A and B (**Times**). By States, a move from A to B is such a line, its time the time spent in A, even when A was entered before the window |
+| rework | a line from a later step to an earlier one (by States, in the kind's declared order of states; by Events, by each type's usual place in its items' runs), or round to the same step: marked ↺, and laid out running back |
+| a dashed line between kinds | **caused**: an event on an item of one kind caused (`causedby`, followed up through events about no item, such as a block's run, up to four steps) an event on an item of another kind; aggregated by the two activities, with the event types under it. One into many is a fan-out, many into one a join |
+
+**Which.** The kinds are the system's being viewed (`item_systems.py`: where each kind belongs); for
+everything, every kind but ergostat's own. The ⋯ menu chooses any of them. **States** is the default when
+every kind drawn declares states: the states are the workflow as the owner wrote it, with the names the
+stocks counting them use, so the map is held directly against the model (an event that moves nothing, a
+comment, a transcript's line, is left out); a kind without states is drawn by its events. **Events**
+draws every event type about the items (a transcript's lines, a lease's renewals and roll-ups aside): what
+happened between the moves, and loops on one step.
+
+**The paths slider** (in the view bar) hides the lines rarer than its share of their kind's most frequent
+(the lines between kinds, of theirs), and the nodes it leaves alone, as process mining tools' slider does;
+the side panel says how many were hidden.
+
+**Bounded.** The newest 50,000 events in the window are read, the moves of at most 20,000 items (the
+latest moved), and the 60 most frequent nodes and 160 most frequent lines drawn; the side panel says when
+any was reached. The answer is kept for five seconds.
+
+**Layout.** Each kind's map is laid out alone by ELK (layered, left to right, in time order: its start
+first, its states in their declared order, its end last), in a frame named with its kind, how many items
+and by what; the frames are packed in rows to the screen's shape. The lines between kinds are routed by
+libavoid around every part, from the bottom or top of their ends. Plain ink: no colour carries meaning.
+
+**Clicking.** A node or a line opens its panel: what it is, its count and median time, the lines into and
+out of a node, a cross-kind line's event types; and the items behind it, the first ten, linked to the Items
+page filtered to exactly them. The Items page's (and `GET /api/items`') filters for these, read as the map
+read them:
+
+| Parameter | Meaning |
+|---|---|
+| `through=A` | went through activity A in the span (`^`: started, `$`: ended) |
+| `followed=A>B` | B directly followed A on the item in the span (`^>A`: started with A; `A>$`: ended after A) |
+| `caused=KIND:A>B` | B on the item was caused by A on an item of KIND in the span (repeated: any of them) |
+| `by` | `states` or `events`: what A and B are |
+| `moved_since`, `moved_until` | the span, as for `moved` |
+
+`GET /api/graph?view=process` answers the map (`kinds` joined by commas, `by`, `paths` as a percentage, and
+`system`); `view=wiring`, the view this replaced, is the same, and the page's `view=wiring` opens it. (The
+machines and what passed between them, which the wiring view drew, are on the command line: `ergostat
+system --wiring`.)
 
 ## 6. Sensors
 
@@ -1506,7 +1562,7 @@ More types (Datadog, CloudWatch, SQL) can follow the same shape.
 
 **Derived** (never written): valves and actuators, controllers, disturbances, errors, loops
 (a goal, the sensors of what it is about, the blocks serving it, and the flows they set), the
-stock-and-flow diagram, block diagrams, the wiring of agents.
+stock-and-flow diagram, block diagrams, the process map of the items (§5b).
 
 **A loop that closes the long way.** When nothing a goal's controller commands moves a flow of the
 goal's stock directly, the loop may still close through other stocks: the controller moves work

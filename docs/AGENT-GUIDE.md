@@ -155,6 +155,31 @@ You are not done when the YAML loads. Do this every time you change the model:
    that did not, did not notice.
 4. **Run it briefly with stand-ins** (scripts that print plausible events) before connecting real
    systems, and watch items move through the chain on the Items page.
+5. **Check that the work moves as modelled, in the Process view.** The Diagram page's Process view
+   (SPEC §5b) is the process map the record draws: for each kind, the states its items really
+   entered and the moves between them, how often, and the median time each took. Hold it against
+   the chain you modelled (below).
+
+### The Process view: does the workflow behave as modelled?
+
+The Dynamics view is the workflow you declared; the Process view is the one that happened. Open it
+(`/diagram?view=process`, the person's system chosen) once items have moved, and look for:
+
+- [ ] **Every move you modelled as a flow is a line**, and every line is a move you modelled. A line
+      between two states with no flow between their stocks is work leaving or arriving where the model
+      says it cannot: a missing flow, or an `on:` mapping that is wrong.
+- [ ] **No state is left out**: a state no item ever enters in a long window is dead, or its event is
+      never printed (look at the collector).
+- [ ] **Items end where the work ends.** The end node should follow your final states; an item that
+      ends in a waiting state means a step that never reports.
+- [ ] **Rework is what the person expects.** Lines marked ↺ run back to an earlier state: a review
+      sending work back is real; a lease handing items back over and over is a failing step (its median
+      time says how long each try took).
+- [ ] **Fan-out and join** (dashed lines between kinds): work that starts other work (a ticket
+      spawning research items) shows a line from the first kind into the second, and back where the
+      second's results finish the first. None means the runs do not record `causedby`.
+- [ ] Switch **Events** on to see what happens between the moves (comments, retries, a session's
+      steps), and **Times** to see where the time goes. Click a line to list the items that took it.
 
 ### What "looks right" means
 

@@ -38,7 +38,8 @@ The **Diagram** page has three views of the same model:
   It answers *what is*.
 - **Blocks**: the same system as a control engineer's block diagram: controllers, actuators,
   processes and sensors, summing junctions, signals r, e, u, y. It answers *what we control*.
-- **Wiring**: what actually passed between the machines, from the record.
+- **Process**: how the items really moved, from the record: a process map per kind of item (each
+  state or event, how often, what came next, rework, and work on one kind fanning out into another).
 
 Click anything: the side panel says what it is, charts it over the time window (a stock with its
 inflows and outflows; a loop's setpoint, measurement, action and error), and links what it touches.

@@ -226,8 +226,10 @@ People tend to think in loops (block diagrams); the trouble tends to live in the
 them (stock and flow). ergostat lets people write in loops and shows them the stocks and flows
 they produce, announcing the coupling it finds.
 
-A third view, **wiring**, draws the machines and how one's output reaches another: who
-implements the control system, rather than the control system itself.
+A third view, **process**, draws what the record says the work actually did: process mining's
+process map, a directly-follows graph per kind of item (each state or event, how often, and which
+came next on one item, rework and all), with the lines where work on one kind caused work on
+another. It answers *how the work really moved*, to hold against the model of how it should.
 
 ## 7. The software factory
 
