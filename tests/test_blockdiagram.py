@@ -472,7 +472,7 @@ def test_a_sensor_that_polls_slowly_against_its_loop_is_a_sampler_with_a_delay(t
     slow = n["sen:stock.approvals-waiting"]["fn"]
     assert slow["reads"] == "Jira: FF tickets approved, every 5 min"
     assert (slow["expr"], slow["sampled"], slow["T"]) == ("e^(−sT)", True, "5 min")
-    assert "T" in _text(n["sen:stock.approvals-waiting"]["math"])
+    assert "5 min" in _text(n["sen:stock.approvals-waiting"]["math"]) and "up to T old" in n["sen:stock.approvals-waiting"]["says"]
     quick = n["sen:stock.inbox"]["fn"]                     # 30 s against 10 min: H = 1
     assert quick["reads"] == "prometheus: sum(inbox_depth), every 30 s" and quick["expr"] == "1"
 

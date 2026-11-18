@@ -633,19 +633,18 @@ class _Diagram:
                         f"{_dur(tau / 2)}.")
             elif sampled:
                 fn = {"sym": "H", "sub": name, "arg": "s", "expr": "e^(−sT)", "T": Tw, "sampled": True, "linear": True}
-                math = [eq(sym("H", name, "s"), ["msup", mi("e"), row(mo("−"), mi("s"), mi("T"))]),
-                        eq(mi("T"), mt(Tw)), ym,
-                        mt(f"it polls every {Tw}" + (" (with its collector)" if cols else "") + ", a tenth or more of the "
-                           f"loop's own period ({sensing.every_words(loop_T)}): a reading is up to T old, T/2 on average, "
-                           "so the feedback path is drawn as a sampler, a delay of up to T")]
-                says = (f"the sensor on y_{name}: it reads {reads}. Its period matters against the loop's "
-                        f"({sensing.every_words(loop_T)}): what the loop sees is up to {Tw} old.")
+                math = [eq(sym("H", name, "s"), ["msup", mi("e"), row(mo("−"), mi("s"), mi("T"))]), eq(mi("T"), mt(Tw)), ym]
+                says = (f"the sensor on y_{name}: it reads {reads}. It polls every {Tw}"
+                        + (" (with its collector)" if cols else "") + f", a tenth or more of the loop's own period "
+                        f"({sensing.every_words(loop_T)}): a reading is up to T old, T/2 on average, so the feedback path is "
+                        "drawn as a sampler, a delay of up to T.")
             else:
                 fn = {"sym": "H", "sub": name, "arg": None, "expr": "1", "linear": True}
-                math = [eq(sym("H", name), mn(1)), eq(sym("y", f"m,{name}"), sym("y", name)),
-                        mt("no dynamics the model gives it" + (f", and its period ({Tw}) is short against the loop's "
-                           f"({sensing.every_words(loop_T)})" if period else "") + ": unity feedback, y_m = y")]
-                says = f"the sensor on y_{name}: it reads {reads}. What it reads goes back to the loop as it is (H = 1)."
+                math = [eq(sym("H", name), mn(1)), eq(sym("y", f"m,{name}"), sym("y", name))]
+                says = (f"the sensor on y_{name}: it reads {reads}. What it reads goes back to the loop as it is (H = 1): "
+                        "the model gives it no dynamics" + (f", and its period ({Tw}"
+                        + (", with its collector's" if cols else "") + f") is short against the loop's "
+                        f"({sensing.every_words(loop_T)})" if period else "") + ".")
             fn["reads"] = reads
             self.node(nid, kind="block", role="sensor", system=self._system(var), label=name, fn=fn, math=math,
                       says=says, part=var, rows=rows)
