@@ -23,8 +23,28 @@ function bdFrac(expr) {                                 // "1/s", "Kᵢ T z/(z �
   const m = /^([^/]+)\/\(?([^()/]+)\)?$/.exec(expr || "");
   return m && expr.length <= 16 ? [m[1].trim(), m[2].trim()] : null;
 }
+/* a sensor's or a collector's label, what it reads and how often, in at most two lines (all of it in its panel) */
+function bdLines(text, max = 30) {
+  const words = String(text || "").replace(/(\d) (s|min|h|d)\b/g, "$1\u00a0$2").split(" "), lines = [""];   // 10 s kept whole
+  for (const w of words) {
+    const cur = lines[lines.length - 1];
+    if (!cur || (cur + " " + w).length <= max) lines[lines.length - 1] = cur ? cur + " " + w : w;
+    else if (lines.length < 2) lines.push(w);
+    else { lines[1] = (lines[1] + " " + w).slice(0, max - 1) + "\u2026"; break; }
+  }
+  return lines.map((l) => (l.length > max ? l.slice(0, max - 1) + "\u2026" : l));
+}
+function bdSensorHead(fn) {                             // H = 1, H(s) = e^(−sT), H(s): avg 1 h; a collector's name
+  if (fn.name) return fn.name;
+  return fn.expr === "1" ? "H = 1" : fn.expr ? `H(s) ${fn.expr.startsWith("avg") ? ":" : "="} ${fn.expr}` : "H(s)";
+}
 function bdSize(n) {
   if (n.kind === "sum") return [BD.SUM, BD.SUM];
+  if (n.role === "sensor" || n.role === "collector") {
+    const fn = n.fn || {}, lines = bdLines(fn.reads);
+    const w = Math.max(84, bdTextW(bdSensorHead(fn)) + (fn.sampled ? 64 : 28), ...lines.map((l) => bdTextW(l, true) + 20));
+    return [Math.round(w), Math.max(28 + lines.length * 13, (Math.max(n.ins.length, n.outs.length) + 1) * BD.PORT)];
+  }
   if (n.kind === "mux" || n.kind === "demux") return [7, Math.max(34, (n.n || 2) * 18)];
   if (n.kind === "input" || n.kind === "output") return [Math.max(26, bdSymW(n.fn) + 10), 22];
   if (n.kind === "port") return [Math.max(40, bdSymW(n.fn) + 22), 22];
@@ -100,7 +120,8 @@ function bdElkGraph(g) {
   // a sensor sits on the feedback path: given to the layering between where its reading goes and what it
   // reads (its lines reversed), it is placed beneath the forward path, not after it
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
-  const back = (e) => e.feedback || byId[e.source]?.role === "sensor" || byId[e.target]?.role === "sensor";
+  const onPath = (id) => ["sensor", "collector"].includes(byId[id]?.role);
+  const back = (e) => e.feedback || onPath(e.source) || onPath(e.target);
   const edges = g.edges.map((e) => (back(e) ? { id: e.id, sources: [e.targetPort], targets: [e.sourcePort], reversed: true }
                                             : { id: e.id, sources: [e.sourcePort], targets: [e.targetPort] }));
   return { id: "root", children: roots, edges, layoutOptions: {
@@ -119,7 +140,7 @@ function bdElkGraph(g) {
    so that only the feedback (a sensor's lines, and a process output read back) runs against it */
 function bdOrder(g) {
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
-  const sensor = (id) => byId[id]?.role === "sensor";
+  const sensor = (id) => ["sensor", "collector"].includes(byId[id]?.role);    // (a collector: on the same path)
   const next = {};
   for (const e of g.edges) if (!e.feedback && !sensor(e.source) && !sensor(e.target)) (next[e.source] ||= []).push(e.target);
   const out = [], seen = new Set();
@@ -152,7 +173,7 @@ function bdOrder(g) {
     const moved = [...refs, ...path];
     moved.forEach((id, i) => { rank[id] = rank[S0] - 1 + (i + 1) / (moved.length + 2); });
   }
-  for (const n of g.nodes.filter((x) => sensor(x.id))) {     // just after the first part its reading goes to
+  for (const role of ["sensor", "collector"]) for (const n of g.nodes.filter((x) => x.role === role)) {   // just after the first part its reading goes to
     const to = g.edges.filter((e) => e.source === n.id).map((e) => rank[e.target]).filter((x) => x != null);
     rank[n.id] = (to.length ? Math.min(...to) : out.length * 2) + 1;
   }
@@ -566,9 +587,25 @@ function bdNode(n, c) {
   const w = c.width, hgt = c.height;
   const g = s("g", { class: `node bd-node bd-${n.kind} bd-${n.role || n.kind}`, transform: `translate(${c.x},${c.y})`,
                      "data-id": n.id, "data-fn": bdFnText(n) });
-  g.append(s("title", {}, (n.says || "").replace(/\s+$/, "")));
+  g.append();
   const fn = n.fn || {};
-  if (n.kind === "sum") {
+  if (n.role === "sensor" || n.role === "collector") {
+    // Franklin–Powell's sensor on the feedback path: its function (H = 1, H(s) = e^(−sT) with a sampler's switch,
+    // H(s): avg τ), and beneath it what it reads and how often; a collector, its name and what it records
+    g.append(s("rect", { class: "hit bd-line bd-fill", width: w, height: hgt }));
+    const head = bdSensorHead(fn), lines = bdLines(fn.reads);
+    const x = w / 2 + (fn.sampled ? 16 : 0);
+    if (fn.sampled) {                                  // the sampler: a switch closed once every T
+      const y = 16;
+      g.append(s("path", { class: "bd-line", d: `M8,${y} H12 M26,${y} H30 M12,${y} L25,${y - 7}` }),
+               s("circle", { class: "bd-dot", cx: 12, cy: y, r: 1.6 }), s("circle", { class: "bd-dot", cx: 26, cy: y, r: 1.6 }));
+    }
+    const t = s("text", { x, y: 20, class: n.role === "collector" ? "bd-name" : "bd-expr", "text-anchor": "middle" });
+    if (n.role === "collector") t.textContent = head; else bdPower(t, head);         // e^(−sT): its exponent raised
+    g.append(t);
+    if (fn.sampled && fn.T) t.append(s("tspan", { class: "bd-note", dx: 4 }, `T = ${fn.T}`));
+    lines.forEach((l, i) => g.append(s("text", { x: w / 2, y: 36 + i * 13, class: "bd-note", "text-anchor": "middle" }, l)));
+  } else if (n.kind === "sum") {
     g.append(s("circle", { class: "hit bd-line bd-fill", cx: w / 2, cy: hgt / 2, r: w / 2 }));     // (clicked anywhere inside)
   } else if (n.kind === "mux" || n.kind === "demux") {
     g.append(s("rect", { class: "hit bd-bar", width: w, height: hgt }));
@@ -605,7 +642,7 @@ function bdNode(n, c) {
       } else if (fn.expr) g.append(richSvg(s("text", { x: w / 2, y: hgt / 2 + 14, class: "bd-note", "text-anchor": "middle" }), fn.expr));   // K_p: K with a subscript p
       if (n.role === "subsystem") {                      // a system closed into one block: opened here with its +
         const b = s("g", { class: "bd-toggle", "data-act": "open", transform: `translate(${w - 15},3)` },
-                    s("title", {}, `open ${n.label} here`), s("rect", { width: 12, height: 12 }), s("path", { d: "M3,6 H9 M6,3 V9" }));
+                    s("rect", { width: 12, height: 12 }), s("path", { d: "M3,6 H9 M6,3 V9" }));
         b.addEventListener("click", (ev) => { ev.stopPropagation(); S.toggleSystem?.(n.label); });
         g.append(b);
       }
@@ -622,6 +659,7 @@ function bdPower(textEl, text) {                       // "0.2 e^(−20s)": the 
 function bdFnText(n) {                                  // what is inside the block, as text (for the tests and a tooltip)
   const fn = n.fn || {};
   if (n.kind === "sampler") return `sampler, T = ${fn.T || "?"}`;
+  if (n.role === "sensor" || n.role === "collector") return `${bdSensorHead(fn)}${fn.T ? `, T = ${fn.T}` : ""} \u00b7 ${fn.reads || ""}`;
   if (fn.name) return `${fn.name} (${fn.kind})`;
   if (fn.sym) return `${fn.sym}${fn.sub ? "_" + fn.sub : ""}${fn.arg ? `(${fn.arg})` : ""}${fn.expr ? " = " + fn.expr : ""}`;
   return n.kind;
@@ -673,16 +711,15 @@ function bdDraw(svg, g, lay) {
     fg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height }));
     const t = bdSym(fg, c.x + 10, c.y + 19, f.fn || {}, { anchor: "start", size: 13 });
     t.append(s("tspan", { class: "bd-frame-name", dx: 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
-    fg.append(s("title", {}, f.says || ""));
+    fg.append();
     // its top is a handle: dragged, the frame moves with everything in it, and stays there (interact.js, places.js)
     fg.append(s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: Math.max(0, c.width - 24), height: 30,
-                          onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: c.name, x0: ev.clientX, y0: ev.clientY, moved: false }; } },
-                        s("title", {}, `${f.label}: drag to move it, with everything in it`)));
+                          onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: c.name, x0: ev.clientX, y0: ev.clientY, moved: false }; } }));
     if (S.pins?.["hull:" + c.name]) pins.push(pinMark("hull:" + c.name, c.x + c.width - 30, c.y - 6, "moved here: click to let the layout place it again"));
     if (f.frame === "system") {
       const name = f.label;
       const b = s("g", { class: "bd-toggle", "data-act": "close", transform: `translate(${c.x + c.width - 18},${c.y + 6})` },
-                  s("title", {}, `close ${name} into one block`), s("rect", { width: 12, height: 12, class: "hull-grip" }), s("path", { d: "M3,6 H9" }));
+                  s("rect", { width: 12, height: 12, class: "hull-grip" }), s("path", { d: "M3,6 H9" }));
       b.addEventListener("click", (ev) => { ev.stopPropagation(); S.toggleSystem?.(name); });
       fg.append(b);
     }
@@ -733,8 +770,7 @@ function bdDraw(svg, g, lay) {
   for (const c of crossings) {
     const sg = c.edge.signal || {};
     const mk = s("g", { class: "bd-portmark-g", "data-net": c.edge.sourcePort, "data-frame": c.frame.id });
-    mk.append(s("rect", { class: "bd-portmark", x: c.x - 4.5, y: c.y - 4.5, width: 9, height: 9, rx: 2 }),
-              s("title", {}, `${c.into ? "In" : "Out"} port of ${c.frame.id.split(":").slice(1).join(":")}: ${bdSignalWords(c.edge)}`));
+    mk.append(s("rect", { class: "bd-portmark", x: c.x - 4.5, y: c.y - 4.5, width: 9, height: 9, rx: 2 }));
     marks.append(mk);
     if (!sg.sym) continue;
     const w = 10 + (sg.sub ? bdTextW(sg.sub, true) * 0.82 : 0), hgt = 13;
@@ -828,8 +864,7 @@ function bdEdgeContent(e, pts) {
   const back = { x: tip.x - Math.cos(ang) * (L - 1), y: tip.y - Math.sin(ang) * (L - 1) };
   const short = [...pts.slice(0, -1), back].map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join("");
   const els = [s("path", { d, class: "bd-hit" }), s("path", { d: short, class: "bd-wire" }),
-               s("path", { class: "bd-head", d: `M${tip.x},${tip.y} L${tip.x - L * Math.cos(ang - 0.38)},${tip.y - L * Math.sin(ang - 0.38)} L${tip.x - L * Math.cos(ang + 0.38)},${tip.y - L * Math.sin(ang + 0.38)} Z` }),
-               s("title", {}, bdSignalWords(e))];
+               s("path", { class: "bd-head", d: `M${tip.x},${tip.y} L${tip.x - L * Math.cos(ang - 0.38)},${tip.y - L * Math.sin(ang - 0.38)} L${tip.x - L * Math.cos(ang + 0.38)},${tip.y - L * Math.sin(ang + 0.38)} Z` })];
   let mark = null;
   if (vec) {                                            // a vector: a slash across it, and how many signals
     const [a, b] = pts.slice(1).map((q, i) => [pts[i], q]).sort((x, y) => (Math.abs(y[0].x - y[1].x) + Math.abs(y[0].y - y[1].y)) - (Math.abs(x[0].x - x[1].x) + Math.abs(x[0].y - x[1].y)))[0];
@@ -872,6 +907,7 @@ function bdTrace(svg, sel) {                          // what is pointed at, or 
 function bdSignalWords(e) {
   const sg = e.signal || {};
   const what = { reference: "the reference input", error: "the error, e = r − y_m", measured: "the measured output, through its sensor H",
+                 record: "the items a collector recorded, which a sensor counts",
                  sampled: "a sampled signal, one value every T", command: "a command",
                  control: "a control signal (what a block moves or sets)", output: "a process output", disturbance: "a disturbance",
                  vector: `a vector of ${sg.n} signals` }[sg.what] || "a signal";
@@ -901,6 +937,7 @@ function mathml(tree, display = true) {
 function openBlock(n) {
   const fn = n.fn || {};
   const kinds = { controller: "controller", actuator: "actuator", process: "process", sensor: "sensor (feedback path)",
+                  collector: "collector (feedback path)",
                   subsystem: "subsystem", comparator: "summing junction", "process-sum": "summing junction", reference: "reference input",
                   disturbance: "disturbance input", output: "output", "in-port": "In port", "out-port": "Out port",
                   sampler: "sampler (A/D)", hold: "zero-order hold (D/A)", junction: "summing junction" };
@@ -981,7 +1018,11 @@ function blocksLegend() {
   const ink = 'stroke="currentColor" fill="none" stroke-width="1.3"';
   return h("div", { class: "legend bd-legend" },
     row(`<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="14" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">P</text>`,
-        "a block, its function inside: C a controller, P a process, H a sensor with dynamics of its own (a unity sensor is the feedback wire itself), Q a subsystem; C(z) runs every T, (s) is continuous; Q without (s) holds sampled or nonlinear parts; click it for its definition"),
+        "a block, its function inside: C a controller, P a process, Q a subsystem; C(z) runs every T, (s) is continuous; Q without (s) holds sampled or nonlinear parts; click it for its definition"),
+    row(`<rect x="2" y="2" width="26" height="16" ${ink}/><text x="15" y="10" font-size="7" text-anchor="middle" font-style="italic" fill="currentColor">H = 1</text><path d="M7,14 H23" stroke="currentColor" stroke-width="0.8"/>`,
+        "a sensor, on the feedback path beneath the loop: what finds the work. Inside, its function (H = 1: it reads what is there as it is; H(s): avg τ, a rate over a window; e^(−sT) with a switch: it polls every T, a period that matters against the loop's) and, beneath, what it reads and how often"),
+    row(`<rect x="2" y="2" width="26" height="16" ${ink}/><path d="M7,8 H23 M7,13 H19" stroke="currentColor" stroke-width="0.8"/>`,
+        "a collector, in front of a sensor on the same path: the command or query that polls an outside system and records what it saw as items, which the sensor counts; a count is only as fresh as its collector"),
     row(`<path d="M0,10 H8 M22,10 H30 M8,10 L20,3" ${ink}/><circle cx="8" cy="10" r="1.6" fill="currentColor"/><circle cx="22" cy="10" r="1.6" fill="currentColor"/>`,
         "a sampler (T): where a continuous signal enters a discrete controller C(z)"),
     row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,15 H10 V12 H14 V9 H18 V6 H24" ${ink}/>`,

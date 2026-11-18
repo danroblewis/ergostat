@@ -16,8 +16,12 @@ What each part of the model becomes:
   multi-input multi-output block, with its inputs and outputs gathered into vectors (Simulink's
   mux and demux), unless drawing them one by one takes fewer lines. Its transfer matrix has a zero only
   where no path inside it leads from the input to the output.
-- A **sensor** read by a loop is the feedback path's H(s), beneath it, only when the model gives it
-  dynamics (a rate over a window: a moving average); a reading is unity feedback, the wire itself.
+- A **sensor** read by a loop is a block on the feedback path, beneath it (Franklin, Powell & Emami-Naeini's
+  standard loop), labelled with what it reads and how often (``sensing.py``): H(s) when the model gives it
+  dynamics (a rate over a window: a moving average), H = 1 when it gives none, and a delay e^(−sT) (a sampler
+  on the feedback path) when it polls at a period T that matters against the loop's (a tenth of it or more).
+  A collector, the command or query that turns an outside system into the items a count reads, is drawn
+  in front of it, on the same path: the count is only as fresh as the collector.
 - A **discrete controller** C(z) takes one input, sampled (a sampler, T), and drives the continuous
   process through a zero-order hold; what else moves its setting adds at a summing junction after it.
 - A **goal** is a reference r = its value, compared at a summing junction (e = r − y_m), in the frame of
@@ -33,6 +37,7 @@ What each part of the model becomes:
 
 from __future__ import annotations
 
+from . import sensing
 from .spec.ir import Ref, Spec
 
 WORLD_NOTE = "a block that reads nothing and is commanded by nothing: the world, from the control system's side"
@@ -132,6 +137,7 @@ class _Diagram:
         self.world = {n for n, b in B.items() if b.targets() and not b.reads() and n not in commanded
                       and all(t.kind in ("flow", "auxiliary") for t in b.targets())}
         self.control = [n for n in B if n not in self.world]
+        self.collectors = sensing.collectors(s)       # kind -> the sensors that record its items
         self.moved: dict[str, tuple[str, str]] = {}    # "flow.x" / "auxiliary.x" -> (block, its port)
         for n in self.control:
             for port, refs in B[n].outputs.items():
@@ -192,15 +198,21 @@ class _Diagram:
             return f"goal.{r.name}.e"
         var = f"{r.kind}.{r.name}"
         sen = self._sensors(var)
-        if sen and self.sensor_dynamics(var):
+        if sen and self.sensed(var):
             return f"meas.{var}.{r.port if r.port in sen else sen[0]}"
         return var
 
+    def sensed(self, var: str) -> bool:
+        """Whether a variable is read through a sensor block: on a feedback path (a process output read back)
+        always, so that the loop shows what finds the work; elsewhere (an input read ahead) only when the
+        sensor has dynamics of its own."""
+        return bool(self._sensors(var)) and (self.sensor_dynamics(var) or not self.is_input(var))
+
     def meas_key(self, var: str) -> str:
-        """What a loop reads of a variable: its sensor's output when the sensor has dynamics of its own, else
-        the variable itself (unity feedback: the feedback path is the wire)."""
+        """What a loop reads of a variable: its sensor's output (y_m), or the variable itself when nothing
+        measures it."""
         sen = self._sensors(var)
-        return f"meas.{var}.{sen[0]}" if sen and self.sensor_dynamics(var) else var
+        return f"meas.{var}.{sen[0]}" if sen and self.sensed(var) else var
 
     def sensor_dynamics(self, var: str) -> bool:
         """A sensor with dynamics the model says: a rate over a window (an average), not a reading."""
@@ -567,9 +579,27 @@ class _Diagram:
             if nid in f["members"]:
                 f["members"] += added
 
+    def loop_period(self, var: str) -> float:
+        """The period a sensor's own is weighed against: the shortest period of the blocks that read it (its
+        reading, or the error of a goal on it), else the identified process's time constant and dead time,
+        else ten minutes (a person or an AI agent answering what it is given)."""
+        goals = [g for g in self.s.goals.values() if f"{g.of.kind}.{g.of.name}" == var]
+        keys = {f"goal.{g.name}.e" for g in goals}
+        ts = [self.s.blocks[n].every for n, rs in self.reads.items()
+              if any(k in keys or k == var or k.startswith(f"meas.{var}.") for _, k in rs) and self.s.blocks[n].every]
+        if ts:
+            return min(ts)
+        for g in goals:
+            pr = g.process or {}
+            if pr.get("tau") or pr.get("theta"):
+                return float(pr.get("tau") or 0) + float(pr.get("theta") or 0)
+        return 600.0
+
     def need(self, key: str) -> None:
-        """A measured signal's sensor, made when first read: only one with dynamics of its own (a rate over a
-        window, a moving average); a reading with unity gain is the wire itself."""
+        """A measured signal's sensor, made when first read: a block on the feedback path, labelled with what it
+        reads and how often (``sensing.reads``). H(s) when it has dynamics of its own (a rate over a window, a
+        moving average); a delay e^(−sT) when it polls at a period that matters against the loop's; else H = 1.
+        A collector that turns an outside system into the items it counts is drawn in front of it."""
         if not key.startswith("meas.") or key in self.prod:
             return
         _, kind, name, sname = key.split(".", 3)
@@ -578,22 +608,83 @@ class _Diagram:
         if nid not in self.nodes:
             t = self.s.measured(kind)[name]
             sensors = [x for x in t.sensors.values() if x.measured or x.manual]
-            ex = next((x for x in sensors if x.changes or x.items), sensors[0])
-            tau = (ex.changes or ex.items or {}).get("over") or 3600.0
-            how = (f"the rate of {name} from its integrator's successive readings, over {_dur(tau)}" if ex.changes
-                   else f"the rate of {name}, counted from the record over {_dur(tau)}")
-            every = f", sampled every {_dur(ex.every)}" if ex.every and not ex.manual and not ex.items else ""
-            math = [eq(sym("H", name, "s"), frac(row(mn(1), mo("−"), ["msup", mi("e"), row(mo("−"), mi("s"), mi("τ"))]),
-                                                 row(mi("s"), mi("τ")))),
-                    row(mt("a moving average over "), mi("τ"), mo("="), mt(_dur(tau))),
-                    eq(sym("y", f"m,{name}"), row(sym("H", name, "s"), sym("y", name)))]
-            self.node(nid, kind="block", role="sensor", system=self._system(var), label=name,
-                      fn={"sym": "H", "sub": name, "arg": "s", "expr": f"avg {_dur(tau)}", "linear": True},
-                      math=math, says=f"the sensor on y_{name}: {how}{every}. A window average lags what it measures "
-                                      f"by about τ/2 = {_dur(tau / 2)}.", part=var,
-                      rows=[["measures", name], ["sensors", ", ".join(x.name for x in sensors)], ["now", self.now(var)]])
-            self.wire(var, nid, self.port(nid, "in", var, "E"))
+            dyn = self.sensor_dynamics(var)
+            ex = next((x for x in sensors if x.changes or x.items), sensors[0]) if dyn else \
+                next((x for x in sensors if x.name == sname), sensors[0])
+            cols = [c for c in self.collectors.get((ex.items or {}).get("kind") or "", []) if c is not ex]
+            reads = sensing.reads(self.s, ex) + (f" (and {len(sensors) - 1} more)" if len(sensors) > 1 else "")
+            period = 0.0 if ex.manual or ex.cron else float(ex.every or 0)
+            period += max((float(c.every or 0) for c in cols), default=0.0)
+            loop_T = self.loop_period(var)
+            sampled = not dyn and period > 0 and period >= loop_T / 10
+            Tw = sensing.every_words(period)
+            rows = [["measures", name], ["reads", reads], ["sensors", ", ".join(x.name for x in sensors)],
+                    ["collected by", ", ".join(sensing.reads(self.s, c) for c in cols)], ["now", self.now(var)]]
+            ym = eq(sym("y", f"m,{name}"), row(sym("H", name, "s" if dyn or sampled else None), sym("y", name)))
+            if dyn:
+                tau = (ex.changes or ex.items or {}).get("over") or 3600.0
+                how = (f"the rate of {name} from its integrator's successive readings, over {_dur(tau)}" if ex.changes
+                       else f"the rate of {name}, counted from the record over {_dur(tau)}")
+                fn = {"sym": "H", "sub": name, "arg": "s", "expr": f"avg {sensing.every_words(tau)}", "linear": True}
+                math = [eq(sym("H", name, "s"), frac(row(mn(1), mo("−"), ["msup", mi("e"), row(mo("−"), mi("s"), mi("τ"))]),
+                                                     row(mi("s"), mi("τ")))),
+                        row(mt("a moving average over "), mi("τ"), mo("="), mt(_dur(tau))), ym]
+                says = (f"the sensor on y_{name}: {how}. A window average lags what it measures by about τ/2 = "
+                        f"{_dur(tau / 2)}.")
+            elif sampled:
+                fn = {"sym": "H", "sub": name, "arg": "s", "expr": "e^(−sT)", "T": Tw, "sampled": True, "linear": True}
+                math = [eq(sym("H", name, "s"), ["msup", mi("e"), row(mo("−"), mi("s"), mi("T"))]),
+                        eq(mi("T"), mt(Tw)), ym,
+                        mt(f"it polls every {Tw}" + (" (with its collector)" if cols else "") + ", a tenth or more of the "
+                           f"loop's own period ({sensing.every_words(loop_T)}): a reading is up to T old, T/2 on average, "
+                           "so the feedback path is drawn as a sampler, a delay of up to T")]
+                says = (f"the sensor on y_{name}: it reads {reads}. Its period matters against the loop's "
+                        f"({sensing.every_words(loop_T)}): what the loop sees is up to {Tw} old.")
+            else:
+                fn = {"sym": "H", "sub": name, "arg": None, "expr": "1", "linear": True}
+                math = [eq(sym("H", name), mn(1)), eq(sym("y", f"m,{name}"), sym("y", name)),
+                        mt("no dynamics the model gives it" + (f", and its period ({Tw}) is short against the loop's "
+                           f"({sensing.every_words(loop_T)})" if period else "") + ": unity feedback, y_m = y")]
+                says = f"the sensor on y_{name}: it reads {reads}. What it reads goes back to the loop as it is (H = 1)."
+            fn["reads"] = reads
+            self.node(nid, kind="block", role="sensor", system=self._system(var), label=name, fn=fn, math=math,
+                      says=says, part=var, rows=rows)
+            if cols:
+                for c in cols:
+                    ck = self.collector(c, var)
+                    self.wires.append({"key": ck, "source": self.prod[ck][0], "sourcePort": self.prod[ck][1],
+                                       "target": nid, "targetPort": self.port(nid, "in", ck, "E")})
+            else:
+                self.wire(var, nid, self.port(nid, "in", var, "E"))
         self.produce(key, nid, key, "W")
+
+    def collector(self, x, var: str) -> str:
+        """The block a collector is: it polls an outside system and records what it saw as items, which a
+        sensor counts. Drawn once, however many counts read its kind; what it watches (each variable whose
+        count reads it) goes into it. Its signal's key."""
+        cid = f"col:{x.of.name}.{x.name}"
+        ck = f"rec:{x.of.name}.{x.name}"
+        kinds = sorted(k for k, cs in self.collectors.items() if any(c is x for c in cs))
+        if cid not in self.nodes:
+            title = x.description if x.description and len(x.description) <= 40 else (
+                sensing.what(self.s, x) if x.query else sensing._command(x.run or "") or x.name)
+            what = f"records {' and '.join(kinds)} items" + (f", {sensing.how_often(x)}" if sensing.how_often(x) else "")
+            self.node(cid, kind="block", role="collector", system=self.s.owner(x.of), label=title,
+                      fn={"name": title, "kind": "collector", "reads": what, "linear": False},
+                      says=f"a collector: it polls an outside system and records what it saw as events about "
+                           f"{' and '.join(kinds)} items ({sensing.reads(self.s, x)}), which the sensors on the feedback "
+                           "path count. A count is only as fresh as it is. It is the sensor on the flow "
+                           f"{x.of.name}, which brings the items in; taken to be their collector because of that.",
+                      math=[mt(f"records {' and '.join(kinds)} items as events, {sensing.how_often(x) or 'when run'}"),
+                            mt("an instrument: it never acts")],
+                      rows=[["sensor", f"{x.of.name}.{x.name}"], ["reads", sensing.reads(self.s, x)],
+                            ["records", ", ".join(kinds)], ["description", x.description]],
+                      part=f"{x.of.kind}.{x.of.name}")
+            self.produce(ck, cid, "items")
+            self.sig[ck] = {"key": ck, "sym": "", "sub": "", "what": "record"}
+        if not any(w["target"] == cid and w["key"] == var for w in self.wires):
+            self.wire(var, cid, self.port(cid, "in", var, "E"))
+        return ck
 
     def processes(self) -> None:
         internal = lambda v: not self.is_input(v)                            # noqa: E731
@@ -1017,6 +1108,7 @@ class _Diagram:
                     mine.add(self.prod[p][0])
             gv = f"{s.goals[g].of.kind}.{s.goals[g].of.name}"
             mine.add(f"sen:{gv}")
+            mine |= {w["source"] for w in self.wires if w["target"] == f"sen:{gv}" and w["source"].startswith("col:")}
             if gv in self.prod:
                 mine.add(self.prod[gv][0])
             for v in (*lp.valves, *lp.disturbances):
@@ -1110,7 +1202,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
     def term(key: str, io: str, other: str) -> str:
         tid = f"term:{io}:{key}"
         if tid not in terms:
-            sg = d.signal(key) if not key.startswith(("psum:", "vec-")) else d.sig.get(key, {"sym": "", "sub": ""})
+            sg = d.signal(key) if not key.startswith(("psum:", "vec-", "rec:")) else d.sig.get(key, {"sym": "", "sub": ""})
             ch = spec.chain(nodes[other].get("system")) if other in nodes else []
             terms[tid] = {"id": tid, "kind": "port", "role": "in-port" if io == "in" else "out-port", "label": key,
                           "fn": {"sym": sg.get("sym"), "sub": sg.get("sub")}, "ins": [], "outs": [], "system": focus,
@@ -1230,8 +1322,17 @@ def _continuous(n: dict) -> bool:
 
 def _portkey(p: dict) -> str:
     if p.get("key") == "vec":
-        return ", ".join(k.split(".", 1)[-1] for k in p.get("keys", [])) or f"a vector of {p.get('n')}"
-    return (p.get("key") or "").split(".", 1)[-1]
+        return ", ".join(_keyname(k) for k in p.get("keys", [])) or f"a vector of {p.get('n')}"
+    return _keyname(p.get("key") or "")
+
+
+def _keyname(k: str) -> str:
+    """A signal's key as a reader names it: ``meas.stock.queue.main`` is queue, measured."""
+    if k.startswith("meas."):
+        return f"{k.split('.')[2]} (measured)"
+    if k.startswith("rec:"):
+        return f"what {k[4:].rsplit('.', 1)[0]}'s collector recorded"
+    return k.split(".", 1)[-1]
 
 
 def diagram(model, snap: dict | None = None, open_: set[str] | None = None, focus: str | None = None) -> dict:

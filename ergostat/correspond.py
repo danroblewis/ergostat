@@ -125,6 +125,8 @@ def blocks_shapes(g: dict, spec) -> dict[str, dict]:
             return [f"goal.{rest}.r"], False
         if kind in ("out", "dist", "sen"):
             return [rest], False
+        if kind == "col":                             # a collector: the sensor on the flow that brings its items in
+            return [n.get("part") or f"flow.{rest.rsplit('.', 1)[0]}"], False
         if kind == "proc" and "." not in rest:        # a multi-input multi-output process: what is inside it
             return list(n.get("inside") or []), True
         if kind == "proc":

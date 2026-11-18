@@ -98,9 +98,13 @@ def test_image_squeeze_the_service_is_one_mimo_process_and_the_tuner_integrates(
     assert signs == {"flow.proposed": "+", "flow.started": "−"}
     # an AI agent is not a transfer function
     assert n["blk:researcher"]["fn"]["linear"] is False and n["blk:researcher"]["fn"]["name"] == "researcher"
-    # the error of the quality loop: e = r − y_m, its measurement read with unity gain: the wire itself, from the process
+    # the error of the quality loop: e = r − y_m, its measurement through its sensor block, H = 1, from the process
     ins = {e["source"]: e["sign"] for e in g["edges"] if e["target"] == "sum:quality-held"}
-    assert ins == {"ref:quality-held": "+", "demux:service": "−"}
+    assert ins == {"ref:quality-held": "+", "sen:stock.quality": "−"}
+    # it reads every 8 s, a tenth or more of the tuner's period: a sampler on the feedback path, a delay of up to T
+    sen = n["sen:stock.quality"]["fn"]
+    assert (sen["expr"], sen["T"], sen["sampled"]) == ("e^(−sT)", "8 s", True)
+    assert any(e["source"] == "demux:service" and e["target"] == "sen:stock.quality" for e in g["edges"])
 
 
 def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
@@ -268,24 +272,30 @@ def test_a_comparator_sits_in_the_frame_of_the_controller_that_reads_its_error()
     assert n["ref:backlog-clear"]["parent"] == "frame:delivery"
 
 
-def test_unity_sensors_are_wires_and_a_measured_signal_with_dynamics_is_named_for_its_variable():
+def test_every_sensor_on_a_feedback_path_is_a_block_and_a_measured_signal_is_named_for_its_variable():
     for ex in EXAMPLES:
         spec = load(ROOT / "examples" / ex / "ergostat.yaml")
         d = bd._Diagram(spec, {})
         d.build()
         for nid, n in d.nodes.items():
             if n.get("role") == "sensor":
-                assert d.sensor_dynamics(n["part"]), (ex, nid, "a unity sensor drawn as a block")
-                assert n["fn"]["expr"] != "1"
+                fn = n["fn"]
+                assert fn["reads"], (ex, nid, "a sensor says what it reads")
+                if d.sensor_dynamics(n["part"]):
+                    assert fn["expr"].startswith("avg"), (ex, nid)
+                else:
+                    assert fn["expr"] in ("1", "e^(−sT)"), (ex, nid, fn)
         for e in d.wires:
             sg = d.signal(e["key"]) if e["key"] not in d.sig else d.sig[e["key"]]
             if sg.get("what") == "measured":
                 assert sg["sub"].startswith("m,") and len(sg["sub"]) > 2, (ex, e["key"], sg)
-    # a unity reading says how it is sampled, in the panel of its wire
+            if e.get("feedback") and e["key"].split(".")[0] in ("stock", "flow", "auxiliary"):
+                assert not d._sensors(e["key"]), (ex, e["key"], "a measured variable read back without its sensor")
+    # the quality loop's sensor says what it reads and how often, in the block and in its panel
     spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
-    g = drawn(spec, {"*"})
-    fb = next(e for e in g["edges"] if e["target"] == "sum:quality-held" and e["sign"] == "−")
-    assert "sampled every" in fb["note"] and "unity" in fb["note"]
+    n = {x["id"]: x for x in drawn(spec, {"*"})["nodes"]}
+    sen = n["sen:stock.quality"]
+    assert "every" in sen["fn"]["reads"] and sen["fn"]["reads"] in _text(sen["rows"])
 
 
 def test_a_sensor_with_a_window_is_drawn_as_h_of_s_and_its_signal_is_y_m_of_its_variable(tmp_path):

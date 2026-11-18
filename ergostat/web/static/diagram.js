@@ -304,8 +304,7 @@ function routeCuts(lay, cuts) {
 function badge(a, x, y) {
   if (!a) return null;
   const t = badgeText(a), w = textWidth(t) + 24;
-  return s("g", { class: "badge", transform: `translate(${x - w / 2},${y})` }, s("title", {}, `${a.kind} · ${a.name} · ${a.schedule || a.when || "runs by hand"}`),
-    s("rect", { width: w, height: 16, rx: 8, fill: "var(--panel)", stroke: "var(--line)", "stroke-width": 1 }),
+  return s("g", { class: "badge", transform: `translate(${x - w / 2},${y})` }, s("rect", { width: w, height: 16, rx: 8, fill: "var(--panel)", stroke: "var(--line)", "stroke-width": 1 }),
     rungDot(a.rung, 9, 8),
     s("text", { x: w / 2 + 5, y: 11.5, "text-anchor": "middle" }, t));
 }
@@ -330,7 +329,7 @@ function drawStock(n, w, hgt) {
   g.append(s("rect", { x: mx, y: my, width: mw * frac, height: 4, rx: 2, fill: tone, class: "live" }));
   if (spv != null) {
     const sx = mx + mw * Math.max(0, Math.min(1, spv / top));
-    g.append(s("line", { x1: sx, x2: sx, y1: my - 3, y2: my + 7, stroke: "var(--ink)", "stroke-width": 1.6, class: "live" }, s("title", {}, "setpoint")));
+    g.append(s("line", { x1: sx, x2: sx, y1: my - 3, y2: my + 7, stroke: "var(--ink)", "stroke-width": 1.6, class: "live" }));
     const sp_ = sp.setpoint.replace("<=", "≤").replace(">=", "≥").replace("==", "=").trim();
     g.append(s("text", { x: w - 10, y: 50, class: "t-sub sp-text", "text-anchor": "end" }, sp_));
   }
@@ -340,7 +339,7 @@ function drawStock(n, w, hgt) {
     const lo = Math.min(...vs, spv ?? Infinity), hi = Math.max(...vs, spv ?? -Infinity);
     const yOf = (v) => hgt - 8 - ((v - lo) / ((hi - lo) || 1)) * 16;
     if (spv != null) g.append(s("line", { x1: 10, x2: w - 10, y1: yOf(spv), y2: yOf(spv), stroke: "var(--ink)", "stroke-width": 0.8,
-                                          "stroke-dasharray": "3 3", opacity: 0.55, class: "live" }, s("title", {}, "setpoint")));
+                                          "stroke-dasharray": "3 3", opacity: 0.55, class: "live" }));
     const d = vs.map((v, i) => `${i ? "L" : "M"}${10 + (i / (vs.length - 1)) * (w - 20)},${yOf(v)}`).join("");
     g.append(s("path", { d, fill: "none", stroke: tone, "stroke-width": 1.4, opacity: 0.8, class: "live" }));
   }
@@ -413,8 +412,7 @@ function drawController(n, w, hgt) {
   const g = s("g");
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 10, fill: "var(--ctl)", stroke: "var(--ctl-line)", "stroke-width": 2 }));
   // its summing point: the setpoint in (+), the reading in (−), the error out; a clock for an open loop, which reads nothing
-  g.append(s("circle", { cx: 20, cy: 22, r: 9, fill: "var(--panel)", stroke: "var(--ctl-line)", "stroke-width": 1.6 },
-             s("title", {}, n.openLoop ? "an open loop: it acts on its schedule and reads nothing" : "its summing point: e = r − y, the setpoint less the reading")));
+  g.append(s("circle", { cx: 20, cy: 22, r: 9, fill: "var(--panel)", stroke: "var(--ctl-line)", "stroke-width": 1.6 }));
   if (n.openLoop) g.append(s("path", { d: "M20,22 v-6 M20,22 l4,3", stroke: "var(--ctl-line)", "stroke-width": 1.4, "stroke-linecap": "round" }));
   else g.append(s("text", { x: 20, y: 26, "text-anchor": "middle", class: "sigma" }, "Σ"),
                 s("text", { x: 8, y: 13, "text-anchor": "middle", class: "sign" }, "+"),
@@ -425,8 +423,7 @@ function drawController(n, w, hgt) {
     const when = n.decisionAt ? " · " + ago(n.decisionAt) : "";
     const room = Math.floor((w - 24) / 6.2) - when.length;
     const t = n.decision.length > room ? n.decision.slice(0, room - 1) + "…" : n.decision;
-    g.append(s("text", { x: 12, y: 56, class: "t-sub live", "font-style": "italic" }, s("title", {}, "last decision: " + n.decision),
-                         "“" + t + "”", s("tspan", { "font-style": "normal" }, when)));
+    g.append(s("text", { x: 12, y: 56, class: "t-sub live", "font-style": "italic" }, "“" + t + "”", s("tspan", { "font-style": "normal" }, when)));
   } else if (n.openLoop) {
     g.append(s("text", { x: 12, y: 56, class: "t-sub" }, OPEN_LOOP));
   }
@@ -481,7 +478,7 @@ function drawSystem(n, w, hgt) {
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 12, fill: "var(--panel)", stroke: "var(--system-line)", "stroke-width": 2 }));
   g.append(s("rect", { x: 4, y: 4, width: w - 8, height: hgt - 8, rx: 9, fill: "var(--system)", stroke: "var(--system-line)", "stroke-width": 1, "stroke-dasharray": "3 3" }));
   g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
-  g.append(s("circle", { cx: 16 + textWidth(n.label) * 1.25 + 12, cy: 19, r: 5, fill: tone, class: "live" }, s("title", {}, loopsText(n))));
+  g.append(s("circle", { cx: 16 + textWidth(n.label) * 1.25 + 12, cy: 19, r: 5, fill: tone, class: "live" }));
   g.append(s("text", { x: 16, y: 42, class: "t-sub live" }, loopsText(n) + (n.subsystems?.length ? ` · ${n.subsystems.length} inside` : "")));
   // its measures, as a control panel: each one's health, value, setpoint and trend (click: the part itself)
   (n.measures || []).forEach((m, i) => {
@@ -489,7 +486,6 @@ function drawSystem(n, w, hgt) {
     const mt = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[m.status] || "var(--unknown)";
     const row = s("g", { class: "measure-row", transform: `translate(0,${y})`, "data-act": "measure",
                          onclick: (ev) => { ev.stopPropagation(); openNode({ id: m.part, kind: m.part.startsWith("flow:") ? "disturbance" : "stock", label: m.label, flow: m.label }); } },
-      s("title", {}, `${m.label}: ${m.value} ${m.unit}${m.goal ? ` · goal ${m.goal} ${m.setpoint}, ${m.status || "unknown"}` : ""}`),
       s("rect", { x: 8, y: 0, width: w - 16, height: MEAS_ROW - 3, rx: 5, class: "measure-bg" }),
       m.goal ? s("circle", { cx: 18, cy: 10.5, r: 4, fill: mt, class: "live" }) : null,
       s("text", { x: 28, y: 15, class: "t-sub" }, m.label),
@@ -503,12 +499,11 @@ function drawSystem(n, w, hgt) {
     g.append(row);
   });
   const btn = (x, label, title, fn) => s("g", { class: "sys-btn", transform: `translate(${x},10)`, onclick: (ev) => { ev.stopPropagation(); fn(); } },
-    s("title", {}, title), s("rect", { width: textWidth(label) + 14, height: 20, rx: 4 }), s("text", { x: 7, y: 14 }, label));
+    s("rect", { width: textWidth(label) + 14, height: 20, rx: 4 }), s("text", { x: 7, y: 14 }, label));
   const into = "Into", open = "Open";
   g.append(btn(w - textWidth(into) - 24, into, "Draw this system alone, with what it reaches outside at its edge", () => S.drill?.(n.label)));
   g.append(btn(w - textWidth(into) - textWidth(open) - 46, open, "Open it here: its parts in place of the box", () => S.toggleSystem?.(n.label)));
-  if (n.inner?.length) g.append(s("text", { x: 16, y: hgt - 10, class: "t-sub" }, s("title", {}, "given a setpoint from outside, it holds it, and what it holds is read back out: an outer loop can treat it as one block"),
-                                  `inner loop: holds ${n.inner.join(", ")} for an outer one`));
+  if (n.inner?.length) g.append(s("text", { x: 16, y: hgt - 10, class: "t-sub" }, `inner loop: holds ${n.inner.join(", ")} for an outer one`));
   const at = { west: 0, east: 0 };
   for (const p of n.ports || []) {
     const side = p.at || (p.side === "in" ? "west" : "east");
@@ -518,8 +513,7 @@ function drawSystem(n, w, hgt) {
     const px = left ? 0 : w, inward = (p.side === "in") === left;    // which way it carries, across the edge
     g.append(s("path", { d: inward ? `M${px - 2.5},${y - 2.5} L${px + 2},${y} L${px - 2.5},${y + 2.5} Z` : `M${px + 2.5},${y - 2.5} L${px - 2},${y} L${px + 2.5},${y + 2.5} Z`,
                          fill: "var(--system-line)" }));
-    g.append(s("text", { x: left ? 12 : w - 12, y: y + 4, class: "t-sub", "text-anchor": left ? "start" : "end" }, s("title", {}, `${p.side === "in" ? "in" : "out"}: ${p.kind} ${p.label}`),
-      p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
+    g.append(s("text", { x: left ? 12 : w - 12, y: y + 4, class: "t-sub", "text-anchor": left ? "start" : "end" }, p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
   }
   return g;
 }
@@ -558,7 +552,7 @@ function edgePoints(e) {
 function pinMark(pid, x, y, title = "pinned here: click to let the layout place it again") {
   return s("g", { class: "pin", "data-act": "unpin", "data-id": pid, transform: `translate(${x},${y})`,
                   onclick: (ev) => { ev.stopPropagation(); delete S.pins[pid]; savePins(); S.relayout?.(); } },
-    s("title", {}, title), s("circle", { r: 7 }), s("path", { d: "M-2.5,-3 h5 l-1,3 h2 l-3.5,3 v3 M0,3 v3" }));
+    s("circle", { r: 7 }), s("path", { d: "M-2.5,-3 h5 l-1,3 h2 l-3.5,3 v3 M0,3 v3" }));
 }
 
 function redrawLine(svg, id) {                         // a line's new way, while a part is dragged: its paths and its head
@@ -630,13 +624,12 @@ function drawGraph(svg, g, lay) {
       hulls.append(hg);
       // its top is a handle: dragged, the system moves with everything in it, and stays there (places.js)
       const grip = s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: c.width, height: 32, rx: 16,
-                               onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: c.name, x0: ev.clientX, y0: ev.clientY, cx: c.x, cy: c.y, moved: false }; } },
-                       s("title", {}, `${c.name}: drag to move it, with everything in it`));
+                               onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: c.name, x0: ev.clientX, y0: ev.clientY, cx: c.x, cy: c.y, moved: false }; } });
       hg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height, rx: 16, style: hueOf(hue, 0.45) }), grip,
         s("text", { x: c.x + 14, y: c.y + 22, class: "sys-hull-label", "data-act": "close", style: inkOf(hue), onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
-          s("title", {}, `${c.name}: click to close it into one box`), "▾ " + c.name),
+          "▾ " + c.name),
         s("text", { x: c.x + 14 + textWidth("▾ " + c.name) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", "data-act": "into", style: inkOf(hue),
-                    onclick: (ev) => { ev.stopPropagation(); S.drill?.(c.name); } }, s("title", {}, "draw it alone"), "⤓"));
+                    onclick: (ev) => { ev.stopPropagation(); S.drill?.(c.name); } }, "⤓"));
       if (S.pins?.["hull:" + c.name]) hullPins.push(pinMark("hull:" + c.name, c.x + c.width - 14, c.y + 4, "moved here: click to let the layout place it again"));
     }
     vp.append(hulls);
@@ -691,7 +684,7 @@ function drawGraph(svg, g, lay) {
         hulls.append(s("rect", { x: x0, y: y0, width: x1 - x0, height: y1 - y0, rx: 16, style: hueOf(hue, 0.45) }),
                      s("text", { x: lx, y: y0 + 18, class: "sys-hull-label", style: inkOf(hue),
                                  onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(name); } },
-                       s("title", {}, `${name}: click to close it into one box`), name + (S.graph?.tree ? " ▾" : "")));
+                       name + (S.graph?.tree ? " ▾" : "")));
       });
     });
     vp.append(hulls);
