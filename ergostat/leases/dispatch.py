@@ -212,7 +212,7 @@ class Dispatcher:
                     self.e.read_soon(s)
                 self.e.running.discard(f"{b.name} {item['id']}")
                 self.e.finished[b.name] = time.time()
-        self.e.evaluate()
+        self.e.poke(b.name)
         return moved
 
     def finish(self, b, item: str, fence: int, run: str, out: dict) -> None:

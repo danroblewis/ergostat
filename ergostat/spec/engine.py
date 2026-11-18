@@ -19,8 +19,10 @@ The record uses the same stores and event types as before (``valve.opened``, ``l
 
 from __future__ import annotations
 
+import heapq
 import json
 import os
+import queue
 import re
 import shlex
 import subprocess
@@ -29,6 +31,8 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from .. import runner as old
 from . import blocks as bl
@@ -37,6 +41,10 @@ from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
 
 TICK = 1.0
+READERS = 8                 # the fixed pool that runs sensors' commands and queries: no thread per reading (scale.md #1)
+BATCH = 0.05                # after a pass, what lands within this long (readings, runs ending) waits for one pass together
+KEEPS_TIME = {"onoff", "delay", "schedule", "timer", "counter", "alarm"}   # built-ins whose output moves with time alone
+MISSING = object()
 JUDGE_EVERY = 30.0          # a judge with no every: passes this often
 POOL_FULL_AFTER = 10.0      # seconds an item whose run found its workspace pool full is put off (SPEC §12k)
 SWEEP = 5.0                 # how often the owner's messages are swept: left received, or about work since finished
@@ -65,6 +73,8 @@ Gated actions an earlier session of yours asked for, and what became of them, ar
 
 
 class Engine:
+    incremental = True                                 # a pass works out only what changed (False: everything, each pass)
+
     def __init__(self, project, say=print):
         self.p, self.say = project, say
         self.spec: Spec = project.model.spec
@@ -109,6 +119,23 @@ class Engine:
         self.following = False                         # whether _follow runs: it runs the actions programs ask for
         from ..leases.dispatch import Dispatcher
         self.dispatch = Dispatcher(self)              # blocks that take items: a run per item, each leased (SPEC §9.5)
+        # the loop (``_schedule``): readings asked for, taken a batch at a time; commands and queries read by a fixed
+        # pool, counts of items from what the fold keeps (counts.py); then one pass over what changed (scale.md #1, #4)
+        from .counts import Counts
+        self.counts = {False: Counts(False), True: Counts(True)}
+        self.wanted: dict[str, Sensor] = {}           # readings asked for and not yet begun, by series, in turn
+        self.results: queue.SimpleQueue = queue.SimpleQueue()   # what the pool read: (sensor, value, why, time, error)
+        self.wake = threading.Event()
+        self.looping = False                           # whether the loop runs: else a reading is a thread, as before
+        self.pool: ThreadPoolExecutor | None = None
+        self.passing = threading.Lock()                # one pass at a time, whichever thread asks
+        self.full = True                               # the next pass works out everything (the first, after a swap)
+        self.mark = None                               # the measurements' changes, as of the last pass
+        self.dirty_keys: set[str] = set()              # signals changed since the last pass (a machine's output, ...)
+        self.dirty_goals: set[str] = set()             # goals whose setpoint a run set since
+        self.dirty_blocks: set[str] = set()            # machine blocks whose run ended since
+        self.dirty_series: set[str] = set()            # series whose reading ended since (read or not)
+        self.poked = False
 
     # ---- signals
 
@@ -123,93 +150,304 @@ class Engine:
             return outs.get("out", next(iter(outs.values()), None) if len(outs) == 1 else None)
         return self.signals.get(str(r))
 
-    def measure(self) -> None:
-        """Stocks' levels and flows' rates from the record: the newest reading of any of their sensors."""
+    def measure(self, newest: dict | None = None, only: set[str] | None = None) -> set[str]:
+        """Stocks' levels and flows' rates from the record: the newest reading of any of their sensors. ``only``: the
+        series whose newest reading changed since the last pass (None: every one). Returns the signals that changed."""
         m = self.p.measurements
-        newest = m.newest() if hasattr(m, "newest") else None    # every series' newest, at once (scale.md #3)
-        for kind, table in (("stock", self.spec.stocks), ("flow", self.spec.flows), ("auxiliary", self.spec.auxiliaries)):
-            for name, x in table.items():
-                best = None
-                for s in x.sensors.values():
-                    got = newest.get(s.series) if newest is not None else m.latest(s.series)
-                    if got is None:
-                        continue
-                    self.signals[f"{kind}.{name}.{s.name}"] = got[1]
-                    if self.seen.get(s.series) != got[0]:
-                        self.seen[s.series] = got[0]
-                        self.last_reading = max(self.last_reading, got[0])
-                    if best is None or got[0] > best[0]:
-                        best = got
-                if best is not None:
-                    self.signals[f"{kind}.{name}"] = best[1]
-                elif kind == "flow" and x.rate is not None:
-                    self.signals[f"flow.{name}"] = x.rate
+        if newest is None and hasattr(m, "newest"):
+            newest = m.newest()                                # every series' newest, at once (scale.md #3)
+        spec, sig, changed = self.spec, self.signals, set()
+        tables = {"stock": spec.stocks, "flow": spec.flows, "auxiliary": spec.auxiliaries}
+        if only is None:
+            parts = [(kind, name) for kind, table in tables.items() for name in table]
+        else:
+            by = self._wiring()["parts"]
+            parts = list(dict.fromkeys(x for sr in only for x in by.get(sr, ())))
+        for kind, name in parts:
+            x = tables[kind].get(name)
+            if x is None:
+                continue
+            best = None
+            for s in x.sensors.values():
+                got = newest.get(s.series) if newest is not None else m.latest(s.series)
+                if got is None:
+                    continue
+                k = f"{kind}.{name}.{s.name}"
+                if sig.get(k, MISSING) != got[1]:
+                    sig[k] = got[1]
+                    changed.add(k)
+                if self.seen.get(s.series) != got[0]:
+                    self.seen[s.series] = got[0]
+                    self.last_reading = max(self.last_reading, got[0])
+                if best is None or got[0] > best[0]:
+                    best = got
+            v = best[1] if best is not None else x.rate if kind == "flow" and x.rate is not None else MISSING
+            if v is not MISSING and sig.get(f"{kind}.{name}", MISSING) != v:
+                sig[f"{kind}.{name}"] = v
+                changed.add(f"{kind}.{name}")
+        return changed
 
-    def goals(self, now: float, causes: dict | None = None, crossed: dict | None = None) -> None:
+    def _event(self, out: list | None, type: str, **kw) -> dict:
+        """An event of the pass: recorded now (``out`` None), or kept in ``out`` to be recorded, in turn, once the
+        pass lets go of the lock (its id is its own from now)."""
+        if out is None:
+            return self.p.events.add(type, **kw)
+        ev = {"id": uuid.uuid4().hex, "type": type, "at": time.time(), **kw}
+        out.append(ev)
+        return ev
+
+    def goals(self, now: float, causes: dict | None = None, crossed: dict | None = None, only=None,
+              out: list | None = None) -> set[str]:
         """``causes``: the run behind the reading that started this pass, by what it read; a crossing of a
-        goal on that is recorded as caused by it. ``crossed`` collects this pass's crossings, by goal."""
-        for name, g in self.spec.goals.items():
+        goal on that is recorded as caused by it. ``crossed`` collects this pass's crossings, by goal. ``only``: the
+        goals to work out again (None: every one); ``out``: see ``_event``. Returns the signals that changed."""
+        spec, sig, changed = self.spec, self.signals, set()
+        names = spec.goals if only is None else sorted((g for g in only if g in spec.goals), key=self._wiring()["goal_pos"].get)
+        for name in names:
+            g = spec.goals[name]
             r = self.setpoint.get(name, g.hold.value)
-            self.signals[f"goal.{name}"] = r
-            y = self.signals.get(str(g.of))
+            if sig.get(f"goal.{name}", MISSING) != r:
+                sig[f"goal.{name}"] = r
+                changed.add(f"goal.{name}")
+            y = sig.get(str(g.of))
             if y is None:
-                self.signals.pop(f"goal.{name}.error", None)
-                self.signals.pop(f"goal.{name}.off", None)
+                for k in (f"goal.{name}.error", f"goal.{name}.off"):
+                    if sig.pop(k, MISSING) is not MISSING:
+                        changed.add(k)
                 continue
             before = self.status.get(name)
             now_s = g.status(y, before == "off", r)
             e = g.hold.error(y, r)
-            self.signals[f"goal.{name}.error"] = e
-            self.signals[f"goal.{name}.off"] = 1.0 if now_s == "off" else 0.0
+            for k, v in ((f"goal.{name}.error", e), (f"goal.{name}.off", 1.0 if now_s == "off" else 0.0)):
+                if sig.get(k, MISSING) != v:
+                    sig[k] = v
+                    changed.add(k)
             if now_s != before:
                 self.status[name] = now_s
-                ev = self.p.events.add(f"loop.{now_s}", item=name, source=SOURCE, causedby=(causes or {}).get(g.of.name),
-                                       data={"value": y, "setpoint": f"{g.hold.op} {r:g}", "error": e})
+                ev = self._event(out, f"loop.{now_s}", item=name, source=SOURCE, causedby=(causes or {}).get(g.of.name),
+                                 data={"value": y, "setpoint": f"{g.hold.op} {r:g}", "error": e})
                 if crossed is not None:
                     crossed[name] = ev["id"]
+        return changed
 
-    def evaluate(self, causes: dict | None = None) -> None:
-        now = time.time()
-        crossed: dict[str, str] = {}
-        with self.lock:
-            self.measure()
-            self.goals(now, causes, crossed)
-            for name, blk in self.builtins.items():
-                before = self.signals.get(f"block.{name}")
-                try:
-                    v = blk.step(self.get, now)
-                except Exception as e:                          # one block failing never stops the others
-                    self.say(f"block {name}: {type(e).__name__}: {e}")
-                    v = None
-                if v is None:
-                    self.signals.pop(f"block.{name}", None)
-                    continue
-                self.signals[f"block.{name}"] = v
-                for t in self.spec.blocks[name].targets():
-                    if t.kind == "goal":                        # a cascade: an outer block sets an inner setpoint
-                        self.setpoint[t.name] = v
-                if before != v:
-                    self.p.measurements.add(f"block/{name}", v, now)
-                    if bool(before) != bool(v):
-                        self.decided(self.spec.blocks[name], v, now, crossed)
-            if any(t.kind == "goal" for b in self.builtins for t in self.spec.blocks[b].targets()):
-                self.goals(now, causes, crossed)                                 # a setpoint just moved: the status follows it
-            todo = [b for b in self.machines if self.due(b)]
+    def evaluate(self, causes: dict | None = None, full: bool = False, tick: bool = False) -> None:
+        """A pass (SPEC §9.1). The first, and the first after a model swap, works out everything; each after it only what
+        is downstream of what changed since the last (scale.md, #1): the series with a new reading and the signals they
+        move, the goals on those, the built-ins reading what changed (and every built-in that keeps time), and the
+        machine blocks commanded by what changed, bearing on those readings, or whose run or reading ended; on the
+        clock's pass (``tick``) also the blocks commanded on and not running, and those paced by ``every``. The lock is
+        held only while the signals are worked out: the readings are read before it, the events and the built-ins'
+        outputs written after it, then the blocks due are started."""
+        with self.passing:
+            m = self.p.measurements
+            changed, mark = None, None
+            if hasattr(m, "changes"):
+                newest, changed, mark = m.changes(self.mark)
+            else:
+                newest = m.newest() if hasattr(m, "newest") else None
+            now = time.time()
+            crossed: dict[str, str] = {}
+            events: list[dict] = []
+            rows: list[tuple[str, float, float]] = []
+            with self.lock:
+                full = full or self.full or not self.incremental or changed is None
+                self.full, self.mark = False, mark
+                keys, goals_set, blocks, series = self.dirty_keys, self.dirty_goals, self.dirty_blocks, self.dirty_series
+                self.dirty_keys, self.dirty_goals, self.dirty_blocks, self.dirty_series = set(), set(), set(), set()
+                was = self.last_reading
+                w = self._wiring()
+                if full:
+                    self.measure(newest)
+                    self.goals(now, causes, crossed, out=events)
+                else:
+                    keys |= self.measure(newest, changed)
+                    series |= changed
+                    goals_set |= {g for k in keys for g in w["goals_of"].get(k, ())}
+                    keys |= self.goals(now, causes, crossed, only=goals_set, out=events)
+                out_keys, set_goals, late = self._builtins(now, None if full else keys, crossed, events, rows)
+                keys |= out_keys
+                if full and any(t.kind == "goal" for b in self.builtins for t in self.spec.blocks[b].targets()):
+                    late |= self.goals(now, causes, crossed, out=events)       # a setpoint just moved: the status follows it
+                elif set_goals:
+                    late |= self.goals(now, causes, crossed, only=set_goals, out=events)
+                self.dirty_keys |= late                                     # (read by built-ins before them: the next pass)
+                if full:
+                    todo = [b for b in self.machines if self.due(b, events)]
+                else:
+                    names = set(blocks)
+                    for k in keys:
+                        names |= w["commanded"].get(k, set())
+                    for sr in series:
+                        names |= w["by_series"].get(sr, set())
+                    if self.last_reading > was:
+                        names |= w["free"]
+                    if tick:
+                        names |= w["paced"] | {n for n, on in self.was_commanded.items() if on and n not in self.running}
+                    pos = w["mpos"]
+                    todo = [b for b in sorted((self.spec.blocks[n] for n in names if n in pos), key=lambda b: pos[b.name])
+                            if self.due(b, events)]
+            if events:
+                self.p.events.add_many(events, new=True)
+            if rows:
+                self.p.measurements.add_many(rows)
         for b in todo:
             self.start(b, "command")
 
-    def decided(self, b: Block, v: float, now: float, crossed: dict | None = None) -> None:
+    def _builtins(self, now: float, keys: set[str] | None, crossed: dict, out: list, rows: list) -> tuple[set, set, set]:
+        """The built-ins stepped in their order: every one (``keys`` None), or those reading a signal in ``keys`` or one
+        they change, and every one that keeps time. Returns the outputs that changed, the goals whose setpoint changed,
+        and the outputs that changed after a built-in reading them was stepped (a delay's loop: seen next pass)."""
+        names, pos, readers, timed = self._builtin_wiring()
+        if keys is None:
+            heap = list(range(len(names)))
+        else:
+            heap = sorted({pos[n] for n in timed} | {pos[n] for k in keys for n in readers.get(k, ())})
+        changed, set_goals, late, done = set(), set(), set(), set()
+        while heap:
+            i = heapq.heappop(heap)
+            if i in done:
+                continue
+            done.add(i)
+            name = names[i]
+            blk, key = self.builtins[name], f"block.{name}"
+            before = self.signals.get(key)
+            try:
+                v = blk.step(self.get, now)
+            except Exception as e:                          # one block failing never stops the others
+                self.say(f"block {name}: {type(e).__name__}: {e}")
+                v = None
+            if v is None:
+                if self.signals.pop(key, None) is not None:
+                    changed.add(key)
+                    self._downstream(key, i, heap, late)
+                continue
+            self.signals[key] = v
+            for t in self.spec.blocks[name].targets():
+                if t.kind == "goal":                        # a cascade: an outer block sets an inner setpoint
+                    if self.setpoint.get(t.name) != v:
+                        set_goals.add(t.name)
+                    self.setpoint[t.name] = v
+            if before != v:
+                rows.append((f"block/{name}", now, v))
+                changed.add(key)
+                self._downstream(key, i, heap, late)
+                if bool(before) != bool(v):
+                    self.decided(self.spec.blocks[name], v, now, crossed, out)
+        return changed, set_goals, late
+
+    def _downstream(self, key: str, i: int, heap: list, late: set) -> None:
+        names, pos, readers, _ = self._builtin_wiring()
+        for r in readers.get(key, ()):
+            if pos[r] > i:
+                heapq.heappush(heap, pos[r])
+            else:
+                late.add(key)
+
+    def _builtin_wiring(self) -> tuple[list[str], dict[str, int], dict[str, list[str]], list[str]]:
+        """The built-ins in order, each one's place, who reads each signal, and those that keep time: worked out once per
+        set of built-ins (a swap makes another)."""
+        got = getattr(self, "_bw", None)
+        if got is not None and got[0] is self.builtins:
+            return got[1]
+        names = list(self.builtins)
+        readers: dict[str, list[str]] = {}
+        timed = []
+        for n in names:
+            b = self.builtins[n].b
+            keys = {f"block.{r.name}" if r.kind == "block" else str(r) for r in b.reads()}
+            if b.goal and b.goal in self.spec.goals:
+                g = self.spec.goals[b.goal]
+                keys |= {f"goal.{g.name}", f"goal.{g.name}.error", f"goal.{g.name}.off", str(g.of)}
+            for k in keys:
+                readers.setdefault(k, []).append(n)
+            if b.type in KEEPS_TIME or (b.type == "limit" and b.params.get("rate") is not None):
+                timed.append(n)
+        out = (names, {n: i for i, n in enumerate(names)}, readers, timed)
+        self._bw = (self.builtins, out)
+        return out
+
+    def _wiring(self) -> dict:
+        """What a pass needs to work out only what changed, worked out once per model (``Spec.lookups``): each series'
+        parts, each signal's goals, the machine blocks each signal commands, the series each block's start bears on
+        (``fresh_for``, ``after_acting``), those started by any reading (``free``), and those paced by ``every``."""
+        spec = self.spec
+        kept = spec.lookups().kept
+        w = kept.get("engine.wiring")
+        if w is not None:
+            return w
+        parts: dict[str, list[tuple[str, str]]] = {}
+        for kind, table in (("stock", spec.stocks), ("flow", spec.flows), ("auxiliary", spec.auxiliaries)):
+            for name, x in table.items():
+                for s in x.sensors.values():
+                    parts.setdefault(s.series, []).append((kind, name))
+        goals_of: dict[str, list[str]] = {}
+        for name, g in spec.goals.items():
+            goals_of.setdefault(str(g.of), []).append(name)
+        machines = [b for b in spec.blocks.values() if b.machine]
+        commanded: dict[str, set[str]] = {}
+        by_series: dict[str, set[str]] = {}
+        free: set[str] = set()
+        paced: set[str] = set()
+        for b in machines:
+            if b.takes:
+                continue
+            cs = spec.commanders_of(b.name)
+            for c in cs:
+                commanded.setdefault(f"block.{c.name}", set()).add(b.name)
+            if not cs:
+                if not (b.every or b.cron) and any(r.kind != "block" for r in b.inputs.values()):
+                    free.add(b.name)
+                continue
+            if b.every:
+                paced.add(b.name)
+            flows = [t.name for t in b.targets() if t.kind == "flow"]
+            ser = {x.series for x in self.after_acting(flows)}
+            fresh = set()
+            for g in self.served(b) | {r.name for r in b.reads() if r.kind == "goal"}:
+                gg = spec.goals.get(g)
+                t = spec.measured(gg.of.kind).get(gg.of.name) if gg else None
+                fresh |= {x.series for x in t.sensors.values()} if t else set()
+            if not ser and not fresh:
+                free.add(b.name)                             # it bears on any reading
+            for sr in ser | fresh:
+                by_series.setdefault(sr, set()).add(b.name)
+        w = {"parts": parts, "goal_pos": {g: i for i, g in enumerate(spec.goals)}, "goals_of": goals_of,
+             "commanded": commanded, "by_series": by_series, "free": free, "paced": paced,
+             "mpos": {b.name: i for i, b in enumerate(machines) if not b.takes}}
+        kept["engine.wiring"] = w
+        return w
+
+    def decided(self, b: Block, v: float, now: float, crossed: dict | None = None, out: list | None = None) -> None:
         """A built-in's output turning on or off, said as a decision of the goal it serves: caused by that
         goal's crossing, when it crossed in this same pass."""
         served = [r.name for r in b.reads() if r.kind == "goal"] or [b.name]
         cmd = [t.name for t in b.targets() if t.kind == "block"]
         verb = "act" if v else "stop"
         for g in served:
-            ev = self.p.events.add("controller.decided", item=g if g in self.spec.goals else b.name, source=b.name,
-                                   causedby=(crossed or {}).get(g),
-                                   data={"decision": f"{verb}{(': ' + ', '.join(cmd)) if cmd else ''}",
-                                         "why": f"{b.type} {b.name} → {v:g}", "block": b.name, "value": v})
+            ev = self._event(out, "controller.decided", item=g if g in self.spec.goals else b.name, source=b.name,
+                             causedby=(crossed or {}).get(g),
+                             data={"decision": f"{verb}{(': ' + ', '.join(cmd)) if cmd else ''}",
+                                   "why": f"{b.type} {b.name} → {v:g}", "block": b.name, "value": v})
             self.cause[b.name] = ev["id"]
+
+    def touch(self, *keys: str, goals=()) -> None:
+        """Signals that changed outside a pass (a run's command, a setpoint it set): the next pass works them out."""
+        with self.lock:
+            self.dirty_keys.update(keys)
+            self.dirty_goals.update(goals)
+            self.poked = True
+        self.wake.set()
+
+    def poke(self, *blocks: str, now: bool = True) -> None:
+        """A run ended: a pass soon (the loop's next), with these blocks looked at again; at once when no loop runs
+        (``now``: else at the next pass, whenever that is)."""
+        with self.lock:
+            self.dirty_blocks.update(blocks)
+            self.poked = True
+        if self.looping:
+            self.wake.set()
+        elif now:
+            self.evaluate()
 
     # ---- machine blocks
 
@@ -229,7 +467,7 @@ class Engine:
             return None, {}
         return (max(vals) if vals else 0.0), detail
 
-    def due(self, b: Block) -> bool:
+    def due(self, b: Block, out: list | None = None) -> bool:
         if b.name in self.running or b.takes:                  # a block that takes items is started by them (leases)
             return False
         cmd, _ = self.command_of(b)
@@ -247,7 +485,7 @@ class Engine:
         if b.type == "person" or b.mode == "advise":
             if rising or (b.mode == "advise" and self.asked.get(b.name) != cmd):   # a new command asks again
                 self.asked[b.name] = cmd
-                self.ask(b, cmd)
+                self.ask(b, cmd, out)
             return False
         flows = [t.name for t in b.targets() if t.kind == "flow"]
         if any(s.series in self.reading for s in self.after_acting(flows)):
@@ -268,9 +506,9 @@ class Engine:
             return self.last_reading
         return max((self.seen.get(x, 0.0) for x in series), default=0.0)
 
-    def ask(self, b: Block, cmd: float) -> None:
+    def ask(self, b: Block, cmd: float, out: list | None = None) -> None:
         what = "person.asked" if b.type == "person" else "block.advised"
-        self.p.events.add(what, item=b.name, source=SOURCE,
+        self._event(out, what, item=b.name, source=SOURCE,
                           data={"command": cmd, "ask": str(b.params.get("ask", "")),
                                 "how": f"ergostat block {b.name} --done N" if b.type == "person"
                                 else f"ergostat block {b.name} --approve"})
@@ -313,7 +551,7 @@ class Engine:
                     self.read_soon(s)                           # (marked under way before it may run again)
                 self.running.discard(b.name)
                 self.finished[b.name] = time.time()
-        self.evaluate()
+        self.poke(b.name)
 
     def after_acting(self, flows) -> list[Sensor]:
         """The sensors of the stocks these flows connect: read at once after a block moves them (a flow the model
@@ -443,6 +681,7 @@ class Engine:
                 frm = ctx["command"].get("from")
                 if frm in self.outputs:
                     self.outputs[frm][f"review-{b.name}"] = 0.0
+                    self.touch(f"block.{frm}")
         given = self.start_context(b, ctx, begun["id"], env, spec, item) if b.params.get("context") else None
         ready, refused = self.place(b, ctx, begun["id"], env, given, spec)   # its folder, and what its session may use
         cmd, stdin = self.program(b, ctx, spec)                   # (its input, with the context it was given)
@@ -609,6 +848,7 @@ class Engine:
             self.commands.setdefault(b.name, {})[port] = {"amount": 1.0, **({"item": item} if item else {}),
                                                           "review": {"of": run, "depth": d["depth"], "why": d["why"]}}
             self.cause[b.name] = ev["id"]
+        self.touch(f"block.{b.name}")
         self.say(f"{b.name}: review by {d['by']} ({d['depth']}): {d['why']}")   # (it starts at the next pass)
 
     def judge(self, b: Block) -> None:
@@ -655,38 +895,48 @@ class Engine:
     # ---- sensors
 
     def read_soon(self, s: Sensor) -> None:
+        """A reading asked for now (its schedule, or a run that moved its stock): marked under way at once; the loop
+        takes it with the others asked meanwhile. Without a loop (an engine not started), a thread reads it."""
         key = s.series
         with self.lock:
             if key in self.reading:
                 return
             self.reading.add(key)
+            if self.looping:
+                self.wanted[key] = s
+        if self.looping:
+            self.wake.set()
+            return
         threading.Thread(target=self._read, args=(s,), daemon=True).start()
 
-    def _read(self, s: Sensor) -> None:
-        try:
-            name = sensor_name(s.of.name, s.name)
-
-            def observe(seen, refused):
-                from ..store import ChangesetError
-                for o in seen:
-                    if "message" in o:                       # the owner's words, relayed by a sensor (SPEC §12h)
-                        from ..messages import route
-                        m = o["message"]
-                        try:
-                            route.send(self.p, self.spec, m.get("text"), by=str(m.get("by") or "owner"),
-                                       about=m.get("about"), via=f"sensor {name}")
-                        except Exception as err:
-                            refused.append(f"message: {err}")
-                        continue
+    def _observer(self, name: str):
+        """Where a command's observations go: events about items, or the owner's messages it relays."""
+        def observe(seen, refused):
+            from ..store import ChangesetError
+            for o in seen:
+                if "message" in o:                       # the owner's words, relayed by a sensor (SPEC §12h)
+                    from ..messages import route
+                    m = o["message"]
                     try:
-                        self.p.events.add(o["type"], item=o["item"], source=name, data=o["data"], patch=o.get("patch"),
-                                          set=o.get("set"))
-                    except ChangesetError as err:
-                        refused.append(f"{o['type']}: {err}")
-                for why in refused:
-                    self.p.events.add("sensor.refused", item=name, source=SOURCE, data={"why": why})
-                    self.say(f"sensor {name}: {why}")
-            v, why = read_sensor(self.spec, s, self.p.events, observe, self.p.measurements)
+                        route.send(self.p, self.spec, m.get("text"), by=str(m.get("by") or "owner"),
+                                   about=m.get("about"), via=f"sensor {name}")
+                    except Exception as err:
+                        refused.append(f"message: {err}")
+                    continue
+                try:
+                    self.p.events.add(o["type"], item=o["item"], source=name, data=o["data"], patch=o.get("patch"),
+                                      set=o.get("set"))
+                except ChangesetError as err:
+                    refused.append(f"{o['type']}: {err}")
+            for why in refused:
+                self.p.events.add("sensor.refused", item=name, source=SOURCE, data={"why": why})
+                self.say(f"sensor {name}: {why}")
+        return observe
+
+    def _read(self, s: Sensor) -> None:
+        """One reading on a thread of its own, then a pass: for an engine whose loop is not running."""
+        try:
+            v, why = read_sensor(self.spec, s, self.p.events, self._observer(sensor_name(s.of.name, s.name)), self.p.measurements)
             if v is None:
                 self.p.events.add("sensor.failed", item=sensor_name(s.of.name, s.name), source=SOURCE, data={"why": why})
                 self.say(f"sensor {s.of.name}.{s.name}: {why}")
@@ -697,8 +947,100 @@ class Engine:
         finally:
             with self.lock:
                 self.reading.discard(s.series)
+                self.dirty_series.add(s.series)
                 cause = self.read_cause.pop(s.series, None)
         self.evaluate({s.of.name: cause} if cause else None)
+
+    def _read_one(self, s: Sensor) -> None:
+        """One reading of a command or a query, on the pool: its result posted to the loop."""
+        try:
+            v, why = read_sensor(self.spec, s, self.p.events, self._observer(sensor_name(s.of.name, s.name)), self.p.measurements)
+            got = (s, v, why, time.time(), None)
+        except Exception as e:
+            got = (s, None, "", time.time(), e)
+        self.results.put(got)
+        self.wake.set()
+
+    def _item_sensors(self) -> tuple[dict[bool, list[Sensor]], dict[str, bool]]:
+        """The model's sensors that count items, by the fold they count from; and each one's fold."""
+        kept = self.spec.lookups().kept
+        got = kept.get("engine.item_sensors")
+        if got is None:
+            from .counts import transcript_of
+            by: dict[bool, list[Sensor]] = {False: [], True: []}
+            flag = {}
+            for s in self.spec.sensors():
+                if s.items is not None:
+                    flag[s.series] = transcript_of(self.spec, s)
+                    by[flag[s.series]].append(s)
+            got = kept["engine.item_sensors"] = (by, flag)
+        return got
+
+    def _read_here(self, sensors: list[Sensor]) -> list[tuple]:
+        """Readings ergostat takes itself, at once: counts of items (each fold followed once, then every count read
+        from what it keeps), and flows read from their stock's changes."""
+        spec = self.spec
+        by, flag = self._item_sensors()
+        counts = {}
+        for tr in {flag.get(s.series, False) for s in sensors if s.items is not None}:
+            try:
+                if self.counts[tr].follow(self.p.events, spec, by[tr]):
+                    counts[tr] = self.counts[tr]
+            except Exception as e:                       # counted from the index as before, this time
+                self.say(f"counting items: {type(e).__name__}: {e}")
+        out = []
+        for s in sensors:
+            try:
+                c = counts.get(flag.get(s.series, False)) if s.items is not None else None
+                v, why = read_sensor(spec, s, self.p.events, None, self.p.measurements, counts=c)
+                out.append((s, v, why, time.time(), None))
+            except Exception as e:
+                out.append((s, None, "", time.time(), e))
+        return out
+
+    def _readings(self, tick: bool) -> bool:
+        """The loop's batch: every reading asked for since the last is begun (ergostat's own read here, commands and
+        queries handed to the pool), what the pool read meanwhile is gathered, all of it written at once, and one pass
+        follows (when anything was read or ended, or on the clock's tick). True when a pass ran."""
+        with self.lock:
+            asked, self.wanted = list(self.wanted.values()), {}
+            poked, self.poked = self.poked, False
+        here = [s for s in asked if s.items is not None or s.changes is not None]
+        for s in asked:
+            if s.items is None and s.changes is None:
+                if self.pool is None:
+                    self.pool = ThreadPoolExecutor(max_workers=READERS, thread_name_prefix="ergostat-read")
+                self.pool.submit(self._read_one, s)
+        got = self._read_here(here) if here else []
+        while True:
+            try:
+                got.append(self.results.get_nowait())
+            except queue.Empty:
+                break
+        rows = []
+        for s, v, why, t, err in got:
+            name = sensor_name(s.of.name, s.name)
+            if err is not None:
+                self.say(f"sensor {s.of.name}.{s.name}: {type(err).__name__}: {err}")
+            elif v is None:
+                self.p.events.add("sensor.failed", item=name, source=SOURCE, data={"why": why})
+                self.say(f"sensor {s.of.name}.{s.name}: {why}")
+            else:
+                rows.append((s.series, t, v))
+        if rows:
+            self.p.measurements.add_many(rows)
+        causes = {}
+        with self.lock:
+            for s, *_ in got:
+                self.reading.discard(s.series)
+                self.dirty_series.add(s.series)
+                cause = self.read_cause.pop(s.series, None)
+                if cause:
+                    causes[s.of.name] = cause
+        if got or poked or tick:
+            self.evaluate(causes or None, tick=tick)
+            return True
+        return False
 
     # ---- the clock
 
@@ -723,11 +1065,17 @@ class Engine:
         return timed, timed_blocks, judges, new, times
 
     def _schedule(self) -> None:
+        """The loop: timed readings from a heap of when each is due, timed blocks, judges and crons; each round the
+        readings asked for are taken as one batch and one pass follows (``_readings``). It sleeps until the next
+        reading is due, the clock's tick, or something wakes it (a reading the pool finished, a run that ended)."""
         due: dict[str, float] = {}
         spec = self.spec
         timed, timed_blocks, judges, crons, nxt = self._plan(spec, {}, {})
+        by = {s.series: s for s in timed}
+        heap = [(0.0, k) for k in by]                            # every sensor reads at once
         last_eval = last_sweep = 0.0
         while not self.stop.is_set():
+            self.wake.clear()
             if spec is not self.spec:                            # the model was swapped: its schedules from now on
                 spec = self.spec
                 try:
@@ -738,11 +1086,18 @@ class Engine:
                 for k, every in [(s.series, s.every or 60.0) for s in timed] + [(f"block/{b.name}", b.every) for b in timed_blocks]:
                     if k in due:
                         due[k] = min(due[k], mono + every)
+                by = {s.series: s for s in timed}
+                heap = [(due.get(k, 0.0), k) for k in by]
+                heapq.heapify(heap)
             mono = time.monotonic()
-            for s in timed:
-                if mono >= due.get(s.series, 0):
-                    due[s.series] = mono + (s.every or 60.0)
-                    self.read_soon(s)
+            while heap and heap[0][0] <= mono:
+                at, k = heapq.heappop(heap)
+                s = by.get(k)
+                if s is None or due.get(k, 0.0) != at:           # (a schedule moved since: its newer entry stands)
+                    continue
+                due[k] = mono + (s.every or 60.0)
+                heapq.heappush(heap, (due[k], k))
+                self.read_soon(s)
             for b in timed_blocks:
                 k = f"block/{b.name}"
                 if mono >= due.get(k, 0):
@@ -767,13 +1122,18 @@ class Engine:
             if mono - last_sweep >= SWEEP:                       # the owner's messages: routed, finished work followed up
                 last_sweep = mono
                 threading.Thread(target=self._sweep, daemon=True).start()
-            if mono - last_eval >= TICK:                         # the clock moves schedules, timers, delays
+            tick = mono - last_eval >= TICK                      # the clock moves schedules, timers, delays
+            if tick:
                 last_eval = mono
-                try:
-                    self.evaluate()
-                except Exception as e:
-                    self.say(f"evaluating: {type(e).__name__}: {e}")
-            self.stop.wait(0.2)
+            try:
+                passed = self._readings(tick)
+            except Exception as e:
+                passed = False
+                self.say(f"evaluating: {type(e).__name__}: {e}")
+            if passed:
+                self.stop.wait(BATCH)                            # what lands meanwhile is the next batch
+            now = time.monotonic()
+            self.wake.wait(max(0.0, min(0.2, last_eval + TICK - now, (heap[0][0] - now) if heap else 0.2)))
 
     def _sweep(self) -> None:
         if self._sweeping.locked():
@@ -859,6 +1219,7 @@ class Engine:
                           data={"blocks": sorted(self.spec.blocks), "pid": os.getpid(), "format": "yaml"})
         from ..control import steptest
         steptest.resume(self)                                   # a test approved just before, or cut off by a stop
+        self.looping = True                                      # readings go to the loop from now (no thread each)
         threading.Thread(target=self._schedule, daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         self.following = True                                    # it runs the actions programs ask for (SPEC §12k)
@@ -942,6 +1303,8 @@ class Engine:
             self.spec = new
             self.p.model = model
             self.version = history.version(model)
+            self.full = True                                     # the next pass works out everything, under the new model
+        self.wake.set()
         self._ingest()
         finishing = {k: v for k, v in finishing.items() if v}   # what runs once more, under its old definition
         said = {"reload": "in place", "carried": len(carried), "runs": carried, "version_before": was,
@@ -954,6 +1317,9 @@ class Engine:
 
     def close(self) -> None:
         self.stop.set()
+        self.wake.set()
+        if self.pool is not None:
+            self.pool.shutdown(wait=False, cancel_futures=True)
         old.kill_all()
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:
@@ -1233,10 +1599,12 @@ class Said:
                 self.e.outputs.setdefault(self.b.name, {})[port] = amount
                 self.e.commands.setdefault(self.b.name, {})[port] = {**detail, "amount": amount}
                 self.e.cause[self.b.name] = self.run_id         # the run that gave the command
+            self.e.touch(f"block.{self.b.name}")
             self.counts["commands"] += 1
         elif r.kind == "goal":
             with self.e.lock:
                 self.e.setpoint[r.name] = amount
+            self.e.touch(goals=(r.name,))
             self.counts["commands"] += 1
         elif r.kind == "auxiliary":                         # its value, stated whole: what it was set to is its reading
             self.e.p.measurements.add(f"sensor/{r.name}.set", amount)
@@ -1295,15 +1663,17 @@ def observations(text: str) -> tuple[list[dict], list[str]]:
     return seen, refused
 
 
-def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=None) -> tuple[float | None, str]:
-    """One reading: the number, or None and why not. Counting items needs the record, and a flow
-    read from its stock's changes the measurements. A command's observations (event lines about
-    items) go to ``observe``, when given, even with no number."""
+def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=None, counts=None) -> tuple[float | None, str]:
+    """One reading: the number, or None and why not. Counting items needs the record (or ``counts``, what the
+    engine keeps of it as it folds: counts.py), and a flow read from its stock's changes the measurements. A
+    command's observations (event lines about items) go to ``observe``, when given, even with no number."""
     if s.changes is not None:
         if measurements is None:
             return None, "a flow read from its stock's changes needs the stock's readings, and there are none here"
         return changed(spec, s, measurements)
     if s.items is not None:
+        if counts is not None:
+            return counts.value(spec, s)
         if events is None:
             return None, "items are counted from the record, and there is none here"
         from .items import measure

@@ -74,6 +74,8 @@ def _step(eng, b, plan: dict, amount: float, to: float | None = None) -> float |
                 eng.read_soon(s)
             eng.running.discard(b.name)
             eng.finished[b.name] = time.time()
+        if hasattr(eng, "poke"):
+            eng.poke(b.name, now=False)
     said = getattr(eng, "moved_by", {}).get(b.name)
     if said is None:
         return None
@@ -151,5 +153,7 @@ def run(eng, plan: dict) -> None:
         how = f"stopped: {type(e).__name__}: {e}"
     finally:
         eng.held.difference_update(hold)
+        if hasattr(eng, "poke"):
+            eng.poke(*hold, now=False)       # the controllers held look again at once
         p.events.add("steptest.finished", item=goal, source=SOURCE, data={"test": tid, "how": how, "from": u0})
         eng.say(f"step test {tid} on {goal}: {how}")
