@@ -119,6 +119,18 @@ def test_the_owner_may_stop_a_run_left_to_finish(tmp_path):
     assert main(["-C", str(tmp_path), "block", "maker", "--stop"]) == 2           # nothing under way now
 
 
+def test_a_removed_blocks_run_still_takes_messages_while_it_goes(tmp_path):
+    from ergostat.messages import route
+    p, e = engine(tmp_path, BASE.format(run="sleep 30; echo 5", every="60s"))
+    try:
+        assert until(lambda: p.events.query(type="agent.started", item="maker"))
+        swap(e, tmp_path, BASE.split("blocks:")[0])
+        assert [r["block"] for r in route.running(p, e.spec)] == ["maker"]      # live delivery still finds it
+    finally:
+        e.close()
+    assert route.running(p, e.spec) == []
+
+
 def test_an_output_whose_target_left_the_model_is_recorded_and_refused(tmp_path):
     p, e = engine(tmp_path, BASE.format(run="sleep 1.5; echo 5", every="60s"))
     try:
