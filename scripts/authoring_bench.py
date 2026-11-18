@@ -293,8 +293,7 @@ def run_one(base: Path, n: int, model: str, timeout: float, skill_md: Path | Non
     looked = any(t == "Read" and str(i.get("file_path", "")).endswith(".png") for t, i, _ in cs)
     return {"n": n, "r": r, "request": key, "shape": shape(copy), "looked_at_diagrams": looked,
             "where_drawn": any(t == "mcp__ergostat__where_drawn" for t, _, _ in cs),
-            "coherence_called": any(t == "mcp__ergostat__coherence" or (t == "Bash" and "check" in json.dumps(i))
-                                    for t, i, _ in cs),
+            "coherence_called": any(t == "mcp__ergostat__coherence" for t, _, _ in cs),
             "coherence": coherent(copy) if graded["check_ok"] else {"error": "check fails"},
             "seconds": round(time.time() - began), "turns": result.get("num_turns"),
             "cost_usd": result.get("total_cost_usd"), "stopped": result.get("subtype"), "skill_used": skill_used,
