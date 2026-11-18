@@ -625,7 +625,10 @@ def cmd_chart(a) -> None:
         "reported (cap 300)": best("loops", lambda r: r.get("loops_capped")),
         "control loops (goals)": best("loops", lambda r: r.get("control_loops"))})
     chart("tick", "Engine pass (evaluate)", "ms", {
-        "p50": best("engine", lambda r: r.get("evaluate_p50_ms")), "p95": best("engine", lambda r: r.get("evaluate_p95_ms"))})
+        "in the engine, p50": best("engine", lambda r: r.get("evaluate_p50_ms")),
+        "in the engine, p95": best("engine", lambda r: r.get("evaluate_p95_ms")),
+        "alone, one thread": best("tick", lambda r: r.get("evaluate_ms")),
+        "dispatcher look, alone": best("tick", lambda r: r.get("dispatch_tick_ms"))})
     parts = sorted({k for r in rs if r["measure"] == "engine" for k in (r.get("parts") or {})})
     chart("engine-cpu", "Engine CPU by part", "CPU seconds per second", {
         k: best("engine", lambda r, k=k: (r.get("parts") or {}).get(k, {}).get("cpu_per_s") or None) for k in
