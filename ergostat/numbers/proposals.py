@@ -373,6 +373,7 @@ def _keep_judgements(p, spec: Spec, estimates: dict, which: str = "parts") -> No
 
 
 def _value_edit(prm, value: float) -> ye.Edit:
+    ye.own(prm.defined, f"parameter {prm.name}")
     if prm.value_at is None or prm.where is None:
         if prm.defined is None:
             raise ye.EditError(f"parameter {prm.name}: where it is written is not known")
@@ -499,6 +500,7 @@ def _equation_edit(spec: Spec, f, text: str, params: dict, pid: str) -> dict:
     """The equation written on its flow, and each parameter it adds, marked ``inferred:`` with this change's item."""
     if f.defined is None:
         raise ye.EditError(f"flow {f.name}: where it is written is not known")
+    ye.own(f.defined, f"flow {f.name}")
     path = f.defined.file
     first = ye.add_key(path, f.defined.line, "equation", text)
     entries = []

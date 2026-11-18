@@ -127,7 +127,25 @@ controllers**: blocks ergostat reads but does not run (`type: external`); see
 - For an AI agent: `ergostat help improve-model` (also an MCP tool) reviews a model and proposes
   edits, never applying one without you.
 
-## 7. Let it do work
+## 7. Add small control systems from templates
+
+Most requests are small and common: watch for X and respond, remind until answered, report every morning, keep Y
+under a limit, work a ticket through steps, collect from an API. Each is a template, one `uses:` entry that
+expands into its stocks, flows, goal and blocks, running offline on free stand-ins until you give it the real
+thing:
+
+```yaml
+uses:
+  build-cache:
+    use: keep-under
+    with: {unit: GB, limit: 20, until: "<= 15", act: ./bin/prune-cache.py}
+```
+
+Or ask an AI agent in plain words, with ergostat's MCP tools and the `ergostat-author` skill: it picks the shape,
+tries it on a copy, and shows you the diagram and the diff before turning it on. [ADDING.md](ADDING.md) has the
+shapes, how to install the skill, and a worked example.
+
+## 8. Let it do work
 
 Blocks can be programs, AI agents (`type: ai`, a prompt and the tools it may use) or people
 (`type: person`: ergostat asks, never acts). ergostat runs them when their goal is off, records what
