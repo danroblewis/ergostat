@@ -483,13 +483,31 @@ ROUTED = ("() => typeof S !== 'undefined' && S.layout && S.graphSig && !S.layout
           "document.querySelectorAll('svg.canvas g.node').length > 0")
 
 
+def cmd_api_alone(a) -> None:
+    """Each API asked of a server of its own, started for it: nothing else computing meanwhile (cmd_web asks them in
+    turn of one server, as a page would, and an answer that runs out of time keeps that server busy for the next)."""
+    for n in a.n:
+        for name, path in [x for x in APIS if not a.apis or x[0] in a.apis.split(",")]:
+            port = free_port()
+            t = time.time()
+            proc = serve(a.work, n, port)
+            started = round(time.time() - t, 1)
+            try:
+                t1, size, code = get(f"http://127.0.0.1:{port}/api/{path}", a.timeout)
+                record(a.work, "api-alone", n, api=name, seconds=t1, bytes=size, status=code, server_start_s=started,
+                       server=ps(proc.pid))
+            finally:
+                os.killpg(proc.pid, signal.SIGTERM)
+                proc.wait(30)
+
+
 def cmd_web(a) -> None:
     for n in a.n:
         port = free_port()
         proc = serve(a.work, n, port)
         base = f"http://127.0.0.1:{port}"
         try:
-            for name, path in APIS:
+            for name, path in ([] if a.pages else APIS):
                 t, size, code = get(f"{base}/api/{path}", a.timeout)
                 t2 = get(f"{base}/api/{path}", a.timeout)[0] if code == 200 else None     # again: what a poll costs
                 record(a.work, "api", n, api=name, seconds=t, again_s=t2, bytes=size, status=code,
@@ -505,7 +523,7 @@ def browse(a, n: int, base: str, proc) -> None:
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         b = p.chromium.launch(channel="chrome")
-        for name, path, diagram in PAGES:
+        for name, path, diagram in [x for x in PAGES if not a.pages or x[0] in a.pages.split(",")]:
             ctx = b.new_context(viewport={"width": 1600, "height": 1000})
             pg = ctx.new_page()
             sizes: list[int] = []
@@ -587,7 +605,7 @@ def cmd_chart(a) -> None:
         """Per N, the measurement taken at the lowest load (a repeat when quieter wins)."""
         got: dict[int, tuple[float, float]] = {}
         for r in rs:
-            if r["measure"] == measure and not r.get("variant") and where(r):
+            if r["measure"] in measure.split("|") and not r.get("variant") and where(r):
                 v = key(r)
                 if v is None:
                     continue
@@ -642,11 +660,11 @@ def cmd_chart(a) -> None:
     chart("dispatch", "Dispatch latency: item ready to lease taken", "seconds", {
         "p50": best("engine", lambda r: r.get("dispatch_p50_s")), "p95": best("engine", lambda r: r.get("dispatch_p95_s"))})
     chart("storage", "Storage growth", "MB per hour", {"state directory": best("engine", lambda r: r.get("state_mb_per_h"))})
-    chart("api", "API answer time", "seconds", {
-        k: best("api", lambda r: r.get("seconds") if r.get("status") == 200 else None, lambda r, k=k: r.get("api") == k)
+    chart("api", "API answer time (first answer)", "seconds", {
+        k: best("api|api-alone", lambda r: r.get("seconds") if r.get("status") == 200 else None, lambda r, k=k: r.get("api") == k)
         for k in ("status", "graph-dynamics", "graph-blocks", "graph-system", "loops", "items")})
     chart("api-size", "API answer size", "MB", {
-        k: best("api", lambda r: (r.get("bytes") or 0) / 2**20 or None, lambda r, k=k: r.get("api") == k)
+        k: best("api|api-alone", lambda r: (r.get("bytes") or 0) / 2**20 or None, lambda r, k=k: r.get("api") == k)
         for k in ("status", "graph-dynamics", "graph-blocks", "loops", "items")})
     chart("pages", "Pages: until drawn", "seconds", {
         k: best("page", lambda r: r.get("drawn_s"), lambda r, k=k: r.get("page") == k)
@@ -659,7 +677,7 @@ def cmd_chart(a) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("what", choices=["check", "phases", "tick", "loops", "engine", "web", "model", "chart"])
+    ap.add_argument("what", choices=["check", "phases", "tick", "loops", "engine", "web", "api", "model", "chart"])
     ap.add_argument("n", type=int, nargs="*")
     ap.add_argument("--work", type=Path, default=Path("/tmp/scale"))
     ap.add_argument("--fresh", action="store_true", help="generate the models again")
@@ -670,11 +688,14 @@ def main() -> None:
     ap.add_argument("--every", type=float, default=15)
     ap.add_argument("--keep", action="store_true", help="engine: keep the record from the last run")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--apis", help="api: only these answers (graph-dynamics,status,...)")
+    ap.add_argument("--pages", help="web: only these pages (diagram,diagram-system,...), on a fresh server, no API timings")
     ap.add_argument("--only", help="model: only these steps (fit,proposals,judge,measure-fit,try-change)")
     ap.add_argument("--variant", help="loops: the model in WORK/VARIANT (scale_model.py --handoff ...) instead of WORK/n<N>")
     a = ap.parse_args()
     a.work.mkdir(parents=True, exist_ok=True)
     {"check": cmd_check, "phases": cmd_phases, "tick": cmd_tick, "loops": cmd_loops, "engine": cmd_engine, "web": cmd_web,
+     "api": cmd_api_alone,
      "model": cmd_model, "chart": cmd_chart}[a.what](a)
 
 
