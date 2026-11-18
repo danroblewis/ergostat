@@ -318,6 +318,11 @@ def fit_page(live, p, snap: dict) -> dict | None:
             if n in spec.parameters and (e.get("refused") or e.get("why")):
                 label = es.label(k, e)
                 not_proposed[label] = e.get("refused") or e.get("why")
+    from ..numbers import memory as mem
+    for x in reversed(mem.turned(p, spec)):                 # turned away by the gate or the judge, newest last: it wins
+        for t in str(x.get("target") or "").split(", "):
+            if t.startswith("parameter.") and t[10:] in names:
+                not_proposed[t[10:]] = f"{x['state']}: {x['why']}" + (f"; {x['held_back']}" if x.get("held_back") else "")
     return {"version": ver.version(spec), "structure": ver.structure(spec), "since": rf["data"].grid.since,
             "until": rf["data"].grid.until, "total": ft._slim(fit["total"]), "stocks": rows("stocks"),
             "accounting": rows("accounting"), "equations": rows("equations"), "partial": rows("partial"),
@@ -407,8 +412,13 @@ def queue(live, p, snap: dict) -> dict:
     control = rv.control_pending(p, spec)
     goals = list(spec.goals)
     from ..numbers import improve as im
-    not_made = list(not_made) + [{"title": f"{x['title']} (proposed by {x['by']})", "why": x["why"], "code": "proposed",
+    from ..numbers import memory as mem
+    not_made = list(not_made) + [{"title": f"{x['title']} (proposed by {x['by']})", "why": x["why"] + (
+                                      f"; {x['held_back']}" if x.get("held_back") else ""), "code": "proposed",
                                   "by": x["by"]} for x in im.not_proposed(p)[:12]]
+    not_made += [{"title": x["title"], "why": f"{x['state']}: {x['why']}" + (f"; {x['held_back']}" if x["held_back"] else ""),
+                  "code": "turned-away", "by": x["by"], "item": x["item"]}
+                 for x in mem.turned(p, spec) if x["by"] == "ergostat"][:12]
     return {"queue": rv.entries(p, spec, control), "not_made": not_made,
             "loops_analysed": sum(1 for g in goals if (LOOPS_SEEN.get(g) or (None,))[0] == live.mtime), "loops": len(goals),
             "can": [{"what": a, "how": b} for a, b in rv.stc.CAN], "cannot": rv.stc.CANNOT}

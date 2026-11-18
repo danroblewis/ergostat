@@ -48,7 +48,7 @@ class Trial:
     family: str          # value or delay
     kind: str            # better, worse, neutral
     status: str          # proposed or refused
-    verdict: str | None  # passed, failed, or None (no verdict)
+    verdict: str | None  # passed, failed, inconclusive (the record could not tell it), or None (no verdict)
     written: bool
     why: str | None
 
@@ -118,7 +118,7 @@ def trial(world: str, seed: int, family: str, kind: str, work: Path | None = Non
         for j in range(1, TRIES + 1):
             out = loop.judge(at=at + j * HOLD * 3600.0)
             v = next((v for v in out["verdicts"] if v["id"] == got["id"]), None)
-            if v and v["verdict"] in ("passed", "failed"):
+            if v and v["verdict"] in ("passed", "failed", "inconclusive"):
                 verdict, why = v["verdict"], v["why"]
                 break
     is_written = any(x["id"] == got["id"] for x in loop.accepted())

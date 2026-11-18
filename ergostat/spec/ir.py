@@ -96,8 +96,9 @@ MODEL_MEASURES = {                 # the model's own quality (SPEC §12e), read 
 }
 MODEL_CHANGE = "ergostat.model-change"   # the built-in item kind: every change to the model, made, judged and decided
 MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refused", "failed", "dismissed", "superseded",
-                       "verified", "regressed"]   # verified, regressed: an accepted change scored again later (SPEC §12f)
-JUDGE_PORTS = ("testing", "passed", "failed", "accepted")
+                       "verified", "regressed",   # verified, regressed: an accepted change scored again later (SPEC §12f)
+                       "inconclusive"]            # the record held out could not tell it from the model as it is
+JUDGE_PORTS = ("testing", "passed", "failed", "accepted", "inconclusive")
 CLAIM = "ergostat.claim"          # the built-in item kind: what a block said it did, checked against the record (SPEC §12g)
 CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
 CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
