@@ -70,7 +70,8 @@ def work_items(p, spec: Spec) -> list[dict]:
 
 def running(p, spec: Spec, now: float | None = None) -> list[dict]:
     """The block runs going now (``agent.started`` with no ``agent.ran`` or ``agent.failed`` after it, within its
-    timeout): each with its block, the items it is working on, and its session when it runs one."""
+    timeout): each with its block, the items it is working on, and its session when it runs one. A run of a block
+    the model no longer has is still going until it ends: a model change lets it finish (SPEC §9.1)."""
     now = time.time() if now is None else now
     started = p.events.query(n=500, type="agent.started", since=now - RUN_FOR)
     if not started:
@@ -79,9 +80,10 @@ def running(p, spec: Spec, now: float | None = None) -> list[dict]:
     out = []
     for s in started:
         b = spec.blocks.get(s.get("item") or "")
-        if s["id"] in ended or b is None or not b.machine or now - s["time"] > (b.timeout or RUN_FOR) + 60:
+        if s["id"] in ended or (b is not None and not b.machine) or not s.get("item") or \
+                now - s["time"] > ((b.timeout if b else (s.get("data") or {}).get("timeout")) or RUN_FOR) + 60:
             continue
-        r = {"run": s["id"], "block": b.name, "started": s["time"], "items": [], "session": None, "session_id": None,
+        r = {"run": s["id"], "block": s["item"], "started": s["time"], "items": [], "session": None, "session_id": None,
              "live": False}
         cmd = (s.get("data") or {}).get("command") or {}
         if isinstance(cmd, dict) and isinstance(cmd.get("item"), str):

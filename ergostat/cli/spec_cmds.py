@@ -97,6 +97,15 @@ def cmd_block(args) -> int:
         from ..show import table
         print(table(["BLOCK", "TYPE", "ROLE", "IN", "OUT"], rows))
         return 0
+    if getattr(args, "stop", False):                   # a block removed from the model may still be finishing its run
+        from ..messages.route import running
+        from ..spec.engine import STOP_ASKED
+        if not any(r["block"] == args.name for r in running(p, spec)):
+            print(f"{args.name}: no run under way to stop", file=sys.stderr)
+            return 2
+        p.events.add(STOP_ASKED, item=args.name, source="person", data={"note": args.note or ""})
+        print(f"asked: {args.name}'s run under way stops (if ergostat is running here); nothing else changes")
+        return 0
     b = spec.blocks.get(args.name)
     if b is None:
         print(f"no block {args.name!r}" + (f" (blocks: {', '.join(spec.blocks)})" if spec.blocks else ""), file=sys.stderr)
