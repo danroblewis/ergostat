@@ -150,15 +150,15 @@ def test_a_modelled_flow_the_record_never_moved_is_said_not_counted(tmp_path):
     p = project(tmp_path, text)
     work(p)
     got = co.compare(p.model.spec, p.events, problems=[], quiet={})
-    f = next(x for x in got["findings"] if x["id"] == "flow-not-seen@flow.bounced")
-    assert f["level"] == "note" and "Quiet is not absent" in f["message"]
-    assert "flow-not-seen@flow.bounced" not in mismatches(got)
+    f = next(x for x in got["findings"] if x["id"] == "flow-not-seen@items.ticket")
+    assert f["level"] == "note" and "Quiet is not absent" in f["message"] and "in the window: bounced." in f["message"]
+    assert got["kinds"]["ticket"]["unseen"] == ["bounced"] and mismatches(got) == []
     k = got["kinds"]["ticket"]
     assert k["agree"] == k["compared"]                                 # not counted against
     quiet = {"flow.bounced": {"says": "it never moved (at most 0 an hour)"}}
     g2 = co.compare(p.model.spec, p.events, problems=[], quiet=quiet)
-    f2 = next(x for x in g2["findings"] if x["about"] == "flow.bounced")
-    assert "has not exercised it" in f2["message"]
+    f2 = next(x for x in g2["findings"] if x["code"] == "flow-not-seen")
+    assert "(bounced: not exercised by the record)" in f2["message"]
 
 
 # ---- Dynamics ↔ Blocks

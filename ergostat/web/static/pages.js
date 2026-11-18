@@ -914,10 +914,11 @@ async function pageCheck(main) {
   const p = page(main, words.length ? `Check: ${words.join(", ")}` : "The model is whole");
   if (st.check.length) p.append(h("div", { class: "att" }, st.check.map((c) => h("div", {},
     h("b", { class: c.level === "error" ? "lvl-error" : "lvl-warning" }, c.level === "error" ? "Error" : "Warning"), " ", op(c.message)))));
-  let coh = null;                                          // the three views held against each other (SPEC §12l)
+  const slot = h("div");                                   // the three views held against each other (SPEC §12l), when read
+  p.append(slot, h("h2", {}, "Counts"), h("dl", { class: "counts" }, Object.entries(st.counts).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, fmt(v))])));
+  let coh = null;
   try { coh = await api("coherence"); } catch (e) { coh = null; }
-  if (coh && Object.keys(coh.kinds || {}).length) p.append(coherenceSection(coh));
-  p.append(h("h2", {}, "Counts"), h("dl", { class: "counts" }, Object.entries(st.counts).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, fmt(v))])));
+  if (coh && Object.keys(coh.kinds || {}).length) slot.append(coherenceSection(coh));
 }
 
 /* Coherence: each kind's score (agreements of comparisons, or the record it still needs), then each mismatch grouped
