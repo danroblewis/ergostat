@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import os
 import random
+import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -26,7 +28,18 @@ def say(event: str, item: str, data: dict | None = None) -> None:
 
 
 def ergostat() -> list[str]:
-    return (os.environ.get("ERGOSTAT_CMD") or f"{sys.executable} -m ergostat").split()
+    """The command that runs ergostat on this project: what ergostat gives a block's run (ERGOSTAT_CMD), else
+    `ergostat` on the PATH (a sensor's command is not given ERGOSTAT_CMD; under `uv run`, the PATH has it), else the
+    checkout this example sits in."""
+    root = Path(__file__).resolve().parent.parent
+    if os.environ.get("ERGOSTAT_CMD"):
+        return shlex.split(os.environ["ERGOSTAT_CMD"])
+    if shutil.which("ergostat"):
+        return ["ergostat", "-C", str(Path.cwd())]
+    for up in root.parents:
+        if (up / "ergostat" / "__init__.py").exists():
+            return ["uv", "run", "-q", "--project", str(up), "python", "-m", "ergostat", "-C", str(Path.cwd())]
+    sys.exit("ergostat is not installed (uv tool install ergostat, or run from its checkout)")
 
 
 def alerts(state: str) -> list[dict]:
@@ -54,7 +67,7 @@ def main() -> int:
         due = mem["answer"].setdefault(a["id"], now + random.uniform(4, 12))
         if now >= due:
             mem["answer"].pop(a["id"])
-            if random.random() < 0.25:
+            if random.random() < 0.3:
                 say("alert.reopened", a["id"], {"via": "reopened", "why": "look at the database too"})
             else:
                 say("alert.handled", a["id"], {"via": "on-call"})
