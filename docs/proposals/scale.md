@@ -12,8 +12,9 @@ agents), and at 6,000 use cases with 120,000 stocks and 400,000 flows?
 
 ## The answer, short
 
-- **The engine breaks first, between N = 30 and N = 100 workflows** (about 200 to 600 stocks; the owner's
-  "100 tasks"). At N = 30 it keeps up on 45% of one core. At N = 100 it reads 6% of the readings its
+- **The engine breaks first, at N ≈ 50 workflows** (about 300 stocks and 550 flows; well short of the
+  owner's "100 tasks"). At N = 30 it keeps up on 45% of one core; at N = 50 it is on a full core, reads 65%
+  of what its sensors declare, and an item waits up to 46 s (p95) to be taken. At N = 100 it reads 6% of the readings its
   sensors declare, an item waits 41 s (median) to 5 minutes (p95) to be taken, and 683 threads queue on
   one lock. At N = 300 it does no work at all after its first 40 seconds; at N = 1,000 it spends 6 minutes
   loading the model and then manages 5 passes and no runs in the 4 minutes left.
@@ -61,6 +62,7 @@ block, and `ERGOSTAT_AI=false`.
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 10 | 55 | 93 | 8 | 156 | 47 | 101 | 6 | 8 | 39 KB |
 | 30 | 199 | 353 | 18 | 570 | 146 | 308 | 8 | 20 | 90 KB |
+| 50 | 308 | 545 | 31 | 884 | 237 | 502 | 10 | 29 | 155 KB |
 | 100 | 615 | 1,071 | 60 | 1,746 | 480 | 1,014 | 17 | 57 | 317 KB |
 | 300 | 1,786 | 3,155 | 185 | 5,126 | 1,404 | 2,973 | 47 | 162 | 925 KB |
 | 1,000 | 5,860 | 10,306 | 624 | 16,790 | 4,678 | 9,911 | 155 | 531 | 3.1 MB |
@@ -140,6 +142,7 @@ every minute).
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 10 | 15 s | 7.4 → 7.3 | 2 ms / 27 ms | 2 ms / 9 ms | 0.2 s / 10 s | 0.9 | 0.04 | 73 MB | – | 43 |
 | 30 | 15 s | 26 → 26 | 12 ms / 0.4 s | 18 ms / 0.19 s | 0.3 s / 12 s | 3.1 | 0.45 | 110 MB | 42 | 150 |
+| 50 | 15 s | 41 → **27** | 26 ms / **3.2 s** | 47 ms / 1.0 s | 2.3 s / **46 s** | 4.6 | **1.0** | 130 MB | **363** | 199 |
 | 100 | 15 s | 82 → **5.1** | 98 ms / **35 s** | 0.2 s / 2.2 s | **41 s / 304 s** | 3.2 | **1.0** | 148 MB | **683** | 182 |
 | 300 | 45 s | 239 → **3.4** | 2.9 s / 4.5 s | 1.8 s / 2.8 s | none taken | 0.8 (first 40 s only) | 1.0 | 445 MB | **2,032** | **0** |
 | 1,000 | **376 s** | 786 → **0.1** | 46 s / 53 s | 38 s / 42 s | none taken | 0.1 | 1.0 | 332 MB | 33 | **0** |
@@ -151,6 +154,7 @@ reading pays:
 |---:|---:|---:|---:|---:|---:|
 | 10 | 2.3 ms | 1.3 ms | 2.7 ms | 1.7 ms | 4.1 ms |
 | 30 | 12 ms | 4.6 ms | 24 ms | 17 ms | 6.6 ms |
+| 50 | 27 ms | 7.0 ms | 64 ms | 44 ms | 11 ms |
 | 100 | 94 ms | 14 ms | 257 ms | 184 ms | 36 ms |
 | 300 | 773 ms | 42 ms | 2.3 s | 1.6 s | 208 ms |
 | 1,000 | 8.7 s | 135 ms | 26 s | 18.8 s | 2.5 s |
@@ -161,10 +165,12 @@ CPU by part, in CPU-seconds a second (thread time, so waiting for the lock is no
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 10 | 0.020 | 0.010 | 0.006 | 0.003 | 0.002 | 0.002 | 0.003 | 0.000 |
 | 30 | 0.33 | 0.11 | 0.026 | 0.013 | 0.024 | 0.010 | 0.040 | 0.000 |
+| 50 | 0.74 | 0.15 | 0.029 | 0.017 | 0.044 | 0.019 | 0.15 | 0.000 |
 | 100 | 0.53 | 0.07 | 0.009 | 0.012 | 0.090 | 0.025 | 0.30 | 0.000 |
 | 300 | 0.27 | 0.03 | 0.006 | 0.015 | 0.46 | 0.083 | – | – |
 
-- **The bend** is at N ≈ 50. The pass costs about 0.015 N^1.9 ms; it runs after every reading, and there
+- **The bend** is at N ≈ 50, measured: at N = 50 the engine is on a full core and achieves 27 of 41
+  readings a second. The pass costs about 0.015 N^1.9 ms; it runs after every reading, and there
   are 0.8 N readings a second, so the engine needs about 0.012 N^2.9 ms of CPU a second against 1,000 ms:
   N ≈ 50. At N = 30 it uses 45% of the core and keeps up; at N = 100 it is saturated, and what it cannot
   do it does late: readings, then decisions, then leases.
@@ -217,11 +223,11 @@ poll costs), then each page in Chrome (Playwright), timed until drawn and until 
 | Diagram, everything (folded to its top systems) | 1.3 s / 6.3 s | same | 2 | 0.8 MB / 1.2 MB |
 | Diagram, one system (`system=sys-001`) | 12 s / 24 s | 50 s / **190 s** | 173 / 280 | 9 MB / **22 MB** |
 | Diagram, one system opened in place | 14 s / 28 s | 36 s / 160 s | 175 / 285 | 5 MB / 18 MB |
-| Diagram, everything open | – / ALLOPEN30 | | | |
+| Diagram, everything open (`open=*`) | – / 139 s | not done in 30 min | | – / **456 MB** in 32 min |
 | Blocks | 2.4 s / 58 s | | 2 | 0.1 MB / 0.4 MB |
-| Loops | 1.8 s / | | | 1.4 MB / |
-| Items | 0.7 s / | | | 0.1 MB / |
-| Check | 0.6 s / | | | 0.07 MB / |
+| Loops | 1.8 s / 12 s | | | 1.4 MB / 4.1 MB |
+| Items | 0.7 s / 1.0 s | | | 0.1 MB / 0.3 MB |
+| Check | 0.6 s / 0.7 s (its status already computed) | | | 0.07 MB / 0.4 MB |
 
 For comparison, `examples/the-job` (43 stocks, 61 flows) and `examples/image-squeeze` (42, 48) answer
 `graph` in 0.04 s and `status` in 0.5 to 0.75 s with an empty record: what the owner finds slow on their
