@@ -289,8 +289,20 @@ class _Diagram:
     def node(self, id: str, **kw) -> dict:
         n = self.nodes.get(id)
         if n is None:
+            said = self.inferred(kw.get("part"))
+            if said and isinstance(kw.get("rows"), list):        # a part a model change added: said, quietly, last
+                kw["rows"] = [*kw["rows"], ["origin", said]]
             n = self.nodes[id] = {"id": id, "ins": [], "outs": [], **kw}
         return n
+
+    def inferred(self, ref) -> str | None:
+        """"added by ergostat, from model change X" for a part a model change added (``inferred:``, SPEC §12e)."""
+        kind, _, name = str(ref or "").partition(".")
+        x = {"stock": self.s.stocks, "flow": self.s.flows, "auxiliary": self.s.auxiliaries}.get(kind, {}).get(name)
+        v = getattr(x, "inferred", None)
+        if not v:
+            return None
+        return "added by ergostat" + (f", from model change {v.split('/', 1)[1]}" if "/" in v else "")
 
     def port(self, nid: str, io: str, name: str, side: str | None = None, sign: str | None = None) -> str:
         n = self.nodes[nid]

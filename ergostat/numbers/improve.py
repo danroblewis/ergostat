@@ -27,6 +27,7 @@ import re
 import time
 from pathlib import Path
 
+from ..durations import human as dur
 from ..spec.ir import Spec
 from . import gate as gt
 from . import memory as mem
@@ -462,9 +463,11 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
             from . import identify as idf
             short = idf.record_says(spec, data, moved)
             if short and len(short) == len(moved):
-                x["too_short"] = "; ".join(f"parameter.{n}: {h['says']}" for n, h in sorted(short.items()))
                 needs = [h["needs"] for h in short.values()]
                 x["needs"] = None if None in needs else max(needs)
+                x["too_short"] = ("; ".join(f"parameter.{n}: {'; '.join(h['why'])}" for n, h in sorted(short.items())) +
+                                  (f"; it needs about {dur(x['needs'])} more record" if x["needs"] else
+                                   "; it needs record in which what it acts through moves"))
     else:
         moved_ctl = ver.changed_control(spec, after) if kind == "control" else ver.changed_sensors(spec, after) \
             if kind == "measurement" else []
@@ -631,7 +634,8 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
             why = (f"held, inconclusive: the record has not exercised what it sets ({x['not_exercised']}); its value "
                    f"cannot be identified from this record, and nothing says the value written is wrong"
                    if x.get("not_exercised") else
-                   f"held, inconclusive: the record is too short to identify what it sets ({x['too_short']})")
+                   f"held, inconclusive: the record is too short to identify what it sets ({x['too_short']}), and nothing "
+                   f"says the value written is wrong")
             pr.event(p, pid, "inconclusive", {**x, "why": why, "verdict": {"verdict": "inconclusive", "why": why, "at": now,
                                                                               "by": "ergostat"}})
             return {"status": "not-proposed", "id": pid, "title": x["title"], "why": why}

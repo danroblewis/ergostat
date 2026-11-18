@@ -1359,8 +1359,10 @@ a stock are fitted together (Nelder–Mead, on their logarithm when they start p
 parameter's `range` when one is written, the same bounds sensitivity samples, else within a factor of a
 thousand of the value written), on the record but its last fifth, which is held out.
 Each estimate has a standard error, and those fitted together their correlations, from the Jacobian
-of the weighted errors at the optimum (Gauss–Newton, Ljung ch. 9), widened for errors that run
-together in time. An estimate is data: kept in `<state>/estimates/<structure>.json` (`<structure>.systems.json`,
+of the weighted errors at the optimum (Gauss–Newton, Ljung ch. 9), widened by (1 + ρ)/(1 − ρ) for errors that
+run together in time, ρ their lag-one autocorrelation up to 0.99 (`numbers/identify.py`: a replay integrates
+its errors, so a mismatch at one moment stays in every bucket after it, and the record holds as many independent
+points as the errors have independent stretches, n(1 − ρ)/(1 + ρ), its **effective record**). An estimate is data: kept in `<state>/estimates/<structure>.json` (`<structure>.systems.json`,
 `<structure>.whole.json` for the other calibrations, a system's keyed `parameter@system`), keyed by the
 model's **structure** (a hash of what moves what: stocks, flows, links, equations, parameters' names
 and units, not their values), so a value accepted keeps its estimates, and a changed structure
@@ -1370,10 +1372,22 @@ starts afresh.
 Accept beside the part on the page): each a concrete change with its reason, the fit before and
 after, and the smallest edit to the YAML that makes it, made on the file's text so its comments and
 order stay. Two kinds so far. A **parameter** set to its estimate, only when the record supports it:
-it is fitted on forty points or more spanning three of the slowest time constant the parameter touches (for a stock that only integrates, the time things stay in it, by Little's law), its errors hold at least ten independent points where the fit leaves a material error (n(1 − ρ)/(1 + ρ), ρ their lag-one autocorrelation), the estimate is not at an end of
+the record covers enough of the part's dynamics to identify it (Ljung ch. 13 and 16: an informative experiment),
+it is fitted on forty points or more spanning three of the slowest time constant the parameter touches (for a
+stock that only integrates, the time things stay in it, by Little's law), its effective record holds at least ten
+independent points where the fit leaves a material error (its weighted error past 0.001, an RMS past 3% of the
+readings' spread: it was past 0.01, and an image-squeeze record of 17 minutes drifting from its readings as one passed
+as 80 points), and what it acts through **moved** six times (what the parameter multiplies in its equations, from
+the Jacobian, going a tenth of its range from where it last moved: three cycles of an experiment started and
+decided; one held at a single value the whole record cannot be told from a constant); otherwise it is **held,
+inconclusive**, with how much more record it needs ("it needs about 30m more record", at the rate the record has
+gone, or record in which what it acts through moves), said beside the parameter, and a block's proposal of a value
+for it is recorded `inconclusive` at once with what it needs (`needs`), which the memory of what was turned away
+(§12e) waits at least as long for. Then: the estimate is not at an end of
 its range (the record would take it outside what the model says it might be: said first) nor at its
 bound (one there is a question of structure), the record tells it apart, it is more than two
-standard errors and 2% from the value written, and it fits the record held out better; otherwise it
+standard errors (within them, it says how much more record would tell a difference that size) and 2% from the value
+written, and it fits the record held out better; otherwise it
 is kept with why, shown beside the parameter and on the Model page, and proposes nothing. Its reason
 and the numbers first shown are those of the objective it minimised, on the record fitted and the
 record held out. An **equation** for a flow that has declared causes and none, a coefficient for
