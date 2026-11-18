@@ -289,7 +289,8 @@ class Segments:
         self.dir = directory / "events"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.head_path = self.dir / "head.jsonl"
-        self.head_path.touch(exist_ok=True)
+        if not self.head_path.exists():                     # made once; a reader opening it leaves it as it was
+            self.head_path.touch()
         self.seal = seal
         self._lock = threading.RLock()
         self._head = _Head()
