@@ -23,7 +23,29 @@ review). Newest decisions from the owner first within each section.
 - **One-line modelling loop** (open): `use: modelling` instead of about 150 lines copied into each example; a
   model built by an agent gets the improvement loop by default.
 - **Built-in join** (open): move a parent item once all its sub-items reach a state (fork-join); today it
-  takes a join block or an auxiliary.
+  takes a join block or an auxiliary. Found again writing `docs/MODELLING-WELL.md` (2026-11-18): the join is the
+  last child's run, under a lock of its own, recording its own event with `event --add` (a printed line may not be
+  visible yet to the next sibling's run, reading through another process) and counting siblings by a field, since a
+  sibling still leased does not show its new state. A join stock also needs a goal and a block that reads it, or
+  coherence reports `waiting-without-goal`, though no block of its own works it.
+- **Craft findings in `check`** (open; from `docs/MODELLING-WELL.md`): `check` is silent on a part with no
+  `description`, a stock with no `unit`, a flow between stocks with no equation, a `process:` with no `identified:`,
+  a sensor (a collector) with no description, and event types of one kind in mixed forms. Each is a review-checklist
+  item an agent has to remember; a note-level finding would teach it.
+- **A step whose goal never goes off** (open): a `takes:` block runs only while its goal is off, so a queue goal with
+  a tolerance (or a setpoint above 0) lets items wait unseen; nothing says so. Found when the example's first goals
+  had tolerances and nothing ran.
+- **A block reading a goal's error is drawn reinforcing** (open; found writing `docs/MODELLING-WELL.md`): a block
+  with `in: [goal.X.error]` (or `in: [goal.X]`) that moves the flow draining X's stock makes a loop `explain` calls
+  R; reading the stock, signed (`+stock.S`), gives B. Either the sign through a goal's error is worked out wrong, or
+  `check` should say which to write.
+- **A sensor's command is not given `ERGOSTAT_CMD`** (open): a block's run is told how to call ergostat back, a
+  sensor's `run:` is not, so a collector that reads the items (to see what a person answered) has to find ergostat
+  itself (the examples look on the PATH, then for a checkout).
+- **A block's tier is not drawn** (open): the Blocks view draws a person's block and an AI's alike; the tier is in
+  the block's panel only.
+- **A cause for a scheduled run's events** (open): a block on `every:` runs caused by nothing, so a sweep that opens
+  sub-items draws no fan-out in the Process view; an event line cannot name its own cause (`causedby`).
 - **Triggers on an event type** (open): a block started by an event type alone, not only by a state change.
 - **Closed-loop simulation** (open): projection holds blocks still; simulating with the controllers running.
 - **Operating modes, regime-scheduled thresholds, interlocks, risk gating** (open; designed in
