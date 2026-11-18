@@ -33,9 +33,21 @@ def _command(run: str) -> str:
     words = run.split()
     if words and words[0].split("/")[-1].startswith(("python", "node", "bash", "sh", "ruby", "perl", "uv")) and len(words) > 1:
         words = words[1:]
+    if len(words) > 1 and words[0] == "-m":                 # a module run: ergostat's own library says its step and its name
+        mod, rest = words[1], words[2:]
+        if mod.startswith("ergostat."):
+            sub = next((w for w in rest if not w.startswith("-")), "")
+            name = rest[rest.index("--name") + 1] if "--name" in rest[:-1] else ""
+            return " ".join(x for x in (sub, name) if x) or mod
+        words = [mod.split(".")[-1], *rest]
     if words:
         words[0] = words[0].split("/")[-1]
     return " ".join(words)
+
+
+def short(text: str, n: int = 32) -> str:
+    """At most ``n`` characters, an ellipsis where it is cut (the whole of it is in the panel)."""
+    return text if len(text) <= n else text[:n - 1] + "…"
 
 
 def what(spec: Spec, x: Sensor) -> str:
@@ -69,8 +81,7 @@ def what(spec: Spec, x: Sensor) -> str:
         return x.description or "a person's reading"
     if x.description and len(x.description) <= 60:
         return x.description
-    cmd = _command(x.run or "")
-    return f"run: {cmd if len(cmd) <= 32 else cmd[:31] + '…'}"                # (the whole command: in its panel)
+    return f"run: {short(_command(x.run or ''))}"                # (the whole command: in its panel)
 
 
 def reads(spec: Spec, x: Sensor) -> str:
