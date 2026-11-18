@@ -1,0 +1,241 @@
+template: modelling
+once: true
+description: The model improved as a loop of its own (SPEC §12e) - its fit a stock held by a goal, an improver that proposes changes while it is off, and ergostat's judge that tests each on the record after it.
+reading: |
+  System dynamics: the model's error is a stock (model-error, read by ergostat's built-in measure
+  ergostat.model.fit, the Fit page's total), filled as the record moves on and the world drifts from the model
+  (model-drift) and drained as changes are written (model-mended). The changes to the model are items of
+  ergostat's built-in kind ergostat.model-change, whoever made them (the improver's propose lines and ergostat's own
+  finders alike), counted by state as an aging chain: made and checked (pending-changes), under test
+  (changes-testing), passed (passed-changes), written (accepted-changes, a running total); a change made against a
+  version of the model since changed leaves as superseded, one the judge fails leaves as failed.
+  Control: one balancing loop that closes the long way. The goal model-fits holds model-error at or under `fit`;
+  while it is off the improver runs (an AI agent reading the model as a senior modeller would, a program, or a
+  person) and proposes changes with their evidence; the judge (a built-in block, at most one a model) replays each
+  beside the model as it is on the record that comes after it, in several windows, passes it only when it is better
+  in every one, and writes what `accept` allows (nothing by default: the owner accepts in the review queue on the
+  Fit page). What is written lowers the error, which the measure then sees.
+  It is used once a model, and its parts keep the names written here (model-error, model-fits, improver, judge),
+  in a system named for the use (modelling, by convention).
+example: |
+  uses:
+    modelling:
+      use: modelling
+      with:
+        fit: 0.05                     # the model's replay may be off by a scaled error of at most 0.05
+        run: ""                       # give the prompt to claude -p (else a free stand-in runs)
+        accept:
+          parameter: auto             # a value the judge passes is written at once; the structure waits for the owner
+params:
+  rung:
+    type: rung
+    default: ai
+    description: who improves the model (ai, program or person); a person is asked, and proposes with ergostat improve
+  prompt:
+    type: path
+    default: ${folder}/improver.md
+    description: the improver's prompt, when rung is ai (a file, or the text); ergostat's own by default, which reviews any model
+  run:
+    type: command
+    default: ${lib} standin improver
+    stand-in: an improver that proposes nothing of its own, and asks ergostat's own finders to look again
+    description: 'the improver''s command: for ai, a wrapper given the prompt on standard input (empty, "", gives it to claude -p); for program, the program, which prints propose lines'
+  ask:
+    default: The model has drifted from the record. Review it and propose changes with their evidence (ergostat improve; the Fit page's review queue).
+    description: what a person is asked, when rung is person
+  model:
+    description: the model an ai improver's session uses, when run is empty (else the agent's, or claude's default)
+  every:
+    type: duration
+    default: 3m
+    description: the least time between the improver's runs while the model's fit is off its goal
+  timeout:
+    type: duration
+    default: 15m
+    description: how long one run of the improver may take
+  sessions:
+    type: bool
+    default: false
+    description: keep each run of the improver as an item of kind session (session/*, its role, model, cost, turns and time), for an improver that reports session.ran, session.failed and session.lost
+  fit:
+    type: number
+    default: 0.05
+    description: the most scaled error the model's replay may have and still fit (the goal model-fits)
+  fit-every:
+    type: duration
+    default: 1m
+    description: how often the model's fit is measured
+  count-every:
+    type: duration
+    default: 10s
+    description: how often the changes are counted by state
+  over:
+    type: duration
+    default: 10m
+    description: the window the flows of changes, and the error's rises and falls, are measured over
+  judge-every:
+    type: duration
+    default: 30s
+    description: how often the judge passes over the changes waiting
+  hold-out:
+    type: duration
+    description: 'how much record after a change it is judged on (the judge''s own default: 10m)'
+  windows:
+    type: any
+    description: 'how that record is split: 1 whole, 2 halves, 4 quarters (the judge''s own default: [1, 2, 4])'
+  threshold:
+    description: 'the least fall in scaled error that counts as better, like 2% (the judge''s own default)'
+  warm-up:
+    type: duration
+    description: 'the longest before each window its replay starts (the judge''s own default: 6h)'
+  accept:
+    type: any
+    description: 'who writes a change the judge passed: owner or auto, or a map of kind (parameter, equation, structure) to either (the judge''s own default: owner for every kind)'
+items:
+  session:
+    if: ${sessions}
+    id: session/*
+    states: [open, done, failed, lost]
+    on:
+      session.ran: done
+      session.failed: failed
+      session.lost: lost
+    show: [role, model, cost_usd, turns, seconds]
+stocks:
+  model-error:
+    unit: "1"
+    description: the scaled error of the model's replay on the record (the Fit page's total; lower is better)
+    sensor:
+      builtin: ergostat.model.fit
+      every: ${fit-every}
+  pending-changes:
+    unit: changes
+    description: changes to the model made and checked, waiting for the judge
+    sensor:
+      items: ergostat.model-change
+      state: checked
+      every: ${count-every}
+  changes-testing:
+    unit: changes
+    description: changes being replayed on the record that comes after them
+    sensor:
+      items: ergostat.model-change
+      state: testing
+      every: ${count-every}
+  passed-changes:
+    unit: changes
+    description: passed by the judge, waiting to be written (by the owner, for a change to the structure)
+    sensor:
+      items: ergostat.model-change
+      state: passed
+      every: ${count-every}
+  accepted-changes:
+    unit: changes
+    description: changes accepted and written into the model
+    cumulative: true
+    sensor:
+      items: ergostat.model-change
+      state: accepted
+      every: ${count-every}
+flows:
+  model-drift:                        # the record moving on, and the world changing under the model: nothing in the model drives it
+    to: model-error
+    sensor:
+      changes: rises
+      over: ${over}
+      every: ${fit-every}
+  model-mended:
+    from: model-error
+    driven-by:                        # a change written lowers the error at once; the more error, the more there is to mend
+      - +stock.model-error
+      - {cause: +flow.changes-accepted, instant: true}
+    sensor:
+      changes: falls
+      over: ${over}
+      every: ${fit-every}
+  changes-made:
+    to: pending-changes
+    sensor:
+      items: ergostat.model-change
+      entering: checked
+      over: ${over}
+  changes-superseded:                 # made against a version of the model since changed
+    from: pending-changes
+    driven-by: +stock.pending-changes
+    sensor:
+      items: ergostat.model-change
+      entering: superseded
+      over: ${over}
+  tests-started:
+    from: pending-changes
+    to: changes-testing
+    driven-by: +stock.pending-changes
+    sensor:
+      items: ergostat.model-change
+      entering: testing
+      over: ${over}
+  changes-passed:
+    from: changes-testing
+    to: passed-changes
+    driven-by: +stock.changes-testing
+    sensor:
+      items: ergostat.model-change
+      entering: passed
+      over: ${over}
+  changes-failed:
+    from: changes-testing
+    driven-by: +stock.changes-testing
+    sensor:
+      items: ergostat.model-change
+      entering: failed
+      over: ${over}
+  changes-accepted:
+    from: passed-changes
+    to: accepted-changes
+    driven-by: +stock.passed-changes
+    sensor:
+      items: ergostat.model-change
+      entering: accepted
+      over: ${over}
+goals:
+  model-fits:
+    stock: model-error
+    hold: "<= ${fit}"
+    description: the model follows the record (its replay's scaled error at most ${fit})
+blocks:
+  improver:
+    if: ${rung} != person
+    type: ${rung}
+    goal: model-fits
+    prompt:
+      if: ${rung} == ai
+      value: ${prompt}
+    run:
+      if: ${run}
+      value: ${run}
+    model: ${model}
+    every: ${every}
+    timeout: ${timeout}
+    out: flow.changes-made
+  improver-by-hand:
+    if: ${rung} == person
+    type: person
+    goal: model-fits
+    ask: ${ask}
+    out: flow.changes-made
+  judge:
+    type: judge                       # ergostat's judge (SPEC §12e): each change replayed on the record after it
+    every: ${judge-every}
+    hold-out: ${hold-out}
+    windows: ${windows}
+    threshold: ${threshold}
+    warm-up: ${warm-up}
+    accept: ${accept}
+    in:
+      waiting: +stock.pending-changes
+      testing: +stock.changes-testing
+    out:
+      testing: flow.tests-started
+      passed: flow.changes-passed
+      failed: flow.changes-failed
+      accepted: flow.changes-accepted

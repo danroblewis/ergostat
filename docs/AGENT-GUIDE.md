@@ -64,7 +64,14 @@ Work through these steps in order. Ask the person only what you cannot infer.
    have the step ask for them (`$ERGOSTAT_CMD act NAME --arg k=v` from a script, or as a tool from an
    AI session). See SPEC section 12k.
 8. **Check and look** (section 3), and fix everything it finds before showing the person.
-9. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
+9. **Give it the modelling loop: `uses: {modelling: {use: modelling}}`.** Every model should have it (`check`
+   notes one without it, `no-modelling-loop`). One line makes the model improve as a loop of its own (SPEC
+   §12e): its fit to the record (`model-error`) is a stock held by a goal (`model-fits`), an improver proposes
+   changes with their evidence while it is off, and ergostat's judge tests each on the record after it; the
+   owner accepts what passes (or `accept: {parameter: auto}` writes passed values at once). It runs free on a
+   stand-in improver until given a prompt and `run: ""` (a Claude session) or a program; its options are in
+   `docs/ADDING.md` (modelling). Do not hand-write these parts.
+10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
    views*).

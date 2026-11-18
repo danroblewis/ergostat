@@ -68,6 +68,12 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
         if st.limit is not None and not any(g.of == Ref("stock", st.name) for g in spec.goals.values()):
             say("unguarded-limit", f"stock {st.name}: has a limit ({st.limit:g}) but no goal: nothing keeps it from it",
                 st.where, f"stock.{st.name}")
+    if spec.stocks and not any(b.type == "judge" for b in spec.blocks.values()):
+        from .load import Where
+        say("no-modelling-loop", "the model has no loop that improves it: nothing measures its fit, proposes changes or "
+            "judges them. Add one line, uses: {modelling: {use: modelling}} (SPEC §12e; docs/ADDING.md), and the "
+            "model's error is a stock held by a goal, an improver proposes while it is off, and ergostat's judge tests "
+            "each change on the record after it", Where(spec.files[0], 1) if spec.files else None, "model")
     unsigned(spec, say)
     structure(spec, say)
     # a kind's state stocks, chained (the record's moves, when there is a record)
