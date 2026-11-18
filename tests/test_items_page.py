@@ -232,6 +232,7 @@ def test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_th
         pg.wait_for_selector(".set-chip")
         chip = pg.locator(".set-chip").inner_text()
         assert chip.startswith("hypothesis") and str(n) in chip.split(), chip
+        pg.wait_for_selector('section.sys-group[data-system="lab"] table tr td')   # the groups draw after the chip
         assert systems(pg) == ["lab"]
         rows = pg.locator('section.sys-group[data-system="lab"] table tr td:first-child').all_inner_texts()
         assert len(rows) == n and all(r.startswith("hypothesis/") for r in rows), rows
