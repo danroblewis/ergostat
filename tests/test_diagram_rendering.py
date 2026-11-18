@@ -1107,6 +1107,198 @@ def test_the_control_view_nests_a_cascades_inner_loop_and_opens_a_blocks_definit
         proc.wait(10)
 
 
+# ---- the Blocks view in hand: the same dragging, pinning and unpinning as the dynamics view (interact.js, places.js)
+
+BD_SLANTED = """() => {
+  // straight pieces of the block diagram's lines as drawn that run neither across nor up and down
+  let n = 0;
+  for (const p of document.querySelectorAll("svg.canvas g.bd-edge path.bd-wire")) {
+    let at = null;
+    for (const m of (p.getAttribute("d") || "").matchAll(/([ML])([-\\d.e]+),([-\\d.e]+)/g)) {
+      const pt = { x: +m[2], y: +m[3] };
+      if (m[1] === "L" && at && Math.abs(pt.x - at.x) > 1 && Math.abs(pt.y - at.y) > 1) n++;
+      at = pt;
+    }
+  }
+  return n;
+}"""
+BD_AT = "(id) => { const c = S.layout.children.find((c) => c.id === id); return c && [c.x, c.y]; }"
+BD_ENDS = """(id) => S.layout.edges.filter((le) => { const e = S.graph.edges.find((x) => x.id === le.id);
+    return e && (e.source === id || e.target === id); }).map((le) => {
+  const c = S.layout.children.find((c) => c.id === id), s = le.sections[0], e = S.graph.edges.find((x) => x.id === le.id);
+  const p = e.source === id ? s.startPoint : s.endPoint;
+  return p.x >= c.x - 2 && p.x <= c.x + c.width + 2 && p.y >= c.y - 2 && p.y <= c.y + c.height + 2; })"""
+# laid out for the graph now drawn (not the last one, while the new one is laid out), its lines routed and drawn
+BD_ROUTED = ("() => S.layout && S.graph && S.graphSig === bdSig(S.graph) && !S.layout.routing && !S.layout.undrawn && "
+             "!S.nodeDrag && !S.hullDrag")
+
+
+def bd_drag(pg, box, dx, dy, at=(0.5, 0.5), steps=10, check=None) -> int:
+    """Press at a point of a box on the screen and move by (dx, dy) in the diagram's units; the slanted pieces
+    seen on the way (check), summed."""
+    k = pg.evaluate("() => S.view.k")
+    x, y = box["x"] + box["width"] * at[0], box["y"] + box["height"] * at[1]
+    pg.mouse.move(x, y)
+    pg.mouse.down()
+    seen = 0
+    for step in range(1, steps + 1):
+        pg.mouse.move(x + dx * step / steps * k, y + dy * step / steps * k)
+        if check:
+            pg.wait_for_timeout(40)
+            seen += pg.evaluate(check)
+    pg.mouse.up()
+    return seen
+
+
+def test_a_block_dragged_in_the_blocks_view_stays_pinned_its_lines_end_on_it_and_unpin_all_restores_it(browser, tmp_path):
+    """In the Blocks view a block dragged moves, its lines never drawn across meanwhile; let go, it is pinned
+    there with no new layout, its lines routed again to end on it; it is still there after a reload (kept for
+    the Blocks view, not the Dynamics view's); and the ⋯ menu's Unpin all parts puts it back where it was."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&open=*", 0)
+        pg.get_by_role("button", name="fit").click()
+        nid = "blk:product-manager"
+        before = pg.evaluate(BD_AT, nid)
+        layouts = pg.evaluate("() => S.layouts")
+        slanted = bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{nid}"]').bounding_box(), 40, 160, check=BD_SLANTED)
+        assert slanted == 0, f"{slanted} slanted pieces drawn while dragging"
+        pg.wait_for_function(f"() => S.pins['{nid}'] && ({BD_ROUTED})()", timeout=20000)
+        pg.wait_for_timeout(300)
+        assert pg.evaluate("() => S.layouts") == layouts, "letting go laid the diagram out again"
+        after = pg.evaluate(BD_AT, nid)
+        assert abs(after[0] - before[0] - 40) < 6 and abs(after[1] - before[1] - 160) < 6, (before, after)
+        assert pg.evaluate(BD_SLANTED) == 0
+        ends = pg.evaluate(BD_ENDS, nid)
+        assert ends and all(ends), "every line of the moved block ends on it"
+        r = pg.evaluate(AUDIT)
+        assert not r["through"] and not r["partOverlap"], (r["through"], r["partOverlap"])
+        assert pg.evaluate(BLOCKS_DOM) == []
+        assert pg.locator(f'svg.canvas g.pins .pin[data-id="{nid}"]').count() == 1
+        kept = pg.evaluate("() => Object.fromEntries(Object.keys(localStorage).filter((k) => k.startsWith('ergostat.pins.'))"
+                           ".map((k) => [k, Object.keys(JSON.parse(localStorage.getItem(k)))]))")
+        assert [k for k, ids in kept.items() if nid in ids and ".blocks." in k], kept
+        assert not [k for k in kept if ".dynamics." in k], kept           # the Dynamics view's pins are its own
+        drawn(pg, url, "view=blocks&open=*", 9)                          # a new visit: still where it was put
+        again = pg.evaluate(BD_AT, nid)
+        assert abs(again[0] - after[0]) < 2 and abs(again[1] - after[1]) < 2, (after, again)
+        drawn(pg, url, "view=dynamics&open=*", 10)
+        assert nid not in pg.evaluate("() => S.pins")
+        drawn(pg, url, "view=blocks&open=*", 11)
+        pg.locator(".toolbar .menu-btn.dots").click()                    # ⋯, Unpin all parts: as ELK laid it out
+        pg.get_by_role("menuitem", name=re.compile("Unpin all parts")).click()
+        pg.wait_for_function(f"() => !Object.keys(S.pins).length && ({BD_ROUTED})() && "
+                             f"Math.abs(S.layout.children.find((c) => c.id === '{nid}').y - {before[1]}) < 2", timeout=20000)
+        assert pg.evaluate(BD_AT, nid) == pytest.approx(before, abs=2)
+        assert pg.locator("svg.canvas g.pins .pin").count() == 0
+        assert not errors, errors
+        pg.close()
+
+
+def test_blocks_chosen_with_a_box_move_together_in_the_blocks_view(browser, tmp_path):
+    """Shift and a drag on the Blocks view's background chooses what it touches; one of them dragged moves
+    them all by the same amount, each pinned, with no new layout and no line drawn across."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&open=*", 0)
+        pg.get_by_role("button", name="fit").click()
+        ids = ["sum:all-live", "blk:keep-all-live"]
+        boxes = [pg.locator(f'svg.canvas g.node[data-id="{i}"]').bounding_box() for i in ids]
+        x0, y0 = min(b["x"] for b in boxes) - 4, min(b["y"] for b in boxes) - 4
+        x1, y1 = max(b["x"] + b["width"] for b in boxes) + 4, max(b["y"] + b["height"] for b in boxes) + 4
+        pg.keyboard.down("Shift")
+        pg.mouse.move(x0, y0)
+        pg.mouse.down()
+        pg.mouse.move((x0 + x1) / 2, (y0 + y1) / 2)
+        pg.mouse.move(x1, y1)
+        pg.mouse.up()
+        pg.keyboard.up("Shift")
+        chosen = pg.evaluate("() => [...document.querySelectorAll('svg.canvas g.node.selected')].map((e) => e.dataset.id)")
+        assert set(ids) <= set(chosen), chosen
+        before = pg.evaluate("() => Object.fromEntries(S.layout.children.map((c) => [c.id, [c.x, c.y]]))")
+        layouts = pg.evaluate("() => S.layouts")
+        slanted = bd_drag(pg, pg.locator('svg.canvas g.node[data-id="blk:keep-all-live"]').bounding_box(), 30, -70, check=BD_SLANTED)
+        assert slanted == 0, f"{slanted} slanted pieces drawn while dragging"
+        pg.wait_for_function(f"() => {json.dumps(chosen)}.every((i) => S.pins[i]) && ({BD_ROUTED})()", timeout=20000)
+        pg.wait_for_timeout(300)
+        assert pg.evaluate("() => S.layouts") == layouts, "letting go laid the diagram out again"
+        after = pg.evaluate("() => Object.fromEntries(S.layout.children.map((c) => [c.id, [c.x, c.y]]))")
+        for i in chosen:
+            assert abs(after[i][0] - before[i][0] - 30) < 6 and abs(after[i][1] - before[i][1] + 70) < 6, (i, before[i], after[i])
+        for i in chosen:
+            assert all(pg.evaluate(BD_ENDS, i)), i
+        assert pg.evaluate(BD_SLANTED) == 0
+        assert pg.evaluate(BLOCKS_DOM) == []
+        assert not errors, errors
+        pg.close()
+
+
+def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_its_pins_survive_closing_and_opening(browser, tmp_path):
+    """An open system's frame in the Blocks view, dragged by its top, moves with everything in it, stays after
+    a reload, and closed it is a block where the frame was put; opened again, its parts are back where they
+    were. A block put by hand inside a frame keeps its place in that frame through closing and opening it."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&open=*", 0)
+        pg.get_by_role("button", name="fit").click()
+        places = """() => Object.fromEntries(S.layout.children.filter((c) => (S.graph.nodes.find((n) => n.id === c.id)?.systems || [])
+                       .includes('frame:product')).map((c) => [c.id, [c.x, c.y]]))"""
+        frame = "(id) => { const c = S.layout.containers.find((c) => c.id === id); return c && [c.bx ?? c.x, c.by ?? c.y]; }"
+        before, corner = pg.evaluate(places), pg.evaluate(frame, "frame:product")
+        grip = pg.locator('svg.canvas g.hull[data-hull="frame:product"] > rect.hull-grip').bounding_box()
+        bd_drag(pg, grip, 180, 90, at=(0.5, 0.5))
+        pg.wait_for_function(f"() => S.pins['hull:frame:product'] && ({BD_ROUTED})()", timeout=20000)
+        after = pg.evaluate(places)
+        assert before and set(before) == set(after)
+        offs = {(round(after[i][0] - before[i][0]), round(after[i][1] - before[i][1])) for i in before}
+        assert len(offs) == 1, offs                                   # all by the same amount
+        (dx, dy), = offs
+        assert abs(dx - 180) < 8 and abs(dy - 90) < 8, (dx, dy)
+        moved = pg.evaluate(frame, "frame:product")
+        assert abs(moved[0] - corner[0] - dx) < 2 and abs(moved[1] - corner[1] - dy) < 2
+        r = pg.evaluate(AUDIT)
+        assert not r["through"] and not r["partOverlap"], (r["through"], r["partOverlap"])
+        assert pg.evaluate(BLOCKS_DOM) == []
+        drawn(pg, url, "view=blocks&open=*", 9)                      # a new visit: still where it was put
+        again = pg.evaluate(places)
+        assert all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after)
+        # closed: one block where its frame was put; opened again: its parts where they were
+        pg.evaluate("() => S.toggleSystem('product')")
+        pg.wait_for_function(f"() => S.graph && !(S.graph.open || []).includes('product') && ({BD_ROUTED})() && "
+                             "S.graph.nodes.some((n) => n.role === 'subsystem' && n.label === 'product')", timeout=30000)
+        box = pg.evaluate("() => { const n = S.graph.nodes.find((n) => n.role === 'subsystem' && n.label === 'product'); "
+                          "const c = S.layout.children.find((c) => c.id === n.id); return [c.x, c.y]; }")
+        assert abs(box[0] - moved[0]) < 2 and abs(box[1] - moved[1]) < 2, (moved, box)
+        assert pg.evaluate("() => !!S.pins['hull:frame:product']"), "the pin was lost"
+        pg.evaluate("() => S.toggleSystem('product')")
+        pg.wait_for_function(f"() => S.graph && (S.graph.open || []).includes('product') && ({BD_ROUTED})()", timeout=30000)
+        again = pg.evaluate(places)
+        assert set(again) == set(after) and all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after)
+        # a block put by hand inside intake: its place in intake's frame kept through closing and opening it
+        nid = "blk:support"
+        bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{nid}"]').bounding_box(), 0, 110)
+        pg.wait_for_function(f"() => S.pins['{nid}'] && ({BD_ROUTED})()", timeout=20000)
+        offset = ("(id) => { const c = S.layout.children.find((c) => c.id === id), "
+                  "f = S.layout.containers.find((o) => o.id === 'frame:intake'); return [c.x - f.bx, c.y - f.by]; }")
+        put = pg.evaluate(offset, nid)
+        assert pg.evaluate(f"() => S.pins['{nid}'].in") == "frame:intake"
+        for opened in (False, True):
+            pg.evaluate("() => S.toggleSystem('intake')")
+            pg.wait_for_function(f"() => S.graph && (S.graph.open || []).includes('intake') === {str(opened).lower()} && "
+                                 f"({BD_ROUTED})()", timeout=30000)
+            assert pg.evaluate(f"() => !!S.pins['{nid}']"), "the pin was lost"
+        assert pg.evaluate(offset, nid) == pytest.approx(put, abs=2)
+        assert pg.evaluate(BLOCKS_DOM) == []
+        assert not errors, errors
+        pg.close()
+
+
 SD_CHECK = """() => {
   // the system dynamics view as drawn: no sensor, controller or agent; every loop that shows here (two of its
   // parts drawn as themselves) has its marker; every connector whose polarity is known shows it at its head;
