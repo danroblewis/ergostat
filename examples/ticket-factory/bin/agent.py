@@ -81,15 +81,20 @@ def _standin(job: str, key: str, f: dict, ws: Path, context: dict) -> dict:
                 fh.write(f"\nAnswering the review: {c.strip().splitlines()[0][:120]}\n")
         said = f"answered {len(context.get('comments_list', []))} comment(s) in {mine.name}"
     elif job == "ci":
-        empty = sorted(set(re.findall(r"test -s (\S+\.txt)", context.get("log", ""))))
+        named = set(re.findall(r"test -s \"?([\w./-]+\.txt)", context.get("log", "")))
+        empty = sorted(f for f in named if (ws / f).exists() and (ws / f).stat().st_size == 0)
+        if not empty and "test -s" in context.get("log", "") + _workflows(ws):   # none it names is empty: check all
+            empty = sorted(str(p.relative_to(ws)) for p in work.glob("*.txt") if p.stat().st_size == 0)
         for rel in empty:
-            p = ws / rel
-            if p.exists() and p.stat().st_size == 0:
-                p.write_text(f"Notes for {key}: filled in after CI said this file was empty.\n")
+            (ws / rel).write_text(f"Notes for {key}: filled in after CI said this file was empty.\n")
         said = "filled " + (", ".join(empty) or "nothing: the log named no empty file")
     else:
         raise ValueError(job)
     return {"result": said, "total_cost_usd": 0}
+
+
+def _workflows(ws: Path) -> str:
+    return "".join(p.read_text() for p in (ws / ".github" / "workflows").glob("*.y*ml"))
 
 
 def commit(ws: Path, message: str) -> str | None:

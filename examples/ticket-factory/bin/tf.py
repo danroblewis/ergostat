@@ -170,3 +170,14 @@ def throttled(what: str, every: str | None = None) -> bool:
     seen[what] = time.time()
     write_json(path, seen)
     return False
+
+
+def once(key: str, fn):
+    """fn(), done once for `key` and its result kept (run/once/): a step that waits (for an approval) after
+    the AI agent's work runs again without running the agent again."""
+    path = RUN / "once" / (re.sub(r"[^\w.-]+", "_", key)[:150] + ".json")
+    if path.exists():
+        return json.loads(path.read_text())
+    got = fn()
+    write_json(path, got)
+    return got

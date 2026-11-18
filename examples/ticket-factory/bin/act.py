@@ -12,9 +12,9 @@ a step that runs again finds its action done and takes the result.
     act.py deny ID ... [--why W]  deny them
     act.py gates                  every action's gate, as it stands here
 
-PLUG POINT (branch `workspaces`): ergostat's own named actions, with `auto` / `approve` / `deny` gates and
-the agent kept from pushing or calling gh, replace this file. The steps call act(name, ...) and stay as they
-are; the gates move from gates.conf into the model.
+PLUG POINT (branch `workspaces`, SPEC 12k): ergostat's `actions:` (a command template each, with `gate: auto |
+approve | deny`, approved with `ergostat actions ID --approve`) replace this file, one name for one name; the
+steps' act(name, ...) calls then ask ergostat, and the gates move from gates.conf into the model.
 """
 
 from __future__ import annotations
@@ -127,7 +127,7 @@ def main() -> int:
             record("action.approved", aid, {"approved_by": "owner"}, by="owner")
         else:
             record("action.denied", aid, {"why": a.why, "denied_by": "owner"}, by="owner")
-        print(f"{a.what}d {aid}")
+        print(f"{'approved' if a.what == 'approve' else 'denied'} {aid}")
     return 0
 
 

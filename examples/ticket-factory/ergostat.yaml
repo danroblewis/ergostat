@@ -29,8 +29,6 @@ systems:
     description: CI watched and fixed, merged, the issue Done
   oversight:
     description: the owner's approvals, stopped tickets, what it costs, the daily summary and the OKR
-  world:
-    description: stand-ins for the people outside the factory (the reviewers; offline, the owner's approvals)
 
 agents:
   owner:

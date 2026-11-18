@@ -10,7 +10,7 @@ def run(ticket):
     f = ticket["fields"]
     if throttled(f"ci:{ticket['id']}"):
         return Wait("looked a moment ago")
-    got = github.checks(f["repo"], f["pr"])
+    got = github.checks(f["repo"], f["pr"], since=f.get("ci_since"))
     if got["state"] == "success":
         return Move({"ci_green_at": now()})
     if got["state"] == "failure":

@@ -100,21 +100,29 @@ def pr(repo: str, number: int) -> dict:
                           "reviewDecision,mergeable,author"))
 
 
-def checks(repo: str, number: int) -> dict:
-    """CI on the pull request's head commit: {state: pending | success | failure | none, runs: [...]}."""
+def checks(repo: str, number: int, since: float | None = None) -> dict:
+    """CI on the pull request's head commit: {state: pending | success | failure | none, runs: [...]}. With
+    `since` (a time), only runs started or run again after it: a run asked to run again is pending until then."""
     if OFFLINE:
         return fakes.gh_checks(repo, number)
     head = pr(repo, number)
     runs = json.loads(_gh("run", "list", "-R", repo, "--commit", head["headRefOid"], "--json",
-                          "databaseId,status,conclusion,name,event"))
-    runs = [{"id": r["databaseId"], "status": r["status"], "conclusion": r["conclusion"], "name": r["name"]}
-            for r in runs if r.get("event") == "pull_request"]
+                          "databaseId,status,conclusion,name,event,updatedAt"))
+    runs = [{"id": r["databaseId"], "status": r["status"], "conclusion": r["conclusion"], "name": r["name"],
+             "updated": _when(r.get("updatedAt"))} for r in runs if r.get("event") == "pull_request"]
+    if since and runs and all(r["updated"] < since - 5 for r in runs):
+        return {"state": "pending", "runs": runs}
     if not runs:
         return {"state": "none", "runs": []}
     if any(r["status"] != "completed" for r in runs):
         return {"state": "pending", "runs": runs}
     bad = [r for r in runs if r["conclusion"] not in ("success", "skipped", "neutral")]
     return {"state": "failure" if bad else "success", "runs": runs}
+
+
+def _when(iso: str | None) -> float:
+    from datetime import datetime
+    return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp() if iso else 0.0
 
 
 def failed_log(repo: str, run_id: int) -> str:

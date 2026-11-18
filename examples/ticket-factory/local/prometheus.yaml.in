@@ -3,7 +3,7 @@
 # and the services' own counts into Prometheus; these sensors read the services' side back, so the record
 # (what the factory says it did) and the world (what Jira and GitHub say) can be compared.
 defaults:
-  system: world
+  system: oversight
 
 sources:
   prom:

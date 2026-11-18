@@ -81,7 +81,7 @@ takes the oldest ticket waiting in that state, runs the step's script (`steps/NA
 The two rework loops are drawn as such: a review that asks for a change sends the ticket back round
 `address` → `review`, and a failed CI run round `fix-ci` → `ci`.
 
-The **scripted teammate** (`bin/teammate.py`, in the `world` system) plays the reviewers here: it looks at a
+The **scripted teammate** (`bin/teammate.py`, `factory/world.yaml`, drawn in the review system) plays the reviewers here: it looks at a
 pull request `TEAMMATE_AFTER` after the review was asked for (so the review step re-pings first), asks for
 one change in a review, and approves with `/approve` once the factory has answered (one GitHub account cannot
 approve its own pull request). At work, `TEAMMATE=no`: your reviewers are people, and their real approvals
@@ -194,19 +194,43 @@ Try a what-if on `review-time` (a slower team) or `ci-fail-share`, and watch `pr
 
 ## Where ergostat's coming features plug in
 
-Two features are being built in ergostat; until they land, this example does their part itself, and each
-place is marked `PLUG POINT` in the code:
+Two features are being built in ergostat, on branches not yet merged (`leases`: SPEC §9.5; `workspaces`:
+SPEC §12k). Until they land, this example does their part itself, and each place is marked `PLUG POINT` in
+the code. Once they are on main:
 
-- **Leases and item-driven dispatch** (branch `leases`): ergostat will run a block once per item, under a
-  lease, with a pool size, `ERGOSTAT_ITEM` and `ERGOSTAT_LEASE` in its environment, and `ergostat.lease.*`
-  events. Today each step's block takes the oldest ticket itself, one per run (`max: 1`); `bin/step.py`
-  already takes the one ticket `ERGOSTAT_ITEM` names when it is set. Then a step file gains the dispatch keys
-  and loses `max: 1`, and two tickets can be worked at once.
-- **Workspaces and gated actions** (branch `workspaces`): ergostat's own AI working directories, a git
-  worktree pool, and named actions with `auto` / `approve` / `deny` gates that the agent cannot get round.
-  Today `bin/workspace.py` is the pool and `bin/act.py` the gates (the agent's own guard is Claude Code's
-  tool list in `bin/agent.py`: no `git push`, no `gh`, no network). Then `gates.conf` moves into the model,
-  and the steps' `act(...)` calls and the `branch` and `close` steps call ergostat instead.
+- **Leases and item-driven dispatch.** A step's block takes its tickets instead of polling for them:
+
+  ```yaml
+  blocks:
+    work:
+      type: ai
+      takes: {kind: ticket, at: branched, to: [worked, stopped]}   # a run per ticket that reaches branched
+      pool: 2                                                     # two tickets worked at once
+      lease: {ttl: 20m, attempts: 2}
+      run: python3 bin/step.py work --from branched               # no max:, no every:
+  ```
+
+  `bin/step.py` already takes only the ticket `ERGOSTAT_ITEM` names when it is set. Two things change with it:
+  a taken ticket is in the state `leased` while its run works (so the step's stock counts it only before and
+  after), and a ticket whose runs keep failing becomes a dead letter (`ergostat lease ITEM --redrive`) where
+  today it moves to `stopped`. A `Wait` (an approval, a reviewer, CI) becomes a nack put off and not counted:
+  `{"nack": {"why": "...", "after": "30s", "count": false}}`.
+- **Workspaces and gated actions.** A pool replaces `bin/workspace.py`, and the `branch` step goes:
+
+  ```yaml
+  workspaces:
+    code: {repo: ~/.cache/ergostat-ticket-factory/repos/danroblewis__orchestra-live-delivery, size: 3,
+           branch: "ergostat/{id}-{slug}", base: origin/main}
+  ```
+
+  and an AI block gets `workspace: code`, `tools: [...]` and the actions it may ask for, each with its gate
+  (`actions: {git-push: {run: ..., gate: approve}, open-pr: {...}}`), enforced by Claude Code's permissions and
+  OS sandbox rather than only by the tool list in `bin/agent.py`. ergostat's actions are asked for by an AI
+  session; here most outward acts are made by the steps' programs, so `gates.conf` maps onto the model's
+  `actions:` one name for one name (`github.push` → `git-push`, `github.open-pr` → `open-pr`, ...), approved
+  with `ergostat actions ID --approve` or on the item's page instead of `bin/act.py approve`, and promoted by
+  writing `gate: auto` in the model. ergostat also counts each class's approvals and says when one is ready to
+  promote.
 
 ## Costs measured
 
