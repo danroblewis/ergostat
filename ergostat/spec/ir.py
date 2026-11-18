@@ -720,6 +720,19 @@ class Spec:
     leases: dict[str, LeaseTerms] = field(default_factory=dict)        # tier → its lease terms, over the defaults (SPEC §9.5)
     uses: dict = field(default_factory=dict)                           # instance → its template, values, stand-ins (SPEC §2a)
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
+    _ix: object = field(default=None, init=False, repr=False, compare=False)   # its lookups (lookups.py), once asked
+
+    def lookups(self):
+        """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed."""
+        from .lookups import Lookups, stamp
+        ix = self._ix
+        if ix is None or ix.stamp != stamp(self):
+            ix = self._ix = Lookups(self)
+        return ix
+
+    def reindex(self) -> None:
+        """Forget the lookups: for code that changes a compiled model in place (a part's wiring, a goal's measure)."""
+        self._ix = None
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 
@@ -812,29 +825,31 @@ class Spec:
 
     def setter_of(self, auxiliary: str) -> Block | None:
         """The block that states an auxiliary's value each run, when one does."""
-        return next((b for b in self.blocks.values() if Ref("auxiliary", auxiliary) in b.targets()), None)
+        return self.lookups().first_target.get(Ref("auxiliary", auxiliary))
 
     def flows_of(self, stock: str) -> list[Flow]:
-        return [f for f in self.flows.values() if stock in (f.source, f.target)]
+        return list(self.lookups().flows_at.get(stock, ()))
 
     def actuator_of(self, flow: str) -> Block | None:
-        return next((b for b in self.blocks.values() if Ref("flow", flow) in b.targets()), None)
+        return self.lookups().first_target.get(Ref("flow", flow))
 
     def commanders_of(self, block: str) -> list[Block]:
         """The blocks that command ``block``: those that output to it, and those whose output it
         reads (the wire may be written on either end)."""
-        reads = {r.name for r in self.blocks[block].inputs.values() if r.kind == "block"}
-        return [b for b in self.blocks.values() if b.name != block and
-                (b.name in reads or any(t.kind == "block" and t.name == block for t in b.targets()))]
+        self.blocks[block]
+        ix = self.lookups()
+        names = (ix.reads_block.get(block, set()) | ix.sent_from.get(block, set())) - {block}
+        return ix.ordered(self, [n for n in names if n in self.blocks])
 
     def downstream(self, block: str) -> list[Block]:
         """Blocks that read ``block``'s output, and those it outputs to directly."""
-        out = {t.name for t in self.blocks[block].targets() if t.kind == "block"}
-        out |= {b.name for b in self.blocks.values() if any(r.kind == "block" and r.name == block for r in b.inputs.values())}
+        self.blocks[block]
+        ix = self.lookups()
+        out = ix.sends_to.get(block, set()) | ix.read_from.get(block, set())
         return [self.blocks[n] for n in sorted(out) if n in self.blocks]
 
     def agent_blocks(self, agent: str) -> list[Block]:
-        return [b for b in self.blocks.values() if b.agent == agent]
+        return list(self.lookups().by_agent.get(agent, ()))
 
     def role(self, b: Block) -> str:
         if b.role:
@@ -850,6 +865,14 @@ class Spec:
 
     def loop(self, goal: str) -> Loop:
         g = self.goals[goal]
+        ix = self.lookups()
+        lp = ix.loops.get(goal)
+        if lp is None:
+            lp = ix.loops[goal] = self._loop(goal, g)
+        return Loop(lp.goal, list(lp.sensors), list(lp.controllers), list(lp.actuators), list(lp.valves),
+                    list(lp.disturbances), list(lp.through))
+
+    def _loop(self, goal: str, g: Goal) -> Loop:
         what = g.of
         t = self.measured(what.kind).get(what.name)
         sensors = [str(s.ref) for s in (t.sensors.values() if t else [])]
@@ -857,8 +880,8 @@ class Spec:
         hit = lambda r: (r.kind == "flow" and what.kind != "auxiliary" and r.name in stock_flows) or \
             (r.kind == "auxiliary" and what.kind == "auxiliary" and r.name == what.name)        # noqa: E731
         # controllers: blocks reading the goal, or its stock or flow directly
-        ctl = [b for b in self.blocks.values()
-               if any((r.kind == "goal" and r.name == goal) or (r.kind == what.kind and r.name == what.name) for r in b.reads())]
+        ix = self.lookups()
+        ctl = ix.ordered(self, ix.read_by.get(("goal", goal), set()) | ix.read_by.get((what.kind, what.name), set()))
         reach: list[Block] = []
         seen: set[str] = set()
         todo = list(ctl)
@@ -888,10 +911,12 @@ class Spec:
 
     def readers(self, kind: str, name: str) -> list[Block]:
         """Blocks reading a stock (or a goal on it), a flow, or a goal."""
-        goals = {g for g, x in self.goals.items() if x.of == Ref(kind, name)} if kind in ("stock", "flow", "auxiliary") else set()
-        return [b for b in self.blocks.values() if any((r.kind == kind and r.name == name) or
-                                                         (r.kind == "goal" and (r.name in goals or (kind == "goal" and r.name == name)))
-                                                         for r in b.reads())]
+        ix = self.lookups()
+        names = set(ix.read_by.get((kind, name), ()))
+        if kind in ("stock", "flow", "auxiliary"):
+            for g in ix.goals_on.get((kind, name, None), ()):
+                names |= ix.read_by.get(("goal", g), set())
+        return ix.ordered(self, names)
 
     def long_way(self, ctl: list[Block], targets: set[str], what: Ref, toward: set[str] | None = None) -> list[str]:
         """A loop may close through other stocks and other systems: its controller files work into
@@ -903,11 +928,7 @@ class Spec:
         A controller that steps a setting closes this way too: it moves a two-way flow into a stock
         (the setting, which keeps its value between steps: integral action), and what the goal
         holds is driven by that stock."""
-        drives: dict[str, list[str]] = {}
-        for kind, table in (("flow", self.flows), ("auxiliary", self.auxiliaries)):
-            for f in table.values():
-                for r in f.driven_by:
-                    drives.setdefault(f"{r.kind}.{r.name}", []).append(f"{kind}.{f.name}")
+        drives = self.lookups().drives
         start = [f"block.{b.name}" for b in ctl]
         prev: dict[str, str | None] = {s: None for s in start}
         todo = list(start)
