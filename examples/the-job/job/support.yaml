@@ -80,8 +80,9 @@ blocks:
     goal: every-ticket-explained
     prompt: prompts/command-explainer.md
     run: python3 bin/prepare.py ticket-explain
+    takes: {kind: ticket, at: new}
+    pool: 2
     max: 1
-    every: 10s
     out: flow.explaining
   run-commands:
     type: person

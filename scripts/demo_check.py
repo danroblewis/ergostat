@@ -92,10 +92,14 @@ def items_as_before(url: str, spec) -> list[str]:
         evs = get(f"{url}/api/events?item={quote(it['id'], safe='')}&n=5000&runs=1")
         if any(e.get("patch") is not None or e.get("set") is not None for e in evs):
             continue
+        d = get(f"{url}/api/items/{quote(it['id'], safe='')}")
+        if d.get("refused"):                                  # refused on purpose (a late run's line, fenced)
+            continue
         was: dict = {}
         for e in evs:
-            was.update(e.get("data") or {})
-        now = get(f"{url}/api/items/{quote(it['id'], safe='')}")["fields"]
+            if not e["type"].startswith("ergostat.lease."):    # a lease is ergostat's own field (SPEC §9.5)
+                was.update(e.get("data") or {})
+        now = {k: v for k, v in d["fields"].items() if k != "lease"}
         if now != was:
             out.append(f"item {it['id']}: folds to {json.dumps(now)[:200]}, not {json.dumps(was)[:200]} as before")
     return out

@@ -142,7 +142,11 @@ on a small share of traffic, and the loop pulls it back. Nobody has to notice.
 **3. The research loop (hours, here minutes): the experiments.** Hypotheses are items
 (`hypothesis/3`: proposed → building → testing → kept or dropped). The `researcher` proposes while
 fewer than two wait (`ideas-ready`); the `developer` builds the oldest whenever the candidate slot
-is empty (`one-running`). `small-images` (bytes per megapixel served ≤ 20) is the target the whole
+is empty (`one-running`), taking it with a lease (ergostat's SPEC §9.5): a run of its own, holding
+the hypothesis while what it records about it (its session's lines too) renews the lease. A run that
+stops without submitting gives the hypothesis back, one silent past its TTL loses it (`stalled-runs`),
+and either way the next run carries on in the working copy left; after three attempts it is a dead
+letter (`dead-letters`, `ergostat lease`) that waits for the owner. `small-images` (bytes per megapixel served ≤ 20) is the target the whole
 lab chases: `ergostat explain small-images` traces it from the researcher, through the ideas and the
 experiment, to the release kept, the benchmark points it gains and the bytes served.
 

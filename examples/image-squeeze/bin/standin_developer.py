@@ -45,9 +45,9 @@ for n in notes:                                          # the owner's messages 
     print(json.dumps({"answer": {"message": n["id"], "says": "the stand-in builds what its notebook has for an idea; "
                                  f"noted, for whoever builds it next: {n['text'][:200]}"}}))
 me = os.environ.get("ERGOSTAT_BLOCK", "developer")
-h = lab.claim(me)
+h = lab.claim(me)                                        # the hypothesis ergostat leased to this run ($ERGOSTAT_ITEM)
 if h is None:
-    print("nothing to start", file=sys.stderr)
+    print("nothing to start: this run holds no lease on a hypothesis", file=sys.stderr)
     print(json.dumps({"out": "flow.started", "moved": 0}))
     raise SystemExit(0)
 if not h.get("resumed"):

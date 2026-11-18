@@ -213,8 +213,9 @@ blocks:
     goal: every-alert-drafted
     prompt: prompts/alert-companion.md
     run: python3 bin/prepare.py alert-comment
+    takes: {kind: alert, at: fired}
+    pool: 2
     max: 1
-    every: 8s
     out: flow.comment-drafting
   post-alert-comments:
     type: person
@@ -239,6 +240,7 @@ blocks:
     goal: actions-planned
     prompt: prompts/action-planner.md
     run: python3 bin/prepare.py action-plan
+    takes: {kind: action, at: open}
+    pool: 2
     max: 1
-    every: 10s
     out: flow.action-planning

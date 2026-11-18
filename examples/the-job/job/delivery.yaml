@@ -106,8 +106,9 @@ blocks:
     goal: stale-prs-nudged
     prompt: prompts/nudge-drafter.md
     run: python3 bin/prepare.py pr-nudge
+    takes: {kind: pr, at: stale}
+    pool: 2
     max: 1
-    every: 10s
     out: flow.nudges-drafted
   chase-reviewers:
     type: person

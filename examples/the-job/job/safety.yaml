@@ -180,8 +180,9 @@ blocks:
     goal: every-ramp-briefed
     prompt: prompts/ramp-researcher.md
     run: python3 bin/prepare.py ramp-brief
+    takes: {kind: ramp, at: pending}
+    pool: 2
     max: 1
-    every: 10s
     out: flow.researching
   approve-ramps:
     type: person
@@ -197,6 +198,7 @@ blocks:
     type: program
     goal: ci-upgrade-planned
     run: python3 bin/prepare.py ci-plan
+    takes: {kind: ci, at: released}
+    pool: 2
     max: 1
-    every: 5s
     out: flow.upgrade-planning

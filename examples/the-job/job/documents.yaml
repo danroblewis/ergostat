@@ -85,8 +85,9 @@ blocks:
     goal: every-doc-drafted
     prompt: prompts/doc-drafter.md
     run: python3 bin/prepare.py doc-draft
+    takes: {kind: doc, at: needed}
+    pool: 2
     max: 1
-    every: 10s
     out: flow.drafting
   persuade:
     type: person

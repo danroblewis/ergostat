@@ -48,6 +48,21 @@ claims:
     description: squeeze's own tests, as lab.py submit runs them
 
 auxiliaries:
+  stalled-runs:                       # the watchdog, drawn: runs silent past their lease's TTL (SPEC §9.5)
+    unit: runs
+    description: developer runs whose lease expired over the last day, silent past its TTL; each hypothesis went back to
+      be taken again (or, after three attempts, to the dead letters)
+    driven-by: +stock.building               # (the more being built, the more runs there are to go silent)
+    sensor:
+      builtin: ergostat.leases.expired@developer
+      every: 30s
+  dead-letters:
+    unit: hypotheses
+    description: hypotheses given up on after three attempts; each needs attention (ergostat lease ITEM --redrive)
+    driven-by: +auxiliary.stalled-runs       # (an attempt that went silent counts toward it; one given back does too)
+    sensor:
+      builtin: ergostat.leases.dead@hypothesis
+      every: 30s
   developer-contradicted:
     unit: share
     description: of the developer's claims ergostat checked over the last week, the share the record contradicted (its
@@ -89,7 +104,8 @@ stocks:
       every: 5s
   building:
     unit: hypotheses
-    description: claimed by the developer, not yet submitted (one left here by a session that stopped is picked up again)
+    description: being built by a developer run that holds its lease, not yet submitted (a run that stops or goes silent
+      loses its lease, and the hypothesis goes back to the ideas, to be taken again)
     sensor:
       items: hypothesis
       state: building
@@ -169,6 +185,15 @@ goals:
     hold: "<= 0.1"
     description: "what the developer says it did holds: at most one claim in ten contradicted. Nothing here acts on it
       (nothing makes an agent truthful); it is watched, and a contradicted claim needs attention"
+  no-stalls:
+    auxiliary: stalled-runs
+    hold: "<= 0"
+    description: no developer run goes silent past its lease. Nothing here commands it; ergostat's watchdog takes the
+      lease back and the hypothesis is taken again, and an expiry needs attention
+  no-dead-letters:
+    auxiliary: dead-letters
+    hold: "<= 0"
+    description: every idea is built or dropped; one given up on after its attempts waits for the owner
   one-running:
     stock: experiments
     hold: ">= 1"
@@ -188,9 +213,14 @@ blocks:
     out: flow.proposed
   developer:
     type: ai
-    goal: one-running
+    goal: one-running                       # while no experiment is running ...
+    takes:                                  # ... it takes the oldest idea: one run, holding a lease on it (SPEC §9.5),
+      kind: hypothesis                      # renewed by what the run records about it (its session's lines too); a run
+      at: proposed                          # that ends with it unsubmitted, or goes silent past its TTL, gives it back,
+      to: [testing, dropped]                # and after three attempts it is a dead letter (ergostat lease)
+    lease: {ttl: 25m}                       # a little over its timeout: an AI agent's default is 40m
     prompt: prompts/developer.md
-    run: bin/ai.sh developer                # takes the oldest idea (started follows the ideas waiting)
+    run: bin/ai.sh developer
     max: 1
     timeout: 20m
     out:

@@ -6,7 +6,7 @@ experiments' stocks and flows are counted from the record.
     lab.py propose TITLE --idea TEXT [--key KEY]
                                       file a hypothesis
     lab.py history                    every hypothesis so far, and what its experiment measured
-    lab.py claim                      take the oldest proposed hypothesis (or the one left half built): a working copy, and the idea
+    lab.py claim                      the hypothesis ergostat leased to this run ($ERGOSTAT_ITEM): a working copy, and the idea
     lab.py test HYPOTHESIS            run squeeze's tests in that hypothesis's working copy
     lab.py bench HYPOTHESIS           run the benchmark on it: cases met, gained and lost against production
     lab.py submit HYPOTHESIS          test the working copy; if its tests pass, it becomes the candidate
@@ -143,37 +143,34 @@ def history() -> list[dict]:
 
 
 def claim(by: str) -> dict | None:
+    """The hypothesis ergostat leased to this run ($ERGOSTAT_ITEM: the developer takes proposed hypotheses, one run each,
+    while no experiment is running; lab.yaml) and a working copy of squeeze for it: its own branch, or the one an
+    attempt before left (that attempt's lease expired, or it gave the hypothesis back), carried on from."""
+    hid = os.environ.get("ERGOSTAT_ITEM")
+    if not hid or not hid.startswith("hypothesis/"):
+        return None                                           # only a run that holds a lease on a hypothesis builds one
     init()
-    with lock():
-        if items("hypothesis", "testing"):
-            return None                                       # one experiment at a time: there is one candidate slot
-        half = items("hypothesis", "building")               # a session that ended before submitting: carry on with it
-        if half:
-            h = half[0]
-            n = h["id"].split("/")[1]
-            wd = WORK / f"hypothesis-{n}"
-            if wd.exists():
-                record("hypothesis.resumed", h["id"], {"developer": by}, by)
-                f = h["fields"]
-                return {"hypothesis": h["id"], "title": f.get("title"), "idea": f.get("idea"), "key": f.get("key"),
-                        "workdir": str(wd), "resumed": True,
-                        "how": f"a session before you started this and did not submit it: its changes are in {wd}. Finish them; "
-                               f"bin/py bin/lab.py test {h['id']} runs the tests; then bin/py bin/lab.py submit {h['id']}"}
-        waiting = sorted(items("hypothesis", "proposed"), key=lambda h: h["first"])
-        if not waiting:
-            return None
-        h = waiting[0]
-        n = h["id"].split("/")[1]
-        branch, wd = f"hypothesis-{n}", WORK / f"hypothesis-{n}"
-        if wd.exists():
-            git("worktree", "remove", "--force", str(wd), check=False)
-        git("branch", "-D", branch, check=False)
-        git("worktree", "add", "-q", "-b", branch, str(wd), "main")
-        record("hypothesis.started", h["id"], {"developer": by, "branch": branch}, by)
+    got = [h for h in items("hypothesis") if h["id"] == hid]
+    if not got:
+        return None
+    h = got[0]
+    n = hid.split("/")[1]
+    branch, wd = f"hypothesis-{n}", WORK / f"hypothesis-{n}"
+    resumed = wd.exists()
+    if not resumed:
+        with lock():                                          # one git at a time in squeeze's repository
+            git("branch", "-D", branch, check=False)
+            git("worktree", "add", "-q", "-b", branch, str(wd), "main")
+    record("hypothesis.started", hid, {"developer": by, "branch": branch, **({"resumed": True} if resumed else {})}, by)
     f = h["fields"]
-    return {"hypothesis": h["id"], "title": f.get("title"), "idea": f.get("idea"), "key": f.get("key"), "workdir": str(wd),
-            "how": f"change squeeze.py (and test_squeeze.py) in {wd}; bin/py bin/lab.py test {h['id']} runs its tests; "
-                   f"then bin/py bin/lab.py submit {h['id']}"}
+    out = {"hypothesis": hid, "title": f.get("title"), "idea": f.get("idea"), "key": f.get("key"), "workdir": str(wd),
+           "how": f"change squeeze.py (and test_squeeze.py) in {wd}; bin/py bin/lab.py test {hid} runs its tests; "
+                  f"then bin/py bin/lab.py submit {hid}"}
+    if resumed:
+        out.update({"resumed": True, "how": f"an attempt before yours started this and did not submit it: its changes are in "
+                                            f"{wd}. Finish them; bin/py bin/lab.py test {hid} runs the tests; then "
+                                            f"bin/py bin/lab.py submit {hid}"})
+    return out
 
 
 def submit(hid: str, note: str, by: str) -> str:
@@ -490,7 +487,7 @@ def main() -> int:
         say(history())
     elif a.what == "claim":
         h = claim(a.by)
-        say(h if h else "nothing to start: no hypothesis is waiting, or an experiment is already running")
+        say(h if h else "nothing to start: this run holds no lease on a hypothesis ($ERGOSTAT_ITEM)")
         print(json.dumps({"out": "flow.started", "moved": 1 if h and not h.get("resumed") else 0}))
     elif a.what == "test":
         wd = WORK / f"hypothesis-{(a.arg or '').split('/')[-1]}"
