@@ -176,6 +176,16 @@ The control diagram is the product's main view. Conventions:
   smallest region holding it, dashed, and its panel says so ("In the block diagram: inside P_service");
   a block, which the dynamics view does not draw, by what it moves. A click chooses what its shape is,
   Shift or a box adds, a loop chooses its members, the background or Escape lets go.
+- **Parts put by hand.** In the Dynamics and the Blocks view alike, a part dragged (a block, a summing
+  junction, a sensor, a stock, anything drawn) moves, with the others chosen if it is one of them; an open
+  system dragged by its top (its outline, or its frame in the block diagram) moves with everything in it.
+  While they move their lines keep their last shape, greyed, and take their new way from libavoid; let go,
+  they are pinned there and only the lines are routed again, with no new layout. A pin is kept in the
+  browser per project, view, system drawn and focus (the Blocks view's apart from the Dynamics view's),
+  from the corner of the frame it is in, so it survives a reload and a system opened or closed; a
+  system's box and its open outline (or frame) share one. A pin clicked, or "Unpin all parts" (⋯), lets
+  the layout place it again. The Blocks view is laid out by its own ELK graph (`blocks.js`); the pins
+  are applied to that layout afterwards, as to the Dynamics view's (`places.js`).
 - **Two views at once.** A grip on each edge of the canvas, dragged inward, reveals a second pane
   behind a separator (left or right: side by side; top or bottom: stacked); the separator resizes it,
   a double-click halves it, dragged back to the edge it closes; the edge and size are remembered in the
