@@ -5,7 +5,7 @@
    The second pane is the page itself in a frame (?pane=1): a whole diagram with its own pan, zoom, open
    systems and view (by default the other one), its own Dynamics, Blocks and Wiring switch, and nothing
    of the header. The panes share what is chosen (model parts, interact.js) and say what is pointed at,
-   by message: a shape pointed at in one lights what it is, lightly, in the other; a click chooses it in
+   by message: a shape pointed at in one lights what it is, boldly, in the other; a click chooses it in
    both. While the split is open, the side panel is drawn over the pane clicked in, so the diagrams keep
    the whole width. Narrower than a tablet, there is no split. */
 "use strict";
@@ -47,6 +47,11 @@ window.addEventListener("message", (ev) => {
   } else if (m.type === "hover") {
     S.xhover = new Set(m.parts || []);
     markChosen();
+  } else if (m.type === "colours") {                  // colour by correspondence, turned on or off there (colours.js)
+    CORR.on = !!m.on;
+    corrApply();
+  } else if (m.type === "colours-held") {
+    corrHold(!!m.held, false);
   } else if (m.type === "hello" && !PANE) {
     peerSay({ type: "sel", parts: [...S.sel] });
   } else if (m.type === "go" && !PANE) {
