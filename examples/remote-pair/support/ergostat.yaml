@@ -10,6 +10,14 @@ remotes:
     every: 10s
     description: the incident desk, run by the on-call team's ergostat
 
+items:
+  ticket:
+    id: ticket/*
+    states: [waiting, answered]
+    on:
+      ticket.filed: waiting
+      ticket.answered: answered
+
 stocks:
   tickets:
     unit: tickets
@@ -39,11 +47,17 @@ blocks:
     type: program
     every: 3s
     in: stock.incidents-open
-    run: mkdir -p inbox; n=$(python3 -c "import json,sys; v=json.load(sys.stdin)['inputs'].get('stock.incidents-open') or 0; print(int(v)//2)"); i=0; while [ $i -lt $n ]; do mktemp inbox/t.XXXXXX > /dev/null; i=$((i+1)); done; echo $n
+    run: >-
+      mkdir -p inbox; n=$(python3 -c "import json,sys; v=json.load(sys.stdin)['inputs'].get('stock.incidents-open') or 0; print(int(v)//2)");
+      i=0; while [ $i -lt $n ]; do f=$(mktemp inbox/t.XXXXXX); echo "{\"event\": \"ticket.filed\", \"item\": \"ticket/${f#inbox/}\"}"; i=$((i+1)); done;
+      echo "{\"moved\": $n}"
     out: flow.filed
   desk:                        # answers tickets while tickets-short is off
     type: program
     goal: tickets-short
     until: "<= 6"
-    run: ls inbox | head -3 > .batch; (cd inbox && xargs rm -f < ../.batch); wc -l < .batch
+    run: >-
+      ls inbox | head -3 > .batch;
+      for f in $(cat .batch); do rm -f "inbox/$f"; echo "{\"event\": \"ticket.answered\", \"item\": \"ticket/$f\"}"; done;
+      echo "{\"moved\": $(wc -l < .batch | tr -d ' ')}"
     out: flow.answered
