@@ -26,7 +26,7 @@ STEP = 1 / 30                      # factory hours: the world moves in steps of 
 
 # The owner's directions (d1): when each is given (factory hours, moved to the owner's next time at the desk) and
 # how many items it brings.
-DIRECTIONS = [(1.0, 150), (5.5 * 24, 110), (12 * 24 + 2, 160), (19 * 24 + 1, 100), (25 * 24 + 3, 130)]
+DIRECTIONS = [(8.55, 150), (5.5 * 24, 110), (12 * 24 + 2, 160), (19 * 24 + 1, 100), (25 * 24 + 3, 130)]
 
 # Quality: the share of a direction's work that is wrong, against the direction's age (RM1), before learning.
 PEAK, FLOOR, TAU_Q = 0.55, 0.04, 16.0
@@ -264,6 +264,7 @@ class Plant:
             # code inflation: each change the AI workers land teaches the next to write a little more (their
             # recipes, examples and standing rules unrevised); consolidation revises them (07 LP10)
             code["inflation"] = min(1.0, code["inflation"] + 0.002)
+        it["depth_checked"] = depth
         if "landed" not in it:                                   # delivered for the first time
             self.count(f"accepted-{it['origin']}")
         it["landed"] = self.t
@@ -519,8 +520,8 @@ def normal(u1: float, u2: float) -> float:
 
 
 def fresh(seed: int = 1, policy: str = "designed") -> dict:
-    """A new world: the factory at the start of the record, the first direction an hour away."""
-    return {"seed": seed, "policy": policy, "t": 0.0, "n": 0, "n_runs": 0, "items": {}, "runs": {}, "hidden": [],
+    """A new world: the factory at half past eight on a Monday morning, the owner at the desk with a first direction."""
+    return {"seed": seed, "policy": policy, "t": 8.5, "t_start": 8.5, "n": 0, "n_runs": 0, "items": {}, "runs": {}, "hidden": [],
             "dir": {"k": -1}, "dirs": [], "incidents": [],
             "code": {"lines": INITIAL_CODE, "low": 0, "features": INITIAL_FEATURES, "inflation": 0.0},
             "window": {"on": policy.startswith("harness"), "tokens": 128_000 if policy == "harness" else 0, "last_cut": None},

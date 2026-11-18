@@ -34,7 +34,7 @@ def load(runs: Path, pol: str, seed: int) -> dict:
 
 def per(r: dict, name: str, width: int, days: float) -> tuple[list[float], list[float]]:
     xs, ys = [], []
-    for b in range(0, int(days * 24), width):
+    for b in range(0, int(days * 24) + 8, width):
         xs.append((b + width / 2) / 24)
         ys.append(sum(r["counts"].get(str(h), {}).get(name, 0) for h in range(b, b + width)))
     return xs, ys

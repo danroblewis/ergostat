@@ -1,0 +1,227 @@
+# The work (05 §1): items flowing through a leased work queue (07 §6's template) to a pool of AI-agent workers the
+# owner caps. Proposed work is admitted or declined at the door (LP6); ready work is pulled by the dispatcher up to
+# the work-in-progress limit (LP3), scheduled on the owner's presence (S2); a run that falls silent past its lease
+# is expired and its item requeued, and after three attempts it goes to the dead-letter stock (LP5). The owner's
+# directions arrive as a disturbance (d1).
+defaults:
+  system: work
+
+items:
+  work:
+    id: work/*
+    description: an item of work - the owner's direction, a proposal the factory made itself, or a removal
+    states: [proposed, ready, leased, reported, accepted, declined, dead-letter]
+    on:
+      work.directed: ready
+      work.admitted: ready
+      work.declined: declined
+      work.resurrected: ready
+      work.leased: leased
+      work.expired: ready
+      work.dead-lettered: dead-letter
+      work.redriven: ready
+      work.reported: reported
+      work.rejected: ready
+      work.accepted: accepted
+      work.reopened: ready
+    show: [origin, direction, via, depth, attempt, lines]
+
+parameters:
+  run-time:
+    value: 45s                        # 1.5 factory hours: a run's median length (world/plant.py)
+    description: how long a run takes, from its lease to its report
+    estimate: true
+  proposals-per-item:
+    value: 0.5
+    unit: share
+    description: proposals made per item landed (R5 - a page, a test, a document, a further idea)
+    estimate: true
+
+stocks:
+  proposed-work:
+    unit: items
+    description: work the factory proposed itself, waiting at the door (u10)
+    sensor:
+      items: work
+      state: proposed
+      every: 5s
+  ready-work:
+    unit: items
+    description: work to do - admitted, directed, sent back or reopened, waiting for a worker (CV3)
+    sensor:
+      items: work
+      state: ready
+      every: 5s
+  runs-in-flight:
+    unit: items
+    description: items leased to a worker and running (each run one item)
+    sensor:
+      items: work
+      state: leased
+      every: 5s
+  dead-letter:
+    unit: items
+    description: items whose runs failed three times, waiting for the diagnoser
+    sensor:
+      items: work
+      state: dead-letter
+      every: 5s
+  declined-work:
+    unit: items
+    description: proposals declined at the door - kept and reviewed, never dropped (LP6)
+    sensor:
+      items: work
+      state: declined
+      every: 10s
+
+auxiliaries:
+  pool-cap:
+    unit: items
+    exogenous: true                   # the owner's one lever on throughput (07 §1)
+    description: the owner's cap on the AI-agent pool
+    sensor:
+      run: python3 world/read.py pool-cap
+      every: 1m
+
+flows:
+  directed:
+    to: ready-work
+    description: the owner's directions, a step of new work (d1) - never declined
+    sensor:
+      run: python3 bin/watch.py       # the tracker's stream: every item event, and the directions per hour
+      every: 3s
+  proposed:
+    to: proposed-work
+    description: proposals made as work lands (R5)
+    driven-by:
+      - cause: +flow.accepted
+        instant: true                 # a worker proposes its follow-ups as its work lands (a coflow)
+    equation: proposals-per-item * flow.accepted
+    sensor:
+      items: work
+      entering: proposed
+      over: 10m
+  admitted:
+    from: proposed-work
+    to: ready-work
+    sensor:
+      items: work
+      entering: ready
+      where:
+        via: admitted
+      over: 10m
+  declined:
+    from: proposed-work
+    to: declined-work
+    sensor:
+      items: work
+      entering: declined
+      over: 10m
+  resurrected:
+    from: declined-work
+    to: ready-work
+    description: what the owner takes back from the declined (one of LP6's two error signals)
+    driven-by: [+stock.declined-work, +auxiliary.owner-present]
+    sensor:
+      items: work
+      entering: ready
+      where:
+        via: resurrected
+      over: 10m
+  leased:
+    from: ready-work
+    to: runs-in-flight
+    description: dispatch (u1) - a ready item leased to a worker
+    sensor:
+      items: work
+      entering: leased
+      over: 10m
+  expired:
+    from: runs-in-flight
+    to: ready-work
+    description: a run silent past its lease - expired, its item requeued (LP5)
+    sensor:
+      items: work
+      entering: ready
+      where:
+        via: expired
+      over: 10m
+  dead-lettered:
+    from: runs-in-flight
+    to: dead-letter
+    sensor:
+      items: work
+      entering: dead-letter
+      over: 10m
+  redriven:
+    from: dead-letter
+    to: ready-work
+    description: redriven with the diagnoser's hints
+    sensor:
+      items: work
+      entering: ready
+      where:
+        via: redriven
+      over: 10m
+
+goals:
+  work-waiting:
+    stock: ready-work
+    hold: "<= 0"
+    description: throughput maximised - work in progress held at its limit whenever work waits (active constraint control, 07 §1)
+  runs-within-limit:
+    stock: runs-in-flight
+    hold: "<= 6"
+    description: S2 - runs in flight within the owner's cap, half of it for AI agents while the owner is away (set by wip-schedule)
+  proposals-decided:
+    stock: proposed-work
+    hold: "<= 0"
+    description: every proposal admitted or declined at the door (LP6)
+  stalls-noticed:
+    auxiliary: oldest-silence
+    hold: "<= 0.7"
+    critical: true
+    description: a stalled run noticed within its tier's lease plus a sample - 40 minutes for an AI agent (CV5, LP5)
+
+blocks:
+  wip-schedule:
+    type: expr                        # S2 scheduled on the owner's presence (d2): the cap present, half of it away
+    in:
+      cap: auxiliary.pool-cap
+      present: auxiliary.owner-present
+    expr: cap * (0.5 + 0.5 * present)
+    out: goal.runs-within-limit
+  dispatcher:
+    type: program
+    description: LP3 - a WIP-capped pull of the ordered queue (LP6's order) whenever a slot is free; the brief rendered from the master recipe (u2)
+    goal: work-waiting
+    run: python3 bin/coord.py dispatch
+    in: [goal.runs-within-limit]
+    every: 2s
+    out: flow.leased
+  worker-pool:
+    type: external
+    agent: ai-agents
+    description: the workers, actuators with inner loops of their own (a servo) - each run reports its item done, or falls silent
+    in: [+stock.runs-in-flight]
+    out: flow.reported
+  watchdog:
+    type: program
+    description: LP5, on the program tier and outside the workers - leases of 40 minutes renewed by any event a run causes; expiry, three attempts, the dead-letter stock and its diagnoser
+    run: python3 bin/coord.py watchdog
+    in: [goal.stalls-noticed]
+    every: 2s
+    out:
+      expired: flow.expired
+      dead: flow.dead-lettered
+      redriven: flow.redriven
+  admission:
+    type: program
+    description: LP6 at the door - a proposal's estimated value against a bar that rises with the work waiting; only fixes and removals in consolidation
+    goal: proposals-decided
+    run: python3 bin/coord.py admission
+    in: [+stock.ready-work, -stock.consolidating]
+    every: 2s
+    out:
+      admitted: flow.admitted
+      declined: flow.declined

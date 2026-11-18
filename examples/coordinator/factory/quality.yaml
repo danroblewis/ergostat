@@ -1,0 +1,188 @@
+# The rework cycle (03 R1) and the quality cascade that acts on it (07 LP1 inside LP2). A run reports its item done;
+# the acceptance check (LP1) chooses its depth per item - claims, tests with their exit status read, inspection
+# against the acceptance criteria, deep review by an AI agent, a hold point for the owner - the least whose expected
+# escapes fall under h*, and accepts or sends it back. What it lets through wrong is undiscovered rework, found hours
+# later (RM2) and reopened. Once a factory day, LP2 moves h* by integral action on the escaped rework of the week.
+defaults:
+  system: quality
+
+parameters:
+  discovery-time:
+    value: 330s                       # about 11 factory hours: the mean age of landed rework when found (RM2)
+    description: how long landed rework stays undiscovered, on average
+    estimate: true
+
+stocks:
+  checking-habit:
+    unit: share
+    description: B4's verification discipline (03) - the share of test runs whose exit status the acceptance check reads; the harness's memory, restored by an incident and eroding; under the design held at 1 by structure (H1), not memory
+    sensor:
+      run: python3 world/read.py habit
+      every: 10s
+  reported-done:
+    unit: items
+    description: work a run reported done, being checked (the acceptance step)
+    sensor:
+      items: work
+      state: reported
+      every: 5s
+  accepted-work:
+    unit: items
+    description: work accepted and landed on the mainline
+    sensor:
+      items: work
+      state: accepted
+      every: 10s
+  undiscovered-rework:
+    unit: items
+    description: landed work that is wrong and not yet found - unobservable in a real factory (x̂4 estimates it); read here from the simulated world's truth, so the estimate can be judged
+    sensor:
+      run: python3 world/read.py undiscovered
+      every: 5s
+
+auxiliaries:
+  expected-hidden-rework:
+    unit: share
+    description: x̂4 - the hidden rework the observer expects in the work accepted over the last factory day, at the depth each item was checked (06 §2)
+    driven-by: [-auxiliary.direction-age, -stock.durable-knowledge]
+    sensor:
+      run: python3 world/read.py x4
+      every: 5s
+  escaped-rework:
+    unit: share
+    description: CV1 - of the work accepted over the last week, the share found wrong after it landed
+    driven-by: [+stock.undiscovered-rework]
+    sensor:
+      run: python3 world/read.py cv1
+      every: 10s
+  caught-before-landing:
+    unit: share
+    description: CV2 - of the rework found over the last week, the share found at or before acceptance (monitored; the cascade holds it through CV1)
+    driven-by: [-auxiliary.expected-hidden-rework]
+    sensor:
+      run: python3 world/read.py cv2
+      every: 10s
+  unread-test-runs:
+    unit: share
+    description: of the test runs over the last factory day, the share whose exit status was not read (RM5; H1 forbids any)
+    driven-by: [-stock.checking-habit]
+    equation: 1 - stock.checking-habit
+    sensor:
+      run: python3 world/read.py hidden
+      every: 10s
+  direction-age:
+    unit: factory-hours
+    exogenous: true                   # d1: the owner's directions come from outside
+    description: factory hours since the owner's latest direction (the gain schedule's variable, 07 LP1)
+    sensor:
+      run: python3 world/read.py direction-age
+      every: 10s
+
+flows:
+  habit-changed:
+    to: checking-habit
+    two-way: true                     # restored by an incident, eroded by time and pressure
+    description: the checking habit moved by the acceptance check's own practice
+  reported:
+    from: runs-in-flight
+    to: reported-done
+    description: a run reports its item done (a stalled run never does)
+    driven-by: [+stock.runs-in-flight]
+    equation: stock.runs-in-flight / run-time
+    sensor:
+      items: work
+      entering: reported
+      over: 10m
+  accepted:
+    from: reported-done
+    to: accepted-work
+    description: accepted and merged (u3, u4)
+    sensor:
+      items: work
+      entering: accepted
+      over: 10m
+  rejected:
+    from: reported-done
+    to: ready-work
+    description: sent back by the acceptance check - rework caught before it landed (CV2)
+    sensor:
+      items: work
+      entering: ready
+      where:
+        via: rejected
+      over: 10m
+  reopened:
+    from: accepted-work
+    to: ready-work
+    description: rework found after landing - by a red test, by later work, or by the owner (uncontrollable)
+    driven-by:
+      - cause: +flow.rework-found
+        instant: true                 # an item found wrong is reopened as it is found
+      - +stock.accepted-work
+    equation: MIN(flow.rework-found, stock.accepted-work / discovery-time)
+    sensor:
+      items: work
+      entering: ready
+      where:
+        via: reopened
+      over: 10m
+  escaped:
+    to: undiscovered-rework
+    description: the wrong share of what is accepted - a coflow of acceptance; the observer's x̂4 is that share if it is calibrated (k = 1, 07 LP2)
+    driven-by:
+      - cause: +flow.accepted
+        instant: true
+      - +auxiliary.expected-hidden-rework
+    equation: flow.accepted * auxiliary.expected-hidden-rework
+    sensor:
+      changes: rises
+      over: 10m
+      every: 5s
+  rework-found:
+    from: undiscovered-rework
+    description: landed rework found, as the reopens are
+    driven-by: [+stock.undiscovered-rework]
+    equation: stock.undiscovered-rework / discovery-time
+    sensor:
+      changes: falls
+      over: 10m
+      every: 5s
+
+goals:
+  hidden-rework-allowed:
+    auxiliary: expected-hidden-rework
+    hold: "<= 0.1"
+    description: LP1 - the hidden rework expected in what is accepted at most h* (its setpoint set by LP2)
+  escaped-rework-low:
+    auxiliary: escaped-rework
+    hold: "<= 0.1"
+    tolerance: 0.02
+    description: LP2 - at most one accepted item in ten later found not done as meant (05 §3, objective 1); a deadband of 0.02
+  tests-read:
+    auxiliary: unread-test-runs
+    hold: "<= 0"
+    critical: true
+    description: H1 - no merge unless the tests' exit status was read, and is zero, by a check independent of the worker
+
+blocks:
+  acceptance:
+    type: program
+    description: LP1, a switching decision table on the rule tier - the least depth whose expected escapes fall under h*, one deeper with the owner away, never below the tests read (H1); a hold point only with room under S5, else deep review; questions only where a wrong act cannot be undone (u7)
+    run: python3 bin/coord.py acceptance
+    in: [goal.hidden-rework-allowed, goal.tests-read, goal.blockers-within-budget, -auxiliary.direction-age, +auxiliary.owner-present, +stock.reported-done]
+    every: 2s
+    out:
+      accepted: flow.accepted
+      rejected: flow.rejected
+      asked: flow.asked
+      habit: flow.habit-changed
+  quality-integrator:
+    type: program
+    description: LP2, integral action run to run (program tier) - once a factory day, h* moves by -Ki times CV1's error outside a deadband, clamped to 0.02 to 0.3, not while LP1 is saturated or the week holds under ten acceptances
+    run: python3 bin/coord.py quality
+    in: [goal.escaped-rework-low.error]
+    every: 12m                        # a factory day
+    gain: 0.125                       # Ki: an eighth of the error a day (SIMC, 07 LP2)
+    deadband: 0.02
+    limits: [0.02, 0.3]
+    out: goal.hidden-rework-allowed

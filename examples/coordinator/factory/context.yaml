@@ -1,0 +1,118 @@
+# The observer (06): the Coordinator's estimate of the plant, held in context stocks. The working context is a
+# window - under the harness, the Coordinator's own, filled by the work and cut by the harness when nearly full
+# (RM9's sawtooth); under the design the Coordinator keeps its estimate in the record, which is never cut, and what
+# fills is each worker's own window, shown here as the largest of those running. Durable knowledge holds the
+# corrections written down; a correction not yet written lives only in the window, and a cut takes it (B9). LP9
+# writes each one down within the hour and retires it once a check that holds has absorbed it, or its direction's
+# work is done (06 §4.4). CV5, the age of the oldest silence among the runs, is the perceived state of the work (x̂1).
+defaults:
+  system: observer
+
+parameters:
+  corrections-per-find:
+    value: 0.4
+    unit: corrections/items
+    description: of the landed rework found, the share the owner finds and corrects (a coflow)
+    estimate: true
+
+stocks:
+  working-context:
+    unit: tokens
+    description: the window - the Coordinator's under the harness; the largest running worker's under the design
+    limit: 965000                     # where the harness cuts (H5)
+    sensor:
+      run: python3 world/read.py window
+      every: 5s
+  unrecorded-corrections:
+    unit: corrections
+    description: corrections the owner made that are held only in the window, not yet written down (LP9's CV)
+    sensor:
+      run: python3 world/read.py held
+      every: 5s
+  durable-knowledge:
+    unit: corrections
+    description: standing corrections written down and in force (memory, rules, the record's correction items)
+    sensor:
+      run: python3 world/read.py rules
+      every: 5s
+
+auxiliaries:
+  oldest-silence:
+    unit: factory-hours
+    description: CV5 (x̂1) - the longest any running run has gone without an event it caused (a transcript line, an item event)
+    driven-by: [+stock.runs-in-flight]
+    sensor:
+      run: python3 world/read.py oldest-silence
+      every: 2s
+
+flows:
+  context-filled:
+    to: working-context
+    description: reading, reports, the owner's messages, re-reading - at a rate the work sets
+    driven-by: [+stock.runs-in-flight, +auxiliary.owner-present]
+    sensor:
+      changes: rises
+      over: 10m
+      every: 5s
+  compacted:
+    from: working-context
+    description: the harness's cut - nothing until nearly full, then most of it at once (B6), and 70k re-injected
+    sensor:
+      changes: falls
+      over: 10m
+      every: 5s
+  corrected:
+    to: unrecorded-corrections
+    description: the owner's corrections, as rework the owner finds is reopened
+    driven-by:
+      - cause: +flow.rework-found
+        instant: true                 # the owner corrects as the owner finds it
+    equation: corrections-per-find * flow.rework-found
+    sensor:
+      run: python3 world/read.py rate:corrections
+      every: 10s
+  externalised:
+    from: unrecorded-corrections
+    to: durable-knowledge
+    description: written down (u6)
+  lost-at-cut:
+    from: unrecorded-corrections
+    description: held only in the window, gone with the cut (B9's leak)
+    driven-by:
+      - cause: +flow.compacted
+        instant: true
+      - +stock.unrecorded-corrections
+    sensor:
+      run: python3 world/read.py rate:lost-at-cut
+      every: 10s
+  retired:
+    from: durable-knowledge
+    description: absorbed into a check that has held, or dormant once its direction's work is done (06 §4.4)
+
+goals:
+  window-below-cut:
+    stock: working-context
+    hold: "<= 965000"
+    description: H5 - the window's physical limit, held by the harness's cut (B6), not by ergostat
+  knowledge-recorded:
+    stock: unrecorded-corrections
+    hold: "<= 0"
+    description: LP9 - no correction left only in the window (none older than an hour, 07)
+
+blocks:
+  externaliser:
+    type: program
+    description: LP9 - each correction written down within the hour and used in briefs at once, marked uncertain; one absorbed into a check that held, or dormant, retired by ergostat itself
+    goal: knowledge-recorded
+    run: python3 bin/coord.py externalise
+    in: [+stock.durable-knowledge]
+    every: 5s
+    out:
+      externalised: flow.externalised
+      retired: flow.retired
+  harness-cut:
+    type: external
+    agent: harness
+    description: the harness's compaction (H5) - a relay at the actuator that ergostat does not set
+    in: [goal.window-below-cut]
+    out: flow.compacted

@@ -45,14 +45,16 @@ def snapshot(p: Plant) -> dict:
 def run(policy: str, days: float = 30, seed: int = 1) -> dict:
     p = Plant(fresh(seed, policy))
     hours: list[dict] = []
-    end = days * 24
+    last = int(p.t)
+    end = p.s["t_start"] + days * 24
     while p.t < end - 1e-9:
         p.step(STEP)
         for loop, (period, *_laws) in P.LOOPS.items():
             if P.due(p, loop, period):
                 P.law(policy, loop)(p)
         p.s["feed"].clear()
-        if int(p.t + 1e-9) > len(hours) - 1 and abs(p.t - round(p.t)) < STEP / 2:
+        if int(p.t + 1e-9) > last:                     # each factory hour, on the hour
+            last = int(p.t + 1e-9)
             hours.append(snapshot(p))
     return {"policy": policy, "seed": seed, "days": days, "hours": hours, "counts": p.s["m"], "log": p.s["log"],
             "dirs": p.s["dirs"], "corrections": p.s["corr"]}
