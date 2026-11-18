@@ -240,3 +240,11 @@ def test_compact_reindex_folds_it_again(tmp_path, capsys):
     p.events.add("ticket.opened", item="ticket/1", at=T0)
     assert main(["-C", str(tmp_path), "compact", "--reindex"]) == 0
     assert "1 items folded" in capsys.readouterr().out
+
+
+def test_storage_items_idle_is_read_and_checked():
+    from ergostat.storage import parse
+    problems: list[str] = []
+    assert parse({"items": {"idle": "2h"}}, problems).item_idle == 7200 and not problems
+    parse({"items": {"kept": 1}}, problems)
+    assert problems and "unknown key" in problems[0]

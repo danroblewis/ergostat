@@ -36,16 +36,19 @@ RUN_FOR = 86400.0             # a run started longer ago than this (or its timeo
 
 # ---- the work: items, and the runs working on them
 
-def done_states(p, spec: Spec, kind, items=None) -> set[str]:
+def done_states(p, spec: Spec, kind, items=None, left=None, reached=None) -> set[str]:
     """The states an item of this kind is finished in: as ``messages: {done:}`` says, else its last state and each
     state after the first that no item has left while some item reached a state written after it (a state items
-    rest in while others go on is waiting, not finished: a review briefed, waiting for its reviewer)."""
+    rest in while others go on is waiting, not finished: a review briefed, waiting for its reviewer). What items
+    left and reached: from ``items``' moves, unless given."""
     if kind.name in spec.messages.done:
         return set(spec.messages.done[kind.name])
     if not kind.states:
         return set()
-    left = {mv["from"] for it in items or [] for mv in it.moves if mv["from"]}
-    reached = {mv["to"] for it in items or [] for mv in it.moves}
+    if left is None:
+        left = {mv["from"] for it in items or [] for mv in it.moves if mv["from"]}
+    if reached is None:
+        reached = {mv["to"] for it in items or [] for mv in it.moves}
     out = {kind.states[-1]}
     for i, s in enumerate(kind.states[1:-1], 1):
         if s not in left and reached & set(kind.states[i + 1:]):
@@ -53,8 +56,44 @@ def done_states(p, spec: Spec, kind, items=None) -> set[str]:
     return out
 
 
-def work_items(p, spec: Spec) -> list[dict]:
-    """Every item of the model's own kinds: its id, kind, state, fields, and whether it is finished."""
+def work_items(p, spec: Spec, text: str | None = None, ids=None) -> list[dict]:
+    """The items of the model's own kinds a message can concern: its id, kind, state, fields, and whether it is
+    finished. Every open one; a finished one only when ``text`` names it (its id, or the number in its id) or it is
+    among ``ids``. (Every item at all when ``text`` and ``ids`` are both None and there is no item index.) Read from
+    the item index: a record of half a million finished items reads only the few it names."""
+    from ..spec.itemindex import index_for
+    from ..spec.items import asks_transcript
+    if index_for(p.events, spec, False) is None:
+        return _every_work_item(p, spec)
+    named = set(ids or ()) | set(ID.findall(text or ""))
+    nums = set(re.findall(r"\b\d{2,}\b", text or ""))
+    out, seen = [], set()
+
+    def add(it, k, done) -> None:
+        if it.id not in seen:
+            seen.add(it.id)
+            out.append({"id": it.id, "kind": k.name, "state": it.state, "fields": it.fields, "last": it.last,
+                        "entered": it.entered, "finished": bool(it.state and it.state in done)})
+    for name, k in spec.items.items():
+        if name in OWN_KINDS:
+            continue
+        ix = index_for(p.events, spec, asks_transcript([k]))
+        with ix.lock:
+            done = done_states(p, spec, k, left=ix.left(name), reached=ix.reached(name))
+            still = None if not k.states else [s for s in k.states if s not in done] + [""]
+            for it in ix.items(name, states=still, moves=False):
+                add(it, k, done)
+            for it in ix.items(name, ids=[i for i in named if k.matches(i)], moves=False):
+                add(it, k, done)
+            for n in nums:
+                for it in ix.items(name, has=n, moves=False):
+                    tail = it.id.rsplit("/", 1)[-1]
+                    if tail == n or n in re.findall(r"\d+", tail):
+                        add(it, k, done)
+    return out
+
+
+def _every_work_item(p, spec: Spec) -> list[dict]:
     from ..spec import items as its
     out = []
     for name, k in spec.items.items():
@@ -277,7 +316,7 @@ def route(p, spec: Spec, mid: str, about=None, by: str = "ergostat", now: float 
         raise record.MessageError(f"no message {mid!r} (ergostat messages lists them)")
     mid = msg["id"]
     named = record.about_list(about) if about is not None else list(msg.get("about") or [])
-    work = work_items(p, spec)
+    work = work_items(p, spec, text=msg.get("text") or "", ids=named)
     items = {x["id"]: x for x in work}
     runs = running(p, spec, now)
     its, parts, how, why = [], [], "", ""

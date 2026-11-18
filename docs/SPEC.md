@@ -210,6 +210,8 @@ storage:
     after: 7d                      # an item's events older than this become one snapshot (never: not rolled up)
     kinds: {session: 1d}           # per item kind
     every: 1h                      # how often the engine rolls up and forgets
+  items:
+    idle: 1d                       # an item with no event for this long is read from the item index, not kept in memory
 ```
 
 **Events.** `segments` (the default) is an append-only log in `<state>/events/`: the newest events
@@ -220,6 +222,27 @@ columns, a Bloom filter of the ids), so a query by item, type and time reads onl
 blocks that match. `sqlite` is `events.db`, as before. Both keep a transcript's lines
 (`claude.*`) out of item counts without reading them (SQLite by a partial index, the log by its
 type columns).
+
+**The item index.** Every item's fold (section 5a) is kept on disk in `<state>/items/<key>.db`, one
+SQLite file per fold (the model's item kinds, and whether a transcript's lines are folded in), and
+followed as events arrive: whichever process asks first after events land (the runner, the page,
+the command line) folds them, a chunk per transaction under SQLite's write lock, and the others read
+what it wrote. A process that starts reads the index and folds only what is newer than it, so a
+record of half a million items starts in seconds. Per item it holds its kind, state, times and
+counts as columns and its document (fields and what was refused) packed small (marshal, compressed
+when that saves, chosen by measurement over JSON and msgpack; JSON stays the format of the API and
+the pages); kinds, states and event types are numbers. Every move is a row, so a flow counted from
+items reads only its window, a stock counted from items only its states, and the Items page only
+the page it shows. In memory, a process keeps folded only the items still open (a few thousand at
+most, the latest touched): an item in a finished state (as `messages: {done:}` declares for its
+kind, else its states after the first that no item has left) or with no event for `items.idle` is
+read from disk when an event about it arrives. A field's history is never kept: the item's page folds
+it from the record when asked. The record stays the truth: the index is folded again when it is
+missing, when its layout changes, or when the record went back (a fresh record), and on
+`ergostat compact --reindex`; a roll-up leaves it as it is (a snapshot folds to what its events
+folded to), and a prune takes out the items whose events are all gone. `tests/test_item_index.py`
+holds it equal to a fresh fold for every example's kinds, as events arrive, after roll-ups, read
+cold and built again.
 
 **Items rolled up.** An item's events older than its horizon (`rollup.after`, or its kind's) are
 replaced by one event, `ergostat.item.snapshot`, the item as it stood after them:
@@ -275,7 +298,8 @@ engine reads through a cache.
 
 **Upkeep.** The engine rolls items up, forgets what is past `keep`, and rolls the measurements into
 their tiers every `rollup.every` (an hour). `ergostat compact` does it now (`--dry-run` says what
-it would roll up).
+it would roll up). A roll-up reads only the items the item index says are due (their first event
+since their snapshot older than the horizon, or a transcript's lines), a batch of them at a time.
 
 **The page's answers are bounded.** No answer grows with the record: events are at most 1,000 an
 answer (`n`, paged by `after` and `before`), items 500 (`offset`), a kind's finished items a thousand

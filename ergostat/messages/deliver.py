@@ -234,7 +234,8 @@ def sweep(p, spec: Spec, now: float | None = None) -> int:
         if not to or any(t.get("run") in runs for t in to) or any(not t.get("item") for t in to):
             continue
         if items is None:
-            items = {x["id"]: x for x in route.work_items(p, spec)}
+            items = {x["id"]: x for x in route.work_items(p, spec, ids={t["item"] for m_ in waiting
+                                                                         for t in m_.get("routed_to") or [] if t.get("item")})}
         its = [items.get(t["item"]) for t in to]
         if all(x is not None and x["finished"] for x in its):
             for x in {x["id"]: x for x in its}.values():

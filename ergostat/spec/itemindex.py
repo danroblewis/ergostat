@@ -10,8 +10,8 @@ folds only what is newer than it.
   what was refused, packed by ``codec.py``); kinds, states and event types are numbers (``names``).
 - ``moves``: every move of every item (when, from, to, by which event), so a flow counted from
   items reads only its window, and a count of items in a state reads only that state.
-- ``left``: each kind's states some item has left, so what a kind counts as finished is known
-  without reading every move.
+- ``left`` and ``reached``: each kind's states some item has left, and has reached, so what a kind
+  counts as finished is known without reading every move.
 
 In memory, only items still open are kept folded (their fold state, a few thousand at most, the
 latest touched): an item in a finished state, or with no event for ``storage: items: idle``, is
@@ -34,7 +34,7 @@ from pathlib import Path
 from . import codec
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of
 
-VERSION = 1                 # of the index's layout: a different one is rebuilt
+VERSION = 2                 # of the index's layout: a different one is rebuilt
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
 IDLE = 86400.0              # an item with no event for this long is not kept in memory (storage: items: idle)
@@ -56,6 +56,7 @@ create index if not exists moves_rid on moves(rid);
 create index if not exists moves_dst on moves(kind, dst, t);
 create index if not exists moves_frm on moves(kind, frm, t);
 create table if not exists left (kind integer, state integer, primary key (kind, state)) without rowid;
+create table if not exists reached (kind integer, state integer, primary key (kind, state)) without rowid;
 """
 
 COLS = "rid, id, kind, state, first, last, newest, entered, n, latest, arrived, raw, raw_first, body"
@@ -214,7 +215,7 @@ class Index:
         return finished
 
     def _reset(self) -> None:
-        for t in ("items", "moves", "left", "names", "meta"):
+        for t in ("items", "moves", "left", "reached", "names", "meta"):
             self.db.execute(f"delete from {t}")
         self.names, self.rnames = {None: None}, {None: None}
         self.cache.clear()
@@ -282,6 +283,8 @@ class Index:
                                      for m in it.moves])
                 left = {(kn, self.nid(m["from"])) for m in it.moves if m["from"] is not None}
                 self.db.executemany("insert or ignore into left(kind, state) values (?, ?)", left)
+                self.db.executemany("insert or ignore into reached(kind, state) values (?, ?)",
+                                    {(kn, self.nid(m["to"])) for m in it.moves})
                 if left and it.kind in self._left:
                     self._left[it.kind] |= {m["from"] for m in it.moves if m["from"] is not None}
                 it.moves = []                                # on disk: what is kept in memory is the rest of the fold
@@ -324,6 +327,11 @@ class Index:
             got = {self.name(s) for (s,) in self.db.execute("select state from left where kind = ?", (k,))}
             self._left[kind] = got
         return got
+
+    def reached(self, kind: str) -> set[str]:
+        """The states of ``kind`` some item has reached."""
+        k = self.known(kind)
+        return {self.name(s) for (s,) in self.db.execute("select state from reached where kind = ?", (k,))}
 
     def _where(self, kind: str | None, states=None, until: float | None = None) -> tuple[str, list]:
         """``kind`` (None: any; ``""``: items of no kind), in ``states`` (None: any; ``""`` among them: no state)."""
@@ -369,9 +377,13 @@ class Index:
         return self.db.execute(f"select count(*) from items{w}", a).fetchone()[0]
 
     def items(self, kind: str | None = None, states=None, until: float | None = None, n: int | None = None,
-              offset: int = 0, moves: bool = True, ids=None) -> list[Item]:
-        """Items, the latest first (by their last event): ``n`` of them from ``offset``, with their moves."""
+              offset: int = 0, moves: bool = True, ids=None, has: str | None = None) -> list[Item]:
+        """Items, the latest first (by their last event): ``n`` of them from ``offset``, with their moves;
+        among ``ids``, or with ``has`` in their id, when given."""
         w, a = self._where(kind, states, until)
+        if has is not None:
+            w = (w + " and " if w else " where ") + "instr(id, ?) > 0"
+            a = [*a, has]
         if ids is not None:
             ids = list(ids)
             if not ids:
