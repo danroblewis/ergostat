@@ -164,9 +164,16 @@ function follow(svg, d, list) {
 function putDown(svg, pins, placed) {
   S.pins = { ...(S.pins || {}), ...pins };
   savePins();
+  S.dropAt = performance.now();                        // (the click that ends a drag opens nothing: blocks.js)
   settle(S.layout, S.graph, placed);
+  if (S.graph.kind === "blocks") { bdDraw(svg, S.graph, S.layout); bdRouteDraw(svg, S.layout); return; }   // (blocks.js)
   drawGraph(svg, S.graph, S.layout);
   if (S.graph.kind !== "wiring") avoidStart(S.layout, S.graph);
+}
+
+/* what is drawn apart from a part but goes with it while it is dragged: a summing junction's signs */
+function dragAlong(svg, ids, dx, dy) {
+  for (const id of ids) for (const el of svg.querySelectorAll(`[data-sum="${CSS.escape(id)}"]`)) el.setAttribute("transform", `translate(${dx},${dy})`);
 }
 
 function interactions(svg) {
@@ -187,6 +194,7 @@ function interactions(svg) {
     }
     const dx = (ev.clientX - d.x0) / S.view.k, dy = (ev.clientY - d.y0) / S.view.k;
     for (const p of d.parts) svg.querySelector(`.node[data-id="${CSS.escape(p.id)}"]`)?.setAttribute("transform", `translate(${p.x + dx},${p.y + dy})`);
+    dragAlong(svg, d.parts.map((p) => p.id), dx, dy);
     d.dx = dx; d.dy = dy;
     follow(svg, d, d.parts.map((p) => [p.id, Math.round(p.x + dx), Math.round(p.y + dy)]));
   });
@@ -205,8 +213,8 @@ function interactions(svg) {
       const k = box[p.id];
       if (!k) continue;
       k.x = Math.round(p.x + d.dx); k.y = Math.round(p.y + d.dy);
-      const id = pinId(p.id, nodes[p.id]);
-      pins[id] = pinFor(S.layout, S.graph, nodes[p.id]?.kind === "system" ? id : p.id, k.x, k.y);
+      const id = pinId(p.id, nodes[p.id]);                // (a system's box: its own, else the part's)
+      pins[id] = pinFor(S.layout, S.graph, id, k.x, k.y);
     }
     putDown(svg, pins, d.parts.map((p) => p.id));
   });
@@ -219,6 +227,8 @@ function interactions(svg) {
       const nodes = byId();
       d.parts = S.layout.children.filter((k) => (nodes[k.id]?.systems || []).includes(d.name)).map((k) => ({ id: k.id, x: k.x, y: k.y }));
       d.hulls = (S.layout.containers || []).filter((o) => o.name === d.name || within(S.graph, o.name, d.name)).map((o) => o.name);
+      // (the block diagram's frames' titles are in the lines' way too: blocks.js)
+      d.titles = S.graph.kind === "blocks" ? S.layout.containers.filter((o) => d.hulls.includes(o.name)).map((o) => ({ id: o.id + ":title", x: o.x + 4, y: o.y + 4 })) : [];
       greyLines(svg, d.parts.map((p) => p.id));
       d.moved = true;
       svg.classList.add("dragging-part");
@@ -226,8 +236,9 @@ function interactions(svg) {
     const dx = (ev.clientX - d.x0) / S.view.k, dy = (ev.clientY - d.y0) / S.view.k;
     for (const name of d.hulls) svg.querySelector(`g.hull[data-hull="${CSS.escape(name)}"]`)?.setAttribute("transform", `translate(${dx},${dy})`);
     for (const p of d.parts) svg.querySelector(`.node[data-id="${CSS.escape(p.id)}"]`)?.setAttribute("transform", `translate(${p.x + dx},${p.y + dy})`);
+    dragAlong(svg, d.parts.map((p) => p.id), dx, dy);
     d.dx = dx; d.dy = dy;
-    follow(svg, d, d.parts.map((p) => [p.id, Math.round(p.x + dx), Math.round(p.y + dy)]));
+    follow(svg, d, [...d.parts, ...d.titles].map((p) => [p.id, Math.round(p.x + dx), Math.round(p.y + dy)]));
   });
   window.addEventListener("pointerup", () => {
     const d = S.hullDrag;
@@ -310,8 +321,6 @@ function interactions(svg) {
 function rememberAnchor(name) {
   const lay = S.layout, g = S.graph;
   if (!lay || !g) return;
-  const c = (lay.containers || []).find((o) => o.name === name);
-  const box = lay.children.find((k) => g.nodes.find((n) => n.id === k.id && n.kind === "system" && n.label === name));
-  const at = c || box;
+  const at = anchorOf(lay, g, name);                   // (places.js)
   S.anchor = at ? { name, x: at.x, y: at.y } : null;
 }
