@@ -137,7 +137,7 @@ parameters:
     description: the share of waits past REPING_AFTER that end in a re-ping (the rest are answered first)
 
 goals:
-  approvals-answered:
+  nothing-awaits-approval:
     stock: actions-waiting
     hold: "<= 0"
     description: no outward act waits for the owner's approval
@@ -150,7 +150,7 @@ blocks:
   approve:
     type: person
     agent: owner
-    goal: approvals-answered
+    goal: nothing-awaits-approval
     ask: >-
       Outward acts wait for your approval. `bin/act.py list` shows them; `bin/act.py approve ID` (or --all)
       lets each be done on its step's next run, `bin/act.py deny ID` refuses it. To stop being asked for one
