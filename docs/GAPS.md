@@ -60,7 +60,9 @@ review). Newest decisions from the owner first within each section.
 - **Listing projects writes `repo.json` into other projects' state folders** (done, `modelfix`): the listing opens
   each project without its note (`Project(..., note=False)`), and the event log's head is made once rather than
   touched on every open. SQLite still does its own WAL bookkeeping when a store is opened to read.
-- **`try_use` trials can leave Claude sessions running** (open).
+- **`try_use` trials can leave Claude sessions running** (done, `modelfix`): the trial runs in a session of its
+  own, watches what its runs start, and on its way out (or when it overruns) stops all of it, whatever process
+  group each put itself in (`library/reap.py`; `tests/test_trial_stops.py`).
 - **Three tests fail only under heavy load** (open): `test_a_selection_is_model_parts_and_survives_switching_view`,
   `test_a_page_left_open_does_not_grow`, `test_a_lease_held_by_a_run_survives_a_model_edit`.
 
