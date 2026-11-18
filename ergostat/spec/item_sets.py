@@ -4,8 +4,8 @@ list and its link to the Items page are the same set.
 
 A set is a kind, and either the states its items are in now (``state``), or the moves its items made in
 a span (``moved``: from some states to others, between two times); either may also match fields
-(``where``). It is read through ``items.project`` (the listing's own projection), never from the record
-directly, so whatever keeps the items (the kept fold; an index on disk) serves it too.
+(``where``). It is read from the item index (``items.in_states_page``, ``items.moved_items``): a state's items counted
+and paged there, a span's moves read there alone, never every item of a kind folded.
 
 What a part's set is comes from the model alone (``of_part``): a stock's (or an auxiliary's) ``items:``
 sensor; a flow's own ``items:`` sensor, else the item states of the stocks it drains and fills; else the
@@ -133,24 +133,29 @@ def select(events, spec, s: ItemSet, until: float | None = None, n: int = its.LI
     bad = [x for x in [*s.states, *((s.moved or ([], []))[0]), *((s.moved or ([], []))[1])] if x not in k.states]
     if bad:
         raise BadSet(f"{s.kind} has no state {', '.join(bad)} (its states: {', '.join(k.states) or 'none'})")
-    got = its.project(events, spec, s.kind, until=until, fields=tuple(s.where) + tuple(k.show))
-    got = [i for i in got if (not s.states or i.state in s.states) and its.matches(i, s.where)]
     moved: dict[str, list[float]] = {}
-    if s.moved is not None:
+    if s.moved is None:                                   # counted and paged by the index
+        total, page_its = its.in_states_page(events, spec, s.kind, s.states or None, s.where, until, n, offset)
+    else:                                                 # the span's moves, from the index; which count, here
+        a, b = s.moved
+        key, states = ("to", b) if b else ("from", a)
+        got = its.moved_items(events, spec, s.kind, key, states, s.since, s.until, s.where)
         for i in got:
-            ts = [m["time"] for m in i.moves if s.move_matches(m)]
-            if ts:
-                moved[i.id] = ts
+            if not s.states or i.state in s.states:
+                ts = [m["time"] for m in i.moves if s.move_matches(m)]
+                if ts:
+                    moved[i.id] = ts
         got = sorted((i for i in got if i.id in moved), key=lambda i: -moved[i.id][-1])
+        total, page_its = len(got), got[offset:offset + n]
     from .item_systems import kind_systems
     where = kind_systems(spec)
     page = []
-    for i in got[offset:offset + n]:
+    for i in page_its:
         d = its._listed(i, kinds, where)
         if s.moved is not None:
             d["moved_at"] = moved[i.id]
         page.append(d)
-    out = {"set": {"says": s.says(), "params": s.params()}, "total": len(got), "offset": offset, "items": page}
+    out = {"set": {"says": s.says(), "params": s.params()}, "total": total, "offset": offset, "items": page}
     if s.moved is not None:
         out["moves"] = sum(len(v) for v in moved.values())
     return out

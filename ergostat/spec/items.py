@@ -294,6 +294,55 @@ def in_states(events, spec: Spec, kind: str, states=None, where: dict | None = N
     return len(got), min((i.entered for i in got), default=None), got
 
 
+def in_states_page(events, spec: Spec, kind: str, states=None, where: dict | None = None, until: float | None = None,
+                   n: int = 500, offset: int = 0) -> tuple[int, list[Item]]:
+    """``kind``'s items in ``states`` matching ``where`` as they stood at ``until``, the latest first: how many,
+    and ``n`` of them from ``offset`` (a side panel's list, the Items page's set). Counted and paged by the
+    index when nothing asks for their fields; else read without their moves and matched here."""
+    where = where or {}
+    k = spec.items.get(kind)
+    if k is None:
+        return 0, []
+    transcript = asks_transcript([k], tuple(where) + tuple(k.show))
+    ix = _index(events, spec, transcript)
+    if ix is not None:
+        with ix.lock:
+            late = _late(ix, events, spec, kind, until, transcript)
+            if late is not None:
+                extra = [i for i in late.values() if i.kind == kind and (not states or i.state in states) and matches(i, where)]
+                if not where and not extra:
+                    return ix.count(kind, states, until), ix.items(kind, states, until, n=n, offset=offset, moves=False)
+                got = [i for i in ix.items(kind, states, until, moves=False) if matches(i, where)] + extra
+                got.sort(key=lambda i: -i.last)
+                return len(got), got[offset:offset + n]
+    got = [i for i in project(events, spec, kind, until=until, fields=tuple(where) + tuple(k.show), transcript=transcript)
+           if (not states or i.state in states) and matches(i, where)]
+    return len(got), got[offset:offset + n]
+
+
+def moved_items(events, spec: Spec, kind: str, key: str, states, since: float, until: float,
+                where: dict | None = None) -> list[Item]:
+    """``kind``'s items with a move into (``key`` "to") or out of ("from") one of ``states`` between ``since``
+    and ``until``, matching ``where``, as they stood at ``until``, with their moves: the candidates are the
+    index's moves for the span alone (the caller says which of their moves count)."""
+    where = where or {}
+    k = spec.items.get(kind)
+    if k is None:
+        return []
+    transcript = asks_transcript([k], tuple(where) + tuple(k.show))
+    ix = _index(events, spec, transcript)
+    if ix is not None:
+        with ix.lock:
+            late = _late(ix, events, spec, kind, until, transcript)
+            if late is not None:
+                ids = {i for s in states for i, _ in ix.moved(kind, key, s, since, until)} - set(late)
+                got = ix.items(kind, until=until, ids=ids) + [i for i in late.values() if i.kind == kind]
+                return [i for i in got if matches(i, where)
+                        and any(m[key] in states and since <= m["time"] <= until for m in i.moves)]
+    return [i for i in project(events, spec, kind, until=until, fields=tuple(where) + tuple(k.show), transcript=transcript)
+            if matches(i, where) and any(m[key] in states and since <= m["time"] <= until for m in i.moves)]
+
+
 def one(events, spec: Spec, id: str) -> Item | None:
     evs = events.query(n=None, item=id)
     return fold(id, evs, kind_of(spec, id)) if evs else None

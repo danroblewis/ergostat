@@ -168,3 +168,32 @@ def test_the_side_panel_list_and_its_link_are_the_same_set(p):
         assert all("title" in i["fields"] for i in panel["items"])                   # the kind's columns kept
     flow = api(live, "part/flow/requests", {"since": ["1h"]})
     assert "names no items" in flow["items"]["none"]
+
+
+def test_sets_are_read_from_the_item_index_not_from_every_fold(p, monkeypatch):
+    """A state's set is counted and paged by the index, a span's moves read there alone: never every item of
+    the kind folded (items.project)."""
+    from ergostat.spec import items as its
+    now = time.time()
+    seed(p, now)
+    assert its._index(p.events, p.model.spec, False) is not None
+    monkeypatch.setattr(its, "project", lambda *a, **k: (_ for _ in ()).throw(AssertionError("folded every item")))
+    s = item_sets.parse({"kind": ["ticket"], "state": ["awaiting"]})
+    got = item_sets.select(p.events, p.model.spec, s, until=now, n=2, offset=1)
+    assert got["total"] == 5 and len(got["items"]) == 2
+    flows = item_sets.select(p.events, p.model.spec, item_sets.parse(
+        item_sets.of_part(p.model.spec, "flow", "completed", now - 3600, now)["set"]), until=now)
+    assert flows["total"] == 3
+    where = item_sets.select(p.events, p.model.spec, item_sets.parse(
+        item_sets.of_part(p.model.spec, "stock", "awaiting-approval", 0, now)["set"]), until=now)
+    assert where["total"] == 4
+
+
+def test_a_flow_measured_by_events_lists_its_openings_and_their_items(p):
+    now = time.time()
+    run = p.events.add("agent.started", item="approver", data={}, at=now - 120)
+    rid = run if isinstance(run, str) else run["id"]
+    p.events.add("ticket.approved", item="ticket/42", data={}, causedby=rid, at=now - 100)
+    p.events.add("valve.opened", item="approver", data={"amount": 1, "flow": "approving"}, causedby=rid, at=now - 90)
+    got = item_sets.events_items(p.events, {"valve": "approver"}, now - 3600, now)
+    assert got["total"] == 1 and got["rows"][0]["items"] == ["ticket/42"] and got["rows"][0]["amount"] == 1
