@@ -566,14 +566,31 @@ def browse(a, n: int, base: str, proc) -> None:
         b.close()
 
 
+FEED = r'''
+import random, sys, time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path(sys.argv[1])))
+series = [s.series for s in p.model.spec.sensors()]
+while True:                                  # a reading of every sensor every 10 s, as a running engine would write them
+    p.measurements.add_many([(x, time.time(), random.random() * 10) for x in series])
+    time.sleep(10)
+'''
+
+
 def cmd_poll(a) -> None:
     """What an open page costs once drawn: the API requests and bytes a minute it pulls while it sits open (#12), and
     how long each answer took. Each page on a fresh browser context; the window starts once the page is drawn (or, when
-    it is not drawn within --timeout, the whole wait is counted)."""
+    it is not drawn within --timeout, the whole wait is counted). Meanwhile every sensor gets a reading every 10 s (as
+    from a running engine, without one): the values change, so each answer is a new one (on a still record the
+    browser's cache answers most asks with a 304)."""
     from playwright.sync_api import sync_playwright
     for n in a.n:
         port = free_port()
         proc = serve(a.work, n, port)
+        feed = subprocess.Popen([PY, "-c", FEED, str(model(a.work, n))], env=env_for(a.work, n), cwd="/",
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         base = f"http://127.0.0.1:{port}"
         try:
             with sync_playwright() as p:
@@ -614,10 +631,11 @@ def cmd_poll(a) -> None:
                         by.setdefault(x[1], []).append(x)
                     row["by_api"] = {k: {"n": len(v), "bytes": sum(x[2] for x in v),
                                          "p50_s": round(pct([x[3] for x in v], 0.5) or 0, 3)} for k, v in by.items()}
-                    record(a.work, "poll", n, **row)
+                    record(a.work, "poll", n, **row, fed=True)
                     ctx.close()
                 b.close()
         finally:
+            os.killpg(feed.pid, signal.SIGTERM)
             os.killpg(proc.pid, signal.SIGTERM)
             proc.wait(30)
 
