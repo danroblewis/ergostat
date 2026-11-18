@@ -1342,7 +1342,8 @@ nack, its why the run's own (`exited 3`, `stopped after its timeout of 1200s`) o
 ITEM still leased". A run may give its item back itself: `{"nack": "why"}`, or `{"nack": {"why":
 "...", "after": "4h", "count": false}}` (put off, not counted: a deferral or a transient fault), or
 `$ERGOSTAT_CMD lease --nack WHY [--after 4h] [--no-count]`. A run stopped with ergostat gives its item
-back uncounted. A lease that expired is not ended again when its run ends.
+back uncounted, unless what it printed before had already moved the item on (its lines take effect as it prints
+them, section 9.1): that is an ack. A lease that expired is not ended again when its run ends.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is not stopped (it may still be doing useful

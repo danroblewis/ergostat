@@ -202,10 +202,10 @@ class Dispatcher:
         if nack is not None:
             data.update({"how": "nack", "why": nack.get("why") or "given back", **{k: nack[k] for k in ("after", "count")
                                                                                      if nack.get(k) is not None}})
+        elif moved_on(b, it):                    # (its lines moved it on as it ran: stopped after, the work stands)
+            data["how"] = "ack"
         elif stopping:
             data.update({"how": "nack", "why": "stopped with ergostat", "count": False})
-        elif moved_on(b, it):
-            data["how"] = "ack"
         else:
             data.update({"how": "nack", "why": out.get("note") or f"the run ended with {item} still {it.state}"})
         data.update(self.after(it, lease, data["how"] == "nack" and data.get("count", True) is not False,
