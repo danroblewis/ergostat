@@ -460,6 +460,7 @@ class Stock:
     description: str = ""
     sensors: dict[str, Sensor] = field(default_factory=dict)
     cumulative: bool = False   # a running total that by its nature never drains (spent so far): no outflow is missing
+    rate_unit: str | None = None       # how its flows' rates are shown (rate-unit: minute, hour, day, week): display only
     inferred: str | None = None        # added by ergostat: the model change that added it (ergostat.model-change/<id>), or "true"
     where: Where | None = None
 
@@ -479,6 +480,7 @@ class Flow:
     instant: set[str] = field(default_factory=set)       # str(ref) of the driven-by declared immediate (instant: true)
     two_way: bool = False      # it may run either way (system dynamics' biflow): a block may move it by a negative amount
     equation: Equation | None = None   # its rate per hour, as an equation of parameters and parts (SPEC §7b)
+    rate_unit: str | None = None       # how its rate is shown (rate-unit: minute, hour, day, week): display only, kept per hour
     inferred: str | None = None        # added by ergostat: the model change that added it (ergostat.model-change/<id>), or "true"
     inferred_links: dict[str, str] = field(default_factory=dict)   # str(ref) of a driven-by ergostat added → its inferred:
     where: Where | None = None

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import time
 
-from .. import show
+from .. import rates, show
 from ..show import ago, c, table
 from ..state import fmt
 from .common import open_project, out_json, parts_of, snap_of, window
@@ -90,6 +90,7 @@ def cmd_part(args) -> int:
         return done
     p = open_project(args)
     m = p.model
+    spec = getattr(m, "spec", None)
     snap = snap_of(p, args)
     parts = parts_of(args, m)
     topic = args.topic
@@ -137,9 +138,9 @@ def cmd_part(args) -> int:
             if topic == "stock":
                 print(f"  value       {fmt(now['value'])} {x.unit}  {show.spark(now['points'])}")
                 print(f"  measured    {ago(now['at']) if now['at'] else 'never'}" + (f" by {now['sensor']}" if now["sensor"] else ""))
-                print(f"  in / out    {fmt(now['inflow'])}/h in, {fmt(now['outflow'])}/h out")
+                print(f"  in / out    {rates.text(now['inflow'])} in, {rates.text(now['outflow'])} out")
             elif topic in ("flow", "disturbance"):
-                print(f"  rate        {fmt(now['rate'])}/h ({now['how']})")
+                print(f"  rate        {rates.text(now['rate'], '', rates.override_of(spec, x.name))} ({now['how']})")
             elif topic == "sensor":
                 for r in now["readings"]:
                     print(f"  {ago(r['at']):<12} {fmt(r['value'])}")
@@ -159,7 +160,8 @@ def cmd_part(args) -> int:
             rows.append([n, f"{fmt(s['value'])} {x.unit}".strip(), show.spark(s["points"], 16), s["sensor"] or c("unmeasured", "warn")])
         elif topic in ("flow", "disturbance"):
             fl = snap["flows"][n]
-            rows.append([n, x.source or "outside", x.target or "outside", f"{fmt(fl['rate'])}/h", fl["how"]])
+            rows.append([n, x.source or "outside", x.target or "outside", rates.text(fl["rate"], "", rates.override_of(spec, n)),
+                         fl["how"]])
         elif topic == "valve":
             fl = snap["flows"].get(x.flow, {})
             last = (fl.get("openings") or {}).get("last")

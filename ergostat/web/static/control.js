@@ -190,7 +190,7 @@ function processSection(d, done) {
   if (d.why) return [h("p", { class: "muted small" }, `The loop ${d.goal}: ${d.why}.`)];
   const kids = [h("h3", {}, `The loop ${d.goal}, from u to y`)];
   const u = (d.u || "").split(".").slice(1).join("."), y = (d.y || "").split(".").slice(1).join(".");
-  kids.push(h("p", { class: "muted small" }, `u: ${u} (${d.how === "valve" ? "what its valve moves, per hour" : "the setting its controller steps"}); y: ${y}.`));
+  kids.push(h("p", { class: "muted small" }, `u: ${u} (${d.how === "valve" ? "what its valve moves, a rate" : "the setting its controller steps"}); y: ${y}.`));
   if (d.known) kids.push(h("p", { class: "small" }, d.known + "."));
   if (d.declared) {
     kids.push(h("div", { class: "bd-math" }, processMath(d.process, d.goal)),

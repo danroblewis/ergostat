@@ -98,9 +98,13 @@ def test_image_squeeze_the_service_is_one_mimo_process_and_the_tuner_integrates(
     assert signs == {"flow.proposed": "+", "flow.started": "−"}
     # an AI agent is not a transfer function
     assert n["blk:researcher"]["fn"]["linear"] is False and n["blk:researcher"]["fn"]["name"] == "researcher"
-    # the error of the quality loop: e = r − y_m, its measurement read with unity gain: the wire itself, from the process
+    # the error of the quality loop: e = r − y_m, its measurement through its sensor block, H = 1, from the process
     ins = {e["source"]: e["sign"] for e in g["edges"] if e["target"] == "sum:quality-held"}
-    assert ins == {"ref:quality-held": "+", "demux:service": "−"}
+    assert ins == {"ref:quality-held": "+", "sen:stock.quality": "−"}
+    # it reads every 8 s, a tenth or more of the tuner's period: a sampler on the feedback path, a delay of up to T
+    sen = n["sen:stock.quality"]["fn"]
+    assert (sen["expr"], sen["T"], sen["sampled"]) == ("e^(−sT)", "8 s", True)
+    assert any(e["source"] == "demux:service" and e["target"] == "sen:stock.quality" for e in g["edges"])
 
 
 def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
@@ -268,24 +272,30 @@ def test_a_comparator_sits_in_the_frame_of_the_controller_that_reads_its_error()
     assert n["ref:backlog-clear"]["parent"] == "frame:delivery"
 
 
-def test_unity_sensors_are_wires_and_a_measured_signal_with_dynamics_is_named_for_its_variable():
+def test_every_sensor_on_a_feedback_path_is_a_block_and_a_measured_signal_is_named_for_its_variable():
     for ex in EXAMPLES:
         spec = load(ROOT / "examples" / ex / "ergostat.yaml")
         d = bd._Diagram(spec, {})
         d.build()
         for nid, n in d.nodes.items():
             if n.get("role") == "sensor":
-                assert d.sensor_dynamics(n["part"]), (ex, nid, "a unity sensor drawn as a block")
-                assert n["fn"]["expr"] != "1"
+                fn = n["fn"]
+                assert fn["reads"], (ex, nid, "a sensor says what it reads")
+                if d.sensor_dynamics(n["part"]):
+                    assert fn["expr"].startswith("avg"), (ex, nid)
+                else:
+                    assert fn["expr"] in ("1", "e^(−sT)"), (ex, nid, fn)
         for e in d.wires:
             sg = d.signal(e["key"]) if e["key"] not in d.sig else d.sig[e["key"]]
             if sg.get("what") == "measured":
                 assert sg["sub"].startswith("m,") and len(sg["sub"]) > 2, (ex, e["key"], sg)
-    # a unity reading says how it is sampled, in the panel of its wire
+            if e.get("feedback") and e["key"].split(".")[0] in ("stock", "flow", "auxiliary"):
+                assert not d._sensors(e["key"]), (ex, e["key"], "a measured variable read back without its sensor")
+    # the quality loop's sensor says what it reads and how often, in the block and in its panel
     spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
-    g = drawn(spec, {"*"})
-    fb = next(e for e in g["edges"] if e["target"] == "sum:quality-held" and e["sign"] == "−")
-    assert "sampled every" in fb["note"] and "unity" in fb["note"]
+    n = {x["id"]: x for x in drawn(spec, {"*"})["nodes"]}
+    sen = n["sen:stock.quality"]
+    assert "every" in sen["fn"]["reads"] and sen["fn"]["reads"] in _text(sen["rows"])
 
 
 def test_a_sensor_with_a_window_is_drawn_as_h_of_s_and_its_signal_is_y_m_of_its_variable(tmp_path):
@@ -415,3 +425,73 @@ def test_a_part_a_model_change_added_says_so_in_its_panel(tmp_path):
     said = [r for n in g["nodes"] if n.get("part") == "stock.waiting" for r in n.get("rows") or [] if r[0] == "origin"]
     assert said and all(r[1] == "added by ergostat, from model change 3f9c01aa" for r in said)
     assert not [r for n in g["nodes"] if n.get("part") != "stock.waiting" for r in n.get("rows") or [] if r[0] == "origin"]
+
+
+def test_the_alerts_loop_reads_through_a_labelled_sensor_and_its_collector():
+    spec = load(ROOT / "examples" / "the-job" / "ergostat.yaml")
+    g = drawn(spec, {"*"})
+    n = {x["id"]: x for x in g["nodes"]}
+    sen = n["sen:stock.alerts-to-draft"]
+    assert sen["role"] == "sensor" and sen["fn"]["expr"] == "1" and not sen["fn"].get("sampled")
+    assert sen["fn"]["reads"] == "items: alert, fired, every 5 s"
+    assert "every-alert-drafted" in sen["loops"]
+    col = n["col:alerts-fired.main"]                     # watch.py alert: it records the alerts the count reads
+    assert col["role"] == "collector" and col["fn"]["name"] == "watch.py alert"
+    assert col["fn"]["reads"] == "records alert items, every 10 s"
+    ins = {e["source"] for e in g["edges"] if e["target"] == sen["id"]}
+    assert ins == {col["id"]}
+    # the comparator reads y_m, the sensor's output, and nothing measured reaches it but through the sensor
+    fb = next(e for e in g["edges"] if e["target"] == "sum:every-alert-drafted" and e["sign"] == "−")
+    assert fb["source"] == sen["id"] and (fb["signal"]["sym"], fb["signal"]["sub"]) == ("y", "m,alerts-to-draft")
+
+
+def test_a_sensor_that_polls_slowly_against_its_loop_is_a_sampler_with_a_delay(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+        stocks:
+          approvals-waiting:
+            unit: tickets
+            sensor: {run: ./jira-count approved, every: 5m, description: "Jira: FF tickets approved"}
+          inbox:
+            unit: mails
+            sensor: {query: {source: prom, promql: 'sum(inbox_depth)'}, every: 30s}
+        sources:
+          prom: {type: prometheus, url: http://localhost:9090}
+        flows:
+          approve: {from: approvals-waiting}
+          read-mail: {from: inbox}
+          arrive: {to: approvals-waiting}
+        goals:
+          none-waiting: {stock: approvals-waiting, hold: "<= 0"}
+          inbox-low: {stock: inbox, hold: "<= 10"}
+        blocks:
+          approver: {type: program, run: echo 1, every: 10m, goal: none-waiting, out: flow.approve}
+          reader: {type: program, run: echo 1, every: 10m, goal: inbox-low, out: flow.read-mail}
+        """))
+    g = drawn(load(tmp_path / "ergostat.yaml"), {"*"})
+    n = {x["id"]: x for x in g["nodes"]}
+    slow = n["sen:stock.approvals-waiting"]["fn"]
+    assert slow["reads"] == "Jira: FF tickets approved, every 5 min"
+    assert (slow["expr"], slow["sampled"], slow["T"]) == ("e^(−sT)", True, "5 min")
+    assert "5 min" in _text(n["sen:stock.approvals-waiting"]["math"]) and "up to T old" in n["sen:stock.approvals-waiting"]["says"]
+    quick = n["sen:stock.inbox"]["fn"]                     # 30 s against 10 min: H = 1
+    assert quick["reads"] == "prometheus: sum(inbox_depth), every 30 s" and quick["expr"] == "1"
+
+
+def test_an_inflow_from_outside_names_its_source_in_the_dynamics_view(tmp_path):
+    from ergostat import sensing
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+        stocks:
+          ramps: {unit: ramps, sensor: {run: echo 1, every: 1m}}
+          tickets: {unit: tickets, sensor: {run: echo 1, every: 1m}}
+          other: {unit: x, sensor: {run: echo 1, every: 1m}}
+        flows:
+          requested: {to: ramps, sensor: {run: ./count, every: 5m, description: "Jira: FF tickets approved"}}
+          filed: {to: tickets}
+          drift: {to: other}
+        blocks:
+          customers: {type: external, out: flow.filed}
+        """))
+    s = load(tmp_path / "ergostat.yaml")
+    assert sensing.comes_from(s, "requested") == "Jira"
+    assert sensing.comes_from(s, "filed") == "customers"
+    assert sensing.comes_from(s, "drift") is None

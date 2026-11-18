@@ -23,6 +23,7 @@ agents. Drawn from the control graph (``graph.control``) and the model's causal 
 
 from __future__ import annotations
 
+from . import sensing
 from .state import fmt
 
 SP = {"<=": "≤", ">=": "≥", "==": "=", "<": "<", ">": ">"}
@@ -222,6 +223,10 @@ def dynamics(g: dict, model) -> dict:
     nodes = []
     for n in keep:
         n = {**n, "sd": True, "agent": None}
+        if n["kind"] == "cloud" and spec is not None and n["id"].endswith(":in"):   # an inflow from outside: from where
+            src = sensing.comes_from(spec, n.get("flow") or "")
+            if src:
+                n["from"] = src
         if n["kind"] in ("valve", "disturbance"):
             n["valve"] = n.get("label")
             n["label"] = n.get("flow") or n["label"]
