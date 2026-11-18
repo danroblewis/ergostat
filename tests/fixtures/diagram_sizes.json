@@ -373,6 +373,78 @@
    1.658
   ]
  },
+ "small-requests": {
+  "": [
+   576,
+   438,
+   1.968
+  ],
+  "open=*": [
+   2739,
+   2091,
+   0.412
+  ],
+  "open=build-cache": [
+   240,
+   96,
+   5.167
+  ],
+  "open=help-queue": [
+   240,
+   96,
+   5.167
+  ],
+  "open=morning": [
+   240,
+   96,
+   5.167
+  ],
+  "open=regressions": [
+   240,
+   96,
+   5.167
+  ],
+  "open=review-reminders": [
+   240,
+   96,
+   5.167
+  ],
+  "open=work": [
+   576,
+   438,
+   1.968
+  ],
+  "system=build-cache": [
+   485,
+   320,
+   2.555
+  ],
+  "system=help-queue": [
+   771,
+   448,
+   1.609
+  ],
+  "system=morning": [
+   491,
+   257,
+   2.527
+  ],
+  "system=regressions": [
+   1472,
+   937,
+   0.843
+  ],
+  "system=review-reminders": [
+   1129,
+   506,
+   1.099
+  ],
+  "system=work": [
+   284,
+   640,
+   1.347
+  ]
+ },
  "software-factory": {
   "": [
    553,
