@@ -330,6 +330,9 @@ def _answer(live: Live, path: str, q: dict):
     if head == "projects":
         from ..projects import known
         return known()
+    if head == "coherence":                          # the three views held against each other (the Check page)
+        from .numbers_api import coherence
+        return coherence(live, p, snap, _window(q) if one("since") else None)
     if head == "exercised":                          # the parts the record has not exercised: findings, for the Check page
         from .numbers_api import exercised
         return exercised(live, p, snap)

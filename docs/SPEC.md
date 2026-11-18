@@ -3217,6 +3217,41 @@ remote), and the same push through `git-push` after the owner's approval.
 - A `run:` wrapper that is not `ergostat session` is given `ERGOSTAT_SANDBOX` and must pass the flags itself; `check`
   refuses `tools:` or `actions:` on a block whose `run:` does not start `ergostat session`.
 
+## 12l. Coherence: the three views held against each other
+
+One system is drawn three ways: the **Process** view (§5b), how the items really moved, read from the record; the
+**Dynamics** view, the stocks and flows that model it (for a workflow, one chain of state stocks, §12's *A kind's
+states, chained*); and the **Blocks** view, what moves the work (blocks and their `out:` flows and `takes:`, goals and
+their loops). `check` holds them against each other over the record (`coherence.py`): the last day, or `--since`. Each
+disagreement is a finding with its file and line, the change when it is clear, the pair of views that disagrees, and
+the findings `check` already reports about the same thing (linked, not said again).
+
+| Pair | Finding | When |
+|---|---|---|
+| Process ↔ Dynamics | `move-without-flow`, `rework-without-flow`, `chain-skipped`, `order-contradicted` | items moved between two states with stocks and no path of flows carries them: the chain's own finding (`move-without-flow`, `outflow-not-chained`, ...), given the window's moves, with its fix. Named for what the record did: back to an earlier state (rework, ↺ on the Process view), straight past a stock the chain passes through (a skip), against the chain's flows (contradicted) |
+| | `arrival-not-modelled` | items arrived (their first event) in a state whose stock no flow fills from outside |
+| | `completion-not-modelled` | items finished (a state the kind counts as done, with no stock of its own) and no flow takes them out of the stock they left |
+| | `flow-not-seen` (a note) | a flow of the chain no item moved along in the window; said with the `not-exercised` finding when the record has not exercised it. Not counted against: quiet is not absent (§12e) |
+| | `kind-not-chained` (a note) | a kind whose items move, with fewer than two states counted by stocks: the Dynamics view does not show how they move (nothing is wrong if they are a status, not work) |
+| Dynamics ↔ Blocks | `waiting-without-goal`, `goal-without-loop` | a stock where items wait for the model's blocks (a block moves its outflow, or takes the items in its state) with no goal on it (or on an auxiliary it drives), or a goal no loop closes (linked to `missing-feedback`). A stock its blocks read and work off is a loop without a setpoint; a run's own work in progress (the same block fills and empties it) and a stock whose items wait on the world (every flow out is from outside) are not queues of the model's |
+| | `flow-moved-by-nothing` | a flow of the chain no block moves (its `out:`, or a block taking the items at its source's state), not ergostat's leases (out of the stock of items being worked), and nothing measures (no sensor, no rate): what moves the work is not said. Each flow's mover is in `movers` |
+| | `loops-not-connected`, `block-moves-no-flow` | the chain's finding of loops that share no stock, and a block taking items with no `out:` (linked to `no-visible-effect`) |
+| Blocks ↔ Process | `acts-undeclared` | a block's runs moved items (the event's `source`, or `causedby` its run, up through events about no item) between states it does not declare: neither its `takes:` nor an `out:` flow carrying the move |
+| | `moved-without-its-block` | items moved with no block's run behind them (a collector, a person, `event --add`) along a flow the model says a block moves, and that block did not act in the window (a block that ran, or a person block asked, whose effect a collector saw, agrees) |
+| | `declared-not-seen-acting` | a block declared to move items (`takes:` or `out:`) when there was work for it (items reached its `at:` states, or its flows moved), and no run of it moved any; with who moved them. A block with no work in the window is a note |
+
+**The score.** Each kind's agreements over its comparisons (`ticket: 41 of 44 agree (93%)`), each pair's in the JSON.
+The record is compared only where there is enough of it: a kind with fewer than 10 moves, or 3 items, in the window
+says how much more it needs (`needs 4 more moves of ticket in the window`); Dynamics ↔ Blocks needs no record and is
+always compared.
+
+**Bounded.** The window is read once by the Process view's own computation (its caps: the newest 50,000 events, the
+moves of 20,000 items), the moves from the item index, and each finding's chain evidence from `chains.py` given the
+window's moves.
+
+**Where.** `ergostat check` (after the findings; `--json`: `coherence`; `--no-coherence` leaves it out), the MCP tool
+`coherence` (`since`), `GET /api/coherence`, and the Check page's Coherence section.
+
 ## 13. Examples
 
 ### First loop: an inbox kept short (ergostat closes the loop)

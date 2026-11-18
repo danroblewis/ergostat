@@ -284,6 +284,25 @@ def exercised(live, p, snap: dict) -> list[dict]:
     return got
 
 
+def coherence(live, p, snap: dict, window: float | None = None) -> dict:
+    """The coherence check (``coherence.py``) as of the page's moment, over the last day (or ``window``); kept a
+    minute."""
+    from .. import coherence as co
+    spec = spec_of(p)
+    if spec is None:
+        return {"kinds": {}, "findings": [], "pairs": co.PAIRS}
+    key = ("coherence", snap["at"] if not snap.get("live", True) else round(snap["at"] / 60), live.mtime, window)
+    got = live.cached(key)
+    if got is None:
+        try:
+            got = co.of_project(p, spec, window or co.WINDOW, None if snap.get("live", True) else snap["at"])
+        except Exception as e:                       # a record that cannot be read says nothing here
+            got = {"kinds": {}, "findings": [], "pairs": co.PAIRS, "error": f"{type(e).__name__}: {e}"}
+        got["scores"] = {k: co.score_line(k, x) for k, x in got["kinds"].items()}
+        live.keep(key, got)
+    return got
+
+
 def part_numbers(live, p, snap: dict, kind: str, name: str) -> dict:
     """What a valve's (flow's) or an auxiliary's panel shows of its numbers."""
     spec = spec_of(p)

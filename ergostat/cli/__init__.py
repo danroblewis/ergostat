@@ -29,7 +29,8 @@ usage: ergostat [TOPIC] [NAME] [FLAGS]
   With no topic, ergostat shows what needs attention.
 
 the model (ergostat.yaml: stocks, flows, auxiliaries, goals, blocks)
-  check          Errors (file:line), then findings: missing feedback, open loops, ...
+  check          Errors (file:line), then findings: missing feedback, open loops, ...; then coherence: the
+                 Process, Dynamics and Blocks views held against each other, over the record
   explain        The model, or one part (goal.x, block.x, stock.x, flow.x, auxiliary.x), in sentences,
                  and its feedback loops (R reinforcing, B balancing)
   block          The blocks: what each computes or runs, what it reads and commands
@@ -139,6 +140,8 @@ def build() -> argparse.ArgumentParser:
     ch = topic("check", cmd_check, "Is the model whole?", named=False)
     ch.add_argument("--example", nargs="?", const="disk", choices=["disk", "cron"],
                     help="print an example ergostat.toml: disk (one program, the default) or cron (one-liners, nothing to write)")
+    ch.add_argument("--no-coherence", action="store_true", help="leave out the coherence check (the Process, Dynamics "
+                                                               "and Blocks views held against each other)")
     cv = topic("convert", cmd_convert, "Write ergostat.toml as ergostat.yaml (the new format)", named=False)
     cv.add_argument("--stdout", action="store_true", help="print it instead of writing the file")
     cv.add_argument("--force", action="store_true", help="replace an ergostat.yaml that is already there")

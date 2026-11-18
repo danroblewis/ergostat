@@ -64,6 +64,7 @@ class Found:
     where: object
     message: str
     fixes: list[Fix] = field(default_factory=list)
+    moves: list[tuple] = field(default_factory=list)     # the moves (from, to) it says no flow carries (None: arrivals)
 
 
 # ---- the record's moves
@@ -288,7 +289,7 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
         taken.add(out)
         return out
 
-    def add(code, about, where, msg, fix, evidence=""):
+    def add(code, about, where, msg, fix, evidence="", move=None):
         x = by_about.get((code, about))
         if x is None:
             x = by_about[(code, about)] = Found(code, about, where, msg, [fix])
@@ -296,6 +297,8 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
         else:
             x.message += f"; and also {fix.said()}" + (f" ({evidence})" if evidence else "")
             x.fixes.append(fix)
+        if move is not None:
+            x.moves.append(move)
 
     first = c.order[0] if c.order else None    # arrivals: the kind's first state, filled from outside
     if first in c.stock_of and not inflows[c.stock_of[first]]:
@@ -304,7 +307,8 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
                   description=f"items of {k} arriving (in {first}, the kind's first state)")
         add("state-stock-without-inflow", f"stock.{b}", spec.stocks[b].where,
             f"stock {b}: nothing fills it, but every item of {k} arrives in {first}, the kind's first state. The chain "
-            f"starts with arrivals from outside: {fix.said()} (or the collector's flow that finds the work, to: {b})", fix)
+            f"starts with arrivals from outside: {fix.said()} (or the collector's flow that finds the work, to: {b})", fix,
+            move=(None, first))
 
     retargeted: set[str] = set()
     for (p, s), ev in sorted(why.items(), key=lambda m: (rank.get(m[0][0], 99), rank.get(m[0][1], 99))):
@@ -315,7 +319,8 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
         cloud_out = [f for f in outflows[a] if f.target is None and f.name not in retargeted and not scatters(p)]
         cloud_in = [f for f in inflows[b] if f.source is None]
         g = next((f for f in cloud_out if _counts(f, k, "entering") == s), None) or \
-            next((f for f in cloud_out if dests[p] == {s} and _counts(f, k, "leaving") in (p, None)), None)
+            next((f for f in cloud_out if dests[p] == {s} and _counts(f, k, "leaving") in (p, None)
+                  and _counts(f, k, "entering") in (None, s)), None)
         if g is not None:
             retargeted.add(g.name)
             twin = next((h for h in cloud_in if spec.actuator_of(h.name) is None and (_counts(h, k, "entering") == s or (
@@ -324,7 +329,7 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
             add("outflow-not-chained", f"flow.{g.name}", g.where,
                 f"flow {g.name}: drains {a} to outside, but the items of {k} it moves go on to {s}, counted by stock "
                 f"{b} ({evidence}). A move from one state to the next is a flow from one stock to the next: write "
-                f"{fix.said()}", fix)
+                f"{fix.said()}", fix, move=(p, s))
             continue
         arrive = s == (c.order[0] if c.order else None) or seen.get((None, s))      # it counts arrivals too: not moves
         h = None if arrive else next((f for f in cloud_in if origins[s] == {p} and _counts(f, k, "entering") in (s, None)), None)
@@ -333,7 +338,7 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
             add("inflow-not-chained", f"flow.{h.name}", h.where,
                 f"flow {h.name}: fills {b} from outside, but the items of {k} it brings come from {p}, counted by stock "
                 f"{a} ({evidence}). A move from one state to the next is a flow from one stock to the next: write "
-                f"{fix.said()}", fix)
+                f"{fix.said()}", fix, move=(p, s))
             continue
         many = len(origins[s]) >= 2
         lease = any(bl.takes and bl.takes.kind == k and p in bl.takes.at for bl in spec.blocks.values())
@@ -347,11 +352,11 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
         if not inflows[b]:
             add("state-stock-without-inflow", f"stock.{b}", st.where,
                 f"stock {b}: nothing fills it, but items of {k} arrive in {s} from {p}, counted by stock {a} ({evidence}). "
-                f"Chain them: {fix.said()}{note}", fix, evidence)
+                f"Chain them: {fix.said()}{note}", fix, evidence, (p, s))
         else:
             add("move-without-flow", f"stock.{b}", st.where,
                 f"stock {b}: items of {k} move into {s} from {p} ({evidence}), and no flow carries them from {a} to {b}. "
-                f"Add {fix.said()}{note}", fix, evidence)
+                f"Add {fix.said()}{note}", fix, evidence, (p, s))
 
     fixes = [x for f in found for x in f.fixes]
     joins = [x for x in fixes if x.op == "retarget" or x.source]     # (pieces no move joins: a state with no stock between)

@@ -205,6 +205,8 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 /* lists of things to look at: the side panel, the Check page, a panel's notes */
 .att { display: flex; flex-direction: column; gap: var(--sp-3); margin: 0; }
 .att > div { line-height: var(--leading); }
+.coh-scores { list-style: none; padding: 0; margin: var(--sp-2) 0 var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
+.coherence .att .note { margin: var(--sp-1) 0 0; }
 .att > div > b:first-child { font-weight: 600; }
 .att .more, .att .none { color: var(--muted); }
 details.suggest, details.changes, details.legend-box { margin-top: var(--sp-3); }
