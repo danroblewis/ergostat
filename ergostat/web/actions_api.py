@@ -20,15 +20,16 @@ def post(live, path: str, q: dict) -> tuple[int, dict]:
     spec = getattr(p.model, "spec", None)
     if spec is None:
         return 400, {"error": "the model is an ergostat.toml: gated actions are an ergostat.yaml's"}
-    parts = path.split("/")                       # action/ID/approve
-    if len(parts) != 3 or parts[2] not in ("approve", "deny"):
+    from urllib.parse import unquote
+    aid, _, verb = unquote(path.removeprefix("action/")).rpartition("/")   # action/ID/approve (the ID has a / in it)
+    if not aid or verb not in ("approve", "deny"):
         return 400, {"error": "POST /api/action/ID/approve or /api/action/ID/deny"}
     note = (q.get("note") or [None])[0]
     try:
-        if parts[2] == "approve":
-            a = gate.approve(p, spec, parts[1], by="owner", note=note)
+        if verb == "approve":
+            a = gate.approve(p, spec, aid, by="owner", note=note)
         else:
-            a = gate.deny(p, parts[1], by="owner", note=note)
+            a = gate.deny(p, aid, by="owner", note=note)
     except gate.GateError as e:
         return 400, {"error": str(e)}
     return 200, {k: a.get(k) for k in KEEP}
