@@ -14,6 +14,7 @@ the rate at which items enter or leave a state: the record is the instrument."""
 from __future__ import annotations
 
 import copy
+import json
 import time
 from dataclasses import dataclass, field
 
@@ -362,11 +363,48 @@ def field_at(fields: dict, name: str):
     return v
 
 
+def same(have, want) -> bool:
+    """Typed JSON equality (SPEC §6, ``where:``): numbers as numbers (1 is 1.0), strings as strings, booleans as
+    booleans (true is not 1), null as null; a list or a map equal element by element."""
+    if isinstance(have, bool) or isinstance(want, bool):
+        return isinstance(have, bool) and isinstance(want, bool) and have == want
+    if isinstance(have, int | float) and isinstance(want, int | float):
+        return float(have) == float(want)
+    if isinstance(have, list) and isinstance(want, list):
+        return len(have) == len(want) and all(same(a, b) for a, b in zip(have, want, strict=True))
+    if isinstance(have, dict) and isinstance(want, dict):
+        return have.keys() == want.keys() and all(same(have[k], want[k]) for k in have)
+    if have is None or want is None:
+        return have is None and want is None
+    if isinstance(have, str) or isinstance(want, str):
+        return isinstance(have, str) and isinstance(want, str) and have == want
+    return have == want
+
+
+def typed_too(where: dict) -> dict:
+    """A ``where`` typed as text (a page's or a command's filter, ``priority:1``): each value also as the JSON number,
+    boolean or null it spells, so a filter typed as text matches the field whichever type it holds."""
+    out = {}
+    for k, v in where.items():
+        vs = v if isinstance(v, list) else [v]
+        more = []
+        for x in vs:
+            if isinstance(x, str):
+                try:
+                    j = json.loads(x)
+                except ValueError:
+                    continue
+                if j is None or isinstance(j, bool | int | float):
+                    more.append(j)
+        out[k] = [*vs, *more]
+    return out
+
+
 def matches(it: Item, where: dict) -> bool:
     for k, want in where.items():
         have = field_at(it.fields, k)
         wants = want if isinstance(want, list) else [want]
-        if not any(str(have) == str(w) for w in wants):
+        if not any(same(have, w) for w in wants):
             return False
     return True
 
