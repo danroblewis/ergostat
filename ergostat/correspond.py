@@ -146,7 +146,7 @@ def blocks_shapes(g: dict, spec) -> dict[str, dict]:
                         "name": n.get("label", nid), "aside": True}
             continue
         is_, region = of(nid)
-        out[nid] = {"is": is_, "region": region, "name": _bd_name(n)}
+        out[nid] = {"is": is_, "region": region, "name": _bd_name(n), **({"box": rest} if kind == "sys" else {})}
     frames = {f["id"]: f for f in g.get("frames") or []}
 
     def within(nid: str, fid: str) -> bool:
@@ -202,7 +202,7 @@ def dynamics_shapes(g: dict, spec, model=None) -> dict[str, dict]:
         nid = n["id"]
         if n["kind"] == "system":                     # a closed module: what the model puts in it, and what is drawn in it
             out[nid] = {"is": _union(inside(spec, n["label"]) if spec is not None else [f"system.{n['label']}"],
-                                     *(of(x) for x in n.get("holds") or [])), "region": True, "name": n["label"]}
+                                     *(of(x) for x in n.get("holds") or [])), "region": True, "name": n["label"], "box": n["label"]}
         elif n["kind"] != "cloud":
             out[nid] = {"is": of(nid), "region": False, "name": n.get("label") or nid}
     for name in g.get("open") or []:                  # an open system's outline: the system, holding what is in it
@@ -268,8 +268,54 @@ def table(g: dict, model) -> dict:
         _stand_ins(spec, g, parts, within)
     loops = _loops(spec, g, shapes) if spec is not None else {}
     return {"view": {"blocks": "blocks", "events": "wiring"}.get(kind, "dynamics"),
-            "shapes": {k: {"is": v["is"], **({"region": True} if v["region"] else {})} for k, v in shapes.items()},
-            "parts": parts, "inside": {p: [shapes[s]["name"] for s in ids] for p, ids in within.items()}, "loops": loops}
+            "shapes": {k: {"is": v["is"], **({"region": True} if v["region"] else {}),
+                           **({"system": v.get("system") or v.get("box")} if v.get("system") or v.get("box") else {}),
+                           **({"aside": True} if v.get("aside") else {})} for k, v in shapes.items()},
+            "parts": parts, "inside": {p: [shapes[s]["name"] for s in ids] for p, ids in within.items()}, "loops": loops,
+            **({"colours": colours(spec)} if spec is not None else {})}
+
+
+HUES, STEPS = 10, 3                                   # the page's palette: ten hues, each in three lightnesses (colours.js)
+
+
+def colours(spec) -> dict[str, int]:
+    """Each model part's colour (a slot of the page's palette: hue ``i % HUES``, lightness ``i // HUES``), the
+    same in every view, as the parts are: parts that touch (a stock and its flows, a block and what it moves
+    or reads, a goal, its reference and what it holds) get different hues while there are hues to spare, and
+    the slots are used evenly, so each group's colour is its own as far as the palette goes."""
+    near: dict[str, set[str]] = {}
+
+    def touch(a: str, b: str) -> None:
+        if a != b:
+            near.setdefault(a, set()).add(b)
+            near.setdefault(b, set()).add(a)
+    for f in spec.flows.values():
+        for x in (f.source, f.target):
+            if x:
+                touch(f"flow.{f.name}", _var(spec, x))
+    for name, goal in spec.goals.items():
+        touch(f"goal.{name}", f"goal.{name}.r")
+        touch(f"goal.{name}", f"{goal.of.kind}.{goal.of.name}")
+    from .blockdiagram import _Diagram
+    setting = _Diagram(spec, {}).setting_of
+    for b, blk in spec.blocks.items():
+        together = [f"block.{b}", *_moves(spec, b), *([setting[b]] if setting.get(b) else [])]   # one shape: told apart
+        for i, x in enumerate(together):
+            for y in together[i + 1:]:
+                touch(x, y)
+        for r in blk.reads():
+            if r.kind in ("stock", "flow", "auxiliary", "block"):
+                touch(f"block.{b}", f"{r.kind}.{r.name}")
+            elif r.kind == "goal":
+                touch(f"block.{b}", f"goal.{r.name}")
+    slots, used, out = HUES * STEPS, [0] * (HUES * STEPS), {}
+    for p in universe(spec):
+        ns = [out[x] for x in near.get(p, ()) if x in out]
+        hues = {n % HUES for n in ns}
+        i = min(range(slots), key=lambda s: (s % HUES in hues, s in ns, used[s], s))
+        out[p] = i
+        used[i] += 1
+    return out
 
 
 def _stand_ins(spec, g: dict, parts: dict, within: dict) -> None:

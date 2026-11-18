@@ -211,3 +211,32 @@ def test_the_wiring_draws_each_agent_as_the_blocks_it_fills(example):
         want = {f"block.{b}" for b, x in spec.blocks.items() if b == agent or x.agent == agent}
         assert set(g["corr"]["shapes"][n["id"]]["is"]) == want, n["id"]
     assert system_of(spec, f"system.{next(iter(spec.systems))}") in (None, *spec.systems)
+
+
+def test_each_part_has_one_colour_in_every_view_and_parts_drawn_together_differ(example):
+    """Colour by correspondence (colours.js): each part's palette slot is the same whatever view or systems
+    are drawn; parts that touch (a flow and its stocks, a goal and its reference) get different hues, and
+    the parts one block diagram shape is (a controller: its block, its valves, its setting) different slots;
+    a closed system's box and an open one's outline say which system they are."""
+    from ergostat.correspond import HUES, STEPS
+    _name, spec, graph = example
+    first = graph(view="dynamics", open="*")["corr"]["colours"]
+    assert set(first) == set(universe(spec)) and all(0 <= i < HUES * STEPS for i in first.values())
+    for view in ("dynamics", "blocks"):
+        for q, _ in views(spec):
+            assert graph(view=view, **q)["corr"]["colours"] == first, (view, q)
+    for f in spec.flows.values():
+        for x in (f.source, f.target):
+            if x and f"stock.{x}" in first:
+                assert first[f"flow.{f.name}"] % HUES != first[f"stock.{x}"] % HUES, (f.name, x)
+    for g in spec.goals:
+        assert first[f"goal.{g}"] % HUES != first[f"goal.{g}.r"] % HUES
+    blocks = graph(view="blocks", open="*")["corr"]
+    for sid, x in blocks["shapes"].items():
+        if sid.startswith("blk:"):
+            slots = [first[p] for p in x["is"]]
+            assert len(set(slots)) == len(slots), (sid, x["is"], slots)
+    shut = graph(view="dynamics", open="-")["corr"]["shapes"]
+    assert {x["system"] for x in shut.values() if x.get("system")} == {s for s in spec.systems if not spec.within.get(s)}
+    frames = {x["system"] for sid, x in blocks["shapes"].items() if sid.startswith("frame:")}
+    assert frames and frames <= set(spec.systems)
