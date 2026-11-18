@@ -16,17 +16,29 @@ def here(args) -> Path:
     return Path(args.C).resolve() if getattr(args, "C", None) else Path.cwd()
 
 
+def coherence_of(args, spec, findings) -> dict | None:
+    """The coherence check (``coherence.py``) over the project's record, unless asked to leave it out."""
+    if getattr(args, "no_coherence", False):
+        return None
+    from .. import coherence as co
+    from ..durations import parse_duration
+    window = parse_duration(args.since, "--since") if getattr(args, "since", None) else co.WINDOW   # (check: a day)
+    return co.of_spec(spec, findings, window)
+
+
 def check_yaml(args, path: Path) -> int:
     from ..spec import read
     spec, problems = read(path)
     errors = [p for p in problems if p.level == "error"]
     findings = [p for p in problems if p.level != "error"]
     if args.json:
+        coh = coherence_of(args, spec, findings) if not errors else None
         return out_json({"ok": not errors, "errors": len(errors), "findings": len(findings),
                          "found": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
                                     **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
                                     "file": str(p.where.file) if p.where else None,
-                                    "line": p.where.line if p.where else None} for p in problems]}) or (1 if errors else 0)
+                                    "line": p.where.line if p.where else None} for p in problems],
+                         **({"coherence": coh} if coh is not None else {})}) or (1 if errors else 0)
 
     def n(k, word):
         return f"{k} {word}" + ("" if k == 1 else "s")
@@ -46,6 +58,13 @@ def check_yaml(args, path: Path) -> int:
     print(c(f"{len(closed)} of {n(len(loops), 'goal')} closed by a loop ergostat can see", "dim"))
     for p in findings:
         print(f"{c(p.code or 'finding', 'warn')}  {p}")
+    coh = coherence_of(args, spec, findings)
+    if coh is not None and coh["kinds"]:
+        from ..coherence import lines
+        print(c("\nCoherence: the Process, Dynamics and Blocks views held against each other, over the record", "dim"))
+        for style, line in lines(coh):
+            print(c(line, "bold") if style == "head" else c(line, style) if style != "warn" else
+                  f"{c(line.split('  ', 1)[0], 'warn')}  {line.split('  ', 1)[1]}" if "  " in line else c(line, "warn"))
     return 0
 
 
