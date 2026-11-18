@@ -113,7 +113,7 @@ def _ticket(tmp_path, states="[new, doing, done]"):
 
 def _moves(p, r: random.Random, n: int, t0: float) -> float:
     t = t0
-    for i in range(n):
+    for _ in range(n):
         t += r.random() * 30
         p.events.add(r.choice(["ticket.started", "ticket.done", "ticket.new", "ticket.noted"]), item=f"ticket/{r.randrange(40)}",
                      source="test", at=t, data={"tier": r.choice("ab")} if r.random() < 0.5 else {})
