@@ -57,6 +57,8 @@ review). Newest decisions from the owner first within each section.
 
 ## Interface
 
+- **Per-run cost and resources on the Agents page** (in progress, `runcost`): AI tokens and USD per run, CPU,
+  memory, open files (network if attributable), history charts per agent, and measures a budget goal can read.
 - **Process view: drag, pin and re-route** (in progress, `procdrag`).
 - **Dark theme: the lighter correspondence colours are low in contrast** (open).
 
