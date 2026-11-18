@@ -85,14 +85,18 @@ def items(p, kind: str, states: list[str] | None = None) -> list:
 
 
 def block_input() -> dict:
-    """What ergostat gave the block on standard input (empty when run by hand)."""
+    """What ergostat gave the block on standard input (empty when run by hand): its JSON, or, for a block on the ai
+    rung that runs one of these programs, the JSON after its prompt (the last line)."""
     if sys.stdin is None or sys.stdin.isatty():
         return {}
-    try:
-        text = sys.stdin.read()
-        return json.loads(text) if text.strip() else {}
-    except ValueError:
-        return {}
+    text = sys.stdin.read()
+    for body in (text, text.strip().rsplit("\n", 1)[-1]):
+        try:
+            got = json.loads(body) if body.strip() else {}
+        except ValueError:
+            continue
+        return got if isinstance(got, dict) else {}
+    return {}
 
 
 def now() -> float:

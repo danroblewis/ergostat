@@ -58,8 +58,12 @@ If nobody can answer, do not ask: choose, and list your assumptions at the end.
   the-job, `job/INSTANCE.yaml`); `add_use` adds an `include:` when none matches. Put it `within` the system it
   belongs to when there is one (see `explain`).
 - **Parameters**: durations are written `30s`, `4h`, `1d`; setpoints are quoted (`"<= 70"`); cron is quoted
-  (`"30 8 * * 1-5"`); `steps` is a list (`[triage, {name: fix, run: ./bin/fix.sh}]`). Only give what the request
-  says or needs; leave the rest to the defaults.
+  (`"30 8 * * 1-5"`); `steps` is a list (`[triage, {name: fix, run: ./bin/fix.sh}]`). A step an AI agent should
+  do is `{name: fix, prompt: prompts/fix.md}`, and its prompt must end by saying `{"event": "KIND.fix-done"}`
+  about the item; if it works on code, give `workspace: {repo: ...}` (a worktree per item), and anything outward it
+  must do (a push, a pull request) as `actions:` with `gate: approve`, never as a tool. `pool` is how many items a
+  step works on at once, `tries` how many attempts before an item is set aside. Only give what the request says or
+  needs; leave the rest to the defaults.
 - **Scripts**: for each command the template runs against the real world (`command`, `answer`, `measure`, `act`,
   `render`, `ping`, a step's `run`), call `scaffold` with its role and a path (the project's `bin/`, or the
   owner's private scripts folder outside any repository). It runs as it is; fill in its TODO only as far as the

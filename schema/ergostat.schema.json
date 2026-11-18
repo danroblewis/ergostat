@@ -549,7 +549,8 @@
         "measure": {
           "enum": [
             "count",
-            "oldest"
+            "oldest",
+            "age"
           ]
         },
         "entering": {

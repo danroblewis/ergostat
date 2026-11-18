@@ -15,7 +15,8 @@ import yaml
 
 HERE = Path(__file__).resolve().parent / "templates"
 ENV = "ERGOSTAT_LIBRARY"
-BODY = ("items", "systems", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents", "uses")
+BODY = ("items", "systems", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents", "workspaces", "actions",
+        "uses")
 HEAD = {"template", "description", "reading", "params", "example", "standins"}
 TYPES = ("string", "number", "integer", "duration", "setpoint", "command", "url", "cron", "bool", "name", "names",
          "reference", "list", "strings", "map", "glob", "rung", "path")

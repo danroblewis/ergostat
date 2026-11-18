@@ -123,6 +123,8 @@ control theory and in system dynamics), `params:` (each with `type`, `descriptio
   it);
 - a key whose value comes out empty is left out; a map (or a section's entry) with `if: ${param}` is kept only
   when the parameter is set, `unless:` only when it is not, and either may compare (`if: ${rung} == person`);
+- a value written `{if: C, value: V, else: E}` (or `unless:`) is `V` when the condition holds, else `E`, or left out
+  when there is no `else:` (`type: {if: ${it.prompt}, value: ai, else: program}`);
 - an entry with `each: PARAM` (a list parameter) is made once for each element, which is `${it}` (`as:` names
   it): its fields, `${it.index}`, and `${it.next}` and `${it.prev}`, the next and previous element's name (or
   the entry's `last:`, by default `done`, and `first:`); `{each: P, value: V}` in a list makes an element for
@@ -135,10 +137,16 @@ item), `keep-under` (a level held under a limit by a corrective action), `steps`
 of steps, a block each) and `collect` (the event collector). Each says its reading in both disciplines
 (`ergostat help adding`, `docs/ADDING.md`). They run ergostat's own programs (`python -m
 ergostat.library.run`): `collect` (a sensor that polls a command or an HTTP endpoint, records each new record as
-an event about an item, once, from a cursor, and prints the arrivals per hour), `each` (a block that runs a
-command on each item in a state and moves those it finished on), `ping`, `due` and `report`. *For now* the
-blocks that work on items are timer-driven: each runs on its goal's clock and takes the items in turn; nothing
-leases an item to a run.
+an event about an item, once, from a cursor, and prints the arrivals per hour), `each` (a block's program that
+runs a command on the item leased to its run and moves it on, or gives it back), `ping`, `due` and `report`. The
+blocks that work on items take them (section 9.5): `respond-to`'s `answer` and each of `steps`' steps is leased
+one item a run, `pool` at once, and an item that fails every try is a dead letter.
+
+**What a template may declare.** `items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`,
+`blocks`, `agents` and `uses`, and the `workspaces` and gated `actions` its AI blocks use (section 12k): each named
+for the instance like any part (`steps` makes `NAME-workspace`, and `NAME-push` for an action `push`), and a
+block's `workspace:` and `actions:` follow the names. A block's lease terms are its own (`lease:`, with `takes:`
+and `pool:`); `leases:`, each tier's terms, belongs to the model as a whole, as do `messages:` and `storage:`.
 
 ## 3. Names, references and values
 
@@ -675,13 +683,13 @@ flows:
 | `manual` | bool | | Readings recorded by a person |
 | `items` | item kind | | Counted from the record: on a stock, the items in `state` (any state when left out); on a flow, the items `entering` or `leaving` a state per hour, over `over` |
 | `state` | state or list | any | On a stock: which states count |
-| `measure` | `count` or `oldest` | `count` | On a stock: how many, or the hours the oldest of them has been in its state |
+| `measure` | `count`, `oldest` or `age` | `count` | On a stock: how many; the hours the oldest of them has been in its state; or the hours since the oldest of them was first seen, whatever states it passed through (an item taken, given back and taken again keeps its age: a commitment's clock) |
 | `entering`, `leaving` | state | | On a flow: exactly one; the move it counts |
 | `changes` | `rises`, `falls` or `net` | | On a flow into or out of one stock: its rate from that stock's own successive readings, how much they rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a `two-way` flow), per hour over `over` |
 | `over` | duration | `1h` | On a flow: the window the rate is taken over |
 | `builtin` | `ergostat.model.fit`, `.unexplained`, `.unidentified-loops` or `.open-findings` | | On a stock or an auxiliary: one of ergostat's built-in measures of the model's own quality (section 12e), read by ergostat itself (`ergostat measure ergostat.model.fit`, in a process of its own; `timeout` 2m by default) |
 | `averages` | duration | none | On a flow's `run`, `query` or `manual` sensor: its reading is the average rate over this window before it (a count of the last ten minutes, per hour: `averages: 10m`). The model's rate is read through the same window before it is compared (section 12b) |
-| `where` | map of field → value (or list) | | Only items whose fields match |
+| `where` | map of field → value (or list) | | Only items whose fields match; a field's field is named with a dot (`lease.back: triage`: the items whose lease was taken at `triage`, section 9.5) |
 | `every` | duration | `1m` | How often it reads (`run`, `query`) |
 | `cron` | cron expression | | Instead of `every` |
 | `timeout` | duration | `30s` | |

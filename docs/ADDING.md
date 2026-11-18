@@ -42,7 +42,7 @@ proposal for the judge (that is the modelling subsystem's, which alone changes a
 | `re-ping` | something you asked of someone, reminded until they answer | no question a period without a reminder; at `limit`, a person takes over | a feed whose questions are answered after a while; a reminder that sends nothing |
 | `daily-report` | a report on a schedule | every scheduled report written | a summary of the model now |
 | `keep-under` | a measured level held under a limit | the level under `limit` | a level that creeps up; a correction that takes a tenth off |
-| `steps` | a kind of item worked through steps in order | nothing waits at a step; nothing stays stuck | a made-up feed; steps that do nothing |
+| `steps` | a kind of item worked through steps in order, by programs or AI agents | nothing waits at a step; nothing stays stuck | a made-up feed; steps that do nothing |
 | `collect` | recording what a command or an API says, as items | (an instrument: none) | a made-up feed |
 
 Every template runs on its free stand-ins until you give it the real thing, so it can be seen and tried before any
@@ -60,14 +60,18 @@ uses:
       within: 4h                          # the commitment
       command: ./bin/help-queue.sh        # prints the open questions as JSON, each with an id
       answer: ./bin/draft-answer.py       # given each one on standard input; exit 0 when answered
+      pool: 2                             # at most two answered at once
 ```
 
 - **Control:** two balancing loops on the age of the oldest unanswered item. The fast one (`picked-up`) is an
-  on-off controller with its setpoint at `act-after` (0: at once): its actuator, `answer`, runs the `answer`
-  command on each waiting item, the longest waiting first. The slow one (`on-time`) is the commitment, `within`;
-  while it is off, a person is asked (`escalate`). Preparing fast keeps the slow loop quiet.
-- **System dynamics:** a stock of items waiting, filled by the arrivals (a disturbance: nothing in the model sets
-  them) and drained by the answers; the oldest item's age is an auxiliary of the stock and the clock.
+  on-off controller with its setpoint at `act-after` (0: at once): its actuator, `answer`, takes the waiting
+  items, the longest waiting first, each leased to a run of its own (SPEC §9.5) that runs the `answer` command on
+  it, `pool` at once. An answer that fails gives its item back to be taken again; after `tries` it is a dead
+  letter, still unanswered. The slow one (`on-time`) is the commitment, `within`; while it is off, a person is
+  asked (`escalate`). Preparing fast keeps the slow loop quiet.
+- **System dynamics:** a stock of items unanswered (waiting, being answered, or given up on), filled by the
+  arrivals (a disturbance: nothing in the model sets them) and drained by the answers; the oldest item's age,
+  counted from its arrival whoever holds it, is an auxiliary of the stock and the clock.
 
 ### re-ping
 
@@ -136,24 +140,44 @@ uses:
     with:
       url: https://tracker.example.internal/api/issues?type=regression
       headers: ["Authorization: Bearer $TRACKER_TOKEN"]
+      pool: 2                                   # at most two items at each step at once
+      tries: 3                                  # attempts at a step before an item is a dead letter
+      workspace: {repo: ../product, size: 2}    # a worktree per item, for the AI agent steps
+      actions:                                  # what an AI agent step may ask for, gated
+        - name: push
+          run: git push origin HEAD:refs/heads/{branch}
+          gate: approve                         # held until you approve it
       steps:
         - name: label
-          run: python3 bin/label.py
+          run: python3 bin/label.py             # a program step
         - name: find-culprit
           run: python3 bin/find-culprit.py
-        - name: draft-revert
-          run: python3 bin/draft-revert.py
+        - name: draft-revert                    # an AI agent step
+          prompt: prompts/draft-revert.md
+          tools: [Read, Edit, Bash]
+          actions: [push]
 ```
 
-- **System dynamics:** an aging chain (Sterman, ch. 12): a stock for each step, each drained into the next by that
-  step's flow, the last into a running total done; items that keep failing leave the chain for a stock set aside.
-- **Control:** one balancing loop a step, each an on-off controller holding its stock at 0, its actuator that step's
-  block: it runs the step's command on each item in its state and moves those that succeed on. Retries are bounded
-  (`tries`), then the item is set aside and a person is asked (`unstick`). Add a step to the list and its stock,
-  flow, goal and block follow.
-- *Timer-driven, for now:* each step's block runs on its goal's clock and takes the items in turn. Item-driven
-  dispatch with leases (an item handed to one run, taken back if the run goes silent) belongs to the engine; the
-  steps will use it when it is there.
+- **System dynamics:** an aging chain (Sterman, ch. 12) with work in progress at every step: the items waiting at
+  a step, taken into the items it is working on, and passed to the next step's queue (the last into a running
+  total done). An item given back flows from the work at its step to its queue again (rework); one that fails every
+  try leaves the chain for a stock set aside.
+- **Control:** one balancing loop a step, each an on-off controller holding its queue at 0, its actuator that
+  step's block. The block **takes** the items at its state: ergostat leases each to a run of its own (SPEC §9.5),
+  `pool` at once, the oldest first, as soon as it arrives. The run moves its item on (the lease's ack) or gives it
+  back (a nack, its attempt counted); a run that goes silent past its lease's TTL loses the item, and it is taken
+  again. After `tries` attempts at one step the item is a dead letter and a person is asked (`unstick`): fix the
+  cause, then `ergostat lease ITEM --redrive` gives it another go. Add a step to the list and its stocks, flows,
+  goal and block follow.
+- **A program step** (`run:`) is given its item on standard input; exit 0 moves it on, anything else gives it back.
+  Its lease's TTL is the program tier's (5 minutes, or `timeout` when longer) unless `ttl` says.
+- **An AI agent step** (`prompt:`, a file or the text; `model`, `tools`) is a Claude Code session on its item. It
+  moves the item on by saying `{"event": "KIND.STEP-done"}` (the prompt should tell it so: `regressions.draft-revert-done`
+  here), or gives it back with `{"nack": "why"}`. Its lease's TTL is the AI tier's (40 minutes) unless `ai-ttl`
+  says; it may run for `ai-timeout` (30m). With `workspace`, each item has a git worktree of its own, on its own
+  branch, kept across its steps, attempts and review, and cleaned once it is done (SPEC §12k). With `actions`, the
+  steps that name them may ask for those outward acts, each run only as its `gate` says (`approve`: held for you;
+  `auto`; `deny`), and a step with `tools:` or `actions:` runs in the sandbox.
 
 ### collect
 

@@ -507,8 +507,9 @@ class Compiler:
 
     def item_sensor(self, s: Map, of: Ref, sw: str) -> dict | None:
         """``items: ticket`` and how to count them: on a stock, how many are in ``state:`` (or the
-        age in hours of the ``oldest``); on a flow, the rate per hour ``entering:`` or ``leaving:``
-        a state, over the last ``over:``. Kinds and states are checked once all are read."""
+        hours the ``oldest`` has been in its state, or the ``age`` of the oldest since it was first seen); on a
+        flow, the rate per hour ``entering:`` or ``leaving:`` a state, over the last ``over:``. Kinds and states are
+        checked once all are read."""
         q: dict = {"kind": str(s["items"]), "where": {}}
         st = s.get("state")
         if st is not None:
@@ -522,9 +523,9 @@ class Compiler:
                     self.err(f"{sw}.{k}: a stock counts the items in a state (state:); entering:, leaving: and over: "
                              f"measure a flow", s.at(k), "items-on-stock")
             m = s.get("measure", "count")
-            if m not in ("count", "oldest"):
-                self.err(f"{sw}.measure: count (how many) or oldest (the oldest one's hours in its state)", s.at("measure"),
-                         "bad-measure")
+            if m not in ("count", "oldest", "age"):
+                self.err(f"{sw}.measure: count (how many), oldest (the oldest one's hours in its state) or age (the "
+                         f"oldest one's hours since it was first seen)", s.at("measure"), "bad-measure")
             q["measure"] = m
         else:
             if s.get("state") is not None or s.get("measure") is not None:

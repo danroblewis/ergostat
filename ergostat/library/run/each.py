@@ -1,18 +1,22 @@
-"""Working on items one at a time: a block's program.
+"""Working on items: a block's program.
 
     each --kind K --state S --done EVENT [--run CMD] [--max N] [--failed EVENT] [--tries N] [--stuck EVENT]
          [--flow flow.x] [--timeout 5m]
 
-The items of kind K in state S, the longest waiting first, at most N a run (or the amount the block was commanded,
-when that is less): for each, the command is run in the project's folder with the item on standard input (``{id,
-kind, state, fields}``) and in ``$ITEM_ID``, ``$ITEM_KIND``, ``$ITEM_STATE`` and ``$ITEM_FIELDS`` (JSON). The last
-JSON object it prints is folded into the item, and the item moves on (``K.<done>``). A command that fails says so
-on the item (``K.<failed>``, with ``error``, ``attempts`` and ``tries-<state>``: 1, summed by its kind's fold); after
-``--tries`` failures in one state the item is set aside (``K.<stuck>``, with ``stuck_at``). With no command, the
-stand-in: it does nothing outside, and says so. What it moved is the count of items moved on, along ``--flow``.
+**Given an item** (a block that takes items, SPEC §9.5: ergostat leased this run one item, in its input), it works
+on that one: the command is run in the project's folder with the item on standard input (``{id, kind, state,
+fields}``) and in ``$ITEM_ID``, ``$ITEM_KIND``, ``$ITEM_STATE`` and ``$ITEM_FIELDS`` (JSON). The last JSON object it
+prints is folded into the item, and the item moves on (``K.<done>``): the lease's ack. A command that fails says so
+on the item (``K.<failed>``, with ``error`` and ``failed_at``) and gives it back (``{"nack": why}``): the lease
+counts the attempt, and after its attempts the item is a dead letter. Retries, and when to give up, are the lease's.
 
-*Timer-driven, for now:* the block runs on its goal's clock and takes the items in turn; one run works on them
-one after another, and nothing leases an item to it. Item-driven dispatch, with leases, belongs to the engine."""
+**Given none** (run by hand, or by a block that does not take items), it works on the items of kind K in state S,
+the longest waiting first, at most N a run (or the amount the block was commanded, when that is less), one after
+another; it counts the tries itself (``tries-<state>``: 1 each failure, summed by its kind's fold) and after
+``--tries`` failures in one state sets the item aside (``K.<stuck>``, with ``stuck_at``).
+
+With no command, the stand-in: it does nothing outside, and says so. What it moved is the count of items moved on,
+along ``--flow``."""
 
 from __future__ import annotations
 
@@ -53,6 +57,28 @@ def run_one(cmd: str, it, timeout: float) -> tuple[bool, dict, str]:
     return True, data, ""
 
 
+class Leased:
+    def __init__(self, d: dict):
+        self.id, self.kind, self.state = str(d.get("id")), d.get("kind"), d.get("state")
+        self.fields = d.get("fields") if isinstance(d.get("fields"), dict) else {}
+
+
+def leased(a, item: dict) -> int:
+    """The one item this run holds a lease on: done and moved on, or failed and given back."""
+    it = Leased(item)
+    if not a.run.strip():
+        ok, data, why = True, {"done_by": "stand-in"}, ""
+    else:
+        ok, data, why = run_one(a.run, it, a.timeout)
+    if ok:
+        say({"event": f"{a.kind}.{a.done}", "item": it.id, "data": data})
+    else:
+        say({"event": f"{a.kind}.{a.failed}", "item": it.id, "data": {**data, "error": why, "failed_at": it.state}})
+        say({"nack": why})
+    say({"out": a.flow, "moved": 1 if ok else 0} if a.flow else {"moved": 1 if ok else 0})
+    return 0
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="each")
     ap.add_argument("--kind", required=True)
@@ -69,6 +95,8 @@ def main(argv: list[str]) -> int:
     given = block_input()
     amount = (given.get("command") or {}).get("amount")
     n = a.max if not amount or amount <= 1 else min(a.max, int(amount))
+    if isinstance(given.get("item"), dict):                    # leased to this run: that one item (SPEC §9.5)
+        return leased(a, given["item"])
     p = project()
     todo = items(p, a.kind, a.state)[:n]
     moved = 0

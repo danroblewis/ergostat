@@ -5,10 +5,13 @@ reading: |
   every loop here) and drained by the answers (the outflow). The age of the oldest waiting item is an auxiliary of
   the stock and the clock.
   Control: two balancing loops on that age, one inside the other. The fast one, `picked-up`, is an on-off
-  controller with its setpoint at `act-after` (0: act as soon as anything waits); its actuator, `answer`, runs the
-  `answer` command once for each item, the longest waiting first. The slow one, `on-time`, is the commitment
-  (`within`); while it is off, the escalation asks a person (`escalate`), a second actuator on the same stock.
-  Preparing fast keeps the slow loop quiet, as in the-job's domains.
+  controller with its setpoint at `act-after` (0: act as soon as anything waits); its actuator, `answer`, takes the
+  waiting items, the longest waiting first: ergostat leases each to a run of its own (SPEC §9.5), at most `pool` at
+  once, which runs the `answer` command on it. An answer that fails gives the item back, to be taken again, and
+  after `tries` attempts it is a dead letter, still unanswered: the age counts from its arrival, whoever holds it.
+  The slow one, `on-time`, is the commitment (`within`); while it is off, the escalation asks a person
+  (`escalate`), a second actuator on the same stock. Preparing fast keeps the slow loop quiet, as in the-job's
+  domains.
 example: |
   uses:
     questions:
@@ -59,7 +62,7 @@ params:
   answer:
     type: command
     stand-in: a pretend answer
-    description: the command run for each waiting item, given it on standard input ({id, kind, state, fields}) and in $ITEM_ID, $ITEM_FIELDS; exit 0 when answered; the last JSON object it prints is folded into the item
+    description: the command run on each waiting item, one run each, given it on standard input ({id, kind, state, fields}) and in $ITEM_ID, $ITEM_FIELDS; exit 0 when answered; the last JSON object it prints is folded into the item
   rung:
     type: rung
     default: program
@@ -68,10 +71,14 @@ params:
   prompt:
     type: path
     description: the answer block's prompt (a file), when its rung is ai
-  batch:
+  pool:
     type: integer
-    default: 5
-    description: the most items one run of the answer block takes
+    default: 2
+    description: the most items answered at once (a run, and a lease, each)
+  tries:
+    type: integer
+    default: 3
+    description: how many attempts at answering an item (a failure, or a run gone silent) before it is a dead letter, left for the escalation
   escalate:
     default: Items have waited past their time unanswered. Look at the oldest and answer it, or say why not.
     description: what a person is asked when the commitment is missed; false for nobody
@@ -79,27 +86,27 @@ items:
   ${kind}:
     id: ${kind}/*
     description: an item that arrived and wants an answer
-    states: [waiting, answered]
+    states: [waiting, leased, answered, dead]
     on:
       ${kind}.answered: answered
     show: [title, from, result]
 stocks:
   waiting:
     unit: items
-    description: arrived, not answered yet
+    description: arrived, not answered yet (waiting, being answered, or given up on after every try)
     sensor:
       items: ${kind}
-      state: waiting
+      state: [waiting, leased, dead]
       every: 10s
 auxiliaries:
   oldest:
     unit: h
-    description: how long the oldest unanswered item has waited, in hours
+    description: how long the oldest unanswered item has waited since it arrived, in hours
     driven-by: [+stock.waiting]
     sensor:
       items: ${kind}
-      state: waiting
-      measure: oldest
+      state: [waiting, leased, dead]
+      measure: age
       every: 10s
 flows:
   arriving:
@@ -134,9 +141,14 @@ blocks:
     type: ${rung}
     goal: picked-up
     prompt: ${prompt}
-    run: ${lib} each --kind ${kind} --state waiting --done answered --run ${answer:quote} --max ${batch} --flow flow.answered
-    max: ${batch}
-    every: 10s
+    takes:
+      kind: ${kind}
+      at: waiting
+      to: answered
+    pool: ${pool}
+    lease:
+      attempts: ${tries}
+    run: ${lib} each --kind ${kind} --state waiting --done answered --run ${answer:quote} --flow flow.answered
     out: flow.answered
   escalate:
     if: ${escalate}

@@ -208,14 +208,56 @@ def test_each_unrolls_a_list_into_parts(tmp_path):
         """))
     assert not [p for p in ps if p.level == "error"], ps
     k = spec.items["tickets"]
-    assert k.states == ["triage", "fix", "review", "done", "stuck"]
-    assert k.on == {"tickets.stuck": "stuck", "tickets.triage-done": "fix", "tickets.fix-done": "review",
-                    "tickets.review-done": "done"}
+    assert k.states == ["triage", "leased", "fix", "review", "done", "dead"]     # a lease's own states, added
+    assert k.on == {"tickets.triage-done": "fix", "tickets.fix-done": "review", "tickets.review-done": "done"}
     assert spec.flows["tickets-arriving"].target == "tickets-triage"
+    assert (spec.flows["tickets-fix-taken"].source, spec.flows["tickets-fix-taken"].target) == ("tickets-fix", "tickets-fix-working")
+    assert spec.flows["tickets-review-done"].source == "tickets-review-working"
     assert spec.flows["tickets-review-done"].target == "tickets-done"
+    assert spec.flows["tickets-fix-retried"].target == "tickets-fix"
     assert spec.flows["tickets-fix-stuck"].target == "tickets-stuck"
-    assert "./fix.sh" in spec.blocks["tickets-fix"].params["run"] and "--run ''" in spec.blocks["tickets-triage"].params["run"]
-    assert spec.blocks["tickets-fix"].goal == "tickets-fix-clear"
+    fix = spec.blocks["tickets-fix"]
+    assert "./fix.sh" in fix.params["run"] and "--run ''" in spec.blocks["tickets-triage"].params["run"]
+    assert fix.goal == "tickets-fix-clear" and not fix.every
+    assert (fix.takes.kind, fix.takes.at, fix.takes.to, fix.pool, fix.lease.attempts) == ("tickets", ["fix"], ["review"], 2, 3)
+    assert next(iter(spec.stocks["tickets-fix-working"].sensors.values())).items["where"] == {"lease.back": "fix"}
+
+
+def test_a_step_may_be_an_ai_agent_in_a_workspace_with_gated_actions(tmp_path):
+    (tmp_path / "repo").mkdir()
+    spec, ps = read(project(tmp_path, """
+        name: t
+        uses:
+          tickets:
+            use: steps
+            with:
+              pool: 3
+              tries: 2
+              ai-ttl: 30m
+              workspace: {repo: repo, size: 2}
+              actions:
+                - {name: push, run: "git push origin HEAD:refs/heads/{branch}", gate: approve}
+              steps:
+                - triage
+                - {name: fix, prompt: prompts/fix.md, tools: [Read, Edit], actions: [push]}
+        """, {"prompts/fix.md": "Fix it.\n"}))
+    assert not [p for p in ps if p.level == "error"], ps
+    fix, triage = spec.blocks["tickets-fix"], spec.blocks["tickets-triage"]
+    assert fix.type == "ai" and "run" not in fix.params and fix.params["prompt"] == "prompts/fix.md"
+    assert fix.params["workspace"] == "tickets-workspace" and fix.params["actions"] == ["tickets-push"]
+    assert (fix.pool, fix.lease.ttl, fix.lease.attempts, fix.timeout) == (3, 1800.0, 2, 1800.0)
+    assert triage.type == "program" and "workspace" not in triage.params and triage.lease.ttl is None
+    assert spec.workspaces["tickets-workspace"].repo == "repo"
+    assert spec.actions["tickets-push"].gate == "approve"
+
+
+def test_a_value_may_be_chosen_by_a_condition(tmp_path):
+    from ergostat.library.expand import DROP, Scope, walk
+    sc = Scope({"p": ("x", False), "q": (None, False)})
+    assert walk({"if": "${p}", "value": "a", "else": "b"}, sc) == "a"
+    assert walk({"if": "${q}", "value": "a", "else": "b"}, sc) == "b"
+    assert walk({"unless": "${p}", "value": "a"}, sc) is DROP
+    assert walk({"k": {"if": "${q}", "value": "a"}}, sc) == {}
 
 
 def test_a_key_left_empty_is_left_out_and_if_drops_an_entry(tmp_path):
@@ -379,6 +421,58 @@ def test_a_trial_runs_a_copy_and_says_what_moved(tmp_path, monkeypatch):
     assert not (tmp_path / "home").exists() or not any((tmp_path / "home").iterdir()), "nor its record"
 
 
+def test_steps_lease_each_item_to_a_run_and_a_step_that_always_fails_makes_dead_letters(tmp_path, monkeypatch):
+    from ergostat import model as mdl
+    from ergostat.spec import items as its
+    from ergostat.store import Project
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    root = tmp_path / "p"
+    root.mkdir()
+    (root / "ergostat.yaml").write_text("name: p\n")
+    got = author.trial(root, None, 25, {"instance": "t", "template": "steps",
+                                        "given": {"poll": "5s", "stand-in-rate": 1000, "tries": 2, "pool": 3,
+                                                  "steps": ["a", {"name": "b", "run": "echo no >&2; exit 3"}]}})
+    assert got["check"]["ok"], got
+    ran = got["ran"]
+    by = ran["items"]["t"]["by_state"]
+    assert by.get("dead") and not by.get("done"), by          # through a, then given up on at b after two tries
+    assert ran["blocks"]["t-a"]["moved"].get("t-a-done"), ran["blocks"]["t-a"]
+    monkeypatch.setenv("ERGOSTAT_HOME", str(Path(got["scratch"]).parent / "home"))
+    p = Project(mdl.load(Path(got["scratch"])))
+    dead = [i for i in its.project(p.events, p.model.spec, "t") if i.state == "dead"]
+    assert dead[0].fields["failed_at"] == "b" and dead[0].fields["lease"]["back"] == "b"
+    assert [h["how"] for h in dead[0].fields["lease"]["history"]][-2:] == ["nack", "nack"]
+    assert ran["stocks"]["t-stuck"]["sensors"], "the dead letters are counted"
+
+
+def test_respond_to_answers_leased_items_and_counts_their_age_from_arrival(tmp_path, monkeypatch):
+    from ergostat import model as mdl
+    from ergostat.spec import items as its
+    from ergostat.store import Project
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    root = tmp_path / "p"
+    root.mkdir()
+    (root / "ergostat.yaml").write_text("name: p\n")
+    flaky = 'echo "$ITEM_FIELDS" | grep -q error || { echo "not this time" >&2; exit 1; }'   # fails once, then answers
+    got = author.trial(root, None, 25, {"instance": "q", "template": "respond-to",
+                                        "given": {"poll": "5s", "stand-in-rate": 1000, "answer": flaky}})
+    assert got["check"]["ok"], got
+    monkeypatch.setenv("ERGOSTAT_HOME", str(Path(got["scratch"]).parent / "home"))
+    p = Project(mdl.load(Path(got["scratch"])))
+    spec = p.model.spec
+    every = its.project(p.events, spec, "q")
+    answered = [i for i in every if i.state == "answered"]
+    assert answered, got["ran"]["items"]
+    assert [h["how"] for h in answered[0].fields["lease"]["history"]] == ["nack", "ack"]
+    assert answered[0].fields["error"] and answered[0].fields["failed_at"] == "waiting"
+    s = next(iter(spec.auxiliaries["q-oldest"].sensors.values()))
+    age, _ = its.measure(p.events, spec, s)
+    open_ = [i for i in every if i.state != "answered"]
+    if open_:                                     # the age is since arrival, not since it was last taken or given back
+        import time
+        assert age == pytest.approx(max(time.time() - i.first for i in open_) / 3600, abs=0.01)
+
+
 def test_a_template_made_part_is_never_edited_in_place(tmp_path):
     from ergostat.numbers import yamledit as ye
     spec, _ = read(project(tmp_path, RESPOND))
@@ -404,3 +498,11 @@ def test_the_mcp_server_lists_and_adds(tmp_path):
     assert shown["pages"]["dynamics"].endswith("/diagram?view=dynamics&system=disk") and "disk-level" in shown["drawn"]
     err = s.call("add_use", {"instance": "x", "template": "nope"})
     assert "no template 'nope'" in err["content"][0]["text"]
+
+
+def test_where_names_a_fields_field_with_a_dot():
+    from ergostat.spec.items import Item, field_at, matches
+    it = Item("t/1", "t")
+    it.fields = {"lease": {"back": "fix", "holder": None}, "a.b": 1}
+    assert field_at(it.fields, "lease.back") == "fix" and field_at(it.fields, "a.b") == 1 and field_at(it.fields, "x.y") is None
+    assert matches(it, {"lease.back": "fix"}) and not matches(it, {"lease.back": ["triage", "review"]})

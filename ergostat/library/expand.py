@@ -11,7 +11,8 @@ In the template, ``${param}`` is a parameter's value (``${within:hours}`` a dura
 quoted for the shell), ``${name}`` the instance's name, ``${python}`` the Python ergostat runs on, ``${lib}`` the
 programs the built-in templates run, and ``${here}`` the template's own folder. A whole value that is one
 ``${param}`` takes the parameter's value as it is (a number, a list); a key whose value comes out empty is left
-out. An entry (or any map) with ``if: ${param}`` is kept only when it is set; one with ``each: PARAM`` is made once
+out. An entry (or any map) with ``if: ${param}`` is kept only when it is set, and a value ``{if: C, value: V,
+else: E}`` is V when C holds, else E (or left out); one with ``each: PARAM`` is made once
 for every element of a list parameter, the element's fields as ``${as.field}`` (``as:`` names it, ``it`` by default)
 with ``${as.index}``, ``${as.next}`` and ``${as.prev}`` (the next and previous element's name, or ``last:`` and
 ``first:`` at the ends). ``{each: PARAM, key: K, value: V}`` makes a map, and a list element ``{each: PARAM, value:
@@ -46,7 +47,8 @@ SECTION_OF = {"stock": "stocks", "flow": "flows", "goal": "goals", "block": "blo
               "variable": "auxiliaries", "parameter": "parameters", "system": "systems"}
 BARE = {("flows", "from"): "stocks", ("flows", "to"): "stocks", ("goals", "stock"): "stocks", ("goals", "flow"): "flows",
         ("goals", "auxiliary"): "auxiliaries", ("goals", "variable"): "auxiliaries", ("blocks", "goal"): "goals",
-        ("blocks", "agent"): "agents", ("systems", "within"): "systems"}
+        ("blocks", "agent"): "agents", ("systems", "within"): "systems", ("blocks", "workspace"): "workspaces",
+        ("blocks", "actions"): "actions"}
 IN_SYSTEM = ("items", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks")
 FALSE = {"", "false", "no", "0", "off", "none"}
 USE_KEYS = {"use", "with", "within", "description"}
@@ -245,6 +247,10 @@ def walk(x, scope: Scope):
                 out.append(v)
         return out
     if isinstance(x, dict):
+        if "value" in x and ("if" in x) != ("unless" in x) and set(x) <= {"if", "unless", "value", "else"}:
+            word = "if" if "if" in x else "unless"             # a value chosen: {if: C, value: V, else: E}
+            hold = truthy(walk(x[word], scope)) == (word == "if")
+            return walk(x["value"], scope) if hold else walk(x["else"], scope) if "else" in x else DROP
         if "each" in x and "key" in x and "value" in x:
             got = {}
             for sc in each_scopes(scope, x):
