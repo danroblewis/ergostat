@@ -1167,6 +1167,29 @@ long run's findings land one by one.
   inputs and outputs are what that thing reads and moves, judged by the stocks' and flows'
   sensors.
 
+**Readings and passes.** ergostat reads its sensors on their schedules, and works the loops out again in a **pass**
+after readings land, after a run ends, and every second (the clock's pass):
+
+- Readings are taken in **batches**: those due together, and those a run asked for when it moved a flow, are begun
+  together; counts of items are read from what ergostat keeps as the record folds (an `items` sensor's value is its
+  count at the reading's time, kept as events arrive: it costs nothing to read), a flow read from its stock's changes
+  is worked out at once, and commands and queries run on a fixed pool of eight. The batch is recorded together and
+  followed by one pass. What lands within 50 ms of a pass (readings, runs ending) waits for the next pass together.
+- A pass reads **one snapshot**: each series' newest reading when the pass begins. Readings that landed in one batch are
+  seen together; a series read twice within one batch counts with its newest reading (the other is recorded, not
+  evaluated).
+- A pass works out **what changed**: the parts with a new reading, the goals on them, the built-ins that read
+  what changed (in the built-ins' order, as always), and the machine blocks commanded by what changed, whose stocks or
+  goals have a new reading, or whose run ended. The first pass after ergostat starts or the model changes works out
+  everything. Built-ins that keep time (`onoff`, `delay`, `schedule`, `timer`, `counter`, `alarm`, `limit` with a
+  `rate`) step at every pass.
+- What only time makes due is seen at the clock's pass: a block paced by `every` whose pace has run out starts at the
+  next whole second, as does a block a step test stops holding.
+- The events a pass makes (`loop.off`, `loop.holding`, `controller.decided`, `person.asked`, `block.advised`) are
+  recorded in the order it made them, together, before any run it starts.
+- An event about an item counts in the item counts at once, even when stamped later than the reading (another
+  machine's clock ahead of this one).
+
 A machine block receives on standard input (or, for `ai`, in its prompt):
 
 ```json
