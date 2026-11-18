@@ -161,6 +161,7 @@ def snapshot_of(id: str, prefix: list[dict], kind, segments: list[str], now: flo
 
 
 BATCH = 20_000              # items read from the record at a time (a range of ids: the blocks that hold them)
+FLUSH = 100_000             # snapshots put into the record at a time (each time rewrites the segments they are in)
 
 
 def candidates(p, now: float, cap: float | None) -> list[str] | None:
@@ -244,14 +245,24 @@ def compact(p, now: float | None = None, cap: float | None = None, dry: bool = F
             for id, k, pre in rows:
                 months = {f"{_safe(kind)}/{_month(e['time'])}" for e in pre if e["type"] != SNAPSHOT}
                 changes.append((id, [e["seq"] for e in pre], snapshot_of(id, pre, k, sorted(months & set(segs)), now)))
-    if dry or not changes:
+        if len(changes) >= FLUSH:
+            _replace(p, changes, rest)
+            changes, rest = [], {}
+    if dry or not done["items"]:
         return {**done, "seconds": time.time() - began}
+    _replace(p, changes, rest)
+    return {**done, "seconds": time.time() - began, "archive_bytes": arc.size()}
+
+
+def _replace(p, changes: list, rest: dict) -> None:
+    """The snapshots into the record in place of their events; the item index told what is left of each."""
+    if not changes:
+        return
     p.events.replace(changes)
     from .spec.itemindex import index_for
     ix = index_for(p.events, getattr(p.model, "spec", None), False)
     if ix is not None:                          # what is left of each outside its snapshot: not to be looked at again till due
         ix.rolled(rest)
-    return {**done, "seconds": time.time() - began, "archive_bytes": arc.size()}
 
 
 def archived(p, id: str, offset: int = 0, n: int = 200) -> dict | None:
