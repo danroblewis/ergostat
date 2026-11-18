@@ -206,14 +206,15 @@ confirmed") is one item kind moving through states, and its model is **one chain
 a flow from each state's stock into the next one's, never an outflow to a cloud. The method, in order:
 
 1. the item kind and its states, in order (`items:`, `states:`, `on:`);
-2. one stock per state that waits, counted by an `items:` sensor (`state: S`);
+2. one stock per state that waits, counted by an `items:` sensor (`state: S`): a count, never `measure: oldest`;
 3. one flow per move, from the state's stock to the next one's, measured from the item moves (`entering: NEXT`);
    arrivals in from outside at the start, completions out at the end;
 4. a collector that finds the work (`collect`, `into:` the first stock, or the source's sensor) feeding the first
    stock;
-5. one block per step that does the work: `takes: {kind, at, to}`, with `pool` and `lease`;
-6. goals on what matters: the age of the oldest waiting item per state (`measure: oldest`), throughput, dead
-   letters;
+5. one block per step that does the work: `takes: {kind, at, to}`, with `pool` and `lease`, and `goal:` the goal on
+   the stock it drains;
+6. goals on what matters: nothing waiting at a state, or the age of its oldest item (a stock of its own beside the
+   chain, `measure: oldest`, with no flows), throughput, dead letters;
 7. gated actions (`gate: approve`) for every outward act;
 8. `ergostat check`, and every structure finding fixed: `outflow-not-chained` (an outflow to a cloud whose items go
    on to the next state's stock: `to:` it), `state-stock-without-inflow`, `move-without-flow`,

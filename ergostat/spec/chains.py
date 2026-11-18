@@ -196,7 +196,11 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
     # every move something says happens, between two states with stocks of their own, and what says so
     why: dict[tuple[str, str], list[str]] = {}
 
+    raw: dict[tuple[str, str], list[str]] = {}       # every move said, between any two of the kind's states
+
     def says(p, s, what):
+        if p != s and p not in LEASE_STATES and s not in LEASE_STATES:
+            raw.setdefault((p, s), []).append(what)
         if p in c.stock_of and s in c.stock_of and p != s and c.stock_of[p] != c.stock_of[s]:
             why.setdefault((p, s), []).append(what)
     for (p, s), n in seen.items():
@@ -215,6 +219,24 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
         if f.target in stocks and f.source is None and (p := _counts(f, k, "leaving")):
             for s in [x for x, st in c.stock_of.items() if st == f.target][:1]:
                 says(p, s, f"flow {f.name} counts them leaving {p}")
+    for i, x in enumerate(c.order):            # a state with no stock that items leave, and nothing says how they come
+        if i and x not in c.stock_of and any(a == x for a, _ in raw) and not any(b == x for _, b in raw):
+            says(c.order[i - 1], x, f"the kind's states, {c.order[i - 1]} before {x}")
+    for p in modelled:                         # moves through states with no stock: P to S by way of them
+        todo, been = [(p, [])], {p}
+        while todo:
+            x, via = todo.pop(0)
+            for a, b in raw:
+                if a != x or b in been:
+                    continue
+                been.add(b)
+                if b in c.stock_of:
+                    if via and c.stock_of[b] != c.stock_of[p] and (p, b) not in why:
+                        why[(p, b)] = [f"{'; '.join(raw[(p, via[0])][:1])}, then on through {', '.join(via)} (no stock of "
+                                       f"{'its' if len(via) == 1 else 'their'} own: give "
+                                       f"{'it' if len(via) == 1 else 'each'} a stock in the chain if items wait there)"]
+                else:
+                    todo.append((b, via + [b]))
     for i, s in enumerate(modelled):           # a stock nothing fills, and nothing else explains: the state before it
         if i == 0 or inflows[c.stock_of[s]] or any(m[1] == s for m in why):
             continue
@@ -283,7 +305,8 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
             next((f for f in cloud_out if dests[p] == {s} and _counts(f, k, "leaving") in (p, None)), None)
         if g is not None:
             retargeted.add(g.name)
-            twin = next((h for h in cloud_in if _counts(h, k, "entering") == s and spec.actuator_of(h.name) is None), None)
+            twin = next((h for h in cloud_in if spec.actuator_of(h.name) is None and (_counts(h, k, "entering") == s or (
+                not any(q.get("kind") == k for q in _item_sensors(h)) and origins[s] == {p}))), None)
             fix = Fix("retarget", flow=g.name, key="to", stock=b, remove=twin.name if twin else "")
             add("outflow-not-chained", f"flow.{g.name}", g.where,
                 f"flow {g.name}: drains {a} to outside, but the items of {k} it moves go on to {s}, counted by stock "

@@ -52,8 +52,9 @@ row of separate loops, and says nothing about the workflow.
 
 1. **The item kind and its states, in order**: `items: {KIND: {id: KIND/*, states: [...], on: {...}}}`, the first
    state where an item arrives, the last where it is finished; an `on:` event per move.
-2. **One stock per state that waits**, counted by an `items:` sensor (`items: KIND, state: S`). A state nothing
-   waits in (a moment, not a queue) needs no stock.
+2. **One stock per state that waits**, counted by an `items:` sensor (`items: KIND, state: S`): a count of items
+   (never `measure: oldest` or `age` on a chain stock: flows move items, not hours). A state nothing waits in (a
+   moment, not a queue) needs no stock.
 3. **One flow per move between states, chained from stock to stock**: `from:` the state's stock, `to:` the next
    state's stock, measured from the item moves (`sensor: {items: KIND, entering: NEXT}`). **Arrivals** come in from
    outside into the first stock; **completions** leave out of the last (or into a `cumulative: true` stock of
@@ -61,9 +62,11 @@ row of separate loops, and says nothing about the workflow.
 4. **A collector that finds the work** feeds the first stock: the `collect` template (`into:` the first stock), or
    the source's own sensor on the arrivals flow.
 5. **One block per step that does the work**, taking the items at its state: `takes: {kind: KIND, at: S, to:
-   [NEXT]}`, with `pool:` (how many at once) and `lease:` (`ttl`, `attempts`), `out:` the flow it moves.
-6. **Goals on what matters**: the age of the oldest waiting item per state (`measure: oldest` on a stock of that
-   state, `hold: "<= 24"`) or nothing waiting (`hold: "<= 0"`), throughput, and dead letters (`state: dead`).
+   [NEXT]}`, with `pool:` (how many at once) and `lease:` (`ttl`, `attempts`), `out:` the flow it moves, and
+   `goal:` the goal on the stock it drains (so its loop closes).
+6. **Goals on what matters**: nothing waiting at a state (`hold: "<= 0"` on its stock), or the age of the oldest
+   waiting item (a stock of its own beside the chain, `S-oldest: {sensor: {items: KIND, state: S, measure:
+   oldest}}`, `hold: "<= 24"`, with no flows), throughput, and dead letters (`state: dead`).
 7. **Gated actions for outward acts** (a comment, a status change, a flag ramped): `actions:` with
    `gate: approve`, asked for by the step that needs them, never done by the step's own code.
 8. **Then run `check` and fix every structure finding** (`outflow-not-chained`, `state-stock-without-inflow`,

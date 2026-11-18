@@ -210,7 +210,8 @@ def test_a_stock_gathering_from_every_state_and_a_stage_between_are_chained(tmp_
     """)
     d = _write(tmp_path / "jobs", text)
     assert _chain_findings(d) == []
-    from collections import Counter                               # a record: one stopped job sent back to one step
+    # a record: one stopped job sent back to one step
+    from collections import Counter
     moves = Counter({("new", "built"): 4, ("built", "shipped"): 3, ("new", "stopped"): 1, ("stopped", "new"): 1})
     assert chains.analyse(read(d / "ergostat.yaml")[0], {"job": moves}) == []
 
@@ -227,3 +228,32 @@ def test_where_drawn_says_the_pieces_each_view_falls_into(tmp_path):
     s = author.shape(Project(mdl.load(d)), "ff")
     assert (s["dynamics_pieces"], s["blocks_pieces"]) == (13, 12)
     assert any(x.startswith("outflow-not-chained (flow.ff-from-requested)") for x in s["chain_findings"])
+
+
+def test_a_move_through_states_with_no_stock_still_joins_the_stocks_either_side(tmp_path):
+    """Blocks move the items from approved through each stage to at-100, none with a stock; the stock before
+    (researched) drains to a cloud and the stock after (soaking) fills from one: they are one chain."""
+    text = textwrap.dedent("""
+        items:
+          ramp:
+            id: ramp/*
+            states: [requested, researched, approved, at-1, at-100, confirmed]
+        stocks:
+          waiting: {unit: ramps, sensor: {items: ramp, state: requested}}
+          researched: {unit: ramps, sensor: {items: ramp, state: researched}}
+          soaking: {unit: ramps, sensor: {items: ramp, state: at-100}}
+        flows:
+          arriving: {to: waiting}
+          research: {from: waiting, to: researched}
+          decided: {from: researched}
+          soak-start: {to: soaking}
+          confirming: {from: soaking}
+        blocks:
+          ramp-1: {type: program, run: 'true', takes: {kind: ramp, at: approved, to: [at-1]}, out: flow.soak-start}
+          ramp-100: {type: program, run: 'true', takes: {kind: ramp, at: at-1, to: [at-100]}}
+    """)
+    d = _write(tmp_path / "ramps", text)
+    got = {f"{x.code}@{x.about}": x for x in _chain_findings(d)}
+    assert set(got) == {"outflow-not-chained@flow.decided", "state-stocks-disconnected@stock.waiting"}
+    assert "write to: soaking on flow decided" in got["outflow-not-chained@flow.decided"].message
+    assert "on through approved, at-1" in got["outflow-not-chained@flow.decided"].message
