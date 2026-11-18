@@ -382,6 +382,9 @@ a.chart-name { color: var(--accent); }
 /* the Process view (process.js): plain ink, how often as the line's weight, the lines between kinds dashed */
 .pm-frame rect { fill: none; stroke: var(--line-strong); stroke-width: 1; }
 .pm-frame .pm-title { fill: var(--ink); font-size: var(--canvas-lg); font-weight: 600; }
+.pm-frame rect.hull-grip { fill: transparent; stroke: none; cursor: move; }
+svg.canvas .pm-node { cursor: grab; }
+svg.dragging-part .pm-node { cursor: grabbing; }
 .edge.pm-follows .info { stroke: var(--ink); stroke-linejoin: round; opacity: .82; }
 .edge.pm-caused .info { stroke: var(--muted); stroke-dasharray: 6 4; }
 .edge.pm-follows.rework .elabel { font-style: italic; }
