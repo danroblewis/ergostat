@@ -327,3 +327,24 @@ def test_a_burst_about_its_leased_item_is_fenced_cheaply(tmp_path):
     assert not p.events.query(n=None, type="agent.refused")
     print(f"\n10,001 event lines about a leased item, from the item's arrival to the run's end, in {took:.2f}s")
     assert took < 30, took
+
+
+def test_a_run_stopped_after_its_lines_moved_its_item_on_is_an_ack(tmp_path):
+    """Its event moved the item on while it ran; ergostat stops before the run ends: the work stands (ack), the item is
+    not given back."""
+    p = leased(tmp_path, """
+        import json, sys, time
+        sys.stdin.read()
+        print(json.dumps({"event": "ticket.done"}), flush=True)
+        time.sleep(30)
+    """, "{ttl: 1m, attempts: 2}")
+    p.events.add("ticket.opened", item="ticket/1", source="t")
+    e = Engine(p, say=lambda s: None)
+    e.start_all()
+    try:
+        assert wait_for(lambda: its.one(p.events, p.model.spec, "ticket/1").state == "done", 10)
+    finally:
+        e.close()
+    assert wait_for(lambda: its.one(p.events, p.model.spec, "ticket/1").fields["lease"]["holder"] is None, 5)
+    it = its.one(p.events, p.model.spec, "ticket/1")
+    assert it.state == "done" and [h["how"] for h in it.fields["lease"]["history"]] == ["ack"]
