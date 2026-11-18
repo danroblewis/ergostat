@@ -3,6 +3,7 @@ opened and finished by a scheduled sweep, whose runs no item caused."""
 import json
 import os
 import random
+import shlex
 import subprocess
 import sys
 import time
@@ -13,7 +14,7 @@ def say(event, item, data=None):
 
 
 def items(kind):
-    cmd = (os.environ.get("ERGOSTAT_CMD") or f"{sys.executable} -m ergostat").split()
+    cmd = shlex.split(os.environ.get("ERGOSTAT_CMD") or "ergostat -C .")
     got = subprocess.run([*cmd, "item", "--kind", kind, "-n", "10000", "--json"], capture_output=True, text=True)
     try:
         return json.loads(got.stdout or "{}").get("items") or []

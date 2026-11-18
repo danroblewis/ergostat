@@ -13,6 +13,8 @@ import fcntl
 import json
 import os
 import random
+import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -35,7 +37,18 @@ def record(event: str, item: str, data: dict) -> None:
 
 
 def ergostat() -> list[str]:
-    return (os.environ.get("ERGOSTAT_CMD") or f"{sys.executable} -m ergostat").split()
+    """The command that runs ergostat on this project: what ergostat gives a block's run (ERGOSTAT_CMD), else
+    `ergostat` on the PATH (a sensor's command is not given ERGOSTAT_CMD; under `uv run`, the PATH has it), else the
+    checkout this example sits in."""
+    root = Path(__file__).resolve().parent.parent
+    if os.environ.get("ERGOSTAT_CMD"):
+        return shlex.split(os.environ["ERGOSTAT_CMD"])
+    if shutil.which("ergostat"):
+        return ["ergostat", "-C", str(Path.cwd())]
+    for up in root.parents:
+        if (up / "ergostat" / "__init__.py").exists():
+            return ["uv", "run", "-q", "--project", str(up), "python", "-m", "ergostat", "-C", str(Path.cwd())]
+    sys.exit("ergostat is not installed (uv tool install ergostat, or run from its checkout)")
 
 
 def items(kind: str) -> list[dict]:
@@ -89,7 +102,7 @@ def main() -> int:
             if mine and all("finding" in fields(i) for i in mine):   # every facet of this round has its finding
                 say("alert.investigated", alert, {"facets_done": len(mine)})
     elif step == "summarise":                               # an AI agent's summary: closed, or the on-call's call
-        if random.random() < 0.3:
+        if random.random() < 0.4:
             say("alert.escalated", item, {"summary": "a deploy coincides with the errors: needs the on-call"})
         else:
             say("alert.summarised", item, {"via": "summary", "summary": "transient; recovered on its own"})

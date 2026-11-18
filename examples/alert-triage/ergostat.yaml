@@ -22,3 +22,13 @@ agents:
   on-call:
     kind: person
     description: the on-call engineer, who answers escalated alerts in the pager
+loops:                                # the loops a reader should find first, named (the rest are drawn unnamed)
+  rework-cycle:
+    through: [flow.alerts-reopened, stock.alerts-triaged]
+    description: R - escalations the on-call sends back are investigated, summarised and may be escalated again
+  triage-keeps-up:
+    goal: new-alerts-triaged
+    description: B - alerts waiting are triaged as they fire
+  join-keeps-up:
+    goal: investigations-joined
+    description: B - the investigators work off the alerts waiting on their facets

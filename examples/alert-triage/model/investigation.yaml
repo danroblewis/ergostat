@@ -29,6 +29,11 @@ stocks:
     unit: facets
     description: facets opened, not investigated yet
     sensor: {items: facet, state: open, every: 2s}
+  facets-investigated:
+    unit: facets
+    cumulative: true                  # every facet investigated so far: it never drains
+    description: facets investigated, with their findings
+    sensor: {items: facet, state: done, every: 2s}
 
 flows:
   facets-opened:
@@ -41,6 +46,7 @@ flows:
     sensor: {items: facet, entering: open, over: 10m}
   facets-done:
     from: open-facets
+    to: facets-investigated
     description: facets investigated
     driven-by: [+stock.open-facets]
     equation: stock.open-facets / investigate-time
@@ -59,7 +65,7 @@ blocks:
     agent: claude
     description: looks into one facet and records its finding; the run that finishes an alert's last facet moves the alert on
     goal: facets-investigated
-    in: [goal.investigations-joined.error]   # it also works off the alerts waiting on their facets
+    in: [+stock.alerts-investigating]   # it also works off the alerts waiting on their facets
     prompt: prompts/investigate.md
     run: python3 bin/step.py investigate # the stand-in
     takes: {kind: facet, at: open, to: [done]}

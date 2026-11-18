@@ -42,7 +42,7 @@ parameters:
     estimate: true
     description: how long the summary takes
   escalate-share:
-    value: 0.3
+    value: 0.4
     unit: share
     range: [0, 1]
     estimate: true
@@ -52,7 +52,7 @@ parameters:
     estimate: true
     description: how long the on-call takes to answer an escalation (a person's delay; minutes at work)
   reopen-share:
-    value: 0.25
+    value: 0.3
     unit: share
     range: [0, 1]
     estimate: true
@@ -95,7 +95,7 @@ flows:
       run: python3 bin/watch.py
       every: 2s
       averages: 10m
-      description: the pager collector - records each new alert, and what the on-call answered
+      description: the pager collector                # (40 characters at most: the Blocks view titles the collector with it)
   alerts-triaged:
     from: new-alerts
     to: alerts-triaged
