@@ -17,13 +17,11 @@ express, each with the workaround used and the feature that would remove it. Tha
 | The wiring | `bin/coord.py`, `bin/watch.py`, `world/read.py`, `world/sim.py` | a block runs one loop's law on the world and reports what it moved; the watcher relays the tracker's events as item events; the sensors read the world |
 | The tests | `world/experiment.py`, `world/knockout.py`, `world/charts.py` | thirty-day closed-loop runs, loop knockout, sensitivity, the time step halved, and the charts below |
 
-The world's clock is accelerated: a factory hour every 30 seconds, so a factory day takes 12 minutes. The record's
-numbers set the plant (02, 03): the share of new work later redone is 0.55 at a direction's start and decays to
-0.04 over about 16 hours, before learning; landed rework is found by a red test within the hour (a quarter of
-defects), by later work, or by the owner while at the desk, a median 9 hours after landing; one run in eight
-stalls; the owner is at the desk in three spells a day and away overnight and on some afternoons; the harness cuts
-the window at 965k tokens to 60k and re-injects 70k. Five directions arrive over thirty days, 100 to 160 items
-each, and landed work proposes more (half an item per item landed).
+A factory hour passes every 30 seconds. The record sets the plant (02, 03): new work is wrong 0.55 of the time at a
+direction's start, decaying to 0.04 over about 16 hours before learning; landed rework is found by a red test
+within the hour (a quarter of it), by later work, or by the owner at the desk; one run in eight stalls; the owner
+is away overnight and on some afternoons; the harness cuts the window at 965k tokens to 60k and re-injects 70k.
+Five directions arrive over thirty days, 100 to 160 items each, and landed work proposes half an item more.
 
 `COORD_POLICY=harness ergostat run` runs the same blocks with the harness's laws: the controllers "off" in the
 sense 02 means, the implicit policies of the long session. The default is the designed Coordinator.
@@ -56,23 +54,23 @@ flowchart TB
     L -. "oldest silence (CV5), read" .-> LP5
 ```
 
-| Architecture (05 to 10) | In the YAML | How |
+| Architecture | In the YAML | Inside the program, not the YAML |
 |---|---|---|
-| Work to do, in flight, done (CV3, u1) | `ready-work`, `runs-in-flight`, `reported-done`, `accepted-work` | stocks counted from `work/*` items by state; flows counted from items entering states, told apart by the field `via` |
-| The worker pool, its cap (S2, the owner's lever) | `worker-pool`, an external block on agent `ai-agents` (`at-once: 6`); `pool-cap`, exogenous | the workers are the plant's servos; ergostat sets their brief and reads their result |
-| LP3 dispatch, S2 scheduled on presence | `dispatcher` (`goal: work-waiting`, reads `goal.runs-within-limit.error`); `wip-schedule`, an `expr` block setting that goal's setpoint to `cap · (0.5 + 0.5 · present)` | active constraint control: fill to the limit while work waits |
-| LP5 lease watchdog, dead letter | `watchdog` holds `stalls-noticed` (oldest silence ≤ 0.7 factory hours) and moves `expired`, `dead-lettered`, `redriven` | the lease, its TTL, the attempts and the diagnoser are inside the program |
-| LP6 admission and order | `admission` (`goal: proposals-decided`, reads `-stock.ready-work`, `-stock.consolidating`); `declined-work` kept, `resurrected` its outflow | the order (rework, directions, then WSJF with ageing) is inside the dispatcher |
-| LP1 acceptance, the inner cascade loop | `acceptance` holds `hidden-rework-allowed` (x̂4 ≤ h*), moves `rejected`, `asked`, `habit-changed` | the decision table over five depths, the away schedule and S5's override are inside the program |
-| LP2 escaped rework, the outer loop | `quality-integrator` reads `goal.escaped-rework-low.error`, writes `goal.hidden-rework-allowed` | a cascade as SPEC §13 writes one; its `gain`, `deadband` and `limits` are declared on the block |
-| LP4 merge queue, H1 | `merge-queue` moves `accepted`; `tests-read`, a critical goal on `unread-test-runs = 1 − checking-habit` | H1 is a goal on 03's B4 stock, held by structure in the design and by memory in the harness |
-| The rework cycle R1 | `escaped` (a coflow, `flow.accepted · x̂4`), `undiscovered-rework`, `rework-found` (first-order, `discovery-time` estimated), `reopened` | the undiscovered stock is read from the simulation's truth, marked so |
-| LP7 attention, S1 and S5 | `attention` (`goal: decisions-drained`) moves `decisions-confirmed` in the handover report; `blockers-within-budget` (≤ 3), read by `acceptance` as room | the token bucket and the batching are inside the program |
-| LP10 and the consolidation state | `consolidating`, a 0/1 stock moved by a two-way flow from `consolidation-switch`, holding `code-per-feature-as-expected` (CV8 ≤ 1.3) | hysteresis and dwell inside the program |
-| The observer (06), LP9 | `working-context` (limit 965k, `harness-cut` external), `unrecorded-corrections`, `durable-knowledge`; `externaliser` holds `knowledge-recorded` | the window is the Coordinator's under the harness and the largest worker's under the design |
-| LP8 retrieval | none of its own | every block reads the world and the record at its act; the quality of what it reads is not expressible (§7, gap 7) |
-| L5 modelling (10) | `factory/modelling.yaml`: `model-error` (`ergostat.model.fit`), the improver stand-in, the judge | ergostat's built-in loop, as in the-job |
-| Operating states, ISA-88 states, modes (08) | `consolidating` and `owner-present` only | §7, gaps 4 and 6 |
+| Work in flight and done (CV3, u1) | stocks counted from `work/*` items by state; flows by items entering a state, told apart by the field `via` | |
+| The worker pool and its cap (S2) | `worker-pool`, an external block on agent `ai-agents` (`at-once: 6`); `pool-cap`, exogenous | the workers themselves (simulated) |
+| LP3 dispatch, S2 on presence | `dispatcher` reads `goal.runs-within-limit.error`; `wip-schedule` (`expr`) sets that goal's setpoint to `cap · (0.5 + 0.5 · present)` | the order: rework, directions, WSJF with ageing (LP6) |
+| LP5 lease watchdog | `watchdog` holds `stalls-noticed` (oldest silence ≤ 0.7 factory hours); moves `expired`, `dead-lettered`, `redriven` | the lease, its TTL, attempts, the diagnoser |
+| LP6 admission | `admission` reads `-stock.ready-work`, `-stock.consolidating`; `declined-work` kept, `resurrected` its outflow | the value estimate and the bar |
+| LP1 acceptance (inner) | `acceptance` holds `hidden-rework-allowed` (x̂4 ≤ h*); moves `rejected`, `asked`, `habit-changed` | the decision table, the away schedule, S5's override |
+| LP2 escaped rework (outer) | `quality-integrator` reads `goal.escaped-rework-low.error`, sets `goal.hidden-rework-allowed`; `gain`, `deadband`, `limits` declared | the conditional integration |
+| LP4 merge, H1 | `merge-queue` moves `accepted`; `tests-read`, a critical goal on `unread-test-runs = 1 − checking-habit` (03's B4) | the exit status read |
+| The rework cycle (R1) | `escaped` (`flow.accepted · x̂4`), `undiscovered-rework`, `rework-found` (`discovery-time` estimated), `reopened` | |
+| LP7, S1 and S5 | `attention` moves `decisions-confirmed` (the handover report); `blockers-within-budget` (≤ 3), read by `acceptance` as room | the token bucket, the batching |
+| LP10, the consolidation state | `consolidating`, a 0/1 stock moved by a two-way flow from `consolidation-switch`, which holds CV8 ≤ 1.3 | hysteresis, dwell, removals briefed |
+| The observer (06), LP9 | `working-context` (limit 965k; `harness-cut` external), `unrecorded-corrections`, `durable-knowledge`; `externaliser` holds `knowledge-recorded` | absorption and dormancy |
+| LP8 retrieval | none | every block reads the world and the record at its act (gap 7) |
+| L5 modelling (10) | `factory/modelling.yaml`: `ergostat.model.fit`, an improver stand-in, the judge | |
+| Operating states, ISA-88 states, modes (08) | `consolidating` and `owner-present` only | gaps 4 and 6 |
 
 The leased work queue as built, in 07 §6's form:
 
@@ -115,19 +113,17 @@ flowchart LR
   moved both `accepted` and `rejected`, and a block's outputs all carry +. Splitting it into LP1 (sends back) and
   LP4 (merges), as 07 already separates them, made it balancing (gap 9). Ten loops of unknown polarity remain,
   all through the judge in modelling.
-- **Boundary against 03 §1's chart.** Endogenous in the YAML: work to do, the work rate, work reported done,
-  undiscovered rework and its discovery, verification discipline (`checking-habit`), fan-out
-  (`runs-in-flight`), owner corrections, standing rules (`durable-knowledge`), new proposals, pruning
-  (`lines-removed`), the working context and its compaction, externalising and obsolescence (`retired`).
-  Exogenous as the chart says: directions (`directed`, `direction-age`), the owner's availability
-  (`owner-present`), the window's capacity and the harness's cut (`harness-cut`, external). Excluded as it says:
-  cost, the organisation, the software's users, fatigue, which agent did what (pooled), the content of decisions,
-  merge conflicts (RM7), displacement within the window (RM14). **Inside the simulation but not in the YAML**:
-  the quality of work, schedule pressure, the Coordinator's attention per agent, relevance, retrieval and
-  re-reading, context in briefs. They are the harness's laws and the plant's internals, which an ergostat model
-  of a real deployment could only estimate; the YAML holds x̂4 for the first and nothing for the rest. **Added
-  beyond 03**, all controller structure from 05 to 08: the lease and the dead-letter stock, admission and the
-  declined stock, code per feature and the consolidation mode, the owner's queue (S5) and decisions waiting.
+- **Boundary against 03 §1's chart.** Every endogenous stock of the chart is in the YAML: work to do, done and
+  undiscovered rework; verification discipline (`checking-habit`); fan-out (`runs-in-flight`); standing rules
+  (`durable-knowledge`) and the corrections that feed them; proposals and pruning; the working context, its
+  compaction, externalising and obsolescence. The exogenous inputs are as the chart says (directions, the owner's
+  availability, the window's capacity and the harness's cut) and so are the exclusions (cost, the organisation,
+  users, fatigue, which agent did what, content, merge conflicts, displacement within the window). **In the
+  simulation but not the YAML**: the quality of work, schedule pressure, attention per agent, relevance,
+  re-reading and brief content. They are the plant's internals and the harness's laws, which a real deployment
+  could only estimate; the YAML holds x̂4 for the first. **Added beyond 03**, all controller structure from 05 to
+  08: the lease and dead letter, admission and the declined stock, code per feature and the consolidation mode,
+  the owner's queue (S5) and decisions waiting.
 
 ## 4. Behaviour reproduction, controllers off
 
@@ -193,13 +189,12 @@ tests. The lease expires about 27 sound runs a month, runs silent past 40 minute
 at the desk the harness notices a stall faster (about 20 minutes) than the lease does: the bound is a ceiling, not
 an improvement everywhere.
 
-**A finding about LP2.** With escaped rework well under its limit, LP2's integral loosens review every day, and
-h* climbs to the top of its band (0.3) by the month's end. By then LP1 checks a new direction's work with the tests
-alone, and escaped rework rises at the fourth and fifth directions towards 0.1. LP2 is doing what 07 specifies,
-holding CV1 at its limit rather than below it; knocked out (h* held at 0.1), it catches more (55% against 46%) at
-the cost of 10% more deep checks. The windup is across regimes: what was learnt about mature work is applied to the
-next new direction. 07's open question 1 now has evidence: schedule h* on direction age (gap 5), or integrate only
-within a regime.
+**A finding about LP2.** With escaped rework well under its limit, LP2's integral loosens review every day, and h*
+ends the month at 0.27 to 0.30, the top of its band, in every seed. By then LP1 checks a new direction's work at the
+desk with the tests alone, and in the last two directions CV1 peaks at 0.06 to 0.11 against 0.05 to 0.09 with h*
+held at 0.1. LP2 does what 07 specifies, holding CV1 at its limit rather than below it, and it saves a tenth of the
+deep checks; but the windup is across regimes: what was learnt on mature work is applied to the next new direction.
+07's open question 1 now has evidence: schedule h* on direction age (gap 5), or integrate only within a regime.
 
 ![Cascade](img/model-cascade.png)
 
@@ -225,14 +220,14 @@ delivered in 52 hours, not 61, and escaped rework rises by half (thinner briefs,
 escaped rework, because the extra low-value proposals are mature, low-defect work that dilutes the ratio; it is
 paid for in code per feature (1.63).
 
-**Sensitivity and the time step.** Five seeds each, the plant's uncertain numbers moved one at a time: discovery twice as slow
-and twice as fast, stalls twice as likely, a new direction twice as bad (a peak of 0.9), sound runs' long silences
-three times as often. Every conclusion of §4 and §5 holds in every case: the design halves escaped rework (0.043 to
-0.062 against 0.084 to 0.115), catches about half before landing against a sixth, keeps stalls under 42 minutes,
-reads every exit status, and keeps the owner's queues bounded. Two numbers move: three times as many long silences
-expire 74 sound runs a month instead of 22 (the lease's cost grows with the silence the workers keep, so the TTL
-per tier is worth identifying, 10 §1), and twice as many stalls slow both policies' delivery. Halving the time
-step (two minutes to one) moves no median by more than the seeds' spread.
+**Sensitivity and the time step.** Five seeds each, the plant's uncertain numbers moved one at a time: discovery
+twice as slow and twice as fast, stalls twice as likely, a new direction twice as bad (a peak of 0.9), sound runs'
+long silences three times as often. Every conclusion of §4 and §5 holds in every case: the design halves escaped
+rework (0.043 to 0.062 against 0.084 to 0.115), catches about half before landing against a sixth, keeps stalls
+under 42 minutes, reads every exit status, and keeps the owner's queues bounded. Two numbers move: three times as
+many long silences expire 74 sound runs a month instead of 22 (the lease's cost grows with the silence the workers
+keep, so the TTL per tier is worth identifying, 10 §1), and twice as many stalls slow both policies' delivery.
+Halving the time step (two minutes to one) moves no median by more than the seeds' spread.
 
 ## 6. The live run under ergostat
 
@@ -270,10 +265,11 @@ Each gap names the loop that needs it, what was done instead, and a short specif
    `wip-schedule` sets S2 through a cascade; the rest is in programs. *Feature*: `hold:` and parameters as a table
    on a scheduling variable (`by: auxiliary.owner-present`) or a tier, drawn and explained as gain scheduling.
 6. **Permissives, interlocks and trips.** A block can command another to run, never forbid one act; the `alarm`
-   block raises nothing. *Needed by*: H1 at the merge (LP4), H2 on outward acts, H3, P3 on dispatch, T2's freeze.
-   *Instead*: H1 is a critical goal on the checking habit, and the check reads the exit status itself.
-   *Feature*: `permits:` on a block's output, a condition re-read at the moment of the act that holds the act
-   pending until it is true, with a bypass lease, and `check` verifying the cause and effect matrix.
+   block outputs 1 or 0 and raises no finding, though SPEC §9.2 says it does. *Needed by*: H1 at the merge (LP4), H2
+   on outward acts, H3, P3 on dispatch, T2's freeze. *Instead*: H1 is a critical goal on the checking habit, and the
+   check reads the exit status itself. *Feature*: `permits:` on a block's output, a condition re-read at the moment
+   of the act that holds the act pending until it is true, with a bypass lease, and `check` verifying the cause and
+   effect matrix.
 7. **The observer's staleness and quality.** A reading has a time but no age as information, no quality (good,
    uncertain, bad) and no rate of going stale; an unobservable stock cannot be estimated between readings.
    *Needed by*: LP8, LP1 (x̂4), CV5. *Instead*: `undiscovered-rework` is read from the simulation's truth and x̂4
