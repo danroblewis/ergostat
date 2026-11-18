@@ -389,21 +389,24 @@ function refreshProjects(sel) {
    is gone (``el`` no longer in the document): a page left while its first answer was on its way
    stops by itself. ``ERGOSTAT_POLL_SPEED`` shortens every wait (the tests' lever). */
 const POLLS = new Set();
-function poll(fn, ms, el = null) {
+function poll(fn, ms, el = null, first = null) {
+  // ``fn`` may say how long to wait before the next ({ wait: ms }: later when its answer was slow); else ``ms``
   const p = { timer: null, running: false, stopped: false, stop() { p.stopped = true; clearTimeout(p.timer); POLLS.delete(p); } };
   const gone = () => p.stopped || (el && !el.isConnected);
+  const wait = (x) => (x && typeof x.wait === "number" && x.wait >= 0 ? x.wait : ms) / (window.ERGOSTAT_POLL_SPEED || 1);
   p.run = async () => {
     clearTimeout(p.timer); p.timer = null;
     if (gone()) return p.stop();
     if (document.hidden || p.running) return;          // shown again: run at once (below)
     p.running = true;
-    try { await fn(); } catch (e) { /* the server may be restarting: the next one asks again */ }
+    let next;
+    try { next = await fn(); } catch (e) { /* the server may be restarting: the next one asks again */ }
     p.running = false;
     if (gone()) return p.stop();
-    p.timer = setTimeout(p.run, ms / (window.ERGOSTAT_POLL_SPEED || 1));
+    p.timer = setTimeout(p.run, wait(next));
   };
   POLLS.add(p);
-  p.timer = setTimeout(p.run, ms / (window.ERGOSTAT_POLL_SPEED || 1));
+  p.timer = setTimeout(p.run, wait(first));
   return p;
 }
 document.addEventListener("visibilitychange", () => {

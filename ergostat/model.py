@@ -265,16 +265,46 @@ class Model:
     def disturbances(self) -> dict[str, Flow]:
         return {n: f for n, f in self.flows.items() if f.disturbance}
 
+    def _kept(self) -> dict:
+        """What the lookups below work out from the whole model, kept while its tables are the same ones of the same
+        sizes (a model is not changed once loaded: an edit is a new model; docs/proposals/scale.md). A plain attribute,
+        never a field."""
+        stamp = tuple((id(t), len(t)) for t in (*self.tables().values(), self.systems))
+        got = self.__dict__.get("_kept_at")
+        if got is None or got[0] != stamp:
+            got = self.__dict__["_kept_at"] = (stamp, {})
+        return got[1]
+
     def valve_of(self, flow: str) -> Valve | None:
-        return next((v for v in self.valves.values() if v.flow == flow), None)
+        k = self._kept()
+        by = k.get("valve_of")
+        if by is None:
+            by = k["valve_of"] = {}
+            for v in self.valves.values():
+                by.setdefault(v.flow, v)
+        return by.get(flow)
 
     def flows_of(self, stock: str) -> list[Flow]:
-        return [f for f in self.flows.values() if stock in (f.source, f.target)]
+        k = self._kept()
+        by = k.get("flows_of")
+        if by is None:
+            by = k["flows_of"] = {}
+            for f in self.flows.values():
+                for end in dict.fromkeys((f.source, f.target)):
+                    by.setdefault(end, []).append(f)
+        return list(by.get(stock, ()))
 
     def roles_of(self, agent: str) -> list[Part]:
         return [p for t in (self.sensors, self.controllers, self.valves) for p in t.values() if p.agent == agent]
 
     def loops(self) -> list[Loop]:
+        k = self._kept()
+        if "loops" not in k:
+            k["loops"] = self._loops()
+        return [Loop(lp.name, lp.controller, lp.stock, list(lp.sensors), list(lp.valves), list(lp.flows), list(lp.gaps))
+                for lp in k["loops"]]
+
+    def _loops(self) -> list[Loop]:
         out = []
         for c in self.controllers.values():
             flows = {f.name for f in self.flows_of(c.holds)}
@@ -299,7 +329,17 @@ class Model:
         return out
 
     def loop(self, name: str) -> Loop | None:
-        return next((lp for lp in self.loops() if lp.name == name), None)
+        k = self._kept()
+        if "loops" not in k:
+            k["loops"] = self._loops()
+        by = k.get("loop")
+        if by is None:
+            by = k["loop"] = {}
+            for lp in k["loops"]:
+                by.setdefault(lp.name, lp)
+        lp = by.get(name)
+        return None if lp is None else Loop(lp.name, lp.controller, lp.stock, list(lp.sensors), list(lp.valves), list(lp.flows),
+                                            list(lp.gaps))
 
     # ---- systems: selections, which may overlap
 
@@ -307,6 +347,12 @@ class Model:
         """Every part in ``system`` (None: every part). A part is in a system when it is tagged
         with it, or attached to a stock that is: that stock's flows, their valves, the sensors
         measuring it or its flows, and the controllers holding it."""
+        k = self._kept().setdefault("members", {})
+        if system not in k:
+            k[system] = self._members(system)
+        return set(k[system])
+
+    def _members(self, system: str | None) -> set[str]:
         everything = {n for t in self.tables().values() for n in t}
         if system is None:
             return everything

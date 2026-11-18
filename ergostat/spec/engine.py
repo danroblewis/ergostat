@@ -126,11 +126,12 @@ class Engine:
     def measure(self) -> None:
         """Stocks' levels and flows' rates from the record: the newest reading of any of their sensors."""
         m = self.p.measurements
+        newest = m.newest() if hasattr(m, "newest") else None    # every series' newest, at once (scale.md #3)
         for kind, table in (("stock", self.spec.stocks), ("flow", self.spec.flows), ("auxiliary", self.spec.auxiliaries)):
             for name, x in table.items():
                 best = None
                 for s in x.sensors.values():
-                    got = m.latest(s.series)
+                    got = newest.get(s.series) if newest is not None else m.latest(s.series)
                     if got is None:
                         continue
                     self.signals[f"{kind}.{name}.{s.name}"] = got[1]
@@ -360,7 +361,17 @@ class Engine:
         return out
 
     def served(self, b: Block) -> set[str]:
-        return {g for g in self.spec.goals if b.name in self.spec.loop(g).actuators}
+        """The goals whose loop it acts in (as an actuator): worked out once per model (docs/proposals/scale.md)."""
+        spec = self.spec
+        kept = spec.lookups().kept
+        by = kept.get("engine.served")
+        if by is None:
+            by = {}
+            for g in spec.goals:
+                for a in spec.loop(g).actuators:
+                    by.setdefault(a, set()).add(g)
+            kept["engine.served"] = by
+        return set(by.get(b.name, ()))
 
     def program(self, b: Block, ctx: dict, spec: Spec | None = None) -> tuple[str, str]:
         """The command to run and what to give it on standard input."""

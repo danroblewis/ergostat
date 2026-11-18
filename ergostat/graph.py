@@ -197,11 +197,21 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
                         "band": lp.get("band", ""), "openLoop": c.open_loop}
     ids = {x["id"] for x in nodes}
     edges = [e for e in edges if e["source"] in ids and e["target"] in ids]
+    in_loops: dict[str, set[str]] = {}               # a node → the loops it is in (matched by index, not edge × loop)
+    for k, lp in loops.items():
+        for x in lp["nodes"]:
+            in_loops.setdefault(x, set()).add(k)
+    order = {k: i for i, k in enumerate(loops)}
     for e in edges:
-        e["loops"] = [k for k, lp in loops.items() if e["source"] in lp["nodes"] and e["target"] in lp["nodes"]]
+        both = in_loops.get(e["source"], set()) & in_loops.get(e["target"], set())
+        e["loops"] = sorted(both, key=order.__getitem__)
     causal = causal_loops(m)
+    on_pair: dict[tuple[str, str], list[str]] = {}
+    for c in causal:
+        for pair in c["_pairs"]:
+            on_pair.setdefault(pair, []).append(c["name"])
     for e in edges:
-        e["causal"] = [c["name"] for c in causal if (e["source"], e["target"]) in c["_pairs"]]
+        e["causal"] = list(on_pair.get((e["source"], e["target"]), ()))
     for c in causal:
         del c["_pairs"]
     return {"kind": "control", "nodes": nodes, "edges": edges, "loops": loops, "causalLoops": causal}
@@ -227,6 +237,14 @@ def causal_loops(model) -> list[dict]:
     spec = getattr(model, "spec", None)
     if spec is None:
         return []
+    kept = spec.lookups().kept                      # worked out once per model (docs/proposals/scale.md, #11)
+    if "graph.causal_loops" not in kept:
+        kept["graph.causal_loops"] = _causal_loops(spec)
+    return [{**c, "goals": list(c["goals"]), "parts": list(c["parts"]), "nodes": list(c["nodes"]),
+             "links": [dict(x) for x in c["links"]], "_pairs": set(c["_pairs"])} for c in kept["graph.causal_loops"]]
+
+
+def _causal_loops(spec) -> list[dict]:
     from .spec.causal import loops
     from .spec.ir import sign_text
     out = []

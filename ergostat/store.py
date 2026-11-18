@@ -499,6 +499,9 @@ class Measurements:
         self.raw = raw                                     # None: raw readings kept until pruned
         self.tiers = sorted((float(e), float(k)) for e, k in (tiers or []))
         self._marks: tuple[float, dict] = (0.0, {})        # each tier's rolled-up-to, read at most every few seconds
+        self._newest: dict[str, tuple[float, float]] | None = None   # series → its newest reading (``newest``)
+        self._newest_at = (None, 0)                        # (the deletions mark, the last row) it was brought up to
+        self._newest_lock = threading.Lock()
         with self._c():
             pass
 
@@ -600,6 +603,41 @@ class Measurements:
                     if r:
                         break
         return (r[0], r[1]) if r else None
+
+    def newest(self) -> dict[str, tuple[float, float]]:
+        """Every series' newest reading, ``(time, value)``: what ``latest(series)`` answers, for every series at once
+        (docs/proposals/scale.md, #3). Kept in memory and brought up to date at each call from the readings written
+        since the last, by this process or any other (the rows after the last one seen); read afresh when readings
+        were deleted in a way that can change an answer (``forget``, ``prune``, or a roll that took the newest row:
+        the ``deleted`` mark). The engine reads every sensor once a pass: this is one small query, not one per
+        sensor. The dict is the store's own: read it, never change it."""
+        with self._newest_lock, self._c() as c:
+            mark = c.execute("select value from meta where key = 'deleted'").fetchone()
+            mark = mark[0] if mark else 0
+            got, (was, row) = self._newest, self._newest_at
+            if got is None or mark != was:
+                row = c.execute("select max(rowid) from samples").fetchone()[0] or 0
+                names = [r[0] for r in c.execute("select distinct series from samples")]
+                names += [r[0] for r in c.execute("select distinct series from tiers")]
+                got = {}
+                for n in dict.fromkeys(names):
+                    x = self.latest(n)
+                    if x is not None:
+                        got[n] = x
+            else:
+                for rid, n, t, v in c.execute("select rowid, series, time, value from samples where rowid > ? order by rowid",
+                                              (row,)):
+                    old = got.get(n)
+                    if old is None or t >= old[0]:       # (a tie: the later row, as latest's index reads it)
+                        got[n] = (t, v)
+                    row = rid
+            self._newest, self._newest_at = got, (mark, row)
+            return got
+
+    @staticmethod
+    def _deleted(c) -> None:
+        """Readings were deleted in a way that may change what ``latest`` answers: every ``newest`` reads afresh."""
+        c.execute("insert into meta(key, value) values ('deleted', 1) on conflict(key) do update set value = value + 1")
 
     def range(self, series: str, since: float, until: float | None = None, last: int | None = None) -> list[tuple[float, float]]:
         """The readings in a span, oldest first (the newest ``last`` of them when given). Where raw readings
@@ -710,6 +748,7 @@ class Measurements:
             c.execute(f"insert into forgotten(series, time, value, forgotten_at) select series, time, value, ? from samples where {where}",
                       (time.time(), series, *args))
             c.execute(f"delete from samples where {where}", (series, *args))
+            self._deleted(c)
             redo = c.execute(f"select every, t from tiers where series = ? and ({' or '.join(tcond)})", (series, *args)).fetchall()
             c.execute(f"delete from tiers where series = ? and ({' or '.join(tcond)})", (series, *args))
             for e, t in redo:
@@ -805,7 +844,10 @@ class Measurements:
             c.execute("begin immediate")
             if self.raw is not None:
                 cut = min(now - self.raw, marks[self.tiers[0][0]]) // self.tiers[0][0] * self.tiers[0][0]
+                top = c.execute("select max(rowid) from samples").fetchone()[0]
                 done["forgot"] += c.execute("delete from samples where time < ?", (cut,)).rowcount
+                if c.execute("select max(rowid) from samples").fetchone()[0] != top:
+                    self._deleted(c)                        # the last row went: its number may be given again
                 c.execute("delete from forgotten where time < ?", (cut,))
             for i, (e, keep) in enumerate(self.tiers):
                 cut = now - keep
@@ -825,7 +867,9 @@ class Measurements:
         with self._c() as c:
             c.execute("delete from forgotten where time < ?", (before,))
             c.execute("delete from tiers where t < ?", (before,))
-            return c.execute("delete from samples where time < ?", (before,)).rowcount
+            n = c.execute("delete from samples where time < ?", (before,)).rowcount
+            self._deleted(c)
+            return n
 
     def series(self) -> list[dict]:
         """Each series: how many readings are kept raw, the last one's time and value."""

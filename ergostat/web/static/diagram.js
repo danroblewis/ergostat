@@ -1094,11 +1094,28 @@ async function pageDiagram(main, q) {
     const openArg = openQ != null && view !== "process" ? { open: openQ } : {};
     S.graphQ = { system, around, ...openArg };      // (the other view's answer is asked the same: interact.js)
     const pmArg = view !== "process" ? {} : Object.fromEntries(["kinds", "by", "paths"].filter((k) => pq[k]).map((k) => [k, pq[k]]));
-    try { g = await api("graph", { view, system, around, ...openArg, ...pmArg }); fails = 0; }
+    const ask = { view, system, around, ...openArg, ...pmArg }, key = JSON.stringify(ask);
+    if (!SNAP) ask.have = (S.held?.key === key && S.held.hash) || "-";   // the structure it holds: then only the values come
+    const t0 = performance.now();
+    try { g = await api("graph", ask); fails = 0; }
     catch (e) {
       if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "This view is not in the snapshot; the whole system and each system are." : "The server is not answering. Is ergostat still running?")); }
       return;
     }
+    // the next ask: every 2.5s, later when an answer is slow (four times as long as it took, at most a minute)
+    const next = Math.min(60000, Math.max(2500, 4 * (performance.now() - t0)));
+    if (g.same) {
+      if (S.held?.key !== key || S.held.hash !== g.same) { S.held = null; return { wait: 0 }; }   // (not the one held: ask whole)
+      g = withValues(S.held.base, g);
+    } else if (g.structure) {
+      S.held = { key, hash: g.structure };
+      delete g.structure;
+      S.held.base = structuredClone(g);
+    }
+    await show(g);
+    return { wait: next };
+  }
+  async function show(g) {
     wrap.querySelector(".loading")?.remove();
     S.graph = g;
     if (g.tree && !sysSel.dataset.tree) {            // the picker as the tree it is: each system under the one it is within
@@ -1181,8 +1198,30 @@ async function pageDiagram(main, q) {
   S.relayout = () => { S.graphSig = ""; return tick(); };      // after a part is pinned or unpinned
   S.redrawSide = () => { if (S.graph) renderSide(side, S.graph, view); };       // the parts chosen changed (charts.js)
   S.redraw = () => { if (!S.pressed && !S.nodeDrag && !S.hullDrag && S.layout) (S.graph?.kind === "process" ? pmDraw : drawGraph)(svg, S.graph, S.layout); };   // libavoid's lines came
-  await tick();
-  S.timer = poll(tick, 2500, shell);
+  const first = await tick();
+  S.timer = poll(tick, 2500, shell, first);
+}
+
+/* an answer of values only (graph_poll.py) put into a copy of the whole answer the page holds: every part (each object
+   below the top), walked in the order the server walked it (keys sorted; not into a value), given its values: the
+   answer a whole one would have been */
+function withValues(base, v) {
+  const g = structuredClone(base), keys = new Set(v.keys), top = new Set(v.top), vals = v.values;
+  let i = 0, j = 0;
+  const walk = (x, root) => {
+    if (Array.isArray(x)) { for (const y of x) walk(y, false); return; }
+    if (!x || typeof x !== "object") return;
+    if (!root) {
+      const mine = j < vals.length && vals[j][0] === i ? vals[j++][1] : null;
+      i++;
+      for (const k of Object.keys(x)) if (keys.has(k) && !(mine && k in mine)) delete x[k];
+      if (mine) Object.assign(x, mine);
+    }
+    for (const k of Object.keys(x).sort()) if (!(root ? top : keys).has(k)) walk(x[k], false);
+  };
+  walk(g, true);
+  for (const k of top) if (k in v) g[k] = v[k];
+  return g;
 }
 
 /* the legend: open the first time, then as the reader left it (remembered in this browser) */
