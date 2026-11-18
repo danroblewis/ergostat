@@ -23,6 +23,7 @@ BRANCH_TEMPLATE=ergostat/{key}-{slug}
 REVIEWERS=                              # GitHub logins asked for review; empty: a comment asks instead
 REPING_AFTER=90s                        # no answer from a reviewer this long after asking: ask again
 REPING_MAX=3
+POLL_EVERY=15s                          # look at a pull request (reviews, CI) no more often than this
 APPROVE_WORD=/approve                   # a reviewer's comment starting with this counts as approval
                                         # (a test account cannot approve its own pull request)
 SAIL_LABEL=SAIL                         # added on approval

@@ -147,6 +147,15 @@ def close(repo: str, number: int, delete_branch: bool = True) -> str:
     return _gh("pr", "close", str(number), "-R", repo, *(["--delete-branch"] if delete_branch else [])).strip()
 
 
+def delete_branch(repo: str, branch: str) -> str:
+    """Delete a branch the factory pushed (bin/demo_issues.py cleanup); gone already is fine."""
+    allowed(repo)
+    if OFFLINE:
+        return "deleted"
+    r = subprocess.run(["gh", "api", "-X", "DELETE", f"repos/{repo}/git/refs/heads/{branch}"], capture_output=True, text=True)
+    return "deleted" if r.returncode == 0 else "not there"
+
+
 def open_prs(repo: str) -> list[dict]:
     if OFFLINE:
         return fakes.gh_open_prs(repo)

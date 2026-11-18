@@ -1,0 +1,40 @@
+# The parts measured through Prometheus: ./setup writes this file as local/prometheus.yaml, with its port,
+# once Prometheus runs (and --teardown removes it). The exporter (bin/exporter.py) puts the factory's counts
+# and the services' own counts into Prometheus; these sensors read the services' side back, so the record
+# (what the factory says it did) and the world (what Jira and GitHub say) can be compared.
+defaults:
+  system: world
+
+sources:
+  prom:
+    type: prometheus
+    url: http://127.0.0.1:@PROM_PORT@
+
+auxiliaries:
+  jira-in-flight:
+    unit: tickets
+    description: the labelled issues In Progress or In Review, as Jira counts them (Prometheus)
+    driven-by: [+stock.picked, +stock.worked, +stock.review-asked, +stock.sailed]
+    sensor:
+      query:
+        source: prom
+        promql: 'sum(tf_jira_issues{status=~"In Progress|In Review"}) or vector(0)'
+      every: 30s
+  github-prs-open:
+    unit: tickets
+    description: the factory's pull requests open on GitHub, as GitHub counts them (Prometheus)
+    driven-by: [+auxiliary.prs-awaiting-review, +stock.sailed, +stock.ci-green]
+    sensor:
+      query:
+        source: prom
+        promql: 'sum(tf_github_open_prs) or vector(0)'
+      every: 30s
+  ai-cost-per-session:
+    unit: usd/tickets
+    description: dollars per AI session, from Prometheus's counters
+    driven-by: [+stock.ai-spend]
+    sensor:
+      query:
+        source: prom
+        promql: 'sum(tf_ai_cost_usd_total) / clamp_min(sum(tf_ai_sessions_total), 1)'
+      every: 30s
