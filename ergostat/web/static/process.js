@@ -239,8 +239,12 @@ function pmDraw(svg, g, lay) {
 
 async function drawProcessView(svg, g) {
   for (const n of g.nodes) n.systems = [n.itemKind];   // (each part is inside its kind's frame: the audit reads it)
-  const sg = pmSig(g);
-  if (sg === S.graphSig && S.layout) { if (!S.layout.routing) pmDraw(svg, g, S.layout); return S.layout; }
+  const sg = pmSig(g), same = JSON.stringify([g.nodes, g.edges, g.kinds, pmShow()]);
+  if (sg === S.graphSig && S.layout) {                 // the same map: nothing changed touches nothing
+    if (!S.layout.routing && same !== S.pmDrawn) { pmDraw(svg, g, S.layout); S.pmDrawn = same; }
+    return S.layout;
+  }
+  S.pmDrawn = same;
   await avoidLoad();
   const r = svg.getBoundingClientRect();
   const lay = await pmLayout(g, r.width && r.height ? r.width / Math.max(r.height - 80, 200) : 1.6);
