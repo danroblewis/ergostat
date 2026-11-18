@@ -15,7 +15,8 @@ if TYPE_CHECKING:
 
 def stamp(spec: Spec) -> tuple:
     """What the lookups were worked out from: the tables themselves and their sizes."""
-    return tuple((id(t), len(t)) for t in (spec.blocks, spec.goals, spec.flows, spec.stocks, spec.auxiliaries))
+    b, g, f, s, a = spec.blocks, spec.goals, spec.flows, spec.stocks, spec.auxiliaries     # (asked on every lookup: kept cheap)
+    return id(b), len(b), id(g), len(g), id(f), len(f), id(s), len(s), id(a), len(a)
 
 
 class Lookups:

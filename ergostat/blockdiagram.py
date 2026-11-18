@@ -162,9 +162,14 @@ class _Diagram:
         self.setting_of = {b: k for k, b in self.knob.items()}
         # what each block reads, as signals (a machine block's goal: is said by the onoff ergostat puts in front of it)
         implied_for = {}
+        commanding: dict[str, list[str]] = {}          # a block → what it commands; a block → what commands it, in order
+        commanded_by: dict[str, list[str]] = {}
+        for c, d in sorted(self.commands):
+            commanding.setdefault(c, []).append(d)
+            commanded_by.setdefault(d, []).append(c)
         for n, b in B.items():
             if b.implied and b.goal:
-                for _, c in [x for x in self.commands if x[0] == n]:
+                for c in commanding.get(n, ()):
                     implied_for.setdefault(c, set()).add(b.goal)
         self.reads: dict[str, list[tuple[str, str]]] = {}   # block -> [(its input's name, signal key)]
         self.error_read: set[str] = set()              # goals whose error a block reads: they get a summing junction
@@ -180,18 +185,23 @@ class _Diagram:
                     out.append((port, k))
             if b.goal and b.goal not in implied_for.get(n, set()):
                 out.append(("goal", f"goal.{b.goal}.e"))
-            for c, d in sorted(self.commands):
-                if d == n:
-                    out.append((c, f"cmd.{c}.{n}"))
+            for c in commanded_by.get(n, ()):
+                out.append((c, f"cmd.{c}.{n}"))
             for _, sk in out:
                 if sk.startswith("goal.") and sk.endswith(".e"):
                     self.error_read.add(sk.split(".")[1])
             self.reads[n] = out
+        # who reads each signal: a variable (itself, or its sensor's measurement: meas.<kind>.<name>.<sensor>), an error
+        self.readers_of: dict[str, list[str]] = {}
+        for n, rs in self.reads.items():
+            for _, k in rs:
+                var = ".".join(k.split(".")[1:3]) if k.startswith("meas.") else k
+                got = self.readers_of.setdefault(var, [])
+                if not got or got[-1] != n:
+                    got.append(n)
         for g in s.goals.values():
-            gv = f"{g.of.kind}.{g.of.name}"
-            for n, rs in self.reads.items():
-                if any(k == gv or k.startswith(f"meas.{gv}.") for _, k in rs):
-                    self.reads_y.setdefault(g.name, set()).add(n)
+            for n in self.readers_of.get(f"{g.of.kind}.{g.of.name}", ()):
+                self.reads_y.setdefault(g.name, set()).add(n)
 
     def _read_key(self, r: Ref) -> str:
         if r.kind == "goal":
@@ -243,7 +253,7 @@ class _Diagram:
     def comparator_system(self, g) -> str | None:
         """A goal's summing junction sits with the controller that reads its error (Simulink: a subsystem's
         boundary is crossed by signals at its ports, so the comparator goes where its error is used)."""
-        readers = sorted(n for n, rs in self.reads.items() if any(k == f"goal.{g.name}.e" for _, k in rs))
+        readers = sorted(set(self.readers_of.get(f"goal.{g.name}.e", ())))
         return self.s.blocks[readers[0]].system if readers else g.system
 
     def _system(self, var: str) -> str | None:
@@ -585,9 +595,8 @@ class _Diagram:
         reading, or the error of a goal on it), else the identified process's time constant and dead time,
         else ten minutes (a person or an AI agent answering what it is given)."""
         goals = [g for g in self.s.goals.values() if f"{g.of.kind}.{g.of.name}" == var]
-        keys = {f"goal.{g.name}.e" for g in goals}
-        ts = [self.s.blocks[n].every for n, rs in self.reads.items()
-              if any(k in keys or k == var or k.startswith(f"meas.{var}.") for _, k in rs) and self.s.blocks[n].every]
+        readers = {n for k in (var, *(f"goal.{g.name}.e" for g in goals)) for n in self.readers_of.get(k, ())}
+        ts = [self.s.blocks[n].every for n in self.reads if n in readers and self.s.blocks[n].every]
         if ts:
             return min(ts)
         for g in goals:
@@ -970,12 +979,28 @@ class _Diagram:
             out[o] = found
         return out
 
+    def served(self) -> tuple[set[str], dict[str, list[str]]]:
+        """Every goal's controllers, and the goals each block serves (as its controller or actuator), in the model's
+        order: worked out once per diagram, not once per block (docs/proposals/scale.md, #10)."""
+        got = self.__dict__.get("_served")
+        if got is None:
+            ctl: set[str] = set()
+            serves: dict[str, list[str]] = {}
+            for g in self.s.goals:
+                lp = self.s.loop(g)
+                ctl.update(lp.controllers)
+                for b in dict.fromkeys([*lp.controllers, *lp.actuators]):
+                    serves.setdefault(b, []).append(g)
+            got = self._served = (ctl, serves)
+        return got
+
     def block_fn(self, n: str) -> dict:
         """A block's function: its symbol and what is known of it, and its definition as MathML."""
         s = self.s
         b = s.blocks[n]
+        ctl, serves = self.served()
         role = "controller" if any(c == n for c, _ in self.commands) or any(t.kind == "goal" for t in b.targets()) or \
-            self.setting_of.get(n) or n in {c for g in s.goals for c in s.loop(g).controllers} else "actuator"
+            self.setting_of.get(n) or n in ctl else "actuator"
         T = b.every
         when = f"every {_dur(T)}" if T else ("on a cron schedule" if b.cron else "when commanded" if b.machine else "on every reading")
         kind = {"ai": "AI agent", "program": "program", "person": "person", "external": "external"}.get(b.type, b.type)
@@ -983,7 +1008,7 @@ class _Diagram:
         rows = [["block", f"{n} ({b.type}{', on ' + b.agent if b.agent else ''})"], ["runs", when],
                 ["reads", ", ".join(r.name + (f".{r.port}" if r.port else "") for r in b.reads())],
                 ["drives", ", ".join(t.name for t in b.targets())],
-                ["serves", ", ".join(g for g in s.goals if n in s.loop(g).controllers or n in s.loop(g).actuators)],
+                ["serves", ", ".join(serves.get(n, ()))],
                 ["description", b.description]]
         if agent and agent.kind:
             rows.insert(1, ["agent", f"{agent.name} ({agent.kind})"])
