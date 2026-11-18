@@ -437,8 +437,10 @@ resource or wiring; how it is measured; dependencies.
   (physical footprint 0.6 GB at the end, 1.1 GB at peak: RSS counts what malloc freed and keeps); engine RSS
   peak 4.2 GB to 1.4 GB (footprint 0.7 GB); answers 69 of 72 to 72 of 72 (slowest 29 s, a 107,645-event
   item's page and the 30-day loop, agent and status); engine 0.72 to 0.97 events a second (template 4.6).
-  the-job 7 days: cold 15.7 to 1.9 s, server idle 1.7 GB to 0.6 GB (footprint 0.3 GB). image-squeeze 30 days
-  (interim build): cold 17.2 to 1.7 s, server idle 3.0 to 1.1 GB. Also: routing a message reads only the
+  the-job 7 days: cold 15.7 to 1.9 s, server idle 1.7 GB to 0.6 GB (footprint 0.3 GB). image-squeeze 30 days:
+  cold 17.2 to 1.6 s, server idle 3.0 to 0.9 GB (footprint 0.3 GB), engine RSS peak 2.9 to 1.9 GB (footprint
+  1.2 GB: its own records, the model's changes and messages, not items), 72 of 72 both (slowest 9 s); 6 hours:
+  as before (0.4 s, 72 of 72). Also: routing a message reads only the
   open items and those it names; Segment headers hold names and arrays, not dicts (700 to 242 MB to open
   11.8 M events); segments add up their tallies when sealed and the state reads a month of crossings from
   the columns (the 30-day status 82 to 43 s on old segments, 27 s on new ones); a roll-up reads only the
