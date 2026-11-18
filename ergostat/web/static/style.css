@@ -421,6 +421,11 @@ svg.bd { color: var(--ink); }
 .bd .bd-toggle rect { fill: var(--bg); stroke: var(--muted); stroke-width: 1; }
 .bd .bd-toggle path { stroke: var(--ink); stroke-width: 1.4; }
 .bd .bd-toggle { cursor: pointer; }
+.bd .sys-hull.bd-frame > rect.hull-grip { fill: transparent; stroke: none; cursor: move; }
+/* a part dragged: the take-off dots, port marks and signal names wait for its lines' new ways */
+svg.bd.dragging-part .bd-dots, svg.bd.dragging-part .bd-portmarks, svg.bd.dragging-part .bd-sig { visibility: hidden; }
+.bd .bd-node { cursor: grab; }
+svg.bd.dragging-part .bd-node { cursor: grabbing; }
 .bd .node:hover .hit, .bd .node.bd-lit .hit { stroke: var(--accent); }
 .bd .bd-bar.hit { stroke: none; }
 .bd .node.bd-lit .bd-bar, .bd .node:hover .bd-bar { fill: var(--accent); }
