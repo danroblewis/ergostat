@@ -32,8 +32,9 @@ const WHAT = {
   signal: ["Information link: feedback", "a sensor's reading going to a controller, which compares it with its setpoint r and acts on the error e = r − y. This is what makes the loop a loop."],
   action: ["Information link: control action", "a controller commanding a valve: the control signal, u. How hard it pushes is the loop's gain; how long until the stock shows it is the loop's delay."],
   influence: ["Information link: influence", "a cause, declared with driven-by: what is at the arrow's end changes when what is at its start changes (a release fixing what was broken, more users asking for more, the code kept so far deciding a benchmark score). No formula: the value at the end is measured, and nothing moves or is computed along it. It is how a loop closes through another system."],
-  wire: ["Wire (what the record shows)", "something that passed from one machine to another, proven by the event log: an event of the second's (or its run) caused by the first's event or run, or an event the second listens for, published by the first, after which the second ran. A wire the model declares that the log never shows is drawn dashed."],
-  machine: ["Machine", "something that publishes on the event log (an event's source; machine/instance is one of its instances), or one the model declares. A block's runs are its own, though ergostat records them."],
+  activity: ["Activity (the process map)", "a step the work takes, read from the record: a state its items entered, or an event type about them. The map is process mining's directly-follows graph: what the items actually did, in the order they did it, rework and all."],
+  follows: ["Directly follows", "on one item, the second step came next after the first, with nothing about that item between. Its weight is how often; a line back to an earlier step, or round to the same one, is rework."],
+  caused: ["Caused, across kinds", "an event on an item of one kind caused an event on an item of another (the second's causedby names the first, directly or through a block's run): one piece of work fanning out into others, or others joining back into it."],
 };
 function whatIs(kind) {
   const w = WHAT[kind];
@@ -62,7 +63,8 @@ function openSystem(n) {                               // a system as one part: 
 async function openNode(n) {
   for (const x of document.querySelectorAll(".node.sel")) x.classList.remove("sel");
   document.querySelector(`.node[data-id="${CSS.escape(n.id)}"]`)?.classList.add("sel");
-  if (n.kind === "agent") return n.machine ? openMachine(n) : openAgent(n.label);
+  if (S.graph?.kind === "process") return openProcessNode(n);   // process.js
+  if (n.kind === "agent") return openAgent(n.label);
   if (S.graph?.kind === "dynamics") return n.kind === "system" ? sdOpenSystem(n) : openNodeSD(n);   // dynamics.js
   if (n.kind === "system") return openSystem(n);
   const [kind, name] = n.kind === "valve" ? ["valve", n.label] : n.kind === "disturbance" ? ["disturbance", n.flow] : n.id.split(":");
@@ -156,9 +158,7 @@ async function openLoop(name, asController = false) {
   showDetail(...kids);
 }
 
-async function openAgent(name, itself = false) {
-  const m = itself ? null : (S.graph?.nodes || []).find((n) => n.machine && n.label === name);
-  if (m) return openMachine(m);                        // the wiring: the machine as the record shows it
+async function openAgent(name) {
   const a = await api(`agents/${encodeURIComponent(name)}`);
   const kids = [h("div", { class: "kind" }, `Agent, ${a.kind}`), h("h2", {}, name), whatIs("agent"),
     dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
@@ -243,80 +243,11 @@ function showEvent(e) {                                 // one event, all of it,
 const changeOf = (e) => (e.patch ? { patch: e.patch } : e.set ? { set: e.set } : e.data || {});
 
 
-/* the wiring: a machine, with what it published and listened for in the window */
-function recordLink(type, machine, text) {
-  const q = new URLSearchParams({ ...(type ? { type } : {}), ...(machine ? { machine } : {}), window: "1" });
-  return h("a", { href: `/record?${q}`, title: "The Record, filtered to these events in the window" }, text || "Record");
-}
-function windowWords() {
-  const g = S.graph || {};
-  return g.span ? `the ${dur(g.span)} ${g.span < (S.status?.window || g.span) * 0.95 ? "recorded" : "window"}` : "the window";
-}
-function wireRow(e, mine) {                              // one wire, from a machine's panel: open it
-  const other = (mine === e.source ? e.target : e.source).split(":").slice(1).join(":");
-  return h("tr", { class: "click", onclick: () => openEdge(e) }, h("td", {}, other),
-    h("td", { class: "muted" }, e.seen ? (e.types || []).map((t) => t.type).join(", ") : "declared, never seen"),
-    h("td", { class: "num" }, e.seen ? String(e.count) : "\u2013"),
-    h("td", { class: "muted" }, e.seen ? (e.undeclared ? "undeclared" : "declared") : ""));
-}
-function openMachine(n) {
-  const g = S.graph || { edges: [] };
-  const into = g.edges.filter((e) => e.target === n.id), out = g.edges.filter((e) => e.source === n.id);
-  const wires = (es, none) => es.length ? h("table", {}, h("tr", {}, h("th", {}, "machine"), h("th", {}, "what"), h("th", { class: "num" }, "count"), h("th", {}, "")),
-    es.map((e) => wireRow(e, n.id))) : h("p", { class: "muted" }, none);
-  const pub = n.published || [];
-  const listens = n.listens || [];
-  showDetail(h("div", { class: "kind" }, `Machine${n.agentKind ? ", " + n.agentKind : ""}`), h("h2", {}, n.label), whatIs("machine"),
-    n.description ? h("p", { class: "muted" }, n.description) : null,
-    dl([["on the record", n.seen ? `yes: last ${ago(n.last)}` : `nothing in ${windowWords()}`],
-        ["in the model", n.declared ? (n.label === "ergostat" ? "ergostat itself: it records the loops' crossings and the blocks' runs" : "declared") : "not declared: seen only on the record"],
-        ["kind", n.agentKind || null],
-        ["instances", n.instances?.length ? n.instances.join(", ") : null],
-        ["runs", n.runs ? String(n.runs) : null], ["runs when", n.schedule || null]]),
-    h("h3", {}, `Published, in ${windowWords()}`),
-    pub.length ? h("table", {}, h("tr", {}, h("th", {}, "type"), h("th", { class: "num" }, "count"), h("th", { class: "num" }, "rate"), h("th", {}, "last"), h("th", {}, "")),
-      pub.map((p) => h("tr", {}, h("td", { class: "mono" }, p.type), h("td", { class: "num" }, String(p.count)), h("td", { class: "num" }, rateText(p.perHour)),
-        h("td", { class: "muted nowrap" }, ago(p.last)), h("td", {}, recordLink(p.type, n.label)))))
-      : h("p", { class: "muted" }, "nothing"),
-    h("h3", {}, "Listens for"),
-    listens.length ? h("table", {}, h("tr", {}, h("th", {}, "pattern (on:)"), h("th", { class: "num" }, "heard in the window")),
-      listens.map((p) => h("tr", {}, h("td", { class: "mono" }, p), h("td", { class: "num" }, String(n.heard?.[p] || 0)))))
-      : h("p", { class: "muted" }, "Nothing: it runs on its schedule, or when a block commands it."),
-    h("h3", {}, "Reached from"), wires(into, "Nothing on the record reached it."),
-    h("h3", {}, "Reaches"), wires(out, "Nothing on the record shows it reaching another machine."),
-    n.declared && n.label !== "ergostat" && !n.agentKind?.startsWith("sensor") ? h("p", {}, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(n.label, true); } }, "Its runs and its log")) : null,
-    h("p", {}, recordLink(null, n.label, "All it published, in the Record")));
-}
-function openWire(e, link, nameOf) {
-  const a = nameOf(e.source), b = nameOf(e.target);
-  const how = (t) => t.how === "run" ? `${a}'s runs caused ${b === "ergostat" ? "ergostat's" : b + "'s"} ${t.type}` : `${a}'s ${t.type} reached ${b}`;
-  const evidence = (t) => [t["caused-by"] ? `caused by: ${t["caused-by"]}` : null, t["listened-and-ran"] ? `listened and ran: ${t["listened-and-ran"]}` : null].filter(Boolean).join("; ");
-  const model = e.declaredAs?.length ? h("p", {}, h("b", {}, e.seen ? "Declared, and seen. " : "Declared, never seen. "), "The model says: ", e.declaredAs.join("; "),
-    e.seen ? "." : `; nothing in ${windowWords()} of the record shows it.`)
-    : h("p", {}, h("b", {}, "Undeclared. "), `Nothing in the model says ${a} reaches ${b}; the record shows it does.`);
-  const kids = [h("div", { class: "kind" }, e.seen ? "Wire, seen on the record" : "Wire, declared, never seen"), h("h2", {}, a, " \u2192 ", b), whatIs("wire"), model];
-  if (e.seen) {
-    kids.push(dl([["from", link(e.source)], ["to", link(e.target)], ["events", `${e.count} in ${windowWords()}, ${rateText(e.perHour)}`],
-                  ["last seen", ago(e.last)], ["evidence", e.evidence.join(", ")]]),
-      h("h3", {}, "What passed"),
-      h("table", {}, h("tr", {}, h("th", {}, "event type"), h("th", { class: "num" }, "count"), h("th", {}, "last"), h("th", {}, "")),
-        e.types.map((t) => h("tr", {}, h("td", {}, h("span", { class: "mono" }, t.type), h("div", { class: "muted small" }, [how(t), evidence(t)].filter(Boolean).join("; "))),
-          h("td", { class: "num", title: rateText(t.perHour) }, String(t.count)), h("td", { class: "muted nowrap" }, ago(t.last)),
-          h("td", { class: "nowrap" }, recordLink(t.type, t.publisher))))),
-      h("p", { class: "note" }, "Caused by: an event's causedby names the other's event or run. Listened and ran: it listens (on:) for that type, and ran after it."));
-  } else {
-    kids.push(dl([["from", link(e.source)], ["to", link(e.target)]]));
-  }
-
-  showDetail(...kids);
-  S.selKey = linkKey(e);
-  trace(S.selKey);
-}
-
 /* a line, clicked: what kind of connection it is (a flow of material, or a signal in a loop), what
    it joins, what it carries now, and the loops it is part of */
 async function openEdge(e) {
   if (S.graph?.kind === "dynamics") return openEdgeSD(e);   // dynamics.js
+  if (S.graph?.kind === "process") return openProcessEdge(e);   // process.js
   const g = S.graph || { nodes: [], loops: {} };
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   // a part inside a closed system is not drawn: its port on the system's box stands for it
@@ -382,8 +313,6 @@ async function openEdge(e) {
                    `the rate is measured, and nothing is computed along this line.`;
     rows.push(["cause", h("span", {}, link(src), ` (${kindWord(src)})`)], ["changes", h("span", {}, link(dst), ` (${kindWord(dst)})`)],
               [toVar ? "its value now" : "its rate now", toVar ? byId[dst]?.value != null ? fmt(byId[dst].value) : null : byId[dst]?.rateText || null]);
-  } else if (e.kind === "wire") {
-    return openWire(e, link, nameOf);
   } else {
     kind = e.kind;
     what = "";
@@ -391,7 +320,7 @@ async function openEdge(e) {
   }
   const title = e.kind === "pipe" ? [e.flow, h("span", { class: "muted" }, ` (${rows[1][1]} → ${rows[2][1]})`)] : [nameOf(src), " → ", nameOf(dst)];
   const named = { pipe: "flow", measure: "information link, measurement", signal: "information link, feedback",
-                  action: "information link, control action", influence: "information link, influence", wire: "wire" }[e.kind] || kind;
+                  action: "information link, control action", influence: "information link, influence" }[e.kind] || kind;
   showDetail(h("div", { class: "kind" }, named), h("h2", {}, ...title), whatIs(e.kind),
     what ? h("p", { class: "muted" }, what) : null,
 
