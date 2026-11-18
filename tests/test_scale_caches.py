@@ -304,7 +304,10 @@ blocks:
 
 
 def looked_at(e, kind) -> list:
+    e.dispatch.stale = True                                  # (a new look: it reads the record again)
     every, _ = e.dispatch.items_of(kind)
+    again, _ = e.dispatch.items_of(kind)                     # (the same look: what it read)
+    assert [i.id for i in again] == [i.id for i in every]
     return [(i.id, i.state, i.fields, i.entered, i.first, i.last) for i in every]
 
 
