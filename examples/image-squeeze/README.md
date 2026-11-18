@@ -146,7 +146,9 @@ is empty (`one-running`), taking it with a lease (ergostat's SPEC §9.5): a run 
 the hypothesis while what it records about it (its session's lines too) renews the lease. A run that
 stops without submitting gives the hypothesis back, one silent past its TTL loses it (`stalled-runs`),
 and either way the next run carries on in the working copy left; after three attempts it is a dead
-letter (`dead-letters`, `ergostat lease`) that waits for the owner. `small-images` (bytes per megapixel served ≤ 20) is the target the whole
+letter (`dead-letters`, `ergostat lease`) that waits for the owner. The goals on them, `no-stalls` and
+`no-dead-letters`, are watched, not closed in the model: ergostat's own watchdog takes a silent lease back, and an
+expiry or a dead letter needs attention. `small-images` (bytes per megapixel served ≤ 20) is the target the whole
 lab chases: `ergostat explain small-images` traces it from the researcher, through the ideas and the
 experiment, to the release kept, the benchmark points it gains and the bytes served.
 
