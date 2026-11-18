@@ -1,5 +1,6 @@
 import json
 import threading
+import urllib.error
 import urllib.request
 
 from ergostat import graph, state
@@ -184,6 +185,47 @@ def test_the_web_api_serves_what_the_cli_shows(project):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
+    """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
+    whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""
+    import re
+    from http.server import ThreadingHTTPServer
+
+    from ergostat.web.server import STATIC, UI_PAGES, handler
+    js = re.search(r"const UI_PAGES = \[([^\]]*)\]", (STATIC / "util.js").read_text()).group(1)
+    assert tuple(re.findall(r'"([^"]+)"', js)) == UI_PAGES, "the page's and the server's lists of addresses differ"
+    (project.dir / "notes.md").write_text("# Notes\n")
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(project))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+
+    def get(path, **headers):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url + path, headers=headers), timeout=10) as r:
+                return r.status, r.headers["Content-Type"], r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers["Content-Type"], e.read()
+    try:
+        for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/loops", "/agents", "/items?kind=ticket&state=open",
+                     "/item/ticket%2F7", "/item/a%20b%3Fc%23d%25e%26f%2Fg", "/item/%C3%BCn%C3%AF(1)!'*~", "/item/hypothesis/1",
+                     "/record?type=x.y", "/model", "/check", "/guide?frame=3", "/fit", "/residuals"):
+            code, ctype, body = get(path)
+            assert code == 200 and ctype.startswith("text/html") and b'name="ergostat-token"' in body, path
+            assert b'src="/static/util.js"' in body, path            # its scripts by absolute path: a deep address loads them
+        code, ctype, body = get("/api/status")
+        assert code == 200 and ctype == "application/json" and "loops" in json.loads(body)
+        assert get("/api/nope/nope")[0] == 404 and get("/api/items/ticket%2F7")[1] == "application/json"
+        assert get("/static/util.js")[0] == 200 and get("/static/nope.js")[0] == 404
+        assert get("/file/notes.md")[2] == b"# Notes\n"
+        code, ctype, body = get("/file/notes.md", Accept="text/html")
+        assert code == 200 and b"marked.parse" in body and b"ergostat-token" not in body
+        for path in ("/favicon.ico", "/nope", "/itemsx", "/util.js", "/static"):
+            assert get(path)[0] == 404, path
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 def test_threads_share_the_stores_without_locking_up(project):
