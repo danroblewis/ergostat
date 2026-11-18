@@ -236,6 +236,7 @@ def compare(spec, events, since: float | None = None, until: float | None = None
     movers: dict[str, dict] = {}
     built = {k: c for k, c in chains._kinds(spec).items()}
     state_kinds = [k for k in pm.kinds_of(spec, None) if spec.items[k].states]
+    state_kinds += [k for k in built if k not in state_kinds]          # ergostat's own kinds, where the model chains them
     w = None
     if events is not None and state_kinds:
         try:
@@ -249,7 +250,6 @@ def compare(spec, events, since: float | None = None, until: float | None = None
     moves: dict[str, Counter] = {k: Counter() for k in state_kinds}
     by: dict[str, dict[tuple, Counter]] = {k: {} for k in state_kinds}
     items: dict[str, set] = {k: set() for k in state_kinds}
-    done_of: dict[str, set] = {}
     if w is not None:
         for id, steps in w.steps.items():
             k = w.kind_of.get(id)
@@ -268,11 +268,6 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                 moves[k][(p, b)] += 1
                 items[k].add(id)
                 by[k].setdefault((p, b), Counter())[_who(spec, w, eid, looked)] += 1
-        for k in state_kinds:
-            try:
-                done_of[k] = pm._done(spec, events, spec.items[k])
-            except Exception:
-                done_of[k] = {spec.items[k].states[-1]}
     window_moves = {k: Counter({m: n for m, n in moves[k].items() if not set(m) & set(LEASE_STATES)}) for k in moves}
     chain_found = chains.analyse(spec, {k: v for k, v in window_moves.items()}) if built else []
     have |= {f"{x.code}@{x.about}" for x in chain_found}      # what check says of these moves, from the record
@@ -317,8 +312,7 @@ def compare(spec, events, since: float | None = None, until: float | None = None
         # ---- Dynamics ↔ Blocks (the model alone)
         last = ch.c.order[-1] if ch.c.order else None
         declared = (getattr(getattr(spec, "messages", None), "done", None) or {}).get(k)
-        finished = set(declared or ()) | ({last} if last else set()) | \
-            (set(done_of.get(k) or ()) if need is None else set())       # (the states no item has left: with record enough)
+        finished = set(declared or ()) | ({last} if last else set())    # as the model says: never what a short record does
         moved_by: dict[str, tuple] = {}
         for f in ch.flows:
             m = ch.mover(f.name)
