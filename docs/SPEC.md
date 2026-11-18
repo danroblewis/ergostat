@@ -1061,6 +1061,9 @@ Common keys:
 Every block has an output. A block with none has no visible effect: either it does nothing worth
 modelling, or the flow it changes is missing from the model; `check` reports it.
 
+A machine block's output lines take effect as its run prints them, not when the run ends (section 9.1), so a
+long run's findings land one by one.
+
 ### 9.1 How blocks run
 
 - **Built-in blocks** (9.2) are executed by ergostat itself, on every reading of their inputs:
@@ -1090,7 +1093,8 @@ A machine block receives on standard input (or, for `ai`, in its prompt):
 ```
 
 and reports on standard output, one JSON line per output, or a bare number when it has a single
-output:
+output. Its lines take effect **as it prints them**, not when it ends (below): a program that works for hours may
+report each finding as it makes it.
 
 ```json
 {"out": "flow.processed", "moved": 12}
@@ -1105,6 +1109,29 @@ Its input also carries, under `messages`, the owner's messages that waited for i
 
 ergostat records what was **commanded** and what was **moved**: the gap is the direct evidence of
 saturation.
+
+**Lines take effect as they arrive.** A run's standard output is read while it runs, line by line, and each
+complete line is taken when it is printed, in the order printed; half a line waits for the rest (or for the end of
+the output). Its input is written, and its errors go to its log, beside the reading, so neither a large output nor
+a program that reads its input slowly stalls it. Event lines in a row are recorded together, in one write, before
+anything printed after them, so a run printing thousands of lines a second costs a few writes. A program flushes
+each line for it to be seen at once (`print(..., flush=True)`, `python -u`; `echo` and `jq -c` in a shell already
+do); what it holds in its own buffer arrives when it flushes or ends. By line:
+
+| Line | When it takes effect |
+|---|---|
+| `{"event": ...}` | At once: recorded, caused by the run (`causedby`), and folded into its item; it renews the lease its run holds on that item, and is refused at once once that lease has ended (section 9.5) |
+| `{"decision": ...}`, `{"answer": ...}`, `{"route": ...}`, `{"propose": ...}` | At once, as when the run ended before |
+| `{"out": ..., "moved": n}` (a flow) | Its valve opening (`valve.opened`) at once; the run's total (`moved` on `agent.ran`) and the reading of that flow's stocks after acting, when it ends |
+| `{"out": ..., "command": n}`, a goal's setpoint, an auxiliary's value | At once: what it commands may start before it ends, and a later line replaces an earlier one, as commands always do |
+| `{"claim": ...}` | Recorded at once; checked after the run ends, against its exit code and what it did (section 12g) |
+| `{"nack": ...}` | Noted at once; its item is given back when the run ends (section 9.5) |
+| A bare number (or what `parse:` finds) | When it ends: the last one printed, and only from a run that exited 0 and printed no JSON line |
+| Anything else | Its log, as it arrives |
+
+A run stopped part way (its timeout, the owner's `--stop`, ergostat stopping) keeps everything it printed before it
+was stopped: what it recorded stays recorded, what it moved counts. Equally for `program` blocks and `ai` blocks
+with `run:` (an `ai` block's own `claude -p`, and the session helper, `ergostat session`, print their result lines when the session ends; the session helper copies the transcript as it grows).
 
 **When the model changes** (`ergostat.yaml` or a file it includes edited, or a change to the model accepted), a running
 ergostat takes the new model **in place, at run boundaries**: it never restarts and never kills a run for it.
@@ -1207,7 +1234,8 @@ amount and, when they differ, what was asked.
 moved; a block: a command; a goal: a setpoint). JSON lines may also be `{"moved": n}` without
 `out` when it moves one flow, and `{"event": "backup.verified", "item": "backup/nightly"}` for
 anything else that happened (an event about an item, section 5a: `data` holds its fields, folded by
-its kind's rules; or, in place of `data`, a JSON `patch` or the whole document, `set`). Lines that are not JSON go to its log (`logs/<block>.log` in the state
+its kind's rules; or, in place of `data`, a JSON `patch` or the whole document, `set`), each taken as it is printed
+(section 9.1). Lines that are not JSON go to its log (`logs/<block>.log` in the state
 directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's id), `ERGOSTAT_ITEM` and
 `ERGOSTAT_LEASE` (for a run holding a lease on an item: section 9.5), `ERGOSTAT_COMMAND` (the amount),
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
@@ -1301,7 +1329,7 @@ it does not list them: `leased`, after the first `at` state, and `dead`, last.
 A counted attempt that reaches the most allowed moves the item to `dead` instead: a **dead letter**.
 
 **Renewal is observed, never declared.** Any event the holder caused about the item (`causedby` its
-run: an event line it printed, or `$ERGOSTAT_CMD event --add` during the run), and any line of the
+run: an event line it printed, taken when it prints it, or `$ERGOSTAT_CMD event --add` during the run), and any line of the
 item's transcript (`claude.*`), renews the lease, in the fold itself. A run may also renew it
 outright (`$ERGOSTAT_CMD lease --renew`). And before a lease expires, ergostat looks once more at what
 its holder did elsewhere since its last renewal: an event it caused about anything, or an event about
@@ -1319,8 +1347,8 @@ back uncounted. A lease that expired is not ended again when its run ends.
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is not stopped (it may still be doing useful
 work, and the item is already back in the queue), but whatever it says about the item afterwards is
-refused, not applied: an event line about it is refused before it is recorded (`agent.refused`, its
-why the fencing), and an event recorded any other way, caused by a run whose lease on the item ended,
+refused, not applied: an event line about it is refused when it is printed, before it is recorded
+(`agent.refused`, its why the fencing), and an event recorded any other way, caused by a run whose lease on the item ended,
 is recorded as it was said and refused by the fold (the item's `refused`). A `taken` while the item
 is held, or with a fence that is not the next one, is refused too: one lease at a time.
 
@@ -2379,7 +2407,8 @@ A line with nothing in `says`, or an `about` ergostat cannot read, is refused li
 
 ### The checks
 
-After a run ends (`agent.ran` or `agent.failed` recorded), each claim it made is checked in turn. Without `check`,
+A claim line is recorded when the run prints it (section 9.1); after the run ends (`agent.ran` or `agent.failed`
+recorded), each claim it made is checked in turn. Without `check`,
 the claim's words choose: a claim that tests pass (or fail) is `tests`; one about an item that names a state of
 its kind is `state`; "changed", "edited", "wrote", "fixed" ... about a file, a part or a commit is `changed`;
 "succeeded" or "exited 0" is `exit`; one whose words a declared check's `says` matches is that check.

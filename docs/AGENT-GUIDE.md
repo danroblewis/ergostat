@@ -51,7 +51,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once) and, for AI work, a
    prompt. A run leases its item, does the step, and prints the event that moves the item on.
    ergostat retries a run that fails or goes silent, and parks an item that keeps failing as a dead
-   letter. A step a person must do is a `type: person` block with `ask:`; it is asked while its goal
+   letter. A program may **print events as it goes**: each line is taken when it is printed, not
+   when the run ends, so a long run's findings land at once (flush each line: `print(...,
+   flush=True)`), and every event it prints renews the lease it holds, so a run that reports its
+   progress is never taken for silent. If it is stopped part way, what it printed stays. A step a person must do is a `type: person` block with `ask:`; it is asked while its goal
    is off (only `program` and `ai` blocks take items one at a time).
 6. **Goals on what matters**: how long the oldest item has waited in a state
    (`measure: oldest` on a stock's sensor, `hold: "<= 4"` hours), how many are waiting, throughput.

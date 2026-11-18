@@ -68,6 +68,10 @@ to say:
 {"event": "logs.rotated", "item": "log/app.log"}
 ```
 
+Each line takes effect when it is printed, not when the run ends: a long run's events are recorded and
+folded into their items as it goes (flush each line), and each renews the lease the run holds. A bare
+number is the exception: it counts when the run ends well. `ergostat help spec`, section 9.1.
+
 A block that steps a setting (an integral controller: the quality up by the error) moves a
 `two-way` flow into the setting's stock, and prints the step, which may be negative:
 `{"out": "flow.quality-steps", "moved": -2.5}`. The setting is a stock because it keeps its value
