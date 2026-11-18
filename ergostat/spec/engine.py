@@ -126,11 +126,12 @@ class Engine:
     def measure(self) -> None:
         """Stocks' levels and flows' rates from the record: the newest reading of any of their sensors."""
         m = self.p.measurements
+        newest = m.newest() if hasattr(m, "newest") else None    # every series' newest, at once (scale.md #3)
         for kind, table in (("stock", self.spec.stocks), ("flow", self.spec.flows), ("auxiliary", self.spec.auxiliaries)):
             for name, x in table.items():
                 best = None
                 for s in x.sensors.values():
-                    got = m.latest(s.series)
+                    got = newest.get(s.series) if newest is not None else m.latest(s.series)
                     if got is None:
                         continue
                     self.signals[f"{kind}.{name}.{s.name}"] = got[1]
