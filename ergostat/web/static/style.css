@@ -34,7 +34,7 @@
   /* a projection's sensitivity fan: nine in ten of its runs, and half (greys of their own, not the gridlines') */
   --fan-90: #d2d7dd;          /* oklch(0.88 0.010 250) */
   --fan-50: #a9b0b8;          /* oklch(0.76 0.013 250) */
-  /* what the drawings name (the old control shapes and the wiring): the same neutrals */
+  /* what the drawings name (the old control shapes): the same neutrals */
   --panel: var(--bg); --unknown: var(--muted); --ok: var(--muted); --grid: var(--line);
   --stock: var(--bg); --stock-line: var(--ink); --pipe: var(--ink); --pipe-in: var(--bg); --info: var(--muted);
   --sensor: var(--bg); --sensor-line: var(--ink-2); --ctl: var(--bg); --ctl-line: var(--ink-2); --valve: var(--ink);
@@ -377,11 +377,15 @@ a.chart-name { color: var(--accent); }
 .edge.measure .info { stroke: var(--sensor-line); stroke-dasharray: 4 3; }
 .edge.signal .info { stroke: var(--sensor-line); }
 .edge.action .info { stroke: var(--ctl-line); stroke-width: 1.8; }
-.edge.wire .info { stroke: var(--ink); stroke-width: 1.4; }
-.edge.wire[data-id^="wire-unseen:"] .info { stroke: var(--muted); stroke-dasharray: 5 4; stroke-width: 1.3; }
-.edge.wire[data-id^="wire-unseen:"] path.head { fill: var(--muted); }
-.edge.wire[data-id^="wire-unseen:"] .elabel { fill: var(--muted); font-style: italic; }
-.node .machine.silent text { opacity: .6; }
+/* the Process view (process.js): plain ink, how often as the line's weight, the lines between kinds dashed */
+.pm-frame rect { fill: none; stroke: var(--line-strong); stroke-width: 1; }
+.pm-frame .pm-title { fill: var(--ink); font-size: var(--canvas-lg); font-weight: 600; }
+.edge.pm-follows .info { stroke: var(--ink); stroke-linejoin: round; opacity: .82; }
+.edge.pm-caused .info { stroke: var(--muted); stroke-dasharray: 6 4; }
+.edge.pm-follows.rework .elabel { font-style: italic; }
+.edge.pm-follows .elabel, .edge.pm-caused .elabel { fill: var(--muted); }
+.toolbar .pm-paths { width: 96px; accent-color: var(--ink); }
+.toolbar .pm-paths-word { min-width: 7.5em; }
 .edge.influence .info { stroke: var(--dist); stroke-width: 1.4; stroke-dasharray: 7 4; }
 .edge .elabel { fill: var(--muted); font-size: var(--canvas-sm); }
 svg.loop-hl .edge.loop-holding .info { stroke: var(--ink); }

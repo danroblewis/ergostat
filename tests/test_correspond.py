@@ -204,13 +204,10 @@ def test_a_loop_is_its_members_as_parts(squeeze):
     assert lit(dyn, set(blk["loops"]["every-case"])) >= {"gap:every-case", "desired:every-case", "stock:capabilities"}
 
 
-def test_the_wiring_draws_each_agent_as_the_blocks_it_fills(example):
+def test_the_process_view_draws_no_model_part(example):
     name, spec, graph = example
-    g = graph(view="wiring")
-    for n in g["nodes"]:
-        agent = n["id"].split(":", 1)[1]
-        want = {f"block.{b}" for b, x in spec.blocks.items() if b == agent or x.agent == agent}
-        assert set(g["corr"]["shapes"][n["id"]]["is"]) == want, n["id"]
+    g = graph(view="process")
+    assert g["corr"]["view"] == "process" and g["corr"]["shapes"] == {}
     assert system_of(spec, f"system.{next(iter(spec.systems))}") in (None, *spec.systems)
 
 

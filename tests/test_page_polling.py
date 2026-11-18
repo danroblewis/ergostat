@@ -31,7 +31,7 @@ OPEN_S = float(os.environ.get("POLL_OPEN_S", 40))    # how long each page is lef
 HEAP_GROWTH_MB = 3.0           # retained heap (after a collection), from settled to the end
 NODE_GROWTH = 0.10             # DOM nodes, as a share of where they settled (and 200 more)
 LONG_TASK_P95_MS = 500         # each refresh's longest work on the main thread, on a laptop; generous
-PAGES = ["diagram", "diagram?view=dynamics&open=*", "diagram?view=blocks", "diagram?view=wiring", "loops",
+PAGES = ["diagram", "diagram?view=dynamics&open=*", "diagram?view=blocks", "diagram?view=process", "loops",
          "agents", "items", "item/hypothesis%2F1", "record", "model"]
 INIT = f"""window.ERGOSTAT_POLL_SPEED = {SPEED}; window.__lt = [];
 try {{ new PerformanceObserver((l) => {{ for (const e of l.getEntries()) window.__lt.push(e.duration); }})

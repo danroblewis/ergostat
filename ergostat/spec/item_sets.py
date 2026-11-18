@@ -33,8 +33,16 @@ class ItemSet:
     states: list[str] = field(default_factory=list)          # in one of these now (none: any)
     where: dict[str, list[str]] = field(default_factory=dict)  # field: any of these values
     moved: tuple[list[str], list[str]] | None = None          # from these states to these (one side empty: any other)
-    since: float | None = None                                # the moves' span: after since, up to until
+    since: float | None = None                                # the span (of moves, or of the process map): after since, up to until
     until: float | None = None
+    # the process map's (process.py): through a node, along a line within an item, or along lines from other items
+    by: str | None = None                                     # states or events: what the map's nodes are
+    through: str | None = None                                # an activity; ^ started, $ ended
+    followed: tuple[str, str] | None = None                   # one activity directly followed by the other
+    caused: list[tuple[str, str, str]] = field(default_factory=list)   # (cause kind, its activity, this kind's)
+
+    def process(self) -> bool:
+        return self.through is not None or self.followed is not None or bool(self.caused)
 
     def params(self) -> dict[str, list[str]]:
         """The set as the Items page's address and the API's query say it (``/items?kind=pr&state=waiting``)."""
@@ -45,6 +53,15 @@ class ItemSet:
             q["where"] = [f"{f}:{v}" for f, vs in self.where.items() for v in vs]
         if self.moved is not None:
             q["moved"] = [",".join(self.moved[0]) + ">" + ",".join(self.moved[1])]
+        if self.by:
+            q["by"] = [self.by]
+        if self.through is not None:
+            q["through"] = [self.through]
+        if self.followed is not None:
+            q["followed"] = [">".join(self.followed)]
+        if self.caused:
+            q["caused"] = [f"{k}:{a}>{b}" for k, a, b in self.caused]
+        if self.moved is not None or self.process():
             q["moved_since"] = [stamp(self.since)]
             q["moved_until"] = [stamp(self.until)]
         return q
@@ -58,9 +75,17 @@ class ItemSet:
             a, b = self.moved
             out.append(f"moved {' or '.join(a)} → {' or '.join(b)}" if a and b else
                        f"entering {' or '.join(b)}" if b else f"leaving {' or '.join(a)}")
+        word = {"^": "started", "$": "ended"}
+        if self.through is not None:
+            out.append(word.get(self.through, "through " + self.through))
+        if self.followed is not None:
+            a, b = self.followed
+            out.append("started, then " + b if a == "^" else a + ", then ended" if b == "$" else f"{a} → {b}")
+        if self.caused:
+            out.append(" or ".join(f"{b} caused by {a} on a {k}" for k, a, b in self.caused))
         if self.where:
             out.append("where " + ", ".join(f"{f} = {' or '.join(vs)}" for f, vs in self.where.items()))
-        return " ".join([self.kind, ", ".join(out)]).strip()
+        return " ".join([self.kind + ("," if out else ""), ", ".join(out)]).strip()
 
     def move_matches(self, m: dict) -> bool:
         a, b = self.moved or ([], [])
@@ -92,7 +117,8 @@ def asked(q: dict) -> bool:
     """Whether an Items query asks for a set the plain listing does not serve: matching fields, a move in a
     span, or more than one state."""
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
-    return bool(q.get("where") or one("moved") or "," in (one("state") or ""))
+    return bool(q.get("where") or one("moved") or "," in (one("state") or "") or one("through") or one("followed")
+                or q.get("caused"))
 
 
 def parse(q: dict, now: float | None = None) -> ItemSet | None:
@@ -119,6 +145,26 @@ def parse(q: dict, now: float | None = None) -> ItemSet | None:
         now = now or time.time()
         s.until = when(one("moved_until"), "moved_until") if one("moved_until") else now
         s.since = when(one("moved_since"), "moved_since") if one("moved_since") else s.until - 3600.0
+    s.by = one("by")
+    if s.by is not None and s.by not in ("states", "events"):
+        raise BadSet(f"by={s.by}: states or events")
+    s.through = one("through")
+    fl = one("followed")
+    if fl:
+        a, sep, b = fl.partition(">")
+        if not sep or not a or not b:
+            raise BadSet(f"followed={fl}: A>B, two activities (^ the start, $ the end)")
+        s.followed = (a, b)
+    for c in q.get("caused") or []:
+        k, sep, rest = c.partition(":")
+        a, sep2, b = rest.partition(">")
+        if not sep or not sep2 or not k or not a or not b:
+            raise BadSet(f"caused={c}: KIND:A>B, an activity on an item of KIND, and the one it caused here")
+        s.caused.append((k, a, b))
+    if s.process():
+        now = now or time.time()
+        s.until = s.until or (when(one("moved_until"), "moved_until") if one("moved_until") else now)
+        s.since = s.since or (when(one("moved_since"), "moved_since") if one("moved_since") else s.until - 3600.0)
     return s
 
 
@@ -134,6 +180,8 @@ def select(events, spec, s: ItemSet, until: float | None = None, n: int = its.LI
     if bad:
         raise BadSet(f"{s.kind} has no state {', '.join(bad)} (its states: {', '.join(k.states) or 'none'})")
     moved: dict[str, list[float]] = {}
+    if s.process():                                       # the process map's node or line: read as the map was
+        return _through(events, spec, s, kinds, n, offset)
     if s.moved is None:                                   # counted and paged by the index
         total, page_its = its.in_states_page(events, spec, s.kind, s.states or None, s.where, until, n, offset)
     else:                                                 # the span's moves, from the index; which count, here
@@ -159,6 +207,31 @@ def select(events, spec, s: ItemSet, until: float | None = None, n: int = its.LI
     if s.moved is not None:
         out["moves"] = sum(len(v) for v in moved.values())
     return out
+
+
+def _through(events, spec, s: ItemSet, kinds: dict, n: int, offset: int) -> dict:
+    """The items behind a node or a line of the process map, newest first, each with when (``moved_at``)."""
+    from .. import process as pm
+    for k, _, _ in s.caused:
+        if k not in kinds:
+            raise BadSet(f"caused: no such kind of item as {k}")
+    got = pm.items_through(events, spec, s.kind, s.since, s.until, s.by, s.through, s.followed, s.caused or None)
+    if s.moved is not None:
+        moved = {i.id for i in its.moved_items(events, spec, s.kind, "to" if s.moved[1] else "from",
+                                               s.moved[1] or s.moved[0], s.since, s.until, s.where)}
+        got = {k: v for k, v in got.items() if k in moved}
+    items = pm._folded(events, spec, s.kind, got)
+    rows = sorted((i for i in items.values() if (not s.states or i.state in s.states) and its.matches(i, s.where)),
+                  key=lambda i: -got[i.id][-1])
+    from .item_systems import kind_systems
+    where = kind_systems(spec)
+    page = []
+    for i in rows[offset:offset + n]:
+        d = its._listed(i, kinds, where)
+        d["moved_at"] = got[i.id]
+        page.append(d)
+    return {"set": {"says": s.says(), "params": s.params()}, "total": len(rows), "offset": offset, "items": page,
+            "moves": sum(len(got[i.id]) for i in rows)}
 
 
 # --- a part's set: what the model says its items are

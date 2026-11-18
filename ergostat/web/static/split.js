@@ -3,7 +3,7 @@
    resizes it (double-click: half and half; dragged back to the edge: closed), remembered in this browser.
 
    The second pane is the page itself in a frame (?pane=1): a whole diagram with its own pan, zoom, open
-   systems and view (by default the other one), its own Dynamics, Blocks and Wiring switch, and nothing
+   systems and view (by default the other one), its own Dynamics, Blocks and Process switch, and nothing
    of the header. The panes share what is chosen (model parts, interact.js) and say what is pointed at,
    by message: a shape pointed at in one lights what it is, boldly, in the other; a click chooses it in
    both. While the split is open, the side panel is drawn over the pane clicked in, so the diagrams keep
