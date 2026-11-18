@@ -22,7 +22,8 @@ GITHUB_REPO=danroblewis/orchestra-live-delivery   # the repository it works in (
 REVIEWERS=                              # GitHub logins asked for review; empty: a comment asks instead
 REPING_AFTER=90s                        # no answer from a reviewer this long after asking: ask again
 REPING_MAX=3
-POLL_EVERY=15s                          # a step that waits (reviews, CI, an approval) gives its ticket back for this long
+POLL_EVERY=15s                          # a step that waits (reviews, CI, an approval) is looked at again at most this long after
+RECHECK_FIRST=1s                        # ... and first after this, doubling each time it waits again (news wakes it at once)
 ACT_WAIT=10s                            # how long a step waits for the owner's answer to an approval before it gives the ticket back
 APPROVE_WORD=/approve                   # a reviewer's comment starting with this counts as approval
                                         # (a test account cannot approve its own pull request)

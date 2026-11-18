@@ -536,3 +536,24 @@ def test_a_lease_held_by_a_run_survives_a_model_edit(tmp_path):
     assert lease["history"][0]["run"] == held["holder"] and one.fields["fence"] == 1
     assert item(p, "ticket/2").fields["lease"]["history"][0]["how"] == "ack"
     assert p.events.query(n=None, type=TAKEN, item="ticket/2")[0]["data"]["ttl"] == 7, "the next lease on the new terms"
+
+
+def test_given_back_to_wait_for_news_it_is_ready_at_the_first_news_of_it(tmp_path):
+    p = project(tmp_path, KIND)
+    p.events.add("ticket.opened", item="ticket/1", source="t")
+    take(p, "ticket/1", "r1", 1)
+    p.events.add("ticket.noted", item="ticket/1", source="w", causedby="r1", data={"waiting": "review"})
+    p.events.add(ENDED, item="ticket/1", source="ergostat", data={"run": "r1", "fence": 1, "how": "nack", "why": "review",
+                                                                  "after": 300, "count": False, "news": True})
+    assert item(p, "ticket/1").fields["lease"]["not_before"] > time.time() + 200
+    p.events.add("ticket.noted", item="ticket/1", source="w", causedby="r1", data={"late": True})   # its own run's: not news
+    p.events.add("ergostat.workspace.held", item="ticket/1", source="ergostat")                     # ergostat's: not news
+    assert item(p, "ticket/1").fields["lease"].get("not_before")
+    p.events.add("ticket.reviewed", item="ticket/1", source="github", data={"state": "approved"})   # a webhook's: news
+    lease = item(p, "ticket/1").fields["lease"]
+    assert "not_before" not in lease and lease["woken"] > 0
+    take(p, "ticket/1", "r2", 2)                                       # taken again at once, and put off plainly after
+    p.events.add(ENDED, item="ticket/1", source="ergostat", data={"run": "r2", "fence": 2, "how": "nack", "why": "x",
+                                                                  "after": 300, "count": False})
+    p.events.add("ticket.reviewed", item="ticket/1", source="github")
+    assert item(p, "ticket/1").fields["lease"]["not_before"] > time.time() + 200

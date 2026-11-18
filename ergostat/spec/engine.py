@@ -1685,8 +1685,9 @@ class Said:
 
 
 def nack_of(raw) -> dict | None:
-    """``{"nack": "why"}``, or ``{"nack": {"why": ..., "after": "30m", "count": false}}``: the item given back, why, not
-    taken again before ``after`` (a duration), and whether the attempt counts (by default it does)."""
+    """``{"nack": "why"}``, or ``{"nack": {"why": ..., "after": "30m", "count": false, "news": true}}``: the item given
+    back, why, not taken again before ``after`` (a duration) or, with ``news``, before something new is recorded about
+    it from outside its own runs, whichever is first; and whether the attempt counts (by default it does)."""
     if isinstance(raw, str):
         return {"why": raw}
     if not isinstance(raw, dict):
@@ -1700,6 +1701,8 @@ def nack_of(raw) -> dict | None:
             return None
     if raw.get("count") is not None:
         out["count"] = bool(raw["count"])
+    if raw.get("news"):                                  # or taken again as soon as there is news of it (SPEC §9.5)
+        out["news"] = True
     return out
 
 

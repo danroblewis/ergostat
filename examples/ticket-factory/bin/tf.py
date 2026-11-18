@@ -83,6 +83,37 @@ def ergostat() -> list[str]:
     sys.exit("ergostat is not installed (uv tool install ergostat, or run from its checkout)")
 
 
+def engine(op: str, **args) -> dict | None:
+    """Ask the running ergostat over its socket (ERGOSTAT_SOCKET, in every run's environment: SPEC 9.5), in
+    milliseconds and without loading the model; None when there is none, and the caller runs the command instead.
+    One JSON line asked, one answered: the standard library is enough."""
+    import socket
+    path = os.environ.get("ERGOSTAT_SOCKET")
+    if not path:
+        return None
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(float(args.pop("_timeout", 120)))
+    try:
+        s.connect(path)
+        s.sendall((json.dumps({"op": op, "root": str(ROOT), **args}) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            got = s.recv(65536)
+            if not got:
+                break
+            buf += got
+    except OSError:
+        return None
+    finally:
+        s.close()
+    out = json.loads(buf) if buf else None
+    if out is None or "elsewhere" in out:
+        return None
+    if "error" in out:
+        raise RuntimeError(f"ergostat {op}: {out['error']}")
+    return out
+
+
 def run_ergostat(*args: str) -> str:
     r = subprocess.run([*ergostat(), *args], capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
@@ -92,6 +123,9 @@ def run_ergostat(*args: str) -> str:
 
 def record(type: str, item: str, data: dict | None = None, by: str = "ticket-factory") -> None:
     """Record an event now (not at the end of the run): what was done outside must never be done twice."""
+    if engine("event", events=[{"event": type, "item": item, "data": data or {}}], source=by,
+              causedby=os.environ.get("ERGOSTAT_RUN")) is not None:
+        return
     run_ergostat("event", "--add", type, "--item", item, "--data", json.dumps(data or {}), "--as", by)
 
 
@@ -104,6 +138,9 @@ def items(kind: str, state: str | None = None) -> list[dict]:
 
 def item(id: str) -> dict | None:
     try:
+        got = engine("item", id=id)
+        if got is not None:
+            return got["item"]
         return json.loads(run_ergostat("item", id, "--json"))
     except (RuntimeError, json.JSONDecodeError):
         return None

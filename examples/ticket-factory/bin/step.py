@@ -10,8 +10,11 @@ The script's run(ticket) returns:
                      the ticket to the step's next state (ticket.yaml); the block reports it moved along
                      flow.<NAME>. Move(fields, event="ticket.x", out="flow.y") for another way out (a review
                      that asks for changes, a CI run that failed)
-    Wait(why)        not yet (an approval, a reviewer, CI): the ticket is given back, put off for POLL_EVERY and
-                     not counted as a failure ({"nack": {..., "count": false}}); its next run asks again
+    Wait(why)        not yet (an approval, a reviewer, CI): the ticket is given back, not counted as a failure, and
+                     looked at again soon: after RECHECK_FIRST (1s), doubling each time it waits here again, up to
+                     POLL_EVERY; or at once when there is news of it (a webhook's event about the ticket: README,
+                     "Pushed, not polled"): {"nack": {..., "after": ..., "count": false, "news": true}}.
+                     Wait(why, due=S): not later than S seconds from now (a re-ping that falls due)
     Stop(why)        it cannot go on: the ticket moves to `stopped`, for the owner
 
 A step with no script moves its ticket on at once (Move()): a step that is only a state, for a person or a
@@ -31,7 +34,7 @@ import traceback
 from dataclasses import dataclass, field
 
 import gated
-from tf import ROOT, conf, item, log, say
+from tf import ROOT, conf, item, log, say, seconds
 
 
 @dataclass
@@ -46,6 +49,21 @@ class Move:
 class Wait:
     why: str
     fields: dict = field(default_factory=dict)          # recorded (ticket.noted) when there are any
+    due: float | None = None                            # looked at again no later than this many seconds from now
+
+
+def recheck(ticket: dict, name: str, due: float | None = None) -> float:
+    """How long a ticket that waits at this step is put off: RECHECK_FIRST, doubled for each time in a row it waited
+    here before, at most POLL_EVERY (and at most `due`). A pushed event about it wakes it sooner (news)."""
+    first, most = seconds(conf("RECHECK_FIRST", "1s")), seconds(conf("POLL_EVERY", "15s"))
+    history = (((ticket.get("fields") or {}).get("lease") or {}).get("history") or [])[:-1]   # (the last: this run)
+    n = 0
+    for h in reversed(history):
+        if h.get("block") != name or h.get("how") != "nack":
+            break
+        n += 1
+    after = min(most, first * 2 ** min(n, 16))
+    return max(0.1, min(after, due)) if due is not None else after
 
 
 @dataclass
@@ -104,7 +122,8 @@ def main() -> int:
     else:
         if got.fields:
             say({"event": "ticket.noted", "item": tid, "data": got.fields})
-        say({"nack": {"why": got.why, "after": conf("POLL_EVERY", "15s"), "count": False}})
+        after = recheck(ticket, a.name, got.due)
+        say({"nack": {"why": got.why, "after": f"{after:g}s", "count": False, "news": True}})
         say({"out": f"flow.{a.name}", "moved": 0})
         log(f"{tid}: waits at {a.name}: {got.why}")
     return 0

@@ -5,7 +5,8 @@ not in the map is ignored, so a sender's other events are left out), the item (a
 so a delivery sent twice is one event), and ``data``: each field a path in the payload (its value as it is: text,
 number, list) or a template (text). A path is dotted keys (``issue.fields.summary``), list positions by number
 (``pull_requests.0.number``), or ``header:NAME`` for a request header (``header:X-GitHub-Event``). A template is
-text with ``{path}`` in it. ``each: PATH``: one event per element of that list, each element the payload."""
+text with ``{path}`` in it; ``{path~REGEX}`` is the part of the value the regular expression's first group matches
+(``{pull_request.head.ref~^ergostat/([A-Z]+-[0-9]+)}``: the ticket a branch is for). ``each: PATH``: one event per element of that list, each element the payload."""
 
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ import re
 
 from .envelope import Refused
 
-PART = re.compile(r"\{([^{}]+)\}")
+PART = re.compile(r"\{((?:[^{}]|\{[0-9,]*\})+)\}")
 MISSING = object()
 
 
@@ -38,7 +39,11 @@ def fill(template: str, payload, headers=None, strict: bool = True) -> str | Non
     gone = []
 
     def one(m):
-        v = lookup(payload, m.group(1), headers)
+        path, _, rx = m.group(1).partition("~")
+        v = lookup(payload, path, headers)
+        if v is not MISSING and v is not None and rx:
+            got = re.search(rx, str(v))
+            v = (got.group(1) if got.groups() else got.group(0)) if got else MISSING
         if v is MISSING or v is None:
             gone.append(m.group(1))
             return ""

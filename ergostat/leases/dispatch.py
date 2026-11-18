@@ -3,7 +3,8 @@
 - **Dispatch.** For each block that takes items: while nothing commands it, or what commands it is on, every item of
   its kind in one of its ``at`` states, not held, not put off (``not_before``), and matching its ``where``, is leased
   to a run of its own, oldest first, while the block's runs in flight (its leases held, from the fold, and the runs
-  going here) are fewer than its ``pool``. It looks whenever the record has something new (an item reaching its
+  going here) are fewer than its ``pool``. An item put off (``not_before``) is looked at again when it falls due. It
+  looks whenever the record has something new (an item reaching its
   state starts a run at once; the lease is caused by that event), woken by the write itself (``notify.py``; another
   process's write by the kernel's file notification, else at its next check, every quarter second), and every second
   besides.
@@ -61,6 +62,7 @@ class Dispatcher:
         self.seq = 0
         self.kept = Ready()                           # the items a look needs, followed as events arrive (ready.py)
         self.stale = True                             # read the record again before the next use: once a look, and after a take
+        self.due = float("inf")                       # when the first item put off (not_before) may be taken
 
     @property
     def spec(self):
@@ -86,8 +88,9 @@ class Dispatcher:
             try:
                 seq = self.p.events.last_seq()
                 mono = time.monotonic()
-                if seq != self.seq or mono - last >= EVERY:
+                if seq != self.seq or mono - last >= EVERY or time.time() >= self.due:
                     self.seq = seq
+                    self.due = float("inf")
                     if mono - last >= EVERY:
                         last = mono
                         if self.blocks or self.holding:      # (a model with no block that takes: nothing to watch)
@@ -95,10 +98,11 @@ class Dispatcher:
                     self.tick()
             except Exception as e:                             # the next look tries again
                 self.e.say(f"leases: {type(e).__name__}: {e}")
+            wait = max(0.0, min(LOOK, self.due - time.time()))      # (an item put off is due before the next look)
             if board is None:
-                self.e.stop.wait(LOOK)
+                self.e.stop.wait(wait)
                 continue
-            was, mark = mark, board.wait(mark, LOOK)
+            was, mark = mark, board.wait(mark, wait)
             if mark != was:
                 self.e.stop.wait(GAP)
 
@@ -150,8 +154,15 @@ class Dispatcher:
     def ready(self, b, every, now: float) -> list:
         """The items a block may take now, in the order it takes them: oldest in its first state first."""
         busy = self.going_items()
-        got = [i for i in every if i.state in b.takes.at and not held(i.fields) and i.id not in busy
-               and float((i.fields.get("lease") or {}).get("not_before") or 0) <= now and its.matches(i, b.takes.where)]
+        got = []
+        for i in every:
+            if i.state not in b.takes.at or held(i.fields) or i.id in busy or not its.matches(i, b.takes.where):
+                continue
+            after = float((i.fields.get("lease") or {}).get("not_before") or 0)
+            if after > now:                              # put off: looked at again when it falls due
+                self.due = min(self.due, after)
+                continue
+            got.append(i)
         return sorted(got, key=lambda i: (b.takes.at.index(i.state), i.entered, i.first))
 
     def once(self, b, why: str) -> list[str]:
@@ -236,7 +247,7 @@ class Dispatcher:
         nack = out.get("nack")
         stopping = self.e.stop.is_set() or out.get("stopped")
         if nack is not None:
-            data.update({"how": "nack", "why": nack.get("why") or "given back", **{k: nack[k] for k in ("after", "count")
+            data.update({"how": "nack", "why": nack.get("why") or "given back", **{k: nack[k] for k in ("after", "count", "news")
                                                                                      if nack.get(k) is not None}})
         elif moved_on(b, it):                    # (its lines moved it on as it ran: stopped after, the work stands)
             data["how"] = "ack"

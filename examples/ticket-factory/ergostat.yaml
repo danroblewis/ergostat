@@ -40,6 +40,29 @@ workspaces:
     branch: "ergostat/{id}-{slug}"
     base: origin/main
 
+# What GitHub's and Jira's webhooks push (README, "Pushed, not polled"): news of a ticket, so a step that waits on a
+# reviewer or on CI looks again at once. POST /api/hooks/github and /api/hooks/jira, with the token in the state
+# directory (intake.token) as the webhook's secret, or ?token= in its URL.
+intake:
+  hooks:
+    github:
+      event:
+        from: "header:X-GitHub-Event"
+        map: {pull_request_review: ticket.news, pull_request_review_comment: ticket.news, issue_comment: ticket.news}
+      item: "ticket/{pull_request.head.ref~^ergostat/([A-Z][A-Z0-9]*-[0-9]+)}"
+      id: "{header:X-GitHub-Delivery}"
+      data: {news: action}
+    github-ci:
+      event: {from: "header:X-GitHub-Event", map: {check_suite: ticket.news}}
+      item: "ticket/{check_suite.head_branch~^ergostat/([A-Z][A-Z0-9]*-[0-9]+)}"
+      id: "{header:X-GitHub-Delivery}"
+      data: {news: check_suite.conclusion}
+    jira:
+      event: {from: webhookEvent, map: {"jira:issue_updated": ticket.news}}
+      item: "ticket/{issue.key}"
+      id: "jira-{issue.id}-{timestamp}"
+      data: {news: webhookEvent}
+
 messages:
   done: {ticket: [done]}             # the ticket is finished here (its workspace cleaned); stopped keeps it, for a retry
 
