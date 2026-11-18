@@ -1,0 +1,69 @@
+# Step 7, review: review-asked -> approved, or -> changes-asked when a reviewer comments (steps/review.py).
+# The reviewers are people outside the factory (here, the scripted teammate in world.yaml): how long they
+# take is a delay the factory does not set. It can only ask again, after REPING_AFTER.
+defaults:
+  system: review
+
+stocks:
+  approved:
+    unit: tickets
+    description: approved by a reviewer; not labelled SAIL yet
+    sensor:
+      items: ticket
+      state: approved
+      every: 3s
+  changes-asked:
+    unit: tickets
+    description: a reviewer commented; the agent has not answered yet
+    sensor:
+      items: ticket
+      state: changes-asked
+      every: 3s
+
+flows:
+  review:
+    from: review-asked
+    to: approved
+    description: reviews that approve
+    driven-by: [+stock.review-asked]
+    equation: (1 - change-share) * stock.review-asked / review-time
+    sensor:
+      items: ticket
+      entering: approved
+      over: 10m
+  review-changes:
+    from: review-asked
+    to: changes-asked
+    description: reviews that ask for a change (the rework loop)
+    driven-by: [+stock.review-asked]
+    equation: change-share * stock.review-asked / review-time
+    sensor:
+      items: ticket
+      entering: changes-asked
+      over: 10m
+
+parameters:
+  review-time:
+    value: 120s
+    estimate: true
+    description: how long a reviewer takes to answer (TEAMMATE_AFTER here; people at work)
+  change-share:
+    value: 0.5
+    range: [0, 1]
+    estimate: true
+    description: the share of reviews that ask for a change
+
+goals:
+  reviews-answered:
+    stock: review-asked
+    hold: "<= 0"
+    description: no pull request waits for its reviewers
+
+blocks:
+  review:
+    type: program
+    goal: reviews-answered
+    run: python3 bin/step.py review --from review-asked
+    max: 1
+    every: 3s
+    out: [flow.review, flow.review-changes]
