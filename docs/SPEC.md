@@ -218,8 +218,9 @@ storage:
 in `head.jsonl`, appended under a file lock by whichever process records them (the runner, the
 page, the command line); every 32,768 events sealed into a segment of gzip blocks (512 events a
 block, read alone) with an index (each item's and each type's rows, the times and seqs as
-columns, a Bloom filter of the ids), so a query by item, type and time reads only the rows and
-blocks that match. `sqlite` is `events.db`, as before. Both keep a transcript's lines
+columns, a Bloom filter of the ids, and what its events add up to per valve, controller and block:
+openings, decisions, runs), so a query by item, type and time reads only the rows and
+blocks that match, and a month's tallies and crossings are read from headers and columns, not event by event. `sqlite` is `events.db`, as before. Both keep a transcript's lines
 (`claude.*`) out of item counts without reading them (SQLite by a partial index, the log by its
 type columns).
 
