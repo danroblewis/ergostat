@@ -2,7 +2,7 @@
 
 The skill (`SKILL.md`) walks a Claude Code agent from a request in plain words to a working template instance,
 tried on stand-ins and shown to the owner before it is turned on. It needs ergostat's MCP server, whose tools it
-calls (`templates`, `scaffold`, `add_use`, `try_use`, `where_drawn`, `check`).
+calls (`templates`, `scaffold`, `add_use`, `try_use`, `where_drawn`, `check`, `coherence`).
 
 In the project (the folder holding `ergostat.yaml`):
 
