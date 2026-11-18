@@ -77,14 +77,16 @@ blocks:
     type: program
     goal: team-prs-nudged
     run: python3 bin/prepare.py team-nudge
+    takes: {kind: team-pr, at: stale}
+    pool: 2
     max: 1
-    every: 5s
     out: flow.team-nudges
   update-drafter:
     type: ai
     goal: update-drafted
     prompt: prompts/update-drafter.md
     run: python3 bin/prepare.py update
+    takes: {kind: update, at: due}
+    pool: 2
     max: 1
-    every: 10s
     out: flow.update-drafting

@@ -527,10 +527,14 @@ async function pageItems(main, q) {
     const isNum = (its, f) => its.some((i) => typeof i.fields[f] === "number") && its.every((i) => i.fields[f] == null || typeof i.fields[f] === "number");
     const tableOf = (its, show, limit) => {
       const nums = new Set(show.filter((f) => isNum(its, f)));
-      return table(["item", "state", ...show.map((f) => (nums.has(f) ? [f, "num"] : f)), ["in state", "num"], ["events", "num"], "latest", "last"],
+      const leased = its.some((i) => i.fields.lease && typeof i.fields.lease === "object");   // leases on them (SPEC §9.5)
+      show = show.filter((f) => f !== "lease");
+      return table(["item", "state", ...show.map((f) => (nums.has(f) ? [f, "num"] : f)),
+        ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
         its.slice(0, limit).map((i) => h("tr", { class: "click", ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
           h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),
           show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldView(i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
+          ...(leased ? leaseCells(i.fields.lease, i.state) : []),
           h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
           h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items");
     };
@@ -580,6 +584,31 @@ async function pageItems(main, q) {
   }
   await refresh();
   S.timer = poll(refresh, 4000, p);
+}
+
+/* an item's lease (SPEC §9.5): who holds it and until when, its attempts; a dead letter said as one */
+function leaseCells(l, state) {
+  if (!l || typeof l !== "object") return [h("td", {}, ""), h("td", {}, ""), h("td", {}, "")];
+  const left = l.holder ? l.expires - nowS() : null;
+  return [h("td", { class: "nowrap", "data-lease": l.holder ? "held" : state === "dead" ? "dead" : "free" },
+            l.holder ? h("span", { title: `run ${l.holder}, lease ${l.fence}` }, `${l.block} `, h("span", { class: "muted" }, l.holder.slice(0, 8)))
+              : state === "dead" ? h("b", { class: "bad" }, "dead letter") : h("span", { class: "muted" }, "–")),
+          h("td", { class: "num nowrap" + (left != null && left < 0 ? " bad" : "") }, left == null ? "" : left < 0 ? `overdue ${dur(-left)}` : dur(left)),
+          h("td", { class: "num" }, `${l.attempts || 0}/${l.max ?? "?"}`)];
+}
+function leaseView(l, state) {
+  const left = l.holder ? l.expires - nowS() : null;
+  const says = l.holder ? [h("b", {}, `held by ${l.block}`), ` (run ${l.holder.slice(0, 8)}, lease ${l.fence}, ${l.tier}), `,
+      left < 0 ? h("b", { class: "bad" }, `overdue ${dur(-left)}`) : `expires in ${dur(left)}`, `; renewed ${ago(l.renewed)} (TTL ${dur(l.ttl)})`]
+    : state === "dead" ? [h("b", { class: "bad" }, "A dead letter"), `: given up on after ${l.attempts} attempts. `,
+        h("code", {}, "ergostat lease ITEM --redrive"), " gives it another go."]
+    : ["Not held", l.not_before && l.not_before > nowS() ? `; not taken again for ${dur(l.not_before - nowS())}` : ""];
+  const rows = (l.history || []).slice().reverse().map((x) => h("tr", {}, h("td", { class: "num" }, String(x.fence)), h("td", {}, x.block || ""),
+    h("td", { class: "mono small" }, (x.run || "").slice(0, 8)), h("td", { class: "nowrap" }, when(x.taken)),
+    h("td", { class: x.how === "ack" ? "" : "bad" }, x.how || "holding"), h("td", { class: "num nowrap" }, dur((x.ended || nowS()) - x.taken)),
+    h("td", { class: "num" }, x.exit == null ? "" : String(x.exit)), h("td", {}, (x.why || "") + (x.silent ? ` (silent ${dur(x.silent)})` : "") + (x.counted === false ? " (not counted)" : ""))));
+  return h("div", { class: "lease" }, h("p", {}, ...says, ` Attempts ${l.attempts || 0} of ${l.max ?? "?"}.`),
+    rows.length ? table(["lease", "block", "run", "taken", "how", ["for", "num"], ["exit", "num"], "why"], rows, "leases") : null);
 }
 
 /* a field's history: each change, oldest first, with the event that made it (a click opens it) */
@@ -632,7 +661,8 @@ async function pageItem(main, id) {
     // its kind's chosen fields first, in their order, then the rest by name
     const first = (k?.show || []).filter((f) => f in d.fields);
     const hist = d.history || {}, gone = Object.keys(hist).filter((f) => f && !(f in d.fields));   // removed since: still have a history
-    const order = [...first, ...Object.keys(d.fields).filter((f) => !first.includes(f)).sort(), ...gone.sort()];
+    const order = [...first, ...Object.keys(d.fields).filter((f) => !first.includes(f)).sort(), ...gone.sort()].filter((f) => f !== "lease");
+    const lease = d.fields.lease && typeof d.fields.lease === "object" ? [h("h2", {}, "Lease"), leaseView(d.fields.lease, d.state)] : [];
     const fields = order.length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, order.map((f) => h("tr", { "data-field": f },
       h("th", {}, f, k?.fold?.[f] ? h("span", { class: "muted small rule", title: "how its events' data folds into it" }, ` ${k.fold[f]}`) : null),
       h("td", {}, f in d.fields ? fieldView(d.fields[f], false, 0, (k?.formats || {})[f]) : h("span", { class: "muted" }, "removed"),
@@ -664,7 +694,7 @@ async function pageItem(main, id) {
     const rolled = ro ? h("p", { class: "note" }, `Its ${ro.archived.events} oldest events, up to ${when(ro.last)}, are rolled up into one snapshot and archived. `,
       full ? null : h("button", { class: "ghost", onclick: async () => { full = await api(`items/${encodeURIComponent(id)}`, { archived: 1, n: 1000 }); tick(); } }, "Show the full history"),
       full && full.total > full.events.length ? h("span", { class: "muted" }, ` (the first ${full.events.length} of ${full.total})`) : null) : null;
-    body.replaceChildren(head, track || "", ...verdict, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+    body.replaceChildren(head, track || "", ...lease, ...verdict, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said || "", rolled || "",
       eventsTable(full ? full.events : d.record, true));
   }

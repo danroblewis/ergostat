@@ -12,7 +12,7 @@ It follows the shape of the job (five verbs):
 | Verb | Who does it here |
 |---|---|
 | **Watch** | programs: the watchers (`bin/watch.py`), filtering what each work system says into items |
-| **Prepare** | preparers (`bin/prepare.py`): a draft in `outbox/` for every item that arrives |
+| **Prepare** | preparers (`bin/prepare.py`): a draft in `outbox/` for every item that arrives, one run per item, each holding a lease on it |
 | **Decide** | me: the person blocks ask, and I approve, reject, declare, choose |
 | **Perform** | me: I answer, present, persuade, run the command, command the incident |
 | **Record** | programs: the morning brief and the ledger (`bin/rhythm.py`), files in `outbox/` |
@@ -128,9 +128,10 @@ Each is my message, verbatim (an `ergostat.message` item), and ergostat routes i
 (ergostat's SPEC §12h): the item it names, or else the open items whose words it shares (a review of Ben's about
 search is the open review whose author is Ben and whose title says search). Then it is delivered:
 
-- the preparer that works on that kind of item gets it in its next run (`messages` in its input): "can wait" puts
-  the review off half a working day, "first" briefs that ramp before the others, anything else goes into the draft
-  under "My note"; each is answered (`ergostat messages ID` shows the answer);
+- the preparer's run on that item gets it (`messages` in its input; each run holds a lease on one item, ergostat's
+  SPEC §9.5): "can wait" gives the review back, not to be taken again for half a working day (a nack that does
+  not count as an attempt), anything else goes into the draft under "My note"; each is answered (`ergostat
+  messages ID` shows the answer);
 - a note about work already finished (review 2041, answered yesterday) becomes a follow-up, `note/…`, linked to it,
   which the next morning brief puts in front of me ("My notes on finished work");
 - a note too vague to place ("hold that one for now") reaches no work: it needs attention, and the morning brief

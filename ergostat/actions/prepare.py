@@ -18,14 +18,15 @@ class Prepared:
     workdir: Path | None = None      # its folder (None: the model's)
     workspace: dict | None = None    # the workspace it took
     item: str | None = None
-    lease: str | None = None
+    lease: int | None = None         # the fencing number of the lease the run holds on its item (SPEC §9.5)
 
 
-def item_of(ctx: dict, env: dict, given: dict | None) -> tuple[str | None, str | None]:
-    """The item a run works on, and its lease: the lease's (``ERGOSTAT_ITEM``, ``ERGOSTAT_LEASE``), else its context's
-    item, else what its command names."""
+def item_of(ctx: dict, env: dict, given: dict | None) -> tuple[str | None, int | None]:
+    """The item a run works on, and its lease's fencing number: the lease's (``ERGOSTAT_ITEM``, ``ERGOSTAT_LEASE``),
+    else its context's item, else what its command names."""
+    from ..workspaces.leases import fence_of
     item = env.get("ERGOSTAT_ITEM") or (given or {}).get("item") or (ctx.get("command") or {}).get("item")
-    return (str(item) if item else None), (env.get("ERGOSTAT_LEASE") or None)
+    return (str(item) if item else None), fence_of(env.get("ERGOSTAT_LEASE"))
 
 
 def prepare(p, spec, b, ctx: dict, run: str, env: dict, given: dict | None) -> Prepared:

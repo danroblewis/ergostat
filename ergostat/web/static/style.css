@@ -816,3 +816,6 @@ table.fields th .rule { font-weight: normal; }
 .message-box .row input { flex: 1; min-width: 12em; }
 .message-box .row button { margin-left: auto; }
 blockquote.said { margin: var(--sp-2) 0; padding: var(--sp-1) var(--sp-3); border-left: var(--sp-0) solid var(--line-strong); font-size: var(--text-lg); white-space: pre-wrap; }
+
+/* an item's lease (SPEC §9.5): overdue, a dead letter, an attempt that did not end well */
+td.bad, b.bad, .lease .bad { color: var(--bad); }

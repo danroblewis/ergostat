@@ -192,14 +192,24 @@ WORKSPACES_MEASURES = {            # the workspace pools, now (SPEC §12k); @POO
 }
 
 
+LEASES = re.compile(r"^ergostat\.leases\.(held|expired|dead|overdue)(?:@([a-z][a-z0-9-]*))?$")   # ergostat.leases.dead@ticket
+LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or @BLOCK narrows them
+    "ergostat.leases.held": "leases held now: items a run is working on; @KIND or @BLOCK for one kind or block",
+    "ergostat.leases.expired": "leases that expired over the last day: a run silent past its TTL (each needs attention)",
+    "ergostat.leases.dead": "dead letters now: items given up on after their attempts (each needs attention)",
+    "ergostat.leases.overdue": "leases held now past their expiry, not yet expired: 0 while the watchdog keeps up",
+}
+
+
 def is_measure(name: str) -> bool:
     """A built-in measure a sensor may read: the model's own (``ergostat.model.*``), trust's (``ergostat.trust.*``,
     with an optional ``@who``), the messages' (``ergostat.messages.*``), a recipe's (``ergostat.context.*``) or the
-    intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the gated actions' (``ergostat.actions.*``, with an
+    intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the leases' (``ergostat.leases.*``, with an optional
+    ``@kind`` or ``@block``), the gated actions' (``ergostat.actions.*``, with an
     optional ``@class``) or the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``)."""
     return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
-            or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(ACTIONS.match(name))
-            or bool(WORKSPACES.match(name)))
+            or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
+            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)))
 
 
 @dataclass
@@ -538,6 +548,9 @@ class Block:
     where: Where | None = None
     implied: bool = False      # put in by ergostat (a machine block's goal:), not written
     signs: dict[str, int] = field(default_factory=dict)         # port → +1 or -1, for an input written with a sign (+stock.x)
+    takes: Takes | None = None   # the items it works, one run per item, each leased (SPEC §9.5)
+    pool: int = 1                # the most runs of it at once, when it takes items
+    lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its kind's and its tier's
 
     @property
     def builtin(self) -> bool:
@@ -577,6 +590,32 @@ class Block:
         return out
 
 
+LEASED, DEAD = "leased", "dead"     # the states a taken kind gains (SPEC §9.5): held by a run; given up on after its attempts
+TIERS = ("person", "ai", "narrow-ai", "decision", "program", "rule")   # the ladder, top to bottom: each has its lease terms
+LEASE_TTL = {"person": 8 * 3600.0, "ai": 40 * 60.0, "narrow-ai": 10 * 60.0, "decision": 2 * 60.0, "program": 5 * 60.0,
+             "rule": 60.0}               # how long a run may be silent before its lease expires, by tier (SPEC §9.5)
+LEASE_ATTEMPTS = 3                  # counted attempts before an item is a dead letter
+KIND_OF_TYPE = {"program": "program", "ai": "ai", "person": "person", "external": "program"}   # a block's rung by its type
+
+
+@dataclass
+class LeaseTerms:
+    """A lease's terms (SPEC §9.5), as written for a tier, a kind or a block: what is left out is taken from the next."""
+
+    ttl: float | None = None        # seconds a run may go silent before its lease expires
+    attempts: int | None = None     # counted attempts before the item is a dead letter
+
+
+@dataclass
+class Takes:
+    """What a block takes (SPEC §9.5): the items of a kind in a state, each leased to a run of its own."""
+
+    kind: str
+    at: list[str]                   # the states it takes from (the first: where an item goes back to, by default)
+    to: list[str] = field(default_factory=list)   # the states that count as done: the lease's ack (else any state but these)
+    where: dict = field(default_factory=dict)     # only items whose fields match (as a sensor's where:)
+
+
 @dataclass
 class Agent:
     name: str
@@ -605,6 +644,7 @@ class ItemKind:
     description: str = ""
     where: Where | None = None
     fold: dict[str, str] = field(default_factory=dict)   # field → how plain data folds into it (changes.RULES); else replace
+    lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # the terms of a lease on one of these (SPEC §9.5)
 
     def matches(self, id: str) -> bool:
         import fnmatch
@@ -674,6 +714,7 @@ class Spec:
     contexts: dict = field(default_factory=dict)                       # name → Recipe: the projection recipes (SPEC §12j)
     actions: dict[str, Action] = field(default_factory=dict)           # the gated actions sessions may ask for (SPEC §12k)
     workspaces: dict[str, WorkspacePool] = field(default_factory=dict)  # the workspace pools (SPEC §12k)
+    leases: dict[str, LeaseTerms] = field(default_factory=dict)        # tier → its lease terms, over the defaults (SPEC §9.5)
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 

@@ -19,6 +19,8 @@ import time
 import weakref
 from dataclasses import dataclass, field
 
+from ..leases import PREFIX as LEASE_PREFIX
+from ..leases import fold as lease_fold
 from .changes import fold_event, form_of
 from .ir import ItemKind, Sensor, Spec
 
@@ -122,7 +124,28 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
         it.n += 1
         it.last = max(it.last, e["time"])
         it.latest = e["type"]
+        if e["type"].startswith(LEASE_PREFIX):              # a lease taken, renewed, ended (SPEC §9.5): ergostat's own
+            to, why = lease_fold.apply(it, e, kind, history)
+            if why is not None:
+                it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "lease", "why": why})
+                if history:
+                    it.changes.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "lease",
+                                       "op": "refused", "path": "", "before": None, "after": None, "why": why})
+            elif to and to != it.state:
+                it.moves.append({"time": e["time"], "from": it.state, "to": to, "event": e["id"], "type": e["type"]})
+                it.state, it.entered = to, e["time"]
+            continue
+        lease = it.fields.get("lease")
+        why = lease_fold.fenced(it, e) if lease is not None else None
+        if why is not None:                                  # a run whose lease ended: what it says is refused
+            it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": form_of(e), "why": why})
+            if history:
+                it.changes.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": form_of(e),
+                                   "op": "refused", "path": "", "before": None, "after": None, "why": why})
+            continue
         done, why = fold_event(it.fields, e, rules)
+        if lease is not None and it.fields.get("lease") is not lease:   # the lease is ergostat's: no event's data replaces it
+            it.fields["lease"] = lease
         if why is not None:
             it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": form_of(e), "why": why})
             if history:
@@ -143,6 +166,8 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
         if to and to != it.state:
             it.moves.append({"time": e["time"], "from": it.state, "to": to, "event": e["id"], "type": e["type"]})
             it.state, it.entered = to, e["time"]
+        if lease is not None:
+            lease_fold.renew(it, e)
     return it
 
 

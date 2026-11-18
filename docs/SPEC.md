@@ -134,6 +134,8 @@ blocks:
   ...
 agents:                         # optional: machines shared by several blocks
   ...
+leases:                         # optional: each tier's lease terms (section 9.5)
+  ...
 loops:                          # optional: names for feedback loops (section 12a)
   ...
 ```
@@ -408,6 +410,8 @@ kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every cha
 (section 12h), and `ergostat.verdict`, the intent judge's verdict on finished work (section 12i). ergostat may also
 move any item: `ergostat.item.reopened` moves it to the state its data names (`reopened.to`, else its kind's first),
 `ergostat.item.follow-up` starts one (section 12h), and `ergostat.item.judged` sets its field `intent` (section 12i).
+A kind a block takes (section 9.5) is moved by its leases too (`ergostat.lease.*`: to `leased`, back, or to `dead`),
+and its items carry the field `lease`, ergostat's own.
 
 **Decisions and corrections.** What the owner decided, and what the owner corrected, are items, so that every
 later session can start from them (`docs/DECISIONS.md` is how to use them):
@@ -923,6 +927,9 @@ modelling, or the flow it changes is missing from the model; `check` reports it.
   A machine block never runs twice at once. A command that arrives while it is running is held,
   not queued (anti-windup): the latest command is used when it finishes. Without an `agent`, a
   machine block runs locally, launched by ergostat.
+- **Machine blocks that take items** (`takes:`, section 9.5) run once per item instead: a run for
+  each item that reaches a state, several at once up to their `pool`, each holding a lease on its
+  item. Commands to them are signals and are held; items are queued.
 - **External blocks** (`type: external`) are performed by something ergostat does not run (an
   autoscaler, a Kubernetes controller, a team). They are declared for the structure: their
   inputs and outputs are what that thing reads and moves, judged by the stocks' and flows'
@@ -1008,7 +1015,8 @@ More (filters, rate of change, latches) can be added when a case needs them.
 
 Common to machine blocks: `agent` (optional: the shared machine it runs on, section 10), `max`
 and `min` (limits on one run's amount), `timeout`, `every`/`cron` (its schedule when nothing commands it; when something does, `every`
-is the least time between runs),
+is the least time between runs), `takes`, `pool` and `lease` (the items it works, a run for each, and its leases' terms:
+section 9.5),
 `mode` (`auto`, or `advise`: its commands wait for a person to approve), and its control law's
 constants when it says them: `gain` (for a block that steps a setting by its goal's error, the step
 per unit of error, acting at once on the error it has just read, u_k = u_(k−1) + gain × e_k: integral
@@ -1055,7 +1063,8 @@ moved; a block: a command; a goal: a setpoint). JSON lines may also be `{"moved"
 `out` when it moves one flow, and `{"event": "backup.verified", "item": "backup/nightly"}` for
 anything else that happened (an event about an item, section 5a: `data` holds its fields, folded by
 its kind's rules; or, in place of `data`, a JSON `patch` or the whole document, `set`). Lines that are not JSON go to its log (`logs/<block>.log` in the state
-directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_COMMAND` (the amount),
+directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's id), `ERGOSTAT_ITEM` and
+`ERGOSTAT_LEASE` (for a run holding a lease on an item: section 9.5), `ERGOSTAT_COMMAND` (the amount),
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
 (`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
 block, or the AI agent it starts, to read and record items while it works. An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
@@ -1078,6 +1087,161 @@ Roles are derived (or labelled with `role:`):
 
 Sensors are not blocks: they are always inside a stock or flow. At most one block may output to a
 given flow.
+
+### 9.5 Leases and work queues
+
+Some work comes as items, one at a time, and every one needs doing: tickets to fix, reviews to brief,
+hypotheses to build. A machine block may **take** them: for each item of a kind that reaches a state,
+ergostat starts a run of the block of its own, and the run holds a **lease** on its item until the
+work moves the item on. The queue is no new object: it is the items in that state. Leases are what
+make it safe to run several at once, to notice a run that went silent, and to stop retrying work that
+keeps failing.
+
+```yaml
+items:
+  ticket:
+    id: ticket/*
+    states: [ready, doing, review, done]
+    on: {ticket.started: doing, ticket.submitted: review, ticket.merged: done}
+    lease: {attempts: 5}               # optional: this kind's terms (below)
+
+leases:                                # optional: each tier's terms, over the defaults
+  ai: {ttl: 30m}
+
+blocks:
+  developer:
+    type: ai
+    takes:                             # a run per ticket that reaches ready
+      kind: ticket
+      at: ready                        # a state, or a list (taken in that order)
+      to: [review, done]               # optional: the states that count as done (else any but at:)
+      where: {team: core}              # optional: only items whose fields match
+    pool: 3                            # at most three runs at once (default 1)
+    lease: {ttl: 45m, attempts: 2}     # optional: this block's terms
+    goal: backlog-short                # optional: it takes items only while its command is on
+    run: $ERGOSTAT_CMD session developer --model sonnet
+```
+
+| Key | On | Meaning |
+|---|---|---|
+| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values) |
+| `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped |
+| `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
+| `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
+
+**Terms.** A lease's TTL and attempts are the block's, else its kind's, else its tier's in `leases:`,
+else the defaults: person 8 h, AI agent 40 min, narrow AI 10 min, decision 2 min, program 5 min (or
+its `timeout`, when longer), rule 1 min; 3 attempts. A block's tier is its agent's kind, else its
+type's (`ai`: an AI agent; `program`: a program). A lease keeps the terms it was taken under: a TTL
+changed in the model reaches the next lease.
+
+**Dispatch.** While nothing commands the block, or what commands it is on (a `goal:` on it gates
+it, as on any machine block), every item of its kind in a state of `at`, not held, not put off, and
+matching `where`, is leased to a new run, oldest first (by when it entered its state), while the
+leases its runs hold are fewer than its `pool`. ergostat looks whenever the record has something new,
+so a run starts as soon as its item reaches its state, and every second besides. A block that takes
+items has no `every:` or `cron:`: its items start it. A kind taken by a block gains two states, when
+it does not list them: `leased`, after the first `at` state, and `dead`, last.
+
+**A lease** is a run's hold on one item. Its events, about the item, are ergostat's own:
+
+| Event | Data | The item |
+|---|---|---|
+| `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
+| `ergostat.lease.renewed` | `run`, `fence`, `seen` (`activity` or `asked`) | its lease expires a TTL after this |
+| `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds) and `count`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after` |
+| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`; `item`, `state`, `terminal` | back to `back`, the attempt counted |
+| `ergostat.lease.redriven` | `why`, `to` | a dead letter back to `to` (else `back`), its attempts from nothing |
+
+A counted attempt that reaches the most allowed moves the item to `dead` instead: a **dead letter**.
+
+**Renewal is observed, never declared.** Any event the holder caused about the item (`causedby` its
+run: an event line it printed, or `$ERGOSTAT_CMD event --add` during the run), and any line of the
+item's transcript (`claude.*`), renews the lease, in the fold itself. A run may also renew it
+outright (`$ERGOSTAT_CMD lease --renew`). And before a lease expires, ergostat looks once more at what
+its holder did elsewhere since its last renewal: an event it caused about anything, or an event about
+an item it started (its session, `session/developer-1a2b`). If there is one within the TTL, it records
+`renewed`, at that time; if not, `expired`.
+
+**How a run's lease ends.** When the run ends, ergostat folds its item: moved on (to a state in
+`to`, or, without `to`, any state but `leased` and those it was taken from) is an ack; otherwise a
+nack, its why the run's own (`exited 3`, `stopped after its timeout of 1200s`) or "the run ended with
+ITEM still leased". A run may give its item back itself: `{"nack": "why"}`, or `{"nack": {"why":
+"...", "after": "4h", "count": false}}` (put off, not counted: a deferral or a transient fault), or
+`$ERGOSTAT_CMD lease --nack WHY [--after 4h] [--no-count]`. A run stopped with ergostat gives its item
+back uncounted. A lease that expired is not ended again when its run ends.
+
+**Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
+told it (`ERGOSTAT_LEASE`). A run whose lease expired is not stopped (it may still be doing useful
+work, and the item is already back in the queue), but whatever it says about the item afterwards is
+refused, not applied: an event line about it is refused before it is recorded (`agent.refused`, its
+why the fencing), and an event recorded any other way, caused by a run whose lease on the item ended,
+is recorded as it was said and refused by the fold (the item's `refused`). A `taken` while the item
+is held, or with a fence that is not the next one, is refused too: one lease at a time.
+
+**The fold is the truth.** The lease is the item's field `lease`, folded from these events like
+everything else (an event's data never replaces it, nor does a `set`):
+
+```json
+{"fence": 3, "holder": "8c1f...", "block": "developer", "tier": "ai", "ttl": 2400, "taken": 1763460000,
+ "renewed": 1763460900, "expires": 1763463300, "back": "ready", "attempts": 2, "max": 3,
+ "history": [{"fence": 1, "run": "...", "block": "developer", "taken": ..., "renewed": ..., "ended": ...,
+              "how": "expired", "silent": 2412, "counted": true},
+             {"fence": 2, "run": "...", "how": "nack", "why": "exited 1", "exit": 1, "counted": true},
+             {"fence": 3, "run": "8c1f...", "taken": ...}]}
+```
+
+`holder` is the run holding it, None while none does; `history` is each attempt's evidence; a dead
+letter has `dead` (when), and an item put off `not_before`. An engine that starts reads the leases
+from the record: a lease held when the last one stopped is still held, counts against its block's
+pool, and expires on its TTL unless its holder (a run left behind) is seen to work.
+
+**Across a model change.** A model changed while runs hold leases (swapped in place, section 9.1) changes no
+lease: each leased run finishes under the model it was taken under (its block, its `takes`, its terms), keeps its
+lease, renews it by what it records as before, and ends it, ack or nack, by its own block's `to`; its fencing number
+stands, for the fold, not the model, holds it. New leases are taken under the new model: its blocks, pools and terms.
+A lease whose block was removed is still watched, and expires on its TTL if its run goes silent.
+
+**What a run is given.** Its input carries `"trigger": "item"`, the item (`item`: `id`, `kind`,
+`state`, `fields`, without the lease) and its lease (`lease`: `fence`, `ttl`, `expires`, `attempt`,
+`attempts`, `tier`, `back`); its environment `ERGOSTAT_ITEM` (the item's id), `ERGOSTAT_LEASE` (the
+fencing number; the holder is `ERGOSTAT_RUN`), `ERGOSTAT_LEASE_TTL` and `ERGOSTAT_LEASE_EXPIRES` (when
+it was taken). An event line that names no `item` is about its item. The owner's messages it is
+given are those routed to its block or to its item (section 12h), and a recipe's context is rendered
+for its item (section 12j).
+
+**For what holds a resource as long as a lease** (a working copy, a session, a seat): the lease
+events are the hook. React to `ergostat.lease.taken` (acquire, for `data.run` on the item), and to
+`ergostat.lease.ended` and `ergostat.lease.expired` (release). Each names its `item`; an end says the `state` it
+leaves the item in and whether that is `terminal` (a dead letter, or its kind's last state): finished, so what it
+held can be cleaned, or not (under review, or back in the queue to be taken again), so it can be kept. In the run, `ERGOSTAT_ITEM` and
+`ERGOSTAT_LEASE` name what it holds, and `ERGOSTAT_RUN` the holder. A run whose lease expired may
+still be running: what it writes about the item is refused, and what it holds should be released or
+fenced the same way, by the fencing number. The workspace pools (section 12k) are held this way: an `ai`
+block with `workspace:` that takes items works in its item's workspace, kept across its attempts and
+its review, and cleaned when the item is terminal. `$ERGOSTAT_CMD event --type ergostat.lease.* --follow`
+watches them; `ergostat lease` lists who holds what.
+
+**Stalls, as a watchdog loop.** The built-in measures `ergostat.leases.held` (leases held now),
+`ergostat.leases.expired` (expiries over the last day), `ergostat.leases.dead` (dead letters now) and
+`ergostat.leases.overdue` (held past their expiry, not yet expired: 0 while the watchdog keeps up),
+each narrowed by `@KIND` or `@BLOCK`, are read by a sensor (`builtin:`), so a goal can hold them:
+
+```yaml
+auxiliaries:
+  stalled-runs:
+    driven-by: +stock.building
+    sensor: {builtin: ergostat.leases.expired@developer, every: 30s}
+goals:
+  no-stalls: {auxiliary: stalled-runs, hold: "<= 0"}
+```
+
+ergostat's own watchdog, on the program rung, is what acts on it: it expires a silent lease within a
+second of its TTL, and the item is taken again. Each dead letter, and each lease that expired in the
+last hour, needs attention (`ergostat`, the page's side panel); `ergostat lease ITEM --redrive` gives a
+dead letter another go once its cause is fixed. The Items page shows, for a kind with leases, who
+holds each item and when its lease expires, and its attempts; an item's page, its lease and every
+attempt.
 
 ## 10. Agents
 
@@ -2550,11 +2714,22 @@ context's item (§12j), else the item its command names. A run with a workspace 
 4. else none is free, and the run does not start (`agent.failed`: in use, held and quarantined counted).
 
 **Release**, when the item's lease ends (`ergostat.lease.ended` or `.expired`), or when its run ends if it had no lease:
-while the item is not finished (the states `messages: {done:}` gives, else as §12h infers them) its workspace is
-**held** for it, its work kept for review; once the item finishes it is **cleaned**: detached at `base`, untracked files
-removed, its branch left in the repository; a workspace dirty or broken when cleaned is quarantined instead, nothing in
-it thrown away. `ergostat.lease.taken` makes a held workspace in use again. ergostat's clock (every five seconds) takes
-the lease events to the pools and cleans what is held for items that have finished since.
+while the item is not finished (the end's `terminal` says; otherwise the states `messages: {done:}` gives, else its
+kind's last state or a dead letter) its workspace is **held** for it, its work kept for review or for the next attempt;
+once the item finishes it is **cleaned**: detached at `base`, untracked files removed, its branch left in the
+repository; a workspace dirty or broken when cleaned is quarantined instead, nothing in it thrown away.
+`ergostat.lease.taken` makes a held workspace in use again, under the new lease. The dispatcher takes each lease event
+it records to the pools at once; ergostat's clock (every five seconds) takes every lease event to them (those another
+process recorded: `ergostat lease ITEM --nack`) and cleans what is held for items that have finished since.
+
+**Fencing.** A workspace is recorded with the fencing number of the lease it was acquired under (`lease`), and the
+lease events act only on the workspace their fence holds: the end of a lease a later one replaced changes nothing, so
+the events may be taken again (after a restart) to the same effect. A lease that expires while its run still goes on
+holds the workspace **fenced** (`fenced`: the run and its fence): the next lease on the item takes it, its work with it,
+and the old run's item events (§9.5) and gated actions are refused. A gated action records the lease it was asked for
+under; it is denied when asked for, and fails unrun when approved, once that lease has expired or a later one has been
+taken on the item. An action asked for under a lease that ended (ack or nack) and was not taken again still runs once
+approved: its item waits for review.
 
 **Quarantined** workspaces are never given to an item; `ergostat workspaces POOL --free N` (the owner) removes that
 worktree, and the slot is made afresh when next needed. Each workspace is an item, `ergostat.workspace/POOL-N`
@@ -2568,9 +2743,9 @@ worktree, and the slot is made afresh when next needed. Each workspace is an ite
 | `ergostat.workspaces.held` | Workspaces kept for an item under review, now |
 | `ergostat.workspaces.quarantined` | Workspaces found dirty or broken, now (each needs attention) |
 
-*Leases* (`ergostat.lease.*`, `ERGOSTAT_ITEM`, `ERGOSTAT_LEASE`) are another piece of work's; the pool reads only those
-names: the work item is the event's `data.item` (else its own item), the lease `data.lease` (else its own item when it
-is an `ergostat.lease/...`).
+*Leases* (§9.5: `ergostat.lease.*`, `ERGOSTAT_ITEM`, `ERGOSTAT_LEASE`) are what the pool reads: the work item is the
+event's `data.item` (else its own item), the lease its `data.fence`, and an end's `data.terminal` whether the item
+finished.
 
 ### Gated actions
 

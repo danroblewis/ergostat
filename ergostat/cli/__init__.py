@@ -12,6 +12,7 @@ from ..durations import DurationError
 from .agents import cmd_agent
 from .claims import cmd_claims
 from .common import PART_TOPICS
+from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
 from .numbers import cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_proposals
 from .parts import cmd_part
@@ -60,6 +61,7 @@ see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
   loop           The feedback loops: what each holds, how far off, each part along it
   item           The items (ticket/12): each one's kind, state and fields, folded from its events
+  lease          The leases on items: who holds what, until when, and the dead letters (ITEM --redrive)
   decisions      The owner's decisions: extract them from transcripts, confirm, dismiss, supersede
   corrections    The owner's corrections: confirm, dismiss, retire; scan the record for them
   context        A session's starting context: context decisions --scope X, context corrections --kind Y
@@ -193,6 +195,14 @@ def build() -> argparse.ArgumentParser:
     i.add_argument("--state", help="only items in this state")
     i.add_argument("--history", nargs="?", const="", metavar="FIELD",
                    help="with an item: each field's changes (or one field's), with the events that made them")
+    ls = topic("lease", cmd_lease, "The leases on items: who holds what, until when; the dead letters; one item's attempts")
+    ls.add_argument("--redrive", action="store_true", help="with ITEM: give a dead letter another go (its attempts from nothing)")
+    ls.add_argument("--to", metavar="STATE", help="with --redrive: the state it goes back to (default: where it was taken from)")
+    ls.add_argument("--why", metavar="TEXT", help="with --redrive: why")
+    ls.add_argument("--renew", action="store_true", help="from a run: renew the lease it holds ($ERGOSTAT_ITEM, $ERGOSTAT_LEASE)")
+    ls.add_argument("--nack", nargs="?", const="", metavar="WHY", help="from a run: give its item back, and why")
+    ls.add_argument("--after", metavar="TIME", help="with --nack: not taken again before this long (30m)")
+    ls.add_argument("--no-count", action="store_true", help="with --nack: the attempt does not count toward a dead letter")
     topic("residual", cmd_residual, "What the model can't explain")
     topic("fit", cmd_fit, "How well the model's replay fits the record (each stock, the total, Theil's statistics)", named=False)
     pp = topic("proposals", cmd_proposals, "Estimate the parameters marked estimate: true, and list the changes the record "

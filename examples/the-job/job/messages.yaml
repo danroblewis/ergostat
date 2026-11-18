@@ -1,7 +1,8 @@
 # What I say about the work while it is under way (ergostat's SPEC §12h). I say it in my own words ("that review can
 # wait", "check the flag ramp first"); the note watcher relays it as my message, and ergostat routes it to the work it
-# concerns: the item it names, or the open items whose words it shares. A preparer working on that kind of item gets
-# it in its next run: it puts a review off, or briefs a ramp first, and answers. A note about work already finished
+# concerns: the item it names, or the open items whose words it shares. The preparer's run on that item (it holds a
+# lease on it) gets it: it puts a review off (gives it back for half a day), or writes the note into the draft, and
+# answers. A note about work already finished
 # becomes a follow-up (note/...), which the next morning brief puts in front of me. A note that reaches no work
 # ("hold that one") needs attention, and the morning brief lists it, until I route it by hand.
 defaults:

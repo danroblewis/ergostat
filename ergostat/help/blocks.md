@@ -102,6 +102,26 @@ A block nothing commands runs on its own schedule (`every: 5m`, `cron: "0 3 * * 
 which `check` points out. One that a goal or another block commands runs while the command holds,
 once per fresh reading, and never twice at once.
 
+## When a block works items, one at a time each
+
+```yaml
+  developer:
+    type: ai
+    takes: {kind: ticket, at: ready}   # a run for each ticket that reaches ready
+    pool: 3                            # at most three at once
+    run: $ERGOSTAT_CMD session developer --model sonnet
+```
+
+Each run holds a **lease** on its item: its input carries the item (`item`: id, kind, state, fields) and the lease
+(`lease`: fence, ttl, expires, attempt); its environment `ERGOSTAT_ITEM` and `ERGOSTAT_LEASE` (the fencing number);
+an event line that names no item is about it. Whatever the run records about the item (`$ERGOSTAT_CMD event --add`,
+its session's transcript, `$ERGOSTAT_CMD lease --renew`) keeps the lease. When the run ends, the lease ends: ack if
+the item moved on (to a state in `takes.to`, or any but where it was taken from), else it is given back, its attempt
+counted. Say why with `{"nack": "why"}`, or put it off without counting: `{"nack": {"why": "...", "after": "4h",
+"count": false}}`. A run silent past its TTL (an AI agent's: 40 minutes) loses its lease; whatever it says about the
+item after is refused. After three attempts the item is a dead letter (`ergostat lease`). `ergostat help spec`,
+section 9.5.
+
 ## Try it
 
 ```bash

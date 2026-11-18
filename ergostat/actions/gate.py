@@ -55,16 +55,42 @@ def request(p, spec, name: str, args: dict, ctx: dict) -> dict:
     args = {k: str(args[k]) for k in a.args}
     where = str((spec.root / a.in_).resolve()) if a.in_ else str(ctx.get("workdir") or spec.root)
     aid = rec.new_id(name)
+    from ..workspaces.leases import fence_of
     data = {"action": name, "class": a.cls or name, "gate": a.gate, "args": args, "command": render(a, args, ctx),
             "in": where, **{k: ctx.get(k) for k in ("block", "run", "session", "item", "workdir", "branch")},
+            **({"lease": fence_of(ctx.get("lease"))} if fence_of(ctx.get("lease")) is not None else {}),
             "description": a.description}
     rec.step(p, aid, "requested", data, by=ctx.get("block") or "session", causedby=ctx.get("run"))
-    if a.gate == "deny":
+    why = fenced(p, spec, data)
+    if why:
+        rec.step(p, aid, "denied", {"denied_by": GATE, "note": why})
+    elif a.gate == "deny":
         rec.step(p, aid, "denied", {"denied_by": GATE, "note": "its gate is deny: never run"})
     elif a.gate == "auto":
         rec.step(p, aid, "approved", {"approved_by": GATE, "note": "its gate is auto: run at once"})
         run_once(p, spec, aid)
     return rec.get(p, aid)
+
+
+def fenced(p, spec, a: dict) -> str | None:
+    """Why an action asked for under a lease (SPEC §9.5) may no longer run: the lease it was asked under expired, or a
+    later lease was taken on its item (the fencing number moved on). An action asked for under a lease that ended
+    (ack or nack) and was not taken again still runs once approved: its work waits for review."""
+    fence, item = a.get("lease"), a.get("item")
+    if fence is None or not item:
+        return None
+    from ..spec import items as its
+    it = its.one(p.events, spec, item)
+    lease = (it.fields.get("lease") if it else None) or {}
+    if not isinstance(lease, dict):
+        return None
+    now = int(lease.get("fence") or 0)
+    if now > int(fence):
+        return f"fenced: asked for under lease {fence} on {item}; the lease now is {now}: not run"
+    last = next((h for h in lease.get("history") or [] if h.get("fence") == int(fence)), None)
+    if last and last.get("how") == "expired":
+        return f"fenced: the lease it was asked for under ({fence} on {item}) expired: not run"
+    return None
 
 
 def approve(p, spec, aid: str, by: str = "owner", note: str | None = None) -> dict:
@@ -101,6 +127,10 @@ def run_once(p, spec, aid: str) -> dict | None:
         os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
     except FileExistsError:
         return None
+    why = fenced(p, spec, a)
+    if why:                                           # its lease is over: the owner's approval came too late for it
+        rec.step(p, a["id"], "failed", {"exit": None, "output": why, "seconds": 0, "fenced": True})
+        return rec.get(p, a["id"])
     act = spec.actions.get(a.get("action") or "")
     timeout = act.timeout if act else 120.0
     env = {**os.environ, "ERGOSTAT_ACTION": a["id"], "ERGOSTAT_ITEM": a.get("item") or "",

@@ -54,7 +54,8 @@ blocks:
 
 The run's item (its lease's, its context's, or its command's) gets a workspace: the same one again
 on a retry, held while the item is under review, cleaned when it finishes, quarantined if it is
-left dirty or broken (`ergostat workspaces`). With `tools:` or `actions:` the session is gated: only
+left dirty or broken (`ergostat workspaces`). A block that `takes:` items (`ergostat help blocks`)
+holds it as long as its leases do; an action asked for under a lease that expired is never run. With `tools:` or `actions:` the session is gated: only
 those tools, nothing asked (anything else is refused), `git push`, `gh`, `curl` and the like refused
 by name, and every command in Claude Code's OS sandbox, with no network and no writes outside its
 workspace. It asks for an outward act with the action's tool; you approve the held ones (`ergostat

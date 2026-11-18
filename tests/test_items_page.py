@@ -52,6 +52,11 @@ for i in range(1, 9):
     p.events.add("session.started", item=f"session/s{{i}}", data={{"role": "researcher"}}, at=t + i * 60 + 5)
     p.events.add("release.made", item=f"release/r{{i}}", data={{"commit": "abc"}}, at=t + i * 60 + 7)
     p.events.add("case.run", item=f"case/c{{i}}", data={{"name": f"case {{i}}"}}, at=t + i * 60 + 9)
+taken = {{"block": "developer", "ttl": 2400, "max": 2, "back": "proposed", "tier": "ai"}}   # leases (SPEC §9.5)
+p.events.add("ergostat.lease.taken", item="hypothesis/1", data={{**taken, "run": "run1aaaaaaaa", "fence": 1}})
+for n in (1, 2):
+    p.events.add("ergostat.lease.taken", item="hypothesis/2", data={{**taken, "run": f"run2{{n}}aaaaaaa", "fence": n}})
+    p.events.add("ergostat.lease.expired", item="hypothesis/2", data={{"run": f"run2{{n}}aaaaaaa", "fence": n, "silent": 2500}})
 """
     subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
                    capture_output=True)
@@ -176,3 +181,26 @@ def test_a_chosen_kinds_folded_system_is_shown(browser, site):
     pg.wait_for_selector(f"{lab} table")
     assert pg.locator(f"{lab} .sys-head button").get_attribute("aria-expanded") == "true"
     ctx.close()
+
+
+def test_leases_are_shown_on_the_items_page_and_the_items(browser, site):
+    """Leased by and expires in on the Items page, a dead letter said as one; an item's page shows its lease and each
+    attempt (SPEC §9.5)."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/items?kind=hypothesis")
+    pg.wait_for_selector('td[data-lease="held"]')
+    heads = pg.locator('section.sys-group[data-system="lab"] table th').all_inner_texts()
+    assert "leased by" in heads and "expires in" in heads, heads
+    assert "developer" in pg.locator('td[data-lease="held"]').first.inner_text()
+    assert "dead letter" in pg.locator('td[data-lease="dead"]').first.inner_text()
+    pg.goto(f"{site}/item/hypothesis/2")
+    pg.wait_for_selector(".lease")
+    text = pg.locator(".lease").inner_text()
+    assert "A dead letter" in text and "--redrive" in text and text.count("expired") >= 2, text
+    pg.goto(f"{site}/item/hypothesis/1")
+    pg.wait_for_selector(".lease")
+    assert "held by developer" in pg.locator(".lease").inner_text()
+    assert not errors, errors
+    pg.close()

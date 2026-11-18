@@ -80,7 +80,7 @@ class Server:
         if name not in (self.cfg.get("actions") or []):
             return _text(f"no action {name!r} for this session", error=True)
         spec = self.spec()
-        ctx = {k: self.cfg.get(k) for k in ("block", "run", "item", "workdir", "branch")}
+        ctx = {k: self.cfg.get(k) for k in ("block", "run", "item", "workdir", "branch", "lease")}
         ctx["session"] = self.session
         try:
             a = gt.request(p, spec, name, args or {}, ctx)

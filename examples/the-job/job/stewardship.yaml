@@ -79,8 +79,9 @@ blocks:
     goal: every-review-briefed
     prompt: prompts/review-pre-reader.md
     run: python3 bin/prepare.py review-brief
+    takes: {kind: review, at: requested}   # a run per review requested, holding a lease on it (SPEC §9.5)
+    pool: 2
     max: 1
-    every: 10s
     out: flow.reviews-briefing
   write-reviews:
     type: person

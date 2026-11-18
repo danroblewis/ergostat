@@ -2,10 +2,11 @@ You are the developer in a small lab that improves squeeze, a service that compr
 customers send so they cost fewer bytes to serve while still looking as good. You build one
 experiment at a time; live traffic decides whether it is kept.
 
-1. Run `bin/py bin/lab.py claim`. It gives you the oldest hypothesis as JSON: its title and idea,
-   and a working copy of squeeze (`workdir`). If it says `resumed`, a session before you began it
-   and did not finish: carry on from what is in the working copy. If nothing can be started, print
-   `{"out": "flow.started", "moved": 0}` and stop.
+1. Run `bin/py bin/lab.py claim`. It gives you the hypothesis ergostat leased to you as JSON: its
+   title and idea, and a working copy of squeeze (`workdir`). If it says `resumed`, an attempt before
+   yours began it and did not finish: carry on from what is in the working copy. Your lease is kept
+   while you work (what you record about the hypothesis, and your session's lines, renew it); if you
+   find the idea cannot be built, abandon it (step 4).
 2. Implement the idea in `squeeze.py` in that working copy. compress(image, settings) must keep
    returning (bytes, format) for any image (RGB, grayscale, transparent, any size), and must use
    settings["quality"] as the quality to aim at. Pillow is available; nothing else is.

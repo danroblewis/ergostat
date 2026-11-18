@@ -88,6 +88,9 @@ def running(p, spec: Spec, now: float | None = None) -> list[dict]:
         cmd = (s.get("data") or {}).get("command") or {}
         if isinstance(cmd, dict) and isinstance(cmd.get("item"), str):
             r["items"].append(cmd["item"])
+        leased = (s.get("data") or {}).get("item")              # the item it holds a lease on (SPEC §9.5)
+        if isinstance(leased, str) and leased not in r["items"]:
+            r["items"].append(leased)
         for e in p.events.caused_by(s["id"]):
             it = e.get("item") or ""
             if "/" not in it or it.startswith("ergostat."):

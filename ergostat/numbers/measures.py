@@ -29,6 +29,8 @@ from ..spec.ir import (
     CONTEXT_MEASURES,
     INTENT,
     INTENT_MEASURES,
+    LEASE_MEASURES,
+    LEASES,
     MESSAGE_MEASURES,
     MODEL_MEASURES,
     TRUST,
@@ -92,7 +94,7 @@ READERS = {"ergostat.model.fit": fit, "ergostat.model.unexplained": unexplained,
 
 
 def measure(p, name: str) -> float | None:
-    if name.startswith(("trust.", "messages.", "intent.", "actions.", "workspaces.")):   # by hand: trust.contradicted@developer
+    if name.startswith(("trust.", "messages.", "intent.", "leases.", "actions.", "workspaces.")):   # by hand: trust.contradicted@developer
         name = "ergostat." + name
     if not name.startswith("ergostat."):           # by hand, the short name will do: fit, open-findings
         name = "ergostat.model." + name.removeprefix("model.")
@@ -108,6 +110,12 @@ def measure(p, name: str) -> float | None:
             raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
         from ..recipes import uses
         return uses.measure(p, spec, name)
+    if LEASES.match(name):                         # the leases on items (SPEC §9.5)
+        spec = getattr(p.model, "spec", None)
+        if spec is None:
+            raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
+        from ..leases import measures as lm
+        return lm.measure(p, spec, name)
     if INTENT.match(name):                         # how far finished work holds to what the owner meant (SPEC §12i)
         from ..intent import measures as im
         return im.measure(p, name)
@@ -123,8 +131,8 @@ def measure(p, name: str) -> float | None:
             raise MeasureError(f"no workspace pool {m.group(2)!r}")
         return float(wp.counts(p, spec, m.group(2))[m.group(1)])
     if name not in MODEL_MEASURES:
-        known = [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *CONTEXT_MEASURES, *INTENT_MEASURES, *ACTIONS_MEASURES,
-                 *WORKSPACES_MEASURES]
+        known = [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *CONTEXT_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES,
+                 *ACTIONS_MEASURES, *WORKSPACES_MEASURES]
         raise MeasureError(f"no measure {name!r}: {', '.join(known)}")
     if getattr(p.model, "spec", None) is None:
         raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
@@ -133,7 +141,8 @@ def measure(p, name: str) -> float | None:
 
 def all_of(p) -> dict[str, float | None]:
     out = {}
-    for n in [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *INTENT_MEASURES, *ACTIONS_MEASURES, *WORKSPACES_MEASURES]:
+    for n in [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES, *ACTIONS_MEASURES,
+              *WORKSPACES_MEASURES]:
         try:
             out[n] = measure(p, n)
         except Exception as e:                        # one measure that cannot be read leaves the others

@@ -158,24 +158,38 @@ def test_a_dirty_or_broken_worktree_is_quarantined_not_reused_until_freed(tmp_pa
     assert measures.measure(p, "workspaces.in-use") == 1.0
 
 
+def lease_event(p, what: str, item: str, run: str, fence: int, **data):
+    """A lease event as the dispatcher writes it (SPEC §9.5): about the item, naming it, its run and fence."""
+    return p.events.add(f"ergostat.lease.{what}", item=item, source="ergostat",
+                        data={"item": item, "run": run, "fence": fence, **data})
+
+
 def test_lease_events_hold_and_release_the_workspace(tmp_path):
     p = project(tmp_path)
     spec = p.model.spec
     ticket(p, 1)
-    pl.acquire(p, spec, "code", "ticket/1", {}, lease="ergostat.lease/a")
+    lease_event(p, "taken", "ticket/1", "r1", 1, block="dev", ttl=60, max=3, back="open")
+    pl.acquire(p, spec, "code", "ticket/1", {}, run="r1", lease=1)
     seq = leases.sweep(p, spec)
-    p.events.add("ergostat.lease.expired", item="ergostat.lease/a", source="ergostat", data={"item": "ticket/1"})
-    seq = leases.sweep(p, spec, seq)
-    assert pl.slots(p, spec, spec.workspaces["code"])[1]["state"] == "held"     # expired, not finished: kept
-    p.events.add("ergostat.lease.taken", item="ergostat.lease/b", source="ergostat", data={"item": "ticket/1"})
+    assert pl.slots(p, spec, spec.workspaces["code"])[1]["state"] == "in-use"   # its own lease: acquired once
+    assert len(p.events.query(n=None, type="ergostat.workspace.acquired")) == 1
+    lease_event(p, "expired", "ticket/1", "r1", 1, state="open", terminal=False)
     seq = leases.sweep(p, spec, seq)
     s = pl.slots(p, spec, spec.workspaces["code"])[1]
-    assert s["state"] == "in-use" and s["lease"] == "ergostat.lease/b"           # taken again: in use again
+    assert s["state"] == "held" and s["lease"] == 1                               # expired, not finished: kept
+    lease_event(p, "taken", "ticket/1", "r2", 2, block="dev", ttl=60, max=3, back="open")
+    seq = leases.sweep(p, spec, seq)
+    s = pl.slots(p, spec, spec.workspaces["code"])[1]
+    assert s["state"] == "in-use" and s["lease"] == 2 and s["run"] == "r2"        # taken again: in use again
+    lease_event(p, "ended", "ticket/1", "r1", 1, how="nack", state="open", terminal=False)
+    seq = leases.sweep(p, spec, seq)                                              # an older lease's end: nothing
+    assert pl.slots(p, spec, spec.workspaces["code"])[1]["state"] == "in-use"
     p.events.add("ticket.done", item="ticket/1", source="watch")
-    p.events.add("ergostat.lease.ended", item="ergostat.lease/b", source="ergostat", data={"item": "ticket/1"})
-    leases.sweep(p, spec, seq)
+    lease_event(p, "ended", "ticket/1", "r2", 2, how="ack", state="done", terminal=True)
+    seq = leases.sweep(p, spec, seq)
     assert pl.counts(p, spec)["free"] == 2                                       # ended, finished: cleaned
-    p.events.add("ergostat.lease.ended", item="ergostat.lease/c", source="ergostat", data={"item": "ticket/9"})
+    assert leases.sweep(p, spec, 0) and pl.counts(p, spec)["free"] == 2          # taken again from the start: the same
+    lease_event(p, "ended", "ticket/9", "r9", 1, how="ack", state="done", terminal=True)
     leases.sweep(p, spec, seq)                                                   # an item with no workspace: nothing
 
 
@@ -245,9 +259,9 @@ def test_an_ai_block_without_run_starts_claude_in_its_items_workspace_gated(tmp_
             gate: approve
     """)
     ticket(p, 4, "Speed up search")
-    monkeypatch.setenv("ERGOSTAT_ITEM", "ticket/4")
-    monkeypatch.setenv("ERGOSTAT_LEASE", "ergostat.lease/x")
-    Engine(p, say=lambda s: None).run_block(p.model.spec.blocks["dev"], "schedule")
+    monkeypatch.setenv("ERGOSTAT_ITEM", "ticket/9")                 # inherited from where ergostat started: not its own
+    monkeypatch.setenv("ERGOSTAT_LEASE", "7")
+    Engine(p, say=lambda s: None).run_block(p.model.spec.blocks["dev"], "item", item="ticket/4", fence=1)
     call = json.loads((tmp_path / "claude-call.json").read_text())
     ws = (tmp_path / "pool" / "1").resolve()
     assert call["cwd"] == str(ws) and call["item"] == "ticket/4" and call["branch"] == "ticket/4-speed-up-search"
@@ -292,8 +306,8 @@ def test_a_session_started_by_the_helper_runs_in_the_workdir(tmp_path, monkeypat
 def test_a_run_with_no_lease_releases_its_workspace_when_it_ends(tmp_path, monkeypatch):
     import ergostat.spec.engine as eng
     monkeypatch.setattr(eng, "AI_COMMAND", f"{PY} {fake_claude(tmp_path)}")
-    monkeypatch.delenv("ERGOSTAT_ITEM", raising=False)
-    monkeypatch.delenv("ERGOSTAT_LEASE", raising=False)
+    monkeypatch.setenv("ERGOSTAT_ITEM", "ticket/9")                 # inherited: a run with no lease has no item of its own
+    monkeypatch.setenv("ERGOSTAT_LEASE", "7")
     p = project(tmp_path, """
         dev:
           type: ai

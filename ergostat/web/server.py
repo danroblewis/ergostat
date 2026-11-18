@@ -191,6 +191,14 @@ def _tail(path, n: int) -> list[str]:
         return []
 
 
+def _lease_of(fields: dict) -> dict:
+    """An item's lease, as its row shows it (SPEC §9.5): who holds it, until when, its attempts; not its history."""
+    lease = fields.get("lease")
+    if not isinstance(lease, dict):
+        return {}
+    return {"lease": {k: v for k, v in lease.items() if k != "history"}}
+
+
 def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: str | None = None) -> dict:
     """The Items page's list: only the items matching its search (``q``, in the id or any field), the
     newest ``per_kind`` of each kind (how many matched is ``matched``), and with ``shown`` each item's
@@ -214,7 +222,8 @@ def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: 
             kept.append(i)
     if shown:
         show = {k["name"]: set(k["show"]) for k in got["kinds"]}
-        kept = [{**i, "fields": {f: v for f, v in i["fields"].items() if f in show.get(i.get("kind") or "", ())}} for i in kept]
+        kept = [{**i, "fields": {**{f: v for f, v in i["fields"].items() if f in show.get(i.get("kind") or "", ())},
+                                 **_lease_of(i["fields"])}} for i in kept]
     return {**got, "items": kept, "matched": matched, "listed": len(got["items"])}
 
 
