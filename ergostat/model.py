@@ -476,20 +476,39 @@ def load(start: Path | None = None) -> Model:
     return parse(data, path, default_name=path.parent.name)
 
 
+INCLUDES_EVERY = 10.0       # seconds: how often the include globs are read again when no file or folder changed
+_INCLUDES: dict = {}        # model path: (the files' and folders' times, the files the includes reach, when read)
+
+
+def _mtime(f: Path):
+    try:
+        return f.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
 def stamp(m: Model) -> tuple:
-    """What changes when any of the model's files changes: their modification times."""
-    out = []
-    for f in getattr(m, "files", None) or ([m.path] if m.path else []):
-        try:
-            out.append(f.stat().st_mtime)
-        except OSError:
-            out.append(None)
-    if getattr(m, "spec", None) is not None:              # an include's glob may match a new file
-        from .spec.load import load as load_doc
-        try:
-            out.append(tuple(str(f) for f in load_doc(m.path).files))
-        except Exception:
-            out.append(None)
+    """What changes when any of the model's files changes: their modification times. An include's
+    glob may match a new file: the files it reaches are read again when a file or a folder holding
+    one changes (a file added beside them), and every ``INCLUDES_EVERY`` seconds whatever changed (a
+    file added in a new folder). Reading them is parsing every file (tens of ms), and this is asked
+    twice a second by the run and on every request the page makes."""
+    import time
+    files = getattr(m, "files", None) or ([m.path] if m.path else [])
+    out = [_mtime(f) for f in files]
+    if getattr(m, "spec", None) is not None:
+        dirs = sorted({str(f.parent) for f in files} | ({str(m.path.parent)} if m.path else set()))
+        times = (tuple(out), tuple(_mtime(Path(d)) for d in dirs))
+        was = _INCLUDES.get(m.path)
+        now = time.monotonic()
+        if was is None or was[0] != times or now - was[2] > INCLUDES_EVERY:
+            from .spec.load import load as load_doc
+            try:
+                reached = tuple(str(f) for f in load_doc(m.path).files)
+            except Exception:
+                reached = None
+            was = _INCLUDES[m.path] = (times, reached, now)
+        out.append(was[1])
     return tuple(out)
 
 
