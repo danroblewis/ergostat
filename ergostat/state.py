@@ -27,6 +27,25 @@ def crossings_of(project, loop: str, since: float, until: float) -> list[dict]:
     before = project.events.query(n=1, item=loop, type="loop.*", until=since - 1e-6, unvoided=True)
     return before + project.events.query(n=None, item=loop, type="loop.*", since=since, until=until, unvoided=True)
 
+def _crossings(project, loops: list[str], since: float, until: float) -> dict[str, list[dict]]:
+    """``crossings_of`` for each of several loops (their time and type), read together: a month of a
+    busy record's crossings from the columns, not event by event."""
+    ev = project.events
+    if not hasattr(ev, "times") or ev.query(n=1, type="ergostat.forgotten"):     # some set aside: read one by one
+        return {lp: crossings_of(project, lp, since, until) for lp in loops}
+    got = ev.times(loops, "loop.*", since, until)
+    return {lp: ev.query(n=1, item=lp, type="loop.*", until=since - 1e-6, unvoided=True)
+            + [{"time": t, "type": ty, "seq": q, "item": lp} for t, ty, q in got[lp]] for lp in loops}
+
+
+def _times(project, items: list[str], type: str, since: float, until: float) -> dict[str, list[float]]:
+    """When each of ``items`` had an event of ``type`` in the span."""
+    ev = project.events
+    if hasattr(ev, "times"):
+        return {k: [t for t, _, _ in v] for k, v in ev.times(items, type, since, until).items()}
+    return {i: [e["time"] for e in ev.query(n=None, type=type, item=i, since=since, until=until)] for i in items}
+
+
 def _sensor_for(m, target: str) -> list:
     return [s for s in m.sensors.values() if s.measures == target]
 
@@ -84,9 +103,7 @@ def counted(project, flow: str, t0: float, t1: float) -> float | None:
     from .spec import items as its
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
     where = q.get("where") or {}
-    return float(sum(1 for it in its.project(project.events, spec, q["kind"],
-                                                     until=t1 if where else None, fields=tuple(where)) if its.matches(it, where)
-                     for mv in it.moves if mv[key] == state and t0 < mv["time"] <= t1))
+    return float(sum(1 for t in its.moved(project.events, spec, q["kind"], key, state, t0, t1, where, at=t1) if t > t0))
 
 
 def moved(project, flow: str, t0: float, t1: float) -> float | None:
@@ -208,7 +225,11 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             if r is not None:
                 s["inflow" if f.target == name else "outflow"] += r
 
-    for lp in m.loops():
+    all_loops = list(m.loops())
+    crossed = _crossings(project, [lp.name for lp in all_loops], start, now)
+    opened_at = _times(project, sorted({v for lp in all_loops for v in (lp.valves or (lp.controller.drives if lp.controller.through
+                                                                                       else []))}), "valve.opened", start, now)
+    for lp in all_loops:
         c = lp.controller
         value = stocks.get(c.holds, {}).get("value")
         if not lp.closes:
@@ -230,7 +251,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         reads = [project.measurements.latest(f"sensor/{s}", now) for s in lp.sensors]
         last_read = max((r[0] for r in reads if r), default=None)
         # how much of the recorded window the loop spent off, from its crossings
-        crossings = crossings_of(project, lp.name, start, now)
+        crossings = crossed[lp.name]
         off_time, off_from = 0.0, None
         before = [e for e in crossings if e["time"] < start]
         if before and before[-1]["type"] == "loop.off":
@@ -250,8 +271,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         off_share = off_time / max(now - start, 1.0)
         # how fast it answers: from going off to its valve's first opening, and to holding again
         import bisect
-        opens = sorted(e["time"] for v in acts_on
-                       for e in project.events.query(n=None, type="valve.opened", item=v, since=start, until=now))
+        opens = sorted(t for v in acts_on for t in opened_at.get(v, ()))
         answers = []
         for t0, t1 in episodes + ([(off_from, now)] if off_from is not None and off_from > start else []):
             if t0 <= start:                               # went off before the window: its start is unknown

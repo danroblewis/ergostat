@@ -257,6 +257,17 @@
             }
           ]
         },
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The item index (SPEC \u00a74b): only open items are kept folded in memory",
+          "properties": {
+            "idle": {
+              "$ref": "#/$defs/duration",
+              "description": "An item with no event for this long is read from the index, not kept folded in memory (default 1d)"
+            }
+          }
+        },
         "rollup": {
           "anyOf": [
             {

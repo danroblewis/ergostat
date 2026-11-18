@@ -14,6 +14,8 @@ suite holds them all to it (``tests/test_store_conformance.py``).
         after: 7d                      # an item's events older than this become one snapshot
         kinds: {session: 1d}           # per item kind
         every: 1h                      # how often the engine rolls up and forgets
+      items:
+        idle: 1d                       # an item with no event for this long is read from the item index, not kept folded in memory
 
 The defaults run on a laptop with no services."""
 
@@ -31,6 +33,7 @@ RAW = 2 * 86400.0
 TIERS = ((60.0, 14 * 86400.0), (600.0, 90 * 86400.0), (3600.0, 730 * 86400.0))
 ROLLUP_AFTER = 7 * 86400.0
 EVERY = 3600.0
+ITEM_IDLE = 86400.0
 
 
 @dataclass
@@ -44,6 +47,7 @@ class Storage:
     rollup_after: float | None = ROLLUP_AFTER      # None: never rolled up
     rollup_kinds: dict[str, float] = field(default_factory=dict)
     every: float = EVERY
+    item_idle: float = ITEM_IDLE                   # an open item untouched this long is not kept folded in memory
 
     def horizon(self, kind: str | None) -> float | None:
         """How old an item's events are before they are rolled up: its kind's, else the default."""
@@ -69,8 +73,8 @@ def parse(raw, problems: list[str]) -> Storage:
         problems.append("storage: a map (events:, measurements:, rollup:)")
         return s
     for k in raw:
-        if k not in ("events", "measurements", "rollup"):
-            problems.append(f"storage: unknown key {k!r} (known: events, measurements, rollup)")
+        if k not in ("events", "measurements", "rollup", "items"):
+            problems.append(f"storage: unknown key {k!r} (known: events, measurements, rollup, items)")
     ev = raw.get("events")
     if isinstance(ev, dict):
         ev = ev.get("backend")
@@ -126,6 +130,16 @@ def parse(raw, problems: list[str]) -> Storage:
             s.rollup_kinds[str(kind)] = got          # type: ignore[assignment]
         if "every" in ro:
             s.every = _dur(ro["every"], "storage.rollup.every", problems) or EVERY
+    it = raw.get("items")
+    if it is not None:
+        if not isinstance(it, dict):
+            problems.append("storage.items: a map (idle:)")
+            it = {}
+        for k in it:
+            if k != "idle":
+                problems.append(f"storage.items: unknown key {k!r} (known: idle)")
+        if "idle" in it:
+            s.item_idle = _dur(it["idle"], "storage.items.idle", problems) or ITEM_IDLE
     return s
 
 

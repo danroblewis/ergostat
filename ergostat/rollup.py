@@ -160,54 +160,116 @@ def snapshot_of(id: str, prefix: list[dict], kind, segments: list[str], now: flo
             "data": {"rollup": rollup}, "set": own.fields}
 
 
-def plan(p, now: float | None = None, cap: float | None = None) -> list[tuple[str, object, list[dict]]]:
-    """What a roll-up would take: per item, its kind and the prefix of its events (by ``seq``,
-    a transcript's lines among them) all older than its horizon (``cap``: never later than this)."""
+BATCH = 20_000              # items read from the record at a time (a range of ids: the blocks that hold them)
+FLUSH = 1_000_000           # snapshots put into the record at a time (each time rewrites the segments they are in)
+
+
+def candidates(p, now: float, cap: float | None) -> list[str] | None:
+    """The items a roll-up could take, from the item index: those whose first event since their
+    snapshot (or ever) is older than their horizon, and those with a transcript's lines (which the
+    index does not fold). None when there is no index: every item is looked at."""
+    from .spec.itemindex import index_for
+    cfg = p.storage
+    ix = index_for(p.events, getattr(p.model, "spec", None), False)
+    if ix is None:
+        return None
+    with ix.lock:
+        rows = ix.candidates()
+    out = set()
+    for id, kind, t in rows:
+        h = cfg.horizon(kind)
+        if h is None and cap is None:
+            continue
+        if t is not None and t < now - min(x for x in (h, cap) if x is not None):
+            out.add(id)
+    out |= set(p.events.counted(TRANSCRIPT_TYPES))
+    return sorted(out)
+
+
+def batches(p, now: float | None = None, cap: float | None = None):
+    """What a roll-up would take, a batch of items at a time: per item, its kind and the prefix of its
+    events (by ``seq``, a transcript's lines among them) all older than its horizon (``cap``: never
+    later than this). Only the items the index names are read (``candidates``)."""
     now = now if now is not None else time.time()
     cfg = p.storage
     spec = getattr(p.model, "spec", None)
-    by: dict[str, list[dict]] = {}
-    for e in p.events.of_items(None):
-        by.setdefault(e["item"], []).append(e)
-    out = []
-    for id, evs in by.items():
-        k = kind_of(spec, id) if spec is not None and getattr(spec, "items", None) else None
-        h = cfg.horizon(k.name if k else None)
-        if h is None and cap is None:
-            continue
-        cut = now - min(x for x in (h, cap) if x is not None)
-        prefix = []
-        for e in evs:
-            if e["time"] >= cut:
-                break
-            prefix.append(e)
-        originals = sum(1 for e in prefix if e["type"] != SNAPSHOT)
-        if originals == 0 or len(prefix) < MIN_EVENTS:
-            continue
-        out.append((id, k, prefix))
-    return out
+    ids = candidates(p, now, cap)
+    for i in range(0, len(ids) if ids is not None else 1, BATCH):
+        by: dict[str, list[dict]] = {}
+        for e in p.events.of_items(None, ids=ids[i:i + BATCH] if ids is not None else None):
+            by.setdefault(e["item"], []).append(e)
+        out = []
+        for id, evs in by.items():
+            k = kind_of(spec, id) if spec is not None and getattr(spec, "items", None) else None
+            h = cfg.horizon(k.name if k else None)
+            if h is None and cap is None:
+                continue
+            cut = now - min(x for x in (h, cap) if x is not None)
+            prefix = []
+            for e in evs:
+                if e["time"] >= cut:
+                    break
+                prefix.append(e)
+            originals = sum(1 for e in prefix if e["type"] != SNAPSHOT)
+            if originals == 0 or len(prefix) < MIN_EVENTS:
+                continue
+            out.append((id, k, prefix, evs[len(prefix):]))
+        if out:
+            yield out
+
+
+def plan(p, now: float | None = None, cap: float | None = None) -> list[tuple[str, object, list[dict]]]:
+    """Every batch of ``batches`` at once: per item, its kind and the prefix a roll-up takes."""
+    return [(id, k, pre) for b in batches(p, now, cap) for id, k, pre, _ in b]
 
 
 def compact(p, now: float | None = None, cap: float | None = None, dry: bool = False) -> dict:
-    """Roll every item's old events up into its snapshot, archiving the originals. Returns what it did."""
+    """Roll every item's old events up into its snapshot, archiving the originals. Returns what it did.
+    A batch of items at a time is read, archived and made into snapshots; the record is rewritten once."""
     now = now if now is not None else time.time()
     began = time.time()
-    todo = plan(p, now, cap)
-    done = {"items": len(todo), "events": sum(sum(1 for e in pre if e["type"] != SNAPSHOT) for *_, pre in todo)}
-    if dry or not todo:
-        return {**done, "seconds": time.time() - began}
+    done = {"items": 0, "events": 0}
     arc = Archive(p.dir)
-    by_kind: dict[str, list] = {}
-    for id, k, pre in todo:
-        by_kind.setdefault(k.name if k else "unkinded", []).append((id, k, pre))
-    changes = []
-    for kind, rows in by_kind.items():
-        segs = arc.write(kind, [e for *_, pre in rows for e in pre if e["type"] != SNAPSHOT])
-        for id, k, pre in rows:
-            months = {f"{_safe(kind)}/{_month(e['time'])}" for e in pre if e["type"] != SNAPSHOT}
-            changes.append((id, [e["seq"] for e in pre], snapshot_of(id, pre, k, sorted(months & set(segs)), now)))
-    p.events.replace(changes)
+    changes, rest = [], {}
+    for todo in batches(p, now, cap):
+        done["items"] += len(todo)
+        done["events"] += sum(sum(1 for e in pre if e["type"] != SNAPSHOT) for _, _, pre, _ in todo)
+        if dry:
+            continue
+        by_kind: dict[str, list] = {}
+        for id, k, pre, after in todo:
+            by_kind.setdefault(k.name if k else "unkinded", []).append((id, k, pre))
+            rest[id] = [(e["seq"], e["time"]) for e in after if not e["type"].startswith(TRANSCRIPT_TYPES[:-1])]
+        for kind, rows in by_kind.items():
+            segs = arc.write(kind, [e for *_, pre in rows for e in pre if e["type"] != SNAPSHOT])
+            for id, k, pre in rows:
+                months = {f"{_safe(kind)}/{_month(e['time'])}" for e in pre if e["type"] != SNAPSHOT}
+                changes.append((id, [e["seq"] for e in pre], packed(snapshot_of(id, pre, k, sorted(months & set(segs)), now))))
+        if len(changes) >= FLUSH:
+            _replace(p, changes, rest)
+            changes, rest = [], {}
+    if dry or not done["items"]:
+        return {**done, "seconds": time.time() - began}
+    _replace(p, changes, rest)
     return {**done, "seconds": time.time() - began, "archive_bytes": arc.size()}
+
+
+def packed(snap: dict) -> bytes:
+    """A snapshot as a roll-up keeps it until it is put into the record: compressed JSON, a tenth of the
+    dict's size (a first roll-up of 800,000 items held 9.7 GB of them as dicts)."""
+    import zlib
+    return zlib.compress(json.dumps({**snap, "causedby": None}, separators=(",", ":"), default=str).encode(), 1)
+
+
+def _replace(p, changes: list, rest: dict) -> None:
+    """The snapshots into the record in place of their events; the item index told what is left of each."""
+    if not changes:
+        return
+    p.events.replace(changes)
+    from .spec.itemindex import index_for
+    ix = index_for(p.events, getattr(p.model, "spec", None), False)
+    if ix is not None:                          # what is left of each outside its snapshot: not to be looked at again till due
+        ix.rolled(rest)
 
 
 def archived(p, id: str, offset: int = 0, n: int = 200) -> dict | None:

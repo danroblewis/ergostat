@@ -14,9 +14,7 @@ the rate at which items enter or leave a state: the record is the instrument."""
 from __future__ import annotations
 
 import copy
-import threading
 import time
-import weakref
 from dataclasses import dataclass, field
 
 from ..leases import PREFIX as LEASE_PREFIX
@@ -27,7 +25,6 @@ from .ir import ItemKind, Sensor, Spec
 REOPENED = "ergostat.item.reopened"   # any item moved back, by ergostat, to a state its data names (SPEC §12h)
 TRANSCRIPT_TYPES = "claude.*"     # a Claude Code transcript, line by line (transcripts.py): left out unless asked for
 SNAPSHOT = "ergostat.item.snapshot"    # an item's older events, folded into one (rollup.py): its document as a set
-CHUNK = 50_000                         # events folded at a time into the kept fold
 LISTED = 500                           # the most items one listing carries; page through with offset
 
 
@@ -180,105 +177,54 @@ def asks_transcript(kinds, fields=()) -> bool:
         any(k.fold.get(f) and f in FIELDS for k in kinds for f in fields)
 
 
-class _Folded:
-    """Every item of one record, folded once and then kept up to date with what is new (after the
-    last ``seq`` folded): the engine counts items every few seconds, and the page asks for them on
-    every refresh, and neither should fold the whole record each time. Folded again from the start
-    when the record loses events (``generation``: pruned, rolled up) or the model changes. One for
-    folds with a transcript's lines, one without."""
-
-    def __init__(self, spec, transcript: bool):
-        self.spec, self.transcript, self.lock = spec, transcript, threading.Lock()
-        self.reset(None)
-
-    def reset(self, gen) -> None:
-        self.items: dict[str, Item] = {}
-        self.newest: dict[str, float] = {}           # each item's latest event time (an event may arrive late)
-        self.seq, self.gen = 0, gen
-
-    def take(self, events, kind: str | None, until: float | None) -> list[Item] | None:
-        """Every item (of ``kind``) as it stood at ``until``: the kept ones themselves, so a caller must not
-        change them (``listing`` copies what it changes). An item with something after
-        ``until`` is folded again from the record up to then; None when that is most of them (a
-        moment long past: the caller folds the record itself)."""
-        skip = () if self.transcript else (TRANSCRIPT_TYPES,)
-        with self.lock:
-            gen = events.generation()
-            if gen != self.gen:
-                self.reset(gen)
-            while True:                                  # a chunk at a time: the whole record is never in memory at once
-                new = events.of_items(None, after_seq=self.seq, skip=skip, limit=CHUNK)
-                self._fold(new)
-                if len(new) < CHUNK:
-                    break
-            late = [] if until is None else [i for i, t in self.newest.items() if t > until]
-            if len(late) > max(50, len(self.items) // 10):
-                return None
-            gone = set(late)
-            out = [it for i, it in self.items.items() if i not in gone and (not kind or it.kind == kind)]
-        for i in late:
-            k = kind_of(self.spec, i)
-            if kind and (k is None or k.name != kind):
-                continue
-            evs = events.query(n=None, item=i, until=until, skip=skip)
-            if evs:
-                out.append(fold(i, evs, k, transcript=self.transcript))
-        return out
-
-    def _fold(self, new: list[dict]) -> None:
-        by: dict[str, list[dict]] = {}
-        for e in new:
-            by.setdefault(e["item"], []).append(e)
-            self.seq = max(self.seq, e["seq"])
-            if e["time"] > self.newest.get(e["item"], float("-inf")):
-                self.newest[e["item"]] = e["time"]
-        for id, evs in by.items():
-            have = self.items.get(id)
-            k = kind_of(self.spec, id)
-            self.items[id] = fold(id, evs, k, it=have, transcript=self.transcript)
+def _index(events, spec, transcript: bool):
+    """The record's item index for these kinds, caught up (``itemindex.py``); None for a record kept
+    nowhere on disk."""
+    from .itemindex import index_for
+    return index_for(events, spec, transcript)
 
 
-_FOLDED: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
-_FOLDED_LOCK = threading.Lock()
-
-
-def _kinds_key(spec) -> tuple:
-    """What a fold depends on in the model: its item kinds (a change being tried shares the kept fold
-    when it leaves them as they are)."""
-    return tuple((k.name, k.id, tuple(k.states), tuple(sorted(k.on.items())), tuple(sorted(k.fold.items())))
-                 for k in spec.items.values())
-
-
-def _folded(events, spec, kind: str | None, until: float | None, transcript: bool) -> list[Item] | None:
-    if not hasattr(events, "generation"):
+def _late(ix, events, spec, kind: str | None, until: float | None, transcript: bool) -> dict[str, Item] | None:
+    """The items (of ``kind``) with an event after ``until``, each folded again from the record up to
+    then (dropped when it had none by then); None when that is most of them (a moment long past: the
+    caller folds the record itself). Under the index's lock."""
+    if until is None:
+        return {}
+    cap = max(50, ix.total(kind) // 10)
+    ids = ix.late(until, kind, limit=cap + 1)
+    if len(ids) > cap:
         return None
-    key = (_kinds_key(spec), transcript)
-    with _FOLDED_LOCK:
-        mine = _FOLDED.setdefault(events, {})
-        f = mine.get(key)
-        if f is None:
-            if len(mine) >= 6:                       # a few models at once (a change being tried), not every one ever
-                mine.pop(next(iter(mine)))
-            f = mine[key] = _Folded(spec, transcript)
-    return f.take(events, kind, until)
+    skip = () if transcript else (TRANSCRIPT_TYPES,)
+    out = {}
+    for i in ids:
+        evs = events.query(n=None, item=i, until=until, skip=skip)
+        if evs:
+            out[i] = fold(i, evs, kind_of(spec, i), transcript=transcript)
+    return out
 
 
 def project(events, spec: Spec, kind: str | None = None, until: float | None = None, fields=(),
             transcript: bool | None = None) -> list[Item]:
     """Every item (of ``kind``, when given) as it stood at ``until``, the latest first. A transcript's
     events are folded in only when asked (``transcript``) or needed (``asks_transcript``, for ``fields``).
-    Folded once and kept (``_Folded``), with what is new folded in on each ask. (Moves are history: a
-    count of moves in a past span reads them from the items as they are now, ``until=None``, unless it
-    also matches fields, which may have changed since.)"""
+    Read from the item index (``itemindex.py``), which follows the record; an item with something after
+    ``until`` is folded again from the record. (Moves are history: a count of moves in a past span
+    reads them from the items as they are now, ``until=None``, unless it also matches fields, which may
+    have changed since; ``moved`` reads only the span's.) Every item of a kind is read from disk:
+    what counts or pages through them (``measure``, ``moved``, ``listing``) reads only what it needs."""
     kinds = [spec.items[kind]] if kind else list(spec.items.values())
     if kind and not kinds:
         return []
     globs = [k.id for k in kinds] if kind else None
     if transcript is None:
         transcript = asks_transcript(kinds, fields)
-    kept = _folded(events, spec, kind, until, transcript)
-    if kept is not None:
-        return sorted(kept, key=lambda i: -i.last)
+    ix = _index(events, spec, transcript)
+    if ix is not None:
+        with ix.lock:
+            late = _late(ix, events, spec, kind, until, transcript)
+            if late is not None:
+                out = ix.items(kind, until=until) + [i for i in late.values() if not kind or i.kind == kind]
+                return sorted(out, key=lambda i: -i.last)
     by: dict[str, list[dict]] = {}
     for e in events.of_items(globs, until=until, skip=() if transcript else (TRANSCRIPT_TYPES,)):
         by.setdefault(e["item"], []).append(e)
@@ -289,6 +235,63 @@ def project(events, spec: Spec, kind: str | None = None, until: float | None = N
             continue
         out.append(fold(id, evs, k, transcript=transcript))
     return sorted(out, key=lambda i: -i.last)
+
+
+def moved(events, spec: Spec, kind: str, key: str, state: str | None, since: float, until: float,
+          where: dict | None = None, at: float | None = None) -> list[float]:
+    """When ``kind``'s items moved into (``key`` "to") or out of ("from") ``state``, between ``since``
+    and ``until`` (both included), oldest first: read from the index's moves for the span alone. With
+    ``where``, only items whose fields match it, as they stood at ``at`` (else as they are now)."""
+    where = where or {}
+    k = spec.items.get(kind)
+    if k is None:
+        return []
+    transcript = asks_transcript([k], tuple(where))
+    ix = _index(events, spec, transcript)
+    if ix is not None:
+        with ix.lock:
+            late = _late(ix, events, spec, kind, at, transcript) if where else {}
+            if late is not None:
+                got = ix.moved(kind, key, state, since, until, until_newest=at if where else None)
+                if where:
+                    ids = {i for i, _ in got}
+                    ok = {i.id for i in ix.items(kind, ids=ids, moves=False) if matches(i, where)}
+                    got = [(i, t) for i, t in got if i in ok]
+                times = [t for _, t in got]
+                times += [m["time"] for i in late.values() if i.kind == kind and matches(i, where)
+                          for m in i.moves if m[key] == state and since <= m["time"] <= until]
+                return sorted(times)
+    its = project(events, spec, kind, until=at if where else None, fields=tuple(where), transcript=transcript)
+    return sorted(m["time"] for i in its if matches(i, where) for m in i.moves if m[key] == state and since <= m["time"] <= until)
+
+
+def in_states(events, spec: Spec, kind: str, states=None, where: dict | None = None, until: float | None = None,
+              items: bool = False) -> tuple[int, float | None, list[Item]]:
+    """``kind``'s items in ``states`` (any, when None) matching ``where``, as they stood at ``until``:
+    how many, when the one longest in its state entered it, and (``items``, or with ``where``) the
+    items themselves. Counted by the index when nothing asks for their fields."""
+    where = where or {}
+    k = spec.items.get(kind)
+    if k is None:
+        return 0, None, []
+    transcript = asks_transcript([k], tuple(where))
+    ix = _index(events, spec, transcript)
+    if ix is not None:
+        with ix.lock:
+            late = _late(ix, events, spec, kind, until, transcript)
+            if late is not None:
+                extra = [i for i in late.values() if i.kind == kind and (not states or i.state in states) and matches(i, where)]
+                if where or items:
+                    got = [i for i in ix.items(kind, states=states, until=until, moves=False) if matches(i, where)] + extra
+                    return len(got), min((i.entered for i in got), default=None), got
+                n = ix.count(kind, states, until)
+                w, a = ix._where(kind, states, until)
+                oldest = ix.db.execute(f"select min(entered) from items{w}", a).fetchone()[0]
+                firsts = [x for x in (oldest, *(i.entered for i in extra)) if x is not None]
+                return n + len(extra), min(firsts, default=None), extra
+    got = [i for i in project(events, spec, kind, until=until, fields=tuple(where), transcript=transcript)
+           if (not states or i.state in states) and matches(i, where)]
+    return len(got), min((i.entered for i in got), default=None), got
 
 
 def one(events, spec: Spec, id: str) -> Item | None:
@@ -311,17 +314,15 @@ def measure(events, spec: Spec, s: Sensor, now: float | None = None) -> tuple[fl
     q = s.items or {}
     now = now or time.time()
     where = q.get("where") or {}
-    its = [i for i in project(events, spec, q["kind"], until=now, fields=tuple(where)) if matches(i, where)]
     if s.of.kind != "flow":                         # a stock, or an auxiliary: how many there are now
-        states = q.get("state")
-        inside = [i for i in its if not states or i.state in states]
+        n, entered, _ = in_states(events, spec, q["kind"], q.get("state") or None, where, until=now)
         if q.get("measure") == "oldest":
-            return (max((now - i.entered) / 3600 for i in inside) if inside else 0.0), ""
-        return float(len(inside)), ""
+            return ((now - entered) / 3600 if n and entered is not None else 0.0), ""
+        return float(n), ""
     over = q.get("over") or 3600.0
     since = now - over
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
-    n = sum(1 for i in its for m in i.moves if m[key] == state and since < m["time"] <= now)
+    n = sum(1 for t in moved(events, spec, q["kind"], key, state, since, now, where, at=now) if t > since)
     return n * 3600.0 / over, ""
 
 
@@ -336,27 +337,29 @@ def kinds_of(spec) -> dict:
 def listing(events, spec, kind: str | None = None, state: str | None = None, until: float | None = None,
             n: int = LISTED, offset: int = 0) -> dict:
     """What the Items page and ``ergostat item`` show: each kind with its count per state, and
-    the items themselves (newest first), filtered by kind and state: ``n`` of them from ``offset``."""
+    the items themselves (newest first), filtered by kind and state: ``n`` of them from ``offset``.
+    Counted and paged by the item index: only the items shown are read."""
     kinds = kinds_of(spec)
     plain = spec is None or not kinds
     if plain:
         every = events.items()
-        its = [fold(i["item"], events.query(n=None, item=i["item"], until=until, skip=(TRANSCRIPT_TYPES,)), None, transcript=False)
-               for i in every[offset:offset + n]]
+        page = [fold(i["item"], events.query(n=None, item=i["item"], until=until, skip=(TRANSCRIPT_TYPES,)), None, transcript=False)
+                for i in every[offset:offset + n]]
+        counts: dict[str, dict[str, int]] = {}
+        for i in page:
+            c = counts.setdefault(i.kind or "", {})
+            c[i.state or ""] = c.get(i.state or "", 0) + 1
+        page = [i for i in page if (kind is None or (i.kind or "") == kind) and (state is None or (i.state or "") == state)]
+        total = len(every)
     else:
-        its = project(events, spec, until=until, fields=tuple(f for k in kinds.values() for f in k.show))
+        page, counts, total = _paged(events, spec, kind, state, until, n, offset)
     from ..transcripts import FIELDS
     lines = events.counted(TRANSCRIPT_TYPES, until=until)            # left out of the fold: counted, not read
-    its = [copy.copy(i) for i in its]                                  # the kept fold's own: changed only as copies
-    for i in its:
+    page = [copy.copy(i) for i in page]                                # what the index lent: changed only as copies
+    for i in page:
         if (i.id in lines or i.rolled) and not any(f in i.fields for f in FIELDS):
             n_, last = lines.get(i.id, (0, i.last))
             i.n, i.last = i.n + n_ + i.rolled, max(i.last, last)
-    counts: dict[str, dict[str, int]] = {}
-    for i in its:
-        c = counts.setdefault(i.kind or "", {})
-        c[i.state or ""] = c.get(i.state or "", 0) + 1
-    shown = [i for i in its if (kind is None or (i.kind or "") == kind) and (state is None or (i.state or "") == state)]
     from .item_systems import OTHER, groups, kind_systems
     where = kind_systems(spec)               # each kind's system (item_systems.py): the page groups by it
     unkinded = sum(counts.get("", {}).values())
@@ -367,8 +370,40 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
                        "description": k.description, "system": where[k.name]["system"], "system_why": where[k.name]["why"],
                        "counts": counts.get(k.name, {})} for k in kinds.values()],
             "systems": systems, "unkinded": unkinded,
-            "total": len(every) if plain else len(shown), "offset": offset,
-            "items": [_listed(i, kinds, where) for i in (shown if plain else shown[offset:offset + n])]}
+            "total": total, "offset": offset,
+            "items": [_listed(i, kinds, where) for i in page]}
+
+
+def _paged(events, spec, kind: str | None, state: str | None, until: float | None, n: int, offset: int):
+    """The listing's page of items, its counts per kind and state, and how many match."""
+    kinds = kinds_of(spec)
+    transcript = asks_transcript(list(kinds.values()), tuple(f for k in kinds.values() for f in k.show))
+
+    def want(i: Item) -> bool:
+        return (kind is None or (i.kind or "") == kind) and (state is None or (i.state or "") == state)
+    ix = _index(events, spec, transcript)
+    if ix is not None:
+        with ix.lock:
+            late = _late(ix, events, spec, None, until, transcript)
+            if late is not None:
+                counts = ix.counts(until)
+                for i in late.values():
+                    c = counts.setdefault(i.kind or "", {})
+                    c[i.state or ""] = c.get(i.state or "", 0) + 1
+                states = None if state is None else [state]
+                extra = [i for i in late.values() if want(i)]
+                if extra:
+                    page = sorted(ix.items(kind, states, until, n=offset + n) + extra, key=lambda i: -i.last)[offset:offset + n]
+                else:
+                    page = ix.items(kind, states, until, n=n, offset=offset)
+                return page, counts, ix.count(kind, states, until) + len(extra)
+    its = project(events, spec, until=until, transcript=transcript)
+    counts = {}
+    for i in its:
+        c = counts.setdefault(i.kind or "", {})
+        c[i.state or ""] = c.get(i.state or "", 0) + 1
+    shown = [i for i in its if want(i)]
+    return shown[offset:offset + n], counts, len(shown)
 
 
 def _listed(i: Item, kinds: dict, where: dict | None = None) -> dict:

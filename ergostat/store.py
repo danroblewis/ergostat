@@ -292,6 +292,22 @@ class Events:
             r = c.execute("select * from events where id = ? or id like ?", (id, id + "%")).fetchone()
         return self._row(r) if r else None
 
+    def times(self, items: list[str], type: str, since: float, until: float) -> dict[str, list[tuple[float, str, int]]]:
+        """For each of ``items``, (time, type, seq) of its events of ``type`` in the span, in seq order."""
+        out: dict[str, list] = {i: [] for i in items}
+        ors, args = [], []
+        for t in (x.strip() for x in type.split(",") if x.strip()):
+            ors.append("type like ?" if t.endswith("*") else "type = ?")
+            args.append(t[:-1] + "%" if t.endswith("*") else t)
+        for i in range(0, len(items), 500):
+            part = items[i:i + 500]
+            with self._c() as c:
+                for it, t, ty, q in c.execute(f"select item, time, type, seq from events where ({' or '.join(ors)}) and "
+                                              f"time >= ? and time <= ? and item in ({','.join('?' * len(part))}) order by seq",
+                                              (*args, since, until, *part)):
+                    out[it].append((t, ty, q))
+        return out
+
     def caused_by(self, id: str) -> list[dict]:
         with self._c() as c:
             return [self._row(r) for r in c.execute("select * from events where causedby = ? order by seq", (id,))]
@@ -308,11 +324,26 @@ class Events:
         with self._c() as c:
             return [dict(r) for r in c.execute(sql, (since,) if since else ())]
 
+    def item_ids(self) -> set[str]:
+        """Every item (an id with a ``/``) the record holds an event about."""
+        with self._c() as c:
+            return {r[0] for r in c.execute("select distinct item from events where item like '%/%'")}
+
     def of_items(self, globs: list[str] | None = None, until: float | None = None, skip: tuple[str, ...] = (),
-                 after_seq: int | None = None, limit: int | None = None) -> list[dict]:
-        """Every event about an item (an id with a ``/``), or about ids matching one of ``globs``,
-        oldest first; types in ``skip`` (``claude.*``: a prefix) left out; after ``after_seq`` when
-        given (what is new since a fold)."""
+                 after_seq: int | None = None, limit: int | None = None, ids=None) -> list[dict]:
+        """Every event about an item (an id with a ``/``), or about ids matching one of ``globs`` (or
+        among ``ids``), oldest first; types in ``skip`` (``claude.*``: a prefix) left out; after
+        ``after_seq`` when given (what is new since a fold)."""
+        if ids is not None:
+            ids = sorted(set(ids))
+            out = []
+            for i in range(0, len(ids), 500):
+                out += self._of_items(globs, until, skip, after_seq, None, ids[i:i + 500])
+            out.sort(key=lambda e: e["seq"])
+            return out[:limit] if limit else out
+        return self._of_items(globs, until, skip, after_seq, limit, None)
+
+    def _of_items(self, globs, until, skip, after_seq, limit, ids) -> list[dict]:
         where, args = ["item like '%/%'"], []
         if after_seq:
             where.append("seq > ?")
@@ -321,6 +352,9 @@ class Events:
         if globs:
             where.append("(" + " or ".join("item glob ?" for _ in globs) + ")")
             args += globs
+        if ids is not None:
+            where.append(f"item in ({','.join('?' * len(ids))})")
+            args += ids
         if until is not None:
             where.append("time <= ?")
             args.append(until)
@@ -381,7 +415,9 @@ class Events:
         with self._c() as c:
             c.execute("begin immediate")
             try:
+                from .segments import unpacked
                 for item, seqs, snap in changes:
+                    snap = unpacked(snap)
                     for i in range(0, len(seqs), 500):
                         part = seqs[i:i + 500]
                         c.execute(f"delete from events where item = ? and seq in ({','.join('?' * len(part))})", (item, *part))

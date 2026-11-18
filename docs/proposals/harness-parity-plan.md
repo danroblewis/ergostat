@@ -424,3 +424,26 @@ resource or wiring; how it is measured; dependencies.
   model: `--model haiku` is tested against a mocked answer only. Next: 2.3, 2.6, 2.8 (state that carries what is in
   flight, the parity benchmark's weakest kind), the persisted item index (F2's 30-day the-job), and image-squeeze's
   blocks started from the recommended recipe.
+- **2026-11-18, F2 the item index** (branch `itemmem`). Only open items folded in memory; every item's fold
+  persisted in `<state>/items/<kinds>.db` (SQLite, chosen over plain msgpack segments and LMDB because the
+  page and the sensors need counts by kind and state, a page of the newest, and a flow's moves in a window,
+  which are indexes, and because it is the standard library); documents packed with marshal (zlib when it
+  saves: 244 B an item on the-job's items, against JSON 398, JSON+zlib 224, msgpack 330, msgpack+zlib 219;
+  marshal decodes fastest and needs no dependency). On disk at 1.1 M items (11.8 M events): 1.0 GB, about
+  340 B an item and 125 B a move with their indexes. In memory: at most 4,096 open items' fold state, and
+  no field history (it never was kept; the item page folds it from the record). `scripts/loadtest.py`, the-job
+  30 days (11 M events, 0.74 M items rolled up; the machine loaded by other agents throughout): server cold
+  start (until its first items answer) 80 s to 6.4 s; server RSS idle 5.5 GB to 1.3 GB, peak 6.1 GB to 2.3 GB
+  (physical footprint 0.6 GB at the end, 1.1 GB at peak: RSS counts what malloc freed and keeps); engine RSS
+  peak 4.2 GB to 1.4 GB (footprint 0.7 GB); answers 69 of 72 to 72 of 72 (slowest 29 s, a 107,645-event
+  item's page and the 30-day loop, agent and status); engine 0.72 to 0.97 events a second (template 4.6).
+  the-job 7 days: cold 15.7 to 1.9 s, server idle 1.7 GB to 0.6 GB (footprint 0.3 GB). image-squeeze 30 days:
+  cold 17.2 to 1.6 s, server idle 3.0 to 0.9 GB (footprint 0.3 GB), engine RSS peak 2.9 to 1.9 GB (footprint
+  1.2 GB: its own records, the model's changes and messages, not items), 72 of 72 both (slowest 9 s); 6 hours:
+  as before (0.4 s, 72 of 72). Also: routing a message reads only the
+  open items and those it names; Segment headers hold names and arrays, not dicts (700 to 242 MB to open
+  11.8 M events); segments add up their tallies when sealed and the state reads a month of crossings from
+  the columns (the 30-day status 82 to 43 s on old segments, 27 s on new ones); a roll-up reads only the
+  items the index says are due, and keeps its snapshots compressed until written. Not done: the 30-day
+  roll-up itself still peaks at 3 to 4 GB and took 734 s (594 before), most of it folding the few items the
+  tiling gives tens of thousands of events; the index file is as large as the events.

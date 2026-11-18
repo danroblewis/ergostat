@@ -277,3 +277,13 @@ def test_late_readings_are_rolled_again(me):
     me.add_many([("s", now - 7200 + 30, 100.0)])           # late, into a bucket already made
     me.roll(now)
     assert me.bucketed("s", now - 7200, now - 3600, 1)[0][1] == pytest.approx((60 + 100) / 61)
+
+
+def test_times_are_the_events_time_type_and_seq(ev):
+    for i in range(20):
+        ev.add("loop.off" if i % 3 else "loop.holding", item=f"l{i % 2}", at=T + i)
+        ev.add("valve.opened", item=f"l{i % 2}", at=T + i)
+    got = ev.times(["l0", "l1", "none"], "loop.*", T + 2, T + 15)
+    for it in ("l0", "l1", "none"):
+        want = [(e["time"], e["type"], e["seq"]) for e in ev.query(n=None, item=it, type="loop.*", since=T + 2, until=T + 15)]
+        assert got[it] == want
