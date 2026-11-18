@@ -305,6 +305,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     snap["hints"] = ladder_hints(project, snap)
     snap["messages"] = unrouted_messages(project, now)
     snap["actions"], snap["quarantined"] = held_actions(project, now), quarantined(project)
+    snap["leases"] = lease_attention(project, now)
     return snap
 
 
@@ -331,6 +332,18 @@ def quarantined(project) -> list[dict]:
     try:
         return [s for x in spec.workspaces.values() for s in pool.slots(project, spec, x).values()
                 if s["state"] == "quarantined"]
+    except Exception:
+        return []
+
+
+def lease_attention(project, now: float) -> list[dict]:
+    """Dead letters, and leases that expired over the last hour (SPEC §9.5): each needs attention."""
+    spec = getattr(project.model, "spec", None)
+    if spec is None or not any(b.takes for b in spec.blocks.values()):
+        return []
+    from .leases import measures
+    try:
+        return measures.attention(project, spec, now)
     except Exception:
         return []
 
@@ -548,6 +561,17 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         text = m["text"] if len(m["text"]) <= 80 else m["text"][:77] + "..."
         out.append({"level": "warn", "what": f"message {short}", "says": f"\u201c{text}\u201d reached no work: {m['why']}. "
                     f"Route it: ergostat messages {short} --about ITEM|PART, or on its page"})
+    for x in snap.get("leases", []):                 # dead letters and stalls (SPEC §9.5)
+        if x["what"] == "dead":
+            last = f"; the last {x['how']}" + (f": {x['why']}" if x.get("why") else "") if x.get("how") else ""
+            out.append({"level": "bad", "what": f"item {x['item']}", "says": f"a dead letter after {x.get('attempts')} "
+                        f"attempts by {x.get('block')}{last}. Redrive it when its cause is fixed: ergostat lease {x['item']} "
+                        f"--redrive"})
+        else:
+            silent = x.get("silent")
+            out.append({"level": "warn", "what": f"item {x['item']}", "says": f"the lease {x.get('block')} held on it "
+                        f"expired" + (f": its run was silent {fmt(silent / 60)} min" if silent else "")
+                        + "; it went back to be taken again"})
     for a in snap.get("actions", []):                # gated actions held for the owner (SPEC §12k)
         short = a["id"].split("/", 1)[1]
         cmd = a["command"] if len(a["command"]) <= 80 else a["command"][:77] + "..."

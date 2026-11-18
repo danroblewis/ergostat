@@ -192,14 +192,24 @@ WORKSPACES_MEASURES = {            # the workspace pools, now (SPEC §12k); @POO
 }
 
 
+LEASES = re.compile(r"^ergostat\.leases\.(held|expired|dead|overdue)(?:@([a-z][a-z0-9-]*))?$")   # ergostat.leases.dead@ticket
+LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or @BLOCK narrows them
+    "ergostat.leases.held": "leases held now: items a run is working on; @KIND or @BLOCK for one kind or block",
+    "ergostat.leases.expired": "leases that expired over the last day: a run silent past its TTL (each needs attention)",
+    "ergostat.leases.dead": "dead letters now: items given up on after their attempts (each needs attention)",
+    "ergostat.leases.overdue": "leases held now past their expiry, not yet expired: 0 while the watchdog keeps up",
+}
+
+
 def is_measure(name: str) -> bool:
     """A built-in measure a sensor may read: the model's own (``ergostat.model.*``), trust's (``ergostat.trust.*``,
     with an optional ``@who``), the messages' (``ergostat.messages.*``), a recipe's (``ergostat.context.*``) or the
-    intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the gated actions' (``ergostat.actions.*``, with an
+    intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the leases' (``ergostat.leases.*``, with an optional
+    ``@kind`` or ``@block``), the gated actions' (``ergostat.actions.*``, with an
     optional ``@class``) or the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``)."""
     return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
-            or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(ACTIONS.match(name))
-            or bool(WORKSPACES.match(name)))
+            or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
+            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)))
 
 
 @dataclass

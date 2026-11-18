@@ -428,3 +428,75 @@ def test_leases_survive_a_restart_the_fold_is_the_truth(tmp_path):
         assert lease["holder"] is None
     assert any(h.get("why") == "stopped with ergostat" and h["counted"] is False
                for i in (1, 2) for h in item(p, f"ticket/{i}").fields["lease"]["history"])
+
+
+# ---- measures, attention, the command line
+
+
+TAKER = KIND + """
+blocks:
+  worker:
+    type: program
+    run: "true"
+    takes: {kind: ticket, at: ready}
+    pool: 3
+"""
+
+
+def test_measures_and_what_needs_attention(tmp_path):
+    from ergostat import state
+    from ergostat.leases import measures
+    from ergostat.numbers.measures import measure
+    p = project(tmp_path, TAKER)
+    now = time.time()
+    for i in range(4):
+        p.events.add("ticket.opened", item=f"ticket/{i}", source="t", at=now - 100)
+    take(p, "ticket/0", "r0", 1, ttl=600, at=now - 50)                     # held
+    take(p, "ticket/1", "r1", 1, ttl=10, at=now - 50)                      # held, past its expiry: overdue
+    take(p, "ticket/2", "r2", 1, ttl=10, max_=1, at=now - 50)              # expired: a dead letter
+    p.events.add(EXPIRED, item="ticket/2", source="ergostat", data={"run": "r2", "fence": 1, "block": "w", "silent": 40})
+    take(p, "ticket/3", "r3", 1, ttl=10, max_=3, at=now - 50)              # expired, back to ready
+    p.events.add(EXPIRED, item="ticket/3", source="ergostat", data={"run": "r3", "fence": 1, "block": "w", "silent": 40})
+    assert measures.counts(p, p.model.spec) == {"held": 2, "dead": 1, "overdue": 1, "expired": 2}
+    assert measure(p, "ergostat.leases.dead") == 1 and measure(p, "leases.held@ticket") == 2
+    assert measure(p, "ergostat.leases.expired@ticket") == 2 and measure(p, "ergostat.leases.held@worker") == 0
+    att = state.attention(state.snapshot(p), running=False, model=p.model)
+    said = {a["what"]: a for a in att if a["what"].startswith("item ")}
+    assert said["item ticket/2"]["level"] == "bad" and "dead letter" in said["item ticket/2"]["says"]
+    assert said["item ticket/3"]["level"] == "warn" and "expired" in said["item ticket/3"]["says"]
+    from ergostat.spec import read
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(TAKER + """
+stocks:
+  stalled:
+    sensor: {builtin: ergostat.leases.expired@worker, every: 1m}
+goals:
+  none-stalled:
+    stock: stalled
+    hold: "<= 0"
+"""))
+    _, problems = read(tmp_path / "ergostat.yaml")
+    assert not [x for x in problems if x.level == "error"], [x.message for x in problems if x.level == "error"]
+
+
+def test_the_command_line_renews_gives_back_and_redrives(tmp_path):
+    from ergostat.cli import main
+    p = project(tmp_path, TAKER)
+    p.events.add("ticket.opened", item="ticket/1", source="t")
+    take(p, "ticket/1", "r1", 1, ttl=30, max_=1)
+    env = {"ERGOSTAT_ITEM": "ticket/1", "ERGOSTAT_LEASE": "1", "ERGOSTAT_RUN": "r1"}
+    import os
+    from unittest import mock
+    with mock.patch.dict(os.environ, env):
+        before = item(p, "ticket/1").fields["lease"]["expires"]
+        time.sleep(0.05)
+        assert main(["-C", str(tmp_path), "lease", "--renew"]) == 0
+        assert item(p, "ticket/1").fields["lease"]["expires"] > before
+        assert main(["-C", str(tmp_path), "lease", "--nack", "cannot build it"]) == 0
+    it = item(p, "ticket/1")
+    assert it.state == "dead" and it.fields["lease"]["history"][0]["why"] == "cannot build it"
+    with mock.patch.dict(os.environ, env):
+        assert main(["-C", str(tmp_path), "lease", "--renew"]) == 1, "a lease that ended is not renewed"
+    assert main(["-C", str(tmp_path), "lease", "ticket/1", "--redrive", "--why", "fixed"]) == 0
+    assert item(p, "ticket/1").state == "ready"
+    assert main(["-C", str(tmp_path), "lease", "ticket/1", "--redrive"]) == 1, "only a dead letter"
+    assert main(["-C", str(tmp_path), "lease"]) == 0 and main(["-C", str(tmp_path), "lease", "ticket/1"]) == 0

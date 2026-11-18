@@ -456,8 +456,10 @@ class Compiler:
                              f"@rung:KIND or @model:MODEL when about one, or ergostat.messages.unrouted (or awaiting, "
                              f"received, routed, delivered, answered, missed, reached), or ergostat.intent.false-done (or "
                              f"false-done-tests, accepted, reopened, judged, met, unmet, contradicted, held, unjudged, "
-                             f"overruled, cost), with @KIND when about one, or ergostat.actions.held (or approved, auto, denied, ran, "
-                             f"failed), with @CLASS, or ergostat.workspaces.free (or in-use, held, quarantined), with @POOL",
+                             f"overruled, cost), with @KIND when about one, or ergostat.leases.held (or expired, dead, "
+                             f"overdue), with @KIND or @BLOCK when about one, or ergostat.actions.held (or approved, auto, "
+                             f"denied, ran, failed), with @CLASS, or ergostat.workspaces.free (or in-use, held, quarantined), "
+                             f"with @POOL",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
