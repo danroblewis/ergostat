@@ -524,15 +524,17 @@ function stems(u) {
    the bottom: bands are stocks, their edges' slopes flows. Each state named at the right with its count
    (at the cursor, or now): a click filters the table, as the counts did */
 function flowChart(d, group, { chosen = null, onState = null } = {}) {
-  const states = d.states, n = d.times.length;
+  const states = d.states;
   const ramp = ["--line", "--line-strong", "--muted", "--ink-2"];
   const step = (i) => ramp[Math.min(ramp.length - 1, Math.floor((i / Math.max(1, states.length - 1)) * (ramp.length - 1) + 0.0001))];
   const shade = (i) => tok(step(i));
   // cumulative from the bottom (the last state) up
-  const cum = states.map((_, k) => Array.from({ length: n }, (_, i) => states.slice(k).reduce((a, st) => a + d.counts[st][i], 0)));
+  const cumOf = (d) => states.map((_, k) => Array.from({ length: d.times.length }, (_, i) => states.slice(k).reduce((a, st) => a + d.counts[st][i], 0)));
+  const boxClass = (d, st, chosen) => `stbox${d.now[st] ? " some" : ""}${chosen === st ? " on" : ""}`;
+  let cur = d;                                            // the data shown: set in place by update()
   const labels = states.map((st, k) => {
     const n0 = h("span", { class: "n" }, String(d.now[st] || 0));
-    const a = h("a", { href: "#", class: `stbox${d.now[st] ? " some" : ""}${chosen === st ? " on" : ""}`,
+    const a = h("a", { href: "#", class: boxClass(d, st, chosen),
                       onclick: (ev) => { ev.preventDefault(); onState?.(st); } }, h("span", { class: "swatch", style: `background:var(${step(k)})` }), n0, st);
     a.count = n0;
     return a;
@@ -540,33 +542,58 @@ function flowChart(d, group, { chosen = null, onState = null } = {}) {
   const plotEl = h("div", { class: "chart-plot" });
   const el = h("div", { class: "cfd" }, plotEl, h("div", { class: "cfd-states" }, ...labels.slice()));
   mountPlot(plotEl, (width) => {
-    const o = baseOpts({ width, height: 120, group, since: d.since, until: d.until, xAxis: true,
+    const o = baseOpts({ width, height: 120, group, since: cur.since, until: cur.until, xAxis: true,
       yRange: (_, lo, hi) => [0, Math.max(1, hi || 1) * 1.05],
       hooks: { setCursor: [(u) => { const i = u.cursor.idx;
-        states.forEach((st, k) => { labels[k].count.textContent = String(i == null ? d.now[st] || 0 : d.counts[st][i]); }); }] } });
+        states.forEach((st, k) => { setText(labels[k].count, String(i == null ? cur.now[st] || 0 : cur.counts[st][i])); }); }] } });
+    o.scales.x.range = () => [cur.since, cur.until];
     o.axes[1].values = (u, vs) => vs.map((v) => (Number.isInteger(v) ? String(v) : ""));
     o.series = [{}, ...states.map((st, k) => ({ stroke: tok("--bg"), width: 1, fill: shade(k), points: { show: false } }))];
     o.cursor.points = { show: false };
-    return new uPlot(o, [d.times, ...cum], plotEl);
+    return new uPlot(o, [cur.times, ...cumOf(cur)], plotEl);
   });
+  // new data for the same states: the counts and the plot's data set in place (false: the states differ, draw it again)
+  el.update = (d2, chosen2 = null) => {
+    if (JSON.stringify(d2.states) !== JSON.stringify(states)) return false;
+    cur = d2;
+    states.forEach((st, k) => {
+      setText(labels[k].count, String(d2.now[st] || 0));
+      const c = boxClass(d2, st, chosen2);
+      if (labels[k].className !== c) labels[k].className = c;
+    });
+    plotEl.plot?.setData([d2.times, ...cumOf(d2)]);
+    return true;
+  };
   return el;
 }
 /* each finished item: when it finished, and how long it took, with the median dashed */
 function cycleChart(d, group) {
-  const f = d.finished || [];
-  const val = h("span", { class: "chart-val" }, d.median != null ? `median ${dur(d.median)}` : "");
+  let cur = d, f = d.finished || [];                     // the data shown: set in place by update()
+  const medianSaid = () => (cur.median != null ? `median ${dur(cur.median)}` : "");
+  const headSaid = () => `from arriving to ${cur.finished_states.join(" or ")}, ${cur.finished_total ?? f.length} finished${(cur.finished_total ?? 0) > f.length ? ` (${f.length} shown)` : ""}`;
+  const val = h("span", { class: "chart-val" }, medianSaid());
+  const said = h("span", { class: "muted" }, headSaid());
   const plotEl = h("div", { class: "chart-plot" });
-  const el = h("div", { class: "chart cycle" }, h("div", { class: "chart-head" }, h("span", { class: "chart-name" }, "Cycle time"),
-    h("span", { class: "muted" }, `from arriving to ${d.finished_states.join(" or ")}, ${d.finished_total ?? f.length} finished${(d.finished_total ?? 0) > f.length ? ` (${f.length} shown)` : ""}`), val), plotEl);
+  const el = h("div", { class: "chart cycle" }, h("div", { class: "chart-head" }, h("span", { class: "chart-name" }, "Cycle time"), said, val), plotEl);
   if (!f.length) { plotEl.append(h("div", { class: "muted small" }, `None finished in ${windowSaid(d)}.`)); return el; }
+  const series = () => [f.map((x) => x.time), f.map((x) => x.took), f.map(() => cur.median)];
   mountPlot(plotEl, (width) => {
-    const o = baseOpts({ width, height: 100, group, since: d.since, until: d.until, xAxis: true, yValues: (v) => (v > 0 ? dur(v) : v === 0 ? "0" : ""),
-      yRange: (_, lo, hi) => [0, Math.max(hi || 1, d.median || 0) * 1.1],
-      hooks: { draw: [lineLabel(d.median, `median ${dur(d.median)}`)],
-               setCursor: [(u) => { const i = u.cursor.idx; val.textContent = i == null ? `median ${dur(d.median)}` : `${f[i].id}: ${dur(f[i].took)}`; }] } });
+    const o = baseOpts({ width, height: 100, group, since: cur.since, until: cur.until, xAxis: true, yValues: (v) => (v > 0 ? dur(v) : v === 0 ? "0" : ""),
+      yRange: (_, lo, hi) => [0, Math.max(hi || 1, cur.median || 0) * 1.1],
+      hooks: { draw: [(u) => lineLabel(cur.median, `median ${dur(cur.median)}`)(u)],
+               setCursor: [(u) => { const i = u.cursor.idx; setText(val, i == null ? medianSaid() : `${f[i].id}: ${dur(f[i].took)}`); }] } });
+    o.scales.x.range = () => [cur.since, cur.until];
     o.series = [{}, { stroke: tok("--ink"), width: 0, paths: () => null, points: { show: true, size: 5, fill: tok("--ink"), stroke: tok("--ink") } },
                 dashLine()];
-    return new uPlot(o, [f.map((x) => x.time), f.map((x) => x.took), f.map(() => d.median)], plotEl);
+    return new uPlot(o, series(), plotEl);
   });
+  // new data with some finished still: set in place (false when there are none: drawn again)
+  el.update = (d2) => {
+    if (!(d2.finished || []).length) return false;
+    cur = d2; f = d2.finished;
+    setText(val, medianSaid()); setText(said, headSaid());
+    plotEl.plot?.setData(series());
+    return true;
+  };
   return el;
 }

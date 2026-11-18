@@ -228,7 +228,7 @@ function dataCell(d) {                                  // the whole of it, one 
 }
 function eventsTable(evs, compact) {
   return h("div", { class: "table-wrap" }, h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
-    evs.slice().reverse().map((e) => h("tr", {}, h("td", { class: "nowrap", title: new Date(e.time * 1000).toLocaleString() }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+    evs.slice().reverse().map((e) => h("tr", { key: e.id }, h("td", { class: "nowrap", title: new Date(e.time * 1000).toLocaleString() }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
       h("td", { class: "nowrap" }, h("a", { href: "#", class: "plain", title: `event ${e.id}`, onclick: (ev) => { ev.preventDefault(); showEvent(e); } }, e.type)),
       compact ? null : h("td", { class: "nowrap" }, e.item ? itemLink(e.item) : "–"),
       h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(changeOf(e))))));
