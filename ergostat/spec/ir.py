@@ -342,6 +342,7 @@ class Parameter:
     value_at: Where | None = None      # the line its value is on (what an accepted estimate rewrites)
     duration: bool = False             # its value was written as a duration (40s): an estimate is written back as one
     range: tuple[float, float] | None = None   # what it might be (low, high): sensitivity analysis samples it there
+    inferred: str | None = None        # added by ergostat: the model change that added it (ergostat.model-change/<id>), or "true"
 
     @property
     def provenance(self) -> str:
@@ -372,6 +373,7 @@ class Stock:
     description: str = ""
     sensors: dict[str, Sensor] = field(default_factory=dict)
     cumulative: bool = False   # a running total that by its nature never drains (spent so far): no outflow is missing
+    inferred: str | None = None        # added by ergostat: the model change that added it (ergostat.model-change/<id>), or "true"
     where: Where | None = None
 
 
@@ -390,6 +392,8 @@ class Flow:
     instant: set[str] = field(default_factory=set)       # str(ref) of the driven-by declared immediate (instant: true)
     two_way: bool = False      # it may run either way (system dynamics' biflow): a block may move it by a negative amount
     equation: Equation | None = None   # its rate per hour, as an equation of parameters and parts (SPEC §7b)
+    inferred: str | None = None        # added by ergostat: the model change that added it (ergostat.model-change/<id>), or "true"
+    inferred_links: dict[str, str] = field(default_factory=dict)   # str(ref) of a driven-by ergostat added → its inferred:
     where: Where | None = None
     defined: Where | None = None       # the line its name is on
 
@@ -412,6 +416,8 @@ class Auxiliary:
     instant: set[str] = field(default_factory=set)
     exogenous: bool = False    # an input from outside the model: nothing in it drives it (the weather, the mix of customers)
     equation: Equation | None = None   # its value, as an equation (SPEC §7b); without one it is measured
+    inferred: str | None = None        # added by ergostat: the model change that added it (ergostat.model-change/<id>), or "true"
+    inferred_links: dict[str, str] = field(default_factory=dict)
     where: Where | None = None
     defined: Where | None = None       # the line its name is on
 

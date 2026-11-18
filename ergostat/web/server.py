@@ -179,6 +179,21 @@ def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: 
     return {**got, "items": kept, "matched": matched, "listed": len(got["items"])}
 
 
+def inferred_of(spec, kind: str, name: str | None) -> dict | None:
+    """Whether a model change added this part (``inferred:``, SPEC §12e), and which: ``{"from": item or None}``, or None
+    for a part the YAML declares. What the side panel says, subtly: "added by ergostat, from model change X"."""
+    if spec is None or name is None:
+        return None
+    x = {"stock": spec.stocks, "flow": spec.flows, "auxiliary": spec.auxiliaries,
+         "parameter": spec.parameters}.get(kind, {}).get(name)
+    if x is None and kind == "stock":                       # an auxiliary is opened as a level, like a stock
+        x = spec.auxiliaries.get(name)
+    v = getattr(x, "inferred", None)
+    if not v:
+        return None
+    return {"from": v if "/" in v else None}
+
+
 def api(live: Live, path: str, q: dict):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
     shape is, and which shapes stand for each part, so one selection is lit in every view."""
@@ -400,6 +415,8 @@ def _answer(live: Live, path: str, q: dict):
             return None
         x = table[pname]
         out = {"kind": x.kind if not getattr(x, "disturbance", False) else "disturbance", "model": x.__dict__}
+        out["inferred"] = (inferred_of(getattr(m, "spec", None), "flow", getattr(x, "flow", None)) if kind == "valve" else
+                           inferred_of(getattr(m, "spec", None), "flow" if kind == "disturbance" else kind, pname))
         if kind == "stock":
             out["now"] = snap["stocks"].get(pname)
             if pname in getattr(getattr(m, "spec", None), "auxiliaries", {}):

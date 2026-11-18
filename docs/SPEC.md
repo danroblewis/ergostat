@@ -309,6 +309,7 @@ stocks:
 | `limit` | number | none | The physical limit: a full disk, a queue's capacity. Used to estimate time to failure |
 | `initial` | number | none | A starting value, for simulation only |
 | `cumulative` | bool | false | A running total that by its nature never drains (spent so far, kept so far): no outflow is missing, and `check` does not ask for one (**stock-without-outflow**) |
+| `inferred` | model-change id, or `true` | none (declared) | Added by ergostat: the model change that added it (section 12e, *Inferred and declared*) |
 | `system` | name | the file's default | The group it belongs to |
 | `description` | string | none | |
 | `sensors` | map of sensors | none | How it is measured (section 6) |
@@ -621,6 +622,7 @@ flows:
 | `sensors` / `sensor` | | none | Measurements of its rate |
 | `driven-by` | flow, stock or auxiliary references, each optionally signed | none | What its rate follows: an influence from elsewhere in the system (see below) |
 | `two-way` | bool | false | It may run either way (system dynamics' biflow): a block may move it by a negative amount, and its sensor may read a negative rate |
+| `inferred` | model-change id, or `true` | none (declared) | Added by ergostat: the model change that added it (section 12e, *Inferred and declared*) |
 | `system`, `description` | | | |
 
 **`driven-by`: an influence, not a pipe.** Some flows are moved by nothing in the model, yet follow
@@ -656,6 +658,7 @@ flows:
 | `cause` | a reference, optionally signed | What it follows, as in the short form |
 | `instant` | bool | The effect follows the cause in the same moment, with no stock between; `explain` says "at once" |
 | `description` | string | |
+| `inferred` | model-change id, or `true` | Added by ergostat: the model change that added the link (section 12e) |
 
 A flow that follows a flow of something else (alerts following ramps) moves so many of its own units
 for each of the other's: a **coflow** (Sterman, ch. 12). The ratio is an auxiliary
@@ -712,6 +715,7 @@ auxiliaries:
 | `sensors` / `sensor` | | none | How it is measured (section 6), as a stock is |
 | `driven-by` | references, each optionally signed | none | What it follows (flows, stocks, auxiliaries): an influence, as on a flow |
 | `exogenous` | bool | false | An input from outside the model (system dynamics' exogenous input); it then has no `driven-by` |
+| `inferred` | model-change id, or `true` | none (declared) | Added by ergostat: the model change that added it (section 12e, *Inferred and declared*) |
 
 A block may set an auxiliary by naming it in `out:` (`out: auxiliary.flat-share`) and printing its
 whole value each run (`{"out": "auxiliary.flat-share", "value": 0.3}`, or a bare number); what it
@@ -791,6 +795,7 @@ flows:
 | `estimate` | bool | false | Fitted from the record (section 12b): the estimate is kept apart and proposed, never written here until it is accepted |
 | `table` | points | none | A lookup, called like a function: `effect-of-load(stock.queue)` |
 | `range` | `[low, high]`, numbers or durations | none | What it might be: sensitivity analysis samples it uniformly there, calibration keeps to it, and the extreme-conditions test pushes it to its ends (sections 12b, 12c). A value outside it is a finding (**parameter-range**) |
+| a parameter's `inferred` | model-change id, or `true` | none (declared) | Added by ergostat: the model change that added it (section 12e) |
 | `system`, `description` | | | |
 
 **Expressions.** Numbers; parameters by their bare name; parts by reference (`stock.x`, `flow.x`,
@@ -1396,21 +1401,24 @@ stay by Little's law (its mean level over what left an hour, the record's inflow
 when nothing left it, `cumulative: true`; *units-mismatch*, the converting auxiliary; *equation-sign*,
 the equation's sign on the link (or none, where it changes sign); *extreme-conditions*, `MAX(0, …)` on
 a one-way flow that runs backwards and `ZIDZ` on a division that faults; *auxiliary-without-causes*,
-`exogenous: true`. From the estimators: a coefficient of a link ergostat inferred (the part's or the
-parameter's description says `proposed by ergostat`) indistinguishable from 0 (within two standard errors)
+`exogenous: true`. From the estimators: a coefficient of a link ergostat inferred (the link, its part or the
+parameter marked `inferred:`, §12e) indistinguishable from 0 (within two standard errors)
 whose largest effect either way is under a tenth of its part's size is taken out with its link; a declared
 sign that a least-squares fit of a flow on its causes (R² ≥ 0.5) contradicts is flipped. From SD Lab's
-simplify rules (its SPEC §4.8), only as far as System Dynamics practice keeps them: structure with **no
-declared reason that the record shows to be redundant** is proposed for removal: an inferred equation-only
-flow whose removal leaves the scaled error within 2%; two flows between the same two stocks merged, the ones
-merged away with no description; a stock nothing touches, with no description; a stock with no declared
-reason that carries exactly another's information (a twin: correlation past 0.999, scale within 5%, over an
-hour of record or more, read together 60 times, each ranging over more than a tenth of its mean), removed
-(SD Lab hides it; ergostat has no `hide:`, so the proposal removes it and makes its flows' ends there
-clouds). Each says which part and why, carries `removes`, and waits for the owner (§12e). A **declared**
-part, a stock, flow, link, auxiliary, sensor or goal the YAML writes, with or without a description, is
-never proposed for removal because it was quiet, flat or uncorrelated in the record (SD Lab's dead-flow,
-still, empty and pass-through rules are not carried over): see *not exercised*, §12e. A stock a goal
+simplify rules (its SPEC §4.8), only as far as System Dynamics practice keeps them: structure **ergostat
+inferred** (marked `inferred:`, §12e) **that the record shows to be redundant** is proposed for removal: an
+inferred equation-only flow whose removal leaves the scaled error within 2%; two flows between the same two
+stocks merged, the inferred ones merged away; an inferred stock nothing touches; an inferred stock that
+carries exactly another's information (a twin: correlation past 0.999, scale within 5%, over an hour of
+record or more, read together 60 times, each ranging over more than a tenth of its mean), removed (SD Lab
+hides it; ergostat has no `hide:`, so the proposal removes it and makes its flows' ends there clouds). Each
+says which part and why, carries `removes`, and waits for the owner (§12e). A **declared** part, a stock,
+flow, link, auxiliary, parameter, sensor or goal the YAML writes without `inferred:`, with or without a
+description, is never proposed for removal (*decided*, 2026-11-18: it was, when it had no description; the
+key replaced the description as what tells the two apart), and never because it was quiet, flat or
+uncorrelated in the record (SD Lab's dead-flow, still, empty and pass-through rules are not carried over):
+see *not exercised*, §12e; what the rules find about declared parts is listed among what was found and not
+proposed, with why. A stock a goal
 holds, and what a goal or block names, is left alone. Each edit is applied in memory and the model
 compiled from it: one that would leave an error, or not answer its finding, is not proposed, and is
 listed with why. *Not yet*: a missing stock, flow or delay, or a part replaced, found from the pattern
@@ -1770,6 +1778,35 @@ block (its name and rung, its reasons with their evidence, how sure it said it w
 and the MCP tool `try_change` check a proposal the same way and record nothing; `ergostat improve --edit-value
 NAME=V` prints the edit that sets a parameter's value, in the form `edit` takes.
 
+### Inferred and declared: `inferred:`
+
+Invariant 11 asks that everything in the model say whether it was declared or inferred. Whenever a model change adds
+a part, ergostat writes on it, in the edit the review queue shows and Accept writes, the key **`inferred:`** with the
+change's item: on a stock, a flow, an auxiliary, a parameter, and a link written out (`{cause: +stock.x, inferred:
+...}`).
+
+```yaml
+flows:
+  pile-leaving:
+    from: pile
+    driven-by: +stock.pile
+    equation: stock.pile / time-in-pile
+    inferred: ergostat.model-change/3f9c01aa      # the change that added it
+parameters:
+  time-in-pile:
+    value: 40m
+    estimate: true          # from Little's law; refitted as the record grows
+    inferred: ergostat.model-change/3f9c01aa
+```
+
+| | |
+|---|---|
+| The value | *Decided* (2026-11-18): the change's item id, `ergostat.model-change/<id>`, one key that says both that it was inferred and where from (not `inferred: true` with a `from:` beside it). `true` is accepted where the change is not known (a part copied from another model); `false`, or no key, is declared. Anything else is an error (**bad-inferred**) |
+| Who writes it | ergostat's own finders (a stock between two rates, an outflow and its time to stay, a converting auxiliary and its link, an equation's parameters), and the check of a block's proposal, on each stock, flow, auxiliary and parameter its edit adds (written under the line the part's name is on; a part written in the short form, `k: 0.45`, is left as written). The id is the change's own: its edit is made with a placeholder, the change's id worked out from it, and the placeholder made that id, so the same change found again is the same change. A link a block adds to a declared part is not yet marked |
+| Accepted or edited | It **stays**: a part the owner accepts, or edits afterwards (its equation, its value, its description), is still inferred, and still names the change that added it, until the owner takes the key away. Taking it away is how the owner declares the part as their own |
+| What reads it | The structural rules (§12b): only an inferred part (or link) that explains nothing or duplicates another may be proposed for removal, and that always waits for the owner; a declared part never is. The gate refuses a block's removal of a declared part the record has not exercised. The side panel of the Dynamics and Blocks views says, quietly, "added by ergostat, from model change X" (X a link to its item), and a parameter's "from" column the same |
+| What it is not | Not part of the model's structure or version: adding or taking away the key changes neither, so it never supersedes a change waiting. The description is the owner's and ergostat's words, never read for provenance (before 2026-11-18 the phrase `proposed by ergostat` in a description marked an inferred part, and the equation proposer's parameters, marked only by a YAML comment, counted as declared) |
+
 ### Not exercised by the record: quiet is not absent
 
 A flow that has not moved yet is not evidence that it does not exist: points are lost rarely (an outage), a
@@ -1784,7 +1821,7 @@ stated reason (`ergostat/numbers/exercised.py`).
 | The finding | `not-exercised`, about the part, a built-in finding from the record (`ergostat findings`, the MCP tool `findings`, the Check page, the part's side panel): the span of record it covers, the readings, why, and, as a suggestion only, that a step test or a planned disturbance would exercise it. It clears the moment the part moves |
 | The estimator | An estimate of a parameter that is not exercised is not proposed: it is **held, inconclusive** (`estimate.judged`), said beside the parameter, until the record exercises it. A block's proposal that sets only such parameters is recorded as `inconclusive`, not checked |
 | The judge | It does not vouch for what the record held out has not exercised: a value or an equation whose parts it acts through did not move there is never passed on that record; it stays under test and is then `inconclusive` ("needs record in which it moves") |
-| Removal | Never for a declared part the record has not exercised: a block's proposal that removes one is refused at the gate. Only structure with no declared reason that the record shows to be redundant (§12b), and any change that removes structure (`removes`, or parts it takes away) is never written by the judge's policy: it waits for the owner |
+| Removal | Never for a declared part the record has not exercised: a block's proposal that removes one is refused at the gate. Only structure ergostat inferred (`inferred:`) that the record shows to be redundant (§12b), and any change that removes structure (`removes`, or parts it takes away) is never written by the judge's policy: it waits for the owner |
 
 ### The judge
 

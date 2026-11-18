@@ -69,7 +69,7 @@ async function openNode(n) {
   if (kind === "controller") return openLoop(name, true);
   const d = await api(`part/${kind}/${encodeURIComponent(name)}`);
   const m = d.model, now = d.now || {};
-  const rows = [["description", m.description]];
+  const rows = [["description", m.description], inferredRow(d.inferred)].filter(Boolean);
   const knob = n.kind === "auxiliary" && n.agent;          // what a block sets is not measured: it is what the block said
   if (kind === "stock") rows.push(["now", `${fmt(now.value)} ${m.unit}`],
     knob ? ["set", h("span", {}, now.at ? `${ago(now.at)} by ` : "never yet, by ", agentLink(n.agent))]

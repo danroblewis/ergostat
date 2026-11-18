@@ -178,7 +178,8 @@ stocks:
       manual: true
   copy:
     unit: jobs
-    description: the queue, read again (proposed by ergostat)
+    description: the queue, read again
+    inferred: ergostat.model-change/ab12cd34
     sensor:
       manual: true
 flows:

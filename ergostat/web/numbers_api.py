@@ -254,6 +254,7 @@ def parameter_rows(p, spec, names: list[str]) -> list[dict]:
         rows.append({"name": nm, "value": x.value, "unit": x.unit, "provenance": x.provenance, "estimate": x.estimate,
                      "duration": x.duration,
                      "table": x.table, "description": x.description,
+                     "inferred": ({"from": x.inferred if "/" in x.inferred else None} if x.inferred else None),
                      "where": str(x.defined) if x.defined else None,
                      "estimated": None if not e or e.get("value") is None else
                      {**{k: e.get(k) for k in ("value", "n", "when", "window", "before", "after", "held_before", "held_after",

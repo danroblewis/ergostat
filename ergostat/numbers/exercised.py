@@ -8,8 +8,8 @@ finding on the part (``not-exercised``), with the span of record it covers and w
 value, so there is no variation to identify a parameter from). The estimator and the judge do not vouch for what
 it carries until the record exercises it, and the finding clears the moment the part moves.
 
-Removal is for structure with no declared reason that the record shows to be redundant (``inferred``, ``twin`` in
-``structural.py``), and always waits for the owner."""
+Removal is only ever for structure ergostat inferred (marked ``inferred:``) that the record shows to be redundant
+(``simplify`` in ``structural.py``), and always waits for the owner."""
 
 from __future__ import annotations
 
@@ -24,20 +24,25 @@ DEAD_MEAN, DEAD_PEAK = 0.001, 0.01   # a rate read under these shares of the typ
 MIN_READINGS = 20                    # fewer readings than this say nothing either way
 MIN_SPAN = 600.0                     # nor does less record than this (s)
 CODE = "not-exercised"
-MARK = "proposed by ergostat"        # what ergostat writes in the description of a part it adds: an inferred part
 SUGGEST = "a step test or a planned disturbance that moves it would exercise it"
 
 
 def inferred(x) -> bool:
-    """A part (or a parameter) ergostat added itself, its description saying so: structure with no declared reason
-    beyond what ergostat inferred."""
-    return MARK in (getattr(x, "description", "") or "").lower()
+    """A part (or a parameter) a model change added, which ergostat marks ``inferred:`` when it writes it (SPEC §12e):
+    structure with no declared reason beyond what was inferred. It stays inferred when the owner accepts or edits it,
+    until the owner takes the key away; everything else the YAML writes is declared."""
+    return bool(getattr(x, "inferred", None))
 
 
-def declared_reason(x) -> bool:
-    """A part the owner gave a reason for: a description, and not one ergostat wrote for a part it inferred."""
-    d = (getattr(x, "description", "") or "").strip()
-    return bool(d) and not inferred(x)
+def inferred_from(x) -> str | None:
+    """The model change that added it (``ergostat.model-change/<id>``), when its ``inferred:`` says which."""
+    v = getattr(x, "inferred", None)
+    return v if isinstance(v, str) and "/" in v else None
+
+
+def link_inferred(x, cause: str) -> bool:
+    """A link (a driven-by) a model change added: marked ``inferred:`` itself, or on an inferred part."""
+    return inferred(x) or str(cause) in (getattr(x, "inferred_links", None) or {})
 
 
 def _num(v: float) -> str:

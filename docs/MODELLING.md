@@ -265,11 +265,13 @@ estimate of a parameter that acts only through it (inconclusive, not proposed), 
 not pass a change to it on record that has not moved it. The finding clears the moment the part
 moves.
 
-**What may still be removed.** Only structure with no declared reason that the record shows to be
-redundant: a part ergostat inferred (its description says `proposed by ergostat`), or one with no
-description that carries exactly another part's information over a long, varied record (a twin). The
-proposal says which and why, and waits for the owner: removing structure is never written by the
-judge's policy.
+**What may still be removed.** Only structure ergostat inferred that the record shows to be
+redundant: a part (or a link) marked `inferred: ergostat.model-change/<id>`, which ergostat writes on
+everything a model change adds, that explains nothing or carries exactly another part's information
+over a long, varied record (a twin). The proposal says which and why, and waits for the owner:
+removing structure is never written by the judge's policy. A declared part (no `inferred:`) is never
+proposed for removal, described or not. The key stays when you accept or edit an inferred part; take
+it away to make the part your own.
 
 ## Reading what `ergostat check` says
 

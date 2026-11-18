@@ -584,6 +584,7 @@ async function openNodeSD(n) {
     let d = null;
     try { d = await api(`part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
+    if (d?.inferred) rows.push(inferredRow(d.inferred));
     rows.push(["rate, over the window", now.rate != null ? `${fmt(now.rate)} ${d?.unit ? `${d.unit}/h` : "/h"}` : n.rateText],
               ["how it is known", now.how || n.how],
               ["inputs", join(causes) || h("span", { class: "muted" }, "none drawn: nothing in the model points into it")],
@@ -598,7 +599,8 @@ async function openNodeSD(n) {
     let d = null;
     try { d = await api(`part/stock/${encodeURIComponent(n.label)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
-    rows.push(["description", m.description || n.description], ["now", `${fmt(now.value ?? n.value)} ${m.unit || n.unit || ""}`],
+    rows.push(["description", m.description || n.description], ...(d?.inferred ? [inferredRow(d.inferred)] : []),
+              ["now", `${fmt(now.value ?? n.value)} ${m.unit || n.unit || ""}`],
               ["measured", now.at ? ago(now.at) : null]);
     if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? `${fmt(now.inflow)}/h` : null], ["outflow", now.outflow != null ? `${fmt(now.outflow)}/h` : null]);
     for (const gl of n.goals || []) rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint}${gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)"}`]);
