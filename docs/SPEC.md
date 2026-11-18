@@ -1973,6 +1973,23 @@ three-hour copy of that record, ergostat's own finders went from 14 removals pro
 stock) to none, with 33 parts said not exercised. `bench judge` and `bench improve` are unchanged by it (their
 truth cases exercise every part they plant a defect in).
 
+*Then* (2026-11-18, from fresh 20-minute image-squeeze runs where the gate and the judge accepted
+`images-per-hour` near 2,180 after 11 minutes, where the world compares 4,500 an hour): the equation counts an
+experiment's whole open time (`images-per-hour * MIN(stock.experiments, 1)`), so the estimate is the record's
+comparisons per open hour, and in the first minutes that share is set by one or two experiments (a first build, or
+candidates dropped within a minute, are open and compare nothing); the replay of `paired` carries each such mismatch
+forward, so its errors drift together (lag-one autocorrelation 0.87 to 0.97), and 50 to 80 readings held 1 to 4
+independent points. The estimator asked for ten only where the error left was past a tenth of the spread, and a
+block's value was not asked at all, so the stand-in re-submitted the declined estimate and the judge decided it on four
+minutes of the same regime; the standard error, ±12, took every reading as independent. On fresh copies (three runs,
+estimates 3,516 to 4,232 between 11 and 17 minutes), every such estimate is now held, inconclusive, with "it needs
+about 24m to 2h more record", and the stand-in's resubmission is recorded inconclusive and held back as long; an hour
+gives 4,460, which drifts still and is not proposed (4,500 is right). On a copy of the owner's aged record, where the
+lab compared for 40 minutes and then for 15 hours not at all, the calibration had 3,885 ± 9 (three hours) and 6,114 ± 8
+(now) ready to propose; both are held: what it acts through moved once or twice. `bench judge`: 0 false accepts and 0
+false rejects over 240 trials, as before. `bench improve`, stand-in: unchanged (recall 11/16, 17 written, 14 real, 2
+damaging); calibrator: recall 6/16 as before, 18 written (11 real, 6 damaging) where it wrote 20 (9 real, 8 damaging).
+
 **4. The prediction check** (`ergostat/numbers/verify.py`, `ergostat verify [--propose]`, run by a block). Each
 change written is checked once, after three hold-outs of record: the model now beside the model with that change
 undone (its hunks reversed where they sit now), replayed on the record since it was written and its halves.
