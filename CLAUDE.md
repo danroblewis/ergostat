@@ -3,7 +3,9 @@
 > **Setting up ergostat for someone, rather than changing ergostat itself?** Read
 > [docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md) first: how to turn the work a person describes into a model
 > that runs and is the right shape, how to check it, and how to look at its diagrams before you call it
-> done. The rest of this file is for changing ergostat's own code.
+> done. Then [docs/MODELLING-WELL.md](docs/MODELLING-WELL.md): the craft that makes each of the three diagrams
+> (Dynamics, Blocks, Process) look as a professional in its discipline would draw it. The rest of this file is for
+> changing ergostat's own code.
 
 Ergostat keeps work going. It is a tool for drawing a control-system boundary around whatever
 someone wants to keep working, and for designing, seeing and running the control system inside it.
