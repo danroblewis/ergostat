@@ -233,7 +233,7 @@ their stock's changes are read on the loop itself; commands and queries go to a 
 every series' newest reading (`Measurements.changes`). Runs that end, leased or not, wake the loop instead of running a
 pass on their own thread; what lands within `BATCH` (50 ms) of a pass waits for the next one together. The pass works
 out only what is downstream of what changed: the parts with a new reading, the goals on them, the built-ins reading
-what changed and every built-in that keeps time, and the machine blocks commanded by what changed, bearing on a new
+what changed and those whose output can move with time alone, and the machine blocks commanded by what changed, bearing on a new
 reading (`fresh_for`, `after_acting`) or whose run ended; the clock's pass adds the blocks commanded on and not
 running. The first pass, and the first after a swap, works out everything (`tests/test_incremental.py` holds the
 two against each other). The lock is held only while the signals are worked out: the snapshot is read before it,
@@ -250,10 +250,12 @@ when no loop runs (an engine not started).
   blocks in the model's order. A crossing on a part an after-acting reading of the batch read names that run as its
   cause.
 - What only time makes due is seen at the clock's pass: a block paced by `every` whose pace ran out, a block a step
-  test stops holding *(change: any reading's pass could start it sooner, by up to a tick)*. Built-ins that keep time
-  (`onoff`, `delay`, `schedule`, `timer`, `counter`, `alarm`, `limit` with a `rate`) step at every pass, as before; the
-  others step only when what they read changed, which is the same output: they are functions of their inputs, and
-  `compare`'s hysteresis is idempotent.
+  test stops holding *(change: any reading's pass could start it sooner, by up to a tick)*. Built-ins whose output can
+  move with time alone step at every pass, as before: every `delay`, `timer` and `schedule`, an `onoff` with `min-on`,
+  `min-off` or `until` (an `until` other than its goal need not settle in one step), an `alarm` with `for`, a `counter`
+  with `reset`, a `limit` with a `rate` (`engine.every_pass`). The others step only when what they read changed, which
+  is the same output: they are functions of their inputs and of their own last output, which a step with the same
+  inputs keeps (`compare`'s hysteresis, `onoff` without `until`).
 - A pass's events (`loop.*`, `controller.decided`, `person.asked`, `block.advised`) are written after it, in one write,
   in the order it made them, before any run it starts; their `time` is when the pass made them.
 - At most eight sensor commands or queries run at once; one that hangs holds a worker until its `timeout`
