@@ -1374,10 +1374,13 @@ after, and the smallest edit to the YAML that makes it, made on the file's text 
 order stay. Two kinds so far. A **parameter** set to its estimate, only when the record supports it:
 the record covers enough of the part's dynamics to identify it (Ljung ch. 13 and 16: an informative experiment),
 it is fitted on forty points or more spanning three of the slowest time constant the parameter touches (for a
-stock that only integrates, the time things stay in it, by Little's law), its effective record holds at least ten
-independent points where the fit leaves a material error (its weighted error past 0.001, an RMS past 3% of the
-readings' spread: it was past 0.01, and an image-squeeze record of 17 minutes drifting from its readings as one passed
-as 80 points), and what it acts through **moved** six times (what the parameter multiplies in its equations, from
+stock that only integrates, the time things stay in it, by Little's law, both as the replay has them at the
+estimate, not at the value written), on a young record (under twenty of that time constant) its effective record
+holds at least ten independent points where the fit leaves a material error (its weighted error past 0.001, an RMS
+past 3% of the readings' spread: it was past 0.01, and an image-squeeze record of 17 minutes drifting from its
+readings as one passed as 80 points; on an older record errors that still drift together are said to put the
+structure in question, not the record's length, and the calibration proposes nothing while a block may, for the
+judge), and what it acts through **moved** six times (what the parameter multiplies in its equations, from
 the Jacobian, going a tenth of its range from where it last moved: three cycles of an experiment started and
 decided; one held at a single value the whole record cannot be told from a constant); otherwise it is **held,
 inconclusive**, with how much more record it needs ("it needs about 30m more record", at the rate the record has

@@ -31,6 +31,8 @@ from ..durations import human as dur
 INDEPENDENT = 10        # independent points, at least, about a parameter before its value is proposed
 MOVES = 6               # ... and moves of what it acts through (three cycles of a switching input)
 STEP = 0.1              # a move: what it multiplies changed by this share of its range since the last move
+YOUNG = 20              # a record under this many of the slowest time constant is young: few independent points there are
+                        # too little record; past it, errors that still drift together are the structure's
 RHO_MAX = 0.99          # errors that run together count as at least this many hundredths of independent points
 MATERIAL = 0.001        # a weighted error left past this (its RMS past 3% of the readings' spread) is the model and the
                         # record disagreeing; below it, errors that drift together are the replay's own rounding
@@ -153,7 +155,7 @@ def too_short(e: dict) -> dict | None:
         why.append(f"{n} points fitted, under {es.PROPOSE}")
         needs = max(needs, window * (es.PROPOSE / max(n, 1) - 1))
     eff = e.get("n_eff")
-    if eff is not None and eff < INDEPENDENT and (e.get("after") is None or e["after"] > MATERIAL):
+    if eff is not None and eff < INDEPENDENT and (e.get("after") is None or e["after"] > MATERIAL) and young(e):
         why.append(f"the model's errors on it drift together over the record (lag-one autocorrelation {e.get('rho') or 0:.2f}), "
                    f"so its {n} points hold about {max(eff, 0):.1f} independent ones, under {INDEPENDENT}")
         needs = max(needs, window * (INDEPENDENT / max(eff, 0.5) - 1))
@@ -217,6 +219,24 @@ def record_says(spec, data, values: dict[str, float]) -> dict[str, dict]:
             if short is not None:
                 out[n] = short
     return out
+
+
+def young(e: dict) -> bool:
+    """A record under ``YOUNG`` of the slowest time constant the parameter acts through (or one that says none)."""
+    slowest = e.get("slowest")
+    return not slowest or float(e.get("window") or 0.0) < YOUNG * slowest * 3600
+
+
+def drifting(e: dict) -> str | None:
+    """Why an estimate from a record that is not young is still not proposed: its errors drift together, so the model
+    and the record disagree for long stretches however long the record grows: a question of structure, not of record.
+    A block may still propose the value, for the judge to decide on the record after it."""
+    eff = e.get("n_eff")
+    if eff is None or eff >= INDEPENDENT or (e.get("after") is not None and e["after"] <= MATERIAL) or young(e):
+        return None
+    return (f"the model's errors on it drift together over {dur(float(e.get('window') or 0))} of record (lag-one "
+            f"autocorrelation {e.get('rho') or 0:.2f}), about {max(eff, 0):.1f} independent points: more record will not "
+            f"settle it; the structure around it is in question")
 
 
 def to_tell(e: dict, moved_by: float) -> float | None:

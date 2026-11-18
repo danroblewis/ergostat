@@ -517,6 +517,9 @@ def judged(e: dict, declared: float | None) -> str | None:
     short = idf.too_short(e)
     if short is not None:
         return short["says"]
+    drift = idf.drifting(e)
+    if drift is not None:
+        return drift
     if e.get("at_bound"):
         return ("it ran to its bound (a thousand times from the value written): no value of it fits, a question of "
                 "structure, not of size")
