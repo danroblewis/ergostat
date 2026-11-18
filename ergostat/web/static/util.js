@@ -113,23 +113,27 @@ function unstub(n) {                                    // a node new to the pag
 function patchNode(o, n) {
   if (o.nodeType !== 1) { if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue; return o; }
   if (o.__sig !== undefined || n.__sig !== undefined) {
-    if (o.__sig === n.__sig) return o;
+    if (o.__sig === n.__sig) { n.replaceChildren(); return o; }
     if (o.tagName === "DETAILS" && o.open) n.open = true;           // made again, as the reader left it
     o.parentNode.replaceChild(n, o);
     unstub(n);
     return n;
   }
   const details = o.tagName === "DETAILS";                           // open or closed: the reader's
-  for (const a of n.attributes) {
-    if (details && a.name === "open") continue;
-    if (o.getAttribute(a.name) !== a.value) { if (a.namespaceURI) o.setAttributeNS(a.namespaceURI, a.name, a.value); else o.setAttribute(a.name, a.value); }
+  // by name, never through .attributes (each Attr it hands out is a node the element then keeps)
+  for (const name of n.getAttributeNames()) {
+    if (details && name === "open") continue;
+    const v = n.getAttribute(name);
+    if (o.getAttribute(name) !== v) o.setAttribute(name, v);
   }
-  for (const a of [...o.attributes]) if (!n.hasAttribute(a.name) && !(details && a.name === "open")) o.removeAttribute(a.name);
+  for (const name of o.getAttributeNames()) if (!n.hasAttribute(name) && !(details && name === "open")) o.removeAttribute(name);
   if (n.__on || o.__on) {
     for (const t of n.__onTypes || []) if (!o.__onTypes?.has(t)) listen(o, t, n.__on[t]);
     o.__on = n.__on || null;
   }
   patchKids(o, [...n.childNodes]);
+  // what is left of the tree built is let go: the handlers just handed over share its scope, and would keep it
+  n.replaceChildren();
   return o;
 }
 /* the reader's place: kept by the browser (overflow-anchor) where it can; elsewhere measured and kept here */
