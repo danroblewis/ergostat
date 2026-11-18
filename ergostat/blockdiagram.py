@@ -461,6 +461,7 @@ class _Diagram:
                           rows=[["holds", ", ".join(f"{x}: {_hold(self.s.goals[x])}" for x in goals)], ["now", self.now(gv)]])
                 self.wire(gv, nid, self.port(nid, "in", gv))
         self.cascades()
+        self.buses()
         self.mark_loops()
         for n in self.control:
             self.one_input(f"blk:{n}")
@@ -657,16 +658,34 @@ class _Diagram:
                 self.wire(var, nid, self.port(nid, "in", var, "E"))
         self.produce(key, nid, key, "W")
 
+    def buses(self) -> None:
+        """A collector whose records many counts read (three or more): its one signal goes into a bus, a bar with
+        a port for each count (Simulink's bus selector), so that its lines leave it apart, one to each sensor."""
+        for cid in [n for n in self.nodes if n.startswith("col:")]:
+            outs = [w for w in self.wires if w["source"] == cid]
+            if len(outs) < 3:
+                continue
+            bid, ck = f"bus:{cid[4:]}", outs[0]["key"]
+            n = self.nodes[cid]
+            self.node(bid, kind="demux", role="bus", system=n.get("system"), n=len(outs), label="bus",
+                      says=f"a bus: what {n['label']} records, taken to each of the {len(outs)} counts that read it.")
+            for w in sorted(outs, key=lambda w: w["target"]):
+                key = f"{ck}~{w['target']}"
+                self.sig[key] = {**self.sig[ck], "key": key}
+                w["key"], w["source"], w["sourcePort"] = key, bid, self.port(bid, "out", key, "W")
+            self.wires.append({"key": ck, "source": cid, "sourcePort": self.prod[ck][1], "target": bid,
+                               "targetPort": self.port(bid, "in", ck, "E")})
+
     def collector(self, x, var: str) -> str:
         """The block a collector is: it polls an outside system and records what it saw as items, which a
-        sensor counts. Drawn once, however many counts read its kind; what it watches (each variable whose
-        count reads it) goes into it. Its signal's key."""
+        sensor counts. Drawn once, however many counts read its kind, with one input: the stock its flow brings
+        the items into (the outside system it watches, as the model has it). Its signal's key."""
         cid = f"col:{x.of.name}.{x.name}"
         ck = f"rec:{x.of.name}.{x.name}"
         kinds = sorted(k for k, cs in self.collectors.items() if any(c is x for c in cs))
         if cid not in self.nodes:
             title = x.description if x.description and len(x.description) <= 40 else (
-                sensing.what(self.s, x) if x.query else sensing._command(x.run or "") or x.name)
+                sensing.what(self.s, x) if x.query else sensing.short(sensing._command(x.run or "")) or x.name)
             what = f"records {' and '.join(kinds)} items" + (f", {sensing.how_often(x)}" if sensing.how_often(x) else "")
             self.node(cid, kind="block", role="collector", system=self.s.owner(x.of), label=title,
                       fn={"name": title, "kind": "collector", "reads": what, "linear": False},
@@ -679,10 +698,13 @@ class _Diagram:
                       rows=[["sensor", f"{x.of.name}.{x.name}"], ["reads", sensing.reads(self.s, x)],
                             ["records", ", ".join(kinds)], ["description", x.description]],
                       part=f"{x.of.kind}.{x.of.name}")
-            self.produce(ck, cid, "items")
+            self.produce(ck, cid, "items", "W")               # on the feedback path: its records go back, leftwards, to the counts
             self.sig[ck] = {"key": ck, "sym": "", "sub": "", "what": "record"}
-        if not any(w["target"] == cid and w["key"] == var for w in self.wires):
-            self.wire(var, cid, self.port(cid, "in", var, "E"))
+            # what it watches: the outside system, drawn as the stock its flow brings the items into (one input,
+            # however many counts read what it records: their lines leave it as one signal, taken off for each)
+            f = self.s.flows.get(x.of.name) if x.of.kind == "flow" else None
+            watched = f"stock.{f.target}" if f is not None and f.target and self.source(f"stock.{f.target}") else var
+            self.wire(watched, cid, self.port(cid, "in", watched, "E"))
         return ck
 
     def processes(self) -> None:
@@ -1330,7 +1352,7 @@ def _keyname(k: str) -> str:
     if k.startswith("meas."):
         return f"{k.split('.')[2]} (measured)"
     if k.startswith("rec:"):
-        return f"what {k[4:].rsplit('.', 1)[0]}'s collector recorded"
+        return f"what {k[4:].split('~')[0].rsplit('.', 1)[0]}'s collector recorded"
     return k.split(".", 1)[-1]
 
 
