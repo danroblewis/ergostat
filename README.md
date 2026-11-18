@@ -136,6 +136,10 @@ Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` a
 
 ## For AI agents
 
+**Setting up ergostat for someone? Start with [docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md):** how to turn a
+described workflow into a model of the right shape (one connected chain per kind of work, a collector,
+a block per step), then check it and look at both diagrams before calling it done.
+
 `ergostat mcp` serves the tools an agent needs to work on a system: `spec` (the format), `check`
 (after every edit), `explain`, `status`, `findings`, `events`, and `report_done` and `read_sensor`
 for the work and readings a person block or a manual sensor waits for. Every call reads the files

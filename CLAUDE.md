@@ -1,5 +1,10 @@
 # Rules for working on ergostat
 
+> **Setting up ergostat for someone, rather than changing ergostat itself?** Read
+> [docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md) first: how to turn the work a person describes into a model
+> that runs and is the right shape, how to check it, and how to look at its diagrams before you call it
+> done. The rest of this file is for changing ergostat's own code.
+
 Ergostat keeps work going. It is a tool for drawing a control-system boundary around whatever
 someone wants to keep working, and for designing, seeing and running the control system inside it.
 The settled terms are in `NOTES.md`; read it first.
@@ -56,7 +61,7 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
 - Python 3.12+, `uv`, the standard library only at runtime; `uv run python -m pytest -q` and
   `uv run ruff check` before every commit. `scripts/demo_check.py` runs every demo in
   `~/ergostat-demos/` and checks its pages (with Playwright when installed).
-- The repository is local only: no remote, never pushed.
+- The repository is on GitHub (danroblewis/ergostat); main must always work, since people install from it.
 - Never write an employer's names (systems, services, metrics, labels, ticket types, people) into
   tracked files; use generic stand-ins.
 - Commit only when the owner asks. End commit messages with
