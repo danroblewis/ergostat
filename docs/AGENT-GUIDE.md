@@ -235,6 +235,40 @@ longer, then check again.
       only flows change.
 - [ ] Every outward act goes through a gated action.
 
+## 3a. A system another ergostat runs: compose it, never copy it
+
+When part of the person's work is run by **another ergostat** (another team's, another machine's), do
+not re-model it and do not copy its YAML: compose it as a **remote system** (SPEC §4c). Its own ergostat
+keeps running it; this model reads it.
+
+1. **On the remote**, its owner makes a token for this model: `ergostat remote token support` (printed
+   once). The token goes in a file here, never in the YAML (`incidents.token`, git-ignored).
+2. **Here**, declare it and look before referencing anything:
+
+   ```yaml
+   remotes:
+     incidents:
+       url: http://127.0.0.1:8795       # https, or an SSH tunnel to the remote's page
+       token-file: incidents.token
+       every: 1m
+   ```
+
+   `ergostat remote` says whether it answers and which version of its model was read; `ergostat explain
+   system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`.
+3. **Link to its parts by those names**, only to read them: a cause (`driven-by: [+stock.incidents-open]`)
+   for the load it puts on our stocks, a goal here on one of its measures, a block's input. Never point a
+   block's `out:` at a remote part (`remote-output`): its actuators are its own. If it should act
+   differently, write that down for its owner.
+4. **Check against what it serves now**: `ergostat check` asks the remote first. A
+   `remote-reference-unresolved` finding means the remote renamed or dropped a part you reference: fix the
+   reference here (a stand-in is drawn meanwhile). `remote-unreachable` means it did not answer: the model
+   runs on what it read last, with its age shown; fix the URL, the tunnel or the token.
+5. **Use its measures, not its items.** The local fold never sees the remote's items: count them through
+   the remote stock that counts them (its sensor is mirrored), or a sensor of your own, `query: {source:
+   incidents, ref: stock.open}`.
+
+A worked pair is `examples/remote-pair/` (a local *support* model reading a remote *incidents* model).
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |
@@ -248,12 +282,12 @@ longer, then check again.
 
 ## 5. Tools
 
-- **CLI**: `ergostat check`, `explain`, `run`, `status`, `item`, `lease`, `actions`, `help TOPIC`.
+- **CLI**: `ergostat check`, `explain`, `run`, `status`, `item`, `lease`, `actions`, `remote`, `help TOPIC`.
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.
 - **Docs**: [SPEC.md](SPEC.md) (the format; sections 5a items, 6 sensors, 7 flows, 8 goals, 9 blocks,
-  9.5 leases, 12k gated actions), [MODELLING.md](MODELLING.md) (improving a model from its record),
+  9.5 leases, 12k gated actions, 4c remote systems), [MODELLING.md](MODELLING.md) (improving a model from its record),
   [QUICKSTART.md](QUICKSTART.md), `examples/ticket-factory/` and `examples/the-job/`.
 
 ## 6. When ergostat itself is wrong
