@@ -175,23 +175,14 @@ async function refreshHeader() {
     const sel = $("#project");
     if (!sel.dataset.filled) {
       sel.dataset.filled = "1";
+      sel.replaceChildren(h("option", { value: "" }, st.name));
       sel.addEventListener("change", () => { if (sel.value) location.href = sel.value + "/" + location.hash; });
-    }
-    // the other projects, now and then (not while the list is open): running ones to switch to, with
-    // what is off or unknown; stopped ones shown, not offered. Not waited for: the header goes on
-    if (document.activeElement !== sel && (!S.projectsAt || Date.now() - S.projectsAt > 60000)) {
-      S.projectsAt = Date.now();
-      if (!sel.options.length) sel.replaceChildren(h("option", { value: "" }, st.name));
-      api("projects").then((ps) => {
-        const opts = [h("option", { value: "" }, st.name)];
-        for (const p of ps) {
-          if (p.name === st.name) continue;
-          const bits = [p.off?.length ? `${p.off.length} off` : "", p.unknown?.length ? `${p.unknown.length} unknown` : "",
-                        p.web ? "" : "stopped"].filter(Boolean);
-          opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "" }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));
-        }
-        if (document.activeElement !== sel) sel.replaceChildren(...opts);
-      }).catch(() => { /* kept as it was */ });
+      // the other projects: once, and again when the reader comes to the list (each is a model loaded and a
+      // snapshot of its record on the server: not asked for while the page is only left open)
+      const fresh = () => { if (Date.now() - (S.projectsAt || 0) > 30000) refreshProjects(sel); };
+      sel.addEventListener("pointerenter", fresh);
+      sel.addEventListener("focus", fresh);
+      refreshProjects(sel);
     }
     const off = Object.values(st.loops).filter((l) => l.status === "off").length;
     const run = $("#running");
@@ -201,6 +192,23 @@ async function refreshHeader() {
     document.title = `${st.name} · ergostat`;
     S.first = st.first;
   } catch (e) { /* the server may be restarting */ }
+}
+
+/* the other projects on this machine, in the header's list: running ones to switch to, with what is off
+   or unknown; stopped ones shown, not offered. Not waited for, and not changed while the list is open */
+function refreshProjects(sel) {
+  S.projectsAt = Date.now();
+  api("projects").then((ps) => {
+    const name = S.status?.name || "";
+    const opts = [h("option", { value: "" }, name)];
+    for (const p of ps) {
+      if (p.name === name) continue;
+      const bits = [p.off?.length ? `${p.off.length} off` : "", p.unknown?.length ? `${p.unknown.length} unknown` : "",
+                    p.web ? "" : "stopped"].filter(Boolean);
+      opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "" }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));
+    }
+    if (document.activeElement !== sel) sel.replaceChildren(...opts);
+  }).catch(() => { /* kept as it was */ });
 }
 
 /* a page's refresh: ``fn`` again ``ms`` after the last one finished (never two at once, however slow
