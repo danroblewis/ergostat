@@ -173,3 +173,43 @@ def test_a_hidden_tab_asks_for_nothing(browser, site):
     pg.close()
     assert hidden == 0, f"{hidden} requests while hidden"
     assert shown > 0, "it did not start again when shown"
+
+
+CANON = """(x) => { const c = (v) => Array.isArray(v) ? v.map(c) : v && typeof v === "object"
+                        ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, c(v[k])])) : v; return JSON.stringify(c(x)); }"""
+
+
+@pytest.mark.parametrize("route", ["diagram", "diagram?view=dynamics", "diagram?view=dynamics&open=*", "diagram?view=blocks"])
+def test_a_diagram_left_open_asks_for_its_values_and_has_the_whole_answer(browser, site, route):
+    """Once drawn, a diagram asks for its graph with the structure it holds (``have``), and is sent only the values
+    while that structure stands (docs/proposals/scale.md, #12); put into what it holds, they make the answer a whole
+    one gives."""
+    pg = browser.new_page()
+    pg.add_init_script(INIT)
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    got: list[tuple[str, dict]] = []
+    pg.on("response", lambda r: got.append((r.url, r)) if "/api/graph" in r.url else None)
+    pg.goto(f"{site}/{route}")
+    pg.wait_for_function("() => S.layout && S.held && document.querySelectorAll('svg.canvas g.node').length > 0", timeout=60000)
+    pg.wait_for_timeout(3000)                         # (sped up tenfold: a dozen asks)
+    bodies = [(u, r.json()) for u, r in got if r.status == 200]
+    whole = [b for u, b in bodies if "structure" in b]
+    small = [(u, b) for u, b in bodies if "same" in b]
+    assert whole and small, [(u[-80:], r.status) for u, r in got]      # (a 304: the same values again)
+    assert all("have=" in u for u, _ in small)
+    url, last = small[-1]
+    full_url = "&".join(x for x in url.split("&") if not x.startswith("have="))
+    same = pg.evaluate(f"""async () => {{ const canon = {CANON};
+        const full = await (await fetch({full_url!r})).json();
+        return [canon(withValues(S.held.base, {json_dumps(last)})), canon(full)]; }}""")
+    sizes = (len(str(last)), len(str(whole[-1])))
+    pg.close()
+    assert not errors, errors
+    assert same[0] == same[1], "the values put into the structure held are not the whole answer"
+    assert sizes[0] < sizes[1]
+
+
+def json_dumps(x) -> str:
+    import json
+    return json.dumps(x)

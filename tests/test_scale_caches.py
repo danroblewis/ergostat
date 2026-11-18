@@ -358,3 +358,108 @@ def test_the_dispatcher_looks_at_the_items_a_full_read_would_give_through_events
     from ergostat.spec import items as its
     whole = {i.id: [m["event"] for m in i.moves] for i in its.project(p.events, e.spec, "ticket", transcript=False)}
     assert took and all(moves == whole[i] for _, i, moves in took), "an item taken is given whole, its moves with it"
+
+
+# ---- #11 and #12: the graph answer, its causal loops kept per model, and a page polling only its values
+
+
+def merged(base: dict, small: dict) -> dict:
+    """What the page does with an answer of values only (diagram.js: withValues), the same walk."""
+    import copy
+    g = copy.deepcopy(base)
+    keys, top, vals = set(small["keys"]), set(small["top"]), small["values"]
+    at = {"i": 0, "j": 0}
+
+    def walk(x, root):
+        if isinstance(x, list):
+            for y in x:
+                walk(y, False)
+            return
+        if not isinstance(x, dict):
+            return
+        if not root:
+            mine = vals[at["j"]][1] if at["j"] < len(vals) and vals[at["j"]][0] == at["i"] else None
+            if mine is not None:
+                at["j"] += 1
+            at["i"] += 1
+            for k in [k for k in x if k in keys and not (mine and k in mine)]:
+                del x[k]
+            x.update(mine or {})
+        for k in sorted(x, key=str):
+            if k not in (top if root else keys):
+                walk(x[k], False)
+    walk(g, True)
+    for k in top:
+        if k in small:
+            g[k] = small[k]
+    return g
+
+
+def answers(d: Path, home: Path, monkeypatch):
+    from urllib.parse import parse_qs
+
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web.server import Live, api
+    monkeypatch.setenv("ERGOSTAT_HOME", str(home))
+    p = Project(mdl.load(d))
+    live = Live(p)
+    for s in p.model.spec.sensors()[:40]:                     # some readings, so values are not all empty
+        p.measurements.add(s.series, 3.0)
+    return live, p, lambda q: api(live, "graph", parse_qs(q))
+
+
+@pytest.mark.parametrize("example", ["the-job", "image-squeeze", "ticket-factory", "coordinator", "small-requests"])
+def test_a_page_polling_has_the_whole_answer_from_its_values(example, tmp_path, monkeypatch):
+    import json
+    live, p, graph = answers(ROOT / "examples" / example, tmp_path / "home", monkeypatch)
+    for q in ["", "view=dynamics", "view=dynamics&open=*", "view=blocks", "view=blocks&open=*", "view=process",
+              *(f"{v}system={s}" for s in p.model.spec.systems for v in ("", "view=dynamics&"))]:
+        whole = graph(q)
+        first = graph(q + "&have=-")
+        h = first.pop("structure")
+        assert first == whole and json.dumps(first, sort_keys=True, default=str) == json.dumps(whole, sort_keys=True, default=str)
+        for s in p.model.spec.sensors()[:60]:                 # the values move; the structure stays
+            p.measurements.add(s.series, 7.0)
+        live._snaps.clear()
+        small = graph(q + f"&have={h}")
+        assert small.get("same") == h, q
+        again = graph(q)
+        assert json.loads(json.dumps(merged(whole, small), default=str)) == json.loads(json.dumps(again, default=str)), q
+        assert len(json.dumps(small, default=str)) < len(json.dumps(again, default=str)), q
+        assert "same" not in graph(q + "&have=not-this-one") and graph(q + "&have=x").get("structure") == h
+
+
+def test_the_graph_matches_edges_to_loops_as_every_pair_did(scale_model, tmp_path, monkeypatch):
+    from ergostat import graph as gr
+    live, p, graph = answers(scale_model, tmp_path / "home", monkeypatch)
+    m = p.model
+    g = gr.control(m, live.snapshot(p, 3600.0, None), gr.select(m), gr.readings(p, None))
+    causal = gr.causal_loops(m)
+    for c in causal:
+        nodes = c["nodes"]
+        assert c["_pairs"] == {(a, b) for a, b in zip(nodes, nodes[1:] + nodes[:1], strict=False) if a != b}
+    assert any(e["loops"] for e in g["edges"]) and any(e["causal"] for e in g["edges"])
+    for e in g["edges"]:
+        assert e["loops"] == [k for k, lp in g["loops"].items() if e["source"] in lp["nodes"] and e["target"] in lp["nodes"]]
+        assert e["causal"] == [c["name"] for c in causal if (e["source"], e["target"]) in c["_pairs"]]
+    assert causal == gr.causal_loops(m) and causal is not gr.causal_loops(m)
+    causal[0]["nodes"].append("scribbled")
+    causal[0]["_pairs"].clear()
+    assert gr.causal_loops(m)[0]["nodes"][-1] != "scribbled" and gr.causal_loops(m)[0]["_pairs"]
+    assert gr.causal_loops(m) == gr._causal_loops(m.spec)
+
+
+def test_the_causal_loops_links_and_served_are_the_callers_own(scale_model):
+    from ergostat.spec import causal
+    spec = load(scale_model / "ergostat.yaml")
+    a, b = causal.loops(spec), causal.loops(spec)
+    assert [vars(x) for x in a] == [vars(x) for x in b] and a[0] is not b[0]
+    a[0].parts.append("x")
+    assert causal.loops(spec)[0].parts == b[0].parts
+    s = causal.served(spec)
+    next(iter(s.values())).append("x")
+    assert causal.served(spec) != s
+    assert causal.links(spec) == causal._links(spec)
+    assert causal.served(spec) == causal._served(spec)
+    assert [vars(x) for x in causal.loops(spec)] == [vars(x) for x in causal._loops(spec, 30, 300)]
