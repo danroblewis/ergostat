@@ -1,7 +1,8 @@
 # Scale: what breaks first, and at what size
 
 Status: measured 2026-11-18 on the `scaletest` branch. Nothing in ergostat was changed or optimised; this is
-a measurement. The numbers are in `docs/proposals/scale-results.jsonl` (one line per measurement, with the
+a measurement. The safe fixes (#2, #3, #5, #6, #7, #10, #11, #12) were then made on the `scalefix` branch and
+measured again: see [After the safe fixes](#after-the-safe-fixes-caches-and-indexes-2-3-5-6-7-10-11-12). The numbers are in `docs/proposals/scale-results.jsonl` (one line per measurement, with the
 load average when it was taken), the charts in `docs/proposals/img/scale-*.png`.
 
 ## The question
@@ -337,6 +338,229 @@ polled readings a second for one process, which is why #1 and #4 (event-driven c
 ones, incremental evaluation) and #15 (an engine per system or area) are the changes that matter. The
 extreme-conditions check and calibration need to work on parts of the model (#9, #14), since any test that
 replays the whole model once per parameter is quadratic in a model of 400,000 flows.
+
+## After the safe fixes: caches and indexes (#2, #3, #5, #6, #7, #10, #11, #12)
+
+Measured 2026-11-18 on the `scalefix` branch, each number beside the same measurement of the unchanged code
+(`main` at 0772001) taken the same morning on the same machine and the same generated models. The machine was
+shared throughout (load average 11 to 20, given with every row); both sides ran with other agents' work and with
+each other's. The rows are in `docs/proposals/scale-fix-results.jsonl` (`"side": "before"` or `"after"`).
+
+### What changed
+
+Nothing ergostat does changed: every fix keeps an answer it used to work out again, or finds by an index what it
+found by a scan. The API answers, findings, loops (the same 300-loop cap), `Spec.loop` of every goal, the legacy
+model's loops, the causal loops and the goals each block serves were compared, answer for answer, between the two
+versions on all 18 examples and the generated models at N = 10 and 30 (336 answers, `status` with its extreme-
+conditions findings among them) and at N = 100 (15 answers, the Blocks view left out: the unchanged code takes
+over 25 minutes for one): all identical (with Python's string hashing fixed, `PYTHONHASHSEED=0`: the Blocks view's
+`open=*` frames come out in a different order from one process to the next in both versions).
+
+- **#6, and with it #7 and #10: the compiled model's reverse relations, once per model** (`spec/lookups.py`).
+  `Spec.loop(goal)` is kept per goal (each caller given its own copy), and `commanders_of`, `downstream`,
+  `readers`, `flows_of`, `actuator_of`, `setter_of`, `agent_blocks` and the long way's driven-by map read
+  indexes built on first use, in the model's order. A part added or removed rebuilds them by itself (the tables'
+  sizes are the stamp); `Spec.reindex()` for code that rewires a compiled model in place (nothing in ergostat
+  does). The same for what is worked out of the whole model: `causal.links`, `causal.served`, `causal.loops`,
+  `graph.causal_loops`, the goals each machine block acts for (`Engine.served`), and the legacy model's `loops`,
+  `flows_of`, `valve_of` and `members`. The chain findings (`spec/chains.py`), which read every flow, block and
+  name of the model for every item kind, read them from one index. The Blocks view works out each block's goals
+  and each signal's readers once per diagram instead of once per block (`blockdiagram.py`).
+- **#2: `command_of`** asks `commanders_of`, now an index lookup.
+- **#3: `Engine.measure`** reads every series' newest reading from `Measurements.newest()`: kept in memory,
+  brought up to date at each pass from the rows written since the last (by any process), and read afresh when a
+  reading was set aside (`forget`), the record pruned, or a roll-up took the newest row (a `deleted` mark in the
+  store's meta). One small query a pass instead of one per sensor.
+- **#5: the dispatcher** (`leases/ready.py`) keeps, per kind, the items in a state some block takes from and the
+  items held, read whole from the item index once and then only for the items the events since were about; a
+  new model, another index, or a record whose generation changed reads them whole again. Its look and the
+  watchdog read these instead of every item of every kind (with every move) per block, every second; a look
+  brings them up to date once, and again after each lease it takes (so each block still sees what the blocks
+  before it took), and the watchdog once a pass.
+- **#11: the graph and loops answers** use the kept causal loops, and match each edge to the controllers' loops
+  and to the causal loops through an index of nodes and of node pairs.
+- **#12: the Diagram page** says which structure it holds (`have=`, a hash of the answer with every value taken
+  out, `web/graph_poll.py`); while the structure stands it is sent only the values (each part's value keys, by
+  the part's place in a walk both sides make the same way) and puts them into its copy of the last whole answer,
+  which then is the answer a whole one would have been. Its next ask waits 2.5 s, or four times as long as the last
+  answer took (at most a minute).
+
+Tests: `tests/test_scale_caches.py` holds every lookup against the scan it replaced (on every example and a scale
+model), a part added and removed, a wire rewired and reindexed, the newest readings against `latest()` through
+ties, back-dated rows, another process's writes, `forget`, a roll that takes the newest row and `prune`, the
+engine's measure with and without them, the items the dispatcher looks at against a full read through item
+events, a refused lease, an item moved on while held and a model swap, the edges' loops against every pair, and
+the values-only answer merged into the whole one on five examples and every view; `tests/test_page_polling.py`
+checks the same merge in the browser.
+
+### Before and after
+
+**Loading the model and `check` without its extreme-conditions tests** (`scale_bench.py phases --no-extremes`:
+`model.load`, which reads and compiles the YAML and runs every finding but the extremes; the extremes are #9).
+At N = 1,000 the unchanged code was not measured again: its numbers there are the first measurement's, above.
+
+| N | model load (= `check` without its extremes) | of it, findings | causal links | loops found (≤ 300) | load avg |
+|---:|---:|---:|---:|---:|---|
+| 10 | 0.11 s → **0.07 s** | 0.04 s → 0.02 s | 0.009 s → < 0.001 s | 0.02 s → 0.011 s | 11.7 / 15.5 |
+| 30 | 0.46 s → **0.15 s** | 0.23 s → 0.03 s | 0.074 s → 0.001 s | 0.086 s → 0.013 s | 11.7 / 15.5 |
+| 50 | 1.06 s → **0.23 s** | 0.61 s → 0.04 s | 0.188 s → 0.002 s | 0.198 s → 0.015 s | 11.9 / 15.5 |
+| 100 | 3.82 s → **0.46 s** | 2.46 s → 0.07 s | 0.743 s → 0.004 s | 0.76 s → 0.024 s | 11.9 / 15.5 |
+| 300 | 31 s → **1.37 s** | 21.6 s → 0.21 s | 6.36 s → 0.013 s | 6.42 s → 0.083 s | 13.5 / 14.9 |
+| 1000 | 381 s → **6.08 s** | 254 s → 1 s | – → 0.049 s | 81 s → 0.143 s | first measurement / 15.7 |
+
+**The engine's pass, alone on one thread** (`scale_bench.py tick`, an empty record: the dispatcher's look has no
+items to read here; what #5 did to it shows in the running engine below).
+
+| N | `evaluate` | of it, `measure` | `command_of`, every machine block | dispatcher look | lease watch | load avg |
+|---:|---:|---:|---:|---:|---:|---|
+| 10 | 2.26 ms → **0.15 ms** | 1.27 ms → **0.03 ms** | 2.62 ms → **0.18 ms** | 1.67 ms → **0.12 ms** | 3.65 ms → **2.34 ms** | 13.5 / 16.5 |
+| 30 | 12.1 ms → **0.44 ms** | 4.44 ms → **0.1 ms** | 25.2 ms → **0.54 ms** | 16.8 ms → **0.44 ms** | 6.41 ms → **3.7 ms** | 13.5 / 16.5 |
+| 50 | 27.1 ms → **0.7 ms** | 6.91 ms → **0.14 ms** | 64.5 ms → **0.85 ms** | 44.6 ms → **0.64 ms** | 11 ms → **3.81 ms** | 13.2 / 16.5 |
+| 100 | 94.7 ms → **1.37 ms** | 13.7 ms → **0.27 ms** | 261 ms → **1.77 ms** | 182 ms → **1.26 ms** | 30.6 ms → **5.45 ms** | 12.7 / 16.5 |
+| 300 | 758 ms → **4.34 ms** | 40.1 ms → **0.88 ms** | 2,270 ms → **5.32 ms** | 1,582 ms → **3.87 ms** | 210 ms → **14.7 ms** | 12.9 / 16.5 |
+
+**The engine, headless**, ten minutes each (`scale_bench.py engine`, as in the first measurement). "Declared":
+every sensor on its schedule. Leases taken: in the ten minutes (stand-ins draw their arrivals at random, so a
+run that keeps up takes more). The "after" rows are the final code; the first runs after the fixes, before the
+dispatcher's look read the record once a look instead of once per block (one look took 555 s at N = 200), are in
+the results file, marked `superseded`. N = 150 and 200 were measured after the fixes only, to find the bend.
+
+| N | side | load avg | readings a second: declared → achieved | pass p50 / p95 | dispatcher look p50 / p95 | item ready → taken p50 / p95 | leases taken | CPU (cores) | threads (max) | RSS |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 10 | before | 12.6 | 7.4 → 7.21 | 1.96 ms / 32.7 ms | 1.8 ms / 2.24 ms | 0.19 s / 10.1 s | 12 | 0.04 | 20 | 90 MB |
+| 10 | after | 22.5 | 7.4 → **7.24** | 0.37 ms / 0.9 ms | 0.15 ms / 0.88 ms | **0.17 s / 10.1 s** | 23 | 0.02 | 15 | 70.1 MB |
+| 30 | before | 15.5 | 26 → 25.8 | 11.2 ms / 175 ms | 17.5 ms / 99.4 ms | 0.32 s / 12.8 s | 95 | 0.399 | 81 | 104 MB |
+| 30 | after | 15.8 | 26 → **26.5** | 0.91 ms / 1.93 ms | 0.46 ms / 8.9 ms | **0.2 s / 10.2 s** | 129 | 0.074 | 177 | 84.4 MB |
+| 50 | before | 17.5 | 41 → 27.1 | 26.9 ms / 1,875 ms | 47.3 ms / 527 ms | 3.07 s / 46.3 s | 152 | 1.02 | 632 | 127 MB |
+| 50 | after | 11.2 | 41 → **41.2** | 1.41 ms / 3.57 ms | 0.73 ms / 19.5 ms | **0.23 s / 10.5 s** | 182 | 0.145 | 364 | 113 MB |
+| 100 | before | 18.2 | 82 → 5.3 | 96.8 ms / 62,534 ms | 199 ms / 1,784 ms | 40.3 s / 386 s | 172 | 1.02 | 1,283 | 187 MB |
+| 100 | after | 22.5 | 82 → **80.5** | 2.82 ms / 26.1 ms | 1.61 ms / 131 ms | **0.36 s / 11.9 s** | 378 | 0.444 | 752 | 205 MB |
+| 150 | after | 14.9 | 120 → **110** | 4.13 ms / 14.5 ms | 4.82 ms / 3,850 ms | **13.2 s / 33.5 s** | 515 | 0.828 | 1,621 | 371 MB |
+| 200 | after | 15.8 | 160 → **108** | 6.06 ms / 20.3 ms | 2.72 ms / 2.72 ms | **281 s / 599 s** | 35 | 1.07 | 2,744 | 556 MB |
+| 300 | after | 21.3 | 239 → **60.6** | 9.74 ms / 4,193 ms | 4.21 ms / 4.39 ms | **288 s / 502 s** | 5 | 1.09 | 4,647 | 1,067 MB |
+
+**The page server's answers**, each from a server started for it (`scale_bench.py api`, 300 s allowed), on the
+record each side's engine run left (at N = 300 on an empty record for both: the unchanged code had no run there).
+The records differ: the engine after the fixes kept up and left up to 13 times as many readings (49,000 against
+3,800 at N = 100), and the answers read the record's window (`loops`, the snapshot behind every answer, is the
+only one not changed here, and pays for it: 1.8 s to 2.3 s at N = 100; at N = 300 on the engine's own record the
+graph takes 12 s and `loops` 8 s). `status` is the Check page's first answer: it runs `check`'s extreme-conditions
+tests (#9), unchanged, so it was asked only at N = 10 and 30.
+
+| N | `graph` (Diagram, everything) | `graph?view=dynamics` | `…&system=sys-001` | `graph?view=blocks` | `loops` | `status` (its extremes: #9) | load avg |
+|---:|---:|---:|---:|---:|---:|---:|---|
+| 10 | 1.07 s → **0.093 s** | 1.08 s → **0.104 s** | 1.11 s → **0.115 s** | 2.17 s → **0.075 s** | 0.033 s → **0.058 s** | 12.7 s → **12.7 s** | 12.1–16.5 |
+| 30 | 6.98 s → **0.413 s** | 6.35 s → **0.465 s** | 6.48 s → **0.489 s** | 50.4 s → **0.389 s** | 0.283 s → **0.32 s** | 130 s → **129 s** | 12.0–15.9 |
+| 50 | 16.7 s → **0.763 s** | 17.4 s → **0.787 s** | 16.9 s → **0.838 s** | 224 s → **0.702 s** | 0.623 s → **0.633 s** | – | 10.5–18.3 |
+| 100 | 73.3 s → **2.45 s** | 73.1 s → **2.59 s** | 74.5 s → **2.62 s** | > 300 s → **2.32 s** | 1.77 s → **2.26 s** | – | 10.4–18.3 |
+| 300 | > 300 s → **4.98 s** | > 300 s → **6.16 s** | > 300 s → **6.35 s** | > 300 s → **4.57 s** | 2.54 s → **1.8 s** | – | 12.7–18.6 |
+
+**An open page, once drawn**: what it pulls (`scale_bench.py poll`, Chrome, a minute watched once the page is
+drawn, every sensor given a reading every 10 s meanwhile, as a running engine would write them; an answer the
+browser already has comes back as a 304 and counts nothing). Each page is the first on a fresh server, so the
+first of them waits for the first `status`, which runs the extreme-conditions tests (#9): that is the 130 s for the
+Diagram at N = 30 and "not in 300 s" at N ≥ 50 in both versions. Where a page drew but asked nothing in its minute,
+the browser was still laying out and routing its lines (#13), which holds the page's script. At N = 100 no page
+drew within 300 s in either version, though the answers themselves now take 2.3 to 2.6 s: the server was then still
+running the extreme-conditions tests the first `status` started (54 minutes at N = 100), which this measurement
+does not separate from #13.
+
+| N | page | side | load avg | drawn | graph asks a minute | bytes a graph answer | graph bytes a minute | all API bytes a minute (with the header's `status`) |
+|---:|---|---|---:|---:|---:|---:|---:|---:|
+| 10 | diagram | before | 13.1 | 15.8 s | 16 | 0.77 MB | 12.29 MB | 12.74 MB |
+| 10 | diagram | after | 17.9 | 13.2 s | 23 | 0.13 MB | 2.88 MB | 3.34 MB |
+| 10 | diagram-system | before | 15.8 | 13.9 s | 8 | 1.15 MB | 9.20 MB | 9.42 MB |
+| 10 | diagram-system | after | 15.5 | 12.8 s | 19 | 0.18 MB | 3.34 MB | 3.79 MB |
+| 10 | blocks | before | 15.1 | 2.42 s | 12 | 83 KB | 1.00 MB | 1.40 MB |
+| 10 | blocks | after | 12.9 | 0.35 s | 23 | 21 KB | 0.48 MB | 0.93 MB |
+| 30 | diagram | before | 14.1 | 137 s | 6 | 1.06 MB | 6.36 MB | 7.28 MB |
+| 30 | diagram | after | 16.2 | 130 s | 21 | 0.19 MB | 3.90 MB | 5.43 MB |
+| 30 | diagram-system | before | 15.9 | 28.8 s | 6 | 1.54 MB | 9.24 MB | 10.15 MB |
+| 30 | diagram-system | after | 16.0 | 17.2 s | 20 | 0.31 MB | 6.20 MB | 7.87 MB |
+| 30 | blocks | before | 13.3 | 56 s | 1 | 0.27 MB | 0.27 MB | 0.53 MB |
+| 30 | blocks | after | 15.8 | 0.59 s | 18 | 65 KB | 1.17 MB | 2.55 MB |
+| 50 | diagram | before | 16.6 | not in 300 s | – | – | – | – |
+| 50 | diagram | after | 15.1 | not in 300 s | – | – | – | – |
+| 50 | diagram-system | before | 15.9 | 130 s | 0 | – | 0 | 0 |
+| 50 | diagram-system | after | 14.6 | 207 s | 0 | – | 0 | 2.42 MB |
+| 50 | blocks | before | 15.5 | not in 300 s | – | – | – | – |
+| 50 | blocks | after | 16.2 | 1.15 s | 14 | 0.10 MB | 1.45 MB | 3.64 MB |
+| 100 | diagram | before | 13.2 | not in 300 s | – | – | – | – |
+| 100 | diagram | after | 13.4 | not in 300 s | – | – | – | – |
+| 100 | diagram-system | before | 14.7 | not in 300 s | – | – | – | – |
+| 100 | diagram-system | after | 12.5 | not in 300 s | – | – | – | – |
+| 100 | blocks | before | 16.5 | not in 300 s | – | – | – | – |
+| 100 | blocks | after | 12.7 | not in 300 s | – | – | – | – |
+
+### Where the engine breaks now
+
+**At N ≈ 150 workflows** (about 900 stocks and 1,600 flows), three times further than before (N ≈ 50), and short
+of 200. At N = 100 it now reads what its sensors declare (80 of 82 readings a second), its pass takes 3 ms (p50)
+instead of 97 ms, an item waits 0.4 s (median) to be taken instead of 40 s, and it uses 0.44 of one core instead of
+all of it. The p95 of 10 to 12 s at every N up to 100 is the stock sensor's period, as before (a block that takes
+items and has a goal takes them once the goal is seen to be off, at the next reading of the queue). At N = 150 it
+bends: 110 of 120 readings a second, 0.83 of a core, an item waits 13 s (median) and 34 s (p95). At N = 200 it is
+saturated (1.07 cores, 108 of 160 readings, an item waits 5 to 10 minutes) and at N = 300 it takes almost nothing
+(5 leases in ten minutes), as before at N = 100 and 300.
+
+What breaks it is no longer the pass alone. Two things share the one core, and the second is new at the top:
+
+- **The pass, still once per reading**: with `measure`, 0.24 of a core at N = 100, 0.47 at 150, 0.68 at 200. It
+  costs O(N) now (2.8 ms at 100, 6 ms at 200, p50), and it runs O(N) times a second.
+- **The item counts, waiting on one lock.** Every stock sensor counts its kind's items (`spec/items.py: measure`),
+  and each count first catches the item index up with the record (`itemindex.Index.catch_up`), under the index's
+  one lock and SQLite's write lock. Their CPU is small (0.11 of a core at N = 100, 0.21 at 200), but they queue:
+  each reading is a thread of its own (`read_soon`), and a count waited 1.9 s on average at N = 100, 5.8 s at 150,
+  14 s at 200 and 52 s at 300 (up to 140 s), with 750, 1,600, 2,700 and 4,600 threads alive and the RSS at 1 GB
+  for N = 300. The dispatcher needs the same index for its look, so its looks wait too: up to 24 s at N = 150, and
+  2 looks in ten minutes at N = 200.
+
+That is #4 and #1, as the first measurement said: the fixes here took the quadratic work out of the pass and out
+of everything that reads the whole model, and what is left is the design: a count per reading that is a fold of
+the record, polled, one thread per reading, all through one lock in one process.
+
+### What remains, and what this taught about it
+
+- **#1 (incremental evaluation)**: the pass is now O(N) with a small constant (1.4 ms at N = 100, 4.3 ms at 300
+  alone; 10 ms p50 at 300 in the running engine), but it still runs once per reading, and readings are O(N) a
+  second: at N = 200 the pass and its `measure` took 0.68 of a core by themselves, which alone puts the bend near
+  N ≈ 250 even with the counts fixed. `measure` now looks every series
+  up in a dict, yet it still walks every sensor of the model on every pass; evaluating only what a reading touches
+  (its part's goals and the blocks reading them) and batching the readings of a tick into one pass is still the
+  change that removes the O(N²). **Stop spawning a thread per reading**: with the pass cheap, the threads are what
+  pile up (858 at N = 100, 4,600 at 300).
+- **#4 (event-driven counts)**: now the first bottleneck, above. The item index already sees every event; a
+  count kept by kind and state as events fold (the dispatcher's `leases/ready.py` does this for the items it
+  needs) would take the catch-up, its lock and the write transaction out of every reading.
+- **The item index's lock** is shared by the counts, the dispatcher's look and the page. A look that read its
+  items once per block took 555 s at N = 200 (fixed here: once a look, and again after each lease taken); it still
+  waits behind the counts.
+- **Leases wait for their agent's slot.** With the dispatcher keeping up, a block takes items up to its `pool`
+  and each run then waits for a slot of its agent (`at-once`): the workers of a system share six. No lease
+  expired in these runs (the program tier's TTL is five minutes), but every waiting run is a thread, and a slower
+  stand-in would have them expire while queued. Taking only as many items as the agent has free slots is a
+  design question (it changes what `pool` means), not a cache.
+- **#9 (extremes per part)**: unchanged, and now nearly all of `check` and of the first `status`: the model loads
+  in 0.5 s at N = 100 and 6 s at N = 1,000, and `status` still takes 12.7 s at N = 10 and 129 s at N = 30, as before.
+- **#14 (calibration per part)** and **#15 (an engine per system)**: unchanged; nothing here touched them. Model
+  load at N = 1,000 is now 6 s, most of it reading the YAML (3.6 s) and compiling it, so loading a model is no
+  longer what would stop a sharded engine from starting.
+- **#12, what is left**: a values-only answer is a fifth to a sixth of a whole one (0.13 MB against 0.77 MB for
+  the Diagram at N = 10, 0.31 MB against 1.5 MB for one system at N = 30), but now that answers are quick the page
+  asks every 2.5 s, three times as often as it could before, so the bytes a minute fell less (12.3 MB to 2.9 MB
+  at N = 10; 9.2 MB to 6.2 MB for one system at N = 30). Most of what is left are the sparklines (`points`): every
+  stock's readings in the window, sent whole each time. Sending only what changed since the page's last ask needs
+  the server to remember what each page holds, or the page to say up to when it has the points: a design choice.
+  The header's own `status` poll, every 5 s, is a cost of its own (0.5 to 2.4 MB a minute at N = 10 to 50) and
+  unchanged.
+- **Two things found on the way, not fixed (each needs a decision):** every process re-reads every model file
+  every 10 s to see whether an include glob reaches a new file (`model.py: stamp`, `INCLUDES_EVERY`): 1.3 s of
+  parsing at N = 100 and about 3.5 s at N = 1,000, in the engine and in the page server alike. And the Blocks
+  view's frames (`open=*`) come out in an order that depends on Python's string hashing, so two processes draw them
+  in different orders (both before and after these changes).
+
+The bottlenecks table above stands; after these fixes the order is: #4 and #1 (the engine, N ≈ 150), then #13
+(drawing one system, unchanged), #9 (`check`, the first `status`), #14, and #15 at N ≫ 1,000.
 
 ## Charts
 
