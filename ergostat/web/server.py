@@ -342,7 +342,14 @@ def _answer(live: Live, path: str, q: dict):
         from ..runner import running_pid
         att = st.attention(snap, bool(running_pid(p)) and snap["live"], m)
         if one("view") in ("process", "wiring"):    # the process map (the wiring it replaced still reaches it)
-            return {**_process(p, m, snap, q, system), "attention": att}
+            # read again every 5s at most (on a long record it takes a second); a past moment's, kept
+            key = ("process", snap["window"], snap["at"] if at is not None else int(time.time() // 5), live.mtime,
+                   system, one("kinds"), one("by"), one("paths"))
+            got = live.cached(key)
+            if got is None:
+                got = _process(p, m, snap, q, system)
+                live.keep(key, got)
+            return {**got, "attention": att}
         if one("view") == "blocks":                 # the control view: the whole control system as a block diagram
             from ..blockdiagram import diagram
             opened = q.get("open")

@@ -107,7 +107,8 @@ def test_events_draw_each_type_and_a_self_loop(p):
     loop = edge(g, "flag", "flag.noted", "flag.noted")
     assert loop["count"] == 1 and loop["self"] and loop["rework"] and loop["median"] == pytest.approx(100, abs=1)
     assert edge(g, "flag", "flag.researching", "flag.noted")["count"] == 1
-    assert edge(g, "flag", "flag.researched", "flag.reworked")["rework"]
+    assert edge(g, "flag", "flag.reworked", "flag.researched")["rework"]          # back to where it usually comes
+    assert not edge(g, "flag", "flag.researched", "flag.reworked")["rework"]
     assert edge(g, "flag", "flag.asked", "flag.researching")["count"] == 3
     assert edge(g, "flag", "flag.shipped", "$")["count"] == 2
 

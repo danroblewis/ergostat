@@ -11,9 +11,10 @@ function pmLabel(e) {                                  // a line's words: how ma
   if (pmShow() === "times") return e.median != null ? dur(e.median) : "";
   return String(e.count);
 }
+function pmNodeSub(n) { return `${n.count}×` + (n.items !== n.count ? ` · ${n.items} item${n.items === 1 ? "" : "s"}` : ""); }
 function pmNodeSize(n) {
   if (n.kind !== "activity") return [Math.max(76, textWidth(`${n.label} ${n.count}`) + 40), PM.PILL];
-  return [Math.max(96, textWidth(n.label) * 1.08 + 28, textWidth(String(n.count)) + 40), PM.H];
+  return [Math.round(Math.max(96, textWidth(n.label) * 1.08 + 28, textWidth(pmNodeSub(n)) * 0.95 + 24)), PM.H];
 }
 function pmSig(g) {                                    // what the layout depends on: the nodes, the lines, their words
   return JSON.stringify(["process", pmShow(), g.nodes.map((n) => n.id + ":" + pmNodeSize(n)[0]),
@@ -163,7 +164,7 @@ function pmNode(n, w, hgt, most) {
   g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 6, fill: "var(--panel)", stroke: "var(--ink)", "stroke-width": 1.2 }));
   g.append(s("rect", { x: 0.6, y: 0.6, width: w - 1.2, height: hgt - 1.2, rx: 5.5, fill: "var(--ink)", opacity: (0.02 + 0.10 * f).toFixed(3), "pointer-events": "none" }));
   g.append(s("text", { x: w / 2, y: 18, "text-anchor": "middle", class: "t-label" }, n.label));
-  g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub" }, `${n.count}×` + (n.items !== n.count ? ` · ${n.items} item${n.items === 1 ? "" : "s"}` : "")));
+  g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub" }, pmNodeSub(n)));
   return g;
 }
 

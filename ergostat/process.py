@@ -338,15 +338,14 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
                                          "label": label, "count": 0, "_items": set()}
         return x
 
-    pos: dict[tuple[str, str], list[float]] = {}           # each activity's place in its items' runs: its order
+    pos: dict[tuple[str, str], list[float]] = {}           # each activity's place in its items' runs (events: its order)
     for id, steps in w.steps.items():
         kind = w.kind_of[id]
-        n = len(steps)
         for i, (_t, act, _, _) in enumerate(steps):
             x = node(kind, act)
             x["count"] += 1
             x["_items"].add(id)
-            pos.setdefault((kind, act), []).append(i / max(1, n - 1) if n > 1 else 0.0)
+            pos.setdefault((kind, act), []).append(float(i + (0 if w.started.get(id) else 1)))
         if w.started.get(id):
             x = node(kind, START)
             x["count"] += 1
@@ -384,7 +383,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         e["_causes"].add(ci)
         e["_types"][(cty, ety)] = e["_types"].get((cty, ety), 0) + 1
         e["_times"].append(max(0.0, t - tc))
-    # the order of each kind's activities: a state's place in the declared states; an event's, its usual place
+    # the order of each kind's activities: a state's place in the declared states; an event's, its usual place in its runs
     order: dict[str, float] = {}
     for x in nodes.values():
         k = spec.items[x["itemKind"]]
@@ -395,12 +394,12 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
             order[x["id"]] = 1e9
         elif by == "states" and k.states and a in k.states:
             order[x["id"]] = float(k.states.index(a))
-        else:                                  # an event: the state it moves to, else its usual place in its items' runs
-            ps = median(pos.get((x["itemKind"], a), [0.5]))
-            to = k.on.get(a)
-            order[x["id"]] = k.states.index(to) + ps * 0.01 if to in k.states else ps * max(1, len(k.states) or 10)
+        else:                                  # an event: its usual place in its items' runs (the first, 0)
+            order[x["id"]] = median(pos.get((x["itemKind"], a), [0.0]))
+    def at(id):                                            # as the page lays them out: ties by name
+        return order[id], nodes[id]["activity"]
     for e in edges.values():
-        e["rework"] = e["kind"] == "follows" and (e["source"] == e["target"] or order[e["target"]] < order[e["source"]])
+        e["rework"] = e["kind"] == "follows" and (e["source"] == e["target"] or at(e["target"]) < at(e["source"]))
         e["self"] = e["source"] == e["target"]
     total = {"nodes": len(nodes), "edges": len(edges)}
     # the frequency filter: lines below the share of their kind's most frequent left out
