@@ -17,9 +17,9 @@ HERE = Path(__file__).resolve().parent / "templates"
 ENV = "ERGOSTAT_LIBRARY"
 BODY = ("items", "systems", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents", "workspaces", "actions",
         "uses")
-HEAD = {"template", "description", "reading", "params", "example", "standins"}
+HEAD = {"template", "description", "reading", "params", "example", "standins", "once"}
 TYPES = ("string", "number", "integer", "duration", "setpoint", "command", "url", "cron", "bool", "name", "names",
-         "reference", "list", "strings", "map", "glob", "rung", "path")
+         "reference", "list", "strings", "map", "glob", "rung", "path", "any")
 
 
 class TemplateError(Exception):
@@ -46,11 +46,13 @@ class Template:
     description: str = ""
     reading: str = ""
     example: str = ""
+    once: bool = False                  # used at most once a model; its parts keep the names written in it, unprefixed
     params: dict[str, Param] = field(default_factory=dict)
     body: dict = field(default_factory=dict)
 
     def summary(self) -> dict:
-        return {"template": self.name, "description": self.description, "from": "ergostat" if self.builtin else str(self.path),
+        return {"template": self.name, "description": self.description, **({"once": True} if self.once else {}),
+                "from": "ergostat" if self.builtin else str(self.path),
                 "params": {n: {k: v for k, v in (("type", p.type), ("description", p.description),
                                                 ("default", p.default if p.has_default else None),
                                                 ("stand-in", p.standin), ("required", p.required or None),
@@ -80,7 +82,8 @@ def read(path: Path, builtin: bool) -> Template:
         raise TemplateError(f"template {path}: unknown section {sorted(unknown)[0]!r} (known: "
                             f"{', '.join(sorted(HEAD | set(BODY)))})")
     t = Template(data["template"], path, builtin, str(data.get("description") or "").strip(),
-                 str(data.get("reading") or "").strip(), str(data.get("example") or "").strip())
+                 str(data.get("reading") or "").strip(), str(data.get("example") or "").strip(),
+                 data.get("once") is True)
     for n, spec in (data.get("params") or {}).items():
         spec = spec if isinstance(spec, dict) else {"default": spec}
         ty = str(spec.get("type") or "string")

@@ -118,6 +118,7 @@ class Document:
     problems: list[Problem] = field(default_factory=list)
     library: list[Path] = field(default_factory=list)   # the owner's folders of templates (library:, main file only)
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
+    soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace
 
 
 def read_file(path: Path, problems: list[Problem]):
@@ -230,6 +231,9 @@ def load(main: Path) -> Document:
                 take(h.resolve(), False, data.at("include"))
 
     def put(section: str, name, entry, w: Where | None, defaults: dict) -> None:
+        if (section, name) in doc.soft:           # a once template's system, declared by the model too: the model's stands
+            doc.soft.discard((section, name))
+            doc.defined.pop((section, name))
         if (section, name) in doc.defined:
             first = doc.defined[(section, name)]
             one = SINGULAR.get(section, section[:-1])

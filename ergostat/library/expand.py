@@ -9,7 +9,8 @@
 
 In the template, ``${param}`` is a parameter's value (``${within:hours}`` a duration in hours, ``${cmd:quote}``
 quoted for the shell), ``${name}`` the instance's name, ``${python}`` the Python ergostat runs on, ``${lib}`` the
-programs the built-in templates run, and ``${here}`` the template's own folder. A whole value that is one
+programs the built-in templates run, and ``${here}`` the template's own folder (quoted for the shell; ``${folder}``
+as it is, for a file's path). A whole value that is one
 ``${param}`` takes the parameter's value as it is (a number, a list); a key whose value comes out empty is left
 out. An entry (or any map) with ``if: ${param}`` is kept only when it is set, and a value ``{if: C, value: V,
 else: E}`` is V when C holds, else E (or left out); one with ``each: PARAM`` is made once
@@ -20,7 +21,8 @@ V}`` that many elements.
 
 Every name the template defines is the instance's: ``waiting`` becomes ``pings-waiting``, and every reference to it
 (``stock.waiting``, ``from: waiting``, a parameter in an equation) follows; a name that is wholly one ``${param}``
-(an item kind, ``${kind}``) is taken as given. What a parameter brings in (a reference to a part outside, a
+(an item kind, ``${kind}``) is taken as given; a template written ``once: true`` (used at most once a model) keeps
+every name as written. What a parameter brings in (a reference to a part outside, a
 command) is never renamed. Every part made is in the instance's system, and everything it says points at the
 ``use:`` line."""
 
@@ -81,7 +83,8 @@ class Given:
 def builtins(name: str, t: Template) -> dict:
     py = shlex.quote(sys.executable)
     return {"name": (name, False), "python": (py, False), "ergostat": (f"{py} -m ergostat", False),
-            "lib": (f"{py} -m ergostat.library.run", False), "here": (shlex.quote(str(t.path.parent)), False)}
+            "lib": (f"{py} -m ergostat.library.run", False), "here": (shlex.quote(str(t.path.parent)), False),
+            "folder": (str(t.path.parent), False)}
 
 
 def strip(x):
@@ -342,6 +345,8 @@ def coerce(p: Param, v):
                     raise ExpandError(f"{p.name}: each element a name, or a map with name: (lowercase letters, digits "
                                       f"and -), not {n!r}")
         return raw
+    if t == "any":                        # as given, checked where it is used
+        return raw
     if t == "map":
         if not isinstance(raw, dict):
             raise ExpandError(f"{p.name}: a map")
@@ -421,7 +426,7 @@ def local_names(t: Template, body: dict, inst: str, scope: Scope) -> tuple[dict,
                     name = str(name)
                 else:
                     bare = str(strip(sc.sub(str(key), mark=False)))
-                    name = f"{inst}-{bare}"
+                    name = bare if t.once else f"{inst}-{bare}"
                     renames.setdefault(section, {})[bare] = name
                 rows.append((name, entry, sc))
         made[section] = rows

@@ -20,8 +20,11 @@ review). Newest decisions from the owner first within each section.
 
 ## Modelling
 
-- **One-line modelling loop** (open): `use: modelling` instead of about 150 lines copied into each example; a
-  model built by an agent gets the improvement loop by default.
+- **One-line modelling loop** (done, `modelfix`): `uses: {modelling: {use: modelling}}`, the built-in template
+  (once a model, its parts keeping their names), replaces the 150 lines each of image-squeeze, the-job and the
+  coordinator wired by hand; it expands to exactly those parts and loops (`tests/test_modelling_template.py`
+  against the-job's old file). The agent guide and the author skill say every model includes it, and `check` notes
+  one without it (`no-modelling-loop`, a finding).
 - **Built-in join** (open): move a parent item once all its sub-items reach a state (fork-join); today it
   takes a join block or an auxiliary.
 - **Triggers on an event type** (open): a block started by an event type alone, not only by a state change.

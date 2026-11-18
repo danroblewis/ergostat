@@ -118,7 +118,10 @@ library:                                # main file only: folders of the owner's
 parameter named in an equation); a name a parameter gives whole (an item kind, `${kind}`, by default the
 instance's name) is taken as given. What a parameter brings in (a reference to a part outside, a command) is never
 renamed, so an instance can name the model's other parts, and the model can name an instance's parts by their
-full names. The instance is a system of its own, and each part it makes is in it: drawn as one box, opened in
+full names. A template written `once: true` is the exception: it may be used once a model, and its parts keep
+the names written in it (`modelling`'s `model-error`, `model-fits`, `improver`, `judge`), so prompts and the rest
+of the model name them plainly; a second use is an error (**used-twice**), and a system the model declares under
+the instance's name (to give it `show:` or `within:`) is the model's, in place of the one the use would make. The instance is a system of its own, and each part it makes is in it: drawn as one box, opened in
 place or drawn alone, in both views, like any system. Templates may use templates; an inner instance is named
 `INSTANCE-INNER` and is within the outer one.
 
@@ -133,8 +136,9 @@ on them, and `check` lists the instances still on stand-ins (**template-stand-in
 
 **Writing one.** A template file is YAML: `template:` (its name), `description:`, `reading:` (what it is in
 control theory and in system dynamics), `params:` (each with `type`, `description`, and `default`,
-`required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`), `example:` (a
-`uses:` entry), then the sections it makes (`items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`,
+`required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`; type `any` takes a
+value as given, checked where it is used), `example:` (a `uses:` entry), `once: true` when it is used once a model
+(above), then the sections it makes (`items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`,
 `goals`, `blocks`, `agents`, `uses`). In them:
 
 - `${param}` is a parameter's value; a whole value that is one `${param}` takes it as it is (a number, a list).
@@ -143,7 +147,7 @@ control theory and in system dynamics), `params:` (each with `type`, `descriptio
   `${param|text}` is `text` when the parameter is not given;
 - `${name}` is the instance's name, `${lib}` the programs the built-in templates run (below), `${python}` the
   Python ergostat runs on, `${here}` the template's own folder (for the scripts a private template keeps beside
-  it);
+  it), quoted for the shell, and `${folder}` the same as it is (for a file's path);
 - a key whose value comes out empty is left out; a map (or a section's entry) with `if: ${param}` is kept only
   when the parameter is set, `unless:` only when it is not, and either may compare (`if: ${rung} == person`);
 - a value written `{if: C, value: V, else: E}` (or `unless:`) is `V` when the condition holds, else `E`, or left out
@@ -157,7 +161,8 @@ control theory and in system dynamics), `params:` (each with `type`, `descriptio
 **The built-in library.** `respond-to` (items from a source answered within a time), `re-ping` (asked again
 until answered, up to a count, then a person takes over), `daily-report` (a report on a schedule, kept as an
 item), `keep-under` (a level held under a limit by a corrective action), `steps` (an item worked through a list
-of steps, a block each) and `collect` (the event collector). Each says its reading in both disciplines
+of steps, a block each), `collect` (the event collector) and `modelling` (the model improved as a loop of its
+own, section 12e; once a model, every model should have it). Each says its reading in both disciplines
 (`ergostat help adding`, `docs/ADDING.md`). They run ergostat's own programs (`python -m
 ergostat.library.run`): `collect` (a sensor that polls a command or an HTTP endpoint, records each new record as
 an event about an item, once, from a cursor, and prints the arrivals per hour), `each` (a block's program that
@@ -1615,6 +1620,8 @@ where the error is 0.
   `auxiliaries:`, `auxiliary.x`, `auxiliary:`;
 - **template-stand-in**: an instance of a template running on its stand-ins for a source or an action
   (section 2a);
+- **no-modelling-loop**: a model with stocks and no judge, so nothing improves it: add `use: modelling`
+  (section 12e);
 - **template-library**: a template in a `library:` folder that does not read, or one used in place of
   ergostat's own.
 
@@ -2386,7 +2393,10 @@ the owner does.
 
 ### The loop, in the model
 
-Plain YAML, like any loop (`examples/image-squeeze/model.yaml`, `examples/the-job/job/modelling.yaml`): the model's
+One line, `uses: {modelling: {use: modelling}}` (the built-in template `modelling`, section 2a; `docs/ADDING.md`
+gives its parameters: the improver's rung, prompt, command and schedule, the fit the goal holds, how often the
+parts are read, and the judge's schedule, hold-out, windows, threshold and `accept` policy), which expands to plain
+YAML, like any loop (`examples/image-squeeze/model.yaml`, `examples/the-job/job/modelling.yaml`): the model's
 error a stock (`builtin: ergostat.model.fit`) and a goal on it; the changes counted by state, `items:
 ergostat.model-change` (pending: checked; testing; passed; accepted), with flows entering each state (made,
 judged, accepted); the improver, an `ai` block (or a stand-in program) that names the goal and proposes; and the

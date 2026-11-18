@@ -44,6 +44,7 @@ proposal for the judge (that is the modelling subsystem's, which alone changes a
 | `keep-under` | a measured level held under a limit | the level under `limit` | a level that creeps up; a correction that takes a tenth off |
 | `steps` | a kind of item worked through steps in order, by programs or AI agents | nothing waits at a step; nothing stays stuck | a made-up feed; steps that do nothing |
 | `collect` | recording what a command or an API says, as items | (an instrument: none) | a made-up feed |
+| `modelling` | the model itself, improved as a loop of its own (every model should have one) | the model's replay off the record by at most `fit` | an improver that proposes nothing of its own and asks ergostat's finders to look again |
 
 Every template runs on its free stand-ins until you give it the real thing, so it can be seen and tried before any
 access exists; `check` says which instances still do (`template-stand-in`). `ergostat help adding` is this page;
@@ -198,6 +199,39 @@ uses:
   reads is the new items per hour. It never acts on what it reads.
 - **System dynamics:** the inflow of whatever the source holds, into its own running total, or into a stock of
   yours (`into:`) that something else drains. `respond-to`, `re-ping` and `steps` each have one inside.
+
+### modelling
+
+```yaml
+uses:
+  modelling:
+    use: modelling                        # every model: one line, and the model improves as a loop of its own
+    with:                                 # all optional
+      fit: 0.05                           # the most scaled error the replay may have (the goal model-fits)
+      prompt: prompts/improver.md         # the improver's prompt (else ergostat's own, which reviews any model)
+      run: ""                             # give it to claude -p (else the free stand-in); or a wrapper of your own
+      accept:
+        parameter: auto                   # a value the judge passes is written at once (else the owner accepts each)
+```
+
+- **Control:** one balancing loop that closes the long way (SPEC §12e). The goal `model-fits` holds `model-error`
+  (ergostat's measure `ergostat.model.fit`, the Fit page's total) at or under `fit`; while it is off the
+  `improver` runs (`rung`: an `ai` block by default, or a `program`, or a `person` asked) and proposes changes with
+  their evidence; the `judge` (a built-in block) replays each on the record after it, in several windows, and
+  writes what `accept` allows: nothing by default, the owner accepts in the Fit page's review queue. Its schedule
+  and verdicts are `judge-every`, `hold-out`, `windows`, `threshold` and `warm-up` (the judge's own defaults when
+  left out); the improver's `every` (3m) and `timeout` (15m); `sessions: true` keeps each improver run as a
+  `session` item, for an improver that reports `session.ran`.
+- **System dynamics:** `model-error` filled as the record moves on (`model-drift`) and drained as changes are
+  written (`model-mended`); the changes to the model (items of ergostat's kind `ergostat.model-change`, whoever
+  made them) an aging chain by state: `pending-changes` (checked) → `changes-testing` → `passed-changes` →
+  `accepted-changes` (a running total), leaving as superseded or failed.
+- **Once a model, names as written:** unlike the other templates, its parts are not prefixed: they are
+  `model-error`, `pending-changes`, `changes-testing`, `passed-changes`, `accepted-changes`, the flows
+  `model-drift`, `model-mended`, `changes-made`, `changes-superseded`, `tests-started`, `changes-passed`,
+  `changes-failed`, `changes-accepted`, the goal `model-fits`, and the blocks `improver` (or `improver-by-hand`) and
+  `judge`, in a system named for the instance (`modelling`). A system the model declares under that name (to give
+  it `show:` or `within:`) is the model's. `check` notes a model without it (`no-modelling-loop`).
 
 ## From a described workflow to a model
 

@@ -13,7 +13,7 @@ def main(argv: list[str]) -> int:
         print(f"usage: python -m ergostat.library.run {{{','.join(progs)}}} ...", file=sys.stderr)
         return 2
     if argv[0] == "standin":
-        subs = {"act": standin.act, "level": standin.level, "lower": standin.lower}
+        subs = {"act": standin.act, "level": standin.level, "lower": standin.lower, "improver": standin.improver}
         if len(argv) < 2 or argv[1] not in subs:
             print(f"usage: ... standin {{{','.join(subs)}}} ...", file=sys.stderr)
             return 2
