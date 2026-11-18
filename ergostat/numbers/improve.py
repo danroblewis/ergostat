@@ -458,6 +458,13 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
         held = [h for n in moved if (h := ex.parameter_quiet(spec, data, n, q))]
         if held and len(held) == len(moved):              # nothing it sets is exercised: held, not judged on this record
             x["not_exercised"] = "; ".join(f"{h['ref']}: {h['says']}" for h in held)
+        else:                                             # too little record to identify what it sets: held likewise
+            from . import identify as idf
+            short = idf.record_says(spec, data, moved)
+            if short and len(short) == len(moved):
+                x["too_short"] = "; ".join(f"parameter.{n}: {h['says']}" for n, h in sorted(short.items()))
+                needs = [h["needs"] for h in short.values()]
+                x["needs"] = None if None in needs else max(needs)
     else:
         moved_ctl = ver.changed_control(spec, after) if kind == "control" else ver.changed_sensors(spec, after) \
             if kind == "measurement" else []
@@ -620,9 +627,11 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
             g = ob.reference(p)
             x["window"] = g.until - g.since
         x["span"] = x["window"]
-        if x.get("not_exercised"):                       # a value the record cannot identify yet: held, inconclusive
+        if x.get("not_exercised") or x.get("too_short"):  # a value the record cannot identify yet: held, inconclusive
             why = (f"held, inconclusive: the record has not exercised what it sets ({x['not_exercised']}); its value "
-                   f"cannot be identified from this record, and nothing says the value written is wrong")
+                   f"cannot be identified from this record, and nothing says the value written is wrong"
+                   if x.get("not_exercised") else
+                   f"held, inconclusive: the record is too short to identify what it sets ({x['too_short']})")
             pr.event(p, pid, "inconclusive", {**x, "why": why, "verdict": {"verdict": "inconclusive", "why": why, "at": now,
                                                                               "by": "ergostat"}})
             return {"status": "not-proposed", "id": pid, "title": x["title"], "why": why}

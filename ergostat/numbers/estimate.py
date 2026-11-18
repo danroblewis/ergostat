@@ -14,13 +14,13 @@ as Vensim's optimisation control shares them; an estimate at an end of it is sai
 else within a factor of a thousand of the value written; deterministic.
 
 How sure: the covariance of the estimates from the Jacobian of the weighted errors at the optimum
-(Gauss–Newton, Ljung ch. 9), widened for errors that run together in time (each series' lag-one
-autocorrelation ρ), so each estimate has a standard error and parameters fitted together their
-correlation; and, where the fit leaves a material error, the record's effective size, n(1 − ρ)/(1 + ρ)
-independent points, which must reach ``fit.MIN_POINTS``. A value is proposed only from ``PROPOSE``
-points or more, over three of the slowest time constant it touches (for a stock that only
-integrates, the time things stay in it: Little's law). The last fifth of the record is held out: fitted on the rest, the estimate must fit
-it better too.
+(Gauss–Newton, Ljung ch. 9), honest about errors that run together in time (a replay integrates them),
+so each estimate has a standard error and parameters fitted together their correlation; and whether the
+record says enough to make one (``identify.py``): a value is proposed only from ``PROPOSE`` points or
+more, over three of the slowest time constant it touches (for a stock that only integrates, the time
+things stay in it: Little's law), holding ten independent points, with what it acts through moved
+several times; else it is held, inconclusive, with how much more record it needs. The last fifth of the
+record is held out: fitted on the rest, the estimate must fit it better too.
 
 An estimate is data: kept in the state directory under the model's structure (version.py), never
 written into the YAML. It becomes part of the model only when the owner accepts the proposal it
@@ -44,8 +44,7 @@ SPAN = math.log(1000.0)      # how far an estimate may move from the value writt
 HOLD_OUT = 0.2               # the last share of the record kept out of the fit, to test the estimate on
 FLOOR = 0.01                 # a series' spread is at least this share of its mean, for its weight
 CHANGED = 0.02               # an estimate moving a value by less than this share is not worth a change to the model
-PROPOSE = 40                 # points fitted, at least, before a value is proposed
-MATERIAL = 0.01              # a weighted error left past this (a tenth of the spread) is systematic enough to count ρ
+PROPOSE = 40                 # points fitted, at least, before a value is proposed (and more: identify.too_short)
 
 
 def nelder_mead(f, x0: list[float], scale: list[float], iterations: int = ITERATIONS, tol: float = 1e-9) -> tuple[list[float], float]:
@@ -306,9 +305,9 @@ def _invert(a: list[list[float]]) -> list[list[float]] | None:
 
 
 def covariance(prob: Problem, best: dict[str, float], logged: list[bool]) -> dict | None:
-    """The estimates' covariance, in the coordinates they were searched in (the logarithm of a
-    positive one): Gauss–Newton, s²·(JᵀJ)⁻¹ over the fitted part, widened by (1 + ρ)/(1 − ρ) for
-    errors that run together (ρ, their lag-one autocorrelation)."""
+    """The estimates' covariance, in the coordinates they were searched in (the logarithm of a positive one), from the
+    Jacobian of the weighted errors at the optimum (Gauss–Newton), honest about errors that run together in time, with
+    each parameter's effective record and how far the record excited it (``identify.py``)."""
     names = prob.names
     base = prob.errors(best)
     if base is None:
@@ -325,28 +324,16 @@ def covariance(prob: Problem, best: dict[str, float], logged: list[bool]) -> dic
             return None
         e1 = {(r, i): x for r, v in got.items() for i, x in v}
         cols.append([(e1.get(k, e0[k]) - e0[k]) / h for k in keys])
-    n = len(keys)
     felt = [j for j, col in enumerate(cols) if sum(x * x for x in col) > 1e-18]       # a parameter that moves nothing measured
     unseen = [names[j] for j in range(len(names)) if j not in felt]
     names, cols = [names[j] for j in felt], [cols[j] for j in felt]
-    p = len(names)
-    if n <= p or not p:
-        return {"identifiable": False, "unseen": unseen} if not p else None
-    jtj = [[sum(a * b for a, b in zip(cols[i], cols[j], strict=True)) for j in range(p)] for i in range(p)]
-    inv = _invert(jtj)
-    sse = sum(e0[k] ** 2 for k in keys)
-    lagged = [(x, y) for r, v in base.items() for (i, x), (i2, y) in zip(v, v[1:], strict=False) if i2 < prob.cut]
-    rho = sum(x * y for x, y in lagged) / max(sum(x * x for x, _ in lagged), 1e-300) if lagged else 0.0
-    rho = max(0.0, min(rho, 0.95))
-    s2 = sse / (n - p) * (1 + rho) / (1 - rho)
-    if inv is None:
-        return {"identifiable": False, "rho": rho, "unseen": unseen}
-    cov = [[s2 * v for v in row] for row in inv]
-    se = [math.sqrt(max(cov[i][i], 0.0)) for i in range(p)]
-    corr = {names[i]: {names[j]: (cov[i][j] / (se[i] * se[j]) if se[i] and se[j] else None) for j in range(p) if j != i}
-            for i in range(p)}
-    return {"identifiable": True, "se": dict(zip(names, se, strict=True)), "corr": corr, "rho": rho, "n": n, "unseen": unseen,
-            "n_eff": n * (1 - rho) / (1 + rho)}
+    if len(keys) <= len(names) or not names:
+        return {"identifiable": False, "unseen": unseen} if not names else None
+    from . import identify as idf
+    got = idf.sure(prob, names, cols, keys, e0)
+    if got is None:
+        return {"identifiable": False, "unseen": unseen}
+    return {"identifiable": True, "unseen": unseen, **got}
 
 
 def bounds(prob: Problem, start: dict[str, float], logged: list[bool]) -> list[tuple[float, float, bool]]:
@@ -493,7 +480,9 @@ def estimate(p, snap: dict | None = None, n: int | None = None, which: str = "pa
                        "identifiable": sure.get("identifiable", False) and nm not in (sure.get("unseen") or []),
                        "unseen": nm in (sure.get("unseen") or []), "at_bound": nm in sure["at_bound"],
                        "at_range": sure["at_range"].get(nm), "range": list(spec.parameters[nm].range or []) or None,
-                       "n_eff": sure.get("n_eff"), "rho": sure.get("rho"), "duration": spec.parameters[nm].duration,
+                       "n_eff": (sure.get("n_eff_of") or {}).get(nm, sure.get("n_eff")), "rho": sure.get("rho"),
+                       "moves": (sure.get("moves") or {}).get(nm), "se_naive": (sure.get("se_naive") or {}).get(nm),
+                       "duration": spec.parameters[nm].duration,
                        "weights": prob.spread, "evaluations": prob.evaluations,
                        **({"not_exercised": held[nm]} if nm in held else {})}
     f = path(p, ver.structure(spec), which)
@@ -521,14 +510,10 @@ def judged(e: dict, declared: float | None) -> str | None:
         return (f"it ran to the {e['at_range']} end of its range ({_said(e, end)}): the record would take it "
                 f"{'lower' if e['at_range'] == 'low' else 'higher'} than the model says it might be. Widen the range if "
                 f"it can be that, or the structure around it is in question")
-    if e.get("slowest") and e["window"] < ft.COVER * e["slowest"] * 3600:
-        return (f"the record spans {dur(e['window'])}, under {ft.COVER:g} of the slowest time constant it touches "
-                f"({dur(e['slowest'] * 3600)}): too little to say")
-    if e["n"] < PROPOSE:
-        return f"{e['n']} points fitted, under the {PROPOSE} a proposal needs: too little record to say"
-    if e.get("n_eff") is not None and e["n_eff"] < ft.MIN_POINTS and e.get("after", 0) > MATERIAL:
-        return (f"its errors run together (lag-one autocorrelation {e.get('rho', 0):.2f}), so its {e['n']} points hold about "
-                f"{e['n_eff']:.0f} independent ones, under {ft.MIN_POINTS}: too little record to say")
+    from . import identify as idf
+    short = idf.too_short(e)
+    if short is not None:
+        return short["says"]
     if e.get("at_bound"):
         return ("it ran to its bound (a thousand times from the value written): no value of it fits, a question of "
                 "structure, not of size")
@@ -540,7 +525,9 @@ def judged(e: dict, declared: float | None) -> str | None:
         moved = (math.log(e["value"] / declared) if e.get("logged") and declared > 0 and e["value"] > 0
                  else e["value"] - declared)
         if abs(moved) <= 2 * e["se"]:
-            return "within two standard errors of the value written: the record does not say it is wrong"
+            more = idf.to_tell(e, moved)
+            return ("within two standard errors of the value written: the record does not say it is wrong" +
+                    (f" (were it that far off, about {dur(more)} more record would tell)" if more else ""))
         if abs(e["value"] - declared) <= CHANGED * max(abs(declared), 1e-12):
             return f"it moves the value written by less than {CHANGED:.0%}"
     if e.get("held_before") is not None and e.get("held_after") is not None and not e["held_after"] < e["held_before"]:
