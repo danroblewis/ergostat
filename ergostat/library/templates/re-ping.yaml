@@ -59,7 +59,7 @@ params:
     description: about how long the stand-in's questions take to be answered
   ping:
     type: command
-    stand-in: a pretend reminder (nothing is sent)
+    stand-in: a pretend reminder, nothing sent
     description: the command that sends one reminder, given the item on standard input and $PING_N; exit 0 when sent
   take-over:
     default: Questions went unanswered after every reminder. Take each over yourself, then say so.

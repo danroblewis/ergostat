@@ -376,6 +376,51 @@
           "$ref": "#/$defs/lease_terms"
         }
       }
+    },
+    "uses": {
+      "description": "Instances of templates (SPEC \u00a72a): each expands into ordinary parts named for it, and is a system of its own",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "use"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "use": {
+            "type": "string",
+            "description": "the template"
+          },
+          "with": {
+            "type": "object",
+            "description": "the template's parameters"
+          },
+          "within": {
+            "type": "string",
+            "description": "the system it is part of"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "library": {
+      "description": "Folders of the owner's own templates (main file only; SPEC \u00a72a)",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
     }
   },
   "$defs": {

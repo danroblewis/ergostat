@@ -316,9 +316,10 @@ def scaffold(root: Path, role: str, path: str, overwrite: bool = False) -> dict:
     p.write_text("#!/usr/bin/env python3\n" + text, encoding="utf-8")
     p.chmod(p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     inside = p.resolve().is_relative_to(root.resolve())
-    cmd = f"python3 {os.path.relpath(p, root) if inside else p}"
+    where = os.path.relpath(p, root) if inside else str(p)
+    cmd = f"python3 {where}" if p.suffix == ".py" else (f"./{where}" if inside else where)   # (else its shebang runs it)
     return {"written": str(p), "command": cmd, "with": {param: cmd},
-            "note": "it runs as it is (a stand-in); fill in its TODO, then run it by hand once: " + cmd}
+            "note": "a Python script, runnable as it is (a stand-in); fill in its TODO, then run it by hand once: " + cmd}
 
 
 # ---- trying it

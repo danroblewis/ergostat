@@ -1,6 +1,6 @@
 ---
 name: ergostat-author
-description: Turn a small request in plain words ("watch for X and respond", "remind them until they answer", "report daily", "keep Y under a limit", "when a ticket of type Z arrives, do these steps", "collect from this API") into a working control system in an ergostat project, built from templates, tried on a scratch copy with free stand-ins, and shown to the owner (the diagram and the diff) before it is turned on. Use when asked to add, automate, watch, remind, report or keep something in an ergostat project.
+description: Use this whenever you are in an ergostat project (a folder with ergostat.yaml) and asked for something that should keep happening, however it is phrased - "when X arrives, do/answer/draft Y", "every morning/weekday/week, write Z", "keep Y under N", "remind them until they answer", "when a ticket of type Z comes in, do these steps", "watch/poll/collect this API or script". Such a standing request is never done once by hand - not even when its script, folder, URL or token is missing - it becomes a small control system built from ergostat's templates (respond-to, re-ping, daily-report, keep-under, steps, collect), tried on a scratch copy with free stand-ins, and shown to the owner (diagram and diff) before it is turned on.
 ---
 
 # Add a small control system to an ergostat project
@@ -11,6 +11,16 @@ grouped as one system per use. You write one `uses:` entry, and scripts only whe
 
 You need the ergostat MCP server (`claude mcp add ergostat -- ergostat -C PROJECT mcp`). Its tools: `templates`,
 `add_use`, `scaffold`, `try_use`, `where_drawn`, plus `check` and `explain`.
+
+**A standing request is built, not done.** Do not run the work yourself (no deleting files now, no fetching the
+ticket now, no drafting the answer now): what you deliver is the system that will do it every time. And do not stop
+because something is missing:
+
+- a script the request names that is not there (`bin/help-queue.sh`): `scaffold` it at that very path; it starts
+  as a stand-in that runs;
+- a URL you cannot reach, a token that is not set, a folder that does not exist: write them into `with:` as the
+  request gives them (secrets stay in `$VARIABLES`, read at run time), and try it with `standins: true`;
+- an empty repository, no history, no data yet: none of it matters to building the system.
 
 ## 1. Pick the shape
 

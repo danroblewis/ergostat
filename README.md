@@ -83,6 +83,19 @@ blocks:
 Bigger models split into files (`include: [systems/*.yaml]`); a name defined twice is an error that
 names both places.
 
+The common small shapes are **templates**, used with one entry each: the loop above is
+
+```yaml
+uses:
+  disk:
+    use: keep-under
+    with: {unit: "%", limit: 80, until: "<= 70", fails-at: 100,
+           measure: "df -P /data | awk 'NR==2 {print $5+0}'", act: ./clean-oldest.sh}
+```
+
+and `respond-to`, `re-ping`, `daily-report`, `steps` and `collect` are the others; each runs on free stand-ins
+until it is given the real thing. [docs/ADDING.md](docs/ADDING.md): "Adding a small control system".
+
 ## What a block's program does
 
 A sensor's command prints its reading: a number (`du -sm logs | cut -f1`), or `{"value": n}`. A
@@ -140,6 +153,12 @@ Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` a
 (after every edit), `explain`, `status`, `findings`, `events`, and `report_done` and `read_sensor`
 for the work and readings a person block or a manual sensor waits for. Every call reads the files
 afresh.
+
+To add a small control system from a request in plain words ("remind them until they answer", "keep the cache
+under 20 GB", "report every morning"), the MCP tools `templates`, `add_use`, `scaffold`, `try_use` and
+`where_drawn`, with the skill [`docs/skills/ergostat-author/SKILL.md`](docs/skills/ergostat-author/SKILL.md),
+build it from a template, try it on a scratch copy, and show the owner the diagram and the diff before it is
+written: [docs/ADDING.md](docs/ADDING.md), "Adding a small control system".
 
 To review a model, an agent has a skill shipped with ergostat,
 [`ergostat/skills/improve-model/SKILL.md`](ergostat/skills/improve-model/SKILL.md) (a Claude Code

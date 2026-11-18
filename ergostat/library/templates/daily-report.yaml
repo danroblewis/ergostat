@@ -25,7 +25,7 @@ params:
     description: when a report is due, as cron's five fields (minute hour day month weekday), local time; quote it
   render:
     type: command
-    stand-in: a summary of the model now (its goals off and its items)
+    stand-in: a summary of the model now, its goals off and its items
     description: the command that prints the report as Markdown, given the block's input on standard input
   folder:
     default: reports
