@@ -45,6 +45,14 @@ SNAPSHOT = "ergostat.item.snapshot"
 INF = float("inf")
 
 
+def unpacked(e) -> dict:
+    """An event, from the compressed JSON a roll-up keeps its snapshots as (``rollup.packed``)."""
+    if isinstance(e, bytes):
+        import zlib
+        return json.loads(zlib.decompress(e))
+    return e
+
+
 def _hashes(id: str, m: int) -> list[int]:
     h = hashlib.blake2b(id.encode(), digest_size=16).digest()
     a, b = int.from_bytes(h[:8], "little"), int.from_bytes(h[8:], "little") | 1
@@ -820,7 +828,7 @@ class Segments:
             new = [e for r, e in enumerate(evs) if r not in rows]
             gone += len(evs) - len(new)
             for q, e in here.items():
-                new.append({**e, "seq": q})
+                new.append({**unpacked(e), "seq": q})
                 extra.pop(q)
                 gone -= 1
             new.sort(key=lambda e: e["seq"])
@@ -833,7 +841,7 @@ class Segments:
         head = [e for e in self._head.evs if keep_head(e)]
         gone += len(self._head) - len(head)
         for q, e in extra.items():
-            head.append({**e, "seq": q})
+            head.append({**unpacked(e), "seq": q})
             gone -= 1
         if len(head) != len(self._head) or extra:
             head.sort(key=lambda e: e["seq"])
@@ -849,7 +857,8 @@ class Segments:
         if not changes:
             return
         drop = sorted({q for _, seqs, _ in changes for q in seqs})
-        put = {max(seqs): {**snap, "item": item, "causedby": None} for item, seqs, snap in changes}
+        put = {max(seqs): snap if isinstance(snap, bytes) else {**snap, "item": item, "causedby": None}
+               for item, seqs, snap in changes}
 
         def rows(s: Segment) -> set[int]:
             a, b = bisect.bisect_left(drop, s.first), bisect.bisect_right(drop, s.last)

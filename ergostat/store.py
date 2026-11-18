@@ -399,7 +399,9 @@ class Events:
         with self._c() as c:
             c.execute("begin immediate")
             try:
+                from .segments import unpacked
                 for item, seqs, snap in changes:
+                    snap = unpacked(snap)
                     for i in range(0, len(seqs), 500):
                         part = seqs[i:i + 500]
                         c.execute(f"delete from events where item = ? and seq in ({','.join('?' * len(part))})", (item, *part))

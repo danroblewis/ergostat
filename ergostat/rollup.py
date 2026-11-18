@@ -161,7 +161,7 @@ def snapshot_of(id: str, prefix: list[dict], kind, segments: list[str], now: flo
 
 
 BATCH = 20_000              # items read from the record at a time (a range of ids: the blocks that hold them)
-FLUSH = 100_000             # snapshots put into the record at a time (each time rewrites the segments they are in)
+FLUSH = 1_000_000           # snapshots put into the record at a time (each time rewrites the segments they are in)
 
 
 def candidates(p, now: float, cap: float | None) -> list[str] | None:
@@ -244,7 +244,7 @@ def compact(p, now: float | None = None, cap: float | None = None, dry: bool = F
             segs = arc.write(kind, [e for *_, pre in rows for e in pre if e["type"] != SNAPSHOT])
             for id, k, pre in rows:
                 months = {f"{_safe(kind)}/{_month(e['time'])}" for e in pre if e["type"] != SNAPSHOT}
-                changes.append((id, [e["seq"] for e in pre], snapshot_of(id, pre, k, sorted(months & set(segs)), now)))
+                changes.append((id, [e["seq"] for e in pre], packed(snapshot_of(id, pre, k, sorted(months & set(segs)), now))))
         if len(changes) >= FLUSH:
             _replace(p, changes, rest)
             changes, rest = [], {}
@@ -252,6 +252,13 @@ def compact(p, now: float | None = None, cap: float | None = None, dry: bool = F
         return {**done, "seconds": time.time() - began}
     _replace(p, changes, rest)
     return {**done, "seconds": time.time() - began, "archive_bytes": arc.size()}
+
+
+def packed(snap: dict) -> bytes:
+    """A snapshot as a roll-up keeps it until it is put into the record: compressed JSON, a tenth of the
+    dict's size (a first roll-up of 800,000 items held 9.7 GB of them as dicts)."""
+    import zlib
+    return zlib.compress(json.dumps({**snap, "causedby": None}, separators=(",", ":"), default=str).encode(), 1)
 
 
 def _replace(p, changes: list, rest: dict) -> None:
