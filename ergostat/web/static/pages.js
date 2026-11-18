@@ -396,43 +396,80 @@ function messageView(d, refresh) {
 
 function stateWord(st) { return st ? h("span", {}, st) : h("span", { class: "muted" }, "–"); }
 
+/* the Items page: the kinds grouped by the system each is in (the server decides: item_systems.py), each
+   system a group that folds away; a folded system's charts and items are neither drawn nor asked for.
+   Which are folded is remembered per project */
+const foldedKey = () => `ergostat.items.folded.${S.status?.name || ""}`;
+function foldedSystems() { try { return new Set(JSON.parse(localStorage.getItem(foldedKey()) || "[]")); } catch (e) { return new Set(); } }
+function rememberFolded(set) {
+  try { if (set.size) localStorage.setItem(foldedKey(), JSON.stringify([...set])); else localStorage.removeItem(foldedKey()); }
+  catch (e) { /* not remembered */ }
+}
+
 async function pageItems(main, q) {
   const p = page(main, "Items");
-  const kinds = h("div", { class: "kind-flows" }), notes = h("div"), box = h("div");
+  const notes = h("div"), box = h("div", { class: "item-systems" });
   const search = h("input", { type: "search", placeholder: "Search ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const more = h("p", { class: "note" });
   let kind = q.get("kind"), state = q.get("state");
-  const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => tick() });
-  p.append(kinds, notes, h("div", { class: "filters" }, search), compose, box, more);
+  const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
+  p.append(notes, h("div", { class: "filters" }, search), compose, box, more);
   const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
-  let flows = {}, flowsAt = 0;
+  let used = new Set();
+  const flows = {}, flowsAt = {};                     // each kind's flow over the window, and when it was asked for
   const keep = (key, sig, make) => {
+    used.add(key);
     const was = drawn[key];
     if (was && (was.sig === sig || was.el.matches(":hover"))) return was.el;
     drawn[key] = { sig, el: make() };
     return drawn[key].el;
   };
+  // one refresh at a time: one asked for while another runs is run once after it (the poll's rule, kept by clicks too)
+  let busy = null, again = false;
+  async function refresh() {
+    if (busy) { again = true; return busy; }
+    busy = (async () => { do { again = false; await tick(); } while (again && p.isConnected); })();
+    try { await busy; } finally { busy = null; }
+  }
   const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state); if (search.value) u.set("q", search.value);
-                     replaceRoute("/items" + (u.toString() ? "?" + u : "")); tick(); };
+                     replaceRoute("/items" + (u.toString() ? "?" + u : "")); refresh(); };
   search.addEventListener("input", () => go());
+  let sysOf = {};                                      // each kind's system, as last listed
+  const toggle = (sys) => {                            // a chosen kind's system is open: folding it lets the kind go
+    const folded = foldedSystems(), chosen = kind && sysOf[kind] === sys;
+    if (folded.has(sys) && !chosen) folded.delete(sys);
+    else { folded.add(sys); if (chosen) kind = state = null; }
+    rememberFolded(folded);
+    go();
+  };
   async function tick() {
     compose.hidden = kind !== MESSAGE_KIND || !!SNAP;
     // the list as the page shows it: the newest of each kind (all a chosen kind's, up to 300), matched to the
-    // search where it is kept, each with its kind's columns only (a snapshot holds the whole list: filtered here)
+    // search where it is kept, each with its kind's columns only, and nothing of a folded system
+    // (a snapshot holds the whole list: filtered here)
     const needle = search.value.trim().toLowerCase();
+    const folded = foldedSystems();
     const d = await api("items", { ...(kind ? { kind } : {}), ...(state ? { state } : {}),
-                                   ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}) }) });
-    // each kind: its states stacked over the window (a cumulative flow diagram), each named with its count,
+                                   ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}),
+                                                     ...(folded.size && !kind ? { hide: [...folded].join(",") } : {}) }) });
+    sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
+    const isOpen = (sys) => !folded.has(sys) || (kind && sysOf[kind] === sys);    // a chosen kind's system is open
+    const systems = d.systems || [{ name: "", kinds: d.kinds.map((k) => k.name) }];
+    const kindOf = Object.fromEntries(d.kinds.map((x) => [x.name, x]));
+    // each open kind: its states stacked over the window (a cumulative flow diagram), each named with its count,
     // a click on one shows its items; a kind without states, one line of its count. A flow over the window
-    // hardly moves in seconds: each asked for every 30s, not on every refresh of the list
-    if (Date.now() - flowsAt > 30000) {
-      flowsAt = Date.now();
-      flows = Object.fromEntries(await Promise.all(d.kinds.map(async (k) =>
-        [k.name, k.states.length ? await api("items-flow", { kind: k.name, points: CHART_POINTS }).catch(() => null) : null])));
-      for (const [name, fl] of Object.entries(flows)) if (fl && !Object.values(fl.counts).some((c) => c.some((x) => x))) flows[name] = null;   // none yet: its counts
-    }
+    // hardly moves in seconds: each asked for every 30s, not on every refresh of the list, and only while shown
+    const shownKinds = systems.filter((g) => isOpen(g.name)).flatMap((g) => g.kinds.map((n) => kindOf[n]).filter(Boolean));
+    const due = shownKinds.filter((k) => k.states.length && !(Date.now() - (flowsAt[k.name] || 0) < 30000));
+    await Promise.all(due.map(async (k) => {
+      flowsAt[k.name] = Date.now();
+      const fl = await api("items-flow", { kind: k.name, points: CHART_POINTS }).catch(() => null);
+      flows[k.name] = fl && Object.values(fl.counts).some((c) => c.some((x) => x)) ? fl : null;   // none yet: its counts
+    }));
+    if (!p.isConnected) return;
+    used = new Set();
     const pick = (k, st) => { [kind, state] = kind === k.name && state === st ? [null, null] : [k.name, st]; go(); };
-    kinds.replaceChildren(...d.kinds.map((k) => {
+    const card = (k) => {
       const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; go(); } },
         k.name, h("span", { class: "mono" }, k.id));
       const fl = flows[k.name];
@@ -442,13 +479,12 @@ async function pageItems(main, q) {
       const chosen = kind === k.name ? state : null;
       return h("div", { class: "kind-flow" }, name,
         keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen]), () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st) })));
-    }));
+    };
     notes.replaceChildren(...[
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind under items: in ergostat.yaml; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
     const rows = SNAP ? d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) : d.items;
     const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
-    const kindOf = Object.fromEntries(d.kinds.map((x) => [x.name, x]));
     const isNum = (its, f) => its.some((i) => typeof i.fields[f] === "number") && its.every((i) => i.fields[f] == null || typeof i.fields[f] === "number");
     const tableOf = (its, show, limit) => {
       const nums = new Set(show.filter((f) => isNum(its, f)));
@@ -459,29 +495,52 @@ async function pageItems(main, q) {
           h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
           h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items");
     };
-    const groups = (kind ? d.kinds.filter((k) => k.name === kind) : d.kinds).map((k) => [k.name, k.show]);
-    if (!kind && d.unkinded) groups.push(["", []]);
-    const parts = [];
-    for (const [name, show] of groups) {                   // one table per kind, each with its own columns
-      const its = rows.filter((i) => (i.kind || "") === name);
-      if (!its.length) continue;
-      const limit = kind ? 300 : 25, many = d.matched?.[name] ?? its.length;
-      parts.push(h("h2", {}, name || "No kind", h("span", { class: "muted" }, ` ${many}`)));
-      parts.push(tableOf(its, show, limit));
-      if (name === CLAIM_KIND) {                          // how far each block's claims held
-        const t = await api("trust").catch(() => null);
-        if (t) parts.push(keep("trust", JSON.stringify([t.rows, Math.round(t.until - t.since)]), () => trustView(t)));
+    const tables = async (names) => {                    // one table per kind, each with its own columns
+      const parts = [];
+      for (const name of names) {
+        if (kind && name !== kind) continue;
+        const its = rows.filter((i) => (i.kind || "") === name);
+        if (!its.length) continue;
+        const limit = kind ? 300 : 25, many = d.matched?.[name] ?? its.length;
+        parts.push(h("h3", { class: "kind-head" }, name || "No kind", h("span", { class: "muted" }, ` ${many}`)));
+        parts.push(tableOf(its, kindOf[name]?.show || [], limit));
+        if (name === CLAIM_KIND) {                        // how far each block's claims held
+          const t = await api("trust").catch(() => null);
+          if (t) parts.push(keep("trust", JSON.stringify([t.rows, Math.round(t.until - t.since)]), () => trustView(t)));
+        }
+        const fl = flows[name];                            // under its table: how long its finished items took
+        if (fl) parts.push(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group)));
+        if (many > limit) parts.push(h("p", { class: "note" }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `All ${many}`)));
       }
-      const fl = flows[name];                              // under its table: how long its finished items took
-      if (fl) parts.push(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group)));
-      if (many > limit) parts.push(h("p", { class: "note" }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `All ${many}`)));
+      return parts;
+    };
+    const groups = [];
+    let anyRows = false;
+    for (const g of systems) {
+      const names = [...g.kinds, ...(g.name === "other" && d.unkinded ? [""] : [])];
+      const n = g.kinds.reduce((a, k) => a + Object.values(kindOf[k]?.counts || {}).reduce((x, y) => x + y, 0), 0) + (names.includes("") ? d.unkinded : 0);
+      const open = isOpen(g.name);
+      const head = h("h2", { class: "sys-head" },
+        h("button", { class: "ghost disclose", "aria-expanded": String(!!open), title: open ? "Fold this system away" : "Show this system",
+                      onclick: () => toggle(g.name) }, h("span", { class: "tri", "aria-hidden": "true" }, open ? "▾" : "▸"), g.name),
+        h("span", { class: "muted" }, ` ${n} item${n === 1 ? "" : "s"}, ${g.kinds.length} kind${g.kinds.length === 1 ? "" : "s"}`),
+        g.description ? h("span", { class: "muted sys-desc" }, g.description) : null);
+      if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name }, head)); continue; }
+      const t = await tables(names);
+      anyRows ||= t.length > 0;
+      groups.push(h("section", { class: "sys-group", "data-system": g.name }, head,
+        h("div", { class: "kind-flows" }, g.kinds.map((k) => kindOf[k]).filter(Boolean).map(card)), ...t));
     }
+    if (!p.isConnected) return;
+    for (const key of Object.keys(drawn)) if (!used.has(key)) delete drawn[key];   // a folded kind's charts let go
     const listed = d.listed ?? d.items.length;          // what the server's list held, before the search and the cut per kind
-    box.replaceChildren(...(parts.length ? parts : [listed ? h("p", { class: "muted" }, "Nothing matches.") : ""]));
+    const none = !anyRows && listed && (needle || state || kind) ? h("p", { class: "muted" }, folded.size ? "Nothing matches in the systems shown." : "Nothing matches.") : null;
+    box.replaceChildren(...groups, ...(none ? [none] : []));
+    sweepPlots();                                         // the charts just replaced (or folded away) let go now, not at the next one drawn
     more.textContent = d.total > listed ? `${d.total - listed} older items not loaded.` : "";
   }
-  await tick();
-  S.timer = poll(tick, 4000, p);
+  await refresh();
+  S.timer = poll(refresh, 4000, p);
 }
 
 /* a field's history: each change, oldest first, with the event that made it (a click opens it) */
