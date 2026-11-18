@@ -1217,7 +1217,9 @@ leaves the item in and whether that is `terminal` (a dead letter, or its kind's 
 held can be cleaned, or not (under review, or back in the queue to be taken again), so it can be kept. In the run, `ERGOSTAT_ITEM` and
 `ERGOSTAT_LEASE` name what it holds, and `ERGOSTAT_RUN` the holder. A run whose lease expired may
 still be running: what it writes about the item is refused, and what it holds should be released or
-fenced the same way, by the fencing number. `$ERGOSTAT_CMD event --type ergostat.lease.* --follow`
+fenced the same way, by the fencing number. The workspace pools (section 12k) are held this way: an `ai`
+block with `workspace:` that takes items works in its item's workspace, kept across its attempts and
+its review, and cleaned when the item is terminal. `$ERGOSTAT_CMD event --type ergostat.lease.* --follow`
 watches them; `ergostat lease` lists who holds what.
 
 **Stalls, as a watchdog loop.** The built-in measures `ergostat.leases.held` (leases held now),
@@ -2712,11 +2714,22 @@ context's item (§12j), else the item its command names. A run with a workspace 
 4. else none is free, and the run does not start (`agent.failed`: in use, held and quarantined counted).
 
 **Release**, when the item's lease ends (`ergostat.lease.ended` or `.expired`), or when its run ends if it had no lease:
-while the item is not finished (the states `messages: {done:}` gives, else as §12h infers them) its workspace is
-**held** for it, its work kept for review; once the item finishes it is **cleaned**: detached at `base`, untracked files
-removed, its branch left in the repository; a workspace dirty or broken when cleaned is quarantined instead, nothing in
-it thrown away. `ergostat.lease.taken` makes a held workspace in use again. ergostat's clock (every five seconds) takes
-the lease events to the pools and cleans what is held for items that have finished since.
+while the item is not finished (the end's `terminal` says; otherwise the states `messages: {done:}` gives, else its
+kind's last state or a dead letter) its workspace is **held** for it, its work kept for review or for the next attempt;
+once the item finishes it is **cleaned**: detached at `base`, untracked files removed, its branch left in the
+repository; a workspace dirty or broken when cleaned is quarantined instead, nothing in it thrown away.
+`ergostat.lease.taken` makes a held workspace in use again, under the new lease. The dispatcher takes each lease event
+it records to the pools at once; ergostat's clock (every five seconds) takes every lease event to them (those another
+process recorded: `ergostat lease ITEM --nack`) and cleans what is held for items that have finished since.
+
+**Fencing.** A workspace is recorded with the fencing number of the lease it was acquired under (`lease`), and the
+lease events act only on the workspace their fence holds: the end of a lease a later one replaced changes nothing, so
+the events may be taken again (after a restart) to the same effect. A lease that expires while its run still goes on
+holds the workspace **fenced** (`fenced`: the run and its fence): the next lease on the item takes it, its work with it,
+and the old run's item events (§9.5) and gated actions are refused. A gated action records the lease it was asked for
+under; it is denied when asked for, and fails unrun when approved, once that lease has expired or a later one has been
+taken on the item. An action asked for under a lease that ended (ack or nack) and was not taken again still runs once
+approved: its item waits for review.
 
 **Quarantined** workspaces are never given to an item; `ergostat workspaces POOL --free N` (the owner) removes that
 worktree, and the slot is made afresh when next needed. Each workspace is an item, `ergostat.workspace/POOL-N`
@@ -2730,9 +2743,9 @@ worktree, and the slot is made afresh when next needed. Each workspace is an ite
 | `ergostat.workspaces.held` | Workspaces kept for an item under review, now |
 | `ergostat.workspaces.quarantined` | Workspaces found dirty or broken, now (each needs attention) |
 
-*Leases* (`ergostat.lease.*`, `ERGOSTAT_ITEM`, `ERGOSTAT_LEASE`) are another piece of work's; the pool reads only those
-names: the work item is the event's `data.item` (else its own item), the lease `data.lease` (else its own item when it
-is an `ergostat.lease/...`).
+*Leases* (§9.5: `ergostat.lease.*`, `ERGOSTAT_ITEM`, `ERGOSTAT_LEASE`) are what the pool reads: the work item is the
+event's `data.item` (else its own item), the lease its `data.fence`, and an end's `data.terminal` whether the item
+finished.
 
 ### Gated actions
 

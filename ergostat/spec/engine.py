@@ -421,6 +421,9 @@ class Engine:
             env.update({"ERGOSTAT_ITEM": item, "ERGOSTAT_LEASE": str(fence or ""),
                         "ERGOSTAT_LEASE_TTL": f"{float(lease.get('ttl') or 0):g}",
                         "ERGOSTAT_LEASE_EXPIRES": f"{float(lease.get('expires') or 0):.3f}"})
+        else:                                                    # none: not one inherited from where ergostat was started
+            for k in ("ERGOSTAT_ITEM", "ERGOSTAT_LEASE", "ERGOSTAT_LEASE_TTL", "ERGOSTAT_LEASE_EXPIRES"):
+                env.pop(k, None)
         if (ctx.get("command") or {}).get("review"):             # a review asked of it: the ask is answered by this run
             with self.lock:
                 frm = ctx["command"].get("from")

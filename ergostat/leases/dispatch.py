@@ -143,6 +143,7 @@ class Dispatcher:
         got = held(now.fields) if now else None
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
             return None
+        self.resources(ev)
         self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence}
         self.e.say(f"{b.name}: took {it.id} (lease {fence}, {t['ttl'] / 60:g} min)")
         item = {"id": it.id, "kind": it.kind, "state": it.state, "fields": {k: v for k, v in it.fields.items() if k != "lease"}}
@@ -209,11 +210,23 @@ class Dispatcher:
             data.update({"how": "nack", "why": out.get("note") or f"the run ended with {item} still {it.state}"})
         data.update(self.after(it, lease, data["how"] == "nack" and data.get("count", True) is not False,
                                it.state if data["how"] == "ack" else None))
-        self.p.events.add(ENDED, item=item, source=SOURCE, causedby=run, data=data)
+        self.resources(self.p.events.add(ENDED, item=item, source=SOURCE, causedby=run, data=data))
         if data["how"] == "nack":
             after = its.one(self.p.events, self.spec, item)
             dead = after is not None and after.state == DEAD
             self.e.say(f"{b.name}: gave {item} back ({data['why']})" + (": a dead letter now" if dead else ""))
+
+    def resources(self, ev: dict) -> None:
+        """What holds a resource as long as a lease, told at once (the engine's clock sweeps the same events later, for
+        those it did not record itself): the workspace pools (SPEC §12k)."""
+        spec = self.spec
+        if not spec.workspaces:
+            return
+        try:
+            from ..workspaces import leases as wl
+            wl.on_event(self.p, spec, ev)
+        except Exception as e:                                   # the sweep tries again
+            self.e.say(f"workspaces: {type(e).__name__}: {e}")
 
     def after(self, it, lease: dict, counted: bool, stays: str | None = None) -> dict:
         """What a lease's end says of its item, for what holds a resource as long as the lease (SPEC §9.5): the item,
@@ -243,9 +256,10 @@ class Dispatcher:
                                       data={"run": lease["holder"], "fence": lease["fence"], "seen": "activity"})
                     continue
                 silent = now - float(lease.get("renewed") or lease.get("taken") or now)
-                self.p.events.add(EXPIRED, item=it.id, source=SOURCE,
-                                  data={"run": lease["holder"], "fence": lease["fence"], "block": lease.get("block"),
-                                        "silent": round(silent, 1), "ttl": ttl, **self.after(it, lease, True)})
+                self.resources(self.p.events.add(EXPIRED, item=it.id, source=SOURCE,
+                                                 data={"run": lease["holder"], "fence": lease["fence"],
+                                                       "block": lease.get("block"), "silent": round(silent, 1), "ttl": ttl,
+                                                       **self.after(it, lease, True)}))
                 after = its.one(self.p.events, self.spec, it.id)
                 dead = after is not None and after.state == DEAD
                 self.e.say(f"{lease.get('block')}: the lease on {it.id} expired (silent {silent / 60:.1f} min)"

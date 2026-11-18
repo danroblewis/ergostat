@@ -110,9 +110,10 @@ def _record(p, pool: str, n: int, what: str, data: dict, causedby: str | None = 
 
 
 def acquire(p, spec, name: str, item: str, fields: dict | None = None, run: str | None = None,
-            lease: str | None = None) -> dict:
+            lease: int | None = None) -> dict:
     """A workspace for this item's run: the one it has already (a retry, or after review), else a free one reset for it
     (a dirty or broken one quarantined on the way), else a fresh worktree. Raises PoolError when none can be given.
+    ``lease``: the fencing number of the lease the run holds on the item (SPEC §9.5), recorded with the workspace.
     Returns the workspace: ``dir``, ``branch``, ``slot``, ``how``, ``writes`` (what git needs written outside it)."""
     pool = spec.workspaces[name]
     be = backend(spec, pool)
@@ -158,9 +159,12 @@ def _keep(s: dict) -> dict:
 
 
 def _take(p, pool: WorkspacePool, s: dict, run, lease, be: GitWorktrees) -> dict:
-    data = {"dir": s["dir"], "item": s["item"], "branch": s["branch"], "how": s["how"], "run": run, "lease": lease,
-            "acquired": time.time()}
-    _record(p, pool.name, s["slot"], "acquired", data, run)
+    if s.get("state") == "in-use" and s.get("run") == run and s.get("lease") == lease and run:
+        data = {k: s.get(k) for k in ("dir", "item", "branch", "how", "run", "lease", "acquired")}   # its lease's, already
+    else:
+        data = {"dir": s["dir"], "item": s["item"], "branch": s["branch"], "how": s["how"], "run": run, "lease": lease,
+                "acquired": time.time()}
+        _record(p, pool.name, s["slot"], "acquired", data, run)
     try:
         writes = be.writes(Path(s["dir"]), s["branch"])
     except Broken:
@@ -174,9 +178,12 @@ def held_by(p, spec, item: str) -> list[dict]:
             if s.get("item") == item and s["state"] in ("in-use", "held")]
 
 
-def release(p, spec, item: str, finished: bool, why: str, causedby: str | None = None, lease: str | None = None) -> list[dict]:
+def release(p, spec, item: str, finished: bool, why: str, causedby: str | None = None, lease: int | None = None,
+            fenced: dict | None = None) -> list[dict]:
     """The item's lease ended (or its run, with no lease): each workspace it has is held for it while it is not
-    finished, and cleaned (free) once it is; one dirty or broken when cleaned is quarantined. Returns what was done."""
+    finished, and cleaned (free) once it is; one dirty or broken when cleaned is quarantined. ``lease``: the fencing
+    number of the lease that ended; a workspace a later lease has is left as it is. ``fenced``: the run, and its fence,
+    whose lease expired while it goes on (recorded on the workspace held). Returns what was done."""
     done = []
     for pool in spec.workspaces.values():
         be = backend(spec, pool)
@@ -184,11 +191,13 @@ def release(p, spec, item: str, finished: bool, why: str, causedby: str | None =
             for s in slots(p, spec, pool).values():
                 if s.get("item") != item or s["state"] not in ("in-use", "held"):
                     continue
-                if lease and s.get("lease") and s["lease"] != lease:
+                if lease is not None and s.get("lease") is not None and s["lease"] != lease:
                     continue                                    # another lease has it now
                 if not finished:
                     if s["state"] == "in-use":
-                        done.append(_record(p, pool.name, s["slot"], "held", {**_keep(s), "why": why}, causedby))
+                        kept = {**_keep(s), **{k: s[k] for k in ("run", "lease") if s.get(k) is not None}}
+                        done.append(_record(p, pool.name, s["slot"], "held",
+                                            {**kept, "why": why, **({"fenced": fenced} if fenced else {})}, causedby))
                     continue
                 d = Path(s["dir"])
                 bad = be.check(d)
