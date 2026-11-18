@@ -307,8 +307,22 @@ a.chart-name { color: var(--accent); }
 .cfd-states { display: flex; flex-direction: column; gap: var(--sp-0); }
 .cfd .swatch { display: inline-block; width: var(--sp-2); height: var(--sp-2); margin-right: var(--sp-2); vertical-align: baseline; }
 .chart.cycle { margin: var(--sp-3) 0 var(--sp-4); max-width: 72rem; }
-.kind-flows { margin: 0 0 var(--sp-5); }
-.kind-flow { margin: 0 0 var(--sp-4); }
+/* each system a group that folds away; its kinds' charts side by side, about three across a laptop,
+   two then one on narrower screens (each chart follows its card's width: mountPlot) */
+.sys-group { border-top: var(--hair) solid var(--line); }
+.sys-group + .sys-group { margin-top: var(--sp-2); }
+.page h2.sys-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 var(--sp-2); margin: var(--sp-2) 0; }
+.sys-head .disclose { font: inherit; font-weight: 600; padding: var(--sp-0) var(--sp-1); margin-left: calc(-1 * var(--sp-1)); }
+.sys-head .tri { display: inline-block; width: 1em; color: var(--muted); }
+.sys-head .muted { font-size: var(--text); }
+.sys-head .sys-desc { font-size: var(--text-sm); }
+.page h3.kind-head { font-size: var(--text); font-weight: 600; margin: var(--sp-5) 0 var(--sp-2); }
+.page h3.kind-head .muted { font-weight: 400; }
+.kind-flows { display: flex; flex-wrap: wrap; gap: var(--sp-4) var(--sp-6); margin: var(--sp-3) 0 var(--sp-5); }
+.kind-flow { flex: 1 1 24rem; min-width: min(20rem, 100%); max-width: 36rem; }
+.kind-flow .cfd { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); margin: 0; }
+.kind-flow .chart-plot { min-width: 0; overflow: hidden; }
+.kind-flow .cfd-states { flex-direction: row; flex-wrap: wrap; gap: 0 var(--sp-3); font-size: var(--text-sm); }
 .kind-flow > .states { margin: var(--sp-1) 0 0; }
 .kind-flow .kname { color: var(--ink); font-weight: 600; }
 .kind-flow .kname.on { color: var(--accent); }
