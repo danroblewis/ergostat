@@ -31,8 +31,8 @@ OPEN_S = float(os.environ.get("POLL_OPEN_S", 40))    # how long each page is lef
 HEAP_GROWTH_MB = 3.0           # retained heap (after a collection), from settled to the end
 NODE_GROWTH = 0.10             # DOM nodes, as a share of where they settled (and 200 more)
 LONG_TASK_P95_MS = 500         # each refresh's longest work on the main thread, on a laptop; generous
-PAGES = ["#/diagram", "#/diagram?view=dynamics&open=*", "#/diagram?view=blocks", "#/diagram?view=wiring", "#/loops",
-         "#/agents", "#/items", "#/item/hypothesis/1", "#/record", "#/model"]
+PAGES = ["diagram", "diagram?view=dynamics&open=*", "diagram?view=blocks", "diagram?view=wiring", "loops",
+         "agents", "items", "item/hypothesis%2F1", "record", "model"]
 INIT = f"""window.ERGOSTAT_POLL_SPEED = {SPEED}; window.__lt = [];
 try {{ new PerformanceObserver((l) => {{ for (const e of l.getEntries()) window.__lt.push(e.duration); }})
         .observe({{ type: "longtask", buffered: true }}); }} catch (e) {{}}"""
@@ -139,10 +139,10 @@ def test_leaving_a_page_stops_its_polling(browser, site):
     """Pages left quickly, each before its first answer came: only the header's and the last page's polls go on."""
     pg = browser.new_page()
     pg.add_init_script(INIT)
-    pg.goto(f"{site}/#/loops")
+    pg.goto(f"{site}/loops")
     pg.wait_for_timeout(3000)
-    for r in ["#/diagram", "#/items", "#/loops", "#/diagram?view=blocks", "#/agents", "#/model", "#/diagram"] * 2 + ["#/record"]:
-        pg.evaluate(f"location.hash = {r!r}")
+    for r in ["/diagram", "/items", "/loops", "/diagram?view=blocks", "/agents", "/model", "/diagram"] * 2 + ["/record"]:
+        pg.evaluate(f"navigate({r!r})")
         pg.wait_for_timeout(150)
     pg.wait_for_timeout(4000)
     alive = pg.evaluate("POLLS.size")
@@ -157,7 +157,7 @@ def test_leaving_a_page_stops_its_polling(browser, site):
 def test_a_hidden_tab_asks_for_nothing(browser, site):
     pg = browser.new_page()
     pg.add_init_script(INIT)
-    pg.goto(f"{site}/#/diagram")
+    pg.goto(f"{site}/diagram")
     pg.wait_for_timeout(4000)
     pg.evaluate("""() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
                            document.dispatchEvent(new Event("visibilitychange")); }""")

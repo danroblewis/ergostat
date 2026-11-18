@@ -100,7 +100,7 @@ def page_of(request, tmp_path_factory):
 
 
 def drawn(pg, url: str, view: str, n: int) -> None:
-    pg.goto(f"{url}/?v={n}#/diagram?{view}")            # a new query: the page loads afresh, no layout carried over
+    pg.goto(f"{url}/diagram?v={n}&{view}")            # a new query: the page loads afresh, no layout carried over
     pg.wait_for_function(READY, timeout=60000)
 
 
@@ -593,6 +593,104 @@ TRANSCRIPT = [
 ]
 
 
+# item ids as the Items page links them: a / (as %2F), and the characters a path or a query would take for its own
+ADDRESSED = ["ticket/7", "ticket/a b?c#d%e&f+g", "ticket/ünï(1)!'*~"]
+
+
+def test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back(browser, tmp_path):
+    """Each page is a path: a link to an item is an ordinary link (opened by itself in a new tab it is the item's
+    page, and a ctrl- or cmd-click opens one), a plain click goes there without reloading, a reload on a deep path
+    draws it again, back and forward walk the pages, and an old #/ address lands on its path."""
+    d = tmp_path / "addresses"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text("items:\n  ticket:\n    id: ticket/*\n")
+    home = tmp_path / "home"
+    env = {**os.environ, "ERGOSTAT_HOME": str(home)}
+    for i, iid in enumerate(ADDRESSED):
+        subprocess.run([sys.executable, "-m", "ergostat", "-C", str(d), "event", "--add", "ticket.opened", "--item", iid,
+                        "--data", json.dumps({"title": f"number {i}"})], env=env, check=True, capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    item_page = "(id) => document.querySelector('#main h1')?.textContent === id && !!document.querySelector('#main .meta')"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        ctx = browser.new_context(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        ctx.on("weberror", lambda e: errors.append(str(e.error)))
+        pg = ctx.new_page()
+        pg.goto(url + "/items")
+        pg.wait_for_selector("#main tr.click a[href^='/item/']", timeout=20000)
+        hrefs = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('#main tr.click a[href^=\"/item/\"]')]"
+                            ".map((a) => [a.textContent, a.getAttribute('href')]))")
+        assert set(hrefs) == set(ADDRESSED), hrefs
+        assert hrefs["ticket/7"] == "/item/ticket%2F7"
+        # each link, opened by itself in a new tab: that item's page
+        for iid in ADDRESSED:
+            tab = ctx.new_page()
+            tab.goto(url + hrefs[iid])
+            tab.wait_for_function(item_page, arg=iid, timeout=20000)
+            assert tab.evaluate("location.pathname + location.search") == hrefs[iid]
+            tab.close()
+        # a ctrl- or cmd-click is left to the browser: a new tab, on the item; this page stays where it is
+        link = pg.locator("#main tr.click a[href='/item/ticket%2F7']")
+        with ctx.expect_page() as opened:
+            link.click(modifiers=["ControlOrMeta"])
+        tab = opened.value
+        tab.wait_for_function(item_page, arg="ticket/7", timeout=20000)
+        tab.close()
+        assert pg.evaluate("location.pathname") == "/items"
+        # a plain click: the item here, with no reload (what the page holds stays)
+        pg.evaluate("window.__stayed = 1")
+        link.click()
+        pg.wait_for_function(item_page, arg="ticket/7", timeout=20000)
+        assert pg.evaluate("[location.pathname, window.__stayed]") == ["/item/ticket%2F7", 1]
+        # the header's links too, and the item's link back to its kind
+        pg.locator("#nav a", has_text="Record").click()
+        pg.wait_for_function("() => location.pathname === '/record' && document.querySelector('#nav a.on')?.textContent === 'Record'")
+        assert pg.evaluate("window.__stayed") == 1
+        # back and forward
+        pg.go_back()
+        pg.wait_for_function(item_page, arg="ticket/7", timeout=20000)
+        pg.go_back()
+        pg.wait_for_function("() => location.pathname === '/items' && document.querySelector('#main tr.click')", timeout=20000)
+        pg.go_forward()
+        pg.wait_for_function(item_page, arg="ticket/7", timeout=20000)
+        assert pg.evaluate("window.__stayed") == 1
+        # a reload on a deep path draws the same page
+        pg.reload()
+        pg.wait_for_function(item_page, arg="ticket/7", timeout=20000)
+        assert pg.evaluate("window.__stayed") is None
+        odd = hrefs[ADDRESSED[1]]
+        pg.goto(url + odd)
+        pg.reload()
+        pg.wait_for_function(item_page, arg=ADDRESSED[1], timeout=20000)
+        # a query kept on the path: the diagram's view, and reloaded as it was
+        pg.goto(url + "/diagram?view=blocks")
+        pg.wait_for_function("() => document.querySelector('.toolbar .seg button.on')?.textContent === 'Blocks'", timeout=30000)
+        # old #/ addresses (bookmarks, briefs, messages): shown at their paths
+        for old, new in (("/#/item/ticket%2F7", "/item/ticket%2F7"), ("/#/items?kind=ticket", "/items?kind=ticket"),
+                         ("/#/diagram?view=blocks", "/diagram?view=blocks"), ("/#/fit", "/model")):
+            pg.goto(url + old)
+            pg.wait_for_function("(p) => location.pathname + location.search === p && !location.hash", arg=new, timeout=20000)
+        pg.wait_for_function("() => document.querySelector('#main h1')?.textContent === 'Model'", timeout=20000)
+        pg.goto(url + "/#/item/ticket%2F7")
+        pg.wait_for_function(item_page, arg="ticket/7", timeout=20000)
+        pg.go_back()                                   # the old address replaced, not added: back is the page before it
+        pg.wait_for_function("() => location.pathname === '/model'", timeout=20000)
+        ctx.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_an_items_files_show_as_what_they_are_and_nothing_in_them_runs(browser, tmp_path):
     """A transcript as a conversation (each tool call one line, with what came back), Markdown rendered
     with its code highlighted, an image as an image; HTML in any of it shown as text, never run."""
@@ -620,7 +718,7 @@ def test_an_items_files_show_as_what_they_are_and_nothing_in_them_runs(browser, 
         pg = browser.new_page(viewport={"width": 1400, "height": 1000})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.goto(f"{url}/#/item/session%2Fx")
+        pg.goto(f"{url}/item/session%2Fx")
         pg.wait_for_selector(".convo .turn.tool", timeout=10000)
         assert pg.locator(".convo .turn.user").count() == 1 and pg.locator(".convo .turn.assistant").count() == 2
         tool = pg.locator(".convo .turn.tool")
@@ -729,7 +827,7 @@ def test_an_items_page_shows_each_fields_history_and_a_session_folded_from_its_t
         pg = browser.new_page(viewport={"width": 1400, "height": 1300})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.goto(f"{url}/#/item/ticket%2F7")
+        pg.goto(f"{url}/item/ticket%2F7")
         pg.wait_for_selector("table.fields tr[data-field=title] details.history", timeout=10000)
         assert "Thumbnails are blurry at quality 60" in pg.locator("table.fields tr[data-field=title] > td").first.inner_text()
         notes = pg.locator("tr[data-field=notes] details.history")
@@ -751,7 +849,7 @@ def test_an_items_page_shows_each_fields_history_and_a_session_folded_from_its_t
         title.locator("table.history a", has_text="ticket.retitled").first.click()
         pg.wait_for_selector("#detail h2", timeout=5000)
         assert pg.locator("#detail h2").inner_text() == "ticket.retitled" and "/title" in pg.locator("#detail").inner_text()
-        pg.goto(f"{url}/#/item/session%2Fdeveloper-1a2b")
+        pg.goto(f"{url}/item/session%2Fdeveloper-1a2b")
         pg.wait_for_selector("tr[data-field=messages] table.sub", timeout=10000)
         msgs = pg.locator("tr[data-field=messages] > td").first.inner_text()
         assert "Raise the thumbnail quality" in msgs and "keeps every case under its size target" in msgs
@@ -1279,9 +1377,9 @@ def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, m
         pg.on("pageerror", lambda e: errors.append(str(e)))
         if shots:
             shots.mkdir(parents=True, exist_ok=True)
-        check_guide(walk_guide(pg, url + "/#/guide", shots))
+        check_guide(walk_guide(pg, url + "/guide", shots))
         # the cascade's inner block opens on a click, and closes again
-        pg.goto(url + "/?v=1#/guide?frame=11")
+        pg.goto(url + "/guide?frame=11&v=1")
         pg.wait_for_function(GUIDE_FRAME, arg=11, timeout=60000)
         assert pg.locator("svg.g-canvas .bd-frame").count() == 0
         pg.locator("svg.g-canvas .bd-toggle").first.click()
@@ -1489,17 +1587,17 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
         assert hover_all(pg, "#detail .scope") == (3, 3)
         assert "Saturated" in pg.locator("#detail .scope dl").inner_text()
         # the Loops page: the sparkline opens the same scope
-        pg.goto(url + "/#/loops")
+        pg.goto(url + "/loops")
         pg.locator("td.spark-cell").first.click()
         pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=20000)
         # the Items page: the kind's flow, and under its table its cycle times
-        pg.goto(url + "/#/items")
+        pg.goto(url + "/items")
         pg.wait_for_function(f"() => ({CHARTS.format('.cfd')})() >= 1 && ({CHARTS.format('.chart.cycle')})() >= 1", timeout=20000)
         states = pg.evaluate("() => [...document.querySelectorAll('.cfd-states .stbox')].map((x) => x.textContent)")
         assert states == ["3open", "3doing", "6done"], states
         assert hover_all(pg, ".page") == (2, 2)
         pg.locator(".cfd-states .stbox", has_text="doing").click()        # a state's label filters the table, as its count did
-        pg.wait_for_function("() => location.hash.includes('state=doing')", timeout=5000)
+        pg.wait_for_function("() => location.search.includes('state=doing')", timeout=5000)
         pg.close()
         assert not errors, errors
     finally:
@@ -2005,7 +2103,7 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         assert (d / "ergostat.yaml").read_text() == before
         # the Model page: what is available (k, where it lives, whether the record is long enough), the stock's fit,
         # Theil's breakdown, and a proposal once estimated
-        pg.goto(url + "/#/model")
+        pg.goto(url + "/model")
         pg.wait_for_function("() => document.querySelector('.available table.avail')", timeout=20000)
         k = pg.locator(".available table.avail tr", has_text="k").filter(has_text="served").first.inner_text()
         assert "served" in k and "not calibrated yet" in k, k
@@ -2030,7 +2128,7 @@ def test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_pag
         pg.wait_for_function("() => /Accepted/.test(document.querySelector('#detail .proposal').textContent)", timeout=20000)
         text = (d / "ergostat.yaml").read_text()
         assert re.search(r"    value: (3|2\.99\d*|3\.0\d*) ", text) and "# what we believe" in text and "# the queue drains" in text, text
-        pg.goto(url + "/#/model")
+        pg.goto(url + "/model")
         pg.wait_for_function("() => /accepted: k/.test(document.body.textContent)", timeout=20000)
         assert "Nothing waiting." in pg.locator(".page").inner_text()
         pg.close()
@@ -2070,8 +2168,8 @@ def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browse
         pg = browser.new_page(viewport={"width": 1440, "height": 900})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.goto(url + "/?v=1#/fit")
-        pg.wait_for_function("() => location.hash === '#/model' && document.querySelector('.available table.avail')", timeout=30000)
+        pg.goto(url + "/fit?v=1")
+        pg.wait_for_function("() => location.pathname === '/model' && document.querySelector('.available table.avail')", timeout=30000)
         assert pg.locator("h1").inner_text() == "Model"
         assert pg.locator("#nav a.on").inner_text() == "Model"
         avail = pg.locator(".available")
@@ -2084,7 +2182,7 @@ def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browse
         pg.wait_for_function("() => S.graph?.kind === 'blocks' && !document.querySelector('#detail').hidden", timeout=60000)
         pg.wait_for_function("() => /The loop quality-held/.test(document.querySelector('#detail').textContent)", timeout=60000)
         assert pg.evaluate("() => S.graph.nodes.find((n) => n.id === S.bdSel?.node)?.role") == "process"
-        pg.goto(url + "/?v=1#/model")
+        pg.goto(url + "/model?v=1")
         pg.wait_for_function("() => document.querySelector('.available table.avail')", timeout=30000)
         pg.locator(".available tr", has_text="window-time").first.get_by_role("link", name="quality-turnover").click()
         pg.wait_for_function("() => S.graph?.kind === 'dynamics' && document.querySelector('#detail input.whatif-in')", timeout=60000)
@@ -2107,7 +2205,7 @@ def test_show_on_diagram_chooses_a_proposals_parts_in_both_views(browser, tmp_pa
         pg = browser.new_page(viewport={"width": 1440, "height": 900})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.goto(url + "/?v=1#/model")
+        pg.goto(url + "/model?v=1")
         entry = pg.locator('.entry[data-kind="structure"]', has_text="quality-turnover").first
         entry.wait_for(timeout=60000)
         assert "A link's sign flipped" in entry.locator("h3").inner_text()

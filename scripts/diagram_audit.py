@@ -20,12 +20,12 @@ with sync_playwright() as p:
     b = p.chromium.launch(channel="chrome")
     pg = b.new_page(viewport={"width": 1600, "height": 1000})
     if not views:
-        pg.goto(f"{url}/#/diagram")
+        pg.goto(f"{url}/diagram")
         pg.wait_for_timeout(3000)
         tree = pg.evaluate("() => S.graph?.tree || {}")
         views = ["", "open=*", *(f"open={s}" for s in tree), *(f"system={s}" for s in tree)]
     for v in views:
-        pg.goto(f"{url}/#/diagram?{v}")
+        pg.goto(f"{url}/diagram?{v}")
         pg.wait_for_timeout(4500)
         r = pg.evaluate(AUDIT)
         print(f"[{v or 'default'}] through {len(r['through'])}, overlap {len(r['overlap'])}, detour {len(r['detour'])}")
