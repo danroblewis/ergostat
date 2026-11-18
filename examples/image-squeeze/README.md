@@ -297,3 +297,11 @@ tests), the candidate running on the same images as production, and every decisi
 images are generated, so the example needs no downloads. The stand-in researcher and developer work
 from a fixed notebook; with `FACTORY_AI=claude` both are Claude Code sessions that get only the
 results, the code and the tools.
+
+Where the sessions work: `bin/ai.sh` moves to this example's folder before it starts `ergostat
+session`, so with `FACTORY_AI=claude` each session runs here (the folder with `ergostat.yaml`) and
+works on squeeze's repository at `run/product/`, a branch per hypothesis made by `bin/lab.py`. What
+each may use is `bin/session.py`'s `--allowedTools` list, on top of your own Claude Code settings:
+it is not gated. A block could say instead where it works (`workdir:`, or a `workspace:` per
+hypothesis from a pool of worktrees) and gate what it may do (`tools:`, `actions:`): ergostat's SPEC
+§12k.

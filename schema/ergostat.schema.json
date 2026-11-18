@@ -320,6 +320,26 @@
         "$ref": "#/$defs/context"
       },
       "description": "Named, versioned projection recipes for sessions' starting contexts (SPEC \u00a712i)"
+    },
+    "actions": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/action"
+      },
+      "description": "The outward acts AI sessions may ask for, each a command run only as its gate says (SPEC \u00a712k)"
+    },
+    "workspaces": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/workspace_pool"
+      },
+      "description": "Pools of workspaces (git worktrees) AI blocks' sessions work in, one per item (SPEC \u00a712k)"
     }
   },
   "$defs": {
@@ -1204,6 +1224,56 @@
         "within": {
           "$ref": "#/$defs/duration",
           "description": "An intent judge's: work that entered its judged state longer ago is not judged late"
+        },
+        "workdir": {
+          "type": "string",
+          "description": "An ai block: the folder its session works in (SPEC \u00a712k)"
+        },
+        "workspace": {
+          "$ref": "#/$defs/name",
+          "description": "An ai block: the pool its session takes a workspace from, per item (SPEC \u00a712k)"
+        },
+        "read": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "description": "An ai block: more folders its session may read"
+        },
+        "tools": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "description": "An ai block: the Claude Code tools its session may use (gated: SPEC \u00a712k)"
+        },
+        "actions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "description": "An ai block: the gated actions its session may ask for"
         }
       },
       "additionalProperties": false,
@@ -2094,6 +2164,92 @@
         }
       },
       "description": "A projection recipe (SPEC \u00a712i): parts rendered in order, each within its budget, into a starting context"
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run"
+      ],
+      "properties": {
+        "run": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The command template: {name} is one of its args, or ergostat's own ({item}, {branch}, {workdir}, {block}, {run}), each shell-quoted"
+        },
+        "gate": {
+          "enum": [
+            "auto",
+            "approve",
+            "deny"
+          ],
+          "description": "auto: run at once; approve: held until the owner approves; deny: never run (default approve)"
+        },
+        "class": {
+          "$ref": "#/$defs/name",
+          "description": "The class it is counted in (default: its name)"
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "What the session gives: each argument's name and what it is"
+        },
+        "timeout": {
+          "$ref": "#/$defs/duration"
+        },
+        "wait": {
+          "$ref": "#/$defs/duration",
+          "description": "How long a session waits for the owner before going on (default 5m)"
+        },
+        "in": {
+          "type": "string",
+          "description": "Where it runs, from the model's folder (default: the session's folder)"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "workspace_pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "git"
+          ],
+          "description": "How a workspace is made: a git worktree of repo"
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The repository, from the model's folder or a whole path"
+        },
+        "pool": {
+          "type": "string",
+          "description": "Where its workspaces are made (default: workspaces/NAME in the state directory)"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "branch": {
+          "type": "string",
+          "description": "The item's branch, a template of its fields: {kind}/{id}-{slug}"
+        },
+        "base": {
+          "type": "string",
+          "description": "The ref a new branch is made from (default HEAD)"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
     }
   }
 }
