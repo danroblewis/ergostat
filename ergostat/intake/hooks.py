@@ -6,7 +6,8 @@ so a delivery sent twice is one event), and ``data``: each field a path in the p
 number, list) or a template (text). A path is dotted keys (``issue.fields.summary``), list positions by number
 (``pull_requests.0.number``), or ``header:NAME`` for a request header (``header:X-GitHub-Event``). A template is
 text with ``{path}`` in it; ``{path~REGEX}`` is the part of the value the regular expression's first group matches
-(``{pull_request.head.ref~^ergostat/([A-Z]+-[0-9]+)}``: the ticket a branch is for). ``each: PATH``: one event per element of that list, each element the payload."""
+(``{pull_request.head.ref~^ergostat/([A-Z]+-[0-9]+)}``: the ticket a branch is for). ``each: PATH``: one event per
+element of that list, each element the payload."""
 
 from __future__ import annotations
 
