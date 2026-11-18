@@ -1315,6 +1315,7 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
         assert set(again) == set(after) and all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after)
         # a block put by hand inside intake: its place in intake's frame kept through closing and opening it
         nid = "blk:support"
+        pg.get_by_role("button", name="fit").click()                 # (wider with its sensors: all of it on the screen)
         bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{nid}"]').bounding_box(), 0, 110)
         pg.wait_for_function(f"() => S.pins['{nid}'] && ({BD_ROUTED})()", timeout=20000)
         offset = ("(id) => { const c = S.layout.children.find((c) => c.id === id), "
@@ -2019,7 +2020,7 @@ def test_a_selection_is_model_parts_and_survives_switching_view(browser, tmp_pat
         pg.wait_for_function("() => S.graph?.kind === 'blocks' && document.querySelectorAll('svg.canvas g.node.selected').length > 0",
                              timeout=60000)
         assert pg.evaluate("() => [...S.sel]") == ["stock.capabilities"]
-        assert pg.evaluate(LIT) == ["out:stock.capabilities", "proc:stock.capabilities"]
+        assert pg.evaluate(LIT) == ["out:stock.capabilities", "proc:stock.capabilities", "sen:stock.capabilities"]
         # Shift adds and takes away, in the block diagram too; the background lets everything go
         fit(pg)
         pg.keyboard.down("Shift")
@@ -2073,7 +2074,7 @@ def test_a_summing_junction_chosen_in_blocks_lights_its_stock_and_flows_in_the_d
         pg.locator('g.node[data-id="stock:capabilities"]').hover(position={"x": 4, "y": 4})
         pane.wait_for_function("() => document.querySelectorAll('svg.canvas g.node.xhover').length > 0", timeout=5000)
         assert pane.evaluate("() => [...document.querySelectorAll('svg.canvas g.node.xhover')].map((e) => e.dataset.id).sort()") == \
-            ["out:stock.capabilities", "proc:stock.capabilities"]
+            ["out:stock.capabilities", "proc:stock.capabilities", "sen:stock.capabilities"]
         assert pane.evaluate("() => S.sel.size") == 0 and pg.evaluate("() => S.sel.size") == 0
         pg.mouse.move(2, 400)
         pane.wait_for_function("() => !document.querySelector('svg.canvas .xhover')", timeout=5000)

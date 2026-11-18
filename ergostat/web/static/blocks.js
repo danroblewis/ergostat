@@ -25,7 +25,7 @@ function bdFrac(expr) {                                 // "1/s", "Kᵢ T z/(z �
 }
 /* a sensor's or a collector's label, what it reads and how often, in at most two lines (all of it in its panel) */
 function bdLines(text, max = 30) {
-  const words = String(text || "").replace(/(\d) (s|min|h|d)\b/g, "$1\u00a0$2").split(" "), lines = [""];   // 10 s kept whole
+  const words = String(text || "").replace(/(\d) (s|min|h|d)\b/g, "$1\u00a0$2").replace(/every (\d)/g, "every\u00a0$1").split(" "), lines = [""];   // 10 s kept whole
   for (const w of words) {
     const cur = lines[lines.length - 1];
     if (!cur || (cur + " " + w).length <= max) lines[lines.length - 1] = cur ? cur + " " + w : w;
@@ -289,7 +289,8 @@ function bdWrapRows(g, lay, W, H) {
       x += w + 46;
     }
     const width = Math.max(...rows.map((row) => row.reduce((s0, c) => s0 + c.x1 - c.x0 + 46, -46)));
-    const height = rows.reduce((s0, row) => s0 + Math.max(...row.map((c) => c.y1 - c.y0)) + BD_ROW_GAP, -BD_ROW_GAP);
+    // (each piece keeps its height in the drawing: a row is as tall as from its highest top to its lowest bottom)
+    const height = rows.reduce((s0, row) => s0 + Math.max(...row.map((c) => c.y1)) - Math.min(...row.map((c) => c.y0)) + BD_ROW_GAP, -BD_ROW_GAP);
     return { rows, width, height };
   };
   let best = null;
@@ -304,7 +305,7 @@ function bdWrapRows(g, lay, W, H) {
   let y = 20;
   for (const row of best.rows) {
     let x = 20;
-    const top = Math.min(...row.map((c) => c.y0)), hgt = Math.max(...row.map((c) => c.y1 - c.y0));
+    const top = Math.min(...row.map((c) => c.y0)), hgt = Math.max(...row.map((c) => c.y1)) - top;
     for (const c of row) { for (const id of c.ids) shift[id] = { dx: x - c.x0, dy: y - top }; x += c.x1 - c.x0 + 46; }
     y += hgt + BD_ROW_GAP;
   }
@@ -474,12 +475,62 @@ function bdOffFrames(lay, g, byLe) {
       const edge = horiz ? [f.y, f.y + f.height].sort((a, b) => Math.abs(a - m.y) - Math.abs(b - m.y))[0]
                          : [f.x, f.x + f.width].sort((a, b) => Math.abs(a - m.x) - Math.abs(b - m.x))[0];
       const at = horiz ? m.y : m.x;
-      for (const to of [edge + 14, edge - 14, edge + 20, edge - 20, edge + 28, edge - 28, edge + 36, edge - 36]) {
-        const d = to - at;
+      const OFF = [14, -14, 20, -20, 28, -28, 36, -36];
+      const tries = OFF.map((o) => [[i, edge + o - at]]);
+      // a line wrapping a frame's corner: the stretch beside it on the frame too, both moved off together
+      for (const j of [i + 1, i - 1]) {
+        if (j < 1 || j + 1 > A.pts.length - 2) continue;
+        const [a, b] = [A.pts[j], A.pts[j + 1]];
+        const g2 = frames.find((x) => bdOnFrame(a, b, x));
+        if (!g2) continue;
+        const h2 = Math.abs(a.y - b.y) < 1;
+        const e2 = h2 ? [g2.y, g2.y + g2.height].sort((p, q) => Math.abs(p - a.y) - Math.abs(q - a.y))[0]
+                      : [g2.x, g2.x + g2.width].sort((p, q) => Math.abs(p - a.x) - Math.abs(q - a.x))[0];
+        for (const o of OFF) for (const o2 of OFF) tries.push([[i, edge + o - at], [j, e2 + o2 - (h2 ? a.y : a.x)]]);
+      }
+      // a frame's title is in the way too: a place clear of every title first, then one that is not
+      const title = (a, b) => frames.some((f) => Math.max(a.x, b.x) > f.x && Math.min(a.x, b.x) < f.x + Math.min(f.width, 260) &&
+                                                 Math.max(a.y, b.y) > f.y && Math.min(a.y, b.y) < f.y + 28);
+      for (const moves of [...tries.map((m) => [m, true]), ...tries.map((m) => [m, false])].map(([m, clear]) => Object.assign(m, { clear }))) {
         const pts = A.pts.map((q) => ({ ...q }));
-        if (horiz) { pts[i].y += d; pts[i + 1].y += d; } else { pts[i].x += d; pts[i + 1].x += d; }
-        const segs = [[pts[i - 1], pts[i]], [pts[i], pts[i + 1]], [pts[i + 1], pts[i + 2]]];
-        if (segs.some(([a, b]) => hitsPart(a, b, A.le.id) || clash(a, b, netOf[A.le.id]) || frames.some((f) => bdOnFrame(a, b, f)))) continue;
+        for (const [k, d] of moves) {
+          if (Math.abs(pts[k].y - pts[k + 1].y) < 1 && Math.abs(A.pts[k].y - A.pts[k + 1].y) < 1) { pts[k].y += d; pts[k + 1].y += d; }
+          else { pts[k].x += d; pts[k + 1].x += d; }
+        }
+        const lo = Math.max(1, Math.min(...moves.map(([k]) => k))), hi = Math.max(...moves.map(([k]) => k)) + 1;
+        const segs = [];
+        for (let k = lo - 1; k <= Math.min(hi, pts.length - 2); k++) segs.push([pts[k], pts[k + 1]]);
+        if (segs.some(([a, b]) => hitsPart(a, b, A.le.id) || clash(a, b, netOf[A.le.id]) || frames.some((f) => bdOnFrame(a, b, f)) ||
+                                  (moves.clear && title(a, b)))) continue;
+        A.le.sections = [{ startPoint: pts[0], bendPoints: pts.slice(1, -1), endPoint: pts[pts.length - 1] }];
+        fixed = true;
+        break outer;
+      }
+      // a long stretch with parts all along it: only the piece beside the frame stepped off it, a jog at each end
+      const lo = (horiz ? Math.min(m.x, n.x) : Math.min(m.y, n.y)), hi = (horiz ? Math.max(m.x, n.x) : Math.max(m.y, n.y));
+      const FINE = [...OFF, ...Array.from({ length: 16 }, (_, k) => 10 + 2 * k).filter((x) => !OFF.includes(x)).flatMap((x) => [x, -x])];
+      for (const margin of [12, 20, 28]) for (const o of FINE) {       // (lines jogged here before: a little further out, or between)
+        const f0 = (horiz ? f.x : f.y) - margin, f1 = (horiz ? f.x + f.width : f.y + f.height) + margin;
+        const a0 = Math.max(lo, f0), a1 = Math.min(hi, f1);
+        if (a1 - a0 < 16 || (a0 <= lo + 1 && a1 >= hi - 1)) continue;
+        const [p0, p1] = (horiz ? n.x > m.x : n.y > m.y) ? [a0, a1] : [a1, a0];
+        const d = edge + o - at;
+        const at2 = (v, w) => (horiz ? { x: v, y: w } : { x: w, y: v });
+        const mid = [];
+        if (Math.abs(p0 - (horiz ? m.x : m.y)) > 1) mid.push(at2(p0, at)); else mid.push(null);
+        mid.push(at2(p0, at + d), at2(p1, at + d));
+        if (Math.abs(p1 - (horiz ? n.x : n.y)) > 1) mid.push(at2(p1, at)); else mid.push(null);
+        const pts = [...A.pts.slice(0, i + 1).map((q) => ({ ...q })), ...mid.filter(Boolean), ...A.pts.slice(i + 1).map((q) => ({ ...q }))];
+        if (!mid[0]) { pts.splice(i, 1); }                     // the jog starts at the stretch's own bend: that bend moves
+        if (!mid[3]) { pts.splice(pts.length - (A.pts.length - i - 1), 1); }
+        const segs = pts.slice(1).map((q, k) => [pts[k], q]);
+        if (segs.some(([a, b]) => frames.some((g2) => bdOnFrame(a, b, g2)))) continue;
+        // only what the jog changed is weighed: the rest of the stretch stays where the router put it
+        const on = (p0, q0, r) => Math.abs((q0.x - p0.x) * (r.y - p0.y) - (q0.y - p0.y) * (r.x - p0.x)) < 1 &&
+          r.x >= Math.min(p0.x, q0.x) - 1 && r.x <= Math.max(p0.x, q0.x) + 1 && r.y >= Math.min(p0.y, q0.y) - 1 && r.y <= Math.max(p0.y, q0.y) + 1;
+        const was = (a, b) => A.pts.slice(1).some((q, k) => on(A.pts[k], q, a) && on(A.pts[k], q, b));   // a piece of a stretch it had
+        const near = segs.slice(Math.max(0, i - 1), i + 5).filter(([a, b]) => !was(a, b));
+        if (near.some(([a, b]) => hitsPart(a, b, A.le.id) || clash(a, b, netOf[A.le.id]))) continue;
         A.le.sections = [{ startPoint: pts[0], bendPoints: pts.slice(1, -1), endPoint: pts[pts.length - 1] }];
         fixed = true;
         break outer;
@@ -587,7 +638,6 @@ function bdNode(n, c) {
   const w = c.width, hgt = c.height;
   const g = s("g", { class: `node bd-node bd-${n.kind} bd-${n.role || n.kind}`, transform: `translate(${c.x},${c.y})`,
                      "data-id": n.id, "data-fn": bdFnText(n) });
-  g.append();
   const fn = n.fn || {};
   if (n.role === "sensor" || n.role === "collector") {
     // Franklin–Powell's sensor on the feedback path: its function (H = 1, H(s) = e^(−sT) with a sampler's switch,
@@ -1037,3 +1087,4 @@ function blocksLegend() {
     row(`<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
     h("span", { class: "sym" }, "r e u y d"), h("span", {}, "reference (its value), error (r − y", h("sub", {}, "m"), "), control signal, output (y", h("sub", {}, "m"), " measured through H), disturbance; subscripts name the loop or the part; k a sample"));
 }
+
