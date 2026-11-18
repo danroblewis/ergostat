@@ -235,7 +235,7 @@ class Engine:
         is downstream of what changed since the last (scale.md, #1): the series with a new reading and the signals they
         move, the goals on those, the built-ins reading what changed (and every built-in that keeps time), and the
         machine blocks commanded by what changed, bearing on those readings, or whose run or reading ended; on the
-        clock's pass (``tick``) also the blocks commanded on and not running, and those paced by ``every``. The lock is
+        clock's pass (``tick``) also the blocks commanded on and not running (paced by ``every``, held by a step test). The lock is
         held only while the signals are worked out: the readings are read before it, the events and the built-ins'
         outputs written after it, then the blocks due are started."""
         with self.passing:
@@ -282,7 +282,7 @@ class Engine:
                     if self.last_reading > was:
                         names |= w["free"]
                     if tick:
-                        names |= w["paced"] | {n for n, on in self.was_commanded.items() if on and n not in self.running}
+                        names |= {n for n, on in self.was_commanded.items() if on and n not in self.running}
                     pos = w["mpos"]
                     todo = [b for b in sorted((self.spec.blocks[n] for n in names if n in pos), key=lambda b: pos[b.name])
                             if self.due(b, events)]
@@ -369,7 +369,7 @@ class Engine:
     def _wiring(self) -> dict:
         """What a pass needs to work out only what changed, worked out once per model (``Spec.lookups``): each series'
         parts, each signal's goals, the machine blocks each signal commands, the series each block's start bears on
-        (``fresh_for``, ``after_acting``), those started by any reading (``free``), and those paced by ``every``."""
+        (``fresh_for``, ``after_acting``), and those any reading may start (``free``)."""
         spec = self.spec
         kept = spec.lookups().kept
         w = kept.get("engine.wiring")
@@ -387,7 +387,6 @@ class Engine:
         commanded: dict[str, set[str]] = {}
         by_series: dict[str, set[str]] = {}
         free: set[str] = set()
-        paced: set[str] = set()
         for b in machines:
             if b.takes:
                 continue
@@ -398,8 +397,6 @@ class Engine:
                 if not (b.every or b.cron) and any(r.kind != "block" for r in b.inputs.values()):
                     free.add(b.name)
                 continue
-            if b.every:
-                paced.add(b.name)
             flows = [t.name for t in b.targets() if t.kind == "flow"]
             ser = {x.series for x in self.after_acting(flows)}
             fresh = set()
@@ -412,7 +409,7 @@ class Engine:
             for sr in ser | fresh:
                 by_series.setdefault(sr, set()).add(b.name)
         w = {"parts": parts, "goal_pos": {g: i for i, g in enumerate(spec.goals)}, "goals_of": goals_of,
-             "commanded": commanded, "by_series": by_series, "free": free, "paced": paced,
+             "commanded": commanded, "by_series": by_series, "free": free,
              "mpos": {b.name: i for i, b in enumerate(machines) if not b.takes}}
         kept["engine.wiring"] = w
         return w
