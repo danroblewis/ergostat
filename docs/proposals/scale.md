@@ -14,8 +14,8 @@ agents), and at 6,000 use cases with 120,000 stocks and 400,000 flows?
 
 - **The engine breaks first, at N ≈ 50 workflows** (about 300 stocks and 550 flows; well short of the
   owner's "100 tasks"). At N = 30 it keeps up on 45% of one core; at N = 50 it is on a full core, reads 65%
-  of what its sensors declare, and an item waits up to 46 s (p95) to be taken. At N = 100 it reads 6% of the readings its
-  sensors declare, an item waits 41 s (median) to 5 minutes (p95) to be taken, and 683 threads queue on
+  of what its sensors declare, and an item waits up to 46 s (p95) to be taken. At N = 100 it reads 6% of
+  the readings its sensors declare, an item waits 41 s (median) to 5 minutes (p95) to be taken, and 683 threads queue on
   one lock. At N = 300 it does no work at all after its first 40 seconds; at N = 1,000 it spends 6 minutes
   loading the model and then manages 5 passes and no runs in the 4 minutes left.
 - **The cause is one design choice**: after every sensor reading, the engine re-evaluates the whole model
@@ -68,12 +68,14 @@ block, and `ERGOSTAT_AI=false`.
 | 1,000 | 5,860 | 10,306 | 624 | 16,790 | 4,678 | 9,911 | 155 | 531 | 3.1 MB |
 | 3,000 | 17,562 | 30,949 | 1,831 | 50,342 | 13,862 | 29,350 | 454 | 1,623 | 9.1 MB |
 
-(The owner's model today, 20 stocks and 31 flows, is about N = 4; `examples/the-job` is about N = 8.
+(The owner's model today, 20 stocks and 31 flows, is about N = 4; `examples/the-job` is about N = 8. The
+agents grow faster than the owner guessed, about 155 at N = 1,000 rather than 80, because each system here
+has a pool and a lead of its own.
 120,000 stocks is about N = 20,000 of these workflows; 400,000 flows about N = 39,000, since the owner's
 models have more flows per stock than these.)
 
-**The machine** is a 28-core Mac with 256 GB, shared with other agents' work: the load average was 17 to
-29 throughout and never fell, so no measurement could be repeated on a quiet machine. Every row in the
+**The machine** is a 28-core Mac with 256 GB, shared with other agents' work: the load average was 12 to
+29 throughout and never fell lower, so no measurement could be repeated on a quiet machine. Every row in the
 results carries its load. The engine and the web server use one core each (Python's GIL), so a load of 20
 on 28 cores slows them less than it seems; the single-threaded timings (the tick benchmark) were repeated
 an hour apart at N = 30, 100 and 300 and moved by under 4%.
@@ -87,14 +89,14 @@ an hour apart at N = 30, 100 and 300 and moved by under 4%.
 | 10 | 12.7 s | 32 MB | 0.09 s | 0.01 s | 0.03 s | 13 s (95 conditions) |
 | 30 | 131 s | 39 MB | 0.12 s | 0.01 s | | |
 | 100 | 3,230 s (54 min) | 64 MB | 0.42 s | 0.04 s | 2.4 s | ~2,170 s estimated (783 conditions × 2.8 s) |
-| 300 | | | PHASES300 |
-| 1,000 | not run (est. ~9 days) | | 3.7 s | 0.5 s | | |
+| 300 | not run (est. ~1 day) | | 1.1 s | 0.11 s | 21 s | ~57,000 s estimated (2,287 conditions × 25 s) |
+| 1,000 | not run (est. ~4 weeks) | | 3.6 s | 0.46 s | 254 s | ~2.4 million s estimated (7,757 conditions × 309 s) |
 
 Loading the model (what every command, the web server and the engine do first; `model.load`, which skips
 the extreme-conditions tests): 0.16 s at 10, 0.5 s at 30, 3.8 s at 100, 32 s at 300, **381 s at 1,000**,
 and more than 17 minutes at 3,000 (the loop measurement there ran out of time while loading).
 
-- **The bend**: reading and compiling the YAML is linear (3.7 s at N = 1,000). Everything after it is
+- **The bend**: reading and compiling the YAML is linear (4 s at N = 1,000). Everything after it is
   not. Loading goes as N^2.0, `check` as N^2.4.
 - **Where**: `check` is almost all the extreme-conditions tests (`numbers/extremes.py: failures`): one
   whole-model replay per condition (`numbers/simulate.py: replay`, after `sim.plan`), and the conditions
@@ -207,26 +209,31 @@ at N = 30). Storage is not what breaks first.
 The page server on each engine's record (`ergostat web`), API answers timed twice (the second is what a
 poll costs), then each page in Chrome (Playwright), timed until drawn and until its lines are routed.
 
-| API (N = 10 / 30 / 100) | first answer | again | size |
+At N = 100 the page server was asked two ways: in turn, as a page would (`web`), and each answer alone from
+a server started for it (`api`). In turn, every graph answer after the first ran past five minutes, because
+the answers before it, given up by the client, were still being computed (a request is never cancelled).
+
+| API (N = 10 / 30 / 100 / 300 / 1,000) | first answer | again | size |
 |---|---:|---:|---:|
-| `status` | 13 s / **148 s** / WEB100 | 0.1 s / 0.2 s | 34 KB / 123 KB |
-| `graph` (the Diagram page, everything) | 1.1 s / 19 s | 1.0 s / 13 s | 0.76 MB / 1.0 MB |
-| `graph?view=dynamics&system=sys-001` | 2.7 s / 14 s | 1.2 s / 6.5 s | 1.1 MB / 1.5 MB |
-| `graph?view=dynamics&open=org,area-01,sys-001` | 1.7 s / 7.1 s | 1.8 s / 6.6 s | 1.2 MB / 1.7 MB |
-| `graph?view=dynamics&open=*` | – / 6.7 s | – / 7.1 s | – / 2.5 MB |
-| `graph?view=blocks` | 2.2 s / **51 s** | 2.3 s / 58 s | 76 KB / 243 KB |
-| `loops` | 0.11 s / 0.35 s | 0.07 s / 0.002 s | 31 KB / 117 KB |
-| `items` | 0.5 s / 0.19 s | 0.4 s / 0.04 s | 14 KB / 67 KB |
+| `status` | 13 s / **148 s** / ~54 min (stopped; it runs `check`'s 54-minute tests) | 0.1 s / 0.2 s | 34 KB / 123 KB |
+| `graph` (the Diagram page, everything) | 1.1 s / 19 s / > 300 s (in turn) | 1.0 s / 13 s | 0.76 MB / 1.0 MB |
+| `graph?view=dynamics` | 1.2 s / 14 s / 74 s (alone) / API300D | 1.1 s / 12 s | 0.76 MB / 1.0 MB / 1.7 MB |
+| `graph?view=dynamics&system=sys-001` | 2.7 s / 14 s / 151 s (alone) / API300S / API1000S | 1.2 s / 6.5 s | 1.1 MB / 1.5 MB / 1.6 MB |
+| `graph?view=dynamics&open=org,area-01,sys-001` | 1.7 s / 7.1 s / > 300 s (in turn) | 1.8 s / 6.6 s | 1.2 MB / 1.7 MB |
+| `graph?view=dynamics&open=*` | – / 6.7 s / > 300 s (in turn) | – / 7.1 s | – / 2.5 MB |
+| `graph?view=blocks` | 2.2 s / **51 s** / **> 1,500 s** (alone) | 2.3 s / 58 s | 76 KB / 243 KB |
+| `loops` | 0.11 s / 0.35 s / 1.7 s / API300L / API1000L | 0.07 s / 0.002 s | 31 KB / 117 KB / 305 KB |
+| `items` | 0.5 s / 0.19 s / 0.005 s / API300I / API1000I | 0.4 s / 0.04 s | 14 KB / 67 KB / 106 KB |
 
 | Page (N = 10 / 30 / 100) | drawn | lines routed | shapes | API bytes while it drew |
 |---|---:|---:|---:|---:|
-| Diagram, everything (folded to its top systems) | 1.3 s / 6.3 s | same | 2 | 0.8 MB / 1.2 MB |
-| Diagram, one system (`system=sys-001`) | 12 s / 24 s | 50 s / **190 s** | 173 / 280 | 9 MB / **22 MB** |
-| Diagram, one system opened in place | 14 s / 28 s | 36 s / 160 s | 175 / 285 | 5 MB / 18 MB |
-| Diagram, everything open (`open=*`) | – / 139 s | not done in 30 min | | – / **456 MB** in 32 min |
-| Blocks | 2.4 s / 58 s | | 2 | 0.1 MB / 0.4 MB |
-| Loops | 1.8 s / 12 s | | | 1.4 MB / 4.1 MB |
-| Items | 0.7 s / 1.0 s | | | 0.1 MB / 0.3 MB |
+| Diagram, everything (folded to its top systems) | 1.3 s / 6.3 s / **400 s** | same | 2 | 0.8 MB / 1.2 MB / 1.7 MB |
+| Diagram, one system (`system=sys-001`) | 12 s / 24 s / **not in 10 min** | 50 s / **190 s** / – | 173 / 280 / – | 9 MB / **22 MB** / – |
+| Diagram, one system opened in place | 14 s / 28 s / – | 36 s / 160 s | 175 / 285 | 5 MB / 18 MB |
+| Diagram, everything open (`open=*`) | – / 139 s / – | not done in 30 min | | – / **456 MB** in 32 min |
+| Blocks | 2.4 s / 58 s / – | | 2 | 0.1 MB / 0.4 MB |
+| Loops | 1.8 s / 12 s / not in 10 min | | | 1.4 MB / 4.1 MB |
+| Items | 0.7 s / 1.0 s / 129 s (behind the diagram's requests) | | | 0.1 MB / 0.3 MB |
 | Check | 0.6 s / 0.7 s (its status already computed) | | | 0.07 MB / 0.4 MB |
 
 For comparison, `examples/the-job` (43 stocks, 61 flows) and `examples/image-squeeze` (42, 48) answer
@@ -253,7 +260,7 @@ draw and 50 s to route one system.
 |---:|---:|---:|---:|---:|---:|
 | 10 | 0.4 s | **178 s** | 29 s | 0.2 s | 0.4 s |
 | 30 | 1.3 s | **926 s** | 281 s | 0.6 s | 1.8 s |
-| 100 | MODEL100 |
+| 100 | 12.7 s | > 1 hour (stopped) | > 1 hour (stopped) | 3.9 s | no value: the stalled engine recorded too little |
 
 - **The bend** is already at N = 10. Calibration (`numbers/estimate.py: estimate`) runs a Nelder-Mead
   search per scope, each cost evaluation a whole-model replay (`simulate.py: replay`): 1,483 replays at
@@ -309,7 +316,7 @@ exponents measured between N = 300 and N = 1,000:
 |---|---:|---|---:|---|
 | Read and compile the YAML | 4.2 s | N | 1.5 to 3 min | yes |
 | Load the model (findings, `to_model`) | 381 s | N^2.0 | 2 to 7 days | no; yes with #6 (minutes) |
-| `ergostat check` (extreme conditions) | ~9 days (projected) | N^2.4 | decades to a century | no (#9 is a design change) |
+| `ergostat check` (extreme conditions) | ~4 weeks (projected) | N^2.4 | a century or more | no (#9 is a design change) |
 | Causal links and the capped loop search | 81 s | N^2.1 | 9 to 34 hours | no; with #6 and one reverse map, minutes |
 | Every simple cycle (30 parts) | 33,325 in 133 s | count N, time N^2.4 | 0.7 to 1.3 million loops | the count is fine; showing 300 of a million is not an answer |
 | Engine pass after a reading | 8.7 s | N^2.0 | 1 to 4 hours a pass | no |
