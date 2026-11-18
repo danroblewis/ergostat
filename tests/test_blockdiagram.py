@@ -495,3 +495,29 @@ def test_an_inflow_from_outside_names_its_source_in_the_dynamics_view(tmp_path):
     assert sensing.comes_from(s, "requested") == "Jira"
     assert sensing.comes_from(s, "filed") == "customers"
     assert sensing.comes_from(s, "drift") is None
+
+
+def test_a_collector_read_by_many_counts_has_one_input_and_a_bus_to_them():
+    spec = load(ROOT / "examples" / "ticket-factory" / "ergostat.yaml")
+    g = drawn(spec, {"*"})
+    n = {x["id"]: x for x in g["nodes"]}
+    col = next(x for x in g["nodes"] if x["role"] == "collector")
+    assert len(col["ins"]) == 1 and len(col["outs"]) == 1          # it watches the outside, once; it records, once
+    bus = n["bus:" + col["id"][4:]]
+    out = [e for e in g["edges"] if e["source"] == col["id"]]
+    assert [e["target"] for e in out] == [bus["id"]]
+    fed = [e["target"] for e in g["edges"] if e["source"] == bus["id"]]
+    assert len(fed) == bus["n"] >= 3 and all(t.startswith("sen:") for t in fed) and len(set(fed)) == len(fed)
+    assert len({e["sourcePort"] for e in g["edges"] if e["source"] == bus["id"]}) == len(fed)   # a port each
+    # the-job's alert collector, read by two counts: a take-off point, no bus
+    g2 = drawn(load(ROOT / "examples" / "the-job" / "ergostat.yaml"), {"*"})
+    assert not any(x["id"] == "bus:alerts-fired.main" for x in g2["nodes"])
+
+
+def test_a_collector_run_by_ergostats_library_is_named_by_its_step_and_name():
+    from ergostat import sensing
+    run = "/x/.venv/bin/python -m ergostat.library.run collect --name help-queue --kind help-queue --id-field id"
+    assert sensing._command(run) == "collect help-queue"
+    assert sensing._command("python3 bin/watch.py alert") == "watch.py alert"
+    assert sensing._command("python -m tool.cli poll --x 1") == "cli poll --x 1"
+    assert sensing.short("x" * 40) == "x" * 31 + "…"
