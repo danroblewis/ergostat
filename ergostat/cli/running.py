@@ -69,6 +69,7 @@ def cmd_run(args) -> int:
         from ..web import serve
         server, url = serve(Project(mdl.load(p.repo), p.dir), args.port)   # its own model: the page never hands the runner one
         print(f"web: {url}", flush=True)
+        print(f"push: POST {url}/api/events (token: {p.dir / 'intake.token'})", flush=True)
     say = lambda s: print(time.strftime("%H:%M:%S"), s, flush=True)       # noqa: E731
     if getattr(p.model, "spec", None) is not None:      # the YAML model: ergostat closes its loops itself
         from ..spec.engine import Engine

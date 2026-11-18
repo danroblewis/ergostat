@@ -14,6 +14,26 @@ from .common import open_project, out_json
 def cmd_lease(args) -> int:
     from ..leases import acts
     from ..spec import items as its
+    if args.renew or args.nack is not None:              # a run's own lease: the running engine, when one listens (calls/)
+        from ..calls.client import Refused
+        from . import fast
+        try:
+            if args.renew:
+                got = fast.call(args, "lease", how="renew", env=fast.env())
+                if got is not None:
+                    print(json_or(args, got["event"], f"renewed the lease on {got['event']['item']}"))
+                    return 0
+            else:
+                from ..durations import parse_duration
+                after = parse_duration(args.after, "--after") if args.after else None
+                got = fast.call(args, "lease", how="nack", why=args.nack or "given back", after=after,
+                                count=not args.no_count, env=fast.env())
+                if got is not None:
+                    print(json_or(args, got["event"], f"gave {got['event']['item']} back"))
+                    return 0
+        except Refused as e:
+            print(str(e), file=sys.stderr)
+            return e.code
     p = open_project(args)
     spec = getattr(p.model, "spec", None)
     if spec is None:

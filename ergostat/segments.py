@@ -300,6 +300,8 @@ class Segments:
         self._block_bytes = 0
         self._open_cols: OrderedDict = OrderedDict()
         self._tallies: OrderedDict = OrderedDict()
+        from .notify import key_of
+        self._nkey = key_of(directory)                    # its waiters' board (notify.py)
         self._sync()
 
     # ---- following the files
@@ -569,6 +571,16 @@ class Segments:
         self._head_off += len(body)
         if len(self._head) >= self.seal:
             self._seal()
+        from .notify import written
+        written(self._nkey)
+
+    def board(self):
+        """What waits for this record's new events wakes on (``notify.py``): written here, or by another process."""
+        from .notify import board
+        b = board(self.dir.parent)
+        if b.watcher is None:
+            b.watch([self.head_path, self.dir])
+        return b
 
     def _seal(self) -> None:
         while len(self._head) >= self.seal:

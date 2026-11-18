@@ -24,9 +24,9 @@ RUNS = ("agent.started", "agent.ran")    # the bookkeeping of each run: --runs s
 
 
 def cmd_event(args) -> int:
-    p = open_project(args)
     if args.add:
-        return add_event(p, args)
+        return add_event(None, args)
+    p = open_project(args)
     if args.name:
         e = p.events.get(args.name)
         if e is None:
@@ -69,6 +69,16 @@ def cmd_event(args) -> int:
 
 def cmd_item(args) -> int:
     from ..spec import items as its
+    if args.name and args.json and not getattr(args, "at", None) and getattr(args, "history", None) is None:
+        from ..calls.client import Refused
+        from . import fast
+        try:                                             # the running engine reads it, when one listens (calls/)
+            got = fast.call(args, "item", id=args.name)
+        except Refused as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if got is not None:
+            return out_json(got["item"])
     p = open_project(args)
     spec = getattr(p.model, "spec", None)
     if not args.name:
@@ -147,6 +157,24 @@ def add_event(p, args) -> int:
         return 2
     from ..store import ChangesetError
     run = os.environ.get("ERGOSTAT_RUN") or None         # recorded during a run: caused by it
+    one = {"event": t, "item": args.item, "data": data, **{k: got[f] for k, f in (("patch", "--patch"), ("set", "--set"))
+                                                             if f in got}}
+    from ..calls.client import Refused
+    from . import fast
+    try:                                                 # the running engine records it, when one listens (calls/)
+        sent = fast.call(args, "event", events=[one], source=args.by or "user", causedby=run)
+    except Refused as e:
+        print(str(e), file=sys.stderr)
+        return e.code
+    if sent is not None:
+        ev = (sent.get("events") or [{}])[0]
+        print(json.dumps(ev, default=str) if args.json else event_line(ev))
+        why = (sent.get("unchanged") or {}).get(ev.get("id"))
+        if why:
+            print(f"recorded, but it changed nothing: {why}", file=sys.stderr)
+            return 1
+        return 0
+    p = p or open_project(args)
     try:
         ev = p.events.add(t, item=args.item, source=args.by or "user", data=data, causedby=run, patch=got.get("--patch"),
                           set=got.get("--set"))

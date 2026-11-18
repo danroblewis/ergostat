@@ -215,7 +215,7 @@ def state_dir(home: Path) -> Path:
 
 
 def push(port: int, home: Path, evs: list[dict]) -> dict:
-    token = (state_dir(home) / "token").read_text().strip()
+    token = (state_dir(home) / "intake.token").read_text().strip()
     req = urllib.request.Request(f"http://127.0.0.1:{port}/api/events", data=json.dumps(evs).encode(), method="POST",
                                  headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
     with urllib.request.urlopen(req, timeout=60) as r:
@@ -381,6 +381,7 @@ def factory(a) -> dict:
         done_count.__dict__.pop("p", None)
     evs = events_of(home, d)
     res = factory_breakdown(evs, t_start)
+    (work / "events.json").write_text(json.dumps(evs, default=str))
     row = write(a.out, {"bench": "factory", "label": a.label, "tickets": a.tickets, "minutes": a.minutes,
                         "set": a.set or [], "max_threads": watch.threads, "max_procs": watch.procs, "killed": watch.killed,
                         **res})
@@ -392,39 +393,86 @@ def factory(a) -> dict:
 
 
 def factory_breakdown(evs: list[dict], t_start: float) -> dict:
+    """Per step: how long a ticket waits to be taken, each run's length and what it spent asking for gated actions
+    (waiting for the approval, for the engine to run it, for the asker to see it ran), the rest of the run (the step's
+    own: starting Python, loading the model for ``ergostat item``, git, the fakes), how many runs gave the ticket back
+    (``Wait``) and for how long; and the share of all the tickets' time each of those took."""
     by: dict[str, list[dict]] = {}
     for e in evs:
         if (e.get("item") or "").startswith("ticket/"):
             by.setdefault(e["item"], []).append(e)
     runs_by = {e["id"]: e for e in evs if e["type"] == "agent.started"}
     ran_by = {e["causedby"]: e for e in evs if e["type"] in ("agent.ran", "agent.failed")}
+    acts: dict[str, dict] = {}
+    for e in evs:
+        if e["type"].startswith("ergostat.action."):
+            a = acts.setdefault(e["item"], {})
+            a.setdefault(e["type"].rsplit(".", 1)[1], e)
+    by_run: dict[str, list[dict]] = {}
+    for a in acts.values():
+        if "requested" in a and a["requested"]["data"].get("run"):
+            by_run.setdefault(a["requested"]["data"]["run"], []).append(a)
+    keys = ("wait", "run", "nacked", "hop", "spawn", "after", "acts", "act_total", "approval", "engine", "asker", "own")
     steps: dict[str, dict[str, list]] = {}
+    share = {"waiting to be taken": 0.0, "put off after Wait (POLL_EVERY)": 0.0, "slot or workspace (capacity)": 0.0,
+             "gated actions: the approval": 0.0, "gated actions: the engine running it": 0.0,
+             "gated actions: the asker seeing it ran": 0.0, "the step's own work": 0.0}
     e2e = []
     for _item, es in by.items():
         es.sort(key=lambda e: e["seq"])
         found = next((e for e in es if e["type"] == "ticket.found"), None)
         free_at = found["time"] if found else es[0]["time"]
         start_at = free_at
+        not_before = 0.0
         for e in es:
             if e["type"] == "ergostat.lease.taken":
-                s = steps.setdefault(e["data"]["block"], {"wait": [], "run": [], "runs": [], "nacked": [], "hop": [],
-                                                          "spawn": [], "after": []})
-                s["wait"].append(e["time"] - free_at)
+                s = steps.setdefault(e["data"]["block"], {k: [] for k in keys})
+                waited = e["time"] - free_at
+                s["wait"].append(waited)
+                off = max(0.0, min(waited, not_before - free_at)) if not_before else 0.0
+                share["put off after Wait (POLL_EVERY)"] += off
+                share["waiting to be taken"] += waited - off
                 run = e["data"]["run"]
                 st = runs_by.get(run)
                 if st:
                     s["spawn"].append(st["time"] - e["time"])
+                    share["slot or workspace (capacity)"] += max(0.0, st["time"] - e["time"])
                 r = ran_by.get(run)
+                mine = by_run.get(run, [])
+                tot = appr = eng = ask = 0.0
+                for a in mine:
+                    rq, ap, rn, dl = (a.get(k) for k in ("requested", "approved", "ran", "delivered"))
+                    if rq and dl:
+                        tot += dl["time"] - rq["time"]
+                    if rq and ap:
+                        appr += max(0.0, ap["time"] - rq["time"])
+                    if ap and rn:
+                        eng += max(0.0, rn["time"] - ap["time"])
+                    if rn and dl:
+                        ask += max(0.0, dl["time"] - rn["time"])
+                s["acts"].append(len(mine))
+                s["act_total"].append(tot)
+                s["approval"].append(appr)
+                s["engine"].append(eng)
+                s["asker"].append(ask)
+                share["gated actions: the approval"] += appr
+                share["gated actions: the engine running it"] += eng
+                share["gated actions: the asker seeing it ran"] += ask
                 if r:
-                    s["run"].append(float(r["data"].get("seconds") or 0))
+                    secs = float(r["data"].get("seconds") or 0)
+                    s["run"].append(secs)
+                    s["own"].append(max(0.0, secs - tot))
+                    share["the step's own work"] += max(0.0, secs - tot)
             elif e["type"] == "ergostat.lease.ended":
                 d = e["data"]
                 blk = next((x["data"]["block"] for x in es if x["type"] == "ergostat.lease.taken"
                             and x["data"].get("run") == d.get("run")), "?")
-                s = steps.setdefault(blk, {"wait": [], "run": [], "runs": [], "nacked": [], "hop": [], "spawn": [], "after": []})
+                s = steps.setdefault(blk, {k: [] for k in keys})
+                not_before = 0.0
                 if d.get("how") == "nack":
                     s["nacked"].append(1)
                     s["after"].append(float(d.get("after") or 0))
+                    not_before = e["time"] + float(d.get("after") or 0)
                 else:
                     s["hop"].append(e["time"] - start_at)
                     start_at = e["time"]
@@ -435,9 +483,15 @@ def factory_breakdown(evs: list[dict], t_start: float) -> dict:
     out = {}
     for b, s in steps.items():
         out[b] = {"hop": summary(s["hop"]), "wait_to_take": summary(s["wait"]), "spawn": summary(s["spawn"]),
-                  "run": summary(s["run"]), "runs": len(s["wait"]), "nacks": len(s["nacked"]),
-                  "put_off_s": summary(s["after"])}
-    return {"steps": out, "end_to_end": summary(e2e), "tickets_done": len(e2e), "tickets_seen": len(by)}
+                  "run": summary(s["run"]), "own": summary(s["own"]), "acts_per_run": summary(s["acts"]),
+                  "act_total": summary(s["act_total"]), "approval": summary(s["approval"]),
+                  "engine": summary(s["engine"]), "asker": summary(s["asker"]),
+                  "runs": len(s["wait"]), "nacks": len(s["nacked"]), "put_off_s": summary(s["after"])}
+    whole = sum(share.values()) or 1.0
+    hops = [h for s in steps.values() for h in s["hop"]]
+    return {"hop_all": {**summary(hops), "mean": round(sum(hops) / len(hops), 2) if hops else None},
+            "steps": out, "end_to_end": summary(e2e), "tickets_done": len(e2e), "tickets_seen": len(by),
+            "time_shares": {k: {"seconds": round(v, 1), "share": round(v / whole, 3)} for k, v in share.items()}}
 
 
 # ---- calls from a step
@@ -513,7 +567,8 @@ out["event_add"] = timed(lambda i: ["event", "--add", "job.noted", "--item", ite
 out["act"] = timed(lambda i: ["act", "noop", "--json", "--wait", "5s", "--key", f"k{i}"])
 out["lease_renew"] = timed(lambda i: ["lease", "--renew"])
 t = time.perf_counter(); subprocess.run([sys.executable, "-c", "pass"]); out["python_start"] = round(time.perf_counter() - t, 4)
-t = time.perf_counter(); subprocess.run(cmd + ["--version"], capture_output=True); out["ergostat_version"] = round(time.perf_counter() - t, 4)
+t = time.perf_counter(); subprocess.run(cmd + ["--version"], capture_output=True)
+out["ergostat_version"] = round(time.perf_counter() - t, 4)
 json.dump(out, open("probe.json", "w"))
 print(json.dumps({"event": "job.s1"}))
 """
@@ -521,7 +576,8 @@ print(json.dumps({"event": "job.s1"}))
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", choices=["synth", "factory", "calls"])
+    ap.add_argument("what", choices=["synth", "factory", "calls", "refactory"])
+    ap.add_argument("--events", type=Path, help="refactory: a kept run's events.json, broken down again")
     ap.add_argument("n", nargs="*", type=int, default=[1, 50, 100, 500])
     ap.add_argument("--label", default="")
     ap.add_argument("--steps", type=int, default=5)
@@ -548,6 +604,8 @@ def main() -> int:
             synth(a, n)
     elif a.what == "factory":
         factory(a)
+    elif a.what == "refactory":
+        print(json.dumps(factory_breakdown(json.loads(a.events.read_text()), 0.0), indent=1))
     else:
         calls(a)
     return 0

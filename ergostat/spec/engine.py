@@ -148,6 +148,10 @@ class Engine:
         self.dirty_blocks: set[str] = set()            # machine blocks whose run ended since
         self.dirty_series: set[str] = set()            # series whose reading ended since (read or not)
         self.poked = False
+        self.record_moved = False                      # the record was written since the loop last looked (notify.py)
+        self.calls = None                              # the socket steps call (calls/server.py), once started
+        self.socket: str | None = None
+        self.count_last: dict[str, float] = {}         # an items sensor's series → the count last written for it
 
     # ---- signals
 
@@ -675,6 +679,10 @@ class Engine:
         env = {**os.environ, "ERGOSTAT_BLOCK": b.name, "ERGOSTAT_AGENT": b.name, "ERGOSTAT_RUN": begun["id"],
                "ERGOSTAT_PROJECT": spec.name, "ERGOSTAT_STATE_DIR": str(self.p.dir), "ERGOSTAT_MODEL_VERSION": version,
                "ERGOSTAT_CMD": f"{shlex.quote(sys.executable)} -m ergostat -C {shlex.quote(str(spec.root))}"}
+        if self.socket:                                          # its calls answered by this engine (calls/)
+            env["ERGOSTAT_SOCKET"] = self.socket
+        else:
+            env.pop("ERGOSTAT_SOCKET", None)
         if "command" in ctx:
             env["ERGOSTAT_COMMAND"] = f"{ctx['command']['amount']:g}"
         if item:                                                 # the item it holds, and its lease (SPEC §9.5)
@@ -1010,17 +1018,37 @@ class Engine:
     def _readings(self, tick: bool) -> bool:
         """The loop's batch: every reading asked for since the last is begun (ergostat's own read here, commands and
         queries handed to the pool), what the pool read meanwhile is gathered, all of it written at once, and one pass
-        follows (when anything was read or ended, or on the clock's tick). True when a pass ran."""
+        follows (when anything was read or ended, or on the clock's tick). True when a pass ran.
+
+        When the record was written since, every count of items is read too (they cost nothing to read), and those
+        that changed are written and worked out with the rest: a goal on a queue sees its first item at once, not at
+        its sensor's next reading (docs/proposals/latency.md)."""
         with self.lock:
             asked, self.wanted = list(self.wanted.values()), {}
             poked, self.poked = self.poked, False
+            moved, self.record_moved = self.record_moved, False
         here = [s for s in asked if s.items is not None or s.changes is not None]
+        extra: set[str] = set()
+        if moved:
+            mine = {s.series for s in here}
+            by, _ = self._item_sensors()
+            for s in by[False] + by[True]:
+                if s.series not in mine:
+                    mine.add(s.series)
+                    extra.add(s.series)
+                    here.append(s)
         for s in asked:
             if s.items is None and s.changes is None:
                 if self.pool is None:
                     self.pool = ThreadPoolExecutor(max_workers=READERS, thread_name_prefix="ergostat-read")
                 self.pool.submit(self._read_one, s)
         got = self._read_here(here) if here else []
+        if extra:                                         # read on a change of the record: kept only when it moved
+            got = [g for g in got if g[0].series not in extra or (g[4] is None and g[1] is not None
+                                                                   and g[1] != self.count_last.get(g[0].series))]
+        for s, v, *_ in got:
+            if s.items is not None and v is not None:
+                self.count_last[s.series] = v
         while True:
             try:
                 got.append(self.results.get_nowait())
@@ -1167,9 +1195,14 @@ class Engine:
                     self.say(f"actions: {type(e).__name__}: {e}")
 
     def _follow(self, seq: int) -> None:
-        """Approvals of advised commands, and the owner's asks to stop a run, from the CLI."""
+        """Approvals of advised commands, and the owner's asks to stop a run, from the CLI: looked for when the record is
+        written (``notify.py``), and every half second besides."""
+        from ..notify import of
+        board = of(self.p.events)
+        mark = board.n if board else 0
         while not self.stop.is_set():
             try:
+                top = self.p.events.last_seq()                # (what is written while it looks is looked at next time)
                 new = sorted(self.p.events.query(n=None, after_seq=seq, type="block.approved") +
                              self.p.events.query(n=None, after_seq=seq, type="ergostat.action.approved") +
                              self.p.events.query(n=None, after_seq=seq, type="steptest.approved") +
@@ -1196,11 +1229,11 @@ class Engine:
                         self.say(f"{b.name}: approved, but its command is 0 now; nothing to run")
                         continue
                     self.start(b, "approved")
-            try:
-                seq = max(seq, self.p.events.last_seq())
-            except Exception:
-                pass
-            self.stop.wait(0.5)
+            seq = max(seq, top)
+            if board is None:
+                self.stop.wait(0.5)
+            else:
+                mark = board.wait(mark, 0.5)
 
     def run_action(self, aid: str) -> None:
         """An approved action a program block's run asked for: run by ergostat, with its environment, once."""
@@ -1235,7 +1268,35 @@ class Engine:
         threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop
         self.dispatch.holding = True                             # leases held when it last stopped are watched at once
         threading.Thread(target=self.dispatch.run, daemon=True).start()   # blocks that take items, their leases (SPEC §9.5)
+        threading.Thread(target=self._record_follow, name="ergostat-record", daemon=True).start()
+        self._listen()
         self._ingest()
+
+    def _listen(self) -> None:
+        """Calls from a step (``ergostat act``, ``event --add``, ``lease``, ``item``) answered here, over a socket in the
+        state directory (``calls/``), each without loading the model; ``ERGOSTAT_SOCKET`` names it in every run."""
+        from ..calls.server import Server
+        try:
+            self.calls = Server(self)
+            self.socket = self.calls.start()
+        except OSError as e:                                     # the commands do what they did before
+            self.calls, self.socket = None, None
+            self.say(f"socket: {type(e).__name__}: {e}")
+
+    def _record_follow(self) -> None:
+        """The loop woken when the record is written (``notify.py``): counts of items read at once (``_readings``)."""
+        from ..notify import of
+        board = of(self.p.events)
+        if board is None:
+            return
+        mark = board.n
+        while not self.stop.is_set():
+            was, mark = mark, board.wait(mark, 1.0)
+            if mark != was:
+                with self.lock:
+                    self.record_moved = True
+                self.wake.set()
+                self.stop.wait(BATCH)                     # (a burst of writes: one batch)
 
     def _ingest(self) -> None:
         from .. import transcripts
@@ -1327,6 +1388,8 @@ class Engine:
     def close(self) -> None:
         self.stop.set()
         self.wake.set()
+        if self.calls is not None:
+            self.calls.close()
         if self.pool is not None:
             self.pool.shutdown(wait=False, cancel_futures=True)
         old.kill_all()

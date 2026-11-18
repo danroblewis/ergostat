@@ -119,12 +119,8 @@ def cmd_actions(args) -> int:
 def cmd_act(args) -> int:
     import sys
 
-    from ..actions import gate, program, record
+    from ..actions import gate, program
     from ..durations import parse_duration
-    p = open_project(args)
-    spec = _spec(p)
-    if spec is None:
-        return 2
     vals = {}
     for kv in args.arg:
         k, eq, v = kv.partition("=")
@@ -132,8 +128,26 @@ def cmd_act(args) -> int:
             print(f"--arg {kv!r}: write it NAME=VALUE", file=sys.stderr)
             return 2
         vals[k] = v
+    wait = parse_duration(args.wait, "--wait") if args.wait else 0.0
+    from ..calls.client import Refused
+    from . import fast
+    try:                                                 # the running engine asks it, when one listens (calls/)
+        sent = fast.call(args, "act", timeout=wait + 3600.0, name=args.name, args=vals, key=args.key, wait=wait,
+                         env=fast.env())
+    except Refused as e:
+        print(str(e), file=sys.stderr)
+        return e.code
+    if sent is not None:
+        a, code = sent["full"], int(sent["exit"])
+        if args.json:
+            out_json(sent["action"])
+            return code
+        return said(args, a, code)
+    p = open_project(args)
+    spec = _spec(p)
+    if spec is None:
+        return 2
     try:
-        wait = parse_duration(args.wait, "--wait") if args.wait else 0.0
         a = program.ask(p, spec, program.given(), args.name, vals, key=args.key, wait=wait)
     except program.AskError as e:
         print(f"refused: {e}", file=sys.stderr)
@@ -142,6 +156,14 @@ def cmd_act(args) -> int:
     if args.json:
         out_json(gate.result(a))
         return code
+    return said(args, a, code)
+
+
+def said(args, a: dict, code: int) -> int:
+    """What ``act`` prints of an action's answer (without --json)."""
+    import sys
+
+    from ..actions import record
     if a["state"] == "ran":
         if a.get("output"):
             print(a["output"])

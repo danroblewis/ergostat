@@ -698,6 +698,7 @@ class Spec:
     files: list[Path]
     keep: float = 30 * 86400.0
     storage: object = None                  # storage.Storage: where the record is kept (SPEC §4b)
+    intake: object = None                   # intake.config.Intake: who may push events, and the webhooks' mappings
     stocks: dict[str, Stock] = field(default_factory=dict)
     flows: dict[str, Flow] = field(default_factory=dict)
     goals: dict[str, Goal] = field(default_factory=dict)

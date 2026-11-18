@@ -13,6 +13,8 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
+from .notify import key_of, written
+
 EVENTS = """
 create table if not exists events (
   seq integer primary key autoincrement,
@@ -176,6 +178,7 @@ class _Conns:
 class Events:
     def __init__(self, directory: Path):
         self.path = directory / "events.db"
+        self._nkey = key_of(directory)                     # its waiters' board (notify.py)
         self._c = _Conns(self.path, EVENTS)
         with self._c():
             pass
@@ -200,7 +203,16 @@ class Events:
                             "values (?,?,?,?,?,?,?,?)",
                             (ev["id"], ev["time"], type, item, source, causedby, json.dumps(ev["data"]), change))
             ev["seq"] = cur.lastrowid if cur.rowcount else None
+        written(self._nkey)
         return ev
+
+    def board(self):
+        """What waits for this record's new events wakes on (``notify.py``): written here, or by another process."""
+        from .notify import board
+        b = board(self.path.parent)
+        if b.watcher is None:
+            b.watch([Path(str(self.path) + "-wal"), self.path])
+        return b
 
     name = "sqlite"
 
@@ -222,7 +234,9 @@ class Events:
             except BaseException:
                 c.execute("rollback")
                 raise
-            return c.total_changes - before
+            got = c.total_changes - before
+        written(self._nkey)
+        return got
 
     def known(self, ids: list[str]) -> set[str]:
         """Which of these event ids are recorded."""

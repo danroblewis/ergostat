@@ -91,6 +91,13 @@ def reask(p, a: dict, cfg: dict) -> dict:
 
 def ask(p, spec, cfg: dict, name: str, args: dict, key: str | None = None, wait: float = 0.0) -> dict:
     """A run asks for an action; returns it as it stands when the call returns (ran, failed, denied, or still held)."""
+    a = start(p, spec, cfg, name, args, key)
+    a = settle(p, spec, cfg, a, wait)
+    return finish(p, cfg, a)
+
+
+def start(p, spec, cfg: dict, name: str, args: dict, key: str | None = None) -> dict:
+    """The action asked for (or the same one asked before, taken over), as it stands now."""
     if name not in (cfg.get("actions") or []):
         raise AskError(f"no action {name!r} for block {cfg.get('block')}: its actions: are "
                        f"{', '.join(cfg.get('actions') or []) or 'none'}")
@@ -114,7 +121,11 @@ def ask(p, spec, cfg: dict, name: str, args: dict, key: str | None = None, wait:
             a = gt.request(p, spec, name, args, ctx, asker="program", key=k)
         except gt.GateError as e:
             raise AskError(str(e)) from None
-    a = settle(p, spec, cfg, a, wait)
+    return a
+
+
+def finish(p, cfg: dict, a: dict) -> dict:
+    """The answer given to the run that asked: delivered (``how: run``) once it is final."""
     if a["state"] in ("ran", "failed", "denied") and not any(d.get("run") == cfg.get("run")
                                                              for d in a.get("deliveries") or []):
         gt.delivered(p, a["id"], "run", run=cfg.get("run"), block=cfg.get("block"))
@@ -122,26 +133,44 @@ def ask(p, spec, cfg: dict, name: str, args: dict, key: str | None = None, wait:
     return a
 
 
+def deadlines(spec, a: dict, wait: float) -> tuple[float, float]:
+    """How long a call waits: for the owner's answer (``wait``), and, once approved, for ergostat's engine to run it."""
+    act = spec.actions.get(a.get("action") or "")
+    now = time.monotonic()
+    return now + max(0.0, wait), now + (act.timeout if act else 120.0) + MARGIN
+
+
+def settled(p, spec, cfg: dict, a: dict, end: float, ran_by: float) -> tuple[dict, bool]:
+    """One look at the action: (it as it stands, whether the call is answered now). Approved, and no engine to run it:
+    run here, once."""
+    if a["state"] == "approved" and cfg.get("runner") != "ergostat":
+        a = gt.run_once(p, spec, a["id"]) or rec.get(p, a["id"])
+    if a["state"] in ("ran", "failed", "denied"):
+        return a, True
+    now = time.monotonic()
+    if a["state"] == "requested" and now >= end:
+        return a, True
+    if a["state"] == "approved" and now >= ran_by:
+        return a, True
+    return a, False
+
+
 def settle(p, spec, cfg: dict, a: dict, wait: float) -> dict:
     """Wait for the action's answer: up to ``wait`` for the owner's, and, once approved, for its run (by ergostat's
-    engine; by this process when no engine follows the record: a run started outside ``ergostat run``)."""
-    act = spec.actions.get(a.get("action") or "")
-    end = time.monotonic() + max(0.0, wait)
-    ran_by = None
+    engine; by this process when no engine follows the record: a run started outside ``ergostat run``). Woken by the
+    record's writes (``notify.py``), else it looks again every eighth of a second."""
+    from ..notify import of
+    end, ran_by = deadlines(spec, a, wait)
+    board = of(p.events)
+    mark = board.n if board else 0
     while True:
-        if a["state"] == "approved":
-            if cfg.get("runner") != "ergostat":
-                a = gt.run_once(p, spec, a["id"]) or rec.get(p, a["id"])
-            elif ran_by is None:
-                ran_by = time.monotonic() + (act.timeout if act else 120.0) + MARGIN
-        if a["state"] in ("ran", "failed", "denied"):
+        a, done = settled(p, spec, cfg, a, end, ran_by)
+        if done:
             return a
-        now = time.monotonic()
-        if a["state"] == "requested" and now >= end:
-            return a
-        if a["state"] == "approved" and ran_by is not None and now >= ran_by:
-            return a
-        time.sleep(gt.POLL / 2)
+        if board is None:
+            time.sleep(gt.POLL / 4)
+        else:
+            mark = board.wait(mark, gt.POLL / 4)
         a = rec.get(p, a["id"])
 
 

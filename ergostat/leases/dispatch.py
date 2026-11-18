@@ -4,7 +4,9 @@
   its kind in one of its ``at`` states, not held, not put off (``not_before``), and matching its ``where``, is leased
   to a run of its own, oldest first, while the block's runs in flight (its leases held, from the fold, and the runs
   going here) are fewer than its ``pool``. It looks whenever the record has something new (an item reaching its
-  state starts a run at once; the lease is caused by that event) and every second besides.
+  state starts a run at once; the lease is caused by that event), woken by the write itself (``notify.py``; another
+  process's write by the kernel's file notification, else at its next check, every quarter second), and every second
+  besides.
 - **The run.** Given its item (its folded fields) and its lease in its input; ``ERGOSTAT_ITEM`` and ``ERGOSTAT_LEASE``
   (the fencing number; the holder is ``ERGOSTAT_RUN``) in its environment; its event lines are about its item by
   default. When it ends, its lease ends: ack when the work moved the item on (to a state of ``to``, or any but where
@@ -28,8 +30,9 @@ from .ready import Ready
 from .terms import terms
 
 SOURCE = "ergostat"
-LOOK = 0.25           # seconds between looks at the record for something new
+LOOK = 0.25           # seconds between looks at the record for something new, when no write wakes it (notify.py)
 EVERY = 1.0           # a look at every block's queue, and the watchdog's pass, at least this often
+GAP = 0.005           # seconds a look waits after a write wakes it, for the writes that come with it
 
 
 def moved_on(b, it) -> bool:
@@ -75,6 +78,9 @@ class Dispatcher:
     # ---- the clock
 
     def run(self) -> None:
+        from ..notify import of
+        board = of(self.p.events)
+        mark = board.n if board else 0
         last = 0.0
         while not self.e.stop.is_set():
             try:
@@ -89,7 +95,12 @@ class Dispatcher:
                     self.tick()
             except Exception as e:                             # the next look tries again
                 self.e.say(f"leases: {type(e).__name__}: {e}")
-            self.e.stop.wait(LOOK)
+            if board is None:
+                self.e.stop.wait(LOOK)
+                continue
+            was, mark = mark, board.wait(mark, LOOK)
+            if mark != was:
+                self.e.stop.wait(GAP)
 
     # ---- dispatch
 

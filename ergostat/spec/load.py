@@ -16,7 +16,7 @@ SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variabl
             "loops", "claims", "contexts", "actions", "workspaces", "leases")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
             "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of"}
-TOP = {"name", "include", "keep", "messages", "storage", "defaults", "uses", "library", *SECTIONS}
+TOP = {"name", "include", "keep", "messages", "storage", "intake", "defaults", "uses", "library", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -112,6 +112,7 @@ class Document:
     messages: object = None          # messages: how the owner's messages are routed (SPEC §12h), in one file
     messages_at: Where | None = None
     storage: object = None
+    intake: object = None            # intake: what may push events to the running ergostat (main file only)
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
@@ -170,6 +171,11 @@ def load(main: Path) -> Document:
                 doc.storage = data["storage"]
             else:
                 doc.problems.append(Problem("error", "storage: belongs in the main file only", data.at("storage"), "storage-in-include"))
+        if "intake" in data:
+            if top:
+                doc.intake = data["intake"]
+            else:
+                doc.problems.append(Problem("error", "intake: belongs in the main file only", data.at("intake"), "intake-in-include"))
         if "keep" in data:
             if top:
                 doc.keep = data["keep"]
