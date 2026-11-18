@@ -290,3 +290,12 @@ def test_a_full_pool_puts_the_item_off_uncounted(tmp_path):
     it = its.one(p.events, spec, "ticket/1")
     assert it.state == "open" and it.fields["lease"]["attempts"] == 0
     assert not p.events.query(n=None, type="agent.failed", item="step"), "a full pool is not the run's failure"
+
+
+def test_a_workspace_items_lease_number_folds_as_plain_data(tmp_path):
+    p = project(tmp_path)
+    for n, lease in enumerate([1, 1, 2, None], 1):
+        p.events.add("ergostat.workspace.acquired", item="ergostat.workspace/code-1", source="ergostat",
+                     data={"item": "ticket/1", "lease": lease, "n": n})
+    it = its.one(p.events, p.model.spec, "ergostat.workspace/code-1")
+    assert it.fields["lease"] is None and it.fields["n"] == 4, "each event's lease, as it said it"
