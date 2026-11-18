@@ -17,6 +17,7 @@ The format is `docs/SPEC.md`; the five structure checks below are what `ergostat
 |---|---|---|
 | A rate driven by another rate (`driven-by: +flow.x` on a flow) | a **stock** between them: the cause accumulates, and the effect follows what accumulated | `rate-driven-by-rate` |
 | A stock that only fills (inflows, no outflow) | its **outflow**: what is in it leaves somehow | `stock-without-outflow` |
+| A stock per state of an item kind, each filled by nothing and drained to a cloud | the **chain**: a flow from each state's stock to the next | `outflow-not-chained`, `state-stock-without-inflow`, `state-stocks-disconnected`, `loops-not-connected` |
 | An outflow that would keep running with its stock empty | the **stock** among the outflow's causes | `outflow-ignores-stock` |
 | A decision that reacts to the true value the moment it changes | a **perceived** value: a stock that catches up with the true one, as people do | (not mechanical: read the decisions) |
 | A link between two things counted in different units | a converting **auxiliary** (so many of one per one of the other) | `units-mismatch` |
@@ -117,6 +118,43 @@ stocks:
 
 **Source.** Sterman ch. 6 (the conservation of material in stock and flow networks) and ch. 21
 (structure assessment: does the model conserve what it moves?).
+
+## 2a. A stock per state, each draining to a cloud: a missing chain
+
+**Symptom.** A workflow's item kind has states in order (requested, researched, approved, ramping, applied), and
+each state has a stock counting its items. But each step is written as an outflow from its state's stock to a
+cloud, and nothing fills the next state's stock. The stock-and-flow diagram shows a row of separate stocks, each
+filled by nothing; the block diagram shows a loop per step, none sharing a stock with the next.
+
+**Reason.** A move from one state to the next is not material leaving the system: the same item is now in the next
+state. In a stock-and-flow network that is one flow, out of one stock and into the next (Sterman's aging chain).
+Written as an outflow to a cloud, the model says the item vanished, and the next stock is filled by nothing, so
+nothing in the model says what fills it, and no step's work reaches the next step's queue.
+
+**Fix.** Chain them: arrivals from outside into the first state's stock, a flow from each state's stock to the
+next, measured as the items entering the next state, completions out of the last.
+
+```yaml
+flows:
+  arriving:                       # into the first state, from outside
+    to: ff-requested
+    sensor: {items: ff-ticket, entering: requested}
+  researched:                     # was: from ff-requested to a cloud
+    from: ff-requested
+    to: ff-researched
+    sensor: {items: ff-ticket, entering: researched}
+  # ... one per move ...
+  applied:                        # completions leave at the end
+    from: ff-ramping
+    sensor: {items: ff-ticket, entering: applied}
+```
+
+`ergostat check` reads the kind's states, the blocks that take its items, the flows' sensors and the moves in the
+record, and says each missing link with its fix (`outflow-not-chained`: `to:` the next stock;
+`state-stock-without-inflow`; `move-without-flow`), then the pieces (`state-stocks-disconnected`) and the loops that
+share no stock (`loops-not-connected`). The improver proposes the whole chain as one change, for you to accept.
+
+**Source.** Sterman ch. 6 (stock and flow networks: conservation) and ch. 12 (aging chains).
 
 ## 3. An outflow that ignores its stock: extreme conditions
 
@@ -506,6 +544,7 @@ whatever the policy. Everything written is recorded with its reason and its effe
 
 1. Run `ergostat check`; answer every structure finding, by a change or by a word with a reason.
 2. For each stock: what fills it, what drains it, and does the drain depend on what is there?
+   For each item kind with a stock per state: is it one chain, arrivals in at the start and completions out at the end?
 3. For each `driven-by` on a flow: does the effect come at once? If not, where does the cause
    wait (the stock), and what ends its wait (the flows out of it)?
 4. For each link: is it signed, and do its units convert?

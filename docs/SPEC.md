@@ -1501,6 +1501,38 @@ them for someone new to system dynamics):
   drained below empty, a one-way flow running backwards, a division by 0 or a blow-up is said, with
   the input or parameter that showed it and the fix.
 
+**A kind's states, chained** (findings, `ergostat/spec/chains.py`). When two or more stocks count the items of one
+kind in different states (`items: K, state: S`), the moves between those states are flows from one stock to the
+next: arrivals from outside into the first state's stock, a flow from each state's stock to the next, completions
+out of the last. What says items move from P to S: the record (each move the item index kept, a lease's hold taken
+out: into `leased` from P and out of it to S is one move, P to S), a block that takes them at P to S
+(`takes: {at: P, to: [S]}`), a flow's own sensor (an outflow from P's stock counting the items `entering: S`), and,
+for a stock nothing fills, the kind's state order (the modelled state before it). A move is carried by a path of
+flows from P's stock to S's (a move the record saw may pass only through stocks of the items being worked,
+`state: leased`; one a block or the order implies may pass through other states' stocks), or by an aggregate the
+other side relies on: a stock filled from outside by every item `entering: S` from two states or more (stopped,
+set aside from any step), or drained to outside by every item `leaving: P` to two or more. `leased` and `dead`
+are ergostat's own states and are left out. Each finding names its fix, with the YAML:
+
+- **outflow-not-chained**: an outflow to outside from P's stock whose items go on to S's stock: `to:` that stock
+  (and a flow from outside counting the same items entering S taken out);
+- **inflow-not-chained**: an inflow from outside into S's stock whose items all come from P's: `from:` that stock
+  (never a flow that also counts arrivals: the kind's first state, or a state items arrive in);
+- **state-stock-without-inflow**: a state's stock nothing fills, though items arrive in it from another state (a
+  flow from that state's stock, measured as items entering it), or, for the kind's first state, from outside (the
+  arrivals);
+- **move-without-flow**: items move from P to S and no flow carries them: a flow from P's stock to S's, measured
+  as items of K entering S (with `where: {lease.back: P}` when a block takes them and S has other origins);
+- **state-stocks-disconnected**: the kind's state stocks are pieces no flow joins, listed, with every change that
+  joins them;
+- **loops-not-connected**: the loops of the goals on the kind's stocks (each goal's stock and the stocks at the ends
+  of the flows its blocks set) are groups that share no stock: the missing chain, named.
+
+The last two are said only when a move is not carried (pieces with no move between them are a chain through a
+state with no stock of its own). `numbers/structural.py` makes each a structural proposal, and the pieces one
+proposal that chains the whole kind; each carries `rewires` and waits for the owner whatever the judge's policy.
+`try_change` takes them as evidence (`finding:outflow-not-chained@flow.NAME`).
+
 ## 12a. Feedback loops (system dynamics)
 
 Worked out, never written: every cycle of cause and effect through stocks, flows, auxiliaries,

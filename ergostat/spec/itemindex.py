@@ -436,6 +436,28 @@ class Index:
         return self.db.execute(f"select i.id, m.t from moves m join items i on i.rid = m.rid where m.kind = ? and m.{col} = ? "
                                f"and m.t >= ? and m.t <= ?{extra} order by m.t", args).fetchall()
 
+    def transitions(self, kind: str) -> dict:
+        """How many times ``kind``'s items moved from one state to another (``(None, S)``: arrivals), a lease's hold
+        taken out: a move into ``leased`` and the move out of it are one move, from the state it was taken from."""
+        from collections import Counter
+        out: Counter = Counter()
+        k = self.known(kind)
+        if k == -1:
+            return out
+        rid0, back = None, None
+        for rid, f, d in self.db.execute("select rid, frm, dst from moves where kind = ? order by rid, rowid", (k,)):
+            if rid != rid0:
+                rid0, back = rid, None
+            frm, to = self.name(f), self.name(d)
+            if to == "leased":
+                back = frm if frm != "leased" else back
+                continue
+            if frm == "leased":
+                frm = back
+            if frm != to:
+                out[(frm, to)] += 1
+        return out
+
     def tally(self, kind: str, state: str, key: str, before: float, until_newest: float | None = None) -> int:
         """How many moves of ``kind``'s items into (or out of) ``state`` were at or before ``before``."""
         col = "dst" if key == "to" else "frm"
