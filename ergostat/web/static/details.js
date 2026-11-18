@@ -83,7 +83,7 @@ async function openNode(n) {
                                    ["last reading", last ? `${fmt(last[1])}, ${ago(last[0])}` : "none yet"], ["in the window", `${now.count ?? rd.length} readings`]);
   const shown = n.kind === "auxiliary" ? "auxiliary" : kind;
   if (n.kind === "auxiliary") for (let i = rows.length - 1; i >= 0; i--) if (rows[i][0] === "in" || rows[i][0] === "out") rows.splice(i, 1);
-  const kids = [h("div", { class: "kind" }, shown), h("h2", {}, name), whatIs(shown), dl(rows)];
+  const kids = [h("div", { class: "kind" }, shown), h("h2", {}, name), whatIs(shown), dl(rows), findingsNote(d)].filter(Boolean);
   if (kind === "stock" && now.points?.length > 1) kids.push(sparkSvg(now.points, 380, 70));
   if (kind === "sensor" && now.readings?.length > 1) kids.push(sparkSvg(now.readings, 380, 70));
   if (kind === "sensor" && rd.length) {

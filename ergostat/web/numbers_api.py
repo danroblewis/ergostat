@@ -264,6 +264,25 @@ def parameter_rows(p, spec, names: list[str]) -> list[dict]:
     return rows
 
 
+def exercised(live, p, snap: dict) -> list[dict]:
+    """The parts the record has not exercised (``numbers/exercised.py``), as findings: ``{level, code, about,
+    message}``, on the reference window as of the page's moment; kept a minute."""
+    from ..numbers import exercised as ex
+    spec = spec_of(p)
+    if spec is None:
+        return []
+    key = ("exercised", snap["at"] if not snap.get("live", True) else round(snap["at"] / 60), live.mtime)
+    got = live.cached(key)
+    if got is None:
+        try:
+            _, q = ex.of_project(p, spec, snap["at"])
+        except Exception:                            # a record that cannot be read says nothing here
+            q = {}
+        got = [{"level": "warn", "code": ex.CODE, "about": ref, "message": ex.said(x)} for ref, x in sorted(q.items())]
+        live.keep(key, got)
+    return got
+
+
 def part_numbers(live, p, snap: dict, kind: str, name: str) -> dict:
     """What a valve's (flow's) or an auxiliary's panel shows of its numbers."""
     spec = spec_of(p)
