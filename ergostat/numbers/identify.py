@@ -197,17 +197,21 @@ def record_says(spec, data, values: dict[str, float]) -> dict[str, dict]:
     out = {}
     base = sim.replay(spec, data)
     cut = max(1, int(round(data.grid.n * (1 - es.HOLD_OUT))))
-    for group in es._groups(spec, names):
+    marked = sorted(n for n, x in spec.parameters.items() if x.estimate and not x.table)
+    groups = [g for g in es._groups(spec, sorted(set(marked) | set(names))) if set(g) & set(names)]   # as calibrated
+    for group in groups:
         prob = es.Problem(spec, data, group, cut=cut)
         if prob.n() < 2:
             continue
         start = {n: (spec.parameters[n].value if spec.parameters[n].value is not None else values.get(n, 1.0)) for n in group}
         best, _, after, sure = es.solve(prob, start)
+        at_best = sim.replay(spec, data, sim.plan(spec, best))      # its time constants as the record has them
+        tc = es.slowest(spec, at_best if at_best.valid else base, prob.owners, prob.stocks, data)
         for n in group:
             if n not in values:
                 continue
             e = {"value": best[n], "window": data.grid.until - data.grid.since, "n": prob.n(), "after": after,
-                 "slowest": es.slowest(spec, base, prob.owners, prob.stocks, data), "n_eff": (sure.get("n_eff_of") or {}).get(n),
+                 "slowest": tc, "n_eff": (sure.get("n_eff_of") or {}).get(n),
                  "rho": sure.get("rho"), "moves": (sure.get("moves") or {}).get(n)}
             short = too_short(e)
             if short is not None:

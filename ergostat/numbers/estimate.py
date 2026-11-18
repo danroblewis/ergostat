@@ -471,6 +471,9 @@ def estimate(p, snap: dict | None = None, n: int | None = None, which: str = "pa
         start = {nm: (spec.parameters[nm].value if spec.parameters[nm].value is not None else 1.0) for nm in group}
         best, before, after, sure = solve(prob, start)
         held_before, held_after = prob.both(start)[1], prob.both(best)[1]
+        at_best = sim.replay(spec, data, sim.plan(spec, best))     # the time constants as the record has them, not as written
+        if at_best.valid and (tc_best := slowest(spec, at_best, prob.owners, prob.stocks, data)) is not None:
+            common = {**common, "slowest": tc_best, "slowest_written": tc}
         for nm in group:
             se = (sure.get("se") or {}).get(nm)
             out[key_of(sc, nm)] = {**common, "parameter": nm, "value": best[nm], "declared": spec.parameters[nm].value,
