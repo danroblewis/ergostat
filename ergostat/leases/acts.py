@@ -42,9 +42,17 @@ def renew(p, spec, by: str = "ergostat", env: dict | None = None) -> dict:
 def nack(p, spec, why: str, after: float | None = None, count: bool = True, by: str = "ergostat",
          env: dict | None = None) -> dict:
     item, fence, run = mine(env)
+    it = its.one(p.events, spec, item)
+    lease = held(it.fields) if it else None
+    end = {}
+    if lease is not None and lease.get("fence") == fence:      # what it leaves the item as (SPEC §9.5)
+        from .dispatch import terminal
+        n = int(lease.get("attempts") or 0) + (1 if count else 0)
+        state = DEAD if count and n >= int(lease.get("max") or 1) else lease.get("back")
+        end = {"item": item, "state": state, "terminal": terminal(spec, it.kind, state)}
     ev = p.events.add(ENDED, item=item, source=by, causedby=run,
                       data={"run": run, "fence": fence, "how": "nack", "why": why, **({"after": after} if after else {}),
-                            **({} if count else {"count": False})})
+                            **({} if count else {"count": False}), **end})
     refused = _refused(p, spec, item, ev)
     if refused:
         raise LeaseError(refused)

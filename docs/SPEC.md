@@ -1147,10 +1147,10 @@ it does not list them: `leased`, after the first `at` state, and `dead`, last.
 
 | Event | Data | The item |
 |---|---|---|
-| `ergostat.lease.taken` | `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
+| `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
 | `ergostat.lease.renewed` | `run`, `fence`, `seen` (`activity` or `asked`) | its lease expires a TTL after this |
-| `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds) and `count` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after` |
-| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl` | back to `back`, the attempt counted |
+| `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds) and `count`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after` |
+| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`; `item`, `state`, `terminal` | back to `back`, the attempt counted |
 | `ergostat.lease.redriven` | `why`, `to` | a dead letter back to `to` (else `back`), its attempts from nothing |
 
 A counted attempt that reaches the most allowed moves the item to `dead` instead: a **dead letter**.
@@ -1212,7 +1212,9 @@ for its item (section 12j).
 
 **For what holds a resource as long as a lease** (a working copy, a session, a seat): the lease
 events are the hook. React to `ergostat.lease.taken` (acquire, for `data.run` on the item), and to
-`ergostat.lease.ended` and `ergostat.lease.expired` (release); in the run, `ERGOSTAT_ITEM` and
+`ergostat.lease.ended` and `ergostat.lease.expired` (release). Each names its `item`; an end says the `state` it
+leaves the item in and whether that is `terminal` (a dead letter, or its kind's last state): finished, so what it
+held can be cleaned, or not (under review, or back in the queue to be taken again), so it can be kept. In the run, `ERGOSTAT_ITEM` and
 `ERGOSTAT_LEASE` name what it holds, and `ERGOSTAT_RUN` the holder. A run whose lease expired may
 still be running: what it writes about the item is refused, and what it holds should be released or
 fenced the same way, by the fencing number. `$ERGOSTAT_CMD event --type ergostat.lease.* --follow`

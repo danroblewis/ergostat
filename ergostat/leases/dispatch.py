@@ -39,6 +39,15 @@ def moved_on(b, it) -> bool:
     return not b.takes.to or it.state in b.takes.to
 
 
+def terminal(spec, kind: str | None, state: str | None) -> bool:
+    """Whether an item in this state is finished: a dead letter, or in its kind's last state (``dead`` aside)."""
+    if state == DEAD:
+        return True
+    k = spec.items.get(kind or "")
+    rest = [x for x in (k.states if k else []) if x != DEAD]
+    return bool(rest) and state == rest[-1]
+
+
 class Dispatcher:
     def __init__(self, eng):
         self.e, self.p = eng, eng.p
@@ -127,7 +136,8 @@ class Dispatcher:
         run = uuid.uuid4().hex
         cause = it.moves[-1]["event"] if it.moves else None      # what brought it to the state it is taken from
         ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
-                               data={"run": run, "block": b.name, "fence": fence, "ttl": t["ttl"], "max": t["attempts"],
+                               data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
+                                     "max": t["attempts"],
                                      "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1})
         now = its.one(self.p.events, self.spec, it.id)
         got = held(now.fields) if now else None
@@ -197,11 +207,22 @@ class Dispatcher:
             data["how"] = "ack"
         else:
             data.update({"how": "nack", "why": out.get("note") or f"the run ended with {item} still {it.state}"})
+        data.update(self.after(it, lease, data["how"] == "nack" and data.get("count", True) is not False,
+                               it.state if data["how"] == "ack" else None))
         self.p.events.add(ENDED, item=item, source=SOURCE, causedby=run, data=data)
         if data["how"] == "nack":
             after = its.one(self.p.events, self.spec, item)
             dead = after is not None and after.state == DEAD
             self.e.say(f"{b.name}: gave {item} back ({data['why']})" + (": a dead letter now" if dead else ""))
+
+    def after(self, it, lease: dict, counted: bool, stays: str | None = None) -> dict:
+        """What a lease's end says of its item, for what holds a resource as long as the lease (SPEC §9.5): the item,
+        the state it is left in, and whether that is terminal (its kind's last state, or a dead letter), so a
+        working copy can be cleaned, or kept while the item waits (under review, back in the queue)."""
+        if stays is None:
+            n = int(lease.get("attempts") or 0) + (1 if counted else 0)
+            stays = DEAD if counted and n >= int(lease.get("max") or 1) else (lease.get("back") or it.state)
+        return {"item": it.id, "state": stays, "terminal": terminal(self.spec, it.kind, stays)}
 
     # ---- the watchdog
 
@@ -224,7 +245,7 @@ class Dispatcher:
                 silent = now - float(lease.get("renewed") or lease.get("taken") or now)
                 self.p.events.add(EXPIRED, item=it.id, source=SOURCE,
                                   data={"run": lease["holder"], "fence": lease["fence"], "block": lease.get("block"),
-                                        "silent": round(silent, 1), "ttl": ttl})
+                                        "silent": round(silent, 1), "ttl": ttl, **self.after(it, lease, True)})
                 after = its.one(self.p.events, self.spec, it.id)
                 dead = after is not None and after.state == DEAD
                 self.e.say(f"{lease.get('block')}: the lease on {it.id} expired (silent {silent / 60:.1f} min)"

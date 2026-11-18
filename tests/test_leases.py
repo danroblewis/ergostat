@@ -273,6 +273,9 @@ def test_one_run_per_item_bounded_by_the_pool(tmp_path):
     taken = p.events.query(n=None, type=TAKEN)
     assert {r["id"] for r in taken} == {r["causedby"] for r in runs}, "each run caused by its lease"
     assert {t["data"]["run"] for t in taken} == {r["id"] for r in runs}, "the lease names its holder, the run"
+    for e in p.events.query(n=None, type=ENDED):          # the hook: what each end leaves the item as
+        assert e["data"]["item"] == e["item"] and e["data"]["state"] == "done" and e["data"]["terminal"] is True
+    assert all(t["data"]["item"] == t["item"] for t in taken)
 
 
 def test_a_run_starts_on_the_item_event(tmp_path):
@@ -318,6 +321,8 @@ def test_a_run_that_does_not_move_it_gives_it_back_and_a_dead_letter_after_its_a
     lease = item(p, "ticket/1").fields["lease"]
     assert [h["how"] for h in lease["history"]] == ["nack", "nack"] and all(h["exit"] == 3 for h in lease["history"])
     assert lease["history"][0]["why"] == "exited 3"
+    ends = p.events.query(n=None, type=ENDED, item="ticket/1")
+    assert [(e["data"]["state"], e["data"]["terminal"]) for e in ends] == [("ready", False), ("dead", True)]
     assert len(p.events.query(n=None, type="agent.started", item="worker")) == 2, "nothing taken once dead"
 
 
@@ -357,7 +362,8 @@ def test_renewed_by_events_and_expired_when_silent_then_retried(tmp_path):
     assert it.fields["by"] == "second"
     refused = p.events.query(n=None, type="agent.refused", item="worker")
     assert refused and "fencing" in refused[-1]["data"]["why"], "the late run's line refused, not applied"
-    assert p.events.query(n=None, type=EXPIRED)[0]["data"]["silent"] >= 1.0
+    expired = p.events.query(n=None, type=EXPIRED)[0]["data"]
+    assert expired["silent"] >= 1.0 and expired["item"] == "ticket/1" and expired["state"] == "ready" and not expired["terminal"]
 
 
 def test_the_watchdog_renews_from_what_the_holder_does_elsewhere(tmp_path):
