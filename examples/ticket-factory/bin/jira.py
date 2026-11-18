@@ -7,6 +7,8 @@ here and in factory.conf, nowhere else.
     transitions(key)          the transitions the issue has now: [{id, name, to}]
     transition(key, status)   move it to a status, by the transition that leads there (looked up, never assumed)
     comment(key, text)        add a comment
+    whoami(), check()         who the token signs in as; the project and its statuses (./setup)
+    create(...), delete(key)  the demo's own test issues only (bin/demo_issues.py), always labelled
 
 Cloud (JIRA_API=3, JIRA_AUTH=basic: email and API token) and Data Center (JIRA_API=2, JIRA_AUTH=bearer: a
 personal access token) differ only in what is marked DC below: the search endpoint, and bodies as Atlassian
@@ -178,7 +180,43 @@ def comment(key: str, text: str) -> str:
     return f"{key}: commented"
 
 
+def whoami() -> str:
+    if OFFLINE:
+        return "the offline fake"
+    me = _call("GET", "/myself")
+    return me.get("displayName") or me.get("name") or "?"
+
+
+def check() -> str:
+    """The project exists, and has every status factory.conf names."""
+    if OFFLINE:
+        return "offline: the fake board"
+    wanted = {conf(k) for k in ("JIRA_PICK_FROM", "JIRA_IN_PROGRESS", "JIRA_IN_REVIEW", "JIRA_DONE")}
+    have = {s["name"] for t in _call("GET", f"/project/{conf('JIRA_PROJECT')}/statuses") for s in t["statuses"]}
+    missing = wanted - have
+    if missing:
+        raise JiraError(f"{conf('JIRA_PROJECT')} has no status {', '.join(sorted(missing))}; it has {', '.join(sorted(have))}")
+    return f"{conf('JIRA_PROJECT')}: statuses {', '.join(sorted(have))}"
+
+
+def create(summary: str, description: str, issuetype: str = "Task") -> str:
+    """A test issue for the demo, labelled JIRA_LABEL (bin/demo_issues.py)."""
+    if OFFLINE:
+        raise JiraError("offline, issues arrive on their own")
+    got = _call("POST", "/issue", {"fields": {"project": {"key": conf("JIRA_PROJECT")}, "summary": summary,
+                                             "issuetype": {"name": issuetype}, "labels": [conf("JIRA_LABEL")],
+                                             "description": _body(description)}})
+    return got["key"]
+
+
+def delete(key: str) -> None:
+    """Delete one of the demo's own test issues (refused unless labelled)."""
+    _ours(key)
+    _call("DELETE", f"/issue/{key}")
+
+
 if __name__ == "__main__":
     what = sys.argv[1:] or ["waiting"]
-    fn = {"waiting": waiting, "counts": counts, "get": get, "transitions": transitions}[what[0]]
+    fn = {"waiting": waiting, "counts": counts, "get": get, "transitions": transitions, "whoami": whoami,
+          "check": check}[what[0]]
     print(json.dumps(fn(*what[1:]), indent=1))

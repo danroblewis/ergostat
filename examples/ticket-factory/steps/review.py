@@ -6,7 +6,7 @@ asking: ask again, at most REPING_MAX times (each one counted in `repings`)."""
 import github
 from act import act
 from step import Move, Wait
-from tf import conf, key_of, now, seconds
+from tf import conf, key_of, now, seconds, throttled
 
 
 def entries(p):
@@ -26,6 +26,8 @@ def approves(e):
 def run(ticket):
     f = ticket["fields"]
     key, repo, pr = key_of(ticket), f["repo"], f["pr"]
+    if throttled(f"review:{ticket['id']}"):
+        return Wait("looked a moment ago")
     p = github.pr(repo, pr)
     if p["state"] != "OPEN":
         return Wait(f"#{pr} is {p['state'].lower()}")

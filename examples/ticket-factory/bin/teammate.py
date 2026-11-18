@@ -16,7 +16,7 @@ import time
 from datetime import datetime
 
 import github
-from tf import OFFLINE, RUN, conf, items, read_json, record, seconds, write_json, yes
+from tf import OFFLINE, RUN, conf, items, read_json, record, seconds, throttled, write_json, yes
 
 ASK = ("Could the file also say which ticket it is for, with the ticket's link? "
        "(A scripted review by the ticket factory's teammate.)")
@@ -45,6 +45,8 @@ def main() -> int:
                 m.update(phase=1, asked=time.time())
         elif m["phase"] == 1:
             looking += 1
+            if throttled(f"teammate:{pr_key}"):
+                continue
             p = github.pr(f["repo"], f["pr"])
             answered = [c for c in p.get("comments", []) if github.MARK in (c.get("body") or "")
                         and when(c.get("createdAt", "")) > m["asked"] - 1 and "Thanks." in (c.get("body") or "")]

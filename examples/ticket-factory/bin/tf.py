@@ -156,3 +156,17 @@ def write_json(path: Path, data) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=1))
     tmp.replace(path)
+
+
+def throttled(what: str, every: str | None = None) -> bool:
+    """True when `what` was looked at less than POLL_EVERY ago (15s; offline never): steps that wait on a
+    service (review, ci) run every few seconds, and look at each ticket no more often than this."""
+    if OFFLINE:
+        return False
+    path = RUN / "polled.json"
+    seen = read_json(path, {})
+    if time.time() - seen.get(what, 0) < seconds(every or conf("POLL_EVERY", "15s")):
+        return True
+    seen[what] = time.time()
+    write_json(path, seen)
+    return False

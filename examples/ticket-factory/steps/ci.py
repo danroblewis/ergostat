@@ -3,11 +3,13 @@ for `fix-ci`. A repository with no CI is taken as green once five minutes pass w
 
 import github
 from step import Move, Wait
-from tf import now
+from tf import now, throttled
 
 
 def run(ticket):
     f = ticket["fields"]
+    if throttled(f"ci:{ticket['id']}"):
+        return Wait("looked a moment ago")
     got = github.checks(f["repo"], f["pr"])
     if got["state"] == "success":
         return Move({"ci_green_at": now()})
