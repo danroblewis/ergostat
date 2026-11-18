@@ -65,11 +65,16 @@ def free_port() -> int:
 
 @pytest.fixture(scope="module")
 def browser():
+    # Playwright's own Chromium, as the other page tests use (the installed Chrome 158 quits when a page is
+    # closed, under Playwright 1.63); the installed Chrome only where that is missing
     with playwright.sync_playwright() as p:
         try:
-            b = p.chromium.launch(channel="chrome")
-        except Exception as e:                        # no Chrome here
-            pytest.skip(f"no Chrome to drive: {e}")
+            b = p.chromium.launch()
+        except Exception:
+            try:
+                b = p.chromium.launch(channel="chrome")
+            except Exception as e:                    # no Chromium or Chrome here
+                pytest.skip(f"no Chromium to drive: {e}")
         yield b
         b.close()
 
