@@ -95,6 +95,12 @@ say(phase="compile", s=round(time.time() - t, 2), rss_mb=rss())
 from ergostat.spec import findings
 t = time.time(); got = findings.find(spec, extremes=False)
 say(phase="findings", s=round(time.time() - t, 2), rss_mb=rss(), found=len(got))
+if len(sys.argv) > 2 and sys.argv[2] == "no-extremes":             # check without its extreme-conditions tests (#9)
+    t = time.time()
+    from ergostat import model as mdl
+    m = mdl.load(Path(sys.argv[1]))
+    say(phase="model_load", s=round(time.time() - t, 2), rss_mb=rss(), found=len(m._problems or []))
+    sys.exit(0)
 from ergostat.numbers import extremes, simulate as sim
 t = time.time(); pl = sim.plan(spec); t_plan = time.time() - t
 conds = extremes.conditions(spec, pl, None)
@@ -113,8 +119,8 @@ def cmd_phases(a) -> None:
         d = model(a.work, n, a.fresh)
         got: dict = {}
         try:
-            p = subprocess.run([PY, "-c", PHASES, str(d)], env=env_for(a.work, n), capture_output=True, text=True,
-                               timeout=a.timeout)
+            p = subprocess.run([PY, "-c", PHASES, str(d), *(["no-extremes"] if a.no_extremes else [])],
+                               env=env_for(a.work, n), capture_output=True, text=True, timeout=a.timeout, cwd="/")
             out = p.stdout
         except subprocess.TimeoutExpired as e:
             out = (e.stdout or b"").decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
@@ -122,7 +128,7 @@ def cmd_phases(a) -> None:
         for line in out.splitlines():
             x = json.loads(line)
             got[x.pop("phase")] = x
-        record(a.work, "check-phases", n, **got)
+        record(a.work, "check-phases", n, **got, **({"variant": "no-extremes"} if a.no_extremes else {}))
 
 
 def cmd_check(a) -> None:
@@ -432,16 +438,21 @@ def record_stats(sd: Path) -> dict:
 # ---- the page
 
 
-def free_port() -> int:
+def free_port(wait: float = 180) -> int:
+    """A port of ours that is free, waiting for one (a server just stopped holds its port a while: TIME_WAIT)."""
     import socket
-    for p in PORTS:
-        with socket.socket() as s:
-            try:
-                s.bind(("127.0.0.1", p))
-                return p
-            except OSError:
-                continue
-    raise SystemExit("no port free in 8791-8799")
+    end = time.time() + wait
+    while True:
+        for p in PORTS:
+            with socket.socket() as s:
+                try:
+                    s.bind(("127.0.0.1", p))
+                    return p
+                except OSError:
+                    continue
+        if time.time() > end:
+            raise SystemExit("no port free in 8791-8799")
+        time.sleep(2)
 
 
 def get(url: str, timeout: float) -> tuple[float, int, int]:
@@ -553,6 +564,80 @@ def browse(a, n: int, base: str, proc) -> None:
             record(a.work, "page", n, **row, server=ps(proc.pid))
             ctx.close()
         b.close()
+
+
+FEED = r'''
+import random, sys, time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path(sys.argv[1])))
+series = [s.series for s in p.model.spec.sensors()]
+while True:                                  # a reading of every sensor every 10 s, as a running engine would write them
+    p.measurements.add_many([(x, time.time(), random.random() * 10) for x in series])
+    time.sleep(10)
+'''
+
+
+def cmd_poll(a) -> None:
+    """What an open page costs once drawn: the API requests and bytes a minute it pulls while it sits open (#12), and
+    how long each answer took. Each page on a fresh browser context; the window starts once the page is drawn (or, when
+    it is not drawn within --timeout, the whole wait is counted). Meanwhile every sensor gets a reading every 10 s (as
+    from a running engine, without one): the values change, so each answer is a new one (on a still record the
+    browser's cache answers most asks with a 304)."""
+    from playwright.sync_api import sync_playwright
+    for n in a.n:
+        port = free_port()
+        proc = serve(a.work, n, port)
+        feed = subprocess.Popen([PY, "-c", FEED, str(model(a.work, n))], env=env_for(a.work, n), cwd="/",
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        base = f"http://127.0.0.1:{port}"
+        try:
+            with sync_playwright() as p:
+                b = p.chromium.launch(channel="chrome")
+                for name, path in [("diagram", "/diagram"), ("diagram-system", "/diagram?system=sys-001"),
+                                   ("blocks", "/diagram?view=blocks")]:
+                    if a.pages and name not in a.pages.split(","):
+                        continue
+                    ctx = b.new_context(viewport={"width": 1600, "height": 1000})
+                    pg = ctx.new_page()
+                    got: list[tuple[float, str, int, float]] = []
+
+                    def done(r, got=got):
+                        if "/api/" in r.url:
+                            t = r.request.timing
+                            got.append((time.time(), r.url.split("/api/")[1].split("?")[0],
+                                        int(r.headers.get("content-length") or 0),
+                                        (t["responseEnd"] - t["requestStart"]) / 1000 if t and t.get("responseEnd", -1) > 0 else -1))
+                    pg.on("requestfinished", lambda rq, done=done: done(rq.response()) if rq.response() else None)
+                    row: dict = {"page": name, "window_s": a.window}
+                    t0 = time.time()
+                    try:
+                        pg.goto(base + path, wait_until="load", timeout=a.timeout * 1000)
+                        pg.wait_for_function(READY, timeout=a.timeout * 1000, polling=250)
+                        row["drawn_s"] = round(time.time() - t0, 2)
+                        start = time.time()
+                        pg.wait_for_timeout(a.window * 1000)
+                    except Exception as e:
+                        row["error"] = f"{type(e).__name__}: {str(e)[:160]}"
+                        start = t0
+                    end = time.time()
+                    inside = [x for x in got if start <= x[0] <= end]
+                    span = max(1.0, end - start) / 60
+                    row["requests_per_min"] = round(len(inside) / span, 1)
+                    row["bytes_per_min"] = round(sum(x[2] for x in inside) / span)
+                    by: dict[str, list] = {}
+                    for x in inside:
+                        by.setdefault(x[1], []).append(x)
+                    row["by_api"] = {k: {"n": len(v), "bytes": sum(x[2] for x in v),
+                                         "p50_s": round(pct([x[3] for x in v], 0.5) or 0, 3)} for k, v in by.items()}
+                    record(a.work, "poll", n, **row, fed=True)
+                    ctx.close()
+                b.close()
+        finally:
+            os.killpg(feed.pid, signal.SIGTERM)
+            os.killpg(proc.pid, signal.SIGTERM)
+            proc.wait(30)
 
 
 # ---- modelling
@@ -677,7 +762,7 @@ def cmd_chart(a) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("what", choices=["check", "phases", "tick", "loops", "engine", "web", "api", "model", "chart"])
+    ap.add_argument("what", choices=["check", "phases", "tick", "loops", "engine", "web", "api", "poll", "model", "chart"])
     ap.add_argument("n", type=int, nargs="*")
     ap.add_argument("--work", type=Path, default=Path("/tmp/scale"))
     ap.add_argument("--fresh", action="store_true", help="generate the models again")
@@ -685,9 +770,11 @@ def main() -> None:
     ap.add_argument("--limit", type=float, default=120, help="loops: seconds to enumerate every loop for")
     ap.add_argument("--longest", type=int, default=10**6, help="loops: the longest loop enumerated (ergostat's own: 30)")
     ap.add_argument("--minutes", type=float, default=10)
+    ap.add_argument("--window", type=float, default=60, help="poll: seconds an open page is watched for once drawn")
     ap.add_argument("--every", type=float, default=15)
     ap.add_argument("--keep", action="store_true", help="engine: keep the record from the last run")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--no-extremes", action="store_true", help="phases: leave out the extreme-conditions tests (#9)")
     ap.add_argument("--apis", help="api: only these answers (graph-dynamics,status,...)")
     ap.add_argument("--pages", help="web: only these pages (diagram,diagram-system,...), on a fresh server, no API timings")
     ap.add_argument("--only", help="model: only these steps (fit,proposals,judge,measure-fit,try-change)")
@@ -695,7 +782,7 @@ def main() -> None:
     a = ap.parse_args()
     a.work.mkdir(parents=True, exist_ok=True)
     {"check": cmd_check, "phases": cmd_phases, "tick": cmd_tick, "loops": cmd_loops, "engine": cmd_engine, "web": cmd_web,
-     "api": cmd_api_alone,
+     "api": cmd_api_alone, "poll": cmd_poll,
      "model": cmd_model, "chart": cmd_chart}[a.what](a)
 
 

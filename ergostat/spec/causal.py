@@ -77,7 +77,14 @@ def _passes(b: Block) -> int | None:
 
 def served(spec: Spec) -> dict[str, list[str]]:
     """The goals each block serves: those it names (``goal:``, or reading ``goal.x``); a block that
-    names none, those whose loop closes with it as a controller or an actuator."""
+    names none, those whose loop closes with it as a controller or an actuator. Worked out once per model."""
+    kept = spec.lookups().kept
+    if "causal.served" not in kept:
+        kept["causal.served"] = _served(spec)
+    return {b: list(gs) for b, gs in kept["causal.served"].items()}
+
+
+def _served(spec: Spec) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for b in spec.blocks.values():
         named = [r.name for r in b.reads() if r.kind == "goal" and r.name in spec.goals]
@@ -127,7 +134,14 @@ def input_sign(spec: Spec, b: Block, r: Ref, port: str | None = None, serves: di
 
 
 def links(spec: Spec) -> list[Link]:
-    """Every causal link in the model, each once."""
+    """Every causal link in the model, each once. Worked out once per model (a link is never changed)."""
+    kept = spec.lookups().kept
+    if "causal.links" not in kept:
+        kept["causal.links"] = tuple(_links(spec))
+    return list(kept["causal.links"])
+
+
+def _links(spec: Spec) -> list[Link]:
     out: dict[tuple[str, str], Link] = {}
 
     def add(src: str, dst: str, sign: int | None, kind: str) -> None:
@@ -173,7 +187,15 @@ def links(spec: Spec) -> list[Link]:
 
 def loops(spec: Spec, longest: int = 30, most: int = 300) -> list[CausalLoop]:
     """The simple cycles among the links (each found once), named and signed; at most ``most``,
-    none longer than ``longest`` parts."""
+    none longer than ``longest`` parts. Worked out once per model; each caller is given its own."""
+    kept = spec.lookups().kept
+    key = ("causal.loops", longest, most)
+    if key not in kept:
+        kept[key] = _loops(spec, longest, most)
+    return [CausalLoop(c.name, c.polarity, list(c.parts), list(c.links), list(c.goals)) for c in kept[key]]
+
+
+def _loops(spec: Spec, longest: int, most: int) -> list[CausalLoop]:
     ls = links(spec)
     nxt: dict[str, list[Link]] = {}
     for x in ls:

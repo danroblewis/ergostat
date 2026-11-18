@@ -299,6 +299,9 @@ def api(live: Live, path: str, q: dict):
     if path.strip("/") == "graph" and isinstance(got, dict):
         from ..correspond import table
         got["corr"] = table(got, live.get().model)
+        if q.get("have"):                             # a page polling: only the values, when it holds this structure
+            from .graph_poll import answer
+            return answer(got, q["have"][0])
     return got
 
 
