@@ -457,22 +457,25 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                                  cf.where, fix="; ".join(x.said() for x in cf.fixes if x.source == a or x.op == "retarget"
                                                          or x.target == b) or "; ".join(x.said() for x in cf.fixes),
                                  links=link(cf.code, cf.about)))
+        unseen, unexercised = [], []
         for f in ch.flows:
             if f.name in seen_flows:
                 sc.add("process-dynamics", True)
-                continue
-            q = quiet.get(f"flow.{f.name}")
-            if q is not None:
-                found.append(Finding("process-dynamics", "flow-not-seen", k, f"flow.{f.name}",
-                                     f"flow {f.name}: no item of {k} moved along it in the window, and the record has not "
-                                     f"exercised it ({q.get('says', 'it never moved')}): kept, as declared", f.where,
-                                     links=link("not-exercised", f"flow.{f.name}"), level="note"))
+            elif f"flow.{f.name}" in quiet:
+                unexercised.append(f.name)
             else:
-                found.append(Finding("process-dynamics", "flow-not-seen", k, f"flow.{f.name}",
-                                     f"flow {f.name}: no item of {k} moved along it in the window "
-                                     f"({_ends(f)}). Quiet is not absent: an exception (a retry, a dead letter) may not "
-                                     f"have happened yet; if it never does, the model has a path the work does not take",
-                                     f.where, level="note"))
+                unseen.append(f.name)
+        if unseen or unexercised:
+            names = unseen + unexercised
+            found.append(Finding("process-dynamics", "flow-not-seen", k, f"items.{k}",
+                                 f"items {k}: no item moved along {'this flow' if len(names) == 1 else 'these flows'} in the "
+                                 f"window: {', '.join(names)}"
+                                 + (f" ({', '.join(unexercised)}: not exercised by the record)" if unexercised else "")
+                                 + ". Quiet is not absent: a path taken rarely (a retry, a dead letter, a step later than "
+                                 "the window reaches) may not have been taken yet; if one never is, the model has a path "
+                                 "the work does not take", spec.items[k].where,
+                                 links=[x for f in unexercised for x in link("not-exercised", f"flow.{f}")], level="note"))
+            kinds_info[k]["unseen"] = names
         # ---- Blocks ↔ Process (who moved them, against who the model says does)
         acted: dict[str, Counter] = {}
         undeclared: dict[str, list] = {}
@@ -534,6 +537,7 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                                  fix=(f"if {blocks[0]} does this work, record its events from its runs (an event line, or "
                                       f"$ERGOSTAT_CMD event --add during the run); if it is done outside ergostat, say so: "
                                       f"an external block (type: external, out: flow.{f0}) in place of {blocks[0]}'s out:")))
+        idle: list[str] = []
         for bl in spec.blocks.values():
             t = bl.takes if bl.takes and bl.takes.kind == k else None
             outs = [r.name for r in bl.targets() if r.kind == "flow" and r.name in {f.name for f in ch.flows}]
@@ -547,11 +551,7 @@ def compare(spec, events, since: float | None = None, until: float | None = None
             work = sum(n for (p, s), n in wm.items() if t and s in t.at) if t else 0
             moved = [f for f in outs if f in seen_flows]
             if not work and not moved:
-                found.append(Finding("blocks-process", "not-seen-acting", k, f"block.{bl.name}",
-                                     f"block {bl.name}: no run of it moved items of {k} in the window, and there was no "
-                                     f"work for it (" + (f"no item reached {', '.join(t.at)}" if t else
-                                                         f"{', '.join(outs)} did not move") + ")",
-                                     bl.where, level="note"))
+                idle.append(bl.name)
                 continue
             others = Counter()
             for (p, s), who in by[k].items():
@@ -575,6 +575,12 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                                  fix="if it runs, its events are not recorded as its own (an event line from its run, or "
                                      "$ERGOSTAT_CMD event --add during the run, so causedby names it); if something else "
                                      "does the work, the model should say so (that block's out:, or an external block)"))
+        if idle:
+            found.append(Finding("blocks-process", "not-seen-acting", k, f"items.{k}",
+                                 f"items {k}: no work reached {'this block' if len(idle) == 1 else 'these blocks'} in the "
+                                 f"window (no item came to the states they take, nor moved along their flows), so none "
+                                 f"was seen acting: {', '.join(idle)}", spec.items[k].where, level="note"))
+            kinds_info[k]["idle"] = idle
     out_kinds = {}
     for k, info in kinds_info.items():
         a, c = scores[k].total()

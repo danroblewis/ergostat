@@ -6,7 +6,8 @@
 For each request below: a scratch copy of examples/the-job with the ergostat-author skill in .claude/skills/ and
 ergostat's MCP server, and Claude Code (``claude -p``, the model asked) given the request text alone (the harness
 says only that the owner is away and approves writing it to the copy). Then, independently of what the agent said:
-did the model check, was an instance written, and does it run (a 30-second trial of each new system). Per request:
+did the model check, was an instance written, and does it run (a 30-second trial of each new system), and, once the
+copy has run on its stand-ins for 40 seconds, do the three views of the kinds it added agree (coherence.py). Per request:
 whether its first add_use passed check and its first try_use ran without a failure, the turns, the cost, and the
 trial's verdict. Writes ROUND/results.json and prints a table.
 
@@ -211,6 +212,41 @@ def shape(copy: Path) -> dict:
         return {"error": (got.stderr or got.stdout)[-600:]}
 
 
+COHERENT = r"""
+import json, sys
+from pathlib import Path
+from ergostat import coherence as co, model as mdl
+from ergostat.spec import read
+from ergostat.store import Project
+base, _ = read(Path(sys.argv[2]) / "ergostat.yaml")
+p = Project(mdl.load(Path(sys.argv[1])))
+got = co.of_project(p, p.model.spec)
+mine = {k: x for k, x in got["kinds"].items() if k not in base.items and not k.startswith("ergostat.")}
+print(json.dumps({"scores": [co.score_line(k, x) for k, x in mine.items()],
+                  "agree": sum(x["agree"] for x in mine.values()), "compared": sum(x["compared"] for x in mine.values()),
+                  "mismatches": [f["id"] for f in got["findings"] if f["level"] == "mismatch" and f["kind"] in mine]}))
+"""
+
+
+def coherent(copy: Path, seconds: float = 40) -> dict:
+    """The coherence of the kinds the agent added (coherence.py), after the copy has run on its stand-ins for a while."""
+    py = str(ROOT / ".venv" / "bin" / "python")
+    env = {**os.environ, "ERGOSTAT_HOME": str(copy.parent / "grade-home")}
+    base = copy.parent / "base" if (copy.parent / "base").exists() else ROOT / "examples" / "the-job"
+    if subprocess.run([py, "-m", "ergostat", "-C", str(copy), "run", "--no-web"], capture_output=True, env=env,
+                      timeout=120).returncode != 0:
+        return {"error": "it does not run"}
+    try:
+        time.sleep(seconds)
+    finally:
+        subprocess.run([py, "-m", "ergostat", "-C", str(copy), "run", "--stop"], capture_output=True, env=env, timeout=120)
+    got = subprocess.run([py, "-c", COHERENT, str(copy), str(base)], capture_output=True, text=True, env=env, timeout=300)
+    try:
+        return json.loads(got.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return {"error": (got.stderr or got.stdout)[-600:]}
+
+
 def run_one(base: Path, n: int, model: str, timeout: float, skill_md: Path | None = None, diagrams: bool = False,
             r: int = 0, port: int = 8791, empty: bool = False) -> dict:
     key, text = REQUESTS[n - 1]
@@ -257,6 +293,9 @@ def run_one(base: Path, n: int, model: str, timeout: float, skill_md: Path | Non
     looked = any(t == "Read" and str(i.get("file_path", "")).endswith(".png") for t, i, _ in cs)
     return {"n": n, "r": r, "request": key, "shape": shape(copy), "looked_at_diagrams": looked,
             "where_drawn": any(t == "mcp__ergostat__where_drawn" for t, _, _ in cs),
+            "coherence_called": any(t == "mcp__ergostat__coherence" or (t == "Bash" and "check" in json.dumps(i))
+                                    for t, i, _ in cs),
+            "coherence": coherent(copy) if graded["check_ok"] else {"error": "check fails"},
             "seconds": round(time.time() - began), "turns": result.get("num_turns"),
             "cost_usd": result.get("total_cost_usd"), "stopped": result.get("subtype"), "skill_used": skill_used,
             "tools": [t.replace("mcp__ergostat__", "") for t, _, _ in cs],
@@ -311,7 +350,7 @@ def main() -> int:
 
 def print_shapes(got: list[dict]) -> None:
     print(f"\n{'#':<3}{'run':<5}{'request':<10}{'stocks':<8}{'groups':<8}{'no inflow':<11}{'loops':<7}{'loop groups':<13}"
-          f"{'connected':<11}{'closed':<8}{'chain findings':<16}{'where_drawn':<13}{'looked'}")
+          f"{'connected':<11}{'closed':<8}{'chain findings':<16}{'where_drawn':<13}{'looked':<8}{'coherence'}")
     for r in got:
         s = r.get("shape") or {}
         if s.get("error"):
@@ -321,7 +360,15 @@ def print_shapes(got: list[dict]) -> None:
               f"{len(s.get('no_inflow') or []):<11}{s.get('loops', 0):<7}{s.get('loop_groups', 0):<13}"
               f"{s.get('loops_connected', 0):<11}{s.get('loops_closed', 0):<8}"
               f"{len(s.get('chain_findings') or []):<16}{str(r.get('where_drawn')):<13}"
-              f"{r.get('looked_at_diagrams')}")
+              f"{str(r.get('looked_at_diagrams')):<8}{_coh(r.get('coherence'))}")
+
+
+def _coh(c: dict | None) -> str:
+    if not c:
+        return "-"
+    if c.get("error"):
+        return c["error"][:40]
+    return f"{c['agree']}/{c['compared']}" + (f" {len(c['mismatches'])} mismatched" if c["mismatches"] else "")
 
 
 if __name__ == "__main__":
