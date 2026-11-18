@@ -48,21 +48,6 @@ claims:
     description: squeeze's own tests, as lab.py submit runs them
 
 auxiliaries:
-  stalled-runs:                       # the watchdog, drawn: runs silent past their lease's TTL (SPEC §9.5)
-    unit: runs
-    description: developer runs whose lease expired over the last day, silent past its TTL; each hypothesis went back to
-      be taken again (or, after three attempts, to the dead letters)
-    driven-by: +stock.building               # (the more being built, the more runs there are to go silent)
-    sensor:
-      builtin: ergostat.leases.expired@developer
-      every: 30s
-  dead-letters:
-    unit: hypotheses
-    description: hypotheses given up on after three attempts; each needs attention (ergostat lease ITEM --redrive)
-    driven-by: +auxiliary.stalled-runs       # (an attempt that went silent counts toward it; one given back does too)
-    sensor:
-      builtin: ergostat.leases.dead@hypothesis
-      every: 30s
   developer-contradicted:
     unit: share
     description: of the developer's claims ergostat checked over the last week, the share the record contradicted (its
@@ -185,15 +170,6 @@ goals:
     hold: "<= 0.1"
     description: "what the developer says it did holds: at most one claim in ten contradicted. Nothing here acts on it
       (nothing makes an agent truthful); it is watched, and a contradicted claim needs attention"
-  no-stalls:
-    auxiliary: stalled-runs
-    hold: "<= 0"
-    description: no developer run goes silent past its lease. Nothing here commands it; ergostat's watchdog takes the
-      lease back and the hypothesis is taken again, and an expiry needs attention
-  no-dead-letters:
-    auxiliary: dead-letters
-    hold: "<= 0"
-    description: every idea is built or dropped; one given up on after its attempts waits for the owner
   one-running:
     stock: experiments
     hold: ">= 1"
