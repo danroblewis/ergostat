@@ -1,5 +1,5 @@
-"""Acceptance: the Items page groups its kinds by system. Each system folds away, and a folded system's charts
-and items are neither drawn nor asked for; the folding is remembered across a reload. The kinds' charts sit
+"""Acceptance: the Items page groups its kinds by system. Each system folds away: a folded system keeps its
+charts, and its lists of items are neither drawn nor asked for; the folding is remembered across a reload. The kinds' charts sit
 side by side, three across at 1500 px and two at 900, each following its card's width.
 
 It needs Playwright and a Chromium, so the usual run skips it:
@@ -134,7 +134,7 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg.close()
 
 
-def test_a_folded_system_is_neither_drawn_nor_asked_for_and_stays_folded(browser, site):
+def test_a_folded_system_keeps_its_charts_not_its_lists_and_stays_folded(browser, site):
     ctx = browser.new_context(viewport={"width": 1500, "height": 1000})
     pg = ctx.new_page()
     asked: list[str] = []
@@ -148,24 +148,24 @@ def test_a_folded_system_is_neither_drawn_nor_asked_for_and_stays_folded(browser
     assert button.get_attribute("aria-expanded") == "true"
     button.click()
     pg.wait_for_selector(f'{lab} .sys-head button[aria-expanded="false"]')
-    assert pg.locator(f"{lab} .kind-flow").count() == 0 and pg.locator(f"{lab} table").count() == 0
+    assert pg.locator(f"{lab} table").count() == 0                                # its lists go
+    pg.wait_for_selector(f"{lab} .kind-flow .uplot")                               # its charts stay
     assert pg.locator('section.sys-group[data-system="benchmark"] .kind-flow').count() == 1    # the others stay
     asked.clear()
     pg.wait_for_timeout(1500)                                                      # a few refreshes, sped up
     lists = [u for u in asked if "/api/items?" in u]
     assert lists and all("hide=lab" in u for u in lists), lists                     # the lab's items not sent
-    assert not [u for u in asked if "items-flow" in u and any(f"kind={k}" in u for k in ("hypothesis", "session"))], asked
     stored = pg.evaluate("Object.entries(localStorage).filter(([k]) => k.startsWith('ergostat.items.folded.'))")
     assert stored == [["ergostat.items.folded.image-squeeze", '["lab"]']], stored
 
     pg.reload()                                                                    # remembered
     pg.wait_for_selector('section.sys-group[data-system="benchmark"] .kind-flow')
     assert pg.locator(f"{lab} .sys-head button").get_attribute("aria-expanded") == "false"
-    assert pg.locator(f"{lab} .kind-flow").count() == 0
+    assert pg.locator(f"{lab} table").count() == 0 and pg.locator(f"{lab} .kind-flow").count() >= 1
 
     pg.locator(f"{lab} .sys-head button").click()                                  # and shown again
-    pg.wait_for_selector(f"{lab} .kind-flow .uplot")
-    assert pg.locator(f"{lab} table").count() >= 1
+    pg.wait_for_selector(f"{lab} table")                                           # its lists come back
+    assert pg.locator(f"{lab} .kind-flow .uplot").count() >= 1
     assert pg.evaluate("localStorage.getItem('ergostat.items.folded.image-squeeze')") is None
     ctx.close()
 

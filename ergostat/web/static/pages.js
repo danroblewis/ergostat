@@ -459,7 +459,7 @@ function actionView(d, refresh) {
 function stateWord(st) { return st ? h("span", {}, st) : h("span", { class: "muted" }, "–"); }
 
 /* the Items page: the kinds grouped by the system each is in (the server decides: item_systems.py), each
-   system a group that folds away; a folded system's charts and items are neither drawn nor asked for.
+   system a group that folds away; a folded system keeps its charts, and its lists of items are neither drawn nor asked for.
    Which are folded is remembered per project */
 const foldedKey = () => `ergostat.items.folded.${S.status?.name || ""}`;
 function foldedSystems() { try { return new Set(JSON.parse(localStorage.getItem(foldedKey()) || "[]")); } catch (e) { return new Set(); } }
@@ -555,7 +555,7 @@ async function pageItems(main, q) {
     // each open kind: its states stacked over the window (a cumulative flow diagram), each named with its count,
     // a click on one shows its items; a kind without states, one line of its count. A flow over the window
     // hardly moves in seconds: each asked for every 30s, not on every refresh of the list, and only while shown
-    const shownKinds = systems.filter((g) => isOpen(g.name)).flatMap((g) => g.kinds.map((n) => kindOf[n]).filter(Boolean));
+    const shownKinds = systems.flatMap((g) => g.kinds.map((n) => kindOf[n]).filter(Boolean));   // folded or not: the charts stay
     const due = shownKinds.filter((k) => k.states.length && !(Date.now() - (flowsAt[k.name] || 0) < 30000));
     await Promise.all(due.map(async (k) => {
       flowsAt[k.name] = Date.now();
@@ -630,15 +630,15 @@ async function pageItems(main, q) {
       const n = g.kinds.reduce((a, k) => a + Object.values(kindOf[k]?.counts || {}).reduce((x, y) => x + y, 0), 0) + (names.includes("") ? d.unkinded : 0);
       const open = isOpen(g.name);
       const head = h("h2", { class: "sys-head" },
-        h("button", { class: "ghost disclose", "aria-expanded": String(!!open), title: open ? "Fold this system away" : "Show this system",
+        h("button", { class: "ghost disclose", "aria-expanded": String(!!open), title: open ? "Fold away this system's lists of items" : "Show this system's lists of items",
                       onclick: () => toggle(g.name) }, h("span", { class: "tri", "aria-hidden": "true" }, open ? "▾" : "▸"), g.name),
         h("span", { class: "muted" }, ` ${n} item${n === 1 ? "" : "s"}, ${g.kinds.length} kind${g.kinds.length === 1 ? "" : "s"}`),
         g.description ? h("span", { class: "muted sys-desc" }, g.description) : null);
-      if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name, key: g.name }, head)); continue; }
+      const charts = h("div", { class: "kind-flows" }, g.kinds.filter((k) => !d.set || k === kind).map((k) => kindOf[k]).filter(Boolean).map(card));
+      if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name, key: g.name }, head, charts)); continue; }   // the charts, not the lists
       const t = await tables(names);
       anyRows ||= t.length > 0;
-      groups.push(h("section", { class: "sys-group", "data-system": g.name, key: g.name }, head,
-        h("div", { class: "kind-flows" }, g.kinds.filter((k) => !d.set || k === kind).map((k) => kindOf[k]).filter(Boolean).map(card)), ...t));
+      groups.push(h("section", { class: "sys-group", "data-system": g.name, key: g.name }, head, charts, ...t));
     }
     if (!p.isConnected) return;
     for (const key of Object.keys(drawn)) if (!used.has(key)) delete drawn[key];   // a folded kind's charts let go
