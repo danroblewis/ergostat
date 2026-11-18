@@ -140,16 +140,43 @@ def fmt(x) -> str:
 notes: list[str] = []
 
 
+def pair(demo: Path) -> tuple[Path, Path | None, list[str]]:
+    """A demo of two ergostats (``pair.json``: a remote system and the local model that reads it, SPEC §4c): the remote
+    started on its port with a token made for the local one, which is then checked as the demo. (the local demo, the
+    remote to stop after, its port flag)."""
+    spec = json.loads((demo / "pair.json").read_text())
+    remote, local = demo / spec["remote"], demo / spec["local"]
+    r = sh("-C", str(remote), "run", "--port", str(spec["remote_port"]))
+    if r.returncode != 0:
+        raise RuntimeError(f"the remote did not start: {r.stderr}")
+    tok = sh("-C", str(remote), "remote", "token", spec["local"])
+    (local / spec["token_file"]).write_text(tok.stdout.strip())
+    url = json.loads(sh("-C", str(remote), "--json").stdout)["web"]
+    y = local / "ergostat.yaml"                                      # wherever the remote's page came up
+    y.write_text(y.read_text().replace(f"http://127.0.0.1:{spec['remote_port']}", url))
+    return local, remote, ["--port", str(spec["local_port"])]
+
+
 def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
     os.environ.update(OFFLINE.get(demo.name, {}))
     demo = fresh_copy(demo)
     problems = []
     notes.clear()
+    remote, port = None, []
+    if (demo / "pair.json").exists():
+        try:
+            demo, remote, port = pair(demo)
+        except RuntimeError as e:
+            return [str(e)]
     c = sh("-C", str(demo), "check")
     if c.returncode != 0:
+        if remote:
+            sh("-C", str(remote), "run", "--stop")
         return [f"check failed: {c.stdout}{c.stderr}"]
-    r = sh("-C", str(demo), "run")
+    r = sh("-C", str(demo), "run", *port)
     if r.returncode != 0:
+        if remote:
+            sh("-C", str(remote), "run", "--stop")
         return [f"run failed: {r.stderr}"]
     try:
         time.sleep(seconds)
@@ -191,6 +218,8 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
         problems += snapshot_errors(demo)
     finally:
         sh("-C", str(demo), "run", "--stop")
+        if remote:
+            sh("-C", str(remote), "run", "--stop")
     problems += rollup_errors(demo)
     return problems
 
@@ -233,7 +262,8 @@ def main() -> int:
     ap.add_argument("--shots", type=Path)
     a = ap.parse_args()
     os.environ.setdefault("ERGOSTAT_HOME", tempfile.mkdtemp(prefix="ergostat-demos-"))
-    names = a.demos or sorted(p.name for p in DEMOS.iterdir() if (p / "ergostat.yaml").exists() or (p / "ergostat.toml").exists())
+    names = a.demos or sorted(p.name for p in DEMOS.iterdir() if (p / "ergostat.yaml").exists() or (p / "ergostat.toml").exists()
+                              or (p / "pair.json").exists())
     if a.shots:
         a.shots.mkdir(parents=True, exist_ok=True)
     bad = 0

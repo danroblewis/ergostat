@@ -549,7 +549,13 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         return [{"level": "warn", "what": "the record", "says": "this moment is before the record starts "
                  f"({_t.strftime('%Y-%m-%d %H:%M', _t.localtime(snap['starts']))}): nothing is known then"}]
     out = []
+    from .remote import remote_parts
+    theirs = remote_parts(getattr(model, "spec", None))
     for name, lp in snap["loops"].items():
+        if f"goal.{name}" in theirs:                   # a remote's own loop: its business, said on its own page (SPEC §4c)
+            continue
+        if lp["status"] == "open" and f"stock.{lp['stock']}" in theirs:   # a goal here on a remote's stock: watched,
+            continue                                                       # acted on there (nothing here may act on it)
         if lp["status"] == "off":
             out.append({"level": "bad", "what": f"loop {name}", "says": f"{lp['stock']} is {fmt(lp['value'])}, "
                         f"setpoint {setpoint_text(lp)} (off by {fmt(abs(lp['error']))})"})

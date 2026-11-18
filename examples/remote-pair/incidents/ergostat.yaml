@@ -3,6 +3,15 @@
 # model, readings and events through its remote API, and never runs any of it.
 name: incidents
 
+items:
+  incident:
+    id: incident/*
+    states: [open, resolved]
+    on:
+      incident.opened: open
+      incident.resolved: resolved
+    system: response
+
 systems:
   triage:
     description: incidents arriving and waiting
@@ -43,12 +52,18 @@ blocks:
     type: program
     system: triage
     every: 3s
-    run: mkdir -p queue; n=$(( $(date +%s) % 4 )); i=0; while [ $i -lt $n ]; do mktemp queue/inc.XXXXXX > /dev/null; i=$((i+1)); done; echo $n
+    run: >-
+      mkdir -p queue; n=$(( $(date +%s) % 4 )); i=0;
+      while [ $i -lt $n ]; do f=$(mktemp queue/inc.XXXXXX); echo "{\"event\": \"incident.opened\", \"item\": \"incident/${f#queue/}\"}"; i=$((i+1)); done;
+      echo "{\"moved\": $n}"
     out: flow.opened
   responder:                     # works the queue down while few-open is off, two at a time
     type: program
     system: response
     goal: few-open
     until: "<= 4"
-    run: ls queue | head -2 > .batch; (cd queue && xargs rm -f < ../.batch); wc -l < .batch
+    run: >-
+      ls queue | head -2 > .batch;
+      for f in $(cat .batch); do rm -f "queue/$f"; echo "{\"event\": \"incident.resolved\", \"item\": \"incident/$f\"}"; done;
+      echo "{\"moved\": $(wc -l < .batch | tr -d ' ')}"
     out: flow.resolved
