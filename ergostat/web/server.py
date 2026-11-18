@@ -21,6 +21,7 @@ from .. import graph, history, series
 from .. import model as mdl
 from .. import state as st
 from ..series import off_stretches
+from ..spec.item_sets import BadSet
 
 STATIC = Path(__file__).parent / "static"
 GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)    # the client went away mid-answer
@@ -242,6 +243,30 @@ def inferred_of(spec, kind: str, name: str | None) -> dict | None:
     return {"from": v if "/" in v else None}
 
 
+def _items_of(p, m, kind: str, name: str, snap: dict) -> dict | None:
+    """A part's items, for its side panel (``item_sets.of_part``): a stock's now, a flow's in the window. A sensor's
+    are its part's."""
+    from ..spec import item_sets
+    spec = getattr(m, "spec", None)
+    if spec is None:
+        return None
+    if kind == "sensor":
+        s = next((x for x in spec.sensors() if f"{x.of.name}.{x.name}" == name), None)
+        if s is None:
+            return None
+        kind, name = s.of.kind, s.of.name
+    elif kind == "stock" and name in spec.auxiliaries:
+        kind = "auxiliary"
+    elif kind == "disturbance":
+        kind = "flow"
+    got = item_sets.of_part(spec, kind, name, snap["at"] - snap["window"], snap["at"], m)
+    got["of"] = {"kind": kind, "name": name}
+    if "events" in got:
+        got["events"] = {**got["events"], **item_sets.events_items(p.events, got["events"],
+                                                                   snap["at"] - snap["window"], snap["at"])}
+    return got
+
+
 def api(live: Live, path: str, q: dict):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
     shape is, and which shapes stand for each part, so one selection is lit in every view."""
@@ -390,8 +415,18 @@ def _answer(live: Live, path: str, q: dict):
         if name:
             return its.detail(p.events, spec, name, until=snap["at"],
                               history=None if one("history") == "all" else its.HISTORY_SHOWN)
-        got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"],
-                          n=max(1, min(int(one("n") or its.LISTED), its.LISTED)), offset=int(one("offset") or 0))
+        from ..spec import item_sets
+        n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
+        want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or item_sets.asked(q)) else None
+        if want is not None and item_sets.asked(q):       # a set the plain listing does not serve (SPEC §5a, which items)
+            got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
+            if one("alone"):                              # the side panel's list: the set, and nothing of the page
+                return _as_listed({**got, "kinds": []}, None, 0, bool(one("shown")))
+            page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
+            return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
+        got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
+        if want is not None:
+            got["set"] = {"says": want.says(), "params": want.params()}
         return _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
     if head == "series":                          # behaviour over time: each part's values, bucketed over the window
         refs = [r for r in (one("refs") or "").split(",") if r]
@@ -493,6 +528,8 @@ def _answer(live: Live, path: str, q: dict):
         elif kind == "controller":
             out["now"] = {"loop": snap["loops"].get(pname),
                           "decisions": p.events.query(n=20, type="controller.decided", item=pname)}
+        if kind in ("stock", "flow", "disturbance", "sensor"):   # what goes through it: its items (SPEC §5a, which items)
+            out["items"] = _items_of(p, m, kind, pname, snap)
         agent = getattr(x, "agent", None)
         if agent and agent in m.agents:
             out["agent"] = {"name": agent, "kind": m.agents[agent].kind, "rung": m.agents[agent].rung}
@@ -600,6 +637,8 @@ def handler(project):
             if u.path.startswith("/api/"):
                 try:
                     data = api(live, u.path.removeprefix("/api/"), parse_qs(u.query))
+                except BadSet as e:                     # an Items filter that is not one: said, as the asker's
+                    return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
                 except Exception as e:                  # a broken request never takes the page down
                     return self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode(), "application/json")
                 if data is None:
