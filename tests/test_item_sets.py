@@ -164,5 +164,7 @@ def test_the_side_panel_list_and_its_link_are_the_same_set(p):
         page = api(live, "items", {**q, "shown": ["1"], "per_kind": ["300"]})
         assert panel["total"] == page["total"] == n, name
         assert [i["id"] for i in panel["items"]] == [i["id"] for i in page["items"]][:10]
+        assert panel["kinds"] == [] and all(set(i["fields"]) <= {"title", "area", "lease"} for i in panel["items"])
+        assert all("title" in i["fields"] for i in panel["items"])                   # the kind's columns kept
     flow = api(live, "part/flow/requests", {"since": ["1h"]})
     assert "names no items" in flow["items"]["none"]

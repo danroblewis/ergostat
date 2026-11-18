@@ -445,14 +445,27 @@ function rememberFolded(set) {
   catch (e) { /* not remembered */ }
 }
 
+/* a set's span of moves, in the reader's time: ", 10:00 to 11:00" (its address says it in UTC, or in seconds) */
+function setSpan(params) {
+  const t = (x) => (x == null ? null : isNaN(+x) ? Date.parse(x) / 1000 : +x);
+  const a = t(params?.moved_since?.[0]), b = t(params?.moved_until?.[0]);
+  return a != null && b != null ? `, ${when(a)} to ${when(b)}` : "";
+}
+
 async function pageItems(main, q) {
   const p = page(main, "Items");
   const notes = h("div"), box = h("div", { class: "item-systems" });
   const search = h("input", { type: "search", placeholder: "Search ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const more = h("p", { class: "note" });
   let kind = q.get("kind"), state = q.get("state");
+  // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip
+  let where = q.getAll("where"), moved = q.get("moved"), movedSince = q.get("moved_since"), movedUntil = q.get("moved_until");
+  const setParams = () => ({ ...(where.length ? { where } : {}), ...(moved ? { moved } : {}),
+                             ...(moved && movedSince ? { moved_since: movedSince } : {}), ...(moved && movedUntil ? { moved_until: movedUntil } : {}) });
+  const dropSet = () => { where = []; moved = movedSince = movedUntil = null; };
+  const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
-  p.append(notes, h("div", { class: "filters" }, search), compose, box, more);
+  p.append(notes, h("div", { class: "filters" }, search, chip), compose, box, more);
   const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
   let used = new Set();
   const flows = {}, flowsAt = {};                     // each kind's flow over the window, and when it was asked for
@@ -470,14 +483,16 @@ async function pageItems(main, q) {
     busy = (async () => { do { again = false; await tick(); } while (again && p.isConnected); })();
     try { await busy; } finally { busy = null; }
   }
-  const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state); if (search.value) u.set("q", search.value);
+  const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state);
+                     for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
+                     if (search.value) u.set("q", search.value);
                      replaceRoute("/items" + (u.toString() ? "?" + u : "")); refresh(); };
   search.addEventListener("input", () => go());
   let sysOf = {};                                      // each kind's system, as last listed
   const toggle = (sys) => {                            // a chosen kind's system is open: folding it lets the kind go
     const folded = foldedSystems(), chosen = kind && sysOf[kind] === sys;
     if (folded.has(sys) && !chosen) folded.delete(sys);
-    else { folded.add(sys); if (chosen) kind = state = null; }
+    else { folded.add(sys); if (chosen) { kind = state = null; dropSet(); } }
     rememberFolded(folded);
     go();
   };
@@ -488,9 +503,19 @@ async function pageItems(main, q) {
     // (a snapshot holds the whole list: filtered here)
     const needle = search.value.trim().toLowerCase();
     const folded = foldedSystems();
-    const d = await api("items", { ...(kind ? { kind } : {}), ...(state ? { state } : {}),
+    let d;
+    try {
+      d = await api("items", { ...(kind ? { kind, ...setParams() } : {}), ...(state ? { state } : {}),
                                    ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}),
                                                      ...(folded.size && !kind ? { hide: [...folded].join(",") } : {}) }) });
+    } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
+      chip.replaceChildren(h("span", { class: "set-chip bad" }, String(err.message || err), " ",
+        h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7")));
+      return;
+    }
+    chip.replaceChildren(...(d.set ? [h("span", { class: "set-chip", title: "The items shown are this set: the address is shareable" },
+      d.set.says + setSpan(d.set.params), h("b", { class: "n" }, d.moves != null ? ` ${d.total} item${d.total === 1 ? "" : "s"}, ${d.moves} move${d.moves === 1 ? "" : "s"}` : ` ${d.total}`),
+      h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7"))] : []));
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const isOpen = (sys) => !folded.has(sys) || (kind && sysOf[kind] === sys);    // a chosen kind's system is open
     const systems = d.systems || [{ name: "", kinds: d.kinds.map((k) => k.name) }];
@@ -507,9 +532,9 @@ async function pageItems(main, q) {
     }));
     if (!p.isConnected) return;
     used = new Set();
-    const pick = (k, st) => { [kind, state] = kind === k.name && state === st ? [null, null] : [k.name, st]; go(); };
+    const pick = (k, st) => { [kind, state] = kind === k.name && state === st ? [null, null] : [k.name, st]; dropSet(); go(); };
     const card = (k) => {
-      const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; go(); } },
+      const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; dropSet(); go(); } },
         k.name, h("span", { class: "mono" }, k.id));
       const fl = flows[k.name];
       if (!fl) return h("div", { class: "kind-flow" }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
@@ -528,13 +553,16 @@ async function pageItems(main, q) {
     const tableOf = (its, show, limit) => {
       const nums = new Set(show.filter((f) => isNum(its, f)));
       const leased = its.some((i) => i.fields.lease && typeof i.fields.lease === "object");   // leases on them (SPEC §9.5)
+      const movedCol = its.some((i) => i.moved_at);       // a set of moves: when each moved, in its span
       show = show.filter((f) => f !== "lease");
       return table(["item", "state", ...show.map((f) => (nums.has(f) ? [f, "num"] : f)),
-        ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
+        ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
         its.slice(0, limit).map((i) => h("tr", { class: "click", ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
           h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),
           show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldView(i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
           ...(leased ? leaseCells(i.fields.lease, i.state) : []),
+          ...(movedCol ? [h("td", { class: "num nowrap", title: (i.moved_at || []).map(when).join("\n") },
+                              (i.moved_at || []).length ? when(i.moved_at[i.moved_at.length - 1]) + (i.moved_at.length > 1 ? ` (${i.moved_at.length}\u00d7)` : "") : "")] : []),
           h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
           h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items");
     };
@@ -553,13 +581,15 @@ async function pageItems(main, q) {
         }
         const fl = flows[name];                            // under its table: how long its finished items took
         if (fl) parts.push(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group)));
-        if (many > limit) parts.push(h("p", { class: "note" }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `All ${many}`)));
+        if (many > limit && !d.set?.params?.where && !d.set?.params?.moved)
+          parts.push(h("p", { class: "note" }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `All ${many}`)));
       }
       return parts;
     };
     const groups = [];
     let anyRows = false;
     for (const g of systems) {
+      if (d.set && !g.kinds.includes(kind)) continue;     // a set: the page is about its kind alone, until its chip goes
       const names = [...g.kinds, ...(g.name === "other" && d.unkinded ? [""] : [])];
       const n = g.kinds.reduce((a, k) => a + Object.values(kindOf[k]?.counts || {}).reduce((x, y) => x + y, 0), 0) + (names.includes("") ? d.unkinded : 0);
       const open = isOpen(g.name);
@@ -572,7 +602,7 @@ async function pageItems(main, q) {
       const t = await tables(names);
       anyRows ||= t.length > 0;
       groups.push(h("section", { class: "sys-group", "data-system": g.name }, head,
-        h("div", { class: "kind-flows" }, g.kinds.map((k) => kindOf[k]).filter(Boolean).map(card)), ...t));
+        h("div", { class: "kind-flows" }, g.kinds.filter((k) => !d.set || k === kind).map((k) => kindOf[k]).filter(Boolean).map(card)), ...t));
     }
     if (!p.isConnected) return;
     for (const key of Object.keys(drawn)) if (!used.has(key)) delete drawn[key];   // a folded kind's charts let go

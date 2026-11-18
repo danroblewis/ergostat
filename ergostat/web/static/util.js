@@ -151,7 +151,8 @@ async function api(path, params = {}) {
     if (!(k in SNAP.data)) throw new Error(`${path}: not in this snapshot`);
     return JSON.parse(JSON.stringify(SNAP.data[k]));
   }
-  const q = new URLSearchParams({ since: S.since, ...(S.at ? { at: String(S.at) } : {}), ...params });
+  const q = new URLSearchParams({ since: S.since, ...(S.at ? { at: String(S.at) } : {}) });
+  for (const [k, v] of Object.entries(params)) { q.delete(k); for (const x of [].concat(v)) q.append(k, x); }   // a list: the key repeated
   const r = await fetch(`/api/${path}?${q}`);
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return r.json();

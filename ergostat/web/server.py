@@ -417,11 +417,13 @@ def _answer(live: Live, path: str, q: dict):
                               history=None if one("history") == "all" else its.HISTORY_SHOWN)
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
-        want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or item_sets.asked(q)) else None
-        if want is not None and item_sets.asked(q):       # a set the plain listing does not serve (SPEC §5a, which items)
+        want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or one("alone") or item_sets.asked(q)) else None
+        if want is not None and (item_sets.asked(q) or one("alone")):   # a set the listing does not serve (SPEC §5a)
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
             if one("alone"):                              # the side panel's list: the set, and nothing of the page
-                return _as_listed({**got, "kinds": []}, None, 0, bool(one("shown")))
+                k = spec.items[want.kind]
+                return {**_as_listed({**got, "kinds": [{"name": k.name, "show": k.show}]}, None, 0, bool(one("shown"))),
+                        "kinds": []}
             page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
             return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
         got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)

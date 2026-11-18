@@ -84,6 +84,7 @@ async function openNode(n) {
   const shown = n.kind === "auxiliary" ? "auxiliary" : kind;
   if (n.kind === "auxiliary") for (let i = rows.length - 1; i >= 0; i--) if (rows[i][0] === "in" || rows[i][0] === "out") rows.splice(i, 1);
   const kids = [h("div", { class: "kind" }, shown), h("h2", {}, name), whatIs(shown), dl(rows), findingsNote(d)].filter(Boolean);
+  const its = itemsSection(d.items);                    // what goes through it (itemsets.js)
   if (kind === "stock" && now.points?.length > 1) kids.push(sparkSvg(now.points, 380, 70));
   if (kind === "sensor" && now.readings?.length > 1) kids.push(sparkSvg(now.readings, 380, 70));
   if (kind === "sensor" && rd.length) {
@@ -103,6 +104,7 @@ async function openNode(n) {
       h("td", { class: "nowrap" }, new Date(r.time * 1000).toLocaleTimeString([], { hour12: false })),
       h("td", { class: "num" }, fmt(r.amount)), h("td", { class: "muted" }, [r.n > 1 ? `in ${r.n} openings` : "", r.source, r.note].filter(Boolean).join(", "))))));
   }
+  if (its) kids.push(its);
   kids.push(h("p", {}, h("a", { href: `/diagram?around=${kind}/${encodeURIComponent(name)}` }, "Draw what is around it")));
   showDetail(...kids);
 }

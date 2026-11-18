@@ -54,10 +54,10 @@ class ItemSet:
         out = []
         if self.states:
             out.append("in " + " or ".join(self.states))
-        if self.moved is not None:
+        if self.moved is not None:                    # its span is the page's to say, in the reader's own time
             a, b = self.moved
-            out.append(f"moved {' or '.join(a) or 'from elsewhere'} → {' or '.join(b) or 'elsewhere'}, "
-                       f"{clock(self.since)} to {clock(self.until)}")
+            out.append(f"moved {' or '.join(a)} → {' or '.join(b)}" if a and b else
+                       f"entering {' or '.join(b)}" if b else f"leaving {' or '.join(a)}")
         if self.where:
             out.append("where " + ", ".join(f"{f} = {' or '.join(vs)}" for f, vs in self.where.items()))
         return " ".join([self.kind, ", ".join(out)]).strip()
@@ -73,10 +73,6 @@ class ItemSet:
 
 def stamp(t: float | None) -> str:
     return datetime.fromtimestamp(t or 0, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def clock(t: float | None) -> str:
-    return datetime.fromtimestamp(t or 0, UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def when(text: str, what: str) -> float:

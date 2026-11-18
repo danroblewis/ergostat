@@ -919,6 +919,7 @@ function openBlock(n) {
   if (n.says) kids.push(h("p", { class: "what" }, rich(op(n.says))));
   if (defs.length) kids.push(h("h3", {}, fn.linear === false || fn.name ? "What it computes" : "Its function"), ...defs);
   if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, typeof v === "string" ? rich(op(v)) : v])));
+  if (["output", "sensor", "process"].includes(n.role)) kids.push(partItemsSection(n.part));   // what goes through it (itemsets.js)
   // the loop it is the process of, identified (control.js); a controller's law with that process, and its tuning
   if (n.role === "process") for (const l of n.y_of || []) kids.push(controlBox(l, "process"));
   if (n.role === "process" && !(n.y_of || []).length && !n.mimo)

@@ -574,7 +574,7 @@ async function openNodeSD(n) {
   const join = (xs) => (xs.length ? h("span", {}, xs.flatMap((x, i) => [i ? ", " : "", x])) : null);
   const kind = sdNodeKind(n);
   const rows = [];
-  let chart = null, numbers = null, found = null;
+  let chart = null, numbers = null, found = null, items = null;
   if (n.role === "desired" || n.role === "gap" || n.role === "decision") {
     rows.push(["desired level", n.goal ? `desired ${n.of} = ${n.desired ?? n.valueText}` : null],
               [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.valueText || "not known yet"}` : null],
@@ -591,7 +591,7 @@ async function openNodeSD(n) {
     if (d?.inferred) rows.push(inferredRow(d.inferred));
     const flow = n.flow || n.label;
     showDetail(h("div", { class: "kind" }, "Valve"), h("h2", {}, flow), h("p", { class: "muted" }, `the rate of ${flow}`),
-      causesStrip(`flow.${flow}`), dl(rows), findingsNote(d), equationSection(flow, d?.numbers, { said: d?.equation || n.equation }), loopsPara(loopsOf((c) => c.nodes.includes(n.id))),
+      causesStrip(`flow.${flow}`), dl(rows), findingsNote(d), itemsSection(d?.items), equationSection(flow, d?.numbers, { said: d?.equation || n.equation }), loopsPara(loopsOf((c) => c.nodes.includes(n.id))),
       h("p", {}, h("a", { href: `/diagram?view=dynamics&around=flow/${encodeURIComponent(flow)}` }, "Draw what is around it")),
       sdWhat("flow"));
     return;
@@ -606,6 +606,7 @@ async function openNodeSD(n) {
     for (const gl of n.goals || []) rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint}${gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)"}`]);
     if (n.kind === "auxiliary") numbers = equationSection(n.label, d?.numbers, { exogenous: n.exogenous });
     found = findingsNote(d);
+    items = itemsSection(d?.items);                       // what is in it (itemsets.js)
   }
   const ref = partRef(n);                                // behaviour over time first: it, and what drives it (charts.js)
   if (ref) chart = causesStrip(ref);
@@ -613,7 +614,7 @@ async function openNodeSD(n) {
   const id = n.id;
   if (n.kind === "terminal") rows.unshift(["drawn in", n.in || "the model"]);
   showDetail(h("div", { class: "kind" }, (SD_WHAT[kind] || [kind])[0]), h("h2", {}, n.label),
-    chart, dl(rows), found, numbers,
+    chart, dl(rows), found, items, numbers,
     loopsPara(loopsOf((c) => c.nodes.includes(id))),
     n.kind === "stock" || n.kind === "valve" || n.kind === "disturbance" || (n.kind === "auxiliary" && !n.role)
       ? h("p", {}, h("a", { href: `/diagram?view=dynamics&around=${n.kind === "stock" || n.kind === "auxiliary" ? "stock" : "flow"}/${encodeURIComponent(n.flow || n.label)}` }, "Draw what is around it")) : null,
