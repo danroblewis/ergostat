@@ -1,0 +1,46 @@
+# Step 4, open-pr: worked -> pr-open. Push, open the pull request, the issue to In Review (steps/open-pr.py).
+defaults:
+  system: making
+
+stocks:
+  pr-open:
+    unit: tickets
+    description: a pull request open; no review asked yet
+    sensor:
+      items: ticket
+      state: pr-open
+      every: 3s
+
+flows:
+  open-pr:
+    from: worked
+    to: pr-open
+    driven-by: [+stock.worked]
+    equation: stock.worked / open-pr-time
+    sensor:
+      items: ticket
+      entering: pr-open
+      over: 10m
+
+parameters:
+  open-pr-time:
+    value: 15s
+    estimate: true
+    description: how long pushing and opening take (approvals included)
+
+goals:
+  worked-opened:
+    stock: worked
+    hold: "<= 0"
+    description: every change has a pull request
+
+blocks:
+  open-pr:
+    type: program
+    goal: worked-opened
+    run: python3 bin/step.py open-pr
+    takes: {kind: ticket, at: worked, to: [pr-open, stopped]}
+    pool: 3
+    workspace: code
+    actions: [git-push, open-pr, jira-transition, jira-comment]
+    out: flow.open-pr

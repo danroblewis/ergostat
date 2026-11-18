@@ -19,6 +19,8 @@ from pathlib import Path
 
 DEMOS = Path(__file__).resolve().parent.parent / "examples"   # each example, run from a fresh copy
 ERGOSTAT = [sys.executable, "-m", "ergostat"]
+# What a demo that can reach real services is run with here: offline, against its fakes, never the services
+OFFLINE = {"ticket-factory": {"TF_OFFLINE": "1"}}
 
 
 def sh(*args, cwd=None) -> subprocess.CompletedProcess:
@@ -99,7 +101,7 @@ def items_as_before(url: str, spec) -> list[str]:
         for e in evs:
             if not e["type"].startswith("ergostat.lease."):    # a lease is ergostat's own field (SPEC §9.5)
                 was.update(e.get("data") or {})
-        now = {k: v for k, v in d["fields"].items() if k != "lease"}
+        now = {k: v for k, v in d["fields"].items() if not (k == "lease" and isinstance(v, dict))}   # an item's own lease
         if now != was:
             out.append(f"item {it['id']}: folds to {json.dumps(now)[:200]}, not {json.dumps(was)[:200]} as before")
     return out
@@ -124,6 +126,7 @@ notes: list[str] = []
 
 
 def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
+    os.environ.update(OFFLINE.get(demo.name, {}))
     demo = fresh_copy(demo)
     problems = []
     notes.clear()

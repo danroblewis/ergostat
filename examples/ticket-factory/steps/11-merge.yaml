@@ -1,0 +1,45 @@
+# Step 11, merge: ci-green -> merged. Merge, if the repository allows (steps/merge.py).
+defaults:
+  system: shipping
+
+stocks:
+  merged:
+    unit: tickets
+    description: merged (or stopped at approved); the issue not Done yet
+    sensor:
+      items: ticket
+      state: merged
+      every: 3s
+
+flows:
+  merge:
+    from: ci-green
+    to: merged
+    driven-by: [+stock.ci-green]
+    equation: stock.ci-green / merge-time
+    sensor:
+      items: ticket
+      entering: merged
+      over: 10m
+
+parameters:
+  merge-time:
+    value: 15s
+    estimate: true
+    description: how long merging takes (its approval included)
+
+goals:
+  green-merged:
+    stock: ci-green
+    hold: "<= 0"
+    description: every green pull request is merged
+
+blocks:
+  merge:
+    type: program
+    goal: green-merged
+    run: python3 bin/step.py merge
+    takes: {kind: ticket, at: ci-green, to: [merged, stopped]}
+    pool: 3
+    actions: [pr-merge]
+    out: flow.merge

@@ -1,0 +1,19 @@
+# The people outside the factory, played by a program (bin/teammate.py): the reviewer, who looks at each
+# pull request after TEAMMATE_AFTER, asks for one change, and approves once it is answered; and, offline
+# only, the owner, approving what waits. At work, TEAMMATE=no: the reviewers are people, and this does
+# nothing. They are drawn in the review system, beside the review step that waits for them.
+defaults:
+  system: review
+
+auxiliaries:
+  team-reviewing:
+    unit: tickets
+    description: pull requests the teammate is looking at now
+    exogenous: true
+
+blocks:
+  teammate:
+    type: program
+    run: python3 bin/teammate.py
+    every: 5s
+    out: auxiliary.team-reviewing

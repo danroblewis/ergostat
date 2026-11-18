@@ -1,6 +1,8 @@
 """An ``ai`` block's run made ready (SPEC §12k): the item it works on, its folder (a workspace from its pool for that
 item, or its ``workdir:``), what else it may read, and, when it is gated, its tools and actions, written to the file
-``$ERGOSTAT_SANDBOX`` names (``sandbox.write``) for the session it starts."""
+``$ERGOSTAT_SANDBOX`` names (``sandbox.write``) for the session it starts. A ``program`` block's run is made ready the
+same way for its ``workspace:`` and ``actions:``: the file is named by ``$ERGOSTAT_ACTIONS``, for ``ergostat act``
+(``program.py``), and its command still runs in the model's folder."""
 
 from __future__ import annotations
 
@@ -8,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import sandbox as sb
+from .program import ENV
 
 KEYS = ("workdir", "workspace", "read", "tools", "actions")
 
@@ -19,6 +22,7 @@ class Prepared:
     workspace: dict | None = None    # the workspace it took
     item: str | None = None
     lease: int | None = None         # the fencing number of the lease the run holds on its item (SPEC §9.5)
+    full: bool = False               # it did not start: its pool had no workspace free (the item waits, uncounted)
 
 
 def item_of(ctx: dict, env: dict, given: dict | None) -> tuple[str | None, int | None]:
@@ -29,8 +33,10 @@ def item_of(ctx: dict, env: dict, given: dict | None) -> tuple[str | None, int |
     return (str(item) if item else None), fence_of(env.get("ERGOSTAT_LEASE"))
 
 
-def prepare(p, spec, b, ctx: dict, run: str, env: dict, given: dict | None) -> Prepared:
-    """Raises ``PoolError`` when its pool can give it no workspace (or it names no item to take one for)."""
+def prepare(p, spec, b, ctx: dict, run: str, env: dict, given: dict | None, runner: str = "here") -> Prepared:
+    """Raises ``PoolError`` when its pool can give it no workspace (or it names no item to take one for). ``runner``:
+    who runs a program's approved actions, ``ergostat`` (an engine follows the record) or ``here`` (the asking
+    process)."""
     from ..workspaces import pool as pl
     if not any(b.params.get(k) is not None for k in KEYS):
         return Prepared()
@@ -52,10 +58,13 @@ def prepare(p, spec, b, ctx: dict, run: str, env: dict, given: dict | None) -> P
     cfg = {"block": b.name, "run": run, "item": item, "lease": lease, "root": str(spec.root), "state": str(p.dir),
            "workdir": str(out.workdir or spec.root), "branch": (out.workspace or {}).get("branch"), "read": read,
            "writes": (out.workspace or {}).get("writes") or [], "tools": b.params.get("tools"),
-           "actions": [a.name for a in acts], "waits": [a.wait + a.timeout for a in acts]}
+           "actions": [a.name for a in acts], "waits": [a.wait + a.timeout for a in acts], "runner": runner}
     cfg["file"] = str(sb.write(p, b.name, run, cfg))
     out.cfg = cfg
-    env["ERGOSTAT_SANDBOX"] = cfg["file"]
+    if acts:
+        env[ENV] = cfg["file"]                         # what ergostat act reads (program.py)
+    if b.type == "ai":
+        env["ERGOSTAT_SANDBOX"] = cfg["file"]
     env["ERGOSTAT_WORKDIR"] = cfg["workdir"]
     if item:
         env.setdefault("ERGOSTAT_ITEM", item)
@@ -63,6 +72,6 @@ def prepare(p, spec, b, ctx: dict, run: str, env: dict, given: dict | None) -> P
         env["ERGOSTAT_WORKSPACE"] = out.workspace["dir"]
         env["ERGOSTAT_BRANCH"] = out.workspace["branch"]
         ctx["workspace"] = {k: out.workspace[k] for k in ("pool", "slot", "dir", "branch", "how")}
-    if acts:
+    if acts and b.type == "ai":
         env.update(sb.env(cfg))
     return out

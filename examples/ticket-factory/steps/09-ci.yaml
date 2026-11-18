@@ -1,0 +1,68 @@
+# Step 9, ci: sailed -> ci-green, or -> ci-failed when CI fails (steps/ci.py). CI is GitHub Actions on the
+# repository: a delay outside the factory, like the reviewers.
+defaults:
+  system: shipping
+
+stocks:
+  ci-green:
+    unit: tickets
+    description: CI passed; not merged yet
+    sensor:
+      items: ticket
+      state: ci-green
+      every: 3s
+  ci-failed:
+    unit: tickets
+    description: CI failed; not fixed yet
+    sensor:
+      items: ticket
+      state: ci-failed
+      every: 3s
+
+flows:
+  ci:
+    from: sailed
+    to: ci-green
+    description: CI runs that pass
+    driven-by: [+stock.sailed]
+    equation: (1 - ci-fail-share) * stock.sailed / ci-time
+    sensor:
+      items: ticket
+      entering: ci-green
+      over: 10m
+  ci-failing:
+    from: sailed
+    to: ci-failed
+    description: CI runs that fail (the second rework loop)
+    driven-by: [+stock.sailed]
+    equation: ci-fail-share * stock.sailed / ci-time
+    sensor:
+      items: ticket
+      entering: ci-failed
+      over: 10m
+
+parameters:
+  ci-time:
+    value: 30s
+    estimate: true
+    description: how long a CI run takes
+  ci-fail-share:
+    value: 0.5
+    range: [0, 1]
+    estimate: true
+    description: the share of CI runs that fail
+
+goals:
+  ci-watched:
+    stock: sailed
+    hold: "<= 0"
+    description: no pull request waits on CI
+
+blocks:
+  ci:
+    type: program
+    goal: ci-watched
+    run: python3 bin/step.py ci
+    takes: {kind: ticket, at: sailed, to: [ci-green, ci-failed, stopped]}
+    pool: 3
+    out: [flow.ci, flow.ci-failing]

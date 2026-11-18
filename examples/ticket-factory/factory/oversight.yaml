@@ -1,0 +1,171 @@
+# What the owner watches: the gated actions waiting for approval, the tickets that stopped, what the AI
+# costs, the re-pings, the cycle time, and the daily summary and OKR (bin/report.py).
+defaults:
+  system: oversight
+
+stocks:
+  done:
+    unit: tickets
+    cumulative: true
+    system: shipping
+    description: Done in Jira
+    sensor:
+      items: ticket
+      state: done
+      every: 3s
+  stopped:
+    unit: tickets
+    description: stopped at a step (a denied or failed action, a repository not allowed); its stopped_why says
+    sensor:
+      items: ticket
+      state: stopped
+      every: 3s
+  actions-waiting:
+    unit: actions
+    description: outward acts held for the owner's approval (ergostat actions)
+    sensor:
+      builtin: ergostat.actions.held
+      every: 3s
+  ai-spend:
+    unit: usd
+    cumulative: true
+    description: what the AI sessions cost, in dollars (haiku, recorded per session)
+    sensor:
+      run: python3 bin/measure.py ai-spend
+      every: 10s
+  repings:
+    unit: pings
+    cumulative: true
+    description: reviewers asked again
+    sensor:
+      run: python3 bin/measure.py repings
+      every: 10s
+  reports:
+    unit: reports
+    cumulative: true
+    description: daily summaries written
+    sensor:
+      items: report
+      every: 10s
+
+auxiliaries:
+  prs-awaiting-review:
+    unit: tickets
+    description: pull requests open and not approved
+    driven-by: [+stock.pr-open, +stock.review-asked, +stock.changes-asked]
+    equation: stock.pr-open + stock.review-asked + stock.changes-asked
+  cycle-hours:
+    unit: h
+    description: the median time from found to Done, of the last ten tickets done (the waits make it)
+    driven-by: [+stock.review-asked, +stock.sailed, +stock.actions-waiting]
+    sensor:
+      run: python3 bin/measure.py cycle-hours
+      every: 30s
+
+flows:
+  stopping:
+    to: stopped
+    description: tickets a step stopped
+    sensor:
+      items: ticket
+      entering: stopped
+      over: 10m
+  unsticking:
+    from: stopped
+    description: stopped tickets the owner sent back (bin/tickets.py retry)
+    sensor:
+      items: ticket
+      leaving: stopped
+      over: 10m
+  actions-asked:
+    to: actions-waiting
+    description: outward acts whose gate is approve, asked for
+    sensor:
+      items: ergostat.action
+      entering: requested
+      over: 10m
+  approvals:
+    from: actions-waiting
+    description: approved or denied by the owner
+    sensor:
+      items: ergostat.action
+      leaving: requested
+      over: 10m
+  ai-spending:
+    to: ai-spend
+    description: dollars a session costs, as each one ends
+    driven-by:
+      - cause: +flow.work
+        instant: true
+      - cause: +flow.address
+        instant: true
+      - cause: +flow.fix-ci
+        instant: true
+    equation: cost-per-session * (flow.work + flow.address + flow.fix-ci)
+    sensor:
+      changes: rises
+      over: 10m
+  repinging:
+    to: repings
+    description: re-pings, by the review step
+    driven-by: [+stock.review-asked]
+    equation: stock.review-asked / reping-after * reping-share
+    sensor:
+      changes: rises
+      over: 10m
+  reports-written:
+    to: reports
+    sensor:
+      items: report
+      entering: written
+      over: 1h
+
+parameters:
+  cost-per-session:
+    value: 0.02
+    unit: usd/tickets
+    estimate: true
+    description: what one AI session costs (0 with the stand-in)
+  reping-after:
+    value: 90s
+    description: REPING_AFTER, in factory.conf
+  reping-share:
+    value: 0.5
+    range: [0, 1]
+    estimate: true
+    description: the share of waits past REPING_AFTER that end in a re-ping (the rest are answered first)
+
+goals:
+  nothing-awaits-approval:
+    stock: actions-waiting
+    hold: "<= 0"
+    description: no outward act waits for the owner's approval
+  none-stopped:
+    stock: stopped
+    hold: "<= 0"
+    description: no ticket is stopped
+
+blocks:
+  approve:
+    type: person
+    agent: owner
+    goal: nothing-awaits-approval
+    ask: >-
+      Outward acts wait for your approval. `ergostat actions` lists them (and the page, on each one's
+      item); `ergostat actions ID --approve` runs it, and its step finds it done on its next run;
+      `--deny` refuses it. To stop being asked for one kind of act, promote it: `gate: auto` in
+      factory/actions.yaml.
+    out: flow.approvals
+  unstick:
+    type: person
+    agent: owner
+    goal: none-stopped
+    ask: >-
+      A ticket stopped: `bin/tickets.py list` says where and why. Fix the cause (a gate, a setting, the
+      issue), then `bin/tickets.py retry KEY` sends it back to the step that stopped it.
+    out: flow.unsticking
+  reporter:
+    type: program
+    run: python3 bin/report.py
+    every: 30s
+    out: flow.reports-written

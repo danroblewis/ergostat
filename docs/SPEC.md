@@ -2710,7 +2710,8 @@ kind of question): what `state` carries is the next thing to improve.
 An `ai` block's run is a Claude Code session: it reads and changes files and runs commands. Two things decide what it
 can reach: the folder it starts in, and the tools it is given. Both are declared on the block; the outward acts (a push,
 a pull request, a ticket moved, a message posted) are not tools at all, but **gated actions**, which ergostat runs for
-the session only as their gate says.
+the session only as their gate says. A `program` block may take a workspace and ask for gated actions too (below,
+"From a program block"): the same gate, without a session to sandbox.
 
 ### Its folder
 
@@ -2765,7 +2766,10 @@ context's item (§12j), else the item its command names. A run with a workspace 
 2. else a free workspace that exists is checked (a worktree of the repository, nothing uncommitted) and reset for the
    item: onto its branch, made from `base` unless it is there already; one that fails the check is **quarantined**;
 3. else a fresh worktree is made, on a new branch from `base` (or the item's branch, when the repository has it);
-4. else none is free, and the run does not start (`agent.failed`: in use, held and quarantined counted).
+4. else none is free, and the run does not start (in use, held and quarantined counted, in its `agent.ran`'s note):
+   not a failure of the run or its item, so a leased item is given back put off for ten seconds and not counted
+   (`{"nack": ..., "count": false}`), and taken again when a workspace may be free. Any other reason one cannot be
+   given (a worktree that cannot be made, no item named) is `agent.failed`, and counted.
 
 **Release**, when the item's lease ends (`ergostat.lease.ended` or `.expired`), or when its run ends if it had no lease:
 while the item is not finished (the end's `terminal` says; otherwise the states `messages: {done:}` gives, else its
@@ -2859,6 +2863,77 @@ approving to a rule.
 | `ergostat.actions.auto` | Let through by their gate, over the last week |
 | `ergostat.actions.denied` | Denied by their gate or the owner, over the last week |
 | `ergostat.actions.ran`, `.failed` | Run, and exited 0 or not, over the last week |
+
+### From a program block
+
+Most outward acts are made by plain programs: a step script that moves a ticket, labels a pull request, posts a
+comment. A `program` block (or an `ai` block whose `run:` is a program of its own, not `ergostat session`) names the
+actions it may ask for the same way, and may take a workspace:
+
+```yaml
+blocks:
+  open-pr:
+    type: program
+    takes: {kind: ticket, at: worked, to: [pr-open, stopped]}
+    workspace: code                # its item's workspace: ERGOSTAT_WORKSPACE, ERGOSTAT_BRANCH; it runs in the model's folder
+    actions: [git-push, open-pr]
+    run: python3 steps/open_pr.py
+```
+
+Its command asks for one with **`$ERGOSTAT_CMD act NAME --arg K=V ...`** (`--key K`, `--wait DUR`, `--json`), during
+the run, and is answered when the gate has taken it:
+
+| Exit | The action | What the call printed |
+|---|---|---|
+| 0 | ran, exited 0 | its output, on stdout |
+| 1 | ran and failed | its exit and output, on stderr |
+| 3 | held for the owner (or approved and not run yet, when the wait for ergostat ran out) | how to approve it, on stderr |
+| 4 | denied, by its gate or the owner | why, on stderr |
+| 2 | refused: not one of the block's `actions:`, an argument missing or not its own, not this run's | why |
+
+`--json` prints the action as a session is given it instead. A command, not an output line: an output line is read
+when the run has ended, and the act's result (a pull request's number) is wanted during it.
+
+- **Run by ergostat, not by the program.** The run's environment names the file of what it was given
+  (`ERGOSTAT_ACTIONS`: its block, run, item, lease, folder, branch, and its `actions:`), which `act` reads and checks
+  against `ERGOSTAT_RUN`. An `auto` action, or an `approve` one once the owner approves it, is run by the engine
+  (`ergostat run`, which follows the record for approvals) with ergostat's environment, in the run's folder (its
+  workspace, else the model's) or `in:`; the call waits for its result (its `timeout:` and half a minute more). The
+  owner's `ergostat actions ID --approve` runs it at once, as for a session; ergostat's clock runs any approved
+  one no one ran. A run started outside a running engine (`ergostat block NAME --now`) runs its approved actions in
+  `act` itself.
+- **The same request is the same action.** `act` with the same action, arguments and `--key`, about the same item (or,
+  with no item, the same block and a `--key`), is answered with the action asked before: one held is answered as it
+  stands (exit 3) and **taken over** by the asking run's lease (`ergostat.action.reasked`: its `fence` and `run`), so a
+  run that gives its item back while it waits (`{"nack": {"why": "...", "after": "30s", "count": false}}`) and is taken
+  again finds it, approved and run or not; one that ran is never run again, its output given again; one the owner
+  denied stays denied, and one its gate denied while the gate is still `deny`. One that failed, or was denied by a gate
+  since promoted, or by fencing, is asked for anew. Without an item or a `--key`, each request is its own.
+- **Held, it waits** up to `--wait` (default: not at all) for the owner. A step that cannot go on without it gives its
+  item back, put off and uncounted, and asks again on its next run; a result it never asked for again goes to the
+  block's next run on that item (`actions` in its input), as a session's does.
+- **Fenced** by the lease as a session's action is: asked for by a run whose lease on its item expired, or after a
+  later lease was taken, it is denied; held and approved after a later lease took the item without asking for it
+  again, it fails unrun (a later run that asks again gets it anew).
+- Every request and answer is the same `ergostat.action.*` events, item and measures as a session's (`asker:
+  program` in its data), and `delivered` (`how: run`) when the run that asked got its result.
+
+**What is enforced for a program block, and what is not.** A program is not a Claude Code session: ergostat cannot
+take tools away from it, and starts it with the user's environment, as every block's command.
+
+- Enforced: what goes through `act` is recorded, gated, fenced and run once, by ergostat; a held action never runs
+  before the owner's answer, a denied one never runs; the step cannot change an action's command beyond its `args:`
+  (each one quoted argument).
+- **Not enforced: the program can make the act itself.** A script that runs `gh pr create`, `git push` or `curl` to a
+  ticket system directly is not stopped and not recorded as an action: the gate holds only the acts that go through
+  it. With the program and ergostat running as the same user, with the same credentials, nothing ergostat does can
+  change that.
+- **The mitigation: run the program without the write credentials.** Because the action runs in ergostat's process,
+  not the program's, the program needs none: start its command as another user or in a container that has only
+  read access (`run: sudo -u steps python3 step.py`, a read-only token in its environment), and keep the credentials
+  that write (a `gh` sign-in, a ticket system's token) where only ergostat, which runs the actions, has them. Short of
+  that, `run: env -u GH_TOKEN ...` keeps an environment variable from the program (but not a file or the keychain it
+  could still read). The examples that ship do not do this: their steps read through the same sign-in.
 
 ### The sandbox: what is enforced
 

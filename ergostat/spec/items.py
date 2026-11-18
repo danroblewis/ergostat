@@ -133,6 +133,8 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
                 it.state, it.entered = to, e["time"]
             continue
         lease = it.fields.get("lease")
+        if not isinstance(lease, dict):                      # only an item's own lease is ergostat's (a workspace's
+            lease = None                                     # or an action's `lease` is a fencing number: plain data)
         why = lease_fold.fenced(it, e) if lease is not None else None
         if why is not None:                                  # a run whose lease ended: what it says is refused
             it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": form_of(e), "why": why})
