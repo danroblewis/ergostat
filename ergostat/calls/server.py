@@ -20,7 +20,7 @@ from pathlib import Path
 
 from . import POINTER, SOCKET, ops
 
-WORKERS = 16
+WORKERS = 8
 MOST = 4 * 1024 * 1024           # the largest request read (bytes)
 LIMIT = 100                      # a socket's path is at most 104 bytes on macOS, 108 on Linux
 
