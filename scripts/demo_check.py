@@ -19,6 +19,8 @@ from pathlib import Path
 
 DEMOS = Path(__file__).resolve().parent.parent / "examples"   # each example, run from a fresh copy
 ERGOSTAT = [sys.executable, "-m", "ergostat"]
+# What a demo that can reach real services is run with here: offline, against its fakes, never the services
+OFFLINE = {"ticket-factory": {"TF_OFFLINE": "1"}}
 
 
 def sh(*args, cwd=None) -> subprocess.CompletedProcess:
@@ -124,6 +126,7 @@ notes: list[str] = []
 
 
 def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
+    os.environ.update(OFFLINE.get(demo.name, {}))
     demo = fresh_copy(demo)
     problems = []
     notes.clear()
