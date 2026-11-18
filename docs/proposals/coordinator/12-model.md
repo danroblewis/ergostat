@@ -162,10 +162,11 @@ it was, grey dashed the designed Coordinator, as 02 draws the reference and hope
 
 ![Code](img/model-code.png)
 
-Two differences from the record are the model's, and are said rather than tuned away. The checking habit drifts to
-fully blind within days, where the record (45 hours) shows it at a third: the erosion time (30 hours) is fitted to
-that one incident, and the record is too short to see the floor, if there is one. And the model loses corrections
-at cuts and has the owner repeat a few of them later (8 a month), which RM12 did not see across a cut in one
+Two differences from the record are the model's, and are said rather than tuned away. The checking habit drifts
+further than the record shows: about half the runs unread after three days (the live runs, §6), nearly all in the
+quiet stretches between directions, where the record (45 hours) shows a third. Its erosion time (30 hours) is
+fitted to one incident, and the record is too short to see a floor, if there is one. And the model loses
+corrections at cuts and has the owner repeat a few later (8 a month), which RM12 did not see across a cut in one
 session; it is B9's leak, kept because the parity benchmark shows fresh sessions repeating corrected mistakes.
 
 ## 5. Controllers on
