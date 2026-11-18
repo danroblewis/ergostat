@@ -29,6 +29,10 @@ class PoolError(Exception):
     """No workspace can be given: the pool is full, or one could not be made."""
 
 
+class PoolFull(PoolError):
+    """Every workspace is in use, held or quarantined: the item waits for one, through no fault of its own."""
+
+
 def root_of(spec, path: str) -> Path:
     q = Path(path).expanduser()
     return q if q.is_absolute() else (spec.root / q)
@@ -150,7 +154,7 @@ def acquire(p, spec, name: str, item: str, fields: dict | None = None, run: str 
             return _take(p, pool, {"slot": s["slot"], "dir": str(sd), "item": item, "branch": branch, "how": how},
                          run, lease, be)
         c = {k: sum(1 for s in st.values() if s["state"] == k) for k in ("in-use", "held", "quarantined")}
-        raise PoolError(f"workspace pool {pool.name} has none free for {item}: {c['in-use']} in use, {c['held']} held "
+        raise PoolFull(f"workspace pool {pool.name} has none free for {item}: {c['in-use']} in use, {c['held']} held "
                         f"for review, {c['quarantined']} quarantined (of {pool.size})")
 
 

@@ -37,6 +37,7 @@ from .legacy import sensor_name, valve_name
 
 TICK = 1.0
 JUDGE_EVERY = 30.0          # a judge with no every: passes this often
+POOL_FULL_AFTER = 10.0      # seconds an item whose run found its workspace pool full is put off (SPEC §12k)
 SWEEP = 5.0                 # how often the owner's messages are swept: left received, or about work since finished
 OUTCOMES_EVERY = 30.0       # how often the outcomes of the recipes' uses are found again (SPEC §12j)
 SOURCE = "ergostat"
@@ -104,6 +105,7 @@ class Engine:
         self.stopping_runs: set[str] = set()           # blocks whose run the owner asked to stop
         self.ingester = None
         self.lease_seq = 0                             # the newest lease event taken to the workspace pools (SPEC §12k)
+        self.following = False                         # whether _follow runs: it runs the actions programs ask for
         from ..leases.dispatch import Dispatcher
         self.dispatch = Dispatcher(self)              # blocks that take items: a run per item, each leased (SPEC §9.5)
 
@@ -495,9 +497,11 @@ class Engine:
                 leases.run_ended(self.p, spec, ready.item, begun["id"], ready.lease)
             except Exception as e:
                 self.say(f"{b.name}: workspace: {type(e).__name__}: {e}")
-        failed = bool(note) and note not in (old.STOPPED_WITH_US, STOPPED_BY_OWNER)
+        failed = bool(note) and note not in (old.STOPPED_WITH_US, STOPPED_BY_OWNER) and not ready.full
         if outcome is not None:
             outcome.update({"exit": code, "note": note, "nack": said.nack, "stopped": note in (old.STOPPED_WITH_US, STOPPED_BY_OWNER)})
+            if ready.full:                                       # no workspace free: given back, put off, not counted
+                outcome["nack"] = {"why": note, "after": POOL_FULL_AFTER, "count": False}
         ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
         if failed:
             self.say(f"{b.name}: {note}")
@@ -516,19 +520,21 @@ class Engine:
 
     def place(self, b: Block, ctx: dict, run: str, env: dict, given: dict | None, spec: Spec | None = None):
         """An ``ai`` block's folder and what its session may use (SPEC §12k): a workspace from its pool for the item it
-        works on, or its workdir:; its read:, tools: and actions:. Returns what was made ready, and why the run cannot
-        start (no workspace to give it), or None."""
+        works on, or its workdir:; its read:, tools: and actions:; a ``program`` block's workspace: and actions:.
+        Returns what was made ready, and why the run cannot start (no workspace to give it), or None."""
         from ..actions import prepare as pr
-        if b.type != "ai":
+        if b.type not in ("ai", "program"):
             return pr.Prepared(), None
         try:
-            ready = pr.prepare(self.p, spec or self.spec, b, ctx, run, env, given)
+            ready = pr.prepare(self.p, spec or self.spec, b, ctx, run, env, given,
+                               runner="ergostat" if self.following else "here")
         except Exception as e:                                   # no workspace for it: the run does not start
-            from ..workspaces.pool import PoolError
-            return pr.Prepared(), str(e) if isinstance(e, PoolError) else f"{type(e).__name__}: {e}"
+            from ..workspaces.pool import PoolError, PoolFull
+            why = str(e) if isinstance(e, PoolError) else f"{type(e).__name__}: {e}"
+            return pr.Prepared(full=isinstance(e, PoolFull)), why
         if b.params.get("actions"):                              # what its sessions asked for and were not answered
             from ..actions import gate
-            got = gate.for_context(self.p, b.name, run)
+            got = gate.for_context(self.p, b.name, run, item=env.get("ERGOSTAT_ITEM") or None)
             if got:
                 ctx["actions"] = got
         return ready, None
@@ -786,6 +792,7 @@ class Engine:
         while not self.stop.is_set():
             try:
                 new = sorted(self.p.events.query(n=None, after_seq=seq, type="block.approved") +
+                             self.p.events.query(n=None, after_seq=seq, type="ergostat.action.approved") +
                              self.p.events.query(n=None, after_seq=seq, type="steptest.approved") +
                              self.p.events.query(n=None, after_seq=seq, type=STOP_ASKED), key=lambda e: e["seq"])
             except Exception:
@@ -795,6 +802,9 @@ class Engine:
                 seq = max(seq, e["seq"])
                 if e["type"] == STOP_ASKED:
                     self.stop_run(e.get("item") or "")
+                    continue
+                if e["type"] == "ergostat.action.approved":       # a program's action, run here, never by it (SPEC §12k)
+                    threading.Thread(target=self.run_action, args=(e["item"],), daemon=True).start()
                     continue
                 if e["type"] == "steptest.approved":
                     from ..control import steptest
@@ -812,6 +822,16 @@ class Engine:
             except Exception:
                 pass
             self.stop.wait(0.5)
+
+    def run_action(self, aid: str) -> None:
+        """An approved action a program block's run asked for: run by ergostat, with its environment, once."""
+        from ..actions import gate, record
+        try:
+            a = record.get(self.p, aid)
+            if a is not None and a.get("asker") == "program":
+                gate.run_once(self.p, self.spec, aid)
+        except Exception as e:
+            self.say(f"actions: {aid}: {type(e).__name__}: {e}")
 
     def _initial(self) -> None:
         for g in self.spec.goals:
@@ -831,6 +851,7 @@ class Engine:
         steptest.resume(self)                                   # a test approved just before, or cut off by a stop
         threading.Thread(target=self._schedule, daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
+        self.following = True                                    # it runs the actions programs ask for (SPEC §12k)
         threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop
         self.dispatch.holding = True                             # leases held when it last stopped are watched at once
         threading.Thread(target=self.dispatch.run, daemon=True).start()   # blocks that take items, their leases (SPEC §9.5)

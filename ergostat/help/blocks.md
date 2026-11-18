@@ -122,6 +122,20 @@ counted. Say why with `{"nack": "why"}`, or put it off without counting: `{"nack
 item after is refused. After three attempts the item is a dead letter (`ergostat lease`). `ergostat help spec`,
 section 9.5.
 
+## When a block acts outward: gated actions
+
+A push, a pull request, a ticket moved, a message posted: name each under `actions:` (a command template and its
+gate, `auto`, `approve` or `deny`), list the ones a block may ask for in its `actions:`, and ask from its program:
+
+```bash
+out=$($ERGOSTAT_CMD act open-pr --arg title="Fix the login page" --arg body="$body")   # exit 0: ran, its output
+# 1: it failed; 3: held for the owner (ask again later: the same request is the same action); 4: denied
+```
+
+ergostat runs it, not the program, once its gate lets it through; the owner answers a held one with `ergostat actions
+ID --approve`. Your program can still run `gh` itself: the gate is a record and a checkpoint, not a wall, unless the
+program runs without the credentials. `ergostat help spec`, section 12k.
+
 ## Try it
 
 ```bash

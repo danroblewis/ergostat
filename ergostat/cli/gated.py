@@ -1,4 +1,5 @@
 """``ergostat actions``: the gated actions sessions asked for, and the owner's answer to one held for approval;
+``ergostat act``: a program block's run asking for one (``$ERGOSTAT_CMD act NAME --arg K=V``);
 ``ergostat workspaces``: the workspace pools, and freeing a quarantined workspace (SPEC §12k)."""
 
 from __future__ import annotations
@@ -22,6 +23,17 @@ def register(sub, common) -> None:
     ac.add_argument("--as", dest="by", metavar="WHO", help="who answers (default: owner)")
     ac.add_argument("-n", type=int, default=30, help="how many to list (default 30)")
     ac.set_defaults(fn=cmd_actions)
+    at = sub.add_parser("act", parents=[common], help="From a block's run: ask for one of its gated actions "
+                        "($ERGOSTAT_CMD act NAME --arg K=V); exits 0 ran, 1 failed, 3 held, 4 denied",
+                        description="A gated action asked for by a block's run (SPEC §12k). Its output, once it ran, "
+                        "is printed; how the gate took it is said on stderr. Exit: 0 ran, 1 failed, 3 held for the "
+                        "owner (or approved and not run yet), 4 denied, 2 refused (no such action for this block).")
+    at.add_argument("name", metavar="NAME", help="the action, one of the block's actions:")
+    at.add_argument("--arg", action="append", default=[], metavar="K=V", help="one of its args: (repeat)")
+    at.add_argument("--key", help="what tells this act from the same one asked before (default: its arguments)")
+    at.add_argument("--wait", metavar="DUR", help="how long to wait for the owner when it is held "
+                    "(default: not at all; the same request again finds it, answered or not)")
+    at.set_defaults(fn=cmd_act)
     ws = sub.add_parser("workspaces", parents=[common], help="The workspace pools: each workspace, whose it is, free, "
                         "in use, held or quarantined (POOL --free N frees a quarantined one)",
                         description="Workspace pools (SPEC §12k). ergostat workspaces [POOL] [--free N]")
@@ -102,6 +114,49 @@ def cmd_actions(args) -> int:
     if held:
         print(c(f"\n{len(held)} held for approval: ergostat actions ID --approve (or --deny)", "dim"))
     return 0
+
+
+def cmd_act(args) -> int:
+    import sys
+
+    from ..actions import gate, program, record
+    from ..durations import parse_duration
+    p = open_project(args)
+    spec = _spec(p)
+    if spec is None:
+        return 2
+    vals = {}
+    for kv in args.arg:
+        k, eq, v = kv.partition("=")
+        if not eq or not k:
+            print(f"--arg {kv!r}: write it NAME=VALUE", file=sys.stderr)
+            return 2
+        vals[k] = v
+    try:
+        wait = parse_duration(args.wait, "--wait") if args.wait else 0.0
+        a = program.ask(p, spec, program.given(), args.name, vals, key=args.key, wait=wait)
+    except program.AskError as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return 2
+    code = program.exit_code(a)
+    if args.json:
+        out_json(gate.result(a))
+        return code
+    if a["state"] == "ran":
+        if a.get("output"):
+            print(a["output"])
+        print(f"{args.name}: ran ({a['id']}, approved by {a.get('approved_by')})", file=sys.stderr)
+    elif a["state"] == "failed":
+        print(f"{args.name}: failed ({a['id']}, exit {a.get('exit')})" + (f"\n{a.get('output')}" if a.get("output") else ""),
+              file=sys.stderr)
+    elif a["state"] == "denied":
+        print(f"{args.name}: denied by {a.get('denied_by')}" + (f": {a['note']}" if a.get("note") else ""), file=sys.stderr)
+    elif a["state"] == "requested":
+        print(f"{args.name}: held for the owner's approval ({a['id']}): ergostat actions {record.short(a['id'])} --approve",
+              file=sys.stderr)
+    else:
+        print(f"{args.name}: approved, not run yet ({a['id']})", file=sys.stderr)
+    return code
 
 
 def _gate(spec, cls: str) -> str:

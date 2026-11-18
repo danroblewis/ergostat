@@ -1,5 +1,6 @@
-"""Reading ``actions:`` and an ``ai`` block's ``workdir:``, ``workspace:``, ``read:``, ``tools:`` and ``actions:`` (SPEC
-§12k) into the spec, every mistake said with where it was written. Called by the spec compiler with itself."""
+"""Reading ``actions:``, an ``ai`` block's ``workdir:``, ``workspace:``, ``read:``, ``tools:`` and ``actions:``, and a
+``program`` block's ``workspace:`` and ``actions:`` (SPEC §12k) into the spec, every mistake said with where it was
+written. Called by the spec compiler with itself."""
 
 from __future__ import annotations
 
@@ -59,9 +60,11 @@ def actions(c, spec) -> None:
 def blocks(c, spec) -> None:
     """An ``ai`` block's directory and what its session may use: ``workdir:`` (a folder) or ``workspace:`` (a pool, a
     workspace per item); ``read:`` (more folders it may read); ``tools:`` (Claude Code's tools it may use) and
-    ``actions:`` (the gated actions it may ask for). ``tools:`` or ``actions:`` puts its session in the sandbox."""
+    ``actions:`` (the gated actions it may ask for). ``tools:`` or ``actions:`` puts its session in the sandbox. A
+    ``program`` block may name ``workspace:`` (its item's workspace, in its environment) and ``actions:`` (asked for
+    with ``ergostat act``); it has no session to sandbox."""
     for b in spec.blocks.values():
-        if b.type != "ai":
+        if b.type not in ("ai", "program"):
             continue
         what = f"block {b.name}"
         p = b.params
@@ -96,6 +99,7 @@ def blocks(c, spec) -> None:
             if a not in spec.actions:
                 c.err(f"{what}.actions: {a!r} is not one of the actions:" + c.suggest(a, spec.actions), b.where,
                       "unknown-ref", f"action.{a}")
-        if "run" in p and any(p.get(k) is not None for k in ("tools", "actions")) and "session" not in str(p["run"]):
-            c.err(f"{what}: tools: and actions: are given to the Claude Code session ergostat starts: without run:, or "
-                  f"with a run: that starts it through ergostat session", b.where, "sandbox-needs-session", "")
+        if b.type == "ai" and "run" in p and p.get("tools") is not None and "session" not in str(p["run"]):
+            c.err(f"{what}: tools: are given to the Claude Code session ergostat starts: without run:, or with a run: "
+                  f"that starts it through ergostat session (actions: alone its run: may ask for with ergostat act)",
+                  b.where, "sandbox-needs-session", "")
