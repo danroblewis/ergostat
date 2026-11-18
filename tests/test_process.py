@@ -146,6 +146,24 @@ def test_the_frequency_filter_hides_rare_paths_and_the_caps_say_so(p, monkeypatc
     assert len(g["edges"]) == 3 and g["capped"]["edges"]
 
 
+def test_a_leases_hold_is_folded_out_of_the_states(p):
+    now = time.time()
+    t = now - H
+    p.events.add("flag.asked", item="flag/9", at=t)
+    p.events.add("ergostat.lease.taken", item="flag/9", at=t + 10, data={"run": "r1", "block": "b", "fence": 1, "ttl": 600})
+    p.events.add("flag.researching", item="flag/9", at=t + 100)
+    moves = [{"time": 1, "from": None, "to": "asked", "event": "a", "type": "x"},
+             {"time": 2, "from": "asked", "to": "leased", "event": "b", "type": "y"},
+             {"time": 3, "from": "leased", "to": "asked", "event": "c", "type": "y"},          # handed back: no move
+             {"time": 4, "from": "asked", "to": "leased", "event": "d", "type": "y"},
+             {"time": 5, "from": "leased", "to": "researching", "event": "e", "type": "z"}]
+    assert [(m["from"], m["to"]) for m in pm.unleased(moves)] == [(None, "asked"), ("asked", "researching")]
+    g = pm.process(p.events, p.model.spec, ["flag"], now - 2 * H, now, "states")
+    assert node(g, "flag", "leased") is None
+    e = edge(g, "flag", "asked", "researching")
+    assert e["count"] == 1 and e["median"] == pytest.approx(100, abs=1)
+
+
 def test_the_default_reading_and_the_kinds_of_a_system(p):
     spec = p.model.spec
     assert pm.default_by(spec, ["flag", "facet"]) == "states"
