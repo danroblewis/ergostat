@@ -7,7 +7,7 @@ import agent
 import github
 from act import act
 from step import Move
-from tf import key_of, now
+from tf import key_of, now, once
 
 
 def run(ticket):
@@ -15,8 +15,11 @@ def run(ticket):
     key, ws, repo, pr = key_of(ticket), Path(f["workspace"]), f["repo"], f["pr"]
     comments = f.get("comments") or []
     text = "\n\n".join(f"{c['who']}: {c['body']}" for c in comments)
-    got = agent.run("review", ticket, ws, comments=text, comments_list=[c["body"] for c in comments])
-    head = agent.commit(ws, f"{key}: answer the review") or f.get("head")
+    def answer():
+        got = agent.run("review", ticket, ws, comments=text, comments_list=[c["body"] for c in comments])
+        return {**got, "head": agent.commit(ws, f"{key}: answer the review") or f.get("head")}
+    got = once(f"{key}.address." + ",".join(c["id"] for c in comments), answer)
+    head = got["head"]
     if head != f.get("head"):
         act("github.push", key, "address", f"Push the answer to the review of #{pr}", github.push, ws, f["branch"],
             extra=head)

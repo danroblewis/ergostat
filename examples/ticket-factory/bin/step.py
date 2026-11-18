@@ -17,9 +17,10 @@ program outside to act on. At most one ticket moves per run (the block's max: 1)
 the amount moved along its flow. A gated action that waits (act.Pending) is a Wait; one denied (act.Denied)
 or failed (act.Failed) is a Stop unless the script catches it.
 
-PLUG POINT (branch `leases`): with item-driven dispatch, ergostat runs the block once per ticket with a
-lease, ERGOSTAT_ITEM naming it and ERGOSTAT_LEASE the lease, and a pool size instead of max: 1. This runner
-then takes that one ticket (below) and the oldest-first loop goes.
+PLUG POINT (branch `leases`, SPEC 9.5): with `takes: {kind: ticket, at: STATE}` and `pool:` on the block,
+ergostat runs it once per ticket under a lease, ERGOSTAT_ITEM naming it and ERGOSTAT_LEASE the fence. This
+runner then takes that one ticket (below), the oldest-first loop goes, and a Wait becomes a nack put off
+({"nack": {"why": ..., "after": "30s", "count": false}}).
 """
 
 from __future__ import annotations

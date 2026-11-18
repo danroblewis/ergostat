@@ -4,9 +4,9 @@ most WORKSPACES out at once (a pool).
     workspace.py list                      the worktrees out now
     workspace.py refresh REPO              clone the repository, or fetch it
 
-PLUG POINT (branch `workspaces`): ergostat's own AI working directories and worktree pool replace this
-file: the `branch` step then asks ergostat for a workspace instead of calling take(), and `close` gives it
-back instead of calling release().
+PLUG POINT (branch `workspaces`, SPEC 12k): a `workspaces:` pool in the model (repo, size, branch template,
+base) replaces this file: the AI blocks get `workspace: POOL` (ERGOSTAT_WORKSPACE, ERGOSTAT_BRANCH), the
+`branch` step goes, and ergostat cleans the worktree when the ticket finishes instead of `close` here.
 """
 
 from __future__ import annotations

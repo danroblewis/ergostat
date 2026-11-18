@@ -5,14 +5,17 @@ from pathlib import Path
 
 import agent
 from step import Move, Stop
-from tf import key_of
+from tf import key_of, once
 
 
 def run(ticket):
     f = ticket["fields"]
     ws = Path(f["workspace"])
-    got = agent.run("work", ticket, ws)
-    head = agent.commit(ws, f"{key_of(ticket)}: {f.get('title', 'the work')}")
+    def work():
+        got = agent.run("work", ticket, ws)
+        return {**got, "head": agent.commit(ws, f"{key_of(ticket)}: {f.get('title', 'the work')}")}
+    got = once(f"{key_of(ticket)}.work", work)
+    head = got["head"]
     spent = agent.spent(got)
     if not head:
         return Stop(f"the agent changed nothing: {got['said'][:200]}")

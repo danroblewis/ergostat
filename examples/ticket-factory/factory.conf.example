@@ -37,6 +37,7 @@ AI_BUDGET_USD=0.50                      # the most one session may spend (claude
 TEAMMATE=yes                            # the scripted reviewer (bin/teammate.py) plays the team: no at work
 TEAMMATE_AFTER=120s                     # how long it takes to look at a new pull request
 STANDIN_PLACEHOLDER=yes                 # the stand-in leaves an empty notes file, so CI fails once
+CI_MAX_FIXES=3                          # CI fixed this many times and still failing: stop, for a person
 
 # --- where it runs ----------------------------------------------------------------------------------
 SCRATCH=~/.cache/ergostat-ticket-factory   # Prometheus, the sample repository's clone and the workspaces
