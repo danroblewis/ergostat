@@ -1062,6 +1062,39 @@ def test_the_control_view_draws_every_example_cleanly_as_a_block_diagram(browser
     assert not problems, f"{name}: " + "\n".join(problems)
 
 
+# no hover tooltips on a diagram's parts: no <title> in the drawing, no title attribute on anything in it
+NO_TOOLTIPS = ("() => [...document.querySelectorAll('svg.canvas title, svg.canvas [title]')]"
+               ".map((x) => (x.closest('[data-id]')?.dataset.id || x.tagName) + ': ' + "
+               "(x.textContent || x.getAttribute('title')).slice(0, 60))")
+# every sensor block drawn: its function and what it reads, as text in it
+SENSORS = ("() => [...document.querySelectorAll('svg.canvas g.bd-sensor, svg.canvas g.bd-collector')]"
+           ".map((g) => ({ id: g.dataset.id, fn: g.dataset.fn, "
+           "text: [...g.querySelectorAll('text')].map((t) => t.textContent).join(' | ') }))")
+
+
+def test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip(browser, page_of):
+    name, url = page_of
+    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    problems: list[str] = []
+    for i, v in enumerate(["view=blocks&open=*", "view=dynamics&open=*", "view=blocks", "view=dynamics"]):
+        drawn(pg, url, v, i)
+        problems += [f"[{v}] tooltip on {x}" for x in pg.evaluate(NO_TOOLTIPS)]
+        if v.startswith("view=blocks"):
+            for s in pg.evaluate(SENSORS):
+                if s["id"].startswith("sen:") and not re.search(r"H(\(s\))? [=:]", s["text"]):
+                    problems.append(f"[{v}] sensor {s['id']} draws no function: {s['text']}")
+                if not re.search(r"every|by hand|on cron|reading|ergostat", s["text"]):
+                    problems.append(f"[{v}] {s['id']} does not say what it reads and how often: {s['text']}")
+    if name == "the-job":                                  # its alerts loop: H = 1, reading the alerts its collector records
+        drawn(pg, url, "view=blocks&system=incidents", 9)
+        got = {s["id"]: s for s in pg.evaluate(SENSORS)}
+        sen, col = got.get("sen:stock.alerts-to-draft"), got.get("col:alerts-fired.main")
+        assert sen and "H = 1" in sen["text"] and "items: alert, fired, every" in sen["text"], got
+        assert col and "watch.py alert" in col["text"] and "records alert items" in col["text"], got
+    pg.close()
+    assert not problems, f"{name}: " + "\n".join(problems)
+
+
 def test_the_control_view_nests_a_cascades_inner_loop_and_opens_a_blocks_definition(browser, tmp_path):
     from tests.test_spec_systems import MODEL
     d = tmp_path / "cascade"

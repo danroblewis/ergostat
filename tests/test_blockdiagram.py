@@ -425,3 +425,73 @@ def test_a_part_a_model_change_added_says_so_in_its_panel(tmp_path):
     said = [r for n in g["nodes"] if n.get("part") == "stock.waiting" for r in n.get("rows") or [] if r[0] == "origin"]
     assert said and all(r[1] == "added by ergostat, from model change 3f9c01aa" for r in said)
     assert not [r for n in g["nodes"] if n.get("part") != "stock.waiting" for r in n.get("rows") or [] if r[0] == "origin"]
+
+
+def test_the_alerts_loop_reads_through_a_labelled_sensor_and_its_collector():
+    spec = load(ROOT / "examples" / "the-job" / "ergostat.yaml")
+    g = drawn(spec, {"*"})
+    n = {x["id"]: x for x in g["nodes"]}
+    sen = n["sen:stock.alerts-to-draft"]
+    assert sen["role"] == "sensor" and sen["fn"]["expr"] == "1" and not sen["fn"].get("sampled")
+    assert sen["fn"]["reads"] == "items: alert, fired, every 5 s"
+    assert "every-alert-drafted" in sen["loops"]
+    col = n["col:alerts-fired.main"]                     # watch.py alert: it records the alerts the count reads
+    assert col["role"] == "collector" and col["fn"]["name"] == "watch.py alert"
+    assert col["fn"]["reads"] == "records alert items, every 10 s"
+    ins = {e["source"] for e in g["edges"] if e["target"] == sen["id"]}
+    assert ins == {col["id"]}
+    # the comparator reads y_m, the sensor's output, and nothing measured reaches it but through the sensor
+    fb = next(e for e in g["edges"] if e["target"] == "sum:every-alert-drafted" and e["sign"] == "−")
+    assert fb["source"] == sen["id"] and (fb["signal"]["sym"], fb["signal"]["sub"]) == ("y", "m,alerts-to-draft")
+
+
+def test_a_sensor_that_polls_slowly_against_its_loop_is_a_sampler_with_a_delay(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+        stocks:
+          approvals-waiting:
+            unit: tickets
+            sensor: {run: ./jira-count approved, every: 5m, description: "Jira: FF tickets approved"}
+          inbox:
+            unit: mails
+            sensor: {query: {source: prom, promql: 'sum(inbox_depth)'}, every: 30s}
+        sources:
+          prom: {type: prometheus, url: http://localhost:9090}
+        flows:
+          approve: {from: approvals-waiting}
+          read-mail: {from: inbox}
+          arrive: {to: approvals-waiting}
+        goals:
+          none-waiting: {stock: approvals-waiting, hold: "<= 0"}
+          inbox-low: {stock: inbox, hold: "<= 10"}
+        blocks:
+          approver: {type: program, run: echo 1, every: 10m, goal: none-waiting, out: flow.approve}
+          reader: {type: program, run: echo 1, every: 10m, goal: inbox-low, out: flow.read-mail}
+        """))
+    g = drawn(load(tmp_path / "ergostat.yaml"), {"*"})
+    n = {x["id"]: x for x in g["nodes"]}
+    slow = n["sen:stock.approvals-waiting"]["fn"]
+    assert slow["reads"] == "Jira: FF tickets approved, every 5 min"
+    assert (slow["expr"], slow["sampled"], slow["T"]) == ("e^(−sT)", True, "5 min")
+    assert "T" in _text(n["sen:stock.approvals-waiting"]["math"])
+    quick = n["sen:stock.inbox"]["fn"]                     # 30 s against 10 min: H = 1
+    assert quick["reads"] == "prometheus: sum(inbox_depth), every 30 s" and quick["expr"] == "1"
+
+
+def test_an_inflow_from_outside_names_its_source_in_the_dynamics_view(tmp_path):
+    from ergostat import sensing
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+        stocks:
+          ramps: {unit: ramps, sensor: {run: echo 1, every: 1m}}
+          tickets: {unit: tickets, sensor: {run: echo 1, every: 1m}}
+          other: {unit: x, sensor: {run: echo 1, every: 1m}}
+        flows:
+          requested: {to: ramps, sensor: {run: ./count, every: 5m, description: "Jira: FF tickets approved"}}
+          filed: {to: tickets}
+          drift: {to: other}
+        blocks:
+          customers: {type: external, out: flow.filed}
+        """))
+    s = load(tmp_path / "ergostat.yaml")
+    assert sensing.comes_from(s, "requested") == "Jira"
+    assert sensing.comes_from(s, "filed") == "customers"
+    assert sensing.comes_from(s, "drift") is None
