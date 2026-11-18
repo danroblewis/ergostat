@@ -178,14 +178,6 @@ owner sets, `exogenous: true` auxiliaries), and what is deliberately left out (t
 the on-call's other work). A reviewer reads the excluded list first. Model the problem, not everything: if a part
 neither moves a goal nor explains a residual, it is outside.
 
-### Names and descriptions
-
-Names are lowercase with hyphens, the same word for the same thing everywhere (section 4). Every stock, flow,
-auxiliary, parameter, goal, block, item kind and system gets a one-line `description` that a newcomer can read
-without the YAML: what it is, in the world's words, and for a flow what decides it ("reviews that ask for a change
-(the rework loop)"). The side panel, `explain` and the Blocks view's labels show them; a part without one is a
-name a reader must guess at.
-
 ### How an SD practitioner reads it, and what makes them wince
 
 They look for the main chain first (left to right, in from a cloud, out to clouds where work really ends), then the
@@ -312,10 +304,10 @@ setpoint faster than the inner can follow is a coupled loop, not a hierarchy.
 
 ### Few signals across systems
 
-Every signal that crosses a system's frame is a port mark and a long line. Keep them few: a system's blocks should
-read and move that system's parts. When a step must read another system (the investigator reads how many alerts
-wait on their facets), read one summary signal (a goal's error, an auxiliary) rather than several stocks. If two
-systems trade many signals, the boundary between them is in the wrong place.
+Every signal that crosses a system's frame is a port mark and a long line. Keep them few: a system's blocks read
+and move that system's parts, and a step that must read another system reads one signal, signed
+(`in: [+stock.alerts-investigating]`; a goal's `error` read directly is drawn as a reinforcing loop). If two systems
+trade many signals, the boundary between them is in the wrong place.
 
 ### Tiers marked
 
@@ -480,7 +472,8 @@ in one view finds it in the other two. Never call the same thing two names (`onc
 state, `escalations` the flow).
 
 **Descriptions on everything**: stocks, flows, auxiliaries, parameters, goals, blocks, sensors, item kinds,
-systems, agents. They are what the diagrams show when a reader clicks.
+systems, agents; one line a newcomer can read without the YAML, in the world's words, and for a flow what decides
+it. They are what the diagrams show when a reader clicks.
 
 **Coherence is the arbiter.** When the views disagree, `ergostat check`'s Coherence section (MCP `coherence`) says
 which pair, where, and the fix. Run the model on its stand-ins, then check, until every kind reads `N of N agree`.
@@ -525,11 +518,8 @@ Ordered by what matters most. Go through each after `check` is clean.
 
 ## 6. What ergostat does not help with yet
 
-These make good modelling harder today, and are listed in [GAPS.md](GAPS.md): there is no built-in join (the lock
-above is the step's own); `check` does not report missing descriptions, missing units, flows without equations, or
-a `process:` that was never identified; a goal on a join stock (where items wait on their children, not on a block)
-needs a block to read it before coherence is satisfied; and a step's event lines cannot name a cause of their own,
-so a scheduled block can never draw a fan-out.
+[GAPS.md](GAPS.md) lists what makes this harder than it should be: no built-in join, no `check` finding for a
+missing description, unit or equation, and no way for a scheduled block's events to name a cause.
 
 ## Sources
 
