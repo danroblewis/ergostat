@@ -187,7 +187,8 @@ lg = {}
 for n in names:
     lg.setdefault(lroot(n), []).append(n)
 found = [x for x in problems if x.code in ("outflow-not-chained", "inflow-not-chained", "state-stock-without-inflow",
-                                           "move-without-flow", "state-stocks-disconnected", "loops-not-connected")]
+                                           "move-without-flow", "state-stocks-disconnected", "loops-not-connected",
+                                           "chain-stock-not-a-count")]
 print(json.dumps({"stocks": len(new), "stock_groups": len(groups), "groups": sorted(groups.values(), key=len, reverse=True),
                   "no_inflow": no_in, "loops": len(goals), "loop_groups": len(lg),
                   "loops_closed": sum(1 for g in goals if spec.loop(g.name).closes),

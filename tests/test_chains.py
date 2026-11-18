@@ -23,7 +23,7 @@ EXAMPLES = sorted(p for p in (ROOT / "examples").iterdir() if (p / "ergostat.yam
 STATES = ("requested triaged researched risk-assessed approved scheduled ramp-1 ramp-10 ramp-50 ramp-100 verified "
           "confirmed applied").split()
 CHAIN = {"outflow-not-chained", "inflow-not-chained", "state-stock-without-inflow", "move-without-flow",
-         "state-stocks-disconnected", "loops-not-connected"}
+         "state-stocks-disconnected", "loops-not-connected", "chain-stock-not-a-count"}
 
 
 def owners_model(counted: str = "entering") -> str:
@@ -257,3 +257,20 @@ def test_a_move_through_states_with_no_stock_still_joins_the_stocks_either_side(
     assert set(got) == {"outflow-not-chained@flow.decided", "state-stocks-disconnected@stock.waiting"}
     assert "write to: soaking on flow decided" in got["outflow-not-chained@flow.decided"].message
     assert "on through approved, at-1" in got["outflow-not-chained@flow.decided"].message
+
+
+def test_a_stock_in_the_chain_read_as_an_age_is_found(tmp_path):
+    text = textwrap.dedent("""
+        items:
+          req: {id: req/*, states: [new, checked, done]}
+        stocks:
+          new: {unit: reqs, sensor: {items: req, state: new}}
+          checked: {unit: reqs, sensor: {items: req, state: checked, measure: oldest}}
+          checked-oldest: {unit: h, sensor: {items: req, state: checked, measure: oldest}}
+        flows:
+          arriving: {to: new, sensor: {items: req, entering: new}}
+          checking: {from: new, to: checked, sensor: {items: req, entering: checked}}
+          closing: {from: checked, sensor: {items: req, entering: done}}
+    """)
+    got = [f"{x.code}@{x.about}" for x in _chain_findings(_write(tmp_path / "rq", text))]
+    assert got == ["chain-stock-not-a-count@stock.checked"]       # the age beside the chain, with no flows, is fine

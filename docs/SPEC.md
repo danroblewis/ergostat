@@ -1525,6 +1525,8 @@ are ergostat's own states and are left out. Each finding names its fix, with the
   as items of K entering S (with `where: {lease.back: P}` when a block takes them and S has other origins);
 - **state-stocks-disconnected**: the kind's state stocks are pieces no flow joins, listed, with every change that
   joins them;
+- **chain-stock-not-a-count**: a stock flows fill or drain whose sensor reads its items' age (`measure: oldest` or
+  `age`): flows move items, so it counts them; the age is a stock of its own beside the chain, with no flows;
 - **loops-not-connected**: the loops of the goals on the kind's stocks (each goal's stock and the stocks at the ends
   of the flows its blocks set) are groups that share no stock: the missing chain, named.
 

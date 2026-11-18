@@ -116,25 +116,28 @@ class Chain:
     order: list[str]                          # the kind's states, its own order (lease states left out)
     stock_of: dict[str, str]                  # state → the stock counting it
     stages: set[str]                          # stocks of its items being worked (state: leased)
+    ages: dict[str, object] = field(default_factory=dict)   # stocks in the chain read as an age: name → its sensor
     where: object = None
 
 
-def _count_sensor(st):
+def _count_sensor(st, spec: Spec):
+    """A stock's sensor counting items in a state; and one reading their age (``oldest``, ``age``) when flows fill or
+    drain the stock all the same: it stands in the chain, wrongly read (``chain-stock-not-a-count``)."""
     for s in st.sensors.values():
         q = s.items
-        if q and q.get("measure", "count") == "count" and q.get("state"):
+        if q and q.get("state") and (q.get("measure", "count") == "count" or spec.flows_of(st.name)):
             yield s, q
 
 
 def _kinds(spec: Spec) -> dict[str, Chain]:
     out: dict[str, Chain] = {}
     for st in spec.stocks.values():
-        for _, q in _count_sensor(st):
+        for _, q in _count_sensor(st, spec):
             k = q["kind"]
             kd = spec.items.get(k)
             if kd is None:
                 continue
-            c = out.setdefault(k, Chain(k, [s for s in kd.states if s not in LEASE_STATES], {}, set(), kd.where))
+            c = out.setdefault(k, Chain(k, [s for s in kd.states if s not in LEASE_STATES], {}, set(), where=kd.where))
             states = q["state"]
             where = {f: v for f, v in (q.get("where") or {}).items() if f != "lease.back"}
             if set(states) <= {"leased"}:
@@ -144,6 +147,8 @@ def _kinds(spec: Spec) -> dict[str, Chain]:
                 continue                      # a part of a state (only some fields), or ergostat's own: not the chain
             for s in states:
                 c.stock_of.setdefault(s, st.name)
+            if q.get("measure", "count") != "count":
+                c.ages[st.name] = q
     return {k: c for k, c in out.items() if len(set(c.stock_of.values())) >= 2}
 
 
@@ -265,6 +270,14 @@ def _one(spec: Spec, c: Chain, seen: Counter) -> list[Found]:
         return reach(a, b, c.stages if direct else stocks) or (gathers(s) and bool(outflows[a])) or (scatters(p) and bool(inflows[b]))
 
     found: list[Found] = []
+    for name, q in c.ages.items():
+        found.append(Found("chain-stock-not-a-count", f"stock.{name}", spec.stocks[name].where,
+                           f"stock {name}: flows move items of {k} into or out of it, but its sensor reads the hours the "
+                           f"{'oldest has waited' if q.get('measure') == 'oldest' else 'oldest has been seen'} "
+                           f"(measure: {q.get('measure')}). A stock in the chain counts the items in its state: "
+                           f"measure: count (the default); keep the age as a stock of its own beside the chain "
+                           f"({name}-oldest: {{sensor: {{items: {k}, state: {', '.join(q['state'])}, measure: oldest}}}}), "
+                           f"with no flows, for a goal on how long they wait"))
     by_about: dict[tuple[str, str], Found] = {}
     taken = set(spec.flows) | set(spec.stocks) | set(spec.auxiliaries) | set(spec.parameters) | set(spec.goals) | set(spec.blocks)
 
