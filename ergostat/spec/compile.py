@@ -11,6 +11,7 @@ import time
 from ..durations import DurationError, parse_duration
 from .equation import FUNCS as FUNCTIONS
 from .ir import (
+    ACTION,
     BUILTIN,
     CLAIM,
     CLAIM_CHECKS,
@@ -24,6 +25,7 @@ from .ir import (
     MODEL_MEASURES,
     NAME,
     VERDICT,
+    WORKSPACE,
     Agent,
     Auxiliary,
     Block,
@@ -44,11 +46,13 @@ from .ir import (
     Source,
     Spec,
     Stock,
+    action_kind,
     claim_kind,
     is_measure,
     message_kind,
     model_change_kind,
     verdict_kind,
+    workspace_kind,
 )
 from .load import SINGULAR, Document, Map, Problem, Where
 
@@ -73,7 +77,8 @@ MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
     "program": MACHINE_COMMON | LAW_KEYS | {"run", "parse", "goal", "until", "review"},
-    "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review"},
+    "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review",
+                                       "workdir", "workspace", "read", "tools", "actions"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
     "external": {"agent"},
     "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up",                # judge: model (SPEC §12e)
@@ -431,7 +436,8 @@ class Compiler:
                              f"@rung:KIND or @model:MODEL when about one, or ergostat.messages.unrouted (or awaiting, "
                              f"received, routed, delivered, answered, missed, reached), or ergostat.intent.false-done (or "
                              f"false-done-tests, accepted, reopened, judged, met, unmet, contradicted, held, unjudged, "
-                             f"overruled, cost), with @KIND when about one",
+                             f"overruled, cost), with @KIND when about one, or ergostat.actions.held (or approved, auto, denied, ran, "
+                             f"failed), with @CLASS, or ergostat.workspaces.free (or in-use, held, quarantined), with @POOL",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
@@ -765,6 +771,8 @@ class Compiler:
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
         spec.items[MESSAGE] = message_kind()                 # built in: the owner's messages, routed (SPEC §12h)
         spec.items[VERDICT] = verdict_kind()                 # built in: the intent judge's verdicts on work (SPEC §12i)
+        spec.items[ACTION] = action_kind()                   # built in: gated actions sessions asked for (SPEC §12k)
+        spec.items[WORKSPACE] = workspace_kind()             # built in: the workspaces of the pools (SPEC §12k)
         self.claims(spec)
         from ..decisions.kinds import builtin as intent_kinds
         spec.items.update(intent_kinds())                    # built in: the owner's decisions and corrections (SPEC §5a)
@@ -862,6 +870,11 @@ class Compiler:
             if b:
                 spec.blocks[name] = b
         recipes.blocks(self, spec)                           # a block's context: and review:
+        from ..actions import compile as gated
+        from ..workspaces import compile as pools
+        pools.workspaces(self, spec)                         # workspaces: the pools AI blocks' runs work in (SPEC §12k)
+        gated.actions(self, spec)                            # actions: what sessions may ask for, gated (SPEC §12k)
+        gated.blocks(self, spec)                             # an ai block's workdir:, workspace:, read:, tools:, actions:
         judges = [b for b in spec.blocks.values() if b.type == "judge" and b.params.get("judge", "model") == "model"]
         for b in judges[1:]:
             self.err(f"block {b.name}: one judge of changes to the model at most ({judges[0].name} is one)", b.where,

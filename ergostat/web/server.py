@@ -397,6 +397,9 @@ def _answer(live: Live, path: str, q: dict):
     if head == "messages":                        # the owner's messages, about one item or all (SPEC §12h)
         from .messages_api import listing
         return listing(p, one("item") or None)
+    if head == "actions":                         # gated actions sessions asked for, about one item or all (SPEC §12k)
+        from .actions_api import listing as actions
+        return actions(p, one("item") or None)
     if head == "trust":                           # how far blocks' claims hold, by block, rung and model (SPEC §12g)
         from ..claims import trust
         return trust.table(p, snap["at"] - max(snap["window"], trust.WEEK), snap["at"])
@@ -549,6 +552,9 @@ def handler(project):
                 elif u.path.startswith("/api/control/"):   # a loop's process, tuning or step test: the owner's answer
                     from .control_api import post as control
                     code, data = control(live, u.path.removeprefix("/api/"))
+                elif u.path.startswith("/api/action/"):    # the owner's answer to a gated action held (SPEC §12k)
+                    from .actions_api import post as action
+                    code, data = action(live, u.path.removeprefix("/api/"), q)
                 elif u.path.startswith("/api/verdict/"):   # the owner on the intent judge: overrule, reopen (SPEC §12i)
                     from .verdicts_api import post as verdict
                     code, data = verdict(live, u.path.removeprefix("/api/"), q)

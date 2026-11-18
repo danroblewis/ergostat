@@ -394,6 +394,45 @@ function messageView(d, refresh) {
     route);
 }
 
+/* gated actions (SPEC §12k): what a session asked to do outward, held for the owner or let through by its gate; on a
+   work item's page the actions asked for about it, with Approve and Deny on each one held; on an action's own page,
+   its command, where it runs, its answer and its output */
+const ACTION_KIND = "ergostat.action";
+function actionAnswer(a, done) {
+  if (a.state !== "requested" || SNAP) return null;
+  const note = h("input", { type: "text", placeholder: "why (optional)", "aria-label": "Why" });
+  const said = h("span", { class: "note", "aria-live": "polite" });
+  const answer = (what) => h("button", { class: what === "deny" ? "ghost" : "", onclick: async (ev) => {
+    ev.stopPropagation();
+    for (const b of row.querySelectorAll("button")) b.disabled = true;
+    try { const got = await apiPost(`action/${encodeURIComponent(a.id)}/${what}`, note.value.trim() ? { note: note.value.trim() } : {}); said.textContent = ` ${got.state}`; done?.(); }
+    catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; }
+  } }, what === "approve" ? "Approve" : "Deny");
+  const row = h("div", { class: "row action-act" }, answer("approve"), answer("deny"), note, said);
+  return row;
+}
+function actionsAbout(as, done) {
+  if (!as.length) return h("p", { class: "muted" }, "No gated actions asked for about it.");
+  return h("div", {}, as.map((a) => h("div", { class: "claim" },
+    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, a.action)), " ",
+      h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : a.state),
+      h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}`)),
+    h("pre", { class: "mono small" }, a.command || ""),
+    actionAnswer(a, done))));
+}
+function actionView(d, refresh) {
+  const f = d.fields;
+  const by = f.approved_by ? `approved by ${f.approved_by}` : f.denied_by ? `denied by ${f.denied_by}` : "";
+  return h("div", { class: "claim" },
+    h("p", {}, h("span", { class: d.state === "requested" ? "s-open" : d.state === "denied" || d.state === "failed" ? "s-off" : "status" }, d.state === "requested" ? "waiting for approval" : d.state),
+      h("span", { class: "muted" }, ` ${f.action}, class ${f.class}, gate ${f.gate}`), by ? `: ${by}` : "", f.note ? ` (${f.note})` : ""),
+    h("pre", { class: "mono small" }, f.command || ""),
+    h("p", { class: "muted" }, `in ${f.in || "?"}`, f.item ? [", for ", itemLink(f.item)] : null, f.session ? [", asked by ", itemLink(f.session)] : f.block ? `, asked by block ${f.block}` : ""),
+    actionAnswer(d, refresh),
+    d.state === "ran" || d.state === "failed" ? [h("h3", {}, `Output (exit ${f.exit ?? "none"})`), h("pre", { class: "mono small" }, f.output || "")] : null,
+    (f.deliveries || []).length ? h("p", { class: "muted" }, "Given to ", f.deliveries.map((x, i) => [i ? ", " : "", x.session ? itemLink(x.session) : `block ${x.block}`, ` (${x.how})`])) : null);
+}
+
 function stateWord(st) { return st ? h("span", {}, st) : h("span", { class: "muted" }, "–"); }
 
 /* the Items page: the kinds grouped by the system each is in (the server decides: item_systems.py), each
@@ -606,11 +645,19 @@ async function pageItem(main, id) {
       recordLinkItem(id), ".") : null;
     const verdict = k?.name === CLAIM_KIND ? [h("h2", {}, "Verdict"), claimView(d)]
       : k?.name === DECISION_KIND || k?.name === CORRECTION_KIND ? [h("h2", {}, k.name === DECISION_KIND ? "The decision" : "The correction"), intentView(d, tick)]
-      : k?.name === MESSAGE_KIND ? [h("h2", {}, "Message"), messageView(d, tick)] : [];
+      : k?.name === MESSAGE_KIND ? [h("h2", {}, "Message"), messageView(d, tick)]
+      : k?.name === ACTION_KIND ? [h("h2", {}, "Gated action"), actionView(d, tick)] : [];
     let about = [];
     if (!k?.name?.startsWith("ergostat.")) {               // the owner's messages about it, and a note to send
       const ms = await api("messages", { item: id }).catch(() => null);
       if (ms) about = [h("h2", {}, "Messages", h("span", { class: "muted" }, ` ${ms.messages.length}`)), messagesAbout(ms.messages), SNAP ? "" : note];
+    }
+    if (!k?.name?.startsWith("ergostat.") || k?.name === "ergostat.workspace" || /^session\//.test(id)) {   // the gated actions asked for about it
+      const as = await api("actions", { item: id }).catch(() => null);
+      if (as && as.actions.length) {
+        const held = as.actions.filter((a) => a.state === "requested").length;
+        about = [h("h2", {}, "Gated actions", h("span", { class: held ? "s-open" : "muted" }, held ? ` ${held} waiting for approval` : ` ${as.actions.length}`)), actionsAbout(as.actions, tick), ...about];
+      }
     }
     // its oldest events rolled up into a snapshot (SPEC §4b): the originals are in the archive, read when asked for
     const ro = d.rollup;
@@ -622,7 +669,7 @@ async function pageItem(main, id) {
       eventsTable(full ? full.events : d.record, true));
   }
   await tick();
-  S.timer = poll(() => (body.querySelector("details[open], .intent-act:not([hidden])") ? null : tick()), 4000, p);
+  S.timer = poll(() => (body.querySelector("details[open], .intent-act:not([hidden])") || document.activeElement?.closest?.(".action-act") ? null : tick()), 4000, p);
 }
 
 /* Model: first what is available for this project (each loop, each parameter to estimate, and where each

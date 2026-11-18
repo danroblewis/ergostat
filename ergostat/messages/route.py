@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 import time
 
-from ..spec.ir import CLAIM, MESSAGE, MODEL_CHANGE, Spec
+from ..spec.ir import ACTION, CLAIM, MESSAGE, MODEL_CHANGE, WORKSPACE, Spec
 from . import record
 
 PART = re.compile(r"\b(stock|flow|block|goal|auxiliary)\.([a-z][a-z0-9-]*)\b")
@@ -29,7 +29,7 @@ STOP = set("""a an and are as at be been but by can could did do does done for f
 its it's just me my no not now of on one or our please so some than that the their them then there these they this to too
 up us was we were what when where which who why will with would you your can't don't won't first next later wait again
 check look still also only before after more less want need needs""".split())
-OWN_KINDS = (MESSAGE, CLAIM, MODEL_CHANGE)
+OWN_KINDS = (MESSAGE, CLAIM, MODEL_CHANGE, ACTION, WORKSPACE)
 MOST = 3                      # the most items one message is routed to by the stand-in
 RUN_FOR = 86400.0             # a run started longer ago than this (or its timeout) and never ended is not running
 

@@ -20,7 +20,12 @@ echoes what it receives). Arguments after ``--`` are passed to it (the tools the
 A block with ``context:`` (SPEC §12j) has its recipe rendered for the run, into a file named by
 ``$ERGOSTAT_CONTEXT``: the session starts from it (``--append-system-prompt-file``, after Claude Code's own prompt),
 and ``session.started`` records which context it was given (``context``: the recipe and its version, the hash of the
-text, its size, the item, the use), so the session's outcome can be told by the recipe it started from."""
+text, its size, the item, the use), so the session's outcome can be told by the recipe it started from.
+
+A block that says where it works or what it may use (SPEC §12k) has its run's sandbox file named by
+``$ERGOSTAT_SANDBOX``: the session starts in its folder (``workdir``: the item's workspace, or the block's ``workdir:``),
+reads what ``read:`` adds (``--add-dir``), and, gated, takes the flags ``actions/sandbox.py`` gives it. Otherwise it
+starts where it was run (a block's ``run:`` runs in the model's folder)."""
 
 from __future__ import annotations
 
@@ -104,7 +109,12 @@ class Session:
         self.cmd, self.env = claude_command(self.p.dir)
         self.env["ERGOSTAT_SESSION_ROLE"] = role
         self.env["ERGOSTAT_SESSION"] = self.item
-        self.src = transcript_of(self.sid, env=self.env)
+        self.sandbox = given_sandbox(self.env)
+        self.cwd = self.sandbox["workdir"] if self.sandbox else os.getcwd()   # where it works (SPEC §12k)
+        if self.sandbox:
+            from .actions import sandbox as sb
+            self.env.update(sb.env(self.sandbox))
+        self.src = transcript_of(self.sid, self.cwd, env=self.env)
         self.context = given_context(self.env)
         self.given: set[str] = set()              # messages given to it (live or by resume)
         self.queued: set[str] = set()
@@ -153,6 +163,9 @@ class Session:
             base += ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]
         else:
             base += ["--output-format", "json"]
+        if self.sandbox:                                   # its folder's reads, and when gated its tools and actions
+            from .actions import sandbox as sb
+            return [*base, *self.extra, *sb.flags(self.sandbox, self.item)]
         return [*base, *self.extra]
 
     def start(self, prompt: str) -> int:
@@ -162,7 +175,12 @@ class Session:
                                      "block": os.environ.get("ERGOSTAT_BLOCK"), "live": self.live,
                                      **({"context": {k: v for k, v in self.context.items() if k != "file"}}
                                         if self.context else {}),
-                                     **({"recipe": self.context["recipe"]} if self.context else {})})
+                                     **({"recipe": self.context["recipe"]} if self.context else {}),
+                                     "workdir": self.cwd,
+                                     **({"gated": {"tools": self.sandbox.get("tools"), "actions": self.sandbox.get("actions"),
+                                                   "item": self.sandbox.get("item"), "branch": self.sandbox.get("branch")}}
+                                        if self.sandbox and (self.sandbox.get("tools") is not None
+                                                             or self.sandbox.get("actions")) else {})})
         stop = threading.Event()
         copier = threading.Thread(target=self._copying, args=(stop,), daemon=True)
         copier.start()
@@ -192,7 +210,8 @@ class Session:
     def _live(self, prompt: str) -> bool:
         """One process, its standard input open: the prompt, then each message as it arrives."""
         from .messages import deliver
-        proc = subprocess.Popen(self.args(False), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=self.env)
+        proc = subprocess.Popen(self.args(False), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=self.env,
+                                cwd=self.cwd)
         out: queue.Queue = queue.Queue()
 
         def read():
@@ -248,7 +267,8 @@ class Session:
     def _once(self, prompt: str) -> bool:
         """One turn, its input given whole: what arrives meanwhile is queued for after it."""
         from .messages import deliver
-        proc = subprocess.Popen(self.args(False), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=self.env)
+        proc = subprocess.Popen(self.args(False), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=self.env,
+                                cwd=self.cwd)
         got: list[str] = []
         reader = threading.Thread(target=lambda: got.append(proc.communicate(prompt)[0]), daemon=True)
         reader.start()
@@ -267,7 +287,7 @@ class Session:
         text = "\n\n---\n\n".join(deliver.note(m) for m in msgs)
         for m in msgs:
             self._deliver(m, "resume")
-        proc = subprocess.run(self.args(True), input=text, capture_output=True, text=True, env=self.env)
+        proc = subprocess.run(self.args(True), input=text, capture_output=True, text=True, env=self.env, cwd=self.cwd)
         ok = self._result(proc.stdout)
         self.results[-1]["_resumed"] = True
         reply = (self.results[-1].get("result") or "") if self.results else ""
@@ -318,6 +338,16 @@ def given_context(env: dict) -> dict | None:
     return {"file": f, "recipe": recipe, "name": name, "version": int(version) if version.isdigit() else None,
             "hash": env.get("ERGOSTAT_CONTEXT_HASH") or "", "chars": len(Path(f).read_text(encoding="utf-8")),
             "item": env.get("ERGOSTAT_CONTEXT_ITEM") or None, "run": env.get("ERGOSTAT_RUN") or None}
+
+
+def given_sandbox(env: dict) -> dict | None:
+    """Where the session works and what it may use, as the block's run made it ready (``$ERGOSTAT_SANDBOX``, SPEC §12k),
+    when there is one."""
+    f = env.get("ERGOSTAT_SANDBOX")
+    if not f or not Path(f).is_file():
+        return None
+    from .actions import sandbox as sb
+    return {**sb.load(f), "file": f}
 
 
 def display_path(path: Path, p) -> str:

@@ -167,13 +167,39 @@ INTENT_MEASURES = {                # how far finished work holds to what the own
     "ergostat.intent.cost": "dollars the intent judge spent over the last week",
 }
 
+ACTION = "ergostat.action"        # the built-in item kind: a gated action an AI session asked for (SPEC §12k)
+ACTION_STATES = ["requested", "approved", "ran", "failed", "denied"]
+GATES = ("auto", "approve", "deny")   # an action's gate: run at once, held for the owner, or never run
+ACTIONS = re.compile(r"^ergostat\.actions\.(held|approved|auto|denied|ran|failed)(?:@([a-z][a-z0-9-]*))?$")
+ACTIONS_MEASURES = {               # the gated actions, by how their gates took them (SPEC §12k); @CLASS narrows them
+    "ergostat.actions.held": "gated actions waiting for the owner's approval, now (each needs attention); @CLASS for one "
+                             "class",
+    "ergostat.actions.approved": "gated actions the owner approved over the last week",
+    "ergostat.actions.auto": "gated actions their gate let through at once (gate: auto) over the last week",
+    "ergostat.actions.denied": "gated actions denied, by their gate (gate: deny) or by the owner, over the last week",
+    "ergostat.actions.ran": "gated actions that ran and exited 0 over the last week",
+    "ergostat.actions.failed": "gated actions that ran and failed over the last week",
+}
+WORKSPACE = "ergostat.workspace"  # the built-in item kind: one workspace of a pool, and whose it is (SPEC §12k)
+WORKSPACE_STATES = ["free", "in-use", "held", "quarantined"]
+WORKSPACES = re.compile(r"^ergostat\.workspaces\.(free|in-use|held|quarantined)(?:@([a-z][a-z0-9-]*))?$")
+WORKSPACES_MEASURES = {            # the workspace pools, now (SPEC §12k); @POOL narrows them
+    "ergostat.workspaces.free": "workspaces free to be given to an item, now; @POOL for one pool",
+    "ergostat.workspaces.in-use": "workspaces an item's run holds, now",
+    "ergostat.workspaces.held": "workspaces kept for an item whose lease ended while it is not finished (under review), "
+                                "now",
+    "ergostat.workspaces.quarantined": "workspaces found dirty or broken, kept aside for the owner and never reused, now",
+}
+
 
 def is_measure(name: str) -> bool:
     """A built-in measure a sensor may read: the model's own (``ergostat.model.*``), trust's (``ergostat.trust.*``,
     with an optional ``@who``), the messages' (``ergostat.messages.*``), a recipe's (``ergostat.context.*``) or the
-    intent judge's (``ergostat.intent.*``, with an optional ``@kind``)."""
+    intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the gated actions' (``ergostat.actions.*``, with an
+    optional ``@class``) or the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``)."""
     return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
-            or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)))
+            or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(ACTIONS.match(name))
+            or bool(WORKSPACES.match(name)))
 
 
 @dataclass
@@ -211,6 +237,21 @@ def message_kind() -> ItemKind:
                     None, "the owner's messages: received, routed to the work in flight they concern, and delivered to it "
                     "(a running session's next turn, a run's context, a follow-up on finished work), or unrouted "
                     "(built in, SPEC §12h)", fold={"deliveries": "append", "answers": "append"})
+
+
+def action_kind() -> ItemKind:
+    on = {f"{ACTION}.{s}": s for s in ACTION_STATES}
+    return ItemKind(ACTION, f"{ACTION}/*", list(ACTION_STATES), on, ["action", "item", "gate", "by", "command", "exit"], {},
+                    None, "a gated action an AI session asked for: approved by its gate (auto) or the owner, or denied; "
+                    "then ran or failed, its output given back (built in, SPEC §12k)", fold={"deliveries": "append"})
+
+
+def workspace_kind() -> ItemKind:
+    on = {f"{WORKSPACE}.acquired": "in-use", f"{WORKSPACE}.held": "held", f"{WORKSPACE}.released": "free",
+          f"{WORKSPACE}.quarantined": "quarantined", f"{WORKSPACE}.freed": "free"}
+    return ItemKind(WORKSPACE, f"{WORKSPACE}/*", list(WORKSPACE_STATES), on, ["pool", "item", "branch", "dir", "why"], {},
+                    None, "one workspace of a pool: free, in use by an item's run, held for an item under review, or "
+                    "quarantined (dirty or broken, never reused) (built in, SPEC §12k)")
 
 
 def verdict_kind() -> ItemKind:
@@ -277,6 +318,41 @@ class ClaimCheck:
     in_: str = "."
     says: str | None = None
     timeout: float = 600.0
+    description: str = ""
+    where: Where | None = None
+
+
+@dataclass
+class Action:
+    """A gated action (``actions:``, SPEC §12k): an outward act an AI session may ask for, through the tools ergostat
+    serves it, and never do itself. ``run``: its command template (``{name}`` filled with an argument, shell-quoted, or
+    with ``{item}``, ``{branch}``, ``{workdir}``, ``{block}``, ``{run}``); ``gate``: ``auto``, ``approve`` or ``deny``;
+    ``cls``: the class it is counted in (its name, else); ``args``: name → what it is; ``wait``: how long a session waits
+    for the owner before going on without it; ``in_``: where it runs (else the session's working directory)."""
+    name: str
+    run: str
+    gate: str = "approve"
+    cls: str = ""
+    args: dict[str, str] = field(default_factory=dict)
+    timeout: float = 120.0
+    wait: float = 300.0
+    in_: str | None = None
+    description: str = ""
+    where: Where | None = None
+
+
+@dataclass
+class WorkspacePool:
+    """A pool of workspaces (``workspaces:``, SPEC §12k): directories an AI block's runs work in, one per item. ``type``:
+    how a workspace is made (``git``: a worktree of ``repo`` on its own branch, ``branch`` from the item's fields, made
+    from ``base``); ``pool``: where they are (else the state directory's ``workspaces/NAME``); ``size``: how many."""
+    name: str
+    repo: str
+    size: int = 2
+    branch: str = "{kind}/{id}-{slug}"
+    base: str = "HEAD"
+    pool: str | None = None
+    type: str = "git"
     description: str = ""
     where: Where | None = None
 
@@ -590,6 +666,8 @@ class Spec:
     claims: dict[str, ClaimCheck] = field(default_factory=dict)       # the checks the project declares (SPEC §12g)
     messages: Messages = field(default_factory=Messages)               # how the owner's messages are routed (SPEC §12h)
     contexts: dict = field(default_factory=dict)                       # name → Recipe: the projection recipes (SPEC §12j)
+    actions: dict[str, Action] = field(default_factory=dict)           # the gated actions sessions may ask for (SPEC §12k)
+    workspaces: dict[str, WorkspacePool] = field(default_factory=dict)  # the workspace pools (SPEC §12k)
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 

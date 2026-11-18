@@ -53,6 +53,7 @@ the JSON below. Answer with JSON lines only, one per output, for example:
            "check": "tests | changed | state | exit | level"}}   what you did, said plainly: ergostat checks it (SPEC §12g)
 {"answer": {"message": "ergostat.message/<id>", "says": "..."}}   your answer to a message the owner sent (SPEC §12h)
 Messages the owner sent about this work while it waited are in the JSON under "messages": take them into it.
+Gated actions an earlier session of yours asked for, and what became of them, are under "actions" (SPEC §12k).
 """
 
 
@@ -92,6 +93,7 @@ class Engine:
         self._sweeping = threading.Lock()
         self.routes: dict[str, list[dict]] = {}       # block → the route lines its runs printed (a classifier, SPEC §12h)
         self.outcomes_lock = threading.Lock()
+        self.lease_seq = 0                             # the newest lease event taken to the workspace pools (SPEC §12k)
 
     # ---- signals
 
@@ -384,19 +386,26 @@ class Engine:
                 if frm in self.outputs:
                     self.outputs[frm][f"review-{b.name}"] = 0.0
         given = self.start_context(b, ctx, begun["id"], env) if b.params.get("context") else None
+        ready, refused = self.place(b, ctx, begun["id"], env, given)   # its folder, and what its session may use
         cmd, stdin = self.program(b, ctx)                         # (its input, with the context it was given)
         if given and b.type == "ai" and "run" not in b.params:   # claude -p itself: the context after its own prompt
             cmd += f" --append-system-prompt-file {shlex.quote(given['file'])}"
+        if ready.cfg and "run" not in b.params:                  # claude -p itself: in its folder, gated when it is
+            from ..actions import sandbox
+            cmd += " " + sandbox.command_line(ready.cfg)
+        cwd = ready.workdir if ready.workdir and "run" not in b.params else self.spec.root
         log = old.log_path(self.p, b.name)
         note, code, lines = "", None, []
         with open(log, "a", encoding="utf-8") as lf:
             lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} ({why})\n")
             lf.flush()
             try:
-                proc = subprocess.Popen(cmd, shell=True, cwd=self.spec.root, env=env, stdin=subprocess.PIPE,
+                if refused:
+                    raise OSError(refused)
+                proc = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
             except OSError as e:
-                note = f"could not start: {e}"
+                note = refused or f"could not start: {e}"
             else:
                 old.LIVE.add(proc)
                 try:
@@ -427,6 +436,12 @@ class Engine:
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
                 **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {})}
         self.moved_by[b.name] = dict(said.moved)
+        if ready.workspace:                                      # its run was its lease, when it had none: released
+            try:
+                from ..workspaces import leases
+                leases.run_ended(self.p, self.spec, ready.item, begun["id"], ready.lease)
+            except Exception as e:
+                self.say(f"{b.name}: workspace: {type(e).__name__}: {e}")
         failed = bool(note) and note != old.STOPPED_WITH_US
         ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
         if failed:
@@ -443,6 +458,25 @@ class Engine:
         if not failed and b.params.get("review"):                # who reviews its work, and how deeply, by its trust
             self.review(b, begun["id"], given)
         return [f for f, v in said.moved.items() if v]           # moving nothing is not a reason to read again
+
+    def place(self, b: Block, ctx: dict, run: str, env: dict, given: dict | None):
+        """An ``ai`` block's folder and what its session may use (SPEC §12k): a workspace from its pool for the item it
+        works on, or its workdir:; its read:, tools: and actions:. Returns what was made ready, and why the run cannot
+        start (no workspace to give it), or None."""
+        from ..actions import prepare as pr
+        if b.type != "ai":
+            return pr.Prepared(), None
+        try:
+            ready = pr.prepare(self.p, self.spec, b, ctx, run, env, given)
+        except Exception as e:                                   # no workspace for it: the run does not start
+            from ..workspaces.pool import PoolError
+            return pr.Prepared(), str(e) if isinstance(e, PoolError) else f"{type(e).__name__}: {e}"
+        if b.params.get("actions"):                              # what its sessions asked for and were not answered
+            from ..actions import gate
+            got = gate.for_context(self.p, b.name, run)
+            if got:
+                ctx["actions"] = got
+        return ready, None
 
     def start_context(self, b: Block, ctx: dict, run: str, env: dict) -> dict | None:
         """The block's recipe rendered for this run's item (SPEC §12j): written to a file in the state directory,
@@ -655,6 +689,18 @@ class Engine:
                 deliver.sweep(self.p, self.spec)
             except Exception as e:
                 self.say(f"messages: {type(e).__name__}: {e}")
+            if self.spec.workspaces:                             # leases ended: workspaces held, or cleaned (SPEC §12k)
+                try:
+                    from ..workspaces import leases
+                    self.lease_seq = leases.sweep(self.p, self.spec, self.lease_seq)
+                except Exception as e:
+                    self.say(f"workspaces: {type(e).__name__}: {e}")
+            if self.spec.actions:                                # approved actions no one ran
+                try:
+                    from ..actions import gate
+                    gate.sweep(self.p, self.spec)
+                except Exception as e:
+                    self.say(f"actions: {type(e).__name__}: {e}")
 
     def _follow(self, seq: int) -> None:
         """Approvals of advised commands, from the CLI."""
