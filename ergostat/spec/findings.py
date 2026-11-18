@@ -70,6 +70,9 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
                 st.where, f"stock.{st.name}")
     unsigned(spec, say)
     structure(spec, say)
+    # a kind's state stocks, chained (the record's moves, when there is a record)
+    from .chains import findings as chained
+    chained(spec, say)
     from .equation_checks import findings as numbers
     numbers(spec, say)
     if extremes:

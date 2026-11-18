@@ -409,6 +409,42 @@ def verdict(ran: dict) -> list[str]:
 
 # ---- where it is drawn
 
+def pieces(nodes: list[dict], edges: list[dict]) -> int:
+    """How many parts a drawing falls into: nodes joined by any line."""
+    parent = {n["id"]: n["id"] for n in nodes}
+
+    def root(x):
+        while parent[x] != x:
+            x = parent[x]
+        return x
+    for e in edges:
+        a, b = e.get("from") or e.get("source"), e.get("target") or e.get("to")
+        if a in parent and b in parent:
+            parent[root(a)] = root(b)
+    return len({root(x) for x in parent})
+
+
+def shape(p, system: str) -> dict:
+    """What the two drawings of a system look like, in numbers: the pieces each falls into (one connected chain per
+    item kind draws as one), and check's findings about the chain of its kinds' state stocks (spec/chains.py)."""
+    from ..spec import chains
+    from ..web.server import Live, api
+    out: dict = {}
+    try:
+        live = Live(p)
+        for view in ("dynamics", "blocks"):
+            g = api(live, "graph", {"view": [view], "system": [system], "open": ["*"]})
+            out[f"{view}_pieces"] = pieces(g.get("nodes") or [], g.get("edges") or [])
+    except Exception as e:                          # the drawing is the page's; this is a summary of it
+        out["error"] = str(e)[:300]
+    ps = parts_of(p.model.spec, system)
+    mine = {f"stock.{n}" for n in ps["stocks"]} | {f"flow.{n}" for n in ps["flows"]}
+    out["chain_findings"] = [f"{x.code} ({x.about}): {x.message}" for x in chains.analyse(p.model.spec) if x.about in mine]
+    out["looks_right"] = ("one piece in each view per item kind (an arrival chain, each step's loop sharing its stocks), "
+                          "and no chain findings")
+    return out
+
+
 def where(root: Path, system: str) -> dict:
     from .. import model as mdl
     from ..runner import running_pid, web_url
@@ -428,6 +464,7 @@ def where(root: Path, system: str) -> dict:
         out["pages"] = {k: url + v for k, v in out["pages"].items()}
     else:
         out["to_see_it"] = f"ergostat -C {root} web (or run), then open the pages above on the address it prints"
+    out["shape"] = shape(p, system)
     for flag in ([], ["--blocks"]):
         r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(root), "system", system, *flag], capture_output=True,
                            text=True, timeout=60, env={**os.environ, "NO_COLOR": "1"})

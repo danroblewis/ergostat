@@ -151,7 +151,9 @@ TOOLS = [
                           "seconds": {"type": "number"}, "standins": {"type": "boolean"}})},
     {"name": "where_drawn", "description": "Where a system (an instance) is drawn: its parts, the diagram pages "
      "(/diagram?view=dynamics&system=NAME, the stock-and-flow view; view=blocks, the control view), with the page's address "
-     "when ergostat is running, and the system drawn as text (as ergostat system NAME, and its loops as blocks). project: "
+     "when ergostat is running, the system drawn as text (as ergostat system NAME, and its loops as blocks), and its "
+     "shape: the pieces each view falls into (one per item kind when its states are chained) and check's chain findings. "
+     "project: "
      "a scratch copy try_use made, to show it before it is written.",
      "inputSchema": _obj({"system": {"type": "string"}, "project": {"type": "string"}}, ["system"])},
     {"name": "messages", "description": "The owner's messages and what became of each (routed, delivered, unrouted, "
