@@ -248,6 +248,29 @@ boundary is a choice to be stated).
   the sign: `+` when the effect moves the same way as the cause, `-` the opposite way (Sterman ch. 5,
   link polarity).
 
+## 9. Quiet is not absent: a part the record has not exercised
+
+A flow that has not moved yet is not evidence that it does not exist. Points on a benchmark are
+lost rarely (an outage), a queue of the owner's messages is empty until the owner writes, and a
+record of a few hours may never exercise them. In Sterman's terms (ch. 21), the record has not
+exercised that structure, so its rate cannot be identified from the data: a statement about
+identifiability, not about the boundary. A modeller keeps declared structure with its stated
+reason, and waits for, or makes, the record that tests it.
+
+**What ergostat says.** `not-exercised`, a finding on the part (Check, `ergostat findings`, the
+part's side panel): the span of record it covers, and why (it never moved; or it held one value, so
+there is no variation to identify a parameter from), with the suggestion that a step test or a
+planned disturbance would exercise it. Nothing proposes removing it, the calibration holds an
+estimate of a parameter that acts only through it (inconclusive, not proposed), and the judge does
+not pass a change to it on record that has not moved it. The finding clears the moment the part
+moves.
+
+**What may still be removed.** Only structure with no declared reason that the record shows to be
+redundant: a part ergostat inferred (its description says `proposed by ergostat`), or one with no
+description that carries exactly another part's information over a long, varied record (a twin). The
+proposal says which and why, and waits for the owner: removing structure is never written by the
+judge's policy.
+
 ## Reading what `ergostat check` says
 
 `check` refuses a model with errors (a reference that does not exist, units that disagree between
@@ -335,7 +358,8 @@ drives a flow, and how sure each estimate is. With care it can also propose stru
 candidate causes explain a flow at all (sparse regression over many candidates), whether a delay
 is one stock or several (the shape of the response), whether a residual follows something
 measured. Its limits are as real: it needs the inputs to have varied (a cause that never moved
-cannot be measured), it finds correlation and not cause, it is biased inside a closed loop (the
+cannot be measured, and a flow that never moved says nothing about whether it exists: §9), it finds
+correlation and not cause, it is biased inside a closed loop (the
 controller makes the input follow the output), and different structures can fit the same data
 equally well. The model's structure is still a claim people make and data tests.
 
@@ -358,8 +382,10 @@ its reason, the fit before and after, and the YAML edit: nothing changes until t
 It also proposes **structure** where a check or an estimate gives a concrete fix (SPEC §12b): a stock
 between a rate and the rate that follows it, an outflow for a stock nothing drains (sized by Little's
 law), a converting auxiliary, a sign flipped, a guard, an auxiliary marked exogenous, a term with no
-effect taken out with its link, and SD Lab's simplifications (a dead flow removed, two flows merged, a
-pass-through joined, a still, empty, twin or lone stock removed). What it does not yet do is find a
+effect taken out with its link when ergostat inferred the link, and SD Lab's simplifications kept to structure
+with no declared reason that the record shows to be redundant (an inferred flow that explains nothing, two flows
+merged, a twin or lone stock removed), each waiting for the owner. A part the model declares is never proposed for
+removal because the record has not moved it (§9: quiet is not absent). What it does not yet do is find a
 stock, a delay or a cause the model lacks from the pattern in the residuals, or replace a part by
 another form: a residual and a poor fit say where to look, and the guidelines above say what to write. A `driven-by` the equation leaves out is drawn with its sign and flagged
 **size-unknown**: its size is not known.
@@ -464,7 +490,8 @@ cross-validation).
 Who writes a passed change is the owner's choice, in the judge's `accept:`: by default nothing is written by
 itself. A sensible start is to let a parameter's value be written once passed (`accept: {parameter: auto}`), since
 the structure stays as people declared it, and to keep every change to the structure for the owner to read in the
-review queue, the judge's verdict beside it. Everything written is recorded with its reason and its effect
+review queue, the judge's verdict beside it; a change that removes structure always waits for the owner,
+whatever the policy. Everything written is recorded with its reason and its effect
 (`ergostat.model.changed`), and committed by the owner.
 
 ## A checklist for reviewing a model
@@ -482,6 +509,8 @@ review queue, the judge's verdict beside it. Everything written is recorded with
 9. Calibrate each part alone and the whole model: do the values agree? Where they do not, look at the
    structure between them.
 10. Give the numbers you are unsure of a `range`, and read the fan before you act on a projection.
+11. For each part the record has not exercised (`not-exercised`): keep it with its reason, and plan
+    the step test or disturbance that would exercise it, rather than removing it.
 
 ## Sources
 

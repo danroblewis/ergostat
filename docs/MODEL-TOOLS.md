@@ -20,7 +20,7 @@ the panel says why in one line and what would change that (for example "33 readi
 | Your question | Tools | Where |
 |---|---|---|
 | [Is my model right?](#is-my-model-right) | fit, residuals, structure checks, equation signs, extreme conditions | Model page, a part's panel, Check page |
-| [What should I change?](#what-should-i-change) | the review queue, calibration, parameter, equation and structural proposals, fit history | Model page, a valve's or auxiliary's panel |
+| [What should I change?](#what-should-i-change) | the review queue, calibration, parameter, equation and structural proposals, not exercised by the record, fit history | Model page, a valve's or auxiliary's panel |
 | [What will happen?](#what-will-happen) | replay, projection, sensitivity fan, what-if, leverage, loop dominance | a part's panel in the Dynamics view, a feedback loop's panel, a proposal's effect |
 | [How we know the improver works](#how-we-know-the-improver-works) | the pipeline tests, the judge's error rates, the recovery benchmark, the prediction check, the loop's own measures | `ergostat bench`, `ergostat verify`, the test suite |
 | [How do my loops behave, and how should they be tuned?](#how-do-my-loops-behave-and-how-should-they-be-tuned) | identification, process step response and Bode, margins, closed-loop step and Bode, monitoring, SIMC tuning, detuning, step tests | Blocks view: the process block, the controller, the summing junction; Loops page |
@@ -165,7 +165,7 @@ and refreshes), `ergostat proposals --show ID`, `ergostat accept ID`, `ergostat 
 --reason TEXT`.
 
 **Needs.** A proposal: from Calibrate, a what-if you propose, a check finding with a concrete fix, an
-estimate that says a term has no effect, SD Lab's simplify rules (looked for when the model changes and
+estimate that says an inferred term has no effect, SD Lab's simplify rules for redundant structure (looked for when the model changes and
 every ten minutes), or a loop's identification or tuning. "Nothing waiting." otherwise; **What ergostat
 can propose**, beneath, lists what can and cannot be proposed yet.
 
@@ -235,20 +235,44 @@ lacks.
 **What it is.** A change to what moves what: a stock between a rate and the rate that follows it, an
 outflow for a stock nothing drains (sized by Little's law) or `cumulative: true`, a converting
 auxiliary, a sign flipped, a guard, an auxiliary marked exogenous, a term with no effect removed with its
-link, and SD Lab's simplifications (a dead flow removed, two flows merged, a pass-through stock joined, a
-still, empty, twin or lone stock removed).
+link when ergostat inferred the link, and SD Lab's simplifications for structure with no declared reason that
+the record shows to be redundant (an inferred flow that explains nothing, two flows merged, a twin or lone
+stock removed). A removal says which part and why, and always waits for you, whatever the judge's `accept:`.
+A part the model declares is never proposed for removal because the record has not moved it: see **Not
+exercised by the record**, below.
 
 **What you get.** The structure `check` and the record say is wrong, fixed as a diff you can read and
 simulate before accepting.
 
 **Where.** Model page → **Changes to review**; **Found, and not proposed** (under **What ergostat can
-propose**) lists what was found but would have left an error.
+propose**) lists what was found but would have left an error, or was kept because the model declares it
+with a reason.
 
-**Needs.** A check finding with a concrete fix, or record: a dead flow needs half an hour of record, a
-stock judged empty or still needs 20 readings. Not yet: a missing stock, flow or delay found from the
-residuals' pattern.
+**Needs.** A check finding with a concrete fix, or record: a twin needs an hour of varied record, read
+together at least 60 times. Not yet: a missing stock, flow or delay found from the residuals' pattern.
 
 **How.** `ergostat proposals` lists them with the rest.
+
+### Not exercised by the record
+
+**What it is.** A finding, `not-exercised`, on a stock, flow or auxiliary the record has readings of and
+that never moved there (a flow at zero, a stock at zero) or held one value (no variation to identify a
+parameter from). It is not "absent": a flow that has not moved yet is not evidence that it does not exist (an
+outage that loses points is rare; a short record may never exercise it). In Sterman's terms (ch. 21) the
+record has not exercised that structure, so its rate cannot be identified from the data, which says nothing
+about whether it belongs in the model.
+
+**What you get.** The span of record it covers and why, and what would exercise it (a step test, a planned
+disturbance). Meanwhile nothing is removed, an estimate of a parameter that acts only through it is held
+(inconclusive, "held, inconclusive: the record has not exercised it"), not proposed, and the judge does not
+pass a change to it on record that has not moved it (inconclusive, "needs record in which it moves"). A
+block's proposal that removes such a part is refused, and one that sets such a parameter is recorded as
+inconclusive.
+
+**Where.** **Check** (with the model's other findings), the part's side panel (under its rows), and
+`ergostat findings` (also the MCP tool `findings`).
+
+**Needs.** 20 readings of the part over at least ten minutes of record. It clears the moment the part moves.
 
 ### Fit history
 
