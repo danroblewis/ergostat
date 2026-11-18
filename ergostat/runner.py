@@ -105,7 +105,7 @@ class Recorder:
 
     def __init__(self, project, agent, run_id: str):
         self.p, self.agent, self.run_id = project, agent, run_id
-        self.fills = {(r.kind, r.name) for r in project.model.roles_of(agent.name)}
+        self.fills = {(r.kind, r.name) for r in project.model.roles_of(agent.name)}   # as the model was when it began
         measured = [f for f in self.fills if f[0] in ("sensor", "valve")]
         self.bare = measured[0] if len(measured) == 1 else None   # where a bare number goes: a plain program's output
         self.counts = {"readings": 0, "openings": 0, "decisions": 0, "events": 0, "refused": 0, "unread": 0}
@@ -203,8 +203,12 @@ class Recorder:
                 if "position" in line:                   # how far it is open: a setting, kept as a measurement
                     self.p.measurements.add(f"valve/{name}", float(line["position"]))
                 if "amount" in line:
+                    valve = self.p.model.valves.get(name)
+                    if valve is None:                    # removed while the run went on: said, and refused
+                        self.refuse(line, f"valve {name} is no longer in the model: it changed while this run went on")
+                        return True
                     ev.add("valve.opened", item=name, source=self.agent.name, causedby=self.run_id,
-                           data={"amount": float(line["amount"]), "flow": self.p.model.valves[name].flow,
+                           data={"amount": float(line["amount"]), "flow": valve.flow,
                                  **({"note": line["note"]} if "note" in line else {})})
                     self.counts["openings"] += 1
             else:
@@ -270,12 +274,16 @@ def _edges(project, causedby, sensor) -> list[dict]:
     return out
 
 
-def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule") -> dict:
-    """One run: start the command, feed it its context, record its lines, and record the run."""
+def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule", version: str | None = None) -> dict:
+    """One run: start the command, feed it its context, record its lines, and record the run. ``version``: the
+    model it starts under (recorded on the run; it finishes under that agent's definition whatever changes)."""
+    if version is None:
+        from .history import version as model_version
+        version = model_version(project.model)
     started = time.time()
     begun = project.events.add("agent.started", item=agent.name, source=SOURCE,
                                causedby=trigger.get("id") if trigger else None,
-                               data={"trigger": trigger["type"] if trigger else why})
+                               data={"trigger": trigger["type"] if trigger else why, "model": version})
     rec = Recorder(project, agent, begun["id"])
     log = log_path(project, agent.name)
     try:                                                # a log is kept to its last megabyte once it passes five
@@ -345,25 +353,46 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                     crashed = crashed or f"{type(e).__name__}: {e}"
     data = {"exit": code, "seconds": round(time.time() - started, 3), **rec.counts, "why": trigger["type"] if trigger else why,
             **({"unread_lines": rec.unread} if rec.unread else {}), **({"note": note} if note else {}), "printed": rec.printed,
-            **({"took": rec.took} if rec.took is not None else {})}
+            **({"took": rec.took} if rec.took is not None else {}), "model": version}
     failed = bool(note) and note != STOPPED_WITH_US      # cut short by our own stop: not the agent's failure
     project.events.add("agent.failed" if failed else "agent.ran", item=agent.name, source=SOURCE, causedby=begun["id"],
                        data=data)
     return data
 
 
+def _runs(agent) -> bool:
+    return agent is not None and bool(agent.command) and agent.kind != "person"
+
+
 class Runner:
     def __init__(self, project, say=print):
+        from .history import version
         self.p, self.say = project, say
         self.stop = threading.Event()
-        self.queues = {a.name: queue.Queue() for a in project.model.agents.values() if a.command and a.kind != "person"}
+        self.lock = threading.RLock()
+        self.queues = {a.name: queue.Queue() for a in project.model.agents.values() if _runs(a)}
+        self.workers: set[str] = set()   # agents with a worker thread
         self.waiting: set[str] = set()
         self.busy: set[str] = set()       # agents whose run is under way
+        self.version = version(project.model)
+
+    def _worker(self, name: str) -> None:
+        with self.lock:
+            if name in self.workers:
+                return
+            self.workers.add(name)
+        threading.Thread(target=self._work, args=(name,), daemon=True).start()
 
     def _work(self, name: str) -> None:
-        agent = self.p.model.agents[name]
         q = self.queues[name]
         while not self.stop.is_set():
+            with self.lock:                              # each run under the agent as the model has it now
+                agent = self.p.model.agents.get(name)
+                if not _runs(agent):                     # removed (its last run finished): no more runs
+                    self.workers.discard(name)
+                    self.queues.pop(name, None)
+                    self.waiting.discard(name)
+                    return
             try:
                 trig = q.get(timeout=TICK)
             except queue.Empty:
@@ -371,9 +400,14 @@ class Runner:
             self.waiting.discard(name)
             if self.stop.is_set():
                 break
-            self.busy.add(name)
+            with self.lock:
+                agent = self.p.model.agents.get(name)
+                if not _runs(agent):
+                    continue
+                version = self.version
+                self.busy.add(name)
             try:
-                r = run_agent(self.p, agent, trig)
+                r = run_agent(self.p, agent, trig, version=version)
             except Exception as e:                       # one agent failing never stops the rest
                 self.say(f"{name}: {type(e).__name__}: {e}")
                 continue
@@ -382,19 +416,31 @@ class Runner:
             if r.get("note") or r.get("refused"):
                 self.say(f"{name}: {r.get('note') or ''} {r.get('refused') and str(r['refused']) + ' refused' or ''}".strip())
 
-    def _schedule(self) -> None:
+    def _plan(self, model, crons: dict, next_cron: dict) -> tuple[list, dict, dict]:
+        """The timed agents and the crons, from this model; a cron written the same keeps its next time."""
         from .cron import Cron
-        due: dict[str, float] = {}
-        timed = [a for a in self.p.model.agents.values() if a.name in self.queues and a.every]
-        crons = {a.name: Cron(a.cron) for a in self.p.model.agents.values() if a.name in self.queues and a.cron}
-        next_cron = {}
-        for n, c in crons.items():
+        timed = [a for a in model.agents.values() if _runs(a) and a.every]
+        new = {a.name: (Cron(a.cron), a.cron) for a in model.agents.values() if _runs(a) and a.cron}
+        times = {}
+        for n, (c, text) in new.items():
+            if n in crons and crons[n][1] == text and n in next_cron:
+                times[n] = next_cron[n]
+                continue
             try:
-                next_cron[n] = c.next_after(time.time())
+                times[n] = c.next_after(time.time())
             except Exception as e:
                 self.say(f"{n}: its cron never matches ({e}); it will not run")
-                next_cron[n] = None
+                times[n] = None
+        return timed, new, times
+
+    def _schedule(self) -> None:
+        due: dict[str, float] = {}
+        model = self.p.model
+        timed, crons, next_cron = self._plan(model, {}, {})
         while not self.stop.is_set():
+            if model is not self.p.model:                    # swapped: the new model's schedules from now
+                model = self.p.model
+                timed, crons, next_cron = self._plan(model, crons, next_cron)
             now = time.monotonic()
             for a in timed:
                 if now >= due.get(a.name, 0):
@@ -404,7 +450,7 @@ class Runner:
             for n, at in list(next_cron.items()):
                 if at is not None and wall >= at:
                     try:
-                        next_cron[n] = crons[n].next_after(wall)
+                        next_cron[n] = crons[n][0].next_after(wall)
                     except Exception as e:                      # one agent's schedule never stops the others
                         self.say(f"{n}: its cron no longer matches ({e}); it will not run again")
                         next_cron[n] = None
@@ -412,9 +458,10 @@ class Runner:
             self.stop.wait(TICK)
 
     def _due(self, name: str) -> None:
-        if name not in self.waiting:                        # its last scheduled run has not started: skip
+        q = self.queues.get(name)
+        if q is not None and name not in self.waiting:      # its last scheduled run has not started: skip
             self.waiting.add(name)
-            self.queues[name].put(None)
+            q.put(None)
 
     def _prune(self) -> None:
         """Every ``storage: rollup: every`` (an hour): roll items' old events up into snapshots, forget
@@ -436,8 +483,11 @@ class Runner:
 
     def _follow(self, seq: int) -> None:
         """From ``seq``, taken before any thread started, so no event that lands meanwhile is missed."""
-        listening = [a for a in self.p.model.agents.values() if a.name in self.queues and a.on]
+        model = None
         while not self.stop.is_set():
+            if model is not self.p.model:                     # (swapped: who listens, from now)
+                model = self.p.model
+                listening = [a for a in model.agents.values() if _runs(a) and a.on]
             try:
                 new = self.p.events.query(n=None, after_seq=seq)
             except Exception as e:                              # the follower outlives a busy database
@@ -448,8 +498,9 @@ class Runner:
                 seq = ev["seq"]
                 for a in listening:
                     own = ev.get("source") == a.name or (ev.get("item") == a.name and ev["type"].startswith("agent."))
-                    if not own and any(matches(pat, ev) for pat in a.on):
-                        self.queues[a.name].put(ev)
+                    q = self.queues.get(a.name)
+                    if q is not None and not own and any(matches(pat, ev) for pat in a.on):
+                        q.put(ev)
             self.stop.wait(TICK)
 
     def start(self) -> None:
@@ -459,13 +510,40 @@ class Runner:
         seq = self.p.events.last_seq()
         if not RELOADED.is_set():
             self._still_off()
-        for name in self.queues:
-            threading.Thread(target=self._work, args=(name,), daemon=True).start()
+        for name in list(self.queues):
+            self._worker(name)
         threading.Thread(target=self._schedule, daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         threading.Thread(target=self._prune, daemon=True).start()
         self.p.events.add("ergostat.started", source=SOURCE, data={"agents": sorted(self.queues), "pid": os.getpid()})
 
+
+    def swap(self, model) -> dict:
+        """Take a changed model in place, never killing a run: one under way finishes as the agent it began as, and
+        records the model it began under; new runs are the new model's. An agent removed runs no more once its run
+        is done; one added starts at once. Records ``model.changed`` with the runs that carried over."""
+        from . import history
+        with self.lock:
+            before, was = self.p.model, self.version
+            carried = sorted(self.busy)
+            self.p.model = model
+            self.version = history.version(model)
+            for a in model.agents.values():
+                if _runs(a) and a.name not in self.queues:
+                    self.queues[a.name] = queue.Queue()
+            fresh = [a for a in model.agents if _runs(model.agents[a]) and a not in self.workers]
+        for name in fresh:
+            self._worker(name)
+        changed = [n for n in carried if n in model.agents and history._hash(before.agents[n]) != history._hash(model.agents[n])]
+        said = {"reload": "in place", "carried": len(carried), "runs": carried, "version_before": was,
+                **({"finishing": {k: v for k, v in (("removed", [n for n in carried if n not in model.agents]),
+                                                    ("changed", changed)) if v}}
+                   if changed or any(n not in model.agents for n in carried) else {})}
+        try:
+            history.note(self.p, said)
+        except Exception as e:
+            self.say(f"recording the change: {type(e).__name__}: {e}")
+        return {**said, "version": self.version}
 
     def _still_off(self) -> None:
         """A loop off when ergostat starts is said again: what its crossing set off may have been lost

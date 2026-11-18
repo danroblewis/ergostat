@@ -10,6 +10,9 @@
   queued (anti-windup), and it runs again, with the latest command, only after a fresh reading.
   After it moves a flow, the sensors of that flow's stocks read at once, so the loop sees the effect.
 - What was **commanded** and what was **moved** are both recorded: the gap is saturation.
+- When the model changes, it is **swapped in place** (``swap``), never by killing the runs: a run under way finishes
+  under the model it started with (it records that version) and its output is taken against it; new runs start
+  under the new model; goals and sensors switch at once, built-ins carry their state over (bumpless).
 
 The record uses the same stores and event types as before (``valve.opened``, ``loop.off``,
 ``agent.ran``), so the status, the page and the diagrams show a YAML project like any other."""
@@ -37,6 +40,8 @@ JUDGE_EVERY = 30.0          # a judge with no every: passes this often
 SWEEP = 5.0                 # how often the owner's messages are swept: left received, or about work since finished
 OUTCOMES_EVERY = 30.0       # how often the outcomes of the recipes' uses are found again (SPEC §12j)
 SOURCE = "ergostat"
+STOPPED_BY_OWNER = "stopped as the owner asked"   # ergostat block NAME --stop: not the block's failure
+STOP_ASKED = "block.stop.requested"
 AI_COMMAND = os.environ.get("ERGOSTAT_AI", "claude -p")
 AI_FOOTER = """
 
@@ -92,6 +97,11 @@ class Engine:
         self._sweeping = threading.Lock()
         self.routes: dict[str, list[dict]] = {}       # block → the route lines its runs printed (a classifier, SPEC §12h)
         self.outcomes_lock = threading.Lock()
+        from ..history import version
+        self.version = version(project.model)          # the model new runs start under (each run records its own)
+        self.procs: dict[str, subprocess.Popen] = {}   # machine block → its run's process, while it runs
+        self.stopping_runs: set[str] = set()           # blocks whose run the owner asked to stop
+        self.ingester = None
 
     # ---- signals
 
@@ -264,19 +274,23 @@ class Engine:
                 return
             if b.name in self.held:                             # a step test holds the loop still: its controller waits
                 return
+            b = self.spec.blocks.get(b.name)                    # a new run starts under the model as it is now
+            if b is None or not b.machine:                      # (removed, or no longer a machine: no more runs)
+                return
             self.running.add(b.name)
             self.began[b.name] = time.time()
-        threading.Thread(target=self._run, args=(b, why), daemon=True).start()
+            spec, version = self.spec, self.version
+        threading.Thread(target=self._run, args=(b, why, spec, version), daemon=True).start()
 
-    def _run(self, b: Block, why: str) -> None:
-        slot = self.slots.get(b.agent or "")
+    def _run(self, b: Block, why: str, spec: Spec | None = None, version: str | None = None) -> None:
+        slot = self.slots.get(b.agent or "")                    # the one it takes is the one it gives back
         moved: list[str] = []
         run = None
         try:
             if slot:
                 slot.acquire()
             try:
-                moved = self.run_block(b, why)
+                moved = self.run_block(b, why, spec=spec, version=version)
                 run = self.last_run.get(b.name)
             except Exception as e:
                 self.say(f"{b.name}: {type(e).__name__}: {e}")
@@ -294,10 +308,13 @@ class Engine:
         self.evaluate()
 
     def after_acting(self, flows) -> list[Sensor]:
-        """The sensors of the stocks these flows connect: read at once after a block moves them."""
+        """The sensors of the stocks these flows connect: read at once after a block moves them (a flow the model
+        no longer has, moved by a run that started before it changed, has none)."""
         out = []
         for f in flows:
-            fl = self.spec.flows[f]
+            fl = self.spec.flows.get(f)
+            if fl is None:
+                continue
             for st in (fl.source, fl.target):
                 if st in self.spec.stocks:
                     out += [s for s in self.spec.stocks[st].sensors.values() if s.measured]
@@ -313,7 +330,9 @@ class Engine:
         inputs = {str(r): self.get(r) for r in b.inputs.values()}
         goals = {}
         for name in {r.name for r in b.reads() if r.kind == "goal"} | self.served(b):
-            g = self.spec.goals[name]
+            g = self.spec.goals.get(name)
+            if g is None:                                         # (a goal gone from the model as the run began)
+                continue
             goals[name] = {"hold": f"{g.hold.op} {self.signals.get(f'goal.{name}', g.hold.value):g}",
                            "value": self.signals.get(str(g.of)), "error": self.signals.get(f"goal.{name}.error"),
                            "status": self.status.get(name, "unknown")}
@@ -336,46 +355,51 @@ class Engine:
     def served(self, b: Block) -> set[str]:
         return {g for g in self.spec.goals if b.name in self.spec.loop(g).actuators}
 
-    def program(self, b: Block, ctx: dict) -> tuple[str, str]:
+    def program(self, b: Block, ctx: dict, spec: Spec | None = None) -> tuple[str, str]:
         """The command to run and what to give it on standard input."""
+        spec = spec or self.spec
         payload = json.dumps(ctx)
         if b.type != "ai":
             return str(b.params["run"]), payload
         prompt = str(b.params["prompt"])
-        path = self.spec.root / prompt
+        path = spec.root / prompt
         if "\n" not in prompt and path.is_file():
             prompt = path.read_text(encoding="utf-8")
         cmd = str(b.params.get("run") or AI_COMMAND)
-        model = b.params.get("model") or (self.spec.agents[b.agent].model if b.agent in self.spec.agents else None)
+        model = b.params.get("model") or (spec.agents[b.agent].model if b.agent in spec.agents else None)
         if model and "run" not in b.params and "--model" not in cmd:
             cmd += f" --model {model}"
         return cmd, prompt + AI_FOOTER + payload
 
-    def run_block(self, b: Block, why: str, extra: dict | None = None) -> list[str]:
+    def run_block(self, b: Block, why: str, extra: dict | None = None, spec: Spec | None = None,
+                  version: str | None = None) -> list[str]:
         """One run: give it its inputs and command, record what it says. Returns the flows it moved. ``extra``: more
-        for its input (a classifier's message and candidates)."""
+        for its input (a classifier's message and candidates). ``spec`` and ``version``: the model it started under
+        (the one loaded now, by default); it finishes under it, whatever the model becomes meanwhile."""
+        spec, version = spec or self.spec, version or self.version
         ctx = {**self.context(b, why), **(extra or {})}
         ev = self.p.events
         commander = (ctx.get("command") or {}).get("from")          # caused by the decision or run that commanded it
         begun = ev.add("agent.started", item=b.name, source=SOURCE, causedby=self.cause.get(commander) if commander else None,
-                       data={"trigger": why, "command": ctx.get("command")})
+                       data={"trigger": why, "command": ctx.get("command"), "model": version,
+                             **({"timeout": b.timeout} if b.timeout else {})})
         self.last_run[b.name] = begun["id"]
         if "command" in ctx:
             ev.add("block.commanded", item=b.name, source=SOURCE, causedby=begun["id"], data=ctx["command"])
         if why != "message":                                     # the owner's messages that waited for it (SPEC §12h)
             try:
                 from ..messages import deliver
-                msgs = deliver.for_context(self.p, self.spec, b, begun["id"])
+                msgs = deliver.for_context(self.p, spec, b, begun["id"])
             except Exception as e:                               # a message never stops a run
                 self.say(f"{b.name}: messages: {type(e).__name__}: {e}")
                 msgs = []
             if msgs:
                 ctx["messages"] = msgs
-        cmd, stdin = self.program(b, ctx)
+        cmd, stdin = self.program(b, ctx, spec)
         started = time.time()
         env = {**os.environ, "ERGOSTAT_BLOCK": b.name, "ERGOSTAT_AGENT": b.name, "ERGOSTAT_RUN": begun["id"],
-               "ERGOSTAT_PROJECT": self.spec.name, "ERGOSTAT_STATE_DIR": str(self.p.dir),
-               "ERGOSTAT_CMD": f"{shlex.quote(sys.executable)} -m ergostat -C {shlex.quote(str(self.spec.root))}"}
+               "ERGOSTAT_PROJECT": spec.name, "ERGOSTAT_STATE_DIR": str(self.p.dir), "ERGOSTAT_MODEL_VERSION": version,
+               "ERGOSTAT_CMD": f"{shlex.quote(sys.executable)} -m ergostat -C {shlex.quote(str(spec.root))}"}
         if "command" in ctx:
             env["ERGOSTAT_COMMAND"] = f"{ctx['command']['amount']:g}"
         if (ctx.get("command") or {}).get("review"):             # a review asked of it: the ask is answered by this run
@@ -383,8 +407,8 @@ class Engine:
                 frm = ctx["command"].get("from")
                 if frm in self.outputs:
                     self.outputs[frm][f"review-{b.name}"] = 0.0
-        given = self.start_context(b, ctx, begun["id"], env) if b.params.get("context") else None
-        cmd, stdin = self.program(b, ctx)                         # (its input, with the context it was given)
+        given = self.start_context(b, ctx, begun["id"], env, spec) if b.params.get("context") else None
+        cmd, stdin = self.program(b, ctx, spec)                   # (its input, with the context it was given)
         if given and b.type == "ai" and "run" not in b.params:   # claude -p itself: the context after its own prompt
             cmd += f" --append-system-prompt-file {shlex.quote(given['file'])}"
         log = old.log_path(self.p, b.name)
@@ -393,12 +417,14 @@ class Engine:
             lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} ({why})\n")
             lf.flush()
             try:
-                proc = subprocess.Popen(cmd, shell=True, cwd=self.spec.root, env=env, stdin=subprocess.PIPE,
+                proc = subprocess.Popen(cmd, shell=True, cwd=spec.root, env=env, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
             except OSError as e:
                 note = f"could not start: {e}"
             else:
                 old.LIVE.add(proc)
+                with self.lock:
+                    self.procs[b.name] = proc
                 try:
                     out, _ = proc.communicate(stdin, timeout=b.timeout)
                 except subprocess.TimeoutExpired:
@@ -407,14 +433,19 @@ class Engine:
                     note = f"stopped after its timeout of {b.timeout:g}s"
                 finally:
                     old.LIVE.discard(proc)
+                    with self.lock:
+                        if self.procs.get(b.name) is proc:
+                            del self.procs[b.name]
+                        asked = b.name in self.stopping_runs
+                        self.stopping_runs.discard(b.name)
                 code = proc.returncode
                 lines = out.splitlines()
                 for raw in lines:
                     if not raw.strip().startswith("{"):
                         lf.write(raw + "\n")
                 if code and not note:
-                    note = old.STOPPED_WITH_US if old.STOPPING.is_set() else f"exited {code}"
-        said = Said(self, b, begun["id"])
+                    note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
+        said = Said(self, b, begun["id"], spec, version)
         if code is not None:                                     # what it said it moved counts, even if it then failed
             for raw in lines:
                 said.line(raw)
@@ -425,9 +456,10 @@ class Engine:
             said.counts["not_proposed"] = sum(1 for x in said.proposals if x["status"] == "not-proposed")
         data = {"exit": code, "seconds": round(time.time() - started, 3), "why": why, **said.counts,
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
-                **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {})}
+                **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {}), "model": version,
+                **({"model_now": self.version} if self.version != version else {})}   # it ran across a change
         self.moved_by[b.name] = dict(said.moved)
-        failed = bool(note) and note != old.STOPPED_WITH_US
+        failed = bool(note) and note not in (old.STOPPED_WITH_US, STOPPED_BY_OWNER)
         ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
         if failed:
             self.say(f"{b.name}: {note}")
@@ -435,25 +467,26 @@ class Engine:
             self.say(f"{b.name}: {said.refused[0]}")
         if said.claims:                                          # what it said it did, checked by ergostat (SPEC §12g)
             from ..claims import checks
-            for c in checks.check_all(self.p, self.spec, said.claims):
+            for c in checks.check_all(self.p, spec, said.claims):
                 if c["state"] == "contradicted":
                     self.say(f"{b.name}: claim contradicted: {c['says']!r}: {c['why']}")
-        if self.spec.contexts:                                   # how the work each recipe started turned out
+        if spec.contexts:                                        # how the work each recipe started turned out
             self.outcomes()
         if not failed and b.params.get("review"):                # who reviews its work, and how deeply, by its trust
             self.review(b, begun["id"], given)
         return [f for f, v in said.moved.items() if v]           # moving nothing is not a reason to read again
 
-    def start_context(self, b: Block, ctx: dict, run: str, env: dict) -> dict | None:
+    def start_context(self, b: Block, ctx: dict, run: str, env: dict, spec: Spec | None = None) -> dict | None:
         """The block's recipe rendered for this run's item (SPEC §12j): written to a file in the state directory,
         recorded as a use (``ergostat.context.used``), named in its input (``context``) and its environment
         (``ERGOSTAT_CONTEXT``, the file; ``_RECIPE``, ``_HASH``, ``_ITEM``) for the session it starts."""
         from ..recipes import render as rd
         from ..recipes import uses
         want = b.params["context"]
+        spec = spec or self.spec
         try:
-            item = rd.item_for(self.p, self.spec, want.get("item"), (ctx.get("command") or {}).get("item"), b.name, run)
-            r = rd.render(self.p, self.spec, want["recipe"], item, b.name, run)
+            item = rd.item_for(self.p, spec, want.get("item"), (ctx.get("command") or {}).get("item"), b.name, run)
+            r = rd.render(self.p, spec, want["recipe"], item, b.name, run)
         except Exception as e:                                   # a context that cannot be rendered: the run goes on without
             self.p.events.add("agent.refused", item=b.name, source=SOURCE, causedby=run,
                               data={"why": f"context {want['recipe']}: {type(e).__name__}: {e}"})
@@ -513,10 +546,11 @@ class Engine:
         else:
             from ..numbers import judge as jd
         ev = self.p.events
-        begun = ev.add("agent.started", item=b.name, source=SOURCE, data={"trigger": "schedule"})
+        spec, version = self.spec, self.version
+        begun = ev.add("agent.started", item=b.name, source=SOURCE, data={"trigger": "schedule", "model": version})
         started = time.time()
         try:
-            got = jd.run(self.p, self.spec, by=b.name) if b.judge_mode == "intent" else jd.run(self.p, by=b.name)
+            got = jd.run(self.p, spec, by=b.name) if b.judge_mode == "intent" else jd.run(self.p, by=b.name)
         except Exception as e:
             ev.add("agent.failed", item=b.name, source=SOURCE, causedby=begun["id"],
                    data={"exit": None, "seconds": round(time.time() - started, 3), "note": f"{type(e).__name__}: {e}"})
@@ -530,11 +564,12 @@ class Engine:
             wait = jd.pause(got, every, self.judge_idle.get(b.name, 0))
             self.judge_idle[b.name] = 0 if wait <= every else self.judge_idle.get(b.name, 0) + 1
             self.judge_next[b.name] = time.monotonic() + wait
-        said = Said(self, b, begun["id"])
-        for line in jd.lines(self.spec, b.name, got):
+        said = Said(self, b, begun["id"], spec, version)
+        for line in jd.lines(spec, b.name, got):
             said.take(line)
         ev.add("agent.ran", item=b.name, source=SOURCE, causedby=begun["id"],
-               data={"exit": 0, "seconds": round(time.time() - started, 3), "why": "schedule", **said.counts,
+               data={"exit": 0, "seconds": round(time.time() - started, 3), "why": "schedule", "model": version,
+                     **said.counts,
                      **{k: got[k] for k in getattr(jd, "PORTS", ())},
                      **({k: got[k] for k in ("judged", "met", "held", "missed", "cost_usd")} if b.judge_mode == "intent" else {}),
                      **({"moved": said.moved} if said.moved else {})})
@@ -593,22 +628,42 @@ class Engine:
 
     # ---- the clock
 
-    def _schedule(self) -> None:
+    def _plan(self, spec: Spec, crons: dict, nxt: dict) -> tuple[list, list, list, dict, dict]:
+        """What the clock reads, from this model: its timed sensors and blocks, its judges and its crons. A cron
+        already counting down, and written the same, keeps its next time (a model change moves no schedule)."""
         from ..cron import Cron
-        due: dict[str, float] = {}
-        timed = [s for s in self.spec.sensors() if s.measured and not s.cron]
-        timed_blocks = [b for b in self.machines if (b.every and not b.cron) and not self.spec.commanders_of(b.name)]
-        judges = [b for b in self.spec.blocks.values() if b.type == "judge"]
-        crons: dict[str, tuple] = {}
-        for s in self.spec.sensors():
+        timed = [s for s in spec.sensors() if s.measured and not s.cron]
+        machines = [b for b in spec.blocks.values() if b.machine]
+        timed_blocks = [b for b in machines if (b.every and not b.cron) and not spec.commanders_of(b.name)]
+        judges = [b for b in spec.blocks.values() if b.type == "judge"]
+        new: dict[str, tuple] = {}
+        for s in spec.sensors():
             if s.measured and s.cron:
-                crons[s.series] = (Cron(s.cron), lambda s=s: self.read_soon(s))
-        for b in self.machines:
-            if b.cron and not self.spec.commanders_of(b.name):
-                crons[f"block/{b.name}"] = (Cron(b.cron), lambda b=b: self.start(b, "schedule"))
-        nxt = {k: c.next_after(time.time()) for k, (c, _) in crons.items()}
+                new[s.series] = (Cron(s.cron), lambda s=s: self.read_soon(s), s.cron)
+        for b in machines:
+            if b.cron and not spec.commanders_of(b.name):
+                new[f"block/{b.name}"] = (Cron(b.cron), lambda b=b: self.start(b, "schedule"), b.cron)
+        now = time.time()
+        times = {k: nxt[k] if k in crons and crons[k][2] == x[2] and k in nxt else x[0].next_after(now)
+                 for k, x in new.items()}
+        return timed, timed_blocks, judges, new, times
+
+    def _schedule(self) -> None:
+        due: dict[str, float] = {}
+        spec = self.spec
+        timed, timed_blocks, judges, crons, nxt = self._plan(spec, {}, {})
         last_eval = last_sweep = 0.0
         while not self.stop.is_set():
+            if spec is not self.spec:                            # the model was swapped: its schedules from now on
+                spec = self.spec
+                try:
+                    timed, timed_blocks, judges, crons, nxt = self._plan(spec, crons, nxt)
+                except Exception as e:
+                    self.say(f"schedules: {type(e).__name__}: {e}")
+                mono = time.monotonic()                          # a shorter every holds from now; a longer, from the next
+                for k, every in [(s.series, s.every or 60.0) for s in timed] + [(f"block/{b.name}", b.every) for b in timed_blocks]:
+                    if k in due:
+                        due[k] = min(due[k], mono + every)
             mono = time.monotonic()
             for s in timed:
                 if mono >= due.get(s.series, 0):
@@ -632,7 +687,7 @@ class Engine:
             wall = time.time()
             for k, at in list(nxt.items()):
                 if at is not None and wall >= at:
-                    c, fire = crons[k]
+                    c, fire, _ = crons[k]
                     nxt[k] = c.next_after(wall)
                     fire()
             if mono - last_sweep >= SWEEP:                       # the owner's messages: routed, finished work followed up
@@ -657,16 +712,20 @@ class Engine:
                 self.say(f"messages: {type(e).__name__}: {e}")
 
     def _follow(self, seq: int) -> None:
-        """Approvals of advised commands, from the CLI."""
+        """Approvals of advised commands, and the owner's asks to stop a run, from the CLI."""
         while not self.stop.is_set():
             try:
                 new = sorted(self.p.events.query(n=None, after_seq=seq, type="block.approved") +
-                             self.p.events.query(n=None, after_seq=seq, type="steptest.approved"), key=lambda e: e["seq"])
+                             self.p.events.query(n=None, after_seq=seq, type="steptest.approved") +
+                             self.p.events.query(n=None, after_seq=seq, type=STOP_ASKED), key=lambda e: e["seq"])
             except Exception:
                 self.stop.wait(1)
                 continue
             for e in new:
                 seq = max(seq, e["seq"])
+                if e["type"] == STOP_ASKED:
+                    self.stop_run(e.get("item") or "")
+                    continue
                 if e["type"] == "steptest.approved":
                     from ..control import steptest
                     steptest.begin(self, e)
@@ -703,10 +762,90 @@ class Engine:
         threading.Thread(target=self._schedule, daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop
+        self._ingest()
+
+    def _ingest(self) -> None:
         from .. import transcripts
+        if self.ingester is not None:
+            self.ingester.spec = self.spec                       # (swapped: it reads the new model's item kinds)
+            return
         ing = transcripts.Ingester(self.p, self.spec)
         if ing.kinds():                                          # sessions whose transcripts become events (SPEC §5a)
+            self.ingester = ing
             threading.Thread(target=ing.run, args=(self.stop, self.say), daemon=True).start()
+
+    def stop_run(self, name: str) -> bool:
+        """The owner's ask to stop a block's run under way (``ergostat block NAME --stop``): a removed block's last run,
+        or one whose command changed, is otherwise left to finish. Recorded as stopped, not as its failure."""
+        with self.lock:
+            proc = self.procs.get(name)
+            if proc is None:
+                return False
+            self.stopping_runs.add(name)
+        old._kill(proc)
+        self.say(f"{name}: its run stopped, as the owner asked")
+        return True
+
+    def swap(self, model) -> dict:
+        """Take a changed model in place (SPEC §9.1): never a restart, never a run killed. Each run under way
+        carries on under the model it started with, and records it; new runs start under this one. Goals switch at
+        once (a new setpoint holds from the next pass), sensors at their next reading, and a built-in whose law is
+        written the same keeps itself; one changed takes over its state (bumpless). A block removed, or whose
+        command changed, starts no more runs under its old definition. Records ``model.changed`` with the runs that
+        carried over; returns what it said."""
+        from .. import history
+        from ..numbers.version import _hash, _plain
+        new: Spec = model.spec
+        same = lambda a, b: a is not None and b is not None and _hash(_plain(a)) == _hash(_plain(b))   # noqa: E731
+        with self.lock:
+            before, was = self.spec, self.version
+            builtins = {}
+            for n in bl.order(new):
+                b, kept = new.blocks[n], self.builtins.get(n)
+                if kept is not None and same(kept.b, b):
+                    kept.b, kept.spec, kept.p = b, new, b.params
+                    builtins[n] = kept
+                    continue
+                x = bl.make(b, new)
+                if kept is not None and type(kept) is type(x):  # bumpless: the new law starts from the old one's state
+                    for k, v in vars(kept).items():
+                        if k not in ("b", "spec", "p", "tree"):
+                            setattr(x, k, v)
+                builtins[n] = x
+            for n in set(self.builtins) - set(builtins):
+                self.signals.pop(f"block.{n}", None)
+            self.builtins = builtins
+            for g in set(self.status) - set(new.goals):
+                self.status.pop(g, None)
+            for k in [k for k in self.signals if k.startswith("goal.") and k.split(".")[1] not in new.goals]:
+                self.signals.pop(k, None)
+            setters = {t.name for b in new.blocks.values() for t in b.targets() if t.kind == "goal"}
+            for g in set(self.setpoint) - setters:               # a cascade removed: its goal holds what is written
+                self.setpoint.pop(g, None)
+            for a in new.agents.values():
+                if a.name not in self.slots or before.agents.get(a.name) is None or \
+                        before.agents[a.name].at_once != a.at_once:
+                    self.slots[a.name] = threading.Semaphore(a.at_once)   # (a run holding the old one gives it back)
+            for n in list(self.outputs):
+                if n not in new.blocks and n not in self.running:
+                    self.outputs.pop(n, None)
+                    self.commands.pop(n, None)
+            self.machines = [b for b in new.blocks.values() if b.machine]
+            carried = sorted(n for n in self.running if n in before.blocks)
+            finishing = {"removed": [n for n in carried if n not in new.blocks],
+                         "changed": [n for n in carried if n in new.blocks and not same(before.blocks[n], new.blocks[n])]}
+            self.spec = new
+            self.p.model = model
+            self.version = history.version(model)
+        self._ingest()
+        finishing = {k: v for k, v in finishing.items() if v}   # what runs once more, under its old definition
+        said = {"reload": "in place", "carried": len(carried), "runs": carried, "version_before": was,
+                **({"finishing": finishing} if finishing else {})}
+        try:
+            history.note(self.p, said)
+        except Exception as e:                                   # the record of it never undoes the change
+            self.say(f"recording the change: {type(e).__name__}: {e}")
+        return {**said, "version": self.version}
 
     def close(self) -> None:
         self.stop.set()
@@ -720,8 +859,9 @@ class Engine:
 class Said:
     """A machine block's output lines, recorded: what it moved, what it commanded, what it decided."""
 
-    def __init__(self, eng: Engine, b: Block, run_id: str):
+    def __init__(self, eng: Engine, b: Block, run_id: str, spec: Spec | None = None, version: str | None = None):
         self.e, self.b, self.run_id = eng, b, run_id
+        self.spec, self.version = spec or eng.spec, version or eng.version   # the model its run started under
         self.counts = {"openings": 0, "commands": 0, "decisions": 0, "events": 0, "refused": 0}
         self.proposals: list[dict] = []          # what it proposed for the model, and what became of each
         self.claims: list[dict] = []             # what it said it did, recorded, to be checked after the run
@@ -809,7 +949,7 @@ class Said:
         if "claim" in obj:                            # what it says it did: recorded now, checked after the run (SPEC §12g)
             from ..claims import record
             try:
-                self.claims.append(record.made(self.e.p, self.e.spec, self.b.name, obj["claim"], run=self.run_id,
+                self.claims.append(record.made(self.e.p, self.spec, self.b.name, obj["claim"], run=self.run_id,
                                                n=len(self.claims)))
             except record.ClaimError as err:
                 self.refuse(obj, str(err))
@@ -869,6 +1009,11 @@ class Said:
             self.refuse(obj, f"{self.b.name} has no such output ({obj.get('out')!r}); its outputs: "
                         f"{', '.join(str(t) for t in self.b.targets()) or 'none'}")
             return
+        now = self.e.spec
+        if not {"flow": now.flows, "block": now.blocks, "goal": now.goals, "auxiliary": now.auxiliaries}.get(r.kind, {}).get(r.name):
+            self.refuse(obj, f"{r} is no longer in the model: this run started under version {self.version}, "
+                        f"and the model changed to {self.e.version} while it ran")
+            return
         amount = obj.get("moved", obj.get("command", obj.get("value")))
         detail = amount if isinstance(amount, dict) else {}
         if isinstance(amount, dict):
@@ -878,12 +1023,12 @@ class Said:
             return
         amount = float(amount)
         if r.kind == "flow":
-            if amount < 0 and not self.e.spec.flows[r.name].two_way:
+            if amount < 0 and not self.spec.flows[r.name].two_way:
                 self.refuse(obj, f"moved must be 0 or more: flow {r.name} runs one way (two-way: true lets it run back)")
                 return
             self.moved[r.name] = self.moved.get(r.name, 0.0) + amount
             if amount:
-                ev.add("valve.opened", item=valve_name(self.e.spec, self.b.name, r.name), source=self.b.name,
+                ev.add("valve.opened", item=valve_name(self.spec, self.b.name, r.name), source=self.b.name,
                        causedby=self.run_id, data={"amount": amount, "flow": r.name,
                                                    **({"note": obj["note"]} if "note" in obj else {})})
                 self.counts["openings"] += 1

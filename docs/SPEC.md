@@ -954,6 +954,27 @@ Its input also carries, under `messages`, the owner's messages that waited for i
 ergostat records what was **commanded** and what was **moved**: the gap is the direct evidence of
 saturation.
 
+**When the model changes** (`ergostat.yaml` or a file it includes edited, or a change to the model accepted), a running
+ergostat takes the new model **in place, at run boundaries**: it never restarts and never kills a run for it.
+
+- A run under way carries on to its end under the model it started with: its block's definition, its command, its
+  timeout. Each run records the model's version it started under (`model` on `agent.started` and `agent.ran`, a short
+  hash of the dynamics, the control and the measurement together; `model_now` on `agent.ran` when the model changed
+  while it ran), and its output is taken against that version. An output to a part the model no longer has is
+  recorded and refused (`agent.refused`: no longer in the model), never a crash.
+- New runs start under the new model. A block removed, or whose definition changed, lets its run under way finish
+  and starts no more under its old definition; `ergostat block NAME --stop` stops that run when the owner asks
+  (recorded as stopped as the owner asked, not as the block's failure).
+- Goals and sensors switch over at once, bumplessly: a goal's new setpoint holds from the next pass (each second), a
+  sensor's new definition from its next reading, and a schedule keeps its time unless its new `every` is shorter. A
+  built-in block written the same keeps its state; one changed takes over the state of the one before it (a
+  counter's count, a timer's start, a delay's line) when it is of the same type.
+- `model.changed` records it, with how many runs carried over (`carried`, and which: `runs`), the version before
+  and after, and the blocks still finishing under an old definition (`finishing`: `removed`, `changed`).
+- A model that does not load, or has errors, is not taken: the last one runs on. A change of the model's name, of
+  its format (TOML to YAML) or of its storage is a new state directory or store: that one restarts, and stops the
+  runs. `ergostat run --stop` (and any explicit restart) stops everything, as always.
+
 ### 9.2 Built-in block types
 
 A first set, kept small:

@@ -163,7 +163,9 @@ def build() -> argparse.ArgumentParser:
     bk = topic("block", cmd_block, "The blocks (YAML model), or one; a person reports on theirs")
     bk.add_argument("--done", type=float, metavar="N", help="a person's report: what they moved")
     bk.add_argument("--approve", action="store_true", help="approve an advised command (mode: advise)")
-    bk.add_argument("--note", help="with --done or --approve: what was done")
+    bk.add_argument("--stop", action="store_true", help="stop its run under way (one a model change left to finish, "
+                    "say); it starts again only as the model says")
+    bk.add_argument("--note", help="with --done, --approve or --stop: what was done, or why")
     bk.add_argument("--now", action="store_true", help="run this block once, at once (recorded like any run)")
     bk.add_argument("--command", type=float, metavar="N", help="with --now: the command it is given, as if commanded")
     ag = topic("agent", cmd_agent, "Who fills which roles, at what rung")

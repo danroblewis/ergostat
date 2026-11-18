@@ -101,9 +101,24 @@ def cmd_run(args) -> int:
                     for msg in errors:
                         print(f"  {msg}", flush=True)
                     continue
-                print(f"{mdl.file_name(p.model)} changed: restarting with it", flush=True)
-                reload = True
-                break
+                if fresh.name != p.model.name or (getattr(fresh, "spec", None) is None) != (getattr(p.model, "spec", None) is None) or \
+                        getattr(fresh, "storage", None) != getattr(p.model, "storage", None):
+                    # another state directory, format or store: not the same runner any more
+                    print(f"{mdl.file_name(p.model)} changed its name, format or storage: restarting with it "
+                          f"(its runs are stopped)", flush=True)
+                    reload = True
+                    break
+                try:                                        # in place: runs under way carry on (SPEC §9.1)
+                    got = r.swap(fresh)
+                except Exception as e:
+                    print(f"{mdl.file_name(p.model)} changed but could not be taken in place ({type(e).__name__}: {e}); "
+                          f"still running the last one", flush=True)
+                    continue
+                mtime = mdl.stamp(p.model)
+                n = got["carried"]
+                print(f"{mdl.file_name(p.model)} changed: version {got['version']} from now"
+                      + (f"; {n} run{'s' if n != 1 else ''} under way carr{'y' if n != 1 else 'ies'} on under the last one "
+                         f"({', '.join(got['runs'])})" if n else ""), flush=True)
     except KeyboardInterrupt:
         pass
     r.close()
