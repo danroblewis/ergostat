@@ -660,6 +660,7 @@ class Source:
     type: str
     url: str = ""
     where: Where | None = None
+    token_file: str = ""       # an ergostat source (a remote, SPEC §4c): the file holding its token
 
 
 @dataclass
@@ -720,6 +721,8 @@ class Spec:
     leases: dict[str, LeaseTerms] = field(default_factory=dict)        # tier → its lease terms, over the defaults (SPEC §9.5)
     uses: dict = field(default_factory=dict)                           # instance → its template, values, stand-ins (SPEC §2a)
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
+    remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
+    remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
 
     def lookups(self):
         """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept

@@ -75,6 +75,7 @@ run it
   web            Serve the web page only
   mcp            ergostat for an AI agent, over MCP
   projects       Every project on this machine, which run, and their pages
+  remote         Remote systems this model reads (status); token NAME lets another ergostat read this one
   reset          Forget this project's record and start from nothing (--yes)
   verify         Score the changes written to the model again on the record since (--propose)
   bench          How we know it works: bench improve, judge, meta; bench parity (fresh sessions vs a long one)
@@ -294,6 +295,8 @@ def build() -> argparse.ArgumentParser:
     judge_topics(sub, common)
     from .gated import register as gated_topics
     gated_topics(sub, common)
+    from .remote import register as remote_topics
+    remote_topics(sub, common)
     return ap
 
 
