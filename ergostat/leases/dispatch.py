@@ -57,6 +57,7 @@ class Dispatcher:
         self.lock = threading.RLock()
         self.seq = 0
         self.kept = Ready()                           # the items a look needs, followed as events arrive (ready.py)
+        self.stale = True                             # read the record again before the next use: once a look, and after a take
 
     @property
     def spec(self):
@@ -95,9 +96,10 @@ class Dispatcher:
     def items_of(self, kind: str) -> tuple[list, object]:
         """A kind's items a look needs, the latest first: those in a state a block takes from, and those held (every
         item of the kind, read whole, when the record has no item index); and the index they were read from."""
-        ix = self.kept.follow(self.p.events, self.spec, self.kinds, lambda: self.blocks)
+        ix = self.kept.ix if not self.stale else self.kept.follow(self.p.events, self.spec, self.kinds, lambda: self.blocks)
         if ix is None:
             return its.project(self.p.events, self.spec, kind, transcript=False), None
+        self.stale = False
         return self.kept.of(kind), ix
 
     @staticmethod
@@ -113,8 +115,11 @@ class Dispatcher:
         return {i for g in self.going.values() for i in g}
 
     def tick(self) -> None:
-        """Lease what each block may take now, and start a run for each."""
+        """Lease what each block may take now, and start a run for each. The record is read once a look, and again after
+        each lease it takes (each block sees what the blocks before it took): not once for every block, which kept the
+        look waiting on the item index behind every reading's count (docs/proposals/scale.md)."""
         now = time.time()
+        self.stale = True
         for b in self.blocks:
             if self.e.stop.is_set() or b.name in self.e.held:
                 return
@@ -128,6 +133,7 @@ class Dispatcher:
                 if room <= 0:
                     continue
                 for it in self.ready(b, every, now)[:room]:
+                    self.stale = True
                     self.take(b, self.whole(ix, it))
 
     def ready(self, b, every, now: float) -> list:
@@ -262,6 +268,7 @@ class Dispatcher:
         """Every held lease past its expiry: renewed by what its holder was seen to do since, or expired."""
         now = time.time() if now is None else now
         holding = False
+        self.stale = True                                 # (read once a pass: what it records is about the item it looks at)
         for kind in self.kinds():
             for it in self.items_of(kind)[0]:
                 lease = held(it.fields)
