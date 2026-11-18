@@ -1,0 +1,49 @@
+# The local model: a support desk whose tickets rise with the incidents another team's ergostat is handling.
+# remotes: brings that model in as a system, incidents, drawn closed and marked remote: its parts are
+# incidents-open, incidents-opened, ... ; its blocks run there, never here; its readings are read from it.
+name: support
+
+remotes:
+  incidents:
+    url: http://127.0.0.1:8796
+    token-file: incidents.token          # made on the remote: ergostat remote token support
+    every: 10s
+    description: the incident desk, run by the on-call team's ergostat
+
+stocks:
+  tickets:
+    unit: tickets
+    description: customer tickets waiting for an answer
+    sensor:
+      run: mkdir -p inbox; ls inbox | wc -l
+      every: 3s
+
+flows:
+  filed:
+    to: tickets
+    driven-by: [+stock.incidents-open]   # a cause across the boundary: their open incidents bring our tickets
+  answered:
+    from: tickets
+
+goals:
+  tickets-short:
+    stock: tickets
+    hold: "<= 10"
+    tolerance: 3
+  incidents-calm:                        # a local goal on a remote stock: watched here, acted on there
+    stock: incidents-open
+    hold: "<= 8"
+
+blocks:
+  customers:                   # stands in for customers writing in: a ticket for every two incidents open over there
+    type: program
+    every: 3s
+    in: stock.incidents-open
+    run: mkdir -p inbox; n=$(python3 -c "import json,sys; v=json.load(sys.stdin)['inputs'].get('stock.incidents-open') or 0; print(int(v)//2)"); i=0; while [ $i -lt $n ]; do mktemp inbox/t.XXXXXX > /dev/null; i=$((i+1)); done; echo $n
+    out: flow.filed
+  desk:                        # answers tickets while tickets-short is off
+    type: program
+    goal: tickets-short
+    until: "<= 6"
+    run: ls inbox | head -3 > .batch; (cd inbox && xargs rm -f < ../.batch); wc -l < .batch
+    out: flow.answered
