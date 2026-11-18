@@ -1,0 +1,144 @@
+"""``ergostat actions``: the gated actions sessions asked for, and the owner's answer to one held for approval;
+``ergostat workspaces``: the workspace pools, and freeing a quarantined workspace (SPEC §12k)."""
+
+from __future__ import annotations
+
+import time
+
+from ..show import c, table
+from .common import open_project, out_json
+
+PROMOTE = 5                  # approvals in a row, none denied, after which a class is said to be ready for gate: auto
+
+
+def register(sub, common) -> None:
+    ac = sub.add_parser("actions", parents=[common], help="The gated actions sessions asked for (ID: one; --approve or "
+                        "--deny: the owner's answer to one held), counted per class",
+                        description="Gated actions (SPEC §12k). ergostat actions [ID] [--approve | --deny] [--note TEXT]")
+    ac.add_argument("name", nargs="?", metavar="ID", help="one action (its id, or the start of it)")
+    ac.add_argument("--approve", action="store_true", help="approve a held action: it runs (or the session waiting runs it)")
+    ac.add_argument("--deny", action="store_true", help="deny a held action: it never runs")
+    ac.add_argument("--note", help="with --approve or --deny: why")
+    ac.add_argument("--as", dest="by", metavar="WHO", help="who answers (default: owner)")
+    ac.add_argument("-n", type=int, default=30, help="how many to list (default 30)")
+    ac.set_defaults(fn=cmd_actions)
+    ws = sub.add_parser("workspaces", parents=[common], help="The workspace pools: each workspace, whose it is, free, "
+                        "in use, held or quarantined (POOL --free N frees a quarantined one)",
+                        description="Workspace pools (SPEC §12k). ergostat workspaces [POOL] [--free N]")
+    ws.add_argument("name", nargs="?", metavar="POOL", help="one pool")
+    ws.add_argument("--free", type=int, metavar="N", help="with POOL: free its quarantined workspace N (its worktree removed)")
+    ws.set_defaults(fn=cmd_workspaces)
+
+
+def _spec(p):
+    spec = getattr(p.model, "spec", None)
+    if spec is None:
+        print("the model is an ergostat.toml: actions and workspaces are an ergostat.yaml's")
+    return spec
+
+
+def show_one(a: dict) -> None:
+    print(f"{a['id']}  {c(a['state'], 'bold')}  ({a.get('action')}, class {a.get('class')}, gate {a.get('gate')})")
+    print(f"  command  {a.get('command')}\n  in       {a.get('in')}")
+    for k in ("item", "branch", "block", "session"):
+        if a.get(k):
+            print(f"  {k:<8} {a[k]}")
+    print(f"  asked    {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(a['time']))}")
+    if a.get("approved_by"):
+        print(f"  approved by {a['approved_by']}" + (f": {a['note']}" if a.get("note") else ""))
+    if a.get("denied_by"):
+        print(f"  denied by {a['denied_by']}" + (f": {a['note']}" if a.get("note") else ""))
+    if a["state"] in ("ran", "failed"):
+        print(f"  exit     {a.get('exit')}\n  output\n" + "\n".join("    " + x for x in (a.get("output") or "").splitlines()))
+    for d in a.get("deliveries") or []:
+        print(f"  given to {d.get('session') or d.get('block')} ({d.get('how')})")
+    if a["state"] == "requested":
+        print(c(f"\nheld for approval: ergostat actions {a['id'].split('/', 1)[1]} --approve (or --deny)", "dim"))
+
+
+def cmd_actions(args) -> int:
+    from ..actions import gate, record
+    p = open_project(args)
+    spec = _spec(p)
+    if spec is None:
+        return 2
+    if args.name:
+        a = record.get(p, args.name)
+        if a is None:
+            print(f"no action {args.name!r} (ergostat actions lists them)")
+            return 2
+        if args.approve and args.deny:
+            print("--approve or --deny, not both")
+            return 2
+        try:
+            if args.approve:
+                a = gate.approve(p, spec, a["id"], by=args.by or "owner", note=args.note)
+            elif args.deny:
+                a = gate.deny(p, a["id"], by=args.by or "owner", note=args.note)
+        except gate.GateError as e:
+            print(e)
+            return 2
+        if args.json:
+            return out_json(a)
+        show_one(a)
+        return 0
+    got = sorted(record.stored(p).values(), key=lambda a: -a["time"])[:args.n]
+    classes = record.by_class(p)
+    if args.json:
+        return out_json({"actions": got, "classes": classes, "measures": record.counts(p)})
+    rows = [[record.short(a["id"]), a["state"], time.strftime("%m-%d %H:%M", time.localtime(a["time"])),
+             a.get("action") or "", a.get("item") or "", (a.get("command") or "")[:60]] for a in got]
+    print(table(["ACTION", "STATE", "ASKED", "NAME", "ITEM", "COMMAND"], rows, "no actions asked for yet"))
+    if classes:
+        print()
+        print(table(["CLASS", "GATE", "HELD", "APPROVED", "AUTO", "DENIED", "RAN", "FAILED"],
+                    [[k, _gate(spec, k), *(f"{v[x]:g}" for x in ("held", "approved", "auto", "denied", "ran", "failed"))]
+                     for k, v in classes.items()], ""))
+        for k, v in classes.items():
+            if _gate(spec, k) == "approve" and v["approved"] >= PROMOTE and not v["denied"]:
+                print(c(f"class {k}: approved {v['approved']:g} times this week, none denied: the owner may promote it "
+                        f"(gate: auto under actions: in the model)", "dim"))
+    held = [a for a in got if a["state"] == "requested"]
+    if held:
+        print(c(f"\n{len(held)} held for approval: ergostat actions ID --approve (or --deny)", "dim"))
+    return 0
+
+
+def _gate(spec, cls: str) -> str:
+    gates = {a.gate for a in spec.actions.values() if (a.cls or a.name) == cls}
+    return ", ".join(sorted(gates)) or "?"
+
+
+def cmd_workspaces(args) -> int:
+    from ..workspaces import pool as pl
+    p = open_project(args)
+    spec = _spec(p)
+    if spec is None:
+        return 2
+    if args.name and args.name not in spec.workspaces:
+        print(f"no pool {args.name!r} (pools: {', '.join(spec.workspaces) or 'none'})")
+        return 2
+    if args.free is not None:
+        if not args.name:
+            print("--free N frees a quarantined workspace of a pool: ergostat workspaces POOL --free N")
+            return 2
+        try:
+            pl.free(p, spec, args.name, args.free, by=getattr(args, "by", None) or "owner")
+        except pl.PoolError as e:
+            print(e)
+            return 2
+    pools = [spec.workspaces[args.name]] if args.name else list(spec.workspaces.values())
+    got = {x.name: list(pl.slots(p, spec, x).values()) for x in pools}
+    if args.json:
+        return out_json({"pools": got, "measures": {x.name: pl.counts(p, spec, x.name) for x in pools}})
+    if not pools:
+        print("no workspace pools (workspaces: in the model)")
+        return 0
+    rows = [[f"{s['pool']}-{s['slot']}", s["state"], s.get("item") or "", s.get("branch") or "", s.get("dir") or "",
+             s.get("why") or s.get("how") or ""] for ss in got.values() for s in ss]
+    print(table(["WORKSPACE", "STATE", "ITEM", "BRANCH", "FOLDER", "WHY"], rows, ""))
+    for name in got:
+        n = pl.counts(p, spec, name)
+        print(c(f"{name}: free {n['free']} · in use {n['in-use']} · held {n['held']} · quarantined {n['quarantined']}",
+                "dim"))
+    return 0

@@ -1002,7 +1002,7 @@ More (filters, rate of change, latches) can be added when a case needs them.
 | Type | What it runs | Key fields |
 |---|---|---|
 | `program` | a shell command | `run`, `parse` |
-| `ai` | a prompt, given to a model | `prompt` (text or a file), `model` (when it has no agent), `run` (an optional wrapper command) |
+| `ai` | a prompt, given to a model | `prompt` (text or a file), `model` (when it has no agent), `run` (an optional wrapper command), `workdir` or `workspace` (where its session works), `read`, `tools` and `actions` (what it may use; section 12k) |
 | `person` | a request to a person | `ask` (what they are asked to do); they report with `ergostat block NAME --done ...` |
 | `external` | nothing: observed only | none |
 
@@ -1059,7 +1059,8 @@ directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_COMMAND` (the am
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
 (`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
 block, or the AI agent it starts, to read and record items while it works. An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
-with its prompt, the JSON above, and how to answer. Any block, whatever its type, may also propose a change to
+with its prompt, the JSON above, and how to answer, in the model's folder unless it names its own (`workdir:`, or a `workspace:` per item), and gated
+when it names its `tools:` or `actions:` (section 12k). Any block, whatever its type, may also propose a change to
 the model, `{"propose": {...}}` (section 12e); `agent.ran` counts what it proposed and what was not taken. And any
 block may say what it did, `{"claim": {"says": "tests pass", "about": ...}}`: ergostat checks it after the run,
 against the record and the world, never taking the block's word (section 12g). And any block may answer a message the
@@ -2485,6 +2486,192 @@ Measured offline with the parity benchmark (harness parity plan §4): starting f
 owner's words on the topic scored 0.625, against 0.03 with nothing, 0.33 with the docs and 0.49 with decisions
 alone; it is the recommended worker recipe. Adding `state` did not help yet (the state of the work is the weakest
 kind of question): what `state` carries is the next thing to improve.
+
+## 12k. Where an AI session works, and what it may do
+
+An `ai` block's run is a Claude Code session: it reads and changes files and runs commands. Two things decide what it
+can reach: the folder it starts in, and the tools it is given. Both are declared on the block; the outward acts (a push,
+a pull request, a ticket moved, a message posted) are not tools at all, but **gated actions**, which ergostat runs for
+the session only as their gate says.
+
+### Its folder
+
+- **Today, with nothing said**, an `ai` block without `run:` runs `claude -p` in the model's folder (the one holding
+  `ergostat.yaml`), and one with `run:` runs that command there: `ergostat session` then starts `claude -p` wherever it
+  was started, the model's folder unless the wrapper moved (image-squeeze's `bin/ai.sh` starts it in the example's
+  own folder, and the session works on `run/product/` from there). Claude Code's file tools reach that folder and
+  below; what it runs with Bash reaches what the user running ergostat may reach.
+- `workdir: DIR` (from the model's folder, or a whole path; `~` for the home folder) starts the session there.
+- `workspace: POOL` starts it in the workspace its pool gives the item the run works on (below).
+- `read: [DIR, ...]` are more folders it may read (`--add-dir`); with the sandbox on (below) it may not write them.
+
+The session's `claude -p` runs in that folder (so its transcript is filed under it), and its run's environment says it:
+`ERGOSTAT_WORKDIR`, and with a workspace `ERGOSTAT_WORKSPACE` and `ERGOSTAT_BRANCH`. A block with `run:` keeps running
+its command in the model's folder (its paths are written from there); `ergostat session` takes the folder from the
+run (`ERGOSTAT_SANDBOX`, below) and starts the session there. `session.started` records `workdir`.
+
+### Workspace pools
+
+```yaml
+workspaces:
+  code:
+    repo: run/product              # a git repository (from the model's folder, or a whole path)
+    pool: run/workspaces           # where its worktrees go (default: workspaces/NAME in the state directory)
+    size: 3                        # how many
+    branch: "{kind}/{id}-{slug}"   # the item's branch: ticket/12-fix-the-login-page
+    base: main                     # what a new branch starts from (default HEAD)
+blocks:
+  developer:
+    type: ai
+    prompt: prompts/developer.md
+    workspace: code
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `type` | `git` | How a workspace is made: `git`, a worktree of `repo` (the only kind yet; a workspace is a folder with an acquire and a release, and another kind needs only those) |
+| `repo` | required | The repository |
+| `pool` | state directory | The folder its workspaces are made in, one subfolder each (`1`, `2`, ...) |
+| `size` | 2 | How many workspaces |
+| `branch` | `{kind}/{id}-{slug}` | A template from the item: `{kind}` (its id before the /), `{id}` (after it), `{item}` (whole), `{slug}` (its `title`, `name`, `summary` or `idea`, in lowercase words), or any field of the item; made a safe ref |
+| `base` | `HEAD` | The ref a new branch is made from |
+
+**The item a run works on** is its lease's (`ERGOSTAT_ITEM`, with `ERGOSTAT_LEASE`, in the run's environment), else its
+context's item (§12j), else the item its command names. A run with a workspace and no item does not start
+(`agent.failed`, saying so).
+
+**Acquire.** At the run's start, under the pool's lock:
+
+1. a workspace the item has already (in use, or held for it) is given back as it is, its work in progress with it: a
+   retry, or more work after review;
+2. else a free workspace that exists is checked (a worktree of the repository, nothing uncommitted) and reset for the
+   item: onto its branch, made from `base` unless it is there already; one that fails the check is **quarantined**;
+3. else a fresh worktree is made, on a new branch from `base` (or the item's branch, when the repository has it);
+4. else none is free, and the run does not start (`agent.failed`: in use, held and quarantined counted).
+
+**Release**, when the item's lease ends (`ergostat.lease.ended` or `.expired`), or when its run ends if it had no lease:
+while the item is not finished (the states `messages: {done:}` gives, else as §12h infers them) its workspace is
+**held** for it, its work kept for review; once the item finishes it is **cleaned**: detached at `base`, untracked files
+removed, its branch left in the repository; a workspace dirty or broken when cleaned is quarantined instead, nothing in
+it thrown away. `ergostat.lease.taken` makes a held workspace in use again. ergostat's clock (every five seconds) takes
+the lease events to the pools and cleans what is held for items that have finished since.
+
+**Quarantined** workspaces are never given to an item; `ergostat workspaces POOL --free N` (the owner) removes that
+worktree, and the slot is made afresh when next needed. Each workspace is an item, `ergostat.workspace/POOL-N`
+(states `free`, `in-use`, `held`, `quarantined`; events `ergostat.workspace.acquired`, `.held`, `.released`,
+`.quarantined`, `.freed`, each saying the folder, the item, the branch and why). `ergostat workspaces` lists them.
+
+| Measure | What it is |
+|---|---|
+| `ergostat.workspaces.free` | Workspaces free, now; `@POOL` for one pool |
+| `ergostat.workspaces.in-use` | Workspaces an item's run has, now |
+| `ergostat.workspaces.held` | Workspaces kept for an item under review, now |
+| `ergostat.workspaces.quarantined` | Workspaces found dirty or broken, now (each needs attention) |
+
+*Leases* (`ergostat.lease.*`, `ERGOSTAT_ITEM`, `ERGOSTAT_LEASE`) are another piece of work's; the pool reads only those
+names: the work item is the event's `data.item` (else its own item), the lease `data.lease` (else its own item when it
+is an `ergostat.lease/...`).
+
+### Gated actions
+
+```yaml
+actions:
+  git-push:
+    run: git push origin HEAD:refs/heads/{branch}
+    gate: approve                  # auto | approve | deny
+    class: push                    # counted with the others of its class (default: its name)
+    description: Push this workspace's branch to origin
+  open-pr:
+    run: gh pr create --head {branch} --title {title} --body {body}
+    gate: approve
+    args: {title: the pull request's title, body: what it changes and why}
+    wait: 15m                      # how long the session waits for the owner before going on (default 5m)
+    timeout: 2m                    # how long it may run (default 2m)
+blocks:
+  developer:
+    type: ai
+    prompt: prompts/developer.md
+    workspace: code
+    tools: [Read, Edit, Write, Glob, Grep, Bash]
+    actions: [git-push, open-pr]
+```
+
+An action is a command template. `{name}` is one of its `args:` (what the session gives, each a string, all
+required), or ergostat's own: `{item}`, `{branch}`, `{workdir}`, `{block}`, `{run}`, the session's, not the session's
+to say. Every value is shell-quoted. It runs in the session's folder (or `in:`, from the model's folder), with
+`ERGOSTAT_ACTION`, `ERGOSTAT_ITEM` and `ERGOSTAT_BRANCH` set.
+
+The session asks for an action as a tool: ergostat runs an MCP server for it (`ergostat.actions.server`, its tools
+`mcp__actions__NAME`, one per action the block names, and `action_status`). A call is recorded, `ergostat.action.requested`
+(an `ergostat.action/ID` item: the action, its class and gate, its arguments, the command exactly as it would run,
+where, and the block, run, session and work item), and then by its gate:
+
+- `deny`: `.denied` (by `gate`), never run; the session is told.
+- `auto`: `.approved` (by `gate`), run at once; `.ran` or `.failed`, its exit and output, are the call's answer.
+- `approve`: **held** for the owner. It needs attention (the status, the page's list, its work item's page) until the
+  owner answers: `ergostat actions ID --approve` (or `--deny`, with `--note`), or Approve / Deny on the item's page
+  (`POST /api/action/ID/approve`). The answer is an event from the owner. The session's call waits for it, up to
+  `wait`: approved meanwhile, the server runs it and gives the session its output; denied, it says so. When the wait
+  runs out the call answers that it is held, and the session goes on; approved later, the action runs at once (by
+  whoever approved it, else ergostat's clock), and its result goes to the block's **next run**, under `actions` in its
+  input, with the actions still held. Each result given is `.delivered` (how: `session` or `context`). An action runs
+  once: the first to take its lock runs it.
+
+Actions are counted by class: `ergostat actions` lists them and, per class, how many were held, approved by the
+owner, let through by the gate (auto), denied, ran and failed this week; a class the owner has approved five times or
+more and never denied is said to be ready for `gate: auto`. **Promoting** a class is the owner's edit to the model
+(`gate: auto`), never ergostat's, and takes effect at the next request: the refactor path (invariant 5) from a person
+approving to a rule.
+
+| Measure | What it is |
+|---|---|
+| `ergostat.actions.held` | Actions waiting for the owner, now; `@CLASS` for one class |
+| `ergostat.actions.approved` | Approved by the owner, over the last week |
+| `ergostat.actions.auto` | Let through by their gate, over the last week |
+| `ergostat.actions.denied` | Denied by their gate or the owner, over the last week |
+| `ergostat.actions.ran`, `.failed` | Run, and exited 0 or not, over the last week |
+
+### The sandbox: what is enforced
+
+A block with `tools:` or `actions:` is **gated**. Its session is started with Claude Code's own controls (checked
+against Claude Code 2.1):
+
+| Flag | What it does |
+|---|---|
+| `--restricted` | No user, project or local settings are read (a user's broad allow rules cannot widen it), file tools confined to its folders, bypass refused |
+| `--tools A,B` | Only the built-in tools `tools:` names exist in the session (an empty list: none) |
+| `--allowedTools` | `tools:` as written (`Bash(python3:*)` allows only that) and `mcp__actions` |
+| `--permission-mode dontAsk` | Anything not allowed is refused, never asked (no one is there to answer) |
+| `--disallowedTools` | Refused by name, whatever is allowed: `git push`, `git remote`, `git config`, `git send-email`, `gh`, `hub`, `glab`, `curl`, `wget`, `ssh`, `scp`, `sftp`, `rsync`, `nc`, `telnet`, `ftp`, `npm publish`, `twine`, `docker push`, `kubectl`, `open`, `osascript`, `WebFetch`, `WebSearch` |
+| `--strict-mcp-config`, `--mcp-config` | No MCP server but ergostat's actions server |
+| `--settings` | Claude Code's OS sandbox for every command it runs (`sandbox.enabled`, `failIfUnavailable`, `allowUnsandboxedCommands: false`): writes only in its folder, `$TMPDIR` and, for a worktree, what git needs to commit (the objects, the worktree's own git folder, its branch's ref and log); `read:` folders denied for writing; **no network** (no domain allowed, unlisted ones refused) |
+
+**Enforced**, then: the session cannot run an outward command by name (refused by its permissions), and cannot run
+one by another way either (a script, `python -c`, an alias): every command runs in the OS sandbox, where it cannot
+reach the network or write outside its folder, so `git push` to a remote on the network or in another folder fails
+whatever starts it. The real check (`scripts/gated_check.py`, on haiku) shows both: `git push` refused by the
+permissions, `sh push.sh` run and refused by the sandbox ("unable to create temporary object directory" in the
+remote), and the same push through `git-push` after the owner's approval.
+
+**Not enforced**, said plainly:
+
+- An action's own command runs outside the sandbox, with the user's credentials: the gate is what holds it, and what an
+  approved action does is what its template says. Write templates that take as little as possible from the session
+  (`{branch}` is ergostat's; a free-text `{body}` is only ever one quoted argument).
+- Reading is not confined: the sandbox lets commands read the whole machine except what is denied (credentials such
+  as `~/.ssh` are readable unless denied), and what a session reads it may put in an action's arguments.
+- `$TMPDIR` is writable: a remote in a folder under it could be pushed to.
+- The repository's git folder is partly writable, for commits: its objects, the worktree's own folder, and the folder
+  of refs its branch is in (`refs/heads/ticket/` for `ticket/12-x`; all of `refs/heads/` for a branch with no `/`), so
+  the session could move another branch's ref in that folder, though never push it anywhere.
+- The OS sandbox needs Claude Code's support on the platform (macOS: Seatbelt; Linux: bubblewrap); without it the
+  session does not start (`failIfUnavailable`), it never runs unsandboxed.
+- MCP servers, hooks and Claude Code's own file tools are not in the OS sandbox; the file tools are bound by the
+  permissions and `--restricted`.
+- A block without `tools:` or `actions:` is not gated at all: its session has whatever the user's Claude Code settings
+  and its `run:` wrapper give it (image-squeeze's own `--allowedTools`), as before.
+- A `run:` wrapper that is not `ergostat session` is given `ERGOSTAT_SANDBOX` and must pass the flags itself; `check`
+  refuses `tools:` or `actions:` on a block whose `run:` does not start `ergostat session`.
 
 ## 13. Examples
 

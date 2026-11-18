@@ -304,7 +304,35 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             "agents": agents}
     snap["hints"] = ladder_hints(project, snap)
     snap["messages"] = unrouted_messages(project, now)
+    snap["actions"], snap["quarantined"] = held_actions(project, now), quarantined(project)
     return snap
+
+
+def held_actions(project, now: float) -> list[dict]:
+    """The gated actions held for the owner's approval (SPEC §12k), as of now: each needs attention."""
+    spec = getattr(project.model, "spec", None)
+    if spec is None or not spec.actions:
+        return []
+    from .actions import record
+    try:
+        got = record.stored(project, until=now)
+    except Exception:
+        return []
+    return [{"id": a["id"], "action": a.get("action"), "item": a.get("item"), "command": a.get("command") or "",
+             "time": a["time"]} for a in got.values() if a["state"] == "requested"][-20:]
+
+
+def quarantined(project) -> list[dict]:
+    """The workspaces quarantined (SPEC §12k): dirty or broken, waiting for the owner."""
+    spec = getattr(project.model, "spec", None)
+    if spec is None or not spec.workspaces:
+        return []
+    from .workspaces import pool
+    try:
+        return [s for x in spec.workspaces.values() for s in pool.slots(project, spec, x).values()
+                if s["state"] == "quarantined"]
+    except Exception:
+        return []
 
 
 def unrouted_messages(project, now: float) -> list[dict]:
@@ -520,6 +548,16 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         text = m["text"] if len(m["text"]) <= 80 else m["text"][:77] + "..."
         out.append({"level": "warn", "what": f"message {short}", "says": f"\u201c{text}\u201d reached no work: {m['why']}. "
                     f"Route it: ergostat messages {short} --about ITEM|PART, or on its page"})
+    for a in snap.get("actions", []):                # gated actions held for the owner (SPEC §12k)
+        short = a["id"].split("/", 1)[1]
+        cmd = a["command"] if len(a["command"]) <= 80 else a["command"][:77] + "..."
+        out.append({"level": "warn", "what": f"action {short}", "item": a["id"],
+                    "says": f"{a['action']}" + (f" for {a['item']}" if a.get("item") else "") + f" waits for approval: "
+                    f"{cmd}. Approve or deny it on its page, or ergostat actions {short} --approve (--deny)"})
+    for w in snap.get("quarantined", []):
+        out.append({"level": "warn", "what": f"workspace {w['pool']}-{w['slot']}",
+                    "says": f"quarantined ({w.get('why') or 'dirty or broken'}): never reused until freed, ergostat "
+                    f"workspaces {w['pool']} --free {w['slot']}"})
     for h in snap.get("hints", []):
         out.append({"level": "hint", "what": f"controller {h['controller']}", "says": h["says"]})
     for name, r in snap["residuals"].items():

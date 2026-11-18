@@ -52,6 +52,10 @@ the owner's messages
                  routed to the items and runs it concerns, delivered to a running session as its next turn
   messages       What became of each message: routed, delivered, unrouted, answered (ID --about X: route one)
 
+AI sessions: where they work and what they may do
+  workspaces     The workspace pools: each workspace, the item it is for, free, in use, held or quarantined
+  actions        The gated actions sessions asked for, counted per class; ID --approve or --deny: the owner's answer
+
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
   loop           The feedback loops: what each holds, how far off, each part along it
@@ -272,6 +276,8 @@ def build() -> argparse.ArgumentParser:
     intent_topics(sub, common)
     from .intent import register as judge_topics
     judge_topics(sub, common)
+    from .gated import register as gated_topics
+    gated_topics(sub, common)
     return ap
 
 

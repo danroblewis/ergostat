@@ -1181,7 +1181,10 @@ function renderSide(side, g, view) {
     const m = /ergostat event --type (\S+?)\)?$/.exec(says);
     return m ? [op(says.slice(0, m.index)), h("a", { href: `/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
-  for (const a of problems.slice(0, MAX)) att.append(h("div", {}, h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what), " ", linked(a.says)));
+  for (const a of problems.slice(0, MAX)) {
+    const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
+    att.append(h("div", {}, a.item ? h("a", { href: `/item/${encodeURIComponent(a.item)}`, class: "plain" }, what) : what, " ", linked(a.says)));
+  }
   if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
   side.append(att);
   if (hints.length) {
