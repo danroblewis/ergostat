@@ -1091,9 +1091,9 @@ async function pageDiagram(main, q) {
     if (g.tree && system) {                          // where this system sits: each level up, one click away
       const up = []; let x = system;
       while (x) { up.unshift(x); x = g.tree[x]?.within; }
-      crumbs.replaceChildren(h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); S.drill(""); } }, "Everything"),
+      patch(crumbs, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); S.drill(""); } }, "Everything"),
         ...up.flatMap((x, i) => [" › ", i < up.length - 1 ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); S.drill(x); } }, x) : h("b", {}, x)]));
-    } else crumbs.replaceChildren();
+    } else patch(crumbs);
     if (view === "blocks") {
       wrap.querySelector(".empty")?.remove();
       if (!g.nodes.length) {
@@ -1162,16 +1162,17 @@ function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
   const all = g.attention || st.attention;           // from the same snapshot as the diagram beside it
   const problems = all.filter((a) => a.level !== "hint"), hints = all.filter((a) => a.level === "hint");
-  const scroll = side.scrollTop;
-  side.replaceChildren();
+  // built aside and patched in: a refresh touches only what changed, and what is open or scrolled stays so
+  const out = side, panel = h("div");
+  side = panel;
   if (S.status && !S.status.running && !S.at && !SNAP) {
     const last = Math.max(0, ...Object.values(g.loops || {}).map((l) => (S.status.loops[l.controller || ""] || {}).last_read || 0),
                           ...Object.values(S.status.loops || {}).map((l) => l.last_read || 0));
     side.append(h("div", { class: "att" }, h("div", {}, h("b", { class: "lvl-warn" }, "Not running. "),
       last ? `These are the last readings, from ${ago(last)}.` : "Nothing has been measured.")));
   }
-  const charts = view === "dynamics" ? sideCharts(side) : null;     // charts.js: the parts chosen, at the top
-  if (charts && S.sel?.size) side.append(charts);
+  const charts = view === "dynamics" ? sideCharts(out) : null;      // charts.js: the parts chosen, at the top
+  if (charts && S.sel?.size) side.append(live(charts));
   side.append(h("h3", {}, "Needs attention", problems.length ? h("span", { class: "muted" }, ` ${problems.length}`) : null));
   const att = h("div", { class: "att" });
   if (!problems.length) att.append(h("div", { class: "none" }, "Nothing needs attention."));
@@ -1193,7 +1194,7 @@ function renderSide(side, g, view) {
     const anyOff = Object.values(g.loops || {}).some((l) => l.status === "off");
     const open = S.suggestOpen ?? anyOff;
     const d = h("details", { class: "suggest", open: open ? "" : null },
-                h("summary", { onclick: () => { S.suggestOpen = !d.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
+                h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
       const loop = /^loop (\S+)/.exec(a.says)?.[1];
       d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", op(a.says), " ",
@@ -1201,7 +1202,7 @@ function renderSide(side, g, view) {
     }
     side.append(d);
   }
-  if (charts && !S.sel?.size) side.append(charts);               // or the ones charted last
+  if (charts && !S.sel?.size) side.append(live(charts));               // or the ones charted last
   const loops = Object.entries(g.loops || {});
   if (view === "dynamics") sdLoopList(side, g);
   else if (view === "control" || view === "blocks") {
@@ -1241,7 +1242,7 @@ function renderSide(side, g, view) {
     side.append(h("h3", {}, "The model"), d);
   }
   side.append(legendBox(view));
-  side.scrollTop = scroll;
+  patch(out, [...panel.childNodes]);
 }
 
 try { if (localStorage.getItem("ergostat.loops") === "0") document.body.classList.add("no-loops"); } catch (e) { /* shown */ }

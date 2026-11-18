@@ -14,6 +14,8 @@ const windowNote = () => {
 };
 const table = (head, rows, cls = "") => h("div", { class: "table-wrap" }, h("table", { class: cls },
   h("tr", {}, head.map((x) => (Array.isArray(x) ? h("th", { class: x[1] }, x[0]) : h("th", {}, x)))), rows));
+/* a part of a page known by what it is, wherever a refresh puts it (patch() matches by it) */
+const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el; };
 
 async function pageLoops(main) {
   const p = page(main, "Loops");
@@ -21,28 +23,34 @@ async function pageLoops(main) {
   const perf = {};
   let pts = {}, ptsAt = 0;
   p.append(box, cap);
-  async function tick() {
-    const loops = await api("loops");
+  const ans = answers();
+  async function tick(force = true) {
+    ans.begin();
+    const loops = await ans.api("loops");
     // the stocks' trends: every system open (or, where that is not at hand, a snapshot, each closed system's measures);
     // the whole graph is a large answer and a trend over the window hardly moves in seconds: asked for every 30s
     if (Date.now() - ptsAt > 30000) {
-      const stocks = await api("graph", { open: "*" }).catch(() => api("graph"));
+      const stocks = await ans.api("graph", { open: "*" }).catch(() => ans.api("graph"));
       for (const n of stocks.nodes) for (const m of n.measures || []) if (m.points) stocks.nodes.push({ kind: "stock", label: m.label, points: m.points });
       pts = Object.fromEntries(stocks.nodes.filter((n) => n.kind === "stock").map((n) => [n.label, n.points]));
       ptsAt = Date.now();
     }
     const w = windowNote();
-    cap.textContent = w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "";
+    setText(cap, w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "");
+    if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
     // how each loop is doing, as a control engineer reads its scope (control.js), over the last day of record: asked
     // for every 5 minutes, not every tick (each is an identification on the server, up to a second or two, for every loop)
     if (!perf.at || Date.now() - perf.at > 300000) {
       perf.at = Date.now();
-      for (const [n] of rows) loopControl(n).then((d) => { perf[n] = performanceWord(d); if (cells[n]) cells[n].textContent = perf[n]; }).catch(() => {});
+      for (const [n] of rows) loopControl(n).then((d) => {
+        perf[n] = performanceWord(d);
+        const cell = [...box.querySelectorAll("td[data-perf]")].find((c) => c.dataset.perf === n);
+        if (cell) setText(cell, perf[n]);
+      }).catch(() => {});
     }
-    const cells = {};
-    box.replaceChildren(table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["error", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
-      rows.map(([n, lp]) => h("tr", { class: "click", onclick: () => openLoop(n) },
+    patch(box, table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["error", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
+      rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => openLoop(n) },
         h("td", { class: "nowrap" }, h("b", {}, n), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
         h("td", {}, statusEl(lp.status)), h("td", { class: "nowrap" }, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
         h("td", { class: "num nowrap" }, op(lp.setpoint) + (lp.band || "")),
@@ -52,11 +60,11 @@ async function pageLoops(main) {
           lp.back_in != null ? dur(lp.back_in) : "–"),
         h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
           (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 120, 24, setpointOf(lp.setpoint)) : ""),
-        cells[n] = h("td", { class: "nowrap", title: "Oscillating, saturated, or its Harris index: from its scope, over the last day of record" }, perf[n] || ""),
+        h("td", { class: "nowrap", "data-perf": n, title: "Oscillating, saturated, or its Harris index: from its scope, over the last day of record" }, perf[n] || ""),
         h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
   }
   await tick();
-  S.timer = poll(tick, 3000, p);
+  S.timer = poll(() => tick(false), 3000, p);
 }
 
 /* the ladder: one list, by rung, from the most general agent to none; the ladder itself one line of counts */
@@ -64,20 +72,23 @@ async function pageAgents(main) {
   const p = page(main, "Agents");
   const ladder = h("div", { class: "ladder-line" }), box = h("div");
   p.append(ladder, box);
-  async function tick() {
-    const agents = await api("agents");
+  const ans = answers();
+  async function tick(force = true) {
+    ans.begin();
+    const agents = await ans.api("agents");
+    if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const cols = [...RUNG_NAMES, "retired"];
     const of = (i) => Object.entries(agents).filter(([, a]) => a.rung === i);
-    ladder.replaceChildren(...cols.flatMap((k, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+    patch(ladder, ...cols.flatMap((k, i) => [i ? h("span", { class: "arrow" }, "→") : null,
       h("span", { class: "step", title: RUNG_HINT[i] }, of(i).length ? h("b", {}, String(of(i).length)) : "0", ` ${k}`)]).filter(Boolean));
     const last = (a) => a.runs_itself ? (a.running_since ? `running for ${ago(a.running_since).replace(" ago", "")}` : a.last ? ago(a.last.time) : "never ran")
       : a.kind === "person" ? "a person" : "not run here";
     const groups = cols.map((k, i) => [i, k, of(i)]).filter(([, , xs]) => xs.length);
-    box.replaceChildren(h("div", { class: "table-wrap" }, h("table", {},
+    patch(box, h("div", { class: "table-wrap" }, h("table", {},
       h("tr", {}, h("th", {}, "agent"), h("th", {}, "roles"), h("th", { class: "num" }, "runs"), h("th", {}, "last run"), h("th", {}, "runs when")),
-      groups.map(([i, k, xs]) => h("tbody", { class: "group" },
+      groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
         h("tr", {}, h("th", { colspan: 5 }, `${i} ${k}`, h("span", { class: "muted" }, `  ${RUNG_HINT[i]}`))),
-        xs.map(([name, a]) => h("tr", { class: "click", onclick: () => openAgent(name) },
+        xs.map(([name, a]) => h("tr", { class: "click", key: name, onclick: () => openAgent(name) },
           h("td", { class: "nowrap" }, h("b", {}, name), a.failing ? h("span", { class: "s-off" }, " failing") : null),
           h("td", {}, (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || h("span", { class: "muted" }, "no roles"),
             (a.hints || []).length ? h("ul", { class: "hints" }, a.hints.map((hint) => h("li", { class: hint.about === "loop" ? "warn" : "", title: hint.says },
@@ -88,7 +99,7 @@ async function pageAgents(main) {
           h("td", { class: "muted" }, a.schedule || a.every || ""))))))));
   }
   await tick();
-  S.timer = poll(tick, 3000, p);
+  S.timer = poll(() => tick(false), 3000, p);
 }
 
 async function pageRecord(main, q) {
@@ -104,16 +115,19 @@ async function pageRecord(main, q) {
                 h("label", { class: "check" }, runs, "Show runs", h("span", { class: "muted" }, "(agent.started, agent.ran)"))), box);
   runs.addEventListener("change", () => tick());
   filt.addEventListener("keydown", (ev) => { if (ev.key === "Enter") tick(); });
-  async function tick() {
+  const ans = answers();
+  async function tick(force = true) {
     let evs;
+    ans.begin();
     try {
-      evs = await api("events", { n: 80, ...(runs.checked ? { runs: 1 } : {}), ...(filt.value ? { type: filt.value } : {}),
+      evs = await ans.api("events", { n: 80, ...(runs.checked ? { runs: 1 } : {}), ...(filt.value ? { type: filt.value } : {}),
                                   ...(machine ? { machine } : {}), ...(item ? { item } : {}), ...(inWindow ? { window: 1 } : {}) });
-    } catch (err) { box.replaceChildren(h("p", { class: "muted" }, String(err.message || err))); return; }
-    box.replaceChildren(evs.length ? eventsTable(evs, false) : h("p", { class: "muted" }, "Nothing recorded yet."));
+    } catch (err) { patch(box, h("p", { class: "muted" }, String(err.message || err))); return; }
+    if (!force && !ans.changed) return;                  // nothing changed: nothing touched
+    patch(box, evs.length ? eventsTable(evs, false) : h("p", { class: "muted" }, "Nothing recorded yet."));
   }
   await tick();
-  S.timer = poll(() => (box.querySelector("details[open]") ? null : tick()), 3000, p);
+  S.timer = poll(() => tick(false), 3000, p);
 }
 
 /* an item's field, as what it is: a file the project holds (file:PATH) as the image it is, or a link;
@@ -153,31 +167,38 @@ function fieldView(v, small = false, depth = 0, declared = null) {
   return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldView(x, false, depth + 1)))));
 }
 
-/* a file's contents, shown as what they are; kept while unchanged, so a refresh keeps what is open */
+/* a file's contents, shown as what they are: one view of each file, kept across refreshes and asked for again
+   with each (a 304 while it is the same); changed, only what differs in it is redrawn (open tool calls stay open) */
 const FILES = {};
 function fileView(path, url, fmt) {
-  const box = FILES[path]?.el || h("div", { class: `file-view f-${fmt}` }, h("span", { class: "muted" }, "…"));
-  FILES[path] = FILES[path] || { el: box, len: -1 };
-  fetch(url).then((r) => (r.ok ? r.text() : Promise.reject(r.status))).then((text) => {
-    if (FILES[path].len === text.length) return;          // unchanged: leave it as it is (open tool calls stay open)
-    FILES[path].len = text.length;
-    box.replaceChildren(render(text, fmt, path));
-  }).catch((e) => box.replaceChildren(h("span", { class: "muted" }, `cannot read ${path} (${e})`)));
-  return box;
+  const f = FILES[path] || (FILES[path] = { el: h("div", { class: `file-view f-${fmt}` }, h("span", { class: "muted" }, "…")), text: null });
+  f.url = url; f.fmt = fmt;
+  loadFile(path);
+  return live(f.el);
 }
+function loadFile(path) {
+  const f = FILES[path];
+  fetch(f.url).then((r) => (r.ok ? r.text() : Promise.reject(r.status))).then((text) => {
+    if (f.text === text) return;                          // unchanged: left as it is
+    f.text = text;
+    patch(f.el, render(text, f.fmt, path));
+  }).catch((e) => { f.text = null; patch(f.el, h("span", { class: "muted" }, `cannot read ${path} (${e})`)); });
+}
+/* the files on the page, asked for again (a refresh whose answers did not change still reads them) */
+function refreshFiles() { for (const [path, f] of Object.entries(FILES)) if (f.el.isConnected) loadFile(path); }
 const fileUrl = (path) => "/file/" + path.split("/").map(encodeURIComponent).join("/");   // a path: relative links resolve
 function render(text, fmt, path) {
   if (fmt === "markdown") return md(text, path);
   if (fmt === "json") { try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (e) { /* as it is */ } return code(text, "json"); }
   if (fmt === "code") return code(text, CODE[(path.split(".").pop() || "").toLowerCase()]);
   if (fmt === "claude-session") return conversation(text);
-  return h("pre", { class: "plain" }, text);
+  return h("pre", { class: "plain", sig: text }, text);
 }
-function code(text, lang) {
+function code(text, lang) {                               // highlighted again only when its text changed (its sig)
   const el = h("code", { class: "hljs" });
   try { el.innerHTML = lang && window.hljs?.getLanguage(lang) ? hljs.highlight(text, { language: lang }).value : (window.hljs ? hljs.highlightAuto(text).value : esc(text)); }
   catch (e) { el.textContent = text; }
-  return h("pre", { class: "code" }, el);
+  return h("pre", { class: "code", sig: `${lang || ""}\n${text}` }, el);
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 let mdReady = false;
@@ -190,7 +211,7 @@ function md(text, path = null) {                          // Markdown, its raw H
                                                     catch (e) { return `<pre class="code"><code>${esc(s)}</code></pre>`; } } } });
     mdReady = true;
   }
-  const el = h("div", { class: "md" });
+  const el = h("div", { class: "md", sig: `${path || ""}\n${text}` });     // rendered again only when its text changed
   el.innerHTML = marked.parse(String(text));
   for (const a of el.querySelectorAll("a")) {
     const href = a.getAttribute("href") || "";
@@ -210,35 +231,37 @@ function conversation(text) {
   for (const l of lines) for (const c of (Array.isArray(l.message?.content) ? l.message.content : [])) if (c.type === "tool_result") results[c.tool_use_id] = c;
   const out = h("div", { class: "convo" });
   let turns = 0;
-  for (const l of lines) {
+  // each turn known by its line and place (a refresh appends the new ones), and drawn again only when it changed
+  lines.forEach((l, li) => {
     const m = l.message;
-    if (!m || (l.type !== "user" && l.type !== "assistant")) continue;
+    if (!m || (l.type !== "user" && l.type !== "assistant")) return;
     const when = l.timestamp ? new Date(l.timestamp).toLocaleTimeString([], { hour12: false }) : "";
     const parts = typeof m.content === "string" ? [{ type: "text", text: m.content }] : (m.content || []);
-    for (const c of parts) {
-      if (c.type === "tool_result") continue;             // shown with its call
+    parts.forEach((c, ci) => {
+      const key = `${l.uuid || li}:${ci}`;
+      if (c.type === "tool_result") return;               // shown with its call
       if (c.type === "text" && l.type === "user") {
         const long = c.text.length > 600;
-        out.append(h("div", { class: "turn user" }, h("div", { class: "who" }, "prompt", h("span", { class: "muted" }, when)),
+        out.append(h("div", { class: "turn user", key, sig: [when, c.text] }, h("div", { class: "who" }, "prompt", h("span", { class: "muted" }, when)),
           long ? h("details", {}, h("summary", {}, c.text.split("\n")[0].slice(0, 140) + " …"), md(c.text)) : md(c.text)));
       } else if (c.type === "text") {
         turns += 1;
-        out.append(h("div", { class: "turn assistant" }, h("div", { class: "who" }, "claude", h("span", { class: "muted" }, when)), md(c.text)));
+        out.append(h("div", { class: "turn assistant", key, sig: [when, c.text] }, h("div", { class: "who" }, "claude", h("span", { class: "muted" }, when)), md(c.text)));
       } else if (c.type === "thinking") {
-        out.append(h("details", { class: "turn thinking" }, h("summary", {}, "thinking"), md(c.thinking || "")));
+        out.append(h("details", { class: "turn thinking", key, sig: c.thinking || "" }, h("summary", {}, "thinking"), md(c.thinking || "")));
       } else if (c.type === "tool_use") {
         const r = results[c.id], inp = c.input || {};
         const head = inp.command || inp.file_path || inp.pattern || inp.path || inp.description || JSON.stringify(inp).slice(0, 120);
         const res = r ? (Array.isArray(r.content) ? r.content.map((x) => x.text || "").join("\n") : String(r.content ?? "")) : null;
-        out.append(h("details", { class: `turn tool${r?.is_error ? " failed" : ""}` },
+        out.append(h("details", { class: `turn tool${r?.is_error ? " failed" : ""}`, key, sig: [c, r || null] },
           h("summary", {}, h("b", {}, c.name), " ", h("span", { class: "mono" }, String(head).split("\n")[0].slice(0, 160)),
             r ? null : h("span", { class: "muted" }, ", running")),
           inp.command ? code(inp.command, "bash") : inp.old_string != null ? code(`- ${inp.old_string}\n+ ${inp.new_string}`, "diff")
                       : inp.content != null ? code(inp.content, CODE[(String(inp.file_path || "").split(".").pop() || "").toLowerCase()]) : code(JSON.stringify(inp, null, 2), "json"),
           res != null ? h("div", {}, h("div", { class: "muted small" }, r.is_error ? "It failed:" : "It said:"), h("pre", { class: "plain" }, res.slice(0, 20000))) : null));
       }
-    }
-  }
+    });
+  });
   if (!out.children.length) out.append(h("p", { class: "muted" }, "Nothing said yet."));
   return out;
 }
@@ -361,7 +384,7 @@ function messageBox({ about = null, title = "Message", hint = null, done = null 
 }
 function messagesAbout(ms) {
   if (!ms.length) return h("p", { class: "muted" }, "No messages about it yet.");
-  return table(["message", "state", "sent", "text", "outcome"], ms.map((m) => h("tr", { class: "click", ...rowLink(`/item/${encodeURIComponent(m.id)}`) },
+  return table(["message", "state", "sent", "text", "outcome"], ms.map((m) => h("tr", { class: "click", key: m.id, ...rowLink(`/item/${encodeURIComponent(m.id)}`) },
     h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(m.id)}`, class: "plain" }, h("b", {}, m.id.split("/")[1]))), h("td", { class: m.state === "unrouted" ? "s-off" : "" }, m.state), h("td", { class: "muted nowrap" }, ago(m.time)),
     h("td", { class: "cell" }, m.text), h("td", { class: "cell muted" }, m.outcome))), "messages");
 }
@@ -469,20 +492,26 @@ async function pageItems(main, q) {
   const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
   let used = new Set();
   const flows = {}, flowsAt = {};                     // each kind's flow over the window, and when it was asked for
-  const keep = (key, sig, make) => {
+  // a chart lives across refreshes: kept while its data is the same (or under the pointer), its data set in
+  // place when it can take it (``update``), made again only when it cannot
+  const keep = (key, sig, make, update = null) => {
     used.add(key);
     const was = drawn[key];
-    if (was && (was.sig === sig || was.el.matches(":hover"))) return was.el;
+    if (was && (was.sig === sig || was.el.matches(":hover"))) return live(was.el);
+    if (was && update && update(was.el)) { was.sig = sig; return live(was.el); }
     drawn[key] = { sig, el: make() };
-    return drawn[key].el;
+    return live(drawn[key].el);
   };
-  // one refresh at a time: one asked for while another runs is run once after it (the poll's rule, kept by clicks too)
-  let busy = null, again = false;
-  async function refresh() {
+  // one refresh at a time: one asked for while another runs is run once after it (the poll's rule, kept by clicks
+  // too); the poll's draws only what changed, a click's always
+  let busy = null, again = false, forced = false;
+  async function refresh(force = true) {
+    forced ||= force;
     if (busy) { again = true; return busy; }
-    busy = (async () => { do { again = false; await tick(); } while (again && p.isConnected); })();
+    busy = (async () => { do { again = false; const f = forced; forced = false; await tick(f); } while (again && p.isConnected); })();
     try { await busy; } finally { busy = null; }
   }
+  const ans = answers();
   const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state);
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
@@ -496,8 +525,9 @@ async function pageItems(main, q) {
     rememberFolded(folded);
     go();
   };
-  async function tick() {
-    compose.hidden = kind !== MESSAGE_KIND || !!SNAP;
+  async function tick(force = true) {
+    if (compose.hidden !== (kind !== MESSAGE_KIND || !!SNAP)) compose.hidden = !compose.hidden;
+    ans.begin();
     // the list as the page shows it: the newest of each kind (all a chosen kind's, up to 300), matched to the
     // search where it is kept, each with its kind's columns only, and nothing of a folded system
     // (a snapshot holds the whole list: filtered here)
@@ -505,17 +535,15 @@ async function pageItems(main, q) {
     const folded = foldedSystems();
     let d;
     try {
-      d = await api("items", { ...(kind ? { kind, ...setParams() } : {}), ...(state ? { state } : {}),
+      d = await ans.api("items", { ...(kind ? { kind, ...setParams() } : {}), ...(state ? { state } : {}),
                                    ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}),
                                                      ...(folded.size && !kind ? { hide: [...folded].join(",") } : {}) }) });
     } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
-      chip.replaceChildren(h("span", { class: "set-chip bad" }, String(err.message || err), " ",
+      patch(chip, h("span", { class: "set-chip bad" }, String(err.message || err), " ",
         h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7")));
       return;
     }
-    chip.replaceChildren(...(d.set ? [h("span", { class: "set-chip", title: "The items shown are this set: the address is shareable" },
-      d.set.says + setSpan(d.set.params), h("b", { class: "n" }, d.moves != null ? ` ${d.total} item${d.total === 1 ? "" : "s"}, ${d.moves} move${d.moves === 1 ? "" : "s"}` : ` ${d.total}`),
-      h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7"))] : []));
+    const flowsWere = JSON.stringify(flows);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const isOpen = (sys) => !folded.has(sys) || (kind && sysOf[kind] === sys);    // a chosen kind's system is open
     const systems = d.systems || [{ name: "", kinds: d.kinds.map((k) => k.name) }];
@@ -530,21 +558,28 @@ async function pageItems(main, q) {
       const fl = await api("items-flow", { kind: k.name, points: CHART_POINTS }).catch(() => null);
       flows[k.name] = fl && Object.values(fl.counts).some((c) => c.some((x) => x)) ? fl : null;   // none yet: its counts
     }));
+    // how far each block's claims held, under the ergostat.claim table
+    const trust = d.items.some((i) => i.kind === CLAIM_KIND) && (!kind || kind === CLAIM_KIND) ? await ans.api("trust").catch(() => null) : null;
     if (!p.isConnected) return;
+    if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
+    patch(chip, ...(d.set ? [h("span", { class: "set-chip", title: "The items shown are this set: the address is shareable" },
+      d.set.says + setSpan(d.set.params), h("b", { class: "n" }, d.moves != null ? ` ${d.total} item${d.total === 1 ? "" : "s"}, ${d.moves} move${d.moves === 1 ? "" : "s"}` : ` ${d.total}`),
+      h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7"))] : []));
     used = new Set();
     const pick = (k, st) => { [kind, state] = kind === k.name && state === st ? [null, null] : [k.name, st]; dropSet(); go(); };
     const card = (k) => {
       const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; dropSet(); go(); } },
         k.name, h("span", { class: "mono" }, k.id));
       const fl = flows[k.name];
-      if (!fl) return h("div", { class: "kind-flow" }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+      if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
         h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); pick(k, st); } },
           h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])));
       const chosen = kind === k.name ? state : null;
-      return h("div", { class: "kind-flow" }, name,
-        keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen]), () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st) })));
+      return h("div", { class: "kind-flow", key: k.name }, name,
+        keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen]), () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st) }),
+             (el) => el.update?.(fl, chosen)));
     };
-    notes.replaceChildren(...[
+    patch(notes, ...[
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind under items: in ergostat.yaml; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
     const rows = SNAP ? d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) : d.items;
@@ -557,7 +592,7 @@ async function pageItems(main, q) {
       show = show.filter((f) => f !== "lease");
       return table(["item", "state", ...show.map((f) => (nums.has(f) ? [f, "num"] : f)),
         ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
-        its.slice(0, limit).map((i) => h("tr", { class: "click", ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
+        its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
           h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),
           show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldView(i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
           ...(leased ? leaseCells(i.fields.lease, i.state) : []),
@@ -573,16 +608,13 @@ async function pageItems(main, q) {
         const its = rows.filter((i) => (i.kind || "") === name);
         if (!its.length) continue;
         const limit = kind ? 300 : 25, many = d.matched?.[name] ?? its.length;
-        parts.push(h("h3", { class: "kind-head" }, name || "No kind", h("span", { class: "muted" }, ` ${many}`)));
-        parts.push(tableOf(its, kindOf[name]?.show || [], limit));
-        if (name === CLAIM_KIND) {                        // how far each block's claims held
-          const t = await api("trust").catch(() => null);
-          if (t) parts.push(keep("trust", JSON.stringify([t.rows, Math.round(t.until - t.since)]), () => trustView(t)));
-        }
+        parts.push(h("h3", { class: "kind-head", key: `head:${name}` }, name || "No kind", h("span", { class: "muted" }, ` ${many}`)));
+        parts.push(keyed(tableOf(its, kindOf[name]?.show || [], limit), `table:${name}`));
+        if (name === CLAIM_KIND && trust) parts.push(keyed(trustView(trust), "trust"));   // how far each block's claims held
         const fl = flows[name];                            // under its table: how long its finished items took
-        if (fl) parts.push(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group)));
+        if (fl) parts.push(keyed(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group), (el) => el.update?.(fl)), `cycle:${name}`));
         if (many > limit && !d.set?.params?.where && !d.set?.params?.moved)
-          parts.push(h("p", { class: "note" }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `All ${many}`)));
+          parts.push(h("p", { class: "note", key: `all:${name}` }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `All ${many}`)));
       }
       return parts;
     };
@@ -598,22 +630,22 @@ async function pageItems(main, q) {
                       onclick: () => toggle(g.name) }, h("span", { class: "tri", "aria-hidden": "true" }, open ? "▾" : "▸"), g.name),
         h("span", { class: "muted" }, ` ${n} item${n === 1 ? "" : "s"}, ${g.kinds.length} kind${g.kinds.length === 1 ? "" : "s"}`),
         g.description ? h("span", { class: "muted sys-desc" }, g.description) : null);
-      if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name }, head)); continue; }
+      if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name, key: g.name }, head)); continue; }
       const t = await tables(names);
       anyRows ||= t.length > 0;
-      groups.push(h("section", { class: "sys-group", "data-system": g.name }, head,
+      groups.push(h("section", { class: "sys-group", "data-system": g.name, key: g.name }, head,
         h("div", { class: "kind-flows" }, g.kinds.filter((k) => !d.set || k === kind).map((k) => kindOf[k]).filter(Boolean).map(card)), ...t));
     }
     if (!p.isConnected) return;
     for (const key of Object.keys(drawn)) if (!used.has(key)) delete drawn[key];   // a folded kind's charts let go
     const listed = d.listed ?? d.items.length;          // what the server's list held, before the search and the cut per kind
     const none = !anyRows && listed && (needle || state || kind) ? h("p", { class: "muted" }, folded.size ? "Nothing matches in the systems shown." : "Nothing matches.") : null;
-    box.replaceChildren(...groups, ...(none ? [none] : []));
+    patch(box, ...groups, ...(none ? [none] : []));
     sweepPlots();                                         // the charts just replaced (or folded away) let go now, not at the next one drawn
-    more.textContent = d.total > listed ? `${d.total - listed} older items not loaded.` : "";
+    setText(more, d.total > listed ? `${d.total - listed} older items not loaded.` : "");
   }
   await refresh();
-  S.timer = poll(refresh, 4000, p);
+  S.timer = poll(() => refresh(false), 4000, p);
 }
 
 /* an item's lease (SPEC §9.5): who holds it and until when, its attempts; a dead letter said as one */
@@ -633,7 +665,7 @@ function leaseView(l, state) {
     : state === "dead" ? [h("b", { class: "bad" }, "A dead letter"), `: given up on after ${l.attempts} attempts. `,
         h("code", {}, "ergostat lease ITEM --redrive"), " gives it another go."]
     : ["Not held", l.not_before && l.not_before > nowS() ? `; not taken again for ${dur(l.not_before - nowS())}` : ""];
-  const rows = (l.history || []).slice().reverse().map((x) => h("tr", {}, h("td", { class: "num" }, String(x.fence)), h("td", {}, x.block || ""),
+  const rows = (l.history || []).slice().reverse().map((x) => h("tr", { key: `${x.fence}|${x.run || ""}` }, h("td", { class: "num" }, String(x.fence)), h("td", {}, x.block || ""),
     h("td", { class: "mono small" }, (x.run || "").slice(0, 8)), h("td", { class: "nowrap" }, when(x.taken)),
     h("td", { class: x.how === "ack" ? "" : "bad" }, x.how || "holding"), h("td", { class: "num nowrap" }, dur((x.ended || nowS()) - x.taken)),
     h("td", { class: "num" }, x.exit == null ? "" : String(x.exit)), h("td", {}, (x.why || "") + (x.silent ? ` (silent ${dur(x.silent)})` : "") + (x.counted === false ? " (not counted)" : ""))));
@@ -658,7 +690,7 @@ function historyView(cs, total, d) {
   const how = (c) => c.op === "rolled up" ? `${c.count} change${c.count > 1 ? "s" : ""} from ${when(c.first.time)}, rolled up`
     : c.op === "refused" ? "refused" : c.op + (c.rule && c.rule !== "replace" ? ` (${c.rule})` : "") + (c.form !== "data" ? ` by ${c.form}` : "");
   const val = (v) => (v == null ? h("span", { class: "muted" }, "–") : fieldView(v, true));
-  const rows = cs.slice().reverse().map((c) => h("tr", {}, h("td", { class: "nowrap" }, when(c.time)), h("td", { class: "nowrap" }, how(c)),
+  const rows = cs.slice().reverse().map((c, i) => h("tr", { key: c.event ? `${c.event}|${c.path || "/"}|${c.op}` : `${c.time}|${i}` }, h("td", { class: "nowrap" }, when(c.time)), h("td", { class: "nowrap" }, how(c)),
     h("td", { class: "mono small" }, c.path || "/"), h("td", { class: "cell" }, c.op === "refused" ? c.why : val(c.before)),
     h("td", { class: "cell" }, c.op === "refused" ? "" : val(c.after)), h("td", { class: "nowrap" }, eventLink(c.event, c.type, d))));
   return h("details", { class: "history" }, h("summary", {}, `history (${total} change${total > 1 ? "s" : ""})`),
@@ -670,14 +702,22 @@ async function pageItem(main, id) {
   const p = page(main, id);
   const body = h("div");
   p.append(body);
-  const note = messageBox({ about: id, title: "Send a note about this", done: () => tick() });
+  const note = messageBox({ about: id, title: "Send a note about this", done: () => tick() });   // lives across refreshes: what is typed stays
   let full = null;                                   // its full history, once asked for: kept across refreshes
-  async function tick() {
-    if (note.contains(document.activeElement) && note.querySelector("textarea").value) return;   // being written
+  const ans = answers();
+  // a refresh asks for its answers first; if none changed (each a 304), nothing on the page is touched (its files
+  // are still asked for: a transcript may grow before its events are recorded); else only what differs is
+  async function tick(force = true) {
+    ans.begin();
     let d;
-    try { d = await api(`items/${encodeURIComponent(id)}`); } catch (e) { d = null; }
-    if (!d) { body.replaceChildren(h("p", { class: "muted" }, "Nothing is recorded about this id.")); return; }
+    try { d = await ans.api(`items/${encodeURIComponent(id)}`); } catch (e) { d = null; }
+    if (!d) { patch(body, h("p", { class: "muted" }, "Nothing is recorded about this id.")); return; }
     const k = d.kind_of;
+    const ms = !k?.name?.startsWith("ergostat.") ? await ans.api("messages", { item: id }).catch(() => null) : null;
+    const as = !k?.name?.startsWith("ergostat.") || k?.name === "ergostat.workspace" || /^session\//.test(id)
+      ? await ans.api("actions", { item: id }).catch(() => null) : null;
+    if (!p.isConnected) return;
+    if (!force && !ans.changed) { refreshFiles(); return; }
     const pair = (label, value) => h("span", {}, h("span", {}, label), value);
     const head = h("div", { class: "meta" },
       pair("Kind", k ? h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name) : h("span", { class: "muted" }, "none (nothing under items: matches this id)")),
@@ -686,50 +726,48 @@ async function pageItem(main, id) {
     const track = k && k.states.length ? h("div", { class: "track" }, k.states.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
       h("span", { class: `stbox${st === d.state ? " on" : ""}${d.moves.some((m) => m.to === st) || (i === 0) ? " been" : ""}` }, st)])) : null;
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
-      d.moves.map((m, i) => h("tr", {}, h("td", { class: "nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
+      d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");
     // its kind's chosen fields first, in their order, then the rest by name
     const first = (k?.show || []).filter((f) => f in d.fields);
     const hist = d.history || {}, gone = Object.keys(hist).filter((f) => f && !(f in d.fields));   // removed since: still have a history
     const order = [...first, ...Object.keys(d.fields).filter((f) => !first.includes(f)).sort(), ...gone.sort()].filter((f) => f !== "lease");
     const lease = d.fields.lease && typeof d.fields.lease === "object" ? [h("h2", {}, "Lease"), leaseView(d.fields.lease, d.state)] : [];
-    const fields = order.length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, order.map((f) => h("tr", { "data-field": f },
+    const fields = order.length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, order.map((f) => h("tr", { "data-field": f, key: f },
       h("th", {}, f, k?.fold?.[f] ? h("span", { class: "muted small rule", title: "how its events' data folds into it" }, ` ${k.fold[f]}`) : null),
       h("td", {}, f in d.fields ? fieldView(d.fields[f], false, 0, (k?.formats || {})[f]) : h("span", { class: "muted" }, "removed"),
         historyView(hist[f] || [], (d.changes || {})[f] || 0, d))))))
       : h("p", { class: "muted" }, "No fields: its events carry no data.");
     const refused = (d.refused || []).length ? [h("h2", {}, "Refused"), h("p", { class: "note" }, "Events recorded that changed nothing: their changeset could not apply, so none of it did."),
-      table(["when", "event", "as", "why"], d.refused.slice().reverse().map((r) => h("tr", {}, h("td", { class: "nowrap" }, when(r.time)),
+      table(["when", "event", "as", "why"], d.refused.slice().reverse().map((r) => h("tr", { key: r.event }, h("td", { class: "nowrap" }, when(r.time)),
         h("td", { class: "nowrap" }, eventLink(r.event, r.type, d)), h("td", { class: "muted" }, r.form), h("td", {}, r.why))), "refused")] : [];
     const said = d.transcript_events ? h("p", { class: "note" }, `${d.transcript_events} more events are its transcript's lines (claude.*), folded into its fields above; `,
       recordLinkItem(id), ".") : null;
+    // the parts the owner answers in (their buttons, reasons being typed): kept whole while what they show is the same
+    const whole = (el, ...from) => { el.__sig = JSON.stringify(from); return el; };
     const verdict = k?.name === CLAIM_KIND ? [h("h2", {}, "Verdict"), claimView(d)]
-      : k?.name === DECISION_KIND || k?.name === CORRECTION_KIND ? [h("h2", {}, k.name === DECISION_KIND ? "The decision" : "The correction"), intentView(d, tick)]
-      : k?.name === MESSAGE_KIND ? [h("h2", {}, "Message"), messageView(d, tick)]
-      : k?.name === ACTION_KIND ? [h("h2", {}, "Gated action"), actionView(d, tick)] : [];
+      : k?.name === DECISION_KIND || k?.name === CORRECTION_KIND ? [h("h2", {}, k.name === DECISION_KIND ? "The decision" : "The correction"), whole(intentView(d, tick), d.state, d.fields)]
+      : k?.name === MESSAGE_KIND ? [h("h2", {}, "Message"), whole(messageView(d, tick), d.state, d.fields)]
+      : k?.name === ACTION_KIND ? [h("h2", {}, "Gated action"), whole(actionView(d, tick), d.state, d.fields)] : [];
     let about = [];
-    if (!k?.name?.startsWith("ergostat.")) {               // the owner's messages about it, and a note to send
-      const ms = await api("messages", { item: id }).catch(() => null);
-      if (ms) about = [h("h2", {}, "Messages", h("span", { class: "muted" }, ` ${ms.messages.length}`)), messagesAbout(ms.messages), SNAP ? "" : note];
-    }
-    if (!k?.name?.startsWith("ergostat.") || k?.name === "ergostat.workspace" || /^session\//.test(id)) {   // the gated actions asked for about it
-      const as = await api("actions", { item: id }).catch(() => null);
-      if (as && as.actions.length) {
-        const held = as.actions.filter((a) => a.state === "requested").length;
-        about = [h("h2", {}, "Gated actions", h("span", { class: held ? "s-open" : "muted" }, held ? ` ${held} waiting for approval` : ` ${as.actions.length}`)), actionsAbout(as.actions, tick), ...about];
-      }
+    if (ms) about = [h("h2", {}, "Messages", h("span", { class: "muted" }, ` ${ms.messages.length}`)), messagesAbout(ms.messages), SNAP ? "" : live(note)];
+    if (as && as.actions.length) {                      // the gated actions asked for about it
+      const held = as.actions.filter((a) => a.state === "requested").length;
+      about = [h("h2", {}, "Gated actions", h("span", { class: held ? "s-open" : "muted" }, held ? ` ${held} waiting for approval` : ` ${as.actions.length}`)),
+               whole(actionsAbout(as.actions, tick), as.actions), ...about];
     }
     // its oldest events rolled up into a snapshot (SPEC §4b): the originals are in the archive, read when asked for
     const ro = d.rollup;
     const rolled = ro ? h("p", { class: "note" }, `Its ${ro.archived.events} oldest events, up to ${when(ro.last)}, are rolled up into one snapshot and archived. `,
       full ? null : h("button", { class: "ghost", onclick: async () => { full = await api(`items/${encodeURIComponent(id)}`, { archived: 1, n: 1000 }); tick(); } }, "Show the full history"),
       full && full.total > full.events.length ? h("span", { class: "muted" }, ` (the first ${full.events.length} of ${full.total})`) : null) : null;
-    body.replaceChildren(head, track || "", ...lease, ...verdict, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
-      h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said || "", rolled || "",
+    patch(body, head, track, ...lease, ...verdict, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+      h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
       eventsTable(full ? full.events : d.record, true));
   }
   await tick();
-  S.timer = poll(() => (body.querySelector("details[open], .intent-act:not([hidden])") || document.activeElement?.closest?.(".action-act") ? null : tick()), 4000, p);
+  // not while the owner is answering (a reason being typed in a decision's or an action's row)
+  S.timer = poll(() => (body.querySelector(".intent-act:not([hidden])") || document.activeElement?.closest?.(".action-act") ? null : tick(false)), 4000, p);
 }
 
 /* Model: first what is available for this project (each loop, each parameter to estimate, and where each
@@ -779,28 +817,31 @@ async function pageModel(main) {
   }
   const answering = () => busy || queueBox.querySelector("button:disabled, .confirm:not([hidden])") ||
     (queueBox.contains(document.activeElement) && document.activeElement.tagName === "INPUT");
-  async function tick() {
+  const ans = answers();
+  async function tick(force = true) {
     let d;
-    try { d = await api("fit"); } catch (e) { d = null; }
-    if (!d) { fitBox.replaceChildren(h("p", { class: "muted" }, "The model is an ergostat.toml: equations and their fit come with ergostat.yaml.")); return; }
+    ans.begin();
+    try { d = await ans.api("fit"); } catch (e) { d = null; }
+    if (!d) { patch(fitBox, h("p", { class: "muted" }, "The model is an ergostat.toml: equations and their fit come with ergostat.yaml.")); return; }
+    if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     availableView(d, availBox);
     const span = d.until && d.since ? dur(d.until - d.since) : "";
-    fitBox.replaceChildren(
+    patch(fitBox, 
       ...(d.invalid?.length ? [h("p", { class: "s-off" }, `The replay is not valid: ${d.invalid.join("; ")}.`)] : []),
       h("h3", {}, "Model fit", h("span", { class: "muted" }, ` the stocks an equation moves, over the last ${span} of record`)),
       d.stocks.length ? table(fitHead(d.words, "stock"), fitRows(d.stocks, d.total), "fit")
         : h("p", { class: "muted" }, "No stock is moved by an equation: nothing here tests the model's equations yet."));
     const judged = Object.entries(d.judged_by_stock || {});
-    eqBox.replaceChildren(...(d.partial.length || d.equations.length || judged.length ? [
+    patch(eqBox, ...(d.partial.length || d.equations.length || judged.length ? [
       h("h3", {}, "Equations, inputs as measured", h("span", { class: "muted" }, " the partial-model test")),
       d.partial.length ? table(fitHead(d.words, "worked out"), fitRows(d.partial, null), "fit") : h("p", { class: "muted" }, "No equation's part is measured."),
       ...(d.equations.length ? [h("h3", {}, "Equations, replayed", h("span", { class: "muted" }, " every stock integrated")),
         table(fitHead(d.words, "worked out"), fitRows(d.equations, null), "fit")] : []),
       ...judged.map(([r, st]) => h("p", { class: "muted small" }, `${r.split(".").slice(1).join(".")} is measured from its stock's changes: judged by ${st ? st.split(".").slice(1).join(".") : "its stock"}'s replay, above.`)),
     ] : []));
-    accBox.replaceChildren(...(d.accounting.length ? [h("h3", {}, "Accounting", h("span", { class: "muted" }, " stocks moved only by measured flows")),
+    patch(accBox, ...(d.accounting.length ? [h("h3", {}, "Accounting", h("span", { class: "muted" }, " stocks moved only by measured flows")),
       table(fitHead(d.words, "stock"), fitRows(d.accounting, null), "fit")] : []));
-    notes.replaceChildren(...d.notes.map((n) => h("p", { class: "muted small" }, n)));
+    patch(notes, ...d.notes.map((n) => h("p", { class: "muted small" }, n)));
     const why = Object.entries(d.not_proposed || {});
     const q = d.queue || [];
     const sig = JSON.stringify(q.map((x) => [x.id, x.diff?.hash, x.conflicts.length])) + (d.estimated_at || "") + JSON.stringify(why) + d.loops_analysed;
@@ -833,7 +874,7 @@ async function pageModel(main) {
       canBox.replaceChildren(proposableView(d));
     }
     const events = [...d.history.map((v) => ({ t: v.first, v })), ...d.accepted.map((a) => ({ t: a.time, a }))].sort((x, y) => y.t - x.t);
-    histBox.replaceChildren(events.length ? table(["when", "version", ["scaled error", "num"], ["over", "num"], ""], events.slice(0, 30).map(({ v, a }) => (v
+    patch(histBox, events.length ? table(["when", "version", ["scaled error", "num"], ["over", "num"], ""], events.slice(0, 30).map(({ v, a }) => (v
       ? h("tr", {}, h("td", { class: "nowrap" }, ago(v.first)), h("td", { class: "mono" }, v.version, v.version === d.version ? h("span", { class: "muted" }, " now") : null),
           h("td", { class: "num" }, v.total?.nmse != null ? fmt(v.total.nmse) : ""), h("td", { class: "num nowrap" }, v.window ? dur(v.window) : ""),
           h("td", { class: "muted small" }, `fitted ${v.fits} time${v.fits > 1 ? "s" : ""}, last ${ago(v.last)}`))
@@ -843,12 +884,12 @@ async function pageModel(main) {
       : h("p", { class: "muted" }, "Not fitted before."));
     const r = d.residuals || {};
     const rows = Object.entries(r).sort((a, b) => (b[1].significant ? 1 : 0) - (a[1].significant ? 1 : 0));
-    resBox.replaceChildren(Object.keys(r).length ? table(["stock", ["changed", "num"], ["explained", "num"], ["unexplained", "num"], ""],
+    patch(resBox, Object.keys(r).length ? table(["stock", ["changed", "num"], ["explained", "num"], ["unexplained", "num"], ""],
       rows.map(([k, v]) => h("tr", {}, h("td", {}, h("b", {}, k)), h("td", { class: "num" }, fmt(v.change)), h("td", { class: "num" }, fmt(v.explained)),
         h("td", { class: "num" }, fmt(v.unexplained)),
         h("td", {}, v.significant ? h("span", { class: "s-open" }, "unexplained") : (v.absorbed_by.length ? h("span", { class: "muted" }, `estimated as ${v.absorbed_by.join(", ")}`) : "")))), "fit")
       : h("p", { class: "muted" }, "No stock has two readings in this window yet."));
-    cap.replaceChildren(rich(`Version ${d.version}, fitted over the last ${span} of record (at most a day, whatever the window above). ` +
+    patch(cap, rich(`Version ${d.version}, fitted over the last ${span} of record (at most a day, whatever the window above). ` +
       "The model is read the way the record was made: a level at its reading's moment, a counted flow by what it moved in each bucket, a rate a sensor averages by the model's own average. " +
       `Each series needs ${d.min_points} points over three of its slowest time constant to be judged. ` +
       `The total: ${d.words.nmse}. R\u00b2: ${d.words.r2}. MAPE: ${d.words.mape}. Theil's U_M: ${d.words.um}; U_S: ${d.words.us}; U_C: ${d.words.uc}; the three sum to 1. ` +
@@ -856,7 +897,7 @@ async function pageModel(main) {
       "Residuals: what each stock did against what its known flows explain; a disturbance nothing measures is estimated from the rest."));
   }
   await tick();
-  S.timer = poll(tick, 5000, p);
+  S.timer = poll(() => tick(false), 5000, p);
 }
 
 async function pageCheck(main) {
