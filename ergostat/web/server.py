@@ -212,6 +212,9 @@ def _answer(live: Live, path: str, q: dict):
     if head == "projects":
         from ..projects import known
         return known()
+    if head == "exercised":                          # the parts the record has not exercised: findings, for the Check page
+        from .numbers_api import exercised
+        return exercised(live, p, snap)
     if head == "guide":                              # the Guide's frames: tiny models, the same for every project
         from ..guide import frames
         return frames()
@@ -421,6 +424,11 @@ def _answer(live: Live, path: str, q: dict):
         agent = getattr(x, "agent", None)
         if agent and agent in m.agents:
             out["agent"] = {"name": agent, "kind": m.agents[agent].kind, "rung": m.agents[agent].rung}
+        if kind in ("stock", "flow", "disturbance"):     # what the record says of it: not exercised, with its span
+            from .numbers_api import exercised
+            aux = pname in getattr(getattr(m, "spec", None), "auxiliaries", {})
+            ref = f"{'auxiliary' if aux else 'stock' if kind == 'stock' else 'flow'}.{pname}"
+            out["findings"] = [x for x in exercised(live, p, snap) if x["about"] == ref]
         return out
     return None
 

@@ -695,6 +695,9 @@ async function pageModel(main) {
 
 async function pageCheck(main) {
   const st = await api("status");
+  let quiet = [];                                          // the parts the record has not exercised (a finding each)
+  try { quiet = await api("exercised"); } catch (e) { quiet = []; }
+  st.check = [...st.check, ...quiet.map((x) => ({ level: "warn", message: x.message }))];
   const errors = st.check.filter((c) => c.level === "error").length, warnings = st.check.length - errors;
   const words = [errors ? `${errors} error${errors > 1 ? "s" : ""}` : "", warnings ? `${warnings} warning${warnings > 1 ? "s" : ""}` : ""].filter(Boolean);
   const p = page(main, words.length ? `Check: ${words.join(", ")}` : "The model is whole");

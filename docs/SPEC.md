@@ -1396,17 +1396,21 @@ stay by Little's law (its mean level over what left an hour, the record's inflow
 when nothing left it, `cumulative: true`; *units-mismatch*, the converting auxiliary; *equation-sign*,
 the equation's sign on the link (or none, where it changes sign); *extreme-conditions*, `MAX(0, …)` on
 a one-way flow that runs backwards and `ZIDZ` on a division that faults; *auxiliary-without-causes*,
-`exogenous: true`. From the estimators: a coefficient indistinguishable from 0 (within two standard
-errors) whose largest effect either way is under a tenth of its part's size is taken out with its
-link; a declared sign that a least-squares fit of a flow on its causes (R² ≥ 0.5) contradicts is
-flipped. From SD Lab's simplify rules (its SPEC §4.8, as tested there): a measured flow that moved
-under a thousandth of the typical flow on average and a hundredth at its peak over half an hour of record
-or more (rare is not useless), or an equation-only flow
-whose removal leaves the scaled error within 2%, removed; two flows between the same two stocks merged;
-a stock empty (under 0.5) at 95% of its readings with one flow in from a stock and one out to a stock
-joined through; a stock that never changes, is nearly always empty, moves exactly like another
-(correlation past 0.999, scale within 5%) or that nothing touches, removed (SD Lab hides it; ergostat
-has no `hide:`, so the proposal removes it and makes its flows' ends there clouds). A stock a goal
+`exogenous: true`. From the estimators: a coefficient of a link ergostat inferred (the part's or the
+parameter's description says `proposed by ergostat`) indistinguishable from 0 (within two standard errors)
+whose largest effect either way is under a tenth of its part's size is taken out with its link; a declared
+sign that a least-squares fit of a flow on its causes (R² ≥ 0.5) contradicts is flipped. From SD Lab's
+simplify rules (its SPEC §4.8), only as far as System Dynamics practice keeps them: structure with **no
+declared reason that the record shows to be redundant** is proposed for removal: an inferred equation-only
+flow whose removal leaves the scaled error within 2%; two flows between the same two stocks merged, the ones
+merged away with no description; a stock nothing touches, with no description; a stock with no declared
+reason that carries exactly another's information (a twin: correlation past 0.999, scale within 5%, over an
+hour of record or more, read together 60 times, each ranging over more than a tenth of its mean), removed
+(SD Lab hides it; ergostat has no `hide:`, so the proposal removes it and makes its flows' ends there
+clouds). Each says which part and why, carries `removes`, and waits for the owner (§12e). A **declared**
+part, a stock, flow, link, auxiliary, sensor or goal the YAML writes, with or without a description, is
+never proposed for removal because it was quiet, flat or uncorrelated in the record (SD Lab's dead-flow,
+still, empty and pass-through rules are not carried over): see *not exercised*, §12e. A stock a goal
 holds, and what a goal or block names, is left alone. Each edit is applied in memory and the model
 compiled from it: one that would leave an error, or not answer its finding, is not proposed, and is
 listed with why. *Not yet*: a missing stock, flow or delay, or a part replaced, found from the pattern
@@ -1766,6 +1770,22 @@ block (its name and rung, its reasons with their evidence, how sure it said it w
 and the MCP tool `try_change` check a proposal the same way and record nothing; `ergostat improve --edit-value
 NAME=V` prints the edit that sets a parameter's value, in the form `edit` takes.
 
+### Not exercised by the record: quiet is not absent
+
+A flow that has not moved yet is not evidence that it does not exist: points are lost rarely (an outage), a
+queue of the owner's messages is empty until the owner writes, and a short record may never exercise them. In
+Sterman's terms (ch. 21), the record has not exercised that structure, so its rate cannot be identified from the
+data: a statement about identifiability, not about the boundary, and a modeller keeps declared structure with its
+stated reason (`ergostat/numbers/exercised.py`).
+
+| | |
+|---|---|
+| Not exercised | A stock, flow or auxiliary with 20 readings or more over ten minutes of record or more (the reference window, within the span the record reaches) that **never moved** (a flow under a thousandth of the typical flow on average and a hundredth at its peak, or nothing counted; a level at 0) or **held one value** (a range under a thousandth of its mean: no variation to identify a parameter from). A parameter is not exercised when every part it acts through that the record reads is not |
+| The finding | `not-exercised`, about the part, a built-in finding from the record (`ergostat findings`, the MCP tool `findings`, the Check page, the part's side panel): the span of record it covers, the readings, why, and, as a suggestion only, that a step test or a planned disturbance would exercise it. It clears the moment the part moves |
+| The estimator | An estimate of a parameter that is not exercised is not proposed: it is **held, inconclusive** (`estimate.judged`), said beside the parameter, until the record exercises it. A block's proposal that sets only such parameters is recorded as `inconclusive`, not checked |
+| The judge | It does not vouch for what the record held out has not exercised: a value or an equation whose parts it acts through did not move there is never passed on that record; it stays under test and is then `inconclusive` ("needs record in which it moves") |
+| Removal | Never for a declared part the record has not exercised: a block's proposal that removes one is refused at the gate. Only structure with no declared reason that the record shows to be redundant (§12b), and any change that removes structure (`removes`, or parts it takes away) is never written by the judge's policy: it waits for the owner |
+
 ### The judge
 
 `type: judge`, a built-in block on the program rung: ergostat runs it on its own clock (`every`, 30 s by default),
@@ -1818,9 +1838,12 @@ judged that can tell (the rest within the noise) and is no worse elsewhere; when
 findings without making any; or when it is no worse and **simpler** (fewer parts, parameters and terms). It
 **fails** one that is worse by the threshold in any window, near it, elsewhere or on a goal's stock, or better only
 in some. One that no window can tell from the model as it is stays under test for more record, up to three times
-what it needs, and is then **inconclusive** ("needs more record"), not failed; as is one too few windows can judge. Each verdict keeps its windows (each one's span, and the scaled error
+what it needs, and is then **inconclusive** ("needs more record"), not failed; as is one too few windows can judge,
+and one it would pass whose parts the record held out has not exercised (above: it does not vouch for a quiet
+part's rate). Each verdict keeps its windows (each one's span, and the scaled error
 before and after) as its evidence, shown with the item in the review queue. Then, where `accept` says `auto` for a
-passed change's kind, it writes the oldest, one a pass, so each is measured alone: Accept's way (section 12b), the
+passed change's kind, it writes the oldest, one a pass, so each is measured alone (never one that removes
+structure: that waits for the owner, whatever the policy): Accept's way (section 12b), the
 smallest edit, refused and put back if `check` would then find an error, recorded as `.accepted` from the judge
 with its policy named, and `ergostat.model.changed`. Accepting writes the YAML at once; ergostat never commits it:
 the owner does.
@@ -1887,6 +1910,14 @@ calibration's estimates proposed for the judge, parameters only); the **AI** (`c
 (15 cases, 16 visible defects, the stand-in): with the judge as it is now, recall 12/16, 23 changes written, 15 of
 them real fixes and 2 damaging, the final fit a median 1.01 times the truth's; before the judge's fix, recall 9/16,
 14 written (9 real, 3 damaging), 1.54 times.
+
+*Then* (2026-11-17, from the same run, where the simplify rules proposed removing 26 flows and stocks that had
+not moved in a young record, `flat-points-lost` among them): a declared part the record has not exercised is a
+finding (`not-exercised`), never a removal; the estimator holds, and the judge does not pass, what acts only
+through it; removal is left to redundant structure with no declared reason, and waits for the owner. On a
+three-hour copy of that record, ergostat's own finders went from 14 removals proposed (13 quiet flows, 1 empty
+stock) to none, with 33 parts said not exercised. `bench judge` and `bench improve` are unchanged by it (their
+truth cases exercise every part they plant a defect in).
 
 **4. The prediction check** (`ergostat/numbers/verify.py`, `ergostat verify [--propose]`, run by a block). Each
 change written is checked once, after three hold-outs of record: the model now beside the model with that change

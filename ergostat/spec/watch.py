@@ -1,8 +1,9 @@
 """Findings that need the record (SPEC §12): what a model that compiles cannot show until it has
 run. A stock heading for its limit, a block saturating, a goal off that nothing answers, a person
 who was asked and has not answered, a sensor gone quiet, and a critical goal decaying (answering
-more slowly than it did, saturating more often, or owned by nobody), and a block whose claims the record
-contradicts."""
+more slowly than it did, saturating more often, or owned by nobody), a block whose claims the record
+contradicts, and a part the record has not exercised (it never moved, or held one value: its rate cannot be
+identified yet, which is not evidence it is absent)."""
 
 from __future__ import annotations
 
@@ -136,7 +137,22 @@ def find(project, spec: Spec, window: float = WINDOW, now: float | None = None) 
                 say("critical-decaying", f"goal {g.name} (critical): recovers in {human(a)} on average now, against "
                     f"{human(b)} before: its loop is answering more slowly", g.where, f"goal.{g.name}")
     repeated(project, say)
+    exercised(project, spec, now, say)
     return out
+
+
+def exercised(project, spec: Spec, now: float, say) -> None:
+    """The parts the record has not exercised (``numbers/exercised.py``), on the reference window the estimates read:
+    a finding on each, with its span of record and why, cleared the moment the part moves."""
+    from ..numbers import exercised as ex
+    try:
+        _, q = ex.of_project(project, spec, now)
+    except Exception:                                  # a record that cannot be read says nothing here
+        return
+    for ref, x in sorted(q.items()):
+        kind, _, name = ref.partition(".")
+        part = spec.measured(kind).get(name)
+        say(ex.CODE, ex.said(x), getattr(part, "where", None), ref)
 
 
 def repeated(project, say) -> None:

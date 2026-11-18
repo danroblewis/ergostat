@@ -307,8 +307,8 @@ def test_check_findings_become_structural_proposals_each_with_its_edit(tmp_path)
     assert ("units-mismatch", "a new converting auxiliary") in got
     assert ("stock-without-outflow", "a new outflow to a cloud") in got                     # pile: things leave it
     assert ("auxiliary-without-causes", "an auxiliary marked exogenous") in got
-    assert ("simplify-dead-flow", "a flow removed") in got and got[("simplify-dead-flow", "a flow removed")]["target"] == "flow.topup"
-    assert ("simplify-still", "a stock removed") in got
+    assert not [k for k in got if k[0] in ("simplify-dead-flow", "simplify-still")]      # quiet is not absent
+    assert not [x for x in got.values() if x["target"] in ("flow.topup", "stock.still") and x.get("gone_parts")]
     out = got[("stock-without-outflow", "a new outflow to a cloud")]
     assert "Little's law" in out["method"] and "time-in-pile" in out["edit"]["diff"]
     for x in pr.pending(p):
@@ -432,6 +432,15 @@ def test_an_estimate_indistinguishable_from_zero_with_a_narrow_interval_removes_
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(json.dumps({"k": {"parameter": "k", "value": 3.0, "se": 0.01, "n": 200},
                              "w": {"parameter": "w", "value": 0.0005, "se": 0.002, "n": 200}}))
+    assert not [x for x in structural(p) if x["code"] == "no-effect"]      # a declared link the record has not shown: kept
+    _, not_made = stc.find(p, p.model.spec, *_data_and_fit(p))
+    assert any(x["code"] == "no-effect" and "not evidence it is absent" in x["why"] for x in not_made)
+    (tmp_path / "ergostat.yaml").write_text((tmp_path / "ergostat.yaml").read_text().replace(
+        "    value: 0.001\n", "    value: 0.001\n    description: the noise's share (proposed by ergostat)\n"))
+    reload(p)
+    f = es.path(p, ver.structure(p.model.spec), "parts")
+    f.write_text(json.dumps({"k": {"parameter": "k", "value": 3.0, "se": 0.01, "n": 200},
+                             "w": {"parameter": "w", "value": 0.0005, "se": 0.002, "n": 200}}))
     x = next(x for x in structural(p) if x["code"] == "no-effect")
     assert x["change"] == "a term and its link removed" and "indistinguishable from 0" in x["reason"]
     spec = accepted_cleanly(p, x, snap)
@@ -539,22 +548,43 @@ def simple_record(i, t):
             "through": 5.0, "gone": 5.0, "copy-in": 1.0}
 
 
-def test_sd_labs_simplify_rules_propose_merges_pass_throughs_and_removals(tmp_path):
+def test_sd_labs_simplify_rules_propose_only_redundant_structure_with_no_declared_reason(tmp_path):
     p, snap = project(tmp_path, SIMPLE, simple_record)
     got = {(x["code"], x["target"]): x for x in structural(p)}
     assert ("simplify-merge", "flow.also") in got                                     # also and again: first to last
-    assert ("simplify-pass-through", "stock.middle") in got                           # nearly always empty, one in, one out
-    assert ("simplify-empty", "stock.empty") in got
     assert ("simplify-twin", "stock.copy") in got and "first" in got[("simplify-twin", "stock.copy")]["reason"]
     assert ("simplify-alone", "stock.lonely") in got
+    assert not [k for k in got if k[0] in ("simplify-pass-through", "simplify-empty", "simplify-still")]   # quiet: kept
     for x in got.values():
-        if x["code"].startswith("simplify") and x["code"] != "simplify-merge":
-            assert "ergostat has no hide:" in x["reason"]
+        if x["code"].startswith("simplify"):
+            assert x.get("removes") and "waits for you" in x["reason"]
+            if x["code"] != "simplify-merge":
+                assert "ergostat has no hide:" in x["reason"]
+    assert "no description" in got[("simplify-twin", "stock.copy")]["reason"]
     spec = accepted_cleanly(p, got[("simplify-merge", "flow.also")], snap)
     assert "again" not in spec.flows and "also" in spec.flows
-    x = next(x for x in structural(p) if x["code"] == "simplify-pass-through")
-    spec = accepted_cleanly(p, x, snap)
-    assert "middle" not in spec.stocks and spec.flows["onward"].target == "last" and "through" not in spec.flows
+
+
+def test_a_declared_reason_keeps_a_twin_and_flows_the_owner_wrote_apart(tmp_path):
+    text = SIMPLE.replace("  copy:\n    unit: jobs\n", "  copy:\n    unit: jobs\n    description: the queue as the dashboard reads it\n") \
+        .replace("  first:\n    unit: jobs\n", "  first:\n    unit: jobs\n    description: the queue as the service reads it\n") \
+        .replace("  again:\n    from: first\n", "  again:\n    from: first\n    description: retries, kept apart from also\n") \
+        .replace("  also:\n    from: first\n", "  also:\n    from: first\n    description: first tries\n") \
+        .replace("  lonely:\n    unit: jobs\n", "  lonely:\n    unit: jobs\n    description: filled by hand, later\n")
+    p, _ = project(tmp_path, text, simple_record)
+    got = {(x["code"], x["target"]) for x in structural(p)}
+    assert not [k for k in got if k[0] in ("simplify-twin", "simplify-merge", "simplify-alone")]
+    _, not_made = stc.find(p, p.model.spec, *_data_and_fit(p))
+    said = {x["code"]: x["why"] for x in not_made}
+    assert "declared with a reason" in said["simplify-twin"] and "declared with a reason" in said["simplify-merge"]
+    assert "declared with a reason" in said["simplify-alone"]
+
+
+def _data_and_fit(p):
+    from ergostat.numbers import observe as ob
+    data = ob.measured(p, ob.reference(p))
+    _, fit = tr.fit_of(p.model.spec, data)
+    return data, rv._estimates(p, p.model.spec), fit
 
 
 def test_a_stock_a_goal_holds_is_left_alone(tmp_path):
@@ -563,12 +593,17 @@ def test_a_stock_a_goal_holds_is_left_alone(tmp_path):
     assert not [x for x in structural(p) if x["target"] == "stock.lonely"]
 
 
-def test_an_equation_only_flow_that_explains_nothing_is_removed(tmp_path):
-    text = QUEUE.replace("parameters:\n", "parameters:\n  tiny:\n    value: 0.000001\n    unit: 1/h\n") + \
-        "  seep:\n    from: queue\n    driven-by: +stock.queue\n    equation: tiny * stock.queue\n"
-    p, snap = queue_project(tmp_path, k_true=2.0, text=text)
+def test_an_inferred_equation_only_flow_that_explains_nothing_is_removed_and_a_declared_one_kept(tmp_path):
+    seep = "  seep:\n    from: queue\n    driven-by: +stock.queue\n    equation: tiny * stock.queue\n"
+    text = QUEUE.replace("parameters:\n", "parameters:\n  tiny:\n    value: 0.000001\n    unit: 1/h\n")
+    p, _ = queue_project(tmp_path, k_true=2.0, text=text + seep)
+    assert not [x for x in structural(p) if x["code"] == "simplify-no-effect"]           # declared: kept
+    inferred = seep + "    description: what seeps away (proposed by ergostat)\n"
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(text + inferred))
+    reload(p)
     x = next(x for x in structural(p) if x["code"] == "simplify-no-effect")
-    assert x["target"] == "flow.seep" and "replay without it" in x["reason"]
+    assert x["target"] == "flow.seep" and "replay without it" in x["reason"] and "inferred" in x["reason"]
+    assert x.get("removes") and "waits for you" in x["reason"]
 
 
 def test_what_ergostat_can_and_cannot_propose_is_said_and_the_residual_finder_has_its_place():

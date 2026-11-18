@@ -9,16 +9,21 @@ ergostat already finds:
   (or, where the sign changes across the range, none); a one-way flow whose equation runs backwards under
   an extreme condition gets a guard (``MAX(0, …)``), and a division that faults gets ``ZIDZ``; an
   auxiliary with no causes is marked exogenous;
-- **the estimators**: a coefficient whose estimate is indistinguishable from 0 with a narrow interval
-  (its term moves its part by little either way) is taken out of its equation with its link; a declared
-  sign the regression of a flow on its causes contradicts is flipped;
-- **simplification, by SD Lab's tested rules** (its SPEC §4.8): a measured flow that moved essentially
-  nothing over the record, or an equation-only flow whose removal does not worsen the replay, is
-  removed; two flows between the same two stocks are merged; a stock nearly always empty with one flow
-  in from a stock and one out to a stock is a pass-through (the flows joined, the stock removed); a stock
-  that never changes, is nearly always empty, moves exactly like another (a twin) or that nothing touches
-  is removed. ergostat has no ``hide:``, so where SD Lab hides a stock this proposes its removal, and the
-  edit says what else goes with it. A stock a goal holds, and what a goal or a block names, is left alone.
+- **the estimators**: a coefficient of a link ergostat inferred whose estimate is indistinguishable from 0 with
+  a narrow interval (its term moves its part by little either way) is taken out of its equation with its link; a
+  declared sign the regression of a flow on its causes contradicts is flipped;
+- **simplification, by SD Lab's rules as System Dynamics practice keeps them**: only structure with no declared
+  reason that the record shows to be redundant goes: an inferred flow (its description says ergostat proposed it)
+  whose removal does not worsen the replay; two flows between the same two stocks, the ones merged away with no
+  description; a stock nothing touches, with no description; a stock with no declared reason that carries
+  exactly another's information (a twin: correlation past 0.999, scale within 5%, over a long, varied record).
+  Each says which and why, and, removing structure, always waits for the owner (``removes``: never written by
+  the judge's policy). A **declared** part (a stock, flow, link or auxiliary the YAML writes, with or without a
+  description) is never proposed for removal because it was quiet, flat or uncorrelated: the record has not
+  exercised it, so its rate cannot be identified from it, which is not evidence that it is absent (Sterman ch.
+  21). That is a finding on the part (``not-exercised``, ``exercised.py``), not a change. ergostat has no
+  ``hide:``, so where SD Lab hides a stock this proposes its removal, and the edit says what else goes with it. A
+  stock a goal holds, and what a goal or a block names, is left alone.
 
 Not yet: **missing stocks, flows or delays, and replacing a part**, found from the pattern in what the
 model fails to explain (the residuals). That is the residual-pattern structure finder (``from_residuals``
@@ -37,16 +42,15 @@ from pathlib import Path
 from ..spec import equation as eq
 from ..spec.findings import base_unit, unit_of
 from ..spec.ir import Ref, Spec
+from . import exercised as ex
 from . import observe as ob
 from . import trial as tr
 from . import yamledit as ye
 
-EMPTY = 0.5             # SD Lab: a level under this is empty ...
-NEARLY_ALWAYS = 0.95    # ... and a stock empty at this share of its readings is nearly always empty
-STILL = 0.001           # a stock whose range is under this share of its mean never changes
-TWIN = 0.999            # two stocks correlated past this, with a scale within 5%, move exactly alike
-DEAD_MEAN, DEAD_PEAK = 0.001, 0.01   # a flow under these shares of the typical flow's rate moved nothing ...
-DEAD_SPAN = 1800.0      # ... over at least this much record (s): rare is not useless, and a short record cannot tell
+TWIN = 0.999            # two stocks correlated past this, with a scale within 5%, move exactly alike ...
+TWIN_SPAN = 3600.0      # ... over at least this much record (s) ...
+TWIN_READINGS = 60      # ... read together at least this often ...
+VARIED = 0.1            # ... each ranging over more than this share of its mean: a long, varied record
 NO_WORSE = 1.02         # a flow removed that leaves the scaled error within 2% explained nothing
 MIN_READINGS = 20
 NARROW = 0.1            # a term whose largest effect, its estimate ± 2σ, is under this share of its part's size
@@ -61,14 +65,16 @@ CAN = [
     ("a link's sign flipped or taken off", "check: equation-sign; a regression that contradicts the sign"),
     ("a guard: MAX(0, …), ZIDZ(a, b)", "check: extreme-conditions"),
     ("an auxiliary marked exogenous", "check: auxiliary-without-causes"),
-    ("a term and its link removed", "an estimate indistinguishable from 0, with a narrow interval"),
-    ("a flow removed, two flows merged, a pass-through stock joined, a stock removed", "SD Lab's simplify rules"),
+    ("a term and its link removed, when ergostat inferred the link", "an estimate indistinguishable from 0, with a narrow interval"),
+    ("an inferred flow removed, two flows merged, a stock removed, when no reason is declared for what goes",
+     "SD Lab's simplify rules, for redundant structure only; the owner decides"),
 ]
 CANNOT = [
     "a missing stock, flow or delay found from the residuals' pattern",
     "a part replaced by another form (a delay for a first-order drain, a lookup for a line)",
     "a cause named for an auxiliary (only marking it exogenous)",
     "a guard for a stock drained below empty (it needs a time to empty it in)",
+    "a declared part removed because the record has not exercised it (quiet is not absent: a not-exercised finding)",
 ]
 
 
@@ -470,6 +476,12 @@ def no_effect(c: Ctx) -> None:
                 biggest = (abs(v) + 2 * se) * max(cv)
                 if biggest >= NARROW * base:
                     continue                                  # 0 cannot be told from a large effect: not narrow
+                if not (ex.inferred(x) or ex.inferred(spec.parameters.get(k))):
+                    _kept(c, f"{cause.split('.', 1)[1]} taken out of {x.name}'s equation", "no-effect",
+                          f"the link {cause} → {x.name} is declared: {k} is estimated at {ye.number(v)} ± {ye.number(se)}, "
+                          f"indistinguishable from 0 over the record, which has not shown the link acting. That is not "
+                          f"evidence it is absent (a record that has not exercised a link cannot identify it), so it is kept")
+                    continue
                 rest = [t for j, t in enumerate(terms) if j != i]
                 new = eq.text(back(rest))
                 path, at = _name_at(x, x.name)
@@ -487,9 +499,11 @@ def no_effect(c: Ctx) -> None:
                       [ref, cause],
                       f"{k}, the coefficient of {cause} in {x.name}, is estimated at {ye.number(v)} ± {ye.number(se)}: "
                       f"indistinguishable from 0, and narrowly (at most ±{ye.number(biggest)} over the record, under a tenth "
-                      f"of {x.name}'s size, {ye.number(base)}). The data says the link has no effect worth drawing.",
+                      f"of {x.name}'s size, {ye.number(base)}). The link is one ergostat inferred, with no declared "
+                      f"reason, and the record shows it has no effect worth drawing. It removes structure: it waits for you.",
                       f"weighted least squares on the replay ({e.get('scope_words') or 'each part alone'}), "
-                      f"{e.get('n', '?')} points: the estimate and its standard error (Gauss–Newton)", edits, touched=[ref])
+                      f"{e.get('n', '?')} points: the estimate and its standard error (Gauss–Newton)", edits, touched=[ref],
+                      removes=True)
 
 
 def contradicted_signs(c: Ctx) -> None:
@@ -551,34 +565,28 @@ def _remove_stock_edits(c: Ctx, st) -> list[ye.Edit]:
     return edits
 
 
+def _kept(c: Ctx, title: str, code: str, why: str) -> None:
+    c.not_made.append({"title": title, "code": code, "why": why})
+
+
+def _reason_of(x) -> str:
+    return f"its description: {x.description.strip()[:120]!r}"
+
+
 def simplify(c: Ctx, base_fit: dict | None) -> None:
+    """SD Lab's simplify rules, as far as System Dynamics practice keeps them: structure with no declared reason
+    that the record shows to be redundant goes, and the owner decides. A declared part (a stock, flow, link or
+    auxiliary the YAML writes, with or without a description) is never proposed for removal because it was quiet,
+    flat or uncorrelated in the record: the record did not exercise it, which says its rate cannot be identified
+    yet, not that it is absent (``exercised.py``; Sterman ch. 21). That is a finding on the part, not a change."""
     spec, data = c.spec, c.data
     if data is None:
         return
-    rates = {n: [abs(v) for v in c.level(f"flow.{n}")] for n in spec.flows}
-    means = [sum(v) / len(v) for v in rates.values() if v and sum(v) > 0]
-    typical = sum(means) / len(means) if means else 1.0
-    long_enough = data.grid.until - data.grid.since >= DEAD_SPAN
-    for n, f in spec.flows.items():                     # a measured flow that moved essentially nothing
-        ref = f"flow.{n}"
-        if not long_enough or ref in c.named or f.equation is not None or len(rates[n]) < MIN_READINGS \
-                or data.how.get(ref) in ("declared", "not measured"):
-            continue
-        r = rates[n]
-        if sum(r) / len(r) < DEAD_MEAN * typical and max(r) < DEAD_PEAK * typical:
-            path, at = _name_at(f, n)
-            c.add("a flow removed", "simplify-dead-flow", ref, f"Remove {n}", [ref],
-                  f"{n} moved essentially nothing over the record (at most {ye.number(max(r))} an hour, where flows here usually "
-                  f"move {ye.number(typical)}); a flow that mattered once would have moved more at least once.",
-                  f"SD Lab's simplify rule (a measured flow under {DEAD_MEAN:g} of the typical flow on average and "
-                  f"{DEAD_PEAK:g} at its peak)",
-                  [ye.remove_entry(path, at)], touched=[x for x in (f"stock.{f.source}" if f.source else None,
-                                                                    f"stock.{f.target}" if f.target else None) if x])
-    if base_fit and (base_fit.get("total") or {}).get("nmse") is not None:      # an equation-only flow that explains nothing
+    if base_fit and (base_fit.get("total") or {}).get("nmse") is not None:      # an inferred flow that explains nothing
         b = base_fit["total"]["nmse"]
         for n, f in spec.flows.items():
             ref = f"flow.{n}"
-            if ref in c.named or f.equation is None or c.level(ref) or f.sensors:
+            if ref in c.named or f.equation is None or c.level(ref) or f.sensors or not ex.inferred(f):
                 continue
             path, at = _name_at(f, n)
             edit = ye.remove_entry(path, at)
@@ -590,10 +598,12 @@ def simplify(c: Ctx, base_fit: dict | None) -> None:
             a = (fit.get("total") or {}).get("nmse")
             if a is not None and a <= b * NO_WORSE + 1e-12:
                 c.add("a flow removed", "simplify-no-effect", ref, f"Remove {n}", [ref],
-                      f"{n} is worked out by its equation and measured by nothing; the replay without it fits the stocks "
-                      f"{'better' if a < b else 'as well'} (scaled error {b:.3g} → {a:.3g}), so its equation explains nothing "
-                      f"the record shows.", f"SD Lab's simplify rule: the replay run again without it, within {NO_WORSE - 1:.0%}",
-                      [edit], touched=[f"stock.{s}" for s in (f.source, f.target) if s])
+                      f"{n} is a part ergostat inferred (its description says so; no reason is declared for it), worked out "
+                      f"by its equation and measured by nothing; the replay without it fits the stocks "
+                      f"{'better' if a < b else 'as well'} (scaled error {b:.3g} → {a:.3g}), so the record shows it "
+                      f"redundant. It removes structure: it waits for you.",
+                      f"SD Lab's simplify rule, for an inferred part only: the replay run again without it, within "
+                      f"{NO_WORSE - 1:.0%}", [edit], touched=[f"stock.{s}" for s in (f.source, f.target) if s], removes=True)
     pairs: dict[tuple, list] = {}                         # two flows between the same two stocks
     for f in spec.flows.values():
         if f.source and f.target:
@@ -601,10 +611,16 @@ def simplify(c: Ctx, base_fit: dict | None) -> None:
     for (a, b), fs in pairs.items():
         if len(fs) < 2 or any(f"flow.{f.name}" in c.named for f in fs):
             continue
+        fs = sorted(fs, key=lambda g: not ex.declared_reason(g))     # one with a declared reason is the one kept
         first, rest = fs[0], fs[1:]
+        title = f"Merge {' and '.join(f.name for f in fs)}"
+        reasoned = [g for g in rest if ex.declared_reason(g)]
+        if reasoned:
+            _kept(c, title, "simplify-merge", f"each is declared with a reason ({', '.join(g.name for g in fs)}): two flows "
+                  f"between {a} and {b} the owner wrote apart are kept apart")
+            continue
         if any(g.sensors for g in rest) and first.sensors:
-            c.not_made.append({"title": f"Merge {' and '.join(f.name for f in fs)}", "code": "simplify-merge",
-                               "why": "each is measured: merged, one's readings would be lost"})
+            _kept(c, title, "simplify-merge", "each is measured: merged, one's readings would be lost")
             continue
         eqs = [g.equation.text for g in fs if g.equation]
         edits = []
@@ -614,69 +630,42 @@ def simplify(c: Ctx, base_fit: dict | None) -> None:
             causes = list(dict.fromkeys(x for g in fs for x in causes_of(g)))
             edits.append(_driven_edit(first, first.name, causes))
         elif eqs:
-            c.not_made.append({"title": f"Merge {' and '.join(f.name for f in fs)}", "code": "simplify-merge",
-                               "why": "one has an equation and the other does not"})
+            _kept(c, title, "simplify-merge", "one has an equation and the other does not")
             continue
         for g in rest:
             gp, ga = _name_at(g, g.name)
             edits.append(ye.remove_entry(gp, ga))
         c.add("two flows merged", "simplify-merge", f"flow.{first.name}", f"Merge {' and '.join(f.name for f in fs)} into {first.name}",
               [f"flow.{f.name}" for f in fs],
-              f"they all move things from {a} to {b}: one flow can carry them.",
+              f"they all move things from {a} to {b}, and no reason is declared for {', '.join(g.name for g in rest)} "
+              f"(no description): one flow can carry them. It removes structure: it waits for you.",
               "SD Lab's simplify rule (two flows between the same two stocks), on the structure", edits,
-              touched=[f"stock.{a}", f"stock.{b}"])
-    levels = {n: c.level(f"stock.{n}") for n in spec.stocks}
-    for n, st in spec.stocks.items():
+              touched=[f"stock.{a}", f"stock.{b}"], removes=True)
+    q = ex.quiet(spec, data)
+    for n, st in spec.stocks.items():                     # a stock nothing touches
         ref = f"stock.{n}"
-        if ref in c.named or st.cumulative:
+        if ref in c.named or st.cumulative or spec.flows_of(n):
             continue
-        touching = spec.flows_of(n)
-        lv = levels[n]
-        if not touching:
-            path, at = _name_at(st, n)
-            c.add("a stock removed", "simplify-alone", ref, f"Remove {n}", [ref],
-                  f"no flow touches {n} and no goal holds it: nothing in the model moves it or depends on it "
-                  f"(ergostat has no hide:, so this removes it; its readings stay in the record).",
-                  "SD Lab's simplify rule (a stock nothing touches, with no goal), on the structure", [ye.remove_entry(path, at)])
+        if ex.declared_reason(st):
+            _kept(c, f"Remove {n}", "simplify-alone", f"no flow touches {n}, but it is declared with a reason "
+                  f"({_reason_of(st)}): check's stock-without-flows says what it needs")
             continue
-        if len(lv) < MIN_READINGS:
-            continue
-        lo, hi, m = min(lv), max(lv), sum(abs(v) for v in lv) / len(lv)
-        if m > 0 and hi - lo <= max(1e-9, STILL * m):
-            c.add("a stock removed", "simplify-still", ref, f"Remove {n}", [ref, *(f"flow.{f.name}" for f in touching)],
-                  f"{n} never changed over the record ({ye.number(lo)} the whole time): it acts like a setting, not a stock. "
-                  f"ergostat has no hide:, so this removes it, and its flows' ends there become clouds.",
-                  f"SD Lab's simplify rule (a range under {STILL:g} of its mean, {len(lv)} readings)", _remove_stock_edits(c, st))
-            continue
-        empty = sum(1 for v in lv if abs(v) < EMPTY) / len(lv)
-        if empty >= NEARLY_ALWAYS:
-            ins = [f for f in touching if f.target == n and f.source]
-            outs = [f for f in touching if f.source == n and f.target]
-            if len(ins) == 1 and len(outs) == 1 and len(touching) == 2 and ins[0].source != outs[0].target \
-                    and not ({f"flow.{ins[0].name}", f"flow.{outs[0].name}"} & c.named):
-                a, b = ins[0], outs[0]
-                ap, aa = _name_at(a, a.name)
-                bp, ba = _name_at(b, b.name)
-                sp_, sa = _name_at(st, n)
-                edits = [ye.set_key(ap, aa, "to", b.target), ye.remove_entry(bp, ba), ye.remove_entry(sp_, sa)]
-                c.add("a pass-through joined", "simplify-pass-through", ref, f"Connect {a.source} straight to {b.target}",
-                      [ref, f"flow.{a.name}", f"flow.{b.name}"],
-                      f"{n} is empty at {empty:.0%} of its readings: things pass straight through it. {a.name} can go straight "
-                      f"to {b.target}, replacing {b.name}, and {n} goes (ergostat has no hide:, so it is removed).",
-                      f"SD Lab's simplify rule (empty, under {EMPTY:g}, at {NEARLY_ALWAYS:.0%} of readings or more; one flow in "
-                      f"from a stock and one out to a stock)", edits, touched=[f"stock.{a.source}", f"stock.{b.target}"])
-            else:
-                c.add("a stock removed", "simplify-empty", ref, f"Remove {n}", [ref, *(f"flow.{f.name}" for f in touching)],
-                      f"{n} is empty at {empty:.0%} of its readings: what flows through it does not stay. ergostat has no hide:, "
-                      f"so this removes it, and its flows' ends there become clouds.",
-                      f"SD Lab's simplify rule (empty, under {EMPTY:g}, at {NEARLY_ALWAYS:.0%} of readings or more)",
-                      _remove_stock_edits(c, st))
-    names = [n for n in spec.stocks if f"stock.{n}" not in c.named and len(levels[n]) >= MIN_READINGS and not spec.stocks[n].cumulative]
-    full = {n: c.data.values.get(f"stock.{n}") or [] for n in names}
-    for i, a in enumerate(names):                        # twins: two stocks that move exactly alike
+        path, at = _name_at(st, n)
+        c.add("a stock removed", "simplify-alone", ref, f"Remove {n}", [ref],
+              f"no flow touches {n}, no goal holds it and no reason is declared for it (no description): nothing in the "
+              f"model moves it or depends on it (ergostat has no hide:, so this removes it; its readings stay in the "
+              f"record). It removes structure: it waits for you.",
+              "SD Lab's simplify rule (a stock nothing touches, with no goal and no declared reason), on the structure",
+              [ye.remove_entry(path, at)], removes=True)
+    levels = {n: c.level(f"stock.{n}") for n in spec.stocks}
+    full = {n: data.values.get(f"stock.{n}") or [] for n in spec.stocks}
+    span = data.grid.until - data.grid.since
+    names = [n for n in spec.stocks if f"stock.{n}" not in c.named and len(levels[n]) >= TWIN_READINGS
+             and not spec.stocks[n].cumulative and f"stock.{n}" not in q and _varied(levels[n])]
+    for i, a in enumerate(names):                        # twins: two stocks that carry the same information
         for b in names[i + 1:]:
             pts = [(x, y) for x, y in zip(full[a], full[b], strict=False) if x is not None and y is not None]
-            if len(pts) < MIN_READINGS:
+            if len(pts) < TWIN_READINGS:
                 continue
             ma, mb = sum(x for x, _ in pts) / len(pts), sum(y for _, y in pts) / len(pts)
             sab = sum((x - ma) * (y - mb) for x, y in pts)
@@ -684,14 +673,36 @@ def simplify(c: Ctx, base_fit: dict | None) -> None:
             if saa < 1e-9 or sbb < 1e-9:
                 continue
             corr, scale = sab / math.sqrt(saa * sbb), math.sqrt(sbb / saa)
-            if corr > TWIN and abs(math.log(scale)) < 0.05:
-                st = spec.stocks[b]
-                c.add("a stock removed", "simplify-twin", f"stock.{b}", f"Remove {b}, a twin of {a}",
-                      [f"stock.{b}", f"stock.{a}", *(f"flow.{f.name}" for f in spec.flows_of(b))],
-                      f"{b} moves exactly like {a} (correlation {corr:.4f}, scale {scale:.3f}): probably the same thing "
-                      f"measured twice. ergostat has no hide:, so this removes {b}, and its flows' ends there become clouds.",
-                      f"SD Lab's simplify rule (correlation past {TWIN}, scale within 5%, {len(pts)} readings together)",
-                      _remove_stock_edits(c, st), touched=[f"stock.{a}"])
+            if not (corr > TWIN and abs(math.log(scale)) < 0.05):
+                continue
+            keep, drop = (a, b) if not ex.declared_reason(spec.stocks[b]) or ex.declared_reason(spec.stocks[a]) else (b, a)
+            title = f"Remove {drop}, a twin of {keep}"
+            if span < TWIN_SPAN:
+                _kept(c, title, "simplify-twin", f"{drop} moves like {keep} (correlation {corr:.4f}), but over "
+                      f"{_span(span / 3600)} of record, under the {_span(TWIN_SPAN / 3600)} a duplicate needs to be told")
+                continue
+            if ex.declared_reason(spec.stocks[drop]):
+                _kept(c, title, "simplify-twin", f"{drop} and {keep} move exactly alike (correlation {corr:.4f}, scale "
+                      f"{scale:.3f}), but each is declared with a reason ({_reason_of(spec.stocks[drop])}): they may "
+                      f"measure one thing, which is for you to say")
+                continue
+            st = spec.stocks[drop]
+            which = "inferred by ergostat" if ex.inferred(st) else "declared with no reason (no description)"
+            c.add("a stock removed", "simplify-twin", f"stock.{drop}", title,
+                  [f"stock.{drop}", f"stock.{keep}", *(f"flow.{f.name}" for f in spec.flows_of(drop))],
+                  f"{drop} ({which}) carries exactly the information {keep} does: correlation {corr:.4f} and scale "
+                  f"{scale:.3f} over {_span(span / 3600)} of record, {len(pts)} readings together, both varying (each "
+                  f"ranging over more than {VARIED:.0%} of its mean), so the record shows it redundant. ergostat has no "
+                  f"hide:, so this removes {drop}, and its flows' ends there become clouds. It removes structure: it "
+                  f"waits for you.",
+                  f"SD Lab's twin rule (correlation past {TWIN}, scale within 5%, over a long varied record), for a part "
+                  f"with no declared reason", _remove_stock_edits(c, st), touched=[f"stock.{keep}"], removes=True)
+
+
+def _varied(xs: list[float]) -> bool:
+    """A level that ranged over more than ``VARIED`` of its mean: a record that can tell two parts apart."""
+    m = sum(abs(v) for v in xs) / len(xs) if xs else 0.0
+    return bool(xs) and m > 0 and max(xs) - min(xs) > VARIED * m
 
 
 def from_residuals(c: Ctx) -> None:

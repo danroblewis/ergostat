@@ -161,6 +161,12 @@ function whatifBox(params) {
   return box;
 }
 
+/* what the record says of a part (the part API's findings): not exercised, over which span, and why; or nothing */
+function findingsNote(d) {
+  const xs = d?.findings || [];
+  return xs.length ? h("div", { class: "numbers" }, xs.map((x) => h("p", { class: "s-open small" }, x.message))) : null;
+}
+
 /* a valve's or an auxiliary's numbers: its equation, its parameters, how its replay fits, its proposals */
 function equationSection(name, nb, { said = "", exogenous = false } = {}) {
   if (!nb) return null;

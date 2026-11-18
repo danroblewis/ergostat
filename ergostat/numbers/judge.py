@@ -23,11 +23,16 @@ only in some. One the record cannot tell from the model as it is (no window bett
 kept under test for more record, up to three times what it needs, then said **inconclusive**: needs more record,
 not failed.
 
+It does not vouch for what the record has not exercised: a value or an equation whose parts did not move in the
+record held out (``exercised.py``) is never passed on it; it stays under test and is then inconclusive, needing
+record in which they move.
+
 What happens to a passed change is the judge's policy (``accept``, by kind): ``owner`` (the default) leaves it in
 the review queue, its verdict beside it; ``auto`` writes it, as Accept does (the smallest edit, ``check`` must still
 pass, recorded as ``ergostat.model-change.accepted`` from the judge, naming the policy, and
 ``ergostat.model.changed``), one a pass. Only a value, an equation or the structure is judged or written so: a
-change to a goal, a block or a sensor waits for the owner. The owner commits what was written."""
+change to a goal, a block or a sensor waits for the owner, and so does any change that removes structure
+(``removes``), whatever the policy. The owner commits what was written."""
 
 from __future__ import annotations
 
@@ -318,6 +323,13 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                 pr.event(p, x["id"], "testing", {"looked": held})
                 out["waiting"].append({"id": x["id"], "held": held, "needs": held + nd["needs"], "judged": len(results)})
                 continue
+            q = quiet_held(p, spec, x, since, now)
+            if q is not None and got[0] == "kept":            # it does not vouch for what the record has not exercised
+                got = None if held < GIVE_UP * nd["needs"] else ("inconclusive", q)
+                if got is None:
+                    pr.event(p, x["id"], "testing", {"looked": held, "not_exercised": q})
+                    out["waiting"].append({"id": x["id"], "held": held, "needs": held + nd["needs"], "judged": len(results)})
+                    continue
             verdict, why = got
             state = {"kept": "passed", "dropped": "failed"}.get(verdict, verdict)
             pr.event(p, x["id"], state, {"verdict": {"verdict": state, "why": why, "at": now, "threshold": pol.threshold,
@@ -327,6 +339,8 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
             out["verdicts"].append({"id": x["id"], "verdict": state, "why": why})
     for x in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0):     # one written a pass, the oldest first
         if x["state"] != "passed" or x.get("kind") not in JUDGED or pol.accept.get(x.get("kind")) != "auto":
+            continue
+        if removes(x):                                     # a removal waits for the owner, whatever the policy
             continue
         snap = {"at": now, "window": ob.reference(p, now).until - ob.reference(p, now).since}
         try:
@@ -338,6 +352,34 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
         out["accepted"] += 1
         break
     return out
+
+
+def removes(x: dict) -> bool:
+    """A change that takes structure away: never written by the judge's policy; the owner decides."""
+    return bool(x.get("removes") or x.get("gone_parts"))
+
+
+def quiet_held(p, spec: Spec, x: dict, since: float, until: float) -> str | None:
+    """Why the record held out cannot vouch for a value or an equation, or None: every part it acts through (a
+    parameter's users, an equation's flow) that the record reads is not exercised there (``exercised.py``)."""
+    from . import exercised as ex
+    if x.get("kind") not in ("parameter", "equation") or until - since < MIN_WINDOW:
+        return None
+    refs = [*(x.get("parts") or []), *(f"parameter.{n}" for n in x.get("parameters") or {}), x.get("target")]
+    via = list(dict.fromkeys(u for r in refs if r for u in (ex.users(spec, r[10:]) if r.startswith("parameter.") else [r])
+                             if u.split(".")[0] in ("flow", "auxiliary")))
+    if not via:
+        return None
+    g = ob.Grid(since, until, max(2, min(series.POINTS, int((until - since) // ob.MIN_BUCKET))))
+    data = ob.measured(p, g, spec)
+    q = ex.quiet(spec, data, least=MIN_WINDOW, readings=MIN_JUDGED * 4)
+    read = [r for r in via if any(v is not None for v in data.values.get(r) or []) and data.how.get(r) not in ("declared", "not measured")]
+    if not read or any(r not in q for r in read):
+        return None
+    w = q[read[0]]
+    return (f"the record held out has not exercised what it acts through ({', '.join(read)}: {w['says']} over "
+            f"{dur(until - since)}): no record can vouch for its rate yet, and none says it is wrong; it needs record "
+            f"in which {read[0].split('.', 1)[1]} moves ({ex.SUGGEST})")
 
 
 def lines(spec: Spec, block: str | None, got: dict) -> list[dict]:
