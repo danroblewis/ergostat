@@ -1753,25 +1753,6 @@
               "$ref": "#/$defs/inferred"
             }
           }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "cause"
-          ],
-          "properties": {
-            "cause": {
-              "$ref": "#/$defs/signed_ref"
-            },
-            "instant": {
-              "type": "boolean",
-              "description": "The effect follows the cause in the same moment, with no stock between (silences rate-driven-by-rate)"
-            },
-            "description": {
-              "type": "string"
-            }
-          }
         }
       ]
     },
@@ -1848,66 +1829,6 @@
             },
             "inferred": {
               "$ref": "#/$defs/inferred"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "value": {
-              "type": [
-                "number",
-                "string"
-              ],
-              "description": "A number, or a duration (40s, 2h) read in hours"
-            },
-            "unit": {
-              "type": "string"
-            },
-            "estimate": {
-              "type": "boolean",
-              "description": "Fit it from the record: estimates are kept apart, and become the value only when a proposal is accepted"
-            },
-            "range": {
-              "type": "array",
-              "description": "What it might be, [low, high] (numbers, or durations read in hours): sensitivity analysis samples it uniformly there",
-              "items": {
-                "type": [
-                  "number",
-                  "string"
-                ]
-              },
-              "minItems": 2,
-              "maxItems": 2
-            },
-            "table": {
-              "description": "A lookup's points: a map x: y or a list of [x, y]",
-              "oneOf": [
-                {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "number"
-                  }
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "array",
-                    "items": {
-                      "type": "number"
-                    },
-                    "minItems": 2,
-                    "maxItems": 2
-                  }
-                }
-              ]
-            },
-            "system": {
-              "$ref": "#/$defs/name"
-            },
-            "description": {
-              "type": "string"
             }
           }
         }
