@@ -536,6 +536,7 @@ async function pageItems(main, q) {
     const listed = d.listed ?? d.items.length;          // what the server's list held, before the search and the cut per kind
     const none = !anyRows && listed && (needle || state || kind) ? h("p", { class: "muted" }, folded.size ? "Nothing matches in the systems shown." : "Nothing matches.") : null;
     box.replaceChildren(...groups, ...(none ? [none] : []));
+    sweepPlots();                                         // the charts just replaced (or folded away) let go now, not at the next one drawn
     more.textContent = d.total > listed ? `${d.total - listed} older items not loaded.` : "";
   }
   await refresh();
