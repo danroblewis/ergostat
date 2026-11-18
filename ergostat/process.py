@@ -6,8 +6,9 @@ an item of another, which show work fanning out and joining back.
 
 Each map's nodes are its kind's activities, by one of two readings (``by``):
 
-- ``states``: the states its items entered (a move, from the item index), the lines its moves: what the
-  kind declares as its workflow, with every way the items really took through it, rework included;
+- ``states``: the states its items entered (a move, from the item index; a lease's hold folded out), the
+  lines its moves: what the kind declares as its workflow, with every way the items really took through it,
+  rework included;
 - ``events``: the event types about its items, a line from each to the next one about the same item.
 
 and two more nodes, where its items start (their first event, in the window) and end (they reached a
@@ -113,10 +114,31 @@ def _moved_ids(events, spec, kind: str, since: float, until: float) -> tuple[lis
     return [i.id for i in got[:MOST_ITEMS]], len(got) > MOST_ITEMS
 
 
+LEASED = "leased"
+
+
+def unleased(moves: list[dict]) -> list[dict]:
+    """An item's moves with its leases' holds folded out (SPEC §9.5), as the item index's transitions are: a move
+    into ``leased`` is not a step of the work, the move out of it is a move from the state it was taken from (the
+    time held counts there), and a lease handed back to that state is no move at all."""
+    out, back = [], None
+    for m in moves:
+        if m["to"] == LEASED:
+            if m["from"] != LEASED:
+                back = m["from"]
+            continue
+        if m["from"] == LEASED:
+            if m["to"] == back:
+                continue
+            m = {**m, "from": back}
+        out.append(m)
+    return out
+
+
 def _state_after(it, t: float, eid: str | None) -> str | None:
-    """The state an item was in just after the event at ``t`` (``eid``)."""
+    """The state an item was in just after the event at ``t`` (``eid``), a lease's hold folded out."""
     st = None
-    for m in it.moves:
+    for m in unleased(it.moves):
         if m["time"] > t and m["event"] != eid:
             break
         st = m["to"]
@@ -166,7 +188,7 @@ class Window:
         for id, it in got.items():
             self.kind_of.setdefault(id, kind)
             steps, prev = [], None
-            for m in it.moves:
+            for m in unleased(it.moves):
                 if m["time"] > self.until:
                     break
                 if m["time"] >= self.since:
@@ -307,7 +329,7 @@ class Window:
             yield (None, START, None, None), steps[0]
         elif self.by == "states" and k.states:       # its first move in the span left a state it entered before
             first = self.folded.get(id)
-            m = next((m for m in (first.moves if first else []) if m["event"] == steps[0][2]), None)
+            m = next((m for m in unleased(first.moves if first else []) if m["event"] == steps[0][2]), None)
             if m is not None and m["from"] is not None:
                 yield (self.before.get(id), m["from"], None, None), steps[0]
         yield from zip(steps, steps[1:], strict=False)

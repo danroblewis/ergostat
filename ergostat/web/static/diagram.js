@@ -1029,7 +1029,7 @@ async function pageDiagram(main, q) {
     const now = new Set(g.kinds.map((k) => k.name));
     const toggle = (name) => {
       const next = (g.offered || []).map((k) => k.name).filter((k) => (k === name ? !now.has(k) : now.has(k)));
-      const same = next.length === g.default.length && next.every((k) => g.default.includes(k));
+      const same = next.length === (g.default || []).length && next.every((k) => (g.default || []).includes(k));
       S.graphSig = ""; S.fitted = false;
       go({ kinds: same ? "" : next.join(",") || name });
     };

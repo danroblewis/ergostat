@@ -275,7 +275,7 @@ def _process(p, m, snap: dict, q: dict, system: str | None) -> dict:
     if spec is None or not getattr(spec, "items", None):
         return {"kind": "process", "by": "states", "paths": 0, "kinds": [], "nodes": [], "edges": [], "events": 0,
                 "since": snap["at"] - snap["window"], "until": snap["at"], "capped": {}, "hidden": {"nodes": 0, "edges": 0},
-                "total": {"nodes": 0, "edges": 0}, "offered": []}
+                "total": {"nodes": 0, "edges": 0}, "offered": [], "default": []}
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
     offered = pm.kinds_of(spec, system)
     asked = [k for k in (one("kinds") or "").split(",") if k in spec.items]
