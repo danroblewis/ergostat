@@ -204,3 +204,38 @@ def test_leases_are_shown_on_the_items_page_and_the_items(browser, site):
     assert "held by developer" in pg.locator(".lease").inner_text()
     assert not errors, errors
     pg.close()
+
+
+def test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set(browser, site):
+    """What is going through the wires (item_sets.py): the stock ideas lists the hypotheses proposed now, the flow
+    proposed those that arrived in the window; each links to the Items page filtered to that set, shown as a chip
+    with the same count, and only that kind's items listed."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    for node, words in (("n.label === 'ideas' && n.kind === 'stock'", "items now"),
+                        ("(n.flow || n.label) === 'proposed' && ['valve', 'disturbance'].includes(n.kind)", "went through")):
+        pg.goto(f"{site}/diagram?view=dynamics&around=stock/ideas")
+        pg.wait_for_function("() => S.graph && document.querySelectorAll('.node').length > 0", timeout=60000)
+        pg.evaluate(f"() => openNode(S.graph.nodes.find((n) => {node}))")
+        pg.wait_for_selector("#detail .item-set table.item-list")
+        head = pg.locator("#detail .item-set p b").first.inner_text()
+        assert words in head, head
+        n = int(head.split("(")[1].split()[0]) if "(" in head else int(head.split()[0])   # items (a flow's moves first)
+        assert n >= 5 and pg.locator("#detail .item-set table.item-list tr").count() - 1 == min(n, 10)
+        assert all(h.startswith("/item/hypothesis%2F") for h in
+                   pg.locator("#detail .item-set table.item-list a").evaluate_all("els => els.map((a) => a.getAttribute('href'))"))
+        link = pg.locator("#detail .item-set a[href^='/items?']")
+        href = link.get_attribute("href")
+        assert "kind=hypothesis" in href and ("state=proposed" in href if "stock" in node else "moved=%3Eproposed" in href), href
+        link.click()
+        pg.wait_for_selector(".set-chip")
+        chip = pg.locator(".set-chip").inner_text()
+        assert chip.startswith("hypothesis") and str(n) in chip.split(), chip
+        assert systems(pg) == ["lab"]
+        rows = pg.locator('section.sys-group[data-system="lab"] table tr td:first-child').all_inner_texts()
+        assert len(rows) == n and all(r.startswith("hypothesis/") for r in rows), rows
+        pg.locator(".set-chip button").click()                                     # the chip goes: the whole list again
+        pg.wait_for_function("() => !document.querySelector('.set-chip') && location.search === ''")
+    assert not errors, errors
+    pg.close()

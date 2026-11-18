@@ -544,6 +544,35 @@ a flow the rate at which items enter or leave one. The record is then the instru
 counted is what the events say, so a stock counted from items is only as true as the events
 reporting them.
 
+**Which items: what is going through the wires.** A stock's or a flow's side panel (in every view; in the
+Blocks view, a loop's output, sensor and process blocks) lists its items, the first ten, and links to the
+Items page filtered to exactly that set (`item_sets.py`). What a part's items are comes from the model:
+
+| Part | Its items |
+|---|---|
+| a stock or auxiliary with an `items:` sensor | the items it counts now: its kind, `state` and `where`; each with its age in its state and the lease holder |
+| a flow with an `items:` sensor | the items whose move it counts (`entering` or `leaving`, `where`) in the page's window, each with when |
+| a flow between stocks counted from items of one kind | the items that moved from the source stock's states to the target's in the window (a side outside the system: any other state, or arriving) |
+| a flow moved by a block (its valve) | each opening in the window, with the items the run that opened it was about |
+| a flow whose `run` sensor reports items | the items it reported in the window |
+| anything else (a query, a declared rate, `changes`, read by hand) | none, and why: a rate from a metrics store names no items |
+
+The Items page's filters, in its address (`/items?...`) and in `GET /api/items`:
+
+| Parameter | Meaning |
+|---|---|
+| `kind` | the kind; every other filter needs it |
+| `state=A[,B]` | in one of these states now |
+| `where=FIELD:VALUE` | the field equals the value (repeated: any of the values for one field, all the fields) |
+| `moved=FROM>TO` | moved from one of `FROM` to one of `TO` (states joined by commas); an empty side is any other state, or none (an arrival): `>done` entering done, `briefed>` leaving briefed |
+| `moved_since`, `moved_until` | the span of `moved` (after since, up to until): `2026-11-18T10:00:00Z` (UTC) or seconds since 1970; default the hour before now |
+
+The page shows the set as one chip with its count (for moves, the items and the moves), removed with its ×;
+each item's latest matching move is a column. The API answers the set alone, newest first (a move's set by its
+latest move), at most 500 a page (`n`, `offset`), with `total` (and `moves`); `alone=1` leaves out the page's
+kinds and counts. A filter that is not one (an unknown state, `where` without a `:`) is a 400 that says why.
+Sets are read from the item index: a state's items counted and paged there, a span's moves read there alone.
+
 ## 6. Sensors
 
 An instrument: it measures one stock or one flow, and nothing else. It never decides or acts. It

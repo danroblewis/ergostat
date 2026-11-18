@@ -213,6 +213,13 @@ details > summary:hover { color: var(--ink); }
 details.suggest .hint { margin-top: var(--sp-3); }
 .filters { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; margin: 0 0 var(--sp-4); }
 .filters input[type=search], .filters input[type=text], .filters input:not([type]) { min-width: 16em; }
+/* the set of items a side panel linked to (item_sets.py): one chip, its count, removed with its × */
+.set-chip { display: inline-flex; align-items: center; gap: var(--sp-2); border: var(--hair) solid var(--line-strong);
+  border-radius: var(--radius); background: var(--fill); padding: 0 0 0 var(--sp-2); }
+.set-chip .n { font-variant-numeric: tabular-nums; }
+.set-chip button { min-height: 0; border: 0; padding: var(--sp-0) var(--sp-2); }
+.set-chip.bad { color: var(--bad); }
+.item-set table.item-list td.cell { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* the diagram: the canvas and its side panel */
 .diagram { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w); }
