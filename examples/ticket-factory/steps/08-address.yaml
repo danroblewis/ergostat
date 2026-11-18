@@ -1,0 +1,38 @@
+# Step 8, address: changes-asked -> review-asked. The agent answers the review with a commit (steps/address.py).
+defaults:
+  system: review
+
+flows:
+  address:
+    from: changes-asked
+    to: review-asked
+    driven-by: [+stock.changes-asked]
+    equation: stock.changes-asked / address-time
+    sensor:
+      items: ticket
+      entering: review-asked
+      over: 10m
+
+parameters:
+  address-time:
+    value: 60s
+    estimate: true
+    description: how long the agent takes to answer a review
+
+goals:
+  changes-answered:
+    stock: changes-asked
+    hold: "<= 0"
+    description: every review comment is answered
+
+blocks:
+  address:
+    type: ai
+    goal: changes-answered
+    agent: ai
+    prompt: prompts/review.md
+    run: python3 bin/step.py address --from changes-asked
+    max: 1
+    every: 3s
+    timeout: 15m
+    out: flow.address

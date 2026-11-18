@@ -1,0 +1,22 @@
+# Arrivals: the Jira issues labelled for the factory, as the watcher sees them (bin/watch.py, a sensor: it
+# reads Jira and records each new issue as a ticket, and never acts).
+defaults:
+  system: intake
+
+stocks:
+  new:
+    unit: tickets
+    description: found in Jira (To Do, labelled), not picked up yet
+    sensor:
+      items: ticket
+      state: new
+      every: 3s
+
+flows:
+  arrivals:
+    to: new
+    description: issues labelled for the factory, as they appear in Jira
+    sensor:
+      run: python3 bin/watch.py
+      every: 10s
+      averages: 10m

@@ -1,0 +1,44 @@
+# Step 6, ask-review: pr-open -> review-asked. Ask the reviewers (steps/ask-review.py).
+defaults:
+  system: review
+
+stocks:
+  review-asked:
+    unit: tickets
+    description: waiting for the reviewers
+    sensor:
+      items: ticket
+      state: review-asked
+      every: 3s
+
+flows:
+  ask-review:
+    from: pr-open
+    to: review-asked
+    driven-by: [+stock.pr-open]
+    equation: stock.pr-open / ask-review-time
+    sensor:
+      items: ticket
+      entering: review-asked
+      over: 10m
+
+parameters:
+  ask-review-time:
+    value: 10s
+    estimate: true
+    description: how long asking takes
+
+goals:
+  opened-asked:
+    stock: pr-open
+    hold: "<= 0"
+    description: every pull request has its review asked for
+
+blocks:
+  ask-review:
+    type: program
+    goal: opened-asked
+    run: python3 bin/step.py ask-review --from pr-open
+    max: 1
+    every: 3s
+    out: flow.ask-review

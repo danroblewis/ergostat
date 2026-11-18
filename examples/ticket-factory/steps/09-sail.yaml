@@ -1,0 +1,44 @@
+# Step 9, sail: approved -> sailed. The SAIL label (steps/sail.py).
+defaults:
+  system: review
+
+stocks:
+  sailed:
+    unit: tickets
+    description: labelled SAIL; CI watched
+    sensor:
+      items: ticket
+      state: sailed
+      every: 3s
+
+flows:
+  sail:
+    from: approved
+    to: sailed
+    driven-by: [+stock.approved]
+    equation: stock.approved / sail-time
+    sensor:
+      items: ticket
+      entering: sailed
+      over: 10m
+
+parameters:
+  sail-time:
+    value: 10s
+    estimate: true
+    description: how long labelling takes
+
+goals:
+  approved-sailed:
+    stock: approved
+    hold: "<= 0"
+    description: every approved pull request is labelled SAIL
+
+blocks:
+  sail:
+    type: program
+    goal: approved-sailed
+    run: python3 bin/step.py sail --from approved
+    max: 1
+    every: 3s
+    out: flow.sail

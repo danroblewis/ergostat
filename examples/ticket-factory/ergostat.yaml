@@ -1,0 +1,43 @@
+# The ticket factory: a software engineer's ticket workflow, end to end, against real services: a Jira
+# issue picked up, worked by an AI agent in a git worktree, a pull request opened, reviewed, labelled,
+# checked by CI, merged, and the issue closed; with a daily summary and an OKR (README.md).
+#
+# The workflow is one item kind, `ticket` (ticket.yaml): its states are the step list, and each step is a
+# file in steps/ (its stock, flow, goal and block) with a script beside it. Every outward act (Jira, GitHub)
+# is a named action under a gate (gates.conf, bin/act.py). Settings: factory.conf (./setup writes it);
+# without one it runs offline, against fakes.
+name: ticket-factory
+include:
+  - ticket.yaml
+  - factory/*.yaml
+  - steps/*.yaml
+  - local/*.yaml
+systems:
+  factory:
+    description: a Jira issue in, a merged pull request and a Done issue out
+  intake:
+    within: factory
+    description: picked up, its repository found, a workspace and a branch
+  making:
+    within: factory
+    description: the change made, and its pull request opened
+  review:
+    within: factory
+    description: asked, re-pinged, answered, approved, labelled SAIL
+  shipping:
+    within: factory
+    description: CI watched and fixed, merged, the issue Done
+  oversight:
+    description: the owner's approvals, stopped tickets, what it costs, the daily summary and the OKR
+  world:
+    description: stand-ins for the people outside the factory (the reviewers; offline, the owner's approvals)
+
+agents:
+  owner:
+    kind: person
+    description: approves the gated actions, and unsticks stopped tickets
+  ai:
+    kind: ai
+    model: haiku
+    at-once: 1
+    description: Claude Code on haiku (AI=claude), or the free stand-in (AI=standin); never pushes or calls gh

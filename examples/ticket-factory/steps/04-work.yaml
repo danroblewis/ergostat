@@ -1,0 +1,47 @@
+# Step 4, work: branched -> worked. The AI agent (or the stand-in) does the ticket (steps/work.py).
+defaults:
+  system: making
+
+stocks:
+  worked:
+    unit: tickets
+    description: the change made and committed; no pull request yet
+    sensor:
+      items: ticket
+      state: worked
+      every: 3s
+
+flows:
+  work:
+    from: branched
+    to: worked
+    driven-by: [+stock.branched]
+    equation: stock.branched / work-time
+    sensor:
+      items: ticket
+      entering: worked
+      over: 10m
+
+parameters:
+  work-time:
+    value: 60s
+    estimate: true
+    description: how long the agent takes
+
+goals:
+  branched-worked:
+    stock: branched
+    hold: "<= 0"
+    description: every ticket with a workspace is worked
+
+blocks:
+  work:
+    type: ai
+    goal: branched-worked
+    agent: ai
+    prompt: prompts/work.md
+    run: python3 bin/step.py work --from branched
+    max: 1
+    every: 3s
+    timeout: 15m
+    out: flow.work

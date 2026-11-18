@@ -1,0 +1,87 @@
+# The units of work: the ticket, and what the factory records beside it. Built here, not in ergostat:
+# ergostat knows no tickets (README.md).
+#
+# THE STEP LIST is the ticket's `states`, in order, and `on`, the event each step records when it is done
+# and the state that takes the ticket to. Each step has a file in steps/ (its stock, flow, goal and block)
+# and, when it acts, a script beside it (steps/<name>.py). Adding a step: add its state here and its `on`
+# line, copy a step file, and point the next step's `--from` and flow at it (README.md, "Adding a step").
+#
+#   step          from            to              what it does
+#   pick-up       new             picked          the Jira issue to In Progress
+#   locate        picked          located         which repository it names
+#   branch        located         branched        a workspace (git worktree) and a branch by BRANCH_TEMPLATE
+#   work          branched        worked          the AI agent (or the stand-in) does it; committed
+#   open-pr       worked          pr-open         push, open the pull request, the issue to In Review
+#   ask-review    pr-open         review-asked    ask the reviewers
+#   review        review-asked    approved        wait for them; re-ping; -> changes-asked when they comment
+#   address       changes-asked   review-asked    the agent answers the comments with a commit
+#   sail          approved        sailed          the SAIL label
+#   ci            sailed          ci-green        watch CI; -> ci-failed when it fails
+#   fix-ci        ci-failed       sailed          triage the log, fix, push, run again
+#   merge         ci-green        merged          merge if the repository allows it (or stop at approved)
+#   close         merged          done            the issue to Done; the workspace given back
+items:
+  ticket:
+    id: ticket/*
+    description: a Jira issue labelled for the factory, from pick-up to Done
+    states: [new, picked, located, branched, worked, pr-open, review-asked, changes-asked, approved, sailed,
+             ci-failed, ci-green, merged, done, stopped]
+    on:
+      ticket.pick-up: picked
+      ticket.locate: located
+      ticket.branch: branched
+      ticket.work: worked
+      ticket.open-pr: pr-open
+      ticket.ask-review: review-asked
+      ticket.review: approved
+      ticket.changes-asked: changes-asked
+      ticket.address: review-asked
+      ticket.sail: sailed
+      ticket.ci: ci-green
+      ticket.ci-failed: ci-failed
+      ticket.fix-ci: sailed
+      ticket.merge: merged
+      ticket.close: done
+      ticket.stopped: stopped
+    show: [title, repo, pr_url, repings, ci_failures, ai_cost_usd]
+    formats:
+      last_session: json
+      ci_log: text
+    fold:
+      repings: sum
+      review_rounds: sum
+      ci_failures: sum
+      ai_runs: sum
+      ai_cost_usd: sum
+      ai_seconds: sum
+      sessions: append
+      answered: union
+
+  action:
+    id: action/*
+    description: an outward act under its gate (gates.conf, bin/act.py)
+    states: [requested, approved, done, denied, failed]
+    on:
+      action.approved: approved
+      action.done: done
+      action.denied: denied
+      action.failed: failed
+    show: [what, gate, ticket, result]
+
+  report:
+    id: report/*
+    description: the day's summary, as Markdown
+    states: [written]
+    show: [done, cycle_hours_median, repings, ci_failures, ai_cost_usd, summary]
+    formats:
+      summary: markdown
+
+  okr:
+    id: okr/*
+    description: the objective and its key results, from the counts
+    states: [on-track, at-risk, off-track]
+    on:
+      okr.on-track: on-track
+      okr.at-risk: at-risk
+      okr.off-track: off-track
+    show: [objective, done, target, status_note]
