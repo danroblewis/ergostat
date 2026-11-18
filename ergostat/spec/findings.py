@@ -8,7 +8,10 @@ from .ir import Ref, Spec
 from .load import Problem
 
 
-def find(spec: Spec) -> list[Problem]:
+def find(spec: Spec, extremes: bool = True) -> list[Problem]:
+    """Every finding; ``extremes=False`` leaves out the extreme-conditions tests (``late``), which run the
+    model's equations many times over (a second or more on a large model) and are wanted only where
+    findings are shown."""
     out: list[Problem] = []
 
     def say(code, msg, where, about):
@@ -68,6 +71,16 @@ def find(spec: Spec) -> list[Problem]:
     structure(spec, say)
     from .equation_checks import findings as numbers
     numbers(spec, say)
+    if extremes:
+        out += late(spec)
+    return out
+
+
+def late(spec: Spec) -> list[Problem]:
+    """The findings that run the model: its extreme-conditions tests (``numbers/extremes.py``)."""
+    from ..numbers import extremes
+    out: list[Problem] = []
+    extremes.findings(spec, lambda code, msg, where, about: out.append(Problem("finding", msg, where, code, about)))
     return out
 
 

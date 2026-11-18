@@ -93,7 +93,10 @@ function avoidUrls() {                                  // where libavoid is: th
     return { js: blob(window.LIBAVOID.js, "text/javascript"), wasm: blob(window.LIBAVOID.wasm, "application/wasm"), worker: false };
   }
   const base = new URL("/static/libavoid/", location.href);
-  return { js: new URL("libavoid.js", base).href, wasm: new URL("libavoid.wasm", base).href, worker: true };
+  let v = {};                                           // their versions (the server's meta tag): an update is a new address
+  try { v = JSON.parse(document.querySelector('meta[name="ergostat-assets"]')?.content || "{}"); } catch (e) { /* none */ }
+  const at = (name) => { const u = new URL(name, base); if (v[`libavoid/${name}`]) u.searchParams.set("v", v[`libavoid/${name}`]); return u.href; };
+  return { js: at("libavoid.js"), wasm: at("libavoid.wasm"), worker: true };
 }
 
 function avoidWorker(u) {                               // the router in a worker: resolves to it, or null if it cannot start

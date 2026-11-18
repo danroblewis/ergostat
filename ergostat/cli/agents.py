@@ -88,7 +88,7 @@ def run_now(args) -> int:
     if not a.command or a.kind == "person":
         print(f"{a.name} has no command for ergostat to run" + (" (a person)" if a.kind == "person" else ""), file=sys.stderr)
         return 2
-    errors = [msg for lv, msg in mdl.check(p.model) if lv == "error"]
+    errors = [msg for lv, msg in mdl.check(p.model, warnings=False) if lv == "error"]
     if errors:
         many = "s" if len(errors) > 1 else ""
         print(c(f"the model has {len(errors)} error{many} (ergostat check); running it anyway, to try it", "warn"))
