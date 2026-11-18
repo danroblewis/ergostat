@@ -467,7 +467,8 @@ Its id names it the way the system it lives in does, with a `/` in it: `ticket/1
 `github/pull_request/4231`. (ergostat's own events are about the model's parts, whose names never
 have a `/`; the two never mix.) An event about an item comes from a block's output
 (`{"event": "pr.merged", "item": "github/pull_request/4231", "data": {...}}`), from a sensor's
-observations, from `ergostat event --add`, or from an agent over MCP (`record_event`).
+observations, from `ergostat event --add`, pushed to the running ergostat (`POST /api/events`, a webhook: section
+5c), or from an agent over MCP (`record_event`).
 
 A kind of item says which ids are that kind, the states they move through, and how its events'
 data folds into it:
@@ -746,6 +747,68 @@ read them:
 `system`); `view=wiring`, the view this replaced, is the same, and the page's `view=wiring` opens it. (The
 machines and what passed between them, which the wiring view drew, are on the command line: `ergostat
 system --wiring`.)
+
+## 5c. Pushed, not polled: events sent to the running ergostat
+
+What arrives from outside may be **pushed** instead of waiting for a collector's next poll: recorded and folded at
+once, and what waits for it (a block that takes the item, a goal on its queue, a step put off until there is news of
+it: section 9.5) wakes on the write itself. Collectors stay as they are, the fallback for what nobody pushes.
+
+**`POST /api/events`** on the running ergostat's page (`ergostat run` prints where): one event, or a list, in the
+envelope a block's output lines use: `{"event": "ticket.found", "item": "ticket/SCRUM-12", "data": {...}}` (or
+`patch` / `set` in place of `data`), with an optional `id` that makes a retry the same event (recorded once). A push
+is checked whole and recorded in one write, or refused whole (400, and why). The answer says how many were new and
+their ids. An event type is lowercase words joined by dots, never ergostat's own.
+
+**Webhooks, `POST /api/hooks/NAME`**: a sender's own payload, made into events by a small mapping per sender:
+
+```yaml
+intake:
+  allow: [10.0.0.0/8]                  # who may push besides this machine (default: nobody else)
+  bind: 0.0.0.0                        # where the page listens (default 127.0.0.1); others reach only the push paths
+  hooks:
+    jira:                              # POST /api/hooks/jira
+      event: {from: webhookEvent, map: {"jira:issue_created": ticket.found, "jira:issue_updated": ticket.changed}}
+      item: "ticket/{issue.key}"
+      id: "jira-{issue.id}-{timestamp}"
+      data: {title: issue.fields.summary, status: issue.fields.status.name, labels: issue.fields.labels}
+    github:
+      event: {from: "header:X-GitHub-Event", map: {pull_request_review: ticket.news, check_suite: ticket.news}}
+      item: "ticket/{pull_request.head.ref~^ergostat/([A-Z][A-Z0-9]*-[0-9]+)}"
+      id: "{header:X-GitHub-Delivery}"
+      data: {news: action, review: review.state, ci: check_suite.conclusion}
+    pagerduty:
+      event: {from: event.event_type, map: {incident.triggered: alert.triggered, incident.resolved: alert.resolved}}
+      item: "alert/{event.data.id}"
+      id: "{event.id}"
+      data: {title: event.data.title, urgency: event.data.urgency, service: event.data.service.summary}
+```
+
+`event` is a type (a template), or a value in the payload looked up in `map` (one not in the map is ignored: 202,
+nothing recorded). `item` and `id` are templates: text with `{path}` in it, a path being dotted keys
+(`issue.fields.summary`), list positions by number (`pull_requests.0.number`), or `header:NAME`; `{path~REGEX}`
+takes the part of the value the expression's first group matches. Each of `data`'s fields is a path (its value as it
+is) or a template (text). `each: PATH` makes one event per element of a list. An item a payload does not name is
+refused (400).
+
+**Who may push.** Every push carries the project's token, `<state>/intake.token` (made the first time, readable by
+its owner only), in any of the ways a sender can: `Authorization: Bearer TOKEN`, `X-Ergostat-Token: TOKEN`,
+`?token=TOKEN`, or as the secret of an HMAC-SHA256 of the body the way GitHub (`X-Hub-Signature-256`; Jira's
+webhooks with a secret too) and PagerDuty (`X-PagerDuty-Signature`) sign theirs. Pushes come from this machine
+only, unless `intake: allow:` names more; another machine reaches nothing of the page but the push paths. A sender
+outside reaches it through whatever forwards to this machine (a tunnel, a reverse proxy).
+
+**Calls from a step.** The engine also listens on a Unix socket in the state directory (`engine.sock`, its owner's
+only; when that path is too long for a socket, one in the system's temporary folder, named in `engine.sock.path`),
+given to every run as `ERGOSTAT_SOCKET`. `ergostat event --add`, `act`, `lease --renew` / `--nack` and `item ID
+--json` are answered there when an engine runs, in milliseconds and without loading the model, and do what they
+always did when none does (`ERGOSTAT_NO_SOCKET=1`: never ask it). The protocol is one JSON line asked and one
+answered, so a step's own code may speak it with no ergostat installed: `{"op": "event", "events": [...],
+"causedby": RUN}`, `{"op": "item", "id": ID}`, `{"op": "act", "name", "args", "key", "wait", "env":
+{"ERGOSTAT_ACTIONS": ..., "ERGOSTAT_RUN": ...}}`, `{"op": "lease", "how": "renew" | "nack", "why", "after",
+"count", "env": {...}}`, each with `"root"`, the project's folder (another project's call is not answered:
+`{"elsewhere": ...}`). An answer is the command's `--json` answer, or `{"error": WHY, "code": EXIT}`. An `act` that
+waits for an approval holds no thread: it is answered when the owner answers.
 
 ## 6. Sensors
 
@@ -1175,6 +1238,9 @@ after readings land, after a run ends, and every second (the clock's pass):
   count at the reading's time, kept as events arrive: it costs nothing to read), a flow read from its stock's changes
   is worked out at once, and commands and queries run on a fixed pool of eight. The batch is recorded together and
   followed by one pass. What lands within 50 ms of a pass (readings, runs ending) waits for the next pass together.
+- When the record is written (by ergostat, a run, a push, or another process: each wakes it), every count of items
+  is read at once, and those that changed are recorded and worked out with the batch: a goal on a queue sees its first
+  item when it arrives, not at its sensor's next reading. A count that did not change is not recorded again.
 - A pass reads **one snapshot**: each series' newest reading when the pass begins. Readings that landed in one batch are
   seen together; a series read twice within one batch counts with its newest reading (the other is recorded, not
   evaluated).
@@ -1348,7 +1414,9 @@ directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's 
 `ERGOSTAT_LEASE` (for a run holding a lease on an item: section 9.5), `ERGOSTAT_COMMAND` (the amount),
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
 (`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
-block, or the AI agent it starts, to read and record items while it works. An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
+block, or the AI agent it starts, to read and record items while it works; and `ERGOSTAT_SOCKET`, the running
+engine's socket, which answers `event --add`, `act`, `lease --renew` / `--nack` and `item ID --json` without
+loading the model (section 5c). An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
 with its prompt, the JSON above, and how to answer, in the model's folder unless it names its own (`workdir:`, or a `workspace:` per item), and gated
 when it names its `tools:` or `actions:` (section 12k). Any block, whatever its type, may also propose a change to
 the model, `{"propose": {...}}` (section 12e); `agent.ran` counts what it proposed and what was not taken. And any
@@ -1430,7 +1498,7 @@ it does not list them: `leased`, after the first `at` state, and `dead`, last.
 |---|---|---|
 | `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
 | `ergostat.lease.renewed` | `run`, `fence`, `seen` (`activity` or `asked`) | its lease expires a TTL after this |
-| `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds) and `count`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after` |
+| `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds), `count` and `news`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after`, or, with `news`, before the first event about it its own runs did not cause |
 | `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`; `item`, `state`, `terminal` | back to `back`, the attempt counted |
 | `ergostat.lease.redriven` | `why`, `to` | a dead letter back to `to` (else `back`), its attempts from nothing |
 
@@ -1449,7 +1517,12 @@ an item it started (its session, `session/developer-1a2b`). If there is one with
 nack, its why the run's own (`exited 3`, `stopped after its timeout of 1200s`) or "the run ended with
 ITEM still leased". A run may give its item back itself: `{"nack": "why"}`, or `{"nack": {"why":
 "...", "after": "4h", "count": false}}` (put off, not counted: a deferral or a transient fault), or
-`$ERGOSTAT_CMD lease --nack WHY [--after 4h] [--no-count]`. A run stopped with ergostat gives its item
+`$ERGOSTAT_CMD lease --nack WHY [--after 4h] [--no-count]`. With `"news": true` it is put off until `after` **or** the
+first news of the item, whichever comes first: an event about it that none of its own runs caused and that is not
+ergostat's (`ergostat.*`, `agent.*`): a webhook's (section 5c), a person's, another block's. A step that waits on
+someone outside (a reviewer, CI) gives its ticket back this way, and is taken again the moment their answer is
+pushed; `after` is only the fallback re-check. An item put off is looked at again when it falls due, not at the
+dispatcher's next look. A run stopped with ergostat gives its item
 back uncounted, unless what it printed before had already moved the item on (its lines take effect as it prints
 them, section 9.1): that is an ack. A lease that expired is not ended again when its run ends.
 

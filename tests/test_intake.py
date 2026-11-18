@@ -230,3 +230,11 @@ def test_the_pages_own_writes_still_need_the_page(page):
     p, url = page
     t = (p.dir / "intake.token").read_text().strip()
     assert _post(f"{url}/api/message", b"{}", {"Authorization": f"Bearer {t}"})[0] == 403
+
+
+def test_a_template_takes_part_of_a_value_by_a_regular_expression():
+    got = hooks.fill("ticket/{pull_request.head.ref~^ergostat/([A-Z]+-[0-9]+)}",
+                     {"pull_request": {"head": {"ref": "ergostat/SCRUM-12-fix-the-login"}}})
+    assert got == "ticket/SCRUM-12"
+    assert hooks.fill("x/{a~^([0-9]{2})}", {"a": "12345"}) == "x/12"
+    assert hooks.fill("x/{a~^zz}", {"a": "12345"}) is None
