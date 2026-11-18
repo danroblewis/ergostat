@@ -626,7 +626,7 @@ def cmd_chart(a) -> None:
         ax.set_title(title)
         ax.grid(True, which="major", color="0.85", linewidth=0.5)
         if len(series) > 1:
-            ax.legend(frameon=False)
+            ax.legend(frameon=False, fontsize=7, loc="best")
         if note:
             fig.text(0.01, 0.01, note, fontsize=7, color="0.3")
         fig.tight_layout()

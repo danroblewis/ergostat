@@ -76,7 +76,8 @@ models have more flows per stock than these.)
 
 **The machine** is a 28-core Mac with 256 GB, shared with other agents' work: the load average was 12 to
 29 throughout and never fell lower, so no measurement could be repeated on a quiet machine. Every row in the
-results carries its load. The engine and the web server use one core each (Python's GIL), so a load of 20
+results carries its load. Each page server answers alone (`api`) after loading the model itself: 4.6 s at
+N = 100, 33 s at 300. The engine and the web server use one core each (Python's GIL), so a load of 20
 on 28 cores slows them less than it seems; the single-threaded timings (the tick benchmark) were repeated
 an hour apart at N = 30, 100 and 300 and moved by under 4%.
 
@@ -217,13 +218,13 @@ the answers before it, given up by the client, were still being computed (a requ
 |---|---:|---:|---:|
 | `status` | 13 s / **148 s** / ~54 min (stopped; it runs `check`'s 54-minute tests) | 0.1 s / 0.2 s | 34 KB / 123 KB |
 | `graph` (the Diagram page, everything) | 1.1 s / 19 s / > 300 s (in turn) | 1.0 s / 13 s | 0.76 MB / 1.0 MB |
-| `graph?view=dynamics` | 1.2 s / 14 s / 74 s (alone) / API300D | 1.1 s / 12 s | 0.76 MB / 1.0 MB / 1.7 MB |
-| `graph?view=dynamics&system=sys-001` | 2.7 s / 14 s / 151 s (alone) / API300S / API1000S | 1.2 s / 6.5 s | 1.1 MB / 1.5 MB / 1.6 MB |
+| `graph?view=dynamics` | 1.2 s / 14 s / 74 s (alone) / **584 s** (alone) | 1.1 s / 12 s | 0.76 MB / 1.0 MB / 1.7 MB / 3.5 MB |
+| `graph?view=dynamics&system=sys-001` | 2.7 s / 14 s / 151 s (alone) | 1.2 s / 6.5 s | 1.1 MB / 1.5 MB / 1.6 MB |
 | `graph?view=dynamics&open=org,area-01,sys-001` | 1.7 s / 7.1 s / > 300 s (in turn) | 1.8 s / 6.6 s | 1.2 MB / 1.7 MB |
 | `graph?view=dynamics&open=*` | – / 6.7 s / > 300 s (in turn) | – / 7.1 s | – / 2.5 MB |
 | `graph?view=blocks` | 2.2 s / **51 s** / **> 1,500 s** (alone) | 2.3 s / 58 s | 76 KB / 243 KB |
-| `loops` | 0.11 s / 0.35 s / 1.7 s / API300L / API1000L | 0.07 s / 0.002 s | 31 KB / 117 KB / 305 KB |
-| `items` | 0.5 s / 0.19 s / 0.005 s / API300I / API1000I | 0.4 s / 0.04 s | 14 KB / 67 KB / 106 KB |
+| `loops` | 0.11 s / 0.35 s / 1.7 s / 2.6 s / no answer: the server is still loading the model after 5 min | 0.07 s / 0.002 s | 31 KB / 117 KB / 305 KB / 701 KB |
+| `items` | 0.5 s / 0.19 s / 0.005 s / 2.5 s / no answer (the same) | 0.4 s / 0.04 s | 14 KB / 67 KB / 106 KB |
 
 | Page (N = 10 / 30 / 100) | drawn | lines routed | shapes | API bytes while it drew |
 |---|---:|---:|---:|---:|
@@ -241,7 +242,7 @@ For comparison, `examples/the-job` (43 stocks, 61 flows) and `examples/image-squ
 diagram pages today is the browser's layout and routing, which at N = 10 (173 shapes) already takes 12 s to
 draw and 50 s to route one system.
 
-- **The bends**: the server's graph answer goes as N^2.3 (dynamics) and N^2.9 (blocks); the first
+- **The bends**: the server's graph answer goes as N^1.9 to N^2.3 (dynamics: 1.2 s, 14 s, 74 s, 584 s) and N^2.9 (blocks); the first
   `status` as N^2.2; the browser's routing as about shapes^2.8.
 - **Polling makes it worse**: the Diagram page asks for its graph every 2.5 s (`static/diagram.js`,
   `poll(tick, 2500)`). Once an answer takes longer than that, every poll is a whole graph computed again
