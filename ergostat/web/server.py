@@ -267,6 +267,31 @@ def _items_of(p, m, kind: str, name: str, snap: dict) -> dict | None:
     return got
 
 
+def _process(p, m, snap: dict, q: dict, system: str | None) -> dict:
+    """The Process view (``process.py``): the kinds asked for (``kinds``, joined by commas), else the system's;
+    ``by`` states or events; ``paths``, the frequency filter, a percentage."""
+    from .. import process as pm
+    spec = getattr(m, "spec", None)
+    if spec is None or not getattr(spec, "items", None):
+        return {"kind": "process", "by": "states", "paths": 0, "kinds": [], "nodes": [], "edges": [], "events": 0,
+                "since": snap["at"] - snap["window"], "until": snap["at"], "capped": {}, "hidden": {"nodes": 0, "edges": 0},
+                "total": {"nodes": 0, "edges": 0}, "offered": [], "default": []}
+    one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
+    offered = pm.kinds_of(spec, system)
+    asked = [k for k in (one("kinds") or "").split(",") if k in spec.items]
+    try:
+        share = max(0.0, min(100.0, float(one("paths") or 0))) / 100
+    except ValueError:
+        share = 0.0
+    got = pm.process(p.events, spec, asked or offered, snap["at"] - snap["window"], snap["at"], one("by"), share)
+    from ..spec.item_systems import kind_systems
+    where = kind_systems(spec)
+    got["offered"] = [{"name": k, "system": where.get(k, {}).get("system"), "states": bool(spec.items[k].states)}
+                      for k in spec.items]
+    got["default"] = offered
+    return got
+
+
 def api(live: Live, path: str, q: dict):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
     shape is, and which shapes stand for each part, so one selection is lit in every view."""
@@ -316,8 +341,15 @@ def _answer(live: Live, path: str, q: dict):
         around = one("around") or None
         from ..runner import running_pid
         att = st.attention(snap, bool(running_pid(p)) and snap["live"], m)
-        if one("view") == "wiring":
-            return {**graph.wiring(m, p, snap, graph.select(m, system, around, int(one("depth") or 1))), "attention": att}
+        if one("view") in ("process", "wiring"):    # the process map (the wiring it replaced still reaches it)
+            # read again every 5s at most (on a long record it takes a second); a past moment's, kept
+            key = ("process", snap["window"], snap["at"] if at is not None else int(time.time() // 5), live.mtime,
+                   system, one("kinds"), one("by"), one("paths"))
+            got = live.cached(key)
+            if got is None:
+                got = _process(p, m, snap, q, system)
+                live.keep(key, got)
+            return {**got, "attention": att}
         if one("view") == "blocks":                 # the control view: the whole control system as a block diagram
             from ..blockdiagram import diagram
             opened = q.get("open")

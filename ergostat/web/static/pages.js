@@ -107,7 +107,7 @@ async function pageRecord(main, q) {
   const filt = h("input", { type: "search", placeholder: "Type, e.g. valve.* or ticket.*", value: q.get("type") || "", "aria-label": "Event type" });
   const runs = h("input", { type: "checkbox" });
   const box = h("div");
-  // from the wiring: one machine's events (its instances too), in the page's window
+  // one machine's events (its instances too), in the page's window: a sensor's observations link here
   const machine = q.get("machine") || "", inWindow = q.get("window") === "1", item = q.get("item") || "";
   const scope = machine || inWindow || item ? h("span", { class: "muted" }, [item ? `about ${item}` : "", machine ? `from ${machine}` : "", inWindow ? "in the window" : ""].filter(Boolean).join(", "),
     " ", h("a", { href: "/record" + (filt.value ? "?type=" + encodeURIComponent(filt.value) : "") }, "Show all")) : null;
@@ -482,10 +482,14 @@ async function pageItems(main, q) {
   const more = h("p", { class: "note" });
   let kind = q.get("kind"), state = q.get("state");
   // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip
+  // (and the process map's, process.js: through a node, along a line, caused from another kind, by states or events)
   let where = q.getAll("where"), moved = q.get("moved"), movedSince = q.get("moved_since"), movedUntil = q.get("moved_until");
+  let pm = { by: q.get("by"), through: q.get("through"), followed: q.get("followed"), caused: q.getAll("caused") };
+  const spanned = () => moved || pm.through || pm.followed || pm.caused.length;
   const setParams = () => ({ ...(where.length ? { where } : {}), ...(moved ? { moved } : {}),
-                             ...(moved && movedSince ? { moved_since: movedSince } : {}), ...(moved && movedUntil ? { moved_until: movedUntil } : {}) });
-  const dropSet = () => { where = []; moved = movedSince = movedUntil = null; };
+                             ...Object.fromEntries(Object.entries(pm).filter(([, v]) => v && v.length)),
+                             ...(spanned() && movedSince ? { moved_since: movedSince } : {}), ...(spanned() && movedUntil ? { moved_until: movedUntil } : {}) });
+  const dropSet = () => { where = []; moved = movedSince = movedUntil = null; pm = { by: null, through: null, followed: null, caused: [] }; };
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   p.append(notes, h("div", { class: "filters" }, search, chip), compose, box, more);

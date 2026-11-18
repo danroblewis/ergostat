@@ -43,11 +43,11 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
         b = p.chromium.launch()
         pg = b.new_page(viewport={"width": 1500, "height": 950})
         pg.on("pageerror", lambda e: errs.append(str(e)))
-        for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "items",
+        for route in ("diagram", "diagram?view=blocks", "diagram?view=process", "loops", "agents", "items",
                       "record", "residuals", "check", "guide"):
             pg.goto(f"{url}/{route}")
             pg.wait_for_timeout(1800)
-            if shot and route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "agents"):
+            if shot and route in ("diagram", "diagram?view=blocks", "diagram?view=process", "agents"):
                 pg.screenshot(path=str(shot.with_name(f"{shot.stem}-{route.replace('?view=', '-')}.png")))
             if route == "diagram" and pg.locator(".node").count() == 0:
                 errs.append("the diagram drew no parts")
@@ -72,7 +72,7 @@ def snapshot_errors(demo: Path) -> list[str]:
         pg.on("pageerror", lambda e: errs.append(f"snapshot: {e}"))
         pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith("file:")
                  else (errs.append(f"snapshot asked for {rt.request.url}"), rt.abort()))
-        for route in ("diagram", "diagram?view=blocks", "diagram?view=wiring", "loops", "agents", "items", "record", "residuals", "guide"):
+        for route in ("diagram", "diagram?view=blocks", "diagram?view=process", "loops", "agents", "items", "record", "residuals", "guide"):
             pg.goto(f"file://{out}#/{route}")
             pg.wait_for_timeout(1200)
             if route == "diagram" and pg.locator(".node").count() == 0:
@@ -164,7 +164,7 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
         notes.extend(f"note: stock {k}: {fmt(v['unexplained'])} unexplained" + (f" ({v['why']})" if v.get("why") else "")
                      for k, v in res.items() if v.get("significant"))
         url = st["web"]
-        for path in ("status", "graph", "graph?view=wiring", "loops", "agents", "events", "items", "residuals", "parts"):
+        for path in ("status", "graph", "graph?view=process", "loops", "agents", "events", "items", "residuals", "parts"):
             get(f"{url}/api/{path}")
         problems += items_as_before(url, spec)
         if spec is not None:                                     # each loop as a control engineer reads it
