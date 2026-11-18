@@ -454,13 +454,14 @@ def _equations(spec: Spec, data: ob.Data, before: dict) -> list[dict]:
         tree = eq.parse(text, spec.parameters)
         e = Equation(text, tree, eq.refs(tree), eq.names(tree))
         after = _with_extra(spec, data, {target: e}, {k: (v, u) for k, (v, u) in params.items()})
+        pid = _id("equation", ver.structure(spec), f.name, text)
         try:
-            edit = _equation_edit(spec, f, text, params)
+            edit = _equation_edit(spec, f, text, params, pid)
         except ye.EditError as err:
             edit = {"error": str(err)}
         inside = [c for c in causes if c != own and target in loops and c in loops]
         out.append({
-            "id": _id("equation", ver.structure(spec), f.name, text), "kind": "equation", "target": target, "parts": [target],
+            "id": pid, "kind": "equation", "target": target, "parts": [target],
             "touched": [target] + [f"stock.{x}" for x in (f.source, f.target) if x],
             "equation": text, "parameters": {k: {"value": float(ye.number(v)), "unit": u} for k, (v, u) in params.items()},
             "title": f"{f.name} = {text}",
@@ -494,7 +495,8 @@ def _free(name: str, taken: set[str]) -> str:
     return out
 
 
-def _equation_edit(spec: Spec, f, text: str, params: dict) -> dict:
+def _equation_edit(spec: Spec, f, text: str, params: dict, pid: str) -> dict:
+    """The equation written on its flow, and each parameter it adds, marked ``inferred:`` with this change's item."""
     if f.defined is None:
         raise ye.EditError(f"flow {f.name}: where it is written is not known")
     path = f.defined.file
@@ -503,7 +505,8 @@ def _equation_edit(spec: Spec, f, text: str, params: dict) -> dict:
     for nm, (v, u) in params.items():
         value = ye.duration(v) if u == "h" else ye.number(v)          # a time, written as one (read in hours)
         entries.append([f"  {nm}:", f"    value: {value}"] + ([f"    unit: {u}"] if u and u != "h" else []) +
-                       ["    estimate: true          # proposed by ergostat, fitted by least squares; refitted as the record grows"])
+                       ["    estimate: true          # fitted by least squares; refitted as the record grows",
+                        f"    inferred: {item_of(pid)}"])
     second = ye.add_entries(path, "parameters", entries)
     return _joined([first, second])
 

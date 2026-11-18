@@ -12,6 +12,7 @@ from ergostat.spec import SpecError, load, read
 
 ROOT = Path(__file__).parent.parent
 REFUSED = {                                   # each broken file, and what it must be refused for
+    "bad-inferred": "bad-inferred",
     "bad-setpoint": "bad-setpoint",
     "builtin-with-agent": "builtin-with-machine",
     "external-with-run": "external-with-run",
@@ -192,3 +193,43 @@ def test_every_old_example_converts_to_a_model_that_compiles(tmp_path):
         _, problems = read(out)
         assert not [p for p in problems if p.level == "error"], (toml.stem, problems)
         assert len(m.controllers) == len(load(out).goals)
+
+
+def test_inferred_says_which_model_change_added_a_part_or_a_link(tmp_path):
+    """``inferred:`` (SPEC §12e): on a stock, flow, auxiliary, parameter or link a model change added; the change's
+    item, or true where it is not known; anything else written is declared."""
+    path = write(tmp_path, "m.yaml", """\
+        name: m
+        stocks:
+          queue:
+            unit: jobs
+          held:
+            unit: jobs
+            inferred: ergostat.model-change/ab12cd34
+        flows:
+          served:
+            from: queue
+            equation: queue-share * stock.queue
+            driven-by: [+stock.queue, {cause: +stock.held, inferred: ergostat.model-change/ab12cd34}]
+            inferred: true
+        auxiliaries:
+          ratio:
+            unit: "1"
+            exogenous: true
+            inferred: false
+        parameters:
+          queue-share:
+            value: 2
+            unit: 1/h
+            inferred: ergostat.model-change/ab12cd34
+        """)
+    spec, problems = read(path)
+    assert not [p for p in problems if p.level == "error"], problems
+    assert spec.stocks["held"].inferred == "ergostat.model-change/ab12cd34" and spec.stocks["queue"].inferred is None
+    assert spec.flows["served"].inferred == "true" and spec.auxiliaries["ratio"].inferred is None
+    assert spec.parameters["queue-share"].inferred == "ergostat.model-change/ab12cd34"
+    assert spec.flows["served"].inferred_links == {"stock.held": "ergostat.model-change/ab12cd34"}
+    from ergostat.web.server import inferred_of
+    assert inferred_of(spec, "stock", "held") == {"from": "ergostat.model-change/ab12cd34"}      # the side panel's words
+    assert inferred_of(spec, "flow", "served") == {"from": None} and inferred_of(spec, "stock", "queue") is None
+    assert inferred_of(spec, "stock", "ratio") is None                                          # an auxiliary, opened as a level

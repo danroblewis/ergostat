@@ -385,3 +385,33 @@ def test_a_discrete_controller_with_several_outputs_holds_each_one(tmp_path):
     holds = sorted(e["target"] for e in g["edges"] if e["source"] == "blk:stepper")
     assert holds == ["zoh:stepper", "zoh:stepper:flow.bump"], holds
     assert all(n[h]["role"] == "hold" for h in holds)
+
+
+def test_a_part_a_model_change_added_says_so_in_its_panel(tmp_path):
+    """``inferred:`` (SPEC §12e): the side panel's rows end "added by ergostat, from model change X"."""
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""\
+        name: m
+        stocks:
+          waiting:
+            unit: things
+            inferred: ergostat.model-change/3f9c01aa
+            sensor:
+              manual: true
+        flows:
+          arrive:
+            to: waiting
+        goals:
+          few-waiting:
+            stock: waiting
+            hold: "<= 10"
+        blocks:
+          taker:
+            type: program
+            run: "true"
+            in: stock.waiting
+            out: flow.arrive
+        """))
+    g = drawn(load(tmp_path / "ergostat.yaml"))
+    said = [r for n in g["nodes"] if n.get("part") == "stock.waiting" for r in n.get("rows") or [] if r[0] == "origin"]
+    assert said and all(r[1] == "added by ergostat, from model change 3f9c01aa" for r in said)
+    assert not [r for n in g["nodes"] if n.get("part") != "stock.waiting" for r in n.get("rows") or [] if r[0] == "origin"]

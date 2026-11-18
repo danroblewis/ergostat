@@ -7,7 +7,8 @@ item with a count, not an item a time.
 The **target** of a change is what it is a change to, and how it was found: its kind, its target (the parameters it
 sets, the part it changes) and, for ergostat's own finders, the calibration or the rule that found it (a block's
 proposals share one). The wait doubles with each turn-away for the same target on the same version of the model:
-a quarter of the record the change was estimated on, at least ten minutes and the judge's hold-out, at most a day."""
+a quarter of the record the change was estimated on, at least ten minutes and the judge's hold-out, at most a day; and
+at least the record a value held for too short a record said it needs (``needs``, ``identify.too_short``)."""
 
 from __future__ import annotations
 
@@ -63,7 +64,7 @@ def held(p, spec, k: str, now: float | None = None) -> dict | None:
     last = mine[-1]
     hold = getattr(spec.improve, "hold_out", 0.0) or 0.0
     base = max(MIN_WAIT, hold, GROW * float(last.get("window") or 0.0))
-    wait = min(MAX_WAIT, base * 2 ** (len(mine) - 1))
+    wait = min(MAX_WAIT, max(base * 2 ** (len(mine) - 1), float(last.get("needs") or 0.0)))   # what it said it needs
     until = _when(last) + wait
     if now >= until:
         return None

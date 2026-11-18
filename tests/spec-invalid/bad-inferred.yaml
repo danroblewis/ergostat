@@ -1,0 +1,6 @@
+# inferred: names the model change that added the part (ergostat.model-change/<id>), or is true
+name: bad-inferred
+stocks:
+  queue:
+    unit: jobs
+    inferred: proposed by ergostat

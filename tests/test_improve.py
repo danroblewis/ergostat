@@ -195,7 +195,7 @@ def test_the_kind_is_what_the_edit_does_and_the_same_change_is_made_once(tmp_pat
 
 
 def test_a_new_parameter_to_estimate_is_refitted(tmp_path):
-    p, _ = long_queue(tmp_path)
+    p, snap = long_queue(tmp_path)
     edit = [{"file": "ergostat.yaml", "replace": "    equation: k * stock.queue", "with": "    equation: k2 * stock.queue"},
             {"file": "ergostat.yaml", "replace": "parameters:",
              "with": "parameters:\n  k2:\n    value: 1\n    unit: 1/h\n    estimate: true"}]
@@ -205,6 +205,13 @@ def test_a_new_parameter_to_estimate_is_refitted(tmp_path):
     assert got["status"] == "proposed", got
     assert x["refit"] and abs(x["refit"]["values"]["k2"] - 3.0) < 0.3
     assert x["refit"]["fit"]["total"]["nmse"] < x["fit_after"]["total"]["nmse"]    # judged as written; refitted, said beside
+    assert f"+     inferred: {KIND}/{got['id']}" in x["edit"]["diff"]          # what a block's change adds is marked inferred
+    again = im.submit(p, "y", {"kind": "structure", "parts": ["flow.served"], "title": "k2", "edit": edit,
+                               "reasons": [{"says": "a rate of its own", "evidence": ["fit:stock.queue.r2"]}]})
+    assert again["status"] == "not-proposed" and got["id"] in again["why"]       # the same edit, though its id differs
+    pr.accept(p, got["id"], snap, expect=rv.diff_of(x, p.model.path.parent)["hash"])
+    spec, _ = read(p.model.path)
+    assert spec.parameters["k2"].inferred == f"{KIND}/{got['id']}" and not spec.parameters["k"].inferred
 
 
 def test_trial_says_what_would_happen_and_records_nothing(tmp_path):

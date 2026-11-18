@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import textwrap
 import time
 
@@ -90,6 +91,8 @@ def test_an_equation_and_a_what_if_are_entries_with_every_field(tmp_path):
     pr.make(p, snap)
     e = next(x for x in rv.entries(p, p.model.spec) if x["kind"] == "equation")
     check_entry(e, p.model.spec)
+    eqn = next(x for x in pr.pending(p) if x["kind"] == "equation")
+    assert f"inferred: ergostat.model-change/{eqn['id']}" in eqn["edit"]["diff"]          # each parameter it adds says so
     assert e["what"] == "An equation for a flow that has none" and "least squares" in e["how"]["method"] and e["how"]["n"]
     (tmp_path / "w").mkdir()
     p2, snap2 = queue_project(tmp_path / "w", k_true=3.0)
@@ -313,8 +316,14 @@ def test_check_findings_become_structural_proposals_each_with_its_edit(tmp_path)
     assert "Little's law" in out["method"] and "time-in-pile" in out["edit"]["diff"]
     for x in pr.pending(p):
         check_entry(rv.entry(x, p.model.spec), p.model.spec)
+    mine = f"ergostat.model-change/{out['id']}"
+    assert f"inferred: {mine}" in out["edit"]["diff"] and "ergostat.model-change/new" not in out["edit"]["diff"]
     spec = accepted_cleanly(p, got[("stock-without-outflow", "a new outflow to a cloud")], snap, "stock-without-outflow")
     assert "pile-leaving" in spec.flows and spec.flows["pile-leaving"].equation.text == "stock.pile / time-in-pile"
+    assert spec.flows["pile-leaving"].inferred == mine and spec.parameters["time-in-pile"].inferred == mine   # what it added
+    assert not spec.stocks["pile"].inferred                                                                # what it did not
+    aux = got[("units-mismatch", "a new converting auxiliary")]
+    assert aux["edit"]["diff"].count(f"inferred: ergostat.model-change/{aux['id']}") == 2                # the part and its link
 
 
 def test_a_rate_following_a_rate_gets_the_stock_between_it_and_the_rate_it_follows(tmp_path):
@@ -351,6 +360,9 @@ def test_a_rate_following_a_rate_gets_the_stock_between_it_and_the_rate_it_follo
     s = "done-awaiting-shipped"
     assert spec.flows["done"].target == s and spec.flows["shipped"].source == s       # the two flows meet at it
     assert [str(r) for r in spec.flows["shipped"].driven_by] == [f"stock.{s}"]
+    mine = f"ergostat.model-change/{x['id']}"
+    assert spec.stocks[s].inferred == mine and spec.flows["shipped"].inferred_links == {f"stock.{s}": mine}
+    assert not spec.flows["shipped"].inferred and not spec.flows["done"].inferred       # declared, though edited: declared
 
 
 SIGNS = QUEUE.replace("equation: k * stock.queue", "equation: k * (10 - stock.queue)")
@@ -436,7 +448,7 @@ def test_an_estimate_indistinguishable_from_zero_with_a_narrow_interval_removes_
     _, not_made = stc.find(p, p.model.spec, *_data_and_fit(p))
     assert any(x["code"] == "no-effect" and "not evidence it is absent" in x["why"] for x in not_made)
     (tmp_path / "ergostat.yaml").write_text((tmp_path / "ergostat.yaml").read_text().replace(
-        "    value: 0.001\n", "    value: 0.001\n    description: the noise's share (proposed by ergostat)\n"))
+        "    value: 0.001\n", "    value: 0.001\n    description: the noise's share\n    inferred: true\n"))
     reload(p)
     f = es.path(p, ver.structure(p.model.spec), "parts")
     f.write_text(json.dumps({"k": {"parameter": "k", "value": 3.0, "se": 0.01, "n": 200},
@@ -548,8 +560,15 @@ def simple_record(i, t):
             "through": 5.0, "gone": 5.0, "copy-in": 1.0}
 
 
-def test_sd_labs_simplify_rules_propose_only_redundant_structure_with_no_declared_reason(tmp_path):
-    p, snap = project(tmp_path, SIMPLE, simple_record)
+def inferred_parts(text: str, *names: str, by: str = "ergostat.model-change/ab12cd34") -> str:
+    """SIMPLE with these parts marked as ergostat writes what a model change adds."""
+    for n in names:
+        text = re.sub(rf"(?m)^  {n}:\n", f"  {n}:\n    inferred: {by}\n", text, count=1)
+    return text
+
+
+def test_sd_labs_simplify_rules_propose_only_redundant_structure_ergostat_inferred(tmp_path):
+    p, snap = project(tmp_path, inferred_parts(SIMPLE, "copy", "again", "lonely"), simple_record)
     got = {(x["code"], x["target"]): x for x in structural(p)}
     assert ("simplify-merge", "flow.also") in got                                     # also and again: first to last
     assert ("simplify-twin", "stock.copy") in got and "first" in got[("simplify-twin", "stock.copy")]["reason"]
@@ -560,9 +579,18 @@ def test_sd_labs_simplify_rules_propose_only_redundant_structure_with_no_declare
             assert x.get("removes") and "waits for you" in x["reason"]
             if x["code"] != "simplify-merge":
                 assert "ergostat has no hide:" in x["reason"]
-    assert "no description" in got[("simplify-twin", "stock.copy")]["reason"]
+    assert "inferred by ergostat, from ergostat.model-change/ab12cd34" in got[("simplify-twin", "stock.copy")]["reason"]
     spec = accepted_cleanly(p, got[("simplify-merge", "flow.also")], snap)
     assert "again" not in spec.flows and "also" in spec.flows
+
+
+def test_a_declared_part_is_never_proposed_for_removal_with_or_without_a_description(tmp_path):
+    p, _ = project(tmp_path, SIMPLE, simple_record)                  # declared, none described: none removed
+    assert not [x for x in structural(p) if x["code"].startswith("simplify")]
+    _, not_made = stc.find(p, p.model.spec, *_data_and_fit(p))
+    said = {x["code"]: x["why"] for x in not_made}
+    assert "each is declared" in said["simplify-twin"] and "are declared" in said["simplify-merge"]
+    assert "it is declared" in said["simplify-alone"]
 
 
 def test_a_declared_reason_keeps_a_twin_and_flows_the_owner_wrote_apart(tmp_path):
@@ -576,8 +604,8 @@ def test_a_declared_reason_keeps_a_twin_and_flows_the_owner_wrote_apart(tmp_path
     assert not [k for k in got if k[0] in ("simplify-twin", "simplify-merge", "simplify-alone")]
     _, not_made = stc.find(p, p.model.spec, *_data_and_fit(p))
     said = {x["code"]: x["why"] for x in not_made}
-    assert "declared with a reason" in said["simplify-twin"] and "declared with a reason" in said["simplify-merge"]
-    assert "declared with a reason" in said["simplify-alone"]
+    assert "each is declared" in said["simplify-twin"] and "are declared" in said["simplify-merge"]
+    assert "filled by hand, later" in said["simplify-alone"]
 
 
 def _data_and_fit(p):
@@ -598,7 +626,7 @@ def test_an_inferred_equation_only_flow_that_explains_nothing_is_removed_and_a_d
     text = QUEUE.replace("parameters:\n", "parameters:\n  tiny:\n    value: 0.000001\n    unit: 1/h\n")
     p, _ = queue_project(tmp_path, k_true=2.0, text=text + seep)
     assert not [x for x in structural(p) if x["code"] == "simplify-no-effect"]           # declared: kept
-    inferred = seep + "    description: what seeps away (proposed by ergostat)\n"
+    inferred = seep + "    description: what seeps away\n    inferred: true\n"
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(text + inferred))
     reload(p)
     x = next(x for x in structural(p) if x["code"] == "simplify-no-effect")

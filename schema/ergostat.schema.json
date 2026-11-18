@@ -594,6 +594,9 @@
         },
         "sensor": {
           "$ref": "#/$defs/sensor"
+        },
+        "inferred": {
+          "$ref": "#/$defs/inferred"
         }
       },
       "not": {
@@ -640,6 +643,9 @@
         },
         "equation": {
           "$ref": "#/$defs/equation"
+        },
+        "inferred": {
+          "$ref": "#/$defs/inferred"
         }
       },
       "anyOf": [
@@ -1626,12 +1632,15 @@
         },
         "equation": {
           "$ref": "#/$defs/equation"
+        },
+        "inferred": {
+          "$ref": "#/$defs/inferred"
         }
       },
       "description": "A quantity without memory: determined at each moment by others (SPEC section 7a)"
     },
     "driven_by": {
-      "description": "What it follows: flow., stock. or auxiliary. references, each optionally signed (+ rises with it, - falls; unsigned: not known); an entry may be written out as {cause, instant, description}: instant says the dependence is immediate (SPEC section 7)",
+      "description": "What it follows: flow., stock. or auxiliary. references, each optionally signed (+ rises with it, - falls; unsigned: not known); an entry may be written out as {cause, instant, description, inferred}: instant says the dependence is immediate (SPEC section 7); inferred, that ergostat added the link (SPEC section 12e)",
       "oneOf": [
         {
           "$ref": "#/$defs/link"
@@ -1669,6 +1678,9 @@
             },
             "description": {
               "type": "string"
+            },
+            "inferred": {
+              "$ref": "#/$defs/inferred"
             }
           }
         }
@@ -1744,6 +1756,9 @@
             },
             "description": {
               "type": "string"
+            },
+            "inferred": {
+              "$ref": "#/$defs/inferred"
             }
           }
         }
@@ -2094,6 +2109,18 @@
         }
       },
       "description": "A projection recipe (SPEC \u00a712i): parts rendered in order, each within its budget, into a starting context"
+    },
+    "inferred": {
+      "description": "Added by ergostat (SPEC section 12e): the model change that added it, ergostat.model-change/<id>, or true where that is not known. It stays when the owner accepts or edits the part; taking the key away makes it declared",
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string",
+          "pattern": "^ergostat\\.model-change/[0-9a-z-]+$"
+        }
+      ]
     }
   }
 }

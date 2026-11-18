@@ -57,14 +57,15 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "every", "cron", "t
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold"}
-STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative"}
-LINK_KEYS = {"cause", "instant", "description"}      # a driven-by written out: the cause, and what is said of the link
-FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation"}
+STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred"}
+LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
+FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred"}
 GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner", "process"}
 PROCESS_KEYS = {"gain", "time-constant", "dead-time", "integrating", "identified", "description"}
-AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous", "equation"}
-PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table", "range"}
+AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous", "equation", "inferred"}
+PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table", "range", "inferred"}
 DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
+INFERRED = re.compile(r"^ergostat\.model-change/[0-9a-z-]+$")   # inferred: the model change that added a part
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}}
@@ -345,23 +346,25 @@ class Compiler:
         self.err(f"{what}.{key}: a reference, a list of them, or a map of port names to them", w, "bad-ref")
         return {}
 
-    def driven(self, m: Map, what: str) -> tuple[list[Ref], dict[str, int], set[str]]:
+    def driven(self, m: Map, what: str) -> tuple[list[Ref], dict[str, int], set[str], dict[str, str]]:
         """``driven-by``: what it follows, each reference with an optional sign, ``+stock.x`` (it
         rises when x rises) or ``-auxiliary.y`` (it falls when y rises); unsigned: not known. An
         entry may be written out as a map, ``{cause: +flow.x, instant: true}``, to say the dependence
-        is immediate (SPEC §7): the third value is those causes."""
+        is immediate (SPEC §7): the third value is those causes; or ``inferred:``, a link ergostat added (§12e), the
+        fourth value."""
         raw = m.get("driven-by")
         if raw is None:
-            return [], {}, set()
+            return [], {}, set(), {}
         if not isinstance(raw, str | list | dict):
             self.err(f"{what}.driven-by: a reference or a list of them (+stock.x, -auxiliary.y, flow.z)", m.at("driven-by"),
                      "bad-ref")
-            return [], {}, set()
-        refs, signs, instant = [], {}, set()
+            return [], {}, set(), {}
+        refs, signs, instant, inferred = [], {}, set(), {}
         for x in raw if isinstance(raw, list) else [raw]:
-            now = False
+            now, by = False, None
             if isinstance(x, dict):
                 self.keys(x, LINK_KEYS, f"{what}.driven-by")
+                by = self.inferred_value(x.get("inferred"), m.at("driven-by"), f"{what}.driven-by")
                 now = x.get("instant", False)
                 if not isinstance(now, bool):
                     self.err(f"{what}.driven-by.instant: true or false", m.at("driven-by"), "bad-bool")
@@ -382,7 +385,24 @@ class Compiler:
                 signs[str(r)] = sign
             if now:
                 instant.add(str(r))
-        return refs, signs, instant
+            if by:
+                inferred[str(r)] = by
+        return refs, signs, instant, inferred
+
+    def inferred_value(self, v, w, what: str) -> str | None:
+        """``inferred:``, what ergostat writes on a part (or a link) a model change added (SPEC §12e): the change's
+        item, ``ergostat.model-change/<id>``, or ``true`` where it is not known; ``false`` or none, declared."""
+        if v is None or v is False:
+            return None
+        if v is True:
+            return "true"
+        if isinstance(v, str) and INFERRED.match(v.strip()):
+            return v.strip()
+        self.err(f"{what}.inferred: the model change that added it ({MODEL_CHANGE}/<id>), or true", w, "bad-inferred")
+        return None
+
+    def inferred(self, m: Map, what: str) -> str | None:
+        return self.inferred_value(m.get("inferred"), m.at("inferred"), what) if "inferred" in m else None
 
     def flag(self, m: Map, key: str, what: str) -> bool:
         v = m.get(key, False)
@@ -775,7 +795,7 @@ class Compiler:
             self.keys(m, STOCK_KEYS, what)
             st = Stock(name, self.text(m, "unit"), self.number(m, "limit", what), self.number(m, "initial", what),
                        self.system("stocks", name, m), self.text(m, "description"),
-                       cumulative=self.flag(m, "cumulative", what), where=m.where)
+                       cumulative=self.flag(m, "cumulative", what), inferred=self.inferred(m, what), where=m.where)
             st.sensors = self.sensors(m, Ref("stock", name), what)
             spec.stocks[name] = st
         for name, m, what in self.named("flows"):
@@ -785,13 +805,13 @@ class Compiler:
                          f"outside the system)", m.where, "flow-without-ends")
             f = Flow(name, m.get("from") and str(m["from"]), m.get("to") and str(m["to"]), self.text(m, "unit"),
                      self.number(m, "rate", what), self.system("flows", name, m), self.text(m, "description"),
-                     two_way=self.flag(m, "two-way", what), where=m.where)
+                     two_way=self.flag(m, "two-way", what), inferred=self.inferred(m, what), where=m.where)
             for end, key in ((f.source, "from"), (f.target, "to")):
                 if end is not None and end not in d.sections["stocks"]:
                     self.err(f"{what}.{key}: {end!r} is not a stock" + self.suggest(end, d.sections["stocks"]),
                              m.at(key), "unknown-ref", f"stock.{end}")
             f.sensors = self.sensors(m, Ref("flow", name), what)
-            f.driven_by, f.polarity, f.instant = self.driven(m, what)
+            f.driven_by, f.polarity, f.instant, f.inferred_links = self.driven(m, what)
             f.defined = d.defined[("flows", name)]
             spec.flows[name] = f
         for section in ("auxiliaries", "variables"):        # variables: the old name, still read
@@ -805,9 +825,9 @@ class Compiler:
                         continue
                 self.keys(m, AUXILIARY_KEYS, what)
                 v = Auxiliary(name, self.text(m, "unit"), self.system(section, name, m), self.text(m, "description"),
-                              exogenous=self.flag(m, "exogenous", what), where=m.where)
+                              exogenous=self.flag(m, "exogenous", what), inferred=self.inferred(m, what), where=m.where)
                 v.sensors = self.sensors(m, Ref("auxiliary", name), what)
-                v.driven_by, v.polarity, v.instant = self.driven(m, what)
+                v.driven_by, v.polarity, v.instant, v.inferred_links = self.driven(m, what)
                 v.defined = self.doc.defined[(section, name)]
                 if v.exogenous and v.driven_by:
                     self.err(f"{what}: exogenous (an input from outside the model) and driven-by something in it: one or the "
@@ -941,7 +961,7 @@ class Compiler:
             self.keys(m, PARAMETER_KEYS, what)
             p = Parameter(name, unit=self.text(m, "unit"), estimate=self.flag(m, "estimate", what),
                           description=self.text(m, "description"), system=self.system("parameters", name, m), where=m.where,
-                          defined=w, value_at=m.at("value") if "value" in m else None)
+                          defined=w, value_at=m.at("value") if "value" in m else None, inferred=self.inferred(m, what))
             v = m.get("value")
             if isinstance(v, str):
                 try:

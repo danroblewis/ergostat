@@ -27,6 +27,7 @@ import re
 import time
 from pathlib import Path
 
+from ..durations import human as dur
 from ..spec.ir import Spec
 from . import gate as gt
 from . import memory as mem
@@ -397,6 +398,14 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
     errors = [x for x in problems if x.level == "error"]
     if errors:
         raise ProposeError("the model it leaves does not compile: " + "; ".join(str(x) for x in errors[:3]))
+    marked = mark_new(es_, spec, after)                  # what it adds says so: inferred: (the change's id when recorded)
+    if marked is not None:
+        try:
+            after2, problems2 = tr.compiled(p.model.path, ye.apply_together(marked), findings=True)
+        except (ye.EditError, tr.TrialError):
+            after2, problems2 = None, []
+        if after2 is not None and not [x for x in problems2 if x.level == "error"]:
+            es_, after, problems = marked, after2, problems2
     before_f = set(ev.findings())
     after_f = {finding_id(x.code, x.about) for x in problems if x.level != "error"}
     data_a = ob.measured(p, data.grid, after)
@@ -450,6 +459,15 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
         held = [h for n in moved if (h := ex.parameter_quiet(spec, data, n, q))]
         if held and len(held) == len(moved):              # nothing it sets is exercised: held, not judged on this record
             x["not_exercised"] = "; ".join(f"{h['ref']}: {h['says']}" for h in held)
+        else:                                             # too little record to identify what it sets: held likewise
+            from . import identify as idf
+            short = idf.record_says(spec, data, moved)
+            if short and len(short) == len(moved):
+                needs = [h["needs"] for h in short.values()]
+                x["needs"] = None if None in needs else max(needs)
+                x["too_short"] = ("; ".join(f"parameter.{n}: {'; '.join(h['why'])}" for n, h in sorted(short.items())) +
+                                  (f"; it needs about {dur(x['needs'])} more record" if x["needs"] else
+                                   "; it needs record in which what it acts through moves"))
     else:
         moved_ctl = ver.changed_control(spec, after) if kind == "control" else ver.changed_sensors(spec, after) \
             if kind == "measurement" else []
@@ -461,6 +479,56 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
             x["parts"] = list(dict.fromkeys([*moved_ctl, *parts]))
     x["key"] = mem.key(x)
     return x
+
+
+def _new_named(before: Spec, after: Spec) -> list[tuple[str, str]]:
+    """``(section, name)`` of each stock, flow, auxiliary and parameter a change adds and does not mark inferred."""
+    out = []
+    for sec, a, b in (("stocks", before.stocks, after.stocks), ("flows", before.flows, after.flows),
+                      ("auxiliaries", before.auxiliaries, after.auxiliaries), ("parameters", before.parameters, after.parameters)):
+        out += [(sec, n) for n in sorted(set(b) - set(a)) if not getattr(b[n], "inferred", None)]
+    return out
+
+
+def mark_new(es_: list[ye.Edit], before: Spec, after: Spec) -> list[ye.Edit] | None:
+    """A block's edit with ``inferred:`` written on each part it adds (SPEC §12e), under the line its name is on in the
+    lines it adds, indented as that part's keys are; the change's own id is stamped in when it is recorded
+    (``structural.stamp``). None when it adds nothing to mark; a part written in the short form (``k: 0.45``), or
+    whose name is not on a line of its own, is left as written."""
+    from . import structural as stc
+    want = _new_named(before, after)
+    if not want:
+        return None
+    out, done = [], 0
+    for e in es_:
+        hunks = []
+        for h in e.hunks:
+            new = list(h.new)
+            for _, name in want:
+                pat = re.compile(rf"^(\s*){re.escape(name)}:\s*(#.*)?$")
+                for i, line in enumerate(new):
+                    m = pat.match(line)
+                    if not m:
+                        continue
+                    nxt = new[i + 1] if i + 1 < len(new) else ""
+                    ind = len(nxt) - len(nxt.lstrip()) if nxt.strip() and ye.indent(nxt) > len(m.group(1)) else len(m.group(1)) + 2
+                    new.insert(i + 1, " " * ind + f"inferred: {stc.PENDING}")
+                    done += 1
+                    break
+            hunks.append(ye.Hunk(h.line, list(h.old), new))
+        out.append(ye.Edit(e.file, hunks))
+    return out if done else None
+
+
+def unstamped(diff: str | None) -> str:
+    """A diff with every model change's id said alike, so the same edit from two runs is the same edit."""
+    return re.sub(r"ergostat\.model-change/[0-9a-z-]+", "ergostat.model-change/new", diff or "")
+
+
+def stamped(edit: dict, pid: str) -> dict:
+    """An edit (the review queue's form) with ``inferred: PENDING`` made this change's item."""
+    from . import structural as stc
+    return json.loads(json.dumps(edit).replace(stc.PENDING, pr.item_of(pid)))
 
 
 def _target(spec: Spec, after: Spec, parts: list[str], kind: str) -> str:
@@ -532,7 +600,8 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
         try:
             x = validate(p, spec, by, raw, data)
             same = next((y for y in pr.stored(p).values() if y["id"] != pid and y.get("version") == made["version"] and
-                         (y.get("edit") or {}).get("diff") == x["edit"]["diff"] and y["state"] != "refused"), None)
+                         unstamped((y.get("edit") or {}).get("diff")) == unstamped(x["edit"]["diff"])
+                         and y["state"] != "refused"), None)
             if same is not None:
                 raise ProposeError(f"the same change is {'waiting' if same['status'] == 'pending' else same['status']} "
                                    f"already: {pr.item_of(same['id'])}, made by {same.get('made_by') or 'ergostat'}")
@@ -553,6 +622,7 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
             pr.event(p, pid, "refused", {"why": err.args[0] if gated else str(err), "window": g.until - g.since,
                                          **({"gated": True, "key": k} if gated else {})})
             return {"status": "not-proposed", "id": pid, "title": title, "why": err.args[0] if gated else str(err)}
+        x["edit"] = stamped(x["edit"], pid)
         x.update({"made_by_rung": _rung(spec, by), "window": data.grid.until - data.grid.since if data else None,
                   "method": f"made by {by} ({_rung(spec, by) or 'a block'}); checked by ergostat on a scratch copy: "
                             f"compiled, checked, replayed and refitted on the reference window"})
@@ -560,9 +630,12 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
             g = ob.reference(p)
             x["window"] = g.until - g.since
         x["span"] = x["window"]
-        if x.get("not_exercised"):                       # a value the record cannot identify yet: held, inconclusive
+        if x.get("not_exercised") or x.get("too_short"):  # a value the record cannot identify yet: held, inconclusive
             why = (f"held, inconclusive: the record has not exercised what it sets ({x['not_exercised']}); its value "
-                   f"cannot be identified from this record, and nothing says the value written is wrong")
+                   f"cannot be identified from this record, and nothing says the value written is wrong"
+                   if x.get("not_exercised") else
+                   f"held, inconclusive: the record is too short to identify what it sets ({x['too_short']}), and nothing "
+                   f"says the value written is wrong")
             pr.event(p, pid, "inconclusive", {**x, "why": why, "verdict": {"verdict": "inconclusive", "why": why, "at": now,
                                                                               "by": "ergostat"}})
             return {"status": "not-proposed", "id": pid, "title": x["title"], "why": why}

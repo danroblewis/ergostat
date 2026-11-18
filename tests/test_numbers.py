@@ -808,7 +808,8 @@ def test_no_proposal_from_too_short_a_record_for_the_time_constant_it_touches(tm
     p, snap = queue_project(tmp_path, k_true=3.0, minutes=20)              # 20 minutes; the queue's time constant is 30
     assert pr.make(p, snap) == []
     e = es.load(p, p.model.spec)["k"]
-    assert "too little to say" in e["refused"]
+    assert e["refused"].startswith("held, inconclusive: too little record") and "under 3 of the slowest" in e["refused"]
+    assert "more record" in e["refused"]                                  # and how much more it needs
 
 
 def test_no_proposal_when_the_estimate_is_within_its_error_of_the_value_written(tmp_path):
@@ -936,7 +937,7 @@ def test_the_residuals_and_the_replay_count_on_one_basis(tmp_path):
 def test_no_proposal_from_fewer_points_than_a_proposal_needs_or_errors_that_run_together():
     e = {"value": 3.0, "window": 7200, "slowest": 0.5, "at_bound": False, "identifiable": True, "se": 0.01, "logged": True,
          "n": 24, "after": 0.5, "n_eff": 30}
-    assert "under the 40" in es.judged(e, 2.0)
+    assert "24 points fitted, under 40" in es.judged(e, 2.0)
     e |= {"n": 96, "n_eff": 3, "rho": 0.9}
     assert "independent" in es.judged(e, 2.0)                  # a systematic error left, and few independent points
     e |= {"after": 1e-6}

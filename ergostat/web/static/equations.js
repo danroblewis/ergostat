@@ -65,13 +65,22 @@ function equationBox(name, tree) {
   return box;
 }
 
+/* a part a model change added (inferred: in the YAML, SPEC §12e), said subtly in the side panel: "added by ergostat,
+   from model change X", X a link to its item; it stays so when the owner accepts or edits it, until the key is taken away */
+const inferredWords = (inf) => `added by ergostat${inf?.from ? `, from model change ${inf.from.split("/")[1]}` : ""}`;
+function inferredRow(inf) {
+  if (!inf) return null;
+  return ["origin", h("span", { class: "muted small inferred" }, "added by ergostat",
+    inf.from ? [", from model change ", h("a", { href: `/item/${encodeURIComponent(inf.from)}` }, inf.from.split("/")[1])] : "")];
+}
 /* a parameter's number with its unit; a duration as a duration (it is kept in hours) */
 const amount = (p, v, unit = true) => (p.duration ? dur(v * 3600) : `${fmt(v)}${unit && p.unit ? " " + p.unit : ""}`);
 /* where a parameter's number comes from, in words: declared or not known, and what it might be; its
    calibrations are a table of their own beneath (calibrationTable) */
 function provenance(p) {
   const bits = [];
-  if (p.table) bits.push("a lookup, declared");
+  if (p.inferred) bits.push(inferredWords(p.inferred));
+  else if (p.table) bits.push("a lookup, declared");
   else if (p.value != null) bits.push("declared");
   else bits.push(p.estimate ? "not known yet: to be estimated" : "not known yet");
   if (p.range) bits.push(`might be ${amount(p, p.range[0], false)} to ${amount(p, p.range[1], false)} (its range)`);

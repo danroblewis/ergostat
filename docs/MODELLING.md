@@ -265,11 +265,13 @@ estimate of a parameter that acts only through it (inconclusive, not proposed), 
 not pass a change to it on record that has not moved it. The finding clears the moment the part
 moves.
 
-**What may still be removed.** Only structure with no declared reason that the record shows to be
-redundant: a part ergostat inferred (its description says `proposed by ergostat`), or one with no
-description that carries exactly another part's information over a long, varied record (a twin). The
-proposal says which and why, and waits for the owner: removing structure is never written by the
-judge's policy.
+**What may still be removed.** Only structure ergostat inferred that the record shows to be
+redundant: a part (or a link) marked `inferred: ergostat.model-change/<id>`, which ergostat writes on
+everything a model change adds, that explains nothing or carries exactly another part's information
+over a long, varied record (a twin). The proposal says which and why, and waits for the owner:
+removing structure is never written by the judge's policy. A declared part (no `inferred:`) is never
+proposed for removal, described or not. The key stays when you accept or edit an inferred part; take
+it away to make the part your own.
 
 ## Reading what `ergostat check` says
 
@@ -371,7 +373,13 @@ well the replay fits (`ergostat fit`, the Model page). It estimates the paramete
 weighted least squares on the partial-model test of each equation they appear in and the replay of
 each stock they move, with a standard error for each and the correlation of those fitted together,
 on the record but its last fifth. It proposes a value only when the record supports it: the record
-spans three of the slowest time constant the value touches, the estimate is not at its bound (a
+covers enough of the dynamics to identify it (three of the slowest time constant the value touches,
+ten independent points once errors that drift together are counted as the few points they are, and
+what the value multiplies moved six times: three experiments started and decided, say); else it is
+held, inconclusive, and says how much more record it needs. A short record misleads in a way its
+points do not show: the first few cycles of a process are rarely typical (a first build that takes
+long, candidates dropped at once), and a replay carries each mismatch forward, so 60 readings over
+two cycles are about two independent ones. Then the estimate is not at its bound (a
 thousand times the value written: a question of structure), the record tells it apart from the
 others, it is more than two standard errors and 2% from the value written, and it fits the last
 fifth better. It fits a coefficient to each declared cause of a measured flow that has no equation,

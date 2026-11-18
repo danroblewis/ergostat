@@ -12,11 +12,11 @@ ergostat already finds:
 - **the estimators**: a coefficient of a link ergostat inferred whose estimate is indistinguishable from 0 with
   a narrow interval (its term moves its part by little either way) is taken out of its equation with its link; a
   declared sign the regression of a flow on its causes contradicts is flipped;
-- **simplification, by SD Lab's rules as System Dynamics practice keeps them**: only structure with no declared
-  reason that the record shows to be redundant goes: an inferred flow (its description says ergostat proposed it)
-  whose removal does not worsen the replay; two flows between the same two stocks, the ones merged away with no
-  description; a stock nothing touches, with no description; a stock with no declared reason that carries
-  exactly another's information (a twin: correlation past 0.999, scale within 5%, over a long, varied record).
+- **simplification, by SD Lab's rules as System Dynamics practice keeps them**: only structure ergostat inferred
+  (marked ``inferred:``, written on every part a model change adds) that the record shows to be redundant goes: an
+  inferred flow whose removal does not worsen the replay; two flows between the same two stocks, the inferred ones
+  merged away; an inferred stock nothing touches; an inferred stock that carries exactly another's information (a
+  twin: correlation past 0.999, scale within 5%, over a long, varied record).
   Each says which and why, and, removing structure, always waits for the owner (``removes``: never written by
   the judge's policy). A **declared** part (a stock, flow, link or auxiliary the YAML writes, with or without a
   description) is never proposed for removal because it was quiet, flat or uncorrelated: the record has not
@@ -41,7 +41,7 @@ from pathlib import Path
 
 from ..spec import equation as eq
 from ..spec.findings import base_unit, unit_of
-from ..spec.ir import Ref, Spec
+from ..spec.ir import MODEL_CHANGE, Ref, Spec
 from . import exercised as ex
 from . import observe as ob
 from . import trial as tr
@@ -54,6 +54,7 @@ VARIED = 0.1            # ... each ranging over more than this share of its mean
 NO_WORSE = 1.02         # a flow removed that leaves the scaled error within 2% explained nothing
 MIN_READINGS = 20
 NARROW = 0.1            # a term whose largest effect, its estimate ± 2σ, is under this share of its part's size
+PENDING = f"{MODEL_CHANGE}/new"   # inferred: on what a change adds, until the change's id is known (stamp)
 
 CAN = [
     ("a parameter's value", "calibrated on the replay (weighted least squares), or tried by you as a what-if"),
@@ -66,7 +67,7 @@ CAN = [
     ("a guard: MAX(0, …), ZIDZ(a, b)", "check: extreme-conditions"),
     ("an auxiliary marked exogenous", "check: auxiliary-without-causes"),
     ("a term and its link removed, when ergostat inferred the link", "an estimate indistinguishable from 0, with a narrow interval"),
-    ("an inferred flow removed, two flows merged, a stock removed, when no reason is declared for what goes",
+    ("an inferred flow removed, two flows merged, a stock removed, only when ergostat inferred what goes (inferred:)",
      "SD Lab's simplify rules, for redundant structure only; the owner decides"),
 ]
 CANNOT = [
@@ -97,17 +98,28 @@ def _name_at(x, name: str) -> tuple[Path, int]:
     return Path(w.file), ye.name_line(Path(w.file), w.line, name)
 
 
-def driven_text(items: list[tuple[str, int | None, bool]]) -> str:
-    """A driven-by written out: each cause with its sign, ``instant: true`` where it is."""
+def driven_text(items: list[tuple]) -> str:
+    """A driven-by written out: each cause with its sign, ``instant: true`` where it is, and ``inferred:`` on a link
+    a model change added (each item ``(ref, sign, instant)``, or with its ``inferred`` fourth)."""
     out = []
-    for ref, sign, instant in items:
+    for ref, sign, instant, *rest in items:
         s = ("+" if sign and sign > 0 else "-" if sign else "") + ref
-        out.append(f"{{cause: {s}, instant: true}}" if instant else s)
+        said = ([", instant: true"] if instant else []) + ([f", inferred: {rest[0]}"] if rest and rest[0] else [])
+        out.append(f"{{cause: {s}{''.join(said)}}}" if said else s)
     return out[0] if len(out) == 1 else "[" + ", ".join(out) + "]"
 
 
-def causes_of(x) -> list[tuple[str, int | None, bool]]:
-    return [(str(r), x.polarity.get(str(r)), str(r) in x.instant) for r in x.driven_by]
+def causes_of(x) -> list[tuple[str, int | None, bool, str | None]]:
+    """Each cause as it is written: its reference, sign, whether it is instant, and the change that added it."""
+    links = getattr(x, "inferred_links", None) or {}
+    return [(str(r), x.polarity.get(str(r)), str(r) in x.instant, links.get(str(r))) for r in x.driven_by]
+
+
+def stamp(edits: list[ye.Edit], pid: str) -> list[ye.Edit]:
+    """The edits with ``inferred: PENDING`` made the change's own item, ``ergostat.model-change/<pid>``."""
+    mine = f"{MODEL_CHANGE}/{pid}"
+    return [ye.Edit(e.file, [ye.Hunk(h.line, list(h.old), [x.replace(PENDING, mine) for x in h.new]) for h in e.hunks])
+            for e in edits]
 
 
 def _driven_edit(x, name: str, items) -> ye.Edit:
@@ -143,6 +155,8 @@ class Ctx:
     def add(self, change: str, code: str, about: str, title: str, parts: list[str], why: str, method: str,
             edits: list[ye.Edit], touched: list[str] | None = None, finding: str | None = None, **more) -> None:
         try:
+            pid = _id("structure", code, about, _joined(edits)["diff"])
+            edits = stamp(edits, pid)                 # what it adds says so: inferred: ergostat.model-change/<pid>
             joined = _joined(edits)
             spec = tr.spec_after(self.p, edits)
         except (ye.EditError, tr.TrialError) as e:
@@ -155,7 +169,7 @@ class Ctx:
             if (finding, about) in left:
                 self.not_made.append({"title": title, "why": "the edit does not answer the finding", "code": code})
                 return
-        self.out.append({"id": _id("structure", code, about, joined["diff"]), "kind": "structure", "change": change,
+        self.out.append({"id": pid, "kind": "structure", "change": change,
                          "code": code, "target": about, "title": title, "parts": parts,
                          "touched": touched or [r for r in parts if r.split(".")[0] in ("stock", "flow", "auxiliary")],
                          "reason": why, "method": method, "edit": joined, "new_parts": sorted(_new_parts(self.spec, spec)),
@@ -191,8 +205,8 @@ def rate_driven_by_rate(c: Ctx, f, r: Ref) -> None:
     unit = unit + "s" if unit and not unit.endswith("s") else unit
     path = _section_file(spec, f)
     stock = [f"  {s}:"] + ([f"    unit: {unit}"] if unit else []) + \
-        [f"    description: what {r.name} moves, until {f.name} takes it on (proposed by ergostat)"]
-    items = [(f"stock.{s}", 1, False) if x == str(r) else (x, sg, ins) for x, sg, ins in causes_of(f)]
+        [f"    description: what {r.name} moves, until {f.name} takes it on", f"    inferred: {PENDING}"]
+    items = [(f"stock.{s}", 1, False, PENDING) if x == str(r) else (x, sg, ins, by) for x, sg, ins, by in causes_of(f)]
     edits = [ye.add_entries(path, "stocks", [stock])]
     if src.target is None and f.source is None:        # the two flows meet at the new stock: r fills it, f drains it
         p1, a1 = _name_at(src, r.name)
@@ -204,8 +218,9 @@ def rate_driven_by_rate(c: Ctx, f, r: Ref) -> None:
     else:                                              # both already join stocks: the stock between gets its own two flows
         fin, fout = _free(f"{s}-in", c.taken), _free(f"{s}-out", c.taken)
         edits += [ye.add_entries(path, "flows", [
-            [f"  {fin}:", f"    to: {s}", f"    driven-by: {{cause: +flow.{r.name}, instant: true}}   # as {r.name} moves"],
-            [f"  {fout}:", f"    from: {s}", f"    driven-by: +stock.{s}"]]), _driven_edit(f, f.name, items)]
+            [f"  {fin}:", f"    to: {s}", f"    driven-by: {{cause: +flow.{r.name}, instant: true}}   # as {r.name} moves",
+             f"    inferred: {PENDING}"],
+            [f"  {fout}:", f"    from: {s}", f"    driven-by: +stock.{s}", f"    inferred: {PENDING}"]]), _driven_edit(f, f.name, items)]
         how = (f"{s} is filled as {r.name} moves ({fin}) and drained as {f.name} takes it on ({fout}); {f.name} follows "
                f"what is in it (driven-by +stock.{s})")
         flows = [f"flow.{r.name}", f"flow.{f.name}", f"flow.{fin}", f"flow.{fout}"]
@@ -251,10 +266,10 @@ def stock_without_outflow(c: Ctx, st) -> None:
             out, tn = _free(f"{st.name}-leaving", c.taken), _free(f"time-in-{st.name}", c.taken)
             path = _section_file(spec, st)
             edits = [ye.add_entries(path, "flows", [[f"  {out}:", f"    from: {st.name}", f"    driven-by: +stock.{st.name}",
-                                                     f"    equation: stock.{st.name} / {tn}"]]),
+                                                     f"    equation: stock.{st.name} / {tn}", f"    inferred: {PENDING}"]]),
                      ye.add_entries(path, "parameters", [[f"  {tn}:", f"    value: {ye.duration(hours)}",
-                                                          "    estimate: true          # proposed by ergostat, from Little's law; "
-                                                          "refitted as the record grows"]])]
+                                                          "    estimate: true          # from Little's law; refitted as the "
+                                                          "record grows", f"    inferred: {PENDING}"]])]
             c.add("a new outflow to a cloud", "stock-without-outflow", ref, f"An outflow {out} from {st.name}",
                   [ref, f"flow.{out}"],
                   f"flows fill {st.name} and nothing drains it, so in the model it can only grow; but over the record "
@@ -274,10 +289,10 @@ def units_mismatch(c: Ctx, f, r: Ref) -> None:
     v = base_unit(unit_of(spec, r))
     ratio = _free(f"{u}-per-{v}".replace(" ", "-"), c.taken)
     path = _section_file(spec, f)
-    items = causes_of(f) + [(f"auxiliary.{ratio}", 1, False)]
+    items = causes_of(f) + [(f"auxiliary.{ratio}", 1, False, PENDING)]
     edits = [ye.add_entries(path, "auxiliaries", [[f"  {ratio}:", f"    unit: {u}/{v}", "    exogenous: true",
-                                                    f"    description: how many {u} {f.name} moves for each {v} of {r.name} "
-                                                    f"(proposed by ergostat)"]]),
+                                                    f"    description: how many {u} {f.name} moves for each {v} of {r.name}",
+                                                    f"    inferred: {PENDING}"]]),
              _driven_edit(f, f.name, items)]
     c.add("a new converting auxiliary", "units-mismatch", f"flow.{f.name}", f"An auxiliary {ratio} converting {r.name} into {f.name}",
           [f"flow.{f.name}", str(r), f"auxiliary.{ratio}"],
@@ -289,10 +304,10 @@ def units_mismatch(c: Ctx, f, r: Ref) -> None:
 
 def equation_sign(c: Ctx, kind: str, x, ref: str, flip: bool) -> None:
     items = []
-    for r, sg, ins in causes_of(x):
+    for r, sg, ins, by in causes_of(x):
         if r == ref:
             sg = (-sg if sg else sg) if flip else None
-        items.append((r, sg, ins))
+        items.append((r, sg, ins, by))
     was = x.polarity.get(ref)
     c.add("a link's sign flipped" if flip else "a link's sign taken off", "equation-sign", f"{kind}.{x.name}",
           f"The link {ref} → {x.name}: {'+' if was and was > 0 else '−'} becomes "
@@ -476,7 +491,7 @@ def no_effect(c: Ctx) -> None:
                 biggest = (abs(v) + 2 * se) * max(cv)
                 if biggest >= NARROW * base:
                     continue                                  # 0 cannot be told from a large effect: not narrow
-                if not (ex.inferred(x) or ex.inferred(spec.parameters.get(k))):
+                if not (ex.link_inferred(x, cause) or ex.inferred(spec.parameters.get(k))):
                     _kept(c, f"{cause.split('.', 1)[1]} taken out of {x.name}'s equation", "no-effect",
                           f"the link {cause} → {x.name} is declared: {k} is estimated at {ye.number(v)} ± {ye.number(se)}, "
                           f"indistinguishable from 0 over the record, which has not shown the link acting. That is not "
@@ -531,7 +546,7 @@ def contradicted_signs(c: Ctx) -> None:
             s = f.polarity.get(str(r))
             if s is None or k * s >= 0:
                 continue
-            items = [(x, -sg if x == str(r) and sg else sg, ins) for x, sg, ins in causes_of(f)]
+            items = [(x, -sg if x == str(r) and sg else sg, ins, by) for x, sg, ins, by in causes_of(f)]
             c.add("a link's sign flipped", "sign-contradicted", target,
                   f"The link {r} → {f.name}: {'+' if s > 0 else '−'} becomes {'−' if s > 0 else '+'}", [target, str(r)],
                   f"{f.name} is drawn {'rising' if s > 0 else 'falling'} as {r.name} rises, but on the record it does the "
@@ -573,8 +588,14 @@ def _reason_of(x) -> str:
     return f"its description: {x.description.strip()[:120]!r}"
 
 
+def _from_said(xs) -> str:
+    """Where inferred parts came from, in words: "from ergostat.model-change/ab12cd34", or "inferred: true"."""
+    froms = sorted({f for x in xs if (f := ex.inferred_from(x))})
+    return f"from {', '.join(froms)}" if froms else "marked inferred"
+
+
 def simplify(c: Ctx, base_fit: dict | None) -> None:
-    """SD Lab's simplify rules, as far as System Dynamics practice keeps them: structure with no declared reason
+    """SD Lab's simplify rules, as far as System Dynamics practice keeps them: structure ergostat inferred (``inferred:``)
     that the record shows to be redundant goes, and the owner decides. A declared part (a stock, flow, link or
     auxiliary the YAML writes, with or without a description) is never proposed for removal because it was quiet,
     flat or uncorrelated in the record: the record did not exercise it, which says its rate cannot be identified
@@ -598,7 +619,7 @@ def simplify(c: Ctx, base_fit: dict | None) -> None:
             a = (fit.get("total") or {}).get("nmse")
             if a is not None and a <= b * NO_WORSE + 1e-12:
                 c.add("a flow removed", "simplify-no-effect", ref, f"Remove {n}", [ref],
-                      f"{n} is a part ergostat inferred (its description says so; no reason is declared for it), worked out "
+                      f"{n} is a part ergostat inferred ({_from_said([f])}; no reason is declared for it), worked out "
                       f"by its equation and measured by nothing; the replay without it fits the stocks "
                       f"{'better' if a < b else 'as well'} (scaled error {b:.3g} → {a:.3g}), so the record shows it "
                       f"redundant. It removes structure: it waits for you.",
@@ -611,13 +632,13 @@ def simplify(c: Ctx, base_fit: dict | None) -> None:
     for (a, b), fs in pairs.items():
         if len(fs) < 2 or any(f"flow.{f.name}" in c.named for f in fs):
             continue
-        fs = sorted(fs, key=lambda g: not ex.declared_reason(g))     # one with a declared reason is the one kept
+        fs = sorted(fs, key=lambda g: ex.inferred(g))                # a declared one is the one kept
         first, rest = fs[0], fs[1:]
         title = f"Merge {' and '.join(f.name for f in fs)}"
-        reasoned = [g for g in rest if ex.declared_reason(g)]
-        if reasoned:
-            _kept(c, title, "simplify-merge", f"each is declared with a reason ({', '.join(g.name for g in fs)}): two flows "
-                  f"between {a} and {b} the owner wrote apart are kept apart")
+        declared = [g for g in rest if not ex.inferred(g)]
+        if declared:
+            _kept(c, title, "simplify-merge", f"{' and '.join(g.name for g in [first, *declared])} are declared: two flows "
+                  f"between {a} and {b} the owner wrote apart are kept apart (only one ergostat inferred is merged away)")
             continue
         if any(g.sensors for g in rest) and first.sensors:
             _kept(c, title, "simplify-merge", "each is measured: merged, one's readings would be lost")
@@ -637,8 +658,9 @@ def simplify(c: Ctx, base_fit: dict | None) -> None:
             edits.append(ye.remove_entry(gp, ga))
         c.add("two flows merged", "simplify-merge", f"flow.{first.name}", f"Merge {' and '.join(f.name for f in fs)} into {first.name}",
               [f"flow.{f.name}" for f in fs],
-              f"they all move things from {a} to {b}, and no reason is declared for {', '.join(g.name for g in rest)} "
-              f"(no description): one flow can carry them. It removes structure: it waits for you.",
+              f"they all move things from {a} to {b}, and {', '.join(g.name for g in rest)} "
+              f"{'is' if len(rest) == 1 else 'are'} inferred by ergostat ({_from_said(rest)}), with no declared reason: one "
+              f"flow can carry them. It removes structure: it waits for you.",
               "SD Lab's simplify rule (two flows between the same two stocks), on the structure", edits,
               touched=[f"stock.{a}", f"stock.{b}"], removes=True)
     q = ex.quiet(spec, data)
@@ -646,16 +668,18 @@ def simplify(c: Ctx, base_fit: dict | None) -> None:
         ref = f"stock.{n}"
         if ref in c.named or st.cumulative or spec.flows_of(n):
             continue
-        if ex.declared_reason(st):
-            _kept(c, f"Remove {n}", "simplify-alone", f"no flow touches {n}, but it is declared with a reason "
-                  f"({_reason_of(st)}): check's stock-without-flows says what it needs")
+        if not ex.inferred(st):
+            _kept(c, f"Remove {n}", "simplify-alone", f"no flow touches {n}, but it is declared"
+                  f"{' (' + _reason_of(st) + ')' if (st.description or '').strip() else ''}: check's stock-without-flows "
+                  f"says what it needs")
             continue
         path, at = _name_at(st, n)
         c.add("a stock removed", "simplify-alone", ref, f"Remove {n}", [ref],
-              f"no flow touches {n}, no goal holds it and no reason is declared for it (no description): nothing in the "
+              f"no flow touches {n}, no goal holds it and it is inferred by ergostat ({_from_said([st])}), with no declared "
+              f"reason: nothing in the "
               f"model moves it or depends on it (ergostat has no hide:, so this removes it; its readings stay in the "
               f"record). It removes structure: it waits for you.",
-              "SD Lab's simplify rule (a stock nothing touches, with no goal and no declared reason), on the structure",
+              "SD Lab's simplify rule (an inferred stock nothing touches, with no goal), on the structure",
               [ye.remove_entry(path, at)], removes=True)
     levels = {n: c.level(f"stock.{n}") for n in spec.stocks}
     full = {n: data.values.get(f"stock.{n}") or [] for n in spec.stocks}
@@ -675,19 +699,18 @@ def simplify(c: Ctx, base_fit: dict | None) -> None:
             corr, scale = sab / math.sqrt(saa * sbb), math.sqrt(sbb / saa)
             if not (corr > TWIN and abs(math.log(scale)) < 0.05):
                 continue
-            keep, drop = (a, b) if not ex.declared_reason(spec.stocks[b]) or ex.declared_reason(spec.stocks[a]) else (b, a)
+            keep, drop = (a, b) if ex.inferred(spec.stocks[b]) or not ex.inferred(spec.stocks[a]) else (b, a)
             title = f"Remove {drop}, a twin of {keep}"
             if span < TWIN_SPAN:
                 _kept(c, title, "simplify-twin", f"{drop} moves like {keep} (correlation {corr:.4f}), but over "
                       f"{_span(span / 3600)} of record, under the {_span(TWIN_SPAN / 3600)} a duplicate needs to be told")
                 continue
-            if ex.declared_reason(spec.stocks[drop]):
+            if not ex.inferred(spec.stocks[drop]):
                 _kept(c, title, "simplify-twin", f"{drop} and {keep} move exactly alike (correlation {corr:.4f}, scale "
-                      f"{scale:.3f}), but each is declared with a reason ({_reason_of(spec.stocks[drop])}): they may "
-                      f"measure one thing, which is for you to say")
+                      f"{scale:.3f}), but each is declared: they may measure one thing, which is for you to say")
                 continue
             st = spec.stocks[drop]
-            which = "inferred by ergostat" if ex.inferred(st) else "declared with no reason (no description)"
+            which = f"inferred by ergostat, {_from_said([st])}"
             c.add("a stock removed", "simplify-twin", f"stock.{drop}", title,
                   [f"stock.{drop}", f"stock.{keep}", *(f"flow.{f.name}" for f in spec.flows_of(drop))],
                   f"{drop} ({which}) carries exactly the information {keep} does: correlation {corr:.4f} and scale "
@@ -696,7 +719,7 @@ def simplify(c: Ctx, base_fit: dict | None) -> None:
                   f"hide:, so this removes {drop}, and its flows' ends there become clouds. It removes structure: it "
                   f"waits for you.",
                   f"SD Lab's twin rule (correlation past {TWIN}, scale within 5%, over a long varied record), for a part "
-                  f"with no declared reason", _remove_stock_edits(c, st), touched=[f"stock.{keep}"], removes=True)
+                  f"inferred by ergostat", _remove_stock_edits(c, st), touched=[f"stock.{keep}"], removes=True)
 
 
 def _varied(xs: list[float]) -> bool:

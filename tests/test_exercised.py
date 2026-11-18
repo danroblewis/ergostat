@@ -152,11 +152,14 @@ def test_the_finding_clears_and_the_estimate_is_free_once_the_part_moves(tmp_pat
     assert "flow.flat-points-lost" not in got and "stock.flat-points" not in got
     assert "flow.flat-points-dropped" in got                                       # still quiet: still said
     e = es.estimate(p, snap)["loss"]
-    assert "not_exercised" not in e and not (es.judged(e, 0.01) or "").startswith("held")
+    assert "not_exercised" not in e and "has not exercised" not in (es.judged(e, 0.01) or "")
 
 
-def test_the_judge_does_not_vouch_for_a_change_the_record_held_out_has_not_exercised(tmp_path):
+def test_the_judge_does_not_vouch_for_a_change_the_record_held_out_has_not_exercised(tmp_path, monkeypatch):
+    from ergostat.numbers import identify as idf
+
     from .test_improve import judge_block
+    monkeypatch.setattr(idf, "record_says", lambda *a: {})          # a value the record could identify when it was made
     p, _ = points_project(tmp_path, minutes=600, moves_before=60, text=POINTS.replace(LOSS, "    value: 1.5") + judge_block())
     got = im.submit(p, "improver", {"kind": "parameter", "parts": ["parameter.loss"], "title": "loss is 1",
                                     "edit": {"file": "ergostat.yaml", "replace": "    value: 1.5", "with": "    value: 1"},
@@ -178,7 +181,8 @@ stocks:
       manual: true
   copy:
     unit: jobs
-    description: the queue, read again (proposed by ergostat)
+    description: the queue, read again
+    inferred: ergostat.model-change/ab12cd34
     sensor:
       manual: true
 flows:
