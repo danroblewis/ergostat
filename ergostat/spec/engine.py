@@ -32,6 +32,7 @@ import urllib.request
 
 from .. import runner as old
 from . import blocks as bl
+from . import stream
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
 
@@ -441,7 +442,15 @@ class Engine:
             cmd += " " + sandbox.command_line(ready.cfg)
         cwd = ready.workdir if ready.workdir and "run" not in b.params else spec.root
         log = old.log_path(self.p, b.name)
-        note, code, lines = "", None, []
+        note, code = "", None
+        said = Said(self, b, begun["id"], spec, version, item=item, fence=fence)
+
+        def take(got: list[str]) -> None:                       # its lines, as they arrive (SPEC §9.1)
+            for raw in got:
+                if not raw.strip().startswith("{"):
+                    lf.write(raw if raw.endswith("\n") else raw + "\n")
+            lf.flush()
+            said.lines(got)
         with open(log, "a", encoding="utf-8") as lf:
             lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} ({why})\n")
             lf.flush()
@@ -457,11 +466,8 @@ class Engine:
                 with self.lock:
                     self.procs[b.name] = proc
                 try:
-                    out, _ = proc.communicate(stdin, timeout=b.timeout)
-                except subprocess.TimeoutExpired:
-                    old._kill(proc)
-                    out, _ = proc.communicate()
-                    note = f"stopped after its timeout of {b.timeout:g}s"
+                    if stream.pump(proc, stdin, b.timeout, take):
+                        note = f"stopped after its timeout of {b.timeout:g}s"
                 finally:
                     old.LIVE.discard(proc)
                     with self.lock:
@@ -470,18 +476,10 @@ class Engine:
                         asked = b.name in self.stopping_runs
                         self.stopping_runs.discard(b.name)
                 code = proc.returncode
-                lines = out.splitlines()
-                for raw in lines:
-                    if not raw.strip().startswith("{"):
-                        lf.write(raw + "\n")
                 if code and not note:
                     note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
-        said = Said(self, b, begun["id"], spec, version, item=item, fence=fence)
-        if code is not None:                                     # what it said it moved counts, even if it then failed
-            for raw in lines:
-                said.line(raw)
-            if code == 0:                                        # a bare number only from a run that finished well
-                said.finish()
+        if code == 0 and not note:                               # a bare number only from a run that finished well
+            said.finish()
         if said.proposals:
             said.counts["proposed"] = sum(1 for x in said.proposals if x["status"] != "not-proposed")
             said.counts["not_proposed"] = sum(1 for x in said.proposals if x["status"] == "not-proposed")
@@ -631,6 +629,7 @@ class Engine:
         said = Said(self, b, begun["id"], spec, version)
         for line in jd.lines(spec, b.name, got):
             said.take(line)
+        said.flush()
         ev.add("agent.ran", item=b.name, source=SOURCE, causedby=begun["id"],
                data={"exit": 0, "seconds": round(time.time() - started, 3), "why": "schedule", "model": version,
                      **said.counts,
@@ -952,9 +951,10 @@ class Engine:
 
 
 class Said:
-    """A machine block's output lines, recorded: what it moved, what it commanded, what it decided. A run that holds a
-    lease on an item (``item``, ``fence``): its event lines are about that item unless they name another, refused once
-    its lease has ended (fencing), and it may give the item back (``{"nack": ...}``)."""
+    """A machine block's output lines, recorded as they arrive (``lines``, in the order printed): what it moved, what it
+    commanded, what it decided. A run that holds a lease on an item (``item``, ``fence``): its event lines are about
+    that item unless they name another, refused once its lease has ended (fencing), and it may give the item back
+    (``{"nack": ...}``). Event lines in a row are recorded together, in one write, before anything after them."""
 
     def __init__(self, eng: Engine, b: Block, run_id: str, spec: Spec | None = None, version: str | None = None,
                  item: str | None = None, fence: int | None = None):
@@ -970,8 +970,44 @@ class Said:
         self.bare: float | None = None
         self.json_lines = 0
         self.rx = re.compile(b.params["parse"]) if b.params.get("parse") else None
+        self.pending: list[dict] = []            # event lines in a row, not yet recorded
+        self.fence_seen = False                  # its lease looked at for this batch of lines
+        self.fence_why: str | None = None        # why its lease has ended: once it has, it stays ended
+        self.fence_at: int | None = None         # the newest lease event about its item when it was last folded
+
+    def lines(self, raws: list[str]) -> None:
+        """A batch of its lines, as they arrived: each taken in turn, the events among them recorded by the end of it.
+        One bad line never leaves the rest untaken."""
+        self.fence_seen = False
+        for raw in raws:
+            try:
+                self.line(raw)
+            except Exception as err:
+                self.refuse(raw.strip()[:200], f"could not record it ({type(err).__name__}: {err})")
+        try:
+            self.flush()
+        except Exception as err:                 # (the record could not take them: said, and the run goes on)
+            self.refuse(f"{len(raws)} lines", f"could not record them ({type(err).__name__}: {err})")
+
+    def flush(self) -> None:
+        """The event lines waiting, recorded, in one write."""
+        if not self.pending:
+            return
+        rows, self.pending = self.pending, []
+        from ..store import ChangesetError
+        try:
+            self.e.p.events.add_many(rows, new=True)
+        except ChangesetError:                   # (each was checked when taken: one by one, each refused alone)
+            for r in rows:
+                try:
+                    self.e.p.events.add(r["type"], item=r.get("item"), source=r["source"], causedby=r["causedby"],
+                                        data=r.get("data"), patch=r.get("patch"), set=r.get("set"))
+                except ChangesetError as err:
+                    self.counts["events"] -= 1
+                    self.refuse({k: r.get(k) for k in ("type", "item")}, str(err))
 
     def refuse(self, line, why: str) -> None:
+        self.flush()                             # what came before it is recorded before it
         self.counts["refused"] += 1
         self.refused.append(why)
         self.e.p.events.add("agent.refused", item=self.b.name, source=SOURCE, causedby=self.run_id,
@@ -1006,7 +1042,20 @@ class Said:
 
     def fenced(self) -> str | None:
         """Why this run may no longer say anything about its item: its lease ended (it expired), and the item's lease
-        is another's, or none."""
+        is another's, or none. Looked at once per batch of lines, the item folded again only when a lease event about
+        it was recorded since (a lease ends only by one); once ended, ended."""
+        if self.fence_why is not None or self.fence_seen:
+            return self.fence_why
+        self.fence_seen = True
+        from ..leases import PREFIX
+        newest = self.e.p.events.query(n=1, item=self.item, type=PREFIX + "*")
+        at = newest[-1]["seq"] if newest else 0
+        if at != self.fence_at:
+            self.fence_at = at
+            self.fence_why = self._fenced()
+        return self.fence_why
+
+    def _fenced(self) -> str | None:
         from ..leases.fold import held
         from .items import one
         it = one(self.e.p.events, self.e.spec, self.item)
@@ -1040,6 +1089,8 @@ class Said:
 
     def take(self, obj: dict, bare: bool = False) -> None:
         ev = self.e.p.events
+        if "event" not in obj:                        # anything else: the events before it are recorded first
+            self.flush()
         if "decision" in obj:
             served = sorted(self.e.served(self.b) | {r.name for r in self.b.reads() if r.kind == "goal"}) or [self.b.name]
             for g in served:
@@ -1112,6 +1163,7 @@ class Said:
                     self.refuse(obj, why)
                     return
             if isinstance(t, str) and t.startswith(("ergostat.decision.", "ergostat.correction.")):
+                self.flush()
                 from ..decisions import acts  # a proposal of the owner's intent: checked like any
                 try:
                     acts.take_line(self.e.p, t, obj.get("item"), obj.get("data") if isinstance(obj.get("data"), dict) else {},
@@ -1123,14 +1175,17 @@ class Said:
             if not isinstance(t, str) or not old.TYPE_NAME.match(t) or t.startswith((*old.OWN_TYPES, "block.", "person.")):
                 self.refuse(obj, "an event type is lowercase words joined by dots (backup.verified), and not ergostat's own")
                 return
-            from ..store import ChangesetError
+            from ..store import ChangesetError, changeset
+            data = obj.get("data") if isinstance(obj.get("data"), dict) else {}
             try:                                       # it changes its item by data, a patch or the whole of it (SPEC §5a)
-                ev.add(t, item=obj.get("item"), source=self.b.name, causedby=self.run_id,
-                       data=obj.get("data") if isinstance(obj.get("data"), dict) else {}, patch=obj.get("patch"),
-                       set=obj.get("set"))
+                if changeset(data, obj.get("patch"), obj.get("set")) and \
+                        (not isinstance(obj.get("item"), str) or "/" not in obj["item"]):
+                    raise ChangesetError("a patch or a set changes an item: name it (an id with a /, ticket/12)")
             except ChangesetError as err:
                 self.refuse(obj, str(err))
                 return
+            self.pending.append({"type": t, "item": obj.get("item"), "source": self.b.name, "causedby": self.run_id,
+                                 "data": data, **{k: obj[k] for k in ("patch", "set") if obj.get(k) is not None}})
             self.counts["events"] += 1
             return
         r = self.target(obj)
