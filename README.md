@@ -182,7 +182,8 @@ for days.
 
 ## The web page
 
-`ergostat run` serves it at http://127.0.0.1:8781 (the next free port when taken). It opens on the
+`ergostat run` serves it at http://127.0.0.1:8781 (the next free port when taken); each page is its own
+address (`/items`, `/item/ticket%2F7`, `/diagram?view=blocks`), to open in a new tab, copy or reload. It opens on the
 control diagram, laid out by ELK: stocks as tanks, flows as pipes through valves (a bow tie) or
 disturbances (a diamond), sensors as gauges, controllers as boxes with their setpoint and status,
 each part tagged with the agent that fills it (a lettered dot by its kind, and its schedule). Loops are coloured by status;

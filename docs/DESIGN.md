@@ -215,6 +215,15 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 
 ## 8. The web page
 
+Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded):
+`/diagram?view=blocks`, `/loops`, `/agents`, `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
+`%2F`), `/record?type=T`, `/model`, `/check`, `/guide?frame=N`. The server answers each with the page
+(`UI_PAGES` in `web/server.py` and `util.js`, one list); `/api/*`, `/static/*` and `/file/PATH` are never
+shadowed. The page routes with the History API: a plain click on one of its links draws the page in
+place; a ctrl-, cmd-, shift- or middle-click is the browser's. An old address, `#/items` or
+`/#/item/ID` from a bookmark, a brief or a message, is shown at its path. A snapshot, one file opened with no
+server, keeps its routes in the hash (`snapshot.html#/items`).
+
 Standard-library server on 127.0.0.1 (port 8781, the next free one when taken; *decided in the
 owner's absence*), read only but for one kind of write: the owner's answer to a proposal (Accept,
 Approve or Dismiss), asking for estimates (Calibrate, Estimate now) and proposing the values tried as a
@@ -225,8 +234,8 @@ sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-S
 token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
 page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and wiring views; the side panel:
 attention, loops or cycles, model changes, legend), Loops, Agents (one list, by rung), Items (the
-record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`#/model`;
-its old address `#/fit` goes there; first **What's available**: each loop, whether its process is
+record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`/model`;
+its old address `/fit` goes there; first **What's available**: each loop, whether its process is
 identified and what would identify it, or that it closes through queues; each parameter to estimate,
 the parts it is in and whether the record is long enough yet; and where each model tool lives, every
 link choosing the part and opening its view and panel; `docs/MODEL-TOOLS.md` is the guide; then the
