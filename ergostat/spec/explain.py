@@ -38,6 +38,8 @@ def _items(q: dict) -> str:
     states = " or ".join(q.get("state") or []) or "any state"
     if q.get("measure") == "oldest":
         return f"reads the hours the oldest {q['kind']} item has been in {states}{where}"
+    if q.get("measure") == "age":
+        return f"reads the hours since the oldest {q['kind']} item in {states}{where} was first seen"
     return f"counts the {q['kind']} items in {states}{where}"
 
 

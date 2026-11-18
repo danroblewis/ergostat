@@ -350,9 +350,21 @@ def one(events, spec: Spec, id: str) -> Item | None:
     return fold(id, evs, kind_of(spec, id)) if evs else None
 
 
+def field_at(fields: dict, name: str):
+    """A field's value, or a field's field's (``lease.back``) when no field has the whole name."""
+    if name in fields or "." not in name:
+        return fields.get(name)
+    v = fields
+    for part in name.split("."):
+        if not isinstance(v, dict):
+            return None
+        v = v.get(part)
+    return v
+
+
 def matches(it: Item, where: dict) -> bool:
     for k, want in where.items():
-        have = it.fields.get(k)
+        have = field_at(it.fields, k)
         wants = want if isinstance(want, list) else [want]
         if not any(str(have) == str(w) for w in wants):
             return False
@@ -366,6 +378,9 @@ def measure(events, spec: Spec, s: Sensor, now: float | None = None) -> tuple[fl
     now = now or time.time()
     where = q.get("where") or {}
     if s.of.kind != "flow":                         # a stock, or an auxiliary: how many there are now
+        if q.get("measure") == "age":                   # since it was first seen, whatever states it passed through
+            _, _, got = in_states(events, spec, q["kind"], q.get("state") or None, where, until=now, items=True)
+            return (max((now - i.first) / 3600 for i in got) if got else 0.0), ""
         n, entered, _ = in_states(events, spec, q["kind"], q.get("state") or None, where, until=now)
         if q.get("measure") == "oldest":
             return ((now - entered) / 3600 if n and entered is not None else 0.0), ""

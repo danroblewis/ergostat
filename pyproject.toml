@@ -27,6 +27,8 @@ packages = ["ergostat"]
 "docs/CLAIMS.md" = "ergostat/help/claims.md"
 "docs/DECISIONS.md" = "ergostat/help/decisions.md"
 "docs/MESSAGES.md" = "ergostat/help/messages.md"
+"docs/ADDING.md" = "ergostat/help/adding.md"
+"docs/skills/ergostat-author/SKILL.md" = "ergostat/skills/ergostat-author/SKILL.md"
 
 [tool.ruff]
 line-length = 140

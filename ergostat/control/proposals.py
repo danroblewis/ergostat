@@ -103,6 +103,7 @@ def process_edit(spec, goal: str, lines: list[str]) -> ye.Edit:
     g = spec.goals[goal]
     if g.where is None:
         raise ye.EditError(f"goal {goal}: where it is written is not known")
+    ye.own(g.where, f"goal {goal}")
     path = Path(g.where.file)
     nl = _name_line(path, g.where.line, goal)
     ls = ye.lines_of(path)
@@ -121,6 +122,7 @@ def gain_edit(spec, block: str, values: dict[str, str]) -> ye.Edit:
     b = spec.blocks[block]
     if b.where is None:
         raise ye.EditError(f"block {block}: where it is written is not known")
+    ye.own(b.where, f"block {block}")
     path = Path(b.where.file)
     nl = _name_line(path, b.where.line, block)
     hunks = []

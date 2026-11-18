@@ -61,6 +61,93 @@ out, never written.
 - A file may set `defaults:` (at present only `system:`), which applies to the stocks, flows,
   goals and blocks defined in that file, and not to the files it includes.
 
+## 2a. Templates: one shape, used many times
+
+A **template** is a reusable shape of model: a generic structure in the system dynamics view (Hines's
+"molecules", Lane and Smart's generic structures), a library block in the control view (Simulink's library
+blocks, IEC 61131-3's function block types). It is written once, with parameters, and **used** as many times as
+there are things of that shape; each use, an **instance**, expands into ordinary items, stocks, flows,
+auxiliaries, goals and blocks, read and checked exactly as if they had been written out.
+
+```yaml
+uses:                                   # any file; the instances of every file share one namespace
+  review-reminders:                     # the instance: its parts are review-reminders-..., and it is a system
+    use: re-ping                        # the template
+    within: delivery                    # optional: the system it is part of (else its file's defaults: system:)
+    description: reviews I asked for    # optional: the system's description (else the template's)
+    with:                               # the template's parameters
+      every: 1d
+      limit: 3
+      ping: ./bin/remind.sh
+library:                                # main file only: folders of the owner's own templates
+  - ~/private/ergostat-templates
+```
+
+| Key | Type | Meaning |
+|---|---|---|
+| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so |
+| `with` | map | The template's parameters. A parameter it does not take, a value of the wrong type (a duration that does not parse, a setpoint, a cron expression, a name) and a required one left out are errors at that line |
+| `within` | system name | The system the instance is part of |
+| `description` | string | |
+
+**What a use makes.** Every name the template defines becomes the instance's, `INSTANCE-NAME`
+(`review-reminders-unanswered`), and every reference to it follows (`stock.unanswered`, `from: unanswered`, a
+parameter named in an equation); a name a parameter gives whole (an item kind, `${kind}`, by default the
+instance's name) is taken as given. What a parameter brings in (a reference to a part outside, a command) is never
+renamed, so an instance can name the model's other parts, and the model can name an instance's parts by their
+full names. The instance is a system of its own, and each part it makes is in it: drawn as one box, opened in
+place or drawn alone, in both views, like any system. Templates may use templates; an inner instance is named
+`INSTANCE-INNER` and is within the outer one.
+
+**Where it points.** Every part a use makes is written at its `use:` line: an error in one, and every finding
+about one, points there (`job/pings.yaml:3 (use review-reminders: re-ping)`). It is changed only through its
+`with:` (or the template): a proposal that would edit such a part in place (an estimate written, an equation
+fitted, a tuning) is refused, and says what to change instead.
+
+**Stand-ins.** A template's parameters that reach the world (a source, an action) each say what stands in for
+them when they are left out: a made-up feed, a pretend answer, a level that creeps up. Each instance runs offline
+on them, and `check` lists the instances still on stand-ins (**template-stand-in**, a finding).
+
+**Writing one.** A template file is YAML: `template:` (its name), `description:`, `reading:` (what it is in
+control theory and in system dynamics), `params:` (each with `type`, `description`, and `default`,
+`required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`), `example:` (a
+`uses:` entry), then the sections it makes (`items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`,
+`goals`, `blocks`, `agents`, `uses`). In them:
+
+- `${param}` is a parameter's value; a whole value that is one `${param}` takes it as it is (a number, a list).
+  `${param:hours}` and `:seconds` give a duration as a number, `:quote` quotes it for the shell, `:json` writes it
+  as JSON, `:arg` writes `--param VALUE` (nothing when it is not given; for a list, the flag for each); and
+  `${param|text}` is `text` when the parameter is not given;
+- `${name}` is the instance's name, `${lib}` the programs the built-in templates run (below), `${python}` the
+  Python ergostat runs on, `${here}` the template's own folder (for the scripts a private template keeps beside
+  it);
+- a key whose value comes out empty is left out; a map (or a section's entry) with `if: ${param}` is kept only
+  when the parameter is set, `unless:` only when it is not, and either may compare (`if: ${rung} == person`);
+- a value written `{if: C, value: V, else: E}` (or `unless:`) is `V` when the condition holds, else `E`, or left out
+  when there is no `else:` (`type: {if: ${it.prompt}, value: ai, else: program}`);
+- an entry with `each: PARAM` (a list parameter) is made once for each element, which is `${it}` (`as:` names
+  it): its fields, `${it.index}`, and `${it.next}` and `${it.prev}`, the next and previous element's name (or
+  the entry's `last:`, by default `done`, and `first:`); `{each: P, value: V}` in a list makes an element for
+  each, and `each: {each: P, key: K, value: V}` in a map an entry for each; `${P.first}`, `${P.last}` and
+  `${P.count}` name a list's ends and length.
+
+**The built-in library.** `respond-to` (items from a source answered within a time), `re-ping` (asked again
+until answered, up to a count, then a person takes over), `daily-report` (a report on a schedule, kept as an
+item), `keep-under` (a level held under a limit by a corrective action), `steps` (an item worked through a list
+of steps, a block each) and `collect` (the event collector). Each says its reading in both disciplines
+(`ergostat help adding`, `docs/ADDING.md`). They run ergostat's own programs (`python -m
+ergostat.library.run`): `collect` (a sensor that polls a command or an HTTP endpoint, records each new record as
+an event about an item, once, from a cursor, and prints the arrivals per hour), `each` (a block's program that
+runs a command on the item leased to its run and moves it on, or gives it back), `ping`, `due` and `report`. The
+blocks that work on items take them (section 9.5): `respond-to`'s `answer` and each of `steps`' steps is leased
+one item a run, `pool` at once, and an item that fails every try is a dead letter.
+
+**What a template may declare.** `items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`,
+`blocks`, `agents` and `uses`, and the `workspaces` and gated `actions` its AI blocks use (section 12k): each named
+for the instance like any part (`steps` makes `NAME-workspace`, and `NAME-push` for an action `push`), and a
+block's `workspace:` and `actions:` follow the names. A block's lease terms are its own (`lease:`, with `takes:`
+and `pool:`); `leases:`, each tier's terms, belongs to the model as a whole, as do `messages:` and `storage:`.
+
 ## 3. Names, references and values
 
 **Names** are lowercase letters, digits and `-`, starting with a letter: `inbox`,
@@ -138,6 +225,10 @@ leases:                         # optional: each tier's lease terms (section 9.5
   ...
 loops:                          # optional: names for feedback loops (section 12a)
   ...
+uses:                           # optional: instances of templates (section 2a)
+  ...
+library:                        # optional, main file only: folders of the owner's templates (section 2a)
+  - ...
 ```
 
 ## 4a. Systems: parts made of parts
@@ -621,13 +712,13 @@ flows:
 | `manual` | bool | | Readings recorded by a person |
 | `items` | item kind | | Counted from the record: on a stock, the items in `state` (any state when left out); on a flow, the items `entering` or `leaving` a state per hour, over `over` |
 | `state` | state or list | any | On a stock: which states count |
-| `measure` | `count` or `oldest` | `count` | On a stock: how many, or the hours the oldest of them has been in its state |
+| `measure` | `count`, `oldest` or `age` | `count` | On a stock: how many; the hours the oldest of them has been in its state; or the hours since the oldest of them was first seen, whatever states it passed through (an item taken, given back and taken again keeps its age: a commitment's clock) |
 | `entering`, `leaving` | state | | On a flow: exactly one; the move it counts |
 | `changes` | `rises`, `falls` or `net` | | On a flow into or out of one stock: its rate from that stock's own successive readings, how much they rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a `two-way` flow), per hour over `over` |
 | `over` | duration | `1h` | On a flow: the window the rate is taken over |
 | `builtin` | `ergostat.model.fit`, `.unexplained`, `.unidentified-loops` or `.open-findings` | | On a stock or an auxiliary: one of ergostat's built-in measures of the model's own quality (section 12e), read by ergostat itself (`ergostat measure ergostat.model.fit`, in a process of its own; `timeout` 2m by default) |
 | `averages` | duration | none | On a flow's `run`, `query` or `manual` sensor: its reading is the average rate over this window before it (a count of the last ten minutes, per hour: `averages: 10m`). The model's rate is read through the same window before it is compared (section 12b) |
-| `where` | map of field → value (or list) | | Only items whose fields match |
+| `where` | map of field → value (or list) | | Only items whose fields match; a field's field is named with a dot (`lease.back: triage`: the items whose lease was taken at `triage`, section 9.5) |
 | `every` | duration | `1m` | How often it reads (`run`, `query`) |
 | `cron` | cron expression | | Instead of `every` |
 | `timeout` | duration | `30s` | |
@@ -1408,7 +1499,11 @@ where the error is 0.
 - **its own disturbance**: a controller that also adds to the stock it holds;
 - **critical goal decaying**: answering more slowly, saturating more often, its machine changed;
 - **deprecated name**: `variables:`, `variable.x` or a goal's `variable:`, still read; rename to
-  `auxiliaries:`, `auxiliary.x`, `auxiliary:`.
+  `auxiliaries:`, `auxiliary.x`, `auxiliary:`;
+- **template-stand-in**: an instance of a template running on its stand-ins for a source or an action
+  (section 2a);
+- **template-library**: a template in a `library:` folder that does not read, or one used in place of
+  ergostat's own.
 
 **Structure** (findings, the tests system dynamics makes of a model's structure before its
 behaviour: Sterman, *Business Dynamics*, ch. 21, structure assessment, dimensional consistency and

@@ -1,0 +1,106 @@
+template: keep-under
+description: A measured level kept under a limit by a corrective action that runs while it is over.
+reading: |
+  System dynamics: one stock, the level, filled by whatever raises it (measured from its own rises: the
+  disturbance) and drained by the correction. Its first-order balancing loop is the whole shape.
+  Control: an on-off controller with hysteresis: the goal goes off past `limit` (plus `tolerance`), the actuator
+  runs the corrective command while it is off, and stops once the level is back to `until` (or under the limit).
+  The gap between the limit and `until` is the deadband that keeps it from chattering; `max` bounds one run's
+  move (saturation).
+example: |
+  uses:
+    disk:
+      use: keep-under
+      with:
+        unit: "%"
+        limit: 80
+        until: "<= 70"
+        measure: df -P / | awk 'NR==2 {print $5+0}'
+        act: ./bin/clean-caches.sh       # prints {"moved": <points freed>}
+params:
+  unit:
+    default: units
+    description: the level's unit (%, files, MB, items)
+  limit:
+    type: number
+    required: true
+    description: the limit the level is kept under
+  until:
+    type: setpoint
+    description: 'where the correction stops, like "<= 70" (default: back under the limit)'
+  tolerance:
+    type: number
+    default: 0
+    description: how far past the limit before the goal counts as off
+  fails-at:
+    type: number
+    description: where the level physically fails (a full disk, 100); time to failure is estimated from it
+  measure:
+    type: command
+    default: ${lib} standin level --name ${name} --limit ${limit}
+    stand-in: a level that creeps up, from 90% of the limit
+    description: the sensor, a command printing the level now (a number)
+  every:
+    type: duration
+    default: 1m
+    description: how often the level is measured
+  act:
+    type: command
+    default: ${lib} standin lower --name ${name} --limit ${limit}
+    stand-in: a pretend correction that takes a tenth of the limit off
+    description: 'the corrective action, run while the level is over; prints {"moved": n}, how much it took off'
+  rung:
+    type: rung
+    default: program
+    description: who fills the correction (program, ai or person); a person is asked, and reports with ergostat block NAME --done N
+  ask:
+    default: The level is over its limit. Bring it back under, then report how much you took off.
+    description: what a person is asked, when rung is person
+  prompt:
+    type: path
+    description: the correction's prompt (a file), when rung is ai
+  max:
+    type: number
+    description: the most one run of the correction may move
+stocks:
+  level:
+    unit: ${unit}
+    limit: ${fails-at}
+    description: the level, as measured
+    sensor:
+      run: ${measure}
+      every: ${every}
+flows:
+  rising:
+    to: level
+    description: what raises the level (from its own rises between readings)
+    sensor:
+      changes: rises
+      over: 1h
+  corrected:
+    from: level
+    description: what the correction took off
+goals:
+  under:
+    stock: level
+    hold: "<= ${limit}"
+    tolerance: ${tolerance}
+    description: the level stays at or under ${limit} ${unit}
+blocks:
+  correct:
+    if: ${rung} != person
+    type: ${rung}
+    goal: under
+    until: ${until}
+    run: ${act}
+    prompt: ${prompt}
+    max: ${max}
+    every: 30s
+    out: flow.corrected
+  correct-by-hand:
+    if: ${rung} == person
+    type: person
+    goal: under
+    until: ${until}
+    ask: ${ask}
+    out: flow.corrected

@@ -716,6 +716,8 @@ class Spec:
     actions: dict[str, Action] = field(default_factory=dict)           # the gated actions sessions may ask for (SPEC §12k)
     workspaces: dict[str, WorkspacePool] = field(default_factory=dict)  # the workspace pools (SPEC §12k)
     leases: dict[str, LeaseTerms] = field(default_factory=dict)        # tier → its lease terms, over the defaults (SPEC §9.5)
+    uses: dict = field(default_factory=dict)                           # instance → its template, values, stand-ins (SPEC §2a)
+    template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
 
     # ---- systems: a tree; a part belongs to one, and to every system that one is within
 
