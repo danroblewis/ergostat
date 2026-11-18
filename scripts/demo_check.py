@@ -101,7 +101,7 @@ def items_as_before(url: str, spec) -> list[str]:
         for e in evs:
             if not e["type"].startswith("ergostat.lease."):    # a lease is ergostat's own field (SPEC §9.5)
                 was.update(e.get("data") or {})
-        now = {k: v for k, v in d["fields"].items() if k != "lease"}
+        now = {k: v for k, v in d["fields"].items() if not (k == "lease" and isinstance(v, dict))}   # an item's own lease
         if now != was:
             out.append(f"item {it['id']}: folds to {json.dumps(now)[:200]}, not {json.dumps(was)[:200]} as before")
     return out
