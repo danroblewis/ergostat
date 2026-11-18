@@ -161,6 +161,7 @@ function bdOrder(g) {
 
 async function bdLayout(g) {
   await avoidLoad();
+  S.layouts = (S.layouts || 0) + 1;                     // (how many: the tests count them)
   const graph = bdElkGraph(g);
   let lay;
   try { lay = await elk.layout(graph); }
@@ -181,7 +182,7 @@ async function bdLayout(g) {
       } else {
         children.push({ id: c.id, x, y, width: c.width, height: c.height, within });
         const gn = g.nodes.find((n) => n.id === c.id);
-        if (gn) gn.systems = within;
+        if (gn) gn.systems = [...within].reverse();     // the frames it is in, the innermost first (as the dynamics view's)
         for (const p of c.ports || []) ports[p.id] = { x: x + p.x + (p.width || 0) / 2, y: y + p.y + (p.height || 0) / 2, node: c.id };
       }
     }
@@ -213,6 +214,7 @@ async function bdLayout(g) {
       const fx = bdPortPos(n, c.width, c.height)?.[pid];
       if (fx) { p.x = c.x + fx.x; p.y = c.y + fx.y; }
     }
+    if (c) { p.dx = p.x - c.x; p.dy = p.y - c.y; }      // (each goes with its part when it is moved: places.js)
   }
   const out = { children, containers, edges, ports, width: size[0], height: size[1], routing: false };
   for (const e of out.edges) {                         // until libavoid's lines come: ELK's, ending on the ports
@@ -222,6 +224,10 @@ async function bdLayout(g) {
     const s = e.sections?.[0];
     if (!s) e.sections = [{ startPoint: { x: a.x, y: a.y }, endPoint: { x: b.x, y: b.y }, bendPoints: [] }];
   }
+  // a system opened or closed just now stays where it was; what the owner put by hand goes back where it was
+  // put, with the frame it is in (places.js, as in the dynamics view): ELK places the rest, as before
+  if (anchorLayout(out, g, S.anchor)) S.anchored = true;
+  applyPins(out, g);
   return out;
 }
 
@@ -523,6 +529,7 @@ function bdRoute(lay, g) {
       bdTrade(lay, g, byLe);
       bdOffFrames(lay, g, byLe);
       AV.ms = m.ms; AV.invalid = m.invalid;
+      AV.routed = { lay, seq };                        // (a part dragged: only its lines routed again, as it moves)
     }
     lay.routing = false;
   };
@@ -647,8 +654,13 @@ function bdLabelSpot(pts, taken, w, hgt, boxes, lines = []) {     // where a sig
   return tries.find(free) || null;
 }
 
+const bdJustDropped = () => S.dropAt != null && performance.now() - S.dropAt < 400;   // the click that ends a drag (interact.js)
+
 function bdDraw(svg, g, lay) {
   svg.classList.add("bd");
+  lay.undrawn = false;
+  squareLines(lay, g);                                 // no line drawn across: a stand-in is drawn square, greyed (interact.js)
+  const pins = [];                                     // what the owner put by hand: a pin on it, on top (diagram.js)
   const vp = s("g", { id: "viewport" });
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
@@ -662,6 +674,11 @@ function bdDraw(svg, g, lay) {
     const t = bdSym(fg, c.x + 10, c.y + 19, f.fn || {}, { anchor: "start", size: 13 });
     t.append(s("tspan", { class: "bd-frame-name", dx: 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
     fg.append(s("title", {}, f.says || ""));
+    // its top is a handle: dragged, the frame moves with everything in it, and stays there (interact.js, places.js)
+    fg.append(s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: Math.max(0, c.width - 24), height: 30,
+                          onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: c.name, x0: ev.clientX, y0: ev.clientY, moved: false }; } },
+                        s("title", {}, `${f.label}: drag to move it, with everything in it`)));
+    if (S.pins?.["hull:" + c.name]) pins.push(pinMark("hull:" + c.name, c.x + c.width - 30, c.y - 6, "moved here: click to let the layout place it again"));
     if (f.frame === "system") {
       const name = f.label;
       const b = s("g", { class: "bd-toggle", "data-act": "close", transform: `translate(${c.x + c.width - 18},${c.y + 6})` },
@@ -672,6 +689,7 @@ function bdDraw(svg, g, lay) {
     fg.addEventListener("click", (ev) => {
       if (ev.target.closest(".bd-toggle")) return;
       ev.stopPropagation();
+      if (bdJustDropped()) return;
       if (ev.shiftKey || ev.metaKey) { chooseShape(c.id, "toggle"); return; }     // (what it is chosen: interact.js)
       chooseShape(c.id); openBlock(f);
     });
@@ -691,24 +709,12 @@ function bdDraw(svg, g, lay) {
     if (pts.length < 2) continue;
     const vec = (e.signal?.n || 0) > 1;
     const eg = s("g", { class: `edge bd-edge${vec ? " bd-vec" : ""}`, "data-id": e.id, "data-nodes": `${e.source} ${e.target}`, "data-net": e.sourcePort });
-    const d = pts.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join("");
-    const tip = pts[pts.length - 1], prev = pts[pts.length - 2];
-    const ang = Math.atan2(tip.y - prev.y, tip.x - prev.x), L = vec ? 10 : 8;
-    const back = { x: tip.x - Math.cos(ang) * (L - 1), y: tip.y - Math.sin(ang) * (L - 1) };
-    const short = [...pts.slice(0, -1), back].map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join("");
-    eg.append(s("path", { d, class: "bd-hit" }), s("path", { d: short, class: "bd-wire" }),
-              s("path", { class: "bd-head", d: `M${tip.x},${tip.y} L${tip.x - L * Math.cos(ang - 0.38)},${tip.y - L * Math.sin(ang - 0.38)} L${tip.x - L * Math.cos(ang + 0.38)},${tip.y - L * Math.sin(ang + 0.38)} Z` }));
-    eg.append(s("title", {}, bdSignalWords(e)));
+    const { els, mark } = bdEdgeContent(e, pts);
+    eg.append(...els);
     eg.addEventListener("mouseenter", () => bdTrace(svg, { net: e.sourcePort }));
     eg.addEventListener("mouseleave", () => bdTrace(svg, S.bdSel || null));
     eg.addEventListener("click", (ev) => { ev.stopPropagation(); S.bdSel = { net: e.sourcePort }; bdTrace(svg, S.bdSel); openSignal(e); });
-    if (vec) {                                          // a vector: a slash across it, and how many signals
-      const [a, b] = pts.slice(1).map((q, i) => [pts[i], q]).sort((x, y) => (Math.abs(y[0].x - y[1].x) + Math.abs(y[0].y - y[1].y)) - (Math.abs(x[0].x - x[1].x) + Math.abs(x[0].y - x[1].y)))[0];
-      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, horiz = Math.abs(a.y - b.y) < 1;
-      eg.append(s("path", { class: "bd-slash", d: horiz ? `M${mx - 4},${my + 6} L${mx + 4},${my - 6}` : `M${mx - 6},${my + 4} L${mx + 6},${my - 4}` }),
-                s("text", { class: "bd-count", x: mx + (horiz ? 0 : 9), y: my + (horiz ? 17 : 4), "text-anchor": horiz ? "middle" : "start" }, String(e.signal.n)));
-      taken.push({ x: mx - 8, y: my - 8, w: 16, h: 30 });
-    }
+    if (mark) taken.push(mark);
     edgesG.append(eg);
   }
   // take-off points: where the lines of one signal part
@@ -789,20 +795,50 @@ function bdDraw(svg, g, lay) {
     const c = box[n.id];
     if (!c) continue;
     const el = bdNode(n, c);
-    el.addEventListener("mouseenter", () => bdTrace(svg, { node: n.id }));
+    el.addEventListener("mouseenter", () => { if (!S.nodeDrag?.moved && !S.hullDrag?.moved) bdTrace(svg, { node: n.id }); });
     el.addEventListener("mouseleave", () => bdTrace(svg, S.bdSel || null));
+    el.addEventListener("pointerdown", (ev) => {        // a drag (moved, and pinned), or a click (interact.js)
+      if (ev.target.closest("[data-act]")) return;
+      partDown(ev, n);
+      S.downOn = null;                                  // (a click opens its definition, below: not the other views' panel)
+    });
     el.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      if (ev.shiftKey || ev.metaKey) { chooseShape(n.id, "toggle"); return; }     // (what it is chosen: interact.js)
+      if (ev.shiftKey || ev.metaKey || bdJustDropped()) return;     // (chosen with Shift or Command on the press: interact.js)
       S.bdSel = { node: n.id }; bdTrace(svg, S.bdSel); chooseShape(n.id); openBlock(n);
     });
     nodesG.append(el);
+    const pid = pinId(n.id, n);
+    if (S.pins?.[pid]) pins.push(pinMark(pid, c.x + c.width - 4, c.y - 6));
   }
-  vp.append(edgesG, nodesG, dots, marks, labelsG);
+  vp.append(edgesG, nodesG, dots, marks, labelsG, s("g", { class: "pins" }, ...pins));
   svg.replaceChildren(vp);
   applyView(svg);
   if (S.bdSel) bdTrace(svg, S.bdSel);
   if (typeof markInteraction === "function" && svg.matches("svg.canvas")) markInteraction(svg);   // the parts chosen, lit
+}
+
+/* a signal's line as drawn: its way, its head, its name as a tooltip, and a vector's slash and count (where
+   that takes room: mark); drawn again alone while a part it touches is dragged (diagram.js's redrawLine) */
+function bdEdgeContent(e, pts) {
+  const vec = (e.signal?.n || 0) > 1;
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join("");
+  const tip = pts[pts.length - 1], prev = pts[pts.length - 2];
+  const ang = Math.atan2(tip.y - prev.y, tip.x - prev.x), L = vec ? 10 : 8;
+  const back = { x: tip.x - Math.cos(ang) * (L - 1), y: tip.y - Math.sin(ang) * (L - 1) };
+  const short = [...pts.slice(0, -1), back].map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join("");
+  const els = [s("path", { d, class: "bd-hit" }), s("path", { d: short, class: "bd-wire" }),
+               s("path", { class: "bd-head", d: `M${tip.x},${tip.y} L${tip.x - L * Math.cos(ang - 0.38)},${tip.y - L * Math.sin(ang - 0.38)} L${tip.x - L * Math.cos(ang + 0.38)},${tip.y - L * Math.sin(ang + 0.38)} Z` }),
+               s("title", {}, bdSignalWords(e))];
+  let mark = null;
+  if (vec) {                                            // a vector: a slash across it, and how many signals
+    const [a, b] = pts.slice(1).map((q, i) => [pts[i], q]).sort((x, y) => (Math.abs(y[0].x - y[1].x) + Math.abs(y[0].y - y[1].y)) - (Math.abs(x[0].x - x[1].x) + Math.abs(x[0].y - x[1].y)))[0];
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, horiz = Math.abs(a.y - b.y) < 1;
+    els.push(s("path", { class: "bd-slash", d: horiz ? `M${mx - 4},${my + 6} L${mx + 4},${my - 6}` : `M${mx - 6},${my + 4} L${mx + 6},${my - 4}` }),
+             s("text", { class: "bd-count", x: mx + (horiz ? 0 : 9), y: my + (horiz ? 17 : 4), "text-anchor": horiz ? "middle" : "start" }, String(e.signal.n)));
+    mark = { x: mx - 8, y: my - 8, w: 16, h: 30 };
+  }
+  return { els, mark };
 }
 
 function bdTakeoffs(routes) {                         // the points where lines that leave one port together part
@@ -919,16 +955,25 @@ async function drawBlocksView(svg, g) {
   const sg = bdSig(g);
   if (sg === S.graphSig && S.layout) {                 // the same diagram: its parts keep their places and frames
     const within = Object.fromEntries(S.layout.children.map((c) => [c.id, c.within]));
-    for (const n of g.nodes) n.systems = within[n.id] || [];
+    for (const n of g.nodes) n.systems = [...(within[n.id] || [])].reverse();
+    if (S.layout.undrawn && !S.layout.routing) bdDraw(svg, g, S.layout);    // routed while it was held: drawn now
     return S.layout;
   }
   const lay = await bdLayout(g);
   S.graphSig = sg;
   S.layout = lay;
   bdDraw(svg, g, lay);
-  bdRoute(lay, g);
-  lay.whenRouted.then(() => { if (S.layout === lay && !S.pressed) bdDraw(svg, S.graph, lay); });
+  bdRouteDraw(svg, lay);
   return lay;
+}
+/* every line routed again (a new layout, or parts put down: no new layout), and drawn when it comes */
+function bdRouteDraw(svg, lay) {
+  bdRoute(lay, S.graph);
+  lay.whenRouted.then(() => {
+    if (S.layout !== lay) return;
+    lay.undrawn = !!(S.pressed || S.nodeDrag || S.hullDrag);
+    if (!lay.undrawn) bdDraw(svg, S.graph, lay);
+  });
 }
 
 function blocksLegend() {

@@ -12,11 +12,28 @@ function partBox(k) {
 }
 const meets = (a, b, m = 0) => a.x0 < b.x1 + m && b.x0 < a.x1 + m && a.y0 < b.y1 + m && b.y0 < a.y1 + m;
 const PAD = { top: 44, side: 26 };
+const padOf = (g) => (g?.kind === "blocks" ? { top: bdFrameTitle() + 8, side: BD.PAD } : PAD);   // (a block diagram's frames: blocks.js)
 
+/* the open system (or, in the block diagram, the frame) a system or frame is drawn in: the block
+   diagram's frames are "frame:<system>" and "casc:<goal>", each with its parent frame (blocks.js) */
+function frameParent(g, name) {
+  if (g?.kind !== "blocks") return g?.tree?.[name]?.within;
+  const f = (g.frames || []).find((x) => x.id === name);
+  if (f) return f.parent || null;
+  const sys = name.startsWith("frame:") && g.tree?.[name.slice(6)];      // a system closed here: the frame it would be in
+  return sys?.within ? "frame:" + sys.within : null;
+}
 /* the open system name is within (its own or further in) */
 function within(g, inner, outer) {
-  for (let x = g.tree?.[inner]?.within; x; x = g.tree?.[x]?.within) if (x === outer) return true;
+  for (let x = frameParent(g, inner); x; x = frameParent(g, x)) if (x === outer) return true;
   return false;
+}
+
+/* the block diagram's ports (blocks.js) where their parts are now: each kept as an offset from its part */
+function followPorts(lay) {
+  if (!lay.ports) return;
+  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
+  for (const p of Object.values(lay.ports)) { const c = box[p.node]; if (c && p.dx != null) { p.x = c.x + p.dx; p.y = c.y + p.dy; } }
 }
 
 /* every open system's outline round its parts and the systems open inside it (and its frame, the box
@@ -24,10 +41,11 @@ function within(g, inner, outer) {
 function regrowOutlines(lay, g) {
   if (!lay.containers?.length) return;
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+  const PAD = padOf(g);
   const sorted = [...lay.containers].sort((a, b) => b.depth - a.depth);
   for (const c of sorted) {
     const parts = lay.children.filter((k) => (byId[k.id]?.systems || []).includes(c.name));
-    const inner = sorted.filter((o) => o.depth > c.depth && g.tree?.[o.name]?.within === c.name);
+    const inner = sorted.filter((o) => o.depth > c.depth && frameParent(g, o.name) === c.name);
     const boxes = [...parts.map(partBox), ...inner.map((o) => ({ x0: o.x, y0: o.y, x1: o.x + o.width, y1: o.y + o.height }))];
     if (c.bx != null) boxes.push({ x0: c.bx + PAD.side, y0: c.by + PAD.top, x1: c.bx + c.w0 - PAD.side, y1: c.by + c.h0 - PAD.side });   // its frame
     if (!boxes.length) continue;
@@ -70,11 +88,13 @@ function settle(lay, g, placed) {
 
 /* the whole layout moved so that one system (opened or closed just now) lies where it lay before:
    the view does not jump, and what was put stays put */
+function anchorOf(lay, g, name) {                    // a system's open outline (or frame), else its box
+  const c = (lay.containers || []).find((o) => o.name === name || o.name === "frame:" + name);
+  return c || lay.children.find((k) => g.nodes.find((n) => n.id === k.id && (n.kind === "system" || n.role === "subsystem") && n.label === name));
+}
 function anchorLayout(lay, g, anchor) {
   if (!anchor) return false;
-  const c = (lay.containers || []).find((o) => o.name === anchor.name);
-  const box = lay.children.find((k) => g.nodes.find((n) => n.id === k.id && n.kind === "system" && n.label === anchor.name));
-  const at = c || box;
+  const at = anchorOf(lay, g, anchor.name);
   if (!at) return false;
   const dx = anchor.x - at.x, dy = anchor.y - at.y;
   if (!dx && !dy) return true;
@@ -82,6 +102,7 @@ function anchorLayout(lay, g, anchor) {
   for (const o of lay.containers || []) { o.x += dx; o.y += dy; }
   for (const le of lay.edges) for (const sec of le.sections || []) for (const p of [sec.startPoint, sec.endPoint, ...(sec.bendPoints || [])]) { p.x += dx; p.y += dy; }
   for (const le of lay.edges) for (const l of le.labels || []) { l.x += dx; l.y += dy; }
+  followPorts(lay);
   refit(lay);
   return true;
 }
@@ -147,7 +168,10 @@ function standUpright(lay, g) {
    "hull:<name>"), kept from the corner of the frame of the open system it is drawn in ({in, x, y}), or
    in the diagram's own coordinates ({x, y}): so what is inside a system keeps its place in it when
    the system moves, closes or opens, and a new layout never places what was put */
-function pinId(id, node) { return node?.kind === "system" ? "hull:" + node.label : id; }
+function pinId(id, node) {
+  if (node?.kind === "system") return "hull:" + node.label;
+  return node?.role === "subsystem" ? "hull:frame:" + node.label : id;     // (the block diagram's: its block and its frame)
+}
 function pinAt(lay, p) {                               // where a pin puts it now (null: its frame is not drawn here)
   if (!p) return null;
   if (!p.in) return { x: p.x, y: p.y };
@@ -156,7 +180,7 @@ function pinAt(lay, p) {                               // where a pin puts it no
 }
 function pinFor(lay, g, name, x, y) {                  // a pin for something put at x, y: in the frame of the open system it is in
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
-  const frame = name.startsWith("hull:") ? g.tree?.[name.slice(5)]?.within : (byId[name]?.systems || [])[0];
+  const frame = name.startsWith("hull:") ? frameParent(g, name.slice(5)) : (byId[name]?.systems || [])[0];
   const f = frame && (lay.containers || []).find((c) => c.name === frame);
   return f && f.bx != null ? { in: frame, x: Math.round(x - f.bx), y: Math.round(y - f.by) } : { x: Math.round(x), y: Math.round(y) };
 }
@@ -220,7 +244,7 @@ function applyPins(lay, g, placed = null) {        // (placed: parts the owner h
     let any = false;
     const rect = (o) => ({ x0: o.x, y0: o.y, x1: o.x + o.width, y1: o.y + o.height });
     for (const a of hulls) for (const b of hulls) {
-      if (a === b || within(g, a.name, b.name) || within(g, b.name, a.name) || g.tree?.[a.name]?.within !== g.tree?.[b.name]?.within) continue;
+      if (a === b || within(g, a.name, b.name) || within(g, b.name, a.name) || frameParent(g, a.name) !== frameParent(g, b.name)) continue;
       if (!meets(rect(a), rect(b), 16)) continue;
       // the one not put there by the owner (or the lower one) goes below the other
       const [stay, go] = pins["hull:" + b.name] && !pins["hull:" + a.name] ? [b, a] : pins["hull:" + a.name] || a.y <= b.y ? [a, b] : [b, a];
@@ -230,14 +254,14 @@ function applyPins(lay, g, placed = null) {        // (placed: parts the owner h
     }
     for (const h of hulls) {                           // an outline not put there by the owner over a part that was: it gives way
       if (pins["hull:" + h.name]) continue;
-      const level = hulls.find((o) => o.name === g.tree?.[h.name]?.within)?.name ?? null;
+      const level = hulls.find((o) => o.name === frameParent(g, h.name))?.name ?? null;
       const k = kids.find((k) => fixed.has(k.id) && !(byId[k.id]?.systems || []).includes(h.name) &&
                                  ((byId[k.id]?.systems || [])[0] ?? null) === level && meets(partBox(k), rect(h), 12));
       if (k) { moveSystem(h, 0, partBox(k).y1 + 28 - h.y); any = true; }
     }
     for (const h of hulls) {
       if (!pins["hull:" + h.name]) continue;
-      const level = hulls.find((o) => o.name === g.tree?.[h.name]?.within)?.name ?? null;   // the outline it is drawn in
+      const level = hulls.find((o) => o.name === frameParent(g, h.name))?.name ?? null;   // the outline it is drawn in
       for (const k of kids) {                           // (a part of another system goes with its system, above)
         if (fixed.has(k.id) || ((byId[k.id]?.systems || [])[0] ?? null) !== level || !meets(partBox(k), rect(h), 12)) continue;
         shift(k, k.x, h.y + h.height + 28);
@@ -256,6 +280,7 @@ function applyPins(lay, g, placed = null) {        // (placed: parts the owner h
     if (dt) { sec.endPoint = { x: sec.endPoint.x + dt.x, y: sec.endPoint.y + dt.y }; }
     if (ds || dt) sec.bendPoints = [];
   }
+  followPorts(lay);
   refit(lay);
   return moved;
 }

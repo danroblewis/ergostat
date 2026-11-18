@@ -554,12 +554,20 @@ function edgePoints(e) {
   return [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint];
 }
 
+/* the pin on a part (or a system) put by hand: clicked, it is let go, and the layout places it again */
+function pinMark(pid, x, y, title = "pinned here: click to let the layout place it again") {
+  return s("g", { class: "pin", "data-act": "unpin", "data-id": pid, transform: `translate(${x},${y})`,
+                  onclick: (ev) => { ev.stopPropagation(); delete S.pins[pid]; savePins(); S.relayout?.(); } },
+    s("title", {}, title), s("circle", { r: 7 }), s("path", { d: "M-2.5,-3 h5 l-1,3 h2 l-3.5,3 v3 M0,3 v3" }));
+}
+
 function redrawLine(svg, id) {                         // a line's new way, while a part is dragged: its paths and its head
   const le = S.layout?.edges.find((x) => x.id === id), e = S.graph?.edges.find((x) => x.id === id);
   const eg = svg.querySelector(`.edge[data-id="${CSS.escape(id)}"]`);
   if (!le || !e || !eg) return;
   const pts = edgePoints(le);
   if (pts.length < 2) return;
+  if (S.graph.kind === "blocks") { eg.replaceChildren(...bdEdgeContent(e, pts).els); return; }   // (blocks.js)
   if (S.graph.kind === "dynamics") {                  // drawn again whole: its curve depends on where the parts are
     eg.replaceChildren(...sdEdgeContent(e, pts, S.layout), s("path", { d: roundedPath(pts, 7), class: "edge-hit" }));
     return;
@@ -629,10 +637,7 @@ function drawGraph(svg, g, lay) {
           s("title", {}, `${c.name}: click to close it into one box`), "▾ " + c.name),
         s("text", { x: c.x + 14 + textWidth("▾ " + c.name) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", "data-act": "into", style: inkOf(hue),
                     onclick: (ev) => { ev.stopPropagation(); S.drill?.(c.name); } }, s("title", {}, "draw it alone"), "⤓"));
-      if (S.pins?.["hull:" + c.name]) hullPins.push(s("g", { class: "pin", "data-act": "unpin", "data-id": "hull:" + c.name, transform: `translate(${c.x + c.width - 14},${c.y + 4})`,
-                                                      onclick: (ev) => { ev.stopPropagation(); delete S.pins["hull:" + c.name]; savePins(); S.relayout?.(); } },
-        s("title", {}, "moved here: click to let the layout place it again"),
-        s("circle", { r: 7 }), s("path", { d: "M-2.5,-3 h5 l-1,3 h2 l-3.5,3 v3 M0,3 v3" })));
+      if (S.pins?.["hull:" + c.name]) hullPins.push(pinMark("hull:" + c.name, c.x + c.width - 14, c.y + 4, "moved here: click to let the layout place it again"));
     }
     vp.append(hulls);
   } else if ((g.kind === "control" || sd) && S.showHulls && !g.tree) {
@@ -763,10 +768,7 @@ function drawGraph(svg, g, lay) {
                         ondblclick: (ev) => { if (n.kind === "system") { ev.stopPropagation(); S.toggleSystem?.(n.label); } } });
     ng.append(((sd && SD_DRAW[n.kind]) || DRAW[n.kind] || drawCloud)(n, ln.width, ln.height, ln));
     const pid = pinId(n.id, n);                       // (a system's box and its open outline share one)
-    if (S.pins?.[pid]) pinsG.append(s("g", { class: "pin", "data-act": "unpin", "data-id": pid, transform: `translate(${ln.x + ln.width - 4},${ln.y - 6})`,
-                                            onclick: (ev) => { ev.stopPropagation(); delete S.pins[pid]; savePins(); S.relayout?.(); } },
-      s("title", {}, "pinned here: click to let the layout place it again"),
-      s("circle", { r: 7 }), s("path", { d: "M-2.5,-3 h5 l-1,3 h2 l-3.5,3 v3 M0,3 v3" })));
+    if (S.pins?.[pid]) pinsG.append(pinMark(pid, ln.x + ln.width - 4, ln.y - 6));
     for (const lb of ln.labels || []) {
       // the text from this tick's data, not the layout's: positions are kept, readings move on
       const fresh = labelLines(n);
@@ -1097,6 +1099,8 @@ async function pageDiagram(main, q) {
         wrap.append(h("div", { class: "empty" }, "No control system here: no goal, and no block that acts."));
       } else if (!S.pressed) {
         await drawBlocksView(svg, g);
+        if (S.anchor && S.anchored) S.fitted = true;  // a system just opened or closed: the view stays as it was
+        S.anchor = null; S.anchored = false;
         if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
       }
       renderSide(side, g, "blocks");
