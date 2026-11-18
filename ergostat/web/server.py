@@ -284,6 +284,9 @@ def _process(p, m, snap: dict, q: dict, system: str | None) -> dict:
     except ValueError:
         share = 0.0
     got = pm.process(p.events, spec, asked or offered, snap["at"] - snap["window"], snap["at"], one("by"), share)
+    if not asked and getattr(spec, "remotes", None):      # each remote's own map beside ours, marked remote (SPEC §4c)
+        from ..remote.process import merge
+        got = merge(spec, got, system, snap["at"] - snap["window"], one("by"))
     from ..spec.item_systems import kind_systems
     where = kind_systems(spec)
     got["offered"] = [{"name": k, "system": where.get(k, {}).get("system"), "states": bool(spec.items[k].states)}
@@ -638,6 +641,8 @@ def handler(project):
             header), from its own origin (Origin, Sec-Fetch-Site), and carrying the token this run of the
             server wrote into the page it served, which no other page can read."""
             u = urlsplit(self.path)
+            if u.path.startswith("/remote/"):                # read only, whoever asks
+                return self._remote(u)
             origin = self.headers.get("Origin")
             fetch_site = self.headers.get("Sec-Fetch-Site")
             if (not self._host_ok() or not u.path.startswith("/api/")
@@ -671,8 +676,64 @@ def handler(project):
                 code, data = 500, {"error": f"{type(e).__name__}: {e}"}
             return self._send(code, json.dumps(data, default=str).encode(), "application/json")
 
+        def _remote(self, u):
+            """The remote API (SPEC §4c, ``remote_api.py``): read only, behind a consumer's bearer token; off (404)
+            until a token is made. No Host check: a tunnel or a proxy sends its own name, and the token admits."""
+            from ..remote import tokens
+            from . import remote_api
+            p = live.get()
+            if not tokens.load(p.dir):
+                return self._send(404, b'{"error": "the remote API is off (ergostat remote token NAME turns it on)"}',
+                                  "application/json")
+            if self.command != "GET":
+                return self._send(405, b'{"error": "the remote API is read only"}', "application/json")
+            auth = self.headers.get("Authorization") or ""
+            who = tokens.who(p.dir, auth[7:].strip() if auth.lower().startswith("bearer ") else None)
+            if who is None:
+                return self._send(401, b'{"error": "a token is needed: Authorization: Bearer TOKEN"}', "application/json")
+            wait = remote_api.allowed(who)
+            if wait is not None:
+                try:
+                    self.send_response(429)
+                    self.send_header("Retry-After", str(max(1, round(wait))))
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                except GONE:
+                    pass
+                return None
+            try:
+                code, data = remote_api.answer(live, u.path.removeprefix("/remote/"), parse_qs(u.query))
+            except BadSet as e:
+                code, data = 400, {"error": str(e)}
+            except Exception as e:                      # a broken request never takes the page down
+                code, data = 500, {"error": f"{type(e).__name__}: {e}"}
+            version = data.get("version") if isinstance(data, dict) and u.path.rstrip("/").endswith("/model") else None
+            if version and code == 200 and f'"{version}"' in (self.headers.get("If-None-Match") or ""):
+                try:
+                    self.send_response(304)
+                    self.send_header("ETag", f'"{version}"')
+                    self.end_headers()
+                except GONE:
+                    pass
+                return None
+            body = json.dumps(data, default=str).encode()
+            try:
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                if version:
+                    self.send_header("ETag", f'"{version}"')
+                self.end_headers()
+                self.wfile.write(body)
+            except GONE as e:
+                went_away(self.path, len(body), e)
+            return None
+
         def do_GET(self):
             u = urlsplit(self.path)
+            if u.path.startswith("/remote/"):
+                return self._remote(u)
             if not self._host_ok():                        # another site's name pointed here: nothing is read
                 return self._send(403, b"not this server's name", "text/plain")
             if u.path.startswith("/api/"):

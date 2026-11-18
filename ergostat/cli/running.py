@@ -81,6 +81,8 @@ def cmd_run(args) -> int:
         r = runner.Runner(p, say=say)
         r.start()
         print(f"running {len(r.queues)} agents", flush=True)
+    from ..remote import refresh as remote_refresh
+    remote_refresh.start(lambda: p)                     # remotes' models kept current: a new version reloads (SPEC §4c)
     mtime = mdl.stamp(p.model)
     reload = False
     try:
@@ -152,6 +154,8 @@ def cmd_web(args) -> int:
     from ..web import serve
     p = open_project(args)
     server, url = serve(p, args.port)
+    from ..remote import refresh as remote_refresh
+    remote_refresh.start(server.RequestHandlerClass.live.get)    # remotes' models kept current (SPEC §4c)
     print(f"web: {url}  (Ctrl-C stops it)", flush=True)
     try:
         while True:
