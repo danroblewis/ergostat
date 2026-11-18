@@ -464,7 +464,8 @@ function systemSize(n) {
   const side = (d) => n.ports.filter((p) => (p.at || (p.side === "in" ? "west" : "east")) === (d === "in" ? "west" : "east"));
   const lw = (ps) => Math.max(0, ...ps.map((p) => textWidth(p.label + (p.value ? "  " + p.value : ""))));
   const mw = Math.max(0, ...(n.measures || []).map((m) => textWidth(m.label) + textWidth(`${m.value} ${m.unit}`) + textWidth(m.setpoint || "") + 150));
-  const w = Math.max(240, textWidth(n.label) * 1.25 + 150, lw(side("in")) + lw(side("out")) + 60, mw);
+  const w = Math.max(240, textWidth(n.label) * 1.25 + 150, lw(side("in")) + lw(side("out")) + 60, mw,
+                    n.remote ? textWidth(n.remote.says) + 40 : 0);
   return [w, Math.max(96, sysTop(n) + Math.max(side("in").length, side("out").length) * SYS_ROW + 6 + (n.inner?.length ? 16 : 0))];
 }
 function loopsText(n) {
@@ -474,12 +475,15 @@ function loopsText(n) {
 }
 function drawSystem(n, w, hgt) {
   const tone = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[n.status] || "var(--unknown)";
-  const g = s("g");
-  g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 12, fill: "var(--panel)", stroke: "var(--system-line)", "stroke-width": 2 }));
+  const g = s("g", n.remote ? { class: `sys-remote remote-${n.remote.state}` } : {});
+  // a remote system (run by another ergostat, read here): its outline dashed, and where it runs said under its name
+  g.append(s("rect", { class: "hit", width: w, height: hgt, rx: 12, fill: "var(--panel)", stroke: "var(--system-line)", "stroke-width": 2,
+                       ...(n.remote ? { "stroke-dasharray": "9 5" } : {}) }));
   g.append(s("rect", { x: 4, y: 4, width: w - 8, height: hgt - 8, rx: 9, fill: "var(--system)", stroke: "var(--system-line)", "stroke-width": 1, "stroke-dasharray": "3 3" }));
   g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
   g.append(s("circle", { cx: 16 + textWidth(n.label) * 1.25 + 12, cy: 19, r: 5, fill: tone, class: "live" }));
-  g.append(s("text", { x: 16, y: 42, class: "t-sub live" }, loopsText(n) + (n.subsystems?.length ? ` · ${n.subsystems.length} inside` : "")));
+  g.append(s("text", { x: 16, y: 42, class: "t-sub live" }, n.remote ? n.remote.says
+    : loopsText(n) + (n.subsystems?.length ? ` · ${n.subsystems.length} inside` : "")));
   // its measures, as a control panel: each one's health, value, setpoint and trend (click: the part itself)
   (n.measures || []).forEach((m, i) => {
     const y = 52 + i * MEAS_ROW;
@@ -627,8 +631,8 @@ function drawGraph(svg, g, lay) {
                                onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: c.name, x0: ev.clientX, y0: ev.clientY, cx: c.x, cy: c.y, moved: false }; } });
       hg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height, rx: 16, style: hueOf(hue, 0.45) }), grip,
         s("text", { x: c.x + 14, y: c.y + 22, class: "sys-hull-label", "data-act": "close", style: inkOf(hue), onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(c.name); } },
-          "▾ " + c.name),
-        s("text", { x: c.x + 14 + textWidth("▾ " + c.name) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", "data-act": "into", style: inkOf(hue),
+          "▾ " + c.name + (g.tree?.[c.name]?.remote ? " (remote)" : "")),
+        s("text", { x: c.x + 14 + textWidth("▾ " + c.name + (g.tree?.[c.name]?.remote ? " (remote)" : "")) * 1.15 + 10, y: c.y + 22, class: "sys-hull-label", "data-act": "into", style: inkOf(hue),
                     onclick: (ev) => { ev.stopPropagation(); S.drill?.(c.name); } }, "⤓"));
       if (S.pins?.["hull:" + c.name]) hullPins.push(pinMark("hull:" + c.name, c.x + c.width - 14, c.y + 4, "moved here: click to let the layout place it again"));
     }
