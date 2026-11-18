@@ -98,7 +98,7 @@ def test_the_control_frames_build_the_loop_up(by_id):
     assert "blk:marketing" in ids(ctl) and not wired(ctl, "proc:stock.customers", "sum:enough")
     assert next(n for n in ctl["nodes"] if n["role"] == "input")["fn"]["sym"] == "y"
     (closed,) = views(by_id["closed"], "blocks")
-    assert wired(closed, "proc:stock.customers", "sum:enough")
+    assert wired(closed, "proc:stock.customers", "sen:stock.customers") and wired(closed, "sen:stock.customers", "sum:enough")
     (dist,) = views(by_id["disturbance"], "blocks")
     assert any(n["role"] == "disturbance" and n["fn"]["sym"] == "d" for n in dist["nodes"])
     (casc_view,) = by_id["cascade"]["views"]
