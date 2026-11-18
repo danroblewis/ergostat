@@ -10,6 +10,7 @@ stock's successive changes). Each series says which (``how``)."""
 
 from __future__ import annotations
 
+import bisect
 import statistics
 
 from .durations import human as dur
@@ -105,9 +106,7 @@ def _moves(p, flow: str, since: float, until: float, n: int) -> list[float] | No
     back = max(float(q.get("over") or 3600.0), (until - since) / n)       # the sensor's window: never the page's
     start = since - back
     where = q.get("where") or {}
-    moved = [(mv["time"], 1.0) for it in its.project(p.events, spec, q["kind"],
-                                                   until=until if where else None, fields=tuple(where)) if its.matches(it, where)
-             for mv in it.moves if mv[key] == state and start <= mv["time"] <= until]
+    moved = [(t, 1.0) for t in its.moved(p.events, spec, q["kind"], key, state, start, until, where, at=until)]
     return _per_hour(moved, since, until, n, back)
 
 
@@ -333,16 +332,18 @@ def scope(p, snap: dict, goal: str, n: int = POINTS) -> dict | None:
 
 
 def finished_states(kind, moved: list) -> list[str]:
-    """The states a kind's items finish in: those after the first that no item has left, as the
-    record shows; the last state when every state has been left."""
-    left = {mv["from"] for it in moved for mv in it.moves if mv["from"]}
-    done = [s for s in kind.states[1:] if s not in left]
-    return done or kind.states[-1:]
+    """The states a kind's items finish in: its ``done`` states when it declares them; else those
+    after the first that no item has left, as the record shows; the last state when every state has
+    been left."""
+    from .spec.itemindex import done_states
+    return done_states(kind, {mv["from"] for it in moved for mv in it.moves if mv["from"]})
 
 
 def items_flow(p, snap: dict, kind: str, n: int = POINTS) -> dict | None:
     """``GET /api/items-flow``: a kind's items in each state over the window (a cumulative flow
-    diagram's bands), and each item finished in it, when and how long it took."""
+    diagram's bands), and each item finished in it, when and how long it took. Read from the item
+    index: each band is the moves into its state less those out of it, up to each moment, and only
+    the window's moves are read."""
     spec = getattr(p.model, "spec", None)
     k = its.kinds_of(spec).get(kind)
     if k is None:
@@ -350,7 +351,64 @@ def items_flow(p, snap: dict, kind: str, n: int = POINTS) -> dict | None:
     since, until = span(p, snap)
     n = max(2, min(n, MAX_POINTS))
     ts = times(since, until, n)
-    items = its.project(p.events, spec, kind, until=until)
+    got = _flow_indexed(p, spec, k, since, until, ts)
+    if got is None:
+        got = _flow_folded(p, spec, k, since, until, ts)
+    counts, now, done, finished = got
+    finished.sort(key=lambda x: x["time"])
+    median = statistics.median([f["took"] for f in finished]) if finished else None
+    total = len(finished)
+    if total > MAX_POINTS:                    # thinned evenly: the chart shows a thousand dots at most
+        finished = finished[::-(-total // MAX_POINTS)]
+    return {"kind": kind, "states": k.states, "since": since, "until": until, "points": n, "times": [round(t, 3) for t in ts],
+            "counts": counts, "now": now, "finished_states": done, "finished": finished, "finished_total": total,
+            "median": median}
+
+
+def _flow_indexed(p, spec, k, since: float, until: float, ts: list[float]):
+    """``items_flow``'s bands, the items in each state now, the finished states and those finished in the
+    window, from the item index: None when there is none (or most items changed after ``until``)."""
+    from .spec.itemindex import done_states
+    tr = its.asks_transcript([k])
+    ix = its._index(p.events, spec, tr)
+    if ix is None:
+        return None
+    with ix.lock:
+        late = its._late(ix, p.events, spec, k.name, until, tr)
+        if late is None:
+            return None
+        late = [i for i in late.values() if i.kind == k.name]
+        counts = {}
+        for s_ in k.states:
+            into = [t for _, t in ix.moved(k.name, "to", s_, since, until, until_newest=until)]
+            out = [t for _, t in ix.moved(k.name, "from", s_, since, until, until_newest=until)]
+            base = ix.tally(k.name, s_, "to", since, until) - ix.tally(k.name, s_, "from", since, until)
+            base -= sum(1 for t in into if t == since) - sum(1 for t in out if t == since)     # those at ``since`` are in the moves
+            counts[s_] = [base + bisect.bisect_right(into, t) - bisect.bisect_right(out, t) for t in ts]
+        for it in late:                                 # an item that changed since: as it stood, move by move
+            mv = sorted(it.moves, key=lambda x: x["time"])
+            j, state = 0, None
+            for i, t in enumerate(ts):
+                while j < len(mv) and mv[j]["time"] <= t:
+                    state = mv[j]["to"]
+                    j += 1
+                if state in counts:
+                    counts[state][i] += 1
+        now = {s_: ix.count(k.name, [s_], until) + sum(1 for it in late if it.state == s_) for s_ in k.states}
+        done = done_states(k, ix.left(k.name) | {mv["from"] for it in late for mv in it.moves if mv["from"]})
+        finished = [{"id": id, "time": round(end, 3), "took": round(end - (arrived if arrived is not None else end), 3)}
+                    for id, end, arrived in ix.finished(k.name, done, since, until, until_newest=until)]
+    for it in late:
+        end = next((mv["time"] for mv in it.moves if mv["to"] in done), None)
+        if it.moves and end is not None and since <= end <= until:
+            finished.append({"id": it.id, "time": round(end, 3), "took": round(end - it.moves[0]["time"], 3)})
+    return counts, now, done, finished
+
+
+def _flow_folded(p, spec, k, since: float, until: float, ts: list[float]):
+    """``_flow_indexed``, from every item folded."""
+    n = len(ts)
+    items = its.project(p.events, spec, k.name, until=until)
     counts = {s: [0] * n for s in k.states}
     for it in items:
         mv = sorted(it.moves, key=lambda x: x["time"])
@@ -369,11 +427,4 @@ def items_flow(p, snap: dict, kind: str, n: int = POINTS) -> dict | None:
         end = next((mv["time"] for mv in it.moves if mv["to"] in done), None)
         if end is not None and since <= end <= until:
             finished.append({"id": it.id, "time": round(end, 3), "took": round(end - it.moves[0]["time"], 3)})
-    finished.sort(key=lambda x: x["time"])
-    median = statistics.median([f["took"] for f in finished]) if finished else None
-    total = len(finished)
-    if total > MAX_POINTS:                    # thinned evenly: the chart shows a thousand dots at most
-        finished = finished[::-(-total // MAX_POINTS)]
-    return {"kind": kind, "states": k.states, "since": since, "until": until, "points": n, "times": [round(t, 3) for t in ts],
-            "counts": counts, "now": {s: sum(1 for it in items if it.state == s) for s in k.states},
-            "finished_states": done, "finished": finished, "finished_total": total, "median": median}
+    return counts, {s: sum(1 for it in items if it.state == s) for s in k.states}, done, finished

@@ -213,7 +213,8 @@ def cmd_residual(args) -> int:
 
 
 RECORD = ("events.db", "events.db-shm", "events.db-wal", "measurements.db", "measurements.db-shm", "measurements.db-wal",
-          "events", "archive", "measurements.forgotten.json", "run.log", "transcripts.json")   # events/: segments.py
+          "events", "archive", "measurements.forgotten.json", "run.log", "transcripts.json",   # events/: segments.py
+          "items")                                                                        # items/: the item index
 
 
 def cmd_reset(args) -> int:
@@ -249,6 +250,14 @@ def cmd_compact(args) -> int:
     measurements rolled into their tiers."""
     from ..rollup import Archive, compact, upkeep, vacuum
     p = open_project(args)
+    if getattr(args, "reindex", False):
+        from ..spec.itemindex import reindex
+        got = reindex(p.events, p.model.spec)
+        if args.json:
+            return out_json({"reindex": got})
+        for what, r in got.items():
+            print(f"{what}: {r['items']} items folded from the record into the index ({r['seconds']:.1f}s)")
+        return 0
     if args.dry_run:
         got = {"rollup": compact(p, cap=p.model.keep, dry=True)}
     else:

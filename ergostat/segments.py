@@ -591,8 +591,34 @@ class Segments:
         rows = [{"item": k, "n": v[0], "first": v[1], "last": v[2], "latest": v[4]} for k, v in st.items()]
         return sorted(rows, key=lambda r: -r["last"])
 
+    def item_ids(self) -> set[str]:
+        """Every item (an id with a ``/``) the record holds an event about: from the segments' headers."""
+        segs, hd, hn = self._hstate()
+        out = {it for s in segs for it in s.item_span if it and "/" in it}
+        return out | {it for it in list(hd.by_item) if it and "/" in it}
+
+    def last_times(self) -> dict[str, float]:
+        """Each item's latest event time, from the segments' headers (``prune``: what is still alive)."""
+        segs, hd, hn = self._hstate()
+        out: dict[str, float] = {}
+        for s in segs:
+            for it, (_, t1) in s.item_times.items():
+                if it and "/" in it and t1 > out.get(it, -INF):
+                    out[it] = t1
+        for i in range(hn):
+            e = hd.evs[i]
+            it = e.get("item")
+            if it and "/" in it and e["time"] > out.get(it, -INF):
+                out[it] = e["time"]
+        return out
+
     def of_items(self, globs: list[str] | None = None, until: float | None = None, skip: tuple[str, ...] = (),
-                 after_seq: int | None = None, limit: int | None = None) -> list[dict]:
+                 after_seq: int | None = None, limit: int | None = None, ids=None) -> list[dict]:
+        """Every event about an item, or about ids matching one of ``globs`` (or among ``ids``), oldest first."""
+        if ids is not None:
+            want = set(ids)
+            return self._scan(item_test=lambda it: it in want, skip=tuple(skip), until=until, after_seq=after_seq or None,
+                              limit=limit)
         import fnmatch
         pats = [fnmatch.translate(g) for g in globs] if globs else None
         import re
@@ -791,7 +817,7 @@ class Segments:
         """As ``store.Events.prune``: older than ``before``, but the model's history, each loop's last
         crossing, and every item that has anything newer. Only the segments that lose something are
         rewritten, read by their columns."""
-        alive = {r["item"] for r in self.items() if r["last"] >= before}
+        alive = {it for it, t in self.last_times().items() if t >= before}
         last_loop: dict[str | None, int] = {}            # each loop's last crossing, of all time, from the columns
         segs, head = self._state()
         for s in segs:

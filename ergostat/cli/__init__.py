@@ -255,6 +255,8 @@ def build() -> argparse.ArgumentParser:
     cp = topic("compact", cmd_compact, "Roll items' old events up into snapshots (archived), forget what is past keep, "
                                        "roll measurements into their tiers: what the engine does every hour", named=False)
     cp.add_argument("--dry-run", action="store_true", help="say what would be rolled up, and change nothing")
+    cp.add_argument("--reindex", action="store_true", help="fold the item index again from the record (it is rebuilt "
+                                                          "whenever it is missing; the record is the truth)")
     rs = topic("reset", cmd_reset, "Forget this project's record (events, items, measurements, logs) and start from nothing",
                named=False)
     rs.add_argument("--yes", action="store_true", help="do it (without it, says what it would forget)")

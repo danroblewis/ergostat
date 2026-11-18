@@ -1,0 +1,538 @@
+"""The item index (SPEC §4b, §5a): every item's fold kept on disk, followed as events arrive.
+
+``<state>/items/<key>.db``, one SQLite file per fold (the model's item kinds, and whether a
+transcript's lines are folded in), shared by every process on the record (the runner, the page,
+the command line): whichever asks first after events arrive folds them, under SQLite's write lock,
+a chunk at a time, and the others read what it wrote. A process that starts reads the index; it
+folds only what is newer than it.
+
+- ``items``: per item its kind, state, times, counts and its document (``body``: its fields and
+  what was refused, packed by ``codec.py``); kinds, states and event types are numbers (``names``).
+- ``moves``: every move of every item (when, from, to, by which event), so a flow counted from
+  items reads only its window, and a count of items in a state reads only that state.
+- ``left``: each kind's states some item has left, so what a kind counts as finished is known
+  without reading every move.
+
+In memory, only items still open are kept folded (their fold state, a few thousand at most, the
+latest touched): an item in a finished state, or with no event for ``storage: items: idle``, is
+read from disk when an event about it arrives. The record stays the truth: the index is rebuilt
+from it when it is missing, when the record went back (a fresh record, events gone that it held),
+or on ``ergostat compact --reindex``; it is checked against a fresh fold in
+``tests/test_item_index.py``. A roll-up leaves it as it is (a snapshot folds to what its events
+folded to); a prune takes out the items whose events are all gone."""
+
+from __future__ import annotations
+
+import hashlib
+import sqlite3
+import sys
+import threading
+import time
+from collections import OrderedDict
+from pathlib import Path
+
+from . import codec
+from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of
+
+VERSION = 1                 # of the index's layout: a different one is rebuilt
+CHUNK = 50_000              # events folded per transaction: other processes read and write between them
+CACHED = 4096               # open items kept folded in memory, the latest touched
+IDLE = 86400.0              # an item with no event for this long is not kept in memory (storage: items: idle)
+KEPT_FILES = 6              # index files kept per record (a few models' kinds at once)
+
+SCHEMA = """
+create table if not exists meta (key text primary key, value);
+create table if not exists names (id integer primary key, name text unique not null);
+create table if not exists items (
+    rid integer primary key, id text unique not null, kind integer, state integer,
+    first real, last real, newest real, entered real, n integer, latest integer,
+    arrived real, raw integer, raw_first real, body blob);
+create index if not exists items_kind_state_last on items(kind, state, last);
+create index if not exists items_kind_last on items(kind, last);
+create index if not exists items_last on items(last);
+create index if not exists items_newest on items(newest);
+create table if not exists moves (rid integer, kind integer, t real, frm integer, dst integer, event text, type integer);
+create index if not exists moves_rid on moves(rid);
+create index if not exists moves_dst on moves(kind, dst, t);
+create index if not exists moves_frm on moves(kind, frm, t);
+create table if not exists left (kind integer, state integer, primary key (kind, state)) without rowid;
+"""
+
+COLS = "rid, id, kind, state, first, last, newest, entered, n, latest, arrived, raw, raw_first, body"
+
+
+def kinds_key(spec) -> tuple:
+    """What a fold depends on in the model: its item kinds (a change being tried shares the index
+    when it leaves them as they are)."""
+    return tuple((k.name, k.id, tuple(k.states), tuple(sorted(k.on.items())), tuple(sorted(k.fold.items())))
+                 for k in (getattr(spec, "items", None) or {}).values())
+
+
+def state_dir(events) -> Path | None:
+    """The record's state directory, where its index is kept; None for a record without one."""
+    d = getattr(events, "dir", None)              # the segmented log: <state>/events
+    if d is not None:
+        return Path(d).parent
+    p = getattr(events, "path", None)             # SQLite: <state>/events.db
+    return Path(p).parent if p is not None and str(p) != ":memory:" else None
+
+
+def done_states(kind, left: set[str], declared: dict | None = None) -> list[str]:
+    """What a kind counts as finished: the states ``messages: {done:}`` declares for it (``declared``);
+    else the states after the first that no item has left (``left``), or its last state when every
+    one has been left."""
+    if declared and declared.get(kind.name):
+        return list(declared[kind.name])
+    if not kind.states:
+        return []
+    done = [s for s in kind.states[1:] if s not in left]
+    return done or kind.states[-1:]
+
+
+class Index:
+    """One fold's index: followed by ``catch_up``, read by the queries below (each after one)."""
+
+    def __init__(self, path: Path, spec, transcript: bool, idle: float = IDLE):
+        self.path, self.spec, self.transcript, self.idle = path, spec, transcript, idle
+        self.kinds = dict(getattr(spec, "items", None) or {})
+        self.lock = threading.RLock()
+        self._db: sqlite3.Connection | None = None
+        self._kind_of: dict[str, object] = {}
+        self._forget()
+
+    def _forget(self) -> None:
+        """Nothing of the index kept in memory: read again from disk when next asked."""
+        self.names: dict[str | None, int | None] = {None: None}
+        self.rnames: dict[int | None, str | None] = {None: None}
+        self.cache: OrderedDict[str, tuple[Item, int, float | None]] = OrderedDict()   # id: (fold state, raw, raw_first)
+        self.seq, self.gen = -1, None
+        self._left: dict[str, set[str]] = {}
+
+    @property
+    def db(self) -> sqlite3.Connection:
+        """The index's connection, opened when first used (and again after ``close``). Used under ``lock``."""
+        if self._db is None:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            c = sqlite3.connect(str(self.path), timeout=600, isolation_level=None, check_same_thread=False)
+            c.execute("pragma journal_mode=wal")
+            c.execute("pragma synchronous=normal")
+            c.execute("pragma cache_size=-16000")         # 16 MB of pages, at most
+            c.execute("pragma temp_store=memory")
+            c.executescript(SCHEMA)
+            self._db = c
+            self._forget()
+            self._load_names()
+        return self._db
+
+    # ---- names: kinds, states and types as numbers
+
+    def _load_names(self) -> None:
+        for i, n in self.db.execute("select id, name from names"):
+            self.names[n], self.rnames[i] = i, n
+
+    def nid(self, name: str | None) -> int | None:
+        got = self.names.get(name, -1)
+        if got != -1:
+            return got
+        self.db.execute("insert or ignore into names(name) values (?)", (name,))
+        i = self.db.execute("select id from names where name = ?", (name,)).fetchone()[0]
+        name = sys.intern(name)
+        self.names[name], self.rnames[i] = i, name
+        return i
+
+    def name(self, i: int | None) -> str | None:
+        if i not in self.rnames:
+            self._load_names()
+        return self.rnames.get(i)
+
+    def known(self, name: str | None) -> int | None:
+        """A name's number, or -1 when nothing in the index has it (a query of it matches nothing)."""
+        if name not in self.names:
+            self._load_names()
+        return self.names.get(name, -1)
+
+    def kind(self, id: str):
+        k = self._kind_of.get(id, False)
+        if k is False:
+            k = kind_of(self.spec, id) if self.kinds else None
+            if len(self._kind_of) > 200_000:
+                self._kind_of.clear()
+            self._kind_of[id] = k
+        return k
+
+    # ---- following the record
+
+    def _meta(self, key: str, default=None):
+        r = self.db.execute("select value from meta where key = ?", (key,)).fetchone()
+        return r[0] if r else default
+
+    def _set_meta(self, **kv) -> None:
+        for k, v in kv.items():
+            self.db.execute("insert into meta(key, value) values (?, ?) on conflict(key) do update set value = excluded.value",
+                            (k, v))
+
+    def catch_up(self, events) -> None:
+        """Fold what the record holds that the index does not (by ``seq``), a chunk per transaction."""
+        gen, last = events.generation(), events.last_seq()
+        if gen == self.gen and last == self.seq:
+            return
+        skip = () if self.transcript else (TRANSCRIPT_TYPES,)
+        with self.lock:
+            while True:
+                self.db.execute("begin immediate")
+                try:
+                    done = self._step(events, gen, last, skip)
+                    self.db.execute("commit")
+                except BaseException:
+                    self.db.execute("rollback")
+                    self.cache.clear()
+                    self.seq = -1
+                    raise
+                if done:
+                    return
+
+    def _step(self, events, gen: int, last: int, skip) -> bool:
+        """Under the write lock: one chunk folded. True when the index is up to ``last``."""
+        seq = int(self._meta("seq", 0))
+        if seq != self.seq:                                 # another process wrote it: what is kept here may be stale
+            self.cache.clear()
+            self._left.clear()
+        if self._meta("version") != VERSION or self._meta("gen") is None or last < seq or gen < int(self._meta("gen")):
+            self._reset()                                   # a new index, or a record that went back: fold it all again
+            seq = 0
+        elif int(self._meta("gen")) != gen:
+            self._reconcile(events)                         # events taken out (rolled up, pruned): items gone go
+        self._set_meta(gen=gen)
+        new = events.of_items(None, after_seq=seq, skip=skip, limit=CHUNK)
+        self._fold(new)
+        top = max([seq, *(e["seq"] for e in new)])
+        finished = len(new) < CHUNK
+        if finished:
+            top = max(top, last)                            # every item event up to ``last`` is folded
+        self._set_meta(seq=top)
+        self.seq, self.gen = top, gen
+        return finished
+
+    def _reset(self) -> None:
+        for t in ("items", "moves", "left", "names", "meta"):
+            self.db.execute(f"delete from {t}")
+        self.names, self.rnames = {None: None}, {None: None}
+        self.cache.clear()
+        self._left.clear()
+        self._set_meta(version=VERSION)
+
+    def _reconcile(self, events) -> None:
+        """After events were taken out: an item none of whose events is left is forgotten."""
+        live = events.item_ids()
+        gone = [(rid,) for rid, id in self.db.execute("select rid, id from items") if id not in live]
+        if gone:
+            self.db.executemany("delete from moves where rid = ?", gone)
+            self.db.executemany("delete from items where rid = ?", gone)
+            dead = {r[0] for r in gone}
+            for id in [i for i, (it, *_) in self.cache.items() if getattr(it, "rid", None) in dead]:
+                self.cache.pop(id, None)
+
+    def _fold(self, new: list[dict]) -> None:
+        by: dict[str, list[dict]] = {}
+        for e in new:
+            by.setdefault(e["item"], []).append(e)
+        if not by:
+            return
+        have = {id: x for id in by if (x := self.cache.pop(id, None)) is not None}
+        rows = self._rows_of([id for id in by if id not in have])
+        now = time.time()
+        for id, evs in by.items():
+            k = self.kind(id)
+            got = have.get(id)
+            row = rows.get(id)
+            if got is not None:
+                it, raw, raw_first = got
+                rid, arrived, newest = it.rid, it.arrived, it.newest            # type: ignore[attr-defined]
+            elif row is not None:
+                it = self._item(row)
+                rid, arrived, newest, raw, raw_first = row[0], row[10], row[6], row[11], row[12]
+            else:
+                it, rid, arrived, newest, raw, raw_first = None, None, None, None, 0, None
+            it = fold(id, evs, k, it=it, transcript=self.transcript)
+            restored = False
+            for e in evs:
+                if e["type"] == SNAPSHOT:
+                    raw, raw_first, restored = 0, None, True
+                else:
+                    if not raw:
+                        raw_first = e["time"]
+                    raw += 1
+                newest = e["time"] if newest is None else max(newest, e["time"])
+            if (restored or arrived is None) and it.moves:
+                arrived = it.moves[0]["time"]
+            values = (self.nid(it.kind), self.nid(it.state), it.first, it.last, newest, it.entered, it.n,
+                      self.nid(it.latest), arrived, raw, raw_first, codec.pack({"f": it.fields, "r": it.refused, "o": it.rolled}))
+            if rid is None:
+                rid = self.db.execute("insert into items(id, kind, state, first, last, newest, entered, n, latest, arrived, "
+                                      "raw, raw_first, body) values (?,?,?,?,?,?,?,?,?,?,?,?,?)", (id, *values)).lastrowid
+            else:
+                self.db.execute("update items set kind=?, state=?, first=?, last=?, newest=?, entered=?, n=?, latest=?, "
+                                "arrived=?, raw=?, raw_first=?, body=? where rid=?", (*values, rid))
+            if restored:
+                self.db.execute("delete from moves where rid = ?", (rid,))
+            if it.moves:
+                kn = self.nid(it.kind)
+                self.db.executemany("insert into moves(rid, kind, t, frm, dst, event, type) values (?,?,?,?,?,?,?)",
+                                    [(rid, kn, m["time"], self.nid(m["from"]), self.nid(m["to"]), m["event"], self.nid(m["type"]))
+                                     for m in it.moves])
+                left = {(kn, self.nid(m["from"])) for m in it.moves if m["from"] is not None}
+                self.db.executemany("insert or ignore into left(kind, state) values (?, ?)", left)
+                if left and it.kind in self._left:
+                    self._left[it.kind] |= {m["from"] for m in it.moves if m["from"] is not None}
+                it.moves = []                                # on disk: what is kept in memory is the rest of the fold
+            it.rid, it.arrived, it.newest = rid, arrived, newest                 # type: ignore[attr-defined]
+            if self._open(it, k, now):
+                self.cache[id] = (it, raw, raw_first)
+        while len(self.cache) > CACHED:
+            self.cache.popitem(last=False)
+
+    def _open(self, it: Item, k, now: float) -> bool:
+        """Whether an item is kept folded in memory: not finished, and touched within ``idle``."""
+        if now - it.last > self.idle:
+            return False
+        if k is None or not k.states:
+            return True
+        declared = getattr(getattr(self.spec, "messages", None), "done", None)
+        return it.state not in done_states(k, self.left(k.name), declared)
+
+    def _rows_of(self, ids: list[str]) -> dict[str, tuple]:
+        out = {}
+        for i in range(0, len(ids), 500):
+            part = ids[i:i + 500]
+            for r in self.db.execute(f"select {COLS} from items where id in ({','.join('?' * len(part))})", part):
+                out[r[1]] = r
+        return out
+
+    def _item(self, r: tuple, moves: list[dict] | None = None) -> Item:
+        body = codec.unpack(r[13])
+        it = Item(r[1], self.name(r[2]), self.name(r[3]), body["f"], r[4], r[5], r[7], r[8], self.name(r[9]) or "",
+                  moves if moves is not None else [], [], body["r"], body.get("o", 0))
+        return it
+
+    # ---- reading it (after catch_up)
+
+    def left(self, kind: str) -> set[str]:
+        """The states of ``kind`` some item has left."""
+        got = self._left.get(kind)
+        if got is None:
+            k = self.known(kind)
+            got = {self.name(s) for (s,) in self.db.execute("select state from left where kind = ?", (k,))}
+            self._left[kind] = got
+        return got
+
+    def _where(self, kind: str | None, states=None, until: float | None = None) -> tuple[str, list]:
+        """``kind`` (None: any; ``""``: items of no kind), in ``states`` (None: any; ``""`` among them: no state)."""
+        sql, args = [], []
+        if kind == "":
+            sql.append("kind is null")
+        elif kind is not None:
+            sql.append("kind = ?")
+            args.append(self.known(kind))
+        if states is not None:
+            named = [self.known(x) for x in states if x]
+            parts = [f"state in ({','.join('?' * len(named))})"] if named else []
+            args += named
+            if any(not x for x in states):
+                parts.append("state is null")
+            sql.append("(" + " or ".join(parts) + ")" if parts else "0")
+        if until is not None:
+            sql.append("newest <= ?")
+            args.append(until)
+        return (" where " + " and ".join(sql)) if sql else "", args
+
+    def late(self, until: float, kind: str | None = None, limit: int | None = None) -> list[str]:
+        """The items with an event after ``until`` (``kind``'s only, when given)."""
+        w, a = self._where(kind)
+        w = (w + " and " if w else " where ") + "newest > ?"
+        return [r[0] for r in self.db.execute(f"select id from items{w}" + (f" limit {int(limit)}" if limit else ""), (*a, until))]
+
+    def total(self, kind: str | None = None) -> int:
+        w, a = self._where(kind)
+        return self.db.execute(f"select count(*) from items{w}", a).fetchone()[0]
+
+    def counts(self, until: float | None = None) -> dict[str, dict[str, int]]:
+        """Per kind (``""``: none), how many items in each state (``""``: none)."""
+        w, a = self._where(None, until=until)
+        out: dict[str, dict[str, int]] = {}
+        for k, s, n in self.db.execute(f"select kind, state, count(*) from items{w} group by kind, state", a):
+            c = out.setdefault(self.name(k) or "", {})
+            c[self.name(s) or ""] = c.get(self.name(s) or "", 0) + n
+        return out
+
+    def count(self, kind: str | None, states=None, until: float | None = None) -> int:
+        w, a = self._where(kind, states, until)
+        return self.db.execute(f"select count(*) from items{w}", a).fetchone()[0]
+
+    def items(self, kind: str | None = None, states=None, until: float | None = None, n: int | None = None,
+              offset: int = 0, moves: bool = True, ids=None) -> list[Item]:
+        """Items, the latest first (by their last event): ``n`` of them from ``offset``, with their moves."""
+        w, a = self._where(kind, states, until)
+        if ids is not None:
+            ids = list(ids)
+            if not ids:
+                return []
+            rows = []
+            for i in range(0, len(ids), 500):
+                part = ids[i:i + 500]
+                ww = (w + " and " if w else " where ") + f"id in ({','.join('?' * len(part))})"
+                rows += self.db.execute(f"select {COLS} from items{ww}", (*a, *part)).fetchall()
+            rows.sort(key=lambda r: -r[5])
+        else:
+            lim = f" limit {int(n)} offset {int(offset)}" if n is not None else ""
+            rows = self.db.execute(f"select {COLS} from items{w} order by last desc{lim}", a).fetchall()
+        mv = self.moves_of([r[0] for r in rows]) if moves else {}
+        return [self._item(r, mv.get(r[0], [])) for r in rows]
+
+    def moves_of(self, rids: list[int]) -> dict[int, list[dict]]:
+        out: dict[int, list[dict]] = {}
+        if len(rids) > 2000:
+            got = self.db.execute("select rid, t, frm, dst, event, type from moves order by rowid")
+            want = set(rids)
+            rows = (r for r in got if r[0] in want)
+        else:
+            rows = (r for i in range(0, len(rids), 500) for r in self.db.execute(
+                f"select rid, t, frm, dst, event, type from moves where rid in ({','.join('?' * len(rids[i:i + 500]))}) "
+                "order by rowid", rids[i:i + 500]))
+        for rid, t, f, d, ev, ty in rows:
+            out.setdefault(rid, []).append({"time": t, "from": self.name(f), "to": self.name(d), "event": ev, "type": self.name(ty)})
+        return out
+
+    def moved(self, kind: str, key: str, state: str | None, since: float, until: float,
+              until_newest: float | None = None) -> list[tuple[str, float]]:
+        """(item, time) of each move of ``kind``'s items into (``key`` "to") or out of ("from") ``state``,
+        with ``since <= time <= until``; items with an event after ``until_newest`` left out."""
+        col = "dst" if key == "to" else "frm"
+        k, s = self.known(kind), self.known(state)
+        if k == -1 or s == -1:
+            return []
+        extra, args = "", [k, s, since, until]
+        if until_newest is not None:
+            extra = " and i.newest <= ?"
+            args.append(until_newest)
+        return self.db.execute(f"select i.id, m.t from moves m join items i on i.rid = m.rid where m.kind = ? and m.{col} = ? "
+                               f"and m.t >= ? and m.t <= ?{extra} order by m.t", args).fetchall()
+
+    def tally(self, kind: str, state: str, key: str, before: float, until_newest: float | None = None) -> int:
+        """How many moves of ``kind``'s items into (or out of) ``state`` were at or before ``before``."""
+        col = "dst" if key == "to" else "frm"
+        k, s = self.known(kind), self.known(state)
+        if k == -1 or s == -1:
+            return 0
+        if until_newest is None:
+            return self.db.execute(f"select count(*) from moves where kind = ? and {col} = ? and t <= ?", (k, s, before)).fetchone()[0]
+        return self.db.execute(f"select count(*) from moves m join items i on i.rid = m.rid where m.kind = ? and m.{col} = ? "
+                               "and m.t <= ? and i.newest <= ?", (k, s, before, until_newest)).fetchone()[0]
+
+    def finished(self, kind: str, done: list[str], since: float, until: float,
+                 until_newest: float | None = None) -> list[tuple[str, float, float]]:
+        """(item, when it first entered a finished state, when it arrived) for each of ``kind``'s items
+        that first finished between ``since`` and ``until``."""
+        k = self.known(kind)
+        ds = [x for x in (self.known(d) for d in done) if x != -1]
+        if k == -1 or not ds:
+            return []
+        extra, args = "", [k, *ds]
+        if until_newest is not None:
+            extra = " and i.newest <= ?"
+            args.append(until_newest)
+        rows = self.db.execute(f"select i.id, min(m.t), i.arrived from moves m join items i on i.rid = m.rid where m.kind = ? "
+                               f"and m.dst in ({','.join('?' * len(ds))}){extra} group by m.rid", args).fetchall()
+        return [r for r in rows if since <= r[1] <= until]
+
+    def candidates(self) -> list[tuple[str, str | None, float]]:
+        """(item, kind, the time of its first event since its snapshot) of each item with events a
+        roll-up could take (``rollup.plan``)."""
+        return [(id, self.name(k), t) for id, k, t in self.db.execute("select id, kind, raw_first from items where raw > 0")]
+
+    def rolled(self, rest: dict[str, list[tuple[int, float]]]) -> None:
+        """After a roll-up: each item's events left outside its snapshot (seq, time), so it is a
+        candidate again only once one of them is due (those the index has not folded yet count when it does)."""
+        with self.lock:
+            self.db.execute("begin immediate")
+            try:
+                seq = int(self._meta("seq", 0))
+                rows = []
+                for id, evs in rest.items():
+                    mine = [t for q, t in sorted(evs) if q <= seq]
+                    rows.append((len(mine), mine[0] if mine else None, id))
+                    got = self.cache.get(id)
+                    if got is not None:
+                        self.cache[id] = (got[0], len(mine), mine[0] if mine else None)
+                self.db.executemany("update items set raw = ?, raw_first = ? where id = ?", rows)
+                self.db.execute("commit")
+            except BaseException:
+                self.db.execute("rollback")
+                raise
+
+    def close(self) -> None:
+        """Its file closed (opened again when next used)."""
+        with self.lock:
+            if self._db is not None:
+                self._db.close()
+                self._db = None
+
+
+_OPEN: OrderedDict[str, Index] = OrderedDict()     # by file: one per process, whatever opened the record
+_OPEN_LOCK = threading.Lock()
+OPEN_MOST = 12                                      # indexes kept open at once (each holds its file, WAL and shm)
+
+
+def index_for(events, spec, transcript: bool) -> Index | None:
+    """The index of this record's items for these kinds (opened once per process), caught up; None
+    for a record kept nowhere on disk."""
+    d = state_dir(events)
+    if d is None or not hasattr(events, "generation"):
+        return None
+    key = kinds_key(spec)
+    h = hashlib.sha1(repr((key, transcript, VERSION)).encode()).hexdigest()[:16]
+    path = d / "items" / f"{h}.db"
+    storage = getattr(spec, "storage", None)
+    idle = getattr(storage, "item_idle", None) or IDLE
+    with _OPEN_LOCK:
+        ix = _OPEN.get(str(path))
+        if ix is None:
+            if not path.exists():
+                _tidy(path.parent)
+            ix = _OPEN[str(path)] = Index(path, spec, transcript, idle)
+            while len(_OPEN) > OPEN_MOST:
+                _OPEN.popitem(last=False)[1].close()
+        _OPEN.move_to_end(str(path))
+        ix.spec, ix.kinds, ix.idle = spec, dict(getattr(spec, "items", None) or {}), idle
+    ix.catch_up(events)
+    return ix
+
+
+def _tidy(d: Path) -> None:
+    """At most ``KEPT_FILES`` indexes per record: the least recently changed go."""
+    if not d.exists():
+        return
+    got = sorted(d.glob("*.db"), key=lambda p: p.stat().st_mtime)
+    for p in got[:max(0, len(got) - KEPT_FILES + 1)]:
+        if str(p) in _OPEN:
+            continue
+        for suf in ("", "-wal", "-shm"):
+            Path(str(p) + suf).unlink(missing_ok=True)
+
+
+def reindex(events, spec) -> dict:
+    """``ergostat compact --reindex``: every index of this record dropped, and this model's folds made
+    again from the record. Returns how many items each holds and how long it took."""
+    d = state_dir(events)
+    if d is None:
+        return {}
+    with _OPEN_LOCK:
+        for k in [k for k in _OPEN if Path(k).parent == d / "items"]:
+            _OPEN.pop(k).close()
+    for p in (d / "items").glob("*.db*") if (d / "items").exists() else ():
+        p.unlink(missing_ok=True)
+    out = {}
+    for tr in (False, True):
+        t = time.time()
+        ix = index_for(events, spec, tr)
+        out["transcript" if tr else "items"] = {"items": ix.total() if ix else 0, "seconds": round(time.time() - t, 2)}
+    return out

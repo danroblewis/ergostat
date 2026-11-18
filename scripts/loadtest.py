@@ -224,6 +224,7 @@ def paths(p) -> list[tuple[str, str]]:
 def serve_and_ask(copy: Path, home: Path, p, windows: list[str], timeout: float) -> dict:
     env = env_with(home)
     (p.dir / "web.json").unlink(missing_ok=True)
+    began = time.time()
     proc = subprocess.Popen([*ERGOSTAT, "-C", str(copy), "web"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         url = None
@@ -234,8 +235,13 @@ def serve_and_ask(copy: Path, home: Path, p, windows: list[str], timeout: float)
             time.sleep(0.1)
         if url is None:
             raise SystemExit(f"the server never started: {proc.stderr.read() if proc.poll() is not None else ''}")
+        listening = time.time() - began
+        first = ask(f"{url}/api/items", max(timeout, 600))    # a cold start: until the first items answer
+        cold = time.time() - began
+        print(f"    cold start: listening {listening:.1f}s, first items answer {cold:.1f}s ({first['status']}), "
+              f"RSS {rss_kb(proc.pid) / 1024:.0f} MB", flush=True)
         idle = rss_kb(proc.pid)
-        out = {"rss_idle_kb": idle, "answers": []}
+        out = {"rss_idle_kb": idle, "answers": [], "listening_s": listening, "cold_items_s": cold, "cold_items_status": first["status"]}
         peak = idle
         for w in windows:
             for name, path in paths(p):
@@ -267,16 +273,30 @@ def serve_and_ask(copy: Path, home: Path, p, windows: list[str], timeout: float)
 def live(copy: Path, home: Path, p, seconds: float) -> dict:
     env = env_with(home)
     ev0, me0 = p.events.count(), p.measurements.count()
+    began = time.time()
     r = sh("-C", str(copy), "run", "--no-web", env=env)
     if r.returncode != 0:
         return {"error": r.stderr}
+    peak, first, pid = 0, None, None
     try:
-        time.sleep(seconds)
+        while time.time() - began < seconds:      # the engine's memory, and when it made its first reading
+            if pid is None:
+                try:
+                    pid = int((p.dir / "run.pid").read_text().strip() or 0) or None
+                except (OSError, ValueError):
+                    pid = None
+            if pid:
+                peak = max(peak, rss_kb(pid))
+            if first is None and p.measurements.count() > me0:
+                first = time.time() - began
+            time.sleep(1)
+        last = rss_kb(pid) if pid else 0
     finally:
         sh("-C", str(copy), "run", "--stop", env=env)
     log = (p.dir / "run.log").read_text(errors="replace") if (p.dir / "run.log").exists() else ""
     return {"seconds": seconds, "events": p.events.count() - ev0, "measurements": p.measurements.count() - me0,
-            "log_errors": sum(1 for line in log.splitlines() if "Error" in line or "Traceback" in line)}
+            "log_errors": sum(1 for line in log.splitlines() if "Error" in line or "Traceback" in line),
+            "engine_rss_peak_kb": peak, "engine_rss_end_kb": last, "first_reading_s": first}
 
 
 def _after(r: dict, k: str) -> str:
@@ -306,6 +326,13 @@ def compare(paths: list[Path]) -> int:
             row("measurements MB after compact", lambda r: _after(r, "measurements_bytes"))
             row("archive MB", lambda r: f"{r['compact'].get('archive_bytes', 0) / 1e6:.1f}" if r.get("compact") else "-")
             row("server RSS peak MB", lambda r: f"{r['server']['rss_peak_kb'] / 1024:.0f}")
+            row("server RSS idle MB", lambda r: f"{r['server']['rss_idle_kb'] / 1024:.0f}")
+            row("server cold start s (items)", lambda r: f"{r['server']['cold_items_s']:.1f}" if "cold_items_s" in r["server"] else "-")
+            row("engine RSS peak MB", lambda r: f"{r['live']['engine_rss_peak_kb'] / 1024:.0f}"
+                if (r.get("live") or {}).get("engine_rss_peak_kb") else "-")
+            row("engine first reading s", lambda r: f"{r['live']['first_reading_s']:.1f}"
+                if (r.get("live") or {}).get("first_reading_s") is not None else "-")
+            row("answers ok", lambda r: f"{sum(1 for a in r['server']['answers'] if a['status'] == 200)}/{len(r['server']['answers'])}")
             row("live events/s", lambda r: _rate(r, "events"))
             row("live readings/s", lambda r: _rate(r, "measurements"))
             keys = [(a["window"], a["api"]) for a in run["server"]["answers"]]

@@ -308,11 +308,26 @@ class Events:
         with self._c() as c:
             return [dict(r) for r in c.execute(sql, (since,) if since else ())]
 
+    def item_ids(self) -> set[str]:
+        """Every item (an id with a ``/``) the record holds an event about."""
+        with self._c() as c:
+            return {r[0] for r in c.execute("select distinct item from events where item like '%/%'")}
+
     def of_items(self, globs: list[str] | None = None, until: float | None = None, skip: tuple[str, ...] = (),
-                 after_seq: int | None = None, limit: int | None = None) -> list[dict]:
-        """Every event about an item (an id with a ``/``), or about ids matching one of ``globs``,
-        oldest first; types in ``skip`` (``claude.*``: a prefix) left out; after ``after_seq`` when
-        given (what is new since a fold)."""
+                 after_seq: int | None = None, limit: int | None = None, ids=None) -> list[dict]:
+        """Every event about an item (an id with a ``/``), or about ids matching one of ``globs`` (or
+        among ``ids``), oldest first; types in ``skip`` (``claude.*``: a prefix) left out; after
+        ``after_seq`` when given (what is new since a fold)."""
+        if ids is not None:
+            ids = sorted(set(ids))
+            out = []
+            for i in range(0, len(ids), 500):
+                out += self._of_items(globs, until, skip, after_seq, None, ids[i:i + 500])
+            out.sort(key=lambda e: e["seq"])
+            return out[:limit] if limit else out
+        return self._of_items(globs, until, skip, after_seq, limit, None)
+
+    def _of_items(self, globs, until, skip, after_seq, limit, ids) -> list[dict]:
         where, args = ["item like '%/%'"], []
         if after_seq:
             where.append("seq > ?")
@@ -321,6 +336,9 @@ class Events:
         if globs:
             where.append("(" + " or ".join("item glob ?" for _ in globs) + ")")
             args += globs
+        if ids is not None:
+            where.append(f"item in ({','.join('?' * len(ids))})")
+            args += ids
         if until is not None:
             where.append("time <= ?")
             args.append(until)

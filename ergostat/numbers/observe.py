@@ -151,9 +151,7 @@ def _item_moves(p, spec: Spec, q: dict, since: float, until: float) -> list[tupl
         return None
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
     where = q.get("where") or {}
-    return [(mv["time"], 1.0) for it in its.project(p.events, spec, q["kind"],
-                                                   until=until if where else None, fields=tuple(where)) if its.matches(it, where)
-            for mv in it.moves if mv[key] == state and since <= mv["time"] <= until]
+    return [(t, 1.0) for t in its.moved(p.events, spec, q["kind"], key, state, since, until, where, at=until)]
 
 
 def _changes(p, spec: Spec, name: str, what: str, since: float, until: float) -> list[tuple[float, float]] | None:
