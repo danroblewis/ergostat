@@ -163,9 +163,12 @@ class Ctx:
             self.not_made.append({"title": title, "why": str(e), "code": code})
             return
         if finding:                                   # the finding it answers is gone in the model it leaves
+            from ..spec import chains as ch
             from ..spec import findings as fd
             left = []
             fd.structure(spec, lambda c, m, w, a: left.append((c, a)))
+            if finding in CHAIN_CODES:
+                ch.findings(spec, lambda c, m, w, a: left.append((c, a)))
             if (finding, about) in left:
                 self.not_made.append({"title": title, "why": "the edit does not answer the finding", "code": code})
                 return
@@ -196,6 +199,64 @@ def _section_file(spec: Spec, near) -> Path:
 
 
 # ---- check's findings, each made a change
+
+CHAIN_CODES = ("outflow-not-chained", "inflow-not-chained", "state-stock-without-inflow", "move-without-flow",
+               "state-stocks-disconnected", "loops-not-connected")
+
+
+def chain_edits(spec: Spec, fixes) -> list[ye.Edit]:
+    """The edits that carry a kind's moves (``spec/chains.py``): a flow re-pointed at the next state's stock, and the
+    flows added (each file's at once, so they go in together)."""
+    edits: list[ye.Edit] = []
+    adds: dict[Path, list[list[str]]] = {}
+    for x in fixes:
+        if x.op == "retarget":
+            f = spec.flows[x.flow]
+            ye.own(f.where, f"flow {f.name}")
+            path, at = _name_at(f, f.name)
+            edits.append(ye.set_key(path, at, x.key, x.stock))
+            if x.remove:
+                h = spec.flows[x.remove]
+                ye.own(h.where, f"flow {h.name}")
+                hp, ha = _name_at(h, h.name)
+                edits.append(ye.remove_entry(hp, ha))
+        else:
+            near = spec.stocks[x.source or x.target]
+            path = _section_file(spec, near)
+            lines = [f"  {x.flow}:"] + ([f"    from: {x.source}"] if x.source else []) + \
+                ([f"    to: {x.target}"] if x.target else []) + [f"    description: {x.description}"] + \
+                ([f"    driven-by: +stock.{x.source}"] if x.source else []) + \
+                ["    sensor:", f"      items: {x.kind}", f"      entering: {x.entering}"] + \
+                (["      where:"] + [f"        {k}: {v}" for k, v in x.where.items()] if x.where else []) + \
+                ["      over: 1h", f"    inferred: {PENDING}"]
+            adds.setdefault(path, []).append(lines)
+    for path, entries in adds.items():
+        edits.append(ye.add_entries(path, "flows", entries))
+    return edits
+
+
+def chained(c: Ctx) -> None:
+    """Each chain finding made its change; and, for a kind whose state stocks are in pieces, every change that joins
+    them as one (the whole chain at once, what the owner reviews)."""
+    from ..spec import chains as ch
+    spec = c.spec
+    for x in ch.analyse(spec):
+        if x.code == "loops-not-connected" or not x.fixes:
+            continue
+        try:
+            edits = chain_edits(spec, x.fixes)
+        except (KeyError, ye.EditError) as e:
+            c.not_made.append({"title": f"{x.code} on {x.about}", "code": x.code, "why": str(e)})
+            continue
+        whole = x.code == "state-stocks-disconnected"
+        parts = sorted({f"stock.{s}" for f in x.fixes for s in (f.source, f.target, f.stock) if s} |
+                       {f"flow.{f.flow}" for f in x.fixes if f.op == "retarget"})
+        kind = x.message.split(":", 1)[0].removeprefix("items ") if whole else ""
+        c.add("a kind's state stocks chained" if whole else "a move carried by a flow", x.code, x.about,
+              f"Chain the state stocks of {kind}" if whole else "; ".join(f.said() for f in x.fixes)[:200],
+              parts, x.message, "a structural check (ergostat check: " + x.code + "), on the kind's states, the blocks that "
+              "take its items, the flows' sensors and the moves in the record", edits, touched=parts, finding=x.code,
+              rewires=True)                    # what the model says moves where: the owner decides, whatever the policy
 
 def rate_driven_by_rate(c: Ctx, f, r: Ref) -> None:
     spec = c.spec
@@ -746,6 +807,7 @@ def find(p, spec: Spec, data: ob.Data | None, estimates: dict | None = None, bas
     not make (with why)."""
     c = Ctx(p, spec, data, estimates)
     from_findings(c)
+    chained(c)
     no_effect(c)
     contradicted_signs(c)
     simplify(c, base_fit)

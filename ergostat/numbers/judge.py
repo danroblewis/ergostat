@@ -32,7 +32,8 @@ the review queue, its verdict beside it; ``auto`` writes it, as Accept does (the
 pass, recorded as ``ergostat.model-change.accepted`` from the judge, naming the policy, and
 ``ergostat.model.changed``), one a pass. Only a value, an equation or the structure is judged or written so: a
 change to a goal, a block or a sensor waits for the owner, and so does any change that removes structure
-(``removes``), whatever the policy. The owner commits what was written.
+(``removes``) or chains a kind's state stocks (``rewires``: a flow re-pointed or added between them), whatever the
+policy. The owner commits what was written.
 
 It is cheap when there is nothing new to judge: a change is looked at again only once its next window is due
 (``needs`` past the last look) and what it touches has been read since (a record that stopped is not replayed
@@ -362,7 +363,7 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
     for x in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0):     # one written a pass, the oldest first
         if x["state"] != "passed" or x.get("kind") not in JUDGED or pol.accept.get(x.get("kind")) != "auto":
             continue
-        if removes(x):                                     # a removal waits for the owner, whatever the policy
+        if removes(x) or x.get("rewires"):                 # a removal, or a flow re-pointed, waits for the owner
             continue
         snap = {"at": now, "window": ob.reference(p, now).until - ob.reference(p, now).since}
         try:

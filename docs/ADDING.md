@@ -199,6 +199,42 @@ uses:
 - **System dynamics:** the inflow of whatever the source holds, into its own running total, or into a stock of
   yours (`into:`) that something else drains. `respond-to`, `re-ping` and `steps` each have one inside.
 
+## From a described workflow to a model
+
+A workflow described in words ("a feature-flag ramp request is researched, approved, ramped in stages and
+confirmed") is one item kind moving through states, and its model is **one chain**: a stock per state that waits, and
+a flow from each state's stock into the next one's, never an outflow to a cloud. The method, in order:
+
+1. the item kind and its states, in order (`items:`, `states:`, `on:`);
+2. one stock per state that waits, counted by an `items:` sensor (`state: S`): a count, never `measure: oldest`;
+3. one flow per move, from the state's stock to the next one's, measured from the item moves (`entering: NEXT`);
+   arrivals in from outside at the start, completions out at the end;
+4. a collector that finds the work (`collect`, `into:` the first stock, or the source's sensor) feeding the first
+   stock;
+5. one block per step that does the work: `takes: {kind, at, to}`, with `pool` and `lease`, and `goal:` the goal on
+   the stock it drains;
+6. goals on what matters: nothing waiting at a state, or the age of its oldest item (a stock of its own beside the
+   chain, `measure: oldest`, with no flows), throughput, dead letters;
+7. gated actions (`gate: approve`) for every outward act;
+8. `ergostat check`, and every structure finding fixed: `outflow-not-chained` (an outflow to a cloud whose items go
+   on to the next state's stock: `to:` it), `state-stock-without-inflow`, `move-without-flow`,
+   `state-stocks-disconnected` and `loops-not-connected`, each with the edit that fixes it. Then look at both
+   diagrams (`/diagram?view=dynamics` and `view=blocks`): one connected chain per kind, arrivals in at the start,
+   completions out at the end, each step's loop sharing the chain's stocks, and no stock without an inflow unless
+   things come from it.
+
+When every state is a step a block works on, `steps` is this method in one entry. Written by hand,
+`examples/ticket-factory` is the worked example (its `ticket.yaml`, `factory/intake.yaml` and `steps/*.yaml`; the
+skill quotes them).
+
+**Why no `workflow` template.** A kind and an ordered list of states, chained, with a sensor per stock and a slot per
+step for a block, is what `steps` already makes: its states are the step list, each step's stock flows through the
+items it is working on into the next step's, the collector feeds the first and the last fills a running total. A
+second template that differs only in naming the states for outcomes rather than steps would be two names for one
+shape; and where a workflow does not fit `steps` (a person or the outside moves the item, a step branches or sends
+back), a template would hide exactly the parts that need writing by hand. The check, not a template, is what keeps a
+hand-written chain whole.
+
 ## A worked example
 
 The request: *"When I ask someone for a review and they haven't answered within a day, remind them. Three times at
