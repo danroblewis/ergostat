@@ -252,7 +252,7 @@ def message_kind() -> ItemKind:
 def action_kind() -> ItemKind:
     on = {f"{ACTION}.{s}": s for s in ACTION_STATES}
     return ItemKind(ACTION, f"{ACTION}/*", list(ACTION_STATES), on, ["action", "item", "gate", "by", "command", "exit"], {},
-                    None, "a gated action an AI session asked for: approved by its gate (auto) or the owner, or denied; "
+                    None, "a gated action an AI session or a program asked for: approved by its gate (auto) or the owner, or denied; "
                     "then ran or failed, its output given back (built in, SPEC §12k)", fold={"deliveries": "append"})
 
 
@@ -335,10 +335,11 @@ class ClaimCheck:
 @dataclass
 class Action:
     """A gated action (``actions:``, SPEC §12k): an outward act an AI session may ask for, through the tools ergostat
-    serves it, and never do itself. ``run``: its command template (``{name}`` filled with an argument, shell-quoted, or
-    with ``{item}``, ``{branch}``, ``{workdir}``, ``{block}``, ``{run}``); ``gate``: ``auto``, ``approve`` or ``deny``;
-    ``cls``: the class it is counted in (its name, else); ``args``: name → what it is; ``wait``: how long a session waits
-    for the owner before going on without it; ``in_``: where it runs (else the session's working directory)."""
+    serves it, and never do itself (or a program block, with ``ergostat act``). ``run``: its command template
+    (``{name}`` filled with an argument, shell-quoted, or with ``{item}``, ``{branch}``, ``{workdir}``, ``{block}``,
+    ``{run}``); ``gate``: ``auto``, ``approve`` or ``deny``; ``cls``: the class it is counted in (its name, else);
+    ``args``: name → what it is; ``wait``: how long a session waits for the owner before going on without it;
+    ``in_``: where it runs (else the session's working directory)."""
     name: str
     run: str
     gate: str = "approve"

@@ -77,7 +77,7 @@ BLOCK_COMMON = COMMON | {"type", "in", "out", "role"}
 MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
-    "program": MACHINE_COMMON | LAW_KEYS | {"run", "parse", "goal", "until", "review"},
+    "program": MACHINE_COMMON | LAW_KEYS | {"run", "parse", "goal", "until", "review", "workspace", "actions"},
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review",
                                        "workdir", "workspace", "read", "tools", "actions"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
@@ -895,7 +895,7 @@ class Compiler:
         from ..workspaces import compile as pools
         pools.workspaces(self, spec)                         # workspaces: the pools AI blocks' runs work in (SPEC §12k)
         gated.actions(self, spec)                            # actions: what sessions may ask for, gated (SPEC §12k)
-        gated.blocks(self, spec)                             # an ai block's workdir:, workspace:, read:, tools:, actions:
+        gated.blocks(self, spec)  # ai: workdir, workspace, read, tools, actions; program: workspace, actions
         if spec.actions:
             spec.items[ACTION] = action_kind()               # built in, when there are any: gated actions asked for
         if spec.workspaces:

@@ -1,0 +1,47 @@
+# The ticket factory's settings. ./setup copies this to factory.conf (ignored by git) the first time;
+# edit factory.conf, never this file. Every key may also be set in the environment as TF_<KEY>
+# (TF_AI=claude ./setup), which wins over the file. Without a factory.conf the example runs offline,
+# against fakes of Jira and GitHub (bin/fakes.py), and touches nothing outside its folder.
+
+# --- Jira (bin/jira.py) -----------------------------------------------------------------------------
+JIRA_URL=https://danielrobertlewis.atlassian.net
+JIRA_EMAIL=daniel.robert.lewis@gmail.com
+JIRA_TOKEN_FILE=~/.jira_token           # read when a call is made; never printed, logged or recorded
+JIRA_AUTH=basic                         # basic (Cloud: email + API token) or bearer (Data Center: a personal access token)
+JIRA_API=3                              # 3 (Cloud) or 2 (Data Center: plain-text bodies, GET /search)
+JIRA_PROJECT=SCRUM
+JIRA_LABEL=ergostat-demo                # only issues with this label are picked up, and only they are ever written
+JIRA_PICK_FROM=To Do                    # the status an issue waits in to be picked up
+JIRA_IN_PROGRESS=In Progress            # the statuses each step moves it to: transitions are looked up by target
+JIRA_IN_REVIEW=In Review
+JIRA_DONE=Done
+
+# --- GitHub (bin/github.py, through gh) -------------------------------------------------------------
+GITHUB_REPO=danroblewis/orchestra-live-delivery   # the repository it works in (cloned to run/repo, the workspace pool's);
+                                        # writes to any other are refused. The branch template is the pool's (ergostat.yaml)
+REVIEWERS=                              # GitHub logins asked for review; empty: a comment asks instead
+REPING_AFTER=90s                        # no answer from a reviewer this long after asking: ask again
+REPING_MAX=3
+POLL_EVERY=15s                          # a step that waits (reviews, CI, an approval) gives its ticket back for this long
+ACT_WAIT=10s                            # how long a step waits for the owner's answer to an approval before it gives the ticket back
+APPROVE_WORD=/approve                   # a reviewer's comment starting with this counts as approval
+                                        # (a test account cannot approve its own pull request)
+SAIL_LABEL=SAIL                         # added on approval
+MERGE=yes                               # yes: merge once CI is green, if the repository allows it; no: stop at approved
+MERGE_METHOD=squash
+
+# --- the work ---------------------------------------------------------------------------------------
+AI=standin                              # standin (free: a scripted change) or claude (Claude Code)
+AI_MODEL=haiku
+AI_BUDGET_USD=0.50                      # the most one session may spend (claude --max-budget-usd)
+TEAMMATE=yes                            # the scripted reviewer (bin/teammate.py) plays the team: no at work
+TEAMMATE_AFTER=120s                     # how long it takes to look at a new pull request
+STANDIN_PLACEHOLDER=yes                 # the stand-in leaves an empty notes file, so CI fails once
+CI_MAX_FIXES=3                          # CI fixed this many times and still failing: stop, for a person
+
+# --- where it runs ----------------------------------------------------------------------------------
+SCRATCH=~/.cache/ergostat-ticket-factory   # Prometheus (the clone is run/repo; the workspaces are ergostat's, in its state)
+PROM_VERSION=3.5.0
+PROM_PORT=8797
+EXPORTER_PORT=8796
+WEB_PORT=8795                           # ergostat's page

@@ -1,0 +1,45 @@
+# Step 1, pick-up: new -> picked. The Jira issue to In Progress (steps/pick-up.py).
+defaults:
+  system: intake
+
+stocks:
+  picked:
+    unit: tickets
+    description: In Progress in Jira; the repository not found yet
+    sensor:
+      items: ticket
+      state: picked
+      every: 3s
+
+flows:
+  pick-up:
+    from: new
+    to: picked
+    driven-by: [+stock.new]
+    equation: stock.new / pick-up-time
+    sensor:
+      items: ticket
+      entering: picked
+      over: 10m
+
+parameters:
+  pick-up-time:
+    value: 15s
+    estimate: true
+    description: how long a new ticket waits to be picked up (the gate's approval included)
+
+goals:
+  new-picked-up:
+    stock: new
+    hold: "<= 0"
+    description: every new ticket is picked up
+
+blocks:
+  pick-up:
+    type: program
+    goal: new-picked-up
+    run: python3 bin/step.py pick-up
+    takes: {kind: ticket, at: new, to: [picked, stopped]}
+    pool: 3
+    actions: [jira-transition]
+    out: flow.pick-up

@@ -43,9 +43,11 @@ def folder(p) -> Path:
     return d
 
 
-def request(p, spec, name: str, args: dict, ctx: dict) -> dict:
-    """A session asks for an action. ``ctx``: its ``block``, ``run``, ``session``, ``item``, ``workdir``, ``branch``.
-    Returns the action as recorded after its gate took it."""
+def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", key: str | None = None) -> dict:
+    """A session (or a program block's run: ``asker="program"``, ``program.py``) asks for an action. ``ctx``: its
+    ``block``, ``run``, ``session``, ``item``, ``workdir``, ``branch``, ``lease``. Returns the action as recorded after
+    its gate took it. A session's ``auto`` action runs here, at once; a program's is approved and left for ergostat's
+    engine to run, outside the program's own process and environment (``program.py``)."""
     a = spec.actions.get(name)
     if a is None:
         raise GateError(f"no action {name!r}")
@@ -59,7 +61,8 @@ def request(p, spec, name: str, args: dict, ctx: dict) -> dict:
     data = {"action": name, "class": a.cls or name, "gate": a.gate, "args": args, "command": render(a, args, ctx),
             "in": where, **{k: ctx.get(k) for k in ("block", "run", "session", "item", "workdir", "branch")},
             **({"lease": fence_of(ctx.get("lease"))} if fence_of(ctx.get("lease")) is not None else {}),
-            "description": a.description}
+            "description": a.description, **({"asker": asker} if asker != "session" else {}),
+            **({"key": key} if key else {})}
     rec.step(p, aid, "requested", data, by=ctx.get("block") or "session", causedby=ctx.get("run"))
     why = fenced(p, spec, data)
     if why:
@@ -68,7 +71,8 @@ def request(p, spec, name: str, args: dict, ctx: dict) -> dict:
         rec.step(p, aid, "denied", {"denied_by": GATE, "note": "its gate is deny: never run"})
     elif a.gate == "auto":
         rec.step(p, aid, "approved", {"approved_by": GATE, "note": "its gate is auto: run at once"})
-        run_once(p, spec, aid)
+        if asker == "session":
+            run_once(p, spec, aid)
     return rec.get(p, aid)
 
 
@@ -76,7 +80,7 @@ def fenced(p, spec, a: dict) -> str | None:
     """Why an action asked for under a lease (SPEC §9.5) may no longer run: the lease it was asked under expired, or a
     later lease was taken on its item (the fencing number moved on). An action asked for under a lease that ended
     (ack or nack) and was not taken again still runs once approved: its work waits for review."""
-    fence, item = a.get("lease"), a.get("item")
+    fence, item = a.get("fence") or a.get("lease"), a.get("item")   # fence: the lease it was asked again under
     if fence is None or not item:
         return None
     from ..spec import items as its
@@ -207,12 +211,13 @@ def result(a: dict) -> dict:
     return out
 
 
-def for_context(p, block: str, run: str | None) -> list[dict]:
-    """The block's actions a session asked for and never got the answer to (it had ended): the answered ones are
-    delivered to this run; those still held are said, not delivered."""
+def for_context(p, block: str, run: str | None, item: str | None = None) -> list[dict]:
+    """The block's actions a session (or a run) asked for and never got the answer to (it had ended): the answered ones
+    are delivered to this run; those still held are said, not delivered. ``item``: a run on one item (a lease's) is
+    given only the actions about that item, or about none."""
     out = []
     for a in rec.stored(p).values():
-        if a.get("block") != block:
+        if a.get("block") != block or (item and a.get("item") and a.get("item") != item):
             continue
         if a["state"] in ("requested", "approved"):
             out.append(result(a))
@@ -226,6 +231,7 @@ def sweep(p, spec) -> int:
     """Approved actions no one ran (the approver could not, and no session waits): run now. Returns how many."""
     n = 0
     for a in rec.stored(p, since=time.time() - rec.WEEK).values():
-        if a["state"] == "approved" and not waiting(p, a["id"]) and run_once(p, spec, a["id"]):
+        if a["state"] == "approved" and (a.get("asker") == "program" or not waiting(p, a["id"])) and \
+                run_once(p, spec, a["id"]):
             n += 1
     return n

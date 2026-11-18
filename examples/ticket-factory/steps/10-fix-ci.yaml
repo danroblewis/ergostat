@@ -1,0 +1,41 @@
+# Step 10, fix-ci: ci-failed -> sailed. Triage the log, fix, push, run again (steps/fix-ci.py).
+defaults:
+  system: shipping
+
+flows:
+  fix-ci:
+    from: ci-failed
+    to: sailed
+    driven-by: [+stock.ci-failed]
+    equation: stock.ci-failed / fix-ci-time
+    sensor:
+      items: ticket
+      entering: sailed
+      over: 10m
+
+parameters:
+  fix-ci-time:
+    value: 60s
+    estimate: true
+    description: how long triage and the fix take
+
+goals:
+  failures-fixed:
+    stock: ci-failed
+    hold: "<= 0"
+    description: every CI failure is triaged and fixed
+
+blocks:
+  fix-ci:
+    type: ai
+    goal: failures-fixed
+    agent: ai
+    prompt: prompts/ci.md
+    run: python3 bin/step.py fix-ci
+    takes: {kind: ticket, at: ci-failed, to: [sailed, stopped]}
+    pool: 1
+    lease: {ttl: 20m, attempts: 2}
+    workspace: code
+    actions: [git-push, pr-comment, ci-rerun]
+    timeout: 15m
+    out: flow.fix-ci

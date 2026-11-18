@@ -1,0 +1,50 @@
+# Step 3, work: located -> worked. The AI agent (or the stand-in) does the ticket in its workspace, a git worktree
+# from the pool `code` (ergostat.yaml), on its own branch (steps/work.py).
+defaults:
+  system: making
+
+stocks:
+  worked:
+    unit: tickets
+    description: the change made and committed; no pull request yet
+    sensor:
+      items: ticket
+      state: worked
+      every: 3s
+
+flows:
+  work:
+    from: located
+    to: worked
+    driven-by: [+stock.located]
+    equation: stock.located / work-time
+    sensor:
+      items: ticket
+      entering: worked
+      over: 10m
+
+parameters:
+  work-time:
+    value: 60s
+    estimate: true
+    description: how long the agent takes
+
+goals:
+  located-worked:
+    stock: located
+    hold: "<= 0"
+    description: every ticket located is worked
+
+blocks:
+  work:
+    type: ai
+    goal: located-worked
+    agent: ai
+    prompt: prompts/work.md
+    run: python3 bin/step.py work
+    takes: {kind: ticket, at: located, to: [worked, stopped]}
+    pool: 1
+    lease: {ttl: 20m, attempts: 2}
+    workspace: code
+    timeout: 15m
+    out: flow.work
