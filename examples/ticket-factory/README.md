@@ -280,20 +280,19 @@ Try a what-if on `review-time` (a slower team) or `ci-fail-share`, and watch `pr
 ## Costs measured
 
 Runs on 2026-11-18 against the real services (Jira Cloud project SCRUM, the test repository
-`danroblewis/orchestra-live-delivery` and its GitHub Actions CI, a Prometheus of the example's own), one test
-issue each, created by `bin/demo_issues.py` and deleted after:
+`danroblewis/orchestra-live-delivery` and its GitHub Actions CI, a Prometheus of the example's own), on ergostat's
+leases, workspace pool and gated actions, one test issue each, created by `bin/demo_issues.py` and deleted after:
 
-| Run | The work | Gates | AI sessions | AI cost | Cycle time | Re-pings | Review rounds | CI | End |
-|---|---|---|---|---|---|---|---|---|---|
-| stand-in | `AI=standin` | every write `approve` (approved by hand), `github.merge` denied | (stand-in) | $0 | 16.1 min | 1 | 1 | failed, fixed, green | stopped at approved, issue Done |
-| haiku | `AI=claude`, haiku | all promoted to `auto` | 2 (work, review) | $0.0074 | 3.1 min | 1 | 1 | green first time | merged, issue Done |
-| haiku, CI failing | `AI=claude`, haiku (the issue asked for an empty placeholder) | all `auto` | 3 (work, review, CI fix) | $0.0149 | 3.7 min | 1 | 1 | failed; haiku read the log and removed the empty file; green | merged, issue Done |
+| Run | The work | Gates | Actions | AI sessions | AI cost | Cycle time | Re-pings | Review rounds | CI | End |
+|---|---|---|---|---|---|---|---|---|---|---|
+| stand-in | `AI=standin` | all `approve`, answered with `ergostat actions ID --approve`; `pr-merge` denied | 14 approved and run, 1 denied | 3 (stand-in) | $0 | 3.9 min | 1 | 1 | failed, fixed, green | stopped at approved, issue Done |
+| haiku | `AI=claude`, haiku | all promoted to `auto` | 13 run by their gate | 2 (work, review) | $0.0089 | 3.3 min | 1 | 1 | green first time | merged, issue Done |
+| haiku, CI failing | `AI=claude`, haiku (the issue asked for an empty placeholder) | all `auto` | 15 run by their gate | 3 (work, review, CI fix) | $0.0143 | 4.0 min | 1 | 1 | failed; haiku read the log and removed the empty file; green | merged, issue Done |
 
-A haiku session here costs half a cent to a cent and a half and takes 4 to 15 seconds; the cycle time is set
-by the people (the scripted reviewer's `TEAMMATE_AFTER`, two minutes) and by CI, not by the AI. The stand-in
-run's record also shows a bug since fixed: while its CI re-run waited, the steps went round `ci` and `fix-ci`
-28 times (its `ci_failures`), because a re-run was judged by the run it replaced; CI is now judged only once
-the re-run has started, and `fix-ci` stops after `CI_MAX_FIXES`.
+A haiku session here costs about half a cent and takes about ten seconds; the cycle time is set by the people
+(the scripted reviewer's `TEAMMATE_AFTER`, two minutes, and the owner's approvals) and by CI, not by the AI. Each
+ticket's workspace was made at `work`, held through review and CI, and cleaned at `done`; no run failed and no ticket
+became a dead letter.
 
 ## Files
 
