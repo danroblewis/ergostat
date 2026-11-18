@@ -423,6 +423,7 @@ def test_leases_survive_a_restart_the_fold_is_the_truth(tmp_path):
         assert wait_for(lambda: item(p, "ticket/2").state == "leased" or item(p, "ticket/1").state == "leased", 5)
     finally:
         second.close()
+        old.STOPPING.clear()
     for i in (1, 2):                                         # stopped with ergostat: given back, not counted
         lease = item(p, f"ticket/{i}").fields["lease"]
         assert lease["holder"] is None

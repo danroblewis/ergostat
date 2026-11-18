@@ -89,15 +89,28 @@ class Dispatcher:
                 room = b.pool - len(mine | set(self.going[b.name]))
                 if room <= 0:
                     continue
-                busy = self.going_items()
-                ready = [i for i in every if i.state in b.takes.at and not held(i.fields) and i.id not in busy
-                         and float((i.fields.get("lease") or {}).get("not_before") or 0) <= now
-                         and its.matches(i, b.takes.where)]
-                ready.sort(key=lambda i: (b.takes.at.index(i.state), i.entered, i.first))
-                for it in ready[:room]:
+                for it in self.ready(b, every, now)[:room]:
                     self.take(b, it)
 
-    def take(self, b, it) -> None:
+    def ready(self, b, every, now: float) -> list:
+        """The items a block may take now, in the order it takes them: oldest in its first state first."""
+        busy = self.going_items()
+        got = [i for i in every if i.state in b.takes.at and not held(i.fields) and i.id not in busy
+               and float((i.fields.get("lease") or {}).get("not_before") or 0) <= now and its.matches(i, b.takes.where)]
+        return sorted(got, key=lambda i: (b.takes.at.index(i.state), i.entered, i.first))
+
+    def once(self, b, why: str) -> list[str]:
+        """A run asked for by hand (``ergostat block NAME --now``): it leases the next item the block would take, and
+        runs here, at once, whatever its pool; with nothing to take, nothing runs."""
+        with self.lock:
+            got = self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False), time.time())
+            started = self.take(b, got[0], inline=True) if got else None
+        if started is None:
+            self.e.say(f"{b.name}: nothing to take ({b.takes.kind} at {', '.join(b.takes.at)})")
+            return []
+        return self._work(*started, why=why)
+
+    def take(self, b, it, inline: bool = False):
         t = terms(self.spec, b)
         lease = it.fields.get("lease") if isinstance(it.fields.get("lease"), dict) else {}
         fence = int(lease.get("fence") or 0) + 1
@@ -109,7 +122,7 @@ class Dispatcher:
         now = its.one(self.p.events, self.spec, it.id)
         got = held(now.fields) if now else None
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
-            return
+            return None
         self.going[b.name][it.id] = {"run": run, "fence": fence}
         self.e.say(f"{b.name}: took {it.id} (lease {fence}, {t['ttl'] / 60:g} min)")
         item = {"id": it.id, "kind": it.kind, "state": it.state, "fields": {k: v for k, v in it.fields.items() if k != "lease"}}
@@ -117,9 +130,12 @@ class Dispatcher:
                  "attempts": t["attempts"], "tier": t["tier"], "back": it.state}
         with self.e.lock:
             self.e.running.add(f"{b.name} {it.id}")
+        if inline:
+            return b, item, given, run, ev["id"]
         threading.Thread(target=self._work, args=(b, item, given, run, ev["id"]), daemon=True).start()
+        return None
 
-    def _work(self, b, item: dict, lease: dict, run: str, taken: str) -> None:
+    def _work(self, b, item: dict, lease: dict, run: str, taken: str, why: str = "item") -> list[str]:
         slot = self.e.slots.get(b.agent or "")
         out: dict = {}
         moved: list[str] = []
@@ -127,7 +143,7 @@ class Dispatcher:
             if slot:
                 slot.acquire()
             try:
-                moved = self.e.run_block(b, "item", extra={"item": item, "lease": lease}, item=item["id"], fence=lease["fence"],
+                moved = self.e.run_block(b, why, extra={"item": item, "lease": lease}, item=item["id"], fence=lease["fence"],
                                          run_id=run, cause=taken, outcome=out)
             except Exception as e:
                 self.e.say(f"{b.name}: {type(e).__name__}: {e}")
@@ -148,6 +164,7 @@ class Dispatcher:
                 self.e.running.discard(f"{b.name} {item['id']}")
                 self.e.finished[b.name] = time.time()
         self.e.evaluate()
+        return moved
 
     def finish(self, b, item: str, fence: int, run: str, out: dict) -> None:
         """The run ended: its lease ends, ack or nack. Nothing, when its lease ended already (it expired)."""

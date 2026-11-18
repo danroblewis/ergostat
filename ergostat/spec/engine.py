@@ -384,6 +384,8 @@ class Engine:
         meanwhile. ``item``, ``fence``: the item it holds a lease on (SPEC §9.5), and the lease's fencing number;
         ``run_id``, the run's id, named by the lease before it starts; ``cause``, what started it; ``outcome`` is filled
         with how it ended (exit, note, nack)."""
+        if b.takes and item is None:                             # a block that takes items runs on one, leased (SPEC §9.5)
+            return self.dispatch.once(b, why)
         spec, version = spec or self.spec, version or self.version
         ctx = {**self.context(b, why), **(extra or {})}
         ev = self.p.events
