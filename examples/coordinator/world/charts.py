@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # the example'
 
 import matplotlib
 
+from world.experiment import lead  # noqa: E402
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
@@ -294,23 +296,6 @@ def throughput(h: dict, d: dict, out: Path) -> None:
     fig.tight_layout()
     fig.savefig(out / "model-throughput.png", dpi=150)
     plt.close(fig)
-
-
-def lead(r: dict) -> float:
-    """The median, over the directions, of the hours from a direction's start until 90% of its items were
-    accepted the first time."""
-    dirs = r["dirs"]
-    _, acc = per(r, "accepted-direction", 1, r["days"])
-    from world.plant import DIRECTIONS
-    out = []
-    for k, t0 in enumerate(dirs):
-        need, got = 0.9 * DIRECTIONS[k][1], 0
-        for h in range(int(t0), len(acc)):
-            got += acc[h]
-            if got >= need:
-                out.append(h + 1 - t0)
-                break
-    return statistics.median(out) if out else float("nan")
 
 
 def cascade(d: dict, fixed: dict, h: dict, out: Path) -> None:

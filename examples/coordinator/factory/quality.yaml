@@ -1,7 +1,8 @@
-# The rework cycle (03 R1) and the quality cascade that acts on it (07 LP1 inside LP2). A run reports its item done;
-# the acceptance check (LP1) chooses its depth per item - claims, tests with their exit status read, inspection
+# The rework cycle (03 R1) and the quality cascade that acts on it (07 LP1 inside LP2), over the work queue's
+# reported and accepted stocks (work.yaml). A run reports its item done; the acceptance check (LP1) chooses its depth
+# per item - claims, tests with their exit status read, inspection
 # against the acceptance criteria, deep review by an AI agent, a hold point for the owner - the least whose expected
-# escapes fall under h*, and accepts or sends it back. What it lets through wrong is undiscovered rework, found hours
+# escapes fall under h*, and sends it back or passes it to the merge queue (LP4). What it lets through wrong is undiscovered rework, found hours
 # later (RM2) and reopened. Once a factory day, LP2 moves h* by integral action on the escaped rework of the week.
 defaults:
   system: quality
@@ -19,20 +20,6 @@ stocks:
     sensor:
       run: python3 world/read.py habit
       every: 10s
-  reported-done:
-    unit: items
-    description: work a run reported done, being checked (the acceptance step)
-    sensor:
-      items: work
-      state: reported
-      every: 5s
-  accepted-work:
-    unit: items
-    description: work accepted and landed on the mainline
-    sensor:
-      items: work
-      state: accepted
-      every: 10s
   undiscovered-rework:
     unit: items
     description: landed work that is wrong and not yet found - unobservable in a real factory (x̂4 estimates it); read here from the simulated world's truth, so the estimate can be judged
@@ -44,7 +31,7 @@ auxiliaries:
   expected-hidden-rework:
     unit: share
     description: x̂4 - the hidden rework the observer expects in the work accepted over the last factory day, at the depth each item was checked (06 §2)
-    driven-by: [-auxiliary.direction-age, -stock.durable-knowledge]
+    driven-by: [-auxiliary.direction-age, -stock.durable-knowledge, -flow.rejected]   # the deeper the check, the more sent back
     sensor:
       run: python3 world/read.py x4
       every: 5s
@@ -83,49 +70,6 @@ flows:
     to: checking-habit
     two-way: true                     # restored by an incident, eroded by time and pressure
     description: the checking habit moved by the acceptance check's own practice
-  reported:
-    from: runs-in-flight
-    to: reported-done
-    description: a run reports its item done (a stalled run never does)
-    driven-by: [+stock.runs-in-flight]
-    equation: stock.runs-in-flight / run-time
-    sensor:
-      items: work
-      entering: reported
-      over: 10m
-  accepted:
-    from: reported-done
-    to: accepted-work
-    description: accepted and merged (u3, u4)
-    sensor:
-      items: work
-      entering: accepted
-      over: 10m
-  rejected:
-    from: reported-done
-    to: ready-work
-    description: sent back by the acceptance check - rework caught before it landed (CV2)
-    sensor:
-      items: work
-      entering: ready
-      where:
-        via: rejected
-      over: 10m
-  reopened:
-    from: accepted-work
-    to: ready-work
-    description: rework found after landing - by a red test, by later work, or by the owner (uncontrollable)
-    driven-by:
-      - cause: +flow.rework-found
-        instant: true                 # an item found wrong is reopened as it is found
-      - +stock.accepted-work
-    equation: MIN(flow.rework-found, stock.accepted-work / discovery-time)
-    sensor:
-      items: work
-      entering: ready
-      where:
-        via: reopened
-      over: 10m
   escaped:
     to: undiscovered-rework
     description: the wrong share of what is accepted - a coflow of acceptance; the observer's x̂4 is that share if it is calibrated (k = 1, 07 LP2)
@@ -162,6 +106,7 @@ goals:
     auxiliary: unread-test-runs
     hold: "<= 0"
     critical: true
+    owner: the owner
     description: H1 - no merge unless the tests' exit status was read, and is zero, by a check independent of the worker
 
 blocks:
@@ -169,13 +114,19 @@ blocks:
     type: program
     description: LP1, a switching decision table on the rule tier - the least depth whose expected escapes fall under h*, one deeper with the owner away, never below the tests read (H1); a hold point only with room under S5, else deep review; questions only where a wrong act cannot be undone (u7)
     run: python3 bin/coord.py acceptance
-    in: [goal.hidden-rework-allowed, goal.tests-read, goal.blockers-within-budget, -auxiliary.direction-age, +auxiliary.owner-present, +stock.reported-done]
+    in: [goal.hidden-rework-allowed, goal.tests-read, goal.blockers-within-budget.error, -auxiliary.direction-age, +auxiliary.owner-present, +stock.reported-done]
     every: 2s
     out:
-      accepted: flow.accepted
       rejected: flow.rejected
       asked: flow.asked
       habit: flow.habit-changed
+  merge-queue:
+    type: program
+    description: LP4 - what passed its check merged onto the mainline in order, one at a time (u4); H1's read exit status is the check's
+    run: python3 bin/coord.py merge
+    in: [+stock.reported-done]
+    every: 2s
+    out: flow.accepted
   quality-integrator:
     type: program
     description: LP2, integral action run to run (program tier) - once a factory day, h* moves by -Ki times CV1's error outside a deadband, clamped to 0.02 to 0.3, not while LP1 is saturated or the week holds under ten acceptances

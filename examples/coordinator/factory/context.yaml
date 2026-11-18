@@ -105,7 +105,6 @@ blocks:
     description: LP9 - each correction written down within the hour and used in briefs at once, marked uncertain; one absorbed into a check that held, or dormant, retired by ergostat itself
     goal: knowledge-recorded
     run: python3 bin/coord.py externalise
-    in: [+stock.durable-knowledge]
     every: 5s
     out:
       externalised: flow.externalised

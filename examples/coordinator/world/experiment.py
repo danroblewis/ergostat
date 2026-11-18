@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 import sys
 from pathlib import Path
 
@@ -20,7 +21,7 @@ if str(ROOT) not in sys.path:                    # run as a script, from anywher
     sys.path.insert(0, str(ROOT))
 
 from world import policy as P  # noqa: E402
-from world.plant import STEP, Plant, fresh  # noqa: E402
+from world.plant import DIRECTIONS, STEP, Plant, fresh  # noqa: E402
 
 
 def snapshot(p: Plant) -> dict:
@@ -58,6 +59,22 @@ def run(policy: str, days: float = 30, seed: int = 1) -> dict:
             hours.append(snapshot(p))
     return {"policy": policy, "seed": seed, "days": days, "hours": hours, "counts": p.s["m"], "log": p.s["log"],
             "dirs": p.s["dirs"], "corrections": p.s["corr"]}
+
+
+def lead(r: dict) -> float:
+    """The median, over the directions, of the hours from a direction's start until 90% of its items were
+    accepted the first time."""
+    dirs = r["dirs"]
+    acc = [r["counts"].get(str(h), {}).get("accepted-direction", 0) for h in range(int(r["days"] * 24) + 9)]
+    out = []
+    for k, t0 in enumerate(dirs):
+        need, got = 0.9 * DIRECTIONS[k][1], 0
+        for h in range(int(t0), len(acc)):
+            got += acc[h]
+            if got >= need:
+                out.append(h + 1 - t0)
+                break
+    return statistics.median(out) if out else float("nan")
 
 
 def main() -> int:

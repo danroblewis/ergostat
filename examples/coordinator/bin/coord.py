@@ -2,7 +2,7 @@
 policy is COORD_POLICY: the designed architecture by default, or `harness`, the harness as it was), and what it
 moved reported to ergostat on the block's outputs.
 
-    python3 bin/coord.py LOOP        (dispatch, acceptance, watchdog, admission, attention, externalise,
+    python3 bin/coord.py LOOP        (dispatch, acceptance, merge, watchdog, admission, attention, externalise,
                                       quality, consolidation)
 """
 
@@ -21,8 +21,8 @@ from world import sim  # noqa: E402
 # each loop's result, by name: the block's output it goes to
 OUTPUTS = {
     "dispatch": {"leased": "flow.leased"},
-    "acceptance": {"accepted": "flow.accepted", "rejected": "flow.rejected", "asked": "flow.asked",
-                   "habit": "flow.habit-changed"},
+    "acceptance": {"rejected": "flow.rejected", "asked": "flow.asked", "habit": "flow.habit-changed"},
+    "merge": {"accepted": "flow.accepted"},
     "watchdog": {"expired": "flow.expired", "dead-lettered": "flow.dead-lettered", "redriven": "flow.redriven"},
     "admission": {"admitted": "flow.admitted", "declined": "flow.declined"},
     "attention": {"handover": None},

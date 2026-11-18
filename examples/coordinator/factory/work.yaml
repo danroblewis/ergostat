@@ -1,8 +1,10 @@
-# The work (05 §1): items flowing through a leased work queue (07 §6's template) to a pool of AI-agent workers the
-# owner caps. Proposed work is admitted or declined at the door (LP6); ready work is pulled by the dispatcher up to
-# the work-in-progress limit (LP3), scheduled on the owner's presence (S2); a run that falls silent past its lease
-# is expired and its item requeued, and after three attempts it goes to the dead-letter stock (LP5). The owner's
-# directions arrive as a disturbance (d1).
+# The work (05 §1): items flowing through a leased work queue (07 §6's template, whole: proposed, ready, leased,
+# reported done, accepted, declined, dead-letter) to a pool of AI-agent workers the owner caps. Proposed work is
+# admitted or declined at the door (LP6); ready work is pulled by the dispatcher up to the work-in-progress limit
+# (LP3), scheduled on the owner's presence (S2); a run that falls silent past its lease is expired and its item
+# requeued, and after three attempts it goes to the dead-letter stock (LP5). What a run reports done is checked and
+# merged or sent back (quality.yaml's LP1 and LP4), and landed work found wrong is reopened. The owner's directions
+# arrive as a disturbance (d1).
 defaults:
   system: work
 
@@ -59,6 +61,20 @@ stocks:
       items: work
       state: leased
       every: 5s
+  reported-done:
+    unit: items
+    description: work a run reported done, being checked (the acceptance step)
+    sensor:
+      items: work
+      state: reported
+      every: 5s
+  accepted-work:
+    unit: items
+    description: work accepted and landed on the mainline
+    sensor:
+      items: work
+      state: accepted
+      every: 10s
   dead-letter:
     unit: items
     description: items whose runs failed three times, waiting for the diagnoser
@@ -100,6 +116,8 @@ flows:
     sensor:
       items: work
       entering: proposed
+      where:
+        origin: [proposed, removal]   # every item arrives in proposed first; the owner's directions move on at once
       over: 10m
   admitted:
     from: proposed-work
@@ -164,6 +182,50 @@ flows:
         via: redriven
       over: 10m
 
+  reported:
+    from: runs-in-flight
+    to: reported-done
+    description: a run reports its item done (a stalled run never does)
+    driven-by: [+stock.runs-in-flight]
+    equation: stock.runs-in-flight / run-time
+    sensor:
+      items: work
+      entering: reported
+      over: 10m
+  accepted:
+    from: reported-done
+    to: accepted-work
+    description: accepted and merged (u3, u4)
+    sensor:
+      items: work
+      entering: accepted
+      over: 10m
+  rejected:
+    from: reported-done
+    to: ready-work
+    description: sent back by the acceptance check - rework caught before it landed (CV2)
+    sensor:
+      items: work
+      entering: ready
+      where:
+        via: rejected
+      over: 10m
+  reopened:
+    from: accepted-work
+    to: ready-work
+    description: rework found after landing - by a red test, by later work, or by the owner (uncontrollable)
+    driven-by:
+      - cause: +flow.rework-found
+        instant: true                 # an item found wrong is reopened as it is found
+      - +stock.accepted-work
+    equation: MIN(flow.rework-found, stock.accepted-work / discovery-time)
+    sensor:
+      items: work
+      entering: ready
+      where:
+        via: reopened
+      over: 10m
+
 goals:
   work-waiting:
     stock: ready-work
@@ -181,6 +243,7 @@ goals:
     auxiliary: oldest-silence
     hold: "<= 0.7"
     critical: true
+    owner: the owner
     description: a stalled run noticed within its tier's lease plus a sample - 40 minutes for an AI agent (CV5, LP5)
 
 blocks:
@@ -196,7 +259,7 @@ blocks:
     description: LP3 - a WIP-capped pull of the ordered queue (LP6's order) whenever a slot is free; the brief rendered from the master recipe (u2)
     goal: work-waiting
     run: python3 bin/coord.py dispatch
-    in: [goal.runs-within-limit]
+    in: [goal.runs-within-limit.error]   # the room under the limit
     every: 2s
     out: flow.leased
   worker-pool:
@@ -220,7 +283,7 @@ blocks:
     description: LP6 at the door - a proposal's estimated value against a bar that rises with the work waiting; only fixes and removals in consolidation
     goal: proposals-decided
     run: python3 bin/coord.py admission
-    in: [+stock.ready-work, -stock.consolidating]
+    in: [-stock.ready-work, -stock.consolidating]   # the bar rises with the work waiting, and in consolidation
     every: 2s
     out:
       admitted: flow.admitted

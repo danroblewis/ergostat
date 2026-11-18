@@ -94,10 +94,10 @@ def h_acceptance(p: Plant) -> dict:
             p.count("incidents")
     c["incidents_seen"] = len(p.s["incidents"])
     c["discipline"], c["disc_t"] = d, p.t
-    out = {"accepted": 0, "rejected": 0, "asked": 0}
+    out = {"passed": 0, "rejected": 0, "asked": 0}
     for i in p.ids("reported"):
         it = p.item(i)
-        if it.get("waiting_owner"):
+        if it.get("waiting_owner") or it.get("passed"):
             continue
         if "check" not in it:
             if not it.get("asked") and p.u("question", i, it["attempts"]) < question_rate(p, it):
@@ -111,9 +111,8 @@ def h_acceptance(p: Plant) -> dict:
                 p.reject(i)
                 out["rejected"] += 1
             else:
-                p.accept(i)
-                out["accepted"] += 1
-                propose_after(p, i)
+                p.item(i)["passed"] = True                  # to the merge queue (LP4)
+                out["passed"] += 1
     return out
 
 
@@ -126,7 +125,7 @@ def h_watch(p: Plant) -> dict:
     running = p.running()
     rate = 2.5 if p.present() else 1.2 / max(1.0, running / 3)
     for r, run in list(p.s["runs"].items()):
-        if run["stall_at"] is not None and p.t >= run["stall_at"] and p.chance(rate, dt, "notice", r, round(p.t * 30)):
+        if run["stall_at"] is not None and p.t >= run["stall_at"] and p.chance(rate, dt, "notice", r, p.s.get("k", 0)):
             p.expire(r, "noticed")                             # salvaged: what it left is committed, the rest redone
             n += 1
     return {"expired": n, "dead-lettered": 0, "redriven": 0}
@@ -219,10 +218,10 @@ def d_acceptance(p: Plant) -> dict:
     under S5; without it, deep review by an AI agent (the override, 07 §2)."""
     h = ctrl(p).setdefault("h_star", H_STAR)
     away = not p.present()
-    out = {"accepted": 0, "rejected": 0, "asked": 0}
+    out = {"passed": 0, "rejected": 0, "asked": 0}
     for i in p.ids("reported"):
         it = p.item(i)
-        if it.get("waiting_owner"):
+        if it.get("waiting_owner") or it.get("passed"):
             continue
         if "check" not in it:
             if not it.get("asked") and p.u("question", i, it["attempts"]) < question_rate(p, it):
@@ -249,9 +248,8 @@ def d_acceptance(p: Plant) -> dict:
                 p.reject(i)
                 out["rejected"] += 1
             else:
-                p.accept(i)
-                out["accepted"] += 1
-                propose_after(p, i)
+                p.item(i)["passed"] = True                  # to the merge queue (LP4)
+                out["passed"] += 1
     return out
 
 
@@ -398,6 +396,18 @@ def d_consolidation(p: Plant) -> dict:
 
 # ===== shared ===================================================================================================
 
+def merge(p: Plant) -> dict:
+    """LP4: the merge queue - what passed its check merged onto the mainline in order, one at a time (the same in
+    both policies: the harness merged what it judged done; H1's permissive is the check's, upstream)."""
+    n = 0
+    for i in p.ids("reported"):
+        if p.item(i).pop("passed", None):
+            p.accept(i)
+            propose_after(p, i)
+            n += 1
+    return {"accepted": n}
+
+
 def question_rate(p: Plant, it: dict) -> float:
     """Questions about intent: many while a direction is new, few later (RM8: 17% of turns ended in one)."""
     return 0.03 + 0.15 * math.exp(-p.age_of_direction(it) / 24)
@@ -415,6 +425,7 @@ LOOPS = {
     # loop: (period in factory hours for the experiment, harness law, designed law)
     "dispatch": (1 / 30, h_dispatch, d_dispatch),
     "acceptance": (1 / 30, h_acceptance, d_acceptance),
+    "merge": (1 / 30, merge, merge),
     "watchdog": (1 / 30, h_watch, d_watchdog),
     "admission": (1 / 30, h_admission, d_admission),
     "attention": (1 / 30, h_attention, d_attention),

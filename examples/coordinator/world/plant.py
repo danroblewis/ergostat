@@ -339,6 +339,7 @@ class Plant:
     # -- the world moving on ---------------------------------------------------------------------------------
     def step(self, dt: float) -> None:
         self.s["t"] += dt
+        self.s["k"] = self.s.get("k", 0) + 1                 # the step's number: what each draw in it is keyed by
         t = self.t
         self.directions()
         self.workers(dt)
@@ -366,8 +367,8 @@ class Plant:
             q = run["quiet_until"]
             if q is not None and self.t < q:
                 continue
-            if q is None and self.chance(QUIET_RATE, dt, "quiet", r, round(self.t * 30)):
-                run["quiet_until"] = self.t + QUIET[0] + (QUIET[1] - QUIET[0]) * self.u("quiet-len", r, round(self.t * 30))
+            if q is None and self.chance(QUIET_RATE, dt, "quiet", r, self.s["k"]):
+                run["quiet_until"] = self.t + QUIET[0] + (QUIET[1] - QUIET[0]) * self.u("quiet-len", r, self.s["k"])
                 continue
             run["quiet_until"] = None
             run["last"] = self.t
@@ -393,7 +394,7 @@ class Plant:
         keep = []
         for i in self.s["hidden"]:
             it = self.item(i)
-            k = round(self.t * 30)
+            k = self.s["k"]
             by = None
             if it["wrong"] == "fast" and self.chance(DISCOVERY["fast"], dt, "d-fast", i, k):
                 by = "tests"
@@ -436,7 +437,7 @@ class Plant:
         o = self.s["owner"]
         present = self.present()
         if present:
-            k = round(self.t * 30)
+            k = self.s["k"]
             if self.chance(3.5, dt, "msg", k):                    # the owner's messages mid-work (d3)
                 self.count("owner-messages")
                 o["decisions"] += 0.25                            # what the extractor proposes from them (RM8)
@@ -484,7 +485,7 @@ class Plant:
         w = self.s["window"]
         if not w.get("on"):
             return
-        k = round(self.t * 30)
+        k = self.s["k"]
         reads = 0.0
         acts = self.s["m"].get(str(int(self.t)), {}).get("accepted", 0)
         inflow = 0.0
