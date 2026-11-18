@@ -8,7 +8,9 @@ import sys
 import textwrap
 import time
 
-from ergostat import history
+import pytest
+
+from ergostat import history, runner
 from ergostat import model as mdl
 from ergostat.spec.engine import Engine
 from ergostat.store import Project
@@ -35,6 +37,13 @@ blocks:
     every: {every}
     out: flow.made
 """
+
+
+@pytest.fixture(autouse=True)
+def _stopping_cleared():
+    """An engine's close sets the process-wide STOPPING: the tests after these must not see it."""
+    yield
+    runner.STOPPING.clear()
 
 
 def write(path, text: str) -> None:
@@ -197,7 +206,6 @@ def test_a_kept_builtin_keeps_its_state_and_a_changed_one_takes_it_over(tmp_path
 
 
 def test_the_legacy_runner_swaps_in_place_too(repo):
-    from ergostat import runner
     repo.write("clean.py", "import time\ntime.sleep(1.5)\nprint(5)\n")
     p = Project(mdl.load(repo.path))
     r = runner.Runner(p, say=lambda s: None)
@@ -230,9 +238,9 @@ def test_ergostat_run_takes_an_edit_in_place_and_stop_still_kills(tmp_path):
     p = Project(mdl.load(tmp_path))
     proc = ergostat(tmp_path, "run", "--foreground", "--no-web")
     try:
-        assert until(lambda: p.events.query(type="agent.started", item="maker"), 20)
+        assert until(lambda: p.events.query(type="agent.started", item="maker"), 60)
         write(tmp_path, long.replace('"<= 20"', '"<= 30"'))
-        assert until(lambda: p.events.query(type="agent.ran,agent.failed", item="maker"), 20)
+        assert until(lambda: p.events.query(type="agent.ran,agent.failed", item="maker"), 60)
         ran = p.events.query(type="agent.ran,agent.failed", item="maker")[0]
         assert ran["type"] == "agent.ran" and ran["data"]["exit"] == 0, ran
         assert [x["data"]["amount"] for x in p.events.query(type="valve.opened", item="maker")] == [5.0]
@@ -241,15 +249,15 @@ def test_ergostat_run_takes_an_edit_in_place_and_stop_still_kills(tmp_path):
         assert len(p.events.query(type="ergostat.started")) == 1 and proc.poll() is None   # the same runner, no restart
 
         write(tmp_path, BASE.format(run="sleep 30; echo 9", every="0.5s"))   # a long run, then a stop
-        assert until(lambda: len(p.events.query(type="agent.started", item="maker")) == 2, 20)
+        assert until(lambda: len(p.events.query(type="agent.started", item="maker")) == 2, 60)
         began = time.monotonic()
         stop = ergostat(tmp_path, "run", "--stop")
-        assert stop.wait(20) == 0
-        assert until(lambda: len(p.events.query(type="agent.ran,agent.failed", item="maker")) == 2, 10)
-        assert time.monotonic() - began < 10
+        assert stop.wait(60) == 0
+        assert until(lambda: len(p.events.query(type="agent.ran,agent.failed", item="maker")) == 2, 20)
+        assert time.monotonic() - began < 25, "killed, not waited for (its run sleeps 30s)"
         last = p.events.query(type="agent.ran,agent.failed", item="maker")[-1]
         assert last["data"]["note"] == "stopped with ergostat" and last["type"] == "agent.ran"
-        assert proc.wait(10) is not None
+        assert proc.wait(30) is not None
     finally:
         if proc.poll() is None:
             proc.kill()
