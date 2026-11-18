@@ -69,6 +69,8 @@ class Engine:
         self.outputs: dict[str, dict[str, float]] = {}   # machine block → port → its last command (held)
         self.commands: dict[str, dict] = {}            # machine block → its last command's detail
         self.running: set[str] = set()
+        self.judge_next: dict[str, float] = {}         # judge block → when its next pass is due (monotonic): it backs off idle
+        self.judge_idle: dict[str, int] = {}           # judge block → its passes in a row that moved nothing
         self.finished: dict[str, float] = {}
         self.asked: dict[str, float] = {}              # advised block → the command it last asked approval for
         self.began: dict[str, float] = {}   # when each machine block's last run began           # machine block → when its last run ended
@@ -523,6 +525,11 @@ class Engine:
         finally:
             with self.lock:
                 self.running.discard(b.name)
+        if b.judge_mode != "intent":                   # nothing new to judge: it backs off (judge.pause)
+            every = b.every or JUDGE_EVERY
+            wait = jd.pause(got, every, self.judge_idle.get(b.name, 0))
+            self.judge_idle[b.name] = 0 if wait <= every else self.judge_idle.get(b.name, 0) + 1
+            self.judge_next[b.name] = time.monotonic() + wait
         said = Said(self, b, begun["id"])
         for line in jd.lines(self.spec, b.name, got):
             said.take(line)
@@ -614,7 +621,7 @@ class Engine:
                     self.start(b, "schedule")
             for b in judges:                                     # the judge: built in, on its own clock (SPEC §12e)
                 k = f"block/{b.name}"
-                if mono >= due.get(k, 0) and b.name not in self.running:
+                if mono >= due.get(k, 0) and mono >= self.judge_next.get(b.name, 0) and b.name not in self.running:
                     due[k] = mono + (b.every or JUDGE_EVERY)
                     with self.lock:
                         self.running.add(b.name)
@@ -794,6 +801,8 @@ class Said:
             except Exception as err:                  # a proposal that cannot even be judged is the block's to read
                 got = {"status": "not-proposed", "why": f"{type(err).__name__}: {err}", "title": ""}
             self.proposals.append(got)
+            if got["status"] != "not-proposed":       # a change to judge: the judge looks at once, however idle it was
+                self.e.judge_next.clear()
             if got["status"] == "not-proposed":
                 self.e.say(f"{self.b.name}: not proposed: {got['why']}")
             return

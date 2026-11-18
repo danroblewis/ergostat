@@ -433,6 +433,14 @@ def test_the_engine_runs_the_judge_and_records_what_it_moved_on_its_ports(tmp_pa
     assert p.events.query(type="valve.opened")[-1]["data"]["flow"] == "arrivals"
     assert jd.lines(p.model.spec, "judge", {"testing": 2, "passed": 0, "failed": 0, "accepted": 0}) == \
         [{"out": "testing", "moved": 2}]
+    import time
+    first = e.judge_next["judge"] - time.monotonic()
+    assert 50 < first <= 61                                     # it moved something: again after its every
+    e.judge(p.model.spec.blocks["judge"])                       # nothing moved, the change not due: it backs off
+    assert e.judge_next["judge"] - time.monotonic() > 61 and e.judge_idle["judge"] == 1
+    from ergostat.spec.engine import Said
+    Said(e, p.model.spec.blocks["judge"], "run").take({"propose": raw(4)})   # a change proposed: it looks at once
+    assert e.judge_next == {}
 
 
 def test_ergostat_judge_runs_a_pass_by_hand(tmp_path, capsys):

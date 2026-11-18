@@ -326,6 +326,49 @@ def test_a_change_that_cannot_be_told_yet_is_kept_under_test_for_more_record(tmp
     assert x["state"] == "testing" and x["looked"] > 0 and out["waiting"][0]["needs"] > x["looked"]
 
 
+def test_the_judge_is_cheap_when_there_is_nothing_new_to_judge(tmp_path, monkeypatch):
+    """A change under test is not compiled or replayed before its next window is due, nor once due while what it
+    touches has not been read since its last look (a record that stopped); then it is, and the model's time constants
+    are replayed once for every change made against it meanwhile."""
+    p = two_project(tmp_path, text=TWO + judge_block(**{"hold-out": "10m"}))
+    got = im.submit(p, "improver", k_to(2.0001), at=time.time() - 3600)
+    calls = {"compiled": 0, "compared": 0}
+    from ergostat.numbers import trial as tr
+    after, compare = tr.spec_after, jd.compare
+    monkeypatch.setattr(tr, "spec_after", lambda *a, **k: (calls.__setitem__("compiled", calls["compiled"] + 1), after(*a, **k))[1])
+    monkeypatch.setattr(jd, "compare", lambda *a, **k: (calls.__setitem__("compared", calls["compared"] + 1), compare(*a, **k))[1])
+    now = time.time()
+    jd.run(p, "judge", at=now)                                 # looked at: kept under test for more record
+    x = pr.stored(p)[got["id"]]
+    assert x["state"] == "testing" and x["looked"] > 0 and calls["compared"] > 0
+    calls.update(compiled=0, compared=0)
+    out = jd.run(p, "judge", at=now + 60)                      # its next window is not due: nothing compiled or replayed
+    assert calls == {"compiled": 0, "compared": 0} and out["waiting"][0]["id"] == got["id"]
+    assert jd.pause(out, 30.0, 0) > 30.0                       # and the judge need not look again for a while
+    out = jd.run(p, "judge", at=now + 3 * 3600)                # due by the clock, but nothing read since: not replayed
+    assert calls["compared"] == 0 and "record" in out["waiting"][0]
+    p.measurements.add("sensor/queue.main", 1.0, at=now + 3 * 3600 - 1)
+    jd.run(p, "judge", at=now + 3 * 3600)                      # read again: judged
+    assert calls["compared"] > 0
+    jd._TAU.clear()
+    spec = p.model.spec
+    assert jd.dominant(p, spec, ["stock.queue"], now) and len(jd._TAU) == 1
+    jd.dominant(p, spec, ["stock.backlog", "stock.queue"], now)   # other parts, the same replay
+    assert len(jd._TAU) == 1
+
+
+def test_the_judge_backs_off_when_idle():
+    every = 30.0
+    assert jd.pause({"verdicts": [{"id": "a"}], "waiting": []}, every, 5) == every          # it moved something
+    assert jd.pause({"testing": 1, "waiting": []}, every, 5) == every
+    assert jd.pause({"waiting": [{"held": 100, "needs": 220}]}, every, 0) == 120             # until the first is due
+    assert jd.pause({"waiting": [{"held": 100, "needs": 110}]}, every, 0) == every           # never sooner than every
+    assert jd.pause({"waiting": [{"held": 0, "needs": 3600}]}, every, 0) == every * jd.IDLE_MOST
+    waits = [jd.pause({"waiting": []}, every, n) for n in range(5)]                         # nothing waiting: longer each time
+    assert waits == [60, 120, 240, 240, 240]
+    assert jd.pause({"waiting": [{"held": 500, "needs": 300, "record": 200}]}, every, 1) == 120   # a stopped record: idle
+
+
 def test_a_simpler_change_no_worse_passes(tmp_path):
     leak = ("  leak:\n    from: backlog\n    driven-by: +stock.backlog\n    equation: tiny * stock.backlog\n")
     tiny = "  tiny:\n    value: 0\n    unit: 1/h\n"

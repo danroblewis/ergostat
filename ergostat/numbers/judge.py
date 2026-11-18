@@ -32,7 +32,13 @@ the review queue, its verdict beside it; ``auto`` writes it, as Accept does (the
 pass, recorded as ``ergostat.model-change.accepted`` from the judge, naming the policy, and
 ``ergostat.model.changed``), one a pass. Only a value, an equation or the structure is judged or written so: a
 change to a goal, a block or a sensor waits for the owner, and so does any change that removes structure
-(``removes``), whatever the policy. The owner commits what was written."""
+(``removes``), whatever the policy. The owner commits what was written.
+
+It is cheap when there is nothing new to judge: a change is looked at again only once its next window is due
+(``needs`` past the last look) and what it touches has been read since (a record that stopped is not replayed
+again, and the change waits for more); the model's time constants, replayed on the day before a change, are kept by
+the model's content and the ten minutes the change was made in, for every change made against it meanwhile; and the
+run backs off when the judge has nothing to judge (``pause``)."""
 
 from __future__ import annotations
 
@@ -58,6 +64,7 @@ MAX_HOLD = ob.REFERENCE       # the most record a change waits for, however slow
 FLOOR = 0.005                 # scaled errors closer than this are within the record's noise: neither better nor worse
 TAU_POINTS = 120              # the time constants are read from a replay of the reference window in this many buckets
 PORTS = JUDGE_PORTS
+IDLE_MOST = 8.0               # the judge, idle, waits at most this many of its every between passes
 
 
 def windows(since: float, until: float, splits=SPLITS, least: float = MIN_WINDOW) -> list[tuple[float, float]]:
@@ -106,24 +113,30 @@ def focus(spec: Spec, after: Spec, x: dict) -> dict:
     return {"stocks": stocks, "goals": goals, "parts": parts}
 
 
-_TAU: dict = {}
+_TAU: dict = {}               # the model's time constants, by its content and the ten minutes of record they end in
+
+
+def replayed(spec: Spec) -> str:
+    """What a replay of the model reads of it (its stocks, flows, auxiliaries and parameters, with their sensors and
+    numbers), as a short hash: two specs with the same one replay the same on the same record."""
+    from . import version as ver
+    return ver._hash([ver._plain(x) for x in (spec.stocks, spec.flows, spec.auxiliaries, spec.parameters)])
 
 
 def dominant(p, spec: Spec, parts: list[str], until: float) -> float | None:
     """The slowest time constant (s) the replay meets among these parts (a stock's own drain, a delay's time) on the
-    record up to ``until``; None when none of them has one (they only accumulate)."""
-    from . import version as ver
-    key = (str(p.dir), ver.version(spec), tuple(parts), int(until // 600))
-    if key in _TAU:
-        return _TAU[key]
-    data = ob.measured(p, ob.reference(p, until, TAU_POINTS), spec)
-    run = sim.replay(spec, data)
-    taus = [run.time_constants[r] for r in parts if run.time_constants.get(r)]
-    got = max(taus) * 3600.0 if taus else None
-    if len(_TAU) > 256:
-        _TAU.clear()
-    _TAU[key] = got
-    return got
+    record up to ``until``; None when none of them has one (they only accumulate). The replay is the model's, whatever
+    the parts: kept by the model's content and the ten minutes ``until`` falls in."""
+    key = (str(p.dir), replayed(spec), int(until // 600))
+    tc = _TAU.get(key)
+    if tc is None:                               # one replay for every change made against this model meanwhile
+        data = ob.measured(p, ob.reference(p, until, TAU_POINTS), spec)
+        tc = dict(sim.replay(spec, data).time_constants)
+        if len(_TAU) > 256:
+            _TAU.clear()
+        _TAU[key] = tc
+    got = [tc[r] for r in parts if tc.get(r)]
+    return max(got) * 3600.0 if got else None
 
 
 def needs(p, spec: Spec, after: Spec, x: dict, since: float, hold_out: float, warm_up: float) -> dict:
@@ -296,22 +309,31 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
         for x in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0):
             if x["state"] == "passed" or x.get("kind") not in JUDGED:
                 continue
+            since = x.get("made") or x.get("created") or now
+            looked = float(x.get("looked") or 0.0)            # the record judged when it was last looked at
+            if x["state"] == "testing" and x.get("hold_out"):  # under test: nothing to do before its next window
+                due = max(float(x["hold_out"]), looked + float(x["hold_out"]))
+                if now - since < due or judged >= most:
+                    out["waiting"].append({"id": x["id"], "held": now - since, "needs": due})
+                    continue
             try:
                 after = tr.spec_after(p, tr.edits_of(x))
             except tr.TrialError as e:
                 pr.event(p, x["id"], "superseded", {"why": f"its edit no longer applies ({e})"})
                 out["verdicts"].append({"id": x["id"], "verdict": "superseded", "why": str(e)})
                 continue
-            since = x.get("made") or x.get("created") or now
             nd = needs(p, spec, after, x, since, pol.hold_out, pol.warm_up)
             if x["state"] == "checked":
                 pr.event(p, x["id"], "testing", {"testing": now, "hold_out": nd["needs"], "judged_by": by,
                                                   "judging": {k: nd[k] for k in ("stocks", "goals", "tau", "warm_up", "needs")}})
                 out["testing"] += 1
             held = now - since
-            looked = float(x.get("looked") or 0.0)            # held, when it was last looked at and could not be told
-            if held < nd["needs"] or held < looked + nd["needs"] or judged >= most:
-                out["waiting"].append({"id": x["id"], "held": held, "needs": max(nd["needs"], looked + nd["needs"])})
+            reach = recorded(p, spec, nd["stocks"], now)
+            stalled = reach is not None and reach <= since + looked     # no reading of what it touches since the last look
+            if held < nd["needs"] or held < looked + nd["needs"] or judged >= most or stalled:
+                due = max(nd["needs"], looked + nd["needs"])
+                out["waiting"].append({"id": x["id"], "held": now - since, "needs": due,
+                                       **({"record": reach - since} if stalled else {})})
                 continue
             judged += 1
             results = [compare(p, spec, after, a, b, nd["warm_up"], nd["stocks"], nd["goals"])
@@ -352,6 +374,32 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
         out["accepted"] += 1
         break
     return out
+
+
+def recorded(p, spec: Spec, stocks: list[str], now: float) -> float | None:
+    """How far the record of these stocks reaches (their sensors' newest reading, up to ``now``); None when none of
+    them is read by a sensor."""
+    out = None
+    for ref in stocks:
+        st = spec.stocks.get(ref.split(".", 1)[1]) if ref.startswith("stock.") else None
+        for s in (st.sensors.values() if st is not None else ()):
+            got = p.measurements.latest(s.series, now)
+            if got and (out is None or got[0] > out):
+                out = got[0]
+    return out
+
+
+def pause(got: dict, every: float, idle: int) -> float:
+    """How long the judge waits before its next pass, after one that returned ``got`` (``idle``: the passes in a row
+    before it that moved nothing): its ``every`` when it moved something, or a change is due by the clock; else
+    until the first change waiting is due, or longer each idle pass, never more than ``IDLE_MOST`` times its every."""
+    if got.get("verdicts") or any(got.get(k) for k in PORTS):
+        return every
+    longest = every * IDLE_MOST
+    due = [w["needs"] - w["held"] for w in got.get("waiting") or [] if "record" not in w]
+    if due:
+        return min(longest, max(every, min(due)))
+    return min(longest, every * 2 ** (idle + 1))
 
 
 def removes(x: dict) -> bool:
