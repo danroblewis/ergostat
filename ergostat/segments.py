@@ -37,6 +37,7 @@ from pathlib import Path
 
 SEAL = 32768              # events per sealed segment
 BLOCK = 512               # lines per gzip block
+BLOCK_BYTES = 32 << 20    # blocks kept read, by the size of their text (a demo's events can be kilobytes each)
 BLOOM_BITS = 10           # per id: about one false hit in a hundred, with K hashes
 BLOOM_K = 7
 COLS = (("seq", "q"), ("time", "d"), ("item", "i"), ("type", "I"), ("by_item", "I"), ("by_type", "I"), ("pos", "I"))
@@ -239,7 +240,8 @@ class Segments:
         self._head_off, self._head_ino = 0, None
         self._segs: list[Segment] = []
         self._dir_stamp = None
-        self._blocks: OrderedDict = OrderedDict()
+        self._blocks: OrderedDict = OrderedDict()          # (segment, block): (its lines, their size), at most BLOCK_BYTES
+        self._block_bytes = 0
         self._open_cols: OrderedDict = OrderedDict()
         self._tallies: OrderedDict = OrderedDict()
         self._sync()
@@ -331,15 +333,17 @@ class Segments:
             got = self._blocks.get(key)
             if got is not None:
                 self._blocks.move_to_end(key)
-                return got
+                return got[0]
         off, n = s.blocks[b]
         with open(s.gz(), "rb") as f:
             f.seek(off)
-            evs = [x for x in gzip.decompress(f.read(n)).decode().splitlines() if x]   # parsed when read: never shared
+            text = gzip.decompress(f.read(n)).decode()
+        evs = [x for x in text.splitlines() if x]                  # parsed when read: never shared
         with self._lock:
-            self._blocks[key] = evs
-            while len(self._blocks) > 256:
-                self._blocks.popitem(last=False)
+            self._blocks[key] = (evs, len(text))
+            self._block_bytes += len(text)
+            while len(self._blocks) > 1 and (len(self._blocks) > 256 or self._block_bytes > BLOCK_BYTES):
+                self._block_bytes -= self._blocks.popitem(last=False)[1][1]
         return evs
 
     def _event(self, s: Segment, row: int) -> dict:
