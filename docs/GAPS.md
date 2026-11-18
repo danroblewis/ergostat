@@ -50,8 +50,10 @@ review). Newest decisions from the owner first within each section.
 
 ## Bugs
 
-- **YAML 1.1 readings** (open): `9:30` is read as 570, `010` as 8, `1e3` as text; `check` should warn and the
-  format should pin one YAML version.
+- **YAML 1.1 readings** (done, `modelfix`): `check` warns on every plain value YAML 1.1 and 1.2 read differently
+  (`yaml-1.1`, at its file and line, with the quoted form to write; shown beside errors too). The format follows
+  YAML 1.2's core schema (SPEC §2, *Which YAML*); loading with 1.2 semantics is planned after one release of the
+  warnings. No example or demo was flagged.
 - **`where:` compares strings** (open): a field holding `1.0` does not match `1`.
 - **Listing projects writes `repo.json` into other projects' state folders** (open).
 - **`try_use` trials can leave Claude sessions running** (open).

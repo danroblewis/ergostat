@@ -77,6 +77,17 @@ out, never written.
 
 - The main file is `ergostat.yaml` at the root of the project. YAML 1.2; a JSON file is also
   valid YAML and is accepted.
+- **Which YAML.** *Decided* (2026-11-18): the format follows **YAML 1.2's core schema**. The files are read
+  with PyYAML, which follows YAML 1.1, and the two read some plain (unquoted) values differently: 1.1 reads
+  `9:30` as 570 and `18:00` as 1080 (base 60), `010` as 8 (octal), `1_000` as 1000, `0b101` as 5 and
+  `2026-11-18` as a date, and leaves `1e3` and `0o17` as text; 1.2 reads the first five as text, `010` as 10,
+  `1e3` as 1000 and `0o17` as 15. `yes`, `no`, `on` and `off` are already text, as in 1.2 (only `true` and
+  `false` are booleans), but any 1.1 reader takes them for booleans. Today `check` warns on every such value
+  (**yaml-1.1**, a finding, shown beside the errors too), with its file and line, what it is read as and the
+  form to write (`"9:30"` quoted for the text). *Planned:* after one release of these warnings, the loader reads
+  times, octals, underscores, binaries, dates and exponents as YAML 1.2 does (a resolver change in
+  `spec/load.py`, the same in the template loader), and the warning is dropped for every value it would then
+  read as written. Until then, quote a time or a date, and write numbers in plain decimal.
 - `include:` names more files (paths or globs, relative to the including file). Included files
   may include others. All files share one namespace.
 - Each top-level section is a map keyed by name; maps from all files are merged. **Defining a
