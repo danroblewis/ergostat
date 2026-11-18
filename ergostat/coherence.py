@@ -255,10 +255,16 @@ def compare(spec, events, since: float | None = None, until: float | None = None
             k = w.kind_of.get(id)
             if k not in moves:
                 continue
+            pairs = []
             for (_t0, a, _, _), (_t1, b, eid, _) in w._pairs(id, steps):
                 if b == pm.END:
                     continue
                 p = None if a == pm.START else a
+                if pairs and pairs[-1][0] is None and pairs[-1][1] == p and pairs[-1][2] == eid:
+                    pairs[-1] = (None, b, eid)        # its first event moved it at once: it arrived in that state
+                    continue
+                pairs.append((p, b, eid))
+            for p, b, eid in pairs:
                 moves[k][(p, b)] += 1
                 items[k].add(id)
                 by[k].setdefault((p, b), Counter())[_who(spec, w, eid, looked)] += 1
@@ -277,7 +283,7 @@ def compare(spec, events, since: float | None = None, until: float | None = None
 
     for k in sorted(set(built) | set(state_kinds), key=lambda x: list(spec.items).index(x) if x in spec.items else 99):
         sc = scores.setdefault(k, Score())
-        n_moves = sum(n for (p, s), n in window_moves.get(k, Counter()).items() if p is not None)
+        n_moves = sum(window_moves.get(k, Counter()).values())          # arrivals too: each is a move from outside
         n_items = len(items.get(k, ()))
         need = None
         if events is None or w is None:
@@ -289,7 +295,7 @@ def compare(spec, events, since: float | None = None, until: float | None = None
             if n_items < MIN_ITEMS:
                 parts.append(f"{MIN_ITEMS - n_items} more item{'s' if MIN_ITEMS - n_items != 1 else ''}")
             need = f"{' and '.join(parts)} of {k} in the window (has {n_moves} move{'s' if n_moves != 1 else ''} of " \
-                   f"{n_items} item{'s' if n_items != 1 else ''}; needs {MIN_MOVES} of {MIN_ITEMS})"
+                   f"{n_items} item{'s' if n_items != 1 else ''}; needs {MIN_MOVES} moves of {MIN_ITEMS} items)"
         kinds_info[k] = {"moves": n_moves, "items": n_items, "needs": need, "chained": k in built}
         if k not in built:
             if need is None and n_moves:
@@ -501,10 +507,11 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                 ms = {moved_by.get(f) or ch.mover(f) for f in carriers}
                 blocks = sorted({m[1] for m in ms if m and m[0] == "block" and spec.blocks[m[1]].type != "external"})
                 ok = not blocks or any(m and m[0] in ("outside", "lease") for m in ms)
-                if not ok and wk == "collector" and any(b in active for b in blocks):
-                    ok = True                         # the block acted in the world, and the collector saw its effect
+                if not ok and wk in ("collector", "outside") and any(b in active or spec.blocks[b].type == "person"
+                                                                      for b in blocks):
+                    ok = True                         # the block acted in the world (a person may, unasked), and it was seen
                     for b in blocks:
-                        if b in active:
+                        if b in active or spec.blocks[b].type == "person":
                             acted.setdefault(b, Counter())[(p, s)] += n
                 sc.add("blocks-process", ok)
                 if not ok:
@@ -546,20 +553,25 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                                                          f"{', '.join(outs)} did not move") + ")",
                                      bl.where, level="note"))
                 continue
-            sc.add("blocks-process", False)
             others = Counter()
             for (p, s), who in by[k].items():
                 if (t and p in t.at) or ch.carrying(p, s) & set(outs):
                     for x, n in who.items():
-                        others[_said(x)] += n
+                        if x[0] != "ergostat":
+                            others[_said(x)] += n
+            there = (f"{work} arrived at {', '.join(t.at)}" if t and work else ", ".join(moved) + " moved")
+            what = f"takes them at {', '.join(t.at)}" if t else f"out: {', '.join(outs)}"
+            if not others:
+                found.append(Finding("blocks-process", "not-seen-acting", k, f"block.{bl.name}",
+                                     f"block {bl.name}: declared to move items of {k} ({what}); there was work for it in "
+                                     f"the window ({there}) and none was moved on yet, by it or anything else: it may be "
+                                     f"working on them, held, or waiting for an approval", bl.where, level="note"))
+                continue
+            sc.add("blocks-process", False)
             did = ", ".join(f"{w_} {n} time{'s' if n != 1 else ''}" for w_, n in others.most_common(3))
             found.append(Finding("blocks-process", "declared-not-seen-acting", k, f"block.{bl.name}",
-                                 f"block {bl.name}: declared to move items of {k} ("
-                                 + (f"takes them at {', '.join(t.at)}" if t else f"out: {', '.join(outs)}")
-                                 + "), and there was work for it in the window ("
-                                 + (f"{work} arrived at {', '.join(t.at)}" if t and work else ", ".join(moved) + " moved")
-                                 + "), but no run of it moved any" + (f": they were moved by {did}" if did else ""),
-                                 bl.where,
+                                 f"block {bl.name}: declared to move items of {k} ({what}), and there was work for it in the "
+                                 f"window ({there}), but no run of it moved any: they were moved by {did}", bl.where,
                                  fix="if it runs, its events are not recorded as its own (an event line from its run, or "
                                      "$ERGOSTAT_CMD event --add during the run, so causedby names it); if something else "
                                      "does the work, the model should say so (that block's out:, or an external block)"))
@@ -676,6 +688,8 @@ def score_line(k: str, x: dict) -> str:
     if x.get("needs") and not x["compared"]:
         return f"{k}: needs {x['needs']}"
     a, c = x["agree"], x["compared"]
+    if not c:
+        return f"{k}: nothing to compare" + ("" if x.get("chained") else " (no chain of state stocks models it)")
     tail = f"; the record not compared yet: needs {x['needs']}" if x.get("needs") else ""
     return f"{k}: {a} of {c} agree ({round(100 * a / c) if c else 100}%){tail}"
 
