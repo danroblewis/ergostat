@@ -356,6 +356,9 @@ def factory(a) -> dict:
     work = Path(tempfile.mkdtemp(prefix="latbench-tf-", dir=a.work))
     d, home = work / "ticket-factory", work / "home"
     shutil.copytree(a.factory, d, ignore=shutil.ignore_patterns("run", "reports", "factory.conf", "__pycache__"))
+    if a.auto_gates:                                      # every class promoted: no person in the loop
+        f = d / "factory/actions.yaml"
+        f.write_text(f.read_text().replace("gate: approve", "gate: auto"))
     env = {"TF_OFFLINE": "1", "TF_MAX_OPEN": str(a.tickets), "TF_ERGOSTAT": f"{PY} -m ergostat"}
     for kv in a.set or []:
         k, _, v = kv.partition("=")
@@ -383,7 +386,8 @@ def factory(a) -> dict:
     res = factory_breakdown(evs, t_start)
     (work / "events.json").write_text(json.dumps(evs, default=str))
     row = write(a.out, {"bench": "factory", "label": a.label, "tickets": a.tickets, "minutes": a.minutes,
-                        "set": a.set or [], "max_threads": watch.threads, "max_procs": watch.procs, "killed": watch.killed,
+                        "set": a.set or [], "auto_gates": a.auto_gates, "max_threads": watch.threads,
+                        "max_procs": watch.procs, "killed": watch.killed,
                         **res})
     if a.keep:
         print(f"kept: {work}")
@@ -596,6 +600,7 @@ def main() -> int:
     ap.add_argument("--tickets", type=int, default=3)
     ap.add_argument("--minutes", type=float, default=6.0)
     ap.add_argument("--set", action="append", help="a factory setting, KEY=VALUE (TF_KEY)")
+    ap.add_argument("--auto-gates", action="store_true", help="factory: every gated action promoted to auto")
     a = ap.parse_args()
     if not 8791 <= a.port <= 8799:
         raise SystemExit("ports 8791-8799 only")
