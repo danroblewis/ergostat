@@ -34,8 +34,9 @@ async function pageLoops(main) {
     const w = windowNote();
     cap.textContent = w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "";
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
-    // how each loop is doing, as a control engineer reads its scope (control.js): asked for now and then, not every tick
-    if (!perf.at || Date.now() - perf.at > 30000) {
+    // how each loop is doing, as a control engineer reads its scope (control.js), over the last day of record: asked
+    // for every 5 minutes, not every tick (each is an identification on the server, up to a second or two, for every loop)
+    if (!perf.at || Date.now() - perf.at > 300000) {
       perf.at = Date.now();
       for (const [n] of rows) loopControl(n).then((d) => { perf[n] = performanceWord(d); if (cells[n]) cells[n].textContent = perf[n]; }).catch(() => {});
     }
