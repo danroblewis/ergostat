@@ -33,7 +33,7 @@ PEAK, FLOOR, TAU_Q = 0.55, 0.04, 16.0
 FAST_SHARE = 0.25                  # wrong in a way the tests show (a red test on the mainline, found within the hour)
 RUN_MEDIAN, RUN_SIGMA = 1.5, 0.5   # a run's length, lognormal (hours)
 P_STALL = 0.12                     # a run that falls silent and never finishes (RM6: 5 of 41 never finished, 7 silent)
-QUIET_RATE, QUIET = 0.25, (10 / 60, 45 / 60)   # a sound run's long silences: how often, how long (hours)
+QUIET_RATE, QUIET = 0.1, (10 / 60, 45 / 60)   # a sound run's long silences: how often, how long (hours)
 DISCOVERY = {"fast": 1.5, "work": 0.035, "owner": 0.07}   # per hour: by the tests, by later work, by the owner
 LINES = {"direction": 150, "proposed": 250, "removal": 20}
 INITIAL_CODE, INITIAL_FEATURES = 20000, 100
@@ -264,9 +264,10 @@ class Plant:
             # code inflation: each change the AI workers land teaches the next to write a little more (their
             # recipes, examples and standing rules unrevised); consolidation revises them (07 LP10)
             code["inflation"] = min(1.0, code["inflation"] + 0.002)
+        if "landed" not in it:                                   # delivered for the first time
+            self.count(f"accepted-{it['origin']}")
         it["landed"] = self.t
         self.count("accepted")
-        self.count(f"accepted-{it['origin']}")
         if it.get("wrong"):
             self.count("escaped")
             self.s["hidden"].append(i)
@@ -421,7 +422,7 @@ class Plant:
         was made before and lost at a cut, it is a repeat."""
         n = len(self.s["corr"]) + 1
         lost = sum(1 for c in self.s["corr"].values() if c["state"] == "lost" and c["dir"] == it["dir"])
-        repeat = lost > 0 and self.u("repeat", n) < lost / (lost + 4)
+        repeat = lost > 0 and self.u("repeat", n) < lost / (lost + 10)
         self.s["corr"][str(n)] = {"t": self.t, "dir": it["dir"], "state": "window", "repeat": repeat,
                                   "checkable": self.u("checkable", n) < 0.6}
         self.count("corrections")
@@ -462,7 +463,7 @@ class Plant:
             # inflated past what its features are worth for long enough (RM3: two weeks late)
             if self.cv8() > 1.35:
                 o["bloated_since"] = o.get("bloated_since") or self.t
-                if self.t - o["bloated_since"] > 10 * 24:
+                if self.t - o["bloated_since"] > 14 * 24:
                     took = round(0.7 * self.s["code"]["low"])
                     self.s["code"]["lines"] -= took
                     self.s["code"]["low"] -= took
@@ -487,7 +488,7 @@ class Plant:
         acts = self.s["m"].get(str(int(self.t)), {}).get("accepted", 0)
         inflow = 0.0
         if self.running() or self.present():
-            inflow = 6_000 + (14_000 + 4 * 3_500) * self.present() + 5_000 * self.running() + 8_000 * min(acts, 4)
+            inflow = 4_000 + (10_000 + 3_000 * 3.5) * self.present() + 3_000 * self.running() + 5_000 * min(acts, 4)
             reads = 13 * inflow / 100_000
         w["tokens"] += inflow * dt
         self.count("context-in", inflow * dt)
@@ -522,6 +523,6 @@ def fresh(seed: int = 1, policy: str = "designed") -> dict:
     return {"seed": seed, "policy": policy, "t": 0.0, "n": 0, "n_runs": 0, "items": {}, "runs": {}, "hidden": [],
             "dir": {"k": -1}, "dirs": [], "incidents": [],
             "code": {"lines": INITIAL_CODE, "low": 0, "features": INITIAL_FEATURES, "inflation": 0.0},
-            "window": {"on": policy == "harness", "tokens": 128_000 if policy == "harness" else 0, "last_cut": None},
+            "window": {"on": policy.startswith("harness"), "tokens": 128_000 if policy == "harness" else 0, "last_cut": None},
             "corr": {}, "owner": {"queue": [], "decisions": 0.0, "was_present": False},
             "ctrl": {}, "m": {}, "log": {}, "feed": []}

@@ -67,9 +67,9 @@ def main() -> int:
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
     for seed in a.seed:
-        for pol in (["harness", "designed"] if a.policy == "both" else [a.policy]):
+        for pol in (["harness", "designed", "designed/quality"] if a.policy == "both" else [a.policy]):
             r = run(pol, a.days, seed)
-            (a.out / f"{pol}-{seed}.json").write_text(json.dumps(r))
+            (a.out / f"{pol.replace('/', '-no-')}-{seed}.json").write_text(json.dumps(r))
             print(f"{pol} seed {seed}: {summary(r)}", flush=True)
     return 0
 

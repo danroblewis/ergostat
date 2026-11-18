@@ -36,6 +36,7 @@ S5 = 3                                    # LP7: blockers open at most
 S1 = 4                                    # LP7: interruptions a day
 B0, BG = 0.3, 0.2                         # LP6: the admission bar b = b0 + g · waiting / capacity
 ENTER, LEAVE, DWELL = 1.3, 1.1, 7 * 24    # LP10: consolidation's hysteresis and dwell
+DORMANT = 5 * 24.0                        # LP9: a rule whose direction is past and quiet this long is obsolete
 RETIRE_AFTER = 48.0                       # LP9: a correction absorbed into a check that held this long is retired
 
 # The observer's prior for x̂4 (06 §2): the quality fraction against direction age, as L5 identified it from the
@@ -123,7 +124,7 @@ def h_watch(p: Plant) -> dict:
     dt = p.t - ctrl(p).get("watch_t", p.t)
     ctrl(p)["watch_t"] = p.t
     running = p.running()
-    rate = 2.5 if p.present() else 0.9 / max(1.0, running / 2)
+    rate = 2.5 if p.present() else 1.2 / max(1.0, running / 3)
     for r, run in list(p.s["runs"].items()):
         if run["stall_at"] is not None and p.t >= run["stall_at"] and p.chance(rate, dt, "notice", r, round(p.t * 30)):
             p.expire(r, "noticed")                             # salvaged: what it left is committed, the rest redone
@@ -345,6 +346,9 @@ def d_externalise(p: Plant) -> dict:
         elif c["state"] == "rule" and c["checkable"] and p.t - c["written"] >= RETIRE_AFTER:
             p.retire(k, "absorbed into a check that held")
             out["retired"] += 1
+        elif c["state"] == "rule" and c["dir"] < p.s["dir"]["k"] and p.t - c["written"] >= DORMANT:
+            p.retire(k, "dormant: its direction's work is done")    # flagged in the design; retired here
+            out["retired"] += 1
     return out
 
 
@@ -421,4 +425,9 @@ LOOPS = {
 
 
 def law(policy: str, loop: str):
-    return LOOPS[loop][1 if policy == "harness" else 2]
+    """The law of one loop under a policy: `harness`, `designed`, or a variant of the design with loops named after
+    a slash held at their starting values (`designed/quality`: LP2 off, h* held at 0.1)."""
+    base, _, off = policy.partition("/")
+    if base == "harness" or loop in off.split(","):
+        return LOOPS[loop][1]
+    return LOOPS[loop][2]
