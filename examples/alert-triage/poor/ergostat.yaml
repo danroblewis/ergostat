@@ -1,0 +1,92 @@
+# The same alert triage, modelled badly on purpose: the "before" pictures of docs/MODELLING-WELL.md. It runs, and
+# `ergostat check` loads it, but no professional would recognise its diagrams. What is wrong, part by part:
+# stocks named for steps, not quantities, with no units and no descriptions, each draining to a cloud (no chain);
+# an age modelled as a stock; no equations; goals with no tolerance; one AI block doing three steps; the on-call
+# modelled as a program; a made-up process model; event types in three spellings; and the facets opened by a
+# scheduled sweep, so nothing records what caused them and the Process view draws no fan-out or join.
+name: alert-triage-poor
+items:
+  alert:
+    id: alert/*
+    states: [new, triaged, investigating, summarising, escalated, closed, dismissed]
+    on:
+      alert.fired: new
+      triage.finished: triaged
+      alerts.noise: dismissed
+      alert.investigate: investigating
+      investigation.complete: summarising
+      summary.written: closed
+      alert.escalate: escalated
+      alert.handled: closed
+      alert.reopened: triaged
+  facet:
+    id: facet/*
+    states: [open, done]
+    on:
+      facet.opened: open
+      facet.complete: done
+
+stocks:
+  triage:
+    sensor: {items: alert, state: new, every: 2s}
+  investigate:
+    sensor: {items: alert, state: [triaged, investigating], every: 2s}
+  summarise:
+    sensor: {items: alert, state: summarising, every: 2s}
+  oncall:
+    sensor: {items: alert, state: escalated, every: 2s}
+  age:
+    sensor: {items: alert, state: new, measure: oldest, every: 2s}
+  facets:
+    sensor: {items: facet, state: open, every: 2s}
+
+flows:
+  in:
+    to: triage
+    sensor: {run: python3 ../bin/watch.py, every: 2s}
+  triaged:
+    from: triage
+    sensor: {items: alert, entering: triaged}
+  investigated:
+    from: investigate
+    sensor: {items: alert, entering: summarising}
+  summarised:
+    from: summarise
+    sensor: {items: alert, entering: closed}
+  escalations:
+    from: oncall
+    sensor: {items: alert, entering: closed}
+  facet-work:
+    from: facets
+    sensor: {items: facet, entering: done}
+
+goals:
+  triage-ok:
+    stock: triage
+    hold: "<= 0"
+    process: {gain: 1, time-constant: 10s}
+  alerts-ok:
+    stock: investigate
+    hold: "<= 100"
+  oncall-ok:
+    stock: oncall
+    hold: "<= 0"
+
+blocks:
+  handle-alerts:
+    type: ai
+    prompt: "Triage, investigate and summarise the alert."
+    run: python3 bin/poor.py handle
+    takes: {kind: alert, at: [new, summarising], to: [triaged, dismissed, closed, escalated]}
+    pool: 4
+    goal: triage-ok
+    out: flow.triaged
+  sweep:
+    type: program
+    run: python3 bin/poor.py sweep
+    every: 3s
+    out: flow.facet-work
+  oncall:
+    type: program
+    run: "true"
+    goal: oncall-ok
