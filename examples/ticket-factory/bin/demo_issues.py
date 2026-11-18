@@ -42,7 +42,7 @@ def main() -> int:
         for i in range(a.n):
             title = a.title or f"[ergostat demo] {time.strftime('%H:%M')} test ticket {len(made) + 1}"
             body = (a.body or BODIES[(len(made)) % len(BODIES)]) + f"\n\nrepo: {conf('GITHUB_REPO')}"
-            key = jira.create(title, body.replace("{key}", "the ticket's key"))
+            key = jira.create(title, body.replace("{key}", "<this issue's key>"))
             made.append({"key": key, "created": time.time()})
             write_json(CREATED, made)
             print(f"created {key}: {title}")
