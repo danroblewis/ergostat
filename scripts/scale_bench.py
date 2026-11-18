@@ -175,6 +175,7 @@ class Counter(list):
         return 0
 
 limit = float(sys.argv[2])
+longest = int(sys.argv[3])
 nxt = {}
 for x in ls:
     nxt.setdefault(x.source, []).append(x)
@@ -186,13 +187,13 @@ c = Counter(t1 + limit)
 done_starts = 0
 try:
     for start in nodes:
-        causal._from(start, ls, nxt, 10**6, 10**12, c)
+        causal._from(start, ls, nxt, longest, 10**12, c)
         done_starts += 1
     finished = True
 except Stop:
     finished = False
 print(json.dumps({"all_loops": c.n, "all_finished": finished, "all_s": round(time.time() - t1, 2),
-                  "starts_done": done_starts, "starts": len(nodes), "by_length": c.lengths, "marks": c.marks[-40:]}))
+                  "starts_done": done_starts, "starts": len(nodes), "by_length": c.lengths, "marks": c.marks[-40:], "longest": longest}))
 '''
 
 
@@ -244,7 +245,7 @@ def cmd_loops(a) -> None:
     for n in a.n:
         d = a.work / a.variant if a.variant else model(a.work, n, a.fresh)
         try:
-            p = subprocess.run([PY, "-c", LOOPS, str(d), str(a.limit)], env=env_for(a.work, n), capture_output=True,
+            p = subprocess.run([PY, "-c", LOOPS, str(d), str(a.limit), str(a.longest)], env=env_for(a.work, n), capture_output=True,
                                text=True, timeout=a.limit + 900)
             got = {}
             for line in p.stdout.splitlines():
@@ -374,8 +375,7 @@ def summarise(sd: Path | None, timings: Path, samples: list[dict], started: floa
     if sd is not None:
         out.update(record_stats(sd))
         out["final_state_mb"] = dir_mb(sd)                # after the stop: the write-ahead logs folded in
-        if out.get("record_span_s"):
-            out["final_mb_per_h"] = round(out["final_state_mb"] * 3600 / out["record_span_s"], 1)
+        out["final_mb_per_h"] = round(out["final_state_mb"] * 3600 / max(1.0, samples[-1]["t"] if samples else 1.0), 1)
     return out
 
 
@@ -468,11 +468,12 @@ def serve(work: Path, n: int, port: int) -> subprocess.Popen:
     return proc
 
 
-APIS = [("status", "status"), ("graph", "graph"), ("graph-dynamics", "graph?view=dynamics"),
-        ("graph-blocks", "graph?view=blocks"), ("graph-system", "graph?view=dynamics&system=sys-001"),
-        ("graph-opened", "graph?view=dynamics&open=org,area-01,sys-001"),
-        ("graph-all-open", "graph?view=dynamics&open=*"), ("loops", "loops"), ("items", "items"),
-        ("exercised", "exercised")]
+APIS = [("loops", "loops"), ("items", "items"), ("exercised", "exercised"),          # cheapest first: an answer that
+        ("graph-system", "graph?view=dynamics&system=sys-001"),                       # runs out of time keeps the server
+        ("graph-opened", "graph?view=dynamics&open=org,area-01,sys-001"),              # busy for the next
+        ("graph", "graph"), ("graph-dynamics", "graph?view=dynamics"), ("graph-all-open", "graph?view=dynamics&open=*"),
+        ("graph-blocks", "graph?view=blocks"),
+        ("status", "status")]                       # last: its first answer runs check's findings
 PAGES = [("diagram", "/diagram", True), ("diagram-system", "/diagram?system=sys-001", True),
          ("diagram-opened", "/diagram?open=org,area-01,sys-001", True), ("blocks", "/diagram?view=blocks", True),
          ("diagram-all-open", "/diagram?open=*", True),
@@ -543,8 +544,20 @@ def cmd_model(a) -> None:
     for n in a.n:
         d = model(a.work, n)
         e = env_for(a.work, n)
-        for name, args in (("fit", ["fit", "--json"]), ("proposals", ["proposals", "--json"]), ("judge", ["judge", "--json"]),
-                           ("measure-fit", ["measure", "ergostat.model.fit"])):
+        steps = [("fit", ["fit", "--json"]), ("proposals", ["proposals", "--json"]), ("judge", ["judge", "--json"]),
+                 ("measure-fit", ["measure", "ergostat.model.fit"])]
+        edit = subprocess.run([PY, "-m", "ergostat", "improve", "--edit-value", "w0001-new-time=5s", "--json"], cwd=d, env=e,
+                              capture_output=True, text=True, timeout=a.timeout)
+        if edit.returncode == 0 and edit.stdout.strip().startswith("{"):     # one change, checked and measured as a block's
+            line = {"kind": "parameter", "parts": ["parameter.w0001-new-time"], "title": "scale test: one value changed",
+                    "edit": {"files": json.loads(edit.stdout)["files"]}, "confidence": 0.3,
+                    "reasons": [{"says": "the record may say another value; let the record after it judge",
+                                 "evidence": "rule:parameter-assessment"}]}
+            (a.work / f"propose{n}.json").write_text(json.dumps(line))
+            steps.append(("try-change", ["improve", "--try", str(a.work / f"propose{n}.json"), "--json"]))
+        if a.only:
+            steps = [x for x in steps if x[0] in a.only.split(",")]
+        for name, args in steps:
             got = timed_l([PY, "-m", "ergostat", *args], d, e, a.timeout)
             out = got.pop("out", "") or ""
             got["out_bytes"] = len(out)
@@ -617,6 +630,11 @@ def cmd_chart(a) -> None:
     chart("engine-cpu", "Engine CPU by part", "CPU seconds per second", {
         k: best("engine", lambda r, k=k: (r.get("parts") or {}).get(k, {}).get("cpu_per_s") or None) for k in
         [p for p in ("evaluate", "sensor.items", "fold.catch_up", "dispatch.tick", "dispatch.watch", "run_block", "judge") if p in parts]})
+    span = lambda r: 60 * (r.get("minutes") or 10)              # noqa: E731
+    chart("reads", "Sensor readings per second", "readings per second", {
+        "declared (every sensor on its schedule)": best("counts", lambda r: r.get("reads_per_s")),
+        "achieved by the engine": best("engine", lambda r: sum(v["calls"] for k, v in (r.get("parts") or {}).items()
+                                                               if k.startswith("sensor.")) / span(r) or None)})
     chart("engine-rss", "Engine memory", "MB", {"RSS (max)": best("engine", lambda r: r.get("rss_mb_max"))})
     chart("dispatch", "Dispatch latency: item ready to lease taken", "seconds", {
         "p50": best("engine", lambda r: r.get("dispatch_p50_s")), "p95": best("engine", lambda r: r.get("dispatch_p95_s"))})
@@ -644,10 +662,12 @@ def main() -> None:
     ap.add_argument("--fresh", action="store_true", help="generate the models again")
     ap.add_argument("--timeout", type=float, default=1800)
     ap.add_argument("--limit", type=float, default=120, help="loops: seconds to enumerate every loop for")
+    ap.add_argument("--longest", type=int, default=10**6, help="loops: the longest loop enumerated (ergostat's own: 30)")
     ap.add_argument("--minutes", type=float, default=10)
     ap.add_argument("--every", type=float, default=15)
     ap.add_argument("--keep", action="store_true", help="engine: keep the record from the last run")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--only", help="model: only these steps (fit,proposals,judge,measure-fit,try-change)")
     ap.add_argument("--variant", help="loops: the model in WORK/VARIANT (scale_model.py --handoff ...) instead of WORK/n<N>")
     a = ap.parse_args()
     a.work.mkdir(parents=True, exist_ok=True)
