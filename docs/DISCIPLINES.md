@@ -31,10 +31,10 @@ extra to write. ✅ drawn today · ⏳ being built · ◻ possible from data alr
 | Workflow / lean / Kanban | Cumulative flow diagram per item kind | ✅ Items page |
 | Workflow / lean / Kanban | Cycle-time scatter / lead-time distribution | ✅ scatter · ◻ histogram |
 | Queueing theory | Little's law check per stock (level = throughput × time in stock) | ◻ |
-| SRE / observability | Evidence map of what passed between machines | ✅ Wiring (to be replaced) |
+| SRE / observability | Evidence map of what passed between machines | ◻ (was the Wiring view; `system --wiring` on the command line) |
 | SRE / observability | Service map with rate, errors, duration per edge | ◻ |
 | Software engineering | Sequence diagram of one item's or incident's chain (`causedby`) | ◻ |
-| Process mining | Process map (directly-follows graph) per item kind | ◻ |
+| Process mining | Process map (directly-follows graph) per item kind, object-centric: what one kind's work caused in another's | ✅ Process view |
 | Discrete-event simulation | Event graph with observed delays and probabilities | ◻ |
 | Statistical process control | Control charts (Shewhart, CUSUM, EWMA) on any measured part | ◻ |
 | Documents | Item files: briefs, drafts, transcripts rendered | ✅ |
