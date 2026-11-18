@@ -13,9 +13,9 @@ import yaml
 
 FILE = "ergostat.yaml"
 SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
-            "loops", "claims", "contexts", "actions", "workspaces")
+            "loops", "claims", "contexts", "actions", "workspaces", "leases")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
-            "contexts": "context", "actions": "action", "workspaces": "workspace"}
+            "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of"}
 TOP = {"name", "include", "keep", "messages", "storage", "defaults", *SECTIONS}
 
 

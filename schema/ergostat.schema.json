@@ -340,6 +340,31 @@
         "$ref": "#/$defs/workspace_pool"
       },
       "description": "Pools of workspaces (git worktrees) AI blocks' sessions work in, one per item (SPEC \u00a712k)"
+    },
+    "leases": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Each tier's lease terms, over the defaults (SPEC \u00a79.5)",
+      "properties": {
+        "person": {
+          "$ref": "#/$defs/lease_terms"
+        },
+        "ai": {
+          "$ref": "#/$defs/lease_terms"
+        },
+        "narrow-ai": {
+          "$ref": "#/$defs/lease_terms"
+        },
+        "decision": {
+          "$ref": "#/$defs/lease_terms"
+        },
+        "program": {
+          "$ref": "#/$defs/lease_terms"
+        },
+        "rule": {
+          "$ref": "#/$defs/lease_terms"
+        }
+      }
     }
   },
   "$defs": {
@@ -1280,6 +1305,17 @@
             }
           ],
           "description": "An ai block: the gated actions its session may ask for"
+        },
+        "takes": {
+          "$ref": "#/$defs/takes"
+        },
+        "pool": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The most runs of a block that takes items at once"
+        },
+        "lease": {
+          "$ref": "#/$defs/lease_terms"
         }
       },
       "additionalProperties": false,
@@ -1671,6 +1707,9 @@
               "first"
             ]
           }
+        },
+        "lease": {
+          "$ref": "#/$defs/lease_terms"
         }
       }
     },
@@ -2275,6 +2314,65 @@
         },
         "description": {
           "type": "string"
+        }
+      }
+    },
+    "lease_terms": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A lease's terms (SPEC \u00a79.5): how long a run may be silent before its lease expires, and the counted attempts before the item is a dead letter",
+      "properties": {
+        "ttl": {
+          "$ref": "#/$defs/duration"
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "takes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "at"
+      ],
+      "description": "The items a block works (SPEC \u00a79.5): one run per item of the kind that reaches a state in at:, each leasing its item",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/name"
+        },
+        "at": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/name"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/name"
+              },
+              "minItems": 1
+            }
+          ]
+        },
+        "to": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/name"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/name"
+              },
+              "minItems": 1
+            }
+          ]
+        },
+        "where": {
+          "type": "object"
         }
       }
     }

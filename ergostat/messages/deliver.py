@@ -124,7 +124,7 @@ def kinds_worked(spec: Spec, b: Block) -> set[str]:
             x = spec.measured(of.kind).get(of.name)
             if x is not None:
                 parts.append(x)
-    out = set()
+    out = {b.takes.kind} if getattr(b, "takes", None) else set()   # the kind it takes (SPEC §9.5)
     for x in parts:
         for s in getattr(x, "sensors", {}).values():
             if s.items and s.items.get("kind"):
@@ -132,9 +132,10 @@ def kinds_worked(spec: Spec, b: Block) -> set[str]:
     return out
 
 
-def for_context(p, spec: Spec, b: Block, run: str) -> list[dict]:
+def for_context(p, spec: Spec, b: Block, run: str, item: str | None = None) -> list[dict]:
     """The messages awaiting delivery that this run of ``b`` is given in its context (``messages``): routed to the
-    block, or to open items of a kind it works on, and not to a run going now; each recorded delivered (``context``)."""
+    block, or to open items of a kind it works on (a run on a leased ``item``: to that item only), and not to a run
+    going now; each recorded delivered (``context``)."""
     waiting = awaiting(p, since=time.time() - 7 * 86400)
     if not waiting:
         return []
@@ -146,7 +147,8 @@ def for_context(p, spec: Spec, b: Block, run: str) -> list[dict]:
             if t.get("run") in live or t.get("finished"):
                 continue
             item_kind = route_kind(spec, t.get("item"))
-            if t.get("block") == b.name or (t.get("item") and not t.get("block") and item_kind in kinds):
+            if t.get("block") == b.name or (t.get("item") and not t.get("block") and item_kind in kinds
+                                            and (item is None or t.get("item") == item)):
                 delivered(p, m, "context", run=run, block=b.name, item=t.get("item"))
                 out.append(_brief(m))
                 break

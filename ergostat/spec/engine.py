@@ -104,6 +104,8 @@ class Engine:
         self.stopping_runs: set[str] = set()           # blocks whose run the owner asked to stop
         self.ingester = None
         self.lease_seq = 0                             # the newest lease event taken to the workspace pools (SPEC §12k)
+        from ..leases.dispatch import Dispatcher
+        self.dispatch = Dispatcher(self)              # blocks that take items: a run per item, each leased (SPEC §9.5)
 
     # ---- signals
 
@@ -224,7 +226,7 @@ class Engine:
         return (max(vals) if vals else 0.0), detail
 
     def due(self, b: Block) -> bool:
-        if b.name in self.running:
+        if b.name in self.running or b.takes:                  # a block that takes items is started by them (leases)
             return False
         cmd, _ = self.command_of(b)
         if cmd is None:
@@ -374,24 +376,32 @@ class Engine:
         return cmd, prompt + AI_FOOTER + payload
 
     def run_block(self, b: Block, why: str, extra: dict | None = None, spec: Spec | None = None,
-                  version: str | None = None) -> list[str]:
+                  version: str | None = None, item: str | None = None, fence: int | None = None,
+                  run_id: str | None = None, cause: str | None = None, outcome: dict | None = None) -> list[str]:
         """One run: give it its inputs and command, record what it says. Returns the flows it moved. ``extra``: more
-        for its input (a classifier's message and candidates). ``spec`` and ``version``: the model it started under
-        (the one loaded now, by default); it finishes under it, whatever the model becomes meanwhile."""
+        for its input (a classifier's message and candidates; a leased item and its lease). ``spec`` and ``version``:
+        the model it started under (the one loaded now, by default); it finishes under it, whatever the model becomes
+        meanwhile. ``item``, ``fence``: the item it holds a lease on (SPEC §9.5), and the lease's fencing number;
+        ``run_id``, the run's id, named by the lease before it starts; ``cause``, what started it; ``outcome`` is filled
+        with how it ended (exit, note, nack)."""
         spec, version = spec or self.spec, version or self.version
         ctx = {**self.context(b, why), **(extra or {})}
         ev = self.p.events
         commander = (ctx.get("command") or {}).get("from")          # caused by the decision or run that commanded it
-        begun = ev.add("agent.started", item=b.name, source=SOURCE, causedby=self.cause.get(commander) if commander else None,
+        begun = ev.add("agent.started", item=b.name, source=SOURCE, id=run_id,
+                       causedby=cause or (self.cause.get(commander) if commander else None),
                        data={"trigger": why, "command": ctx.get("command"), "model": version,
-                             **({"timeout": b.timeout} if b.timeout else {})})
+                             **({"timeout": b.timeout} if b.timeout else {}),
+                             **({"item": item, "lease": fence} if item else {})})
+        if outcome is not None:
+            outcome["run"] = begun["id"]
         self.last_run[b.name] = begun["id"]
         if "command" in ctx:
             ev.add("block.commanded", item=b.name, source=SOURCE, causedby=begun["id"], data=ctx["command"])
         if why != "message":                                     # the owner's messages that waited for it (SPEC §12h)
             try:
                 from ..messages import deliver
-                msgs = deliver.for_context(self.p, spec, b, begun["id"])
+                msgs = deliver.for_context(self.p, spec, b, begun["id"], item=item)
             except Exception as e:                               # a message never stops a run
                 self.say(f"{b.name}: messages: {type(e).__name__}: {e}")
                 msgs = []
@@ -404,12 +414,17 @@ class Engine:
                "ERGOSTAT_CMD": f"{shlex.quote(sys.executable)} -m ergostat -C {shlex.quote(str(spec.root))}"}
         if "command" in ctx:
             env["ERGOSTAT_COMMAND"] = f"{ctx['command']['amount']:g}"
+        if item:                                                 # the item it holds, and its lease (SPEC §9.5)
+            lease = ctx.get("lease") or {}
+            env.update({"ERGOSTAT_ITEM": item, "ERGOSTAT_LEASE": str(fence or ""),
+                        "ERGOSTAT_LEASE_TTL": f"{float(lease.get('ttl') or 0):g}",
+                        "ERGOSTAT_LEASE_EXPIRES": f"{float(lease.get('expires') or 0):.3f}"})
         if (ctx.get("command") or {}).get("review"):             # a review asked of it: the ask is answered by this run
             with self.lock:
                 frm = ctx["command"].get("from")
                 if frm in self.outputs:
                     self.outputs[frm][f"review-{b.name}"] = 0.0
-        given = self.start_context(b, ctx, begun["id"], env, spec) if b.params.get("context") else None
+        given = self.start_context(b, ctx, begun["id"], env, spec, item) if b.params.get("context") else None
         ready, refused = self.place(b, ctx, begun["id"], env, given, spec)   # its folder, and what its session may use
         cmd, stdin = self.program(b, ctx, spec)                   # (its input, with the context it was given)
         if given and b.type == "ai" and "run" not in b.params:   # claude -p itself: the context after its own prompt
@@ -454,7 +469,7 @@ class Engine:
                         lf.write(raw + "\n")
                 if code and not note:
                     note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
-        said = Said(self, b, begun["id"], spec, version)
+        said = Said(self, b, begun["id"], spec, version, item=item, fence=fence)
         if code is not None:                                     # what it said it moved counts, even if it then failed
             for raw in lines:
                 said.line(raw)
@@ -464,6 +479,7 @@ class Engine:
             said.counts["proposed"] = sum(1 for x in said.proposals if x["status"] != "not-proposed")
             said.counts["not_proposed"] = sum(1 for x in said.proposals if x["status"] == "not-proposed")
         data = {"exit": code, "seconds": round(time.time() - started, 3), "why": why, **said.counts,
+                **({"item": item} if item else {}),
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
                 **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {}), "model": version,
                 **({"model_now": self.version} if self.version != version else {})}   # it ran across a change
@@ -475,6 +491,8 @@ class Engine:
             except Exception as e:
                 self.say(f"{b.name}: workspace: {type(e).__name__}: {e}")
         failed = bool(note) and note not in (old.STOPPED_WITH_US, STOPPED_BY_OWNER)
+        if outcome is not None:
+            outcome.update({"exit": code, "note": note, "nack": said.nack, "stopped": note in (old.STOPPED_WITH_US, STOPPED_BY_OWNER)})
         ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
         if failed:
             self.say(f"{b.name}: {note}")
@@ -510,7 +528,8 @@ class Engine:
                 ctx["actions"] = got
         return ready, None
 
-    def start_context(self, b: Block, ctx: dict, run: str, env: dict, spec: Spec | None = None) -> dict | None:
+    def start_context(self, b: Block, ctx: dict, run: str, env: dict, spec: Spec | None = None,
+                      leased: str | None = None) -> dict | None:
         """The block's recipe rendered for this run's item (SPEC §12j): written to a file in the state directory,
         recorded as a use (``ergostat.context.used``), named in its input (``context``) and its environment
         (``ERGOSTAT_CONTEXT``, the file; ``_RECIPE``, ``_HASH``, ``_ITEM``) for the session it starts."""
@@ -519,7 +538,7 @@ class Engine:
         want = b.params["context"]
         spec = spec or self.spec
         try:
-            item = rd.item_for(self.p, spec, want.get("item"), (ctx.get("command") or {}).get("item"), b.name, run)
+            item = rd.item_for(self.p, spec, want.get("item"), leased or (ctx.get("command") or {}).get("item"), b.name, run)
             r = rd.render(self.p, spec, want["recipe"], item, b.name, run)
         except Exception as e:                                   # a context that cannot be rendered: the run goes on without
             self.p.events.add("agent.refused", item=b.name, source=SOURCE, causedby=run,
@@ -808,6 +827,8 @@ class Engine:
         threading.Thread(target=self._schedule, daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop
+        if self.dispatch.blocks:                                 # blocks that take items, and their leases (SPEC §9.5)
+            threading.Thread(target=self.dispatch.run, daemon=True).start()
         self._ingest()
 
     def _ingest(self) -> None:
@@ -903,11 +924,16 @@ class Engine:
 
 
 class Said:
-    """A machine block's output lines, recorded: what it moved, what it commanded, what it decided."""
+    """A machine block's output lines, recorded: what it moved, what it commanded, what it decided. A run that holds a
+    lease on an item (``item``, ``fence``): its event lines are about that item unless they name another, refused once
+    its lease has ended (fencing), and it may give the item back (``{"nack": ...}``)."""
 
-    def __init__(self, eng: Engine, b: Block, run_id: str, spec: Spec | None = None, version: str | None = None):
+    def __init__(self, eng: Engine, b: Block, run_id: str, spec: Spec | None = None, version: str | None = None,
+                 item: str | None = None, fence: int | None = None):
         self.e, self.b, self.run_id = eng, b, run_id
         self.spec, self.version = spec or eng.spec, version or eng.version   # the model its run started under
+        self.item, self.fence = item, fence
+        self.nack: dict | None = None
         self.counts = {"openings": 0, "commands": 0, "decisions": 0, "events": 0, "refused": 0}
         self.proposals: list[dict] = []          # what it proposed for the model, and what became of each
         self.claims: list[dict] = []             # what it said it did, recorded, to be checked after the run
@@ -949,6 +975,19 @@ class Said:
             self.bare = float(raw)
         except ValueError:
             pass
+
+    def fenced(self) -> str | None:
+        """Why this run may no longer say anything about its item: its lease ended (it expired), and the item's lease
+        is another's, or none."""
+        from ..leases.fold import held
+        from .items import one
+        it = one(self.e.p.events, self.e.spec, self.item)
+        lease = held(it.fields) if it else None
+        if lease and lease.get("holder") == self.run_id and lease.get("fence") == self.fence:
+            return None
+        now = (it.fields.get("lease") or {}).get("fence") if it else None
+        return (f"its lease on {self.item} (fence {self.fence}) has ended; the lease now is {now or 'none'}: "
+                f"refused, not applied (fencing)")
 
     def finish(self) -> None:
         if self.bare is not None and not self.json_lines:
@@ -1026,8 +1065,24 @@ class Said:
                 return
             self.counts["answers"] = self.counts.get("answers", 0) + 1
             return
+        if "nack" in obj:                             # it gives its item back (SPEC §9.5)
+            got = nack_of(obj["nack"])
+            if self.item is None or got is None:
+                self.refuse(obj, "a nack line gives back the item the run holds a lease on: {\"nack\": \"why\"}, or "
+                                 "{\"nack\": {\"why\": ..., \"after\": \"30m\", \"count\": false}}" if self.item else
+                            "a nack line gives back a leased item, and this run holds none")
+                return
+            self.nack = got
+            return
         if "event" in obj:
             t = obj["event"]
+            if self.item and not obj.get("item"):     # a run on a leased item: its lines are about it by default
+                obj = {**obj, "item": self.item}
+            if self.item and obj.get("item") == self.item:
+                why = self.fenced()
+                if why:
+                    self.refuse(obj, why)
+                    return
             if isinstance(t, str) and t.startswith(("ergostat.decision.", "ergostat.correction.")):
                 from ..decisions import acts  # a proposal of the owner's intent: checked like any
                 try:
@@ -1093,6 +1148,25 @@ class Said:
             self.e.p.measurements.add(f"sensor/{r.name}.set", amount)
             ev.add("auxiliary.set", item=r.name, source=self.b.name, causedby=self.run_id, data={"value": amount})
             self.counts["commands"] += 1
+
+
+def nack_of(raw) -> dict | None:
+    """``{"nack": "why"}``, or ``{"nack": {"why": ..., "after": "30m", "count": false}}``: the item given back, why, not
+    taken again before ``after`` (a duration), and whether the attempt counts (by default it does)."""
+    if isinstance(raw, str):
+        return {"why": raw}
+    if not isinstance(raw, dict):
+        return None
+    out: dict = {"why": str(raw.get("why") or "given back")}
+    if raw.get("after") is not None:
+        from ..durations import DurationError, parse_duration
+        try:
+            out["after"] = parse_duration(raw["after"], "after")
+        except DurationError:
+            return None
+    if raw.get("count") is not None:
+        out["count"] = bool(raw["count"])
+    return out
 
 
 def observations(text: str) -> tuple[list[dict], list[str]]:

@@ -60,7 +60,7 @@ COMMON = {"system", "description"}
 SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "every", "cron", "timeout", "parse", "unit", "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred"}
@@ -74,7 +74,7 @@ AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "descripti
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role"}
-MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode"}
+MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
     "program": MACHINE_COMMON | LAW_KEYS | {"run", "parse", "goal", "until", "review"},
@@ -599,9 +599,10 @@ class Compiler:
                              raw.at(f), "bad-fold")
                 else:
                     rules[f] = str(rule)
+        from ..leases import compile as leases
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
-                        fold=rules)
+                        fold=rules, lease=leases.terms(self, m, "lease", what))
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""
@@ -897,6 +898,9 @@ class Compiler:
             spec.items[ACTION] = action_kind()               # built in, when there are any: gated actions asked for
         if spec.workspaces:
             spec.items[WORKSPACE] = workspace_kind()         # built in, when there are any: the pools' workspaces
+        from ..leases import compile as leases
+        leases.section(self, spec)                           # leases: each tier's terms (SPEC §9.5)
+        leases.check(self, spec)                             # what each block takes: its kind gains leased and dead
         judges = [b for b in spec.blocks.values() if b.type == "judge" and b.params.get("judge", "model") == "model"]
         for b in judges[1:]:
             self.err(f"block {b.name}: one judge of changes to the model at most ({judges[0].name} is one)", b.where,
@@ -1297,7 +1301,11 @@ class Compiler:
             self.err(f"{what}: a {t} block takes one input", m.at("in"), "too-many-inputs")
         if t in ONE_INPUT and not inputs:
             self.err(f"{what}: a {t} block needs in: (the signal it works on)", m.where, "missing-key")
+        from ..leases import compile as leases
+        lease_keys = {"takes": leases.takes(self, m, what), "pool": leases.pool(self, m, what),
+                      "lease": leases.terms(self, m, "lease", what)} if t in MACHINE else {}
         return Block(name, t, inputs, outs, params, signs=signs, agent=m.get("agent") and str(m["agent"]), role=role,
+                     **lease_keys,
                      system=self.system("blocks", name, m), description=self.text(m, "description"),
                      every=self.duration(m, "every", what), cron=self.cron(m, "cron", what),
                      timeout=self.duration(m, "timeout", what, 300.0), max=self.number(m, "max", what) if t in MACHINE else None,
