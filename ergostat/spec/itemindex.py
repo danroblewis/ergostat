@@ -333,6 +333,10 @@ class Index:
         k = self.known(kind)
         return {self.name(s) for (s,) in self.db.execute("select state from reached where kind = ?", (k,))}
 
+    def changed_after(self, t: float | None) -> bool:
+        """Whether any item has an event after ``t`` (else nothing need be left out as of then)."""
+        return t is not None and self.db.execute("select 1 from items where newest > ? limit 1", (t,)).fetchone() is not None
+
     def _where(self, kind: str | None, states=None, until: float | None = None) -> tuple[str, list]:
         """``kind`` (None: any; ``""``: items of no kind), in ``states`` (None: any; ``""`` among them: no state)."""
         sql, args = [], []
@@ -348,8 +352,8 @@ class Index:
             if any(not x for x in states):
                 parts.append("state is null")
             sql.append("(" + " or ".join(parts) + ")" if parts else "0")
-        if until is not None:
-            sql.append("newest <= ?")
+        if until is not None and self.changed_after(until):
+            sql.append("newest <= ?")                       # only when some item changed since: else it reads every row
             args.append(until)
         return (" where " + " and ".join(sql)) if sql else "", args
 
@@ -422,6 +426,8 @@ class Index:
         k, s = self.known(kind), self.known(state)
         if k == -1 or s == -1:
             return []
+        if not self.changed_after(until_newest):
+            until_newest = None
         extra, args = "", [k, s, since, until]
         if until_newest is not None:
             extra = " and i.newest <= ?"
@@ -435,6 +441,8 @@ class Index:
         k, s = self.known(kind), self.known(state)
         if k == -1 or s == -1:
             return 0
+        if not self.changed_after(until_newest):
+            until_newest = None
         if until_newest is None:
             return self.db.execute(f"select count(*) from moves where kind = ? and {col} = ? and t <= ?", (k, s, before)).fetchone()[0]
         return self.db.execute(f"select count(*) from moves m join items i on i.rid = m.rid where m.kind = ? and m.{col} = ? "
@@ -448,12 +456,16 @@ class Index:
         ds = [x for x in (self.known(d) for d in done) if x != -1]
         if k == -1 or not ds:
             return []
-        extra, args = "", [k, *ds]
+        if not self.changed_after(until_newest):
+            until_newest = None
+        into = f"m.kind = ? and m.dst in ({','.join('?' * len(ds))})"
+        extra, args = "", [k, *ds, k, *ds, since, until]
         if until_newest is not None:
             extra = " and i.newest <= ?"
             args.append(until_newest)
-        rows = self.db.execute(f"select i.id, min(m.t), i.arrived from moves m join items i on i.rid = m.rid where m.kind = ? "
-                               f"and m.dst in ({','.join('?' * len(ds))}){extra} group by m.rid", args).fetchall()
+        rows = self.db.execute(                       # those that finished in the window: then when each first did
+            f"select i.id, min(m.t), i.arrived from moves m join items i on i.rid = m.rid where {into} and m.rid in "
+            f"(select m.rid from moves m where {into} and m.t >= ? and m.t <= ?){extra} group by m.rid", args).fetchall()
         return [r for r in rows if since <= r[1] <= until]
 
     def candidates(self) -> list[tuple[str, str | None, float]]:

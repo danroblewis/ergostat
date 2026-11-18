@@ -669,14 +669,31 @@ class Segments:
                 x[1] = max(x[1], t)
         segs, hd, hn = self._hstate()
         for s in segs:
-            if s.t_min > until:
+            if s.t_min > until or not any(ty.startswith(lo) for ty in s.type_span):
                 continue
-            c = None
-            for ty, (a, n) in s.type_span.items():
-                if ty.startswith(lo):
-                    c = c or self._cols(s)
-                    for r in c["by_type"][a:a + n]:
-                        note(s.items[c["item"][r]], c["time"][r])
+            whole = s.t_max <= until
+            got = self._tallies.get((s.name, "counted", lo)) if whole else None
+            if got is None:                               # a sealed segment never changes: what it counts is kept
+                got = {}
+                c = self._cols(s)
+                for ty, (a, n) in s.type_span.items():
+                    if ty.startswith(lo):
+                        for r in c["by_type"][a:a + n]:
+                            t = c["time"][r]
+                            if t <= until:
+                                it = s.items[c["item"][r]]
+                                x = got.get(it, (0, -INF))
+                                got[it] = (x[0] + 1, max(x[1], t))
+                if whole:
+                    with self._lock:
+                        self._tallies[(s.name, "counted", lo)] = got
+                        while len(self._tallies) > 20_000:
+                            self._tallies.popitem(last=False)
+            for it, (k, t) in got.items():
+                if it is not None:
+                    x = out.setdefault(it, [0, -INF])
+                    x[0] += k
+                    x[1] = max(x[1], t)
         for ty, ix in list(hd.by_type.items()):          # the head's, by its index of types
             if ty.startswith(lo):
                 for i in ix:
