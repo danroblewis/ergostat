@@ -187,6 +187,9 @@ The Dynamics view is the workflow you declared; the Process view is the one that
 - [ ] Switch **Events** on to see what happens between the moves (comments, retries, a session's
       steps), and **Times** to see where the time goes. Click a line to list the items that took it.
 
+The first four are what `ergostat check`'s Coherence section checks for you, with the fix for each
+(below); the map is where you see why.
+
 ### Reconcile the three views
 
 The Process view (what the items did), the Dynamics view (the chain you modelled) and the Blocks view
