@@ -234,13 +234,21 @@ the code. Once they are on main:
 
 ## Costs measured
 
-Runs against the real services (Jira Cloud project SCRUM, the test repository, a local Prometheus), one
-test issue each:
+Runs on 2026-11-18 against the real services (Jira Cloud project SCRUM, the test repository
+`danroblewis/orchestra-live-delivery` and its GitHub Actions CI, a Prometheus of the example's own), one test
+issue each, created by `bin/demo_issues.py` and deleted after:
 
-| Run | The work | Sessions | AI cost | Cycle time | Re-pings | CI failures | Merged |
-|---|---|---|---|---|---|---|---|
-| stand-in | `AI=standin` | 3 | $0 | (filled in by the run) | | | |
-| haiku | `AI=claude`, `AI_MODEL=haiku` | | | | | | |
+| Run | The work | Gates | AI sessions | AI cost | Cycle time | Re-pings | Review rounds | CI | End |
+|---|---|---|---|---|---|---|---|---|---|
+| stand-in | `AI=standin` | every write `approve` (approved by hand), `github.merge` denied | (stand-in) | $0 | 16.1 min | 1 | 1 | failed, fixed, green | stopped at approved, issue Done |
+| haiku | `AI=claude`, haiku | all promoted to `auto` | 2 (work, review) | $0.0074 | 3.1 min | 1 | 1 | green first time | merged, issue Done |
+| haiku, CI failing | `AI=claude`, haiku (the issue asked for an empty placeholder) | all `auto` | 3 (work, review, CI fix) | $0.0149 | 3.7 min | 1 | 1 | failed; haiku read the log and removed the empty file; green | merged, issue Done |
+
+A haiku session here costs half a cent to a cent and a half and takes 4 to 15 seconds; the cycle time is set
+by the people (the scripted reviewer's `TEAMMATE_AFTER`, two minutes) and by CI, not by the AI. The stand-in
+run's record also shows a bug since fixed: while its CI re-run waited, the steps went round `ci` and `fix-ci`
+28 times (its `ci_failures`), because a re-run was judged by the run it replaced; CI is now judged only once
+the re-run has started, and `fix-ci` stops after `CI_MAX_FIXES`.
 
 ## Files
 
