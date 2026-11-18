@@ -2,7 +2,8 @@
 ``ergostat.action.requested`` (by the session's block: the action, its class and gate, its arguments, the command
 rendered, the block, run, session, work item and folder), then ``.approved`` (by the owner, or ``gate`` for an
 ``auto`` one) or ``.denied`` (by the owner, or ``gate``), then ``.ran`` or ``.failed`` (its exit and output), and
-``.delivered`` (its result given to the session, or to the block's next run). The record is the only store."""
+``.delivered`` (its result given to the session, the program's run that asked, or the block's next run); a program's
+action held and asked for again by a later run is ``.reasked`` (that run, and its lease's ``fence``). The record is the only store."""
 
 from __future__ import annotations
 
