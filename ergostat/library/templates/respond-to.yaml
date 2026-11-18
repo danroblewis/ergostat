@@ -39,7 +39,7 @@ params:
     stand-in: a made-up feed
     description: the source, an HTTP endpoint answering with records as JSON ({cursor} in it is replaced)
   headers:
-    type: list
+    type: strings
     description: 'HTTP headers for url, each "Name: value"; $VARIABLES are read from the environment'
   id-field:
     default: id

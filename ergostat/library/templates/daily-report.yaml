@@ -1,0 +1,87 @@
+template: daily-report
+description: A report written on a schedule (every working morning, by default), kept as a file and recorded as an item.
+reading: |
+  System dynamics: a stock of reports due, filled by the clock (each scheduled time that passes: an inflow nothing
+  in the model controls) and drained as each is written into a running total of reports. The schedule is the
+  disturbance.
+  Control: an on-off loop on the reports due, setpoint 0: once a scheduled time has passed with no report since,
+  the writer runs, renders the report and keeps it. It is feedback, not a timer: a report missed while the machine
+  slept is written as soon as it is back, and one already written is never written twice.
+example: |
+  uses:
+    morning:
+      use: daily-report
+      with:
+        cron: "30 8 * * 1-5"          # 08:30 on working days
+        render: ./bin/morning.sh       # prints the report as Markdown
+params:
+  kind:
+    type: name
+    default: ${name}
+    description: the kind of item; one item a report, KIND/<date>
+  cron:
+    type: cron
+    default: "0 9 * * 1-5"
+    description: when a report is due, as cron's five fields (minute hour day month weekday), local time; quote it
+  render:
+    type: command
+    stand-in: a summary of the model now (its goals off and its items)
+    description: the command that prints the report as Markdown, given the block's input on standard input
+  folder:
+    default: reports
+    description: where the reports are kept, in the project's folder
+  title:
+    default: ""
+    description: the report's title (default, the kind and the date)
+  check:
+    type: duration
+    default: 1m
+    description: how often the clock is read
+items:
+  ${kind}:
+    id: ${kind}/*
+    description: one report, its file in report
+    states: [written]
+    on:
+      ${kind}.written: written
+    show: [title, report]
+    formats:
+      report: markdown
+stocks:
+  due:
+    unit: reports
+    description: a scheduled time has passed and no report was written since (1), or not (0)
+    sensor:
+      run: ${lib} due --kind ${kind} --cron ${cron:quote}
+      every: ${check}
+  written:
+    unit: reports
+    cumulative: true
+    description: every report written, a running total
+    sensor:
+      items: ${kind}
+      every: 30s
+flows:
+  falling-due:
+    to: due
+    description: scheduled times passing (the clock)
+    sensor:
+      changes: rises
+      over: 1h
+  writing:
+    from: due
+    to: written
+    description: reports written
+goals:
+  on-time:
+    stock: due
+    hold: "<= 0"
+    description: every scheduled report is written
+blocks:
+  writer:
+    type: program
+    goal: on-time
+    run: ${lib} report --kind ${kind} --cron ${cron:quote} --render ${render:quote} --folder ${folder:quote} --title ${title:quote} --flow flow.writing
+    max: 1
+    every: 30s
+    out: flow.writing

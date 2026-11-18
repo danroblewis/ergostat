@@ -24,7 +24,7 @@ def library(doc) -> dict[str, tp.Template]:
     got = getattr(doc, "_templates", None)
     if got is None:
         got, notes = tp.find_all(doc.library)
-        doc._templates = got
+        doc._templates, doc._template_notes = got, notes
         for n in notes:
             doc.problems.append(Problem("finding", n, None, "template-library"))
     return got
@@ -60,8 +60,9 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
     lib = library(doc)
     t = lib.get(str(entry["use"]))
     if t is None:
+        broken = [n for n in getattr(doc, "_template_notes", []) if f"{entry['use']}." in n or "/" + str(entry["use"]) in n]
         return err(f"no template {entry['use']!r} (there are: {', '.join(sorted(lib)) or 'none'}; the owner's own come "
-                   f"from library: in the main file)", at, "unknown-template")
+                   f"from library: in the main file)" + (f"; {broken[0]}" if broken else ""), at, "unknown-template")
     given = entry.get("with") or {}
     if not isinstance(given, dict):
         return err("with: a map of the template's parameters", entry.at("with"), "not-a-map")
@@ -89,7 +90,7 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
     doc.uses[inst] = {"template": t.name, "path": str(t.path), "owners": not t.builtin, "values": made.values,
                       "standins": made.standins, "where": via, "within": parent, "depth": depth}
     if made.standins:
-        doc.problems.append(Problem("finding", f"use {inst}: runs on free stand-ins for {', '.join(made.standins)}; give "
-                                    f"them under with: to run it for real", via, "template-stand-in", f"system.{inst}"))
+        doc.problems.append(Problem("finding", f"use {inst}: runs on free stand-ins ({'; '.join(made.standins)}); "
+                                    f"give them under with: to run it for real", via, "template-stand-in", f"system.{inst}"))
     for sub, e in (made.sections.get("uses") or {}).items():
         one(doc, sub, as_map(e, via), via, {}, put, depth + 1, inst)

@@ -97,6 +97,11 @@ def strip(x):
 
 def truthy(x) -> bool:
     x = strip(x)
+    if isinstance(x, str):
+        for op in (" == ", " != "):
+            if op in x:
+                a, b = (y.strip() for y in x.split(op, 1))
+                return (a == b) == (op == " == ")
     if x is None or x is False:
         return False
     if isinstance(x, str):
@@ -314,6 +319,11 @@ def coerce(p: Param, v):
         if raw not in ("program", "ai", "person", "external"):
             raise ExpandError(f"{p.name}: program, ai, person or external (not {raw!r})")
         return raw
+    if t == "strings":
+        raw = [raw] if isinstance(raw, str) else raw
+        if not isinstance(raw, list) or not all(isinstance(x, str | int | float) for x in raw):
+            raise ExpandError(f"{p.name}: a list of words")
+        return [str(x) for x in raw]
     if t in ("list", "names"):
         if not isinstance(raw, list):
             raise ExpandError(f"{p.name}: a list")
@@ -377,7 +387,8 @@ def params(t: Template, given: dict, scope: Scope) -> tuple[dict, list[str], lis
     for n, p in t.params.items():
         if p.standin:
             groups.setdefault(str(p.standin), []).append(n)
-    standins = [f"{' or '.join(ns)} ({what})" for what, ns in groups.items() if not any(values.get(x) not in (None, "", []) for x in ns)]
+    standins = [f"{' or '.join(ns)}: {what}" for what, ns in groups.items()
+                if not any(x in given and not (forced and t.params[x].standin) for x in ns)]
     return values, standins, wrong
 
 

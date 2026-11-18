@@ -1,7 +1,7 @@
 """The event collector: a sensor on an arrival flow.
 
     collect --name INST --kind K [--command CMD | --url URL | --stand-in RATE] [--id-field id] [--event arrived]
-            [--event-field event] [--cursor-field F] [--path a.b] [--header 'K: V'] [--changes] [--window 10m]
+            [--event-field event] [--cursor-field F] [--path a.b] [--header 'K: V'] [--field F] [--changes] [--window 10m]
 
 Each poll reads records (a JSON array, an object holding one under ``--path``, or one JSON object per line) from
 the command (run in the project's folder, the cursor in ``$ERGOSTAT_CURSOR``), the URL (``{cursor}`` in it
@@ -113,12 +113,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--cursor-field")
     ap.add_argument("--path")
     ap.add_argument("--header", action="append", default=[])
-    ap.add_argument("--fields", help="the record's fields to keep, comma-separated (default: all)")
+    ap.add_argument("--field", action="append", default=[], help="a record's field to keep (each one; default: all)")
     ap.add_argument("--changes", action="store_true")
     ap.add_argument("--window", type=float, default=600.0, help="seconds")
     ap.add_argument("--timeout", type=float, default=25.0)
     a = ap.parse_args(argv)
-    keep_fields = [f.strip() for f in a.fields.split(",")] if a.fields else None
+    keep_fields = [f.strip() for x in a.field for f in x.split(",") if f.strip()] or None
     with kept(a.name, "collect") as mem:
         cursor = mem.get("cursor")
         if not a.command and not a.url:

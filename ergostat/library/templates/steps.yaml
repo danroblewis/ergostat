@@ -1,0 +1,171 @@
+template: steps
+description: A kind of item worked through a list of steps in order, each step a block bound to its own state; a failing step is retried, then set aside for a person.
+reading: |
+  System dynamics: an aging chain (Sterman ch. 12): one stock for each step (the items waiting at it), each
+  drained into the next by that step's flow, the last into a running total of items done. Items that keep failing
+  leave the chain for a stock set aside.
+  Control: one balancing loop a step, each an on-off controller holding its stock at 0 whose actuator is that
+  step's block: it takes the items in its state, runs the step's command for each, and moves those that succeed to
+  the next state. Retries are bounded (`tries`), then the item is set aside, and a person is asked (`unstick`).
+  The list is extendable: add a step to `steps` and its stock, flow, goal and block follow.
+  Timer-driven, for now: each step block runs on its goal's clock, the items one after another; item-driven
+  dispatch with leases (an item handed to one run, taken back if it goes silent) belongs to the engine, and the
+  steps will take it when it is there.
+example: |
+  uses:
+    tickets:
+      use: steps
+      with:
+        command: ./bin/new-tickets.sh       # the tickets of the type to work on, as JSON records with an id
+        steps:
+          - name: triage
+            run: ./bin/triage.sh            # each step: the item on standard input; exit 0 when done
+          - name: reproduce
+            run: ./bin/reproduce.sh
+          - name: draft-fix
+params:
+  kind:
+    type: name
+    default: ${name}
+    description: the kind of item; ids KIND/<id>; each step moves it with KIND.<step>-done
+  steps:
+    type: list
+    required: true
+    description: 'the steps in order, each a name (lowercase, not done or stuck) or {name, run}: run is its command, given the item on standard input (none: a stand-in that does nothing)'
+  command:
+    type: command
+    stand-in: a made-up feed
+    description: where the items come from, a command printing records as JSON, each with an id
+  url:
+    type: url
+    stand-in: a made-up feed
+    description: where the items come from, an HTTP endpoint answering with records
+  headers:
+    type: strings
+    description: 'HTTP headers for url, each "Name: value"'
+  id-field:
+    default: id
+    description: the field of a record that names it
+  poll:
+    type: duration
+    default: 1m
+    description: how often the source is read
+  stand-in-rate:
+    type: number
+    default: 60
+    description: the stand-in feed's items per hour
+  tries:
+    type: integer
+    default: 3
+    description: how many times a step is tried on an item before it is set aside
+  batch:
+    type: integer
+    default: 5
+    description: the most items one run of a step takes
+  unstick:
+    default: Items were set aside after their step failed every try. Look at each, fix or finish it, then say so.
+    description: what a person is asked about the items set aside; false for nobody
+items:
+  ${kind}:
+    id: ${kind}/*
+    description: an item worked through the steps
+    states:
+      - each: steps
+        value: ${it.name}
+      - done
+      - stuck
+    on:
+      ${kind}.stuck: stuck
+      each:
+        each: steps
+        key: ${kind}.${it.name}-done
+        value: ${it.next}
+    fold:
+      attempts: sum
+      each:
+        each: steps
+        key: tries-${it.name}
+        value: sum
+    show: [title, attempts, error]
+stocks:
+  ${it.name}:
+    each: steps
+    unit: items
+    description: items waiting at step ${it.name}
+    sensor:
+      items: ${kind}
+      state: ${it.name}
+      every: 10s
+  done:
+    unit: items
+    cumulative: true
+    description: items through every step
+    sensor:
+      items: ${kind}
+      state: done
+      every: 30s
+  stuck:
+    unit: items
+    description: items set aside after a step failed every try
+    sensor:
+      items: ${kind}
+      state: stuck
+      every: 10s
+flows:
+  arriving:
+    to: ${steps.first}
+    description: items arriving, as the collector sees them
+    sensor:
+      run: ${lib} collect --name ${name} --kind ${kind} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} --stand-in ${stand-in-rate} --window 600
+      every: ${poll}
+      averages: 10m
+  ${it.name}-done:
+    each: steps
+    from: ${it.name}
+    to: ${it.next}
+    description: items through step ${it.name}
+    sensor:
+      items: ${kind}
+      entering: ${it.next}
+      over: 10m
+  ${it.name}-stuck:
+    each: steps
+    from: ${it.name}
+    to: stuck
+    description: items set aside at step ${it.name}
+    sensor:
+      items: ${kind}
+      entering: stuck
+      where:
+        stuck_at: ${it.name}
+      over: 10m
+  unstuck:
+    if: ${unstick}
+    from: stuck
+    description: items a person finished or fixed
+goals:
+  ${it.name}-clear:
+    each: steps
+    stock: ${it.name}
+    hold: "<= 0"
+    description: nothing waits at step ${it.name}
+  none-stuck:
+    if: ${unstick}
+    stock: stuck
+    hold: "<= 0"
+    description: nothing stays set aside
+blocks:
+  ${it.name}:
+    each: steps
+    type: program
+    goal: ${it.name}-clear
+    run: ${lib} each --kind ${kind} --state ${it.name} --done ${it.name}-done --run ${it.run:quote} --tries ${tries} --max ${batch} --flow flow.${it.name}-done
+    max: ${batch}
+    every: 10s
+    out: flow.${it.name}-done
+  unstick:
+    if: ${unstick}
+    type: person
+    goal: none-stuck
+    ask: ${unstick}
+    out: flow.unstuck

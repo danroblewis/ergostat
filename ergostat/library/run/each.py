@@ -7,9 +7,9 @@ The items of kind K in state S, the longest waiting first, at most N a run (or t
 when that is less): for each, the command is run in the project's folder with the item on standard input (``{id,
 kind, state, fields}``) and in ``$ITEM_ID``, ``$ITEM_KIND``, ``$ITEM_STATE`` and ``$ITEM_FIELDS`` (JSON). The last
 JSON object it prints is folded into the item, and the item moves on (``K.<done>``). A command that fails says so
-on the item (``K.<failed>``, with ``error`` and ``attempts``); after ``--tries`` failures the item is set aside
-(``K.<stuck>``). With no command, the stand-in: it does nothing outside, and says so. What it moved is the count
-of items moved on, along ``--flow``.
+on the item (``K.<failed>``, with ``error``, ``attempts`` and ``tries-<state>``: 1, summed by its kind's fold); after
+``--tries`` failures in one state the item is set aside (``K.<stuck>``, with ``stuck_at``). With no command, the
+stand-in: it does nothing outside, and says so. What it moved is the count of items moved on, along ``--flow``.
 
 *Timer-driven, for now:* the block runs on its goal's clock and takes the items in turn; one run works on them
 one after another, and nothing leases an item to it. Item-driven dispatch, with leases, belongs to the engine."""
@@ -81,10 +81,11 @@ def main(argv: list[str]) -> int:
             say({"event": f"{a.kind}.{a.done}", "item": it.id, "data": data})
             moved += 1
             continue
-        tries = int(it.fields.get("attempts") or 0) + 1
-        say({"event": f"{a.kind}.{a.failed}", "item": it.id, "data": {"error": why, "attempts": 1}})
+        field = f"tries-{it.state}"                          # (a fold: sum in its kind, so tries add up per step)
+        tries = int(it.fields.get(field) or 0) + 1
+        say({"event": f"{a.kind}.{a.failed}", "item": it.id, "data": {"error": why, "attempts": 1, field: 1}})
         if tries >= a.tries:
-            say({"event": f"{a.kind}.{a.stuck}", "item": it.id, "data": {"stuck_after": tries}})
+            say({"event": f"{a.kind}.{a.stuck}", "item": it.id, "data": {"stuck_after": tries, "stuck_at": it.state}})
     say({"out": a.flow, "moved": moved} if a.flow else {"moved": moved})
     if not todo:
         note(f"no {a.kind} in {', '.join(a.state)}")

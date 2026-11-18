@@ -117,6 +117,43 @@ TOOLS = [
      "attention). The same as `ergostat message TEXT --about X`.",
      "inputSchema": _obj({"text": {"type": "string"}, "about": {"type": "array", "items": {"type": "string"}},
                           "by": {"type": "string"}}, ["text"])},
+    {"name": "templates", "description": "The templates a small control system is made from (respond-to, re-ping, "
+     "daily-report, keep-under, steps, collect, and the owner's own from library: folders): each a reusable shape that "
+     "expands into ordinary items, stocks, flows, goals and blocks, one system per use. Without name: the list. With name: "
+     "its parameters (type, default, what stands in when left out), what it is in control theory and system dynamics, "
+     "and an example uses: entry. Read it before add_use.",
+     "inputSchema": _obj({"name": {"type": "string"}})},
+    {"name": "add_use", "description": "Add a use of a template (an instance) to the model: uses: INSTANCE: {use: TEMPLATE, "
+     "with: {params}}, written into file (default ergostat.yaml; a new file is created and included). Without write: true "
+     "nothing is written: it returns the diff, what check says (errors point at the use: line), and the parts it makes "
+     "(named INSTANCE-...). Parameters left out run on free stand-ins (said in the findings). replace: true rewrites an "
+     "instance already in that file. project: another folder (a scratch copy try_use made) instead of this one.",
+     "inputSchema": _obj({"instance": {"type": "string", "description": "lowercase name, like pr-pings"},
+                          "template": {"type": "string"}, "with": {"type": "object"}, "file": {"type": "string"},
+                          "within": {"type": "string", "description": "a system it is part of"},
+                          "description": {"type": "string"}, "replace": {"type": "boolean"}, "write": {"type": "boolean"},
+                          "project": {"type": "string"}}, ["instance", "template"])},
+    {"name": "scaffold", "description": "Write a starting script for one of a template's commands, runnable as it is (a "
+     "stand-in) with a TODO where the real work goes: role source (prints records as JSON, for command:), answer or step "
+     "(works on one item from standard input), measure (prints a number), act (a correction, prints {\"moved\": n}), "
+     "render (prints a report as Markdown), ping (sends one reminder). path: where (relative to the project, or absolute: "
+     "a private folder outside any repository is fine). Returns the command to put under with:.",
+     "inputSchema": _obj({"role": {"type": "string"}, "path": {"type": "string"}, "overwrite": {"type": "boolean"}},
+                         ["role", "path"])},
+    {"name": "try_use", "description": "Try a system on a scratch copy of the project, never the project itself: the "
+     "copy is checked, then run for seconds (default 30) with a record of its own, each of the system's blocks run once "
+     "more at the end; returns what moved (items by state, each block's runs and what it moved, each goal's crossings), "
+     "what failed and why (sensor failures, block logs), and the scratch folder. Give the same arguments as add_use "
+     "(instance, template, with, file) to try a use before it is written, or system: an instance already written. "
+     "standins: true runs every template on its stand-ins.",
+     "inputSchema": _obj({"instance": {"type": "string"}, "template": {"type": "string"}, "with": {"type": "object"},
+                          "file": {"type": "string"}, "within": {"type": "string"}, "system": {"type": "string"},
+                          "seconds": {"type": "number"}, "standins": {"type": "boolean"}})},
+    {"name": "where_drawn", "description": "Where a system (an instance) is drawn: its parts, the diagram pages "
+     "(/diagram?view=dynamics&system=NAME, the stock-and-flow view; view=blocks, the control view), with the page's address "
+     "when ergostat is running, and the system drawn as text (as ergostat system NAME, and its loops as blocks). project: "
+     "a scratch copy try_use made, to show it before it is written.",
+     "inputSchema": _obj({"system": {"type": "string"}, "project": {"type": "string"}}, ["system"])},
     {"name": "messages", "description": "The owner's messages and what became of each (routed, delivered, unrouted, "
      "answered, missed), with the counts; or one (id) with its routing and deliveries.",
      "inputSchema": _obj({"id": {"type": "string"}})},
@@ -159,6 +196,8 @@ class Server:
         if name == "spec":
             from . import helpdocs
             return _text(helpdocs.read("spec") or "the specification is docs/SPEC.md in the ergostat repository")
+        if name in ("templates", "add_use", "scaffold", "try_use", "where_drawn"):
+            return self.author(name, a)
         if name == "improve_model":
             from . import helpdocs
             skill, guide = helpdocs.read("improve-model"), helpdocs.read("modelling")
@@ -314,6 +353,31 @@ class Server:
             return _text(out)
         return {**_text(f"no tool {name!r}"), "isError": True}
 
+    def author(self, name: str, a: dict) -> dict:
+        """The authoring tools (ergostat/library/author.py): templates, add_use, scaffold, try_use, where_drawn."""
+        from .library import author as au
+        path = mdl.find(self.root)
+        root = Path(a["project"]).expanduser() if a.get("project") else (path.parent if path else self.root)
+        try:
+            if name == "templates":
+                return _text(au.library(root, a.get("name") or None))
+            if name == "scaffold":
+                return _text(au.scaffold(root, str(a.get("role") or ""), str(a.get("path") or ""), bool(a.get("overwrite"))))
+            if name == "where_drawn":
+                return _text(au.where(root, str(a["system"])))
+            args = {"instance": a.get("instance"), "template": a.get("template"), "given": a.get("with") or {},
+                    "file": a.get("file") or None, "within": a.get("within") or None}
+            if name == "add_use":
+                return _text(au.add(root, **args, description=a.get("description") or None, replace=bool(a.get("replace")),
+                                    write=bool(a.get("write"))))
+            change = args if a.get("instance") and a.get("template") else None
+            if change:
+                change["replace"] = True
+            return _text(au.trial(root, a.get("system") or None, float(a.get("seconds") or 30), change,
+                                  standins=bool(a.get("standins"))))
+        except (au.AuthorError, KeyError, ValueError) as e:
+            return {**_text(f"{type(e).__name__}: {e}" if not isinstance(e, au.AuthorError) else str(e)), "isError": True}
+
     def handle(self, msg: dict) -> dict | None:
         mid, method = msg.get("id"), msg.get("method", "")
         if mid is None:                                     # a notification: no answer
@@ -325,8 +389,10 @@ class Server:
                           "serverInfo": {"name": "ergostat", "version": __version__},
                           "instructions": "ergostat runs control loops over scheduled work. Read the format with the "
                                           "spec tool before editing ergostat.yaml; run check after each edit; explain "
-                                          "shows any part in sentences. To review or improve the model, read "
-                                          "improve_model first."}
+                                          "shows any part in sentences. To add a small control system (watch for X and "
+                                          "respond, re-ping, report daily, keep Y under a limit, work an item through "
+                                          "steps, collect from an API), use templates, then add_use, try_use and "
+                                          "where_drawn. To review or improve the model, read improve_model first."}
             elif method == "ping":
                 result = {}
             elif method == "tools/list":

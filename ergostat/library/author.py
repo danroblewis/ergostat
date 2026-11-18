@@ -6,6 +6,7 @@ author on the owner's behalf: it is not a proposal, and nothing is changed until
 from __future__ import annotations
 
 import difflib
+import fnmatch
 import json
 import os
 import shutil
@@ -102,7 +103,17 @@ def placed(text: str, instance: str, entry: list[str], replace: bool) -> str:
 
 
 def _included(root: Path, path: Path) -> bool:
-    return path.resolve() in {f.resolve() for f in _doc(root).files}
+    """Read already, or matched by one of the main file's include: patterns (a new file in job/ for job/*.yaml)."""
+    if path.is_file() and path.resolve() in {f.resolve() for f in _doc(root).files}:
+        return True
+    try:
+        data = yaml.safe_load((root / FILE).read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return False
+    pats = data.get("include") if isinstance(data, dict) else None
+    pats = [pats] if isinstance(pats, str) else pats or []
+    rel = os.path.relpath(path, root)
+    return any(isinstance(p, str) and fnmatch.fnmatch(rel, p) for p in pats)
 
 
 def _include_line(main: Path, rel: str) -> str:
@@ -127,13 +138,14 @@ def _include_line(main: Path, rel: str) -> str:
 def change(root: Path, instance: str, template: str, given: dict | None = None, file: str | None = None,
            within: str | None = None, description: str | None = None, replace: bool = False) -> dict[Path, str]:
     """The files as they would be: path → new text (the instance in ``file``, and the main file including it)."""
+    root = root.resolve()
     main = root / FILE
     target = (root / (file or FILE)).resolve()
     if not target.is_relative_to(root.resolve()):
         raise AuthorError(f"file: {file} is outside the model's folder; templates may live anywhere (library:), the model's files may not")
     old = target.read_text(encoding="utf-8") if target.is_file() else ""
     new = {target: placed(old, instance, entry_text(instance, template, given or {}, within, description), replace)}
-    if target != main.resolve() and not (target.is_file() and _included(root, target)):
+    if target != main.resolve() and not _included(root, target):
         rel = os.path.relpath(target, root)
         new[main.resolve()] = _include_line(main, rel)
     return new
@@ -173,6 +185,7 @@ def checked(root: Path, new: dict[Path, str] | None = None) -> dict:
 def add(root: Path, instance: str, template: str, given: dict | None = None, file: str | None = None,
         within: str | None = None, description: str | None = None, replace: bool = False, write: bool = False) -> dict:
     """The instance, written into ``file`` (or only shown, without ``write``): the diff, and what check says."""
+    root = root.resolve()
     new = change(root, instance, template, given, file, within, description, replace)
     got = checked(root, new)
     spec = got.pop("spec")
@@ -321,6 +334,7 @@ def trial(root: Path, system: str | None = None, seconds: float = 30.0, change_a
           blocks: bool = True, standins: bool = False) -> dict:
     """A copy of the project (with the change, when given), checked, then run for ``seconds`` with a record of its
     own: what moved in the system, what each block did, what failed and why."""
+    root = root.resolve()
     copy = scratch_copy(root)
     if change_args:
         new = change(copy, **change_args)
