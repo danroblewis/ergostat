@@ -197,6 +197,10 @@ def rollup_errors(demo: Path) -> list[str]:
     got = compact(p, now=time.time() + 10 * 365 * 86400)
     out = [f"rolled up, item {i} folds differently ({'with' if tr else 'without'} its transcript)"
            for tr in (False, True) for i, it in folded(tr).items() if before[tr].get(i) != it]
+    for tr in (False, True):                       # the item index (spec/itemindex.py) is the fold of the record
+        idx = {i.id: i.as_dict(moves=True) for i in its.project(p.events, spec, transcript=tr)}
+        out += [f"the item index differs from the record for {i} ({'with' if tr else 'without'} its transcript)"
+                for i in set(idx) | set(before[tr]) if idx.get(i) != before[tr].get(i)][:5]
     out += [f"rolled up, item {i}: {a['total']} events in its full history, not {before[True][i]['events']}"
             for i in before[True] if (a := archived(p, i, n=0)) and a["total"] != before[True][i]["events"]]
     notes.append(f"note: rolled up {got['events']} events of {got['items']} items; every item folds as before")

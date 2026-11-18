@@ -182,7 +182,8 @@ class Index:
             while True:
                 self.db.execute("begin immediate")
                 try:
-                    done = self._step(events, gen, last, skip)
+                    gen, last = events.generation(), events.last_seq()     # read again under the lock: another process
+                    done = self._step(events, gen, last, skip)             # may have folded what came after
                     self.db.execute("commit")
                 except BaseException:
                     self.db.execute("rollback")
