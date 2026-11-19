@@ -365,8 +365,9 @@ function avoidSpec(lay, g) {
     }
   }
   const linkSides = (c) => {
-    const used = pipeSides[c.id] || {}, free = ["up", "down", "left", "right"].filter((d) => !used[d]);
-    const level = ["up", "down"].filter((d) => !(used[d] || []).includes("satellite"));
+    const used = pipeSides[c.id] || {}, sat = (d) => (used[d] || []).includes("satellite");
+    if (!sat("up") && !sat("down")) return ["up", "down"];    // (as before: more points cost the router time)
+    const free = ["up", "down", "left", "right"].filter((d) => !used[d]), level = ["up", "down"].filter((d) => !sat(d));
     return free.length ? free : level.length ? level : ["up", "down"];
   };
   const pinOf = {};                                      // `${line}|${s or t}` -> pin class

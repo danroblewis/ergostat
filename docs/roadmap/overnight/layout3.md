@@ -29,9 +29,11 @@ Done.
 
 **The fix** (avoid.js, dynamics.js):
 
-- **Link points by occupied side.** A stock's link points are on the sides no pipe meets, so a link leaves by the
-  side facing its target. Failing that, they go on its top or bottom where no satellite stands, and only then on
-  its top and bottom as before.
+- **Link points by occupied side.** Where a satellite stands on a stock's top or bottom, its link points move to the
+  sides no pipe meets, so a link leaves by the side facing its target. Failing that, they go on whichever of top and
+  bottom no satellite stands on. Every other stock keeps its points on top and bottom as before. Points on every
+  side of every stock cost the router about 30% on coordinator with everything open (25s against main's 19s
+  under the same load); this costs 19.7s against 18.9s.
 - **Links crossing a satellite.** After routing, a link that crosses a satellite's pipe column (stock edge, valve,
   cloud) is moved past the column's far end. An end stretch gets a 12px stub at its part. A move is made only where
   the link touches no part, runs along no line, stays within the audit's detour bound, and crosses no line of its own
