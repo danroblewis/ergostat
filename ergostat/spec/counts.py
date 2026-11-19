@@ -171,13 +171,16 @@ class Counts:
         shape = (frozenset(groups), frozenset((k, o) for k, (_, o) in windows.items()))
         gen = events.generation() if hasattr(events, "generation") else None
         with self.lock, ix.lock:
-            epoch = ix._meta("epoch")
-            if ix is not self.ix or (epoch, gen, shape) != (self.epoch, self.gen, self.shape) or not self._apply(ix, events, now):
-                self._build(ix, spec, groups, windows, now)
-                self.ix, self.epoch, self.gen, self.shape = ix, epoch, gen, shape
-            if gen is not None and events.generation() != gen:   # rolled up or pruned meanwhile: read whole next time
-                self.gen = None
+            ix.guard(lambda: self._follow(ix, events, spec, gen, shape, groups, windows, now))
         return True
+
+    def _follow(self, ix, events, spec, gen, shape, groups, windows, now: float) -> None:
+        epoch = ix._meta("epoch")                       # (built again when the index was: its epoch is new)
+        if ix is not self.ix or (epoch, gen, shape) != (self.epoch, self.gen, self.shape) or not self._apply(ix, events, now):
+            self._build(ix, spec, groups, windows, now)
+            self.ix, self.epoch, self.gen, self.shape = ix, epoch, gen, shape
+        if gen is not None and events.generation() != gen:   # rolled up or pruned meanwhile: read whole next time
+            self.gen = None
 
     def _build(self, ix, spec, groups: dict, windows: dict, now: float) -> None:
         db = ix.db
