@@ -422,6 +422,7 @@ def factory_breakdown(evs: list[dict], t_start: float) -> dict:
              "gated actions: the approval": 0.0, "gated actions: the engine running it": 0.0,
              "gated actions: the asker seeing it ran": 0.0, "the step's own work": 0.0}
     e2e = []
+    put_off: dict[str, float] = {}                         # by the step that gave the ticket back
     for _item, es in by.items():
         es.sort(key=lambda e: e["seq"])
         found = next((e for e in es if e["type"] == "ticket.found"), None)
@@ -435,6 +436,7 @@ def factory_breakdown(evs: list[dict], t_start: float) -> dict:
                 s["wait"].append(waited)
                 off = max(0.0, min(waited, not_before - free_at)) if not_before else 0.0
                 share["put off after Wait (POLL_EVERY)"] += off
+                put_off[e["data"]["block"]] = put_off.get(e["data"]["block"], 0.0) + off
                 share["waiting to be taken"] += waited - off
                 run = e["data"]["run"]
                 st = runs_by.get(run)
@@ -495,7 +497,9 @@ def factory_breakdown(evs: list[dict], t_start: float) -> dict:
     hops = [h for s in steps.values() for h in s["hop"]]
     return {"hop_all": {**summary(hops), "mean": round(sum(hops) / len(hops), 2) if hops else None},
             "steps": out, "end_to_end": summary(e2e), "tickets_done": len(e2e), "tickets_seen": len(by),
-            "time_shares": {k: {"seconds": round(v, 1), "share": round(v / whole, 3)} for k, v in share.items()}}
+            "time_shares": {k: {"seconds": round(v, 1), "share": round(v / whole, 3)} for k, v in share.items()},
+            "put_off_by_step": {k: {"seconds": round(v, 1), "share": round(v / whole, 3)}
+                                for k, v in sorted(put_off.items(), key=lambda kv: -kv[1])}}
 
 
 # ---- calls from a step
