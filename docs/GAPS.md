@@ -89,6 +89,12 @@ review). Newest decisions from the owner first within each section.
   96f02d9, merged from `scale2` through `latency`). The old design kernel-panicked the machine at 14,000 threads.
 - **Latency: push intake, notify-on-write, a local socket for calls from steps** (done, 96f02d9, merged from `latency`).
 - **Warm workers instead of a process per item** (open; designed in the latency work).
+- **ergostat's upkeep as a modelled system** (idea; owner, 2026-11-19): a built-in `use: upkeep` template, like
+  `use: modelling`, drawing ergostat's own housekeeping as control loops: item-index files (created on each change to
+  the kinds, tidied, healed), event-log compaction, measurement retention, the worktree pool, expired leases, the
+  engine's stall watchdog. Stocks, goals (e.g. index files <= 6) and rule-tier controllers instead of constants in
+  the code; whether a delete is safe stays an interlock in the code (`coordinator/08-modes-and-protection.md`), and
+  no controller reads what it manages.
 - **What each run costs** (done, 251df28, merged from `runcost`): per run, its AI sessions' dollars (reported by Claude Code, or
   estimated from tokens), tokens and model, the CPU time and peak memory of its process tree (one shared sampler and
   its wait status), wall time and exit; series per block, `ergostat.cost.*` measures a goal can hold, the Agents page
