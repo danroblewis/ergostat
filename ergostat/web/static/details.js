@@ -218,6 +218,9 @@ async function openAgent(name) {
         ["durations", (() => { const ss = (a.recent || []).slice(-40).map((e) => e.data.seconds).filter((x) => x != null);
                                return ss.length ? `${Math.min(...ss)}s to ${Math.max(...ss)}s over its last ${ss.length} runs` : null; })()],
         ["stale", (a.stale || []).length ? `no recent reading from ${a.stale.join(", ")}` : null],
+        ["daemon", a.daemon ? `${a.daemon.name}: ${a.daemon.state || "not started"}` + (a.daemon.pid ? `, pid ${a.daemon.pid}` : "") +
+          `, ${a.daemon.restarts || 0} restarts` + (a.daemon.last_line ? `, last line ${ago(a.daemon.last_line)}` : "") +
+          (a.daemon.alarm ? ` (alarm: ${a.daemon.alarm.why})` : "") : null],
         ["log", a.log_path ? h("code", {}, a.log_path) : null]])];
   if ((a.recent || []).length > 1) kids.push(h("h3", {}, `Last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
   if (a.use?.runs?.length) kids.push(...useSection(a.use));
