@@ -1223,6 +1223,13 @@
         "model": {
           "type": "string"
         },
+        "identify": {
+          "type": "object",
+          "description": "An external block's law, identified from the record of what it reads and what it sets (SPEC \u00a712d)",
+          "properties": {"input": {"type": "string"}, "output": {"type": "string"}},
+          "required": ["input", "output"],
+          "additionalProperties": false
+        },
         "integral-time": {
           "$ref": "#/$defs/duration",
           "description": "A machine block's integral time, when its law is PI (passed in its params)"

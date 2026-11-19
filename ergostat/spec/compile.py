@@ -84,7 +84,7 @@ TYPE_KEYS = {
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review",
                                        "workdir", "workspace", "read", "tools", "actions"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
-    "external": {"agent"},
+    "external": {"agent", "identify"},
     "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up",                # judge: model (SPEC §12e)
               "judge", "kinds", "model", "max-cost", "held", "within"},                      # judge: intent (SPEC §12i)
     "onoff": {"goal", "until", "min-on", "min-off"},
@@ -1355,6 +1355,14 @@ class Compiler:
         for k in ("min-on", "min-off", "delay", "after", "reset", "for"):
             if m.get(k) is not None:
                 params[k] = self.duration(m, k, what)
+        if t == "external" and m.get("identify") is not None:   # what it reads and sets, to identify its law (SPEC §12d)
+            idf, w = m.get("identify"), m.at("identify")
+            if not isinstance(idf, dict) or set(idf) != {"input", "output"}:
+                self.err(f"{what}.identify: {{input: SIGNAL, output: SIGNAL}}, what it reads and what it sets", w, "bad-ref")
+                params.pop("identify", None)
+            else:
+                got = {k: self.ref(idf[k], w, f"{what}.identify.{k}", ("stock", "flow", "auxiliary")) for k in idf}
+                params["identify"] = got if all(got.values()) else None
         if m.get("until") is not None:
             sp = Setpoint.parse(m["until"])
             if sp is None:
@@ -1491,6 +1499,9 @@ class Compiler:
                     if src.outputs and r.port not in src.outputs:
                         self.err(f"{what}.in: block {r.name} has no output {r.port!r} (it has: {', '.join(src.outputs)})",
                                  w, "unknown-ref", str(r))
+            for k, r in (b.params.get("identify") or {}).items() if b.type == "external" else ():
+                if (why := exists(r)) is not None:
+                    self.err(f"{what}.identify.{k}: {why}", w, "unknown-ref", str(r))
             for r in b.targets():
                 if (why := exists(r)) is not None:
                     self.err(f"{what}.out: {why}", w, "unknown-ref", str(r))

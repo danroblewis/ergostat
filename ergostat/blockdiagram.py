@@ -1061,6 +1061,15 @@ class _Diagram:
                     "says": f"integral controller: {n} steps the setting {knob.split('.', 1)[1]} by the error, {when}.",
                     "math": math, "rows": rows + ([["gain", f"{_num(g)} a step per unit of error"]] if g is not None else []) + extra,
                     **({"deadband": db} if db else {})}
+        law = (self.snap.get("laws") or {}).get(n) if b.type == "external" else None
+        if law:                                            # an existing controller, its law identified from the record (§12d)
+            sk = {"onoff": "relay", "stepper": "zoh", "proportional": "saturation" if law["params"].get("hi") is not None
+                  or law["params"].get("lo") is not None else None}.get(law["family"])
+            return {"role": role, "identified": True, "says": f"an external controller, its law identified from the record: "
+                    f"{law['said']}.", "fn": {"name": n, "sketch": sk, "kind": f"identified {law['family']}", "law": law["short"],
+                                              "linear": law["family"] in ("proportional", "pi")},
+                    "math": [eq(mi("u"), mt(law["short"])), mt(f"identified, external: {law['said']}")],
+                    "rows": rows + [["identified", law["said"]]]}
         if b.type == "proportional":
             k = b.params.get("gain")
             sat = [x for x in (b.params.get("min"), b.params.get("max")) if x is not None]

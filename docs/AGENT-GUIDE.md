@@ -453,6 +453,48 @@ The rules in brief:
 - done means: `check` passes, a pipe test by hand passes, a short run on a scratch copy records readings and
   moves items with no restarts, and replaced `run:` sensors read the same.
 
+## 3f. A controller that already runs: an autoscaler, an alert rule
+
+Much of the control in a company already runs elsewhere: a Kubernetes HPA, a cloud autoscaling group, an alert rule
+that pages, a vendor's rate limiter. Never rebuild one as a `program` block. Draw it as what it is, an **external**
+block (ergostat never runs it), reading what it watches and moving what it moves, and ask ergostat to **identify** its
+law from the record (SPEC §12d, *Existing controllers*):
+
+```yaml
+stocks:
+  replicas: {unit: pods, sensor: {run: ./replicas.sh, every: 15s}}     # what it sets, as the cluster reports it
+auxiliaries:
+  load: {unit: pods, sensor: {run: ./busy.sh, every: 15s}}                # the work, in pods' worth of CPU
+  utilisation: {unit: pods/pods, sensor: {run: ./cpu.sh, every: 15s}, equation: auxiliary.load / stock.replicas}
+flows:
+  scale: {to: replicas, two-way: true}                                   # how it moves it: up and down
+blocks:
+  hpa-checkout:
+    type: external
+    agent: kubernetes                                                    # agents: {kubernetes: {external: true}}
+    in: auxiliary.utilisation
+    out: flow.scale
+    identify: {input: auxiliary.utilisation, output: stock.replicas}
+```
+
+- `input` is the signal it watches (a stock, flow or auxiliary with a sensor); `output` is what it sets: a **stock**
+  it holds at a level (replicas, a pool's size: then its `out:` is a two-way flow into that stock), a **flow** it sets
+  directly (a rate limit), or an **auxiliary** (an alert's firing, 0 or 1: identified and drawn, but not run ahead).
+  Write `in:` and `out:` as well: they are what the diagrams draw.
+- Read both at the controller's own pace (its sync period, an alert's evaluation interval): the grid is the output's
+  sensor period, and a law faster than its sensors cannot be told.
+- ergostat fits an on-off law (an alert: thresholds, hysteresis, `for:`, minimum on and off times), proportional with
+  saturation, PI with a deadband, and a stepper (the HPA's shape: up and down by a step after a duration past a
+  threshold, each with a cooldown), each with a delay, and keeps the one that predicts the held-out record best for its
+  number of parameters. The Blocks view writes the law in the block, marked *identified*; the closed-loop projection,
+  what-if and risk run it in place of a generic stand-in.
+- `external-unidentified` means too little record (40 points of both at least, and three moves of its output) or no law
+  fits: wait for more, or check the sensors read the right series. `external-law-changed` means the law on the
+  window's first half and its second differ: someone retuned it. Ask the owner whether that was meant before trusting
+  a projection across the change.
+- When the vendor documents the law (the HPA's is public), say so in the block's `description:` and compare: the
+  identified thresholds and cooldowns are what it actually did, which is the point.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |

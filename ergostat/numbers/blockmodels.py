@@ -295,7 +295,8 @@ def identify(p, spec: Spec, data: ob.Data | None = None) -> dict[str, BlockModel
             m.assumed = (f"{'its declared rate' if f.rate else 'nothing known'}: the record has {len(on_b)} buckets of it "
                          f"(at least {MIN_BUCKETS})")
         out[ref] = m
-    return out
+    from .external import models as external  # an external block's identified law, where it has one
+    return out | external(p, spec, g.since, g.until)
 
 
 def held_by_blocks(spec: Spec) -> list[str]:

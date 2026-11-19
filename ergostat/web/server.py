@@ -410,7 +410,14 @@ def _answer(live: Live, path: str, q: dict):
             from ..blockdiagram import diagram
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
-            return {**diagram(m, snap, want, system), "attention": att}
+            spec = getattr(m, "spec", None)
+            key = ("laws", int(time.time() // 60), live.mtime)       # external blocks' identified laws (SPEC §12d)
+            laws = live.cached(key)
+            if laws is None and spec is not None:
+                from ..numbers.external import laws as identified
+                laws = {n: x["law"].as_dict() for n, x in identified(p, spec).items() if x["law"] is not None}
+                live.keep(key, laws)
+            return {**diagram(m, {**snap, "laws": laws or {}}, want, system), "attention": att}
         from ..dynamics import attention as sd_attention
         from ..dynamics import dynamics, finish
         from ..fold import fold

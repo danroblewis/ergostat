@@ -108,6 +108,8 @@ class Outage:
 
     def at(self, t: float) -> None:
         self.t = t
+        if hasattr(self.healthy, "at"):
+            self.healthy.at(t)
 
     def rate(self, V, on, x=None, eqv=None, dt=0.0):
         v = self.healthy.rate(V, on, x, eqv, dt)

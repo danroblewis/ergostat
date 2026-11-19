@@ -54,8 +54,8 @@ function bdSize(n) {
   let w = Math.max(84, bdSymW(fn) + 28), hgt = 46;
   const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
   if (fn.name) {                                       // a nonlinear block: its name, its kind, a sketch of it
-    w = Math.max(w, bdTextW(fn.name) + 28 + (fn.sketch ? 40 : 0));
-    hgt = 46;
+    w = Math.max(w, bdTextW(fn.name) + 28 + (fn.sketch ? 40 : 0), fn.law ? bdTextW(fn.law, true) + 24 : 0);
+    hgt = fn.law ? 58 : 46;
   } else if (frac) { w = Math.max(w, bdTextW(frac[0]) + 28, bdTextW(frac[1]) + 28); hgt = 64; }
   else if (fn.expr) { w = Math.max(w, bdTextW(fn.expr, true) + 24); hgt = 54; }
   if (n.role === "subsystem") { w += 18; hgt = Math.max(hgt, 54); }
@@ -690,6 +690,7 @@ function bdNode(n, c) {
     if (n.tier) g.append(s("text", { x: 5, y: 13, class: "bd-note bd-tier", "data-tier": n.tier }, BD_TIER[n.tier] || n.tier));
     g.append(bdBody(n, fn, w, hgt - band, band));
     if (n.remote && !fn.name) g.append(s("text", { x: 0, y: -5, class: "bd-note live" }, n.remote.says));   // run by another ergostat
+    if (n.identified) g.append(s("text", { x: w, y: -5, class: "bd-note bd-ident", "text-anchor": "end" }, "identified"));   // its law, from the record
     bdAlarm(g, n);
   }
   return g;
@@ -700,7 +701,8 @@ function bdBody(n, fn, w, hgt, dy) {                    // what is inside a bloc
     const sk = fn.sketch ? 38 : 0;
     if (fn.sketch) g.append(bdSketch(fn.sketch, 9, hgt / 2 - 12));
     // its name only: how often it runs is the side panel's
-    g.append(s("text", { x: sk + (w - sk) / 2, y: hgt / 2 + 4, class: "bd-name", "text-anchor": "middle" }, fn.name));
+    g.append(s("text", { x: sk + (w - sk) / 2, y: hgt / 2 + (fn.law ? -2 : 4), class: "bd-name", "text-anchor": "middle" }, fn.name));
+    if (fn.law) g.append(s("text", { x: w / 2, y: hgt / 2 + 14, class: "bd-note", "text-anchor": "middle" }, fn.law));   // its identified law
     return g;
   }
   const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
@@ -730,7 +732,7 @@ function bdFnText(n) {                                  // what is inside the bl
   const fn = n.fn || {};
   if (n.kind === "sampler") return `sampler, T = ${fn.T || "?"}`;
   if (n.role === "sensor" || n.role === "collector") return `${bdSensorHead(fn)}${fn.T ? `, T = ${fn.T}` : ""} \u00b7 ${fn.reads || ""}`;
-  if (fn.name) return `${fn.name} (${fn.kind})`;
+  if (fn.name) return `${fn.name} (${fn.kind})${fn.law ? ": " + fn.law : ""}`;
   if (fn.sym) return `${fn.sym}${fn.sub ? "_" + fn.sub : ""}${fn.arg ? `(${fn.arg})` : ""}${fn.expr ? " = " + fn.expr : ""}`;
   return n.kind;
 }
