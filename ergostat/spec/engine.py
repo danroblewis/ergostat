@@ -138,6 +138,8 @@ class Engine:
         self.following = False                         # whether _follow runs: it runs the actions programs ask for
         from ..leases.dispatch import Dispatcher
         self.dispatch = Dispatcher(self)              # blocks that take items: a run per item, each leased (SPEC §9.5)
+        from .joins import Joins
+        self.joins = Joins(self)                      # parents moved on by their children (SPEC §5a, Join)
         # the loop (``_schedule``): readings asked for, taken a batch at a time; commands and queries read by a fixed
         # pool, counts of items from what the fold keeps (counts.py); then one pass over what changed (scale.md #1, #4)
         from .counts import Counts
@@ -1232,6 +1234,10 @@ class Engine:
             if mono - last_sweep >= SWEEP:                       # the owner's messages: routed, finished work followed up
                 last_sweep = mono
                 threading.Thread(target=self._sweep, daemon=True).start()
+            try:
+                self.joins.look()                                # parents their children moved on: what was written since
+            except Exception as e:
+                self.say(f"joins: {type(e).__name__}: {e}")
             tick = mono - last_eval >= TICK                      # the clock moves schedules, timers, delays
             if tick:
                 last_eval = mono

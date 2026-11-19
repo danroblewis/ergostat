@@ -213,7 +213,7 @@ def _through(events, spec, s: ItemSet, kinds: dict, n: int, offset: int) -> dict
     """The items behind a node or a line of the process map, newest first, each with when (``moved_at``)."""
     from .. import process as pm
     for k, _, _ in s.caused:
-        if k not in kinds:
+        if k not in kinds and k != pm.SCHEDULE:
             raise BadSet(f"caused: no such kind of item as {k}")
     got = pm.items_through(events, spec, s.kind, s.since, s.until, s.by, s.through, s.followed, s.caused or None)
     if s.moved is not None:

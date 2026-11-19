@@ -623,6 +623,17 @@ class LeaseTerms:
 
 
 @dataclass
+class Join:
+    """A parent moved on by its children (SPEC §5a, *Join*): to ``to`` once all (or any) of the items naming it by
+    ``children`` are in ``states``."""
+
+    children: str                   # the relation the children name it by (parent)
+    states: list[str]
+    to: str
+    all: bool = True                # all of them (a join), else any (the first to start)
+
+
+@dataclass
 class Takes:
     """What a block takes (SPEC §9.5): the items of a kind in a state, each leased to a run of its own."""
 
@@ -675,6 +686,7 @@ class ItemKind:
     fold: dict[str, str] = field(default_factory=dict)   # field → how plain data folds into it (changes.RULES); else replace
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # the terms of a lease on one of these (SPEC §9.5)
     relations: dict[str, Relation] = field(default_factory=dict)   # field → its relation to other items (SPEC §5a)
+    join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
 
     def matches(self, id: str) -> bool:
         import fnmatch
