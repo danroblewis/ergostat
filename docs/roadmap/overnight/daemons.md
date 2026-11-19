@@ -67,3 +67,21 @@ and shell daemon; fail hard; heartbeat) and GAPS (warm workers superseded) say s
 runtime of its own (the protocol, its process with a writer and a reader thread, a supervisor with back-off, liveness,
 backpressure, cancel and drain on swap), wired into blocks, item runs, leases, sensors and the swap, plus its config,
 schema, the page's rows and the bench script.
+
+## Where it stopped
+
+The gate review (merge after fixes) found three blocking points and a list of smaller ones; all are fixed on this
+branch (7ce71f3 and after): a failed daemon now takes nothing and is revived by `block NAME --restart` or a model
+change (B1); every daemon's whole process group is ended on each restart, drain and close, and a crash is seen while a
+child holds its output (B2); the bench was re-run, all four rows with the committed script (B3). The smaller points:
+the hand-over checked and held under the supervisor's lock against the current daemon, the lease checked first,
+spawns and event writes outside the lock, a draining cancel-kill giving runs back uncounted, push readings at most one
+a second, a shared daemon's failure said once (no `sensor.failed` per sensor), the queue bound documented, the room
+shared across blocks, RUNTIME's state diagram, the guide's skeleton, and the work hand-out split into
+`daemons/work.py`.
+
+**Over budget: 932 net lines against 800.** Why: the fixes are each new behaviour, not rework of what was there: the
+revival path (a CLI flag, an event the engine follows, the supervisor's revive), the whole-group kill on every way a
+daemon ends, the shared room across blocks (the dispatcher counts runs not yet held), the lease check and the
+locked hand-over loop, and push rate limiting, about 130 lines together. The size before the review was 798. Nothing
+was cut to fit: each piece closes a fault the reviewer reproduced or named.
