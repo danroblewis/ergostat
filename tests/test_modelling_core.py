@@ -26,24 +26,15 @@ from ergostat.numbers import structural as stc
 from ergostat.numbers import version as ver
 from ergostat.spec import chains, read
 
+from .test_redesign import CHAIN, JUDGE, PIECES, READ, busy
+from .test_redesign import project as redesign_project
+from .test_self_improve import POOR
+from .test_self_improve import project as poor_project
+
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
 
-def _tests(name: str):
-    """A test module beside this one, for its models and fixtures (the tests folder is not a package)."""
-    import importlib.util
-    import sys
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, Path(__file__).resolve().parent / f"{name}.py")
-        m = importlib.util.module_from_spec(spec)
-        sys.modules[name] = m
-        spec.loader.exec_module(m)
-    return sys.modules[name]
 
-
-_rd, _si = _tests("test_redesign"), _tests("test_self_improve")
-CHAIN, JUDGE, PIECES, READ, busy, redesign_project = _rd.CHAIN, _rd.JUDGE, _rd.PIECES, _rd.READ, _rd.busy, _rd.project
-POOR, poor_project = _si.POOR, _si.project
 MODELLING = "uses:\n  modelling:\n    use: modelling\n    with:\n      fit: 0.05\n      ai: true\n"
 
 

@@ -13,9 +13,9 @@ the run, the owner's approval simulated for the changes the rule tier made to th
 goals, one at a time (each said in the results as the owner's); then ``check --json`` again, and the record read: the requests raised (by
 source and code), the changes made by each tier (and by ergostat's own finders), the judge's verdicts, what was
 written and by whom, and the AI tier's cost. With ``--redesign`` (docs/proposals/redesign.md) the redesigner runs too
-(``redesign: {when: auto}``, every minute) and the owner's promotion of the class is simulated (``accept: {redesign:
+(the owner asks at the start; the redesigner looks every minute) and the owner's promotion of the class is simulated (``accept: {redesign:
 auto}``), so a change set judged better is written; its scorecard and cost are recorded. ``thirteen`` is the owner's
-13 disconnected stocks (``scripts/craft_bench.py``), written fresh. Each run's page is on a port of ``--ports``.
+13 disconnected stocks (``thirteen``), written fresh. Each run's page is on a port of ``--ports``.
 Each run is watched: past ``--threads`` threads or ``--gb`` of memory in
 the run's processes it is stopped. Writes ``DIR/results.json`` and prints a table."""
 
@@ -42,6 +42,40 @@ START = __import__("threading").Lock()
 POLICY = "{parameter: auto, description: auto, unit: auto, equation: auto}"
 
 
+def thirteen(dest: Path):
+    """A model shaped like the owner's 13 disconnected stocks: one kind through 13 states, a stock a state, every move
+    written as an outflow to a cloud, a goal and a block a step. Returns whether a spec has them chained."""
+    states = [f"s{i:02d}" for i in range(1, 14)]
+    lines = ["name: thirteen", "items:", "  request:", "    id: request/*", "    description: a request worked through 13 steps",
+             f"    states: [{', '.join(states)}, done]", "    on:"]
+    lines += [f"      request.{s}-reached: {s}" for s in states] + ["      request.finished: done"]
+    lines += ["stocks:"]
+    for s in states:
+        lines += [f"  {s}-waiting:", "    unit: requests", f"    description: requests at step {s}",
+                  f"    sensor: {{items: request, state: {s}, every: 5s}}"]
+    lines += ["flows:", "  arrivals:", "    to: s01-waiting", "    description: requests arriving",
+              "    sensor: {items: request, entering: s01, over: 10m}"]
+    for i, s in enumerate(states):
+        nxt = states[i + 1] if i + 1 < len(states) else "done"
+        lines += [f"  {s}-worked:", f"    from: {s}-waiting", f"    description: requests leaving step {s}",
+                  f"    driven-by: +stock.{s}-waiting", f"    sensor: {{items: request, entering: {nxt}, over: 10m}}"]
+    lines += ["goals:"]
+    for s in states:
+        lines += [f"  {s}-clear:", f"    stock: {s}-waiting", '    hold: "<= 0"', f"    description: nothing waits at {s}"]
+    lines += ["blocks:"]
+    for i, s in enumerate(states):
+        nxt = states[i + 1] if i + 1 < len(states) else "done"
+        lines += [f"  step-{s}:", "    type: program", f"    description: works step {s}", f"    goal: {s}-clear",
+                  "    run: python3 -c pass", f"    takes: {{kind: request, at: {s}, to: [{nxt}]}}", f"    out: flow.{s}-worked"]
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "ergostat.yaml").write_text("\n".join(lines) + "\n\nuses:\n  modelling: {use: modelling}\n", encoding="utf-8")
+
+    def chained(spec):
+        return all(spec.flows[f"{s}-worked"].target == (f"{states[i + 1]}-waiting" if i + 1 < len(states) else None)
+                   for i, s in enumerate(states))
+    return chained
+
+
 def sh(*args, cwd=None, timeout=600, env=None) -> subprocess.CompletedProcess:
     return subprocess.run([*ERG, *args], cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
 
@@ -60,7 +94,7 @@ def configure(path: Path, ai: bool, model: str, redesign: bool = False) -> None:
         if ai and not redesign:                           # refinement only: the redesigner (on with ai: true) off
             want["redesign"] = "{when: off}"
         if redesign:
-            want.update({"redesign": f"{{when: auto, model: {model}, budget: 0.5, rounds: 3}}", "redesign-every": "60s",
+            want.update({"redesign": f"{{when: ask, model: {model}, budget: 0.5, rounds: 3}}", "redesign-every": "60s",
                          "accept": POLICY[:-1] + ", redesign: auto}"})
         end = at + 1
         withs = None
@@ -215,7 +249,6 @@ def one(example: str, a) -> dict:
     src = ROOT / "examples" / example
     work = Path(tempfile.mkdtemp(prefix=f"ergostat-si-{example.replace('/', '-')}-"))
     if example == "thirteen":                             # the owner's 13 disconnected stocks, written fresh
-        from craft_bench import thirteen  # (beside this script)
         thirteen(work / example)
         dest = work / example
         f = dest / "ergostat.yaml"
@@ -241,6 +274,8 @@ def one(example: str, a) -> dict:
         out["error"] = f"run failed: {r.stderr[-400:]}"
         give_back(pn)
         return out
+    if a.redesign:                                        # the owner asks for one at the start; the redesigner takes it up
+        sh("-C", str(dest), "improve", "--redesign", env=env)
     peak = (0, 0.0)
     approved = 0.0
     try:
