@@ -395,7 +395,7 @@ causing item, and print the other item's events from that run.**
   ```python
   for f in ("logs", "deploys", "metrics"):
       say("facet.opened", f"facet/{n}-{rnd}-{f}", {"alert": alert, "facet": f, "round": rnd})
-  say("alert.investigating", alert, {"rounds": 1})
+  say("alert.facets-opened", alert, {"rounds": 1})
   ```
 
 - **Join**: the step that takes a child records the child's last event, reads its siblings and, if it was the
@@ -465,11 +465,11 @@ rework) and `ci-failed → sailed` (CI rework).
 
 ## 4. Across all three views
 
-**The same names everywhere.** The state, its stock, the flow into it, the event that moves an item there and the
-block that works it should read as one family: state `investigating`, stock `alerts-investigating`, flow
-`facets-opened-for` into it, event `alert.investigating`, goal `investigations-joined`. A reader who meets the name
-in one view finds it in the other two. Never call the same thing two names (`oncall` the stock, `escalated` the
-state, `escalations` the flow).
+**The same names everywhere.** The state, its stock, the flow out of it, the event that moves an item on, the goal
+and the block that works it should read as one family: state `summarising`, stock `alerts-summarising`, flow
+`alerts-summarised`, event `alert.summarised`, goal `summaries-written`, block `summarise`. A reader who meets the
+name in one view finds it in the other two. Never call one thing two names (the poor model's stock `oncall`, state
+`escalated` and flow `escalations`).
 
 **Descriptions on everything**: stocks, flows, auxiliaries, parameters, goals, blocks, sensors, item kinds,
 systems, agents; one line a newcomer can read without the YAML, in the world's words, and for a flow what decides
