@@ -239,9 +239,10 @@ def taus(spec: Spec) -> dict[str, float]:
     kept = spec.lookups().kept
     if "architecture.taus" not in kept:
         out: dict[str, float] = {}
-        try:
-            from ..numbers.extremes import time_constants
-            out = time_constants(spec) or {}
+        try:                                             # (no equation: no time constant, and nothing to import)
+            if any(x.equation is not None for t in (spec.flows, spec.auxiliaries) for x in t.values()):
+                from ..numbers.extremes import time_constants
+                out = time_constants(spec) or {}
         except Exception:                                # equations that cannot be worked out: no time scales said
             out = {}
         for g in spec.goals.values():
