@@ -2,7 +2,7 @@
 
 What ergostat is known to lack, kept current as work lands. Each entry says where it came from and its
 state: **open**, **in progress** (with the branch), or **done** (with the commit, then removed at the next
-review). Newest decisions from the owner first within each section.
+review into *Done recently*). Newest decisions from the owner first within each section. Last reviewed 2026-11-18.
 
 ## Remote systems and libraries
 
@@ -37,43 +37,25 @@ review). Newest decisions from the owner first within each section.
 
 ## Modelling
 
-- **One-line modelling loop** (open): `use: modelling` instead of about 150 lines copied into each example; a
-  model built by an agent gets the improvement loop by default.
 - **Built-in join** (open; relations make it a rule over `parent`/`children`): move a parent item once all its
-  children reach a state (fork-join). Relations (in progress, `relations`) now say which items are a parent's
+  children reach a state (fork-join). Relations (merged, c4888bd) now say which items are a parent's
   children, both ways, from the item index, so the join is a rule on the kind (`join: {children: parent, all: done,
   to: shipped}`, say) rather than a block that lists and matches items itself (`examples/roadmap/bin/epics.py`
-  does it today). Left: the rule's shape, when it fires (on each child's move, from the index), and the parent's
-  `entering` counted like any other move.
-- **Relations, what is left** (in progress, `relations`): the Graph and Timeline read relations as they stand now
-  (time travel does not reach them) and are not in a snapshot; the projection does not level resources (a
-  block's `pool`); `ticket-factory` does not record Jira's links yet; the Process view does not draw relations.
-
-- **Craft findings in `check`** (open; from `docs/MODELLING-WELL.md`): `check` is silent on a part with no
-  `description`, a stock with no `unit`, a flow between stocks with no equation, a `process:` with no `identified:`,
-  a sensor (a collector) with no description, and event types of one kind in mixed forms. Each is a review-checklist
-  item an agent has to remember; a note-level finding would teach it.
-- **A step whose goal never goes off** (open): a `takes:` block runs only while its goal is off, so a queue goal with
-  a tolerance (or a setpoint above 0) lets items wait unseen; nothing says so. Found when the example's first goals
-  had tolerances and nothing ran.
-- **A block reading a goal's error is drawn reinforcing** (open; found writing `docs/MODELLING-WELL.md`): a block
-  with `in: [goal.X.error]` (or `in: [goal.X]`) that moves the flow draining X's stock makes a loop `explain` calls
-  R; reading the stock, signed (`+stock.S`), gives B. Either the sign through a goal's error is worked out wrong, or
-  `check` should say which to write.
-- **A sensor's command is not given `ERGOSTAT_CMD`** (open): a block's run is told how to call ergostat back, a
-  sensor's `run:` is not, so a collector that reads the items (to see what a person answered) has to find ergostat
-  itself (the examples look on the PATH, then for a checkout).
-- **A block's tier is not drawn** (open): the Blocks view draws a person's block and an AI's alike; the tier is in
-  the block's panel only.
+  does it today; elsewhere it takes a join block or an auxiliary). Left: the rule's shape, when it fires (on each
+  child's move, from the index), and the parent's `entering` counted like any other move.
+- **Relations, what is left** (open; the first part merged as c4888bd from `relations`): the Graph and Timeline read
+  relations as they stand now (time travel does not reach them) and are not in a snapshot; the projection does not
+  level resources (a block's `pool`); `ticket-factory` does not record Jira's links yet; the Process view does not
+  draw relations.
+- **Craft findings in `check`** (in progress, `selfimprove`; from `docs/MODELLING-WELL.md`): `check` is silent on a
+  part with no `description`, a stock with no `unit`, a flow between stocks with no equation, a `process:` with no
+  `identified:`, a sensor (a collector) with no description, and event types of one kind in mixed forms. Each is a
+  review-checklist item an agent has to remember; a note-level finding would teach it.
+- **A step whose goal never goes off** (in progress, `selfimprove`): a `takes:` block runs only while its goal is
+  off, so a queue goal with a tolerance (or a setpoint above 0) lets items wait unseen; nothing says so. Found when
+  the example's first goals had tolerances and nothing ran.
 - **A cause for a scheduled run's events** (open): a block on `every:` runs caused by nothing, so a sweep that opens
   sub-items draws no fan-out in the Process view; an event line cannot name its own cause (`causedby`).
-- **One-line modelling loop** (done, `modelfix`): `uses: {modelling: {use: modelling}}`, the built-in template
-  (once a model, its parts keeping their names), replaces the 150 lines each of image-squeeze, the-job and the
-  coordinator wired by hand; it expands to exactly those parts and loops (`tests/test_modelling_template.py`
-  against the-job's old file). The agent guide and the author skill say every model includes it, and `check` notes
-  one without it (`no-modelling-loop`, a finding).
-- **Built-in join** (open): move a parent item once all its sub-items reach a state (fork-join); today it
-  takes a join block or an auxiliary.
 - **Triggers on an event type** (open): a block started by an event type alone, not only by a state change.
 - **Closed-loop simulation** (open): projection holds blocks still; simulating with the controllers running.
 - **Operating modes, regime-scheduled thresholds, interlocks, risk gating** (open; designed in
@@ -81,52 +63,26 @@ review). Newest decisions from the owner first within each section.
 - **Observer staleness and estimated stocks** (open; `coordinator/06-observer.md`).
 - **Per-item and per-kind goals** (open).
 - **Finding structure from residuals** (open; porting SD Lab's Kalman-LNA work; `parity/00-modeling-review.md`).
-- **Proposals drawn dashed in both diagrams; proposals that state the behaviour they predict** (open).
+- **Proposals drawn dashed in both diagrams; proposals that state the behaviour they predict** (the dashed drawing in
+  progress, `redesign`; the stated behaviour open).
 
 ## Runtime, scale and latency
 
-- **Event-driven counts, a scheduler instead of a thread per reading, evaluation of what changed** (done,
-  96f02d9, merged from `scale2` through `latency`). The old design kernel-panicked the machine at 14,000 threads.
-- **Latency: push intake, notify-on-write, a local socket for calls from steps** (done, 96f02d9, merged from `latency`).
+- **The reload wedge** (in progress, `reloadfix`): a model reloaded while an agent edits it could be read
+  half-written, and the engine could wedge (its pool, its loop or a pass) with nothing said. The branch makes a
+  reload settled, checked, atomic and timed, and adds a watchdog that finds a wedge, says it and recovers.
 - **Warm workers instead of a process per item** (open; designed in the latency work).
-- **What each run costs** (done, 251df28, merged from `runcost`): per run, its AI sessions' dollars (reported by Claude Code, or
-  estimated from tokens), tokens and model, the CPU time and peak memory of its process tree (one shared sampler and
-  its wait status), wall time and exit; series per block, `ergostat.cost.*` measures a goal can hold, the Agents page
-  and `ergostat agent NAME`. Network bytes per process are left out (macOS has them only through `nettop`).
 - **Extreme-conditions tests and calibration per part of the model** (open; the Check page's first status
   takes 13 s even on small models).
 - **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`).
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **Should a run whose lease expired be killed?** (open question for the owner).
 
-## Bugs
-
-- **YAML 1.1 readings** (done, `modelfix`): `check` warns on every plain value YAML 1.1 and 1.2 read differently
-  (`yaml-1.1`, at its file and line, with the quoted form to write; shown beside errors too). The format follows
-  YAML 1.2's core schema (SPEC §2, *Which YAML*); loading with 1.2 semantics is planned after one release of the
-  warnings. No example or demo was flagged.
-- **`where:` compares strings** (done, `modelfix`): typed JSON equality (numbers as numbers, strings as strings,
-  booleans as booleans), for sensors and `takes:`; a filter typed as text (the Items page) matches either type;
-  `check` notes each bare number or boolean in a `where:` (`where-typed`). No example has one.
-- **Listing projects writes `repo.json` into other projects' state folders** (done, `modelfix`): the listing opens
-  each project without its note (`Project(..., note=False)`), and the event log's head is made once rather than
-  touched on every open. SQLite still does its own WAL bookkeeping when a store is opened to read.
-- **`try_use` trials can leave Claude sessions running** (done, `modelfix`): the trial runs in a session of its
-  own, watches what its runs start, and on its way out (or when it overruns) stops all of it, whatever process
-  group each put itself in (`library/reap.py`; `tests/test_trial_stops.py`).
-- **Three tests fail only under heavy load** (done, `modelfix`): they wait for conditions (the view standing still
-  after Fit, the selection as expected, the page settled, a server answering) rather than fixed times, with waits
-  long enough for a loaded machine; the lease test's TTL is 3 s (renewals are CLI calls) and it checks the run
-  outlived it; the long-task bound scales by how much slower the page's thread runs than the reference laptop. Each
-  passed 5 times beside 8 CPU hogs, all in background QoS (the old lease and selection tests failed there).
-
 ## Interface
 
-- **Per-run cost and resources on the Agents page** (done, 251df28, merged from `runcost`; network left out, see
-  "What each run costs"): AI tokens and USD per run, CPU,
-  memory, open files (network if attributable), history charts per agent, and measures a budget goal can read.
-- **Process view: drag, pin and re-route** (done, 4aa1bc0, merged from `procdrag`).
-- **Dark theme: the lighter correspondence colours are low in contrast** (open).
+- **Light theme: the repeats toward the paper are low in contrast** (open; found fixing the dark theme's): the third
+  round of correspondence colours (`--g-fade`, 55% of the hue) stands 1.6:1 to 2.5:1 on white, and `--g9` (gold) 2.4:1
+  as it is; WCAG asks 3:1 for graphics.
 
 ## The owner's work setup
 
@@ -134,3 +90,21 @@ review). Newest decisions from the owner first within each section.
   owner approves. The `ergostat` repository is public, which this depends on.
 - **Remodel `the-job`** (open): equations, designed control laws, person steps marked, the coordinator's
   structure and behaviour tests.
+
+## Done recently
+
+- **A block reading a goal's error is drawn reinforcing**: a machine block's reading of a goal's error takes the sign
+  of how it moves the goal's quantity (2df52cc, `gapsfix`).
+- **A sensor's command is not given `ERGOSTAT_CMD`**: a sensor's run gets what a block's run gets to call ergostat
+  back (ea0da0b, `gapsfix`).
+- **A block's tier is not drawn**: written small at the top of each block in the Blocks view (47478b9, `gapsfix`).
+- **Dark theme: the lighter correspondence colours are low in contrast**: 3:1 at least (0806abd, `gapsfix`).
+- **One-line modelling loop**: `uses: {modelling: {use: modelling}}` (f8f9f7b, from `modelfix`).
+- **YAML 1.1 readings** warned (`yaml-1.1`); **`where:` compares typed JSON**; **listing projects writes nothing into
+  them**; **`try_use` trials stop what they started**; **the three load-sensitive tests** wait for conditions (all
+  f8f9f7b, from `modelfix`).
+- **Event-driven counts, a scheduler, evaluation of what changed**; **latency: push intake, notify-on-write, a local
+  socket** (96f02d9, from `scale2` and `latency`).
+- **What each run costs**, and **per-run cost and resources on the Agents page** (251df28, from `runcost`; network
+  bytes per process left out).
+- **Process view: drag, pin and re-route** (4aa1bc0, from `procdrag`).
