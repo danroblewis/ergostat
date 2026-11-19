@@ -732,10 +732,10 @@ MANY_CLOUDS = 5            # inflows from clouds, beyond each kind's one arrival
 
 def boundary(spec: Spec, moves: dict[str, Counter] | None = None) -> Found | None:
     """``many-cloud-inflows``: more inflows from clouds than half the model's stocks (and at least ``MANY_CLOUDS``), not
-    counting each item kind's arrival into the state it arrives in (the boundary, rightly crossed once per kind, its
-    parts counted apart by a ``where`` included) nor a two-way flow (a setting stepped, a measure smoothed: an
-    adjustment, not an arrival). Most stocks then fill from outside, so they pass little to each other and the model
-    explains little of what comes in."""
+    counting each item kind's arrival into the state it arrives in (the boundary, rightly crossed once per kind) nor a
+    two-way flow (a setting stepped, a measure smoothed: an adjustment, not an arrival), nor the parts a template made
+    (its own boundary). Most stocks then fill from outside, so they pass little to each other and the model explains
+    little of what comes in."""
     if not spec.stocks:
         return None
     moves = moves or {}
@@ -745,20 +745,18 @@ def boundary(spec: Spec, moves: dict[str, Counter] | None = None) -> Found | Non
     for k, kd in spec.items.items():
         c = counted.get(k) or Chain(k, [s for s in kd.states if s not in LEASE_STATES], {}, set(), where=kd.where)
         entered = entries(spec, c, ix)
-        parts: dict[str, list] = {}                       # a part of the kind arriving (a sensor with a where): the same
-        for f in ix.out_of.get(None, ()):                 # arrival, split by a field (the changes made, by who made them)
-            for q in _item_sensors(f):
-                if q["kind"] == k and q.get("entering") and f.target and not f.two_way:
-                    parts.setdefault(q["entering"], []).append(f)
-        if entered or parts:
-            first = _first(c, entered or parts, moves.get(k) or Counter())
-            proper |= {f.name for f in entered.get(first, []) + parts.get(first, [])}
-    extra = [f.name for f in ix.out_of.get(None, ()) if f.target and not f.two_way and f.name not in proper]
-    if len(extra) < MANY_CLOUDS or 2 * len(extra) <= len(spec.stocks):
+        if entered:
+            proper |= {f.name for f in entered[_first(c, entered, moves.get(k) or Counter())]}
+
+    def made(x) -> bool:                                  # a template's own part: the template's boundary, not the model's
+        return bool(getattr(getattr(x, "where", None), "template", None))
+    extra = [f.name for f in ix.out_of.get(None, ()) if f.target and not f.two_way and f.name not in proper and not made(f)]
+    stocks = [st for st in spec.stocks.values() if not made(st)]
+    if len(extra) < MANY_CLOUDS or 2 * len(extra) <= len(stocks):
         return None
     from .load import Where
     return Found("many-cloud-inflows", "model", Where(spec.files[0], 1) if spec.files else None,
-                 f"the model has {len(extra)} inflows from outside (clouds) for its {len(spec.stocks)} stocks, beyond each item "
+                 f"the model has {len(extra)} inflows from outside (clouds) for its {len(stocks)} stocks, beyond each item "
                  f"kind's one arrival: {', '.join(extra)}. A cloud is the model's boundary: what comes from it is "
                  f"taken as given, not explained. Draw the boundary chart (Sterman, ch. 3: what the model explains, what "
                  f"it takes as given, what it leaves out) and decide what is really outside: something that leaves one "

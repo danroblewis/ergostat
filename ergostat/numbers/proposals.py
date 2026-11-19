@@ -815,15 +815,21 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
         except Exception:                                            # a prediction is a help, never a reason to refuse
             x["predicted"] = None
     ft.record(p, fit_before, snap["window"], force=True)             # the version it leaves, as it fitted at the end
-    for f, text in new_text.items():
-        Path(f).write_text(text, encoding="utf-8")
-    _, problems = read(p.model.path)
-    errors = [str(e) for e in problems if e.level == "error"]
-    if errors:
-        for f, text in old_text.items():
+    try:                                             # every file written, or (on any failure) every one put back
+        for f, text in new_text.items():
             Path(f).write_text(text, encoding="utf-8")
-        raise ProposalError("the edit would leave the model with errors, so it was not made:\n  " + "\n  ".join(errors))
-    p.model = mdl.load(p.model.path.parent)
+        _, problems = read(p.model.path)
+        errors = [str(e) for e in problems if e.level == "error"]
+        if errors:
+            raise ProposalError("the edit would leave the model with errors, so it was not made:\n  " + "\n  ".join(errors))
+        p.model = mdl.load(p.model.path.parent)
+    except BaseException:
+        for f, text in old_text.items():
+            try:
+                Path(f).write_text(text, encoding="utf-8")
+            except OSError:
+                pass
+        raise
     _, _, fit_after = ft.compute(p, snap)
     ft.record(p, fit_after, snap["window"], force=True)
     x["status"], x["state"], x["decided"], x["by"] = "accepted", "accepted", time.time(), by
@@ -836,11 +842,11 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
         x["applied"]["why"] = why
     if policy:
         x["applied"]["policy"] = policy
+    if x.get("renames"):                            # what the renamed parts' history became, kept with it
+        x["applied"]["history"] = keep_history(p, x["renames"], v_before)
     props[x["id"]] = x
     save(p, props)                                  # ergostat.model-change.accepted, from whoever decided
     written(p, x, by)
-    if x.get("renames"):
-        x["applied"]["history"] = keep_history(p, x["renames"], v_before)
     rebase(p, edits, x["id"])                        # the lines of the others waiting move with what was written
     supersede(p, p.model.spec)                      # what was made against the version before is made again, or not
     return x
@@ -850,9 +856,10 @@ CARRIED = ("description", "unit", "redesign")        # kept across a change to t
 
 
 def carry(p, ids: list[str]) -> list[str]:
-    """Each change of words (a description, a unit) among these, made against the version before, still made against
-    the model as it is now: its edit applied to the files as they are (its lines moved, ``rebase``), and it still a
-    change of words. It is said so on its item and stays waiting, rather than superseded and made again."""
+    """Each change of words (a description, a unit) or redesign among these, made against the version before, still made
+    against the model as it is now: its edit applied to the files as they are (its lines moved, ``rebase``), and a
+    change of words still one. It is said so on its item and stays waiting, rather than superseded and made again; a
+    redesign goes back to checked, for the judge to score again."""
     from . import improve as im
     from . import trial as tr
     spec = p.model.spec
@@ -868,7 +875,8 @@ def carry(p, ids: list[str]) -> list[str]:
             continue
         if y["kind"] != "redesign" and im.kind_of(spec, after, y["kind"]) != y["kind"]:
             continue
-        event(p, qid, y["state"], {"version": v, "structure": st, "carried": {"from": y.get("version"), "to": v}})
+        state = "checked" if y["kind"] == "redesign" else y["state"]   # a redesign is scored again on the model as it is
+        event(p, qid, state, {"version": v, "structure": st, "carried": {"from": y.get("version"), "to": v}})
         out.append(qid)
     return out
 

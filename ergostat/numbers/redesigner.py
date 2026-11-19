@@ -26,7 +26,6 @@ from . import modeller as md
 HERE = Path(__file__).resolve().parent.parent
 GUIDE = HERE / "library" / "templates" / "modelling" / "redesigner.md"
 CRAFT = HERE / "library" / "templates" / "modelling" / "modeller.md"
-WELL = HERE.parent / "docs" / "MODELLING-WELL.md"
 WELL_SECTIONS = ("How an SD practitioner reads it", "Rework, visible", "4. Across all three views", "5. Review checklists")
 WHOLE = 40000                # model files shown whole up to this many characters, else the system's parts as written
 BUDGET = 0.50                # dollars a run, by default
@@ -52,7 +51,9 @@ def guides() -> str:
     craft = CRAFT.read_text(encoding="utf-8")
     a, b = craft.find("## The model's craft"), craft.find("## What you may propose")
     craft = craft[a:b].strip() if a >= 0 else ""
-    well = _sections(WELL.read_text(encoding="utf-8"), WELL_SECTIONS) if WELL.is_file() else ""
+    from .. import helpdocs  # an installed ergostat has it in help/, a clone in docs/
+    text = helpdocs.read("modelling-well")
+    well = _sections(text, WELL_SECTIONS) if text else ""
     return "\n\n".join(x for x in (GUIDE.read_text(encoding="utf-8"), craft, "## From docs/MODELLING-WELL.md\n\n" + well) if x)
 
 
@@ -279,11 +280,14 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
            "summary": summary or "", "edits": best[1], "rounds": len(log), "cost": cost}
     out["change_set"] = raw
     if submit:
+        import copy
+
         from .. import model as mdl
-        p.model = mdl.load(p.model.path.parent)        # the model as it is now: changes may have been written meanwhile
-        if ver.version(p.model.spec) != out["version"]:
+        now = copy.copy(p)                             # the model as it is now (changes may have been written meanwhile),
+        now.model = mdl.load(p.model.path.parent)      # never put in place of the caller's
+        if ver.version(now.model.spec) != out["version"]:
             out["moved_on"] = "the model changed while the redesigner worked: its edits made again on the model as it is"
-        got = rd.submit(p, by, raw)
+        got = rd.submit(now, by, raw)
         out["result"] = got["status"]
         out["id"] = got["id"]
         out["why_not"] = got.get("why")
