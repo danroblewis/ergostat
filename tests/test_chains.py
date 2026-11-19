@@ -23,7 +23,7 @@ EXAMPLES = sorted(p for p in (ROOT / "examples").iterdir() if (p / "ergostat.yam
 STATES = ("requested triaged researched risk-assessed approved scheduled ramp-1 ramp-10 ramp-50 ramp-100 verified "
           "confirmed applied").split()
 CHAIN = {"outflow-not-chained", "inflow-not-chained", "state-stock-without-inflow", "move-without-flow",
-         "state-stocks-disconnected", "loops-not-connected", "chain-stock-not-a-count"}
+         "state-stocks-disconnected", "loops-not-connected", "chain-stock-not-a-count", "kind-enters-many-times"}
 
 
 def owners_model(counted: str = "entering") -> str:
@@ -161,7 +161,10 @@ flows:
 
 def test_the_record_s_moves_find_a_flow_from_outside_and_a_move_no_flow_carries(tmp_path):
     d = _write(tmp_path / "rq", textwrap.dedent(RECORDED))
-    assert _chain_findings(d) == []                               # the structure alone says nothing is wrong
+    before = _chain_findings(d)                                   # the structure alone: two arrivals, the order says
+    assert [(x.code, x.about) for x in before] == [("kind-enters-many-times", "items.req")]
+    assert "its items come from checked (the kind's states, checked before approved): write from: checked on flow " \
+        "approvals" in before[0].message
     p = Project(mdl.load(d))
     for i in range(3):
         it = f"req/{i}"
@@ -175,12 +178,12 @@ def test_the_record_s_moves_find_a_flow_from_outside_and_a_move_no_flow_carries(
     assert moves[("checked", "approved")] == 2 and moves[("checked", "new")] == 1   # the lease's hold taken out
     assert not any("leased" in m for m in moves)
     got = {f"{x.code}@{x.about}": x for x in _chain_findings(d)}
-    assert set(got) == {"inflow-not-chained@flow.approvals", "move-without-flow@stock.waiting",
+    assert set(got) == {"kind-enters-many-times@items.req", "move-without-flow@stock.waiting",
                         "state-stocks-disconnected@stock.waiting"}         # approved: a piece of its own
-    assert "from: checked on flow approvals" in got["inflow-not-chained@flow.approvals"].message
+    once = got["kind-enters-many-times@items.req"]                # the chain's inflow-not-chained, said once, here
+    assert "from: checked on flow approvals" in once.message and "2 moves from checked in the record" in once.message
     assert "flow checked-to-waiting from checked to waiting, measured as items of req entering new" in \
         got["move-without-flow@stock.waiting"].message
-    assert "2 moves in the record" in got["inflow-not-chained@flow.approvals"].message
 
 
 def test_a_stock_gathering_from_every_state_and_a_stage_between_are_chained(tmp_path):
