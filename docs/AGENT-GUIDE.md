@@ -47,6 +47,32 @@ Work through these steps in order. Ask the person only what you cannot infer.
    `{"event": "request.new", "item": "request/123", "data": {"title": "...", "url": "..."}}`. The
    kind's `on:` maps event types to states. This is the **sensor** of the whole workflow: without it
    nothing arrives.
+
+   **When the work is related** (a ticket blocked by another, tickets under an epic, a duplicate), declare the
+   relations on the kind and have the collector record them as fields (SPEC §5a, *Relations*):
+
+   ```yaml
+   items:
+     ticket:
+       id: ticket/*
+       relations:
+         blocked_by: ticket          # precedence: ready once each one it names is done
+         parent: epic                # cross-kind: the epic it is part of
+     epic:
+       id: epic/*
+   ```
+
+   An issue tracker's links map onto them: Jira's "is blocked by" links (inward, of the type Blocks) are
+   `blocked_by`, "blocks" is the inverse ergostat derives (never record both), the epic link or parent is
+   `parent`, "duplicates" is `duplicates`. A collector that reads every link of an issue each time it polls says the
+   whole set, so a link taken away in the tracker goes here too:
+   `{"event": "ticket.seen", "item": "ticket/PROJ-12", "data": {"blocked_by": {"set": ["ticket/PROJ-9"]}, "parent":
+   {"set": ["epic/PROJ-1"]}}}`. One that sees changes says them: `{"blocked_by": {"add": "ticket/PROJ-9"}}`,
+   `{"remove": ...}`. Use the same ids the items have (`ticket/PROJ-9`, not `PROJ-9`), and record the related item
+   too, or it shows as "not recorded" and counts as unfinished. Then the step that starts the work can take only
+   what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. Look at the Items
+   page's **Graph** (what waits on what, the critical path) and **Timeline** (what happened, and what is projected)
+   to check the links came through; `examples/roadmap/` is a small model built this way.
 5. **One block per step that does the work**, taking items in its state:
    `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once) and, for AI work, a
    prompt. A run leases its item, does the step, and prints the event that moves the item on.
@@ -227,6 +253,8 @@ longer, then check again.
 - [ ] Every step's **block acts on a flow of the chain**, and its loop shares stocks with its
       neighbours: in the Blocks view the loops connect.
 - [ ] A **collector** (the sensor) feeds the first state.
+- [ ] Where the work is related, the **relations** are declared and recorded by the collector, and the Items
+      page's Graph shows them (no item "not recorded", no cycle needing attention).
 - [ ] Every block says what its work moves (`out: flow.NAME`). Without it the block has "no visible
       effect", is not drawn into any loop, and the Blocks view looks empty.
 - [ ] Every goal has a block whose `out:` moves a flow of what the goal holds (`ergostat check` says
