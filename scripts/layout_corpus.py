@@ -67,7 +67,8 @@ def serve(d: Path, port: int, home: Path):
             time.sleep(1)
             continue
         p = free[attempt % len(free)]
-        proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(p)],
+        py = str(Path(os.environ["LAYOUT_ENGINE"]) / ".venv" / "bin" / "python") if os.environ.get("LAYOUT_ENGINE") else sys.executable
+        proc = subprocess.Popen([py, "-m", "ergostat", "-C", str(d), "web", "--port", str(p)],
                                 env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL, text=True)
         said: list[str] = []
@@ -331,11 +332,14 @@ def main() -> int:
     ap.add_argument("--shots", default="worst", choices=["worst", "all", "none"])
     ap.add_argument("--ports", default="8791,8793,8796")
     ap.add_argument("--only", default="")
+    ap.add_argument("--engine", default="", help="draw with the ergostat at this checkout, by its own .venv (a before for a comparison)")
     ap.add_argument("--judge-only", action="store_true", help="judge the geometry already in OUT again")
     ap.add_argument("--worst", type=int, default=4, help="worst views shown per rule")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    if a.engine:
+        os.environ["LAYOUT_ENGINE"] = str(Path(a.engine).resolve())      # (the workers and their servers inherit it)
     recs: list[dict] = []
     if not a.judge_only:
         examples = None if a.no_examples else ([] if a.examples == "all" else a.examples.split(","))

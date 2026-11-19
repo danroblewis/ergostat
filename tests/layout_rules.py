@@ -570,23 +570,41 @@ def d_valve_orientation(r: Rule, g: G):
     return out
 
 
-def d_side_port(r: Rule, g: G):
-    """A pipe meeting a stock on a side that forces a bend, when another side faces its valve straight."""
+SIDE_CROWD = 2            # more pipes than this on one side of a stock, while a side facing one of their valves is free
+
+
+def pipe_side(at, sr) -> str:
+    """The side of a box a line's end meets."""
+    return min((abs(at[0] - sr[0]), "left"), (abs(at[0] - sr[2]), "right"), (abs(at[1] - sr[1]), "up"), (abs(at[1] - sr[3]), "down"))[1]
+
+
+def d_side_crowding(r: Rule, g: G):
+    """Too many flows on one side of a stock while a side facing one of their valves has none."""
     out = []
-    for e in g.pipes:
-        for end, other, at in ((e["source"], e["target"], e["pts"][0]), (e["target"], e["source"], e["pts"][-1])):
-            if g.kind(end) != "stock" or g.kind(other) not in ("valve", "disturbance") or len(e["pts"]) < 2:
+    for sid, n in g.nodes.items():
+        if n["kind"] != "stock":
+            continue
+        sr = g.rect[sid]
+        sc = centre(sr)
+        sides: dict[str, list] = {}
+        for e in g.pipes:
+            for end, other, at in ((e["source"], e["target"], e["pts"][0]), (e["target"], e["source"], e["pts"][-1])):
+                if end == sid and other in g.rect:
+                    sides.setdefault(pipe_side(at, sr), []).append(other)
+        for side, others in sides.items():
+            if len(others) <= SIDE_CROWD:
                 continue
-            sr = g.rect[end]
-            oc = centre(g.rect[other])
-            side = min((abs(at[0] - sr[0]), "left"), (abs(at[0] - sr[2]), "right"),
-                       (abs(at[1] - sr[1]), "up"), (abs(at[1] - sr[3]), "down"))[1]
-            faces = ("up" if oc[1] < sr[1] else "down" if oc[1] > sr[3] else None) if sr[0] < oc[0] < sr[2] else \
-                    ("left" if oc[0] < sr[0] else "right" if oc[0] > sr[2] else None) if sr[1] < oc[1] < sr[3] else None
-            n = bends(e["pts"])
-            if faces and faces != side and n:
-                out.append(inst(r, n, f"pipe {e['id']} meets {end} on its {side} side, its valve faces its {faces} side ({n} bends)",
-                                [e["id"], end, other], union(sr, g.rect[other])))
+            free = []
+            for o in others:
+                oc = centre(g.rect[o])
+                dx, dy = oc[0] - sc[0], oc[1] - sc[1]
+                across = abs(dx) * (sr[3] - sr[1]) >= abs(dy) * (sr[2] - sr[0])     # (by the box's own shape)
+                faces = ("right" if dx > 0 else "left") if across else ("down" if dy > 0 else "up")
+                if faces != side and faces not in sides:
+                    free.append((o, faces))
+            if free:
+                out.append(inst(r, len(others), f"{sid}: {len(others)} flows on its {side} side; its {free[0][1]} side, facing "
+                                f"{free[0][0]}, has none", [sid, *others], union(sr, *(g.rect[o] for o in others))))
     return out
 
 
@@ -611,8 +629,8 @@ RULES: list[Rule] = [
          "no word over a line, a part or a word that is not its own"),
     Rule("valve-orientation-mismatch", "major", ("dynamics",), True, d_valve_orientation,
          "a valve's axis along its pipe: upright where what it joins in line lies above or below it"),
-    Rule("side-port-forced-bend", "major", ("dynamics",), True, d_side_port,
-         "a pipe meets its stock on the side that faces its valve, when one does"),
+    Rule("side-crowding", "major", ("dynamics",), True, d_side_crowding,
+         "at most 2 flows on one side of a stock while a side facing one of their valves is free"),
     Rule("cloud-side", "minor", ("dynamics",), True, d_cloud_side,
          "an outflow's cloud right of or below its valve, an inflow's left of or above it, on the valve's line"),
     Rule("marker-collision", "minor", ("dynamics",), True, d_marker_collision,

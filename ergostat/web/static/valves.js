@@ -56,6 +56,7 @@ function orientValves(lay, g) {
     const most = (f) => peers.length > 0 && peers.filter(f).length > peers.length / 2;
     const stem = vertical ? (most((q) => q.x > me.x + 10) ? "right" : "left") : (most((q) => q.y > me.y + 10) ? "down" : "up");
     c.turn = { flow, stem };
+    c.stems = { level: most((q) => q.y > me.y + 10) ? "down" : "up", vertical: most((q) => q.x > me.x + 10) ? "right" : "left" };
     n.flip = !vertical && stem === "down";
     if (flow === "right" && stem === "up") continue;           // as laid out
     turned.push(n.id);
@@ -103,4 +104,24 @@ function turnTransform(turn, w, h) {
   const [a, b] = TURN_VEC[turn.flow], [sx, sy] = TURN_VEC[turn.stem], c = -sx, d = -sy;
   const cx = w / 2, cy = h / 2;
   return `matrix(${a},${b},${c},${d},${cx - (a * cx + c * cy)},${cy - (b * cx + d * cy)})`;
+}
+
+/* the ways the router found each flow running through its valve (avoid.js: its first pass, the valve a point):
+   each valve turned to match, its stem where most of its links are, its name moved to a free side */
+function turnValves(lay, g, flows) {
+  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
+  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+  for (const [id, flow] of Object.entries(flows)) {
+    const c = box[id];
+    if (!c || !c.turn || c.turn.flow === flow) continue;
+    const vertical = flow === "up" || flow === "down";
+    const stem = vertical ? c.stems?.vertical || "left" : c.stems?.level || "up";
+    c.turn = { flow, stem };
+    if (byId[id]) byId[id].flip = !vertical && stem === "down";
+    placeLabels(c, lay.children, stem, vertical);
+    for (const p of c.ports || []) {
+      const side = /:(ctl|sense)$/.test(p.id) ? stem : /:in$/.test(p.id) ? SIDE_OF[flow] : /:out$/.test(p.id) ? flow : null;
+      if (side) [p.x, p.y] = sidePoint(side, 0.5, c.width, c.height);
+    }
+  }
 }

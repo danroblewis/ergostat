@@ -138,6 +138,7 @@ function standUpright(lay, g) {
     if (n.kind !== "valve" && n.kind !== "disturbance") continue;
     const d = drainOf(g, n.id), v = box[n.id], c = d && box[d.cloud], st = d && box[d.stock];
     if (!d || !v || !c || !st || S.pins?.[n.id] || S.pins?.[d.cloud] || home(n.id) !== home(d.stock)) continue;
+    if (lay.satellites?.has(n.id)) continue;           // (put beside its stock already: satellites.js)
     const cx = st.x + st.width / 2, sb = partBox(st);
     const vy = d.out ? sb.y1 + UPRIGHT_GAP : st.y - UPRIGHT_GAP - v.height;
     const cy = d.out ? vy + v.height + UPRIGHT_GAP : vy - UPRIGHT_GAP - c.height;
