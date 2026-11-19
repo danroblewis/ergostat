@@ -455,7 +455,7 @@ function avoidSpec(lay, g) {
     if (!cin || !cout) continue;
     const far = box[cout.t] && { x: box[cout.t].x + box[cout.t].width / 2, y: box[cout.t].y + box[cout.t].height / 2 };
     flows.push({ id: c.id, s: cin.s, sp: cin.sp, t: cout.t, tp: cout.tp, x: c.x + c.width / 2, y: c.y + c.height / 2,
-                                  tx: far?.x, ty: far?.y, pinned: !!S.pins?.[c.id] });
+                                  tx: far?.x, ty: far?.y, pinned: !!S.pins?.[c.id] || !!c.slid });   // (slid once a layout: no drift)
   }
   // (in the dynamics view a flow's pipe reads best short and straight: a crossing there costs less than a long way round)
   return { shapes, conns, flows, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length) * (conns.length > 150 ? 0.6 : 1)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
@@ -472,7 +472,7 @@ function avoidStart(lay, g) {
       const byLe = Object.fromEntries(lay.edges.map((le) => [le.id, le]));
       for (const [id, [dx, dy]] of Object.entries(m.slides || {})) {   // (the router slid it along its pipe)
         const c = lay.children.find((k) => k.id === id);
-        if (c) { c.x += dx; c.y += dy; }
+        if (c) { c.x += dx; c.y += dy; c.slid = true; }
       }
       if (m.turns) turnValves(lay, g, m.turns);           // each valve facing the way its flow runs through it (valves.js)
       for (const [id, pts] of Object.entries(m.routes)) setRoute(byLe[id], pts.map(([x, y]) => ({ x, y })));
