@@ -20,6 +20,12 @@ The prompt goes to `claude -p` (or the command in `$ERGOSTAT_AI`, or the block's
 the block's JSON input and how to answer. It is judged by what it did to the stocks (the stale
 pages), not by what it says it did: the sensor on the stock is the truth.
 
+Each run records what it cost: its session's dollars (as Claude Code reported them, or estimated from
+its tokens by a price table), tokens and model, and the CPU time and peak memory of its processes
+(`ergostat agent NAME`, the Agents page). `ergostat.cost.usd` (the last day's spend; `-hour`, the last
+hour; `@BLOCK` for one) is a built-in measure a goal can hold: `ergostat help agent-guide`, "A budget
+on what the agents cost".
+
 ## Where it works, and what it may do
 
 With nothing said, its session runs in the model's folder (where `ergostat.yaml` is) and has whatever
