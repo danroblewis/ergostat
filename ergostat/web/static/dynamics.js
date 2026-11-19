@@ -264,12 +264,13 @@ function sdLoopMarkers(g, lay) {
     const mk = `${loops.map((c) => c.name).join("|")}#${label}#${lines.join("/")}#${poly.map((q) => `${q.x},${q.y}`).join(" ")}`;
     let spot = memo.spots[mk] || null;
     const ring = (x, y) => ({ x: x - r - 4, y: y - r - 4, x1: x + r + 4, y1: y + r + 4 });
-    for (const tier of spot ? [] : [0, 1, 2, 3, 4]) {               // inside and clear; across a connector; across a pipe; its circle alone clear; near it
+    for (const tier of spot ? [] : [0, 1, 2, 3, 5, 4]) {            // inside and clear; across a connector; across a pipe; its circle alone
+                                                                      // clear; inside at all (a loop's marker is in it); near it
       for (let rr = 0; rr <= reach && !spot; rr += 8) {
         const k = Math.max(1, Math.round((2 * Math.PI * rr) / 14));
         for (let i = 0; i < k; i++) {
           const ang = (i / k) * 2 * Math.PI, x = cx + rr * Math.cos(ang), y = cy + rr * Math.sin(ang);
-          const ok = tier === 4 ? free(rect(x, y), 0) : tier === 3 ? !hit(taken, ring(x, y)) : free(rect(x, y), tier);
+          const ok = tier === 5 || (tier === 4 ? free(rect(x, y), 0) : tier === 3 ? !hit(taken, ring(x, y)) : free(rect(x, y), tier));
           if ((tier === 4 || inside(x, y)) && ok) { spot = { x, y }; break; }
         }
       }
