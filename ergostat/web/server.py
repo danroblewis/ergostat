@@ -134,7 +134,14 @@ class Live:
         self.mtime = self._mtime()
         self.watch.took(self.p.model)
         self.errors = []
-        history.note(self.p)
+        self._note()
+
+    def _note(self) -> None:
+        """Record the model's change, unless a runner is there to: it says which runs carried over the change, and a
+        record made here first (the same fingerprint) would leave it nothing to record."""
+        from ..runner import running_pid
+        if not running_pid(self.p, wait=False):
+            history.note(self.p)
 
     def _mtime(self):
         return mdl.stamp(self.p.model)
@@ -187,7 +194,7 @@ class Live:
                         self.p.model = fresh
                         self.watch.took(fresh, due)
                         self.mtime, self.errors = self._mtime(), []
-                        history.note(self.p)
+                        self._note()
             except Exception:                          # keep the last model that loaded
                 pass
             finally:
