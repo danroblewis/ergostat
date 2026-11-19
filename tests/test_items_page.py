@@ -450,3 +450,74 @@ def test_the_graph_and_the_timeline_left_open_change_nothing(browser, roadmap, v
     assert len(asked) - start >= 3
     assert ms == [], ms[:10]
     assert kept and not errors, errors
+
+
+# ---- a report upstream's page (SPEC §12m): the text to paste, a Copy button, the link to a new issue, the scrub log
+
+def seed_report(d: Path, home: Path) -> str:
+    code = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+from ergostat.reports import record
+p = Project(mdl.load(Path({str(d)!r})))
+got = record.draft(p, "worker crashed writing inbox for dana@corp.example.com", origin="agent", by="work-agent",
+                   details="on build7.corp.internal, token=s3cr3tvalue", parts=["block.worker"])
+print(got["id"])
+"""
+    out = subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                         capture_output=True, text=True)
+    return out.stdout.strip().splitlines()[-1]
+
+
+@pytest.fixture(scope="module")
+def reported(tmp_path_factory):
+    d = tmp_path_factory.mktemp("first-loop") / "first-loop"
+    shutil.copytree(ROOT / "examples" / "first-loop", d)
+    home = d.parent / "home"
+    rid = seed_report(d, home)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url, rid
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+def test_a_reports_page_shows_its_text_a_copy_button_the_issue_link_and_the_scrub_log(browser, reported):
+    url, rid = reported
+    ctx = browser.new_context(viewport={"width": 1400, "height": 1000})
+    ctx.grant_permissions(["clipboard-read", "clipboard-write"], origin=url)
+    pg = ctx.new_page()
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{url}/")                                       # needs attention: one line
+    pg.wait_for_function("() => document.body.innerText.includes('reports upstream')")
+    pg.goto(f"{url}/item/{rid}")
+    pg.wait_for_selector(".report-body")
+    body = pg.locator(".report-body").inner_text()
+    assert "What went wrong" in body and "email-1" in body
+    for secret in ("dana@corp.example.com", "build7.corp.internal", "s3cr3tvalue", "worker", "inbox"):
+        assert secret not in body, secret
+    link = pg.locator("a.report-issue")
+    href = link.get_attribute("href")
+    assert href.startswith("https://github.com/danroblewis/ergostat/issues/new?title=") and link.get_attribute("target") == "_blank"
+    log = pg.locator(".scrub-log").inner_text()
+    assert "dana@corp.example.com" in log and "an email address" in log and "block-1" in log
+    pg.locator("button.report-copy").click()
+    pg.wait_for_function("() => document.querySelector('.report-acts .note').textContent.includes('Copied')")
+    assert "What went wrong" in pg.evaluate("navigator.clipboard.readText()")
+    pg.locator('button[data-mark="submitted"]').click()
+    pg.wait_for_function("() => document.querySelector('.track .stbox.on')?.textContent === 'submitted'", timeout=15000)
+    assert not errors, errors
+    ctx.close()
