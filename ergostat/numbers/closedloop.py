@@ -273,7 +273,8 @@ class _Control:
     """``simulate.project``'s control hook: the shadow's pass and each identified model's flow at every step."""
 
     def __init__(self, spec: Spec, models: dict[str, BlockModel], start: Start | None, whatif: WhatIf, drawn: dict,
-                 own: dict, params: dict, inputs: str):
+                 own: dict, params: dict, inputs: str, fine: int = 0):
+        self.fine = fine
         self.spec, self.models, self.own, self.params, self.inputs, self.whatif = spec, models, own, params, inputs, whatif
         self.flows = set(models)
         self.drawn = {r: {**(drawn.get(r) or {}), **({"servers": whatif.pools[m.block]} if m.block in whatif.pools else {})}
@@ -307,7 +308,7 @@ class _Control:
         fastest = min((m.residence for m in self.models.values() if m.form == "drain" and m.residence), default=None)
         if fastest:                                          # a drain followed about once per its residence time, up to
             k = max(k, min(DRAIN_STEPS, math.ceil(step / 3600.0 / fastest)))   # DRAIN_STEPS: faster, it empties in a step
-        self.k = max(MIN_STEPS, min(k, max(1, MAX_STEPS // n)))
+        self.k = max(MIN_STEPS, self.fine, min(k, max(1, MAX_STEPS // n)))   # fine: at least so many (extremes.py)
         self.i = 0
         return self.k
 
@@ -341,13 +342,18 @@ class _Control:
                     self.faults[r] = self.faults.get(r, 0) + 1
                     eqv = 0.0
             v = m.rate(V, ons.get(m.block, True) if m.gate else True, self.drawn.get(r), eqv, dt)
-            if r in self.one_way:
-                v = max(0.0, v)
-                src = self.spec.flows[r[5:]].source
-                if src and state.get(src) is not None:
-                    v = min(v, max(0.0, state[src]) / dt)
-            V[r] = v
-            self.acc[r] += v / self.k
+            V[r] = max(0.0, v) if r in self.one_way else v
+        took: dict[str, list[str]] = {}                      # what the models take from each stock, together at most what it holds
+        for r in self.models:
+            src = self.spec.flows[r[5:]].source
+            if r in self.one_way and src and state.get(src) is not None:
+                took.setdefault(src, []).append(r)
+        for src, rs in took.items():
+            k = max(0.0, state[src]) / dt / (sum(V[r] for r in rs) or 1.0)
+            for r in rs:
+                V[r] *= min(1.0, k)
+        for r in self.models:
+            self.acc[r] += V[r] / self.k
         for g in self.spec.goals:
             if self.G.get(f"goal.{g}.off"):
                 self.off[g][self.i] += 1.0 / self.k
@@ -376,7 +382,7 @@ class _Control:
 
 def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan | None = None, points: int | None = None,
            models: dict[str, BlockModel] | None = None, start: Start | None = None, inputs: str = "hold",
-           whatif: WhatIf | None = None, draw: dict | None = None, rescale: sim.Plan | None = None) -> ClosedRun:
+           whatif: WhatIf | None = None, draw: dict | None = None, rescale: sim.Plan | None = None, fine: int = 0) -> ClosedRun:
     """From now (``data.grid.until``) for ``horizon`` seconds, with the loops running (the module's docstring). ``draw``
     is a Monte Carlo run's values: ``{"models": {flow: {name: value}}, "inputs": {ref: rate}}``."""
     whatif, draw = whatif or WhatIf(), draw or {}
@@ -391,7 +397,7 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
     for r, (how, v) in whatif.flows.items():
         seen = [x for x in data.values.get(r) or [] if x is not None]
         override[r] = v if how == "=" else v * (fmean(seen) if seen else 0.0)
-    ctl = _Control(spec, models, start, whatif, draw.get("models") or {}, own, pl.params, inputs)
+    ctl = _Control(spec, models, start, whatif, draw.get("models") or {}, own, pl.params, inputs, fine)
     for c in own.values():
         c.faults.clear()
     try:

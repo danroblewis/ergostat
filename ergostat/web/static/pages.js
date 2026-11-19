@@ -987,11 +987,16 @@ async function pageCheck(main) {
   let quiet = [];                                          // the parts the record has not exercised (a finding each)
   try { quiet = await api("exercised"); } catch (e) { quiet = []; }
   st.check = [...st.check, ...quiet.map((x) => ({ level: "warn", message: x.message }))];
+  const info = st.check.filter((c) => c.level === "info");  // the extreme-conditions tests, while they run in the background
+  st.check = st.check.filter((c) => c.level !== "info");
   const errors = st.check.filter((c) => c.level === "error").length, warnings = st.check.length - errors;
   const words = [errors ? `${errors} error${errors > 1 ? "s" : ""}` : "", warnings ? `${warnings} warning${warnings > 1 ? "s" : ""}` : ""].filter(Boolean);
   const p = page(main, words.length ? `Check: ${words.join(", ")}` : "The model is whole");
   if (st.check.length) p.append(h("div", { class: "att" }, st.check.map((c) => h("div", {},
     h("b", { class: c.level === "error" ? "lvl-error" : "lvl-warning" }, c.level === "error" ? "Error" : "Warning"), " ", op(c.message)))));
+  if (info.length) p.append(h("p", { class: "muted small extremes-status" }, info.map((c) => c.message).join("; ")));
+  if (info.some((c) => c.message.startsWith("extremes: running")))   // drawn again once they are done
+    S.timer = poll(async () => { const s2 = await api("status"); if (!s2.check.some((c) => c.level === "info" && c.message.startsWith("extremes: running"))) { S.timer.stop(); pageCheck(main); } }, 2000, p);
   const slot = h("div");                                   // the three views held against each other (SPEC §12l), when read
   p.append(slot, h("h2", {}, "Counts"), h("dl", { class: "counts" }, Object.entries(st.counts).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, fmt(v))])));
   let coh = null;
