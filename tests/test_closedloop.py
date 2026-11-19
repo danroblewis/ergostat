@@ -366,3 +366,41 @@ def test_parse_whatif_splits_parameters_from_what_only_the_closed_loop_tries(tmp
     for bad in ({"flow.nope": "1"}, {"block.developer.pool": "0"}, {"goal.x": "1"}, {"flow.arrivals": "fast"}):
         with pytest.raises(cl.WhatIfError):
             cl.parse_whatif(p.model.spec, bad)
+
+
+PERSON = """\
+name: p
+stocks:
+  waiting:
+    unit: notes
+    sensor: {manual: true}
+flows:
+  answered:
+    from: waiting
+    sensor: {manual: true}
+goals:
+  none-late:
+    stock: waiting
+    hold: "<= 50"
+blocks:
+  me:
+    type: person
+    goal: none-late
+    ask: answer them
+    out: flow.answered
+"""
+
+
+def test_a_block_that_moves_while_nothing_commands_it_is_not_gated_by_its_command(tmp_path):
+    """A person answers before being asked: the record shows the flow moving while the goal held and the on/off in front
+    of the person was off. The stand-in is then what the flow did, whether or not it was commanded, and says so."""
+    p = project_of(tmp_path, PERSON)
+    now = time.time()
+    p.measurements.add("block/keep-none-late", 0.0, at=now - 7300)
+    for i in range(121):
+        t = now - 7200 + i * 60
+        p.measurements.add("sensor/waiting.main", 4.0, at=t)
+        p.measurements.add("sensor/answered.main", 2.0, at=t)
+    s = cl.identify(p, p.model.spec, ob.measured(p, ob.Grid(now - 7200, now, 60)))["flow.answered"]
+    assert s.gate is None and s.form == "drain" and not s.assumed
+    assert s.tau == pytest.approx(2.0, rel=0.05) and "whether or not keep-none-late commands it" in s.said

@@ -101,7 +101,7 @@ function effectView(d, box) {
   const fb = d.fit_before?.total, fa = d.fit_after?.total;
   box.replaceChildren(...[
     charts.length ? h("div", { class: "review-charts" }, ...charts) : h("p", { class: "muted small" }, "Nothing it changes is replayed."),
-    charts.length ? h("p", { class: "muted small" }, `Measured, solid; the model as it is, dashed; with the change, in blue; past now, the projections over ${dur(d.horizon || 0)}.`) : null,
+    charts.length ? h("p", { class: "muted small" }, `Measured, solid; the model as it is, dashed; with the change, in blue; past now, the projections over ${dur(d.horizon || 0)}${d.loops === "closed" ? ", with the loops running (each machine block by its stand-in)" : ", held (open loop)"}.`) : null,
     d.valid === false ? h("p", { class: "s-open small" }, `With it the replay is not valid: ${(d.invalid || []).join("; ")}.`) : null,
     dl([["fit now", fb || fa ? `scaled error ${nm(fb?.nmse)} → ${nm(fa?.nmse)}` : null],
         ["ahead", (d.operational || []).length ? h("div", {}, ...d.operational.map((x) => h("div", {}, x))) : null],
