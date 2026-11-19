@@ -16,8 +16,7 @@ SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variabl
             "loops", "claims", "contexts", "actions", "workspaces", "leases")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
             "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of"}
-TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "notify", "defaults", "uses", "library", "remotes",
-       *SECTIONS}
+TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "notify", "defaults", "uses", "library", "remotes", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
