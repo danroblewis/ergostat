@@ -14,7 +14,7 @@ from .claims import cmd_claims
 from .common import PART_TOPICS
 from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
-from .numbers import cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_proposals
+from .numbers import cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
 from .parts import cmd_part
 from .record import cmd_compact, cmd_event, cmd_item, cmd_reset, cmd_residual
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
@@ -211,6 +211,26 @@ def build() -> argparse.ArgumentParser:
     ls.add_argument("--no-count", action="store_true", help="with --nack: the attempt does not count toward a dead letter")
     topic("residual", cmd_residual, "What the model can't explain")
     topic("fit", cmd_fit, "How well the model's replay fits the record (each stock, the total, Theil's statistics)", named=False)
+    pj = topic("project", cmd_project, "The model run on from now: with the loops running (the default where it has "
+                                       "controllers) or held; what-ifs; the goals' risk", named=False)
+    how = pj.add_mutually_exclusive_group()
+    how.add_argument("--closed", action="store_true", help="with the loops running: the goals and built-in blocks as the "
+                                                          "engine works them out, each machine block by a stand-in identified "
+                                                          "from the record (the default where the model has controllers)")
+    how.add_argument("--held", action="store_true", help="open loop: every block and input held where it was")
+    pj.add_argument("--horizon", metavar="DURATION", help="how far ahead (default: three of the slowest time constant, within a "
+                                                         "twentieth and a quarter of the window)")
+    pj.add_argument("--whatif", metavar="NAME=VALUE", action="append",
+                    help="try a parameter (k=2, run-time=60s), an input's rate (flow.arrivals=20 an hour, or flow.arrivals=x2), "
+                         "a setpoint (goal.queue-short=5) or a pool (block.developer.pool=4); again for more")
+    pj.add_argument("--inputs", choices=["hold", "trend"], default="hold", help="inputs held where they are, or carried on "
+                                                                                "along their trend")
+    pj.add_argument("--risk", action="store_true", help="Monte Carlo over what it does not know: each goal's chance of being "
+                                                       "off at the horizon and its expected time off")
+    pj.add_argument("--runs", type=int, default=100, help="with --risk: how many runs (default 100, at most 400)")
+    pj.add_argument("--seed", type=int, default=20261118, help="with --risk: the draws' seed (the same seed, the same answer)")
+    pj.add_argument("--budget", type=float, default=60.0, help="with --risk: seconds of wall time at most (default 60)")
+    pj.add_argument("--points", type=int, default=48, help="points along the horizon (default 48)")
     pp = topic("proposals", cmd_proposals, "Estimate the parameters marked estimate: true, and list the changes the record "
                                            "supports", named=False)
     pp.add_argument("--dismiss", metavar="ID", help="let a proposal go (it is not made again for this model)")

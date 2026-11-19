@@ -352,7 +352,8 @@ def test_the_page_projects_with_the_loops_running_and_tries_what_ifs(tmp_path):
     assert api(live, "series", {**q, "whatif": ["goal.nope:1"]})["whatif_error"]
     assert "only with the loops running" in api(live, "series", {**q, "loops": ["held"], "whatif": ["goal.queue-short:5"]})["whatif_error"]
     rk = api(live, "risk", {"since": ["2h"], "goal": ["queue-short"]})
-    assert rk["goals"][0]["goal"] == "queue-short" and rk["runs"] > 0 and "p≈" in rk["goals"][0]["said"] or "holding" in rk["goals"][0]["said"]
+    said = rk["goals"][0]["said"]
+    assert rk["goals"][0]["goal"] == "queue-short" and rk["runs"] > 0 and ("p≈" in said or "holding" in said)
     si = api(live, "standins", {"since": ["2h"], "block": ["worker"]})
     assert si["standins"][0]["block"] == "worker" and si["standins"][0]["said"]
     assert api(live, "whatif-fit", {"since": ["2h"], "whatif": ["goal.queue-short:5"]}) == {}

@@ -587,7 +587,7 @@ async function openNodeSD(n) {
     if (d?.inferred) rows.push(inferredRow(d.inferred));
     const flow = n.flow || n.label;
     showDetail(h("div", { class: "kind" }, "Valve"), h("h2", {}, flow), h("p", { class: "muted" }, `the rate of ${flow}`),
-      causesStrip(`flow.${flow}`), dl(rows), findingsNote(d), itemsSection(d?.items), equationSection(flow, d?.numbers, { said: d?.equation || n.equation }), loopsPara(loopsOf((c) => c.nodes.includes(n.id))),
+      causesStrip(`flow.${flow}`), !m.source && !d?.numbers?.equation_tree ? inputWhatif(flow) : null, dl(rows), findingsNote(d), itemsSection(d?.items), equationSection(flow, d?.numbers, { said: d?.equation || n.equation }), loopsPara(loopsOf((c) => c.nodes.includes(n.id))),
       h("p", {}, h("a", { href: `/diagram?view=dynamics&around=flow/${encodeURIComponent(flow)}` }, "Draw what is around it")),
       sdWhat("flow"));
     return;

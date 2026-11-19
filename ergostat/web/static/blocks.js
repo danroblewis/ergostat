@@ -1033,6 +1033,7 @@ function openBlock(n) {
     kids.push(h("p", { class: "muted small" }, "Not identified: no goal holds what comes out of it, so no loop's record or step test can tell its dynamics."));
   if (n.role === "controller" && n.id?.startsWith("blk:")) for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x]))
     kids.push(controlBox(l, "controller", { block: n.id.slice(4) }));
+  if (n.id?.startsWith("blk:")) kids.push(standinBox(n.id.slice(4)));   // what stands in for it with the loops running (charts.js)
   const loops = n.loops || [];
   if (loops.length) kids.push(h("h3", {}, `In the loop${loops.length > 1 ? "s" : ""} of`),
     h("p", {}, ...loops.flatMap((l, i) => [i ? ", " : "", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(l); } }, l)])));

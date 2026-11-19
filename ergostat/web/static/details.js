@@ -158,6 +158,7 @@ async function openLoop(name, asController = false) {
     kids.push(h("h3", {}, `Breaking it: ${lp.breaking_n} ${lp.per}${lp.breaking_n === 1 ? "" : "s"}`),
       h("table", {}, lp.breaking.map((b) => h("tr", {}, h("td", {}, id(String(b.item ?? b.group))), h("td", { class: "num" }, fmt(b.value))))));
   }
+  kids.push(goalAhead(name, lp));                       // with the loops running: its chance of being off ahead
   kids.push(controlBox(name, "loop"));                  // its process identified, its controller with it (control.js)
   for (const g of lp.gaps || []) kids.push(h("p", {}, h("b", { class: "lvl-warn" }, "Cannot close: "), g));
   for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
@@ -174,6 +175,26 @@ async function openLoop(name, asController = false) {
   }
   kids.push(h("p", {}, h("a", { href: `/diagram?around=loop/${encodeURIComponent(name)}` }, "Draw this loop alone")));
   showDetail(...kids);
+}
+
+/* a goal ahead, with the loops running (closedloop.py's Monte Carlo): "work-waiting: off at +8h with p≈0.3", and a
+   setpoint to try (a what-if, drawn on every chart, never kept) */
+function goalAhead(name, lp) {
+  const box = h("div", { class: "ahead" });
+  if (SNAP) return box;
+  const now = String(lp.setpoint ?? "").split(" ").pop();
+  const load = () => api("risk", { goal: name, ...whatifParams() }).then((d) => {
+    const g = (d.goals || [])[0];
+    if (!g && !d.error) { box.replaceChildren(); return; }
+    box.replaceChildren(h("h3", {}, "Ahead, with the loops running"),
+      g?.said ? h("p", { class: g.p_off_end >= 0.5 ? "s-open" : "" }, g.said) : h("p", { class: "muted small" }, d.error || d.said || ""),
+      h("p", { class: "muted small" }, "What if it held at ", whatifField(`goal.${name}`, `what if ${name} held at`, now, "another setpoint"),
+        d.runs ? ` (${d.runs} runs from a fixed seed${d.stopped ? `; ${d.stopped}` : ""}: the stand-ins and estimates by their errors, the inputs by how much their mean could move)` : ""));
+  }).catch(() => box.replaceChildren());
+  load();
+  box.redraw = load;
+  box.classList.add("whatif-redraw");
+  return box;
 }
 
 async function openAgent(name) {
