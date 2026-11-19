@@ -51,6 +51,7 @@ possible, without check-ins. Check-ins are replaced by gates written down in adv
 | B | `observer` | observer staleness and estimated stocks | — |
 | B | `architecture` | system architecture review: computed measures, per-system redesign, daily larger model | redesign |
 | B | `extremes` | extreme-conditions tests; proposals that state their predicted behaviour | closedloop |
+| B | `resilience` | from upkeep's fault injection: the CLI reads the record with the last good model while the YAML is broken; an outer watcher that restarts a dead engine (`--service`); the watchdog finds the cause and backs off; alarms shown; caps on unbounded files | reloadfix, indexfix |
 | B | `smallgaps` | per-kind goals, light-theme contrast, relations leftovers, external event logs | — |
 
 **Not tonight:**
@@ -64,6 +65,10 @@ possible, without check-ins. Check-ins are replaced by gates written down in adv
 ## Progress log
 
 - 00:45 Merged reloadfix, indexfix, gapsfix and reports. Tests now take ports from the system. Wave A started.
+
+- 01:10 closedloop finished; gate review: merge after fixes (state not restored for five built-ins, selective validation write-up, invalid risk runs dropped, no definition file; ~300 lines of bloat). Sent back.
+- 01:30 upkeep finished (exploration; proposal in docs/proposals/upkeep.md). Its fault injection found five real problems, queued as `resilience`, first in wave B.
+- 02:05 Main green (1338 unit, browser rc 0 with no skips, five demos ok): pushed reloadfix, indexfix, gapsfix, reports, the port change. leasekill finished (281 net lines, 2.2x latency with warm processes), in review. layoutopt started (an experiment the owner asked for: pure optimisation layouts). GAPS: superseded proposals, and the judge on slow models (owner).
 
 ## Decisions taken (for the owner to confirm)
 
