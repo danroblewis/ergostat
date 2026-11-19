@@ -316,6 +316,97 @@ VALVE_SIDES = """() => {
 }"""
 
 
+GEOMETRY = (ROOT / "scripts" / "layout_geometry.js").read_text()
+MODELLING = [e for e in EXAMPLES if any(re.search(r"^\s+modelling:|use[s]?: modelling", f.read_text(), re.M)
+                                        for f in (ROOT / "examples" / e).rglob("*.yaml"))]
+
+
+@pytest.mark.parametrize("example", MODELLING)
+def test_model_errors_drain_is_a_short_straight_satellite_of_its_stock(browser, tmp_path, example):
+    """The owner's case (ticket-factory's modelling system, and every example's): model-error's outflow to a cloud
+    ran far right, down across a link and another flow, into its valve, then down and left to a cloud in the
+    bottom-left corner. A flow whose other end is a cloud is its stock's satellite: the valve beside the stock on a
+    short pipe, the cloud just beyond, at most one bend, crossing no other line. The links into the valve (from
+    model-error, and from accepted-changes' side) travel to it: they never pull it off its pipe."""
+    from tests import layout_rules as rules
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        if "modelling" not in pg.evaluate("() => S.graph.tree || {}"):
+            pytest.skip(f"{example} has no modelling system")
+        for i, view in enumerate(["system=modelling", "open=modelling", "open=*"]):
+            drawn(pg, url, view, i + 1)
+            geo = pg.evaluate(GEOMETRY)
+            g = rules.G(geo)
+            stock = next((n for n in g.nodes.values() if n["kind"] == "stock" and n["label"] == "model-error"), None)
+            assert stock, f"[{view}] no model-error stock"
+            drain = [(v, pin, pout) for v, pin, pout in g.flows()
+                     if pin and pout and pin["source"] == stock["id"] and g.kind(pout["target"]) == "cloud"]
+            assert drain, f"[{view}] model-error has no outflow to a cloud"
+            for v, pin, pout in drain:
+                vr, cr, sr = g.rect[v["id"]], g.rect[pout["target"]], g.rect[stock["id"]]
+                assert rules.gap(vr, sr) <= 90, f"[{view}] {v['id']} is {rules.gap(vr, sr):.0f}px from model-error"
+                assert rules.gap(cr, vr) <= 70, f"[{view}] its cloud is {rules.gap(cr, vr):.0f}px from {v['id']}"
+                path = g.flow_path(v, pin, pout)
+                assert rules.bends(path) <= 1, f"[{view}] {v['id']} bends {rules.bends(path)} times: {path}"
+                mine = {pin["id"], pout["id"]}
+                for e in g.edges:
+                    if e["id"] in mine:
+                        continue
+                    hit = [(a, b) for a, b in rules.segs(e["pts"]) for c, d in rules.segs(path) if rules.crosses(a, b, c, d)]
+                    assert not hit, f"[{view}] {e['id']} crosses {v['id']}'s flow"
+                links = [e for e in g.edges if e["kind"] != "pipe" and e["target"] == v["id"]]
+                for e in links:                         # every link reaches the valve, wherever it sits
+                    end = e["pts"][-1]
+                    assert rules.gap((end[0], end[1], end[0], end[1]), vr) <= 3, f"[{view}] {e['id']} ends off {v['id']}: {end}"
+                assert any("accepted" in e["source"] for e in links), f"[{view}] no link from accepted-changes' side"
+        pg.close()
+    assert not errors, errors
+
+
+def test_a_valve_dragged_over_its_stock_stands_upright_on_its_top(browser, tmp_path):
+    """A valve dragged straight above its stock turns to follow its pipe: upright, the pipe leaving the stock's top
+    and running straight into it (no zig-zag through a level valve, no pipe forced round to the stock's side);
+    the turn is on the way from its cloud."""
+    from tests import layout_rules as rules
+    sid, vid = "stock:copies-not-offsite", "flow:new-backups"       # (an inflow from a cloud on the left; nothing over the stock)
+    with served("backups", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        at = "(id) => { const c = S.layout.children.find((c) => c.id === id); return [c.x, c.y, c.width, c.height]; }"
+        sx, sy, sw, _ = pg.evaluate(at, sid)
+        vx, vy, vw, vh = pg.evaluate(at, vid)
+        assert pg.evaluate(f"() => S.layout.children.find((c) => c.id === '{vid}').turn.flow") == "right"
+        dx, dy = (sx + sw / 2) - (vx + vw / 2), (sy - 40 - vh) - vy          # straight over the stock's middle
+        hit = pg.locator(f'g.node[data-id="{vid}"] .hit').first.bounding_box()
+        k = pg.evaluate("() => S.view.k")
+        x, y = hit["x"] + hit["width"] / 2, hit["y"] + hit["height"] / 2
+        pg.mouse.move(x, y)
+        pg.mouse.down()
+        for step in range(1, 13):
+            pg.mouse.move(x + dx * k * step / 12, y + dy * k * step / 12)
+        pg.mouse.up()
+        pg.wait_for_function(f"() => S.pins['{vid}'] && !S.layout.routing", timeout=20000)
+        pg.wait_for_timeout(800)
+        pg.wait_for_function(READY, timeout=20000)
+        geo = pg.evaluate(GEOMETRY)
+        g = rules.G(geo)
+        v = g.nodes[vid]
+        assert v["turn"]["flow"] == "down", v["turn"]
+        pipe = next(e for e in g.pipes if e["source"] == vid and e["target"] == sid)
+        s = g.rect[sid]
+        end = pipe["pts"][-1]
+        assert abs(end[1] - s[1]) < 2 and s[0] < end[0] < s[2], f"the pipe meets the stock at {end}, not its top {s}"
+        assert rules.bends(pipe["pts"]) == 0, f"the pipe zig-zags: {pipe['pts']}"
+        assert not rules.check(geo, ["valve-orientation-mismatch", "side-port-forced-bend"]), rules.check(geo, ["valve-orientation-mismatch"])
+        pg.close()
+    assert not errors, errors
+
+
 def test_valves_face_their_links_and_pipes_show_their_arrowheads(browser, tmp_path):
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})

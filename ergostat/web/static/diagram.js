@@ -189,7 +189,10 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     routeCuts(lay, cuts);
   }
   if (anchorLayout(lay, g, S.anchor)) S.anchored = true;   // a system opened or closed stays where it was (places.js)
-  if (ELK_PRESETS[LAYOUT]?.upright) standUpright(lay, g);   // drains and inflows stood upright where there is room
+  if (ELK_PRESETS[LAYOUT]?.upright) {
+    standUpright(lay, g);                                // drains and inflows stood upright where there is room
+    seatCloudFlows(lay, g);                              // and every other flow to or from a cloud beside its stock (places.js)
+  }
   applyPins(lay, g);
   orientValves(lay, g);                                  // valves face their pipes and their links (valves.js)
   avoidStart(lay, g);                                    // every line, by libavoid (avoid.js): ELK's until it is done

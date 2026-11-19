@@ -540,6 +540,56 @@ def d_fit(r: Rule, g: G):
     return []
 
 
+def d_valve_orientation(r: Rule, g: G):
+    """A valve whose axis is not along its pipe: level while what it joins straight lies above or below it (or
+    upright while that lies beside it), so the line zig-zags through it."""
+    out = []
+    for v, pin, pout in g.flows():
+        turn = v.get("turn") or {"flow": "right"}
+        level = turn.get("flow") in ("right", "left")
+        vr = g.rect[v["id"]]
+        vc = centre(vr)
+        best = None                                   # the end most in line with the valve: it sets the axis
+        for p, end in ((pin, pin and pin["source"]), (pout, pout and pout["target"])):
+            if not p or end not in g.rect:
+                continue
+            er = g.rect[end]
+            ec = centre(er)
+            dx, dy = abs(ec[0] - vc[0]), abs(ec[1] - vc[1])
+            beside = er[1] < vc[1] < er[3]           # its box spans the valve's centre one way or the other
+            stacked = er[0] < vc[0] < er[2]
+            if beside == stacked:
+                continue
+            off = dy if beside else dx
+            if best is None or off < best[0]:
+                best = (off, "level" if beside else "upright", end, dx if beside else dy)
+        if best and best[3] > vr[3] - vr[1] and (best[1] == "level") != level:
+            out.append(inst(r, best[3], f"valve {v['label'] or v['id']} {'level' if level else 'upright'}, its pipe to "
+                            f"{best[2]} runs {'across' if best[1] == 'level' else 'up or down'}",
+                            [v["id"], best[2]], union(vr, g.rect[best[2]])))
+    return out
+
+
+def d_side_port(r: Rule, g: G):
+    """A pipe meeting a stock on a side that forces a bend, when another side faces its valve straight."""
+    out = []
+    for e in g.pipes:
+        for end, other, at in ((e["source"], e["target"], e["pts"][0]), (e["target"], e["source"], e["pts"][-1])):
+            if g.kind(end) != "stock" or g.kind(other) not in ("valve", "disturbance") or len(e["pts"]) < 2:
+                continue
+            sr = g.rect[end]
+            oc = centre(g.rect[other])
+            side = min((abs(at[0] - sr[0]), "left"), (abs(at[0] - sr[2]), "right"),
+                       (abs(at[1] - sr[1]), "up"), (abs(at[1] - sr[3]), "down"))[1]
+            faces = ("up" if oc[1] < sr[1] else "down" if oc[1] > sr[3] else None) if sr[0] < oc[0] < sr[2] else \
+                    ("left" if oc[0] < sr[0] else "right" if oc[0] > sr[2] else None) if sr[1] < oc[1] < sr[3] else None
+            n = bends(e["pts"])
+            if faces and faces != side and n:
+                out.append(inst(r, n, f"pipe {e['id']} meets {end} on its {side} side, its valve faces its {faces} side ({n} bends)",
+                                [e["id"], end, other], union(sr, g.rect[other])))
+    return out
+
+
 RULES: list[Rule] = [
     Rule("flow-excursion", "critical", ("dynamics",), True, d_flow_excursion,
          "a flow's pipe at most 1.3x the distance between its ends, plus 80px"),
@@ -559,6 +609,10 @@ RULES: list[Rule] = [
          "a cloud's flow straight; a flow between stocks a jog at most (a flow back, 4 bends)"),
     Rule("label-collision", "major", ("dynamics", "blocks", "process"), True, d_label_collision,
          "no word over a line, a part or a word that is not its own"),
+    Rule("valve-orientation-mismatch", "major", ("dynamics",), True, d_valve_orientation,
+         "a valve's axis along its pipe: upright where what it joins in line lies above or below it"),
+    Rule("side-port-forced-bend", "major", ("dynamics",), True, d_side_port,
+         "a pipe meets its stock on the side that faces its valve, when one does"),
     Rule("cloud-side", "minor", ("dynamics",), True, d_cloud_side,
          "an outflow's cloud right of or below its valve, an inflow's left of or above it, on the valve's line"),
     Rule("marker-collision", "minor", ("dynamics",), True, d_marker_collision,

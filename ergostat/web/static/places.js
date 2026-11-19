@@ -165,6 +165,82 @@ function standUpright(lay, g) {
   return stood;
 }
 
+/* a flow between one stock and a cloud is that stock's satellite: its valve beside the stock, its cloud just
+   beyond, on one straight line (docs/layout-rules.md: flow-excursion, valve-between-ends, cloud-by-valve). Where
+   the layout left one elsewhere (pulled away by the links into its valve, or its cloud in a far corner), it is
+   seated again: on the natural side first (a drain below or right of its stock, an inflow above or left of it),
+   then the others, in the first place where it lies on nothing, inside its stock's own outline, and the drawing
+   still fits the screen about as well. One already beside its stock stays where it is */
+const SEAT_GAP = 34, SEAT_NEAR = 90, SEAT_CLOUD = 70;
+function seatCloudFlows(lay, g) {
+  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
+  const home = (id) => (byId[id]?.systems || [])[0] || null;
+  const r = document.querySelector("svg.canvas")?.getBoundingClientRect();
+  const [cw, ch] = r?.width ? [r.width - 40, r.height - 90] : [1260, 810];
+  const fit = () => {
+    const bs = [...lay.children.map(partBox), ...(lay.containers || []).map((o) => ({ x0: o.x, y0: o.y, x1: o.x + o.width, y1: o.y + o.height }))];
+    return Math.min(1, cw / (Math.max(...bs.map((b) => b.x1)) - Math.min(...bs.map((b) => b.x0))), ch / (Math.max(...bs.map((b) => b.y1)) - Math.min(...bs.map((b) => b.y0))));
+  };
+  const rect = (c) => ({ x0: c.x, y0: c.y, x1: c.x + c.width, y1: c.y + c.height });
+  const gapOf = (a, b) => Math.hypot(Math.max(0, a.x0 - b.x1, b.x0 - a.x1), Math.max(0, a.y0 - b.y1, b.y0 - a.y1));
+  const mid = (c) => ({ x: c.x + c.width / 2, y: c.y + c.height / 2 });
+  // already a satellite: the valve by the stock and in line with it, the cloud by the valve and in line with it
+  const seated = (st, v, c) => {
+    const s = rect(st), vm = mid(v), cm = mid(c);
+    const level = vm.y > s.y0 && vm.y < s.y1, upright = vm.x > s.x0 && vm.x < s.x1;
+    const inLine = level ? Math.abs(cm.y - vm.y) < 6 : upright ? Math.abs(cm.x - vm.x) < 6 : false;
+    const beyond = level ? Math.sign(cm.x - vm.x) === Math.sign(vm.x - (s.x0 + s.x1) / 2) : Math.sign(cm.y - vm.y) === Math.sign(vm.y - (s.y0 + s.y1) / 2);
+    return (level || upright) && inLine && beyond && gapOf(rect(v), s) <= SEAT_NEAR && gapOf(rect(c), rect(v)) <= SEAT_CLOUD;
+  };
+  const moved = [];
+  for (const n of g.nodes) {
+    if (n.kind !== "valve" && n.kind !== "disturbance") continue;
+    const d = drainOf(g, n.id), v = box[n.id], c = d && box[d.cloud], st = d && box[d.stock];
+    if (!d || !v || !c || !st || S.pins?.[n.id] || S.pins?.[d.cloud] || home(n.id) !== home(d.stock)) continue;
+    if (seated(st, v, c)) continue;
+    const sb = partBox(st), sm = mid(st);
+    const lw = Math.max(0, ...(v.labels || []).map((l) => l.width)) + 8, lh = (v.labels || []).reduce((a, l) => a + l.height, 0) + 6;
+    const order = d.out ? ["down", "right", "up", "left"] : ["up", "left", "down", "right"];
+    const others = lay.children.filter((k) => k !== v && k !== c && k !== st);
+    const mine = home(d.stock);
+    const free = (room) => !others.some((k) => meets(room, partBox(k), 12)) && !meets(room, sb, 4) &&
+      !(lay.containers || []).some((o) => o.name !== mine && !within(g, mine, o.name) && meets(room, { x0: o.x, y0: o.y, x1: o.x + o.width, y1: o.y + o.height }, 8));
+    const before = fit(), was = [v.x, v.y, c.x, c.y];
+    let done = false;
+    for (const side of order) {
+      // the valve's and the cloud's centres, out from the middle of the stock's side; the valve's name beside it
+      // (under a level valve; either side of an upright one, whichever is free)
+      const dir = { down: [0, 1], up: [0, -1], right: [1, 0], left: [-1, 0] }[side];
+      const level = dir[1] === 0;
+      const vc = level ? { x: dir[0] > 0 ? sb.x1 + SEAT_GAP + v.width / 2 : sb.x0 - SEAT_GAP - v.width / 2, y: sm.y }
+                       : { x: sm.x, y: dir[1] > 0 ? sb.y1 + SEAT_GAP + v.height / 2 : st.y - SEAT_GAP - v.height / 2 };
+      const step = (level ? v.width / 2 + SEAT_GAP + c.width / 2 : v.height / 2 + SEAT_GAP + c.height / 2);
+      const cc = { x: vc.x + dir[0] * step, y: vc.y + dir[1] * step };
+      const span = { x0: Math.min(vc.x - v.width / 2, cc.x - c.width / 2), x1: Math.max(vc.x + v.width / 2, cc.x + c.width / 2),
+                     y0: Math.min(vc.y - v.height / 2, cc.y - c.height / 2), y1: Math.max(vc.y + v.height / 2, cc.y + c.height / 2) };
+      const rooms = level
+        ? [{ ...span, y1: Math.max(span.y1, vc.y + v.height / 2 + lh), x0: Math.min(span.x0, vc.x - lw / 2), x1: Math.max(span.x1, vc.x + lw / 2) }]
+        : [{ ...span, x1: Math.max(span.x1, vc.x + v.width / 2 + lw) }, { ...span, x0: Math.min(span.x0, vc.x - v.width / 2 - lw) }];
+      if (!rooms.some(free)) continue;
+      Object.assign(v, { x: vc.x - v.width / 2, y: vc.y - v.height / 2 }); Object.assign(c, { x: cc.x - c.width / 2, y: cc.y - c.height / 2 });
+      if (fit() < before * UPRIGHT_KEEP || !outlinesClear(lay, g)) { [v.x, v.y, c.x, c.y] = was; continue; }
+      done = true;
+      break;
+    }
+    if (!done) continue;
+    moved.push(n.id);
+    for (const le of lay.edges) {                      // ELK's lines straight to where they are now, until libavoid's
+      const e = g.edges.find((x) => x.id === le.id), sec = (le.sections || [])[0];
+      if (!e || !sec || ![e.source, e.target].some((x) => x === n.id || x === d.cloud)) continue;
+      const at = (id) => { const b = box[id]; return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+      le.sections = [{ startPoint: at(e.source), endPoint: at(e.target), bendPoints: [] }];
+    }
+  }
+  if (moved.length) { regrowOutlines(lay, g); refit(lay); }
+  return moved;
+}
+
 /* a pin: where the owner put a part, or a system (its closed box and its open outline share one,
    "hull:<name>"), kept from the corner of the frame of the open system it is drawn in ({in, x, y}), or
    in the diagram's own coordinates ({x, y}): so what is inside a system keeps its place in it when

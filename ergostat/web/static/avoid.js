@@ -210,10 +210,22 @@ function avoidSpec(lay, g) {
     }
   }
   // stocks and clouds a valve turned upright joins: their pipes may meet them on top and below too
+  // (and a stock whose valve stands over or under it, level or not: its pipe meets the side that faces the valve)
+  const faces = (o, v) => { const m = { x: v.x + v.width / 2, y: v.y + v.height / 2 };
+    return m.x > o.x && m.x < o.x + o.width && (m.y < o.y || m.y > o.y + o.height); };
   const upright = new Set(lines.map((le) => edgeOf[le.id]).filter((e) => e.kind === "pipe").flatMap((e) => {
     const v = ["up", "down"].includes(box[e.source]?.turn?.flow) ? e.target : ["up", "down"].includes(box[e.target]?.turn?.flow) ? e.source : null;
-    return v ? [v] : [];
+    if (v) return [v];
+    const [o, vv] = box[e.source]?.turn ? [box[e.target], box[e.source]] : box[e.target]?.turn ? [box[e.source], box[e.target]] : [];
+    return o && vv && byId[o.id]?.kind === "stock" && faces(o, vv) ? [o.id] : [];
   }));
+  const alignedValves = {};                              // stock -> the valves its pipes join
+  for (const le of lines) {
+    const e = edgeOf[le.id];
+    if (e.kind !== "pipe") continue;
+    for (const [st, v] of [[e.source, e.target], [e.target, e.source]])
+      if (byId[st].kind === "stock" && ["valve", "disturbance"].includes(byId[v].kind)) (alignedValves[st] ||= []).push(box[v]);
+  }
   const pinOf = {};                                      // `${line}|${s or t}` -> pin class
   const shapes = [];
   for (const c of Object.values(box)) {
@@ -241,6 +253,13 @@ function avoidSpec(lay, g) {
       // a stock an upright valve joins takes that pipe at the middle of its top or bottom, where the valve stands
       // (libavoid finds no way for a line whose point lies on another's: its information points keep off the middle)
       if (k === "stock" && upright.has(c.id)) { at(PIN.PIPE, 0.5, 0, "up"); at(PIN.PIPE, 0.5, 1, "down"); }
+      // and, wherever a valve joined to it faces one of its sides (put there by hand, a pixel off the middle), a point
+      // in line with that valve, so its pipe runs straight into the valve instead of jogging to the nearest fixed point
+      if (k === "stock") for (const v of alignedValves[c.id] || []) {
+        const vx = v.x + v.width / 2, vy = v.y + v.height / 2, fx = (vx - c.x) / c.width, fy = (vy - c.y) / c.height;
+        if (fx > 0.08 && fx < 0.92 && (vy < c.y || vy > c.y + c.height)) at(PIN.PIPE, fx, vy < c.y ? 0 : 1, vy < c.y ? "up" : "down");
+        else if (fy > 0.12 && fy < 0.88 && (vx < c.x || vx > c.x + c.width)) at(PIN.PIPE, vx < c.x ? 0 : 1, fy, vx < c.x ? "left" : "right");
+      }
       // the rest: each net (lines of one kind, all leaving or all arriving) its own point on each side, shared by
       // its lines; single lines points of their own, one line each, enough of them for all
       const sides = k === "stock" ? ["up", "down"] : ["up", "down", "left", "right"];

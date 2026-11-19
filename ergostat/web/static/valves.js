@@ -23,16 +23,30 @@ function orientValves(lay, g) {
     const c = box[n.id];
     if (!c) continue;
     const me = mid(c);
-    // its pipes (not one a wrapped layout draws by hand between rows): turned upright only when each
-    // end it has lies above or below it; an elbow (in from the side, out below) stays level
+    // its pipes (not one a wrapped layout draws by hand between rows): turned upright when each end it has
+    // lies above or below it, or, at an elbow, when the end in line with it does (below)
     const cut = new Set(lay.edges.filter((le) => le.cut).map((le) => le.id));
     const pin = g.edges.find((e) => e.kind === "pipe" && e.target === n.id && !cut.has(e.id));
     const pout = g.edges.find((e) => e.kind === "pipe" && e.source === n.id && !cut.has(e.id));
     const a = pin && box[pin.source] ? mid(box[pin.source]) : null, b = pout && box[pout.target] ? mid(box[pout.target]) : null;
     const upright = (p, q) => Math.abs(q.y - p.y) > Math.abs(q.x - p.x) * 1.2 && Math.abs(q.y - p.y) > c.height;
     const ends = [a && [a, me], b && [me, b]].filter(Boolean);
-    const vertical = ends.length > 0 && ends.every(([p, q]) => upright(p, q)) && (!a || !b || Math.sign(me.y - a.y) === Math.sign(b.y - me.y));
-    const dy = (b || me).y - (a || me).y;
+    let vertical = ends.length > 0 && ends.every(([p, q]) => upright(p, q)) && (!a || !b || Math.sign(me.y - a.y) === Math.sign(b.y - me.y));
+    let dy = (b || me).y - (a || me).y;
+    // an elbow (one end beside it, the other above or below): the end in line with it sets its axis, so the pipe
+    // to that end runs straight through it and the turn is on the way to the other (a valve put over its stock
+    // stands upright on it, docs/layout-rules.md: valve-orientation-mismatch)
+    const inLine = [pin && box[pin.source] && [box[pin.source], -1], pout && box[pout.target] && [box[pout.target], 1]].filter(Boolean)
+      .map(([o, way]) => {
+        const stacked = o.x < me.x && me.x < o.x + o.width, beside = o.y < me.y && me.y < o.y + o.height;
+        if (stacked === beside) return null;
+        const m = mid(o);
+        return { way, upright: stacked, off: stacked ? Math.abs(m.x - me.x) : Math.abs(m.y - me.y), d: stacked ? m.y - me.y : m.x - me.x };
+      }).filter(Boolean).sort((p, q) => p.off - q.off);
+    if (inLine.length && Math.abs(inLine[0].d) > c.height && !(inLine.length > 1 && inLine[1].upright !== inLine[0].upright && inLine[1].off < inLine[0].off + 1)) {
+      vertical = inLine[0].upright;
+      if (vertical) dy = inLine[0].way * inLine[0].d;  // (the flow runs toward its out end, away from its in end)
+    }
     // level: right to left only when what flows in lies right of it and what it flows to does not (a
     // flow back, with the valve between its ends); a valve beyond both ends stays as it reads, left to right
     const back = a ? a.x > me.x + 2 && (!b || b.x < me.x - 2) : b && b.x < me.x - 2;
@@ -74,7 +88,9 @@ function placeLabels(c, kids, stem, vertical) {
     left: [-w - 6, (c.height - h) / 2], right: [c.width + 6, (c.height - h) / 2],
   };
   const away = { up: "down", down: "up", left: "right", right: "left" }[stem];
-  const order = vertical ? [away, "down", "up"] : [away];      // (beside a level one is on its pipe)
+  // (beside a level one is on its pipe, as above or below an upright one is: an upright one's name goes on
+  // either side of it, the side away from its stem first)
+  const order = vertical ? [away, stem] : [away];
   const free = (x, y) => !kids.some((o) => o !== c && c.x + x < o.x + o.width && o.x < c.x + x + w && c.y + y < o.y + o.height && o.y < c.y + y + h);
   const side = order.find((s) => free(...at[s])) || away;
   let y = at[side][1];
