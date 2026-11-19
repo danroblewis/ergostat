@@ -1,18 +1,9 @@
-"""The daemons' supervisor (SPEC §9.7): one thread, never the engine's loop, that keeps each daemon running.
-
-- **Crash.** A daemon that ends is started again after a back-off: the first wait, doubled each restart, at most
-  the most (``restart: backoff``). Its runs in flight end failed (counted: one of them may be what killed it).
-- **Silence.** With ``heartbeat``, a daemon that prints no line of any kind for that long is restarted.
-- **Backpressure.** A write to its standard input waiting ``stdin-timeout``, or its queue full, is a failure: it is
-  restarted and an alarm raised. Its runs in flight are given back uncounted (not theirs the fault).
-- **Cancel.** A lease expired, a run's timeout, the owner's stop: ``cancel`` is sent; a daemon still holding the run
-  after the kill grace is restarted, its other runs given back uncounted.
-- **Given up.** More than ``restart: max`` restarts within ``within``: no more; state ``failed``, an alarm, and
-  ``ergostat.daemon.failed`` (an intervention, class ``alarm:daemon:NAME``).
-- **A model swap.** A daemon whose definition changed (or that nothing uses now) is sent ``stop`` and drained: its
-  runs finish, and once it holds none it is killed after the grace if it has not ended; a new one takes new work.
-
-Its state is written to ``<state>/daemons.json`` for the page (the Agents page) and ``ergostat status``."""
+"""The daemons' supervisor (SPEC §9.7): one thread, never the engine's loop, that keeps each daemon running. A daemon
+that exits, goes silent past its heartbeat, or stops reading its standard input (an alarm) is restarted after a
+back-off; one that holds a cancelled run past the grace too. More than ``restart: max`` restarts within ``within`` and
+it is given up (``ergostat.daemon.failed``, an intervention). A crash fails its runs in flight, counted; a restart
+for anything else gives them back uncounted. On a model swap a changed daemon is sent ``stop`` and drained. Its state
+goes to ``<state>/daemons.json`` for the page."""
 
 from __future__ import annotations
 
@@ -42,8 +33,7 @@ class Slot:
         self.d, self.proc, self.tracked = d, None, None
         self.state, self.why, self.next_at = "starting", "", 0.0
         self.restarts: deque[float] = deque()
-        self.total = 0
-        self.alarm: dict | None = None
+        self.total, self.alarm = 0, None
         self.room = threading.Semaphore(d.concurrency)
         self.up = threading.Event()
 
@@ -156,9 +146,7 @@ class Supervisor:
 
     def _finished(self, slot: Slot, p: Process) -> dict:
         p.log.close()
-        if slot.tracked is not None and slot.tracked.proc is p.proc:
-            return SAMPLER.finish(slot.tracked)
-        return {}
+        return SAMPLER.finish(slot.tracked) if slot.tracked is not None and slot.tracked.proc is p.proc else {}
 
     def _kill(self, p: Process) -> None:
         if not getattr(p, "killing", False):
@@ -180,8 +168,7 @@ class Supervisor:
         slot.restarts.append(now)
         while slot.restarts and now - slot.restarts[0] > d.within:
             slot.restarts.popleft()
-        slot.total += 1
-        slot.why = why
+        slot.total, slot.why = slot.total + 1, why
         n = len(slot.restarts)
         data = {"daemon": d.name, "why": why, "pid": p.pid if p else None, "restarts": n, "within": d.within,
                 **({"exit": p.proc.returncode} if p and p.ended.is_set() else {}), **({"resources": res} if res else {})}
@@ -232,23 +219,27 @@ class Supervisor:
         finally:
             slot.room.release()
 
-    def _held(self, run: str) -> tuple[Process, Handle] | None:
+    def _procs(self) -> list[Process]:
         with self.lock:
-            procs = [s.proc for s in self.slots.values() if s.proc] + [p for _, p in self.draining]
-        for p in procs:
+            return [s.proc for s in self.slots.values() if s.proc] + [p for _, p in self.draining]
+
+    def _held(self, run: str) -> tuple[Process, Handle] | None:
+        for p in self._procs():
             with p.lock:
                 if run in p.runs:
                     return p, p.runs[run]
         return None
 
-    def cancel(self, run: str, why: str, asked: bool = False) -> bool:
-        """``cancel`` sent for a run its daemon holds; the supervisor restarts the daemon if it holds it past the
-        grace. False when no daemon holds it."""
+    def cancel(self, run: str, why: str, asked: bool = False, killing: bool = False) -> bool:
+        """``cancel`` sent for a run a daemon holds (restarted if it holds it past the grace); False when none does."""
         got = self._held(run)
         if got is None or got[1].done.is_set():
             return False
         p, h = got
         h.asked = h.asked or asked
+        if killing:                                  # (its lease expired: the run's note says so, leases/kill.py)
+            with self.e.lock:
+                self.e.killing[run] = why
         if h.cancelled is None:
             h.cancelled = time.monotonic()
             p.send({"op": "cancel", "run": run})
@@ -257,14 +248,11 @@ class Supervisor:
 
     def stop_block(self, block: str) -> bool:
         """The owner's ``block NAME --stop``: each run of that block a daemon holds, cancelled."""
-        with self.lock:
-            procs = [s.proc for s in self.slots.values() if s.proc] + [p for _, p in self.draining]
-        runs = [r for p in procs for r, h in list(p.runs.items()) if h.block == block]
+        runs = [r for p in self._procs() for r, h in list(p.runs.items()) if h.block == block]
         return any([self.cancel(r, "the owner's stop", asked=True) for r in runs])
 
     def read(self, s, answer) -> None:
-        """A reading asked of a sensor's daemon, never waited on: ``answer(value, why)`` is called once, from its
-        reader thread when it answers, or the supervisor's when it does not in time."""
+        """A reading asked of a sensor's daemon, never waited on: ``answer(value, why)`` is called once, later."""
         with self.lock:
             slot = self.slots.get(s.daemon)
             p = slot.proc if slot is not None and slot.state == "running" else None
@@ -296,12 +284,11 @@ class Supervisor:
             for n, slot in self.slots.items():
                 p, t = slot.proc, slot.tracked
                 res = t.result() if t is not None and p is not None and t.proc is p.proc else {}
-                out[n] = {"state": slot.state, "pid": p.pid if p else None, "why": slot.why,
-                          "started": p.wall(p.started) if p else None, "last_line": p.wall(p.last_out) if p else None,
-                          "heartbeat": slot.d.heartbeat, "restarts": len(slot.restarts), "restarts_total": slot.total,
-                          "in_flight": len(p.runs) if p else 0, "served": p.served if p else 0,
-                          "concurrency": slot.d.concurrency, "alarm": slot.alarm, "users": self.users(n),
-                          "cpu": res.get("cpu"), "memory": res.get("memory_peak"), "run": slot.d.run}
+                out[n] = {"state": slot.state, "pid": p.pid if p else None, "why": slot.why, "alarm": slot.alarm,
+                          "last_line": time.time() - time.monotonic() + p.last_out if p else None, "restarts": len(slot.restarts),
+                          "restarts_total": slot.total, "in_flight": len(p.runs) if p else 0, "served": p.served if p else 0,
+                          "concurrency": slot.d.concurrency, "users": self.users(n), "cpu": res.get("cpu"),
+                          "memory": res.get("memory_peak"), "run": slot.d.run}
         return out
 
     def write(self, final: bool = False) -> None:
@@ -317,10 +304,7 @@ class Supervisor:
 
     def close(self) -> None:
         """Ergostat stopping: each daemon asked to stop, killed if it has not within the grace."""
-        with self.lock:
-            procs = [s.proc for s in self.slots.values() if s.proc] + [p for _, p in self.draining]
-            for s in self.slots.values():
-                s.up.clear()
+        procs = self._procs()
         for p in procs:
             p.stop()
         deadline = time.monotonic() + min(grace(), 3.0)

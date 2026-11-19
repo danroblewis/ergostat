@@ -6,6 +6,8 @@ import json
 import os
 import time
 
+import pytest
+
 from ergostat import model as mdl
 from ergostat.leases import ENDED, kill
 from ergostat.leases.kill import KILLED
@@ -196,6 +198,7 @@ def test_restart_storm_gives_up_with_alarm_and_intervention(tmp_path):
     assert att and att[0]["level"] == "bad" and "given up after 3 restarts" in att[0]["says"]
 
 
+@pytest.mark.serial                                      # (its bound on the loop's latency holds on a quiet machine)
 def test_stdin_not_read_restarts_and_alarms_without_blocking_the_engine(tmp_path):
     p = setup(tmp_path, block("{run: python3 d.py noread, stdin-timeout: 1s, restart: {max: 50, backoff: [0.1s, 0.2s]}}"))
     big = "x" * 300_000                                  # more than a pipe holds: the write waits
