@@ -4,6 +4,7 @@ intervention) after too many restarts; ``cancel`` on a lease's expiry; drained a
 
 import json
 import os
+import threading
 import time
 
 import pytest
@@ -448,3 +449,67 @@ stocks:
     finally:
         e.close()
     assert len(events(p, "ergostat.daemon.failed")) == 1 and len(events(p, "sensor.failed")) == n, "no failure per sensor"
+
+
+def test_items_given_back_by_a_failed_daemon_are_taken_at_once_when_it_is_revived(tmp_path):
+    p = setup(tmp_path, block("{run: python3 d.py crash, restart: {max: 0, backoff: [0.1s, 0.1s]}}"))
+    e = start(p)
+    try:
+        assert wait_for(lambda: events(p, "ergostat.daemon.failed"), 10)
+        p.events.add("ticket.opened", item="ticket/9", source="t")
+        e.dispatch.take(p.model.spec.blocks["worker"], item(p, "ticket/9"))   # (one on its way as it gave up)
+        assert wait_for(lambda: [x for x in events(p, ENDED) if x["item"] == "ticket/9"], 5)
+        assert (item(p, "ticket/9").fields["lease"].get("not_before") or 0) > time.time() + 30, "put off"
+        e.daemons.revive("block.worker")             # (as d.py crashes still: revived with a working one)
+        (tmp_path / "ergostat.yaml").write_text(block("{run: python3 d.py, restart: {max: 0}}"))
+        e.swap(mdl.load(tmp_path))
+        assert wait_for(lambda: item(p, "ticket/9").state == "done", 10), "taken at once, not after its put-off"
+    finally:
+        e.close()
+
+
+def test_a_draining_daemon_whose_child_holds_its_output_is_seen_ended(tmp_path, monkeypatch):
+    monkeypatch.setattr(kill, "GRACE", 30.0)         # (not the idle grace: its exit is what ends it)
+    p = setup(tmp_path, block("{run: python3 d.py kids}"))
+    e = start(p)
+    try:
+        assert wait_for(lambda: (tmp_path / "kid.pid").exists() and (tmp_path / "kid.pid").read_text(), 5)
+        kid = int((tmp_path / "kid.pid").read_text())
+        (tmp_path / "ergostat.yaml").write_text(block("{run: python3 d.py v2}"))
+        e.swap(mdl.load(tmp_path))                   # drained: it ends on stop, its child still holding its output
+        assert wait_for(lambda: not alive(kid), 8), "its exit seen, its group ended"
+        assert not e.daemons.draining
+    finally:
+        e.close()
+
+
+def test_a_run_whose_lease_ends_while_it_waits_for_room_is_never_handed_over(tmp_path):
+    """Its lease is read when there is room; the room is taken before it is held; it waits, and its lease ends."""
+    from ergostat.daemons.proc import Handle
+    from ergostat.leases import TAKEN
+    p = setup(tmp_path, block("{run: python3 d.py, concurrency: 1}", "{ttl: 2s, attempts: 3}", pool=1))
+    p.events.add("ticket.opened", item="ticket/2", source="t", data={"sleep": 0.1})
+    p.events.add(TAKEN, item="ticket/2", source="ergostat", data={"run": "r2", "block": "worker", "fence": 1, "ttl": 2.0,
+                                                                   "max": 3, "back": "ready"})   # (held: not dispatched)
+    e = start(p)
+    out: dict = {}
+    sup, real, taken = e.daemons, e.daemons._leased, []
+
+    def leased_then_room_taken(*a):                  # read while still its own; then the room is taken before it is held
+        ok = real(*a)
+        if ok and not taken:
+            pr = sup.slots["block.worker"].proc
+            with pr.lock:
+                pr.runs["filler"] = taken.append(1) or Handle()
+            threading.Timer(4.0, lambda: pr.runs.pop("filler", None)).start()   # (past its lease's TTL)
+        return ok
+    sup._leased = leased_then_room_taken
+    try:
+        e.run_block(p.model.spec.blocks["worker"], "item", extra={"item": {"id": "ticket/2", "fields": {"sleep": 0.1}},
+                                                                   "lease": {"fence": 1}},
+                    item="ticket/2", fence=1, run_id="r2", outcome=out)
+    finally:
+        e.close()
+    assert taken, "its lease was read while its own, and the room taken after"
+    assert out["note"] == "its lease ended before it was handed over", out
+    assert not [x for x in events(p, "ticket.started") if x["causedby"] == "r2"], "the daemon never got it"
