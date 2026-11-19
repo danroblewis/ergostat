@@ -9,6 +9,10 @@
     "name": {
       "$ref": "#/$defs/name"
     },
+    "purpose": {
+      "type": "string",
+      "description": "What the whole model is for (main file only): a goal in no system that says what it is for is traced to it (SPEC section 4a)."
+    },
     "include": {
       "oneOf": [
         {

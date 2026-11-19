@@ -795,7 +795,7 @@ class Compiler:
 
     def run(self) -> Spec:
         d = self.doc
-        spec = Spec(d.name, d.root, d.files)
+        spec = Spec(d.name, d.root, d.files, purpose=d.purpose)
         spec.uses = dict(d.uses)
         spec.template_files = sorted({Path(u["path"]) for u in d.uses.values() if u.get("owners")})
         spec.remotes = dict(d.remotes)                 # each remote system (SPEC §4c): its model's file reloads this one

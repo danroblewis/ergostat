@@ -752,6 +752,7 @@ class Spec:
     items: dict[str, ItemKind] = field(default_factory=dict)
     auxiliaries: dict[str, Auxiliary] = field(default_factory=dict)
     systems: dict[str, str] = field(default_factory=dict)        # name → description
+    purpose: str = ""                                             # what the whole model is for (SPEC §4a)
     within: dict[str, str] = field(default_factory=dict)         # a system → the system it is part of
     show: dict[str, list[Ref]] = field(default_factory=dict)     # a system → the measures its box shows (default: its goals')
     named_loops: dict[str, NamedLoop] = field(default_factory=dict)   # loops: the feedback loops the model names (SPEC §12a)

@@ -79,6 +79,7 @@ class Explainer:
         return "" if v is None else f"{v:g}"
 
     def model(self) -> str:
+        from .architecture import size, size_said
         s = self.s
         def n(k, w):
             return f"{k} {w}{'' if k == 1 else 's'}"
@@ -92,7 +93,7 @@ class Explainer:
                 for x in s.subsystems(parent):
                     ins = sum(1 for p in s.interface(x) if p["dir"] == "in")
                     outs = sum(1 for p in s.interface(x) if p["dir"] == "out")
-                    out_.append(f"{'  ' * depth}- {x}: {ins} in, {outs} out")
+                    out_.append(f"{'  ' * depth}- {x}: {ins} in, {outs} out; {size_said(size(s, x))}")
                     out_ += walk(x, depth + 1)
                 return out_
             out.append("Systems (explain system.NAME for one):")
@@ -360,6 +361,7 @@ class Explainer:
         return "\n".join(lines)
 
     def system(self, name: str) -> str:
+        from .architecture import size, size_said
         s = self.s
         kids = s.subsystems(name)
         mine = lambda table: [x for x in table.values() if name in s.chain(x.system)]   # noqa: E731
@@ -369,6 +371,7 @@ class Explainer:
             lines.append(f"  Within {' → '.join(s.chain(s.within[name]))}.")
         lines.append(f"  Holds {len(stocks)} stocks, {len(goals)} goals, {len(blocks)} blocks" +
                      (f"; systems inside: {', '.join(kids)}" if kids else "") + ".")
+        lines.append(f"  Size: {size_said(size(s, name))}.")
         ports = s.interface(name)
         for d, title in (("in", "In"), ("out", "Out")):
             ps = [p for p in ports if p["dir"] == d]
