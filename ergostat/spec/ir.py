@@ -192,6 +192,18 @@ WORKSPACES_MEASURES = {            # the workspace pools, now (SPEC §12k); @POO
 }
 
 
+COST = re.compile(r"^ergostat\.cost\.(usd|tokens|cpu|memory|runs)(-hour)?"
+                  r"(?:@((?:model:)?[A-Za-z0-9][A-Za-z0-9._:-]*))?$")   # ergostat.cost.usd@developer (SPEC §9.1)
+COST_MEASURES = {                  # what the runs cost (SPEC §9.1), over the last day; -hour: the last hour; @BLOCK narrows
+    "ergostat.cost.usd": "dollars the runs' AI sessions cost over the last day (as Claude Code reported them, else "
+                         "estimated from their tokens); -hour for the last hour; @BLOCK or @model:MODEL for one",
+    "ergostat.cost.tokens": "tokens the runs' AI sessions used over the last day (input, output, cache reads and writes)",
+    "ergostat.cost.cpu": "CPU seconds (user and system) of the runs' process trees over the last day",
+    "ergostat.cost.memory": "the largest peak memory of one run's process tree over the last day, in MB",
+    "ergostat.cost.runs": "runs that ended over the last day",
+}
+
+
 LEASES = re.compile(r"^ergostat\.leases\.(held|expired|dead|overdue)(?:@([a-z][a-z0-9-]*))?$")   # ergostat.leases.dead@ticket
 LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or @BLOCK narrows them
     "ergostat.leases.held": "leases held now: items a run is working on; @KIND or @BLOCK for one kind or block",
@@ -206,10 +218,11 @@ def is_measure(name: str) -> bool:
     with an optional ``@who``), the messages' (``ergostat.messages.*``), a recipe's (``ergostat.context.*``) or the
     intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the leases' (``ergostat.leases.*``, with an optional
     ``@kind`` or ``@block``), the gated actions' (``ergostat.actions.*``, with an
-    optional ``@class``) or the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``)."""
+    optional ``@class``), the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``) or what the runs
+    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``)."""
     return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
             or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
-            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)))
+            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)))
 
 
 @dataclass

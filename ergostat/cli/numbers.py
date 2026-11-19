@@ -288,6 +288,7 @@ def cmd_measure(args) -> int:
         return out_json(got)
     from ..spec.ir import (
         ACTIONS_MEASURES,
+        COST_MEASURES,
         INTENT_MEASURES,
         LEASE_MEASURES,
         MESSAGE_MEASURES,
@@ -296,7 +297,7 @@ def cmd_measure(args) -> int:
         WORKSPACES_MEASURES,
     )
     said = {**MODEL_MEASURES, **TRUST_MEASURES, **MESSAGE_MEASURES, **INTENT_MEASURES, **LEASE_MEASURES, **ACTIONS_MEASURES,
-            **WORKSPACES_MEASURES}
+            **WORKSPACES_MEASURES, **COST_MEASURES}
     print(table(["MEASURE", "VALUE", ""], [[n, sig(got.get(n)), said[n]] for n in said], ""))
     return 0
 
