@@ -50,7 +50,6 @@ every = "1s"
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: takes 10 s or more; started first in a parallel run, so it is not the last to finish")
-    config.addinivalue_line("markers", "serial: never alongside other tests (run after the parallel run, with -m serial)")
 
 
 def pytest_collection_modifyitems(config, items):

@@ -73,8 +73,8 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
 
   Don't raise the worker counts: 8 and 4 are what stays under the limits (measured in
   `docs/roadmap/overnight/fastsuite.md`). A test of 10 s or more is marked `@pytest.mark.slow`, so a parallel run
-  starts it first. A test that shares state between processes or holds a time bound only on a quiet machine is
-  kept whole and marked `@pytest.mark.serial`, and is run on its own with `-m serial`. `scripts/demo_check.py` runs every demo in
+  starts it first. A test that fails only in parallel has so far been a real race (in a test or in ergostat):
+  fix it; never raise a time bound to pass under load. `scripts/demo_check.py` runs every demo in
   `~/ergostat-demos/` and checks its pages (with Playwright when installed).
 - The repository is on GitHub (danroblewis/ergostat); main must always work, since people install from it.
 - Never write an employer's names (systems, services, metrics, labels, ticket types, people) into
