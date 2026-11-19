@@ -463,6 +463,16 @@
       },
       "description": "Pools of workspaces (git worktrees) AI blocks' sessions work in, one per item (SPEC \u00a712k)"
     },
+    "daemons": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/daemon"
+      },
+      "description": "Long-lived runners several blocks and sensors may share (SPEC \u00a79.7)"
+    },
     "leases": {
       "type": "object",
       "additionalProperties": false,
@@ -646,6 +656,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "daemon": {
+          "$ref": "#/$defs/daemon_use"
+        },
+        "push": {
+          "type": "boolean",
+          "description": "Its daemon sends its readings by itself: none asked for"
+        },
         "run": {
           "type": "string",
           "minLength": 1
@@ -801,6 +818,11 @@
         {
           "required": [
             "builtin"
+          ]
+        },
+        {
+          "required": [
+            "daemon"
           ]
         }
       ],
@@ -1114,6 +1136,9 @@
         },
         "agent": {
           "$ref": "#/$defs/name"
+        },
+        "daemon": {
+          "$ref": "#/$defs/daemon_use"
         },
         "run": {
           "type": "string",
@@ -1576,8 +1601,17 @@
             }
           },
           "then": {
-            "required": [
-              "run"
+            "oneOf": [
+              {
+                "required": [
+                  "run"
+                ]
+              },
+              {
+                "required": [
+                  "daemon"
+                ]
+              }
             ]
           }
         },
@@ -2641,6 +2675,65 @@
           "type": "string"
         }
       }
+    },
+    "daemon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run"
+      ],
+      "description": "A long-lived process blocks' runs and sensors' readings are handed to as JSON lines (SPEC \u00a79.7)",
+      "properties": {
+        "run": {
+          "type": "string",
+          "minLength": 1
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "heartbeat": {
+          "$ref": "#/$defs/duration"
+        },
+        "stdin-timeout": {
+          "$ref": "#/$defs/duration"
+        },
+        "description": {
+          "type": "string"
+        },
+        "restart": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "within": {
+              "$ref": "#/$defs/duration"
+            },
+            "backoff": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/duration"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        }
+      }
+    },
+    "daemon_use": {
+      "description": "Its daemon: a map of its own, or the name of one under daemons: (SPEC \u00a79.7)",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/name"
+        },
+        {
+          "$ref": "#/$defs/daemon"
+        }
+      ]
     },
     "lease_terms": {
       "type": "object",

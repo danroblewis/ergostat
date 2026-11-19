@@ -426,6 +426,8 @@ class Sensor:
     where: Where | None = None
     averages: float | None = None    # on a flow: its reading is the average rate over this window (seconds) before it
     builtin: str | None = None  # a built-in measure (MODEL_MEASURES: ergostat.model.fit), read by ergostat (``run`` says how)
+    daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
+    push: bool = False          # its daemon sends its readings by itself (none asked for)
 
     @property
     def window(self) -> float:
@@ -444,7 +446,7 @@ class Sensor:
     @property
     def measured(self) -> bool:
         """Read by ergostat on a schedule (a command, a query, or a count of items), not by hand."""
-        return bool(self.run or self.query or self.items or self.changes)
+        return bool(self.run or self.query or self.items or self.changes or (self.daemon and not self.push))
 
     @property
     def series(self) -> str:
@@ -654,6 +656,21 @@ class LeaseTerms:
 
 
 @dataclass
+class Daemon:
+    """A long-lived process that blocks' runs and sensors' readings are handed to as JSON lines (SPEC §9.7)."""
+
+    name: str
+    run: str
+    concurrency: int = 10           # the most runs it holds at once
+    heartbeat: float | None = None  # restarted when silent this long (no line of any kind); None: never
+    restarts: int = 5               # given up after more than this many restarts ...
+    within: float = 600.0           # ... within this long
+    backoff: tuple = (1.0, 120.0)   # the first restart's wait, doubled each time, at most the second
+    stdin_timeout: float = 10.0     # restarted when a write to its standard input waits this long
+    where: Where | None = field(default=None, compare=False)
+
+
+@dataclass
 class Join:
     """A parent moved on by its children (SPEC §5a, *Join*): to ``to`` once all (or any) of the items naming it by
     ``children`` are in ``states``."""
@@ -792,6 +809,7 @@ class Spec:
     notify: object = None                   # inbox.config.Notify: where what waits on a person is sent (SPEC §12o)
     workspaces: dict[str, WorkspacePool] = field(default_factory=dict)  # the workspace pools (SPEC §12k)
     leases: dict[str, LeaseTerms] = field(default_factory=dict)        # tier → its lease terms, over the defaults (SPEC §9.5)
+    daemons: dict[str, Daemon] = field(default_factory=dict)           # the long-lived runners (SPEC §9.7)
     uses: dict = field(default_factory=dict)                           # instance → its template, values, stand-ins (SPEC §2a)
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)

@@ -145,7 +145,8 @@ class Dispatcher:
             with self.lock:
                 every, ix = self.items_of(b.takes.kind)
                 mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
-                room = b.pool - len(mine | set(self.going.get(b.name, {})))
+                d = self.spec.daemons.get(b.params.get("daemon") or "")
+                room = min(b.pool, d.concurrency if d else b.pool) - len(mine | set(self.going.get(b.name, {})))
                 if room <= 0:
                     continue
                 for it in unblocked(self, b, self.ready(b, every, now))[:room]:

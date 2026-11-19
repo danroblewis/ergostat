@@ -70,12 +70,12 @@ async function pageLoops(main) {
 /* the ladder: one list, by rung, from the most general agent to none; the ladder itself one line of counts */
 async function pageAgents(main) {
   const p = page(main, "Agents");
-  const ladder = h("div", { class: "ladder-line" }), box = h("div"), cap = h("p", { class: "note" });
-  p.append(ladder, box, cap);
+  const ladder = h("div", { class: "ladder-line" }), box = h("div"), cap = h("p", { class: "note" }), dbox = h("div");
+  p.append(ladder, box, cap, dbox);
   const ans = answers();
   async function tick(force = true) {
     ans.begin();
-    const agents = await ans.api("agents");
+    const agents = await ans.api("agents"), daemons = await ans.api("daemons");
     const w = WINDOW_WORDS[S.since] ? `over the ${WINDOW_WORDS[S.since].toLowerCase()}` : windowNote();
     setText(cap, `What the runs cost${w ? ", " + w : ""}: dollars their AI sessions cost (as Claude Code reported them; ` +
       `"est." where only tokens were known and a price table priced them), their tokens, the CPU time of each run's ` +
@@ -111,6 +111,19 @@ async function pageAgents(main) {
           h("td", { class: "num", "data-use": "tokens" }, tokensText(use(a).ai_runs ? use(a).tokens : null)),
           h("td", { class: "num", "data-use": "cpu" }, cpuText(use(a).cpu)),
           h("td", { class: "num", "data-use": "memory" }, bytesText(use(a).memory_peak)))))))));
+    const ds = Object.entries(daemons || {});
+    patch(dbox, ...(ds.length ? [h("h3", {}, "Daemons"), h("p", { class: "note" }, "Long-lived processes the blocks' runs and the " +
+      "sensors' readings are handed to (SPEC §9.7). Their CPU and memory are the process's, sampled; an item's run is charged its wall time only."),
+      h("div", { class: "table-wrap" }, h("table", { "data-daemons": "" },
+        h("tr", {}, ["daemon", "state", "serves", "restarts", "last line", "in flight", "CPU", "memory"].map((c, i) => h("th", i > 2 ? { class: "num" } : {}, c))),
+        ds.map(([n, d]) => h("tr", { key: n, "data-daemon": n },
+          h("td", { class: "nowrap", title: d.run || "" }, h("b", {}, n)),
+          h("td", { title: d.why || "" }, h("span", { class: d.state === "running" ? "s-holding" : "s-off" }, d.state), d.alarm ? h("span", { class: "s-off", title: d.alarm.why }, " alarm") : null),
+          h("td", { class: "muted" }, (d.users || []).length > 3 ? `${d.users.length} parts` : (d.users || []).join(", ")),
+          h("td", { class: "num", title: `${d.restarts_total} in all` }, String(d.restarts)),
+          h("td", { class: "num nowrap" }, d.last_line ? ago(d.last_line) : "–"),
+          h("td", { class: "num" }, `${d.in_flight} of ${d.concurrency}`),
+          h("td", { class: "num" }, cpuText(d.cpu)), h("td", { class: "num" }, bytesText(d.memory))))))] : []));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
