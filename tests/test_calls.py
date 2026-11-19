@@ -71,6 +71,14 @@ def project(tmp_path, run: str) -> Project:
     return Project(mdl.load(tmp_path))
 
 
+def written(path):
+    """The probe's JSON once it is whole: it is written in place, so it may be seen empty or half written."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def wait_for(cond, seconds=15.0):
     end = time.time() + seconds
     while time.time() < end:
@@ -95,7 +103,7 @@ def test_a_steps_calls_are_answered_by_the_engine_over_its_socket(engine, tmp_pa
     p, e = engine
     assert e.socket and os.path.exists(e.socket)
     p.events.add("job.arrived", item="job/1", source="test")
-    got = wait_for(lambda: (tmp_path / "probe-job-1.json").exists() and json.loads((tmp_path / "probe-job-1.json").read_text()))
+    got = wait_for(lambda: written(tmp_path / "probe-job-1.json"))
     assert got["socket"] == e.socket
     assert got["event"]["code"] == 0 and json.loads(got["event"]["out"])["type"] == "job.noted"
     assert got["renew"]["code"] == 0 and json.loads(got["renew"]["out"])["type"] == "ergostat.lease.renewed"

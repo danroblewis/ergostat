@@ -304,6 +304,7 @@ def _fresh(example: str, dest: Path) -> Path:
     return dest
 
 
+@pytest.mark.slow
 def test_the_coherent_examples_agree_after_a_short_run_on_their_stand_ins(tmp_path):
     """ticket-factory and coordinator, run on their stand-ins for half a minute (no page): where the record is enough to
     compare, every comparison agrees; the rest says how much more it needs."""

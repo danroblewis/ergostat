@@ -113,6 +113,7 @@ def _ergostat(repo, *args, **kw):
                           timeout=60, **kw)
 
 
+@pytest.mark.slow
 def test_two_hundred_edits_in_two_minutes_leave_the_engine_healthy(tmp_path, monkeypatch):
     monkeypatch.setenv("ERGOSTAT_RELOAD_SETTLE", "0.5")
     repo = tmp_path / "soak"
