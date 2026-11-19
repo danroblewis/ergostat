@@ -145,6 +145,16 @@ def test_the_check_status_says_extremes_running_until_they_are_done(tmp_path, mo
         time.sleep(0.02)
     done = mdl.check(m)
     assert not any(lv == "info" for lv, _ in done) and any("falls below empty" in msg for lv, msg in done if lv == "warn")
+    fresh_process()                                     # with a state directory: in a process of its own, at a low priority
+    Project(mdl.load(tmp_path))
+    (tmp_path / "ergostat.yaml").write_text((tmp_path / "ergostat.yaml").read_text().replace("k * 5", "k * 6"))
+    m = mdl.load(tmp_path)
+    first = mdl.check(m)
+    job = next(iter(xc._JOBS.values()))
+    assert job.proc is not None and any(msg.startswith("extremes: running") for lv, msg in first if lv == "info")
+    job.proc.wait(timeout=60)
+    job.thread.join(timeout=10)
+    assert any("falls below empty" in msg for lv, msg in mdl.check(m) if lv == "warn")
 
 
 def test_an_equation_that_fits_worse_than_its_mean_is_a_finding_and_its_panel_says_so(tmp_path):

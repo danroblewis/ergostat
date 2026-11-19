@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -109,7 +111,7 @@ def results(spec: Spec, conds: list, params: dict | None, scales: dict | None, b
     comp, fp = components(spec)
     path = _path(spec)
     kept = _load(path)
-    began, saved, out, skipped = time.monotonic(), time.monotonic(), [], 0
+    began, saved, out, skipped, ran = time.monotonic(), time.monotonic(), [], 0, False
     salt = json.dumps([params or {}, scales or {}], sort_keys=True, default=str)
     for i, c in enumerate(conds):
         which = [comp[c.part]] if c.part in comp else sorted(fp)
@@ -121,39 +123,49 @@ def results(spec: Spec, conds: list, params: dict | None, scales: dict | None, b
             skipped += 1
             got = None
         else:
-            got = condition_result(spec, c, params, scales)
+            got, ran = condition_result(spec, c, params, scales), True
         if got is not None:
             for w, k in keys.items():                      # kept per connected part, the newest last
                 kept[k] = [x for x in got if comp.get(x[0], which[0]) == w]
             out.append((c, got))
-        if path is not None and time.monotonic() - saved > SAVE_EVERY:
+        if ran and path is not None and time.monotonic() - saved > SAVE_EVERY:
             _save(path, kept)
             saved = time.monotonic()
         if progress:
             progress(i + 1, len(conds), skipped, out)
-    _save(path, kept)
+    if ran:                                               # only what this run added: never over another's work
+        _save(path, kept)
     return out
 
 
 class _Job:
-    """One model's conditions, run in a thread of their own."""
+    """One model's conditions, run in the background: in a process of its own at a low priority where the project has
+    a state directory to keep them in (so neither the engine nor the page server waits on them, and ``check`` may exit
+    while they finish), else in a thread."""
 
-    def __init__(self, spec: Spec, scales: dict | None):
+    def __init__(self, spec: Spec, scales: dict | None, alone: bool):
         self.status = {"running": True, "done": 0, "of": 0, "skipped": 0}
         self.so_far: list = []
         self.got: dict | None = None
-        self.spec = spec
-        self.thread = threading.Thread(target=self._go, args=(spec, scales), daemon=True, name="extremes")
+        self.spec, self.scales, self.path = spec, scales, _path(spec)
+        self.proc = None
+        if alone and self.path is not None and spec.files and not scales:
+            self.proc = subprocess.Popen([sys.executable, "-m", "ergostat.numbers.extremes_cache", str(spec.files[0])],
+                                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                         preexec_fn=lambda: os.nice(10))
+        self.thread = threading.Thread(target=self._go, daemon=True, name="extremes")
         self.thread.start()
 
     def _progress(self, done, of, skipped, so_far):
         self.status.update(done=done, of=of, skipped=skipped)
         self.so_far = list(so_far)
 
-    def _go(self, spec: Spec, scales: dict | None) -> None:
+    def _go(self) -> None:
         from . import extremes as ex
         try:
-            self.got = ex.failures(spec, None, scales, BOUND, self._progress)
+            if self.proc is not None:
+                self.proc.wait()
+            self.got = ex.failures(self.spec, None, self.scales, -1.0 if self.proc else BOUND, self._progress)
         except Exception as e:                            # the tests are a help to the check, never a reason it fails
             self.got, self.status["error"] = {}, f"{type(e).__name__}: {e}"
         finally:
@@ -162,8 +174,14 @@ class _Job:
     def found(self) -> dict:
         if self.got is not None:
             return self.got
-        from .extremes import merge
-        return merge(self.spec, self.so_far)
+        from . import extremes as ex
+        if self.proc is not None:                         # what the process has kept so far, and how far it is
+            try:
+                self.status.update(json.loads(self.path.with_suffix(".progress").read_text()))
+            except (OSError, ValueError):
+                pass
+            return ex.failures(self.spec, None, self.scales, -1.0)
+        return ex.merge(self.spec, self.so_far)
 
 
 def background(spec: Spec, scales: dict | None = None, wait: float | None = None) -> tuple[dict, dict]:
@@ -175,7 +193,7 @@ def background(spec: Spec, scales: dict | None = None, wait: float | None = None
     if job is None or (job.status.get("skipped") and not job.thread.is_alive()):   # each asking runs more of what is left
         while len(_JOBS) >= 16:
             _JOBS.pop(next(iter(_JOBS)))
-        job = _JOBS[key] = _Job(spec, scales)
+        job = _JOBS[key] = _Job(spec, scales, wait is not None)
     job.thread.join(wait)
     return job.found(), dict(job.status)
 
@@ -188,3 +206,19 @@ def said(status: dict) -> str | None:
         return (f"extremes: {status['skipped']} of {status['of']} conditions not run within {BOUND:g} s; each check runs "
                 f"more of them")
     return None
+
+
+if __name__ == "__main__":                                # the process a _Job starts: python -m ... MODEL.yaml
+    from ..spec import read
+    from .extremes import failures
+    model, _ = read(Path(sys.argv[1]), extremes=False)
+    where, last = _path(model), [0.0]
+
+    def told(done, of, skipped, _so_far):
+        if where is not None and (time.monotonic() - last[0] > SAVE_EVERY or done == of):
+            last[0] = time.monotonic()
+            try:
+                where.with_suffix(".progress").write_text(json.dumps({"done": done, "of": of}))
+            except OSError:
+                pass
+    failures(model, None, None, BOUND, told)
