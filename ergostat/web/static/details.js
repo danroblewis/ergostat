@@ -34,6 +34,7 @@ const WHAT = {
   influence: ["Information link: influence", "a cause, declared with driven-by: what is at the arrow's end changes when what is at its start changes (a release fixing what was broken, more users asking for more, the code kept so far deciding a benchmark score). No formula: the value at the end is measured, and nothing moves or is computed along it. It is how a loop closes through another system."],
   activity: ["Activity (the process map)", "a step the work takes, read from the record: a state its items entered, or an event type about them. The map is process mining's directly-follows graph: what the items actually did, in the order they did it, rework and all."],
   follows: ["Directly follows", "on one item, the second step came next after the first, with nothing about that item between. Its weight is how often; a line back to an earlier step, or round to the same one, is rework."],
+  related: ["Related", "an item names another in a relation its kind declares (parent, blocked_by): drawn from the step the naming item was last at in the window to the step the named one was last at, as the links stand now."],
   caused: ["Caused, across kinds", "an event on an item of one kind caused an event on an item of another (the second's causedby names the first, directly or through a block's run): one piece of work fanning out into others, or others joining back into it."],
 };
 function whatIs(kind) {
