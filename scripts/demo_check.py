@@ -44,7 +44,7 @@ def page_errors(url: str, shot: Path | None) -> list[str]:
         pg = b.new_page(viewport={"width": 1500, "height": 950})
         pg.on("pageerror", lambda e: errs.append(str(e)))
         for route in ("diagram", "diagram?view=blocks", "diagram?view=process", "loops", "agents", "items",
-                      "record", "residuals", "check", "guide"):
+                      "items?view=graph", "items?view=timeline", "record", "residuals", "check", "guide"):
             pg.goto(f"{url}/{route}")
             pg.wait_for_timeout(1800)
             if shot and route in ("diagram", "diagram?view=blocks", "diagram?view=process", "agents"):
@@ -179,7 +179,8 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
         notes.extend(f"note: stock {k}: {fmt(v['unexplained'])} unexplained" + (f" ({v['why']})" if v.get("why") else "")
                      for k, v in res.items() if v.get("significant"))
         url = st["web"]
-        for path in ("status", "graph", "graph?view=process", "loops", "agents", "events", "items", "residuals", "parts"):
+        for path in ("status", "graph", "graph?view=process", "loops", "agents", "events", "items", "items-graph", "residuals",
+                     "parts"):
             get(f"{url}/api/{path}")
         problems += items_as_before(url, spec)
         problems += incoherent(demo, notes)
