@@ -37,12 +37,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Modelling
 
-- **Built-in join** (open; relations make it a rule over `parent`/`children`): move a parent item once all its
-  children reach a state (fork-join). Relations (merged, c4888bd) now say which items are a parent's
-  children, both ways, from the item index, so the join is a rule on the kind (`join: {children: parent, all: done,
-  to: shipped}`, say) rather than a block that lists and matches items itself (`examples/roadmap/bin/epics.py`
-  does it today; elsewhere it takes a join block or an auxiliary). Left: the rule's shape, when it fires (on each
-  child's move, from the index), and the parent's `entering` counted like any other move.
+- **Built-in join** (done, dad903a and 4b02c4c, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:
+  STATE, to: STATE}` (or `any:`) on the parent's kind, fired on each child's move from the item index, the parent's
+  move recorded as `ergostat.item.joined` caused by the child's, folded only forward and counted like any other;
+  `examples/roadmap` uses it in place of `bin/epics.py`. *Left*: the Blocks view does not draw a join (a rule on a
+  kind, not a block); each child's move reads all its parent's children (O(children) per move: fine for an epic's
+  tickets, not tuned for thousands).
 - **Relations, what is left** (open; the first part merged as c4888bd from `relations`): the Graph and Timeline read
   relations as they stand now (time travel does not reach them) and are not in a snapshot; the projection does not
   level resources (a block's `pool`); `ticket-factory` does not record Jira's links yet; the Process view does not
@@ -65,9 +65,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
   change that cannot move the replay (structure, wiring, descriptions) can never prove itself. Say how much more
   record a verdict needs, judge such changes by structural measures (as redesign's scorecard does), and let a
   change carry over edits elsewhere (above).
-- **A cause for a scheduled run's events** (open): a block on `every:` runs caused by nothing, so a sweep that opens
-  sub-items draws no fan-out in the Process view; an event line cannot name its own cause (`causedby`).
-- **Triggers on an event type** (open): a block started by an event type alone, not only by a state change.
+- **A cause for a scheduled run's events** (done, e4800ea, on `causes-join`; SPEC §5b): the run is the cause its
+  events cite (no `ergostat.schedule.fired` event per firing); the Process view draws each scheduled block in a
+  **schedules** frame with its fan-out. *Left*: an event line still cannot name a cause of its own (`causedby`).
+- **Triggers on an event type** (parked on `triggers`, failed its gate twice; `docs/roadmap/overnight/triggers.md`,
+  *Where it stopped*): a block started by an event type alone, not only by a state change.
 - **Closed-loop simulation** (open): projection holds blocks still; simulating with the controllers running.
 - **Operating modes, regime-scheduled thresholds, interlocks, risk gating** (open; designed in
   `docs/proposals/coordinator/08-modes-and-protection.md`).
