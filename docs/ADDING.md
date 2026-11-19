@@ -213,7 +213,7 @@ uses:
       rules: true                         # the rule tier (default on, free): mechanical fixes for what check finds
       ai: true                            # the AI tier (default off): what the rules cannot answer, on ai-model
       ai-model: haiku                     # (default haiku); ai-every 10m, ai-most 8 requests a call
-      redesign: {when: auto, model: haiku, budget: 0.5, rounds: 3}   # with ai: true, the redesigner (auto|ask|off)
+      redesign: {when: ask, model: haiku, budget: 0.5, rounds: 3, daily: 2}   # with ai: true, the redesigner (ask|off)
       accept:
         parameter: auto                   # a value the judge passes is written at once (else the owner accepts each)
         description: auto                 # and so on for unit, equation, rename, structure (a rewired chain or a
@@ -227,11 +227,11 @@ uses:
   safely and certainly; the `modeller` block (with `ai: true`) proposes the rest, given each request with the model
   near it. Both propose ordinary changes; the judge decides by class (SPEC §12e).
 - **Redesign:** with `ai: true`, the `redesigner` block proposes one change set for a whole system (many edits
-  together: renames, rewiring, removals, equations, descriptions) when the model is clearly wrong (many findings, low
-  coherence, a fit that cannot be worked out, refinement stalling), on its first run, or when the owner asks
-  (`ergostat improve --redesign [SYSTEM]`, the Model page's Redesign button; `when: ask` takes only those). It works a
-  few `rounds` on a scratch copy within `budget` dollars a run; the change set is judged as a whole by a scorecard and
-  waits for the owner unless `accept: {redesign: auto}` (`accept: auto` does not promote it).
+  together: renames, rewiring, removals, equations, descriptions) when the owner asks (`ergostat improve --redesign
+  [SYSTEM]`, the Model page's Redesign button). It works a few `rounds` on a scratch copy within `budget` dollars a run
+  and `daily` dollars a day; the change set is judged as a whole by a scorecard and waits for the owner unless
+  `accept: {redesign: auto}` (`accept: auto` does not promote it), and even then when it takes a part away, rewires a
+  chain or changes control.
 
 - **Control:** one balancing loop that closes the long way (SPEC §12e). The goal `model-fits` holds `model-error`
   (ergostat's measure `ergostat.model.fit`, the Fit page's total) at or under `fit`; while it is off the

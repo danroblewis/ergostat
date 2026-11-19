@@ -1,6 +1,8 @@
 # Self-improvement: the modelling subsystem improves the model
 
-Status: built on `selfimprove`, 2026-11-18; verified 2026-11-19 (*Results*). The owner's direction: ergostat's own `modelling` subsystem improves models;
+Status: built on `selfimprove`, 2026-11-18; verified 2026-11-19 (*Results*); split by the gate review the same day:
+what it passed lands on `modelling-core`, the rule tier's equations, its chain copies and event-type renames are parked
+on `selfimprove`. The owner's direction: ergostat's own `modelling` subsystem improves models;
 there is no separate review agent; if modelling works, the examples improve themselves, and verifying modelling is the
 test. This page says what was built, and what running every example with it on showed.
 
@@ -21,13 +23,10 @@ Notes are listed after the findings, grouped by code, never counted as findings.
 
 **A tiered improver**, each tier an ordinary block of `use: modelling`, the cheapest first:
 
-- **rule tier** (`rules`, a program, on by default; `ergostat/numbers/rules.py`): the chain's exact rewiring (the whole
-  kind at once when its stocks are in pieces), the structure tests' own fixes, units carried along flows from the
-  stocks they join (or the plural of the kind a stock counts), a first-order outflow with its time from Little's law
-  for a flow between stocks that names no other cause, event types named `KIND.STATE` (the old names kept as
-  `formerly:` so the record still folds, and written into the project's programs where they are quoted literals), a
-  queue's goal held at 0, a guessed process taken out, and an equation that makes an unmeasurable fit measurable.
-  Each change cites every request it answers;
+- **rule tier** (`rules`, a program, on by default; `ergostat/numbers/rules.py`): units carried along flows from the
+  stocks they join (or the plural of the kind a stock counts), a queue's goal held at 0, a guessed process taken out.
+  Each change cites every request it answers. (As verified below it also wrote the chain's rewiring, first-order
+  outflows, event-type renames into programs and a measurable-fit equation; those are parked on `selfimprove`.);
 - **AI tier** (`modeller`, an `ai` block, only with `ai: true`, haiku by default; `ergostat/numbers/modeller.py`):
   the requests the rule tier hands on, eight at a time, each with its neighbourhood as written and the first lines of
   the programs it runs, and a prompt that is the skill and the two guides made short

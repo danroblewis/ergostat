@@ -96,22 +96,22 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `ticket-factory` does not record Jira's links: its collector does not read them (`bin/jira.py` asks Jira for
   summary, status, labels and description only), so `issuelinks` and `parent` must be asked for and folded as
   relations first.
-- **Modelling improves the model** (in progress, `selfimprove`; `docs/proposals/self-improvement.md`): what `check`
-  finds (findings, chain findings, craft notes, coherence mismatches, a fit that cannot be worked out) is held as
-  requests (`ergostat.model-request`); a rule tier and an AI tier (off unless `ai: true`), each a block of `use:
-  modelling`, answer them with ordinary changes; the judge decides by class (description, unit, rename judged by
-  check; values, equations and structure by the record). Every example uses it. What is left is listed there.
-- **Redesign beside refinement** (in progress, `redesign`; `docs/proposals/redesign.md`): one change set of many
-  coordinated edits for a whole system (renames with every reference, rewiring, removals, equations, descriptions),
-  made over a few rounds on a scratch copy by the redesigner (an `ai` block, haiku by default, budget-bounded, its cost
-  recorded), judged as a whole by a scorecard (findings, chain pieces, coherence per kind on the record, craft, fit not
-  worse, behaviour kept), one `ergostat.model-change` of kind `redesign`, drawn dashed on both diagrams, never written
-  without the owner unless `accept: {redesign: auto}`. Runs when the model is clearly wrong, on its first run, or when
-  the owner asks (`ergostat improve --redesign`, the Model page). Open: removed parts are named, not drawn as ghosts;
-  splitting a model into systems is in the guide but not scored; the judge scores a redesign on the record it has when
-  it takes it up, not on record that comes after it.
-- **Craft notes in `check`** (done, `selfimprove`): a part with no description, a stock with no unit, a flow between
-  stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
+- **Modelling improves the model** (landing, `modelling-core`; `docs/proposals/self-improvement.md`): what `check`
+  finds is held as requests (`ergostat.model-request`); the rule tier (units, a queue's goal, a process nobody
+  identified) and the AI tier (off unless `ai: true`), each a block of `use: modelling`, answer them with ordinary
+  changes, checked in the tier's own process; the judge decides by class (description, unit, rename judged by check;
+  values, equations and structure by the record). Every example uses it. Parked on `selfimprove` (its definition file
+  says why): the rule tier's first-order equations, event-type renames that edit programs, the rule tier's copies of
+  the chain fixes.
+- **Redesign beside refinement** (landing, `modelling-core`; `docs/proposals/redesign.md`): one change set of many
+  coordinated edits for a whole system, made over a few rounds on a scratch copy by the redesigner (an `ai` block,
+  haiku by default, within a budget a run and a cap a day), judged as a whole by a scorecard, one
+  `ergostat.model-change` of kind `redesign`, drawn dashed on both diagrams, never written without the owner unless
+  `accept: {redesign: auto}` (and never one that removes, rewires or changes control). Runs when the owner asks; the
+  automatic triggers are parked. Open: removed parts are named, not drawn as ghosts; splitting a model into systems is
+  in the guide but not scored; the judge scores a redesign on the record it has when it takes it up.
+- **Craft notes in `check`** (done, `modelling-core`): a part with no description, a stock with no unit, a flow
+  between stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
   tolerance (a step whose goal never goes off), a `process:` with no `identified:` (`spec/craft.py`, notes, not
   counted as findings).
 - **Proposals superseded by any edit** (partly done, `churn`; owner, 2026-11-19): a model change made against a version

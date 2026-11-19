@@ -1,6 +1,7 @@
 # Redesign: a change set, judged as a whole, beside refinement
 
-Status: built on `redesign` (on `selfimprove`), 2026-11-18. SPEC §12e *Redesign: a change set, judged as a whole*.
+Status: built on `redesign` (on `selfimprove`), 2026-11-18; landing on `modelling-core` with the gate review's fixes
+(*After the gate review*, below), 2026-11-19. SPEC §12e *Redesign: a change set, judged as a whole*.
 
 ## The problem
 
@@ -47,7 +48,8 @@ Verdict: **better** when findings, chains and coherence improve (net), none is w
 is lost; **mixed**; **no better**. Craft notes opened (a new flow between stocks wants an equation) are said beside the
 verdict, never enough alone to turn it. The judge takes a redesign up at once and works the scorecard out again on the
 record as it is. It is written only when the owner promotes the class by name, `accept: {redesign: auto}` (`accept:
-auto` leaves it the owner's); promoted and passed, it is written first and alone. While a redesign waits, nothing that
+auto` leaves it the owner's); promoted and passed, it is written first and alone, unless it takes a part away,
+rewires a chain or changes control, which the owner always writes. While a redesign waits, nothing that
 touches its lines is written; while one is being made, the judge writes nothing on its own (so the redesigner's model
 holds still).
 
@@ -60,16 +62,14 @@ goes back for the next round, up to `rounds`; the best round's copy is proposed.
 each round says how long its prompt, call and scoring took, and the run's cost is printed as a Claude Code result line
 (so `ergostat.cost.*` and `run/redesigner/cost_usd` have it) and kept on the change.
 
-**When it runs**: the owner asks (`ergostat improve --redesign [SYSTEM]`, the Model page's Redesign button); with
-`when: auto`, the model clearly wrong (≥ 3 findings, a kind's coherence < 80% on the record, an unmeasurable fit, the
-last 4 refinement changes all turned away), or the model's first run with `use: modelling`. At most one redesign waits
-per system; on its own it runs once a model version. Template parameters: `redesign: {when: auto|ask|off, model:
-haiku, budget: 0.5, rounds: 3}` and `redesign-every` (10m).
+**When it runs**: the owner asks (`ergostat improve --redesign [SYSTEM]`, the Model page's Redesign button), and the
+redesigner block takes the ask up on its next run. At most one redesign waits per system. Template parameters:
+`redesign: {when: ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2}` and `redesign-every` (10m).
 
 **On the page**: the review queue's entry for a redesign shows what it changes and why (the summary, each edit with its
 why, the parts), the scorecard, and buttons that draw the model as it would leave it, in Dynamics or Blocks: new parts
 dashed and tinted, changed and renamed parts dashed, and a banner naming what it takes away
-(`/api/graph?proposal=ID`). Redesigns judged not better are listed below the queue with their scorecards.
+(`/api/graph?proposal=ID`). A redesign judged not better is a model-change item with its scorecard (the Items page).
 
 | As it is | The redesign, drawn as proposed |
 |---|---|
@@ -153,6 +153,21 @@ every run of this work together, refinement and redesign, harness and planted, c
 redesigner's share $0.37), and at most about $0.3 more in runs stopped before they recorded: under the $5 allowed.
 Each change set carries its cost (`redesign.cost` on the item; the review page says it), and the block's run prints
 it as a Claude Code result line, so `run/redesigner/cost_usd` and `ergostat.cost.usd@redesigner` have it.
+
+## After the gate review
+
+The gate review (2026-11-19) passed redesign with these fixes, made on `modelling-core`:
+
+- no change set may change who decides: one that alters the judge's policy, a block's `accept` or a template
+  instance's `with:` is refused (`improve.governs`);
+- even under `accept: {redesign: auto}`, a redesign that takes a part away, rewires a kind's chain or changes control
+  waits for the owner (`judge.owners`); a promoted redesign that cannot be written is superseded, and the pass goes on;
+- the owner's ask is recorded and the redesigner block takes it up: nothing runs in the page server or the command,
+  and every run's cost is a result line;
+- the automatic triggers (`when: auto`: findings, coherence, stalling, the first run) are parked, and runs stop at a
+  daily cap; a carried redesign is scored again;
+- the results above were made with `when: auto` and the redesigner run by `ergostat improve --redesign` directly.
+  With the fixes, the change sets judged better above that chained a kind (poor, the 13 stocks) wait for the owner.
 
 ## What it does not do yet
 

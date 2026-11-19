@@ -3333,34 +3333,37 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   something is worse; **no better** when nothing improves. Craft notes it opens (a new flow between stocks wants an
   equation) are said beside the verdict and count against it only when nothing else moves. The judge takes a redesign
   up at once: its scorecard worked out again on the record as it is, passed when better, failed otherwise; the owner
-  sees the scorecard either way (the review queue; the redesigns judged not better below it).
+  sees the scorecard either way (the review queue; one judged not better is a model-change item, on the Items page).
 - **Never written without the owner** unless the class is promoted by name: `accept: {redesign: auto}`; `accept: auto`
-  for every kind leaves it the owner's (promoted and passed, it is written first, alone in its pass). While one waits,
+  for every kind leaves it the owner's (promoted and passed, it is written first, alone in its pass; one that cannot be
+  written is superseded, and the pass goes on). Even promoted, a redesign that takes a part away, rewires a kind's chain
+  (a flow between two state stocks re-pointed, added or taken away: `rewires`) or changes control (`control`) waits
+  for the owner. No change, a redesign or any other, may change who decides: one that alters the judge's policy, a
+  block's `accept` or a template instance's `with:` is refused. While one waits,
   the judge writes no other change whose lines clash with it; a change written that does not clash moves its lines, and
-  it stays waiting (`proposals.carry`). While one is being made (a run started and not ended, for its first 5 minutes at most,
+  it stays waiting (`proposals.carry`), back to checked, so the judge scores it again on the model as it is. While one is being made (a run started and not ended, for its first 5 minutes at most,
   so refinement is never frozen by a slow run), the judge writes nothing on its own, so the model the redesigner reads is the one its change set is made
   on; if the model moved anyway (the owner wrote a change), its edits are made again on the model as it is.
 - **The redesigner** (`ergostat/numbers/redesigner.py`; the template's block `redesigner`, an `ai` block, there with
   `ai: true` unless `redesign: {when: off}`): given a whole system (or the whole model) as written, what `check` finds,
   the coherence report, the moves the process map observed, the record's summary (each stock's fit, the event types
   seen) and the guides (`library/templates/modelling/redesigner.md`, the modeller's craft, the review checklists of
-  `docs/MODELLING-WELL.md`), it answers one change set. Each round its edits are made on the scratch copy, which is
+  `docs/MODELLING-WELL.md`, read through the help documents, so an installed ergostat has them), it answers one change
+  set. Each round its edits are made on the scratch copy, which is
   compiled, checked, held against the record and scored, and what is left (an edit that could not be made, an error, a
   finding, a mismatch, the scorecard) is given back for the next, up to `rounds`; the best round's copy is proposed.
   No call starts once `budget` dollars are spent; every call's cost is kept on the change and printed as a Claude Code
   result line, so the run's cost is the run's (`ergostat.cost.*`, `run/redesigner/cost_usd`).
-- **When**: the owner asks (`ergostat improve --redesign [SYSTEM]`, which runs it at once with the template's settings;
-  the Model page's Redesign button, which runs it in the background), recorded as `ergostat.model.redesign-asked`; or,
-  with `when: auto`, the model clearly wrong: at least 3 findings, a kind's coherence under 80% on the record, a fit
-  that cannot be worked out, refinement stalling (its last 4 changes judged all turned away), or the model's first run
-  with `use: modelling`. Each run is recorded (`ergostat.model.redesign-ran`: started, then what it made and cost). At
-  most one redesign waits for each system; on its own it runs once a version of the model.
+- **When**: the owner asks (`ergostat improve --redesign [SYSTEM]`, or the Model page's Redesign button), recorded as
+  `ergostat.model.redesign-asked`; the redesigner block takes the ask up on its next run (nothing runs in the page
+  server or the command). Each run is recorded (`ergostat.model.redesign-ran`: started, then what it made and cost).
+  At most one redesign waits for each system, and the runs stop for the day once they have spent `daily` dollars.
 - **Drawn as proposed**: `GET /api/graph?proposal=ID&view=dynamics|blocks` draws the model as the change would leave it
   (nothing written), with `proposed: {added, changed, renamed, removed}`; the page draws the new parts dashed and
   tinted, the changed and renamed dashed, and names what it takes away; the review section's Dynamics and Blocks
   buttons open it.
 
-The template's parameter: `redesign: {when: auto|ask|off, model: haiku, budget: 0.5, rounds: 3}` (and
+The template's parameter: `redesign: {when: ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2}` (and
 `redesign-every`, 10m).
 
 ### The loop, in the model
