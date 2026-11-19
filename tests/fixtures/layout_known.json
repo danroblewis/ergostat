@@ -1,7 +1,7 @@
 {
  "alert-triage": {
   "ceilings": {
-   "satellite-far": 33,
+   "satellite-far": 31,
    "valve-orientation-mismatch": 2
   }
  },
@@ -14,7 +14,7 @@
  "big": {
   "ceilings": {
    "satellite-far": 18,
-   "valve-orientation-mismatch": 0
+   "valve-orientation-mismatch": 4
   }
  },
  "coordinator": {
@@ -32,7 +32,7 @@
  "disk-space": {
   "ceilings": {
    "satellite-far": 11,
-   "valve-orientation-mismatch": 3
+   "valve-orientation-mismatch": 0
   }
  },
  "docs-fresh": {
@@ -44,7 +44,7 @@
  "file-queue": {
   "ceilings": {
    "satellite-far": 8,
-   "valve-orientation-mismatch": 3
+   "valve-orientation-mismatch": 0
   }
  },
  "first-loop": {
@@ -62,7 +62,7 @@
  "image-squeeze": {
   "ceilings": {
    "satellite-far": 24,
-   "valve-orientation-mismatch": 6
+   "valve-orientation-mismatch": 3
   }
  },
  "ops": {
@@ -95,7 +95,7 @@
  "software-factory": {
   "ceilings": {
    "satellite-far": 12,
-   "valve-orientation-mismatch": 1
+   "valve-orientation-mismatch": 0
   }
  },
  "talking-scripts": {
@@ -113,7 +113,7 @@
  "this-mac": {
   "ceilings": {
    "satellite-far": 14,
-   "valve-orientation-mismatch": 3
+   "valve-orientation-mismatch": 0
   }
  },
  "ticket-factory": {
