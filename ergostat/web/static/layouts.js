@@ -129,7 +129,22 @@ function anchorGroups(graph, g) {
 function reverseCommands(graph, g) {
   const kind = Object.fromEntries(g.edges.map((e) => [e.id, e.kind]));
   const seeking = new Set(g.edges.filter((e) => e.goalSeeking).map((e) => e.id));    // (a goal's gap and desired level: dynamics.js)
-  for (const e of graph.edges) if (kind[e.id] === "action" || seeking.has(e.id)) { [e.sources, e.targets] = [e.targets, e.sources]; e.reversed = true; }
+  const back = backPipes(g);
+  for (const e of graph.edges) if (kind[e.id.replace(/^sat:/, "")] === "action" || seeking.has(e.id.replace(/^sat:/, "")) || back.has(e.id)) { [e.sources, e.targets] = [e.targets, e.sources]; e.reversed = true; }
+}
+
+/* the pipes of a flow back up a chain (rework: into a stock the model names before the one it leaves), given to the
+   layering backwards like a command: so the chain is laid out left to right and the rework runs back, not the
+   other way round (docs/layout-rules.md: flow-excursion) */
+function backPipes(g) {
+  const order = {};
+  g.nodes.filter((n) => n.kind === "stock").forEach((n, i) => { order[n.id] = i; });
+  const out = new Set();
+  for (const v of g.nodes.filter((n) => n.kind === "valve" || n.kind === "disturbance")) {
+    const pin = g.edges.find((e) => e.kind === "pipe" && e.target === v.id), pout = g.edges.find((e) => e.kind === "pipe" && e.source === v.id);
+    if (pin && pout && order[pin.source] != null && order[pout.target] != null && order[pin.source] > order[pout.target]) { out.add(pin.id); out.add(pout.id); }
+  }
+  return out;
 }
 function unreverse(lay, ids) {
   const all = [];
@@ -201,7 +216,10 @@ async function runLayoutWith(graph, g, preset, name = "") {
     catch (e2) { state.dropped = []; state.reversed = new Set(); lay = await elk.layout(plain); }
   }
   if (p?.wrapOver && !p.wrap && g.edges.length <= WRAP_LINES) {    // one chain far wider than tall (a drawn system's, an open one's)
-    const long = [], chain = (n) => oneChain(n, g) && n.width > WRAP_WIDE && n.width / n.height > p.wrapOver;
+    // (far wider than the screen: wider than the canvas, at most WRAP_WIDE)
+    const cw = document.querySelector("svg.canvas")?.getBoundingClientRect()?.width;
+    const wide = cw ? Math.min(WRAP_WIDE, cw - 40) : WRAP_WIDE;
+    const long = [], chain = (n) => oneChain(n, g) && n.width > wide && n.width / n.height > p.wrapOver;
     if (!lay.children.some((c) => c.id.startsWith("hull:")) && chain(lay)) long.push("root");
     const walk = (n) => { for (const c of n.children || []) if (c.id.startsWith("hull:")) {
       if (!(c.children || []).some((k) => k.id.startsWith("hull:")) && chain(c)) long.push(c.id);
@@ -212,7 +230,7 @@ async function runLayoutWith(graph, g, preset, name = "") {
     // open systems side by side far wider than tall (the dynamics view: their real lines between them pull them
     // into one row): stacked instead, what feeds coming first, so the lines between them run down
     if (g.kind === "dynamics" && !p.stack && lay.children.filter((c) => c.id.startsWith("hull:")).length > 1 &&
-        lay.width > WRAP_WIDE && lay.width / lay.height > p.wrapOver)
+        lay.width > wide && lay.width / lay.height > p.wrapOver)
       return runLayoutWith(plain, g, { ...p, stack: true, root: { ...(p.root || {}), "elk.direction": "DOWN" } });
   }
   unreverse(lay, state.reversed);

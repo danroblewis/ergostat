@@ -124,11 +124,14 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     problems, slowest, routed = [], (0.0, ""), (0.0, "")
     everything = json.loads(SIZES.read_text()) if SIZES.exists() else {}
     recorded, sizes = everything.get(name, {}), {}
+    knowns = json.loads(KNOWN.read_text()) if KNOWN.exists() else {}
+    layout_known = {} if os.environ.get("RECORD_LAYOUT") else dict(knowns.get(name, {}))
     for i, v in enumerate(views):
         drawn(pg, url, v, i + 1)
         r = pg.evaluate(AUDIT)
         problems += [f"[{v or 'whole'}] {k}: {x}" for k in ("through", "overlap", "detour", "netCrossings", "partOverlap")
                      for x in r[k]]
+        problems += critical(pg, v or "whole", layout_known)      # the layout rules (docs/layout-rules.md)
         if r["mostPipeBends"][0] > MAX_PIPE_BENDS:                   # a flow reads best straight: the links bend instead
             problems.append(f"[{v or 'whole'}] pipe {r['mostPipeBends'][1]} bends {r['mostPipeBends'][0]} times")
         size = r["size"]
@@ -146,6 +149,16 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
         slowest = max(slowest, (first, v or "whole"))
         routed = max(routed, (final, v or "whole"))
     pg.close()
+    counts = layout_known.pop("counts", {})
+    ceilings = layout_known.pop("ceilings", {})
+    problems += [f"{rule}: {counts.get(rule, 0)} instances, the ceiling is {ceilings.get(rule, 0)} (docs/layout-rules.md)"
+                 for rule in CEILED if not os.environ.get("RECORD_LAYOUT") and counts.get(rule, 0) > ceilings.get(rule, 0)]
+    if os.environ.get("RECORD_LAYOUT"):
+        knowns = json.loads(KNOWN.read_text()) if KNOWN.exists() else {}
+        mine = {k: v for k, v in layout_known.items() if v}
+        mine["ceilings"] = {rule: counts.get(rule, 0) for rule in CEILED}
+        KNOWN.write_text(json.dumps({**{k: v for k, v in knowns.items() if k != name}, **({name: mine} if mine else {})},
+                                    indent=1, sort_keys=True) + "\n")
     if os.environ.get("RECORD_SIZES"):
         everything = json.loads(SIZES.read_text()) if SIZES.exists() else {}
         SIZES.write_text(json.dumps({**everything, name: sizes}, indent=1, sort_keys=True) + "\n")
@@ -155,6 +168,68 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     assert not problems, f"{name}: " + "\n".join(problems)
     assert slowest[0] < LAYOUT_BUDGET_MS, f"{name}: drawing {slowest[1]} took {slowest[0]:.0f}ms"
     assert routed[0] < ROUTED_BOUND_MS, f"{name}: routing {routed[1]} took {routed[0]:.0f}ms"
+
+
+# the critical layout faults an example's views had when the rules came (docs/layout-rules.md), each by its rule and
+# its parts: known, listed there to fix, and not to grow (RECORD_LAYOUT=1 writes them again)
+KNOWN = ROOT / "tests" / "fixtures" / "layout_known.json"
+# rules with no gate of their own: an example's instances of each, over all its views, never more than recorded ("ceilings")
+CEILED = ["valve-orientation-mismatch", "satellite-far"]
+
+
+def critical(pg, where: str, known: dict | None = None) -> list[str]:
+    """The critical instances of the layout rules (docs/layout-rules.md) in the view drawn, but those known: what reads
+    wrongly at once. With known (an example's), what is found is noted in it under the view."""
+    from tests import layout_rules as rules
+    geo = pg.evaluate(GEOMETRY)
+    if not geo:
+        return []
+    if known is not None:                                # (the ungated rules counted, against their ceilings below)
+        for x in rules.check(geo, CEILED):
+            known.setdefault("counts", {})[x["rule"]] = known.get("counts", {}).get(x["rule"], 0) + 1
+    found = [x for x in rules.check(geo, fast=True) if x["severity"] == "critical"]
+    keys = [f"{x['rule']}|{'|'.join(sorted(x['parts']))}" for x in found]
+    if known is not None:
+        was = set(known.get(where, []))
+        known[where] = sorted(set(keys))
+        return [f"[{where}] {x['rule']}: {x['what']}" for x, k in zip(found, keys, strict=True) if k not in was]
+    return [f"[{where}] {x['rule']}: {x['what']}" for x in found]
+
+
+@pytest.mark.parametrize("shape", __import__("tests.diagram_corpus", fromlist=["SHAPES"]).SHAPES)
+def test_generated_models_of_every_shape_draw_with_no_critical_layout_fault(browser, tmp_path, shape):
+    """One generated model of each shape (tests/diagram_corpus.py: chains, fan-outs, joins, rework, many clouds,
+    systems linked across, cascades, auxiliaries, mixes, drains), in the Dynamics and Blocks views, whole and with
+    everything open: no critical instance of any layout rule. The whole corpus is tests/layout_corpus.py's."""
+    from tests import diagram_corpus as corpus
+    name = f"gen-{shape}"
+    d = tmp_path / name
+    corpus.generate(name, shape, 7).write(d)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(150):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        problems = []
+        for i, v in enumerate(["view=dynamics", "view=dynamics&open=*", "view=blocks", "view=blocks&open=*"]):
+            drawn(pg, url, v, i)
+            problems += critical(pg, v)
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+    assert not errors, errors
+    assert not problems, "\n".join(problems)
 
 
 def big_model(systems: int = 8, loops: int = 4) -> str:
@@ -316,6 +391,102 @@ VALVE_SIDES = """() => {
 }"""
 
 
+GEOMETRY = (ROOT / "tests" / "layout_geometry.js").read_text()
+MODELLING = [e for e in EXAMPLES if any(re.search(r"^\s+modelling:|use[s]?: modelling", f.read_text(), re.M)
+                                        for f in (ROOT / "examples" / e).rglob("*.yaml"))]
+
+
+@pytest.mark.parametrize("example", MODELLING)
+def test_model_errors_drain_is_a_short_straight_satellite_of_its_stock(browser, tmp_path, example):
+    """The owner's case (ticket-factory's modelling system, and every example's): model-error's outflow to a cloud
+    ran far right, down across a link and another flow, into its valve, then down and left to a cloud in the
+    bottom-left corner. A flow whose other end is a cloud is its stock's satellite: the valve beside the stock on a
+    short pipe, the cloud just beyond, at most one bend, crossing no other line. The links into the valve (from
+    model-error, and from accepted-changes' side) travel to it: they never pull it off its pipe."""
+    from tests import layout_rules as rules
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        if "modelling" not in pg.evaluate("() => S.graph.tree || {}"):
+            pytest.skip(f"{example} has no modelling system")
+        for i, view in enumerate(["system=modelling", "open=modelling", "open=*"]):
+            drawn(pg, url, view, i + 1)
+            geo = pg.evaluate(GEOMETRY)
+            g = rules.G(geo)
+            stock = next((n for n in g.nodes.values() if n["kind"] == "stock" and n["label"] == "model-error"), None)
+            assert stock, f"[{view}] no model-error stock"
+            drain = [(v, pin, pout) for v, pin, pout in g.flows()
+                     if pin and pout and pin["source"] == stock["id"] and g.kind(pout["target"]) == "cloud"]
+            assert drain, f"[{view}] model-error has no outflow to a cloud"
+            for v, pin, pout in drain:
+                vr, cr, sr = g.rect[v["id"]], g.rect[pout["target"]], g.rect[stock["id"]]
+                assert rules.gap(vr, sr) <= 90, f"[{view}] {v['id']} is {rules.gap(vr, sr):.0f}px from model-error"
+                assert rules.gap(cr, vr) <= 70, f"[{view}] its cloud is {rules.gap(cr, vr):.0f}px from {v['id']}"
+                path = g.flow_path(v, pin, pout)
+                assert rules.bends(path) <= 1, f"[{view}] {v['id']} bends {rules.bends(path)} times: {path}"
+                mine = {pin["id"], pout["id"]}
+                for e in g.edges:
+                    if e["id"] in mine:
+                        continue
+                    hit = [(a, b) for a, b in rules.segs(e["pts"]) for c, d in rules.segs(path) if rules.crosses(a, b, c, d)]
+                    assert not hit, f"[{view}] {e['id']} crosses {v['id']}'s flow"
+                links = [e for e in g.edges if e["kind"] != "pipe" and e["target"] == v["id"]]
+                for e in links:                         # every link reaches the valve, wherever it sits
+                    end = e["pts"][-1]
+                    assert rules.gap((end[0], end[1], end[0], end[1]), vr) <= 3, f"[{view}] {e['id']} ends off {v['id']}: {end}"
+                assert any("accepted" in e["source"] for e in links), f"[{view}] no link from accepted-changes' side"
+        pg.close()
+    assert not errors, errors
+
+
+def test_a_valve_dragged_over_its_stock_stands_upright_on_its_top(browser, tmp_path):
+    """A valve turns to follow its pipe wherever it is put: new-backups (copies-not-offsite's inflow from a cloud, laid
+    out standing on the stock's top) dragged beside the stock turns level, its pipe straight into the stock's side;
+    dragged back over the stock it stands upright again, its pipe straight into the stock's top. Never a zig-zag through a
+    valve facing the wrong way, nor a pipe forced round to another side."""
+    from tests import layout_rules as rules
+    sid, vid = "stock:copies-not-offsite", "flow:new-backups"
+    at = "(id) => { const c = S.layout.children.find((c) => c.id === id); return [c.x, c.y, c.width, c.height]; }"
+
+    def drag_to(pg, x1, y1):                            # the valve's corner to x1, y1 (the diagram's coordinates)
+        vx, vy, _, _ = pg.evaluate(at, vid)
+        hit = pg.locator(f'g.node[data-id="{vid}"] .hit').first.bounding_box()
+        k = pg.evaluate("() => S.view.k")
+        x, y = hit["x"] + hit["width"] / 2, hit["y"] + hit["height"] / 2
+        pg.mouse.move(x, y)
+        pg.mouse.down()
+        for step in range(1, 13):
+            pg.mouse.move(x + (x1 - vx) * k * step / 12, y + (y1 - vy) * k * step / 12)
+        pg.mouse.up()
+        pg.wait_for_timeout(300)
+        pg.wait_for_function(f"() => S.pins['{vid}'] && !S.layout.routing", timeout=20000)
+        pg.wait_for_timeout(500)
+        return rules.G(pg.evaluate(GEOMETRY))
+
+    with served("backups", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        sx, sy, sw, sh = pg.evaluate(at, sid)
+        _, _, vw, vh = pg.evaluate(at, vid)
+        for where, x1, y1, flow, side in [("beside", sx + sw + 60, sy + sh / 2 - vh / 2, "left", "right"),
+                                          ("over", sx + sw / 2 - vw / 2, sy - 50 - vh, "down", "top")]:
+            g = drag_to(pg, x1, y1)
+            assert g.nodes[vid]["turn"]["flow"] == flow, (where, g.nodes[vid]["turn"])
+            pipe = next(e for e in g.pipes if e["source"] == vid and e["target"] == sid)
+            s, end = g.rect[sid], pipe["pts"][-1]
+            on = abs(end[1] - s[1]) < 2 and s[0] < end[0] < s[2] if side == "top" else abs(end[0] - s[2]) < 2 and s[1] < end[1] < s[3]
+            assert on, f"{where}: the pipe meets the stock at {end}, not its {side} {s}"
+            assert rules.bends(pipe["pts"]) == 0, f"{where}: the pipe zig-zags: {pipe['pts']}"
+            found = rules.check(g.geo, ["valve-orientation-mismatch"])     # (on its way into the stock: from the cloud
+            assert not [x for x in found if pipe["id"] in x["parts"]], (where, found)    # an elbow may be unavoidable)
+        pg.close()
+    assert not errors, errors
+
+
 def test_valves_face_their_links_and_pipes_show_their_arrowheads(browser, tmp_path):
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
@@ -335,8 +506,10 @@ UPRIGHT = """async () => {
   const at = (id) => S.layout.children.find((c) => c.id === id);
   const st = at("stock:building"), v = at("flow:abandoned"), cl = at("cloud:abandoned:out");
   const cx = st.x + st.width / 2;
-  S.pins = { "stock:building": { x: st.x, y: st.y }, "flow:abandoned": { x: Math.round(cx - v.width / 2), y: st.y - 150 },
-             "cloud:abandoned:out": { x: Math.round(cx - cl.width / 2), y: st.y - 280 } };
+  // (pinned closer over it than before, 100 and 170 instead of 150 and 280: since the layout changed for docs/layout-rules.md,
+  // a goal lies further up, and would sit between the valve and its cloud)
+  S.pins = { "stock:building": { x: st.x, y: st.y }, "flow:abandoned": { x: Math.round(cx - v.width / 2), y: st.y - 100 },
+             "cloud:abandoned:out": { x: Math.round(cx - cl.width / 2), y: st.y - 170 } };
   await S.relayout();
   await S.layout.whenRouted;
   const gEdge = (le) => S.graph.edges.find((x) => x.id === le.id);

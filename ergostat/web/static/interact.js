@@ -191,6 +191,10 @@ function interactions(svg) {
     if (!d.moved) {
       const lit = litShapes();                          // (the shapes standing for the parts chosen)
       const ids = lit.get(d.id) === "is" ? [...lit].filter(([, how]) => how === "is").map(([id]) => id) : [d.id];
+      for (const n of S.graph?.nodes || []) {          // a stock's flows to and from clouds go with it: its satellites (satellites.js)
+        const sat = (n.kind === "valve" || n.kind === "disturbance") && !ids.includes(n.id) && drainOf(S.graph, n.id);
+        if (sat && ids.includes(sat.stock) && !S.pins?.[n.id] && !S.pins?.[sat.cloud]) ids.push(n.id, sat.cloud);
+      }
       d.parts = S.layout.children.filter((k) => ids.includes(k.id)).map((k) => ({ id: k.id, x: k.x, y: k.y }));
       greyLines(svg, d.parts.map((p) => p.id));
       d.moved = true;
@@ -217,7 +221,7 @@ function interactions(svg) {
     for (const p of d.parts) {
       const k = box[p.id];
       if (!k) continue;
-      k.x = Math.round(p.x + d.dx); k.y = Math.round(p.y + d.dy);
+      k.x = Math.round(p.x + d.dx); k.y = Math.round(p.y + d.dy); k.slid = false;   // (may slide off a new corner: avoid.js)
       const id = pinId(p.id, nodes[p.id]);                // (a system's box: its own, else the part's)
       pins[id] = pinFor(S.layout, S.graph, id, k.x, k.y);
     }

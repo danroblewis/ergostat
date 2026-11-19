@@ -5,6 +5,7 @@
 const SIZE = { terminal: [120, 34], auxiliary: [140, 62], stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [200, 92], agent: [210, 92] };
 const CH = 6.7;   // px per character, for label sizes
 const OPEN_LOOP = "open loop: acts on its schedule, reads nothing";
+const WRAP_GAIN = 1.25;      // a chain far wider than tall is wrapped into rows only when they fit the window this much better
 
 function labelLines(n) {
   if (n.sd) return sdLabelLines(n);                    // the system dynamics view's (dynamics.js)
@@ -69,8 +70,9 @@ function wanted(lay, g) {
   return { sides, ranks };
 }
 
-async function layoutGraph(g, aspect, cut = false, again = 0) {
-  if (again === 0) { await avoidLoad(); S.layouts = (S.layouts || 0) + 1; }   // (how many: the tests count them)
+/* (opts.dry: laid out and placed, not routed: a layout tried to be compared; opts.plain: no satellites' room kept) */
+async function layoutGraph(g, aspect, cut = false, again = 0, opts = {}) {
+  if (again === 0 && !opts.dry) { await avoidLoad(); S.layouts = (S.layouts || 0) + 1; }   // (how many: the tests count them)
   portSides(g);
   const ORDER = { cloud: 0, terminal: 0, disturbance: 1, stock: 2, valve: 3, system: 3, auxiliary: 4, sensor: 5, controller: 6, agent: 2 };
   const rank = (n) => (n.kind === "cloud" ? (n.id.endsWith(":out") ? 4 : 0) : ORDER[n.kind] ?? 3);
@@ -137,9 +139,13 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     }
     return out;
   });
+  // flows between one stock and a cloud: left out, their room kept on their stock (satellites.js)
+  const sat = ELK_PRESETS[LAYOUT]?.upright && !opts.plain ? reserveSatellites(children, edges, satellitePlan(g), g) : null;
+  if (sat) sat.ends = Object.fromEntries(g.edges.map((e) => [e.id, [e.source, e.target]]));
+  const elkChildren = sat ? sat.children : children, elkEdges = sat ? sat.edges : edges;
   // an open system is laid out as one container, its parts together, nested as the systems nest
   const open = new Set(g.tree ? g.nodes.flatMap((n) => n.systems || []) : []);
-  let roots = children;
+  let roots = elkChildren;
   if (open.size) {
     const cont = {};
     const box = (name) => (cont[name] ||= { id: "hull:" + name, children: [], layoutOptions: {
@@ -148,7 +154,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     const parentOf = (name) => { let x = g.tree[name]?.within; while (x && !open.has(x)) x = g.tree[x]?.within; return x || null; };
     for (const name of open) box(name);
     roots = [];
-    for (const c of children) {
+    for (const c of elkChildren) {
       const inner = (byIdNodes[c.id]?.systems || [])[0];
       (inner ? cont[inner].children : roots).push(c);
     }
@@ -156,7 +162,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
   }
   const roomy = g.nodes.some((n) => n.kind === "system" || (n.systems || []).length);
   const graph = {
-    id: "root", children: roots, edges,
+    id: "root", children: roots, edges: elkEdges,
     layoutOptions: {
       ...(open.size ? { "elk.hierarchyHandling": "INCLUDE_CHILDREN" } : {}),
       "elk.layered.mergeEdges": "true",
@@ -174,6 +180,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
   };
   const lay = await runLayout(graph, g);
   if (open.size || lay.children.some((c) => c.children?.length)) flatten(lay);   // (or blocks laid out together: layouts.js)
+  placeSatellites(lay, sat);                             // the satellites put back in the room kept (satellites.js)
   if (again < 2) {                      // ports facing away from what they join, valves facing away: turn them, lay out again
     const w = wanted(lay, g);
     const ports = g.nodes.flatMap((n) => n.ports || []);
@@ -181,7 +188,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     if (moved) {
       S.portAt = { ...(S.portAt || {}), ...w.sides };
       S.portRank = { ...(S.portRank || {}), ...w.ranks };
-      return layoutGraph(g, aspect, cut, again + 1);   // (a turn can move parts: at most twice)
+      return layoutGraph(g, aspect, cut, again + 1, opts);   // (a turn can move parts: at most twice)
     }
   }
   if (cuts.length) {                                     // rows first: the router works on the parts where they end up
@@ -189,10 +196,31 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     routeCuts(lay, cuts);
   }
   if (anchorLayout(lay, g, S.anchor)) S.anchored = true;   // a system opened or closed stays where it was (places.js)
-  if (ELK_PRESETS[LAYOUT]?.upright) standUpright(lay, g);   // drains and inflows stood upright where there is room
-  applyPins(lay, g);
-  orientValves(lay, g);                                  // valves face their pipes and their links (valves.js)
-  avoidStart(lay, g);                                    // every line, by libavoid (avoid.js): ELK's until it is done
+  if (ELK_PRESETS[LAYOUT]?.upright) {
+    seatCloudFlows(lay, g);                              // flows to or from a cloud beside their stock, upright where there is room (places.js)
+    S.centred = centreValves(lay, g);                    // a valve between two stocks put between them (satellites.js)
+  }
+  // the satellites' room kept only where the drawing still fits the screen about as well as without it (it may make a
+  // row of stocks taller, or wider)
+  if (sat && Object.keys(sat.kept).length && !opts.plain && again === 0) {
+    const plain = await layoutGraph(g, aspect, cut, 0, { ...opts, plain: true, dry: true });
+    if (screenFit(plain) > SAT_KEEP * screenFit(lay)) return finishLayout(plain, g, opts);
+  }
+  return finishLayout(lay, g, opts);
+}
+const SAT_KEEP = 1.1;
+function screenFit(lay) {                                 // the zoom at which the drawing fits the canvas (1 at most)
+  const r = document.querySelector("svg.canvas")?.getBoundingClientRect();
+  const [cw, ch] = r?.width ? [r.width - 40, r.height - 90] : [1260, 810];
+  return Math.min(1, cw / Math.max(1, lay.width), ch / Math.max(1, lay.height));
+}
+function finishLayout(lay, g, opts) {
+  if (!lay.finished) {
+    lay.finished = true;
+    applyPins(lay, g);
+    orientValves(lay, g);                                // valves face their pipes and their links (valves.js)
+  }
+  if (!opts.dry) avoidStart(lay, g);                     // every line, by libavoid (avoid.js): ELK's until it is done
   return lay;
 }
 
@@ -1184,9 +1212,11 @@ async function pageDiagram(main, q) {
       // a chain of loops far wider than the window is folded at the pipes between loops, unless told not to
       let lay = await layoutGraph(g, asp, S.wrap === true && (g.kind === "control" || g.kind === "dynamics"));
       S.wrapAuto = false;
+      // (kept only when it fits the window clearly better: a chain wrapped reads worse than one row that fits about as well)
+      const fitOf = (l) => Math.min((r.width - 40) / l.width, (r.height - 90) / l.height);
       if (S.wrap == null && (g.kind === "control" || g.kind === "dynamics") && couplings(g).length && lay.width / lay.height > 2 * asp) {
-        lay = await layoutGraph(g, asp, true);
-        S.wrapAuto = true;
+        const rows = await layoutGraph(g, asp, true, 0, { dry: true });     // (tried: routed only if kept)
+        if (fitOf(rows) >= WRAP_GAIN * fitOf(lay)) { lay = rows; S.wrapAuto = true; avoidStart(lay, g); }
       }
       S.layout = lay;
       S.graphSig = sg;
