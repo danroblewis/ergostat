@@ -82,6 +82,9 @@ possible, without check-ins. Check-ins are replaced by gates written down in adv
 - 04:55 causes-join merged and pushed (b53a933). smallgaps conflicted with it: rebasing. resilience-core's merge hit the flaky stop_still_kills test (fails on main 1 in 13; its run lasts 2 s against the reload's 1.5 s settle): fixing the test. observer review: merge after fixes; made opt-in (it slowed every model's pass 20-50x and raised false model-disagrees on item counts). closedloop's fixes in (1,162 net lines, down from 1,438), suites running.
 - 07:20 Pushed: leasekill-only (25d1ad4), causes-join (b53a933), the reload-test fix (d055399), resilience-core (876b79b), smallgaps (02132f9), closedloop (6fc12bf). In flight: observer (fixes for a swap crash, rebased), layout (in review) then layout2, modelling-core (split and fixes), extremes (suites).
 
+- 09:30 observer merged and pushed (e66245f, after a load-flaky retry). extremes in the queue. The first layout reviewer hung for 3 hours and was stopped; a time-boxed one says merge after fixes for layout and layout2 together (re-recorded sizes hid 25-45% fit losses on 9 views; tools to move out of the counted tree; detectors loosened mid-branch; a crossing-penalty cut). Sent back with an 11:15 cut-off.
+- 09:50 extremes merged and pushed (945ccea). Left: layout + layout2 (fixes, cut-off 11:15), modelling-core (cut-off 11:15).
+
 ## Decisions taken (for the owner to confirm)
 
 - `ergostat run --service` keeps printing the unit by default, as recorded in cli-rounds.md; installing needs `--service --install` (the resilience branch had made install the default).
