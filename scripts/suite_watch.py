@@ -60,6 +60,10 @@ def kill(pids, sig=signal.SIGKILL):
             pass
 
 
+def _interrupted(*_):
+    raise KeyboardInterrupt
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--threads", type=int, default=1500)
@@ -74,23 +78,28 @@ def main():
     proc = subprocess.Popen(cmd, env={**os.environ, TAG: tag})
     peak = {"threads": 0, "rss_mb": 0.0, "procs": 0, "worker_mb": 0.0}
     killed, workers_killed = None, 0
-    while proc.poll() is None:
-        m, workers = members(proc.pid, tag)
-        for w in workers:
-            wmb = sum(m.get(p, 0) for p in w) / 1024
-            peak["worker_mb"] = round(max(peak["worker_mb"], wmb), 1)
-            if wmb > a.worker_mb:
-                print(f"suite_watch: a worker's tree past {a.worker_mb} MB ({wmb:.0f} MB); killing it", file=sys.stderr, flush=True)
-                kill(w)
-                workers_killed += 1
-        n, mb = threads(m), sum(m.values()) / 1024
-        peak.update(threads=max(peak["threads"], n), rss_mb=round(max(peak["rss_mb"], mb), 1), procs=max(peak["procs"], len(m)))
-        if n > a.threads or mb > a.rss_mb:
-            killed = f"{n} threads, {mb:.0f} MB"
-            print(f"suite_watch: past the limits ({killed}); killing {len(m)} processes", file=sys.stderr, flush=True)
-            kill(m)
-            break
-        time.sleep(a.every)
+    signal.signal(signal.SIGTERM, _interrupted)
+    try:
+        while proc.poll() is None:
+            m, workers = members(proc.pid, tag)
+            for w in workers:
+                wmb = sum(m.get(p, 0) for p in w) / 1024
+                peak["worker_mb"] = round(max(peak["worker_mb"], wmb), 1)
+                if wmb > a.worker_mb:
+                    print(f"suite_watch: a worker's tree past {a.worker_mb} MB ({wmb:.0f} MB); killing it", file=sys.stderr, flush=True)
+                    kill(w)
+                    workers_killed += 1
+            n, mb = threads(m), sum(m.values()) / 1024
+            peak.update(threads=max(peak["threads"], n), rss_mb=round(max(peak["rss_mb"], mb), 1), procs=max(peak["procs"], len(m)))
+            if n > a.threads or mb > a.rss_mb:
+                killed = f"{n} threads, {mb:.0f} MB"
+                print(f"suite_watch: past the limits ({killed}); killing {len(m)} processes", file=sys.stderr, flush=True)
+                kill(m)
+                break
+            time.sleep(a.every)
+    except KeyboardInterrupt:                           # the watchdog stopped: nothing of the run outlives it
+        killed = "interrupted"
+        kill(members(proc.pid, tag)[0])
     rc = proc.wait()
     left = members(proc.pid, tag)[0]
     left.pop(proc.pid, None)
