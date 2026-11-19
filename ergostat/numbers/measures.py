@@ -30,6 +30,7 @@ from ..spec.ir import (
     CONTEXT_MEASURES,
     COST,
     COST_MEASURES,
+    INBOX_MEASURES,
     INTENT,
     INTENT_MEASURES,
     LEASE_MEASURES,
@@ -97,7 +98,7 @@ READERS = {"ergostat.model.fit": fit, "ergostat.model.unexplained": unexplained,
 
 
 def measure(p, name: str) -> float | None:
-    if name.startswith(("trust.", "messages.", "intent.", "leases.", "actions.", "workspaces.",
+    if name.startswith(("trust.", "messages.", "intent.", "leases.", "actions.", "workspaces.", "inbox.", "interventions.",
                         "cost.")):                 # by hand: trust.contradicted@developer
         name = "ergostat." + name
     if not name.startswith("ergostat."):           # by hand, the short name will do: fit, open-findings
@@ -129,6 +130,16 @@ def measure(p, name: str) -> float | None:
     if ACTIONS.match(name):                        # the gated actions, by how their gates took them (SPEC §12k)
         from ..actions import record as ar
         return ar.measure(p, name)
+    if name in INBOX_MEASURES:                     # what waits on a person (SPEC §12o)
+        from ..inbox import entries, stats
+        spec = getattr(p.model, "spec", None)
+        if name.startswith("ergostat.interventions."):
+            from ..inbox.interventions import measures as im
+            return float(im(p, spec)[name.rsplit(".", 1)[1]]) if spec is not None else 0.0
+        es = entries.entries(p, spec) if spec is not None else []
+        if name.endswith("asked"):
+            return float(len(stats.asked_today(p, spec))) if spec is not None else 0.0
+        return float(len(es)) if name.endswith("waiting") else max((e["age"] for e in es), default=0.0) / 3600.0
     if m := WORKSPACES.match(name):                # the workspace pools, now (SPEC §12k)
         spec = getattr(p.model, "spec", None)
         if spec is None:
@@ -139,7 +150,8 @@ def measure(p, name: str) -> float | None:
         return float(wp.counts(p, spec, m.group(2))[m.group(1)])
     if name not in MODEL_MEASURES:
         known = [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *CONTEXT_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES,
-                 *ACTIONS_MEASURES, *WORKSPACES_MEASURES, *COST_MEASURES]
+                 *ACTIONS_MEASURES, *WORKSPACES_MEASURES, *COST_MEASURES,
+                 *INBOX_MEASURES]
         raise MeasureError(f"no measure {name!r}: {', '.join(known)}")
     if getattr(p.model, "spec", None) is None:
         raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
@@ -149,7 +161,7 @@ def measure(p, name: str) -> float | None:
 def all_of(p) -> dict[str, float | None]:
     out = {}
     for n in [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES, *ACTIONS_MEASURES,
-              *WORKSPACES_MEASURES, *COST_MEASURES]:
+              *WORKSPACES_MEASURES, *COST_MEASURES, *INBOX_MEASURES]:
         try:
             out[n] = measure(p, n)
         except Exception as e:                        # one measure that cannot be read leaves the others

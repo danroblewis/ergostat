@@ -346,7 +346,16 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             "agents": agents}
     snap["hints"] = ladder_hints(project, snap)
     snap["messages"] = unrouted_messages(project, now)
-    snap["actions"], snap["quarantined"] = held_actions(project, now), quarantined(project)
+    snap["inbox"], snap["quarantined"] = inbox(project, now, live), quarantined(project)
+    spec = getattr(m, "spec", None)
+    for lp in loops.values():                         # the interventions loop's goal: its measures, on its panel (§12p)
+        st_ = (spec.stocks.get(lp["stock"]) or spec.auxiliaries.get(lp["stock"])) if spec is not None else None
+        if st_ is not None and any((x.builtin or "").startswith("ergostat.interventions.") for x in st_.sensors.values()):
+            from .inbox.interventions import measures as iv
+            try:
+                lp["interventions"] = iv(project, spec, now)
+            except Exception:
+                pass
     snap["leases"] = lease_attention(project, now)
     snap["cycles"] = relation_cycles(project)
     snap["reports"] = [{"id": r["id"], "title": r.get("title") or ""} for r in reports_drafted(project)]   # SPEC §12m
@@ -388,18 +397,16 @@ def relation_cycles(project) -> list[list[str]]:
     return got
 
 
-def held_actions(project, now: float) -> list[dict]:
-    """The gated actions held for the owner's approval (SPEC §12k), as of now: each needs attention."""
-    spec = getattr(project.model, "spec", None)
-    if spec is None or not spec.actions:
-        return []
-    from .actions import record
+def inbox(project, now: float, live: bool) -> list[dict]:
+    """Everything waiting on a person (SPEC §12o), each with its class's record: each needs attention, answerable."""
+    from .inbox import entries, stats
     try:
-        got = record.stored(project, until=now)
+        got = entries.entries(project, None, None if live else now)
+        rec = stats.by_class(project, project.model.spec, now) if got else {}
     except Exception:
         return []
-    return [{"id": a["id"], "action": a.get("action"), "item": a.get("item"), "command": a.get("command") or "",
-             "time": a["time"]} for a in got.values() if a["state"] == "requested"][-20:]
+    return [{**e, **({"record": stats.record_said(rec[e["class"]]), "suggest": rec[e["class"]]["suggest"]}
+                     if e["class"] in rec else {})} for e in got]
 
 
 def quarantined(project) -> list[dict]:
@@ -689,12 +696,6 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         out.append({"level": "warn", "what": f"item {c[0]}", "item": c[0],
                     "says": f"a cycle of precedence relations: {said} each wait on another, so none can be ready. "
                     f"Take one of the links away"})
-    for a in snap.get("actions", []):                # gated actions held for the owner (SPEC §12k)
-        short = a["id"].split("/", 1)[1]
-        cmd = a["command"] if len(a["command"]) <= 80 else a["command"][:77] + "..."
-        out.append({"level": "warn", "what": f"action {short}", "item": a["id"],
-                    "says": f"{a['action']}" + (f" for {a['item']}" if a.get("item") else "") + f" waits for approval: "
-                    f"{cmd}. Approve or deny it on its page, or ergostat actions {short} --approve (--deny)"})
     for w in snap.get("quarantined", []):
         out.append({"level": "warn", "what": f"workspace {w['pool']}-{w['slot']}",
                     "says": f"quarantined ({w.get('why') or 'dirty or broken'}): never reused until freed, ergostat "
@@ -710,7 +711,12 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         if r["significant"]:
             out.append({"level": "warn", "what": f"stock {name}", "says": f"changed {fmt(r['change'])}, the known flows explain "
                         f"{fmt(r['explained'])}: {fmt(r['unexplained'])} unexplained" + (f" ({r['why']})" if r.get("why") else "")})
-    return sorted(out, key=lambda a: LEVELS.get(a["level"], 1))
+    asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"],     # waiting on a person, first
+             "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
+             + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
+             + f". ergostat inbox {e['id']} " + " | ".join("--done N" if v == "done" else f"--{v}" for v in e["verbs"])}
+            for e in snap.get("inbox", [])]
+    return asks + sorted(out, key=lambda a: LEVELS.get(a["level"], 1))
 
 
 def fmt(x) -> str:

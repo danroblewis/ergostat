@@ -180,6 +180,18 @@ ACTIONS_MEASURES = {               # the gated actions, by how their gates took 
     "ergostat.actions.ran": "gated actions that ran and exited 0 over the last week",
     "ergostat.actions.failed": "gated actions that ran and failed over the last week",
 }
+INBOX_MEASURES = {                 # what waits on a person (SPEC §12o)
+    "ergostat.inbox.waiting": "everything waiting on a person now: held actions, requests, advised commands, step tests, "
+                              "model changes",
+    "ergostat.inbox.oldest": "hours the oldest of them has waited (0 when none waits)",
+    "ergostat.inbox.asked": "how many were asked of a person over the last day: the approval budget",
+    "ergostat.interventions.per-day": "interventions over the last day (suppressed classes at their rate before)",
+    "ergostat.interventions.trend": "the interventions' trend: per day, per week, a weighted slope over the window",
+    "ergostat.interventions.standing": "entries waiting longer than notify's standing (default 24h)",
+    "ergostat.interventions.chattering": "classes intervening 3 or more times within 10 minutes over the last day",
+    "ergostat.interventions.blocked-hours": "hours the interventions blocked their processes over the last day",
+    "ergostat.interventions.top-share": "the share of the interventions over the window from the top class",
+}
 WORKSPACE = "ergostat.workspace"  # the built-in item kind: one workspace of a pool, and whose it is (SPEC §12k)
 WORKSPACE_STATES = ["free", "in-use", "held", "quarantined"]
 WORKSPACES = re.compile(r"^ergostat\.workspaces\.(free|in-use|held|quarantined)(?:@([a-z][a-z0-9-]*))?$")
@@ -222,7 +234,7 @@ def is_measure(name: str) -> bool:
     cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``)."""
     return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
             or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
-            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)))
+            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES)
 
 
 @dataclass
@@ -267,6 +279,19 @@ def action_kind() -> ItemKind:
     return ItemKind(ACTION, f"{ACTION}/*", list(ACTION_STATES), on, ["action", "item", "gate", "by", "command", "exit"], {},
                     None, "a gated action an AI session or a program asked for: approved by its gate (auto) or the owner, or denied; "
                     "then ran or failed, its output given back (built in, SPEC §12k)", fold={"deliveries": "append"})
+
+
+MODEL_REQUEST = "ergostat.model-request"   # the built-in item kind: a class of intervention to model away (SPEC §12p)
+MODEL_REQUEST_STATES = ["open", "investing", "verifying", "suppressed", "resolved"]
+
+
+def model_request_kind() -> ItemKind:
+    on = {f"{MODEL_REQUEST}.{s}": s for s in ("investing", "resolved", "suppressed")}
+    on.update({f"{MODEL_REQUEST}.opened": "open", f"{MODEL_REQUEST}.graduated": "verifying"})
+    return ItemKind(MODEL_REQUEST, f"{MODEL_REQUEST}/*", list(MODEL_REQUEST_STATES), on,
+                    ["class", "cause", "count", "hours", "rank"], {}, None,
+                    "a class of intervention (approvals, requests, alarms, notifications) to model away: its cause and "
+                    "candidate remedies; resolved only when its process no longer needs a person (built in, SPEC §12p)")
 
 
 def workspace_kind() -> ItemKind:
@@ -762,6 +787,7 @@ class Spec:
     messages: Messages = field(default_factory=Messages)               # how the owner's messages are routed (SPEC §12h)
     contexts: dict = field(default_factory=dict)                       # name → Recipe: the projection recipes (SPEC §12j)
     actions: dict[str, Action] = field(default_factory=dict)           # the gated actions sessions may ask for (SPEC §12k)
+    notify: object = None                   # inbox.config.Notify: where what waits on a person is sent (SPEC §12o)
     workspaces: dict[str, WorkspacePool] = field(default_factory=dict)  # the workspace pools (SPEC §12k)
     leases: dict[str, LeaseTerms] = field(default_factory=dict)        # tier → its lease terms, over the defaults (SPEC §9.5)
     uses: dict = field(default_factory=dict)                           # instance → its template, values, stand-ins (SPEC §2a)
