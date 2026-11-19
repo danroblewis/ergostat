@@ -38,6 +38,10 @@ the model (ergostat.yaml: stocks, flows, auxiliaries, goals, blocks)
                  (block NAME --now runs one at once; --done N is a person's report)
   convert        Write an old ergostat.toml as ergostat.yaml
 
+what waits on you
+  inbox          Everything waiting on a person: held actions, requests, advised commands, step tests, model
+                 changes; ID --approve | --deny | --done N answers any of them; --stats: what could move up the ladder
+
 what is wrong, or missing
   findings       Missing feedback, a limit ahead, saturation, people not answering, decay
   discover       Loops in the record (discover loops), a draft from Prometheus (discover prometheus)
@@ -336,6 +340,8 @@ def build() -> argparse.ArgumentParser:
     judge_topics(sub, common)
     from .gated import register as gated_topics
     gated_topics(sub, common)
+    from .inbox import register as inbox_topics
+    inbox_topics(sub, common)
     from .remote import register as remote_topics
     remote_topics(sub, common)
     from .reports import register as report_topics

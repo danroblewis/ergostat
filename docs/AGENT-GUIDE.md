@@ -404,6 +404,34 @@ away from what its flows predict: fix the model (a missing flow, a wrong rate) b
 is only as good as the model: a model that is wrong in its structure drives the gain to 1, and the estimate is then the
 readings again.
 
+## 3d. People in the loop: rare, reached, and graduated
+
+Human approval (a gated action's `gate: approve`, a block's `mode: advise`, a `person` block, a change waiting for the
+owner) is for a system's **early stages**, while the person and you are still working out its feedback loops. Each one
+is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p):
+
+- **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
+  (`ergostat inbox ID --approve | --deny | --done N`), from the page's *Needs attention* (Approve / Deny inline) or by
+  the MCP `answer` tool when they tell you to (recorded as `owner via mcp`: never evidence for graduating). Set up
+  `notify:` with the channels they use: `macos` on their own machine; `email` with `to:`; `slack` or `discord` with the
+  webhook's URL in an environment variable (`url-env:`) or a file (`url-file:`), never in the YAML. Each channel is a
+  gated action: at work, ask which channels may carry what, and write `gate: deny` (or `approve`) for the rest. Keep
+  `group:` (2m) and `per-hour:` so they are not flooded; add `quiet:` hours, and `wait-at-most:` with `escalate-to:`
+  when something must not wait. Messages carry only ids, kinds, classes and links unless a channel says `detail: full`
+  (then scrubbed). Try it with a `command` channel (`run: "cat >> notified.txt"`) before any real one; never send a real
+  message from a test.
+- **Model them away.** Add `uses: {interventions: {use: interventions}}`: the interventions waiting become a stock, a
+  goal holds the trend of those asked a day from rising, and each recurring class becomes an `ergostat.model-request`
+  naming its remedies. Work the top request first (`ergostat inbox --stats` ranks them by the time they blocked their
+  processes): automate the person's step with a block, add the loop that makes the approval a rule, change the software,
+  or graduate the gate. Mark the request `--invest` while you work on it: for up to two weeks its class counts at most
+  at its rate before, so the approvals the fix needs do not count against the trend.
+- **Graduate with evidence, never silence.** `ergostat inbox --stats` says when a class has always been approved (five
+  or more, none denied): then propose `gate: auto` (or an AI approver, or `mode: auto`) to the owner. Removing an alarm,
+  raising its threshold, denying a channel or dropping a gate without automating what it guarded is recorded as
+  **suppression**: it never lowers the measure, and the request stays open until the guard is back or the work is
+  automated. Never change a gate yourself without the owner.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |

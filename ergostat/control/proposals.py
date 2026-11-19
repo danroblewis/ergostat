@@ -400,6 +400,8 @@ def offered(p, a: dict) -> list[dict]:
             out.append(x)
             if x["kind"] in ("process", "tuning"):
                 _made(p, x)
+            elif not any(e["data"].get("id") == x["id"] for e in p.events.query(n=50, type="steptest.offered")):
+                p.events.add("steptest.offered", item=x["goal"], source="ergostat", data=x)   # it waits on the owner (SPEC §12o)
     return out
 
 
@@ -415,8 +417,8 @@ def _made(p, x: dict) -> None:
     pr.event(p, x["id"], "checked", {})
 
 
-def dismiss(p, pid: str, reason: str | None = None) -> dict:
-    x = OFFERED.get(pid)
+def dismiss(p, pid: str, reason: str | None = None, offer: dict | None = None, by: str = "owner") -> dict:
+    x = OFFERED.get(pid) or offer                    # offer: as it was recorded offered (steptest.offered), answered elsewhere
     if x is None:
         raise ProposalError(f"no proposal {pid} on offer: open the loop again")
     d = decisions(p)
@@ -425,18 +427,18 @@ def dismiss(p, pid: str, reason: str | None = None) -> dict:
     _save(p, d)
     from ..numbers import proposals as pr
     _made(p, x)
-    pr.event(p, pid, "dismissed", {"dismissed_because": reason.strip()[:500]} if reason else {}, source="owner")
+    pr.event(p, pid, "dismissed", {"dismissed_because": reason.strip()[:500]} if reason else {}, source=by)
     OFFERED.pop(pid, None)
     return {**x, "status": "dismissed"}
 
 
-def accept(p, pid: str, by: str = "owner", expect: str | None = None) -> dict:
+def accept(p, pid: str, by: str = "owner", expect: str | None = None, offer: dict | None = None) -> dict:
     """Apply what the page was shown: an edit (checked, else put back), or a step test's approval. ``expect``
     is the hash of the diff shown (``numbers.review.diff_of``): refused unless that is what would be written."""
     from .. import model as mdl
     from ..spec import read
     from . import loop as lp
-    x = OFFERED.get(pid)
+    x = OFFERED.get(pid) or offer
     if x is None:
         raise ProposalError(f"no proposal {pid} on offer: open the loop again")
     spec = p.model.spec

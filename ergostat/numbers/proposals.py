@@ -693,7 +693,7 @@ def find(p, pid: str) -> dict:
     return hits[0]
 
 
-def dismiss(p, pid: str, reason: str | None = None) -> dict:
+def dismiss(p, pid: str, reason: str | None = None, by: str = "owner") -> dict:
     """Let a proposal go, with the owner's reason when they give one: kept, so the same change is not
     proposed again (a changed one, another value or another edit, is a new proposal)."""
     props = stored(p)
@@ -703,7 +703,7 @@ def dismiss(p, pid: str, reason: str | None = None) -> dict:
     x["status"], x["decided"] = "dismissed", time.time()
     if reason:
         x["dismissed_because"] = reason.strip()[:500]
-    x["dismissed_by"] = "owner"
+    x["dismissed_by"] = by
     props[x["id"]] = x
     save(p, props)                                  # ergostat.model-change.dismissed, from the owner, with the reason
     return x
