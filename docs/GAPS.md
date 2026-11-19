@@ -92,7 +92,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   takes 13 s even on small models).
 - **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`).
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
-- **Should a run whose lease expired be killed?** (open question for the owner).
+- **A run whose lease expired is killed** (done, 261122b, `leasekill`; the owner decided 2026-11-18; SPEC §9.5
+  *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
 
 ## Interface
 
