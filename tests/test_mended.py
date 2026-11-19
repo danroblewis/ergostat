@@ -107,3 +107,20 @@ def test_template_has_no_such_finding(tmp_path):
     assert "measured-not-caused" not in {x.code for x in problems}
     assert spec.flows["model-drift"].two_way and spec.flows["model-drift"].sensors["main"].changes["what"] == "rest"
     assert spec.flows["model-mended"].sensors["main"].items["sum"] == "fit_gained"
+
+
+def test_a_daemon_sensors_panel_line_names_its_daemon(tmp_path):
+    from ergostat.spec.item_sets import counted_by
+    spec, _ = spec_of(tmp_path, """
+daemons:
+  shared: {run: python3 d.py}
+stocks:
+  a:
+    sensor: {daemon: shared, every: 1s}
+  b:
+    sensor: {daemon: {run: python3 p.py}, push: true}
+""")
+    assert counted_by(spec, "stock", "a") == {"says": "Read by daemon shared"}
+    assert counted_by(spec, "sensor", "a.main") == {"says": "Read by daemon shared"}
+    said = counted_by(spec, "stock", "b")["says"]
+    assert said.startswith("Read by daemon ") and said.endswith(", which sends its readings by itself")
