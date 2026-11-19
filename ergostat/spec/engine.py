@@ -31,6 +31,9 @@ import urllib.parse
 import urllib.request
 
 from .. import runner as old
+from ..costs import ai as costs_ai
+from ..costs import record as costs_record
+from ..costs.sampler import SAMPLER, Measured
 from . import blocks as bl
 from . import stream
 from .ir import Block, Ref, Sensor, Spec
@@ -387,6 +390,8 @@ class Engine:
         model = b.params.get("model") or (spec.agents[b.agent].model if b.agent in spec.agents else None)
         if model and "run" not in b.params and "--model" not in cmd:
             cmd += f" --model {model}"
+        if "run" not in b.params and "--output-format" not in cmd and costs_ai.is_claude(cmd):
+            cmd += " --output-format json"                # its result as JSON: its text, and its cost (SPEC §9.1)
         return cmd, prompt + AI_FOOTER + payload
 
     def run_block(self, b: Block, why: str, extra: dict | None = None, spec: Spec | None = None,
@@ -453,10 +458,13 @@ class Engine:
             cmd += " " + sandbox.command_line(ready.cfg)
         cwd = ready.workdir if ready.workdir and "run" not in b.params else spec.root
         log = old.log_path(self.p, b.name)
-        note, code = "", None
+        note, code, resources = "", None, None
         said = Said(self, b, begun["id"], spec, version, item=item, fence=fence)
 
+        usage = costs_ai.Usage(b.params.get("model") or (spec.agents[b.agent].model if b.agent in spec.agents else None))
+
         def take(got: list[str]) -> None:                       # its lines, as they arrive (SPEC §9.1)
+            got = costs_ai.expand(usage, got)                   # (what its AI sessions cost, taken as they say it)
             for raw in got:
                 if not raw.strip().startswith("{"):
                     lf.write(raw if raw.endswith("\n") else raw + "\n")
@@ -468,18 +476,20 @@ class Engine:
             try:
                 if refused:
                     raise OSError(refused)
-                proc = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
+                proc = Measured(cmd, shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
             except OSError as e:
                 note = refused or f"could not start: {e}"
             else:
                 old.LIVE.add(proc)
                 with self.lock:
                     self.procs[b.name] = proc
+                tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
                 try:
                     if stream.pump(proc, stdin, b.timeout, take):
                         note = f"stopped after its timeout of {b.timeout:g}s"
                 finally:
+                    resources = SAMPLER.finish(tracked)
                     old.LIVE.discard(proc)
                     with self.lock:
                         if self.procs.get(b.name) is proc:
@@ -498,7 +508,8 @@ class Engine:
                 **({"item": item} if item else {}),
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
                 **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {}), "model": version,
-                **({"model_now": self.version} if self.version != version else {})}   # it ran across a change
+                **({"model_now": self.version} if self.version != version else {}),   # it ran across a change
+                **({"resources": resources} if resources else {}), **({"ai": ai} if (ai := usage.record()) else {})}
         self.moved_by[b.name] = dict(said.moved)
         if ready.workspace:                                      # its run was its lease, when it had none: released
             try:
@@ -511,7 +522,11 @@ class Engine:
             outcome.update({"exit": code, "note": note, "nack": said.nack, "stopped": note in (old.STOPPED_WITH_US, STOPPED_BY_OWNER)})
             if ready.full:                                       # no workspace free: given back, put off, not counted
                 outcome["nack"] = {"why": note, "after": POOL_FULL_AFTER, "count": False}
-        ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
+        ended = ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
+        try:                                                     # its numbers as series of its block (SPEC §9.1)
+            costs_record.write_series(self.p, b.name, data, ended["time"])
+        except Exception as e:
+            self.say(f"{b.name}: its costs: {type(e).__name__}: {e}")
         if failed:
             self.say(f"{b.name}: {note}")
         if said.refused:

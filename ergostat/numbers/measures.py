@@ -15,7 +15,8 @@ and how far blocks' claims hold (SPEC §12g, ``claims/trust.py``): ``ergostat.tr
 for every block or, with ``@WHO``, one block, rung or model; how the owner's messages reach the work (SPEC §12h,
 ``messages/measures.py``): ``ergostat.messages.unrouted``, ``.awaiting``, ``.missed`` and the rest; and how the work
 each projection recipe started turned out (SPEC §12j, ``recipes/uses.py``): ``ergostat.context.RECIPE.outcome``,
-``.cost`` and counts.
+``.cost`` and counts; and what the runs cost (SPEC §9.1, ``costs/record.py``): ``ergostat.cost.usd``, ``.tokens``,
+``.cpu``, ``.memory``, ``.runs``, over the last day or hour, for every block or one.
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ from ..spec.ir import (
     ACTIONS_MEASURES,
     CONTEXT_MEASURE,
     CONTEXT_MEASURES,
+    COST,
+    COST_MEASURES,
     INTENT,
     INTENT_MEASURES,
     LEASE_MEASURES,
@@ -94,13 +97,17 @@ READERS = {"ergostat.model.fit": fit, "ergostat.model.unexplained": unexplained,
 
 
 def measure(p, name: str) -> float | None:
-    if name.startswith(("trust.", "messages.", "intent.", "leases.", "actions.", "workspaces.")):   # by hand: trust.contradicted@developer
+    if name.startswith(("trust.", "messages.", "intent.", "leases.", "actions.", "workspaces.",
+                        "cost.")):                 # by hand: trust.contradicted@developer
         name = "ergostat." + name
     if not name.startswith("ergostat."):           # by hand, the short name will do: fit, open-findings
         name = "ergostat.model." + name.removeprefix("model.")
     if TRUST.match(name):                          # how far blocks' claims hold (SPEC §12g)
         from ..claims import trust
         return trust.measure(p, name)
+    if COST.match(name):                           # what the runs cost: dollars, tokens, CPU, memory (SPEC §9.1)
+        from ..costs import record as cr
+        return cr.measure(p, name)
     if name in MESSAGE_MEASURES:                   # how the owner's messages reach the work (SPEC §12h)
         from ..messages import measures as mm
         return mm.measure(p, name)
@@ -132,7 +139,7 @@ def measure(p, name: str) -> float | None:
         return float(wp.counts(p, spec, m.group(2))[m.group(1)])
     if name not in MODEL_MEASURES:
         known = [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *CONTEXT_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES,
-                 *ACTIONS_MEASURES, *WORKSPACES_MEASURES]
+                 *ACTIONS_MEASURES, *WORKSPACES_MEASURES, *COST_MEASURES]
         raise MeasureError(f"no measure {name!r}: {', '.join(known)}")
     if getattr(p.model, "spec", None) is None:
         raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
@@ -142,7 +149,7 @@ def measure(p, name: str) -> float | None:
 def all_of(p) -> dict[str, float | None]:
     out = {}
     for n in [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES, *ACTIONS_MEASURES,
-              *WORKSPACES_MEASURES]:
+              *WORKSPACES_MEASURES, *COST_MEASURES]:
         try:
             out[n] = measure(p, n)
         except Exception as e:                        # one measure that cannot be read leaves the others
