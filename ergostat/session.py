@@ -13,7 +13,8 @@ owner's messages while it works:
   its input: the session's next turn. ``delivered``, how ``resume``; its reply is the message's answer.
 
 It prints what the block's run reports: ``session.ran`` (or ``.failed``) about the session item, with its cost, turns
-and time, then the JSON lines of every turn's result (claims marked with the session and its model). ``$ERGOSTAT_CLAUDE``
+and time (and ``ai``: its tokens, models and dollars, reported or estimated, which the run that started it adds to its
+own, SPEC §9.1), then the JSON lines of every turn's result (claims marked with the session and its model). ``$ERGOSTAT_CLAUDE``
 names the program to run in place of ``claude`` (``echo``: ergostat's stand-in session, ``session_echo.py``, which
 echoes what it receives). Arguments after ``--`` are passed to it (the tools the session may use).
 
@@ -315,7 +316,15 @@ class Session:
         last = self.results[-1]
         counted = [r for r in self.results if not r.get("_cumulative")]
         cost = sum(float(r.get("total_cost_usd") or 0) for r in counted)
-        rec = {"cost_usd": round(cost, 4), "turns": sum(int(r.get("num_turns") or 0) for r in counted),
+        from .costs import ai
+        usage = ai.Usage(self.model)
+        for r in counted:
+            if not r.get("unreadable"):
+                usage.add_result(r)
+        used = usage.record()
+        rec = {"cost_usd": round(cost, 4) if used is None or used["cost_usd"] is None else round(used["cost_usd"], 6),
+               "turns": sum(int(r.get("num_turns") or 0) for r in counted), "model": self.model,
+               **({"ai": used} if used else {}),
                "seconds": round(sum(float(r.get("duration_ms") or 0) for r in counted) / 1000, 1),
                "error": bool(last.get("is_error")), "said": (last.get("result") or "")[-1500:],
                "owner_messages": sorted(self.given), **({"queued": sorted(self.queued)} if self.queued else {}),
