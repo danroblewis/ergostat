@@ -370,11 +370,16 @@ def events_items(events, ev: dict, since: float, until: float) -> dict:
 def counted_by(spec, kind: str, name: str) -> dict | None:
     """What a stock's or a flow's sensor counts, in plain words, for the first line of its side panel (``says``, and
     ``kind`` when items): the unit alone did not say a stock was items of a kind. None when its sensor reads neither
-    items nor its stock's changes."""
-    part = (spec.flows if kind == "flow" else {**spec.auxiliaries, **spec.stocks}).get(name) if spec else None
-    s = next((x for x in (getattr(part, "sensors", None) or {}).values() if x.items or x.changes), None)
-    if s is None:
+    items, its stock's changes nor a daemon (``read by daemon NAME``)."""
+    if kind == "sensor":                              # one sensor of a part: PART.SENSOR
+        s = next((x for x in (spec.sensors() if spec else ()) if f"{x.of.name}.{x.name}" == name), None)
+    else:
+        part = (spec.flows if kind == "flow" else {**spec.auxiliaries, **spec.stocks}).get(name) if spec else None
+        s = next((x for x in (getattr(part, "sensors", None) or {}).values() if x.items or x.changes or x.daemon), None)
+    if s is None or not (s.items or s.changes or s.daemon):
         return None
+    if s.daemon:
+        return {"says": f"Read by daemon {s.daemon}" + (", which sends its readings by itself" if s.push else "")}
     if s.changes:
         st, what = s.changes.get("stock"), s.changes["what"]
         return {"says": f"The change of {st} that its other flows do not account for, rises and falls" if what == "rest"

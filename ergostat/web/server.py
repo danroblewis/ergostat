@@ -653,7 +653,7 @@ def _answer(live: Live, path: str, q: dict):
         if kind in ("stock", "flow", "disturbance", "sensor"):   # what goes through it: its items (SPEC §5a, which items)
             out["items"] = _items_of(p, m, kind, pname, snap)
         spec = getattr(m, "spec", None)
-        if kind in ("stock", "flow", "disturbance") and spec is not None:   # what it counts, first in its panel
+        if kind in ("stock", "flow", "disturbance", "sensor") and spec is not None:   # what it counts, first in its panel
             from ..spec import item_sets
             out["counts"] = item_sets.counted_by(spec, "flow" if kind == "disturbance" else kind, pname)
         if kind in ("flow", "valve") and spec is not None:                   # the items leased to the blocks moving it
