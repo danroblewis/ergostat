@@ -2312,12 +2312,45 @@ Past 256 steps a bucket a stock's own drain is integrated implicitly (stable, se
 the notes say so; a run that hit the clamp, or whose stocks drive each other faster than its step,
 is not valid, and is neither fitted nor shown as a fit.
 
-**Projection**: open loop (*decided*, until the blocks' laws are simulated): from the state now
-(each stock the mean of its last few readings, each delay as the replay left it), the inputs held
-where they were (or carried on along their recent trend), the controllers held, for a horizon of
-three of the slowest time constant the replay met, within a twentieth and a quarter of the window.
-What a flow a block sets moves (that flow, its stocks, and what follows from them) is left out of
-the projection, and the chart says so.
+**Projection**, two ways, from the state now (each stock the mean of its last few readings, each delay as the replay
+left it), the inputs held where they were (or carried on along their recent trend), for a horizon of three of the
+slowest time constant the replay met, within a twentieth and a quarter of the window:
+
+- **with the loops running** (closed loop, `ergostat/numbers/closedloop.py`; the default wherever the model has a block
+  that moves a flow or decides, *decided* 2026-11-18): the control structure runs forward beside the stocks and flows,
+  as system dynamics simulates a policy (Sterman ch. 1, 21: the decision rule is part of the model). Every goal and
+  built-in block is worked out by the engine's own code (its `goals`, `_builtins`, `get` and `command_of`, run on a
+  shadow of its state, so an `onoff` latches, a cascade sets the inner setpoint and a goal turns off and on with its
+  tolerance exactly as the running engine would), from where the record left them (each goal's last crossing, each
+  built-in's last output and when it changed, a setpoint a block set). They read a level as its sensor would: a
+  count of items is a whole number, so a queue drained to a fraction of an item is empty to a goal "<= 0". Each
+  **machine block** (program, AI agent,
+  person, external) is not run but replaced by a **stand-in**, a model of what it does to the flow it moves,
+  identified from the reference window and said in words in the strip and the block's panel:
+
+  | The block | Its stand-in | Identified from |
+  |---|---|---|
+  | takes items (`takes:`, §9.5) | *seats*: success × min(waiting, pool) / the time a seat is held (a run's time; its lease's TTL for an attempt that expired) | its runs' median time, the share that ended well, the expiries; its pool and lease terms |
+  | moves a flow with an equation | the equation, while commanded, at most its pool over its run time | the model; its runs for the cap |
+  | reads the goal on the stock it fills (a dispatcher reading its work-in-progress limit) | *fill*: at most the most it moved, never past that goal's setpoint, a run every `every` | the flow's record while commanded |
+  | drains a stock | *drain*: min(the most it moved, waiting / the time things wait) while commanded | Little's law over the buckets it was commanded: mean level over mean outflow; the 95th percentile of its rate |
+  | fills from outside | *rate*: its mean rate while commanded, and while not | the flow's record, by the commander's recorded output |
+  | writes its law (`gain:`, `every:`, reading a goal) | that law, gain × error each run | the model |
+  | sets a setpoint, an auxiliary or another machine's command | held where it was, and said | |
+
+  A stand-in needs six buckets of its flow measured while it was commanded (five runs for *seats*); with less it is a
+  declared **assumption** (a run moves what waits; its declared rate; a run of a tenth of its TTL), flagged in the
+  strip, the block's panel and `ergostat project`. A flow measured long enough that it never moved is identified as 0.
+  An outflow held where it was (an input, not an equation) stops when its stock is empty. The judge of changes runs
+  on its own clock and is held, like any input.
+- **held** (open loop): the controllers held, every input held. What a flow a block sets moves (that flow, its stocks,
+  and what follows from them) is left out, and the chart says so. `replay` is never closed-loop: the replay is the
+  model driven by what was measured, as calibration and the judge use it.
+
+The strip's foot has **With the loops running** and **Held**, one choice for every chart on the page
+(`GET /api/series?…&loops=closed|held`); `ergostat project` (`--closed`, `--held`, `--horizon`, `--whatif`, `--risk`)
+says the same in the terminal. Proposal effects (the review queue) project closed-loop where the model has
+controllers.
 
 **Fit** (`ergostat fit`, the Model page), by Sterman's measures (*Business Dynamics* ch. 21;
 "Appropriate summary statistics for evaluating the historical fit of system dynamics models",
@@ -2481,7 +2514,14 @@ it is accepted. A what-if is refused as a proposal when it faults or blows up wh
 written does not, or is what is written already; one outside the parameter's range, or that fails an
 extreme condition the model as written passes, is proposed with that said in its reason.
 
-**Sensitivity** (`ergostat/numbers/sensitivity.py`; the causes strip): Monte Carlo over what the model
+Three more what-ifs are tried only **with the loops running**, and are never proposals (they change the world, not the
+model): an input's rate (`flow.NAME:20`, an hour; `flow.NAME:x2`, twice its mean over the window, "arrivals doubled":
+typed in the panel of a flow from outside), a goal's setpoint (`goal.NAME:5`, in the goal's panel) and a pool
+(`block.NAME.pool:4`, in the panel of a block that takes items). A rate tried on a flow a block moves replaces its
+stand-in. With the projection held they are refused and the strip says why.
+
+**Sensitivity** (`ergostat/numbers/sensitivity.py`; the causes strip with the projection held; with the loops running
+the strip's fan is the risk's, below): Monte Carlo over what the model
 says is uncertain, a parameter's `range` (uniform), else an estimate's standard error (normal about
 the value written, on its logarithm where it was searched there, widened to reach the estimate when it
 lies further off); parameters estimated together are drawn jointly, from the multivariate normal of
@@ -2497,6 +2537,19 @@ of its own past now (+20s, +40s), so a minute ahead of an hour's record can be r
 record** (the strip's button) draws the same over the window: a hundred replays with the sampled values,
 the half and nine in ten of them under the replay, as Vensim's sensitivity graphs show the whole run.
 
+**Risk** (`closedloop.risk`; the causes strip with the loops running, a goal's panel, `GET /api/risk?goal=G`,
+`ergostat project --risk`): the closed-loop projection run many times over what it does not know: the model's
+uncertain parameters as sensitivity samples them (an estimate whose standard error spans more than a factor of ten
+either way is held, and listed, since sampling it makes every run another model), each stand-in's identified numbers
+by their standard errors (a rate, the time things wait, a run's time, its success), and each input from outside the
+control about where the projection holds it, by its readings' spread over the square root of the buckets the horizon
+spans (how far its mean over the horizon could be from now). For each goal: the probability that it is off at the
+horizon, at each point ahead, and its expected time off ("work-waiting: off at +8h with p≈0.3; 1h12m off expected
+over the 8h"); for each part, the half and nine in ten of the runs, drawn as the strip's fan with the loops running.
+Bounded: 100 runs by default, at most 400; at most 4,000 integration steps a run; a horizon of at most 30 days; a
+watchdog stops it at 8 seconds of wall time on the page (60 at the command line) and says how many runs it made.
+The draws come from a fixed seed (`--seed`), so the same model and record give the same answer.
+
 **Extreme conditions** (`ergostat/numbers/extremes.py`; `ergostat check`, **extreme-conditions**):
 with no record, the equations run for ten of their slowest time constant from each condition, each a
 change from where the model usually is (every stock at its `initial`, else 10; every input at its usual
@@ -2511,7 +2564,8 @@ declared rate. Said: a stock with only one-way flows drained below empty, a one-
 goes negative, a division by 0 or a logarithm, root or power out of range, a blow-up. A failure the
 model shows with everything as usual is said once as that; every other names the input or parameter
 that caused it. A failure on a grid is confirmed on one eight times finer before it is said, so a step
-too coarse is never blamed on the model. What a block would do is not simulated.
+too coarse is never blamed on the model. What a block would do is not simulated here (it is in a projection with the
+loops running, above: the inputs doubled there is the closed-loop extreme condition).
 
 **Loop dominance** (`ergostat/numbers/dominance.py`; a feedback loop's panel, `GET /api/dominance`):
 which loops drive the behaviour, and when, by the Loops That Matter method (Schoenberg, Davidsen and
