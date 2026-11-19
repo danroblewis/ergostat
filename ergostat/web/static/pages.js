@@ -495,6 +495,16 @@ async function pageItems(main, q) {
   const search = h("input", { type: "search", placeholder: "Search ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const more = h("p", { class: "note" });
   let kind = q.get("kind"), state = q.get("state");
+  // how the items are shown (relations.js): as lists, as a graph of their relations, or as a timeline; the graph's
+  // and the timeline's choices, in the address too
+  let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
+  // both show the frontier (the unfinished, and what they wait on); the graph collapses the finished, the timeline
+  // keeps them as what happened; unless asked otherwise
+  const said = (k) => (q.get(k) == null ? null : q.get(k) !== "0");
+  const ask = { frontier: said("frontier"), collapse: said("collapse") };
+  const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? view === "graph"; },
+               group: q.get("group") === "kind" ? "kind" : "parent" };
+  const viewBar = h("span", { class: "rg-viewbar" });
   // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip
   // (and the process map's, process.js: through a node, along a line, caused from another kind, by states or events)
   let where = q.getAll("where"), moved = q.get("moved"), movedSince = q.get("moved_since"), movedUntil = q.get("moved_until");
@@ -506,7 +516,7 @@ async function pageItems(main, q) {
   const dropSet = () => { where = []; moved = movedSince = movedUntil = null; pm = { by: null, through: null, followed: null, caused: [] }; };
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
-  p.append(notes, h("div", { class: "filters" }, search, chip), compose, box, more);
+  p.append(notes, h("div", { class: "filters" }, search, viewBar, chip), compose, box, more);
   const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
   let used = new Set();
   const flows = {}, flowsAt = {};                     // each kind's flow over the window, and when it was asked for
@@ -533,6 +543,8 @@ async function pageItems(main, q) {
   const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state);
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
+                     if (view !== "list") { u.set("view", view); for (const k of ["frontier", "collapse"]) if (ask[k] != null) u.set(k, ask[k] ? "1" : "0");
+                                            if (view === "graph" && ro.group === "kind") u.set("group", "kind"); }
                      replaceRoute("/items" + (u.toString() ? "?" + u : "")); refresh(); };
   search.addEventListener("input", () => go());
   let sysOf = {};                                      // each kind's system, as last listed
@@ -578,8 +590,29 @@ async function pageItems(main, q) {
     }));
     // how far each block's claims held, under the ergostat.claim table
     const trust = d.items.some((i) => i.kind === CLAIM_KIND) && (!kind || kind === CLAIM_KIND) ? await ans.api("trust").catch(() => null) : null;
+    // the Graph's and the Timeline's answers (relations.js), asked on every refresh: a relation can change on an item
+    // the list does not show. Of the kinds with relations (or named by one) in each open system; the chosen kind alone
+    const relKinds = new Set();
+    for (const k of d.kinds) for (const [, ts] of Object.entries(k.relations || {})) { relKinds.add(k.name); ts.forEach((t) => relKinds.add(t)); }
+    const relAsked = {};
+    if (view !== "list") for (const g of systems) {
+      if (!isOpen(g.name) || (d.set && !g.kinds.includes(kind))) continue;
+      const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : g.kinds.filter((n) => relKinds.has(n));
+      relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(",") }).catch((err) => ({ err })) : null };
+    }
     if (!p.isConnected) return;
     if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
+    const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
+      h("button", { class: on ? "on" : "", title, onclick: fn }, text)));
+    const check = (on, text, title, fn) => h("label", { class: "rg-check", title }, h("input", { type: "checkbox", ...(on ? { checked: "" } : {}), onchange: fn }), text);
+    patch(viewBar, seg("Show", [[view === "list", "List", "Each kind's items, newest first", () => { view = "list"; go(); }],
+                                [view === "graph", "Graph", "The items and their relations: what each waits on, the critical path", () => { view = "graph"; go(); }],
+                                [view === "timeline", "Timeline", "A Gantt chart: each item's states over time, and what is projected for the unfinished", () => { view = "timeline"; go(); }]]),
+      ...(view === "list" ? [] : [
+        check(ro.frontier, "Frontier", "Only the unfinished, and what they wait on however far back", (ev) => { ask.frontier = ev.target.checked; go(); }),
+        check(ro.collapse, "Collapse done", "Finished items vanish; a chain through them is one dashed line, via N done", (ev) => { ask.collapse = ev.target.checked; go(); }),
+        ...(view === "graph" ? [seg("Group", [[ro.group === "parent", "By parent", "A parent (an epic) is a stadium its children hang off", () => { ro.group = "parent"; go(); }],
+                                              [ro.group === "kind", "By kind", "Each kind a frame", () => { ro.group = "kind"; go(); }]])] : [])]));
     patch(chip, ...(d.set ? [h("span", { class: "set-chip", title: "The items shown are this set: the address is shareable" },
       d.set.says + setSpan(d.set.params), h("b", { class: "n" }, d.moves != null ? ` ${d.total} item${d.total === 1 ? "" : "s"}, ${d.moves} move${d.moves === 1 ? "" : "s"}` : ` ${d.total}`),
       h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7"))] : []));
@@ -636,6 +669,19 @@ async function pageItems(main, q) {
       }
       return parts;
     };
+    // the Graph and the Timeline (relations.js), from the answers asked for above
+    const openItem = (id) => navigate(`/item/${encodeURIComponent(id)}`);
+    const relPart = async (g) => {
+      const { want, d: rd } = relAsked[g.name] || { want: [] };
+      if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "No relations among these kinds: a kind declares them under relations: (blocked_by: ticket).")];
+      if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
+      const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle };
+      const m = rgModel(rd, o);
+      const key = `rel:${view}:${g.name}`;
+      const draw = (el) => { if (view === "graph") el.draw(m, o); else el.draw(m, rd); return true; };
+      const el = keep(key, JSON.stringify([view, o, rd]), () => { const e = view === "graph" ? relGraph(openItem) : relTimeline(openItem); draw(e); return e; }, draw);
+      return [keyed(relLegend(m, rd), `legend:${g.name}`), el];
+    };
     const groups = [];
     let anyRows = false;
     for (const g of systems) {
@@ -650,7 +696,7 @@ async function pageItems(main, q) {
         g.description ? h("span", { class: "muted sys-desc" }, g.description) : null);
       const charts = h("div", { class: "kind-flows" }, g.kinds.filter((k) => !d.set || k === kind).map((k) => kindOf[k]).filter(Boolean).map(card));
       if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name, key: g.name }, head, charts)); continue; }   // the charts, not the lists
-      const t = await tables(names);
+      const t = view === "list" ? await tables(names) : await relPart(g);
       anyRows ||= t.length > 0;
       groups.push(h("section", { class: "sys-group", "data-system": g.name, key: g.name }, head, charts, ...t));
     }
@@ -716,6 +762,23 @@ function historyView(cs, total, d) {
     table(["when", "change", "path", "before", "after", "by event"], rows, "history"));
 }
 
+/* an item's relations both ways (SPEC §5a, Relations): what it names, and what names it (the inverse, derived),
+   each related item with its state; what it waits on said first */
+function relationsView(r, k) {
+  if (!r) return [];
+  const item = (i) => { const x = r.items?.[i]; return h("span", { class: "rel-item", key: i }, h("a", { href: `/item/${encodeURIComponent(i)}` }, i),
+    x ? h("span", { class: "muted" }, ` ${x.done ? "✓ " : ""}${x.state || ""}${x.title ? " · " + x.title : ""}`) : h("span", { class: "muted" }, " not recorded")); };
+  const rows = [...Object.entries(r.out).map(([n, ids]) => [n, ids, r.relations?.[n]]), ...Object.entries(r.in).map(([n, ids]) => [n, ids, null])];
+  const graph = k ? h("a", { href: `/items?kind=${encodeURIComponent(k.name)}&view=graph` }, "the graph") : null;
+  return [h("h2", {}, "Relations"),
+    r.waiting?.length ? h("p", { class: "note" }, h("b", {}, "Waiting on "), `${r.waiting.join(", ")}: not finished yet.`)
+      : r.relations && Object.values(r.relations).some((x) => x.precedence) ? h("p", { class: "note" }, "Nothing it waits on is unfinished.") : null,
+    h("div", { class: "table-wrap" }, h("table", { class: "fields relations" }, rows.map(([n, ids, rel]) => h("tr", { key: n },
+      h("th", {}, n.replace(/_/g, " "), h("span", { class: "muted small rule" }, rel ? (rel.precedence ? " precedence" : rel.group ? " parent" : "") : " derived")),
+      h("td", {}, ids.map((i, j) => [j ? h("br") : null, item(i)])))))),
+    graph ? h("p", { class: "note" }, "All of them in ", graph, ".") : null];
+}
+
 async function pageItem(main, id) {
   const p = page(main, id);
   const body = h("div");
@@ -779,7 +842,7 @@ async function pageItem(main, id) {
     const rolled = ro ? h("p", { class: "note" }, `Its ${ro.archived.events} oldest events, up to ${when(ro.last)}, are rolled up into one snapshot and archived. `,
       full ? null : h("button", { class: "ghost", onclick: async () => { full = await api(`items/${encodeURIComponent(id)}`, { archived: 1, n: 1000 }); tick(); } }, "Show the full history"),
       full && full.total > full.events.length ? h("span", { class: "muted" }, ` (the first ${full.events.length} of ${full.total})`) : null) : null;
-    patch(body, head, track, ...lease, ...verdict, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+    patch(body, head, track, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
       eventsTable(full ? full.events : d.record, true));
   }

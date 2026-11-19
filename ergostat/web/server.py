@@ -514,6 +514,9 @@ def _answer(live: Live, path: str, q: dict):
     if head == "verdicts":                        # finished work held to what the owner meant (SPEC §12i)
         from .verdicts_api import table as verdicts
         return verdicts(p, snap)
+    if head == "items-graph":                     # the Items page's Graph and Timeline: relations (SPEC §5a)
+        from .relations_api import graph as items_graph
+        return items_graph(p, m, snap, q)
     if head == "items-flow":
         return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":

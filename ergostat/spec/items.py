@@ -435,6 +435,7 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
         g["kinds"] = [k for k in g["kinds"] if k]
     return {"kinds": [{"name": k.name, "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
                        "description": k.description, "system": where[k.name]["system"], "system_why": where[k.name]["why"],
+                       "relations": {r: x.kinds for r, x in k.relations.items()},
                        "counts": counts.get(k.name, {})} for k in kinds.values()],
             "systems": systems, "unkinded": unkinded,
             "total": total, "offset": offset,
@@ -512,4 +513,39 @@ def detail(events, spec, id: str, until: float | None = None, history: int | Non
             "kind_of": {"name": k.name, "id": k.id, "states": k.states, "on": k.on, "show": k.show, "formats": k.formats,
                         "fold": k.fold} if k else None,
             "transcript_events": len(evs) - len(own),
+            "relations": related(events, spec, it, k),
             "record": own[-500:]}
+
+
+def related(events, spec, it: Item, k) -> dict | None:
+    """An item's relations both ways (SPEC §5a, *Relations*): what its fields name, and what names it (the inverse,
+    from the item index), each with the related item's kind, state and status; None when there are none."""
+    from .relations import ids_in
+    out: dict = {"out": {}, "in": {}}
+    for r in (k.relations if k else {}):
+        if ids_in(it.fields.get(r)):
+            out["out"][r] = ids_in(it.fields.get(r))
+    ix = _index(events, spec, False) if any(x.relations for x in kinds_of(spec).values()) else None
+    if ix is not None:
+        with ix.lock:
+            for a, r, _ in ix.links_to([it.id]):
+                ka = kind_of(spec, a)
+                rel = ka.relations.get(r) if ka else None
+                if rel is not None:
+                    out["in"].setdefault(rel.inverse, []).append(a)
+            ids = {x for v in (*out["out"].values(), *out["in"].values()) for x in v}
+            seen = {i.id: i for i in ix.items(None, ids=ids, moves=False)} if ids else {}
+    else:
+        seen = {}
+    if not out["out"] and not out["in"]:
+        return None
+    from ..precedence import Kinds, status
+    info = Kinds(spec, ix)
+    title = lambda x: x.fields.get("title") if isinstance(x.fields.get("title"), str) else ""      # noqa: E731
+    out["items"] = {i: {"kind": x.kind, "state": x.state, "title": title(x), "done": status(x, info[x.kind], []) == "done"}
+                    for i, x in seen.items()}
+    prec = {r for r, rel in (k.relations.items() if k else []) if rel.precedence}
+    out["waiting"] = [i for r in prec for i in out["out"].get(r, []) if not (out["items"].get(i) or {}).get("done")]
+    out["relations"] = {r: {"kinds": rel.kinds, "precedence": rel.precedence, "inverse": rel.inverse, "group": rel.group}
+                        for r, rel in (k.relations.items() if k else [])}
+    return out

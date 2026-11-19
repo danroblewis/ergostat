@@ -1,0 +1,40 @@
+# Relations between items (SPEC section 5a, Relations): epics of tickets that wait on one another.
+items:
+  epic:
+    id: epic/*
+    states: [planned, underway, shipped]
+    "on": {epic.started: underway, epic.shipped: shipped}
+    relations:
+      after: epic                                   # precedence: it follows the epic it names
+  ticket:
+    id: ticket/*
+    states: [todo, doing, review, done]
+    "on": {ticket.started: doing, ticket.submitted: review, ticket.approved: done}
+    relations:
+      blocked_by: ticket                            # precedence: ready once each ticket it names is done
+      parent: epic                                  # cross-kind; a group: the Graph hangs it off its epic
+      duplicates: {kind: [ticket, epic], inverse: duplicated_by}
+      relates_to: {kind: ticket, precedence: false}
+    show: [title, blocked_by]
+messages:
+  done: {ticket: [done], epic: [shipped]}
+stocks:
+  todo:
+    unit: tickets
+    sensor: {items: ticket, state: todo, every: 5s}
+flows:
+  started:
+    from: todo
+    sensor: {items: ticket, entering: doing, over: 10m}
+goals:
+  nothing-waits:
+    stock: todo
+    hold: "<= 0"
+blocks:
+  developer:
+    type: program
+    goal: nothing-waits
+    run: ./work.sh
+    takes: {kind: ticket, at: todo, to: [review], unblocked: true}   # only unblocked tickets, the critical first
+    pool: 2
+    out: flow.started

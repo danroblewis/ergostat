@@ -839,3 +839,82 @@ td.bad, b.bad, .lease .bad { color: var(--bad); }
 .bd-remote > rect.hit { stroke-dasharray: 9 5; }
 .remote-unreachable > text.t-sub.live, .bd-remote.remote-unreachable > text.bd-note { fill: var(--warn); }
 .remote-note { border-left: 3px dashed var(--system-line); padding-left: var(--sp-2); }
+
+/* the Items page's Graph and Timeline (relations.js): plain ink, a card's left bar its state (the chart's shade),
+   its border its status; hue only for what needs it: active (the accent), the critical path and a dead letter (bad) */
+.rg-viewbar { display: inline-flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.rg-check { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); color: var(--muted); }
+.rg-graph, .rg-timeline { margin: var(--sp-1) 0 var(--sp-5); }
+.rg-tools { display: flex; justify-content: flex-end; gap: var(--sp-0); margin: 0 0 var(--sp-1); }
+.rg-tools button { border-color: transparent; background: transparent; }
+.rg-stage { border: var(--hair) solid var(--line); border-radius: var(--radius); overflow: hidden; cursor: grab; background: var(--bg); touch-action: none; }
+.rg-stage.dragging { cursor: grabbing; }
+.rg-tstage { overflow: visible; cursor: default; }
+.rg-svg { display: block; width: 100%; height: 100%; user-select: none; }
+.rg-gantt { height: auto; }
+.rg-note:empty { display: none; }
+.rg-legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); font-size: var(--text-sm); color: var(--muted); margin: var(--sp-2) 0 0; }
+.rg-key { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.rg-key i { display: inline-block; width: var(--sp-3); height: var(--sp-3); border: var(--hair) solid var(--ink); border-radius: var(--radius); background: var(--bg); }
+.rg-key.rg-active i { border-color: var(--accent); background: var(--accent-wash); }
+.rg-key.rg-queued i { border-style: dotted; border-color: var(--accent); }
+.rg-key.rg-blocked i { border-style: dashed; border-color: var(--line-strong); }
+.rg-key.rg-done i { border-color: var(--line); background: var(--fill); }
+.rg-key.rg-dead i { border-color: var(--bad); }
+.rg-key.rg-critkey i { border: 0; height: var(--sp-0); background: var(--bad); border-radius: 0; }
+.rg-node { cursor: pointer; }
+.rg-node text { font-size: var(--canvas); fill: var(--ink); pointer-events: none; }
+.rg-node .rg-id { font-weight: 600; }
+.rg-node .rg-sub, .rg-node .rg-pill { fill: var(--muted); font-size: var(--canvas-sm); }
+.rg-node .rg-box { fill: var(--bg); stroke: var(--ink); stroke-width: 1.2; }
+.rg-node:hover .rg-box, .rg-node:focus-visible .rg-box { fill: var(--fill); }
+.rg-node:focus { outline: none; }
+.rg-node.rg-active .rg-box { fill: var(--accent-wash); stroke: var(--accent); stroke-width: 2; animation: rg-breathe 2.4s ease-in-out infinite; }
+.rg-node.rg-active .rg-pill { fill: var(--accent); }
+.rg-node.rg-queued .rg-box { stroke: var(--accent); stroke-dasharray: 2 2; }
+.rg-node.rg-blocked .rg-box { stroke: var(--line-strong); stroke-dasharray: 5 3; }
+.rg-node.rg-blocked .rg-id { fill: var(--ink-2); }
+.rg-node.rg-done .rg-box { fill: var(--chrome); stroke: var(--line); }
+.rg-node.rg-done text { fill: var(--muted); }
+.rg-node.rg-dead .rg-box { stroke: var(--bad); }
+.rg-node.rg-dead .rg-pill { fill: var(--bad); }
+.rg-node.rg-critical .rg-box { stroke: var(--bad); stroke-width: 2.2; }
+.rg-node.rg-cycle .rg-pill { fill: var(--bad); }
+.rg-node.rg-hub .rg-box { fill: var(--chrome); stroke: var(--ink-2); stroke-width: 1.6; stroke-dasharray: none; animation: none; }
+.rg-node.rg-hub.rg-done .rg-box { stroke: var(--line-strong); stroke-dasharray: 5 3; }
+@keyframes rg-breathe { 50% { stroke-opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) { .rg-node.rg-active .rg-box { animation: none; } }
+.rg-frame rect { fill: var(--sd-hull); stroke: var(--line-strong); }
+.rg-frame text { fill: var(--muted); font-size: var(--canvas-sm); font-weight: 600; }
+.rg-edge path { stroke: var(--muted); stroke-width: 1.3; }
+.rg-edge .rg-head { fill: var(--muted); stroke: none; }
+.rg-edge.rg-via path { stroke-dasharray: 6 4; }
+.rg-edge.rg-member path { stroke: var(--line-strong); stroke-dasharray: 2 3; }
+.rg-edge.rg-other path { stroke: var(--line-strong); stroke-dasharray: 4 3; }
+.rg-edge.rg-other .rg-head { fill: var(--line-strong); }
+.rg-edge.rg-crit path { stroke: var(--bad); stroke-width: 2.2; }
+.rg-edge.rg-crit .rg-head { fill: var(--bad); }
+.rg-elabel { fill: var(--muted); font-size: var(--canvas-sm); }
+.rg-gantt text { font-size: var(--canvas-sm); fill: var(--ink); }
+.rg-gantt .rg-tick { fill: var(--muted); }
+.rg-gantt .rg-grid { stroke: var(--line); stroke-width: 1; }
+.rg-gantt .rg-axis { stroke: var(--line-strong); stroke-width: 1; }
+.rg-gantt .rg-band { fill: var(--chrome); }
+.rg-gantt .rg-label { cursor: pointer; }
+.rg-gantt .rg-label:hover .rg-id { fill: var(--accent); }
+.rg-gantt .rg-id { font-weight: 600; font-size: var(--canvas-sm); }
+.rg-gantt .rg-sub { fill: var(--muted); }
+.rg-gantt .rg-dot { fill: var(--bg); stroke: var(--ink); stroke-width: 1.2; }
+.rg-gantt .rg-active .rg-dot { fill: var(--accent); stroke: var(--accent); }
+.rg-gantt .rg-blocked .rg-dot { stroke: var(--line-strong); stroke-dasharray: 2 2; }
+.rg-gantt .rg-queued .rg-dot { stroke: var(--accent); }
+.rg-gantt .rg-done .rg-dot { fill: var(--line-strong); stroke: var(--line-strong); }
+.rg-gantt .rg-dead .rg-dot { stroke: var(--bad); }
+.rg-gantt .rg-seg { stroke: var(--bg); stroke-width: 0.6; }
+.rg-gantt .rg-proj { fill-opacity: 0.35; stroke: var(--ink-2); stroke-width: 0.8; stroke-dasharray: 3 2; }
+.rg-gantt .rg-critical .rg-proj { stroke: var(--bad); stroke-width: 1.4; }
+.rg-gantt .rg-summary { fill: none; stroke: var(--ink); stroke-width: 1.6; }
+.rg-gantt .rg-critical .rg-summary { stroke: var(--bad); }
+.rg-gantt .rg-edge path { stroke-width: 1; }
+.rg-gantt .rg-now line { stroke: var(--accent); stroke-width: 1.4; }
+.rg-gantt .rg-now text { fill: var(--accent); font-size: var(--canvas-sm); }
