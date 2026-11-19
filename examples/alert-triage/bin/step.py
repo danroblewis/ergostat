@@ -90,7 +90,7 @@ def main() -> int:
         n = int(fields(given.get("item") or {}).get("rounds") or 0) + 1   # this alert's rounds so far
         for f in FACETS:
             say("facet.opened", f"facet/{item.split('/', 1)[1]}-{n}-{f}", {"alert": item, "facet": f, "round": n})
-        say("alert.investigating", item, {"rounds": 1, "facets": len(FACETS)})
+        say("alert.facets-opened", item, {"rounds": 1, "facets": len(FACETS)})
     elif step == "investigate":                             # one facet looked into; the last one done joins
         alert, rnd = fields(given.get("item") or {}).get("alert"), fields(given.get("item") or {}).get("round")
         RUN.mkdir(exist_ok=True)

@@ -12,7 +12,7 @@ items:
       alert.fired: new
       alert.triaged: triaged
       alert.dismissed: dismissed
-      alert.investigating: investigating
+      alert.facets-opened: investigating
       alert.investigated: summarising
       alert.summarised: closed
       alert.escalated: escalated
