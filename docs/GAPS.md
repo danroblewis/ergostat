@@ -43,10 +43,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `examples/roadmap` uses it in place of `bin/epics.py`. *Left*: the Blocks view does not draw a join (a rule on a
   kind, not a block); each child's move reads all its parent's children (O(children) per move: fine for an epic's
   tickets, not tuned for thousands).
-- **Relations, what is left** (open; the first part merged as c4888bd from `relations`): the Graph and Timeline read
-  relations as they stand now (time travel does not reach them) and are not in a snapshot; the projection does not
-  level resources (a block's `pool`); `ticket-factory` does not record Jira's links yet; the Process view does not
-  draw relations.
+- **Relations, what is left** (open; the first part merged as c4888bd from `relations`; the Process view draws them,
+  done in 0f7f870 on `smallgaps`): the Graph and Timeline read relations as they stand now (time travel does
+  not reach them) and are not in a snapshot; the projection does not level resources (a block's `pool`);
+  `ticket-factory` does not record Jira's links: its collector does not read them (`bin/jira.py` asks Jira for
+  summary, status, labels and description only), so `issuelinks` and `parent` must be asked for and folded as
+  relations first.
 - **Craft findings in `check`** (in progress, `selfimprove`; from `docs/MODELLING-WELL.md`): `check` is silent on a
   part with no `description`, a stock with no `unit`, a flow between stocks with no equation, a `process:` with no
   `identified:`, a sensor (a collector) with no description, and event types of one kind in mixed forms. Each is a
@@ -74,7 +76,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **Operating modes, regime-scheduled thresholds, interlocks, risk gating** (open; designed in
   `docs/proposals/coordinator/08-modes-and-protection.md`).
 - **Observer staleness and estimated stocks** (open; `coordinator/06-observer.md`).
-- **Per-item and per-kind goals** (open).
+- **Per-item and per-group goals** (done, dfa4008 on `smallgaps`; SPEC §8 `per:`): a goal on a stock counted from
+  items, held by each item or each group of them by a field (a relation such as `parent`), naming those that break it.
 - **Finding structure from residuals** (open; porting SD Lab's Kalman-LNA work; `parity/00-modeling-review.md`).
 - **Proposals drawn dashed in both diagrams; proposals that state the behaviour they predict** (the dashed drawing in
   progress, `redesign`; the stated behaviour open).
@@ -100,9 +103,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Interface
 
-- **Light theme: the repeats toward the paper are low in contrast** (open; found fixing the dark theme's): the third
-  round of correspondence colours (`--g-fade`, 55% of the hue) stands 1.6:1 to 2.5:1 on white, and `--g9` (gold) 2.4:1
-  as it is; WCAG asks 3:1 for graphics.
+- **Light theme: the repeats toward the paper are low in contrast** (done, 226f0db on `smallgaps`): six hues darkened
+  and `--g-fade` 75%; every hue and repeat at least 3.1:1 on white, tested for both themes.
 
 ## The owner's work setup
 
@@ -121,6 +123,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   structure and behaviour tests.
 
 ## Done recently
+
+- **The Blocks view crashed on a stock with no flows** (`IndexError` at the integrator's summing junction): drawn as an
+  integrator with no inputs (b84e525, `smallgaps`).
 
 - **The reload wedge**: the item index read under its lock; a reload waits for edits to settle, never takes a broken
   model and swaps atomically; a watchdog recovers a stalled pool, loop or process (merged from `reloadfix`).
