@@ -137,9 +137,13 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     }
     return out;
   });
+  // flows between one stock and a cloud: left out, their room kept on their stock (satellites.js)
+  const sat = ELK_PRESETS[LAYOUT]?.upright ? reserveSatellites(children, edges, satellitePlan(g)) : null;
+  if (sat) sat.ends = Object.fromEntries(g.edges.map((e) => [e.id, [e.source, e.target]]));
+  const elkChildren = sat ? sat.children : children, elkEdges = sat ? sat.edges : edges;
   // an open system is laid out as one container, its parts together, nested as the systems nest
   const open = new Set(g.tree ? g.nodes.flatMap((n) => n.systems || []) : []);
-  let roots = children;
+  let roots = elkChildren;
   if (open.size) {
     const cont = {};
     const box = (name) => (cont[name] ||= { id: "hull:" + name, children: [], layoutOptions: {
@@ -148,7 +152,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     const parentOf = (name) => { let x = g.tree[name]?.within; while (x && !open.has(x)) x = g.tree[x]?.within; return x || null; };
     for (const name of open) box(name);
     roots = [];
-    for (const c of children) {
+    for (const c of elkChildren) {
       const inner = (byIdNodes[c.id]?.systems || [])[0];
       (inner ? cont[inner].children : roots).push(c);
     }
@@ -156,7 +160,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
   }
   const roomy = g.nodes.some((n) => n.kind === "system" || (n.systems || []).length);
   const graph = {
-    id: "root", children: roots, edges,
+    id: "root", children: roots, edges: elkEdges,
     layoutOptions: {
       ...(open.size ? { "elk.hierarchyHandling": "INCLUDE_CHILDREN" } : {}),
       "elk.layered.mergeEdges": "true",
@@ -174,6 +178,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
   };
   const lay = await runLayout(graph, g);
   if (open.size || lay.children.some((c) => c.children?.length)) flatten(lay);   // (or blocks laid out together: layouts.js)
+  placeSatellites(lay, sat);                             // the satellites put back in the room kept (satellites.js)
   if (again < 2) {                      // ports facing away from what they join, valves facing away: turn them, lay out again
     const w = wanted(lay, g);
     const ports = g.nodes.flatMap((n) => n.ports || []);

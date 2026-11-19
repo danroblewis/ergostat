@@ -25,6 +25,61 @@ function avoidCore(A) {
     dirty.clear();
     return out;
   };
+  const setUp = (r, spec) => {
+    const P = A.RoutingParameter, O = A.RoutingOption;
+    r.setRoutingParameter(P.shapeBufferDistance, 5);
+    r.setRoutingParameter(P.idealNudgingDistance, 7);
+    r.setRoutingParameter(P.segmentPenalty, 60);
+    r.setRoutingParameter(P.crossingPenalty, spec.crossingPenalty);
+    r.setRoutingParameter(P.fixedSharedPathPenalty, 0);
+    r.setRoutingParameter(P.portDirectionPenalty, 100);
+  };
+  /* the first pass: each flow from end to end through its valve's middle as a point (no valve in the way, no
+     other line), and the way it runs there: where its valve faces. At a corner on the valve, the stretch that
+     reaches an end straight (else the longer) */
+  const firstPass = (spec) => {
+    const out = {};
+    let r1 = null;
+    try {
+      r1 = new A.Router(A.RouterFlag.OrthogonalRouting);
+      setUp(r1, { ...spec, crossingPenalty: 0 });
+      const sh = {};
+      for (const s of spec.shapes) {
+        if (s.valve) continue;
+        const x = r1.addShape({ x: s.x, y: s.y, width: s.w, height: s.h });
+        sh[s.id] = x;
+        for (const p of s.pins1 || s.pins) {
+          const pin = x.addPin({ classId: p.cls, x: p.x, y: p.y, proportional: !p.abs, directions: dirs[p.dir] });
+          if (p.shared) pin.setExclusive(false);
+        }
+        for (const l of s.labels || []) r1.addShape({ x: l.x, y: l.y, width: l.w, height: l.h });
+      }
+      const fc = {};
+      for (const f of spec.flows) {
+        if (!sh[f.s] || !sh[f.t]) continue;
+        const cr = r1.addConnector({ shape: sh[f.s], pin: f.sp }, { shape: sh[f.t], pin: f.tp });
+        cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: D.ConnDirAll, departure: D.ConnDirAll }]);
+        fc[f.id] = [cr, f];
+      }
+      r1.processTransaction();
+      for (const [id, [cr, f]] of Object.entries(fc)) {
+        if (!cr.hasValidRoute()) continue;
+        const p = cr.displayRoute().map((q) => [q.x, q.y]);
+        const on = (a, b) => Math.abs((b[0] - a[0]) * (f.y - a[1]) - (b[1] - a[1]) * (f.x - a[0])) < 2 * Math.hypot(b[0] - a[0], b[1] - a[1]) &&
+          f.x >= Math.min(a[0], b[0]) - 1.5 && f.x <= Math.max(a[0], b[0]) + 1.5 && f.y >= Math.min(a[1], b[1]) - 1.5 && f.y <= Math.max(a[1], b[1]) + 1.5;
+        const cand = [];
+        for (let i = 0; i + 1 < p.length; i++) if (on(p[i], p[i + 1])) cand.push(i);
+        if (!cand.length) continue;
+        const len = (i) => Math.hypot(p[i + 1][0] - p[i][0], p[i + 1][1] - p[i][1]);
+        const i = cand.find((j) => j === 0 || j === p.length - 2) ?? cand.reduce((a, b) => (len(b) > len(a) ? b : a));
+        const dx = p[i + 1][0] - p[i][0], dy = p[i + 1][1] - p[i][1];
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+        out[id] = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+      }
+    } catch (e) { /* no first pass: each valve as it was turned */ }
+    try { r1?.delete(); } catch (e) { /* gone */ }
+    return out;
+  };
   return {
     route(spec) {
       if (router) { try { router.delete(); } catch (e) { /* gone */ } }
@@ -41,7 +96,9 @@ function avoidCore(A) {
       router.setRoutingOption(O.nudgeSharedPathsWithCommonEndPoint, !!spec.nudgeCommon);   // lines from one point share their way
       router.setRoutingOption(O.penaliseOrthogonalSharedPathsAtConnEnds, true);
       router.setRoutingOption(O.performUnifyingNudgingPreprocessingStep, true);
+      const turns = (spec.flows || []).length ? firstPass(spec) : {};
       for (const s of spec.shapes) {
+        if (s.pinsBy && turns[s.id]) s.pins = s.pinsBy[turns[s.id]];
         const sh = router.addShape({ x: s.x, y: s.y, width: s.w, height: s.h });
         shapes[s.id] = sh; pos[s.id] = { x: s.x, y: s.y };
         for (const p of s.pins) {
@@ -59,7 +116,7 @@ function avoidCore(A) {
       router.processTransaction();
       const ms = performance.now() - t0;
       const invalid = Object.values(conns).filter((c) => !c.hasValidRoute()).length;
-      return { routes: take(), ms, invalid };
+      return { routes: take(), ms, invalid, turns };
     },
     moveMany(list) {                                    // several parts moved together (an open system dragged): one routing
       if (!router) return {};
@@ -217,7 +274,7 @@ function avoidSpec(lay, g) {
     const v = ["up", "down"].includes(box[e.source]?.turn?.flow) ? e.target : ["up", "down"].includes(box[e.target]?.turn?.flow) ? e.source : null;
     if (v) return [v];
     const [o, vv] = box[e.source]?.turn ? [box[e.target], box[e.source]] : box[e.target]?.turn ? [box[e.source], box[e.target]] : [];
-    return o && vv && byId[o.id]?.kind === "stock" && faces(o, vv) ? [o.id] : [];
+    return o && vv && ["stock", "cloud"].includes(byId[o.id]?.kind) && faces(o, vv) ? [o.id] : [];
   }));
   const alignedValves = {};                              // stock -> the valves its pipes join
   for (const le of lines) {
@@ -227,20 +284,29 @@ function avoidSpec(lay, g) {
       if (byId[st].kind === "stock" && ["valve", "disturbance"].includes(byId[v].kind)) (alignedValves[st] ||= []).push(box[v]);
   }
   const pinOf = {};                                      // `${line}|${s or t}` -> pin class
+  const pinsBy = {};                                     // a valve's pins for each way it may face
   const shapes = [];
   for (const c of Object.values(box)) {
     const n = byId[c.id], k = n.kind, pins = [];
     const at = (cls, x, y, dir, shared, abs) => pins.push({ cls, x, y, dir, shared: !!shared, abs: !!abs });
     if (k === "valve" || k === "disturbance") {
+      // its pins for each way it may face (the router turns it to its pipe: avoidCore), and as it faces now
+      const stems = c.stems || { level: "up", vertical: "left" };
+      const pinsFor = (flow) => {
+        const t = { flow, stem: ["up", "down"].includes(flow) ? stems.vertical : stems.level }, out = [];
+        const put = (cls, d, f, shared) => { const [x, y] = sidePoint(d, f, 1, 1); out.push({ cls, x, y, dir: d, shared: !!shared, abs: false }); };
+        put(PIN.IN, SIDE_OF[t.flow], 0.5, true);
+        put(PIN.OUT, t.flow, 0.5, true);
+        // its stem: what drives it comes in at one point, what it tells leaves at another
+        if (ownStem(c.id)) {                                  // (the system dynamics view: each arrival its own point)
+          for (const f of [0.15, 0.25, 0.35, 0.45, 0.55]) put(PIN.ANY, t.stem, f, false);
+          put(PIN.TELL, t.stem, 0.72, true);
+        } else { put(PIN.STEM, t.stem, 0.4, true); put(PIN.TELL, t.stem, 0.6, true); }
+        return out;
+      };
       const t = c.turn || { flow: "right", stem: "up" };      // which way it faces (valves.js)
-      const side = (d, f) => { const [x, y] = sidePoint(d, f, 1, 1); return [x, y, d]; };
-      at(PIN.IN, ...side(SIDE_OF[t.flow], 0.5), true);
-      at(PIN.OUT, ...side(t.flow, 0.5), true);
-      // its stem: what drives it comes in at one point, what it tells leaves at another
-      if (ownStem(c.id)) {                                  // (the system dynamics view: each arrival its own point)
-        for (const f of [0.15, 0.25, 0.35, 0.45, 0.55]) at(PIN.ANY, ...side(t.stem, f), false);
-        at(PIN.TELL, ...side(t.stem, 0.72), true);
-      } else { at(PIN.STEM, ...side(t.stem, 0.4), true); at(PIN.TELL, ...side(t.stem, 0.6), true); }
+      pins.push(...pinsFor(t.flow));
+      pinsBy[c.id] = Object.fromEntries(["right", "left", "up", "down"].map((f) => [f, pinsFor(f)]));
     } else if (k === "cloud") {                              // a pipe meets a cloud at its side (or top and bottom, by an upright valve)
       for (const d of upright.has(c.id) ? ["left", "right", "up", "down"] : ["left", "right"]) at(PIN.PIPE, ...sidePoint(d, 0.5, 1, 1), d, true);
     } else {
@@ -280,7 +346,13 @@ function avoidSpec(lay, g) {
       });
       for (let i = nets.length; i < slots; i++) place(PIN.ANY, i, false);
     }
-    shapes.push({ id: c.id, x: c.x, y: c.y, w: c.width, h: c.height, pins,
+    // (the first pass, where flows are routed with their valves as points: a stock's and a cloud's pipes may meet
+    // any side)
+    const pins1 = k === "stock" ? [...pins.filter((p) => p.cls !== PIN.PIPE), ...["left", "right", "up", "down"].flatMap((d) => PIPE_ALONG.map((f) => {
+      const [x, y] = sidePoint(d, f, 1, 1); return { cls: PIN.PIPE, x, y, dir: d, shared: false, abs: false }; }))]
+      : k === "cloud" ? ["left", "right", "up", "down"].map((d) => { const [x, y] = sidePoint(d, 0.5, 1, 1); return { cls: PIN.PIPE, x, y, dir: d, shared: true, abs: false }; })
+      : null;
+    shapes.push({ id: c.id, x: c.x, y: c.y, w: c.width, h: c.height, pins, ...(pinsBy[c.id] ? { pinsBy: pinsBy[c.id], valve: true } : {}), ...(pins1 ? { pins1 } : {}),
                   labels: (c.labels || []).map((l) => ({ x: c.x + l.x, y: c.y + l.y, w: Math.max(1, l.width), h: Math.max(1, l.height) })) });
   }
   const pinAt = (e, w) => {
@@ -295,8 +367,16 @@ function avoidSpec(lay, g) {
     const e = edgeOf[le.id], sp = pinAt(e, "s"), tp = pinAt(e, "t");
     if (sp != null && tp != null) conns.push({ id: le.id, s: e.source, sp, t: e.target, tp });
   }
+  // each flow whole, from its one end to its other through its valve's middle (a point: it may face any way), for
+  // the first pass: the way it takes there turns the valve (docs/layout-rules.md: valve-orientation-mismatch)
+  const flows = [];
+  for (const c of Object.values(box)) {
+    if (!pinsBy[c.id] || S.pins?.["turn:" + c.id]) continue;
+    const cin = conns.find((x) => x.t === c.id && edgeOf[x.id].kind === "pipe"), cout = conns.find((x) => x.s === c.id && edgeOf[x.id].kind === "pipe");
+    if (cin && cout) flows.push({ id: c.id, s: cin.s, sp: cin.sp, t: cout.t, tp: cout.tp, x: c.x + c.width / 2, y: c.y + c.height / 2 });
+  }
   // (in the dynamics view a flow's pipe reads best short and straight: a crossing there costs less than a long way round)
-  return { shapes, conns, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
+  return { shapes, conns, flows, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
 }
 
 /* the lines routed: in the worker (the page keeps ELK's lines meanwhile and redraws when they come), or on
@@ -308,6 +388,8 @@ function avoidStart(lay, g) {
   const done = (m) => {
     if (m && !m.skipped) {
       const byLe = Object.fromEntries(lay.edges.map((le) => [le.id, le]));
+      AV.turns = m.turns;                                 // (the tests read them)
+      if (m.turns) turnValves(lay, g, m.turns);           // each valve facing the way its flow runs through it (valves.js)
       for (const [id, pts] of Object.entries(m.routes)) setRoute(byLe[id], pts.map(([x, y]) => ({ x, y })));
       straightenPipes(lay, g);
       // the lines that share a point (every pin but a part's own single ones), put in order

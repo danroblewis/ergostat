@@ -402,7 +402,8 @@ def test_a_valve_dragged_over_its_stock_stands_upright_on_its_top(browser, tmp_p
         end = pipe["pts"][-1]
         assert abs(end[1] - s[1]) < 2 and s[0] < end[0] < s[2], f"the pipe meets the stock at {end}, not its top {s}"
         assert rules.bends(pipe["pts"]) == 0, f"the pipe zig-zags: {pipe['pts']}"
-        assert not rules.check(geo, ["valve-orientation-mismatch", "side-port-forced-bend"]), rules.check(geo, ["valve-orientation-mismatch"])
+        found = rules.check(geo, ["valve-orientation-mismatch", "side-crowding", "flow-bends"])
+        assert not [x for x in found if vid in x["parts"]], found
         pg.close()
     assert not errors, errors
 
