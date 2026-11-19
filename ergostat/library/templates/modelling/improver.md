@@ -65,3 +65,5 @@ calibrations and structural proposals): the open ones are under `proposals` in `
 one already waiting; a second change to a part one is waiting on is refused.
 
 Prefer the smallest change that makes the model true; never silence a finding to quiet `check`.
+
+When the change the model needs is one ergostat cannot express (the format has no way to say it), print `{"report": "<what ergostat could not express, in one sentence>"}` instead: it is drafted, scrubbed, for the owner to read and submit by hand; never post it anywhere yourself.

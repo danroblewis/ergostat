@@ -393,6 +393,16 @@ blocks:
 
 ## 6. When ergostat itself is wrong
 
-If ergostat cannot express something the person needs, or behaves wrongly, write it down generically
-(no employer names, systems, people or data) and offer the person a GitHub issue for this
-repository. File it only after they approve the exact text.
+If ergostat cannot express something the person needs, crashes, or behaves wrongly, draft a report and
+tell the person where it is. **Never post anything yourself**: no `gh`, no issue, no web form.
+
+- Draft it with the MCP tool `report_upstream` (`says`: what went wrong, in a line; `details`; `parts`: the parts
+  involved, from which ergostat makes a generic reproduction; `findings`; `repro`: a tiny generic model you wrote
+  that shows it), or `ergostat report --draft "..." [--part P] [--repro FILE]`. A block (the modelling loop's improver
+  or redesigner) prints `{"report": "what ergostat could not express"}`.
+- ergostat scrubs it before anyone reads it (the model's names, paths, hosts, URLs, emails, keys, ticket keys and the
+  owner's denylist become stand-ins like `stock-1`; SPEC §12m) and writes it to the state directory's `reports/`
+  folder. Its own crashes are drafted the same way, once each.
+- Tell the person: the file it returns, and `ergostat report ID` (or the report's item page), which shows the text,
+  the scrub log and a link that opens a new issue with the title filled in. They read it and submit it by hand, or
+  dismiss it.

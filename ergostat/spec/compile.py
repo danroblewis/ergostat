@@ -847,6 +847,8 @@ class Compiler:
         spec.items.update(intent_kinds())                    # built in: the owner's decisions and corrections (SPEC §5a)
         from ..recipes.uses import context_kind
         spec.items[CONTEXT] = context_kind()                 # built in: each use of a recipe, and its outcome (SPEC §12j)
+        from ..reports.kind import builtin as report_kinds
+        spec.items.update(report_kinds())                    # built in: reports upstream, for the owner (SPEC §12m)
         self.parameters(spec)
         for name, m, what in self.named("stocks"):
             self.keys(m, STOCK_KEYS, what)
