@@ -85,3 +85,8 @@ within the 600.
   penalty.
 - **Ceilings** on valve-orientation-mismatch and satellite-far per example.
 - **Rejected wraps** are laid out dry and never routed.
+
+**Risk, router time.** The largest view (coordinator, everything open) routes in 17s with the cut, against the page's
+20s bound; under load that margin is small. An idea not tried: lay out with the satellites' room only where it is
+needed (stocks whose cloud flows ELK placed badly), instead of both ways for every view, which would keep more of
+main's geometry and its routing time.

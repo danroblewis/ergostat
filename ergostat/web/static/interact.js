@@ -221,7 +221,7 @@ function interactions(svg) {
     for (const p of d.parts) {
       const k = box[p.id];
       if (!k) continue;
-      k.x = Math.round(p.x + d.dx); k.y = Math.round(p.y + d.dy);
+      k.x = Math.round(p.x + d.dx); k.y = Math.round(p.y + d.dy); k.slid = false;   // (may slide off a new corner: avoid.js)
       const id = pinId(p.id, nodes[p.id]);                // (a system's box: its own, else the part's)
       pins[id] = pinFor(S.layout, S.graph, id, k.x, k.y);
     }
