@@ -359,7 +359,8 @@ not the command's.)
 A program block may say `daemon:` instead of `run:`. Each item the block takes is handed to the daemon as an `item`
 line, and many may be under way at once, up to the smaller of the block's `pool` and the daemon's `concurrency`.
 Each is still a run in the record, with its lease: the lines the daemon prints for it renew the lease as a run's
-lines always do, and its `done` ends the run and the lease (given back when the exit is not 0).
+lines always do, and its `done` ends the run and the lease: acknowledged when the item moved on to one of the
+block's `to:` states, given back to the queue otherwise.
 
 This model is `examples/daemon-demo/`. Jobs arrive every five seconds from a stand-in for the outside; one worker
 daemon works them, eight at once; and the files they leave are counted by the daemon from shape 1.
