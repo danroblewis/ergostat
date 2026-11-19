@@ -38,6 +38,8 @@ from .. import runner as old
 from ..costs import ai as costs_ai
 from ..costs import record as costs_record
 from ..costs.sampler import SAMPLER, Measured
+from ..reports import crash as reports_crash
+from ..reports import lines as report_lines
 from . import blocks as bl
 from . import stream
 from .ir import Block, Ref, Sensor, Spec
@@ -1187,6 +1189,7 @@ class Engine:
             except Exception as e:
                 passed = False
                 self.say(f"evaluating: {type(e).__name__}: {e}")
+                reports_crash.noted(self.p, e, "engine")         # drafted as a report for the owner (SPEC §12m)
             if passed:
                 self.stop.wait(BATCH)                            # what lands meanwhile is the next batch
             now = time.monotonic()
@@ -1613,6 +1616,8 @@ class Said:
                 return
             self.counts["answers"] = self.counts.get("answers", 0) + 1
             return
+        if "report" in obj:                           # something ergostat cannot express or do: a report for the owner (SPEC §12m)
+            return report_lines.take(self, obj)
         if "nack" in obj:                             # it gives its item back (SPEC §9.5)
             got = nack_of(obj["nack"])
             if self.item is None or got is None:

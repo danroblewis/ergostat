@@ -331,6 +331,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     snap["actions"], snap["quarantined"] = held_actions(project, now), quarantined(project)
     snap["leases"] = lease_attention(project, now)
     snap["cycles"] = relation_cycles(project)
+    snap["reports"] = [{"id": r["id"], "title": r.get("title") or ""} for r in reports_drafted(project)]   # SPEC §12m
     return snap
 
 
@@ -394,6 +395,14 @@ def lease_attention(project, now: float) -> list[dict]:
         return measures.attention(project, spec, now)
     except Exception:
         return []
+
+
+def reports_drafted(project) -> list[dict]:
+    """Reports upstream drafted and not yet read by the owner (SPEC §12m)."""
+    if getattr(project.model, "spec", None) is None:
+        return []
+    from .reports.record import drafted
+    return drafted(project)
 
 
 def unrouted_messages(project, now: float) -> list[dict]:
@@ -644,6 +653,11 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         out.append({"level": "warn", "what": f"workspace {w['pool']}-{w['slot']}",
                     "says": f"quarantined ({w.get('why') or 'dirty or broken'}): never reused until freed, ergostat "
                     f"workspaces {w['pool']} --free {w['slot']}"})
+    if snap.get("reports"):                         # reports upstream waiting for the owner to read (SPEC §12m): one line
+        rs = snap["reports"]
+        out.append({"level": "warn", "what": "reports upstream", **({"item": rs[0]["id"]} if len(rs) == 1 else {}),
+                    "says": (f"{len(rs)} drafted" if len(rs) > 1 else f"\u201c{rs[0]['title'][:70]}\u201d drafted")
+                    + " about ergostat itself, scrubbed, for you to read and submit by hand if you choose: ergostat report"})
     for h in snap.get("hints", []):
         out.append({"level": "hint", "what": f"controller {h['controller']}", "says": h["says"]})
     for name, r in snap["residuals"].items():
