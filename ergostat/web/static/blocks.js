@@ -638,6 +638,13 @@ function bdSketch(kind, x, y) {                        // a static nonlinearity,
   return g;
 }
 
+/* an alarm block raised: "alarm raised" above it; cleared, the label gone */
+function bdAlarm(el, n) {
+  const t = el.querySelector(":scope > text.bd-alarm");
+  if (!n.alarm) t?.remove();
+  else if (!t) el.append(s("text", { x: 0, y: -5, class: "bd-note bd-alarm s-off" }, `alarm ${n.alarm}`));
+}
+
 function bdNode(n, c) {
   const w = c.width, hgt = c.height;
   const g = s("g", { class: `node bd-node bd-${n.kind} bd-${n.role || n.kind}${n.remote ? ` bd-remote remote-${n.remote.state}` : ""}`, transform: `translate(${c.x},${c.y})`,
@@ -683,6 +690,7 @@ function bdNode(n, c) {
     if (n.tier) g.append(s("text", { x: 5, y: 13, class: "bd-note bd-tier", "data-tier": n.tier }, BD_TIER[n.tier] || n.tier));
     g.append(bdBody(n, fn, w, hgt - band, band));
     if (n.remote && !fn.name) g.append(s("text", { x: 0, y: -5, class: "bd-note live" }, n.remote.says));   // run by another ergostat
+    bdAlarm(g, n);
   }
   return g;
 }
@@ -1058,6 +1066,10 @@ async function drawBlocksView(svg, g) {
     const within = Object.fromEntries(S.layout.children.map((c) => [c.id, c.within]));
     for (const n of g.nodes) n.systems = [...(within[n.id] || [])].reverse();
     if (S.layout.undrawn && !S.layout.routing) bdDraw(svg, g, S.layout);    // routed while it was held: drawn now
+    for (const n of g.nodes) {                         // an alarm raised or cleared: its label, nothing laid out again
+      const el = svg.querySelector(`g.bd-node[data-id="${CSS.escape(n.id)}"]`);
+      if (el) bdAlarm(el, n);
+    }
     return S.layout;
   }
   const lay = await bdLayout(g);

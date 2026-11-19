@@ -287,14 +287,8 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                                data={"trigger": trigger["type"] if trigger else why, "model": version})
     rec = Recorder(project, agent, begun["id"])
     log = log_path(project, agent.name)
-    try:                                                # a log is kept to its last megabyte once it passes five
-        if log.stat().st_size > 5 * 2**20:
-            with open(log, "rb") as f:
-                f.seek(-2**20, 2)
-                tail = f.read()
-            log.write_bytes(tail[tail.find(b"\n") + 1:])
-    except OSError:
-        pass
+    from .storage import trim
+    trim(log, project.storage.logs["block"])            # (storage: logs: block:)
     env = {**os.environ, "ERGOSTAT_AGENT": agent.name, "ERGOSTAT_RUN": begun["id"], "ERGOSTAT_PROJECT": project.model.name,
            "ERGOSTAT_STATE_DIR": str(project.dir)}
     code, note = None, ""
@@ -470,7 +464,10 @@ class Runner:
         what is older than the model's ``keep`` (default 30 days), and roll the measurements into their
         tiers (``rollup.upkeep``)."""
         from .rollup import upkeep
+        from .storage import rotate, trim
         while not self.stop.wait(60):                      # not at once: a start is busy enough
+            rotate(self.p.dir / "run.log", self.p.storage.logs["run"])         # (storage: logs:)
+            trim(self.p.dir / "threads.txt", self.p.storage.logs["threads"])
             try:
                 got = upkeep(self.p)
                 ro, me = got["rollup"], got.get("measurements") or {}
@@ -661,11 +658,6 @@ def web_url(project) -> str | None:
 
 def start_background(project, args: list[str]) -> int:
     log = project.dir / "run.log"
-    try:
-        if log.stat().st_size > 5_000_000:              # kept to two: this one and the one before
-            log.replace(log.with_suffix(".log.1"))
-    except OSError:
-        pass
     with open(log, "a") as lf:
         p = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(project.repo), "run", "--foreground", *args],
                              stdout=lf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)

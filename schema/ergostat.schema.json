@@ -313,6 +313,32 @@
               }
             }
           ]
+        },
+        "logs": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Caps on the logs that would otherwise grow without limit (SPEC \u00a74b)",
+          "properties": {
+            "block": {
+              "type": "string",
+              "pattern": "^\\s*\\d+(\\.\\d+)?\\s*([KkMmGg][Bb])\\s*$",
+              "description": "A block's log past this is cut to its last fifth (default 5MB)"
+            },
+            "run": {
+              "type": "string",
+              "pattern": "^\\s*\\d+(\\.\\d+)?\\s*([KkMmGg][Bb])\\s*$",
+              "description": "run.log past this is moved to run.log.1 (default 5MB)"
+            },
+            "threads": {
+              "type": "string",
+              "pattern": "^\\s*\\d+(\\.\\d+)?\\s*([KkMmGg][Bb])\\s*$",
+              "description": "threads.txt past this is cut to its last fifth (default 1MB)"
+            },
+            "transcripts": {
+              "$ref": "#/$defs/duration",
+              "description": "A transcript unchanged this long is forgotten (default 30d)"
+            }
+          }
         }
       }
     },

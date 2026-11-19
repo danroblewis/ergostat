@@ -398,7 +398,8 @@ class _Diagram:
         s = self.s
         # the blocks of the control system, each once
         for n in self.control:
-            self.node(f"blk:{n}", kind="block", system=s.blocks[n].system, label=n, tier=self.tier(n), **self.block_fn(n))
+            self.node(f"blk:{n}", kind="block", system=s.blocks[n].system, label=n, tier=self.tier(n), **self.block_fn(n),
+                      **({"alarm": "raised"} if n in (self.snap.get("alarms") or {}) else {}))
         for n in self.control:
             b = s.blocks[n]
             for refs in b.outputs.values():
