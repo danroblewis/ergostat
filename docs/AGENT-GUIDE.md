@@ -375,6 +375,30 @@ blocks:
 - `ergostat check` should say both goals are closed by a loop. Without the gate, the budget goal is "missing
   feedback": a number watched, not held.
 
+## 3c. Stale readings and estimates
+
+A controller acts on the newest reading as if it were now. When a sensor stops (a script failing, an API down, a
+person away), its reading goes **stale** once 3 of its readings are overdue. Nothing watches for that unless the model
+asks (SPEC §9.6): say on each goal whose loop must not act blindly what it should do then, from what the person told you
+about the work:
+
+- `on-stale: act` (the default): carry on with the old value. Right when acting on a slightly old value is harmless.
+- `on-stale: hold`: keep the last command. Right when guessing is worse than waiting (scaling, spending, deleting).
+- `on-stale: off`: count the goal as off, so its controller acts. Right when not knowing is itself the danger (a disk,
+  a backup, a heartbeat): fail towards the safe side.
+
+A block may say the same for what it reads directly. A machine block's input names its stale readings (`stale`), so a
+program or an AI can say what it did about them.
+
+Read a stock's **estimate** (`in: stock.X.estimate`, and `stock.X.uncertainty` beside it; or `observe: true` on the
+stock to keep its estimate and innovations without a block reading them) when its sensor is slow,
+sparse or noisy and the model knows its flows: the estimate moves with the flows between readings. Keep reading the
+measured value when the sensor is quick and exact (a count of items), or when the stock's flows are not modelled (the
+estimate then only carries the last rate on). A `model-disagrees` finding on a stock means its readings keep landing
+away from what its flows predict: fix the model (a missing flow, a wrong rate) before trusting its estimate. The estimate
+is only as good as the model: a model that is wrong in its structure drives the gain to 1, and the estimate is then the
+readings again.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |

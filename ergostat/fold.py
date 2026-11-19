@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from .remote import box as remote_box
 
-WORST = ("off", "open", "unknown", "holding")
+WORST = ("off", "stale", "open", "unknown", "holding")
 
 
 def name_of(n: dict) -> str:

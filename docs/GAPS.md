@@ -82,10 +82,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
   (the risk varies their mean over the horizon, not their timing).
 - **Operating modes, regime-scheduled thresholds, interlocks, risk gating** (open; designed in
   `docs/proposals/coordinator/08-modes-and-protection.md`).
-- **Observer staleness and estimated stocks** (open; `coordinator/06-observer.md`).
+- **Observer staleness and estimated stocks** (done, `observer`; SPEC §9.6, `coordinator/06-observer.md`): a reading's
+  age, `stale` goals, `on-stale: act | hold | off` per goal or block; a scalar Kalman estimate per stock with an adaptive
+  gain (`stock.X.estimate`, `.uncertainty`), its innovations as `observer/X/innovation`, and `model-disagrees`. All
+  opt-in (`observe: true`, `on-stale:`, or reading the estimate). Not yet: a
+  covariance between stocks, item-level states (06's x̂1 to x̂10), sampling that rises after a surprise (06 §3.3).
 - **Per-item and per-group goals** (done, 8fb7440 and e46dc45 on `smallgaps`; SPEC §8 `per:`): a goal on a stock counted from
   items, held by each item or each group of them by a field (a relation such as `parent`), naming those that break it.
-- **Finding structure from residuals** (open; porting SD Lab's Kalman-LNA work; `parity/00-modeling-review.md`).
+- **Finding structure from residuals** (open; porting SD Lab's Kalman-LNA work; `parity/00-modeling-review.md`). It
+  can now build on the observer's innovations (`observer/X/innovation`, `model-disagrees`).
 - **Proposals drawn dashed in both diagrams; proposals that state the behaviour they predict** (the dashed drawing in
   progress, `redesign`; the stated behaviour open).
 

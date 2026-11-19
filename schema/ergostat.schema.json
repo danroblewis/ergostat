@@ -829,6 +829,10 @@
         "initial": {
           "type": "number"
         },
+        "observe": {
+          "type": "boolean",
+          "description": "Estimated between readings, its staleness watched (SPEC section 9.6)"
+        },
         "cumulative": {
           "type": "boolean",
           "description": "A running total that by its nature never drains (spent so far): no outflow is missing (SPEC section 5)"
@@ -958,6 +962,9 @@
         "per": {
           "type": "string",
           "description": "Held by each item (item) or each group of items by a field (a relation such as parent), of a stock counted from items"
+        },
+        "on-stale": {
+          "enum": ["act", "hold", "off"]
         },
         "critical": {
           "type": "boolean"
@@ -1091,6 +1098,9 @@
             "actuator",
             "logic"
           ]
+        },
+        "on-stale": {
+          "enum": ["act", "hold", "off"]
         },
         "system": {
           "$ref": "#/$defs/name"
