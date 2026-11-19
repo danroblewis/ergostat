@@ -404,3 +404,23 @@ def test_a_block_that_moves_while_nothing_commands_it_is_not_gated_by_its_comman
     s = cl.identify(p, p.model.spec, ob.measured(p, ob.Grid(now - 7200, now, 60)))["flow.answered"]
     assert s.gate is None and s.form == "drain" and not s.assumed
     assert s.tau == pytest.approx(2.0, rel=0.05) and "whether or not keep-none-late commands it" in s.said
+
+
+def test_a_goal_on_a_count_of_items_reads_a_whole_number_as_the_engine_does(tmp_path):
+    """A queue drained by a fast pool holds a fraction of an item between arrivals in a continuous simulation; its
+    sensor counts whole items, so a goal "<= 0" on it holds until half an item has come (one, as counted), as it
+    would in the running engine, rather than being off for every fraction."""
+    p = project_of(tmp_path, TAKES.replace("blocks:", 'goals:\n  none-ready:\n    stock: ready\n    hold: "<= 0"\nblocks:')
+                   .replace("    out: flow.worked", "    goal: none-ready\n    out: flow.worked"))
+    spec = p.model.spec
+    now = time.time()
+    for i in range(61):
+        p.measurements.add("sensor/arrivals.main", 6.0, at=now - 3600 + i * 60)
+        p.measurements.add("sensor/ready.main", 0.0, at=now - 3600 + i * 60)
+    data = ob.measured(p, ob.Grid(now - 3600, now, 60))
+    run = sim.replay(spec, data)
+    dev = cl.StandIn("developer", "flow.worked", "seats", gate="keep-none-ready", source="ready", seats=3,
+                     service=10 / 3600, success=1.0)
+    got = cl.closed(spec, data, run, 3600, None, 30, {"flow.worked": dev}, cl.Start())
+    assert 0 < max(got.values["stock.ready"]) <= 0.51                # it is taken as soon as it counts as one item
+    assert got.off_hours["none-ready"] < 0.05 and sum(got.off_end["none-ready"]) <= 6   # off only while one waits (6 come)
