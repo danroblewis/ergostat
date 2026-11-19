@@ -156,6 +156,16 @@ class Engine:
         self.socket: str | None = None
         self.count_last: dict[str, float] = {}         # an items sensor's series → the count last written for it
         self.count_next = 0.0                          # (monotonic) not before: reading every count costs what it costs
+        # what the watchdog (watchdog.py) looks at: when a pass last finished, the loop's last round (and which loop
+        # is the live one), and the readings handed to the pool and not back, with when the pool last gave one back
+        self.passed_at = self.loop_beat = time.monotonic()
+        self.loop_gen = 0
+        self.pool_lock = threading.Lock()
+        self.pool_out: dict[str, tuple[float, float]] = {}   # series → (when handed to the pool, its timeout)
+        self.pool_done_at = time.monotonic()
+        self.wedged: str | None = None                 # set when only a restart of the process can recover it
+        self.restart_hard = None                       # the restart itself, when the run loop cannot do it (running.py)
+        self.watchdog = None
 
     # ---- signals
 
@@ -310,6 +320,7 @@ class Engine:
                 self.p.events.add_many(events, new=True)
             if rows:
                 self.p.measurements.add_many(rows)
+            self.passed_at = time.monotonic()
         for b in todo:
             self.start(b, "command")
 
@@ -991,6 +1002,9 @@ class Engine:
             got = (s, v, why, time.time(), None)
         except Exception as e:
             got = (s, None, "", time.time(), e)
+        with self.pool_lock:
+            self.pool_out.pop(s.series, None)
+            self.pool_done_at = time.monotonic()
         self.results.put(got)
         self.wake.set()
 
@@ -1045,6 +1059,18 @@ class Engine:
             moved = self.record_moved and time.monotonic() >= self.count_next   # (at most a fifth of the loop's time)
             if moved:
                 self.record_moved = False
+        handed: set[str] = set()
+        try:
+            return self._begin(asked, moved, poked, tick, handed)
+        finally:
+            with self.lock:                                   # a reading begun here is never left under way for good
+                for s in asked:
+                    if s.series not in handed:
+                        self.reading.discard(s.series)
+
+    def _begin(self, asked: list, moved: bool, poked: bool, tick: bool, handed: set) -> bool:
+        """``_readings``' first half: the counts the record's writes call for added, commands and queries handed to the
+        pool (named in ``handed``: the pool lets go of them), and ergostat's own taken here (``_take``)."""
         here = [s for s in asked if s.items is not None or s.changes is not None]
         extra: set[str] = set()
         began = time.monotonic()
@@ -1058,9 +1084,22 @@ class Engine:
                     here.append(s)
         for s in asked:
             if s.items is None and s.changes is None:
-                if self.pool is None:
-                    self.pool = ThreadPoolExecutor(max_workers=READERS, thread_name_prefix="ergostat-read")
-                self.pool.submit(self._read_one, s)
+                with self.pool_lock:
+                    if self.pool is None:
+                        self.pool = ThreadPoolExecutor(max_workers=READERS, thread_name_prefix="ergostat-read")
+                    pool = self.pool
+                    self.pool_out[s.series] = (time.monotonic(), float(s.timeout or 30.0))
+                try:
+                    pool.submit(self._read_one, s)
+                    handed.add(s.series)
+                except RuntimeError:                          # (a pool the watchdog just replaced: asked again next time)
+                    with self.pool_lock:
+                        self.pool_out.pop(s.series, None)
+        return self._take(here, extra, began, poked, tick)
+
+    def _take(self, here: list, extra: set, began: float, poked: bool, tick: bool) -> bool:
+        """``_readings``' second half: ergostat's own read here, what the pool read gathered, all of it written, and
+        each one's reading let go of even when writing it failed; then the pass."""
         got = self._read_here(here) if here else []
         if extra:                                         # read on a change of the record: kept only when it moved
             self.count_next = time.monotonic() + 4 * (time.monotonic() - began)
@@ -1075,25 +1114,27 @@ class Engine:
             except queue.Empty:
                 break
         rows = []
-        for s, v, why, t, err in got:
-            name = sensor_name(s.of.name, s.name)
-            if err is not None:
-                self.say(f"sensor {s.of.name}.{s.name}: {type(err).__name__}: {err}")
-            elif v is None:
-                self.p.events.add("sensor.failed", item=name, source=SOURCE, data={"why": why})
-                self.say(f"sensor {s.of.name}.{s.name}: {why}")
-            else:
-                rows.append((s.series, t, v))
-        if rows:
-            self.p.measurements.add_many(rows)
         causes = {}
-        with self.lock:
-            for s, *_ in got:
-                self.reading.discard(s.series)
-                self.dirty_series.add(s.series)
-                cause = self.read_cause.pop(s.series, None)
-                if cause:
-                    causes[s.of.name] = cause
+        try:
+            for s, v, why, t, err in got:
+                name = sensor_name(s.of.name, s.name)
+                if err is not None:
+                    self.say(f"sensor {s.of.name}.{s.name}: {type(err).__name__}: {err}")
+                elif v is None:
+                    self.p.events.add("sensor.failed", item=name, source=SOURCE, data={"why": why})
+                    self.say(f"sensor {s.of.name}.{s.name}: {why}")
+                else:
+                    rows.append((s.series, t, v))
+            if rows:
+                self.p.measurements.add_many(rows)
+        finally:                                              # (written or not: each is read again when next due)
+            with self.lock:
+                for s, *_ in got:
+                    self.reading.discard(s.series)
+                    self.dirty_series.add(s.series)
+                    cause = self.read_cause.pop(s.series, None)
+                    if cause:
+                        causes[s.of.name] = cause
         if got or poked or tick:
             self.evaluate(causes or None, tick=tick)
             return True
@@ -1121,7 +1162,7 @@ class Engine:
                  for k, x in new.items()}
         return timed, timed_blocks, judges, new, times
 
-    def _schedule(self) -> None:
+    def _schedule(self, gen: int = 0) -> None:
         """The loop: timed readings from a heap of when each is due, timed blocks, judges and crons; each round the
         readings asked for are taken as one batch and one pass follows (``_readings``). It sleeps until the next
         reading is due, the clock's tick, or something wakes it (a reading the pool finished, a run that ended)."""
@@ -1131,7 +1172,8 @@ class Engine:
         heap = [(0.0, i) for i in range(len(timed))]             # every sensor reads at once (by its place: two of a
                                                                  # series, the first in the model's order reads)
         last_eval = last_sweep = 0.0
-        while not self.stop.is_set():
+        while not self.stop.is_set() and gen == self.loop_gen:   # (a loop the watchdog replaced stops)
+            self.loop_beat = time.monotonic()
             self.wake.clear()
             if spec is not self.spec:                            # the model was swapped: its schedules from now on
                 spec = self.spec
@@ -1282,7 +1324,7 @@ class Engine:
         from ..control import steptest
         steptest.resume(self)                                   # a test approved just before, or cut off by a stop
         self.looping = True                                      # readings go to the loop from now (no thread each)
-        threading.Thread(target=self._schedule, daemon=True).start()
+        threading.Thread(target=self._schedule, name="ergostat-loop", daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         self.following = True                                    # it runs the actions programs ask for (SPEC §12k)
         threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop
@@ -1351,13 +1393,16 @@ class Engine:
         from ..numbers.version import _hash, _plain
         new: Spec = model.spec
         same = lambda a, b: a is not None and b is not None and _hash(_plain(a)) == _hash(_plain(b))   # noqa: E731
+        began = time.monotonic()
         with self.lock:
             before, was = self.spec, self.version
-            builtins = {}
+            # all of it worked out first, nothing of the running model touched: a change that cannot be taken (a
+            # built-in that will not make, a version that will not hash) leaves the last one running as it was
+            builtins, kept_as = {}, []
             for n in bl.order(new):
                 b, kept = new.blocks[n], self.builtins.get(n)
                 if kept is not None and same(kept.b, b):
-                    kept.b, kept.spec, kept.p = b, new, b.params
+                    kept_as.append((kept, b))
                     builtins[n] = kept
                     continue
                 x = bl.make(b, new)
@@ -1366,6 +1411,16 @@ class Engine:
                         if k not in ("b", "spec", "p", "tree"):
                             setattr(x, k, v)
                 builtins[n] = x
+            version = history.version(model)
+            carried = sorted(n for n in self.running if n.split(" ", 1)[0] in before.blocks)   # ("block item": a leased run)
+            blk = lambda n: n.split(" ", 1)[0]                                                    # noqa: E731
+            finishing = {"removed": [n for n in carried if blk(n) not in new.blocks],
+                         "changed": [n for n in carried if blk(n) in new.blocks
+                                     and not same(before.blocks[blk(n)], new.blocks[blk(n)])]}
+            worked = time.monotonic() - began
+            # then taken, all at once (nothing below raises)
+            for kept, b in kept_as:
+                kept.b, kept.spec, kept.p = b, new, b.params
             for n in set(self.builtins) - set(builtins):
                 self.signals.pop(f"block.{n}", None)
             self.builtins = builtins
@@ -1385,25 +1440,22 @@ class Engine:
                     self.outputs.pop(n, None)
                     self.commands.pop(n, None)
             self.machines = [b for b in new.blocks.values() if b.machine]
-            carried = sorted(n for n in self.running if n.split(" ", 1)[0] in before.blocks)   # ("block item": a leased run)
-            blk = lambda n: n.split(" ", 1)[0]                                                    # noqa: E731
-            finishing = {"removed": [n for n in carried if blk(n) not in new.blocks],
-                         "changed": [n for n in carried if blk(n) in new.blocks
-                                     and not same(before.blocks[blk(n)], new.blocks[blk(n)])]}
             self.spec = new
             self.p.model = model
-            self.version = history.version(model)
+            self.version = version
             self.full = True                                     # the next pass works out everything, under the new model
         self.wake.set()
         self._ingest()
         finishing = {k: v for k, v in finishing.items() if v}   # what runs once more, under its old definition
         said = {"reload": "in place", "carried": len(carried), "runs": carried, "version_before": was,
                 **({"finishing": finishing} if finishing else {})}
+        took = time.monotonic()
         try:
             history.note(self.p, said)
         except Exception as e:                                   # the record of it never undoes the change
             self.say(f"recording the change: {type(e).__name__}: {e}")
-        return {**said, "version": self.version}
+        return {**said, "version": self.version, "seconds": {"swap": round(worked, 3),
+                                                             "record": round(time.monotonic() - took, 3)}}
 
     def close(self) -> None:
         self.stop.set()
