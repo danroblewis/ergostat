@@ -38,7 +38,7 @@ What each part of the model becomes:
 from __future__ import annotations
 
 from . import rates, sensing
-from .spec.ir import Ref, Spec
+from .spec.ir import KIND_OF_TYPE, Ref, Spec
 
 WORLD_NOTE = "a block that reads nothing and is commanded by nothing: the world, from the control system's side"
 
@@ -398,7 +398,7 @@ class _Diagram:
         s = self.s
         # the blocks of the control system, each once
         for n in self.control:
-            self.node(f"blk:{n}", kind="block", system=s.blocks[n].system, label=n, **self.block_fn(n))
+            self.node(f"blk:{n}", kind="block", system=s.blocks[n].system, label=n, tier=self.tier(n), **self.block_fn(n))
         for n in self.control:
             b = s.blocks[n]
             for refs in b.outputs.values():
@@ -993,6 +993,17 @@ class _Diagram:
                     serves.setdefault(b, []).append(g)
             got = self._served = (ctl, serves)
         return got
+
+    def tier(self, n: str) -> str | None:
+        """Who fills the block, on the ladder (SPEC §9.5): its agent's kind, else a built-in's rung (a rule, or a judge's),
+        else its type's; an external block with no agent says nothing of who it is."""
+        b = self.s.blocks[n]
+        a = self.s.agents.get(b.agent or "")
+        if a is not None and a.kind:
+            return a.kind
+        if b.builtin:
+            return b.builtin_rung
+        return None if b.type == "external" else KIND_OF_TYPE.get(b.type)
 
     def block_fn(self, n: str) -> dict:
         """A block's function: its symbol and what is known of it, and its definition as MathML."""

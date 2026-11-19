@@ -9,7 +9,7 @@
    pointed at or chosen. */
 "use strict";
 
-const BD = { FS: 13, SUB: 10, CH: 7.2, CHS: 6.0, SUM: 24, PORT: 18, PAD: 14 };
+const BD = { FS: 13, SUB: 10, CH: 7.2, CHS: 6.0, SUM: 24, PORT: 18, PAD: 14, TIER: 12 };   // TIER: the band its tier is written in
 const MATHML = "http://www.w3.org/1998/Math/MathML";
 
 /* ---- sizes: each part as big as its function and its ports need */
@@ -59,8 +59,11 @@ function bdSize(n) {
   } else if (frac) { w = Math.max(w, bdTextW(frac[0]) + 28, bdTextW(frac[1]) + 28); hgt = 64; }
   else if (fn.expr) { w = Math.max(w, bdTextW(fn.expr, true) + 24); hgt = 54; }
   if (n.role === "subsystem") { w += 18; hgt = Math.max(hgt, 54); }
-  return [Math.round(w), Math.max(hgt, (sideN + 1) * BD.PORT)];
+  if (n.tier) w = Math.max(w, bdTextW(BD_TIER[n.tier] || n.tier, true) + 12);
+  return [Math.round(w), Math.max(hgt, (sideN + 1) * BD.PORT) + (n.tier ? BD.TIER : 0)];
 }
+/* who fills a block, on the ladder (SPEC §9.5): written small in its top-left corner, above its function */
+const BD_TIER = { person: "person", ai: "AI agent", "narrow-ai": "narrow AI", decision: "decision", program: "program", rule: "rule" };
 function bdFrameTitle(f) { return 30; }
 
 /* ---- the layout: ELK places the parts and the frames (open systems, the inner loops of cascades) */
@@ -676,29 +679,36 @@ function bdNode(n, c) {
     if (n.in) g.append(s("text", { x: n.port_of === "in" ? 0 : w, y: -5, class: "bd-note", "text-anchor": n.port_of === "in" ? "start" : "end" }, n.port_of === "in" ? "from " + n.in : "to " + n.in));
   } else {
     g.append(s("rect", { class: "hit bd-line bd-fill", width: w, height: hgt }));
-    if (fn.name) {
-      const sk = fn.sketch ? 38 : 0;
-      if (fn.sketch) g.append(bdSketch(fn.sketch, 9, hgt / 2 - 12));
-      // its name only: who fills it (a program, an AI agent, a person) and how often is the side panel's
-      g.append(s("text", { x: sk + (w - sk) / 2, y: hgt / 2 + 4, class: "bd-name", "text-anchor": "middle" }, fn.name));
-    } else {
-      const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
-      const top = frac ? hgt / 2 - 12 : fn.expr ? hgt / 2 - 2 : hgt / 2 + 5;
-      bdSym(g, w / 2, top, fn);
-      if (frac) {
-        const fw = Math.max(bdTextW(frac[0]), bdTextW(frac[1])) + 6;
-        g.append(bdPower(s("text", { x: w / 2, y: hgt / 2 + 6, class: "bd-expr", "text-anchor": "middle" }), frac[0]),
-                 s("path", { d: `M${w / 2 - fw / 2},${hgt / 2 + 10} H${w / 2 + fw / 2}`, class: "bd-line" }),
-                 s("text", { x: w / 2, y: hgt / 2 + 23, class: "bd-expr", "text-anchor": "middle" }, frac[1]));
-      } else if (fn.expr) g.append(richSvg(s("text", { x: w / 2, y: hgt / 2 + 14, class: "bd-note", "text-anchor": "middle" }), fn.expr));   // K_p: K with a subscript p
-      if (n.remote) g.append(s("text", { x: 0, y: -5, class: "bd-note live" }, n.remote.says));   // run by another ergostat
-      if (n.role === "subsystem") {                      // a system closed into one block: opened here with its +
-        const b = s("g", { class: "bd-toggle", "data-act": "open", transform: `translate(${w - 15},3)` },
-                    s("rect", { width: 12, height: 12 }), s("path", { d: "M3,6 H9 M6,3 V9" }));
-        b.addEventListener("click", (ev) => { ev.stopPropagation(); S.toggleSystem?.(n.label); });
-        g.append(b);
-      }
-    }
+    const band = n.tier ? BD.TIER : 0;                 // its tier written small in a band at the top, its function beneath
+    if (n.tier) g.append(s("text", { x: 5, y: 13, class: "bd-note bd-tier", "data-tier": n.tier }, BD_TIER[n.tier] || n.tier));
+    g.append(bdBody(n, fn, w, hgt - band, band));
+    if (n.remote && !fn.name) g.append(s("text", { x: 0, y: -5, class: "bd-note live" }, n.remote.says));   // run by another ergostat
+  }
+  return g;
+}
+function bdBody(n, fn, w, hgt, dy) {                    // what is inside a block, beneath its tier: its function
+  const g = s("g", dy ? { transform: `translate(0,${dy})` } : {});
+  if (fn.name) {
+    const sk = fn.sketch ? 38 : 0;
+    if (fn.sketch) g.append(bdSketch(fn.sketch, 9, hgt / 2 - 12));
+    // its name only: how often it runs is the side panel's
+    g.append(s("text", { x: sk + (w - sk) / 2, y: hgt / 2 + 4, class: "bd-name", "text-anchor": "middle" }, fn.name));
+    return g;
+  }
+  const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
+  const top = frac ? hgt / 2 - 12 : fn.expr ? hgt / 2 - 2 : hgt / 2 + 5;
+  bdSym(g, w / 2, top, fn);
+  if (frac) {
+    const fw = Math.max(bdTextW(frac[0]), bdTextW(frac[1])) + 6;
+    g.append(bdPower(s("text", { x: w / 2, y: hgt / 2 + 6, class: "bd-expr", "text-anchor": "middle" }), frac[0]),
+             s("path", { d: `M${w / 2 - fw / 2},${hgt / 2 + 10} H${w / 2 + fw / 2}`, class: "bd-line" }),
+             s("text", { x: w / 2, y: hgt / 2 + 23, class: "bd-expr", "text-anchor": "middle" }, frac[1]));
+  } else if (fn.expr) g.append(richSvg(s("text", { x: w / 2, y: hgt / 2 + 14, class: "bd-note", "text-anchor": "middle" }), fn.expr));   // K_p: K with a subscript p
+  if (n.role === "subsystem") {                      // a system closed into one block: opened here with its +
+    const b = s("g", { class: "bd-toggle", "data-act": "open", transform: `translate(${w - 15},3)` },
+                s("rect", { width: 12, height: 12 }), s("path", { d: "M3,6 H9 M6,3 V9" }));
+    b.addEventListener("click", (ev) => { ev.stopPropagation(); S.toggleSystem?.(n.label); });
+    g.append(b);
   }
   return g;
 }
@@ -1084,6 +1094,8 @@ function blocksLegend() {
     row(`<rect x="3" y="4" width="24" height="12" rx="6" ${ink}/>`, "an In or Out port: a signal crossing the edge of a system drawn alone"),
     row(`<path d="M15,0 V20" stroke="currentColor" stroke-width="0.8"/><path d="M2,10 H28" ${ink}/><rect x="11" y="6" width="8" height="8" rx="2" ${ink} fill="var(--bg, #fff)"/>`,
         "a port mark: where a signal crosses the frame of an open system, named"),
+    row(`<rect x="1" y="1" width="28" height="18" ${ink}/><text x="3.5" y="8.5" font-size="7.5" fill="currentColor">AI</text>`,
+        "a block's tier, written small in its top-left corner: who fills it, top of the ladder to bottom: person, AI agent, narrow AI, decision, program, rule (a law ergostat computes); none on an external block with no agent"),
     row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off controller: a relay; a program, an AI agent, a person): named, with a sketch where there is a standard one (relay, saturation, dead zone); no transfer function is claimed"),
     row(`<circle cx="15" cy="10" r="7" ${ink}/><text x="5" y="8" font-size="9" fill="currentColor">+</text><text x="19" y="21" font-size="9" fill="currentColor">−</text>`, "a summing junction, with the sign of each input"),
     row(`<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),

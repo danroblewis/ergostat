@@ -1294,6 +1294,20 @@ BLOCKS_DOM = """() => {
     const fill = getComputedStyle(el.querySelector(".hit")).fill;
     if (!/transparent|rgba\\(0, 0, 0, 0\\)|none/.test(fill)) bad.push(`${el.dataset.id}: filled ${fill}`);
   }
+  // each block's tier, written in its top band: inside it, clear of its function
+  for (const n of S.graph.nodes.filter((n) => n.tier)) {
+    const el = document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(n.id)}"]`);
+    if (!el) continue;
+    const t = el.querySelector("text.bd-tier");
+    if (!t || t.dataset.tier !== n.tier) { bad.push(`${n.id}: its tier (${n.tier}) not drawn`); continue; }
+    const box = el.querySelector(".hit").getBoundingClientRect(), tb = t.getBoundingClientRect();
+    if (tb.left < box.left || tb.right > box.right || tb.top < box.top || tb.bottom > box.bottom) bad.push(`${n.id}: its tier outside it`);
+    for (const o of el.querySelectorAll("text:not(.bd-tier), .bd-sketch, .bd-toggle")) {
+      const ob = o.getBoundingClientRect();
+      if (ob.width && ob.left < tb.right && tb.left < ob.right && ob.top < tb.bottom - 1 && tb.top < ob.bottom - 1)
+        bad.push(`${n.id}: its tier on ${o.textContent || o.getAttribute("class")}`);
+    }
+  }
   for (const n of S.graph.nodes.filter((n) => n.kind === "sum")) {
     const signs = document.querySelectorAll(`svg.canvas text.bd-sign[data-sum="${CSS.escape(n.id)}"]`).length;
     if (signs !== n.ins.length) bad.push(`${n.id}: ${signs} signs for ${n.ins.length} inputs`);
