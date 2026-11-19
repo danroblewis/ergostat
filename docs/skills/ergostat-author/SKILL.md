@@ -81,7 +81,8 @@ row of separate loops, and says nothing about the workflow.
 7. **Gated actions for outward acts** (a comment, a status change, a flag ramped): `actions:` with
    `gate: approve`, asked for by the step that needs them, never done by the step's own code.
 8. **Then run `check` and fix every structure finding** (`outflow-not-chained`, `state-stock-without-inflow`,
-   `move-without-flow`, `state-stocks-disconnected`, `loops-not-connected`: each names the exact edit), and
+   `move-without-flow`, `state-stocks-disconnected`, `loops-not-connected`, `kind-enters-many-times`: each names
+   the exact edit), and
    **review both diagrams** (below).
 9. **Last, reconcile the three views.** Run the model (`try_use`, a minute on its stand-ins, or the live record),
    then call `coherence` (`project:` the scratch folder `try_use` gave; `ergostat check` prints the same section): it holds
@@ -195,6 +196,8 @@ pages. It looks right when:
 - each item kind is **one connected chain** of stocks (`shape.dynamics_pieces` is 1 per kind, not one per state);
 - **arrivals come in at the start** (a flow from outside into the first state's stock) and **completions go out
   at the end**;
+- **each kind comes in from outside once**: no second flow from a cloud counting the same kind into a later state
+  (`kind-enters-many-times` names the rewiring; it is a note only when the record shows items arriving there);
 - **each step's loop shares the chain's stocks** with the next step's (`shape.blocks_pieces` is 1, not one per
   step);
 - **no stock is without an inflow** unless it is where things come from (a source);

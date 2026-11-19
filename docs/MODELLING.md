@@ -18,6 +18,8 @@ The format is `docs/SPEC.md`; the five structure checks below are what `ergostat
 | A rate driven by another rate (`driven-by: +flow.x` on a flow) | a **stock** between them: the cause accumulates, and the effect follows what accumulated | `rate-driven-by-rate` |
 | A stock that only fills (inflows, no outflow) | its **outflow**: what is in it leaves somehow | `stock-without-outflow` |
 | A stock per state of an item kind, each filled by nothing and drained to a cloud | the **chain**: a flow from each state's stock to the next | `outflow-not-chained`, `state-stock-without-inflow`, `state-stocks-disconnected`, `loops-not-connected` |
+| The same item kind arriving from several clouds, into different states | **one arrival** into the kind's first state, and flows from stock to stock after it | `kind-enters-many-times` |
+| Many inflows from clouds for the model's stocks | a **boundary** decided on purpose: what is really outside | `many-cloud-inflows` |
 | An outflow that would keep running with its stock empty | the **stock** among the outflow's causes | `outflow-ignores-stock` |
 | A decision that reacts to the true value the moment it changes | a **perceived** value: a stock that catches up with the true one, as people do | (not mechanical: read the decisions) |
 | A link between two things counted in different units | a converting **auxiliary** (so many of one per one of the other) | `units-mismatch` |
@@ -155,6 +157,28 @@ record, and says each missing link with its fix (`outflow-not-chained`: `to:` th
 share no stock (`loops-not-connected`). The improver proposes the whole chain as one change, for you to accept.
 
 **Source.** Sterman ch. 6 (stock and flow networks: conservation) and ch. 12 (aging chains).
+
+## 2b. The same kind arriving from several clouds: the boundary crossed twice
+
+**Symptom.** Two flows or more come from clouds and count the items of one kind, into different states: `filed`
+(`entering: open`) into the backlog, and `started` (`entering: doing`) into the work in progress. The stocks of the
+kind look fed from outside, each on its own, and relate only through information links.
+
+**Reason.** A cloud is the system's boundary: what comes from it is taken as given. An item crosses the boundary
+once, when it arrives; after that it moves between the model's own stocks. Arriving again in a later state means
+one of two things: the model counts the same items twice (once as they arrive, again as they reach the later
+state), or it draws their move between its own stocks as an arrival, and the chain is missing.
+
+**Fix.** Keep the arrival into the kind's first state, and re-point each other inflow `from:` the stock of the state
+its items come from (taken out, when that is the stock it fills; through a state with no stock, give that state its
+stock). `ergostat check` says which (`kind-enters-many-times`), from the moves in the record when there is one, else
+the kind's state order, and the improver proposes the rewiring. It is right to arrive in more than one state only
+when items really do (tickets reopened in the outside system, arriving already in `doing`): the record shows it,
+items whose first event puts them there, and `check` then says it as a note, not a fault. Many inflows from clouds
+for the model's stocks (`many-cloud-inflows`) is the same question asked of the whole model: draw its boundary chart
+(what it explains, what it takes as given, what it leaves out) and decide what is really outside.
+
+**Source.** Sterman ch. 3 (the model boundary, the boundary chart) and ch. 6 (sources and sinks: clouds).
 
 ## 3. An outflow that ignores its stock: extreme conditions
 
@@ -578,6 +602,7 @@ above; `docs/ADDING.md` gives the rest).
 1. Run `ergostat check`; answer every structure finding, by a change or by a word with a reason.
 2. For each stock: what fills it, what drains it, and does the drain depend on what is there?
    For each item kind with a stock per state: is it one chain, arrivals in at the start and completions out at the end?
+   Does each kind come in from a cloud once, into its first state, and is everything else from a cloud really outside?
 3. For each `driven-by` on a flow: does the effect come at once? If not, where does the cause
    wait (the stock), and what ends its wait (the flows out of it)?
 4. For each link: is it signed, and do its units convert?
