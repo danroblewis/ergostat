@@ -129,7 +129,22 @@ function anchorGroups(graph, g) {
 function reverseCommands(graph, g) {
   const kind = Object.fromEntries(g.edges.map((e) => [e.id, e.kind]));
   const seeking = new Set(g.edges.filter((e) => e.goalSeeking).map((e) => e.id));    // (a goal's gap and desired level: dynamics.js)
-  for (const e of graph.edges) if (kind[e.id] === "action" || seeking.has(e.id)) { [e.sources, e.targets] = [e.targets, e.sources]; e.reversed = true; }
+  const back = backPipes(g);
+  for (const e of graph.edges) if (kind[e.id] === "action" || seeking.has(e.id) || back.has(e.id)) { [e.sources, e.targets] = [e.targets, e.sources]; e.reversed = true; }
+}
+
+/* the pipes of a flow back up a chain (rework: into a stock the model names before the one it leaves), given to the
+   layering backwards like a command: so the chain is laid out left to right and the rework runs back, not the
+   other way round (docs/layout-rules.md: flow-excursion) */
+function backPipes(g) {
+  const order = {};
+  g.nodes.filter((n) => n.kind === "stock").forEach((n, i) => { order[n.id] = i; });
+  const out = new Set();
+  for (const v of g.nodes.filter((n) => n.kind === "valve" || n.kind === "disturbance")) {
+    const pin = g.edges.find((e) => e.kind === "pipe" && e.target === v.id), pout = g.edges.find((e) => e.kind === "pipe" && e.source === v.id);
+    if (pin && pout && order[pin.source] != null && order[pout.target] != null && order[pin.source] > order[pout.target]) { out.add(pin.id); out.add(pout.id); }
+  }
+  return out;
 }
 function unreverse(lay, ids) {
   const all = [];

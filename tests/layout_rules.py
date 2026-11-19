@@ -19,6 +19,7 @@ CLOUD_GAP = 70            # a cloud lies at most this far from its valve (box to
 CLOUD_FAR = 220           # past this, the cloud reads as belonging to something else
 EXCURSION_K = 1.3         # a flow's way from end to end at most this many times the direct (Manhattan) distance,
 EXCURSION_SLACK = 80      # plus this (the valve's width and a jog)
+BACK_LANE = 240           # and a flow back up a chain (rework) a lane under or over it: there and back
 VALVE_BOX_SLACK = 30      # a valve inside the box its two ends span, grown by this (half a valve and a margin)
 CLOUD_FLOW_BENDS = 0      # a flow to or from a cloud: straight
 STOCK_FLOW_BENDS = 2      # a flow between two stocks: at most a jog (a flow back up a chain may need 4)
@@ -194,7 +195,9 @@ def d_flow_excursion(r: Rule, g: G):
             continue
         path = g.flow_path(v, pin, pout)
         L, D = length(path), manhattan(path[0], path[-1])
-        if L > EXCURSION_K * D + EXCURSION_SLACK:
+        back = g.kind(pin["source"]) == "stock" and g.kind(pout["target"]) == "stock" and \
+            centre(g.rect[pin["source"]])[0] > centre(g.rect[pout["target"]])[0] + 20       # a flow back up a chain
+        if L > EXCURSION_K * D + EXCURSION_SLACK + (BACK_LANE if back else 0):
             ends = [pin["source"], pout["target"]]
             sev = "critical" if L - D > 300 else "major"
             out.append(inst(r, L - D, f"flow {v['label'] or v['id']}: {L:.0f}px of pipe between ends {D:.0f}px apart",
