@@ -920,3 +920,12 @@ td.bad, b.bad, .lease .bad { color: var(--bad); }
 .rg-gantt .rg-edge path { stroke-width: 1; }
 .rg-gantt .rg-now line { stroke: var(--accent); stroke-width: 1.4; }
 .rg-gantt .rg-now text { fill: var(--accent); font-size: var(--canvas-sm); }
+
+/* reports upstream (SPEC §12m): the text to paste, its link and its scrub log */
+.report-acts { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; margin: var(--sp-2) 0; }
+a.button { display: inline-block; color: var(--ink); text-decoration: none; border: var(--hair) solid var(--line-strong);
+  border-radius: var(--radius); padding: var(--sp-1) var(--sp-2); }
+a.button:hover { background: var(--fill); }
+.report-body { white-space: pre-wrap; max-height: 32rem; overflow: auto; border: var(--hair) solid var(--line); border-radius: var(--radius);
+  padding: var(--sp-2); }
+.offscreen { position: fixed; opacity: 0; pointer-events: none; }

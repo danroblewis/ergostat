@@ -125,6 +125,18 @@ TOOLS = [
      "attention). The same as `ergostat message TEXT --about X`.",
      "inputSchema": _obj({"text": {"type": "string"}, "about": {"type": "array", "items": {"type": "string"}},
                           "by": {"type": "string"}}, ["text"])},
+    {"name": "report_upstream", "description": "Draft a report about ergostat itself, for the owner: when ergostat is "
+     "wrong (it crashed, gave a wrong answer, or cannot express what the model needs). It is scrubbed first (the model's "
+     "names, paths, hosts, URLs, emails, keys, ticket keys and the owner's denylist become stand-ins like stock-1) and "
+     "written to the state directory's reports/ folder as a Markdown issue for the owner to read and submit by hand. "
+     "Nothing is sent: never post it anywhere yourself; tell the owner where it is (the returned file, and `ergostat "
+     "report ID`). says: what went wrong, in a line; details: more; parts: the parts involved (stock.x, block.y), from "
+     "which a generic reproduction is made; findings: codes involved; repro: a tiny generic model you wrote that shows "
+     "it (scrubbed too). Without says: the reports drafted so far.",
+     "inputSchema": _obj({"says": {"type": "string"}, "details": {"type": "string"},
+                          "parts": {"type": "array", "items": {"type": "string"}},
+                          "findings": {"type": "array", "items": {"type": "string"}}, "repro": {"type": "string"},
+                          "by": {"type": "string"}})},
     {"name": "templates", "description": "The templates a small control system is made from (respond-to, re-ping, "
      "daily-report, keep-under, steps, collect, and the owner's own from library: folders): each a reusable shape that "
      "expands into ordinary items, stocks, flows, goals and blocks, one system per use. Without name: the list. With name: "
@@ -350,6 +362,21 @@ class Server:
             ms = sorted(record.stored(p).values(), key=lambda m: -m["time"])[:30]
             return _text({"messages": [{k: m.get(k) for k in ("id", "state", "text", "by", "sent", "matched", "outcome")}
                                        for m in ms], "counts": measures.counts(p)})
+        if name == "report_upstream":                       # drafted for the owner; never sent (SPEC §12m)
+            from .reports import record
+            if not str(a.get("says") or "").strip():
+                return _text([{k: r.get(k) for k in ("id", "state", "title", "origin", "file")}
+                              for r in sorted(record.stored(p).values(), key=lambda r: -r["time"])][:30])
+            lists = {k: [str(x) for x in a[k]] if isinstance(a.get(k), list) else None for k in ("parts", "findings")}
+            try:
+                got = record.draft(p, str(a["says"]), origin="agent", by=str(a.get("by") or "mcp"), details=a.get("details"),
+                                   parts=lists["parts"], findings=lists["findings"], repro=a.get("repro"))
+            except record.ReportError as e:
+                return {**_text(str(e)), "isError": True}
+            return _text({"id": got["id"], "title": got["title"], "file": got["file"], "scrubbed": got["scrubbed"],
+                          "tell_the_owner": f"A report is drafted for you to read, scrubbed: {got['file']} (ergostat report "
+                                            f"{record.short(got['id'])}). Nothing was sent; submit it by hand if you choose.",
+                          "text": got["text"]})
         if name == "record_event":
             from .runner import OWN_TYPES, TYPE_NAME
             t, data = str(a.get("type", "")), a.get("data") or {}

@@ -76,6 +76,7 @@ run it
   mcp            ergostat for an AI agent, over MCP
   projects       Every project on this machine, which run, and their pages
   remote         Remote systems this model reads (status); token NAME lets another ergostat read this one
+  report         Reports about ergostat itself, scrubbed, for you to read and submit by hand (--draft TEXT)
   reset          Forget this project's record and start from nothing (--yes)
   verify         Score the changes written to the model again on the record since (--propose)
   bench          How we know it works: bench improve, judge, meta; bench parity (fresh sessions vs a long one)
@@ -268,7 +269,7 @@ def build() -> argparse.ArgumentParser:
     mc = sub.add_parser("mcp", parents=[common], help="Serve ergostat to an AI agent over MCP (stdio)",
                         description="An MCP server on stdin/stdout: check, explain, status, findings, residuals, fit, events, "
                                     "spec, improve_model, try_change, measures, report_done, read_sensor, items, "
-                                    "record_event. "
+                                    "record_event, report_upstream. "
                                     "Add it to Claude Code: claude mcp add ergostat -- ergostat -C DIR mcp")
     mc.set_defaults(fn=cmd_mcp)
     hp = sub.add_parser("help", help="Guides: blocks (writing their programs), ai-agents, spec (the format), modelling "
@@ -297,6 +298,8 @@ def build() -> argparse.ArgumentParser:
     gated_topics(sub, common)
     from .remote import register as remote_topics
     remote_topics(sub, common)
+    from .reports import register as report_topics
+    report_topics(sub, common)
     return ap
 
 
@@ -362,3 +365,23 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except BrokenPipeError:
         return 0
+    except Exception as e:
+        if args.topic == "check":                       # ergostat's own crash: drafted as a report (SPEC §12m)
+            _crash(args, e)
+        raise
+
+
+def _crash(args, e: Exception) -> None:
+    """A crash in ``check``, drafted as a report for the owner, and said where it is."""
+    from pathlib import Path
+
+    from ..reports import crash
+    try:
+        from .. import model as mdl
+        from ..store import Project
+        got = crash.noted(Project(mdl.load(Path(args.C).resolve() if args.C else Path.cwd())), e, "check")
+    except Exception:
+        got = None
+    if got:
+        print(f"ergostat crashed; a report is drafted for you to read (nothing is sent): ergostat report "
+              f"{got['id'].split('/', 1)[1]}", file=sys.stderr)

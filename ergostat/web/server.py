@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from .. import graph, history, series
 from .. import model as mdl
 from .. import state as st
+from ..reports.crash import noted as crash_noted
 from ..series import off_stretches
 from ..spec.item_sets import BadSet
 
@@ -543,6 +544,9 @@ def _answer(live: Live, path: str, q: dict):
     if head == "messages":                        # the owner's messages, about one item or all (SPEC §12h)
         from .messages_api import listing
         return listing(p, one("item") or None)
+    if head == "report" and name:                 # a report upstream: its text, its link, its scrub log (SPEC §12m)
+        from .reports_api import get as report
+        return report(p, "/".join(unquote(x) for x in parts[1:]))
     if head == "actions":                         # gated actions sessions asked for, about one item or all (SPEC §12k)
         from .actions_api import listing as actions
         return actions(p, one("item") or None)
@@ -723,6 +727,9 @@ def handler(project):
                 elif u.path.startswith("/api/control/"):   # a loop's process, tuning or step test: the owner's answer
                     from .control_api import post as control
                     code, data = control(live, u.path.removeprefix("/api/"))
+                elif u.path.startswith("/api/report/"):    # the owner marking a report upstream (SPEC §12m)
+                    from .reports_api import post as report
+                    code, data = report(live, u.path.removeprefix("/api/"), q)
                 elif u.path.startswith("/api/action/"):    # the owner's answer to a gated action held (SPEC §12k)
                     from .actions_api import post as action
                     code, data = action(live, u.path.removeprefix("/api/"), q)
@@ -735,6 +742,7 @@ def handler(project):
                 else:
                     code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
             except Exception as e:                      # a broken request never takes the page down
+                crash_noted(live, e, "web")                # a report for the owner (SPEC §12m)
                 code, data = 500, {"error": f"{type(e).__name__}: {e}"}
             return self._send(code, json.dumps(data, default=str).encode(), "application/json")
 
@@ -806,6 +814,7 @@ def handler(project):
                 except BadSet as e:                     # an Items filter that is not one: said, as the asker's
                     return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
                 except Exception as e:                  # a broken request never takes the page down
+                    crash_noted(live, e, "web")                # a report for the owner (SPEC §12m)
                     return self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode(), "application/json")
                 if data is None:
                     return self._send(404, b'{"error": "not found"}', "application/json")

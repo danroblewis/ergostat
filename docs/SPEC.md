@@ -733,11 +733,12 @@ the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items o
 the window, 400 more reached by relations (six links away at most), 300 cards and 200 rows drawn; a note says when
 any was reached. In a snapshot they are not drawn.
 
-**Built-in kinds.** Six kinds are ergostat's own, present in every project and never declared (a project's
+**Built-in kinds.** Seven kinds are ergostat's own, present in every project and never declared (a project's
 kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every change to the model (section 12e),
 `ergostat.claim`, what a block said it did, checked (section 12g), the owner's intent, `ergostat.decision` and
 `ergostat.correction` (below), and `ergostat.message`, the owner's messages, routed to the work they concern
-(section 12h), and `ergostat.verdict`, the intent judge's verdict on finished work (section 12i). ergostat may also
+(section 12h), and `ergostat.verdict`, the intent judge's verdict on finished work (section 12i), and `ergostat.report`, a report
+about ergostat itself, drafted and scrubbed for the owner to submit by hand (section 12m). ergostat may also
 move any item: `ergostat.item.reopened` moves it to the state its data names (`reopened.to`, else its kind's first),
 `ergostat.item.follow-up` starts one (section 12h), and `ergostat.item.judged` sets its field `intent` (section 12i).
 A kind a block takes (section 9.5) is moved by its leases too (`ergostat.lease.*`: to `leased`, back, or to `dead`),
@@ -3676,6 +3677,75 @@ window's moves.
 
 **Where.** `ergostat check` (after the findings; `--json`: `coherence`; `--no-coherence` leaves it out), the MCP tool
 `coherence` (`since`), `GET /api/coherence`, and the Check page's Coherence section.
+
+## 12m. Reports upstream: when ergostat itself is wrong
+
+When ergostat itself is wrong (it crashed, answered wrongly, or cannot express what a model needs), a **report** is
+drafted for the owner: scrubbed, kept in the state directory, and submitted to ergostat's GitHub project by the owner,
+by hand, if they choose. *Decided* (the owner, 2026-11-18): **ergostat never files one**: nothing here makes a network
+call, runs `gh`, or opens the link it offers.
+
+**Every report is an item.** `ergostat.report` is a built-in item kind (section 5a), its id
+`ergostat.report/<short id>`:
+
+| State | Reached by | Source |
+|---|---|---|
+| drafted | `ergostat.report.drafted`: `title`, `labels`, `origin` (`agent`, `owner`, `crash`, `modelling`), `by`, `file`, `scrub_file`, `scrubbed` (removals counted by rule), `version`, `commit`, and a crash's `signature` | who drafted it, or `ergostat` |
+| reviewed | `.reviewed`: the owner has read it (`note`) | the owner |
+| submitted | `.submitted`: the owner pasted it into an issue (`note`: its link, say) | the owner |
+| dismissed | `.dismissed` (from drafted or reviewed) | the owner |
+
+`.seen` moves nothing: the same crash, or the same report line, again (`occurrences`). A drafted report needs
+attention, all of them in one line (`reports upstream: N drafted ...: ergostat report`).
+
+**Who drafts one.**
+
+- An agent: the MCP tool `report_upstream` (`says`, `details`, `parts`, `findings`, `repro`; without `says`, the list).
+- The owner: `ergostat report --draft "what went wrong" [--details T] [--part P ...] [--finding CODE ...] [--repro FILE]`.
+- ergostat, on its own crash: an unhandled exception in the engine's evaluation pass, an agent's run in the runner, a
+  page server request (a 500) or `ergostat check`. One report a **stack signature** (the exception's type and the
+  frames in ergostat's own code, by file and function, not line); the same crash again is counted on it, once a
+  process. The machine's trouble (an `OSError`, a locked database, a stop) is not ergostat's and drafts nothing.
+- A block, by a line: `{"report": "what ergostat could not express or do"}` (or `{"report": {"says", "details",
+  "parts", "findings", "repro"}}`): one report a block and sentence. The modelling loop's improver (and redesigner)
+  print it when the change a model needs is one the format cannot say (origin `modelling`).
+
+**Scrubbed before anyone reads it** (`reports/scrub.py`). Kept: ergostat's version and commit, Python and the OS; the
+error and traceback, ergostat's and Python's frames as they are (their code is public) with paths reduced to
+`ergostat/spec/engine.py` and `python3.12/json/decoder.py`, any other frame reduced to its (scrubbed) place; the
+model's shape (counts of parts, block types, sensor kinds, item kinds and their states, systems, sources, template
+uses); the findings named; and a **reproduction** where one can be made: a tiny generic model, from the parts
+involved and what they name (or the whole model, when it has at most 30 entries and no part is named), every name a
+stand-in, descriptions and prompts left out, commands `echo 0`; or one the agent wrote, scrubbed like the rest. For a
+crash in `check`, the reproduction is checked, and the report says whether it crashes the same way. Removed, each
+replaced by a stand-in that is the same wherever the same thing was:
+
+| Rule | What |
+|---|---|
+| `denylist` | the owner's terms: `reports/denylist.txt` in the state directory and `reports-denylist.txt` in ergostat's home folder (never in a repository); one a line, `re:PATTERN` for a pattern, `#` a comment |
+| `secret` | `token=`, `password:`, `api_key=` and the like with their values; `Authorization: Bearer ...`; well-known key prefixes (`ghp_`, `sk-`, `xoxb-`, `AKIA`, JWTs); hex runs of 32 or more; long mixed-case base64 |
+| `url`, `email`, `ip`, `host` | every URL but ergostat's own project's and localhost's; emails; IP addresses (not 127.0.0.1); host names with a known top-level or internal domain (`.corp`, `.internal`, `.local`, ...) |
+| `path` | file paths on this machine (ergostat's and Python's own reduced, as above) |
+| `ticket`, `mention` | ticket keys (`ABC-123`, not `UTF-8`), `@mentions` |
+| `name` | the model's names: parts, item kinds and their items' ids (`ticket/12` becomes `kind-1/item-1`), their event types, states and shown fields (common words such as `open` and `done` kept), systems, sources, agents, parameters, uses, pools, contexts, the model's and its files' names; names of three characters or more; ergostat's own (the modelling loop's parts) kept |
+| `user` | this machine's user and host names |
+
+Item data is never put in a report. A last pass over the whole text removes any original removed elsewhere, and any
+denylist term, wherever it reached the text. **Each report records what was removed and why** (`<id>.scrub.json`: the
+original, its stand-in, the rule, why and how often), so the owner can check the scrubbing; the log stays in the
+state directory and is never part of the text.
+
+**Reviewed and submitted by hand.** Each report is a Markdown file, `reports/<short id>.md` in the state directory:
+`Title: ...`, `Labels: ...` (suggested: `ergostat-report`, and `bug`, `crash`, `cannot-express` by origin), a blank
+line, then the body to paste (*What went wrong*, *Where*, *Error*, *The model's shape*, *Findings involved*,
+*Reproduction*).
+
+- `ergostat report` lists them; `ergostat report ID` prints one (the text, the link to a new issue, the scrub log;
+  `--log` the log alone); `--reviewed`, `--done` (submitted) and `--dismiss` mark it (`--note`).
+- Its item page shows the text with **Copy the body**, **Open a new issue on GitHub** (a link to
+  `github.com/danroblewis/ergostat/issues/new` with the title and labels filled in; the owner opens it and pastes the
+  body; nothing is sent), the owner's marks, and the scrub log. (`GET /api/report/ID`; `POST /api/report/ID/reviewed`,
+  `/submitted` or `/dismissed`.)
 
 ## 13. Examples
 
