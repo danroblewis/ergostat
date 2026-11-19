@@ -131,6 +131,8 @@ class Engine:
         self.version = version(project.model)          # the model new runs start under (each run records its own)
         self.procs: dict[str, subprocess.Popen] = {}   # machine block → its run's process, while it runs
         self.stopping_runs: set[str] = set()           # blocks whose run the owner asked to stop
+        self.live: dict[str, subprocess.Popen] = {}    # run id → its process, while it runs (leases/kill.py)
+        self.killing: dict[str, str] = {}              # run id → why it is being killed (its lease expired)
         self.ingester = None
         self.lease_seq = 0                             # the newest lease event taken to the workspace pools (SPEC §12k)
         self.following = False                         # whether _follow runs: it runs the actions programs ask for
@@ -754,6 +756,7 @@ class Engine:
                 old.LIVE.add(proc)
                 with self.lock:
                     self.procs[b.name] = proc
+                    self.live[begun["id"]] = proc
                 tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
                 try:
                     if stream.pump(proc, stdin, b.timeout, take):
@@ -766,8 +769,12 @@ class Engine:
                             del self.procs[b.name]
                         asked = b.name in self.stopping_runs
                         self.stopping_runs.discard(b.name)
+                        self.live.pop(begun["id"], None)
+                        killed = self.killing.pop(begun["id"], None)
                 code = proc.returncode
-                if code and not note:
+                if killed:                                       # its lease expired: stopped (leases/kill.py)
+                    note = f"killed: {killed}"
+                elif code and not note:
                     note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
         if code == 0 and not note:                               # a bare number only from a run that finished well
             said.finish()

@@ -342,7 +342,7 @@ def test_a_nack_line_puts_it_off(tmp_path):
 
 def test_renewed_by_events_and_expired_when_silent_then_retried(tmp_path):
     """A run that writes about its item keeps its lease past its TTL; one that goes silent loses it: the item goes back
-    to ready, its attempt counted, and is taken again. The silent run is not killed: what it says after is refused."""
+    to ready, its attempt counted, and is taken again. The silent run is killed (test_lease_kill.py): it says nothing late."""
     run = ('if [ ! -f first ]; then touch first; sleep 3; echo "{\\"event\\": \\"ticket.done\\"}"; exit 0; fi; '   # silent
            'for i in 1 2 3 4; do $ERGOSTAT_CMD event --add ticket.progress --item $ERGOSTAT_ITEM --data "{\\"step\\": $i}"; '
            'sleep 0.4; done; echo "{\\"event\\": \\"ticket.done\\", \\"data\\": {\\"by\\": \\"second\\"}}"')
@@ -351,7 +351,6 @@ def test_renewed_by_events_and_expired_when_silent_then_retried(tmp_path):
     e = start(p)
     try:
         assert wait_for(lambda: item(p, "ticket/1").state == "done", 15)
-        time.sleep(2.5)                                     # the first, silent run ends late
     finally:
         e.close()
     it = item(p, "ticket/1")
@@ -360,8 +359,8 @@ def test_renewed_by_events_and_expired_when_silent_then_retried(tmp_path):
     assert lease["history"][1]["taken"] - lease["history"][0]["taken"] >= 1.0
     assert lease["history"][1]["ended"] - lease["history"][1]["taken"] > 1.2, "kept past its TTL by its own events"
     assert it.fields["by"] == "second"
-    refused = p.events.query(n=None, type="agent.refused", item="worker")
-    assert refused and "fencing" in refused[-1]["data"]["why"], "the late run's line refused, not applied"
+    assert p.events.query(n=None, type="ergostat.run.killed"), "the silent run killed, not left to finish late"
+    assert not p.events.query(n=None, type="agent.refused", item="worker"), "so it never said its late line"
     expired = p.events.query(n=None, type=EXPIRED)[0]["data"]
     assert expired["silent"] >= 1.0 and expired["item"] == "ticket/1" and expired["state"] == "ready" and not expired["terminal"]
 

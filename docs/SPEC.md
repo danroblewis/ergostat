@@ -1819,9 +1819,16 @@ back uncounted, unless what it printed before had already moved the item on (its
 them, section 9.1): that is an ack. A lease that expired is not ended again when its run ends.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
-told it (`ERGOSTAT_LEASE`). A run whose lease expired is not stopped (it may still be doing useful
-work, and the item is already back in the queue), but whatever it says about the item afterwards is
-refused, not applied: an event line about it is refused when it is printed, before it is recorded
+told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
+to run on, and the item was back in the queue meanwhile): when its lease expires, the engine that started it sends
+SIGTERM to its process group and every process it started (in whatever group or session), and SIGKILL after a grace
+(`ERGOSTAT_KILL_GRACE`, read at each kill; 10 s when unset or not a number) to what is left, and records `ergostat.run.killed` (about its block; `run`, `item`,
+`fence`, `why`, `signal`: TERM or KILL, `pids`, `grace`). The run then ends as any run: `agent.failed`, its note
+`killed: ...`, its time, resources and cost measured (section 9.1); its lease is not ended again. The lease is read
+again after the expiry is recorded, and the run is killed only when that expiry took (not renewed meanwhile); a run
+that ended meanwhile is not signalled, nor, once its tree is gone, anything under its pid. A run that renews
+is never killed, and a run left behind by an engine that stopped is not signalled (it is not this engine's). Whatever
+a run says about the item after its lease ended (before it is stopped, or from elsewhere) is refused, not applied: an event line about it is refused when it is printed, before it is recorded
 (`agent.refused`, its why the fencing), and an event recorded any other way, caused by a run whose lease on the item ended,
 is recorded as it was said and refused by the fold (the item's `refused`). A `taken` while the item
 is held, or with a fence that is not the next one, is refused too: one lease at a time.
@@ -1862,8 +1869,8 @@ events are the hook. React to `ergostat.lease.taken` (acquire, for `data.run` on
 `ergostat.lease.ended` and `ergostat.lease.expired` (release). Each names its `item`; an end says the `state` it
 leaves the item in and whether that is `terminal` (a dead letter, or its kind's last state): finished, so what it
 held can be cleaned, or not (under review, or back in the queue to be taken again), so it can be kept. In the run, `ERGOSTAT_ITEM` and
-`ERGOSTAT_LEASE` name what it holds, and `ERGOSTAT_RUN` the holder. A run whose lease expired may
-still be running: what it writes about the item is refused, and what it holds should be released or
+`ERGOSTAT_LEASE` name what it holds, and `ERGOSTAT_RUN` the holder. A run whose lease expired is killed, but
+may still be stopping (its grace): what it writes about the item is refused, and what it holds should be released or
 fenced the same way, by the fencing number. The workspace pools (section 12k) are held this way: an `ai`
 block with `workspace:` that takes items works in its item's workspace, kept across its attempts and
 its review, and cleaned when the item is terminal. `$ERGOSTAT_CMD event --type ergostat.lease.* --follow`

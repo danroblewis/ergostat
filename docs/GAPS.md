@@ -79,7 +79,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Runtime, scale and latency
 
-- **Warm workers instead of a process per item** (open; designed in the latency work).
+- **Warm workers instead of a process per item** (parked on branch `warm`, after failing its gate twice; its
+  definition file, `docs/roadmap/overnight/leasekill.md`, says where it stopped and the fixes it needs).
 - **ergostat's upkeep as a modelled system** (idea; owner, 2026-11-19): a built-in `use: upkeep` template, like
   `use: modelling`, drawing ergostat's own housekeeping as control loops: item-index files (created on each change to
   the kinds, tidied, healed), event-log compaction, measurement retention, the worktree pool, expired leases, the
@@ -92,7 +93,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   takes 13 s even on small models).
 - **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`).
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
-- **Should a run whose lease expired be killed?** (open question for the owner).
+- **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
+  *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
 
 ## Interface
 
