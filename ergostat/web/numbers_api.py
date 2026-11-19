@@ -42,22 +42,19 @@ def horizon_of(run: sim.Run, window: float) -> float:
 
 
 def loops_of(spec, asked: str | None) -> str:
-    """How the projection runs: ``closed`` (the loops running: the goals, the built-ins and each machine block's
-    stand-in, closedloop.py) or ``held`` (open loop, the blocks held). Closed by default where the model has
-    controllers."""
+    """How the projection runs: ``closed`` (with the loops running, closedloop.py) or ``held`` (open loop). Closed by
+    default where the model has controllers."""
     if asked in ("closed", "held"):
         return asked
     return "closed" if spec is not None and cl.has_controllers(spec) else "held"
 
 
-def standins_of(live, p, snap: dict) -> dict:
-    """Each machine block's stand-in, identified on the reference window (the last day of record) whatever window
-    the page shows, kept for half a minute."""
-    key = ("standins", snap["at"] if not snap.get("live", True) else round(snap["at"] / 30), live.mtime)
+def models_of(live, p, snap: dict) -> dict:
+    """Each machine block's identified model, on the reference window whatever window the page shows (half a minute)."""
+    key = ("models", snap["at"] if not snap.get("live", True) else round(snap["at"] / 30), live.mtime)
     got = live.cached(key)
     if got is None:
-        spec = spec_of(p)
-        got = cl.identify(p, spec, ob.measured(p, ob.reference(p, snap["at"])))
+        got = cl.identify(p, spec_of(p), ob.measured(p, ob.reference(p, snap["at"])))
         live.keep(key, got)
     return got
 
@@ -66,9 +63,8 @@ def model_run(live, p, snap: dict, n: int = series.POINTS, inputs: str = "hold",
               horizon: float | None = None, loops: str = "held", other: cl.WhatIf | None = None) -> dict | None:
     """The replay and the projection on the page's grid, for the charts: shared by the requests of a
     few seconds (the strip and the panels ask together). The fit is not of this grid (``reference``).
-    ``whatif`` tries other values for some parameters (nothing is kept: a what-if); ``loops="closed"`` runs the
-    projection with the loops running, ``other`` the what-ifs only that projection can try (an input's rate, a
-    setpoint, a pool)."""
+    ``whatif`` tries other values for some parameters (nothing is kept: a what-if); ``loops`` and ``other`` (the
+    what-ifs only a closed loop tries): ``closedloop.projection``."""
     spec = spec_of(p)
     if spec is None:
         return None
@@ -84,14 +80,9 @@ def model_run(live, p, snap: dict, n: int = series.POINTS, inputs: str = "hold",
     run = sim.replay(spec, data, pl)
     horizon = horizon or horizon_of(run, until - since)
     points = max(2, round(n * horizon / max(until - since, 1.0)))
-    got = {"data": data, "run": run, "horizon": horizon, "points": points, "loops": loops, "pl": pl}
-    if loops == "closed":
-        got["standins"] = standins_of(live, p, snap)
-        got["start"] = cl.start_of(p, spec, until)
-        proj = cl.closed(spec, data, run, horizon, pl, points, got["standins"], got["start"], inputs, other)
-    else:
-        proj = sim.project(spec, data, run, horizon, pl, points=points, inputs=inputs)
-    got["projection"] = proj
+    got = {"data": data, "run": run, "horizon": horizon, "points": points, "loops": loops,
+           **cl.projection(p, spec, data, run, horizon, pl, points, loops, inputs, other,
+                           models_of(live, p, snap) if loops == "closed" else None)}
     live.keep(key, got)
     return got
 
@@ -100,35 +91,28 @@ RISKING: dict = {}        # the risks being worked out, by key: one at a time fo
 RISKING_LOCK = threading.Lock()
 
 
-def risk_of(live, p, snap: dict, mr: dict, inputs: str, whatif: dict | None = None, other: cl.WhatIf | None = None,
-            wait: bool = True) -> dict | None:
-    """The closed-loop projection's Monte Carlo (closedloop.risk): its spread and each goal's chance of being off,
-    cached as the model run is (half a minute when live). Worked out once however many ask, in a thread of its own so
-    the page's other requests are not held behind it; ``wait=False`` returns None while it is being worked out."""
+def risk_of(live, p, snap: dict, mr: dict, inputs: str) -> dict | None:
+    """The closed-loop projection's Monte Carlo (closedloop.risk), cached as the model run is (half a minute when live),
+    worked out once however many ask, in a thread of its own so the page's other requests are not held behind it: None
+    while it is being worked out."""
     spec = spec_of(p)
-    other = other or cl.WhatIf()
     key = ("risk", snap["window"], snap["at"] if not snap.get("live", True) else round(snap["at"] / 30), live.mtime,
-           mr["data"].grid.n, inputs, tuple(sorted((whatif or {}).items())), other.key())
+           mr["data"].grid.n, inputs)
     got = live.cached(key)
     if got is not None:
         return got
     with RISKING_LOCK:
-        th = RISKING.get(key)
-        if th is None:
+        if key not in RISKING:
             def work():
                 try:
-                    live.keep(key, cl.risk(spec, mr["data"], mr["run"], mr["horizon"], mr["points"], mr["standins"],
-                                           mr["start"], _estimates(p, spec), whatif or None, inputs, other,
-                                           budget=RISK_BUDGET))
+                    live.keep(key, cl.risk(spec, mr["data"], mr["run"], mr["horizon"], mr["points"], mr["models"],
+                                           mr["start"], sens.estimates(p, spec), None, inputs, budget=RISK_BUDGET))
                 finally:
                     with RISKING_LOCK:
                         RISKING.pop(key, None)
-            th = RISKING[key] = threading.Thread(target=work, name="ergostat-risk", daemon=True)
-            th.start()
-    if not wait:
-        return None
-    th.join(RISK_BUDGET + 30)
-    return live.cached(key)
+            RISKING[key] = threading.Thread(target=work, name="ergostat-risk", daemon=True)
+            RISKING[key].start()
+    return None
 
 
 def fan_of(live, p, snap: dict, mr: dict, inputs: str) -> dict | None:
@@ -140,7 +124,7 @@ def fan_of(live, p, snap: dict, mr: dict, inputs: str) -> dict | None:
     got = live.cached(key)
     if got is not None:
         return got
-    got = sens.fan(spec, mr["data"], mr["horizon"], mr["points"], inputs, _estimates(p, spec), run=mr["run"])
+    got = sens.fan(spec, mr["data"], mr["horizon"], mr["points"], inputs, sens.estimates(p, spec), run=mr["run"])
     live.keep(key, got)
     return got
 
@@ -152,18 +136,9 @@ def replay_fan_of(live, p, snap: dict, mr: dict) -> dict | None:
            mr["data"].grid.n)
     got = live.cached(key)
     if got is None:
-        got = sens.replay_fan(spec_of(p), mr["data"], _estimates(p, spec_of(p)))
+        got = sens.replay_fan(spec_of(p), mr["data"], sens.estimates(p, spec_of(p)))
         live.keep(key, got)
     return got
-
-
-def _estimates(p, spec) -> dict:
-    est: dict = {}
-    kept = es.load_all(p, spec)
-    for which in ("whole", "systems", "parts"):              # an estimate's standard error; each part alone's first
-        for k, x in kept.get(which, {}).items():
-            est[x.get("parameter", k)] = x
-    return est
 
 
 def reference(live, p, snap: dict) -> dict | None:
@@ -230,10 +205,10 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
                                f"running")
         other = cl.WhatIf()
     mw = model_run(live, p, snap, out["points"], inputs, tried, mr["horizon"], loops, other) if (tried or other) else None
-    rk = risk_of(live, p, snap, mr, inputs, wait=False) if fan and loops == "closed" else None
+    rk = risk_of(live, p, snap, mr, inputs) if fan and loops == "closed" else None
     if fan and loops == "closed" and rk is None:
-        out["fan_pending"] = True                   # being worked out: the strip asks again for it
-    fn = (rk if rk is not None else fan_of(live, p, snap, mr, inputs)) if fan else None
+        out["fan_pending"] = True                   # being worked out: the strip asks again, and draws no spread till then
+    fn = rk if loops == "closed" else fan_of(live, p, snap, mr, inputs) if fan else None
     rf = replay_fan_of(live, p, snap, mr) if fan == "replay" else None
     for s in out["series"]:
         ref = s["ref"]
@@ -251,11 +226,11 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
             lo, hi = ("p5", "p95") if band and "p5" in band else ("p25", "p75")
             if band and max(b - a for a, b in zip(band[lo], band[hi], strict=True)) > 0:   # a spread to draw
                 s["fan"] = {k: _round(v) for k, v in band.items()}
-    for s in out["series"]:                         # a flow a machine block moves: its stand-in's projection
+    for s in out["series"]:                         # a flow a machine block moves: its identified model's projection
         ref = s["ref"]
         if ref not in run.how and loops == "closed" and ref in proj.values:
             s["projection"] = _round(proj.values[ref])
-            s["modelled"] = "stand-in"
+            s["modelled"] = "identified model"
             if mw is not None and ref in mw["projection"].values:
                 s["whatif_projection"] = _round(mw["projection"].values[ref])
             band = (fn or {}).get("bands", {}).get(ref)
@@ -272,11 +247,12 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
             mine = {s["ref"] for s in out["series"]}
             near = mine | {f"stock.{x}" for r in mine if r.startswith("flow.") for f in [spec.flows.get(r[5:])] if f
                            for x in (f.source, f.target) if x}
-            out["standins"] = [x.said for r, x in sorted(mr["standins"].items()) if r in near or f"stock.{x.source}" in mine]
-            out["standins_assumed"] = sorted({x.block for x in mr["standins"].values() if x.assumed})
+            out["models"] = [{"block": x.block, "said": x.said(), "assumed": bool(x.assumed),
+                              "pool": x.servers if x.form == "servers" else None}
+                             for r, x in sorted(mr["models"].items()) if r in near or f"stock.{x.source}" in mine]
+            out["models_assumed"] = sorted({x.block for x in mr["models"].values() if x.assumed})
             if rk is not None:
-                out["risk"] = [{"goal": g.name, "said": cl.risk_said(spec, rk, g.name), **{k: v for k, v in rk["goals"][g.name].items()
-                                                                                         if k != "p_off"}}
+                out["risk"] = [{"goal": g.name, "said": cl.risk_said(rk, g.name), "p_off_end": rk["goals"][g.name]["p_off_end"]}
                                for g in spec.goals.values() if str(g.of) in mine and g.name in rk["goals"]]
         if tried or other:
             out["whatif"] = [{"name": k, "value": v, "was": spec.parameters[k].value, "unit": spec.parameters[k].unit,
@@ -302,44 +278,6 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
             out["fan"] = {"samples": fn["samples"], "invalid": fn["invalid"], "tails": fn["samples"] >= sens.TAILS,
                           "parameters": [{k: v for k, v in u.items() if k != "corr"} for u in sampled], "joint": sens.joint_said(sampled)}
     return out
-
-
-def risk_page(live, p, snap: dict, goal: str | None = None, whatif: str | None = None, inputs: str = "hold") -> dict:
-    """``GET /api/risk?goal=G``: with the loops running, each goal's (or one goal's) probability of being off at the
-    horizon, its expected time off, and the probability at each point ahead; what the runs sampled; how many ran."""
-    spec = spec_of(p)
-    if spec is None or not cl.has_controllers(spec):
-        return {"goals": [], "said": "no controllers: nothing runs in a closed-loop projection"}
-    inputs = "trend" if inputs == "trend" else "hold"
-    try:
-        tried, other = split_whatif(spec, whatif)
-    except pr.ProposalError as e:
-        return {"goals": [], "error": str(e)}
-    mr = model_run(live, p, snap, series.POINTS, inputs, tried or None, None, "closed", other)
-    if mr is None:
-        return {"goals": []}
-    rk = risk_of(live, p, snap, mr, inputs, tried or None, other)
-    if rk is None:
-        return {"goals": [], "error": "the runs took too long"}
-    names = [goal] if goal else list(spec.goals)
-    return {"horizon": rk["horizon"], "runs": rk["runs"], "asked": rk["asked"], "invalid": rk["invalid"], "seed": rk["seed"],
-            "stopped": rk["stopped"], "seconds": rk["seconds"], "times": [round(t, 3) for t in mr["projection"].times],
-            "goals": [{"goal": g, "said": cl.risk_said(spec, rk, g), "p_off": _round(rk["goals"][g]["p_off"]),
-                       "p_off_end": rk["goals"][g]["p_off_end"], "expected_off": rk["goals"][g]["expected_off"]}
-                      for g in names if g in rk["goals"]],
-            "sampled": len(rk["sampled"]), "whatif": other.said() + list(tried)}
-
-
-def standins_page(live, p, snap: dict, block: str | None = None) -> dict:
-    """``GET /api/standins?block=B``: what stands in for each machine block (or one) in the closed-loop projection, in
-    words and in numbers, and what the projection holds where it was."""
-    spec = spec_of(p)
-    if spec is None:
-        return {"standins": []}
-    got = standins_of(live, p, snap)
-    return {"standins": [{**x.as_dict(), "said": x.said} for x in got.values() if block is None or x.block == block],
-            "held": [h for h in cl.held_by_blocks(spec) if block is None or h.startswith(block + " ")],
-            "pool": (spec.blocks[block].pool if block in spec.blocks and spec.blocks[block].takes else None)}
 
 
 def whatif_fit(live, p, snap: dict, whatif: str | None) -> dict:

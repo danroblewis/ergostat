@@ -170,14 +170,44 @@ def fan(spec: Spec, data: ob.Data, horizon: float, points: int, inputs: str = "h
             if any(v is None for v in vals):
                 continue
             runs.setdefault(ref, []).append(vals)
-    bands = {}
+    return {"bands": bands(runs), "samples": len(sets) - invalid, "invalid": invalid, "parameters": unc}
+
+
+def bands(runs: dict[str, list[list[float | None]]], quantiles: tuple = QUANTILES) -> dict:
+    """For each part, the percentiles across runs at each moment (a moment no run has a value for: None); the 5th and
+    95th only from ``TAILS`` runs or more."""
+    out = {}
     for ref, rows in runs.items():
         if len(rows) < 2:
             continue
-        cols = [sorted(col) for col in zip(*rows, strict=True)]
-        bands[ref] = {f"p{round(q * 100)}": [quantile(c, q) for c in cols] for q in QUANTILES
-                      if len(rows) >= TAILS or 0.1 < q < 0.9}
-    return {"bands": bands, "samples": len(sets) - invalid, "invalid": invalid, "parameters": unc}
+        cols = [sorted(v for v in col if v is not None) for col in zip(*rows, strict=True)]
+        out[ref] = {f"p{round(q * 100)}": [quantile(c, q) if c else None for c in cols] for q in quantiles
+                    if len(rows) >= TAILS or 0.1 < q < 0.9}
+    return out
+
+
+WIDEST = math.log(10.0)  # an estimate whose standard error spans more than a factor of ten either way bounds nothing
+
+
+def informative(unc: list[dict]) -> tuple[list[dict], list[str]]:
+    """The uncertain parameters worth sampling, and those held at their value because their estimate's error spans more
+    than a factor of ten either way (sampled, they would make every run another model)."""
+    keep, held = [], []
+    for u in unc:
+        wide = u["how"] == "estimate" and (u.get("sd", 0) > WIDEST if u.get("logged") else u.get("sd", 0) > 10 * abs(u.get("value") or 0))
+        (held.append(u["name"]) if wide else keep.append(u))
+    return keep, held
+
+
+def estimates(p, spec: Spec) -> dict:
+    """Each estimate kept for the model (estimate.py), by parameter: the whole model's, else a system's, else its own."""
+    from .estimate import load_all
+    est: dict = {}
+    kept = load_all(p, spec)
+    for which in ("whole", "systems", "parts"):              # an estimate's standard error; each part alone's first
+        for k, x in kept.get(which, {}).items():
+            est[x.get("parameter", k)] = x
+    return est
 
 
 REPLAYS = 100            # runs of the replay for the spread over the record (each a replay: dearer than a projection)
@@ -198,14 +228,7 @@ def replay_fan(spec: Spec, data: ob.Data, estimates: dict | None = None, k: int 
             continue
         for ref, vals in r.values.items():
             runs.setdefault(ref, []).append(vals)
-    bands = {}
-    for ref, rows in runs.items():
-        if len(rows) < 2:
-            continue
-        cols = [sorted(v for v in col if v is not None) for col in zip(*rows, strict=True)]
-        bands[ref] = {f"p{round(q * 100)}": [quantile(c, q) if c else None for c in cols] for q in QUANTILES
-                      if len(rows) >= TAILS or 0.1 < q < 0.9}
-    return {"bands": bands, "samples": len(sets) - invalid, "invalid": invalid, "parameters": unc}
+    return {"bands": bands(runs), "samples": len(sets) - invalid, "invalid": invalid, "parameters": unc}
 
 
 def upstream(spec: Spec, refs: list[str]) -> set[str]:

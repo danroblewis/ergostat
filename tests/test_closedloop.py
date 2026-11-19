@@ -152,7 +152,7 @@ blocks:
 """
 
 
-def test_a_draining_blocks_stand_in_is_little_s_law_from_its_record(tmp_path):
+def test_a_draining_blocks_identified_model_is_little_s_law_from_its_record(tmp_path):
     p = project_of(tmp_path, DRAIN)
     now = time.time()
     q, tau = 4.0, 0.5                                   # it moves what waits in half an hour, on average
@@ -168,8 +168,8 @@ def test_a_draining_blocks_stand_in_is_little_s_law_from_its_record(tmp_path):
     got = cl.identify(p, p.model.spec, ob.measured(p, ob.Grid(now - 7200, now, 120)))
     s = got["flow.served"]
     assert s.form == "drain" and not s.assumed and s.gate is None
-    assert s.tau == pytest.approx(tau, rel=0.1)
-    assert "draining queue" in s.said and "12 runs" in s.said and s.se["tau"] > 0
+    assert s.residence == pytest.approx(tau, rel=0.1)
+    assert "draining queue" in s.said() and "12 runs" in s.said() and s.se["residence"] > 0
 
 
 TAKES = """\
@@ -201,16 +201,16 @@ blocks:
 """
 
 
-def test_a_block_that_takes_items_is_seats_from_its_runs(tmp_path):
+def test_a_block_that_takes_items_is_servers_from_its_runs(tmp_path):
     p = project_of(tmp_path, TAKES)
     now = time.time()
     for i in range(20):                                 # 20 runs of 20 minutes; 4 failed
         p.events.add("agent.failed" if i % 5 == 4 else "agent.ran", item="developer",
                       data={"exit": 1 if i % 5 == 4 else 0, "seconds": 1200.0, "item": f"job/{i}"}, at=now - 3000 + i * 100)
     s = cl.identify(p, p.model.spec, ob.measured(p, ob.Grid(now - 3600, now, 60)))["flow.worked"]
-    assert s.form == "seats" and s.seats == 3 and not s.assumed
+    assert s.form == "servers" and s.servers == 3 and not s.assumed
     assert s.service == pytest.approx(1 / 3) and s.success == pytest.approx(0.8) and s.ttl == pytest.approx(0.5)
-    assert "3 seats" in s.said and "80% success" in s.said and "20 runs" in s.said
+    assert "3 servers" in s.said() and "80% success" in s.said() and "20 runs" in s.said()
     # its rate: 0.8 × min(waiting, 3) / (20 min): 7.2 an hour once three or more wait
     assert s.rate({"stock.ready": 10.0}, True) == pytest.approx(7.2)
     assert s.rate({"stock.ready": 1.0}, True) == pytest.approx(2.4)
@@ -218,7 +218,7 @@ def test_a_block_that_takes_items_is_seats_from_its_runs(tmp_path):
     (tmp_path / "few").mkdir()
     few = project_of(tmp_path / "few", TAKES)
     a = cl.identify(few, few.model.spec, ob.measured(few, ob.Grid(now - 3600, now, 60)))["flow.worked"]
-    assert a.assumed and "assumed" in a.said
+    assert a.assumed and "assumed" in a.said()
 
 
 # ---- the loop run forward: an on/off drain settles where theory says
@@ -262,8 +262,7 @@ def onoff_run(tmp_path, horizon_h: float = 6.0, whatif: cl.WhatIf | None = None,
         p.measurements.add("sensor/queue.main", 25.0, at=now - 3600 + i * 60)
     data = ob.measured(p, ob.Grid(now - 3600, now, 60))
     run = sim.replay(spec, data)
-    worker = cl.StandIn("worker", "flow.served", "drain", gate="keep", source="queue", tau=1e-4, cap=cap,
-                        said="worker modelled as draining queue at most 30/h")
+    worker = cl.BlockModel("worker", "flow.served", "drain", label="worker", gate="keep", source="queue", residence=1e-4, cap=cap)
     start = cl.Start(status={"queue-short": "off"}, outputs={"keep": (now - 60, 1.0)})
     got = cl.closed(spec, data, run, horizon_h * 3600, None, 360, {"flow.served": worker}, start, whatif=whatif)
     return spec, data, run, got
@@ -285,7 +284,7 @@ def test_an_onoff_drain_loop_settles_between_its_release_point_and_its_setpoint(
     assert got.off_hours["queue-short"] == pytest.approx(0.25, abs=0.05) and got.valid   # off only until it falls past 20
     held = sim.project(spec, data, run, 6 * 3600, points=360, held=set())
     assert held.values["stock.queue"][-1] > 80                       # held: nothing drains it
-    assert any("stand-in" in n for n in got.notes)
+    assert any("identified model" in n for n in got.notes)
 
 
 def test_arrivals_doubled_the_queue_grows_and_the_controller_saturates(tmp_path):
@@ -309,7 +308,7 @@ def test_a_setpoint_tried_moves_where_the_loop_settles(tmp_path):
 def test_risk_is_reproducible_with_a_seed_and_bounded(tmp_path):
     spec, data, run, _ = onoff_run(tmp_path)
     now = data.grid.until
-    worker = cl.StandIn("worker", "flow.served", "drain", gate="keep", source="queue", tau=1e-4, cap=30.0, se={"cap": 6.0})
+    worker = cl.BlockModel("worker", "flow.served", "drain", gate="keep", source="queue", residence=1e-4, cap=30.0, se={"cap": 6.0})
     start = cl.Start(status={"queue-short": "off"}, outputs={"keep": (now - 60, 1.0)})
     args = (spec, data, run, 6 * 3600, 48, {"flow.served": worker}, start)
     a = cl.risk(*args, runs=40, seed=7)
@@ -321,7 +320,7 @@ def test_risk_is_reproducible_with_a_seed_and_bounded(tmp_path):
     x = a["goals"]["queue-short"]
     assert 0.0 <= x["p_off_end"] <= 1.0 and x["expected_off"] >= 0 and len(x["p_off"]) == 48
     assert "worker.cap" in {u["name"] for u in a["sampled"]}
-    said = cl.risk_said(spec, a, "queue-short")
+    said = cl.risk_said(a, "queue-short")
     assert said.startswith("queue-short: ") and "(40 runs)" in said
     capped = cl.risk(*args, runs=10_000, seed=7, budget=0.3)
     assert capped["asked"] == cl.MOST_RUNS and capped["stopped"] and capped["made"] < cl.MOST_RUNS
@@ -344,18 +343,23 @@ def test_the_page_projects_with_the_loops_running_and_tries_what_ifs(tmp_path):
     q = {"since": ["2h"], "refs": ["stock.queue"], "strip": ["1"], "replay": ["1"]}
     got = api(live, "series", q)
     assert got["loops"] == "closed" and got["loops_can_close"] and "with the loops running" in got["inputs"]
-    assert any("worker" in x for x in got["standins"])
+    assert any("worker" in x["said"] for x in got["models"])
     held = api(live, "series", {**q, "loops": ["held"]})
     assert held["loops"] == "held" and "open loop" in held["inputs"]
     s = {x["ref"]: x for x in api(live, "series", {**q, "whatif": ["flow.arrivals:x3"]})["series"]}
     assert s["stock.queue"]["whatif_projection"][-1] > s["stock.queue"]["projection"][-1]
     assert api(live, "series", {**q, "whatif": ["goal.nope:1"]})["whatif_error"]
     assert "only with the loops running" in api(live, "series", {**q, "loops": ["held"], "whatif": ["goal.queue-short:5"]})["whatif_error"]
-    rk = api(live, "risk", {"since": ["2h"], "goal": ["queue-short"]})
-    said = rk["goals"][0]["said"]
-    assert rk["goals"][0]["goal"] == "queue-short" and rk["runs"] > 0 and ("p≈" in said or "holding" in said)
-    si = api(live, "standins", {"since": ["2h"], "block": ["worker"]})
-    assert si["standins"][0]["block"] == "worker" and si["standins"][0]["said"]
+    fq = {**q, "fan": ["1"]}                            # the risk, worked out apart: pending, then in the strip's answer
+    first = api(live, "series", fq)
+    assert first["fan_pending"] and "fan" not in first["series"][0]   # no spread drawn while it is pending
+    for _ in range(200):
+        got = api(live, "series", fq)
+        if not got.get("fan_pending"):
+            break
+        time.sleep(0.1)
+    said = got["risk"][0]["said"]
+    assert got["risk"][0]["goal"] == "queue-short" and ("p≈" in said or "holding" in said) and got["fan"]["closed"]
     assert api(live, "whatif-fit", {"since": ["2h"], "whatif": ["goal.queue-short:5"]}) == {}
 
 
@@ -403,7 +407,7 @@ def test_a_block_that_moves_while_nothing_commands_it_is_not_gated_by_its_comman
         p.measurements.add("sensor/answered.main", 2.0, at=t)
     s = cl.identify(p, p.model.spec, ob.measured(p, ob.Grid(now - 7200, now, 60)))["flow.answered"]
     assert s.gate is None and s.form == "drain" and not s.assumed
-    assert s.tau == pytest.approx(2.0, rel=0.05) and "whether or not keep-none-late commands it" in s.said
+    assert s.residence == pytest.approx(2.0, rel=0.05) and "whether or not keep-none-late commands it" in s.said()
 
 
 def test_a_goal_on_a_count_of_items_reads_a_whole_number_as_the_engine_does(tmp_path):
@@ -419,8 +423,113 @@ def test_a_goal_on_a_count_of_items_reads_a_whole_number_as_the_engine_does(tmp_
         p.measurements.add("sensor/ready.main", 0.0, at=now - 3600 + i * 60)
     data = ob.measured(p, ob.Grid(now - 3600, now, 60))
     run = sim.replay(spec, data)
-    dev = cl.StandIn("developer", "flow.worked", "seats", gate="keep-none-ready", source="ready", seats=3,
+    dev = cl.BlockModel("developer", "flow.worked", "servers", gate="keep-none-ready", source="ready", servers=3,
                      service=10 / 3600, success=1.0)
     got = cl.closed(spec, data, run, 3600, None, 30, {"flow.worked": dev}, cl.Start())
     assert 0 < max(got.values["stock.ready"]) <= 0.51                # it is taken as soon as it counts as one item
     assert got.off_hours["none-ready"] < 0.05 and sum(got.off_end["none-ready"]) <= 6   # off only while one waits (6 come)
+
+
+MIDRUN = BUILTINS.replace("  worker:\n", """  queue-later:
+    type: delay
+    in: stock.queue
+    delay: 20s
+  late:
+    type: timer
+    in: stock.queue
+    after: 30s
+  high:
+    type: alarm
+    in: stock.queue
+    above: 20
+    for: 20s
+  worker:
+""")
+
+
+def test_the_shadow_started_from_the_record_mid_run_decides_as_the_engine_goes_on_deciding(tmp_path):
+    """The engine runs a while, recording what it records (its built-ins' outputs, the goals' crossings, the readings);
+    the shadow is then started from that record alone (``start_of``: outputs, a delay's line, a timer's and an alarm's
+    start, a counter's count, a limit's clock) and from there both decide the same, step by step."""
+    p = project_of(tmp_path, MIDRUN)
+    spec = p.model.spec
+    e = Engine(p, say=lambda s: None)
+    t0, dt = time.time() - 3600, 7.0
+    levels = [0, 5, 12, 18, 23, 27, 24, 19, 14, 9, 6, 11, 16, 22, 30, 21, 13, 8, 4, 2, 25, 26]
+
+    def engine_pass(i: int, q: float) -> None:
+        now = t0 + i * dt
+        e.signals["stock.queue"], e.signals["stock.backlog"] = q, 40.0 + i
+        p.measurements.add_many([("sensor/queue.main", now, q), ("sensor/backlog.main", now, 40.0 + i)])
+        ev, rows = [], []
+        e.goals(now, out=ev)
+        _, set_goals, _ = e._builtins(now, None, {}, ev, rows)
+        if set_goals:
+            e.goals(now, out=ev)
+        p.measurements.add_many(rows)
+        if ev:
+            p.events.add_many(ev, new=True)
+    split = 37
+    seq = levels * 3
+    for i in range(split + 1):
+        engine_pass(i, float(seq[i]))
+    st = cl.start_of(p, spec, t0 + split * dt)
+    assert st.state["queue-later"]["line"] and "since" in st.state["late"] and st.state["times"]["n"] > 0
+    assert [x.split(" ")[0] for x in st.unknown] == ["later"]   # it reads a built-in worked out after it: said, a pass early
+    G: dict = {}
+    sh = cl.Shadow(spec, G, st)
+    for i in range(split + 1, len(seq)):
+        now = t0 + i * dt
+        G["stock.queue"], G["stock.backlog"] = float(seq[i]), 40.0 + i
+        engine_pass(i, float(seq[i]))
+        sh.step(now)
+        for name in ("keep", "limiter", "queue-later", "big", "times", "cascade", "late", "high"):
+            assert G.get(f"block.{name}") == e.signals.get(f"block.{name}"), (i, name)
+        assert sh.status == e.status
+
+
+def test_a_written_law_keeps_its_deadband_resolution_and_limits():
+    m = cl.BlockModel("tuner", "flow.step", "law", gain=2.0, period=1.0, goal="g", target="setting", deadband=0.5,
+                      resolution=1.0, limits=(0.0, 10.0))
+    assert m.rate({"goal.g.error": 0.4, "stock.setting": 5.0}, True) == 0.0          # within the deadband
+    assert m.rate({"goal.g.error": 1.2, "stock.setting": 5.0}, True) == 2.0          # 2.4 rounded to a step of 1
+    assert m.rate({"goal.g.error": 3.0, "stock.setting": 9.0}, True) == 1.0          # up to its most, 10
+    assert m.rate({"goal.g.error": -3.0, "stock.setting": 1.0}, True) == -1.0        # down to its least, 0
+
+
+GROWTH = """\
+name: g
+parameters:
+  k:
+    value: 0.1
+    unit: 1/h
+    range: [0.05, 2.0]
+stocks:
+  queue:
+    unit: jobs
+    sensor: {manual: true}
+flows:
+  breeding:
+    to: queue
+    driven-by: +stock.queue
+    equation: k * stock.queue
+goals:
+  queue-short:
+    stock: queue
+    hold: "<= 1000"
+"""
+
+
+def test_a_run_that_is_not_valid_counts_as_off_and_is_said(tmp_path):
+    p = project_of(tmp_path, GROWTH)
+    spec = p.model.spec
+    now = time.time()
+    for i in range(61):
+        p.measurements.add("sensor/queue.main", 10.0, at=now - 3600 + i * 60)
+    data = ob.measured(p, ob.Grid(now - 3600, now, 60))
+    run = sim.replay(spec, data)
+    got = cl.risk(spec, data, run, 24 * 3600, 24, {}, cl.Start(), runs=40, seed=3)
+    assert 0 < got["invalid"] < got["made"]
+    x = got["goals"]["queue-short"]
+    assert x["p_off_end"] >= got["invalid"] / got["made"]
+    assert f"{got['invalid']} of {got['made']} runs not valid, counted as off" in cl.risk_said(got, "queue-short")

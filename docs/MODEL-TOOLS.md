@@ -295,14 +295,13 @@ its first reading, each equation worked out, every other input as measured. The 
 now for three of the slowest time constant the replay met (within a twentieth and a quarter of the window),
 two ways:
 
-- **With the loops running** (the default where the model has controllers): the goals turn off and on, the
-  built-in blocks decide exactly as the engine would (the projection runs the engine's own code for them), and
-  each machine block (a program, an AI agent, a person) is replaced by a **stand-in**: what it does to its flow,
-  identified from the record and said in words. "dispatcher modelled as moving at most 1.08e+03/h (the most it
-  moved while keep-work-waiting commands it, from 17m of record), taking from ready-work, and never past
-  runs-within-limit's setpoint on runs-in-flight"; "developer modelled as 2.6/h a seat (20m a run), 3 seats, 80%
-  success, from 6h of record (40 runs)". Where the record is too short the stand-in is an assumption, and is
-  flagged as one.
+- **With the loops running** (the default where the model has controllers): the goals turn off and on and the
+  built-in blocks decide by the engine's own code, started from where the record left them (what the record cannot
+  rebuild is said in the notes); each machine block (a program, an AI agent, a person) is replaced by its
+  **identified model**: what it does to its flow, identified from the record and said in words. "dispatcher modelled
+  as moving at most 846/h (its 95th percentile) …, never past runs-within-limit's setpoint on runs-in-flight";
+  "developer modelled as 2.4/h a server (20m a run), 3 servers, 80% success, from 6h of record (40 runs)". Where the
+  record is too short the model is an assumption, and is flagged as one.
 - **Held** (open loop): every block held as it was, every input held where it was. What a block's flow moves is
   left out, since a held controller says nothing true about it.
 
@@ -312,15 +311,15 @@ running, whether the backlog drains and the loop holds; held, where it goes if n
 **Where.** Diagram → **Dynamics** → click a stock, a valve or an auxiliary: its panel opens with its
 **causes strip** (the part, then what drives it, on one time axis). The replay is dashed over the
 measured line; past now, lighter, the projection. The strip's foot says how the projection runs and holds
-its inputs; **With the loops running** and **Held** under it switch every chart on the page; **What stands
-in for the blocks** lists the stand-ins near the part. A flow a block moves has no replay, and with the
-loops running its projection is its stand-in's. Choosing parts (Shift-click) charts them in the side panel
-too. Diagram → **Blocks** → click a machine block: **In a projection with the loops running** says its
-stand-in. Command line: `ergostat project` (`--held` for open loop, `--horizon 8h`).
+its inputs; **With the loops running** and **Held** under it switch every chart on the page; **Each block's
+identified model** lists those near the part, a pool what-if beside each block that takes items. A flow a block
+moves has no replay, and with the loops running its projection is its identified model's. Choosing parts
+(Shift-click) charts them in the side panel too. Command line: `ergostat project` (`--held` for open loop,
+`--horizon 8h`).
 
 **Needs.** An equation on the part, or (for a stock) flows in the model. A part the replay takes as
 measured says so under its chart ("no replay, projection or fan: no equation works it out"). With the
-projection held, what a flow a block sets moves is left out, and the foot says so. A stand-in needs six
+projection held, what a flow a block sets moves is left out, and the foot says so. An identified model needs six
 buckets of its flow measured while its block was commanded (five runs for a block that takes items).
 
 **How.** On image-squeeze, click `quality` or `time` in the Dynamics view (or **What's available** →
@@ -328,19 +327,32 @@ buckets of its flow measured while its block was commanded (five runs for a bloc
 
 ![A stock's causes strip: measured, replay, projection and fan](screenshots/model-tools/strip-replay-projection-fan.png)
 
-**How we know the closed loop is closer.** `scripts/closedloop_validate.py DIR` identifies the stand-ins on the
-record up to a split, projects past it both ways, and compares each with the record held out (Sterman's measures;
-`--double all` runs the inputs doubled). On demo runs of 40 minutes (2026-11-19), the scaled error over every stock,
-held → with the loops running: the coordinator 32.7 → 3.5, 6.5 → 1.1 and 38 → 8.1 (three stretches of 10 minutes);
-the-job 30 → 7.2, 36 → 1.2 and 101 → 25; ticket-factory (its eight tickets, one stretch of 4 minutes) 0.88 → 0.57.
-Most of what is left is bias (U_M about 0.7): inputs that changed after the split, and assumed stand-ins.
+**How far to trust it.** `tests/closedloop_validate.py DIR` (a script beside the tests, not run by them)
+identifies the models on the record up to a split, projects past it both ways, and compares each with the record
+held out by Sterman's measures (`--double all` runs the inputs doubled). Its held baseline holds every input and every
+block's flow at its recent rate and draws everything (`held=set()`); the product's held projection leaves out what a
+block's flow moves, so the baseline is the fairer comparison, not the chart. On demo runs of about 45 minutes
+(2026-11-19), every stock, scaled error and R², held → with the loops running:
+
+| Demo | Held out | Scaled error | R² |
+|---|---|---|---|
+| coordinator | the last 10 minutes; the 10 before; the 10 before that | 1.39 → 0.56; 6.25 → 1.22; 36.8 → 2.46 | 0.36 → 0.35; 0.58 → 0.57; 0.43 → 0.43 |
+| the-job | the same | 17.4 → 1.68; 117 → 3.27; 18.3 → 0.96 | 0.19 → 0.13; 0.11 → 0.10; 0.14 → 0.13 |
+| ticket-factory | 4 minutes, 3 minutes after its start | 0.88 → 0.57 | 0.41 → 0.12 |
+
+The closed loop's error is far smaller where the held baseline lets queues run off (a held outflow drains a stock
+below zero, a held inflow fills one without end); it does not track the record's moves better (R² about the same).
+A scaled error above 1 is worse than projecting zero for every stock: about half the stretches here are. Most of what
+is left is bias (U_M 0.5 to 0.8): inputs that changed after the split, and assumed models. ticket-factory's R² falls
+because its offline record is eight tickets in four minutes, mostly zeros: the closed loop moves its stocks by
+fractions of a ticket where the record holds still, and the held baseline is nearly flat too, so R² compares little.
 
 ### Sensitivity fan
 
 **What it is.** The projection run two hundred times over what the model says is uncertain (a
 parameter's `range:`, else an estimate's standard error), estimates fitted together drawn together. With
 the loops running the fan is the closed loop's own Monte Carlo (the risk, below): a hundred runs over the
-estimates, the stand-ins' numbers and the inputs.
+estimates, the identified models' numbers and the inputs.
 
 **What you get.** How much of the projection depends on what is not known: where half the runs fall,
 and nine in ten, shaded under the projection. A wide fan says measure that number before acting on the
@@ -384,30 +396,34 @@ and never proposals (they change the world, not the model):
 - an input's rate: a valve from outside (an arrival) → **What if it came at**: a rate an hour, or `x2` for
   twice its mean over the window (`flow.NAME`);
 - a setpoint: a goal's panel (Loops page, or a loop's scope) → **What if it held at** (`goal.NAME`);
-- a pool: Blocks view → a block that takes items → **What if its pool were** (`block.NAME.pool`).
+- a pool: the causes strip → **Each block's identified model** → beside a block that takes items, **what if its
+  pool were** (`block.NAME.pool`).
 
 Command line: `ergostat project --whatif flow.directed=x2 --whatif goal.runs-within-limit=8 --risk`.
 
 ### Risk
 
 **What it is.** The projection with the loops running, run a hundred times over what it does not know: the
-model's uncertain parameters (as the sensitivity fan samples them), each stand-in's identified numbers by
+model's uncertain parameters (as the sensitivity fan samples them), each identified model's numbers by
 their standard errors (a rate, a run's time, a success rate), and each input from outside by how far its mean
-over the horizon could be from now. From a fixed seed, so the same model and record give the same answer.
+over the horizon could be from now (its readings' spread over the horizon's effective number of buckets; not when
+it arrives). From a fixed seed: the same model and record give the same answer when every run is made within the
+time allowed.
 
 **What you get.** For each goal, the chance that it is off at the horizon and the time it is expected to spend
-off: "work-waiting: off at +4m28s with p≈1; 4m28s off expected over the 4m28s (100 runs)". For each part, the
-half and nine in ten of the runs, as the strip's fan.
+off: "team-prs-nudged: off at +30m with p≈0.45; 1m45s off expected over the 30m (100 runs)". A run that is not
+valid counts as off, and the line says how many were. For each part, the half and nine in ten of the valid runs, as
+the strip's fan, drawn when it is ready (nothing is drawn in its place till then).
 
 **Where.** The causes strip with the loops running: the fan, and a line for each goal on the part. A goal's
-panel (Loops page → a goal) → **Ahead, with the loops running**. `GET /api/risk?goal=NAME`. Command line:
+panel (Loops page → a goal) → **Ahead, with the loops running**. Command line:
 `ergostat project --risk` (`--runs`, `--seed`, `--budget`).
 
 **Needs.** Controllers in the model. Bounded: at most 400 runs and 4,000 steps a run; it stops at 8 seconds on
 the page (60 at the command line) and says how many runs it made. An estimate whose error spans more than a
 factor of ten is held at its value, not sampled.
 
-![The causes strip with the loops running: the fan, the goal's risk and the stand-ins](screenshots/model-tools/strip-closed-loop.png)
+![The causes strip with the loops running: the fan, the goal's risk and the identified models](screenshots/model-tools/strip-closed-loop.png)
 
 ### Leverage
 
