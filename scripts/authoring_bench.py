@@ -1,7 +1,7 @@
 """How well a small model adds a small control system from a request in plain words.
 
     uv run python scripts/authoring_bench.py ROUND [--model haiku] [--only 1,3] [--out /tmp/ergostat-bench]
-        [--repeat 3] [--skill PATH] [--diagrams] [--grade-only]
+        [--repeat 3] [--skill PATH] [--diagrams] [--grade-only] [--ports 8795,8796]
 
 For each request below: a scratch copy of examples/the-job with the ergostat-author skill in .claude/skills/ and
 ergostat's MCP server, and Claude Code (``claude -p``, the model asked) given the request text alone (the harness
@@ -19,7 +19,14 @@ request that many times at once (haiku varies), ``--skill`` gives the agent anot
 compare), ``--diagrams`` lets it take screenshots of the two diagrams and look at them (scripts/diagram_shots.py, a
 port of its own from 8791), ``--empty`` starts from a project with nothing in it instead of the-job (which models
 a ramp approval of its own), and ``--grade-only`` grades the folders of a round already run (with this checkout's
-code)."""
+code).
+
+Request 8 (``triage``) is an alert triage with a fan-out to three investigation facets and a join, modelled by hand;
+every request is also graded for craft (docs/MODELLING-WELL.md): the share of the parts it added that carry a
+description, of its stocks with a unit, of its flows between stocks with an equation, its goals and their
+tolerances, the tiers of its blocks; the lines between kinds the Process view draws after the stand-in run; and the
+rendering audit of its Dynamics and Blocks views (scripts/diagram_audit.py: lines through a part, on top of another,
+detours)."""
 
 from __future__ import annotations
 
@@ -60,12 +67,22 @@ REQUESTS = [
               "50%, 100%, checking the error rate before each next stage) and confirmed once it has run at 100% for a "
               "day. Write the item kind and its stocks, flows, goals and blocks yourself, one per stage, rather than "
               "using a template."),
+    ("triage", "Model our alert triage in ergostat.yaml, so I can see it in the three diagrams and keep it running. "
+               "Alerts come from our pager: bin/pager-alerts.sh prints the new ones as JSON (one per line, each with an "
+               "id, the service and a summary). An AI agent triages each alert: noise is dismissed, the rest go on. "
+               "Each alert that goes on is investigated along three lines at once, each its own piece of work done by "
+               "an AI agent: the service's logs, its recent deploys, and its metrics. Once all three are done, an AI "
+               "agent writes a summary from their findings; most alerts are then closed, but some are escalated to "
+               "the on-call engineer (a person), who either handles it or sends it back for more investigation. Write "
+               "the item kinds and their stocks, flows, goals and blocks yourself rather than using a template, with "
+               "stand-in scripts for each step so it runs here."),
 ]
 HARNESS = ("The owner is away and cannot answer questions: make reasonable assumptions and list them at the end. The "
            "owner has approved turning the result on in this folder (a scratch copy), once it checks and runs.")
 DIAGRAMS = ("To see the model's two diagrams as pictures, run `{py} {shots} . shots --port {port}` (add `--system "
             "NAME` for one system): it writes shots/dynamics.png (stock and flow) and shots/blocks.png (control); look "
             "at them with Read.")
+PORTS = [8791, 8792, 8793, 8795, 8796, 8797, 8798, 8799]     # 8790 is the owner's; 8794 is often taken
 TOOLS = ["mcp__ergostat", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "Skill"]
 
 
@@ -213,19 +230,93 @@ def shape(copy: Path) -> dict:
 
 
 COHERENT = r"""
-import json, sys
+import json, sys, time
 from pathlib import Path
-from ergostat import coherence as co, model as mdl
+from ergostat import coherence as co, model as mdl, process as pm
 from ergostat.spec import read
 from ergostat.store import Project
 base, _ = read(Path(sys.argv[2]) / "ergostat.yaml")
 p = Project(mdl.load(Path(sys.argv[1])))
 got = co.of_project(p, p.model.spec)
 mine = {k: x for k, x in got["kinds"].items() if k not in base.items and not k.startswith("ergostat.")}
+kinds = [k for k in p.model.spec.items if k not in base.items and not k.startswith("ergostat.")]
+cross = []
+if kinds:
+    m = pm.process(p.events, p.model.spec, kinds, time.time() - 3600, time.time())
+    cross = [f"{e['causeKind']}:{e['from']}>{e['itemKind']}:{e['to']} x{e['count']}" for e in m["edges"]
+             if e["kind"] == "caused"]
 print(json.dumps({"scores": [co.score_line(k, x) for k, x in mine.items()],
                   "agree": sum(x["agree"] for x in mine.values()), "compared": sum(x["compared"] for x in mine.values()),
-                  "mismatches": [f["id"] for f in got["findings"] if f["level"] == "mismatch" and f["kind"] in mine]}))
+                  "mismatches": [f["id"] for f in got["findings"] if f["level"] == "mismatch" and f["kind"] in mine],
+                  "cross_kind": cross}))
 """
+
+
+CRAFT = r"""
+import json, sys
+from pathlib import Path
+from ergostat.spec import read
+base, _ = read(Path(sys.argv[2]) / "ergostat.yaml")
+spec, problems = read(Path(sys.argv[1]) / "ergostat.yaml")
+if any(p.level == "error" for p in problems):
+    print(json.dumps({"error": "check fails"})); sys.exit()
+def new(d, old):
+    return {k: v for k, v in d.items() if k not in old and not k.startswith("ergostat")}
+st, fl = new(spec.stocks, base.stocks), new(spec.flows, base.flows)
+au, go, bl = new(spec.auxiliaries, base.auxiliaries), new(spec.goals, base.goals), new(spec.blocks, base.blocks)
+bl = {k: b for k, b in bl.items() if not getattr(b, "implied", False) and not k.startswith("keep-")}
+parts = [*st.values(), *fl.values(), *au.values(), *go.values(), *bl.values()]
+def share(xs, ok):
+    xs = list(xs)
+    return f"{sum(1 for x in xs if ok(x))}/{len(xs)}"
+print(json.dumps({
+    "described": share(parts, lambda x: bool(getattr(x, "description", None))),
+    "units": share(st.values(), lambda x: bool(getattr(x, "unit", None))),
+    "flow_equations": share([f for f in fl.values() if f.source], lambda x: bool(getattr(x, "equation", None))),
+    "goals": len(go), "goals_with_tolerance": share(go.values(), lambda g: bool(getattr(g, "tolerance", 0))),
+    "tiers": sorted({b.type for b in bl.values()}),
+    "kinds": len(new(spec.items, base.items)),
+}))
+"""
+
+
+def craft(copy: Path) -> dict:
+    """What a professional would look for beyond correctness, on the parts the agent added: descriptions, units,
+    equations, goals' tolerances, the tiers its blocks are on, and the kinds it declared."""
+    py = str(ROOT / ".venv" / "bin" / "python")
+    env = {**os.environ, "ERGOSTAT_HOME": str(copy.parent / "grade-home")}
+    base = copy.parent / "base" if (copy.parent / "base").exists() else ROOT / "examples" / "the-job"
+    got = subprocess.run([py, "-c", CRAFT, str(copy), str(base)], capture_output=True, text=True, env=env, timeout=300)
+    try:
+        return json.loads(got.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return {"error": (got.stderr or got.stdout)[-600:]}
+
+
+def audit(copy: Path, port: int) -> dict:
+    """The rendering audit (scripts/diagram_audit.py) of the Dynamics and Blocks views: lines through a part, lines on
+    top of another, detours."""
+    py = str(ROOT / ".venv" / "bin" / "python")
+    env = {**os.environ, "ERGOSTAT_HOME": str(copy.parent / "grade-home")}
+    web = subprocess.Popen([py, "-m", "ergostat", "-C", str(copy), "web", "--port", str(port)], env=env,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        time.sleep(4)
+        got = subprocess.run(["uv", "run", "--with", "playwright==1.63.0", "python", str(ROOT / "scripts" / "diagram_audit.py"),
+                              f"http://127.0.0.1:{port}", "view=dynamics", "view=blocks"], capture_output=True, text=True,
+                             timeout=300, cwd=ROOT)
+    except subprocess.TimeoutExpired:
+        return {"error": "timed out"}
+    finally:
+        web.terminate()
+        web.wait(10)
+    out = {}
+    for line in got.stdout.splitlines():
+        if line.startswith("[view="):
+            v = line[6:line.index("]")]
+            nums = [int(x.split()[-1]) for x in line[line.index("]") + 2:].split(", ")]
+            out[v] = dict(zip(("through", "overlap", "detour"), nums, strict=False))
+    return out or {"error": (got.stderr or got.stdout)[-300:]}
 
 
 def coherent(copy: Path, seconds: float = 40) -> dict:
@@ -295,6 +386,7 @@ def run_one(base: Path, n: int, model: str, timeout: float, skill_md: Path | Non
             "where_drawn": any(t == "mcp__ergostat__where_drawn" for t, _, _ in cs),
             "coherence_called": any(t == "mcp__ergostat__coherence" for t, _, _ in cs),
             "coherence": coherent(copy) if graded["check_ok"] else {"error": "check fails"},
+            "craft": craft(copy), "audit": audit(copy, port) if graded["check_ok"] else {"error": "check fails"},
             "seconds": round(time.time() - began), "turns": result.get("num_turns"),
             "cost_usd": result.get("total_cost_usd"), "stopped": result.get("subtype"), "skill_used": skill_used,
             "tools": [t.replace("mcp__ergostat__", "") for t, _, _ in cs],
@@ -315,7 +407,9 @@ def main() -> int:
     ap.add_argument("--diagrams", action="store_true")
     ap.add_argument("--grade-only", action="store_true")
     ap.add_argument("--empty", action="store_true")
+    ap.add_argument("--ports", help="the ports its jobs' pages may use, joined by commas (default: 8791-8799 but 8794)")
     a = ap.parse_args()
+    ports = [int(x) for x in a.ports.split(",")] if a.ports else PORTS
     base = Path(a.out) / a.round
     base.mkdir(parents=True, exist_ok=True)
     which = [int(x) for x in a.only.split(",")] if a.only else list(range(1, len(REQUESTS) + 1))
@@ -325,12 +419,13 @@ def main() -> int:
             r["shape"] = shape(Path(r["folder"]))
         (base / "results.json").write_text(json.dumps(got, indent=1, default=str))
         print_shapes(got)
+        print_craft(got)
         return 0
     jobs = [(n, r) for r in range(a.repeat) for n in which]
     skill_md = Path(a.skill).resolve() if a.skill else None
     with cf.ThreadPoolExecutor(len(jobs)) as ex:
         got = list(ex.map(lambda j: run_one(base, j[0], a.model, a.timeout, skill_md, a.diagrams, j[1],
-                                            8791 + jobs.index(j) % 9, a.empty), jobs))
+                                            ports[jobs.index(j) % len(ports)], a.empty), jobs))
     (base / "results.json").write_text(json.dumps(got, indent=1, default=str))
     print(f"{'#':<3}{'request':<9}{'skill':<7}{'add 1st':<9}{'try 1st':<9}{'check':<7}{'written':<18}{'runs':<6}{'stand-ins':<10}"
           f"{'turns':<7}{'cost':<8}")
@@ -344,7 +439,20 @@ def main() -> int:
               f"{str(r['check_ok']):<7}{','.join(r['uses']) or '-':<18}{str(bool(ts) and all(runs(t.get('as_written')) for t in ts)):<6}"
               f"{str(bool(ts) and all(runs(t.get('on_stand_ins')) for t in ts)):<10}{str(r['turns']):<7}{(r['cost_usd'] or 0):<8.3f}")
     print_shapes(got)
+    print_craft(got)
     return 0
+
+
+def print_craft(got: list[dict]) -> None:
+    print(f"\n{'#':<3}{'run':<5}{'request':<10}{'described':<11}{'units':<7}{'flow eqs':<10}{'goals':<6}{'tolerance':<11}"
+          f"{'tiers':<22}{'cross-kind':<12}{'audit (through/overlap/detour)':<32}{'cost'}")
+    for r in got:
+        c, co, au = r.get("craft") or {}, r.get("coherence") or {}, r.get("audit") or {}
+        a = " ".join(f"{v[:3]} {x['through']}/{x['overlap']}/{x['detour']}" for v, x in au.items() if isinstance(x, dict))
+        print(f"{r['n']:<3}{r.get('r', 0):<5}{r['request']:<10}{c.get('described', '-'):<11}{c.get('units', '-'):<7}"
+              f"{c.get('flow_equations', '-'):<10}{str(c.get('goals', '-')):<6}{c.get('goals_with_tolerance', '-'):<11}"
+              f"{','.join(c.get('tiers') or []):<22}{len(co.get('cross_kind') or []):<12}{a or str(au.get('error', '-'))[:30]:<32}"
+              f"{(r.get('cost_usd') or 0):.2f}")
 
 
 def print_shapes(got: list[dict]) -> None:

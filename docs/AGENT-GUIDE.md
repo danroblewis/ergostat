@@ -235,6 +235,24 @@ longer, then check again.
       only flows change.
 - [ ] Every outward act goes through a gated action.
 
+### Modelling well: beyond correct
+
+A model that passes every check above can still look amateur to the people who read it. Once it is correct, go
+through [MODELLING-WELL.md](MODELLING-WELL.md) (`ergostat help modelling-well`) and its three review checklists.
+The essentials:
+
+- **Dynamics**: stocks named as quantities with natural units; ages and ratios as auxiliaries; an equation on
+  every flow but the measured arrivals, its numbers parameters with units and `estimate: true`; four to nine stocks
+  a system.
+- **Blocks**: one goal per loop with `hold:` and `tolerance:` written (an item step's queue `"<= 0"`, tolerance 0:
+  a step that takes items works only while its goal is off); a described sensor and collector; one block per step
+  with `out:`; person and AI steps typed as such, on declared agents; cascades set setpoints; no `process:` that was
+  not identified.
+- **Process**: states declared; events `kind.verb-past`; fan-out and join done inside a run that holds the causing
+  item's lease (the run's printed events, and `$ERGOSTAT_CMD event --add` from it, are recorded as caused by it),
+  so the dashed lines between kinds appear; rework as a declared move back.
+- **Everywhere**: the same names in every view, a description on every part.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |
@@ -245,6 +263,8 @@ longer, then check again.
 | An empty Blocks view; blocks drawn with nothing attached | Blocks without `out: flow.NAME` | Give each block the flow its work moves |
 | A goal nobody acts on | A goal whose blocks move no flow of what it holds | Point the step's `out:` at the flow that drains the goal's stock |
 | A step that does everything | One big block hides the process | Split it into states and steps; the diagrams can then show it |
+| A step that never runs though items wait | Its goal has a tolerance (or a setpoint above 0), so it is never off | An item step's goal is `hold: "<= 0"`, `tolerance: 0` |
+| Two kinds of work and no dashed line between them in the Process view | The children were opened by a scheduled block, which nothing caused | Open them from the run that holds the parent's lease (MODELLING-WELL.md section 3) |
 
 ## 5. Tools
 
@@ -254,6 +274,7 @@ longer, then check again.
   change before writing it) and more.
 - **Docs**: [SPEC.md](SPEC.md) (the format; sections 5a items, 6 sensors, 7 flows, 8 goals, 9 blocks,
   9.5 leases, 12k gated actions), [MODELLING.md](MODELLING.md) (improving a model from its record),
+  [MODELLING-WELL.md](MODELLING-WELL.md) (the craft of each diagram),
   [QUICKSTART.md](QUICKSTART.md), `examples/ticket-factory/` and `examples/the-job/`.
 
 ## 6. When ergostat itself is wrong

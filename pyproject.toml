@@ -29,6 +29,7 @@ packages = ["ergostat"]
 "docs/MESSAGES.md" = "ergostat/help/messages.md"
 "docs/ADDING.md" = "ergostat/help/adding.md"
 "docs/AGENT-GUIDE.md" = "ergostat/help/agent-guide.md"
+"docs/MODELLING-WELL.md" = "ergostat/help/modelling-well.md"
 "docs/skills/ergostat-author/SKILL.md" = "ergostat/skills/ergostat-author/SKILL.md"
 
 [tool.ruff]

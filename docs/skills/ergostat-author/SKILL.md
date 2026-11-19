@@ -6,8 +6,9 @@ description: Use whenever an ergostat project (ergostat.yaml) gets a request for
 # Add a small control system to an ergostat project
 
 **Read first, when you are building more than one template instance:** `ergostat help agent-guide` (the method
-for turning a described workflow into a model of the right shape, the check-look-fix loop, common mistakes).
-Then, as needed: `ergostat help adding` (the templates and a worked example), `ergostat help modelling`
+for turning a described workflow into a model of the right shape, the check-look-fix loop, common mistakes), and
+`ergostat help modelling-well` (the craft that makes each of the three diagrams look as a professional would draw
+it; section "Modelling well" below is its summary). Then, as needed: `ergostat help adding` (the templates and a worked example), `ergostat help modelling`
 (improving a model from its record), `ergostat help spec` (the whole format). An installed ergostat carries all
 of these; nothing else needs copying.
 
@@ -65,6 +66,10 @@ row of separate loops, and says nothing about the workflow.
    state's stock, measured from the item moves (`sensor: {items: KIND, entering: NEXT}`). **Arrivals** come in from
    outside into the first stock; **completions** leave out of the last (or into a `cumulative: true` stock of
    those done). A branch (changes asked, a rework loop, stopped) is a flow between the stocks it joins too.
+   **Every flow but the measured arrivals gets an `equation:`** and a `description:`: the rate as a decision rule,
+   `stock.S / S-time` with a parameter `S-time: {value: 10m, estimate: true, description: ...}`; two branches out of
+   one stock split it, `share * stock.S / S-time` and `(1 - share) * stock.S / S-time` (`share: {value: 0.3, unit:
+   share, range: [0, 1], estimate: true}`). Without equations the model cannot project or answer what-if.
 4. **A collector that finds the work** feeds the first stock: the `collect` template (`into:` the first stock), or
    the source's own sensor on the arrivals flow.
 5. **One block per step that does the work**, taking the items at its state: `takes: {kind: KIND, at: S, to:
@@ -129,11 +134,13 @@ flows:
     from: new                       # the previous state's stock
     to: picked                      # this state's stock: a chain, not a cloud
     driven-by: [+stock.new]
+    equation: stock.new / pick-up-time   # the rate, so the model can project: parameters: {pick-up-time: {value: 15s, estimate: true}}
     sensor: {items: ticket, entering: picked, over: 10m}
 goals:
   new-picked-up:
     stock: new
     hold: "<= 0"
+    tolerance: 0                    # an item step's goal: off as soon as one waits, so the step works each as it comes
 blocks:
   pick-up:
     type: program
@@ -154,6 +161,30 @@ A branch is a flow between the stocks it joins (review sends a ticket on, or bac
 ```
 
 and completions end the chain: `close: {from: merged, to: done}`, `done` being `cumulative: true`.
+
+### Modelling well
+
+Correct is not finished: each diagram should look the way its discipline draws it. The summary, from
+`ergostat help modelling-well` (read it whole when you model a workflow by hand):
+
+- **Dynamics.** Stocks are quantities named as nouns (`new-alerts`, not `triage`) with a natural `unit`; ages, ratios
+  and scores are auxiliaries. Every flow except the measured arrivals has an `equation` (`stock.x / time`, a split
+  `share * ...` and `(1 - share) * ...`, a coflow `ratio * flow.y` with `instant: true`), its numbers `parameters:`
+  with units, descriptions and `estimate: true`. A slow perception is a `SMOOTH`. Systems of four to nine stocks,
+  one chain each.
+- **Blocks.** One goal per loop, `hold:` and `tolerance:` both written: an item step's queue is `"<= 0"` with
+  `tolerance: 0` (a takes: block works only while its goal is off); a level gets a tolerance. Describe the
+  collector's sensor (the Blocks view titles it from that). One block per step, each with `out:`. A person is `type:
+  person` with `ask:`, an AI `type: ai`, each on a declared `agents:` entry with its `kind`. A slow loop sets a fast
+  one's setpoint (`out: goal.X`). Never write `process:` you did not identify.
+- **Process.** Declare `states:`; name events `kind.verb-past` (`alert.triaged`); put `via:` in the data when two
+  moves enter one state. A fan-out or join appears only when it is done **inside a run that holds the causing item's
+  lease**: the step taking the parent prints the children's events (each citing the parent in its data); the step
+  taking a child prints the parent's move when it finishes the last one (record its own last event with
+  `$ERGOSTAT_CMD event --add`, under a lock, so the next sibling's run sees it), and lists the parent's flow in its
+  `out:`. A scheduled sweep draws no fan-out.
+- **Everywhere.** The same names in every view; a `description` on every part, sensor, kind, system and agent; the
+  coherence check is the arbiter.
 
 ### Review both diagrams before calling it done
 
