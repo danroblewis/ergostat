@@ -1,5 +1,7 @@
+import fcntl
 import os
 import sys
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -50,6 +52,7 @@ every = "1s"
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: takes 10 s or more; started first in a parallel run, so it is not the last to finish")
+    config.addinivalue_line("markers", "serial: holds a time bound only on a quiet machine: run alone in a parallel run")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -92,6 +95,38 @@ def pytest_runtest_call(item):
                     c.close()
                 except Exception:               # (already closed, or the browser gone)
                     pass
+
+
+_GATES: tuple | None = None
+
+
+def _gates() -> tuple:
+    """This parallel run's two lock files (one run: xdist's id for it, the same in every worker), or () when serial."""
+    uid = os.environ.get("PYTEST_XDIST_TESTRUNUID")
+    if not uid or not os.environ.get("PYTEST_XDIST_WORKER"):
+        return ()
+    base = Path(tempfile.gettempdir()) / f"ergostat-tests-{uid}"
+    return open(f"{base}.gate", "a+"), open(f"{base}.lock", "a+")      # noqa: SIM115  (held for the worker's life)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(item, nextitem):
+    """Under xdist, a test marked ``serial`` (a time bound that holds only on a quiet machine) runs with nothing else
+    of this run alongside: every test holds the run's lock shared, a serial one holds it alone. A serial test waiting
+    for it holds the gate, so no other test starts meanwhile and the ones under way finish first."""
+    global _GATES
+    if _GATES is None:
+        _GATES = _gates()
+    if not _GATES:
+        return (yield)
+    gate, lock = _GATES
+    fcntl.flock(gate, fcntl.LOCK_EX)
+    fcntl.flock(lock, fcntl.LOCK_EX if item.get_closest_marker("serial") else fcntl.LOCK_SH)
+    fcntl.flock(gate, fcntl.LOCK_UN)
+    try:
+        return (yield)
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 @pytest.fixture(autouse=True)
