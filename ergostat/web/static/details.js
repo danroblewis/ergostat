@@ -133,7 +133,8 @@ async function openLoop(name, asController = false) {
   kids.push(loopScope(name, { numbers: "new" }));       // its scope first (charts.js); time off and back in are below
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
   if (lp.open_loop) kids.push(h("p", {}, "It acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
-  kids.push(dl([["status", statusEl(lp.status)], ["holds", `${lp.stock} ${op(lp.setpoint)}${lp.band || ""}`], ["now", fmt(lp.value)],
+  kids.push(dl([["status", statusEl(lp.status)], ["holds", `${lp.stock} ${op(lp.setpoint)}${lp.band || ""}${lp.per ? `, each ${lp.per}` : ""}`],
+    ["now", lp.per ? `${fmt(lp.value)}, the worst ${lp.per}'s` : fmt(lp.value)],
     ["error", lp.error ? fmt(lp.error) : "0"], ["time off", `${Math.round((lp.off_share || 0) * 100)}% ${windowWords}`],
     ["typically", lp.answers_in != null || lp.back_in != null ? [
       lp.answers_in != null ? `its valve opens ${dur(lp.answers_in)} after it goes off` : null,
@@ -151,6 +152,11 @@ async function openLoop(name, asController = false) {
           : h("span", { class: "muted" }, pt.open_loop ? "acts on its schedule, reads nothing" : "no decision yet"))
         : (pt.last ? `opened ${ago(pt.last.time)}: ${fmt(pt.last.amount)}${pt.last.count > 1 ? ` in ${pt.last.count} openings` : ""}`
           : h("span", { class: "muted" }, "never opened")))))));
+  if (lp.breaking?.length) {                            // a goal held per item or group (SPEC §8): those that break it
+    const id = (x) => /\//.test(x) ? h("a", { href: `/item/${encodeURIComponent(x)}` }, x) : x;
+    kids.push(h("h3", {}, `Breaking it: ${lp.breaking_n} ${lp.per}${lp.breaking_n === 1 ? "" : "s"}`),
+      h("table", {}, lp.breaking.map((b) => h("tr", {}, h("td", {}, id(String(b.item ?? b.group))), h("td", { class: "num" }, fmt(b.value))))));
+  }
   kids.push(controlBox(name, "loop"));                  // its process identified, its controller with it (control.js)
   for (const g of lp.gaps || []) kids.push(h("p", {}, h("b", { class: "lvl-warn" }, "Cannot close: "), g));
   for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
