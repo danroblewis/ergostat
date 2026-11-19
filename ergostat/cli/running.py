@@ -107,7 +107,9 @@ def cmd_run(args) -> int:
     import faulthandler
     stacks = open(p.dir / "threads.txt", "a")           # noqa: SIM115  (kill -USR1 PID: every thread's stack, here)
     faulthandler.register(signal.SIGUSR1, file=stacks, all_threads=True)
-    server = None
+    from .. import reload as rl
+    watch = rl.Settled(p.model)     # a change taken once the files settle, and only if it may run: followed from before
+    server = None                   # any run starts, so an edit made while it starts is not taken as the files it ran from
     if not args.no_web:                                 # the page first, so its address is known at once
         from ..store import Project
         from ..web import serve
@@ -130,8 +132,6 @@ def cmd_run(args) -> int:
     from ..remote import refresh as remote_refresh
     remote_refresh.start(lambda: p)                     # remotes' models kept current: a new version reloads (SPEC §4c)
     started.set()
-    from .. import reload as rl
-    watch = rl.Settled(p.model)                         # a change taken once the files settle, and only if it may run
     rl.write_state(p.dir, None)
     name = mdl.file_name(p.model)
     reload = False
