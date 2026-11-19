@@ -89,10 +89,10 @@ def test_many_threads_loading_the_model_at_once_read_the_record_once(tmp_path, m
     calls = []
     real = type(ix).transitions
 
-    def counted(self, kind):
+    def counted(self, kind, **kw):
         calls.append(kind)
         time.sleep(0.05)
-        return real(self, kind)
+        return real(self, kind, **kw)
     monkeypatch.setattr(type(ix), "transitions", counted)
     chains._CACHE.clear()
     ts = [threading.Thread(target=chains.recorded, args=(p.model.spec,)) for _ in range(12)]
