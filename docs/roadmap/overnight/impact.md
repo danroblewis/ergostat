@@ -53,3 +53,15 @@ ticket-factory.
 ## Size
 
 **Budget 600 net lines outside `tests/` and `docs/`.**
+
+## Where it stopped
+
+Done, within the budget (600 net lines). Three departures from the text above, each said in SPEC §12n:
+
+- The API's failure start is `began=T`, not `since=T`: every page request already carries `since` (the window).
+- The cost of waiting counts only the goals the failure puts off (`due`: holding when it began, off longer without
+  the fix than with it made now). Validation showed why: on the coordinator and the ticket-factory a restored flow puts
+  downstream "<= 0" goals off, which happens whenever the fix goes in and only leaves the horizon later, so counting it
+  made every report advise waiting. Goals already off when the failure began are said apart and not priced.
+- What waiting loses (`moved`, the block's flows over the horizon) is said beside each rollout time but not priced;
+  the owner may want it in the cost.
