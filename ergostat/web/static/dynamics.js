@@ -820,6 +820,16 @@ function sdAroundSatellites(lay, g) {
     if (Math.abs(a.y - b.y) < 0.5 && Math.abs(p.y - q.y) < 0.5 && Math.abs(a.y - p.y) < 4) return Math.min(Math.max(a.x, b.x), Math.max(p.x, q.x)) - Math.max(Math.min(a.x, b.x), Math.min(p.x, q.x)) > 4;
     if (Math.abs(a.x - b.x) < 0.5 && Math.abs(p.x - q.x) < 0.5 && Math.abs(a.x - p.x) < 4) return Math.min(Math.max(a.y, b.y), Math.max(p.y, q.y)) - Math.max(Math.min(a.y, b.y), Math.min(p.y, q.y)) > 4;
     return false; }));
+  // (as the audit measures them: scripts/diagram_audit.js)
+  const short = (q) => { let L = 0; for (let j = 1; j < q.length; j++) L += Math.abs(q[j].x - q[j - 1].x) + Math.abs(q[j].y - q[j - 1].y);
+    return L <= 1.6 * (Math.abs(q[0].x - q[q.length - 1].x) + Math.abs(q[0].y - q[q.length - 1].y)) + 120; };
+  const cross = (a, b, c, d) => { const o = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+    return o(a, b, c) * o(a, b, d) < -1 && o(c, d, a) * o(c, d, b) < -1; };
+  const netCross = (le, q) => { const e = edge[le.id];
+    return lines.some((o) => { const f = edge[o.id];
+      if (o === le || f.kind === "pipe" || (f.source !== e.source && f.target !== e.target)) return false;
+      const r = pts(o);
+      return q.slice(1).some((b, j) => r.slice(1).some((d, k) => cross(q[j], b, r[k], d))); }); };
   for (const le of lines) {
     const e = edge[le.id];
     if (e.kind === "pipe") continue;
@@ -845,6 +855,8 @@ function sdAroundSatellites(lay, g) {
           const a2 = level ? { x: a.x, y: to } : { x: to, y: a.y }, b2 = level ? { x: b.x, y: to } : { x: to, y: b.y };
           const mine = new Set([e.source, e.target]);
           if ([[p[i - 1], a2], [a2, b2], [b2, p[i + 2]]].some(([q, r]) => onPart(q, r, mine) || along(le, q, r))) continue;
+          const moved = p.map((q, j) => (j === i ? a2 : j === i + 1 ? b2 : q));
+          if (!short(moved) || netCross(le, moved)) continue;     // (never a detour, nor across a line of its own net)
           Object.assign(a, a2); Object.assign(b, b2);
           break;
         }
