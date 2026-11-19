@@ -367,8 +367,20 @@ function avoidSpec(lay, g) {
   const linkSides = (c) => {
     const used = pipeSides[c.id] || {}, sat = (d) => (used[d] || []).includes("satellite");
     if (!sat("up") && !sat("down")) return ["up", "down"];    // (as before: more points cost the router time)
-    const free = ["up", "down", "left", "right"].filter((d) => !used[d]), level = ["up", "down"].filter((d) => !sat(d));
+    const toward = facing(c);                           // (a link toward a side a satellite takes goes round it, by either of the others)
+    if ((toward.has("up") && sat("up")) || (toward.has("down") && sat("down"))) { toward.add("left"); toward.add("right"); }
+    const free = ["up", "down", "left", "right"].filter((d) => !used[d] && toward.has(d)), level = ["up", "down"].filter((d) => !sat(d));
     return free.length ? free : level.length ? level : ["up", "down"];
+  };
+  const facing = (c) => {                               // the sides of a part its links' other ends lie beyond (fewer points, less routing)
+    const out = new Set();
+    for (const le of lines) {
+      const e = edgeOf[le.id], o = e.kind !== "pipe" && box[e.source === c.id ? e.target : e.target === c.id ? e.source : null];
+      if (!o || o === c) continue;
+      const m = { x: o.x + o.width / 2, y: o.y + o.height / 2 };
+      if (m.x > c.x + c.width) out.add("right"); if (m.x < c.x) out.add("left"); if (m.y < c.y) out.add("up"); if (m.y > c.y + c.height) out.add("down");
+    }
+    return out;
   };
   const pinOf = {};                                      // `${line}|${s or t}` -> pin class
   const pinsBy = {}, labelsBy = {};                      // a valve's pins (and its name) for each way it may face
