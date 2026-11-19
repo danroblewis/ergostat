@@ -238,8 +238,10 @@ class Model:
         many times over (a second or more), so they are found the first time this is read, not when the
         model loads: a command that never shows findings (``ergostat item``, the run) never pays for them."""
         if self._late is not None:
-            late, self._late = self._late, None
-            self._problems = list(self._problems or []) + late()
+            got = self._late()
+            if any(p.code == "extremes-running" for p in got):     # running in the background: asked again next time
+                return list(self._problems or []) + got
+            self._problems, self._late = list(self._problems or []) + got, None
         return self._problems
 
     @problems.setter
@@ -536,7 +538,7 @@ def load(start: Path | None = None) -> Model:
         if errors:
             raise ModelError(f"{len(errors)} error{'s' if len(errors) > 1 else ''}:\n" + "\n".join(f"  {e}" for e in errors))
         m = to_model(compiled, problems)
-        m._late = lambda: late(compiled)         # found when first asked for (Model.problems)
+        m._late = lambda: late(compiled, wait=0)   # found in the background when first asked for (Model.problems)
         return m
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -597,7 +599,7 @@ def check(m: Model, warnings: bool = True) -> list[tuple[str, str]]:
     if getattr(m, "spec", None) is not None:
         if not warnings:
             return [("error", str(p)) for p in m.errors()]
-        return [("error" if p.level == "error" else "warn", str(p)) for p in m.problems]
+        return [({"error": "error", "note": "info"}.get(p.level, "warn"), str(p)) for p in m.problems]
     out: list[tuple[str, str]] = []
 
     def err(s):

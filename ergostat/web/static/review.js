@@ -100,6 +100,7 @@ function effectView(d, box) {
     height: 56, xAxis: i === all.length - 1 }));
   const fb = d.fit_before?.total, fa = d.fit_after?.total;
   box.replaceChildren(...[
+    d.predicts ? h("p", { class: "predicts" }, "Predicts: ", d.predicts.said) : null,
     charts.length ? h("div", { class: "review-charts" }, ...charts) : h("p", { class: "muted small" }, "Nothing it changes is replayed."),
     charts.length ? h("p", { class: "muted small" }, `Measured, solid; the model as it is, dashed; with the change, in blue; past now, the projections over ${dur(d.horizon || 0)}${d.loops === "closed" ? ", with the loops running (each machine block by its identified model)" : ", held (open loop)"}.`) : null,
     d.valid === false ? h("p", { class: "s-open small" }, `With it the replay is not valid: ${(d.invalid || []).join("; ")}.`) : null,

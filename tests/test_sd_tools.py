@@ -242,11 +242,16 @@ def test_the_extreme_conditions_test_runs_only_where_findings_are_shown(tmp_path
     write(tmp_path, bad)
     runs = []
     real = extremes.findings
-    monkeypatch.setattr(extremes, "findings", lambda spec, say: (runs.append(1), real(spec, say)))
+    monkeypatch.setattr(extremes, "findings", lambda spec, say, **kw: (runs.append(1), real(spec, say, **kw))[1])
     m = mdl.load(tmp_path)
     assert not runs and not mdl.check(m, warnings=False) and not runs     # loaded, and checked for errors: not run
-    assert any("extreme-conditions" == x.code for x in m.problems) and runs == [1]
-    assert any("falls below empty" in msg for lv, msg in mdl.check(m) if lv == "warn") and runs == [1]   # once
+    for _ in range(200):                                     # in the background: asked again until they are done
+        if not any(x.code == "extremes-running" for x in m.problems):
+            break
+        time.sleep(0.02)
+    runs.clear()
+    assert any("extreme-conditions" == x.code for x in m.problems) and runs == []
+    assert any("falls below empty" in msg for lv, msg in mdl.check(m) if lv == "warn") and runs == []    # once
     assert [x.code for x in m.problems] == [x.code for x in sp.read(tmp_path / "ergostat.yaml")[1]]   # as check finds them
 
 

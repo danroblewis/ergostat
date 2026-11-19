@@ -303,6 +303,11 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
     pol = spec.improve
     now = at or time.time()
     out = {p_: 0 for p_ in PORTS} | {"verdicts": [], "waiting": []}
+    try:                                                    # what accepted changes predicted, against what happened
+        from .predict import observe
+        out["observed"] = observe(p, now)
+    except Exception:
+        out["observed"] = 0
     for pid in pr.supersede(p, spec):
         out["verdicts"].append({"id": pid, "verdict": "superseded", "why": "the model changed since it was made"})
     judged = 0

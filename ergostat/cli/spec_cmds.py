@@ -11,9 +11,29 @@ from .. import model as mdl
 from ..show import c
 from .common import out_json
 
+CHECK_WAIT = 5.0     # seconds check waits for the extreme-conditions tests not kept (numbers/extremes_cache.py)
+
 
 def here(args) -> Path:
     return Path(args.C).resolve() if getattr(args, "C", None) else Path.cwd()
+
+
+def calibration(path: Path) -> list:
+    """Each equation that fits its record worse than holding it at its mean (``fit.worse_than_mean``), when there is a
+    record."""
+    from .. import model as mdl
+    from ..numbers import fit as ft
+    from ..spec.load import Problem
+    from ..store import Project, state_dir
+    try:
+        m = mdl.load(path.parent)
+        if not state_dir(m.name, path.parent, make=False).is_dir():     # no record: nothing to fit (and none made)
+            return []
+        p = Project(m)
+        return [Problem("finding", msg, None, "calibration-worse-than-mean", ref)
+                for ref, msg in ft.worse_than_mean(p.model.spec, ft.compute(p)[2])] if p.measurements.count() else []
+    except Exception:                             # a record that cannot be read says nothing here
+        return []
 
 
 def coherence_of(args, spec, findings) -> dict | None:
@@ -29,9 +49,12 @@ def coherence_of(args, spec, findings) -> dict | None:
 def check_yaml(args, path: Path) -> int:
     from ..remote.compose import fresh
     from ..spec import read
+    from ..spec.findings import late
     with fresh():                                 # references into remotes checked against what each serves now
-        spec, problems = read(path)
+        spec, problems = read(path, extremes=False)
     errors = [p for p in problems if p.level == "error"]
+    if not errors:                                # calibration on the record; the extremes kept, a few seconds for the rest
+        problems += calibration(path) + late(spec, wait=CHECK_WAIT)
     findings = [p for p in problems if p.level != "error"]
     if args.json:
         coh = coherence_of(args, spec, findings) if not errors else None

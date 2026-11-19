@@ -542,12 +542,21 @@ changes it by itself.
   the replay. A wide fan says the
   projection depends on what is not known: measure that, or say so when you use it. A narrow fan
   around a projection that is wrong says the structure is wrong, not the numbers.
-- **Extreme conditions** (`ergostat check`, **extreme-conditions**). The equations alone, pushed to
-  the extreme: every stock empty with nothing coming in, nothing coming in, each input alone at 0 and
-  at a hundred times its largest, and each estimated or timed parameter alone at its extremes (its
-  range's ends, else a hundredth and a hundred times it). Each failure names what caused it. A real queue never holds fewer than nothing, a one-way flow never runs back, a rate never
-  divides by an empty stock: when the model does, an equation is wrong where it was never tested,
-  and will be wrong there when the system gets there (guideline 3 is the structural form of this test).
+- **Extreme conditions** (`ergostat check`, **extreme-conditions**). The model run with its loops
+  running (goals and built-ins as the engine works them out, each machine block by an assumed model of it),
+  pushed to the extreme: every stock empty with nothing coming in, nothing coming in, each input alone at 0
+  and at ten times its largest, each pool at 0, each goal's setpoint at its limits, and each estimated or
+  timed parameter alone at its extremes (its range's ends, else a hundredth and a hundred times it). Each
+  failure names what caused it and the projection's numbers. A real queue never holds fewer than nothing,
+  an outflow never takes more than is there, nothing rises with nothing coming in, a one-way flow never
+  runs back, a rate never divides by an empty stock, and a controller saturates rather than running away:
+  when the model does otherwise, an equation is wrong where it was never tested, and will be wrong there
+  when the system gets there (guideline 3 is the structural form of this test). Kept per part of the model
+  and run in the background, so only what changed runs again.
+- **Calibration per part** (a valve's or an auxiliary's panel; `ergostat check`,
+  **calibration-worse-than-mean**). Each equation's own fit on the record, inputs as measured: R², scaled
+  error, and its skill against holding it at its mean. An equation that does worse than its mean explains
+  nothing: calibrate it, or write it again.
 - **Loop dominance** (a feedback loop's panel). Which loop drives the behaviour, and when, by the
   Loops That Matter method, on the replay at its integration step: each link scored by how much of its
   effect's change its cause made, a loop's score the product of its links', and at each stock its share
