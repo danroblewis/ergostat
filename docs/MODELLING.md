@@ -569,6 +569,10 @@ review queue, the judge's verdict beside it; a change that removes structure alw
 whatever the policy. Everything written is recorded with its reason and its effect
 (`ergostat.model.changed`), and committed by the owner.
 
+The whole loop, the model's error as a stock, the goal on it, the improver and the judge, is one line in any model:
+`uses: {modelling: {use: modelling}}` (the template `modelling`; `with: {accept: {parameter: auto}}` for the policy
+above; `docs/ADDING.md` gives the rest).
+
 ## A checklist for reviewing a model
 
 1. Run `ergostat check`; answer every structure finding, by a change or by a word with a reason.
