@@ -479,7 +479,10 @@ def _answer(live: Live, path: str, q: dict):
             from ..runner import log_path
             log = log_path(p, name)
             from ..costs import record as costs
+            b = m.spec.blocks.get(name) if getattr(m, "spec", None) else None
+            dn = b.params.get("daemon") if b is not None else None
             return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:],
+                    **({"daemon": {"name": dn, **snap.get("daemons", {}).get(dn, {})}} if dn else {}),
                     "log": _tail(log, 40), "log_path": str(log),
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
                     "use": costs.of_block(p, name, snap["at"] - snap["window"], snap["at"])}   # what its runs cost (§9.1)
@@ -487,6 +490,8 @@ def _answer(live: Live, path: str, q: dict):
         use = costs.per_block(p, snap["at"] - snap["window"], snap["at"])
         return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n], **({"use": use[n]} if n in use else {})}
                 for n, a in snap["agents"].items()}
+    if head == "daemons":                         # the long-lived runners (SPEC §9.7), as the engine last saw them
+        return snap.get("daemons", {})
     if head == "events":
         if name:                                  # one event, by id
             return p.events.get(name)

@@ -58,6 +58,7 @@ OUTCOMES_EVERY = 30.0       # how often the outcomes of the recipes' uses are fo
 SOURCE = "ergostat"
 STOPPED_BY_OWNER = "stopped as the owner asked"   # ergostat block NAME --stop: not the block's failure
 STOP_ASKED = "block.stop.requested"
+RESTART_ASKED = "daemon.restart.requested"
 AI_COMMAND = os.environ.get("ERGOSTAT_AI", "claude -p")
 AI_FOOTER = """
 
@@ -142,6 +143,8 @@ class Engine:
         self.following = False                         # whether _follow runs: it runs the actions programs ask for
         from ..leases.dispatch import Dispatcher
         self.dispatch = Dispatcher(self)              # blocks that take items: a run per item, each leased (SPEC §9.5)
+        from ..daemons.supervise import Supervisor
+        self.daemons = Supervisor(self)               # the long-lived runners blocks and sensors hand work to (SPEC §9.7)
         from .joins import Joins
         self.joins = Joins(self)                      # parents moved on by their children (SPEC §5a, Join)
         # the loop (``_schedule``): readings asked for, taken a batch at a time; commands and queries read by a fixed
@@ -822,7 +825,7 @@ class Engine:
         spec = spec or self.spec
         payload = json.dumps(ctx)
         if b.type != "ai":
-            return str(b.params["run"]), payload
+            return str(b.params.get("run") or ""), payload    # (a daemon's block has none: SPEC §9.7)
         prompt = str(b.params["prompt"])
         path = spec.root / prompt
         if "\n" not in prompt and path.is_file():
@@ -921,43 +924,51 @@ class Engine:
         with open(log, "a", encoding="utf-8") as lf:
             lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} ({why})\n")
             lf.flush()
-            try:
-                if refused:
-                    raise OSError(refused)
-                proc = Measured(cmd, shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
-            except OSError as e:
-                note = refused or f"could not start: {e}"
-            else:
-                old.LIVE.add(proc)
+            back = None
+            if b.params.get("daemon") and not refused:            # handed to its daemon (SPEC §9.7): wall time only
+                code, note, back = self.daemons.run_item(b, begun["id"], ctx, env, take, b.timeout, item, fence)
                 with self.lock:
-                    self.procs[b.name] = proc
-                    self.live[begun["id"]] = proc
-                tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
+                    killed = self.killing.pop(begun["id"], None)
+                note = f"killed: {killed}" if killed else note or (f"exited {code}" if code else "")
+            else:
                 try:
-                    if stream.pump(proc, stdin, b.timeout, take):
-                        note = f"stopped after its timeout of {b.timeout:g}s"
-                finally:
-                    resources = SAMPLER.finish(tracked)
-                    old.LIVE.discard(proc)
+                    if refused:
+                        raise OSError(refused)
+                    proc = Measured(cmd, shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
+                except OSError as e:
+                    note = refused or f"could not start: {e}"
+                else:
+                    old.LIVE.add(proc)
                     with self.lock:
-                        if self.procs.get(b.name) is proc:
-                            del self.procs[b.name]
-                        asked = b.name in self.stopping_runs
-                        self.stopping_runs.discard(b.name)
-                        self.live.pop(begun["id"], None)
-                        killed = self.killing.pop(begun["id"], None)
-                code = proc.returncode
-                if killed:                                       # its lease expired: stopped (leases/kill.py)
-                    note = f"killed: {killed}"
-                elif code and not note:
-                    note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
+                        self.procs[b.name] = proc
+                        self.live[begun["id"]] = proc
+                    tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
+                    try:
+                        if stream.pump(proc, stdin, b.timeout, take):
+                            note = f"stopped after its timeout of {b.timeout:g}s"
+                    finally:
+                        resources = SAMPLER.finish(tracked)
+                        old.LIVE.discard(proc)
+                        with self.lock:
+                            if self.procs.get(b.name) is proc:
+                                del self.procs[b.name]
+                            asked = b.name in self.stopping_runs
+                            self.stopping_runs.discard(b.name)
+                            self.live.pop(begun["id"], None)
+                            killed = self.killing.pop(begun["id"], None)
+                    code = proc.returncode
+                    if killed:                                       # its lease expired: stopped (leases/kill.py)
+                        note = f"killed: {killed}"
+                    elif code and not note:
+                        note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
         if code == 0 and not note:                               # a bare number only from a run that finished well
             said.finish()
         if said.proposals:
             said.counts["proposed"] = sum(1 for x in said.proposals if x["status"] != "not-proposed")
             said.counts["not_proposed"] = sum(1 for x in said.proposals if x["status"] == "not-proposed")
         data = {"exit": code, "seconds": round(time.time() - started, 3), "why": why, **said.counts,
+                **({"daemon": b.params["daemon"]} if b.params.get("daemon") else {}),
                 **({"item": item} if item else {}),
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
                 **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {}), "model": version,
@@ -973,6 +984,8 @@ class Engine:
         failed = bool(note) and note not in (old.STOPPED_WITH_US, STOPPED_BY_OWNER) and not ready.full
         if outcome is not None:
             outcome.update({"exit": code, "note": note, "nack": said.nack, "stopped": note in (old.STOPPED_WITH_US, STOPPED_BY_OWNER)})
+            if back:                                             # its daemon restarted for another's fault, or gave up
+                outcome["nack"] = {**back, "why": back.get("why") or note}
             if ready.full:                                       # no workspace free: given back, put off, not counted
                 outcome["nack"] = {"why": note, "after": POOL_FULL_AFTER, "count": False}
         ended = ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
@@ -1285,7 +1298,11 @@ class Engine:
                     extra.add(s.series)
                     here.append(s)
         for s in asked:
-            if s.items is None and s.changes is None:
+            if s.daemon is not None:                          # asked of its daemon: no process, no pool thread (SPEC §9.7)
+                if self.daemons.read(s, lambda v, why, s=s: (self.results.put((s, v, why, time.time(), None)),
+                                                             self.wake.set())):
+                    handed.add(s.series)                      # (a daemon given up: not asked, its failure said once)
+            elif s.items is None and s.changes is None:
                 which = "alarm_" if s.series in self._alarmed() else ""
                 with self.pool_lock:
                     if getattr(self, f"{which}pool") is None:
@@ -1480,7 +1497,8 @@ class Engine:
                 new = sorted(self.p.events.query(n=None, after_seq=seq, type="block.approved") +
                              self.p.events.query(n=None, after_seq=seq, type="ergostat.action.approved") +
                              self.p.events.query(n=None, after_seq=seq, type="steptest.approved") +
-                             self.p.events.query(n=None, after_seq=seq, type=STOP_ASKED), key=lambda e: e["seq"])
+                             self.p.events.query(n=None, after_seq=seq, type=STOP_ASKED) +
+                             self.p.events.query(n=None, after_seq=seq, type=RESTART_ASKED), key=lambda e: e["seq"])
             except Exception:
                 self.stop.wait(1)
                 continue
@@ -1488,6 +1506,9 @@ class Engine:
                 seq = max(seq, e["seq"])
                 if e["type"] == STOP_ASKED:
                     self.stop_run(e.get("item") or "")
+                    continue
+                if e["type"] == RESTART_ASKED:                    # the owner reviving a daemon (SPEC §9.7)
+                    self.daemons.revive(e.get("item") or "")
                     continue
                 if e["type"] == "ergostat.action.approved":       # a program's action, run here, never by it (SPEC §12k)
                     threading.Thread(target=self.run_action, args=(e["item"],), daemon=True).start()
@@ -1535,6 +1556,8 @@ class Engine:
                           data={"blocks": sorted(self.spec.blocks), "pid": os.getpid(), "format": "yaml"})
         from ..control import steptest
         steptest.resume(self)                                   # a test approved just before, or cut off by a stop
+        self._listen()
+        self.daemons.sync(self.spec)                             # (after the socket: its path is in their environment)
         self.looping = True                                      # readings go to the loop from now (no thread each)
         threading.Thread(target=self._schedule, name="ergostat-loop", daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
@@ -1543,7 +1566,6 @@ class Engine:
         self.dispatch.holding = True                             # leases held when it last stopped are watched at once
         threading.Thread(target=self.dispatch.run, daemon=True).start()   # blocks that take items, their leases (SPEC §9.5)
         threading.Thread(target=self._record_follow, name="ergostat-record", daemon=True).start()
-        self._listen()
         self._ingest()
         from .watchdog import Watchdog
         self.watchdog = Watchdog(self)                           # a pass or the pool wedged: found, and recovered
@@ -1591,7 +1613,7 @@ class Engine:
         with self.lock:
             proc = self.procs.get(name)
             if proc is None:
-                return False
+                return self.daemons.stop_block(name)               # (runs its daemon holds: each cancelled)
             self.stopping_runs.add(name)
         old._kill(proc)
         self.say(f"{name}: its run stopped, as the owner asked")
@@ -1670,6 +1692,7 @@ class Engine:
             self.p.model = model
             self.version = version
             self.full = True                                     # the next pass works out everything, under the new model
+        self.daemons.sync(new)                                   # a daemon whose definition changed: drained, replaced
         self.wake.set()
         self._ingest()
         finishing = {k: v for k, v in finishing.items() if v}   # what runs once more, under its old definition
@@ -1692,6 +1715,7 @@ class Engine:
             if pool is not None:
                 pool.shutdown(wait=False, cancel_futures=True)
         old.kill_all()
+        self.daemons.close()
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:
             time.sleep(0.05)
@@ -2068,6 +2092,8 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
             return None, "items are counted from the record, and there is none here"
         from .items import measure
         return measure(events, spec, s)
+    if s.daemon is not None:
+        return None, f"read by its daemon {s.daemon} while ergostat runs"
     if s.query is not None:
         src = spec.sources[s.query["source"]]
         if src.type == "prometheus":

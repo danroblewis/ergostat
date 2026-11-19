@@ -46,6 +46,10 @@ def read(p, spec, since: float, until: float) -> list[dict]:
                 up = None
         if up is not None:
             out.append({"class": f"alarm:{b.name}", "cause": cause, "time": up, "answered": None, "verdict": None})
+    for f in p.events.query(n=None, type="ergostat.daemon.failed", since=since, until=until):   # a daemon given up (§9.7)
+        back = p.events.query(n=None, type="ergostat.daemon.started", item=f["item"], after_seq=f["seq"])
+        out.append({"class": f"alarm:daemon:{f['item']}", "cause": ", ".join(f["data"].get("users") or []),
+                    "time": f["time"], "answered": back[0]["time"] if back else None, "verdict": "revived" if back else None})
     return sorted(out, key=lambda x: x["time"])
 
 

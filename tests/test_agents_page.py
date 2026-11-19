@@ -29,6 +29,9 @@ name: agents-costs
 stocks:
   pages:
     unit: pages
+    sensor: {daemon: counter}
+daemons:
+  counter: {run: ./count.py}
 flows:
   written:
     from: pages
@@ -77,6 +80,10 @@ for i in range(60):                                   # the last twenty hours, a
         begun = p.events.add("agent.started", item=block, source="ergostat", at=t - data["seconds"], data={})
         e = p.events.add("agent.ran", item=block, source="ergostat", causedby=begun["id"], at=t, data=data)
         cr.write_series(p, block, data, t)
+import json
+(p.dir / "daemons.json").write_text(json.dumps({"at": now, "daemons": {"counter": {   # as the engine writes it (SPEC §9.7)
+    "state": "running", "pid": 4242, "restarts": 2, "restarts_total": 3, "last_line": now - 4, "in_flight": 1,
+    "concurrency": 10, "users": ["sensor.pages.main"], "cpu": 1.5, "memory": 21e6, "alarm": None, "run": "./count.py"}}}))
 """
 
 
@@ -167,5 +174,19 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     shot(pg, f"agent-panel-{theme}.png")
     pg.eval_on_selector("#detail table:has(th:text-is('tokens'))", "el => el.scrollIntoView({ block: 'end' })")
     shot(pg, f"agent-panel-runs-{theme}.png")
+    assert not errors, errors
+    pg.close()
+
+
+def test_the_agents_page_lists_the_daemons(site, browser):
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site['url']}/agents")
+    pg.wait_for_selector("tr[data-daemon=counter]")
+    row = pg.inner_text("tr[data-daemon=counter]")
+    assert "running" in row and "sensor.pages.main" in row and "2" in row and "1 of 10" in row
+    assert "1.5s" in row and "21 MB" in row and "ago" in row
+    assert "wall time only" in pg.inner_text(".page")
     assert not errors, errors
     pg.close()
