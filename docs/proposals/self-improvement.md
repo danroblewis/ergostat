@@ -10,7 +10,7 @@ test. This page says what was built, and what running every example with it on s
 
 **Everything `check` finds is work for modelling** (`ergostat/numbers/requests.py`, SPEC §12e *Requests*). Findings,
 chain findings, craft notes and (once there is record) coherence mismatches each become a request, an item of the
-built-in kind `ergostat.model-request` (open, proposed, held, answered), with what it is about, why (check's words),
+built-in kind `ergostat.modelling-request` (open, proposed, held, answered), with what it is about, why (check's words),
 where, its source and the tier that answers it first. A fit that cannot be worked out is a request too (`fit-unknown`,
 saying why: no stock read, no flow moving the stocks read, too little record), so a model with no equations, the one
 that most needs improving, wakes modelling whatever its fit says. The collector is the sensor of the template's

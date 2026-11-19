@@ -97,7 +97,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
   summary, status, labels and description only), so `issuelinks` and `parent` must be asked for and folded as
   relations first.
 - **Modelling improves the model** (landing, `modelling-core`; `docs/proposals/self-improvement.md`): what `check`
-  finds is held as requests (`ergostat.model-request`); the rule tier (units, a queue's goal, a process nobody
+  finds is held as requests (`ergostat.modelling-request`); the rule tier (units, a queue's goal, a process nobody
   identified) and the AI tier (off unless `ai: true`), each a block of `use: modelling`, answer them with ordinary
   changes, checked in the tier's own process; the judge decides by class (description, unit, rename judged by check;
   values, equations and structure by the record). Every example uses it. Parked on `selfimprove` (its definition file

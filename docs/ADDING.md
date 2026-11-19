@@ -221,7 +221,7 @@ uses:
 ```
 
 - **Requests and tiers:** everything `check` finds (findings, a kind's chain, the craft notes, the coherence
-  mismatches once there is record) is a request (`ergostat.model-request`), raised by the collector on
+  mismatches once there is record) is a request (`ergostat.modelling-request`), raised by the collector on
   `requests-raised` (every `requests-every`, 2m) and counted while unanswered (`unanswered-requests`, held at 0 by
   the goal `requests-handled`). The `fixer` block (the rule tier, every `rules-every`, 1m) proposes the changes a rule makes
   safely and certainly; the `modeller` block (with `ai: true`) proposes the rest, given each request with the model

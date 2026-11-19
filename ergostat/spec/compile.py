@@ -24,7 +24,7 @@ from .ir import (
     MESSAGE,
     MODEL_CHANGE,
     MODEL_MEASURES,
-    MODEL_REQUEST,
+    MODELLING_REQUEST,
     NAME,
     NAMED_ONLY,
     VERDICT,
@@ -54,7 +54,7 @@ from .ir import (
     is_measure,
     message_kind,
     model_change_kind,
-    model_request_kind,
+    modelling_request_kind,
     verdict_kind,
     workspace_kind,
 )
@@ -875,7 +875,7 @@ class Compiler:
                 continue
             spec.items[name] = k
         spec.items[MODEL_CHANGE] = model_change_kind()       # built in: every change to the model (SPEC §12e)
-        spec.items[MODEL_REQUEST] = model_request_kind()     # built in: work for modelling, from what check finds
+        spec.items[MODELLING_REQUEST] = modelling_request_kind()   # built in: work for modelling, from what check finds
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
         spec.items[MESSAGE] = message_kind()                 # built in: the owner's messages, routed (SPEC §12h)
         spec.items[VERDICT] = verdict_kind()                 # built in: the intent judge's verdicts on work (SPEC §12i)

@@ -1,7 +1,7 @@
 """The modelling template's programs (SPEC §12e): the request collector and the tiers that answer the requests.
 
     modelling requests [--no-coherence] [--no-extremes]
-        the collector: what check finds raised as requests (ergostat.model-request), what it no longer finds answered;
+        the collector: what check finds raised as requests (ergostat.modelling-request), what it no longer finds answered;
         prints how many are open (the sensor's reading)
     modelling rules [--most N]
         the rule tier: a mechanical change for each open request it can answer, recorded as made and checked here

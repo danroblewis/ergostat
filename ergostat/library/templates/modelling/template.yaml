@@ -14,7 +14,7 @@ reading: |
   (changes-testing), passed (passed-changes), written (accepted-changes, a running total); a change made against a
   version of the model since changed leaves as superseded, one the judge fails leaves as failed.
   What check finds (its findings, a kind's chain, the craft notes, the coherence mismatches once there is record) is
-  work for it too: each a request (ergostat.model-request), raised by a collector (requests-raised), counted while it
+  work for it too: each a request (ergostat.modelling-request), raised by a collector (requests-raised), counted while it
   is not answered (unanswered-requests) and answered when check no longer finds it. The tiers answer them, the
   cheapest first: the rule tier (fixer, a program: units carried along a flow, a queue's goal held at 0, a process
   nobody identified taken out) and, when asked (ai: true), the AI tier (modeller, an AI agent given
@@ -183,7 +183,7 @@ stocks:
     unit: requests
     description: what check finds that modelling is still working on (open, or with a change waiting); one held for the owner or more record leaves the count, so requests-handled can be met
     sensor:
-      items: ergostat.model-request
+      items: ergostat.modelling-request
       state: [open, proposed]
       every: ${count-every}
   answered-requests:
@@ -191,7 +191,7 @@ stocks:
     description: requests answered, check no longer finding them
     cumulative: true
     sensor:
-      items: ergostat.model-request
+      items: ergostat.modelling-request
       state: answered
       every: ${count-every}
   accepted-changes:
@@ -276,7 +276,7 @@ flows:
       - +stock.unanswered-requests
       - {cause: +flow.changes-accepted, instant: true}
     sensor:
-      items: ergostat.model-request
+      items: ergostat.modelling-request
       entering: answered
       over: ${over}
   changes-superseded:                 # made against a version of the model since changed

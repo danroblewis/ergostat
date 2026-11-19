@@ -3269,7 +3269,7 @@ the owner does.
 ### Requests: what check finds is modelling's work
 
 Everything `check` finds is a **request** the modelling loop holds (`ergostat/numbers/requests.py`): an item of the
-built-in kind `ergostat.model-request`, raised from each finding, chain finding and craft note (one about a part a
+built-in kind `ergostat.modelling-request`, raised from each finding, chain finding and craft note (one about a part a
 template made, or one no change to the model answers, such as `template-stand-in` or `no-modelling-loop`, is left out),
 and, once the record is long enough to compare, each coherence mismatch (§12l) no finding already says (those about
 ergostat's own kinds are left out). Each records what it is about (`about`), why (`says`, check's words), where, its
