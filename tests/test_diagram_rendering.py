@@ -1223,7 +1223,8 @@ def test_every_process_view_draws_its_workflows_cleanly(browser, tmp_path, examp
         assert not w["bad"], w["bad"][:8]
     if len(seeded) > 1:
         assert panels[0]["caused"] > 0, panels[0]
-    if any(len(k.states) > 2 for k in p.model.spec.items.values() if k.name in seeded):
+    if any(len([st for st in k.states[1:] if st in k.on.values()]) >= 2      # (seeded with rework: two moves or more;
+           for k in p.model.spec.items.values() if k.name in seeded):        # a lease's leased and dead are none)
         assert panels[0]["rework"] > 0, panels[0]
 
 
