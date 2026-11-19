@@ -1333,6 +1333,9 @@ class Engine:
         threading.Thread(target=self._record_follow, name="ergostat-record", daemon=True).start()
         self._listen()
         self._ingest()
+        from .watchdog import Watchdog
+        self.watchdog = Watchdog(self)                           # a pass or the pool wedged: found, and recovered
+        self.watchdog.start()
 
     def _listen(self) -> None:
         """Calls from a step (``ergostat act``, ``event --add``, ``lease``, ``item``) answered here, over a socket in the
