@@ -246,32 +246,32 @@ stateDiagram-v2
 minutes (three rounds of readings), first as `run:` commands (a small Python script each) and then as one shared
 sensor daemon. It is watched: killed past 1,500 threads or 6 GB.
 
+Every number below is a field of one row of `docs/proposals/daemon-results.jsonl`, written by the script as it stands
+(one run each, 6.53 minutes, three rounds of readings, the watchdog on).
+
 | | 20 sensors, processes | 20 sensors, daemon | 170 sensors, processes | 170 sensors, daemon |
 |---|---|---|---|---|
-| Readings taken (three rounds) | 60 | 60 | 510 | 510 |
-| Process starts | 60 | 1 | 510 | 1 |
-| Process starts a minute (steady) | 6.7 | 0 | 56.7 | 0 |
-| CPU, engine and everything it started | 2.08 s | 1.49 s | 11.16 s | 2.45 s |
-| of which the sensors' processes or the daemon | 0.90 s | 0.18 s | 7.87 s | 0.16 s |
-| CPU, as a share of one core | 0.53% | 0.38% | 2.85% | 0.63% |
-| Engine memory, most | 47 MB | 50 MB | 62 MB | 64 MB |
-| The daemon's memory | | 11 MB | | 12 MB |
-| Engine threads, most | 28 | 24 | 28 | 24 |
-| A pass: median / 95th percentile / longest | 0.08 / 0.14 / 7.7 ms | 0.09 / 0.21 / 0.9 ms | 0.08 / 0.37 / 26 ms | 0.09 / 0.19 / 2.6 ms |
-| A loop's batch (readings in, written, pass), longest | 18 ms | 1.5 ms | 40 ms | 6.9 ms |
+| Readings (`readings`) | 60 | 60 | 510 | 510 |
+| Process starts (`starts`) | 60 | 1 | 510 | 1 |
+| Starts a minute, by the 3-minute rounds (`starts_per_min`) | 6.7 | 0.1 | 56.7 | 0.1 |
+| CPU, engine and everything it started (`cpu_total_s`) | 1.90 s | 1.31 s | 9.71 s | 2.23 s |
+| of which its children (`cpu_children_s`) | 0.84 s | 0.13 s | 7.00 s | 0.13 s |
+| Share of one core (`cpu_cores`) | 0.49% | 0.34% | 2.48% | 0.57% |
+| Engine memory, most (`engine_rss_mb_max`) | 47.8 MB | 45.7 MB | 59.5 MB | 61.8 MB |
+| Children's memory, most sampled (`children_rss_mb_max`) | 0 | 13.1 MB | 0 | 11.2 MB |
+| Engine threads, most (`threads_max`) | 28 | 24 | 28 | 24 |
+| A pass: median / 95th / longest (`pass_*_ms`) | 0.08 / 0.13 / 6.8 ms | 0.08 / 0.16 / 0.8 ms | 0.07 / 0.22 / 13.3 ms | 0.09 / 0.17 / 1.9 ms |
+| A loop's batch, longest (`batch_max_ms`) | 15.4 ms | 1.8 ms | 14.2 ms | 4.2 ms |
 
-**What it says.** At the owner's scale (170 sensors every 3 minutes), command sensors are 57 process starts a
-minute, and those processes are most of what ergostat costs: 7.9 of 11.2 CPU seconds over the run, the engine itself
-3.3. One shared sensor daemon takes the same 510 readings with one process start in all, and the whole cost falls
-to 2.5 CPU seconds, a fifth, nearly all of it the engine's own work (taking and writing readings, the passes). The
-engine's latency improves too: the batch that takes a round of 170 readings goes from 40 ms (eight pool threads
-starting processes, results trickling in) to 7 ms (170 lines asked and answered over one pipe), and the longest
-pass from 26 ms to 3 ms. Neither is a problem at this scale: the engine is idle almost all the time either way.
-The daemon holds about 12 MB of memory for as long as it lives, where the short processes held theirs only for a
-moment (the 5-second sampling saw none of them).
+**What it says.** At the owner's scale (170 sensors every 3 minutes), command sensors are 56.7 process starts a
+minute, and those processes are most of the cost: 7.0 of 9.7 CPU seconds over the run. One shared sensor daemon
+takes the same 510 readings with one process start in all, and the total falls to 2.2 CPU seconds (under a quarter),
+nearly all of it the engine's own work. The engine's latency is small either way: the longest pass went from 13.3 ms
+to 1.9 ms and the longest batch from 14.2 ms to 4.2 ms, single maxima from one run each. The daemon holds about 11 MB
+for as long as it lives; the short processes held theirs only for a moment, and the 5-second sampling saw none of
+them, so their memory reads 0 here.
 
-The sensor here is a small Python script, which costs about 15 ms of CPU to start. A shell one-liner costs less to
-start and a sensor that loads a client library (an HTTP or database client) costs much more, so the saving scales
-with what each start loads. The numbers are from one run each on a laptop doing other work; treat them as orders of
-magnitude, not to the millisecond. To run again: `uv run python scripts/daemon_bench.py 20 170 --mode process`,
-then `--mode daemon` (these runs: `docs/proposals/daemon-results.jsonl`).
+The sensor is a small Python script (about 14 ms of CPU to start, from these runs). A shell one-liner costs less to
+start, and a sensor that loads a client library more, so the saving scales with what each start loads. One run each
+on a laptop doing other work: orders of magnitude, not milliseconds. To run again:
+`uv run python scripts/daemon_bench.py 20 170 --mode process --work DIR`, then the same with `--mode daemon`.
