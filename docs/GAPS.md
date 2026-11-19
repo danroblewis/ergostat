@@ -94,7 +94,9 @@ review). Newest decisions from the owner first within each section.
   the kinds, tidied, healed), event-log compaction, measurement retention, the worktree pool, expired leases, the
   engine's stall watchdog. Stocks, goals (e.g. index files <= 6) and rule-tier controllers instead of constants in
   the code; whether a delete is safe stays an interlock in the code (`coordinator/08-modes-and-protection.md`), and
-  no controller reads what it manages.
+  no controller reads what it manages. If the engine stops, its loops stop: so correctness never depends on them, each fails
+  safe (tidying stopped means files pile up, nothing breaks), and they are watched in layers (the engine's own
+  watchdog, then the runner or launchd for a dead process, with a heartbeat goal an outside watcher reads).
 - **What each run costs** (done, 251df28, merged from `runcost`): per run, its AI sessions' dollars (reported by Claude Code, or
   estimated from tokens), tokens and model, the CPU time and peak memory of its process tree (one shared sampler and
   its wait status), wall time and exit; series per block, `ergostat.cost.*` measures a goal can hold, the Agents page
