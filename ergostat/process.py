@@ -34,6 +34,7 @@ MOST_EDGES = 160              # the most frequent lines drawn
 CAUSE_HOPS = 4                # a cause followed up through events about no item (a block's run) this far
 SKIP = ("claude.*", "ergostat.lease.renewed", "ergostat.item.snapshot")   # a transcript's lines, a lease's heartbeat, a roll-up
 START, END = "^", "$"         # the start and end of a kind's map, in a line's ends (``followed=^>open``)
+SCHEDULE = "ergostat.schedule"   # where a scheduled run's events come from: a frame of its own, a node per block (§5b)
 BY = ("states", "events")
 
 
@@ -244,6 +245,8 @@ class Window:
             it = c.get("item")
             if it and "/" in it:
                 return c if it != e.get("item") else None
+            if c.get("type") == "agent.started" and (c.get("data") or {}).get("trigger") == "schedule" and it:
+                return {**c, "item": f"{SCHEDULE}/{it}/{c['id']}"}   # a run on its block's schedule: each run a cause
             cid = c.get("causedby")
         return None
 
@@ -261,7 +264,7 @@ class Window:
                 continue
             ci = c["item"]
             if ci not in self.kind_of:
-                k = _kind(self.spec, self.kinds, ci)
+                k = SCHEDULE if ci.startswith(SCHEDULE + "/") else _kind(self.spec, self.kinds, ci)
                 if not k:
                     continue
                 self.kind_of[ci] = k
@@ -270,7 +273,7 @@ class Window:
             missing: dict[str, set[str]] = {}
             for c, e in need:
                 for x in (c, e):
-                    if x["item"] not in self.folded:
+                    if x["item"] not in self.folded and self.kind_of[x["item"]] != SCHEDULE:
                         missing.setdefault(self.kind_of[x["item"]], set()).add(x["item"])
             for k, ids in missing.items():
                 self.folded.update(_folded(self.events, self.spec, k, ids))
@@ -279,6 +282,8 @@ class Window:
         return out
 
     def _act(self, e: dict) -> str | None:
+        if self.kind_of.get(e["item"]) == SCHEDULE:
+            return e["item"].split("/")[1]                    # the block whose schedule it is
         k = self.spec.items.get(self.kind_of.get(e["item"], ""))
         if self.by == "states" and k is not None and k.states:
             it = self.folded.get(e["item"])
@@ -339,6 +344,13 @@ class Window:
             yield steps[-1], (None, END, None, None)
 
 
+def _every(spec, block: str) -> str:
+    """How often a block runs on its own: ``every 15s``, ``cron 0 3 * * *``."""
+    from .durations import human
+    b = spec.blocks.get(block)
+    return f"cron {b.cron}" if b and b.cron else f"every {human(b.every)}" if b and b.every else "on a schedule"
+
+
 def process(events, spec, kinds: list[str], since: float, until: float, by: str | None = None,
             paths: float = 0.0) -> dict:
     """The process map of ``kinds`` over the span: nodes, lines (``follows`` within an item, ``caused``
@@ -356,8 +368,8 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
     def node(kind, act):
         x = nodes.get(nid(kind, act))
         if x is None:
-            role = "start" if act == START else "end" if act == END else "activity"
-            label = {"start": "start", "end": "end"}.get(role, act)
+            role = "schedule" if kind == SCHEDULE else "start" if act == START else "end" if act == END else "activity"
+            label = {"start": "start", "end": "end", "schedule": f"{act} · {_every(spec, act)}"}.get(role, act)
             x = nodes[nid(kind, act)] = {"id": nid(kind, act), "kind": role, "itemKind": kind, "activity": act,
                                          "label": label, "count": 0, "_items": set()}
         return x
@@ -390,11 +402,16 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
             e["_items"].add(id)
             if t0 is not None and t1 is not None and a not in (START,) and b not in (END,):
                 e["_times"].append(max(0.0, t1 - t0))
+    sched: set[str] = set()
     for ci, ca, cty, ei, ea, ety, t, tc in w.causes:
         if ca is None or ea is None:
             continue
         ck, ek = w.kind_of[ci], w.kind_of[ei]
-        node(ck, ca)
+        if ck == SCHEDULE and ci not in sched:                 # each run once: how many times the schedule fired
+            sched.add(ci)
+            x = node(ck, ca)
+            x["count"] += 1
+            x["_items"].add(ci)
         node(ek, ea)
         key = f"c:{ck}:{ca}>{ek}:{ea}"
         e = edges.get(key)
@@ -410,9 +427,11 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
     # the order of each kind's activities: a state's place in the declared states; an event's, its usual place in its runs
     order: dict[str, float] = {}
     for x in nodes.values():
-        k = spec.items[x["itemKind"]]
+        k = spec.items.get(x["itemKind"])
         a = x["activity"]
-        if a == START:
+        if k is None:
+            order[x["id"]] = 0.0
+        elif a == START:
             order[x["id"]] = -1.0
         elif a == END:
             order[x["id"]] = 1e9
@@ -453,6 +472,7 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         edges = dict(sorted(edges.items(), key=lambda kv: -kv[1]["count"])[:MOST_EDGES])
         capped["edges"] = True
     out_nodes = []
+    kinds = [SCHEDULE, *kinds] if any(x["itemKind"] == SCHEDULE for x in nodes.values()) else kinds
     for x in sorted(nodes.values(), key=lambda x: (kinds.index(x["itemKind"]), order[x["id"]], x["activity"])):
         out_nodes.append({**{k: v for k, v in x.items() if not k.startswith("_")}, "items": len(x["_items"]),
                           "order": order[x["id"]]})
@@ -468,6 +488,9 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
     present = {x["itemKind"] for x in out_nodes}
     info = []
     for k in kinds:
+        if k == SCHEDULE:                                      # the blocks on a schedule whose runs caused something
+            info.append({"name": k, "schedule": True, "states": [], "drawn": True, "by": "runs", "items": len(sched)})
+            continue
         ki = spec.items[k]
         info.append({"name": k, "states": list(ki.states), "drawn": k in present,
                      "by": by if (by == "events" or ki.states) else "events",
@@ -483,7 +506,7 @@ def items_through(events, spec, kind: str, since: float, until: float, by: str |
     """The items of ``kind`` behind a node (``through``: an activity, ``^`` or ``$``), a line within an item
     (``followed``: from, to), or lines from other items (``caused``: each (cause kind, its activity, this kind's
     activity), any of them) over the span, as the map counted them: each with when. Several asked: all of them."""
-    kinds = [kind, *(c[0] for c in caused or () if c[0] != kind)]
+    kinds = [kind, *(c[0] for c in caused or () if c[0] not in (kind, SCHEDULE))]
     by = by if by in BY else default_by(spec, [kind])
     w = Window(events, spec, list(dict.fromkeys(kinds)), since, until, by)
     sets = []

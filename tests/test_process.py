@@ -203,3 +203,37 @@ def test_the_api_draws_the_process_view_and_wiring_reaches_it(p):
     listed = api(live, "items", {"kind": ["flag"], "followed": ["researched>researching"], "by": ["states"],
                                  "moved_since": [str(now - 24 * H)], "moved_until": [str(now)], "alone": ["1"]})
     assert [i["id"] for i in listed["items"]] == ["flag/3"]
+
+
+def test_a_scheduled_runs_events_fan_out_from_its_schedule(tmp_path):
+    """A sweep on every: opens facets: each run is the cause its events cite (no event of its own needed), and the
+    map draws the block's schedule as the source of a fan-out, its items found by the line (caused=)."""
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL) + textwrap.dedent("""
+        blocks:
+          sweep:
+            type: program
+            every: 15m
+            run: "true"
+    """))
+    p = Project(mdl.load(tmp_path))
+    now = time.time()
+    for r in range(2):                                   # two firings, each opening three facets
+        t = now - H + r * 900
+        run = p.events.add("agent.started", item="sweep", source="ergostat", at=t, data={"trigger": "schedule"})
+        for j in range(3):
+            p.events.add("facet.opened", item=f"facet/{r}{j}", causedby=run["id"], at=t + 1 + j)
+    other = p.events.add("agent.started", item="sweep", source="ergostat", at=now - 60, data={"trigger": "command"})
+    p.events.add("facet.opened", item="facet/x", causedby=other["id"], at=now - 59)
+    spec = p.model.spec
+    g = pm.process(p.events, spec, ["facet"], now - 2 * H, now, "states")
+    src = node(g, pm.SCHEDULE, "sweep")
+    assert src["kind"] == "schedule" and src["label"] == "sweep · every 15m" and src["count"] == 2
+    out = edge(g, "", f"{pm.SCHEDULE}:sweep", "facet:open", "caused")
+    assert out["count"] == 6 and out["causes"] == 2 and out["items"] == 6, "a fan-out: two runs into six facets"
+    assert out["types"] == [{"cause": "agent.started", "effect": "facet.opened", "count": 6}]
+    assert g["kinds"][0] == {"name": pm.SCHEDULE, "schedule": True, "states": [], "drawn": True, "by": "runs", "items": 2}
+    assert not any(n["activity"] == "sweep" and n["itemKind"] == "facet" for n in g["nodes"])
+    s = item_sets.parse({"kind": ["facet"], "caused": [f"{pm.SCHEDULE}:sweep>open"], "by": ["states"],
+                         "moved_since": [str(now - 2 * H)], "moved_until": [str(now)]})
+    sel = item_sets.select(p.events, spec, s, until=now)
+    assert sel["total"] == 6 and "facet/x" not in {i["id"] for i in sel["items"]}
