@@ -75,13 +75,14 @@ def home() -> Path:
     return Path(os.environ.get("ERGOSTAT_HOME") or Path.home() / ".ergostat")
 
 
-def state_dir(project: str, repo: Path | None = None) -> Path:
+def state_dir(project: str, repo: Path | None = None, make: bool = True) -> Path:
     """``<home>/<name>-<8 hex of the repository's path>``: two repositories never share a record,
-    even with the same name."""
+    even with the same name. ``make=False``: not made when it is not there."""
     import hashlib
     key = project if repo is None else f"{project}-{hashlib.sha256(str(repo.resolve()).encode()).hexdigest()[:8]}"
     d = home() / key
-    d.mkdir(parents=True, exist_ok=True)
+    if make:
+        d.mkdir(parents=True, exist_ok=True)
     return d
 
 

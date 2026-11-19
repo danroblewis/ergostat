@@ -456,7 +456,7 @@ def from_findings(c: Ctx) -> None:
     from ..spec import findings as fd
     found: list[tuple[str, str, str]] = []
     fd.structure(spec, lambda code, msg, w, about: found.append((code, about, msg)))
-    for p in getattr(c.p.model, "problems", None) or []:
+    for p in (getattr(c.p.model, "_problems", None) or []) + fd.late(spec, wait=0):   # the extremes found so far
         if p.code in ("equation-sign", "extreme-conditions"):
             found.append((p.code, p.about, p.message))
     seen = set()

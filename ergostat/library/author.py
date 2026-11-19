@@ -354,7 +354,7 @@ def trial(root: Path, system: str | None = None, seconds: float = 30.0, change_a
     try:
         if standins:
             os.environ["ERGOSTAT_STANDINS"] = "1"
-        spec, problems = read(copy / FILE)
+        spec, problems = read(copy / FILE, extremes=False)   # its errors only: no extremes run, nothing kept
     finally:
         if standins and old is None:
             os.environ.pop("ERGOSTAT_STANDINS", None)

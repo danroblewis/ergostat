@@ -86,11 +86,17 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
     return out
 
 
-def late(spec: Spec) -> list[Problem]:
-    """The findings that run the model: its extreme-conditions tests (``numbers/extremes.py``)."""
+def late(spec: Spec, wait: float | None = None) -> list[Problem]:
+    """The findings that run the model: its extreme-conditions tests (``numbers/extremes.py``), waiting at most
+    ``wait`` seconds for those running in the background (None: until done); while some are not run, a note says so
+    (``extremes-running``)."""
     from ..numbers import extremes
+    from ..numbers.extremes_cache import said
     out: list[Problem] = []
-    extremes.findings(spec, lambda code, msg, where, about: out.append(Problem("finding", msg, where, code, about)))
+    status = extremes.findings(spec, lambda code, msg, where, about: out.append(Problem("finding", msg, where, code, about)),
+                               wait=wait)
+    if said(status):
+        out.append(Problem("note", said(status), None, "extremes-running" if status.get("running") else "extremes-skipped"))
     return out
 
 
