@@ -160,6 +160,11 @@ async function layoutGraph(g, aspect, cut = false, again = 0, opts = {}) {
     }
     for (const name of open) { const p = parentOf(name); (p ? cont[p].children : roots).push(cont[name]); }
   }
+  // a closed system linked to nothing, beside an open one: left out of ELK's layout, which would give it a row of its
+  // own, and put where there is room after (places.js packLoose)
+  const linked = new Set(g.edges.flatMap((e) => [e.source, e.target]));
+  const loose = open.size ? roots.filter((c) => byIdNodes[c.id]?.kind === "system" && !linked.has(c.id)) : [];
+  if (loose.length && loose.length < roots.length) roots = roots.filter((c) => !loose.includes(c));
   const roomy = g.nodes.some((n) => n.kind === "system" || (n.systems || []).length);
   const graph = {
     id: "root", children: roots, edges: elkEdges,
@@ -181,6 +186,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0, opts = {}) {
   const lay = await runLayout(graph, g);
   if (open.size || lay.children.some((c) => c.children?.length)) flatten(lay);   // (or blocks laid out together: layouts.js)
   placeSatellites(lay, sat);                             // the satellites put back in the room kept (satellites.js)
+  if (loose.length && !roots.some((c) => loose.includes(c))) packLoose(lay, loose);
   if (again < 2) {                      // ports facing away from what they join, valves facing away: turn them, lay out again
     const w = wanted(lay, g);
     const ports = g.nodes.flatMap((n) => n.ports || []);

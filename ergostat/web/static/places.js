@@ -316,3 +316,25 @@ function applyPins(lay, g, placed = null) {        // (placed: parts the owner h
   refit(lay);
   return moved;
 }
+
+/* parts left out of the layout (a closed system linked to nothing: diagram.js) put back where they cost the drawing
+   least: in the first free place among the others (by rows, top left first), else beside the drawing on the side that
+   keeps it nearest the screen's shape */
+function packLoose(lay, nodes) {
+  const M = 40;
+  const boxes = () => [...lay.children.map(partBox), ...(lay.containers || []).map((o) => ({ x0: o.x, y0: o.y, x1: o.x + o.width, y1: o.y + o.height }))];
+  for (const n of nodes) {
+    const bs = boxes();
+    const u = { x0: Math.min(...bs.map((b) => b.x0)), y0: Math.min(...bs.map((b) => b.y0)), x1: Math.max(...bs.map((b) => b.x1)), y1: Math.max(...bs.map((b) => b.y1)) };
+    const free = (x, y) => !bs.some((b) => meets({ x0: x, y0: y, x1: x + n.width, y1: y + n.height }, b, M));
+    let at = null;
+    for (let y = u.y0; !at && y + n.height <= u.y1; y += 16) for (let x = u.x0; x + n.width <= u.x1; x += 16) if (free(x, y)) { at = { x, y }; break; }
+    if (!at) {                                           // (beside it: right of it, or under it, whichever fits the screen better)
+      const right = { x: u.x1 + M, y: u.y0 }, under = { x: u.x0, y: u.y1 + M };
+      const fitOf = (p) => screenFit({ width: Math.max(u.x1, p.x + n.width) - u.x0, height: Math.max(u.y1, p.y + n.height) - u.y0 });
+      at = fitOf(right) >= fitOf(under) ? right : under;
+    }
+    lay.children.push({ ...n, x: at.x, y: at.y });
+  }
+  refit(lay);
+}
