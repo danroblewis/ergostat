@@ -74,7 +74,7 @@ DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
 INFERRED = re.compile(r"^ergostat\.model-change/[0-9a-z-]+$")   # inferred: the model change that added a part
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
-SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}}
+SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role"}
 MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
@@ -764,6 +764,8 @@ class Compiler:
         spec = Spec(d.name, d.root, d.files)
         spec.uses = dict(d.uses)
         spec.template_files = sorted({Path(u["path"]) for u in d.uses.values() if u.get("owners")})
+        spec.remotes = dict(d.remotes)                 # each remote system (SPEC §4c): its model's file reloads this one
+        spec.remote_files = [Path(r["dir"]) / "model.json" for r in d.remotes.values()]
         if d.keep is not None:
             try:
                 spec.keep = parse_duration(d.keep, "keep")
@@ -802,9 +804,9 @@ class Compiler:
                 self.err(f"{what}.type: one of {', '.join(SOURCE_TYPES)}", m.at("type"), "bad-type")
                 continue
             self.keys(m, SOURCE_TYPES[t], what)
-            if t == "prometheus" and not m.get("url"):
-                self.err(f"{what}: a prometheus source needs url:", m.where, "missing-key")
-            spec.sources[name] = Source(name, t, self.text(m, "url"), m.where)
+            if t in ("prometheus", "ergostat") and not m.get("url"):
+                self.err(f"{what}: a {t} source needs url:", m.where, "missing-key")
+            spec.sources[name] = Source(name, t, self.text(m, "url"), m.where, self.text(m, "token-file"))
         for name, m, _ in self.named("items"):
             k = self.item_kind(name, m, f"item kind {name}")
             if k.id.startswith("ergostat."):
@@ -1456,6 +1458,11 @@ class Compiler:
                          "unknown-ref")
             elif s.query and spec.sources[s.query["source"]].type == "prometheus" and not s.query.get("promql"):
                 self.err(f"sensor {s.of.name}.{s.name}: a prometheus query needs promql:", s.where, "missing-key")
+            elif s.query and spec.sources[s.query["source"]].type == "ergostat":
+                from ..remote.readings import check_query
+                why = check_query(s.query)
+                if why:
+                    self.err(f"sensor {s.of.name}.{s.name}: {why}", s.where, "bad-query")
         self.algebraic(spec)
 
     def algebraic(self, spec: Spec) -> None:

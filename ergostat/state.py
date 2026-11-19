@@ -186,8 +186,12 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         typical = steps[len(steps) // 2] if len(steps) >= 2 and len(raw) >= 4 else 0.0
         return change, explained, rest, abs(rest) > max(1e-9, 0.05 * (abs(change) + abs(explained)), 2 * typical)
 
+    from .remote import remote_parts
+    theirs = remote_parts(getattr(m, "spec", None))
     for name, s in stocks.items():
         if s["change"] is None or not m.flows_of(name):    # no flows declared: a plain measurement, nothing to explain
+            continue
+        if f"stock.{name}" in theirs:                      # a remote's stock: its flows are explained there (SPEC §4c)
             continue
         pts = full[name]
         span = max(pts[-1][0] - pts[0][0], 1e-9) / 3600.0
@@ -545,7 +549,13 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         return [{"level": "warn", "what": "the record", "says": "this moment is before the record starts "
                  f"({_t.strftime('%Y-%m-%d %H:%M', _t.localtime(snap['starts']))}): nothing is known then"}]
     out = []
+    from .remote import remote_parts
+    theirs = remote_parts(getattr(model, "spec", None))
     for name, lp in snap["loops"].items():
+        if f"goal.{name}" in theirs:                   # a remote's own loop: its business, said on its own page (SPEC §4c)
+            continue
+        if lp["status"] == "open" and f"stock.{lp['stock']}" in theirs:   # a goal here on a remote's stock: watched,
+            continue                                                       # acted on there (nothing here may act on it)
         if lp["status"] == "off":
             out.append({"level": "bad", "what": f"loop {name}", "says": f"{lp['stock']} is {fmt(lp['value'])}, "
                         f"setpoint {setpoint_text(lp)} (off by {fmt(abs(lp['error']))})"})
@@ -560,6 +570,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                        else f" (sensor {', '.join(lp['sensors'])})")
             out.append({"level": "warn", "what": f"loop {name}", "says": f"no reading of {lp['stock']} yet: "
                         f"the loop cannot tell whether it holds{who}"})
+    if model is not None and getattr(model, "spec", None) is not None:   # remotes that do not answer (SPEC §4c)
+        from .remote import attention as remote_attention
+        out += remote_attention(model.spec)
     for name, a in snap["agents"].items():
         if a["failing"]:
             note = (a["last"] or {}).get("data", {}).get("note", "failed")

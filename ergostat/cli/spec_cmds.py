@@ -27,8 +27,10 @@ def coherence_of(args, spec, findings) -> dict | None:
 
 
 def check_yaml(args, path: Path) -> int:
+    from ..remote.compose import fresh
     from ..spec import read
-    spec, problems = read(path)
+    with fresh():                                 # references into remotes checked against what each serves now
+        spec, problems = read(path)
     errors = [p for p in problems if p.level == "error"]
     findings = [p for p in problems if p.level != "error"]
     if args.json:
@@ -48,6 +50,9 @@ def check_yaml(args, path: Path) -> int:
                        n(len(spec.goals), "goal"), n(len(spec.blocks), "block"), n(len(spec.agents), "agent"),
                        n(len(spec.files), "file")])
     print(f"{c('error', 'bad') if errors else c('ok', 'ok')}   {head}")
+    for name, r in (getattr(spec, "remotes", None) or {}).items():     # each remote system (SPEC §4c)
+        print(c(f"remote {name}: {r['url']}, " + (f"model version {r['version']}, {len(r['parts'])} parts read in"
+                                                  if r.get("version") else "its model not read"), "dim"))
     for p in errors:
         print(f"{c('error', 'bad')}  {p}")
     if errors:

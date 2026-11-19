@@ -637,7 +637,7 @@ function bdSketch(kind, x, y) {                        // a static nonlinearity,
 
 function bdNode(n, c) {
   const w = c.width, hgt = c.height;
-  const g = s("g", { class: `node bd-node bd-${n.kind} bd-${n.role || n.kind}`, transform: `translate(${c.x},${c.y})`,
+  const g = s("g", { class: `node bd-node bd-${n.kind} bd-${n.role || n.kind}${n.remote ? ` bd-remote remote-${n.remote.state}` : ""}`, transform: `translate(${c.x},${c.y})`,
                      "data-id": n.id, "data-fn": bdFnText(n) });
   const fn = n.fn || {};
   if (n.role === "sensor" || n.role === "collector") {
@@ -691,6 +691,7 @@ function bdNode(n, c) {
                  s("path", { d: `M${w / 2 - fw / 2},${hgt / 2 + 10} H${w / 2 + fw / 2}`, class: "bd-line" }),
                  s("text", { x: w / 2, y: hgt / 2 + 23, class: "bd-expr", "text-anchor": "middle" }, frac[1]));
       } else if (fn.expr) g.append(richSvg(s("text", { x: w / 2, y: hgt / 2 + 14, class: "bd-note", "text-anchor": "middle" }), fn.expr));   // K_p: K with a subscript p
+      if (n.remote) g.append(s("text", { x: 0, y: -5, class: "bd-note live" }, n.remote.says));   // run by another ergostat
       if (n.role === "subsystem") {                      // a system closed into one block: opened here with its +
         const b = s("g", { class: "bd-toggle", "data-act": "open", transform: `translate(${w - 15},3)` },
                     s("rect", { width: 12, height: 12 }), s("path", { d: "M3,6 H9 M6,3 V9" }));
@@ -1017,6 +1018,7 @@ function openBlock(n) {
   const loops = n.loops || [];
   if (loops.length) kids.push(h("h3", {}, `In the loop${loops.length > 1 ? "s" : ""} of`),
     h("p", {}, ...loops.flatMap((l, i) => [i ? ", " : "", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(l); } }, l)])));
+  if (n.remote) kids.push(remoteNote(n.remote));
   const sysName = n.role === "subsystem" ? n.label : n.kind === "frame" && n.frame === "system" ? n.label : null;
   if (sysName) kids.push(h("div", { class: "actions" }, h("button", { onclick: () => S.toggleSystem?.(sysName) }, n.role === "subsystem" ? "Open it here" : "Close it into one block"),
     h("button", { onclick: () => S.drill?.(sysName) }, "Draw it alone")));

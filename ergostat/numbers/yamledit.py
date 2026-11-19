@@ -17,6 +17,9 @@ class EditError(Exception):
 def own(where, what: str) -> None:
     """A part a template made is written nowhere of its own: its instance's use: line stands for it. Changing it is
     changing the instance's with: (or the template), which the owner does, so an edit to it is refused."""
+    if getattr(where, "remote", None):                # a remote's part (SPEC §4c): it runs there, and changes only there
+        raise EditError(f"{what} belongs to remote {where.remote} ({where.url}), which runs it: a change to it is "
+                        f"proposed to that ergostat's owner, as text, never written here")
     if getattr(where, "template", None):
         raise EditError(f"{what} is made by template {where.template} (use {where.instance}, at {where.file.name}:"
                         f"{where.line}): change the instance's with:, or the template, instead")

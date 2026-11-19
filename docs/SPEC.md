@@ -250,6 +250,8 @@ loops:                          # optional: names for feedback loops (section 12
   ...
 uses:                           # optional: instances of templates (section 2a)
   ...
+remotes:                        # optional: systems other ergostats run, read here (section 4c)
+  ...
 library:                        # optional, main file only: folders of the owner's templates (section 2a)
   - ...
 ```
@@ -422,6 +424,97 @@ dots (and how many there were), a chart's series a thousand buckets, a sensor's 
 60 and how many; a loop's crossings are read for the window (and the one before it), never the
 whole record. A client that hangs up before its answer is written is one line in the log, not a
 traceback.
+
+## 4c. Remote systems: another ergostat's system, read here
+
+A **remote system** is a system another ergostat runs, composed into this model: its model is served by
+that ergostat and changes while it runs, its events and measurements are read where they live, and its
+blocks run there, never here. This model reads it, links to its parts and draws it as a subsystem; it
+never runs it. (Not a library: a library is a copy this model runs; a remote is one running system seen
+from two places. The design and its reasons: `docs/proposals/remote-systems.md`.)
+
+In system dynamics terms it is a **subsystem with an interface**: its stocks and flows are endogenous
+there and exogenous here (read as data, never integrated). In control terms it is a **separately
+controlled plant**: what we read of it is a measured disturbance for our loops, or a setpoint handed to
+us; we never close a loop through its actuators.
+
+```yaml
+remotes:
+  incidents:                          # its parts are incidents-PART, in the system incidents
+    url: http://127.0.0.1:8795        # https, or an SSH tunnel's loopback port
+    token-file: ~/.config/ergostat/incidents.token
+    systems: [triage]                 # optional: only these of its systems (and what is inside them)
+    within: support                   # optional: the system it is drawn inside
+    every: 1m                         # how often its model and readings are read (default 1m, least 10s)
+    description: the incident desk
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `url` | URL | required | The remote ergostat's page. Plain `http://` only to a loopback address (else **remote-insecure**, an error): across machines, https or an SSH tunnel (`ssh -N -L 8795:127.0.0.1:8781 HOST`) |
+| `token-file` | path | none | The file holding the token the remote made for this model (`ergostat remote token NAME`, on the remote); `~` expanded, relative to this file |
+| `systems` | list | all | Only these of the remote's systems, and the systems within them; a reference from them to a part left out is cut (a flow's end becomes a cloud, a cause or an input is dropped) |
+| `within` | system name | the file's default | The local system it is drawn inside |
+| `every` | duration | `1m` | How often its model is checked and its readings read |
+| `description` | string | where it runs | |
+
+**What it becomes here.** Each part it serves is put in under the remote's name (`stock.incidents-open`),
+as a template's instance names its parts (§2a), in the system `incidents` (its own systems inside it,
+`incidents-triage`), and points at the `remotes:` line (`ergostat.yaml:3 (remote incidents)`):
+
+- its **blocks** are `type: external` whatever they are there (never started, leased or evaluated here),
+  keeping their inputs and outputs, and a block that named a goal reads that goal's error;
+- its **sensors** are queries of the remote's same series, `query: {source: incidents, series:
+  sensor/open.main}`, every `every` or the sensor's own period there, whichever is longer; a flow a
+  remote block moves, with no sensor of its own, gets one, `remote`, reading the remote's rate for it;
+- its **goals** are evaluated here from those readings, as monitors; its **agents** are `external: true`
+  (each keeps its rung); its **item kinds** stay there: the local fold never folds a remote's items;
+- each remote is also a **source** of type `ergostat` (§11) of the same name.
+
+**References into it.** A local part may read a remote part: a goal on it (`stock: incidents-open`), a
+cause (`driven-by: [+stock.incidents-open]`), a flow from it (`from: incidents-escalated`), a block's
+input. They are checked against the remote's **current** model at every load (`ergostat check` asks it
+first). A local block may not output to a remote part (**remote-output**, an error): what runs there is
+changed there. A reference the remote no longer serves is a finding, never a refused model
+(**remote-reference-unresolved**): a stand-in with no sensor takes its place until it resolves again.
+
+**Kept current.** The remote's model is cached in `<state>/remotes/NAME/model.json`, with its version, and
+how it last answered in `status.json`. The running ergostat and the page ask again every `every`
+(conditionally: an unchanged model is a 304), and at once when a reading says its version moved; a new
+version is written to the cache, which is one of the model's files, so the model reloads as for an edit.
+A remote that fails is asked less often (twice the period after each failure, up to ten). When it does
+not answer, the model is drawn from the cache, every reading from it fails and keeps its last value with
+its age (`sensor.failed`), its box says *not answering for 2m · readings 3m old*, and the status and
+`check` carry **remote-unreachable**. A reading older than three of its sensor's periods (two minutes at
+least) is stale and is not taken.
+
+**Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
+its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
+in place like any system. In Process its kinds' maps are drawn beside ours, framed *remote incidents*.
+The local residuals, coherence and attention leave its parts out: they are held to its own record, there.
+
+**Never edited here.** A model change (§12e) that would write a remote part is refused, as one that would
+write a template's part: it is the remote owner's to make.
+
+**What a remote serves.** Any ergostat whose page runs serves this read-only API once a token is made
+(`ergostat remote token NAME`, printed once, kept only as its hash; `--revoke`; `ergostat remote tokens`).
+Every request carries `Authorization: Bearer TOKEN`; only `GET`; 10 requests a second per token (bursts
+of 30), then 429. The page's Host check does not apply here (a tunnel sends its own name): the token is
+what admits.
+
+| Address | Answers |
+|---|---|
+| `/remote/v1/status` | name, model version, now, the newest event's `seq`, whether it runs |
+| `/remote/v1/model` | its model, `format: ergostat-model/1`: the merged document after includes and templates, redacted (no commands, prompts, queries, sources, workspaces or actions), with `version` (16 hex of the SHA-256 of its canonical JSON); `ETag` is the version |
+| `/remote/v1/events?after=SEQ` | events after the cursor in `seq` order, `n` ≤ 1,000, filtered by `type`, `item`, `kind`, `since`, `until`; `next` (the cursor) and `more` |
+| `/remote/v1/items`, `/remote/v1/items/ID`, `/remote/v1/counts` | the item listing (`n` ≤ 500), one item, items by kind and state |
+| `/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time; at most 200 a call |
+| `/remote/v1/series?name=…` | one series over `since`…`until`, `n` ≤ 1,000 points |
+| `/remote/v1/process` | its process map (§5b) |
+
+`ergostat remote` lists this model's remotes (url, version, parts, how each answers); `ergostat remote
+events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
+most); `ergostat remote refresh` asks each again now.
 
 ## 5. Stocks
 
@@ -1659,6 +1752,7 @@ sources:
 |---|---|---|
 | `prometheus` | `url` | `source` and `promql`: an instant query, which must return one series |
 | `command` | none | (the same as `run`) |
+| `ergostat` | `url`, `token-file` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
 
 More types (Datadog, CloudWatch, SQL) can follow the same shape.
 
