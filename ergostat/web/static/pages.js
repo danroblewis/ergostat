@@ -70,12 +70,16 @@ async function pageLoops(main) {
 /* the ladder: one list, by rung, from the most general agent to none; the ladder itself one line of counts */
 async function pageAgents(main) {
   const p = page(main, "Agents");
-  const ladder = h("div", { class: "ladder-line" }), box = h("div");
-  p.append(ladder, box);
+  const ladder = h("div", { class: "ladder-line" }), box = h("div"), cap = h("p", { class: "note" });
+  p.append(ladder, box, cap);
   const ans = answers();
   async function tick(force = true) {
     ans.begin();
     const agents = await ans.api("agents");
+    const w = WINDOW_WORDS[S.since] ? `over the ${WINDOW_WORDS[S.since].toLowerCase()}` : windowNote();
+    setText(cap, `What the runs cost${w ? ", " + w : ""}: dollars their AI sessions cost (as Claude Code reported them; ` +
+      `"est." where only tokens were known and a price table priced them), their tokens, the CPU time of each run's ` +
+      `processes (user and system), and the most memory one run held. Open an agent for its history, run by run.`);
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const cols = [...RUNG_NAMES, "retired"];
     const of = (i) => Object.entries(agents).filter(([, a]) => a.rung === i);
@@ -84,10 +88,15 @@ async function pageAgents(main) {
     const last = (a) => a.runs_itself ? (a.running_since ? `running for ${ago(a.running_since).replace(" ago", "")}` : a.last ? ago(a.last.time) : "never ran")
       : a.kind === "person" ? "a person" : "not run here";
     const groups = cols.map((k, i) => [i, k, of(i)]).filter(([, , xs]) => xs.length);
+    const use = (a) => a.use || {};
     patch(box, h("div", { class: "table-wrap" }, h("table", {},
-      h("tr", {}, h("th", {}, "agent"), h("th", {}, "roles"), h("th", { class: "num" }, "runs"), h("th", {}, "last run"), h("th", {}, "runs when")),
+      h("tr", {}, h("th", {}, "agent"), h("th", {}, "roles"), h("th", { class: "num" }, "runs"), h("th", {}, "last run"), h("th", {}, "runs when"),
+        h("th", { class: "num", title: "What its AI sessions cost in the window, in USD" }, "cost"),
+        h("th", { class: "num", title: "Tokens its AI sessions used in the window: input, output, cache reads and writes" }, "tokens"),
+        h("th", { class: "num", title: "CPU time of its runs' processes in the window, user and system" }, "CPU"),
+        h("th", { class: "num", title: "The most memory one of its runs held (its processes together)" }, "peak memory")),
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
-        h("tr", {}, h("th", { colspan: 5 }, `${i} ${k}`, h("span", { class: "muted" }, `  ${RUNG_HINT[i]}`))),
+        h("tr", {}, h("th", { colspan: 9 }, `${i} ${k}`, h("span", { class: "muted" }, `  ${RUNG_HINT[i]}`))),
         xs.map(([name, a]) => h("tr", { class: "click", key: name, onclick: () => openAgent(name) },
           h("td", { class: "nowrap" }, h("b", {}, name), a.failing ? h("span", { class: "s-off" }, " failing") : null),
           h("td", {}, (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || h("span", { class: "muted" }, "no roles"),
@@ -96,7 +105,12 @@ async function pageAgents(main) {
                 : `${hint.controller}: “${hint.decision}” ${Math.round(hint.share * 100)}% of ${hint.count}; a cheaper rung could fill it`))) : null),
           h("td", { class: "num" }, a.runs_itself ? String(a.runs) : ""),
           h("td", { class: "nowrap muted" }, last(a)),
-          h("td", { class: "muted" }, a.schedule || a.every || ""))))))));
+          h("td", { class: "muted" }, a.schedule || a.every || ""),
+          h("td", { class: "num nowrap", "data-use": "cost", title: use(a).cost ? `${use(a).cost}, over ${use(a).ai_runs} runs` : "" },
+            usd(use(a).cost_usd), use(a).cost && use(a).cost !== "reported" ? h("span", { class: "muted" }, " est.") : null),
+          h("td", { class: "num", "data-use": "tokens" }, tokensText(use(a).ai_runs ? use(a).tokens : null)),
+          h("td", { class: "num", "data-use": "cpu" }, cpuText(use(a).cpu)),
+          h("td", { class: "num", "data-use": "memory" }, bytesText(use(a).memory_peak)))))))));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);

@@ -117,7 +117,8 @@ class Echo:
         self.emit({"type": "assistant", "session_id": self.sid, "message": {"content": [{"type": "text", "text": text}]}})
         self.turns += 1
         return {"type": "result", "subtype": "success", "is_error": False, "result": text, "session_id": self.sid,
-                "num_turns": self.turns, "duration_ms": int((time.monotonic() - t0) * 1000), "total_cost_usd": 0.0}
+                "num_turns": self.turns, "duration_ms": int((time.monotonic() - t0) * 1000), "total_cost_usd": 0.0,
+                **fixture()}
 
     def stream(self) -> int:
         inbox: queue.Queue = queue.Queue()
@@ -149,6 +150,17 @@ class Echo:
         else:
             print(res["result"])
         return 0
+
+
+def fixture() -> dict:
+    """``$ERGOSTAT_ECHO_RESULT``: fields that every result message carries over the stand-in's own (a file of JSON, or
+    JSON itself): ``usage``, ``modelUsage``, ``total_cost_usd`` as Claude Code gives them, so what a session costs can
+    be tested without a model. ``"total_cost_usd": null`` leaves the dollars unsaid (only tokens)."""
+    raw = os.environ.get("ERGOSTAT_ECHO_RESULT") or ""
+    if not raw:
+        return {}
+    text = raw if raw.lstrip().startswith("{") else open(raw, encoding="utf-8").read()
+    return json.loads(text)
 
 
 class _Until(queue.Queue):

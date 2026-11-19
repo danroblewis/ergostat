@@ -287,6 +287,47 @@ keeps running it; this model reads it.
 
 A worked pair is `examples/remote-pair/` (a local *support* model reading a remote *incidents* model).
 
+## 3b. A budget on what the agents cost
+
+ergostat measures every run itself (SPEC §9.1): what its AI sessions cost (dollars as Claude Code reported them, or
+estimated from tokens), its tokens, the CPU time and peak memory of its processes, its wall time and exit. You do not
+write anything for this: an `ai` block's own `claude -p`, and `ergostat session` inside any block's `run:`, report
+through the run. The Agents page shows each agent's totals and history; `ergostat agent NAME` the same.
+
+When the person wants a limit ("no more than $5 a day on AI"), make it a goal, read from a built-in measure, and gate
+the AI blocks on it, so the loop that does the work also stops when the money is spent:
+
+```yaml
+auxiliaries:
+  ai-spend:
+    unit: USD
+    description: what the AI sessions cost over the last day
+    driven-by: [+flow.rewritten]           # the more the writer works, the more it costs
+    sensor: {builtin: ergostat.cost.usd, every: 5m}
+goals:
+  ai-budget:
+    auxiliary: ai-spend
+    hold: "<= 5"                           # $5 a day
+blocks:
+  go:
+    type: expr                             # work while pages wait, and only while money is left today
+    in: {waiting: goal.backlog-short.off, over: goal.ai-budget.off}
+    expr: waiting * (1 - over)
+    out: block.writer
+  writer:
+    type: ai
+    prompt: prompts/rewrite.md
+    in: block.go
+    out: flow.rewritten
+```
+
+- `ergostat.cost.usd` is the last day's spend; `ergostat.cost.usd-hour` the last hour's (a rate limit). Narrow it to
+  one block with `@writer`, or one model with `@model:opus`. Tokens, CPU and memory have measures of the same shape
+  (`ergostat.cost.tokens`, `.cpu`, `.memory`, `.runs`): `ergostat measure` lists them.
+- Spend is an auxiliary, not a stock: it is a sum over a moving window, with no memory of its own.
+- `ergostat check` should say both goals are closed by a loop. Without the gate, the budget goal is "missing
+  feedback": a number watched, not held.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |
