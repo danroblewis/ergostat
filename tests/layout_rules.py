@@ -19,7 +19,7 @@ CLOUD_GAP = 70            # a cloud lies at most this far from its valve (box to
 CLOUD_FAR = 220           # past this, the cloud reads as belonging to something else
 EXCURSION_K = 1.3         # a flow's way from end to end at most this many times the direct (Manhattan) distance,
 EXCURSION_SLACK = 80      # plus this (the valve's width and a jog)
-BACK_LANE = 240           # and a flow back up a chain (rework) a lane under or over it: there and back
+BACK_LANE = 240           # and a flow back up a chain (rework), or between stocks one over the other, a lane: there and back
 VALVE_BOX_SLACK = 30      # a valve inside the box its two ends span, grown by this (half a valve and a margin)
 CLOUD_FLOW_BENDS = 0      # a flow to or from a cloud: straight
 STOCK_FLOW_BENDS = 2      # a flow between two stocks: at most a jog (a flow back up a chain may need 4)
@@ -195,8 +195,10 @@ def d_flow_excursion(r: Rule, g: G):
             continue
         path = g.flow_path(v, pin, pout)
         L, D = length(path), manhattan(path[0], path[-1])
+        a, b = g.rect.get(pin["source"]), g.rect.get(pout["target"])
+        # a flow back up a chain, or between stocks one over the other: it runs in a lane, there and back
         back = g.kind(pin["source"]) == "stock" and g.kind(pout["target"]) == "stock" and \
-            centre(g.rect[pin["source"]])[0] > centre(g.rect[pout["target"]])[0] + 20       # a flow back up a chain
+            (centre(a)[0] > centre(b)[0] + 20 or (a[0] < b[2] and b[0] < a[2]))
         if L > EXCURSION_K * D + EXCURSION_SLACK + (BACK_LANE if back else 0):
             ends = [pin["source"], pout["target"]]
             sev = "critical" if L - D > 300 else "major"
@@ -219,6 +221,9 @@ def d_valve_between(r: Rule, g: G):
         if off > 0:
             ends = [pin["source"], pout["target"]]
             sev = "critical" if off > 120 else "major" if off > 40 else "minor"
+            path = g.flow_path(v, pin, pout)
+            if length(path) <= EXCURSION_K * manhattan(path[0], path[-1]) + EXCURSION_SLACK + BACK_LANE:
+                sev = "minor"                         # (on its pipe, in a lane beside its ends: the pipe is no longer for it)
             out.append(inst(r, off, f"valve {v['label'] or v['id']} {off:.0f}px outside the span of its ends",
                             [v["id"], *ends], union(g.rect[v["id"]], *(g.rect[x] for x in ends if x in g.rect)), sev))
     return out

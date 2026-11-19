@@ -444,6 +444,7 @@ function avoidStart(lay, g) {
                Object.fromEntries(spec.conns.map((c) => [c.id, [c.s, c.t]])));
       uncross(lay, g);
       if (g.kind === "dynamics") { sdSeparate(lay, g); uncross(lay, g); }   // (dynamics.js)
+      unjog(lay, g);                                     // (last: the lines are where they stay)
       AV.ms = m.ms; AV.invalid = m.invalid; AV.firstMs = m.firstMs;               // (how long it took, and lines it found no way for: the tests read them)
       AV.routed = { lay, seq };
     }
@@ -475,6 +476,45 @@ function straightenPipes(lay, g) {
     const slides = (id, y) => { const c = box[id]; return ["stock", "cloud"].includes(kind[id]) && c && y > c.y + 4 && y < c.y + c.height - 4; };
     if (slides(e.target, s.y)) { sec.endPoint = { x: t.x, y: s.y }; sec.bendPoints = []; }
     else if (slides(e.source, t.y)) { sec.startPoint = { x: s.x, y: t.y }; sec.bendPoints = []; }
+  }
+}
+
+/* a pipe's small jogs (the router's nudging, a few pixels across) taken out where the stretch after one can run on in
+   line with the stretch before it: clear of every part, and on no other line's track */
+const JOG = 12;
+function unjog(lay, g) {
+  const edge = Object.fromEntries(g.edges.map((e) => [e.id, e]));
+  const pts = (le) => { const sc = le.sections[0]; return [sc.startPoint, ...(sc.bendPoints || []), sc.endPoint]; };
+  const lines = lay.edges.filter((le) => (le.sections || []).length);
+  const clear = (le, a, b) => {
+    const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+    if (lay.children.some((c) => c.id !== edge[le.id].source && c.id !== edge[le.id].target &&
+        x1 > c.x + 2 && x0 < c.x + c.width - 2 && y1 > c.y + 2 && y0 < c.y + c.height - 2)) return false;
+    const mine = edge[le.id], net = (o) => { const x = edge[o.id];     // (a pipe into, or out of, the same part: one net, one track)
+      return x && x.kind === mine.kind && (x.target === mine.target || x.source === mine.source); };
+    return !lines.some((o) => o !== le && !net(o) && pts(o).slice(1).some((q, j) => { const p0 = pts(o)[j];
+      if (Math.abs(a.y - b.y) < 0.5 && Math.abs(p0.y - q.y) < 0.5 && Math.abs(a.y - p0.y) < 4) return Math.min(x1, Math.max(p0.x, q.x)) - Math.max(x0, Math.min(p0.x, q.x)) > 4;
+      if (Math.abs(a.x - b.x) < 0.5 && Math.abs(p0.x - q.x) < 0.5 && Math.abs(a.x - p0.x) < 4) return Math.min(y1, Math.max(p0.y, q.y)) - Math.max(y0, Math.min(p0.y, q.y)) > 4;
+      return false; }));
+  };
+  for (const le of lines) {
+    if (edge[le.id]?.kind !== "pipe") continue;
+    let p = pts(le), changed = false;
+    for (let i = 1; i + 2 < p.length; i++) {          // p[i] -> p[i+1] a jog between two stretches running the same way
+      const a = p[i - 1], b = p[i], c = p[i + 1], d = p[i + 2];
+      const level = Math.abs(a.y - b.y) < 0.5 && Math.abs(c.y - d.y) < 0.5 && Math.abs(b.x - c.x) < 0.5;
+      const upright = Math.abs(a.x - b.x) < 0.5 && Math.abs(c.x - d.x) < 0.5 && Math.abs(b.y - c.y) < 0.5;
+      const jog = level ? Math.abs(c.y - b.y) : upright ? Math.abs(c.x - b.x) : 0;
+      if (!jog || jog > JOG || i + 2 === p.length - 1) continue;      // (the last stretch ends on its part: it stays)
+      const d2 = level ? { x: d.x, y: b.y } : { x: b.x, y: d.y };
+      const e = p[i + 3];
+      if (!clear(le, b, d2) || (e && !clear(le, d2, level ? { x: e.x, y: e.y } : { x: e.x, y: e.y }))) continue;
+      if (e && ((level && Math.abs(e.x - d.x) > 0.5) || (upright && Math.abs(e.y - d.y) > 0.5))) continue;   // (the next must turn)
+      p = [...p.slice(0, i + 1), d2, ...p.slice(i + 3)];
+      changed = true;
+      i--;
+    }
+    if (changed) le.sections = [{ startPoint: p[0], bendPoints: p.slice(1, -1), endPoint: p[p.length - 1] }];
   }
 }
 
