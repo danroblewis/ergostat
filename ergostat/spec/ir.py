@@ -753,7 +753,6 @@ class ItemKind:
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # the terms of a lease on one of these (SPEC §9.5)
     relations: dict[str, Relation] = field(default_factory=dict)   # field → its relation to other items (SPEC §5a)
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
-    formerly: dict[str, str] = field(default_factory=dict)   # an event type renamed → its name now: the record's still fold
 
     def matches(self, id: str) -> bool:
         import fnmatch

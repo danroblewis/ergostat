@@ -89,24 +89,10 @@ def finding_id(code: str, about: str | None) -> str:
 
 # ---- the edit
 
-def _project_file(spec: Spec, name: str) -> Path | None:
-    """A text file of the project's own (a program its blocks run), not the model's and not a hidden one: what a
-    rename of an event type may write the new name into, and nothing else may."""
-    f = Path(name)
-    f = (f if f.is_absolute() else spec.root / f).resolve()
-    root = Path(spec.root).resolve()
-    if not f.is_relative_to(root) or not f.is_file() or any(x.startswith(".") for x in f.relative_to(root).parts):
-        return None
-    return f
-
-
-def _model_file(spec: Spec, name: str, code: list | None = None) -> Path:
+def _model_file(spec: Spec, name: str) -> Path:
     f = Path(name)
     f = (f if f.is_absolute() else spec.root / f).resolve()
     files = {Path(x).resolve() for x in spec.files}
-    if f not in files and code is not None and _project_file(spec, name) is not None:
-        code.append(str(f))
-        return f
     if f not in files:
         raise ProposeError(f"{name}: not one of the model's files ({', '.join(sorted(_rel(spec, x) for x in files))}); "
                            f"a proposal edits the model only")
@@ -120,8 +106,8 @@ def _rel(spec: Spec, f) -> str:
         return Path(f).name
 
 
-def _replace(spec: Spec, one: dict, code: list | None = None) -> ye.Edit:
-    f = _model_file(spec, str(one.get("file") or ""), code)
+def _replace(spec: Spec, one: dict) -> ye.Edit:
+    f = _model_file(spec, str(one.get("file") or ""))
     old = str(one.get("replace") or "").rstrip("\n").split("\n")
     new = str(one.get("with") or "").rstrip("\n").split("\n") if one.get("with") else []
     if not any(x.strip() for x in old):
@@ -207,9 +193,8 @@ def _set(spec: Spec, one: dict) -> list[ye.Edit]:
     return out
 
 
-def edits(spec: Spec, raw, code: list | None = None) -> list[ye.Edit]:
-    """A proposal's edit, as ``ye.Edit``s on the model's files: the review queue's form, ``replace``, or ``set``. With
-    ``code`` (a list), an edit to one of the project's own files is taken too, and its file named there."""
+def edits(spec: Spec, raw) -> list[ye.Edit]:
+    """A proposal's edit, as ``ye.Edit``s on the model's files: the review queue's form, ``replace``, or ``set``."""
     if isinstance(raw, dict) and "files" in raw:
         raw = raw["files"]
     if isinstance(raw, dict):
@@ -231,9 +216,9 @@ def edits(spec: Spec, raw, code: list | None = None) -> list[ye.Edit]:
             out += [ye.merge(es_) for es_ in by.values()]
             continue
         if "replace" in one:
-            out.append(_replace(spec, one, code))
+            out.append(_replace(spec, one))
             continue
-        f = _model_file(spec, str(one["file"]), code)
+        f = _model_file(spec, str(one["file"]))
         hunks = []
         for h in one.get("hunks") or []:
             try:
@@ -502,7 +487,7 @@ def kind_of(before: Spec, after: Spec, said: str) -> str:
     change, units alone a **unit** change, descriptions alone a **description** change, and the rest an equation or the
     structure. The parameter, equation and structure are the dynamics model's to judge on the record; a description,
     a unit and a rename change what a reader is told, not what moves."""
-    if ver.renamed_parts(before, after) or (ver.renamed_events(before, after) and ver.structure(before) == ver.structure(after)):
+    if ver.renamed_parts(before, after):
         return "rename"
     if ver.control(before) != ver.control(after):
         return "control"
@@ -563,8 +548,7 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
         raise ProposeError("no reason with evidence ergostat can check" +
                            (f" ({'; '.join(x['says'][:60] + ': ' + x['why'] for x in refused[:3])})" if refused else ""))
     said_parts = list(parts)
-    code: list[str] = []
-    es_ = edits(spec, raw.get("edit"), code)
+    es_ = edits(spec, raw.get("edit"))
     try:
         texts = ye.apply_together(es_)
     except ye.EditError as e:
@@ -588,8 +572,6 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
     after_f = {finding_id(x.code, x.about) for x in problems if x.level != "error"}
     notes = {finding_id(x.code, x.about) for x in problems if x.level == "note"} | ev.notes()   # the craft: not findings
     kind = kind_of(spec, after, said_kind)
-    if code:
-        _code_only_renames(spec, after, kind, es_, code)
     if kind == "rename":                                   # the same findings under the new names are not new
         before_f = {_renamed_id(f, ver.renamed_parts(spec, after) or {}) for f in before_f}
     if kind in WORDING:                                   # what a reader is told: the replay reads the same record alike
@@ -666,11 +648,9 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
                        "control": "a change to what decides (a goal, a block or the judge)",
                        "measurement": "a change to how the world is read (a sensor)",
                        "description": "a part's description: what the diagrams say of it",
-                       "unit": "a part's unit", "rename": "a part (or an event type) renamed, every reference with it, its "
-                       "history kept"}[kind]
+                       "unit": "a part's unit", "rename": "a part renamed, every reference with it, its history kept"}[kind]
         if kind == "rename":
             x["renames"] = renames
-            x["renamed_events"] = ver.renamed_events(spec, after) or {}
         if kind in ("description", "unit"):
             x["parts"] = list(dict.fromkeys([*(".".join(r.split(".")[:2]) for r in (
                 ver.changed_words(spec, after) if kind == "description" else ver.changed_units(spec, after))), *parts]))
@@ -683,26 +663,6 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
 def _renamed_id(fid: str, renames: dict[str, str]) -> str:
     code, _, about = fid.partition("@")
     return f"{code}@{renames.get(about, about)}" if about else fid
-
-
-def _code_only_renames(before: Spec, after: Spec, kind: str, es_: list[ye.Edit], code: list[str]) -> None:
-    """An edit to the project's own files is taken only from a rename of event types, and only where each line it
-    changes is that line with the old names written as the new: anything else is refused."""
-    names = {old: new for m in (ver.renamed_events(before, after) or {}).values() for old, new in m.items()}
-    if kind != "rename" or not names:
-        raise ProposeError(f"it edits {', '.join(sorted(_rel(before, f) for f in set(code)))}, which are not the model's: "
-                           f"only a rename of event types may write the new names into the project's own files")
-    for e in es_:
-        if str(Path(e.file).resolve()) not in code:
-            continue
-        for h in e.hunks:
-            want = []
-            for line in h.old:
-                for old, new in names.items():
-                    line = re.sub(rf"([\"']){re.escape(old)}\1", lambda m, new=new: f"{m.group(1)}{new}{m.group(1)}", line)
-                want.append(line)
-            if want != h.new:
-                raise ProposeError(f"{_rel(before, e.file)}:{h.line}: it changes more than the event types it renames")
 
 
 def _new_named(before: Spec, after: Spec) -> list[tuple[str, str]]:

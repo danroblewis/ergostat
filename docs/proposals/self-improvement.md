@@ -103,7 +103,7 @@ over all twenty cost **$0.18**. What it shows:
 - **Changes nobody asked for wait**: the AI tier's control and structure proposals (docs-fresh, software-factory)
   waited for the owner; the rule tier's renames and goal were written only by the simulated owner.
 
-**The planted cases** (`ergostat bench improve --suite craft`; defects planted in alert-triage, ticket-factory's
+**The planted cases** (`scripts/craft_bench.py`; defects planted in alert-triage, ticket-factory's
 chain broken, and the owner's thirteen disconnected stocks):
 
 | Case | Defect | Rule tier only | With the AI tier (haiku) |

@@ -65,7 +65,8 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "
                "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "formerly"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join"}
+STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -666,21 +667,6 @@ class Compiler:
                              raw.at(f), "bad-fold")
                 else:
                     rules[f] = str(rule)
-        formerly = {}
-        raw = m.get("formerly") or {}
-        if not isinstance(raw, dict):
-            self.err(f"{what}.formerly: a map of an event type it had: the type it is now (a rename keeps the record's)",
-                     m.at("formerly"), "not-a-map")
-        else:
-            for old, now in raw.items():
-                if str(now) not in moves:
-                    self.err(f"{what}.formerly.{old}: {now!r} is not one of its events (on:)", raw.at(old), "unknown-ref")
-                elif str(old) in moves and moves[str(old)] != moves[str(now)]:
-                    self.err(f"{what}.formerly.{old}: on: moves it to {moves[str(old)]}, its new name to {moves[str(now)]}",
-                             raw.at(old), "bad-formerly")
-                else:
-                    formerly[str(old)] = str(now)
-                    moves.setdefault(str(old), moves[str(now)])          # the record's events of the old type still fold
         from ..leases import compile as leases
         from . import joins
         from .relations import compile_relations
@@ -688,7 +674,7 @@ class Compiler:
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
-                        join=joins.compile_join(self, m, what), formerly=formerly)
+                        join=joins.compile_join(self, m, what))
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""

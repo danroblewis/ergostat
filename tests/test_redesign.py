@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from ergostat import model as mdl
-from ergostat.bench.craft import thirteen
 from ergostat.numbers import changeset as cs
 from ergostat.numbers import judge as jd
 from ergostat.numbers import proposals as pr
@@ -21,6 +20,23 @@ from ergostat.numbers import redesigner as rdr
 from ergostat.numbers import scorecard as sc
 from ergostat.spec import read
 from ergostat.store import Project
+
+
+def _bench():
+    """The craft bench (``scripts/craft_bench.py``), loaded from its file: its thirteen disconnected stocks."""
+    import importlib.util
+    import sys
+    if "craft_bench" not in sys.modules:
+        f = Path(__file__).resolve().parent.parent / "scripts" / "craft_bench.py"
+        spec = importlib.util.spec_from_file_location("craft_bench", f)
+        m = importlib.util.module_from_spec(spec)
+        sys.modules["craft_bench"] = m                          # (its dataclasses look their module up by name)
+        spec.loader.exec_module(m)
+    return sys.modules["craft_bench"]
+
+
+def thirteen(dest):
+    return _bench().thirteen(dest)
 
 PIECES = """\
 name: t

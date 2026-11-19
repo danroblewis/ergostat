@@ -3101,7 +3101,7 @@ Any block may print:
 
 | Key | Meaning |
 |---|---|
-| `kind` | `parameter` (values only), `equation`, `structure`, `measurement` (a sensor of a part already there), `control` (a goal, a block, an agent, the judge's policy), or a change of words: `description` (descriptions alone, a sensor's too), `unit` (units alone) and `rename` (the same model under new names: each renamed part says `formerly:` its old name, every reference follows; or event types renamed, each kept as `formerly:` on its kind so the record's events still fold, and written as the new name into the project's own programs where they are quoted literals, the only edit a change may make outside the model's files). What the edit does decides, whatever it is called (`improve.kind_of`). Parameter, equation and structure are judged by the replay; a change of words by `check` alone (passed when it makes no new finding or note); control and measurement wait for the owner |
+| `kind` | `parameter` (values only), `equation`, `structure`, `measurement` (a sensor of a part already there), `control` (a goal, a block, an agent, the judge's policy), or a change of words: `description` (descriptions alone, a sensor's too), `unit` (units alone) and `rename` (the same model under new names: each renamed part says `formerly:` its old name, every reference follows, and its structure, its control and every sensor are as they were; a change never edits a file that is not the model's). What the edit does decides, whatever it is called (`improve.kind_of`). Parameter, equation and structure are judged by the replay; a change of words by `check` alone (passed when it makes no new finding or note); control and measurement wait for the owner |
 | `parts` | The parts it touches, as references (`stock.x`, `flow.y`, `parameter.z`) |
 | `edit` | In the review queue's form, `{"files": [{"file", "hunks": [{"line", "old", "new"}]}]}`, or `{"file", "replace", "with"}` (the lines as written now, found once, and what they become), or a list of either. Files are named from the model's folder, and only the model's own files may be edited |
 | `reasons` | Each `{"says", "evidence"}` (`evidence` one, or a list). Evidence is what ergostat can check: a finding `check` reports now, by its id (`finding:CODE@PART`, the `id` in `check --json` and the MCP `check`); a statistic of the fit (`fit:total.nmse`, `fit:stock.NAME.r2`, `.mape`, `.um`, `.us`, `.uc`, and an equation's `fit:flow.NAME.r2`); a residual (`residual:stock.NAME`); a line of a document or of the code, in the project or in ergostat (`docs/MODELLING.md:120`, `bin/lab.py:40-52`), or a URL; or a modelling rule (`rule:NAME`: the guidelines of `docs/MODELLING.md` and Sterman's tests, listed in `numbers/improve.py`) |
@@ -3287,12 +3287,11 @@ what is new, answers what is gone and moves each to where its changes say it is.
 block of the template, answer them, the cheapest first:
 
 - **the rule tier** (`fixer`, a program, `ergostat/numbers/rules.py`): mechanical changes that are safe and certain:
-  a kind's chain rewired exactly as `chains.py` names it (the whole kind at once when its stocks are in pieces); the
-  structure tests' own fixes (§12b); a stock's unit carried along its flows from the stocks they join, or the plural of
-  the kind it counts; a first-order outflow (`stock.S / time-in-S`, the time by Little's law on the record, `estimate:
-  true`) for a flow between stocks that names no other cause; event types named `KIND.STATE` when the state reads as a
-  past tense; a queue's goal held at 0 with tolerance 0; a process nobody identified taken out. Each change cites
-  every request it answers. What it cannot answer it hands to the AI tier, saying why;
+  a stock's unit carried along its flows from the stocks they join, or the plural of the kind it counts; a queue's
+  goal held at 0 with tolerance 0; a process nobody identified taken out. Each change cites every request it answers.
+  What it cannot answer it hands to the AI tier, saying why. A kind's chain and the structure tests are answered by
+  ergostat's own finders (§12b), whose changes say `rewires`. Each tier records and checks its changes in its own
+  process, as the engine checks a block's propose line;
 - **the AI tier** (`modeller`, an `ai` block, on only with `ai: true`; `ergostat/numbers/modeller.py`): the requests
   the rule tier could not answer, a few at a time, each with the neighbourhood of the model it touches (its part and
   every part one link from it, as written, and the first lines of the programs they run), and a prompt that is the
