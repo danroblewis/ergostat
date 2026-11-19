@@ -14,8 +14,8 @@
   it was taken from), nack otherwise (or when it said ``{"nack": ...}``), the why its exit or its own words.
 - **The watchdog.** A held lease past its expiry is looked at once more: a line of the item's transcript, an event the
   holder caused about anything, or about an item the holder started (its session), since it was last renewed, renews
-  it (``ergostat.lease.renewed``, at that time); otherwise it expires (``ergostat.lease.expired``). A run whose lease
-  expired is not killed: what it says about the item afterwards is refused."""
+  it (``ergostat.lease.renewed``, at that time); otherwise it expires (``ergostat.lease.expired``), and its run, when
+  this engine started it, is killed (``kill.py``); what a run says about the item after its lease ended is refused."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from ..spec import items as its
 from ..spec.ir import DEAD, LEASED
 from . import ENDED, EXPIRED, RENEWED, TAKEN
 from .fold import held
+from .kill import kill
 from .ready import Ready, unblocked
 from .terms import terms
 
@@ -308,6 +309,8 @@ class Dispatcher:
                                                  data={"run": lease["holder"], "fence": lease["fence"],
                                                        "block": lease.get("block"), "silent": round(silent, 1), "ttl": ttl,
                                                        **self.after(it, lease, True)}))
+                kill(self.e, lease["holder"], f"its lease on {it.id} expired: silent {silent:.0f}s, its TTL {ttl:g}s",
+                     it.id, lease["fence"], lease.get("block"))
                 after = its.one(self.p.events, self.spec, it.id)
                 dead = after is not None and after.state == DEAD
                 self.e.say(f"{lease.get('block')}: the lease on {it.id} expired (silent {silent / 60:.1f} min)"
