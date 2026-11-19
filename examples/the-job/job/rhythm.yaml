@@ -27,6 +27,13 @@ stocks:
       items: day
       state: started
       every: 5s
+  days-under-way:
+    unit: days
+    description: briefed, and not over yet (the working day itself)
+    sensor:
+      items: day
+      state: briefed
+      every: 5s
   days-to-record:
     unit: days
     description: ended, and not in the ledger yet
@@ -43,11 +50,13 @@ flows:
       every: 10s
   briefs-written:
     from: days-to-brief
+    to: days-under-way
     sensor:
       items: day
       entering: briefed
       over: 10m
   days-ending:
+    from: days-under-way
     to: days-to-record
     sensor:
       items: day

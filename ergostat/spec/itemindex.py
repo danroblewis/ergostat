@@ -452,19 +452,30 @@ class Index:
         return self.db.execute(f"select i.id, m.t from moves m join items i on i.rid = m.rid where m.kind = ? and m.{col} = ? "
                                f"and m.t >= ? and m.t <= ?{extra} order by m.t", args).fetchall()
 
-    def transitions(self, kind: str) -> dict:
+    def transitions(self, kind: str, at_once: bool = False) -> dict:
         """How many times ``kind``'s items moved from one state to another (``(None, S)``: arrivals), a lease's hold
-        taken out: a move into ``leased`` and the move out of it are one move, from the state it was taken from."""
+        taken out: a move into ``leased`` and the move out of it are one move, from the state it was taken from.
+        ``at_once``: an item whose first event moved it on from the kind's first state (it arrived in a later state:
+        reopened in the outside system, say) counts as arriving in the state that event left it in."""
         from collections import Counter
         out: Counter = Counter()
         k = self.known(kind)
         if k == -1:
             return out
-        rid0, back = None, None
-        for rid, f, d in self.db.execute("select rid, frm, dst from moves where kind = ? order by rid, rowid", (k,)):
+        rid0, back, came = None, None, None
+        for rid, f, d, ev in self.db.execute("select rid, frm, dst, event from moves where kind = ? order by rid, rowid",
+                                             (k,)):
             if rid != rid0:
-                rid0, back = rid, None
+                rid0, back, came = rid, None, None
             frm, to = self.name(f), self.name(d)
+            if at_once and came is not None and ev == came[0] and frm == came[1] and to != "leased":
+                out[(None, frm)] -= 1                 # the event it arrived by moved it on: it arrived there
+                if not out[(None, frm)]:
+                    del out[(None, frm)]
+                out[(None, to)] += 1
+                came = (ev, to)
+                continue
+            came = (ev, to) if frm is None else None
             if to == "leased":
                 back = frm if frm != "leased" else back
                 continue
