@@ -386,7 +386,7 @@ def cmd_project(args) -> int:
     from ..numbers import proposals as pr
     from ..numbers import sensitivity as sens
     from ..numbers import simulate as sim
-    from ..web.numbers_api import horizon_of
+    from ..numbers.simulate import horizon_of
     p = open_project(args)
     spec = _spec(p)
     snap = light_snap(p, args)

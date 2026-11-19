@@ -624,3 +624,17 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
         c.faults.update(saved[r])
     return Run(times, out, how, notes + st.clamps(), {s: v for s, v in state.items() if v is not None}, st.S,
                steps=n * k, invalid=st.clamps(), faults=counted)
+
+
+HORIZON = 0.25           # a projection looks ahead at most a quarter of the window ...
+LEAST = 0.05             # ... at least a twentieth of it ...
+DOMINANT = 3.0           # ... and, between, three of the slowest time constant the replay met
+
+
+def horizon_of(run: Run, window: float) -> float:
+    """How far a projection looks: a few of the model's slowest time constants, within a twentieth and
+    a quarter of the window."""
+    slow = max((v for r, v in run.time_constants.items() if r.startswith("stock.")), default=None)
+    if not slow:
+        return window * HORIZON
+    return min(window * HORIZON, max(window * LEAST, DOMINANT * slow * 3600.0))
