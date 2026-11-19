@@ -245,3 +245,41 @@ def test_a_diagram_left_open_asks_for_its_values_and_has_the_whole_answer(browse
 def json_dumps(x) -> str:
     import json
     return json.dumps(x)
+
+
+RELEASED = '''
+import pytest
+playwright = pytest.importorskip("playwright.sync_api")
+
+
+@pytest.fixture(scope="module")
+def browser():
+    with playwright.sync_playwright() as p:
+        b = p.chromium.launch()
+        yield b
+        b.close()
+
+
+def test_a_page_test_that_fails_before_its_close(browser):
+    pg = browser.new_page()
+    browser.new_context().new_page().set_content("<p>left open</p>")
+    pg.set_content("<p>left open</p>")
+    assert False, "failed with its pages open"
+
+
+def test_the_next_test_finds_nothing_left_open(browser):
+    assert browser.contexts == [], browser.contexts
+'''
+
+
+def test_a_failing_page_test_releases_its_pages(tmp_path):
+    """The conftest closes a page test's pages and contexts however it ends: a test that fails before its own
+    ``pg.close()`` leaves nothing open in the module's browser (a run with many failures otherwise grows past the
+    machine's memory)."""
+    shutil.copy(Path(__file__).with_name("conftest.py"), tmp_path / "conftest.py")
+    (tmp_path / "test_released.py").write_text(RELEASED)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("PYTEST_", "ERGOSTAT_SUITE"))}
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "no:xdist", str(tmp_path)],
+                       cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
+    assert "1 failed, 1 passed" in r.stdout, r.stdout + r.stderr
+    assert "FAILED test_released.py::test_a_page_test_that_fails_before_its_close" in r.stdout, r.stdout

@@ -13,7 +13,8 @@ import json
 
 VALUES = ("value", "valueText", "points", "rate", "rateText", "position", "how", "estimated", "reading", "status", "error",
           "decision", "decisionAt", "excess", "desired", "switching", "band", "last", "charted", "measures", "rows", "loops")
-TOP_VALUES = ("attention",)          # the answer's own keys that are values: sent whole with every answer
+TOP_VALUES = ("attention", "since", "until")   # the answer's own keys that are values: sent whole with every answer
+                                                # (the Process view's window moves with the clock: a poll seconds on)
 
 
 def walk(got: dict, visit) -> None:

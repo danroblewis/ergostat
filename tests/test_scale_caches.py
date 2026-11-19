@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -416,18 +417,22 @@ def answers(d: Path, home: Path, monkeypatch):
 def test_a_page_polling_has_the_whole_answer_from_its_values(example, tmp_path, monkeypatch):
     import json
     live, p, graph = answers(ROOT / "examples" / example, tmp_path / "home", monkeypatch)
+    real = time.time
     for q in ["", "view=dynamics", "view=dynamics&open=*", "view=blocks", "view=blocks&open=*", "view=process",
               *(f"{v}system={s}" for s in p.model.spec.systems for v in ("", "view=dynamics&"))]:
         whole = graph(q)
         first = graph(q + "&have=-")
         h = first.pop("structure")
         assert first == whole and json.dumps(first, sort_keys=True, default=str) == json.dumps(whole, sort_keys=True, default=str)
-        for s in p.model.spec.sensors()[:60]:                 # the values move; the structure stays
+        for s in p.model.spec.sensors()[:60]:                 # the values move, and time passes; the structure stays
             p.measurements.add(s.series, 7.0)
         live._snaps.clear()
+        later = real() + 5                                    # (the page's next poll, seconds on: past any cached answer)
+        monkeypatch.setattr(time, "time", lambda later=later: later)
         small = graph(q + f"&have={h}")
         assert small.get("same") == h, q
         again = graph(q)
+        monkeypatch.setattr(time, "time", real)
         assert json.loads(json.dumps(merged(whole, small), default=str)) == json.loads(json.dumps(again, default=str)), q
         assert len(json.dumps(small, default=str)) < len(json.dumps(again, default=str)), q
         assert "same" not in graph(q + "&have=not-this-one") and graph(q + "&have=x").get("structure") == h

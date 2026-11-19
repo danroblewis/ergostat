@@ -102,6 +102,7 @@ def test_the_dispatcher_takes_an_item_when_it_is_written_not_at_its_next_look(tm
         e.close()
 
 
+@pytest.mark.serial                  # its 30 runs of 1 s must all start within that second
 def test_a_run_costs_one_thread(tmp_path):
     p = project(tmp_path, TAKES.replace("echo '", "sleep 1; echo '"))
     e = Engine(p, say=lambda s: None)

@@ -508,6 +508,7 @@ def test_the_command_line_renews_gives_back_and_redrives(tmp_path):
     assert main(["-C", str(tmp_path), "lease"]) == 0 and main(["-C", str(tmp_path), "lease", "ticket/1"]) == 0
 
 
+@pytest.mark.slow
 def test_a_lease_held_by_a_run_survives_a_model_edit(tmp_path):
     """A model swapped in place (SPEC §9.1) while a run holds a lease: the run keeps its lease, what it records still
     renews it, its fencing number stands, and it ends the lease when it finishes; the next item is taken under the new

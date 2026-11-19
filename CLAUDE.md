@@ -60,8 +60,22 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
 
 ## Working here
 
-- Python 3.12+, `uv`, the standard library only at runtime; `uv run python -m pytest -q` and
-  `uv run ruff check` before every commit. `scripts/demo_check.py` runs every demo in
+- Python 3.12+, `uv`, the standard library only at runtime; the unit suite and `uv run ruff check` before every
+  commit.
+- **Testing.** Both suites run in parallel (pytest-xdist), under the watchdog (`scripts/suite_watch.py`: kills the run
+  past 1,500 threads or 6 GB, and one worker past 2 GB), one suite at a time, never both at once:
+  - unit (about 2 min; 12 serial): `uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal`
+  - browser (about 6 min; 21 serial): `uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m
+    pytest -q -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py
+    tests/test_page_refresh.py`
+  - the serial fallback (a test that fails only in parallel, or a busy machine): the same without `-n ... --dist
+    worksteal`, e.g. `uv run python -m pytest -q`.
+
+  Don't raise the worker counts: 8 and 4 are what stays under the limits (measured in
+  `docs/roadmap/overnight/fastsuite.md`). A test of 10 s or more is marked `@pytest.mark.slow`, so a parallel run
+  starts it first. A test that fails only in parallel is first looked at as a race (in the test or in ergostat)
+  and fixed; one whose time bound holds only on a quiet machine is marked `@pytest.mark.serial`, and the parallel run
+  holds everything else back while it runs (tests/conftest.py). Never raise a time bound to pass under load. `scripts/demo_check.py` runs every demo in
   `~/ergostat-demos/` and checks its pages (with Playwright when installed).
 - The repository is on GitHub (danroblewis/ergostat); main must always work, since people install from it.
 - Never write an employer's names (systems, services, metrics, labels, ticket types, people) into
