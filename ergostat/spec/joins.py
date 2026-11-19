@@ -21,10 +21,12 @@ items:
 
 from __future__ import annotations
 
-from .ir import Join
+from .ir import DEAD, LEASED, Join
 from .items import JOINED
+from .load import Problem
 
 JOIN_KEYS = {"children", "all", "any", "to"}
+SIDE = ("cancelled", "canceled", "closed", "abandoned", "rejected", "dropped", "dismissed", "wontfix")   # an exit
 SOURCE = "ergostat"
 
 
@@ -72,6 +74,17 @@ def check_joins(c, spec) -> None:
             else:
                 good.append(j)
         k.join = good
+        if good:                                        # a side state before a join's to: is moved on from too
+            last = max(k.states.index(j.to) for j in good)
+            done = set((getattr(getattr(spec, "messages", None), "done", None) or {}).get(k.name) or ())
+            side = [x for x in k.states[:last] if x not in {j.to for j in good} | {LEASED, DEAD}
+                    and (x in done or x in SIDE)]
+            if side:
+                c.problems.append(Problem(
+                    "finding", f"item kind {k.name}.join: a join moves an item on from any state before its to:, so "
+                    f"{', '.join(side)} (before {k.states[last]} in states:) would be moved on too; if "
+                    f"{'they are' if len(side) > 1 else 'it is'} a side state (cancelled), list it after {k.states[last]}",
+                    k.where, "join-side-state", f"items.{k.name}"))
 
 
 class Joins:

@@ -237,3 +237,43 @@ def test_a_scheduled_runs_events_fan_out_from_its_schedule(tmp_path):
                          "moved_since": [str(now - 2 * H)], "moved_until": [str(now)]})
     sel = item_sets.select(p.events, spec, s, until=now)
     assert sel["total"] == 6 and "facet/x" not in {i["id"] for i in sel["items"]}
+
+
+def test_a_real_scheduled_runs_events_cite_it(tmp_path):
+    """Run by the engine on every:, the run's own agent.started is the cause its printed events cite; the map draws it."""
+    from ergostat.spec.engine import Engine
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+        name: t
+        items:
+          x:
+            id: x/*
+            states: [o, c]
+        blocks:
+          sweep:
+            type: program
+            every: 1h
+            run: python3 say.py
+            out: flow.f
+        stocks:
+          s:
+            sensor: {items: x, state: o, every: 1m}
+        flows:
+          f:
+            to: s
+            sensor: {items: x, entering: o, over: 1h}
+    """))
+    (tmp_path / "say.py").write_text('import json\nprint(json.dumps({"event": "x.opened", "item": "x/1"}), flush=True)\n')
+    p = Project(mdl.load(tmp_path))
+    e = Engine(p, say=lambda s: None)
+    e.start_all()
+    try:
+        end = time.time() + 10
+        while time.time() < end and not p.events.query(n=None, item="x/1"):
+            time.sleep(0.05)
+        run = p.events.query(n=1, item="sweep", type="agent.started")[-1]
+        assert run["data"]["trigger"] == "schedule" and run["causedby"] is None
+        assert p.events.query(n=None, item="x/1")[0]["causedby"] == run["id"]
+        g = pm.process(p.events, p.model.spec, ["x"], time.time() - 60, time.time() + 1, "states")
+        assert any(x["id"] == f"c:{pm.SCHEDULE}:sweep>x:o" for x in g["edges"])
+    finally:
+        e.close()

@@ -165,8 +165,10 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
             want = ((e.get("data") or {}).get("reopened") or {}).get("to")
             to = want if want in kind.states else kind.states[0]
         if e["type"] == JOINED and kind and kind.states:
-            want = ((e.get("data") or {}).get("joined") or {}).get("to")
-            to = want if want in kind.states else None
+            want = ((e.get("data") or {}).get("joined") or {}).get("to")      # only forward: a parent past it stays
+            ahead = it.state not in kind.states or kind.states.index(it.state) < kind.states.index(want) \
+                if want in kind.states else False
+            to = want if ahead else None
         if to and to != it.state:
             it.moves.append({"time": e["time"], "from": it.state, "to": to, "event": e["id"], "type": e["type"]})
             it.state, it.entered = to, e["time"]
