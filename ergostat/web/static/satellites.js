@@ -158,7 +158,7 @@ function placeSatellites(lay, res) {
    (pulled off by the goal stacked over it, laid out as one block with it): moved, with that goal, to the free place
    between its ends that makes its pipe shortest, level with one of them where it can be
    (docs/layout-rules.md: valve-between-ends, flow-excursion) */
-const BETWEEN_SLACK = 30;
+const BETWEEN_SLACK = 30, GOAL_NEAR = 160;
 function centreValves(lay, g) {
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
@@ -188,7 +188,8 @@ function centreValves(lay, g) {
     const xs = ra.x1 < rb.x0 ? (ra.x1 + rb.x0) / 2 : rb.x1 < ra.x0 ? (rb.x1 + ra.x0) / 2 : null;
     const ys = ra.y1 < rb.y0 ? (ra.y1 + rb.y0) / 2 : rb.y1 < ra.y0 ? (rb.y1 + ra.y0) / 2 : null;
     if (xs != null) for (const y of [a.y, b.y, (a.y + b.y) / 2]) cands.push({ x: xs, y });
-    if (ys != null) for (const x of [a.x, b.x, (a.x + b.x) / 2]) cands.push({ x, y: ys, up: true });   // (stood upright there)
+    // (stood upright there, where it lies within both stocks' widths: one straight over the other)
+    if (ys != null) for (const x of [a.x, b.x, (a.x + b.x) / 2]) cands.push({ x, y: ys, up: x - v.width / 2 >= Math.max(ra.x0, rb.x0) && x + v.width / 2 <= Math.min(ra.x1, rb.x1) });
     // (a flow back up a chain: in a lane under or over it, between its two stocks)
     if (xs != null) for (let k = 0; k < 6; k++)
       cands.push({ x: xs, y: Math.max(ra.y1, rb.y1) + 40 + 36 * k }, { x: xs, y: Math.min(ra.y0, rb.y0) - 40 - 36 * k });
@@ -200,8 +201,11 @@ function centreValves(lay, g) {
     cands.sort((p, q) => cost(p) - cost(q));
     const mine = home(n.id);
     // with its goal where there is room for both, else alone (a link from its goal travels the farther)
-    // (nearest first: each place with the goal, then alone, before a place farther off)
-    for (const p of cands.flatMap((q) => [[q, group], ...(group.length > 1 ? [[q, [v]]] : [])]).map(([q, grp]) => ({ ...q, grp }))) {
+    // (with its goal first, nearest first; alone, nearest first, where its goal stays near it; then alone anywhere)
+    const near = (q) => { const gb = group.filter((c) => c !== v).map(partBox);
+      return gb.every((b) => Math.hypot(Math.max(0, b.x0 - (q.x + v.width / 2), q.x - v.width / 2 - b.x1), Math.max(0, b.y0 - (q.y + v.height / 2), q.y - v.height / 2 - b.y1)) <= GOAL_NEAR); };
+    const tries = [...cands.map((q) => [q, group]), ...(group.length > 1 ? [...cands.filter(near).map((q) => [q, [v]]), ...cands.map((q) => [q, [v]])] : [])];
+    for (const p of tries.map(([q, grp]) => ({ ...q, grp }))) {
       const group = p.grp, others = lay.children.filter((k) => !group.includes(k)), was = group.map((c) => [c.x, c.y]);
       const dx = p.x - m.x, dy = p.y - m.y;
       // (a valve that will stand upright has its name beside it, not under it: either side may hold it; its goal goes
@@ -209,10 +213,12 @@ function centreValves(lay, g) {
       const lw = Math.max(0, ...(v.labels || []).map((l) => l.width)) + 6;
       const goal = group.filter((c) => c !== v), gb = goal.length && goal.map(partBox).reduce((a, b) => ({ x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) }));
       const ways = [[1, null], [-1, null]];
-      if (p.up && goal.length) ways.push([1, -1], [-1, 1]);
+      if (p.up && goal.length) ways.push([1, -1], [-1, 1], [1, -2], [-1, 2]);    // (beside it; or past the stocks, level with it)
       let pick = null;
       for (const [side, at] of ways) {
-        const gd = at == null ? [dx, dy] : [at < 0 ? v.x + dx - 20 - gb.x1 : v.x + dx + v.width + lw + 20 - gb.x0, v.y + dy + v.height / 2 - (gb.y0 + gb.y1) / 2];
+        const gx = at === -1 ? v.x + dx - 20 - gb.x1 : at === 1 ? v.x + dx + v.width + lw + 20 - gb.x0
+          : at === -2 ? Math.min(ra.x0, rb.x0) - 20 - gb.x1 : Math.max(ra.x1, rb.x1) + 20 - gb.x0;
+        const gd = at == null ? [dx, dy] : [gx, v.y + dy + v.height / 2 - (gb.y0 + gb.y1) / 2];
         const rooms = group.map((c) => { const [ex, ey] = c === v ? [dx, dy] : gd;
           const r = c === v && p.up ? { x0: c.x + (side < 0 ? -lw : 0), y0: c.y, x1: c.x + c.width + (side > 0 ? lw : 0), y1: c.y + c.height } : partBox(c);
           return { x0: r.x0 + ex, y0: r.y0 + ey, x1: r.x1 + ex, y1: r.y1 + ey }; });
