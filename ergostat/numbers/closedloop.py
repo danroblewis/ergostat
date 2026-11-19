@@ -612,8 +612,27 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
               and spec.flows[r[5:]].source in state}
     want = {r: V.get(r, 0.0) for r in drains}
     moving_refs = {m[0] for m in moving}
-    sh = Shadow(spec, V, start, whatif.setpoints)
+    # the goals and built-ins read the levels as the engine's sensors would: a count of items is a whole number (a
+    # queue drained to a fraction of an item is empty), so a goal "<= 0" on a queue holds once it is
+    counted = {f"stock.{n}" for n, x in spec.stocks.items()
+               if x.sensors and all(z.items and z.items.get("measure") in (None, "count") for z in x.sensors.values())}
+    reads = {str(gl.of) for gl in spec.goals.values()} | \
+        {str(r) for b in spec.blocks.values() if b.builtin for r in b.inputs.values() if r.kind in ("stock", "flow", "auxiliary")}
+    G: dict = {}
+    sh = Shadow(spec, G, start, whatif.setpoints)
+    told = [f"goal.{s.goal}{k}" for s in standins.values() if s.goal for k in ("", ".error", ".off")]
     blocks_on = sorted({s.block for s in standins.values() if s.block in spec.blocks})
+
+    def shadow_step(t: float) -> None:
+        for r in reads:
+            v = V.get(r)
+            if v is None:
+                G.pop(r, None)
+            else:
+                G[r] = math.floor(v + 0.5) if r in counted else v
+        sh.step(t)
+        for k in told:
+            V[k] = G.get(k)
     drawn = draw.get("standins") or {}
     for r, s in standins.items():                           # a pool tried: the stand-in's seats
         if s.block in whatif.pools:
@@ -633,7 +652,7 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
     def control(t: float, dt: float) -> None:
         """The goals and the built-ins, as the engine works them out; then each machine block's flow by its stand-in
         (a flow it drains never takes more than its stock holds in a step)."""
-        sh.step(t)
+        shadow_step(t)
         for r, src in drains.items():
             x = state.get(src)
             V[r] = min(want[r], max(0.0, x) / dt) if x is not None and dt > 0 else want[r]
@@ -678,7 +697,7 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
             control(t, dt)
             st.evaluate(dt)
             for name in spec.goals:
-                if V.get(f"goal.{name}.off"):
+                if G.get(f"goal.{name}.off"):
                     off[name][i] += 1.0 / k
                     hours[name] += dt
             for r in standins:
@@ -686,8 +705,8 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
             st.step(state, dt)
             t += step / k
         inputs_at(t)
-        sh.step(t)
         st.evaluate()
+        shadow_step(t)
         for s in pl.integrate:
             out[f"stock.{s}"][i] = state[s]
         for r in pl.eqs:
@@ -695,7 +714,7 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
         for r in standins:
             out[r][i] = acc[r]
         for name in spec.goals:
-            off_end[name][i] = 1 if V.get(f"goal.{name}.off") else 0
+            off_end[name][i] = 1 if G.get(f"goal.{name}.off") else 0
     notes = [f"with the loops running: the goals and built-in blocks worked out as the engine does, each machine block "
              f"by its stand-in; inputs {'held where they were' if inputs == 'hold' else 'carried on along their trend'}"]
     assumed = [s.block for s in standins.values() if s.assumed]
