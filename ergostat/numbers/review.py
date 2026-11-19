@@ -514,7 +514,7 @@ def forecast(p, spec: Spec, after: Spec, xs: list[dict], at: float | None = None
     grid = ob.reference(p, at, CHART_POINTS)
     data, data_a = ob.measured(p, grid), ob.measured(p, grid, after)
     run, run_a = sim.replay(spec, data, sim.plan(spec)), sim.replay(after, data_a, sim.plan(after))
-    from ..web.numbers_api import horizon_of
+    from .simulate import horizon_of
     horizon = horizon_of(run, grid.until - grid.since)
     points = max(2, round(CHART_POINTS * horizon / max(grid.until - grid.since, 1.0)))
     b, a, loops = _projections(p, spec, after, data, data_a, run, run_a, horizon, points)
@@ -541,7 +541,7 @@ def base_leverage(p, spec: Spec, at: float | None = None) -> dict | None:
     run = sim.replay(spec, data, sim.plan(spec))
     if not run.valid:
         return None
-    from ..web.numbers_api import horizon_of
+    from .simulate import horizon_of
     return lv.rank(spec, data, run, horizon_of(run, grid.until - grid.since))
 
 
