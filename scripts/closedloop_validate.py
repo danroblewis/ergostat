@@ -97,7 +97,10 @@ def main() -> int:
     ap.add_argument("--splits", type=int, default=3)
     ap.add_argument("--fit-span", default="1d", help="how much record before each split is identified from")
     ap.add_argument("--points", type=int, default=40)
-    ap.add_argument("--double", action="append", default=[], metavar="FLOW", help="an input to double (flow.NAME)")
+    ap.add_argument("--double", action="append", default=[], metavar="FLOW",
+                    help="an input to double (flow.NAME), or all (every flow from outside no block moves)")
+    ap.add_argument("--split-after", metavar="DURATION", help="one split, this long after the record starts (a demo whose "
+                                                              "work comes at its start), in place of --splits from its end")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--per-stock", action="store_true", help="each stock's scaled error, held and closed")
     a = ap.parse_args()
@@ -107,8 +110,14 @@ def main() -> int:
     newest = p.measurements.newest()
     until = max(v[0] for v in newest.values())
     splits = [until - h * (k + 1) for k in range(a.splits)]
+    if a.split_after:
+        first = min(t for t in (p.events.first_time(), p.measurements.first_time()) if t)
+        splits = [first + parse_duration(a.split_after, "--split-after")]
     got = {"project": spec.name, "held_out": h, "splits": [one_split(p, spec, s, h, a.points, parse_duration(a.fit_span))
                                                           for s in splits]}
+    if a.double == ["all"]:                              # every input from outside: a flow from a cloud no block moves
+        act = cl.actuated(spec)
+        a.double = [f"flow.{n}" for n, f in spec.flows.items() if not f.source and not f.equation and f"flow.{n}" not in act]
     if a.double:
         got["doubled"] = doubled(p, spec, a.double, until, h, a.points)
     if a.json:
@@ -125,9 +134,9 @@ def main() -> int:
                 if not t:
                     print(f"    {mode:7s} too few points")
                     continue
-                print(f"    {mode:7s} scaled error {t['nmse']:.3g}  R² {t['r2'] if t['r2'] is None else round(t['r2'], 2)}  "
-                      f"MAPE {t['mape'] if t['mape'] is None else round(t['mape'], 2)}  "
-                      f"U_M {t['um']:.2f}  U_S {t['us']:.2f}  U_C {t['uc']:.2f}  ({t['stocks']} stocks)")
+                f2 = lambda v: "–" if v is None else f"{v:.2f}"   # noqa: E731
+                print(f"    {mode:7s} scaled error {t['nmse']:.3g}  R² {f2(t['r2'])}  MAPE {f2(t['mape'])}  "
+                      f"U_M {f2(t['um'])}  U_S {f2(t['us'])}  U_C {f2(t['uc'])}  ({t['stocks']} stocks)")
     if a.per_stock:
         for x in got["splits"]:
             print(f"\n split at -{human(until - x['split'])}, each stock's scaled error (held → closed):")

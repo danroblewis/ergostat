@@ -54,6 +54,7 @@ MIN_RUNS = 5                # a block's runs on record, at least, before its tim
 MIN_BUCKETS = 6             # buckets with the block commanded and its flow measured, at least, before a rate is
 MAX_STEPS = 4000            # integration steps in one closed-loop run, at most
 MIN_STEPS = 4               # ... and at least this many in each point drawn
+DRAIN_STEPS = 8             # ... and at most this many to follow a fast drain (one faster empties within a step)
 RUNS = 100                  # Monte Carlo runs of the risk, by default ...
 MOST_RUNS = 400             # ... and at most
 BUDGET = 15.0               # seconds of wall time the risk may take; past it, it stops and says how many runs it made
@@ -681,8 +682,8 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
         st.evaluate()
     k, _ = sim._substeps(st.rates(state), step / 3600.0)
     fastest = min((s.tau for s in standins.values() if s.form == "drain" and s.tau), default=None)
-    if fastest:
-        k = max(k, math.ceil(step / 3600.0 / fastest))     # a drain is stepped at least once per its time
+    if fastest:                                         # a drain is stepped about once per its time, up to DRAIN_STEPS a
+        k = max(k, min(DRAIN_STEPS, math.ceil(step / 3600.0 / fastest)))   # point: faster, it empties within a step
     k = max(MIN_STEPS, min(k, max(1, max_steps // n)))
     dt = step / 3600.0 / k
     out: dict[str, list[float | None]] = {f"stock.{s}": [None] * n for s in pl.integrate} | \
