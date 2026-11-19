@@ -6,10 +6,26 @@ review). Newest decisions from the owner first within each section.
 
 ## Remote systems and libraries
 
-- **Remote systems** (in progress, `remote`): a system run by another ergostat instance, composed into a
-  local model. Its model is served by the remote instance and changes while it runs; its event log and
-  metrics are queried where they live; its agents run on the remote machine, never locally. The local model
-  reads it, links to its parts, and draws it as a subsystem; it never runs it. (Owner, 2026-11-18.)
+- **Remote systems** (in progress, `remote`; `docs/proposals/remote-systems.md`, SPEC §4c): a system run by
+  another ergostat instance, composed into a local model. Its model is served by the remote instance and changes
+  while it runs; its event log and metrics are queried where they live; its agents run on the remote machine,
+  never locally. The local model reads it, links to its parts, and draws it as a subsystem; it never runs it.
+  (Owner, 2026-11-18.)
+  - *Done on the branch*: the read-only remote API on every page server (`/remote/v1/`: status, model with
+    version and ETag, events by cursor, items, counts, readings, series, process; bearer tokens per consumer,
+    hashed at rest, rate-limited); `remotes:` in the YAML (fetched, cached, refreshed on `every:` and when a
+    reading says the version moved; parts brought in as an external subsystem, blocks never run, sensors
+    reading the remote, `systems:` to narrow); source type `ergostat` (one batched request per remote a
+    period, stale readings refused); local references checked against the remote's current model
+    (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`,
+    `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
+    `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
+    `examples/remote-pair/` and its two-instance test.
+  - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
+    it); lines in the process map between our items and theirs (needs an id both logs carry); proposals
+    written as text for the remote's owner (the refusal is built, the text is not); serving the IR beside
+    `ergostat-model/1` once it exists; a remote that is itself composed of remotes (its imported parts are
+    not served); a remote's measures on its closed box (`show:` of the remote's systems); mutual TLS.
 - **Shared libraries** (open): templates and reference models shared between projects and people, by git URL
   or package, with versions, bringing their own scripts. For people modelling their own real systems.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident

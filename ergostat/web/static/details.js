@@ -44,13 +44,24 @@ function whatIs(kind) {
 function dl(pairs) { return h("dl", {}, pairs.filter(([, v]) => v != null && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])); }
 function agentLink(a) { return a ? h("span", {}, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openAgent(a.name); } }, a.name), h("span", { class: "muted" }, ` ${a.kind}`)) : h("span", { class: "s-open" }, "unfilled"); }
 
+/* a remote system (run by another ergostat, SPEC §4c): where it runs, the version of its model read here, how old
+   its readings are, and that nothing of it runs here */
+function remoteNote(r) {
+  if (!r) return null;
+  return h("div", { class: "note remote-note" },
+    h("p", {}, h("b", {}, "Remote. "), `Run by the ergostat at ${r.url}; its model, readings and events are read from there, `
+      + "and nothing of it runs here. A change to it is proposed to its owner."),
+    dl([["model", r.version ? `version ${r.version}` : "not read yet"], ["now", r.says.split(" · ").slice(-1)[0]],
+        ["missing", r.missing ? `${r.missing} part${r.missing > 1 ? "s" : ""} this model names that it no longer serves (ergostat check)` : null]]));
+}
+
 function openSystem(n) {                               // a system as one part: what goes in and out, and how its loops do
   const side = (d) => (n.ports || []).filter((p) => p.side === d);
   const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, p.kind),
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
-  showDetail(h("div", { class: "kind" }, "System"), h("h2", {}, n.label, exceptional(n.status) ? statusEl(n.status) : null),
+  showDetail(h("div", { class: "kind" }, n.remote ? "System, remote" : "System"), h("h2", {}, n.label, exceptional(n.status) ? statusEl(n.status) : null),
     typeof moduleCharts === "function" ? moduleCharts(n) : null, whatIs("system"),
-    n.description ? h("p", { class: "muted" }, n.description) : null,
+    n.description ? h("p", { class: "muted" }, n.description) : null, remoteNote(n.remote),
     dl([["loops", loopsText(n)], ["inside", n.subsystems?.length ? n.subsystems.join(", ") : null],
         ["inner loop", n.inner?.length ? `given a setpoint for ${n.inner.join(", ")} from outside, it holds it: an outer loop can treat it as one block` : null]]),
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),

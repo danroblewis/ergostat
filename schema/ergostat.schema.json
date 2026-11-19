@@ -489,6 +489,47 @@
         }
       }
     },
+    "remotes": {
+      "description": "Systems other ergostats run, read here (SPEC \u00a74c): each brings in the remote's model as an external subsystem whose parts are named for it",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "pattern": "^https?://",
+            "description": "the remote ergostat's page"
+          },
+          "token-file": {
+            "type": "string",
+            "description": "the file holding the token the remote made for this model"
+          },
+          "systems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/name"
+            },
+            "description": "only these of its systems"
+          },
+          "within": {
+            "$ref": "#/$defs/name"
+          },
+          "every": {
+            "$ref": "#/$defs/duration"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "library": {
       "description": "Folders of the owner's own templates (main file only; SPEC \u00a72a)",
       "oneOf": [
@@ -1761,17 +1802,25 @@
         "type": {
           "enum": [
             "prometheus",
-            "command"
+            "command",
+            "ergostat"
           ]
         },
         "url": {
           "type": "string"
+        },
+        "token-file": {
+          "type": "string",
+          "description": "an ergostat source (SPEC \u00a74c): the file holding its token"
         }
       },
       "if": {
         "properties": {
           "type": {
-            "const": "prometheus"
+            "enum": [
+              "prometheus",
+              "ergostat"
+            ]
           }
         }
       },

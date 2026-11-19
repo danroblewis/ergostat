@@ -1762,6 +1762,9 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
         src = spec.sources[s.query["source"]]
         if src.type == "prometheus":
             return prometheus(src.url, str(s.query.get("promql", "")), s.timeout)
+        if src.type == "ergostat":                           # a remote ergostat's reading (SPEC §4c)
+            from ..remote.readings import read
+            return read(spec, src, s)
         return None, f"source type {src.type} cannot be queried"
     try:
         p = subprocess.run(s.run, shell=True, cwd=spec.root, capture_output=True, text=True, timeout=s.timeout,

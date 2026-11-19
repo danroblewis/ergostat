@@ -16,7 +16,7 @@ SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variabl
             "loops", "claims", "contexts", "actions", "workspaces", "leases")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
             "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of"}
-TOP = {"name", "include", "keep", "messages", "storage", "intake", "defaults", "uses", "library", *SECTIONS}
+TOP = {"name", "include", "keep", "messages", "storage", "intake", "defaults", "uses", "library", "remotes", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -119,6 +119,7 @@ class Document:
     problems: list[Problem] = field(default_factory=list)
     library: list[Path] = field(default_factory=list)   # the owner's folders of templates (library:, main file only)
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
+    remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
 
 
 def read_file(path: Path, problems: list[Problem]):
@@ -216,6 +217,9 @@ def load(main: Path) -> Document:
         if data.get("uses") is not None:
             from ..library import uses
             uses.take(doc, data, defaults, put)
+        if data.get("remotes") is not None:
+            from ..remote import compose
+            compose.take(doc, data, defaults, put)
         inc = data.get("include")
         if inc is None:
             return
@@ -250,6 +254,9 @@ def load(main: Path) -> Document:
         doc.defaults[(section, name)] = dict(defaults)
 
     take(main, True, None)
+    if doc.remotes:                          # local references into each remote, checked against what it serves now
+        from ..remote import compose
+        compose.finish(doc, put)
     return doc
 
 

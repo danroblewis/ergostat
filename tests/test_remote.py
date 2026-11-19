@@ -1,0 +1,268 @@
+"""Remote systems (SPEC §4c): what a remote serves, its tokens, and a remote's model composed into a local one."""
+
+import json
+import time
+import urllib.error
+import urllib.request
+
+import pytest
+
+from ergostat import spec as sp
+from ergostat.remote import cache, compose, readings, serve, tokens
+
+REMOTE = """
+name: incidents
+sources:
+  prom: {type: prometheus, url: http://secret.example:9090}
+systems:
+  triage: {description: arriving}
+  response: {description: worked}
+stocks:
+  open:
+    unit: incidents
+    system: triage
+    sensor: {run: ls queue | wc -l, every: 5s}
+  depth:
+    system: triage
+    sensor: {query: {source: prom, promql: 'sum(secret_metric)'}, every: 1m}
+flows:
+  opened: {to: open, system: triage}
+  resolved: {from: open, system: response}
+goals:
+  few-open: {stock: open, hold: "<= 6", system: response}
+agents:
+  on-call: {kind: ai}
+blocks:
+  pager: {type: program, system: triage, every: 3s, run: ./secret-pager.sh, out: flow.opened}
+  responder: {type: ai, system: response, goal: few-open, prompt: "secret prompt words", agent: on-call, out: flow.resolved}
+"""
+
+
+def write(d, text):
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "ergostat.yaml").write_text(text)
+    return d / "ergostat.yaml"
+
+
+def test_the_served_model_is_redacted_and_versioned(tmp_path):
+    path = write(tmp_path / "incidents", REMOTE)
+    got = serve.model(path)
+    text = json.dumps(got)
+    for secret in ("secret-pager", "secret prompt", "secret_metric", "secret.example", "prom"):
+        assert secret not in text
+    assert got["format"] == "ergostat-model/1" and len(got["version"]) == 16
+    assert got["sections"]["stocks"]["open"]["sensors"]["main"] == {"every": "5s", "kind": "run"}
+    assert got["sections"]["blocks"]["responder"]["goal"] == "few-open"
+    assert serve.model(path)["version"] == got["version"]                     # the same model, the same version
+    write(tmp_path / "incidents", REMOTE.replace("arriving", "arriving fast"))
+    assert serve.model(path)["version"] != got["version"]
+
+
+def test_tokens_are_kept_as_hashes(tmp_path):
+    tok = tokens.issue(tmp_path, "support")
+    assert tok not in (tmp_path / tokens.FILE).read_text()
+    assert tokens.who(tmp_path, tok) == "support"
+    assert tokens.who(tmp_path, tok + "x") is None and tokens.who(tmp_path, None) is None
+    assert tokens.revoke(tmp_path, "support") and tokens.who(tmp_path, tok) is None
+
+
+def _get(url, token=None, etag=None, method="GET"):
+    h = {**({"Authorization": f"Bearer {token}"} if token else {}), **({"If-None-Match": f'"{etag}"'} if etag else {})}
+    req = urllib.request.Request(url, headers=h, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, json.loads(r.read() or b"null"), r.headers.get("ETag")
+    except urllib.error.HTTPError as e:
+        return e.code, None, None
+
+
+def test_the_remote_api_answers_with_a_token_only_and_pages_by_cursor(tmp_path):
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web import serve as web_serve
+    write(tmp_path / "incidents", REMOTE)
+    p = Project(mdl.load(tmp_path / "incidents"))
+    for i in range(5):
+        p.events.add("incident.opened", item=f"incident/{i}", source="pager", data={})
+    p.measurements.add("sensor/open.main", 4.0)
+    server, url = web_serve(p, 8796)
+    try:
+        assert _get(f"{url}/remote/v1/status")[0] == 404                    # off until a token is made
+        tok = tokens.issue(p.dir, "support")
+        assert _get(f"{url}/remote/v1/status")[0] == 401
+        assert _get(f"{url}/remote/v1/status", "wrong")[0] == 401
+        code, st, _ = _get(f"{url}/remote/v1/status", tok)
+        assert code == 200 and st["name"] == "incidents" and st["last_seq"] >= 5
+        code, m, etag = _get(f"{url}/remote/v1/model", tok)
+        assert code == 200 and etag == f'"{m["version"]}"'
+        assert _get(f"{url}/remote/v1/model", tok, m["version"])[0] == 304   # unchanged: nothing sent
+        code, page, _ = _get(f"{url}/remote/v1/events?after=0&n=2", tok)
+        assert code == 200 and [e["seq"] for e in page["events"]] == [1, 2] and page["next"] == 2 and page["more"]
+        code, page2, _ = _get(f"{url}/remote/v1/events?after={page['next']}&n=2", tok)
+        assert [e["seq"] for e in page2["events"]] == [3, 4]
+        code, r, _ = _get(f"{url}/remote/v1/readings?series=sensor/open.main&ref=stock.open,stock.nothing", tok)
+        assert r["series"]["sensor/open.main"]["value"] == 4.0 and r["refs"]["stock.open"]["value"] == 4.0
+        assert r["refs"]["stock.nothing"].get("missing") and r["version"] == m["version"]
+        assert _get(f"{url}/remote/v1/counts", tok)[0] == 200
+        assert _get(f"{url}/remote/v1/model", tok, method="POST")[0] in (403, 405)   # read only
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def served_into(local, home_root, remote="incidents", text=REMOTE, ok=True):
+    """The remote's model put in this project's cache, as a refresh would have left it (no network)."""
+    d = cache.folder("support", local, remote)
+    body = serve.model(write(home_root / "remote-src", text))
+    (d / cache.MODEL).write_text(json.dumps({**body, "fetched": time.time()}))
+    st = {"checked": time.time(), "ok": ok, "version": body["version"], "next": time.time() + 3600}
+    if not ok:
+        st.update(why="unreachable (refused)", failing_since=time.time() - 30, fails=1)
+    (d / cache.STATUS).write_text(json.dumps(st))
+    return body
+
+
+LOCAL = """
+name: support
+remotes:
+  incidents:
+    url: http://127.0.0.1:1
+    token-file: incidents.token
+stocks:
+  tickets:
+    sensor: {run: echo 3}
+flows:
+  filed:
+    to: tickets
+    driven-by: [+stock.incidents-open]
+goals:
+  calm:
+    stock: incidents-open
+    hold: "<= 8"
+"""
+
+
+def test_a_remote_is_a_system_of_external_parts_read_from_there(tmp_path):
+    local = tmp_path / "support"
+    write(local, LOCAL)
+    served_into(local, tmp_path)
+    spec, problems = sp.read(local / "ergostat.yaml", extremes=False)
+    assert not [p for p in problems if p.level == "error"], problems
+    assert spec.within["incidents-triage"] == "incidents" and spec.stocks["incidents-open"].system == "incidents-triage"
+    s = spec.stocks["incidents-open"].sensors["main"]
+    assert s.query == {"source": "incidents", "series": "sensor/open.main"} and s.every == 60.0
+    assert spec.sources["incidents"].type == "ergostat" and spec.sources["incidents"].token_file == "incidents.token"
+    for b in ("incidents-pager", "incidents-responder"):
+        assert spec.blocks[b].type == "external"                                  # never run here
+    assert "goal.incidents-few-open.error" in [str(r) for r in spec.blocks["incidents-responder"].inputs.values()]
+    assert spec.agents["incidents-on-call"].external and spec.agents["incidents-on-call"].kind == "ai"
+    assert spec.flows["incidents-resolved"].sensors["remote"].query == {"source": "incidents", "ref": "flow.resolved"}
+    assert "stock.incidents-depth" in spec.remotes["incidents"]["parts"]
+    assert str(spec.stocks["incidents-open"].where).endswith("(remote incidents)")
+
+
+def test_a_reference_the_remote_no_longer_serves_is_a_finding_not_a_crash(tmp_path):
+    local = tmp_path / "support"
+    write(local, LOCAL.replace("stock: incidents-open", "stock: incidents-waiting"))
+    served_into(local, tmp_path)
+    spec, problems = sp.read(local / "ergostat.yaml", extremes=False)
+    assert not [p for p in problems if p.level == "error"], problems
+    found = [p for p in problems if p.code == "remote-reference-unresolved"]
+    assert found and "incidents-waiting" in found[0].message and "has no stock waiting" in found[0].message
+    assert "incidents-waiting" in spec.stocks and not spec.stocks["incidents-waiting"].sensors
+    assert spec.remotes["incidents"]["missing"][0]["name"] == "incidents-waiting"
+
+
+def test_a_local_block_may_read_a_remote_part_but_never_act_on_it(tmp_path):
+    local = tmp_path / "support"
+    write(local, LOCAL + """
+blocks:
+  meddler:
+    type: program
+    in: stock.incidents-open
+    run: echo 1
+    out: flow.incidents-resolved
+""")
+    served_into(local, tmp_path)
+    _, problems = sp.read(local / "ergostat.yaml", extremes=False)
+    assert [p for p in problems if p.code == "remote-output" and p.level == "error"]
+
+
+def test_systems_narrows_what_is_brought_in(tmp_path):
+    local = tmp_path / "support"
+    write(local, LOCAL.replace("    token-file: incidents.token\n", "    token-file: incidents.token\n    systems: [triage]\n"))
+    served_into(local, tmp_path)
+    spec, problems = sp.read(local / "ergostat.yaml", extremes=False)
+    assert not [p for p in problems if p.level == "error"], problems
+    assert "incidents-open" in spec.stocks and "incidents-resolved" not in spec.flows
+    assert "incidents-few-open" not in spec.goals and "incidents-response" not in spec.systems
+
+
+def test_an_unreachable_remote_is_drawn_from_its_cache_with_a_finding(tmp_path):
+    local = tmp_path / "support"
+    write(local, LOCAL)
+    served_into(local, tmp_path, ok=False)
+    spec, problems = sp.read(local / "ergostat.yaml", extremes=False)
+    assert "incidents-open" in spec.stocks
+    assert [p for p in problems if p.code == "remote-unreachable" and "did not answer" in p.message]
+
+
+def test_a_remote_never_read_still_loads(tmp_path, monkeypatch):
+    local = tmp_path / "support"
+    write(local, LOCAL)
+    monkeypatch.setattr(compose, "EVERY", 60.0)
+    spec, problems = sp.read(local / "ergostat.yaml", extremes=False)      # 127.0.0.1:1 answers nothing
+    assert not [p for p in problems if p.level == "error"], problems
+    assert "incidents" in spec.systems and [p for p in problems if p.code == "remote-unreachable"]
+    assert [p for p in problems if p.code == "remote-reference-unresolved"]
+
+
+def test_plain_http_to_another_machine_is_refused(tmp_path):
+    local = tmp_path / "support"
+    write(local, LOCAL.replace("http://127.0.0.1:1", "http://incidents.example:8781"))
+    _, problems = sp.read(local / "ergostat.yaml", extremes=False)
+    assert [p for p in problems if p.code == "remote-insecure"]
+
+
+class _Src:
+    name, url, token_file = "incidents", "http://127.0.0.1:1", ""
+
+
+class _S:
+    def __init__(self, q, every=10.0):
+        self.query, self.every = q, every
+
+
+def test_a_stale_or_missing_remote_reading_is_not_taken(tmp_path, monkeypatch):
+    local = tmp_path / "support"
+    write(local, LOCAL)
+    served_into(local, tmp_path)
+    (local / "incidents.token").write_text("tok")
+    spec, _ = sp.read(local / "ergostat.yaml", extremes=False)
+    now = time.time()
+    asked = []
+
+    def fake(url, path, token, params=None, etag=None, timeout=5.0):
+        asked.append(params)
+        return 200, {"now": now, "version": spec.remotes["incidents"]["version"],
+                     "series": {"sensor/open.main": {"value": 4, "time": now - 3600}},
+                     "refs": {"flow.resolved": {"value": 2.5, "time": now}}}, None, ""
+    monkeypatch.setattr(readings.client, "get", fake)
+    readings._kept.clear()
+    src = spec.sources["incidents"]
+    v, why = readings.read(spec, src, _S({"source": "incidents", "series": "sensor/open.main"}))
+    assert v is None and "old" in why
+    v, why = readings.read(spec, src, _S({"source": "incidents", "ref": "flow.resolved"}))
+    assert v == 2.5 and not why
+    assert len(asked) == 1                                       # one request for every sensor of the remote
+    monkeypatch.setattr(readings.client, "get", lambda *a, **k: (0, None, None, "unreachable (refused)"))
+    readings._kept.clear()
+    v, why = readings.read(spec, src, _S({"source": "incidents", "ref": "flow.resolved"}))
+    assert v is None and "unreachable" in why
+
+
+def test_a_remote_part_is_never_edited_here(tmp_path):
+    from ergostat.numbers import yamledit
+    via = compose.RemoteVia(tmp_path / "ergostat.yaml", 3, "incidents", "http://127.0.0.1:8794")
+    with pytest.raises(yamledit.EditError, match="belongs to remote incidents"):
+        yamledit.own(via, "flow incidents-resolved")
