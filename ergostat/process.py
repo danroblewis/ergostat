@@ -424,6 +424,26 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         e["_causes"].add(ci)
         e["_types"][(cty, ety)] = e["_types"].get((cty, ety), 0) + 1
         e["_times"].append(max(0.0, t - tc))
+    # relations (SPEC §5a): each link between two items drawn, at the activity each was last at in the window
+    for id, steps in w.steps.items():
+        kind, it = w.kind_of[id], w.folded.get(id)
+        for rel in spec.items[kind].relations.values() if it is not None else ():
+            v = it.fields.get(rel.name)
+            for t in v if isinstance(v, list) else [v]:
+                if not isinstance(t, str) or t not in w.steps or t == id:
+                    continue
+                tk, a, b = w.kind_of[t], steps[-1][1], w.steps[t][-1][1]
+                if (kind, a) == (tk, b):
+                    continue
+                key = f"r:{rel.name}:{kind}:{a}>{tk}:{b}"
+                e = edges.get(key)
+                if e is None:
+                    e = edges[key] = {"id": key, "kind": "related", "source": nid(kind, a), "target": nid(tk, b),
+                                      "itemKind": kind, "relKind": tk, "relation": rel.name, "from": a, "to": b, "count": 0,
+                                      "_times": [], "_items": set(), "_targets": set()}
+                e["count"] += 1
+                e["_items"].add(id)
+                e["_targets"].add(t)
     # the order of each kind's activities: a state's place in the declared states; an event's, its usual place in its runs
     order: dict[str, float] = {}
     for x in nodes.values():
@@ -451,10 +471,10 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         joined = {x for e in edges.values() for x in (e["source"], e["target"])}
         top: dict[str, int] = {}
         for e in edges.values():
-            g = e["kind"] if e["kind"] == "caused" else e["itemKind"]
+            g = e["kind"] if e["kind"] != "follows" else e["itemKind"]
             top[g] = max(top.get(g, 0), e["count"])
         keep = {k: e for k, e in edges.items()
-                if e["count"] >= paths * top[e["kind"] if e["kind"] == "caused" else e["itemKind"]]}
+                if e["count"] >= paths * top[e["kind"] if e["kind"] != "follows" else e["itemKind"]]}
         hidden["edges"] = len(edges) - len(keep)
         edges = keep
         ends = {x for e in edges.values() for x in (e["source"], e["target"])}
@@ -484,6 +504,8 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         if e["kind"] == "caused":
             d.update(causes=len(e["_causes"]),
                      types=[{"cause": a, "effect": b, "count": n} for (a, b), n in sorted(e["_types"].items(), key=lambda kv: -kv[1])])
+        if e["kind"] == "related":
+            d.update(targets=len(e["_targets"]))
         out_edges.append(d)
     present = {x["itemKind"] for x in out_nodes}
     info = []

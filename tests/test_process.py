@@ -277,3 +277,24 @@ def test_a_real_scheduled_runs_events_cite_it(tmp_path):
         assert any(x["id"] == f"c:{pm.SCHEDULE}:sweep>x:o" for x in g["edges"])
     finally:
         e.close()
+
+
+def test_relations_between_the_items_drawn_are_lines_between_their_activities(tmp_path):
+    """Each link between two items drawn is a line from the activity the naming item was last at to the one the
+    named item was last at, aggregated, named by its relation; a link to an item not drawn is no line."""
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace(
+        "    on: {facet.done: done}", "    on: {facet.done: done}\n    relations: {parent: flag}"))
+    p = Project(mdl.load(tmp_path))
+    now = time.time()
+    seed(p, now)
+    for i in (1, 2, 3):
+        for j in (1, 2):
+            p.events.add("facet.linked", item=f"facet/{i}{j}", data={"parent": f"flag/{i}"}, at=now - 60)
+    p.events.add("facet.linked", item="facet/11", data={"parent": "flag/99"}, at=now - 30)      # never recorded
+    g = pm.process(p.events, p.model.spec, ["flag", "facet"], now - 24 * H, now, "states")
+    rel = [e for e in g["edges"] if e["kind"] == "related"]
+    shipped = next(e for e in rel if e["to"] == "shipped")
+    researched = next(e for e in rel if e["to"] == "researched")
+    assert shipped["source"] == "p:facet:done" and shipped["target"] == "p:flag:shipped" and shipped["relation"] == "parent"
+    assert (shipped["count"], shipped["items"], shipped["targets"]) == (4, 4, 2)             # flags 1 and 2 shipped
+    assert (researched["count"], researched["targets"]) == (2, 1) and len(rel) == 2

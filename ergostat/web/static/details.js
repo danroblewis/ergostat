@@ -34,6 +34,7 @@ const WHAT = {
   influence: ["Information link: influence", "a cause, declared with driven-by: what is at the arrow's end changes when what is at its start changes (a release fixing what was broken, more users asking for more, the code kept so far deciding a benchmark score). No formula: the value at the end is measured, and nothing moves or is computed along it. It is how a loop closes through another system."],
   activity: ["Activity (the process map)", "a step the work takes, read from the record: a state its items entered, or an event type about them. The map is process mining's directly-follows graph: what the items actually did, in the order they did it, rework and all."],
   follows: ["Directly follows", "on one item, the second step came next after the first, with nothing about that item between. Its weight is how often; a line back to an earlier step, or round to the same one, is rework."],
+  related: ["Related", "an item names another in a relation its kind declares (parent, blocked_by): drawn from the step the naming item was last at in the window to the step the named one was last at, as the links stand now."],
   caused: ["Caused, across kinds", "an event on an item of one kind caused an event on an item of another (the second's causedby names the first, directly or through a block's run): one piece of work fanning out into others, or others joining back into it."],
 };
 function whatIs(kind) {
@@ -133,7 +134,8 @@ async function openLoop(name, asController = false) {
   kids.push(loopScope(name, { numbers: "new" }));       // its scope first (charts.js); time off and back in are below
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
   if (lp.open_loop) kids.push(h("p", {}, "It acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
-  kids.push(dl([["status", statusEl(lp.status)], ["holds", `${lp.stock} ${op(lp.setpoint)}${lp.band || ""}`], ["now", fmt(lp.value)],
+  kids.push(dl([["status", statusEl(lp.status)], ["holds", `${lp.stock} ${op(lp.setpoint)}${lp.band || ""}${lp.per ? `, each ${lp.per}` : ""}`],
+    ["now", lp.per ? `${fmt(lp.value)}, the worst ${lp.per}'s` : fmt(lp.value)],
     ["error", lp.error ? fmt(lp.error) : "0"], ["time off", `${Math.round((lp.off_share || 0) * 100)}% ${windowWords}`],
     ["typically", lp.answers_in != null || lp.back_in != null ? [
       lp.answers_in != null ? `its valve opens ${dur(lp.answers_in)} after it goes off` : null,
@@ -151,6 +153,11 @@ async function openLoop(name, asController = false) {
           : h("span", { class: "muted" }, pt.open_loop ? "acts on its schedule, reads nothing" : "no decision yet"))
         : (pt.last ? `opened ${ago(pt.last.time)}: ${fmt(pt.last.amount)}${pt.last.count > 1 ? ` in ${pt.last.count} openings` : ""}`
           : h("span", { class: "muted" }, "never opened")))))));
+  if (lp.breaking?.length) {                            // a goal held per item or group (SPEC §8): those that break it
+    const id = (x) => /\//.test(x) ? h("a", { href: `/item/${encodeURIComponent(x)}` }, x) : x;
+    kids.push(h("h3", {}, `Breaking it: ${lp.breaking_n} ${lp.per}${lp.breaking_n === 1 ? "" : "s"}`),
+      h("table", {}, lp.breaking.map((b) => h("tr", {}, h("td", {}, id(String(b.item ?? b.group))), h("td", { class: "num" }, fmt(b.value))))));
+  }
   kids.push(controlBox(name, "loop"));                  // its process identified, its controller with it (control.js)
   for (const g of lp.gaps || []) kids.push(h("p", {}, h("b", { class: "lvl-warn" }, "Cannot close: "), g));
   for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));

@@ -955,6 +955,10 @@
           "type": "number",
           "minimum": 0
         },
+        "per": {
+          "type": "string",
+          "description": "Held by each item (item) or each group of items by a field (a relation such as parent), of a stock counted from items"
+        },
         "critical": {
           "type": "boolean"
         },
