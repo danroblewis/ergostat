@@ -1584,7 +1584,7 @@ goals:
 blocks:
   developer:
     type: ai
-    in: -goal.ai-budget.error    # (an onoff in front of it, or its own prompt, decides what to do when over)
+    in: goal.ai-budget.error     # (an onoff in front of it, or its own prompt, decides what to do when over)
 ```
 
 The Agents page shows each agent's totals over the window (runs, dollars, tokens, CPU, peak memory) and, in its panel,
@@ -2081,7 +2081,7 @@ one's members, polarity and name). Each link has a sign:
 | a flow → the stock it fills / drains | + / − |
 | a `driven-by` | as written; unsigned: not known |
 | what a goal is about → the goal's error, e = r − y | − |
-| a goal → a block reading its error | + (a controller acts on its error: that is what serving a goal means) |
+| a goal → a block reading its error | a built-in block: + (its law says what it does with the number). A machine block: as it moves the goal's quantity (a controller acts on its error: that is what serving a goal means): + when it raises it (it acts the more, the more room below the setpoint: a dispatcher filling up to a limit), − when it lowers it (it acts the more, the further the quantity is over: a worker draining a queue), not known when its paths there disagree or are not known |
 | a goal → a block acting while it is off (`.off`, an `onoff` or `proportional` on it, the goal itself) | + for a floor (`>=`), − for a ceiling (`<=`), not known for `==` |
 | a block → the block it commands | + for a machine block; a built-in's own sign (`compare below` and a falling `lookup` −, `expr` not known) |
 | a block → what it moves, sets or commands (a setpoint it sets raises the error) | + |
