@@ -11,10 +11,11 @@ const CORR_HUES = 10, CORR_STEPS = 3, CORR_SEG = 7;        // (correspond.py's H
 const CORR = { on: false, held: false };
 try { CORR.on = localStorage.getItem("ergostat.colours") === "1"; } catch (e) { /* off */ }
 
-/* a palette slot as a colour: its hue, then darker, then lighter (toward the ink, then the paper) */
+/* a palette slot as a colour: its hue, then toward the ink, then toward the paper (keeping --g-fade of the hue: in the
+   dark theme, as much as keeps it 3:1 on the paper) */
 function corrColour(i) {
   const hue = `var(--g${i % CORR_HUES})`, step = Math.floor(i / CORR_HUES) % CORR_STEPS;
-  return step === 0 ? hue : step === 1 ? `color-mix(in oklab, ${hue} 62%, var(--ink))` : `color-mix(in oklab, ${hue} 55%, var(--bg))`;
+  return step === 0 ? hue : step === 1 ? `color-mix(in oklab, ${hue} 62%, var(--ink))` : `color-mix(in oklab, ${hue} var(--g-fade), var(--bg))`;
 }
 function corrSlot(corr, p) {                              // a part's slot; an old model's: one from its name
   const i = corr?.colours?.[p];

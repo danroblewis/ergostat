@@ -13,9 +13,7 @@ import json
 import os
 import re
 import shlex
-import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -70,17 +68,10 @@ SESSIONS = RUN / "sessions"              # each AI session's answer, linked from
 # --- ergostat --------------------------------------------------------------------------------------
 
 def ergostat() -> list[str]:
-    """The command that runs ergostat on this project: what ergostat gave the block, else `ergostat` on the
-    PATH, else the checkout this example sits in."""
-    for env in ("ERGOSTAT_CMD", "TF_ERGOSTAT"):
-        if os.environ.get(env):
-            return shlex.split(os.environ[env]) + (["-C", str(ROOT)] if env == "TF_ERGOSTAT" else [])
-    if shutil.which("ergostat"):
-        return ["ergostat", "-C", str(ROOT)]
-    checkout = ROOT.parent.parent
-    if (checkout / "ergostat" / "__init__.py").exists():
-        return ["uv", "run", "-q", "--project", str(checkout), "python", "-m", "ergostat", "-C", str(ROOT)]
-    sys.exit("ergostat is not installed (uv tool install ergostat, or run from its checkout)")
+    """The command that runs ergostat on this project: what ergostat gives every block's run and sensor's command
+    (ERGOSTAT_CMD), else `ergostat` on the PATH (run by hand)."""
+    cmd = os.environ.get("ERGOSTAT_CMD")
+    return shlex.split(cmd) if cmd else ["ergostat", "-C", str(ROOT)]
 
 
 def engine(op: str, **args) -> dict | None:

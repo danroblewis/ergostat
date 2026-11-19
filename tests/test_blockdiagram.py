@@ -521,3 +521,54 @@ def test_a_collector_run_by_ergostats_library_is_named_by_its_step_and_name():
     assert sensing._command("python3 bin/watch.py alert") == "watch.py alert"
     assert sensing._command("python -m tool.cli poll --x 1") == "cli poll --x 1"
     assert sensing.short("x" * 40) == "x" * 31 + "…"
+
+
+def test_every_block_says_its_tier(tmp_path):
+    """A block's tier is drawn in it (SPEC §9.5's ladder): its agent's kind, else a built-in's rung, else its type's;
+    an external block with no agent says none."""
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+    stocks:
+      q:
+        sensor: {manual: true}
+    flows:
+      served: {from: q}
+      tidied: {from: q}
+      shed: {from: q}
+      seen: {from: q}
+    goals:
+      short:
+        stock: q
+        hold: "<= 3"
+    agents:
+      on-call: {kind: person}
+      picker: {kind: decision}
+    blocks:
+      gate:
+        type: onoff
+        goal: short
+        out: block.worker
+      worker:
+        type: ai
+        prompt: work
+        in: block.gate
+        out: flow.served
+      tidier:
+        type: program
+        run: echo 1
+        agent: picker
+        in: +stock.q
+        out: flow.tidied
+      pager:
+        type: person
+        ask: shed some
+        agent: on-call
+        in: +stock.q
+        out: flow.shed
+      outside:
+        type: external
+        in: +stock.q
+        out: flow.seen
+    """))
+    n = {x["id"]: x for x in drawn(load(tmp_path / "ergostat.yaml"))["nodes"]}
+    assert {k: n[f"blk:{k}"].get("tier") for k in ("gate", "worker", "tidier", "pager", "outside")} == \
+        {"gate": "rule", "worker": "ai", "tidier": "decision", "pager": "person", "outside": None}

@@ -305,8 +305,8 @@ setpoint faster than the inner can follow is a coupled loop, not a hierarchy.
 ### Few signals across systems
 
 Every signal that crosses a system's frame is a port mark and a long line. Keep them few: a system's blocks read
-and move that system's parts, and a step that must read another system reads one signal, signed
-(`in: [+stock.alerts-investigating]`; a goal's `error` read directly is drawn as a reinforcing loop). If two systems
+and move that system's parts, and a step that must read another system reads one signal: a goal's error, or a
+stock, signed (`in: [+stock.alerts-investigating]`). If two systems
 trade many signals, the boundary between them is in the wrong place.
 
 ### Tiers marked
@@ -315,7 +315,7 @@ Every block has a **tier**: `program`, `ai`, `person`, `external`, or a built-in
 `expr`). Use the type that says who really does the work: a person's step is `type: person` with `ask:` (ergostat
 asks them while its goal is off), never a `program` that runs `true` in their place. Declare shared machines and
 people under `agents:` with their `kind:` (`ai`, `person`) and a description, and put each block on one
-(`agent: claude`, `agent: on-call`). A block's panel in the Blocks view, `explain` and the Agents page then say
+(`agent: claude`, `agent: on-call`). The Blocks view writes each block's tier small in its corner; its panel, `explain` and the Agents page then say
 which tier fills each loop and which loops one person or one AI pool carries, so a person is seen as the bottleneck
 they may be.
 

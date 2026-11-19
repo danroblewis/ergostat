@@ -359,7 +359,7 @@ def factory(a) -> dict:
     if a.auto_gates:                                      # every class promoted: no person in the loop
         f = d / "factory/actions.yaml"
         f.write_text(f.read_text().replace("gate: approve", "gate: auto"))
-    env = {"TF_OFFLINE": "1", "TF_MAX_OPEN": str(a.tickets), "TF_ERGOSTAT": f"{PY} -m ergostat"}
+    env = {"TF_OFFLINE": "1", "TF_MAX_OPEN": str(a.tickets)}
     for kv in a.set or []:
         k, _, v = kv.partition("=")
         env[f"TF_{k}"] = v
