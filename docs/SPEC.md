@@ -4007,9 +4007,9 @@ tests=None, commit=None, runs=40, budget=20.0)`:
             "stocks": [{"ref", "at_failure", "now", "building"}]},          # a failure only
  "horizon": seconds, "times": [past grid], "ptimes": [projection times],
  "charts": [{"ref", "name", "unit", "per", "measured", "without", "with"}],   # with: at the ideal time (a change: with it)
- "goals": {NAME: {"of", "hold", "off_at": time | None, "off_end": bool, "hours_off": h, "hours_off_fixed_now": h,
+ "goals": {NAME: {"of", "hold", "off_at": time | None, "off_before": bool, "off_end": bool, "hours_off": h, "hours_off_fixed_now": h,
                   "p_off_end", "expected_off", "p_off": [per ptime], "said"}},
- "rollout": {"unit", "penalty", "busy_from", "options": [{"at", "hours_off", "peak", "recovery", "busy", "cost"}],
+ "rollout": {"unit", "penalty", "busy_from", "options": [{"at", "hours_off", "goals_off", "peak", "moved", "recovery", "busy", "cost"}],
              "best": {"at", ...}, "said": one sentence} | None,            # a change: None, and why in "notes"
  "fields": {"touches": {"blocks": [...], "goals": [...], "commands": [...], "actions": [{"name", "gate"}]},
             "read_only": bool, "writes": [...],
@@ -4033,8 +4033,10 @@ rollout time: the same, the block's model restored from d. Its cost is the goals
 the hour of day of d is (the record's mean arrival rate at that hour, over the last week at most, of the flows from
 outside into the stocks the block's flows drain, else of every flow from outside; scaled from 0 at the quietest hour
 to 1 at the busiest; 0 everywhere when the record has no daily pattern, said). Also said: the backlog's peak (the
-highest of the stocks building up, else the stocks it drains) and the recovery time after d (until every goal holds to
-the end; with no goal, until those stocks are back within 5% of their level when the failure began). The **ideal
+highest of the stocks building up, else the stocks it drains) and what the block's flows move over the horizon (`moved`: what waiting loses, said, not
+priced), and the recovery time after d (until, to the end, every goal
+that held when the failure began and goes off without the fix holds and those stocks are within 5% of where the fix made now settles them). A
+goal already off when the failure began (`off_before`) is said apart, and its time off is not counted in the cost. The **ideal
 rollout time** is the cheapest, the earliest of equals, and why in one sentence. When the budget runs out, the rollout
 times not tried are left out and `stopped` says so.
 

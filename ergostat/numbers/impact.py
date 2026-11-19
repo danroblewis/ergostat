@@ -148,11 +148,10 @@ def daily(p, spec: Spec, into: list[str], at: float) -> tuple[list[float] | None
 
 
 def _recovery(cr: cl.ClosedRun, d: float, goals: list[str], stocks: list[str], level: dict) -> float | None:
-    """Hours after ``d`` until every goal holds to the end (no goal: until ``stocks`` are back near ``level``)."""
+    """Hours after ``d`` until, to the end, ``goals`` hold and ``stocks`` are near ``level`` (where the fix made now settles
+    them)."""
     def ok(i: int) -> bool:
-        if goals:
-            return not any(cr.off_end[g][i] for g in goals)
-        return all((v := (cr.values.get(r) or [None])[i]) is None or level.get(r) is None or
+        return not any(cr.off_end[g][i] for g in goals) and all((v := (cr.values.get(r) or [None])[i]) is None or level.get(r) is None or
                    v <= level[r] + BACK * max(abs(level[r]), 1.0) for r in stocks)
     first = None
     for i, t in enumerate(cr.times):
@@ -162,12 +161,13 @@ def _recovery(cr: cl.ClosedRun, d: float, goals: list[str], stocks: list[str], l
     return None if first is None else max(0.0, first - d) / 3600.0
 
 
-def _goal_rows(spec: Spec, cr: cl.ClosedRun) -> dict:
+def _goal_rows(spec: Spec, cr: cl.ClosedRun, before: dict | None = None) -> dict:
     out = {}
     for name, g in spec.goals.items():
         ends = cr.off_end.get(name) or []
         i = next((k for k, v in enumerate(ends) if v), None)
         out[name] = {"of": str(g.of), "hold": str(g.hold), "off_at": cr.times[i] if i is not None else None,
+                     "off_before": (before or {}).get(name) == "off",
                      "off_end": bool(ends and ends[-1]), "hours_off": round(cr.off_hours.get(name, 0.0), 4)}
     return out
 
@@ -300,26 +300,31 @@ def report(p, parts, since: float | None = None, *, at: float | None = None, wit
         return cl.closed(spec, data, run, horizon, None, POINTS, ms, start)
 
     without, now_fixed = run_with(None), run_with(at)
-    goals = _goal_rows(spec, without)
+    was = cl.start_of(p, spec, since).status                    # each goal as it was when the failure began
+    held = [g for g in spec.goals if was.get(g) != "off"]       # what the failure can put off, and the fix restore
+    goals = _goal_rows(spec, without, was)
+    put_off = [g for g in held if goals[g]["off_at"] is not None]   # what the failure puts off: recovered once they hold
     fixed_now = _goal_rows(spec, now_fixed)
     rk = None
     building = [s["ref"] for s in br["stocks"] if s["building"]] or br["drains"]
-    level = {s["ref"]: s["at_failure"] for s in br["stocks"]}
+    level = {r: next((v for v in reversed(now_fixed.values.get(r) or []) if v is not None), None) for r in building}
     prof, ins = daily(p, spec, br["drains"], at)
     if prof is None:
         notes.append("the record has no daily pattern of arrivals (a day of it at least): no rollout time is busier than another")
     options, stopped = [], None
     for i in range(n):
-        if time.monotonic() - began > budget * 0.6:
+        if i and time.monotonic() - began > budget * 0.6:       # now is always tried: its run is made already
             stopped = f"stopped at {budget * 0.6:g} s of wall time, after {i} of {n} rollout times"
             break
         d = at + within * i / max(1, n - 1)
         cr = now_fixed if i == 0 else run_with(d)
-        off = sum(cr.off_hours.values())
+        each = {g: round(cr.off_hours[g], 4) for g in held if cr.off_hours[g] > 0}
+        moved = sum(v for r in mine for v in cr.values.get(r) or [] if v is not None) * horizon / POINTS / 3600.0
+        off = sum(each.values())
         busy = prof[time.localtime(d).tm_hour] if prof else 0.0
         peak = max((v for r in building for v in (cr.values.get(r) or []) if v is not None), default=None)
-        options.append({"at": d, "hours_off": round(off, 4), "peak": peak, "busy": round(busy, 3),
-                        "recovery": _recovery(cr, d, list(spec.goals), building, level), "cost": round(off + penalty * busy, 4),
+        options.append({"at": d, "hours_off": round(off, 4), "goals_off": each, "peak": peak, "busy": round(busy, 3), "moved": moved,
+                        "recovery": _recovery(cr, d, put_off, building, level), "cost": round(off + penalty * busy, 4),
                         "_run": cr})
     best = min(options, key=lambda o: (o["cost"], o["at"]))
     with_best = best.pop("_run")
@@ -354,27 +359,36 @@ def report(p, parts, since: float | None = None, *, at: float | None = None, wit
 
 
 def _best_said(options: list[dict], best: dict, penalty: float) -> str:
-    first = options[0]
-    when = "now" if best is first else f"at {time.strftime('%a %H:%M', time.localtime(best['at']))} (+{human(best['at'] - first['at'])})"
+    first, h = options[0], (lambda x: human(x * 3600) if x else "none")
     if best is first:
         why = "every wait adds goal-off time" if len(options) > 1 and options[-1]["hours_off"] > first["hours_off"] else \
             "waiting saves nothing"
-        off = f"{human(first['hours_off'] * 3600)} of goal-off time" if first["hours_off"] else "no goal goes off"
-        return f"roll it out now: {why} ({off})" + \
-            (f", though this hour is busy ({first['busy']:.0%})" if first["busy"] > 0.5 else "")
-    return (f"roll it out {when}: it costs {human(best['hours_off'] * 3600)} of goal-off time against "
-            f"{human(first['hours_off'] * 3600)} now, and avoids rolling out in a busy hour ({first['busy']:.0%} busy now, "
-            f"{best['busy']:.0%} then; a busy hour costs up to {human(penalty * 3600)})")
+        off = f"{h(first['hours_off'])} of goal-off time" if first["hours_off"] else "no goal goes off"
+        return f"roll it out now: {why} ({off})" + (f", though this hour is busy ({first['busy']:.0%})" if first["busy"] > 0.5 else "")
+    when = f"at {time.strftime('%a %H:%M', time.localtime(best['at']))} (+{human(best['at'] - first['at'])})"
+    if first["busy"] - best["busy"] > 1e-9 and best["hours_off"] >= first["hours_off"]:
+        why = (f"it avoids rolling out in a busy hour ({first['busy']:.0%} busy now, {best['busy']:.0%} then; the busiest costs "
+               f"{h(penalty)}) for {h(best['hours_off'] - first['hours_off'])} more goal-off time")
+    else:
+        worse = max(first["goals_off"], key=lambda g: first["goals_off"][g] - best["goals_off"].get(g, 0.0), default=None)
+        why = (f"the model projects less goal-off time ({h(best['hours_off'])} against {h(first['hours_off'])} now)" +
+               (f": rolled out now, {worse} is off {h(first['goals_off'][worse] - best['goals_off'].get(worse, 0.0))} longer, "
+                f"as what the fix restores moves on to it" if worse else ""))
+    lost = first["moved"] - best["moved"]
+    return f"roll it out {when}: {why}" + (f"; waiting, its flows move {lost:.3g} less over the horizon" if lost > 1e-6 else "")
 
 
 def _said(r: dict) -> str:
     br = r["broken"]
     flows = "; ".join(x["said"] for x in br["flows"]) or "it moves no flow"
     up = [f"{s['ref'][6:]} {s['at_failure']:.3g} → {s['now']:.3g}" for s in br["stocks"] if s["building"]]
-    off = sorted(((g, x) for g, x in r["goals"].items() if x["off_at"] is not None), key=lambda gx: gx[1]["off_at"])
+    off = sorted(((g, x) for g, x in r["goals"].items() if x["off_at"] is not None and not x["off_before"]),
+                 key=lambda gx: gx[1]["off_at"])
+    already = [g for g, x in r["goals"].items() if x["off_before"]]
     goals = "; ".join(f"{g} off at +{human(max(0.0, x['off_at'] - r['at']))}" + (f" (p≈{x['p_off_end']:.2g} off at the horizon)"
                                                                                 if x.get("p_off_end") is not None else "")
-                      for g, x in off[:3]) or "no goal goes off"
+                      for g, x in off[:3]) or "no goal that held goes off"
+    goals += f" (off before it failed: {', '.join(already)})" if already else ""
     return (f"{br['block']} has failed since {time.strftime('%a %H:%M', time.localtime(br['since']))} "
             f"({human(r['at'] - br['since'])} ago): {flows}" + (f"; building up: {', '.join(up)}" if up else "") +
             f". Without the fix: {goals} within {human(r['horizon'])}. {r['rollout']['said'][0].upper()}{r['rollout']['said'][1:]}."
