@@ -628,7 +628,7 @@ function sdOpenSystem(n) {
   showDetail(h("div", { class: "kind" }, n.remote ? "Module, remote" : "Module"), h("h2", {}, n.label),
     moduleCharts(n),
     n.description ? h("p", { class: "muted" }, n.description) : null,
-    remoteNote(n.remote),
+    remoteNote(n.remote), n.size ? dl([["size", n.size]]) : null,
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),
     h("h3", {}, "Out, to outside"), list(side("out"), "Nothing outside depends on it here."),
     inside.length ? h("p", {}, `${inside.length} feedback loop${inside.length > 1 ? "s" : ""} inside it or through it, not drawn here: open it to see them`) : null,

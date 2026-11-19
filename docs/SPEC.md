@@ -233,6 +233,7 @@ inputs described in section 9 on standard input.
 
 ```yaml
 name: checkout                  # the project's name (default: the folder's)
+purpose: keep checkout fast    # optional, main file only: what the whole model is for (section 4a)
 include:
   - systems/*.yaml
 keep: 30d                       # how long the record is kept
@@ -298,6 +299,10 @@ systems:
 | `show` | stock, flow or auxiliary references | its goals' | The measures its box shows when it is drawn as one part: its control panel |
 
 A system named by a part and not described here is a top-level system.
+
+`purpose:` (top level, the main file only) says in a sentence what the whole model is for: a goal in no system that
+says what it is for is traced to it (the `purpose` note, section 12). Each system's size (its parts at any depth, the
+feedback loops inside it and through it, and the levels of systems within it) is in `explain` and on its panel.
 
 **Its interface is worked out, never written.** Whatever crosses a system's boundary is one of
 its ports:
@@ -2255,6 +2260,31 @@ adjustment, are not arrivals). In the record, an item arrives in the state its f
   little to each other: a note to draw the boundary chart (Sterman ch. 3: what the model explains, what it takes as
   given, what it leaves out) and decide what is really outside. Five, because fewer can be read at a glance, and a
   model of a few independent quantities, each filled from outside, is right as it is.
+
+**How the model is divided into systems** (notes, `ergostat/spec/architecture.py`; the methods and their sources:
+`docs/proposals/architecture.md`). Worked out from the causal links alone (each counted once, undirected, an implied
+block's taken as its goal's; a system's subsystems each one node), never a run:
+
+- **system-splits** (`system.NAME`, or `model` for the top level): a system of 20 parts or more whose parts fall
+  into two clusters or more (greedy modularity clustering, Clauset, Newman and Moore 2004, an analogue of clustering
+  a design structure matrix; a cluster of fewer than 4 parts joined to its nearest, and two joined by more than a
+  tenth of the links inside the smaller made one: a heuristic set on the examples), at modularity 0.4 or more, and
+  some of them loose parts in no subsystem of their own: those are named (at most six). When every cluster is one
+  of the system's own subsystems it is **nearly decomposable** (Simon 1962), as a good hierarchy is: `explain`
+  says so, and it is no note;
+- **systems-merge** (`system.NAME`): two systems within the same one with at least 3 links between them, and at least
+  as many as inside the smaller: the boundary cuts through one system;
+- **interface** (`system.NAME`): what crosses its boundary (§4a's ports, counted by kind), said when material crosses
+  through clouds on both sides (a flow to a cloud outside drives a flow from a cloud inside, in one unit), a block
+  outside moves or commands what the system's own goals' loops use (not an arrival: filing work into a queue is how
+  work is handed on), or 10 information links or more cross it (a heuristic);
+- **time-scales** (`system.NAME`): its own parts' time constants (a stock's own drain and a delay's time, from one
+  evaluation of the equations at the model's start; a goal's identified `process:`: a screen, not the system's
+  modes) with a gap of more than 10 times between neighbours, the fast and the slow linked within the system: the
+  fast parts a candidate inner system, given its setpoint by the slow (singular perturbation; hierarchical control);
+- **purpose**, in a model with systems: a system with no `description` (its purpose); a described system whose blocks
+  act for no goal inside it (one with stocks and no blocks, a sector, is normal); goals in no described system, when
+  the model has no `purpose:`.
 
 ## 12a. Feedback loops (system dynamics)
 

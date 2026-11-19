@@ -37,6 +37,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Modelling
 
+- **System architecture review** (computed measures done on `architecture`; design in
+  `docs/proposals/architecture.md`): `check` notes `system-splits`, `systems-merge`, `interface`, `time-scales` and
+  `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a model-level `purpose:`. *Left*: the relative gain
+  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity and aggregation from loop dominance, interface
+  stability over the model's history, the Viable System Model checklist and purpose coverage (the AI rung), and the
+  per-system redesign and daily larger-model review (after `redesign`).
 - **Built-in join** (done, de204df and 966a07f, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:
   STATE, to: STATE}` (or `any:`) on the parent's kind, fired on each child's move from the item index, the parent's
   move recorded as `ergostat.item.joined` caused by the child's, folded only forward and counted like any other;

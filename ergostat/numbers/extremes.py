@@ -182,6 +182,16 @@ def _data(spec: Spec, pl: sim.Plan, hours: float, cond: Condition, scales: dict 
 
 def _slowest(spec: Spec, pl: sim.Plan, cond: Condition, scales: dict | None) -> float | None:
     """The slowest time constant at the start (hours): each stock's own drain, each delay's time."""
+    taus = time_constants(spec, pl, cond, scales)
+    return max(taus.values(), default=None) if taus is not None else None
+
+
+def time_constants(spec: Spec, pl: sim.Plan | None = None, cond: Condition | None = None,
+                   scales: dict | None = None) -> dict[str, float] | None:
+    """Each part's time constant at the model's start (hours), from one evaluation of its equations, never a run:
+    a stock's own drain (1 over its Jacobian's diagonal) and a delay's time. None when the equations fail there."""
+    pl = pl or sim.plan(spec)
+    cond = cond or Condition("usual", "with everything as usual", usual=True)
     d = _data(spec, pl, 1.0, cond, scales, 2)
     st = sim._Stepper(pl, pl.integrate)
     for r, vals in d.values.items():
@@ -194,9 +204,8 @@ def _slowest(spec: Spec, pl: sim.Plan, cond: Condition, scales: dict | None) -> 
         st.rates(state)
     except (ArithmeticError, ValueError):
         return None
-    taus = [1.0 / x for x in st.diag.values() if x > 0]
-    taus += [sum(1.0 / x for x in c.decay) for c in pl.eqs.values() if c.decay and all(c.decay)]
-    return max(taus, default=None)
+    out = {f"stock.{s}": 1.0 / x for s, x in st.diag.items() if x > 0}
+    return out | {r: sum(1.0 / x for x in c.decay) for r, c in pl.eqs.items() if c.decay and all(c.decay)}
 
 
 class _NoRecord:
