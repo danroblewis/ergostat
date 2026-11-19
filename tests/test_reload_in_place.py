@@ -233,7 +233,7 @@ def ergostat(repo, *args, **kw):
 
 
 def test_ergostat_run_takes_an_edit_in_place_and_stop_still_kills(tmp_path):
-    long = BASE.format(run="sleep 2; echo 5", every="60s")
+    long = BASE.format(run="sleep 8; echo 5", every="60s")   # long enough that the edit, taken once it settles (1.5s), lands inside the run
     write(tmp_path, long)
     p = Project(mdl.load(tmp_path))
     proc = ergostat(tmp_path, "run", "--foreground", "--no-web")
