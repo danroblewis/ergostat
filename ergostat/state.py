@@ -15,6 +15,7 @@ from __future__ import annotations
 import time
 
 from .durations import human
+from .spec.goal_per import cascade_setpoint as per_setpoint
 from .spec.goal_per import says as per_says
 from .spec.goal_per import worst as per_worst
 
@@ -240,17 +241,19 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         c = lp.controller
         value = stocks.get(c.holds, {}).get("value")
         g = spec.goals.get(lp.name) if spec is not None else None
-        held = per_worst(spec, g, None, project.events, now) if g is not None and g.per and value is not None else None
+        r = per_setpoint(spec, project.measurements, g, now) if g is not None and g.per and value is not None else None
+        held = per_worst(spec, g, r, project.events, now) if g is not None and g.per and value is not None else None
         if held:
-            value = held[0]                              # the worst item's or group's (SPEC §8, per:)
+            value = held[0]                              # the worst item's or group's (SPEC §8, per:), against its cascade's
         if not lp.closes:
             status, error = "open", None
         elif value is None:
             status, error = "unknown", None
         else:
-            error = c.error(value)
             last = project.events.query(n=1, item=lp.name, type="loop.*", until=now, unvoided=True)
-            status = c.status(value, was_off=bool(last and last[-1]["type"] == "loop.off"))
+            was_off = bool(last and last[-1]["type"] == "loop.off")
+            error, status = (g.hold.error(value, r), g.status(value, was_off, r)) if held else \
+                (c.error(value), c.status(value, was_off=was_off))
         decisions = project.events.query(n=1, type="controller.decided", item=c.name, until=now)
         acts_on = lp.valves or (c.drives if c.through else [])    # the long way: where its controller acts, first along it
         last_open = max((o["time"] for v in acts_on for o in project.events.query(n=1, type="valve.opened", item=v, until=now)),
@@ -303,7 +306,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                           "back_in": recoveries[len(recoveries) // 2] if recoveries else None,
                           "back_in_slowest": recoveries[-1] if recoveries else None, "times_off": len(recoveries)}
         if held:
-            loops[lp.name].update(per=g.per, breaking=held[1], breaking_n=held[2])
+            loops[lp.name].update(per=g.per, breaking=held[1], breaking_n=held[2],
+                                  **({"setpoint": f"{g.hold.op} {r:g}"} if r is not None else {}))
 
     contradicted: dict[str, list[dict]] = {}          # claims the record contradicts, by the block that made them (SPEC §12g)
     for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
@@ -602,6 +606,10 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
             n, each = lp["breaking_n"], lp["per"]
             out.append({"level": "bad", "what": f"loop {name}", "says": f"{n} {each}{'' if n == 1 else 's'} break{'s' if n == 1 else ''} "
                         f"it (each {each}'s {lp['stock']} {setpoint_text(lp)}): {per_says(lp)}"})
+        elif lp["status"] == "off" and lp.get("per"):        # off, and none past its tolerance: holding only back within
+            out.append({"level": "bad", "what": f"loop {name}", "says": f"the worst {lp['per']}'s {lp['stock']} is "
+                        f"{fmt(lp['value'])}, setpoint {setpoint_text(lp)}: none is past its tolerance now; it holds again "
+                        "once each is back within the setpoint"})
         elif lp["status"] == "off":
             out.append({"level": "bad", "what": f"loop {name}", "says": f"{lp['stock']} is {fmt(lp['value'])}, "
                         f"setpoint {setpoint_text(lp)} (off by {fmt(abs(lp['error']))})"})

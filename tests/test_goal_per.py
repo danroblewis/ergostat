@@ -93,7 +93,8 @@ def test_a_per_group_goal_holds_each_parents_open_items(tmp_path):
 def test_per_needs_a_stock_counted_from_items(tmp_path):
     from ergostat.spec import SpecError, load
     for extra, says in (('  plain: {stock: plain, hold: "<= 1", per: item}\n', "stock counted from items"),
-                        ('  counted: {stock: open-tickets, hold: "<= 1", per: item}\n', "each item counts one")):
+                        ('  counted: {stock: open-tickets, hold: "<= 1", per: item}\n', "each item counts one"),
+                        ('  floor: {stock: open-tickets, hold: ">= 1", per: parent}\n', "a group with no items is no group")):
         text = MODEL.replace("stocks:\n", "stocks:\n  plain: {unit: x, sensor: {run: echo 1, every: 1m}}\n").replace(
             "blocks:\n", extra + "blocks:\n")
         (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(text))
@@ -119,3 +120,76 @@ def test_needs_attention_and_the_loop_name_the_items_that_break_it(tmp_path):
     said = {a["what"]: a["says"] for a in st.attention(snap)}
     assert "ticket/1 (73)" in said["loop review-fresh"] and "2 items break it" in said["loop review-fresh"], said
     assert said["loop epics-small"].startswith("1 parent breaks it (each parent's open-tickets <= 2): epic/1 (3)"), said
+
+
+def test_a_field_neither_related_nor_known_is_said(tmp_path):
+    from ergostat.spec import read
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace("per: parent", "per: team"))
+    _, problems = read(tmp_path / "ergostat.yaml")
+    said = [p for p in problems if p.code == "goal-per-field"]
+    assert said and said[0].level != "error" and "'team'" in said[0].message
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL))
+    assert not [p for p in read(tmp_path / "ergostat.yaml")[1] if p.code == "goal-per-field"]
+
+
+def test_with_no_items_nothing_breaks_it_and_it_holds(tmp_path):
+    p = project(tmp_path)
+    spec, now = p.model.spec, time.time()
+    assert worst(spec, spec.goals["review-fresh"], None, p.events, now) == (0.0, [], 0)
+    g = spec.goals["review-fresh"]
+    g.hold = type(g.hold)(">=", 1.0)                             # a floor: 0 would break it, so its value is the setpoint
+    assert worst(spec, g, None, p.events, now) == (1.0, [], 0)
+
+
+def test_a_block_serving_it_is_given_the_worst_and_who_breaks_it(tmp_path):
+    p = project(tmp_path)
+    now = time.time()
+    record(p, now)
+    s = next(iter(p.model.spec.stocks["review-age"].sensors.values()))
+    p.measurements.add(s.series, 1.0, at=now - 5)                   # the stock's own reading: the total, not the worst
+    e = Engine(p, say=lambda s: None)
+    try:
+        e.evaluate(full=True)
+        ctx = e.context(p.model.spec.blocks["reviewer"], "command")["goals"]["review-fresh"]
+    finally:
+        e.close()
+    assert round(ctx["value"]) == 73 and ctx["status"] == "off" and ctx["per"] == "item"
+    assert [b["item"] for b in ctx["breaking"]] == ["ticket/1", "ticket/2"] and ctx["breaking_n"] == 2
+
+
+def test_the_items_are_read_again_only_when_the_record_changed(tmp_path, monkeypatch):
+    from ergostat.spec import goal_per
+    p = project(tmp_path)
+    record(p, time.time())
+    reads = []
+    real = goal_per.members
+    monkeypatch.setattr(goal_per, "members", lambda *a: reads.append(1) or real(*a))
+    e = Engine(p, say=lambda s: None)
+    try:
+        e._per(time.time(), True, None)
+        e._per(time.time(), True, None)
+        assert len(reads) == 2                                   # once for each of the two goals
+        p.events.add("ticket.done", item="ticket/1")
+        e._per(time.time(), True, None)
+        assert len(reads) == 4
+    finally:
+        e.close()
+
+
+def test_the_snapshot_holds_it_to_the_cascades_setpoint_and_says_when_none_is_past_its_tolerance(tmp_path):
+    text = MODEL.replace("  epics-small:", "  outer: {stock: open-tickets, hold: \"<= 100\"}\n  epics-small:").replace(
+        "blocks:\n", "blocks:\n  setter: {type: proportional, goal: outer, out: goal.epics-small, gain: 1}\n")
+    p = project(tmp_path, text)
+    now = time.time()
+    record(p, now)
+    for name in ("review-age", "open-tickets"):
+        s = next(iter(p.model.spec.stocks[name].sensors.values()))
+        p.measurements.add(s.series, 1.0, at=now - 5)
+    p.measurements.add("block/setter", 3.0, at=now - 5)          # the outer loop lets each epic have 3
+    snap = st.snapshot(p, now=now)
+    lp = snap["loops"]["epics-small"]
+    assert lp["setpoint"] == "<= 3" and lp["status"] == "holding" and lp["breaking_n"] == 0
+    # off from before, back past the setpoint but within the tolerance: off, and none named
+    snap["loops"]["epics-small"] = {**lp, "status": "off", "value": 3.0, "breaking": [], "error": 0.0}
+    said = {a["what"]: a["says"] for a in st.attention(snap)}["loop epics-small"]
+    assert said.startswith("the worst parent's open-tickets is 3") and "none is past its tolerance" in said, said

@@ -102,6 +102,7 @@ class Engine:
         self.status: dict[str, str] = {}               # goal → holding / off
         self.setpoint: dict[str, float] = {}           # goal → a setpoint a block set (a cascade)
         self.per: dict[str, tuple] = {}                # goal held per item or group → (worst, breaking, how many)
+        self.per_rows: dict[str, tuple] = {}           # its items as last read, and the record's version then
         self.outputs: dict[str, dict[str, float]] = {}   # machine block → port → its last command (held)
         self.commands: dict[str, dict] = {}            # machine block → its last command's detail
         self.running: set[str] = set()
@@ -272,15 +273,23 @@ class Engine:
         return changed
 
     def _per(self, now: float, every: bool, changed) -> set[str]:
-        """The goals held per item or group (SPEC §8, ``per:``) worked out again from the item index, before the pass
-        takes its lock: each (``every``), or those whose stock's sensor read anew. Returns those whose worst moved."""
-        from .goal_per import sensor_of, worst
-        moved = set()
+        """The goals held per item or group (SPEC §8, ``per:``) worked out again, before the pass takes its lock: each
+        (``every``), or those whose stock's sensor read anew. Their items are read from the item index only when the
+        record changed since (its newest event, its generation); their hours are worked out again from those kept.
+        Returns those whose worst moved."""
+        from .goal_per import held, members, sensor_of
+        moved, version = set(), None
         for g in self.spec.goals.values():
             s = sensor_of(self.spec, g) if g.per else None
             if s is None or not (every or s.series in (changed or ())):
                 continue
-            got = worst(self.spec, g, self.setpoint.get(g.name), self.p.events, now)
+            if version is None:
+                ev = self.p.events
+                version = (ev.last_seq(), ev.generation()) if hasattr(ev, "last_seq") and hasattr(ev, "generation") else now
+            kept = self.per_rows.get(g.name)
+            if kept is None or kept[0] != (version, g.per, s.items):
+                kept = self.per_rows[g.name] = ((version, g.per, s.items), members(self.spec, g, self.p.events, now))
+            got = held(self.spec, g, kept[1], self.setpoint.get(g.name), now)
             if got != self.per.get(g.name):
                 self.per[g.name] = got
                 moved.add(g.name)
@@ -634,9 +643,11 @@ class Engine:
             g = self.spec.goals.get(name)
             if g is None:                                         # (a goal gone from the model as the run began)
                 continue
+            held = self.per.get(name) if g.per else None          # held per item or group: the worst, and who (SPEC §8)
             goals[name] = {"hold": f"{g.hold.op} {self.signals.get(f'goal.{name}', g.hold.value):g}",
-                           "value": self.signals.get(str(g.of)), "error": self.signals.get(f"goal.{name}.error"),
-                           "status": self.status.get(name, "unknown")}
+                           "value": held[0] if held else self.signals.get(str(g.of)),
+                           "error": self.signals.get(f"goal.{name}.error"), "status": self.status.get(name, "unknown"),
+                           **({"per": g.per, "breaking": held[1], "breaking_n": held[2]} if held else {})}
         out = {"block": b.name, "type": b.type, "trigger": why, "inputs": inputs, "goals": goals,
                "outputs": {p: [str(r) for r in rs] for p, rs in b.outputs.items()}}
         law = {k: b.params[k] for k in ("gain", "integral-time", "deadband", "resolution", "limits") if b.params.get(k) is not None}

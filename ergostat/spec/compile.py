@@ -922,7 +922,7 @@ class Compiler:
             if tol < 0:
                 self.err(f"{what}.tolerance: 0 or more", m.at("tolerance"), "bad-number")
             process = self.process(m, what) if m.get("process") is not None else None
-            per = self.per(spec, m, of, what)
+            per = self.per(spec, m, of, what, name)
             if of and hold:
                 spec.goals[name] = Goal(name, of, hold, tol, bool(m.get("critical")), self.text(m, "owner"),
                                         self.system("goals", name, m), self.text(m, "description"), m.where, process, per)
@@ -1206,7 +1206,7 @@ class Compiler:
         near = difflib.get_close_matches(name, list(among), n=1)
         return f" (did you mean {near[0]}?)" if near else ""
 
-    def per(self, spec, m, of, what) -> str | None:
+    def per(self, spec, m, of, what, name) -> str | None:
         """A goal's ``per:`` (SPEC §8): ``item`` or a field, on a stock counted from items; else said, and None."""
         per = m.get("per")
         if per is None:
@@ -1221,7 +1221,17 @@ class Compiler:
         elif per == "item" and (s.items.get("measure") or "count") == "count":
             self.err(f"{what}.per: item: each item counts one; hold each by its age with measure: oldest or age on "
                      f"{of.name}'s sensor, or group them (per: a field)", m.at("per"), "goal-per")
+        elif per != "item" and (s.items.get("measure") or "count") == "count" and str(m.get("hold", "")).lstrip()[:1] == ">":
+            self.err(f"{what}.per: a floor on each group's count is never broken: a group with no items is no group, so "
+                     "none is ever below it. Hold a ceiling (<=), or count what is missing as its own stock",
+                     m.at("per"), "goal-per")
         else:
+            k = spec.items.get(s.items.get("kind"))
+            known = {*k.relations, *k.show, *k.fold, *k.formats, *(s.items.get("where") or {})} if k else set()
+            if per != "item" and per.split(".")[0] not in known:
+                self.problems.append(Problem("finding", f"{what}.per: {per!r} is neither a relation of {k.name if k else '?'} "
+                                             "nor a field its kind shows, folds or matches: an item without it is in no group",
+                                             m.at("per"), "goal-per-field", f"goal.{name}"))
             return per
         return None
 

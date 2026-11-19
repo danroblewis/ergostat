@@ -589,6 +589,9 @@ def test_a_stock_with_no_flows_is_an_integrator_with_no_inputs_in_every_view(tmp
     for open_, focus in views(spec):
         g = drawn(spec, open_, focus)
         n = {x["id"]: x for x in g["nodes"]}
-        if "proc:stock.backlog" in n:
-            assert "no inputs" in n["proc:stock.backlog"]["says"]
-            assert not [e for e in g["edges"] if e["target"] == "proc:stock.backlog"]
+        where = f"open={open_} system={focus}"
+        assert "proc:stock.backlog" in n, where
+        p = n["proc:stock.backlog"]
+        assert "no inputs" in p["says"] and "seen only in its readings" in p["says"], where
+        assert "∫" not in str(p["math"]) and "no flow modelled" in str(p["math"]), where
+        assert not [e for e in g["edges"] if e["target"] == "proc:stock.backlog"], where
