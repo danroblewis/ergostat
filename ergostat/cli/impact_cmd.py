@@ -50,9 +50,9 @@ def cmd_impact(args) -> int:
     ro = r["rollout"]
     if ro:
         print(c(f"\nrolling it out (a busy hour costs {human(ro['penalty'] * 3600)})", "bold"))
-        print(table(["ROLL OUT", "GOAL-OFF", "PEAK", "RECOVERS IN", "BUSY", "COST"],
+        print(table(["ROLL OUT", "GOAL-OFF", "PEAK", "MOVED", "RECOVERS IN", "BUSY", "COST"],
                     [[_when(o["at"], now) + (" *" if o is ro["best"] or o["at"] == ro["best"]["at"] else ""),
-                      human(o["hours_off"] * 3600) if o["hours_off"] else "0", "" if o["peak"] is None else f"{o['peak']:.3g}",
+                      human(o["hours_off"] * 3600) if o["hours_off"] else "0", "" if o["peak"] is None else f"{o['peak']:.3g}", f"{o['moved']:.3g}",
                       "–" if o["recovery"] is None else human(o["recovery"] * 3600), f"{o['busy']:.0%}", f"{o['cost']:.3g}h"]
                      for o in ro["options"]], ""))
         print(f"  {ro['said']}")

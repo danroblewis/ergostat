@@ -154,6 +154,8 @@ def test_the_report_is_bounded_in_time(failing):
     assert time.monotonic() - t0 < 6.0
     assert len(r["rollout"]["options"]) <= im.MOST_TIMES
     assert r["stopped"] or len(r["rollout"]["options"]) == im.MOST_TIMES
+    tiny = im.report(p, "worker", since, at=now, runs=400, budget=0.0)
+    assert len(tiny["rollout"]["options"]) == 1 and tiny["stopped"] and tiny["rollout"]["best"]["at"] == now
 
 
 def test_the_change_management_fields_say_what_it_touches_and_whether_it_writes(failing):
