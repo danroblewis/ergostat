@@ -142,3 +142,18 @@ def test_a_join_is_checked(tmp_path):
     assert "no kind names epic by a relation 'epic_of'" in said
     assert "'gone' is not a state of epic" in said
     assert "children: (a relation), all: or any:" in said
+
+
+def test_joined_folds_only_forward_and_a_side_state_before_it_is_said(tmp_path):
+    p = project(tmp_path)
+    p.events.add("epic.planned", item="epic/1", source="t")
+    p.events.add(JOINED, item="epic/1", source="ergostat", data={"joined": {"to": "shipped"}})
+    p.events.add(JOINED, item="epic/1", source="ergostat", data={"joined": {"to": "underway"}})   # late, behind it
+    assert state(p, "epic/1") == "shipped", "a parent past a join's to: is never moved back"
+    side = MODEL.replace("states: [planned, underway, shipped]", "states: [planned, underway, cancelled, shipped]")
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(side))
+    _, problems = read(tmp_path / "ergostat.yaml")
+    assert any(x.code == "join-side-state" and "cancelled" in x.message for x in problems)
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL))
+    _, problems = read(tmp_path / "ergostat.yaml")
+    assert not any(x.code == "join-side-state" for x in problems)

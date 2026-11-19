@@ -212,6 +212,8 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
                 k = (e["item"].split("/")[0], e["data"]["joined"]["to"])
                 moved[k] = moved.get(k, 0) + 1
             notes.append("note: joined: " + (", ".join(f"{k} to {t} {n}" for (k, t), n in sorted(moved.items())) or "none"))
+            if not moved:
+                problems.append("its kinds' joins moved no parent")
         url = st["web"]
         for path in ("status", "graph", "graph?view=process", "loops", "agents", "events", "items", "items-graph", "residuals",
                      "parts"):

@@ -740,11 +740,15 @@ items:
 It fires on each move of a child, read from the item index (its moves, its links both ways), and once for every
 parent when ergostat starts, so what moved while it was stopped is joined then. A parent with children, all (or any)
 of them in the states, and in a state before `to` in its kind's order, is moved there by `ergostat.item.joined`
-(`data.joined`: `to`, `children`, `all` or `any`, `n`, the children counted), recorded by ergostat and caused by the
+(`data.joined`: `to`, `children`, `all` or `any`, `n`, the children counted; folded only forward, so a parent that
+went past `to` meanwhile, or was cancelled after it, stays), recorded by ergostat and caused by the
 latest move of its children, so the Process view draws the join. It is a move like any other: counted (`entering`),
 kept in the item's history. Never backwards: a child reopened leaves its parent where it is; a parent with no children
 is never joined. Rules are tried in their order, each from where the one before left it. `check` says when no kind
-names the parent by `children`, or a state is not one of theirs (`bad-join`, `unknown-state`).
+names the parent by `children`, or a state is not one of theirs (`bad-join`, `unknown-state`), and, as a finding
+(`join-side-state`), a side state (one its kind counts as finished, or named as an exit: `cancelled`, `closed`, ...)
+listed before a join's `to`, which the join would move on. Each child's move costs a look at its parents' children
+(their links and states): fine for tens of children, not tuned for thousands.
 
 Relations are read as they stand now: time travel (`--at`, the pages') reaches an item's fields, its relations
 among them, but not the Graph and the Timeline, which are drawn from the item index as it is.
