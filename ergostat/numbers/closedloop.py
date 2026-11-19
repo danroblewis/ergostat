@@ -275,6 +275,7 @@ class _Control:
     def __init__(self, spec: Spec, models: dict[str, BlockModel], start: Start | None, whatif: WhatIf, drawn: dict,
                  own: dict, params: dict, inputs: str, fine: int = 0):
         self.fine = fine
+        models = {r: m.fresh() if hasattr(type(m), "fresh") else m for r, m in models.items()}   # a law's own state, per run
         self.spec, self.models, self.own, self.params, self.inputs, self.whatif = spec, models, own, params, inputs, whatif
         self.flows = set(models)
         self.drawn = {r: {**(drawn.get(r) or {}), **({"servers": whatif.pools[m.block]} if m.block in whatif.pools else {})}

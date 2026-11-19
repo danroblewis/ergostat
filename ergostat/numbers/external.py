@@ -52,7 +52,7 @@ def grid(xp: list, up: list, until: float) -> tuple[list[float], list[float], li
 
 def identify(p, spec: Spec, name: str, since: float, until: float) -> dict:
     """``{"law", "laws", "why", "ts", "xs", "us"}``: the law chosen (None, with why) on ``[since, until]``."""
-    key = (id(p), name, str(spec.blocks[name].params["identify"]), int(since // 60), int(until // 60))
+    key = (str(getattr(p, "dir", id(p))), name, str(spec.blocks[name].params["identify"]), int(since // 60), int(until // 60))
     if key in _CACHE:
         return _CACHE[key]
     io = spec.blocks[name].params["identify"]
@@ -97,6 +97,12 @@ class ExternalModel(BlockModel):
     sign: int = 1
     begin: dict = field(default_factory=dict)
     _t: float | None = None
+
+    def fresh(self) -> ExternalModel:
+        """A copy at where the record left it, for one projection run (runs may go on in threads side by side)."""
+        m = copy.copy(self)
+        m.st, m.hist, m.next, m._t = copy.deepcopy(self.begin["st"]), deque(self.begin["hist"]), self.begin["next"], None
+        return m
 
     def at(self, t: float) -> None:
         if self._t is None or t < self._t - 1e-6:          # a projection run begins: from where the record left it

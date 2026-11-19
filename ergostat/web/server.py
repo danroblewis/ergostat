@@ -415,7 +415,10 @@ def _answer(live: Live, path: str, q: dict):
             laws = live.cached(key)
             if laws is None and spec is not None:
                 from ..numbers.external import laws as identified
-                laws = {n: x["law"].as_dict() for n, x in identified(p, spec).items() if x["law"] is not None}
+                try:
+                    laws = {n: x["law"].as_dict() for n, x in identified(p, spec).items() if x["law"] is not None}
+                except Exception:                              # a record that cannot be read draws the blocks as before
+                    laws = {}
                 live.keep(key, laws)
             return {**diagram(m, {**snap, "laws": laws or {}}, want, system), "attention": att}
         from ..dynamics import attention as sd_attention
