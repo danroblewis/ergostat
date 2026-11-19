@@ -26,15 +26,20 @@ show hops of about 52 seconds in ticket-factory. The target: 100 to 500 items at
 - **A step's calls no longer load the model or poll.** `ergostat act` took 0.6 s, mostly two half-second polls (the
   engine looking for approvals, the call looking for the result); over the engine's socket it takes the CLI's own
   start (0.07 s), and 0.6 ms from a step's own code.
-- **ticket-factory's 52 seconds are almost all outside time and fixed waits, not ergostat.** Offline, 38% of a
-  ticket's time is the owner's stand-in approving gated actions every 5 s, 30% steps that gave the ticket back to wait
-  (for the reviewer, for CI) and are looked at again after `POLL_EVERY`, 13 to 17% waiting to be taken (workspaces
-  and the AI's one seat, each held for the ticket through review and CI), and 2 to 4% the steps' own work. With the
-  settings it has at work (`POLL_EVERY` 15 s, a reviewer who takes 2 minutes), the put-offs are 74% and the mean hop
-  23 s; the review step alone is 127 s. ergostat's own share (dispatch, the engine running an action, the call
-  seeing it ran) was 1 to 2% before and is under 1% now. What this branch changes there: a step that waits is woken
-  by the news it waits for (a webhook), or looks again after 1 s, 2 s, 4 s instead of a fixed 15 s; its calls go over
-  the socket. What it cannot change: the people (the approvals, the review) and the pools the factory is given.
+- **ticket-factory's 52 seconds are people, pools and fixed waits, not ergostat.** Offline, a ticket's time is
+  34 to 42% the owner's stand-in approving gated actions (every 5 s, one at a time: `open-pr` waits for four), 30 to
+  39% steps that gave the ticket back and waited (mostly `work` finding no free workspace, then the reviewer, then
+  CI), 14 to 18% waiting to be taken (mostly `work` again: three workspaces, each held for its ticket through review
+  and CI, and the AI's one seat), and 2 to 4% the steps' own work. With the timings it has at work (`POLL_EVERY`
+  15 s, a reviewer who takes 2 minutes) the mean hop is 23 s with three tickets and the review step alone 127 s; the
+  queue for workspaces grows with every ticket more (the slowest hop here, 3.5 minutes in `located`). The owner's
+  52 s was not reproduced exactly; it is of this make. ergostat's own part (dispatch, the
+  engine running an approved action, the call seeing it ran) was 1 to 2% and is under 0.5% now. **With every gate
+  promoted to `auto`, a ticket took 43 to 53 s before and takes 28 s now, 18 s of it the reviewer and 4.5 s CI: the
+  other ten steps take 0.1 to 0.5 s each.** What this branch changed there: a step that waits is woken by the news it
+  waits for (a webhook), or looks again after 1 s, 2 s, 4 s instead of a fixed 15 s; its calls go over the socket;
+  the first step sees its ticket at once. What it cannot change: the people (the approvals, the review) and the
+  pools the factory is given.
 
 ## How it was measured
 
@@ -113,7 +118,45 @@ Reading it:
 Three tickets, then eight, through the twelve steps; the factory's offline timings (`POLL_EVERY` 2 s, the reviewer
 after 9 s, the owner's stand-in approving every 5 s, CI 3 s), and then with the timings it has at work.
 
-TBD_FACTORY_TABLES
+Seconds per ticket seen (eight arrive in each run; "tickets" is how many were closed when the run stopped), by what
+the time went to. "The reviewer" and "CI" are the time steps spent given back waiting for them; "capacity" is `work`
+put off because no workspace was free, and runs waiting for the AI's one seat; "waiting to be taken" the rest of the
+time between a ticket reaching a step and its run starting.
+
+| run | tickets | end to end p50 / p95 | hop p50 / mean | approvals (a person) | the reviewer | CI | capacity (workspaces, the AI's seat) | waiting to be taken | the steps' own work | ergostat (running an action, the call seeing it ran) |
+|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|
+| before, offline | 3 | 117 / 126 s | 5.4 / 9.3 s | 27.4 | 4.5 | 3.0 | 26.6 | 14.4 | 3.0 | 1.1 |
+| after, offline | 3 | 106 / 117 s | 3.3 / 6.8 s | 27.3 | 5.5 | 2.2 | 22.9 | 12.2 | 1.4 | 0.3 |
+| before, offline, 8 tickets | 8 | 178 / 304 s | 5.6 / 12.4 s | 64.3 | 12.0 | 7.8 | 57.2 | 23.7 | 6.4 | 2.7 |
+| after, offline, 8 tickets | 8 | 157 / 258 s | 5.2 / 11.0 s | 64.6 | 13.8 | 6.0 | 46.9 | 19.5 | 1.9 | 0.6 |
+| before, work's timings | 3 | 253 / 263 s | 6.3 / 22.7 s | 26.1 | 50.6 | 11.2 | 106.6 | 22.4 | 3.2 | 1.2 |
+| after, work's timings | 3 | 218 / 227 s | 3.3 / 19.1 s | 26.2 | 48.3 | 2.2 | 81.1 | 25.3 | 1.9 | 0.3 |
+| before, every gate auto | 3 | 43 / 53 s | 2.2 / 3.5 s | 0.0 | 10.4 | 4.4 | 6.1 | 6.9 | 4.6 | 5.4 |
+| after, every gate auto | 3 | 28 / 28 s | 0.3 / 2.1 s | 0.0 | 13.5 | 4.5 | 2.6 | 0.8 | 1.6 | 0.5 |
+
+And each step's hop (median), with the timings it has at work, and with every gate promoted to `auto`:
+
+| step | work's timings: before | after | every gate auto: before | after | what is left |
+|---|---:|---:|---:|---:|---|
+| pick-up | 5.8 s | 0.6 s | 3.5 s | 0.1 s | one approval; before, 2.9 s for the queue's next reading |
+| locate | 0.4 s | 0.1 s | 0.5 s | 0.2 s | a `git fetch` |
+| work | 0.4 s | 0.3 s | 0.8 s | 0.4 s | the stand-in (an AI session at work); tickets wait for a workspace before it |
+| open-pr | 19.5 s | 20.0 s | 2.3 s | 0.3 s | four approvals, one after another |
+| ask-review | 5.1 s | 4.8 s | 1.2 s | 0.1 s | one approval |
+| review | 126.6 s | 125.7 s | 12.1 s | 14.2 s | the reviewer (2 minutes at work's timings, 9 s offline, then the teammate's 5 s round) |
+| address | 19.5 s | 20.4 s | 1.6 s | 0.5 s | two approvals, the AI's seat |
+| sail | 4.5 s | 5.4 s | 0.6 s | 0.1 s | one approval |
+| ci | 15.6 s | 3.3 s | 5.1 s | 3.2 s | CI (3 s offline) |
+| fix-ci | 9.4 s | 16.8 s | 1.6 s | 0.5 s | two approvals, the AI's seat |
+| merge | 4.8 s | 1.8 s | 0.6 s | 0.1 s | one approval |
+| close | 10.2 s | 10.2 s | 1.4 s | 0.2 s | two approvals |
+
+With people approving, a ticket's time hardly moves (117 → 106 s offline; 253 → 218 s with work's timings): it is
+the approvals (27 s a ticket), the reviewer (50 s a ticket at work's timings), the workspaces and the AI's seat. What
+moved is what was ergostat's and the factory's own: the steps' own work (3.0 → 1.4 s a ticket), ergostat's part of
+the actions (1.1 → 0.3 s), CI seen within a second or two of finishing (15.6 → 3.3 s), the first step taken at once
+(5.8 → 0.6 s). With every gate promoted (`--auto-gates`), what is left is outside time: a ticket takes 28 s, 18 s of
+it the reviewer and 4.5 s CI, and the other ten steps 0.1 to 0.5 s each (before: 43 to 53 s, and 0.6 to 3.5 s a step).
 
 ### Where the 52 seconds go
 
@@ -125,10 +168,11 @@ The Process view's Times average the time between moves. In ticket-factory, what
    `close` two (10 s), `address` and `fix-ci` two each. At work a person approves, in minutes or hours. The review
    itself is the reviewer's: 9 s offline, 2 minutes (`TEAMMATE_AFTER`) or hours at work. **ergostat cannot shorten
    these; promoting a class of action to `auto` once it has proved itself is how the factory removes them**, and the
-   `--auto-gates` run below shows what is left when every class is promoted.
+   `--auto-gates` runs above show what is left when every class is promoted.
 2. **Fixed re-check intervals (ergostat's and the factory's).** A step that finds nothing yet (no review, CI still
-   running, an action still held) gave its ticket back for `POLL_EVERY` (15 s at work, 2 s offline) and asked again:
-   at work that was 74% of a ticket's time. Now it is woken by the news it waits for (a webhook about the ticket,
+   running, an action still held) gave its ticket back for `POLL_EVERY` (15 s at work, 2 s offline) and asked again.
+   With work's timings a ticket spent 74% of its time given back: 62% of that `work` finding no free workspace (3,
+   below), 31% the reviewer, 7% CI, each looked at again only every 15 s (10 s for a workspace). Now it is woken by the news it waits for (a webhook about the ticket,
    SPEC 5c and 9.5), and without news looks again after 1 s, 2 s, 4 s, ... up to `POLL_EVERY`; the review step looks
    again no later than its re-ping falls due.
 3. **Capacity.** `work` waits for a workspace (3, each held for its ticket through review and CI until it is done)
@@ -150,7 +194,7 @@ The Process view's Times average the time between moves. In ticket-factory, what
 | One thread per run (`spec/stream.py`: a selector) | every block's run | 3 → 1 thread a run: 500 runs at once fit under the safety limit with room |
 | Push intake: `POST /api/events`, webhooks by `intake: hooks:`, a token, localhost unless `intake: allow:` | arrivals and outside news | intake 1.0 s (a 3 s collector) → 1.4 to 9 ms; webhooks for Jira, GitHub and PagerDuty mapped in YAML |
 | The engine's socket: `event --add`, `act`, `lease`, `item --json` answered without the model | a step's calls | `act` 0.60 → 0.075 s from the command line (its polling gone), 0.6 ms from a step's own code; `item`, `event --add`, `lease --renew` cost the command line's start (60 to 75 ms) instead of that plus loading the model (50 ms for ticket-factory, seconds for large models) |
-| A nack can wait for news (`"news": true`): the first event about the item from outside its own runs makes it ready at once | a step that waits on someone outside | the review step is taken again when the review is pushed, not at its next poll |
+| A nack can wait for news (`"news": true`): the first event about the item from outside its own runs makes it ready at once | a step that waits on someone outside | the review step taken again 7 to 17 ms after the news of the review (offline, the teammate records it as GitHub's webhook would), not up to `POLL_EVERY` later; the reviewer's own pace remains |
 | ticket-factory: calls over the socket, adaptive re-checks (1 s doubling to `POLL_EVERY`), news on review, webhooks mapped | the example | see the factory tables |
 
 ## What remains
