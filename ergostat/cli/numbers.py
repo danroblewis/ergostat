@@ -323,42 +323,28 @@ def cmd_judge(args) -> int:
 
 
 def _redesign(p, args) -> int:
-    """``ergostat improve --redesign [SYSTEM]``: the owner asks for a redesign; the redesigner runs now (unless
-    ``--no-run``), with the template's settings (``redesign: {model, budget, rounds}``) unless given here."""
-    import json
-
+    """``ergostat improve --redesign [SYSTEM]``: the owner asks for a redesign, recorded for the redesigner block
+    (``use: modelling`` with ``ai: true``) to take up on its next run; what it makes joins the review queue."""
     from ..numbers import redesign as rd
-    from ..numbers import redesigner as rdr
-    from ..numbers import scorecard as sc
+    if "redesigner" not in p.model.spec.blocks:
+        print("no redesigner in the model: use: modelling with ai: true has one", file=sys.stderr)
+        return 2
     try:
-        got = rd.ask(p, args.redesign)
+        s = rd.system_of(p.model.spec, args.redesign)
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
-    if args.no_run:
-        if args.json:
-            return out_json(got)
-        print(f"asked: a redesign of {got['asked']}; the redesigner takes it up on its next run")
-        return 0
-    conf = rd.settings(p.model.spec)
-    rd.ran(p, got["asked"], {"by": "owner", "asked": True, "result": "started", "version": rd.ver.version(p.model.spec)})
-    out = rdr.run(p, got["asked"], ["the owner asked"], model=args.ai_model or conf["model"],
-                  budget=args.budget if args.budget is not None else conf["budget"],
-                  rounds=args.rounds if args.rounds is not None else conf["rounds"], by="redesigner")
-    rd.ran(p, got["asked"], {"by": "owner", "asked": True, "result": out.get("result"), "id": out.get("id"),
-                             "cost": out["cost"], "version": out["version"], "rounds": len(out["rounds"])})
+    w = rd.waiting(p, p.model.spec, s)
+    if w is not None:
+        print(f"a redesign of {s} is waiting already: {w['id']} (the review queue)", file=sys.stderr)
+        return 1
+    got = rd.ask(p, s)
     if args.json:
-        return out_json(out)
-    c_ = out["cost"]
-    print(f"redesign of {out['system']}: {out.get('result')}" + (f" ({out['id']})" if out.get("id") else "")
-          + (f": {out['why_not']}" if out.get("why_not") else ""))
-    print(f"  {len(out['rounds'])} round(s), {c_['calls']} call(s) to {c_['model']}, ${c_['usd']:.4f}, "
-          f"{c_['tokens_in']} tokens in, {c_['tokens_out']} out, {c_['seconds']}s")
-    for r in out["rounds"]:
-        print("  round " + json.dumps(r))
-    if out.get("scorecard"):
-        print("\n".join("  " + x for x in sc.lines(out["scorecard"])))
-    return 0 if out.get("result") == "proposed" else 1
+        return out_json(got)
+    conf = rd.settings(p.model.spec)
+    print(f"asked: a redesign of {got['asked']}; the redesigner takes it up on its next run (ergostat run), on "
+          f"{conf['model']}, at most ${conf['budget']:.2f} a run and ${conf['daily']:.2f} a day")
+    return 0
 
 
 def cmd_improve(args) -> int:

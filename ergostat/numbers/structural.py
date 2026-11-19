@@ -205,6 +205,22 @@ CHAIN_CODES = ("outflow-not-chained", "inflow-not-chained", "state-stock-without
                "state-stocks-disconnected", "loops-not-connected", "kind-enters-many-times")
 
 
+def _chain_edges(spec: Spec, renamed: dict[str, str] | None = None) -> set[tuple[str, str]]:
+    """The flows between two state stocks (stocks that count a kind's items in a state), as ``(from, to)``, their
+    names as ``renamed`` maps them."""
+    ss = {n for n, st in spec.stocks.items() if any((x.items or {}).get("state") for x in st.sensors.values())}
+    r = renamed or {}
+    return {(r.get(f.source, f.source), r.get(f.target, f.target)) for f in spec.flows.values()
+            if f.source in ss and f.target in ss}
+
+
+def rewired(before: Spec, after: Spec) -> bool:
+    """Whether a change rewires a kind's chain: a flow between two state stocks re-pointed, added or taken away
+    (a part renamed, saying ``formerly:`` its old name, is the same part). Such a change is the owner's to write."""
+    renamed = {w: n for n, st in after.stocks.items() for w in (getattr(st, "formerly", None) or [])}
+    return _chain_edges(before, renamed) != _chain_edges(after)
+
+
 def chain_edits(spec: Spec, fixes) -> list[ye.Edit]:
     """The edits that carry a kind's moves (``spec/chains.py``): a flow re-pointed at the next state's stock, a flow
     that counts them twice taken out, and the flows and stocks added (each file's at once, so they go in together)."""

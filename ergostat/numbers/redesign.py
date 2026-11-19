@@ -7,10 +7,9 @@ a scratch copy, it must compile, and it is measured against the record as it is;
 change's own id once recorded). Its verdict is the scorecard's, said again by the judge on the record when it takes it
 up. It is never written by the judge unless the owner promoted the class by name (``accept: {redesign: auto}``).
 
-When one is made (``due``): the model clearly wrong (many findings, a kind's coherence low on the record, a fit that
-cannot be worked out, refinement stalling: its last changes all turned away), the owner asking (``ergostat improve
---redesign [SYSTEM]``, the Model page's button: ``ask``), or the model's first run with ``use: modelling``. At most one
-waits for each system; on its own it is made once a version of the model (the owner's ask is not held to that)."""
+When one is made: the owner asks (``ergostat improve --redesign [SYSTEM]``, the Model page's button), and the
+redesigner block takes the ask up on its next run. At most one waits for each system, and its runs stop for the day
+once they have spent the daily cap (``spent``)."""
 
 from __future__ import annotations
 
@@ -26,27 +25,26 @@ from . import version as ver
 KIND = "redesign"
 ASKED = "ergostat.model.redesign-asked"
 RAN = "ergostat.model.redesign-ran"
-MANY_FINDINGS = 3            # findings check reports (that a change to the model answers) that make the model clearly wrong
-LOW_COHERENCE = 0.8          # a kind whose views agree on less than this share of the record's comparisons
-STALL = 4                    # refinement's last changes judged, all turned away: refinement stalling
-REFINERS = ("fixer", "modeller", "improver", "improver-by-hand")
 
 
 def settings(spec: Spec) -> dict:
     """The redesigner's settings, as the template's ``redesign:`` gave its block (``--model``, ``--budget``,
-    ``--rounds``, ``--when``), else the defaults."""
+    ``--rounds``, ``--when``, ``--daily``), else the defaults."""
     import shlex
-    out = {"when": "auto", "model": "haiku", "budget": 0.5, "rounds": 3}
+    out = {"when": "ask", "model": "haiku", "budget": 0.5, "rounds": 3, "daily": 2.0}
     b = spec.blocks.get("redesigner")
     run = str((b.params.get("run") if b is not None else "") or "")
     try:
         words = shlex.split(run)
     except ValueError:
         words = []
-    for k in ("when", "model", "budget", "rounds"):
+    for k in ("when", "model", "budget", "rounds", "daily"):
         if f"--{k}" in words and words.index(f"--{k}") + 1 < len(words):
             v = words[words.index(f"--{k}") + 1]
-            out[k] = float(v) if k == "budget" else int(v) if k == "rounds" else v
+            try:
+                out[k] = float(v) if k in ("budget", "daily") else int(v) if k == "rounds" else v
+            except ValueError:
+                pass
     return out
 
 
@@ -92,6 +90,7 @@ def validate(p, spec: Spec, by: str, raw: dict, scratch: cs.Scratch | None = Non
     after, problems = s.compiled()
     if after is None:
         raise im.ProposeError("the model it leaves does not compile: " + "; ".join(s.errors()[:3]))
+    im._governed(spec, after)
     es_ = s.edits()
     marked = _renamed_unmarked(im.mark_new(es_, spec, after), spec, after)   # what it adds says inferred: (its id when
     # recorded); a part renamed is not new: it keeps what it said (formerly: its old name)
@@ -109,7 +108,7 @@ def validate(p, spec: Spec, by: str, raw: dict, scratch: cs.Scratch | None = Non
     refs = [*parts["added"], *parts["changed"], *(x.split(" → ")[1] for x in parts["renamed"])]
     j = im.joined(es_)
     conf = raw.get("confidence")
-    return {"kind": KIND, "said_kind": KIND, "made_by": by, "system": system,
+    return {"kind": KIND, "said_kind": KIND, "made_by": by, "system": system, **owners(spec, after),
             "title": str(raw.get("title") or f"A redesign of {system}")[:200],
             "summary": str(raw.get("summary") or "")[:2000], "reason": str(raw.get("summary") or raw.get("title") or "")[:500],
             "confidence": conf if isinstance(conf, int | float) and 0 <= conf <= 1 else None,
@@ -121,6 +120,19 @@ def validate(p, spec: Spec, by: str, raw: dict, scratch: cs.Scratch | None = Non
             "edit": j, "change": "a redesign: many edits judged together by a scorecard",
             "renames": {o: n for o, n in (x.split(" → ") for x in parts["renamed"])
                         if o.split(".")[0] in ("stock", "flow", "auxiliary")}}
+
+
+def owners(before: Spec, after: Spec) -> dict:
+    """What makes a redesign the owner's to write, whatever the policy (SPEC §12e, the judge's ``accept``): it rewires
+    a kind's chain (``rewires``: a flow between two state stocks re-pointed or added), or changes control
+    (``control``: a goal, a block or an agent). A part it takes away is said by ``gone_parts``."""
+    from . import structural as stc
+    out = {}
+    if stc.rewired(before, after):
+        out["rewires"] = True
+    if ver.control(before) != ver.control(after):
+        out["control"] = True
+    return out
 
 
 def _renamed_unmarked(es_, before: Spec, after: Spec):
@@ -251,75 +263,9 @@ def running(p, now: float | None = None, within: float = RUNNING_FOR) -> bool:
     return any(r == "started" for r in last.values())
 
 
-def stalling(p) -> str | None:
-    """Refinement's last changes, judged, all turned away: why, or None."""
-    xs = [x for x in pr.stored(p).values() if x.get("made_by") in REFINERS and x.get("kind") != KIND
-          and x["state"] in ("accepted", "passed", "failed", "refused", "inconclusive", "dismissed", "verified", "regressed")]
-    xs.sort(key=lambda x: x.get("decided") or x.get("made") or x.get("created") or 0)
-    last = xs[-STALL:]
-    if len(last) < STALL or any(x["state"] in ("accepted", "passed", "verified") for x in last):
-        return None
-    return f"refinement stalling: its last {len(last)} changes were all turned away ({', '.join(sorted({x['state'] for x in last}))})"
-
-
-def due(p, spec: Spec | None = None) -> list[str]:
-    """Why the model is clearly wrong now, each reason in words (none: it is not)."""
-    from ..spec import read
-    from .scorecard import findings
-    spec = spec or p.model.spec
-    why = []
-    _, problems = read(p.model.path)
-    fs = findings(problems)
-    if len(fs) >= MANY_FINDINGS:
-        why.append(f"{len(fs)} findings check reports ({', '.join(sorted({f.split('@')[0] for f in fs})[:4])})")
-    try:
-        from .. import coherence as co
-        got = co.of_project(p, spec)
-        low = [f"{k} {x['agree']}/{x['compared']}" for k, x in got["kinds"].items()
-               if not k.startswith("ergostat.") and x["compared"] and x["agree"] / x["compared"] < LOW_COHERENCE]
-        if low:
-            why.append("coherence low on the record: " + ", ".join(low))
-    except Exception:
-        pass
-    try:
-        from .measures import fit_why
-        v, w = fit_why(p)
-        if v is None and w:
-            why.append(f"the fit cannot be worked out: {w}")
-    except Exception:
-        pass
-    st = stalling(p)
-    if st:
-        why.append(st)
-    if not p.events.query(n=1, type=RAN) and not any(x.get("kind") == KIND for x in pr.stored(p).values()):
-        why.append("the model's first run with use: modelling")
-    return why
-
-
-def which_system(p, spec: Spec) -> str:
-    """The system with the most findings and craft notes in it (the whole model when it has no systems)."""
-    if not spec.systems:
-        return "model"
-    from ..spec import read
-    _, problems = read(p.model.path)
-    count: dict[str, int] = {}
-    from ..correspond import system_of as sys_of
-    for x in problems:
-        if x.level == "error" or not x.about or getattr(getattr(x, "where", None), "template", None):
-            continue                                # a part a template made is the template's: not redesigned here
-        try:
-            s = sys_of(spec, x.about)
-        except Exception:
-            s = None
-        if s:
-            top = spec.chain(s)[-1] if spec.chain(s) else s
-            count[top] = count.get(top, 0) + (3 if x.level != "note" else 1)
-    return max(count, key=count.get) if count else "model"
-
-
-def plan(p, when: str = "auto") -> dict:
+def plan(p, when: str = "ask") -> dict:
     """What a run of the redesigner should do now: ``{"system", "why"}`` or ``{"system": None, "why"}`` (nothing).
-    The owner's asks come first; ``auto`` also looks at whether the model is clearly wrong; ``ask`` only takes asks."""
+    It takes up what the owner asked, the oldest first, one a run."""
     spec = p.model.spec
     for s in asked(p):
         w = waiting(p, spec, s)
@@ -327,17 +273,24 @@ def plan(p, when: str = "auto") -> dict:
             ran(p, s, {"result": "waiting", "why": f"asked, but a redesign of {s} is waiting already ({w['id']})"})
             continue
         return {"system": s, "why": ["the owner asked"], "asked": True}
-    if when != "auto":
-        return {"system": None, "why": [f"when: {when}, and nothing asked"]}
-    reasons = due(p, spec)
-    if not reasons:
-        return {"system": None, "why": ["the model is not clearly wrong"]}
-    s = which_system(p, spec)
-    if waiting(p, spec, s) is not None:
-        return {"system": None, "why": [f"a redesign of {s} is waiting already"]}
-    v = ver.version(spec)
-    for e in p.events.query(n=None, type=RAN):
+    return {"system": None, "why": [f"when: {when}, and nothing asked"]}
+
+
+DAY = 24 * 3600.0
+
+
+def spent(p, now: float | None = None) -> float:
+    """What the redesigner's runs cost over the last day, in dollars."""
+    now = now or time.time()
+    return round(sum(float(((e.get("data") or {}).get("cost") or {}).get("usd") or 0.0)
+                     for e in p.events.query(n=None, type=RAN, since=now - DAY)), 6)
+
+
+def last(p) -> dict | None:
+    """The redesigner's last run that ended: its system, result, change and why (for the Model page's line)."""
+    for e in reversed(p.events.query(n=50, type=RAN)):
         d = e.get("data") or {}
-        if (d.get("system") or "model") == s and d.get("version") == v:
-            return {"system": None, "why": [f"a redesign of {s} was made for this version of the model already ({d.get('result')})"]}
-    return {"system": s, "why": reasons}
+        if d.get("result") not in (None, "started"):
+            return {"system": d.get("system") or "model", "result": d.get("result"), "id": d.get("id"),
+                    "why": d.get("why_not") or (d.get("why") if isinstance(d.get("why"), str) else None), "at": e["time"]}
+    return None

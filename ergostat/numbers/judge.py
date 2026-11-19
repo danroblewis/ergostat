@@ -413,13 +413,13 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
     from . import redesign as rd
     if rd.running(p, now, rd.HOLD_FOR):          # a redesign being made: the model it reads held still, for a while
         return out
-    first = [y for y in sets if y["state"] == "passed" and pol.accept.get(REDESIGN) == "auto"]
-    todo = first[:1] or sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0)   # a redesign the owner promoted
-    for x in todo:                                   # and the judge passed is written first, alone; else one a pass, oldest first
+    first = [y for y in sets if y["state"] == "passed" and pol.accept.get(REDESIGN) == "auto" and not owners(y)][:1]
+    todo = first + [y for y in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0) if y not in first]
+    for x in todo:                                   # a redesign the owner promoted and the judge passed is written first,
         if x["state"] != "passed" or x.get("kind") not in (*JUDGED, *WORDING, REDESIGN) or pol.accept.get(x.get("kind")) != "auto":
+            continue                                 # alone; else one a pass, the oldest first (words as many as passed)
+        if owners(x):                                # a removal, a chain rewired, a redesign's control: the owner's
             continue
-        if x.get("kind") != REDESIGN and (removes(x) or x.get("rewires")):   # a removal, or a flow re-pointed, waits for the
-            continue                                                         # owner (a redesign promoted by name does not)
         if x.get("kind") != REDESIGN and any(tr.conflicts(x, y) for y in sets):
             continue
         if x.get("kind") in WORDING and words >= WORDING_MOST:
@@ -429,6 +429,11 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
             pr.accept(p, x["id"], snap, by=by, why=f"the judge passed it: {(x.get('verdict') or {}).get('why')}",
                       policy=f"judge {by}: accept {x['kind']}: auto")
         except pr.ProposalError as e:
+            if x.get("kind") == REDESIGN:            # a promoted redesign that cannot be written never blocks the rest
+                pr.event(p, x["id"], "superseded", {"why": f"it could not be written: {e}"})
+                sets = [y for y in sets if y["id"] != x["id"]]
+                out["verdicts"].append({"id": x["id"], "verdict": "superseded", "why": f"not written: {e}"})
+                continue
             out["verdicts"].append({"id": x["id"], "verdict": "passed", "why": f"not written: {e}"})
             continue
         out["accepted"] += 1
@@ -464,6 +469,12 @@ def pause(got: dict, every: float, idle: int) -> float:
     if due:
         return min(longest, max(every, min(due)))
     return min(longest, every * 2 ** (idle + 1))
+
+
+def owners(x: dict) -> bool:
+    """A change only the owner writes, whatever the policy (SPEC §12e, ``accept``): one that takes structure away or
+    rewires a kind's chain, and a redesign that changes control."""
+    return removes(x) or bool(x.get("rewires")) or (x.get("kind") == REDESIGN and bool(x.get("control")))
 
 
 def removes(x: dict) -> bool:

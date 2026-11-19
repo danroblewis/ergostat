@@ -506,6 +506,30 @@ def kind_of(before: Spec, after: Spec, said: str) -> str:
     return said if said in ("equation", "structure") else "structure"
 
 
+def governs(before: Spec, after: Spec) -> list[str]:
+    """What a change alters of who decides what is written: the judge's policy (``accept``, its threshold, hold-out,
+    windows), a block's ``accept``, a template instance's ``with:``. Only the owner changes these, by hand: a proposal
+    that does is refused, whoever made it."""
+    import dataclasses
+    out = []
+    if dataclasses.asdict(before.improve) != dataclasses.asdict(after.improve):
+        out.append("the judge's policy")
+    for n in sorted(set(before.blocks) & set(after.blocks)):
+        if (before.blocks[n].params or {}).get("accept") != (after.blocks[n].params or {}).get("accept"):
+            out.append(f"block {n}'s accept")
+    for n in sorted(set(before.uses) | set(after.uses)):
+        a, b = (before.uses.get(n) or {}).get("values"), (after.uses.get(n) or {}).get("values")
+        if a != b:
+            out.append(f"use {n}'s with:")
+    return out
+
+
+def _governed(before: Spec, after: Spec) -> None:
+    got = governs(before, after)
+    if got:
+        raise ProposeError(f"it changes {', '.join(got)}: who decides what is written is the owner's to change, by hand")
+
+
 def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> dict:
     """The proposal checked and measured: its record to keep, or ``ProposeError`` with why it is not proposed."""
     if not isinstance(raw, dict):
@@ -557,6 +581,7 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
     errors = [x for x in problems if x.level == "error"]
     if errors:
         raise ProposeError("the model it leaves does not compile: " + "; ".join(str(x) for x in errors[:3]))
+    _governed(spec, after)
     marked = mark_new(es_, spec, after)                  # what it adds says so: inferred: (the change's id when recorded)
     problems = None
     if marked is not None:
@@ -649,6 +674,9 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
                        "measurement": "a change to how the world is read (a sensor)",
                        "description": "a part's description: what the diagrams say of it",
                        "unit": "a part's unit", "rename": "a part renamed, every reference with it, its history kept"}[kind]
+        from . import structural as stc
+        if stc.rewired(spec, after):                     # whoever made it: a chain rewired is the owner's to write
+            x["rewires"] = True
         if kind == "rename":
             x["renames"] = renames
         if kind in ("description", "unit"):

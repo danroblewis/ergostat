@@ -9,12 +9,12 @@
     modelling ai [--model haiku] [--most N] [--tries N]
         the ai tier: the requests the rule tier could not answer, given to claude -p with the modelling guides; what it
         proposes, tried first, recorded as made and checked here; its cost recorded on the requests it was given
-    modelling redesign [--when auto|ask|off] [--model haiku] [--budget 0.5] [--rounds 3]
-        the redesigner: when the model is clearly wrong or the owner asked, one change set for a whole system, made on
-        a scratch copy over a few rounds and proposed as one change (redesign.py); its cost printed as a result line
+    modelling redesign [--when ask|off] [--model haiku] [--budget 0.5] [--rounds 3] [--daily 2]
+        the redesigner: what the owner asked for, one change set for a whole system, made on a scratch copy over a few
+        rounds and proposed as one change (redesign.py), within the day's cap; its cost printed as a result line
 
 Each prints a line for the block's log on standard error, and nothing else on standard output but its readings (and
-the redesigner's result and report lines)."""
+the ai tier's and the redesigner's result lines, and the redesigner's report lines)."""
 
 from __future__ import annotations
 
@@ -91,6 +91,8 @@ def ai(argv: list[str]) -> int:
     ap.add_argument("--tries", type=int, default=2, help="calls on one request before it waits for the owner")
     a = ap.parse_args(argv)
     sys.stdin.read()
+    import json
+
     from ...numbers import modeller as md
     from ...numbers import requests as rq
     p = project()
@@ -115,6 +117,7 @@ def ai(argv: list[str]) -> int:
         rq.mark(p, r, "held", f"the ai tier ({a.model}): {why}", tried=tried,
                 cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
     n = submitted(p, got["proposals"], "modeller")
+    print(json.dumps(md.result_line(c)), flush=True)          # the run's cost, recorded as any AI run's (ergostat.cost.*)
     note(f"modeller ({a.model}): {n} proposed for {len(group)} requests, {len(cannot)} it cannot; "
          f"${c['usd']:.4f}, {c['tokens_in']} tokens in, {c['tokens_out']} out, {c['calls']} call(s)"
          + (f"; {c['error']}" if c.get("error") else ""))
@@ -123,14 +126,16 @@ def ai(argv: list[str]) -> int:
 
 def redesign(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="modelling redesign")
-    ap.add_argument("--when", default="auto", choices=("auto", "ask", "off"))
+    ap.add_argument("--when", default="ask", choices=("ask", "off"))
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--budget", type=float, default=0.5)
     ap.add_argument("--rounds", type=int, default=3)
+    ap.add_argument("--daily", type=float, default=2.0, help="the most dollars the redesigner's runs spend in a day")
     a = ap.parse_args(argv)
     sys.stdin.read()
     import json
 
+    from ...numbers import modeller as md
     from ...numbers import redesign as rd
     from ...numbers import redesigner as rdr
     p = project()
@@ -141,14 +146,19 @@ def redesign(argv: list[str]) -> int:
     if plan["system"] is None:
         note(f"redesigner: nothing to do ({'; '.join(plan['why'])})")
         return 0
+    left = round(a.daily - rd.spent(p), 6)
+    if left <= 0:                                 # the daily cap: the ask waits for tomorrow's allowance
+        note(f"redesigner: the day's ${a.daily:.2f} is spent; {plan['system']} waits")
+        return 0
     rd.ran(p, plan["system"], {"by": "redesigner", "result": "started", "why": plan["why"],
                                "version": rd.ver.version(p.model.spec)})
-    out = rdr.run(p, plan["system"], plan["why"], model=a.model, budget=a.budget, rounds=a.rounds, by="redesigner")
+    out = rdr.run(p, plan["system"], plan["why"], model=a.model, budget=min(a.budget, left), rounds=a.rounds, by="redesigner")
     rd.ran(p, plan["system"], {"by": "redesigner", "result": out.get("result"), "id": out.get("id"), "cost": out["cost"],
-                               "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"]})
-    print(json.dumps(rdr.result_line(out["cost"])))          # the run's cost, recorded as any AI run's
+                               "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"],
+                               **({"why_not": out["why_not"]} if out.get("why_not") else {})})
+    print(json.dumps(md.result_line(out["cost"])), flush=True)   # the run's cost, recorded as any AI run's
     for r in out.get("reports") or []:                        # what ergostat could not express: drafted for the owner
-        print(json.dumps({"report": r}))
+        print(json.dumps({"report": r}), flush=True)
     c = out["cost"]
     note(f"redesigner ({a.model}): {plan['system']}: {out.get('result')}" + (f" ({out.get('why_not')})" if out.get("why_not") else "")
          + (f", {out['scorecard']['verdict']}" if out.get("scorecard") else "")
