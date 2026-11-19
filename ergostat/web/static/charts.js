@@ -530,6 +530,30 @@ function stems(u) {
   ctx.stroke(); ctx.restore();
 }
 
+/* an agent's runs by one number each (SPEC §9.1): a stem at each run's end; or summed by hour, stepped (what it spent) */
+function useChart({ group, name, unit = "", times, values, since, until, text = fmt, hourly = false, height = 56, xAxis = false }) {
+  const val = h("span", { class: "chart-val" });
+  const total = values.reduce((a, v) => a + (v || 0), 0), last = values.length ? values[values.length - 1] : null;
+  const show = (i) => {
+    val.textContent = i != null ? `${text(values[i])} ${hourly ? "in the hour from" : "at"} ${clockM(times[i])}`
+      : hourly ? `${text(total)} in all` : last == null ? "\u2013" : `${text(last)}, its last run`;
+  };
+  show(null);
+  const plotEl = h("div", { class: "chart-plot" });
+  const el = h("div", { class: "chart use-chart" }, h("div", { class: "chart-head" }, h("span", { class: "chart-name" }, name),
+    unit ? h("span", { class: "muted" }, unit) : null, val), plotEl);
+  if (!times.length) { plotEl.append(h("div", { class: "muted small" }, "Nothing recorded in the window.")); return el; }
+  mountPlot(plotEl, (width) => {
+    const o = baseOpts({ width, height: height + (xAxis ? 22 : 0), group, since, until, xAxis, yValues: text,
+      yRange: (_, a, b) => padRange(0, Math.max(b ?? 1, 0) || 1),
+      hooks: { drawClear: [underlay({ zero: true })], draw: hourly ? [] : [stems], setCursor: [(u) => show(u.cursor.idx)] } });
+    o.series = [{}, hourly ? inkLine({ paths: uPlot.paths.stepped({ align: 1 }) })
+      : { stroke: tok("--ink"), width: 0, paths: () => null, points: { show: true, size: 5, fill: tok("--ink"), stroke: tok("--ink") } }];
+    return new uPlot(o, [times, values], plotEl);
+  });
+  return el;
+}
+
 /* ---------------------------------------------------------------- items: the cumulative flow, the cycle times */
 
 /* a kind's states stacked over the window in state order, the first on top and where they finish at
