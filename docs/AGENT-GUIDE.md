@@ -80,7 +80,9 @@ Work through these steps in order. Ask the person only what you cannot infer.
    letter. A program may **print events as it goes**: each line is taken when it is printed, not
    when the run ends, so a long run's findings land at once (flush each line: `print(...,
    flush=True)`), and every event it prints renews the lease it holds, so a run that reports its
-   progress is never taken for silent. If it is stopped part way, what it printed stays. A step a person must do is a `type: person` block with `ask:`; it is asked while its goal
+   progress is never taken for silent. A run silent past its lease's TTL is **killed** (SIGTERM, then
+   SIGKILL), its item retried: a long, quiet step must print progress or `$ERGOSTAT_CMD lease --renew`, or
+   be given a longer `lease: {ttl: ...}`. If it is stopped part way, what it printed stays. A step a person must do is a `type: person` block with `ask:`; it is asked while its goal
    is off (only `program` and `ai` blocks take items one at a time).
 6. **Goals on what matters**: how long the oldest item has waited in a state
    (`measure: oldest` on a stock's sensor, `hold: "<= 4"` hours), how many are waiting, throughput.
