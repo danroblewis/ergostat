@@ -1835,12 +1835,7 @@ GUIDE_SEEN = """() => { const d = document.querySelector('.g-deck'), all = (sel)
 
 
 def guide_port() -> int:
-    """A free port in 8790-8799 (the range this repository's tests may use)."""
-    for port in range(8790, 8800):
-        with socket.socket() as s, contextlib.suppress(OSError):
-            s.bind(("127.0.0.1", port))
-            return port
-    pytest.skip("no free port in 8790-8799")
+    return free_port()
 
 
 def walk_guide(pg, url: str, shots: Path | None = None) -> dict:
