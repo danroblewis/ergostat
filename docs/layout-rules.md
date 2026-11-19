@@ -210,9 +210,17 @@ that, it runs off the screen one way while the screen is empty the other.
   the valve itself is routed again straight through it, on whichever axis gives fewer corners. The valve faces
   that way, toward the far end. Only then is every line routed, with each valve's pins and name where its turn
   puts them. Rule 8 (a stub on the pipe into the stock) holds by construction, after the layout and after a drag.
+- **A valve whose flow turns just past it is slid along its pipe**, off the corner, by up to the room for half a
+  valve and a stub (48px from its middle), where the stretch is long enough and the valve lands clear. Never one
+  put there by hand.
 - **A stock gets a pipe point in line with any valve facing one of its sides**, top and bottom included (rule 9).
+  Its pipe points are at least 9px apart, one track each, and none twice in one place. No pipe's end is slid next
+  to another's.
 - **A cloud's words go beyond it**, away from its valve: never on its pipe.
-- **A pipe's small nudging jogs are taken out** where its run can go on in line (onto its own net's track at most).
+- **A pipe's small nudging jogs are taken out** where its run can go on in line (onto its own net's track at most);
+  a jog by the pipe's end, by moving the stretch before it onto the end's line.
+- **A valve moved off a pipe drawn by hand between wrapped rows has that pipe routed** like any other, from where
+  the valve now is.
 - **A chain far wider than tall is wrapped into rows only when the rows fit the window clearly better** (by 25%)
   than one row.
 - **A crossing costs the router less where a view has over 150 lines.** Its search is most of the routing time,
