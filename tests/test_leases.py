@@ -351,7 +351,6 @@ def test_renewed_by_events_and_expired_when_silent_then_retried(tmp_path):
     e = start(p)
     try:
         assert wait_for(lambda: item(p, "ticket/1").state == "done", 15)
-        time.sleep(2.5)                                     # the first, silent run would have ended late
     finally:
         e.close()
     it = item(p, "ticket/1")

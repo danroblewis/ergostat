@@ -13,7 +13,17 @@ import time
 from ..library import reap
 
 KILLED = "ergostat.run.killed"
-GRACE = float(os.environ.get("ERGOSTAT_KILL_GRACE") or 10.0)
+GRACE = None                     # seconds; None: ERGOSTAT_KILL_GRACE, read at each kill, else 10
+
+
+def grace() -> float:
+    if GRACE is not None:
+        return GRACE
+    try:
+        g = float(os.environ.get("ERGOSTAT_KILL_GRACE") or 10.0)
+    except ValueError:
+        return 10.0
+    return g if 0 <= g < 3600 else 10.0
 
 
 def kill(eng, run: str, why: str, item: str | None = None, fence: int | None = None, block: str | None = None) -> bool:
@@ -30,10 +40,13 @@ def kill(eng, run: str, why: str, item: str | None = None, fence: int | None = N
 
 
 def _stop(eng, proc, run, why, item, fence, block) -> None:
-    t0 = time.monotonic()
-    pids = reap.stop(proc.pid, grace=GRACE, also_group=True, also={proc.pid})   # (the run itself waited on too)
-    sig = "TERM" if time.monotonic() - t0 < GRACE else "KILL"     # (TERM was enough when it ended inside the grace)
+    with eng.lock:                                  # (ended meanwhile: nothing to signal)
+        if eng.live.get(run) is not proc or proc.poll() is not None:
+            return
+    g, t0 = grace(), time.monotonic()
+    pids = reap.stop(proc.pid, grace=g, also_group=True, also={proc.pid})   # (the run itself waited on too)
+    sig = "TERM" if time.monotonic() - t0 < g else "KILL"     # (TERM was enough when it ended inside the grace)
     eng.p.events.add(KILLED, item=block, source="ergostat", causedby=run,
-                     data={"run": run, "why": why, "signal": sig, "pids": sorted(pids), "grace": GRACE,
+                     data={"run": run, "why": why, "signal": sig, "pids": sorted(pids), "grace": g,
                            **({"item": item, "fence": fence} if item else {})})
     eng.say(f"{block}: killed its run on {item} (SIG{sig}): {why}")
