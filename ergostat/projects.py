@@ -76,3 +76,56 @@ def known(fresh: bool = False) -> list[dict]:
         for d in [x for x in _ROWS if x not in seen]:      # forgotten (ergostat reset): let go of it
             del _ROWS[d]
         return out
+
+
+def orphans() -> list[dict]:
+    """The folders under the home whose ``repo.json`` names a repository that is gone (its parent folder is there and
+    it is not: a drive or share not mounted is not gone), and no engine runs in: each with that repository and its
+    size. Only these are ever deleted (``ergostat compact --projects --yes``); a folder without a readable
+    ``repo.json``, or a symlink, is never among them."""
+    from .runner import running_pid
+    out = []
+    for f in sorted(home().glob("*/repo.json")):
+        try:
+            repo = Path(json.loads(f.read_text())["repo"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        d = f.parent
+        if d.is_symlink() or repo.exists() or not repo.parent.is_dir() or running_pid(SimpleNamespace(dir=d), wait=False):
+            continue
+        size = sum(x.stat().st_size for x in d.rglob("*") if x.is_file() and not x.is_symlink())
+        out.append({"dir": str(d), "repo": str(repo), "bytes": size})
+    return out
+
+
+def forget(found: list[dict]) -> list[str]:
+    """Each folder ``orphans`` found deleted, when it is still one (checked again): the folders that are gone."""
+    import shutil
+    again = {x["dir"] for x in orphans()}
+    gone = []
+    for x in found:
+        d = Path(x["dir"])
+        if x["dir"] in again and not d.is_symlink() and d.parent.resolve() == home().resolve():
+            shutil.rmtree(d, ignore_errors=True)
+            if not d.exists():
+                gone.append(x["dir"])
+    return gone
+
+
+def state_of(main: Path) -> Path | None:
+    """The state folder of the repository whose main file is ``main``, found without loading the model: by the name the
+    file says, else by the ``repo.json`` that names the repository."""
+    import json
+
+    from .calls.client import state_of as by_name
+    root = main.parent.resolve()
+    d = by_name(root)
+    if d is not None:
+        return d
+    for note in home().glob("*/repo.json"):
+        try:
+            if Path(json.loads(note.read_text())["repo"]).resolve() == root:
+                return note.parent
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return None

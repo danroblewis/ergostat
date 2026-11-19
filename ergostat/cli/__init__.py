@@ -255,12 +255,17 @@ def build() -> argparse.ArgumentParser:
     r.add_argument("--no-web", action="store_true", help="no web page")
     r.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     r.add_argument("--service", nargs="?", const="auto", choices=["auto", "launchd", "systemd"],
-                   help="print a launchd agent (macOS) or systemd user unit (or the one named) that keeps it running across "
-                        "reboots, on the page's current port; prints only, installs nothing")
+                   help="print a launchd agent (macOS) or systemd user unit (or the one named) that keeps it running "
+                        "across crashes and reboots, on the page's current port (--install installs it)")
+    r.add_argument("--install", action="store_true", help="with --service: install and load it")
+    r.add_argument("--uninstall", action="store_true", help="with --service: unload and remove it")
     topic("projects", cmd_projects, "Every project on this machine, and which are running", named=False)
     cp = topic("compact", cmd_compact, "Roll items' old events up into snapshots (archived), forget what is past keep, "
                                        "roll measurements into their tiers: what the engine does every hour", named=False)
     cp.add_argument("--dry-run", action="store_true", help="say what would be rolled up, and change nothing")
+    cp.add_argument("--projects", action="store_true", help="the record folders under ~/.ergostat whose repository is "
+                                                           "gone (from each one's repo.json); --yes deletes those only")
+    cp.add_argument("--yes", action="store_true", help="with --projects: delete them")
     cp.add_argument("--reindex", action="store_true", help="fold the item index again from the record (it is rebuilt "
                                                           "whenever it is missing; the record is the truth)")
     rs = topic("reset", cmd_reset, "Forget this project's record (events, items, measurements, logs) and start from nothing",

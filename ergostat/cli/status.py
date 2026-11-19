@@ -106,9 +106,12 @@ def status(args) -> int:
     code = 1 if (getattr(args, "exit_code", False) and trouble) else 0
     if args.json:
         out_json({"running": bool(pid), "web": web_url(p) if pid else None, "attention": att,
+                  **({} if pid else {"last_seen": last_seen(p, snap)}),
                   "loops": loops, "counts": counts(p), "ok": not trouble})
         return code
-    run = c("running", "ok") + (f" · {web_url(p)}" if web_url(p) else "") if pid else c("not running", "warn") + " · start: ergostat run"
+    seen = last_seen(p, snap) if not pid else None
+    run = c("running", "ok") + (f" · {web_url(p)}" if web_url(p) else "") if pid else \
+        c("engine not running", "warn") + (f" (last seen {ago(seen)})" if seen else "") + " · start: ergostat run"
     print(f"{c('ergostat', 'bold')} · {m.name} · {run}{as_of(snap)}")
     if not m.stocks and not m.agents:
         print("the model is empty. describe your system with `ergostat chat`.")
@@ -139,13 +142,13 @@ def status(args) -> int:
             when = time.strftime("%a %H:%M" if time.time() - e["time"] > 86400 else "%H:%M:%S", time.localtime(e["time"]))
             print(f"  {when}  " + "  ".join(what[:6] if more else what) + c(more, "dim"))
         print()
-    if loops and not pid and snap["live"]:
-        last = max((lp["last_read"] for lp in loops.values() if lp.get("last_read")), default=None)
-        if last:
-            print(c(f"not running: these are the last readings, from {ago(last)}; nothing is measuring now", "warn"))
+    dead = not pid and snap["live"] and bool(seen)
+    if loops and dead:
+        print(c(f"engine not running: these are the loops as last seen, {ago(seen)}; nothing is measuring now", "warn"))
     if loops:
         print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "TIME OFF"],
-                    [[n + (c(" ⏲", "dim") if lp.get("open_loop") else ""), show.status_word(lp["status"]), lp["stock"],
+                    [[n + (c(" ⏲", "dim") if lp.get("open_loop") else ""),
+                      c(f"was {lp['status']}", "dim") if dead else show.status_word(lp["status"]), lp["stock"],
                       fmt(lp["value"]), st.setpoint_text(lp),
                       (c(f"{round(lp['off_share'] * 100)}%", "bad" if lp["off_share"] >= 0.5 else "warn") if lp.get("off_share")
                        else ("0%" if lp.get("observed") else "-"))]
@@ -156,6 +159,13 @@ def status(args) -> int:
         return f"{x} {word}{'' if x == 1 else 's'}"
     print(c(" · ".join(n(k[w + "s"], w) for w in ("loop", "stock", "flow", "agent", "event", "measurement")), "dim"))
     return code
+
+def last_seen(p, snap: dict) -> float | None:
+    """When the engine was last seen alive: its last heartbeat, else its last reading."""
+    from ..watcher import beat
+    hb = beat(p.dir) or {}
+    return hb.get("written") or max((lp["last_read"] for lp in snap["loops"].values() if lp.get("last_read")), default=None)
+
 
 def counts(p) -> dict:
     m = p.model

@@ -14,15 +14,28 @@ at least every ``TICK``), when the loop last went round, and the readings handed
   within ``HARD`` seconds, the watchdog restarts the process itself (``engine.restart_hard``). Runs under way are
   stopped by a restart and recorded as stopped with ergostat; leased items are taken again when their leases end.
 
-Each time it writes every thread's stack to ``<state>/stalls/`` and records ``ergostat.engine.stalled`` (what, for how
-long, what it did, where the stacks are)."""
+Each time it writes every thread's stack to ``<state>/stalls/``, with what holds the item index's lock (the thread in
+this process, its stack first, and any other process with the index open), and records ``ergostat.engine.stalled``
+(what, for how long, what it did, where the stacks are). A restart that did not help is not repeated at once: the
+next waits its turn in ``restarts.py``'s back-off (60 s, 2 m, 4 m, ... 30 m), said once, while the stall lasts.
+
+Every ``BEAT`` seconds it writes ``<state>/heartbeat.json``: when a pass last finished (wall clock) and the pid, for
+what watches from outside (``watcher.py``, ``ergostat status``): a process frozen whole leaves it stale."""
 
 from __future__ import annotations
 
 import faulthandler
+import json
 import os
+import re
+import subprocess
+import sys
 import threading
 import time
+import traceback
+from pathlib import Path
+
+from .. import restarts
 
 STALL = float(os.environ.get("ERGOSTAT_STALL") or 30.0)   # seconds with no pass, or nothing back from the pool
 GRACE = 10.0                # beyond the longest timeout of the readings out
@@ -30,6 +43,8 @@ WINDOW = 600.0              # three pools replaced within this long: a restart
 HARD = 20.0                 # seconds the run loop is given to restart the process before the watchdog does
 EVERY = 1.0
 KEPT = 20                   # stack dumps kept
+BEAT = 5.0                  # seconds between writes of heartbeat.json
+STARTUP = float(os.environ.get("ERGOSTAT_STARTUP") or 120.0)   # seconds a start may take before it is restarted
 
 
 class Watchdog:
@@ -37,9 +52,11 @@ class Watchdog:
         self.e = eng
         self.thread: threading.Thread | None = None
         self.looped_at: float | None = None       # when it last started the loop again (this stall)
-        self.pools: list[float] = []              # when it replaced the pool
+        self.pools: dict[str, list[float]] = {}   # when it replaced each pool (the sensors' "", the alarms' "alarm_")
         self.asked_at: float | None = None        # when it asked for a restart
         self.stalls = 0
+        self.beat_at = 0.0
+        self.held: tuple[float, str, str] | None = None   # a restart backed off: (when it may be done, why, what)
 
     def start(self) -> None:
         self.thread = threading.Thread(target=self.run, name="ergostat-watchdog", daemon=True)
@@ -49,22 +66,31 @@ class Watchdog:
         while not self.e.stop.wait(EVERY):
             try:
                 self.look()
+                self.beat()
             except Exception as e:                # the watchdog itself never stops
                 self.e.say(f"watchdog: {type(e).__name__}: {e}")
 
+    def beat(self, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        if now - self.beat_at >= BEAT:
+            self.beat_at = now
+            heartbeat(self.e.p.dir, time.time() - (now - self.e.passed_at), self.stalls)
+
     # ---- looking
 
-    def pool_wedged(self, now: float) -> tuple[float, int] | None:
-        """(seconds the pool gave nothing back while readings were out, how many are out), when that is too long."""
+    def pool_wedged(self, now: float, which: str = "") -> tuple[float, int] | None:
+        """(seconds the pool gave nothing back while readings were out, how many are out), when that is too long.
+        ``which``: ``alarm_`` for the alarms' own pool."""
         e = self.e
         with e.pool_lock:
-            out = list(e.pool_out.values())
-            done = e.pool_done_at
+            out = list(getattr(e, f"{which}pool_out", {}).values())
+            done = getattr(e, f"{which}pool_done_at", 0.0)
         if not out:
             return None
-        since = max(done, min(t for t, _ in out))
+        since = max(done, min(t for t, _, _ in out))
         quiet = now - since
-        limit = max(STALL, max(timeout for _, timeout in out) + GRACE)
+        begun = [timeout for _, timeout, started in out if started is not None]   # (one queued never lengthens it)
+        limit = max(STALL, max(begun, default=0.0) + GRACE)
         return (quiet, len(out)) if quiet > limit else None
 
     def look(self, now: float | None = None) -> None:
@@ -76,12 +102,22 @@ class Watchdog:
                 self.asked_at = now                   # (tried again after as long, should it not take)
                 e.restart_hard(e.wedged)
             return
-        wedged = self.pool_wedged(now)
-        if wedged is not None:
-            self.pools = [t for t in self.pools if now - t < WINDOW] + [now]
-            if len(self.pools) >= 3:
-                return self.restart(f"the sensor pool wedged {len(self.pools)} times in {WINDOW / 60:g} min", "pool")
-            self.new_pool(*wedged)
+        if self.held is not None:                  # a restart backed off: done when its turn comes, unless mended
+            if now - e.passed_at <= STALL and self.pool_wedged(now) is None and self.pool_wedged(now, "alarm_") is None:
+                e.say("watchdog: the engine recovered while a restart waited its turn")
+                self.held = None
+            elif now >= self.held[0]:
+                self.restart(self.held[1], self.held[2], force=True)
+            return
+        for which in ("", "alarm_"):              # the sensors' pool, and the alarms' own
+            wedged = self.pool_wedged(now, which)
+            if wedged is not None:
+                pools = self.pools.setdefault(which, [])
+                pools[:] = [t for t in pools if now - t < WINDOW] + [now]
+                if len(pools) >= 3:
+                    return self.restart(f"the {'alarms' if which else 'sensor'} pool wedged {len(pools)} times in "
+                                        f"{WINDOW / 60:g} min", "pool")
+                self.new_pool(*wedged, which)
         quiet = now - e.passed_at
         if quiet <= STALL:
             self.looped_at = None
@@ -93,14 +129,15 @@ class Watchdog:
 
     # ---- recovering
 
-    def new_pool(self, quiet: float, n: int) -> None:
+    def new_pool(self, quiet: float, n: int, which: str = "") -> None:
         e = self.e
         dump = self.dump("pool")
         with e.pool_lock:
-            old, e.pool = e.pool, None             # the loop makes a fresh one at its next reading
-            held = list(e.pool_out)
-            e.pool_out.clear()
-            e.pool_done_at = time.monotonic()
+            old = getattr(e, f"{which}pool")       # the loop makes a fresh one at its next reading
+            setattr(e, f"{which}pool", None)
+            held = list(getattr(e, f"{which}pool_out"))
+            getattr(e, f"{which}pool_out").clear()
+            setattr(e, f"{which}pool_done_at", time.monotonic())
         if old is not None:
             old.shutdown(wait=False, cancel_futures=True)
         if e.lock.acquire(timeout=5):             # (the engine's lock held for good: the pass stall restarts it)
@@ -110,7 +147,8 @@ class Watchdog:
             finally:
                 e.lock.release()
         e.wake.set()
-        self.said("pool", quiet, f"a new sensor pool; {n} reading{'s' if n != 1 else ''} asked again", dump)
+        self.said("pool", quiet, f"a new {'alarms' if which else 'sensor'} pool; {n} reading{'s' if n != 1 else ''} "
+                  f"asked again", dump)
 
     def new_loop(self, quiet: float) -> None:
         e = self.e
@@ -123,8 +161,16 @@ class Watchdog:
         e.wake.set()
         self.said("pass", quiet, "the loop started again", dump)
 
-    def restart(self, why: str, what: str) -> None:
+    def restart(self, why: str, what: str, force: bool = False) -> None:
         e = self.e
+        left, n = restarts.wait(e.p.dir)
+        if left > 0 and not force:                 # the last restart did not help: not again at once
+            self.held = (time.monotonic() + left, why, what)
+            self.said(what, time.monotonic() - e.passed_at, f"restart {n} backed off {left:.0f}s, the last did not help "
+                      f"({why})", self.dump(what))
+            return
+        self.held = None
+        restarts.note(e.p.dir, why, "watchdog")    # (first: the dump may be slow)
         dump = self.dump(what)
         self.asked_at = time.monotonic()
         e.wedged = why
@@ -133,19 +179,7 @@ class Watchdog:
     # ---- saying it
 
     def dump(self, what: str) -> str | None:
-        d = self.e.p.dir / "stalls"
-        try:
-            d.mkdir(exist_ok=True)
-            for old in sorted(d.glob("*.txt"))[:-KEPT + 1]:
-                old.unlink(missing_ok=True)
-            path = d / f"{time.strftime('%Y%m%d-%H%M%S')}-{what}.txt"
-            with open(path, "w") as f:
-                f.write(f"ergostat engine stalled ({what}) at {time.strftime('%Y-%m-%d %H:%M:%S')}, pid {os.getpid()}\n\n")
-                f.flush()
-                faulthandler.dump_traceback(file=f, all_threads=True)
-            return str(path)
-        except OSError:
-            return None
+        return dump(self.e.p.dir, what)
 
     def said(self, what: str, quiet: float, did: str, dump: str | None) -> None:
         """In the log at once; in the record by a thread of its own (a record wedged must not wedge the watchdog)."""
@@ -163,3 +197,83 @@ class Watchdog:
             except Exception as err:
                 e.say(f"watchdog: recording the stall: {type(err).__name__}: {err}")
         threading.Thread(target=record, name="ergostat-watchdog-record", daemon=True).start()
+
+
+def holders() -> str:
+    """What holds each open item index: the thread of this process holding its lock, with its stack, and the other
+    processes with its file open (``lsof``), each with its command line."""
+    from . import itemindex
+    frames, names, out = sys._current_frames(), {t.ident: t.name for t in threading.enumerate()}, []
+    try:
+        open_ = list(itemindex._OPEN.values())
+    except RuntimeError:                           # (changed while read)
+        open_ = []
+    for ix in open_:
+        m = re.search(r"owner=(\d+)", repr(ix.lock))
+        owner = int(m.group(1)) if m else 0
+        if owner and owner in frames:
+            out.append(f"the item index {ix.path.name}: its lock held by thread {names.get(owner, owner)}, at:")
+            out += [x.rstrip() for x in traceback.format_stack(frames[owner])]
+        files = [str(p) for p in (ix.path, ix.path.with_name(ix.path.name + "-wal")) if p.exists()]
+        try:
+            got = subprocess.run(["lsof", "-t", "--", *files], capture_output=True, text=True, timeout=5) if files \
+                else subprocess.CompletedProcess([], 0, "")
+            pids = sorted({int(x) for x in got.stdout.split()} - {os.getpid()})
+            for pid in pids:
+                cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+                out.append(f"the item index {ix.path.name}: also open in process {pid}: {cmd.stdout.strip()[:200]}")
+        except (OSError, ValueError, subprocess.TimeoutExpired) as e:
+            out.append(f"the item index {ix.path.name}: other processes not looked for ({type(e).__name__})")
+    return "\n".join(out) or "no item index held"
+
+
+def dump(state: Path, what: str) -> str | None:
+    """Every thread's stack, and what holds the item index, to ``<state>/stalls/`` (the last ``KEPT`` kept)."""
+    d = state / "stalls"
+    try:
+        d.mkdir(exist_ok=True)
+        for old in sorted(d.glob("*.txt"))[:-KEPT + 1]:
+            old.unlink(missing_ok=True)
+        path = d / f"{time.strftime('%Y%m%d-%H%M%S')}-{what}.txt"
+        with open(path, "w") as f:
+            f.write(f"ergostat engine stalled ({what}) at {time.strftime('%Y-%m-%d %H:%M:%S')}, pid {os.getpid()}\n\n")
+            f.write(holders() + "\n\n")
+            f.flush()
+            faulthandler.dump_traceback(file=f, all_threads=True)
+        return str(path)
+    except OSError:
+        return None
+
+
+def startup(state: Path, say, restart, deadline: float | None = None) -> threading.Event:
+    """A start not finished (``.set()`` on what is returned) within ``deadline`` seconds: dumped, said, and the process
+    restarted (``restart(why)``) when its turn in the back-off comes, unless it finished meanwhile."""
+    done = threading.Event()
+
+    def watch():
+        if done.wait(STARTUP if deadline is None else deadline):
+            return
+        where = dump(state, "start")
+        left, n = restarts.wait(state)
+        why = f"not started within {STARTUP if deadline is None else deadline:.0f}s"
+        say(f"watchdog: the engine is {why}" + (f"; every thread's stack in {where}" if where else "")
+            + (f"; restart {n} backed off {left:.0f}s, the last did not help" if left else ""))
+        if done.wait(left):
+            return
+        restarts.note(state, why, "startup")
+        restart(why)
+    threading.Thread(target=watch, name="ergostat-startup", daemon=True).start()
+    return done
+
+
+def heartbeat(state: Path, passed: float, stalls: int = 0) -> None:
+    """``heartbeat.json``: when the last pass finished (wall clock), and this pid. Written at start too, so a watcher
+    never reads a slow start by the last process's heartbeat."""
+    path = state / "heartbeat.json"
+    tmp = path.with_name(f"heartbeat.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps({"pass": round(passed, 3), "written": round(time.time(), 3), "stalls": stalls,
+                                   "pid": os.getpid()}))
+        os.replace(tmp, path)
+    except OSError:
+        pass

@@ -332,7 +332,19 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     snap["leases"] = lease_attention(project, now)
     snap["cycles"] = relation_cycles(project)
     snap["reports"] = [{"id": r["id"], "title": r.get("title") or ""} for r in reports_drafted(project)]   # SPEC §12m
+    snap["alarms"] = alarms(project, now)
     return snap
+
+
+def alarms(project, now: float) -> dict:
+    """The ``alarm`` blocks raised at ``now`` (their output last recorded as 1): since when, and what they watch."""
+    spec, out = getattr(project.model, "spec", None), {}
+    for b in (spec.blocks.values() if spec is not None else ()):
+        got = project.measurements.latest(f"block/{b.name}", now) if b.type == "alarm" else None
+        if got and got[1]:
+            bound = " and ".join(f"{k} {fmt(float(b.params[k]))}" for k in ("above", "below") if b.params.get(k) is not None)
+            out[b.name] = {"since": got[0], "watches": ", ".join(str(r) for r in b.reads()), "bound": bound}
+    return out
 
 
 _CYCLES: dict = {}
@@ -606,6 +618,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
     if model is not None and getattr(model, "spec", None) is not None:   # remotes that do not answer (SPEC §4c)
         from .remote import attention as remote_attention
         out += remote_attention(model.spec)
+    for name, a in snap.get("alarms", {}).items():
+        out.append({"level": "bad", "what": f"alarm {name}", "says": f"raised since "
+                    f"{time.strftime('%H:%M', time.localtime(a['since']))}: {a['watches']} {a['bound']}"})
     for name, a in snap["agents"].items():
         if a["failing"]:
             note = (a["last"] or {}).get("data", {}).get("note", "failed")
