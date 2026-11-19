@@ -302,3 +302,7 @@ call `try_change` or propose model changes for it: that is the modelling subsyst
   (`spec`), one goal and the block that serves it, the way the templates are written.
 - The owner's own templates: `library:` in the main file names their folders; `templates` lists them beside
   ergostat's own.
+- Something ergostat cannot express, or ergostat itself wrong (a crash, a wrong answer): draft a report with the MCP
+  tool `report_upstream` (`says`, `parts`, `repro`: a tiny generic model), and tell the owner where it is (the file it
+  returns; `ergostat report ID`). It is scrubbed and kept locally; the owner submits it by hand. Never post anything
+  yourself.
