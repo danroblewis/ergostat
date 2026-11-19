@@ -607,6 +607,7 @@ items:
 | `formats` | map of field → format | by extension | How a file a field names is shown: `image`, `markdown`, `code`, `text`, `json`, or `claude-session` (a Claude Code transcript, as the conversation; its lines are also recorded as events, below) |
 | `fold` | map of field → rule | `replace` | How the plain `data` of its events folds into each field (the rules below) |
 | `relations` | map of name → kind(s) | none | Its typed relations to other items, each a field holding the ids it names (*Relations*, below) |
+| `join` | a rule, or a list | none | When its children move it on (*Join*, below) |
 | `system`, `description` | | | |
 
 **Changesets.** An item's fields are one JSON document, and every event about it is a changeset
@@ -716,6 +717,35 @@ for:
 - **Cycles**: items whose precedence relations go round can never all be ready. Each cycle needs attention
   (`ergostat`, the page's side panel), and is left out of the projection.
 
+**Join.** A parent moved on by its children (fork-join) is a rule on the parent's kind, over the relation its children
+name it by, not a block that lists and matches items:
+
+```yaml
+items:
+  epic:
+    states: [planned, underway, shipped]
+    join:
+      - {children: parent, any: [doing, review, done], to: underway}   # once one has started
+      - {children: parent, all: done, to: shipped}                      # once every one is done
+  ticket:
+    relations: {parent: epic}
+```
+
+| Key | Type | Meaning |
+|---|---|---|
+| `children` | a relation's name | The relation its children name it by (on their kind: `parent: epic`) |
+| `all`, `any` | a state, or a list (one of the two) | All of its children in one of these states (a join), or any one (the first to start) |
+| `to` | a state of its own | Where it goes |
+
+It fires on each move of a child, read from the item index (its moves, its links both ways), and once for every
+parent when ergostat starts, so what moved while it was stopped is joined then. A parent with children, all (or any)
+of them in the states, and in a state before `to` in its kind's order, is moved there by `ergostat.item.joined`
+(`data.joined`: `to`, `children`, `all` or `any`, `n`, the children counted), recorded by ergostat and caused by the
+latest move of its children, so the Process view draws the join. It is a move like any other: counted (`entering`),
+kept in the item's history. Never backwards: a child reopened leaves its parent where it is; a parent with no children
+is never joined. Rules are tried in their order, each from where the one before left it. `check` says when no kind
+names the parent by `children`, or a state is not one of theirs (`bad-join`, `unknown-state`).
+
 Relations are read as they stand now: time travel (`--at`, the pages') reaches an item's fields, its relations
 among them, but not the Graph and the Timeline, which are drawn from the item index as it is.
 
@@ -740,6 +770,7 @@ kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every cha
 (section 12h), and `ergostat.verdict`, the intent judge's verdict on finished work (section 12i), and `ergostat.report`, a report
 about ergostat itself, drafted and scrubbed for the owner to submit by hand (section 12m). ergostat may also
 move any item: `ergostat.item.reopened` moves it to the state its data names (`reopened.to`, else its kind's first),
+`ergostat.item.joined` to the state its join names (`joined.to`, *Join*),
 `ergostat.item.follow-up` starts one (section 12h), and `ergostat.item.judged` sets its field `intent` (section 12i).
 A kind a block takes (section 9.5) is moved by its leases too (`ergostat.lease.*`: to `leased`, back, or to `dead`),
 and its items carry the field `lease`, ergostat's own.
