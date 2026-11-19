@@ -38,3 +38,8 @@ alarms' pool, alarms shown, caps, transcripts, compact), plus
 ## Size budget
 
 600 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped / overrun
+
+Done. Net 620 lines outside `tests/` and `docs/`, of which 26 are `schema/ergostat.schema.json` (the `storage: logs:`
+schema, data rather than code): 594 lines of code, within the budget.
