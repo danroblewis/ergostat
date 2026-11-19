@@ -234,10 +234,10 @@ fit the screen worse than on main, with before and after screenshots in `~/ergos
 
 | view | main | branch | why |
 |---|---|---|---|
-| the-job system=delivery | 1.40 (rows) | 0.80 | main's rows hold the owner's first antipattern: nudges-drafted's pipe runs up and round through the valve placed over the row. The branch draws the chain straight in one row. Its rows fit only 24% better, under the 25% a wrap must gain. |
+| the-job system=delivery | 1.40 (rows) | 0.80 | main's rows hold the owner's first antipattern: nudges-drafted's pipe runs up and round through the valve placed over the row. The branch draws the chain left to right in one row; it is not straight: nudges-drafted jogs up into my-prs-nudged, and a long connector runs under it. Its rows fit only 24% better, under the 25% a wrap must gain. Known instance, not fixed: the names "nudges-drafted" and "reviewed-after-nudge" collide with a "0 prs/h" rate (label-collision). |
 | coordinator, image-squeeze, the-job system=modelling | 0.99 | 0.86 | main is the owner's own case: model-mended's drain runs across the whole drawing to a cloud in a corner, and changes-made's valve sits far from its stock. Now both are short satellites, and the chain is one row, a little wider. |
 | image-squeeze open=lab | 0.53 | 0.46 | 16 drains and inflows stood beside their stocks (the satellites' room) where main left valves and clouds in other layers. The room is kept only when the drawing loses no more than 10% of its fit to it. Here it loses less than that, and the rest is the same layout's different layering. Not fixed. |
-| software-factory open=* | 0.74 | 0.60 | no satellites' room kept here (it cost more than 10%). The loss is the rework laid out backwards (the chain left to right) and valves put between their stocks, which change ELK's layering. Not fixed. |
+| software-factory open=* | 0.74 | 0.60 | worse than the number suggests: the after shot runs past the window's edge. No satellites' room kept here (it cost more than 10%). The loss is the rework laid out backwards (the chain left to right) and valves put between their stocks, which change ELK's layering. Not fixed. |
 
 The other views the review named are back to main's fit or better: software-factory system=product 1.31 (main 1.31);
 ops open=* 1.02 (0.88). The remaining ones are within 15%: small-requests system=review-reminders 1.02 (1.10), big
