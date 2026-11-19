@@ -3974,6 +3974,84 @@ line, then the body to paste (*What went wrong*, *Where*, *Error*, *The model's 
   body; nothing is sent), the owner's marks, and the scrub log. (`GET /api/report/ID`; `POST /api/report/ID/reviewed`,
   `/submitted` or `/dismissed`.)
 
+## 12n. The impact of a change: what a fix restores, and when to roll it out
+
+A fix for a failing program, or a change to the model, comes with the research a careful operator expects before
+approving a change, worked out from the model (`ergostat/numbers/impact.py`). It is shown on the item page of the
+failure (`ergostat.failure`, the repair loop's) or of the change (`ergostat.model-change`), with no page of its own;
+`GET /api/impact?block=NAME|item=ID|change=ID[&since=T&within=SECONDS&penalty=HOURS]` (worked out in a thread of its
+own: `{"working": true}` until it is done); `ergostat impact BLOCK|CHANGE [--since TIME] [--within DUR] [--penalty DUR]
+[--json]`.
+
+**Called** as `impact.report(p, parts, since=None, *, at=None, within=None, times=12, penalty=None, share=None,
+tests=None, commit=None, runs=40, budget=20.0)`:
+
+| Argument | What |
+|---|---|
+| `parts` | what changes: `"BLOCK"` or `"block.NAME"` (a block whose runs fail), `"flow.NAME"` (its block), an `ergostat.failure/ID` item (its field `block`; `since`, `commit`, `tests` read from its fields when not given), or a model change (`ergostat.model-change/ID`, or its id); a string or a list of them |
+| `since` | when the failure began (epoch seconds); else the first `agent.failed` of the block's last unbroken run of failures in the record |
+| `at` | now (default: the clock) |
+| `within`, `times` | rollout times tried: `times` (at most 24) evenly over `within` seconds (default: seven of the model's time unit, a day, an hour or a minute by its slowest time constant) |
+| `penalty` | hours of goal-off time a rollout at the busiest hour of the day costs (default: one time unit) |
+| `share` | the share of its rate the failing block still moves (default: its rate since the failure over its rate before, at most 1) |
+| `tests` | the fix's tests: `"passed"`, `"failed"`, or None (not run) |
+| `commit` | the fix's commit, for the rollback |
+| `runs`, `budget` | the risk's Monte Carlo runs, and the seconds of wall time the whole report may take |
+
+**Returns** a dict (times in epoch seconds, durations in hours, rates per hour):
+
+```
+{"kind": "failure" | "change", "about": "block NAME" | "change ID", "at": now, "said": one sentence,
+ "broken": {"block", "since", "share", "flows": [{"ref", "before", "since", "said"}],
+            "stocks": [{"ref", "at_failure", "now", "building"}]},          # a failure only
+ "horizon": seconds, "times": [past grid], "ptimes": [projection times],
+ "charts": [{"ref", "name", "unit", "per", "measured", "without", "with"}],   # with: at the ideal time (a change: with it)
+ "goals": {NAME: {"of", "hold", "off_at": time | None, "off_end": bool, "hours_off": h, "hours_off_fixed_now": h,
+                  "p_off_end", "expected_off", "p_off": [per ptime], "said"}},
+ "rollout": {"unit", "penalty", "busy_from", "options": [{"at", "hours_off", "peak", "recovery", "busy", "cost"}],
+             "best": {"at", ...}, "said": one sentence} | None,            # a change: None, and why in "notes"
+ "fields": {"touches": {"blocks": [...], "goals": [...], "commands": [...], "actions": [{"name", "gate"}]},
+            "read_only": bool, "writes": [...],
+            "rollback": {"how", "items": {"kind", "states": {STATE: count}}, "said"},
+            "risk": {"level": "low" | "medium" | "high", "why": [...]},
+            "confidence": {"level", "parts": [{"ref", "how", "r2", "skill"}], "said"}},
+ "notes": [...], "stopped": None | why, "seconds": wall time}
+```
+
+**What broke**: the flows the block moves, each one's mean rate over the record before `since` (as long as the
+failure has lasted, between an hour and a day) and since; a flow at under a tenth of its rate before has **stopped**,
+else it is **degraded**. The stocks those flows drain or fill, and the goals' stocks, with their level when the failure
+began and now; one higher now is **building up**.
+
+**Without the fix**: the closed-loop projection (section 12b) from now, the block's flows by its identified model,
+identified on the reference window that ends when the failure began, times `share` (its failing self); every other
+machine block by its model identified now. The horizon is the time the rollout times span plus the projection's usual
+horizon. For each goal: when it goes off (`off_at`), whether it is off at the horizon, its hours off, and its risk
+(section 12c's Monte Carlo, `runs` runs, within what is left of the budget). **With the fix at time d**, for each
+rollout time: the same, the block's model restored from d. Its cost is the goals' hours off plus `penalty` × how busy
+the hour of day of d is (the record's mean arrival rate at that hour, over the last week at most, of the flows from
+outside into the stocks the block's flows drain, else of every flow from outside; scaled from 0 at the quietest hour
+to 1 at the busiest; 0 everywhere when the record has no daily pattern, said). Also said: the backlog's peak (the
+highest of the stocks building up, else the stocks it drains) and the recovery time after d (until every goal holds to
+the end; with no goal, until those stocks are back within 5% of their level when the failure began). The **ideal
+rollout time** is the cheapest, the earliest of equals, and why in one sentence. When the budget runs out, the rollout
+times not tried are left out and `stopped` says so.
+
+A **model change** is projected as the model is and with the change (section 12e's forecast, with the loops running
+where there are controllers); its rollout times are not tried, since a change to the model revises the forecast, not
+the world.
+
+**The fields.** *Touches*: the other blocks that read the block's flows or the stocks they move, the goals on those
+stocks, the blocks it commands, and its gated actions (section 12k) with their gates. *Read-only*: it has no gated
+actions; else *writes* names them. *Rollback*: revert the fix's commit (`git revert COMMIT`); a block that takes items
+leaves the items it moved where they are, the ones it would take next wait in its `takes.at` states (counted now), and
+a run in flight gives its item back when its lease expires. For a change: revert the edit; the record is untouched.
+*Risk level*: a point each for writes (two for an action with `gate: auto`), a blast radius of more than three parts,
+and tests not run; failed tests make it high; 0 or 1 is low, 2 or 3 medium, more high; each point said. *Confidence*:
+each part's identified model (identified, or assumed for want of record) and each stock's fit on the reference window
+(R², skill against its mean); low with an assumed model, a stock fitting worse than its mean or a projection not
+valid; high when every stock's skill is at least 0.5; else medium.
+
 ## 13. Examples
 
 ### First loop: an inbox kept short (ergostat closes the loop)
