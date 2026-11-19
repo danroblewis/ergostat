@@ -195,6 +195,9 @@ def generate(name: str, shape: str, seed: int) -> Gen:
         m.flow("side", b[0], c[0], "back")
         m.aux["pressure"] = {"unit": "share", "sensor": {"manual": True}, "driven-by": [f"+stock.{b[0]}"], "system": "back"}
         m.flows["f-arrive"]["driven-by"] = "-auxiliary.pressure"
+    if not m.goals:                            # (one goal at least: a block diagram to draw)
+        f, v = next((f, v) for f, v in m.flows.items() if v.get("from"))
+        m.hold(v["from"], f, v.get("system"))
     return m
 
 

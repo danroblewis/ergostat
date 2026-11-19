@@ -98,7 +98,7 @@ function avoidCore(A) {
       router.setRoutingOption(O.performUnifyingNudgingPreprocessingStep, true);
       const turns = (spec.flows || []).length ? firstPass(spec) : {};
       for (const s of spec.shapes) {
-        if (s.pinsBy && turns[s.id]) s.pins = s.pinsBy[turns[s.id]];
+        if (s.pinsBy && turns[s.id]) { s.pins = s.pinsBy[turns[s.id]]; if (s.labelsBy) s.labels = s.labelsBy[turns[s.id]]; }
         const sh = router.addShape({ x: s.x, y: s.y, width: s.w, height: s.h });
         shapes[s.id] = sh; pos[s.id] = { x: s.x, y: s.y };
         for (const p of s.pins) {
@@ -284,7 +284,7 @@ function avoidSpec(lay, g) {
       if (byId[st].kind === "stock" && ["valve", "disturbance"].includes(byId[v].kind)) (alignedValves[st] ||= []).push(box[v]);
   }
   const pinOf = {};                                      // `${line}|${s or t}` -> pin class
-  const pinsBy = {};                                     // a valve's pins for each way it may face
+  const pinsBy = {}, labelsBy = {};                      // a valve's pins (and its name) for each way it may face
   const shapes = [];
   for (const c of Object.values(box)) {
     const n = byId[c.id], k = n.kind, pins = [];
@@ -307,6 +307,18 @@ function avoidSpec(lay, g) {
       const t = c.turn || { flow: "right", stem: "up" };      // which way it faces (valves.js)
       pins.push(...pinsFor(t.flow));
       pinsBy[c.id] = Object.fromEntries(["right", "left", "up", "down"].map((f) => [f, pinsFor(f)]));
+      // and its name where it goes when it faces each way (valves.js placeLabels: away from its stem)
+      const ls = c.labels || [];
+      if (ls.length) {
+        const w = Math.max(...ls.map((l) => l.width)), h = ls.reduce((a, l) => a + l.height, 0);
+        labelsBy[c.id] = Object.fromEntries(["right", "left", "up", "down"].map((f) => {
+          const vertical = f === "up" || f === "down", stem = vertical ? stems.vertical : stems.level;
+          const away = { up: "down", down: "up", left: "right", right: "left" }[stem];
+          const [x, y] = { down: [(c.width - w) / 2, c.height + 4], up: [(c.width - w) / 2, -h - 4], left: [-w - 6, (c.height - h) / 2],
+                           right: [c.width + 6, (c.height - h) / 2] }[away];
+          return [f, [{ x: c.x + x, y: c.y + y, w: Math.max(1, w), h: Math.max(1, h) }]];
+        }));
+      }
     } else if (k === "cloud") {                              // a pipe meets a cloud at its side (or top and bottom, by an upright valve)
       for (const d of upright.has(c.id) ? ["left", "right", "up", "down"] : ["left", "right"]) at(PIN.PIPE, ...sidePoint(d, 0.5, 1, 1), d, true);
     } else {
@@ -352,7 +364,7 @@ function avoidSpec(lay, g) {
       const [x, y] = sidePoint(d, f, 1, 1); return { cls: PIN.PIPE, x, y, dir: d, shared: false, abs: false }; }))]
       : k === "cloud" ? ["left", "right", "up", "down"].map((d) => { const [x, y] = sidePoint(d, 0.5, 1, 1); return { cls: PIN.PIPE, x, y, dir: d, shared: true, abs: false }; })
       : null;
-    shapes.push({ id: c.id, x: c.x, y: c.y, w: c.width, h: c.height, pins, ...(pinsBy[c.id] ? { pinsBy: pinsBy[c.id], valve: true } : {}), ...(pins1 ? { pins1 } : {}),
+    shapes.push({ id: c.id, x: c.x, y: c.y, w: c.width, h: c.height, pins, ...(pinsBy[c.id] ? { pinsBy: pinsBy[c.id], labelsBy: labelsBy[c.id], valve: true } : {}), ...(pins1 ? { pins1 } : {}),
                   labels: (c.labels || []).map((l) => ({ x: c.x + l.x, y: c.y + l.y, w: Math.max(1, l.width), h: Math.max(1, l.height) })) });
   }
   const pinAt = (e, w) => {

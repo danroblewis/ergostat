@@ -199,6 +199,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
   if (ELK_PRESETS[LAYOUT]?.upright) {
     standUpright(lay, g);                                // drains and inflows stood upright where there is room
     seatCloudFlows(lay, g);                              // and every other flow to or from a cloud beside its stock (places.js)
+    centreValves(lay, g);                                // a valve between two stocks put between them (satellites.js)
   }
   applyPins(lay, g);
   orientValves(lay, g);                                  // valves face their pipes and their links (valves.js)

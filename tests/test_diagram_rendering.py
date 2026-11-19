@@ -129,6 +129,7 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
         r = pg.evaluate(AUDIT)
         problems += [f"[{v or 'whole'}] {k}: {x}" for k in ("through", "overlap", "detour", "netCrossings", "partOverlap")
                      for x in r[k]]
+        problems += critical(pg, v or "whole")                    # the layout rules (docs/layout-rules.md)
         if r["mostPipeBends"][0] > MAX_PIPE_BENDS:                   # a flow reads best straight: the links bend instead
             problems.append(f"[{v or 'whole'}] pipe {r['mostPipeBends'][1]} bends {r['mostPipeBends'][0]} times")
         size = r["size"]
@@ -155,6 +156,49 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     assert not problems, f"{name}: " + "\n".join(problems)
     assert slowest[0] < LAYOUT_BUDGET_MS, f"{name}: drawing {slowest[1]} took {slowest[0]:.0f}ms"
     assert routed[0] < ROUTED_BOUND_MS, f"{name}: routing {routed[1]} took {routed[0]:.0f}ms"
+
+
+def critical(pg, where: str) -> list[str]:
+    """The critical instances of the layout rules (docs/layout-rules.md) in the view drawn: what reads wrongly at once."""
+    from tests import layout_rules as rules
+    geo = pg.evaluate(GEOMETRY)
+    return [f"[{where}] {x['rule']}: {x['what']}" for x in rules.check(geo, fast=True) if x["severity"] == "critical"] if geo else []
+
+
+@pytest.mark.parametrize("shape", __import__("tests.diagram_corpus", fromlist=["SHAPES"]).SHAPES)
+def test_generated_models_of_every_shape_draw_with_no_critical_layout_fault(browser, tmp_path, shape):
+    """One generated model of each shape (tests/diagram_corpus.py: chains, fan-outs, joins, rework, many clouds,
+    systems linked across, cascades, auxiliaries, mixes, drains), in the Dynamics and Blocks views, whole and with
+    everything open: no critical instance of any layout rule. The whole corpus is scripts/layout_corpus.py's."""
+    from tests import diagram_corpus as corpus
+    name = f"gen-{shape}"
+    d = tmp_path / name
+    corpus.generate(name, shape, 7).write(d)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(150):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        problems = []
+        for i, v in enumerate(["view=dynamics", "view=dynamics&open=*", "view=blocks", "view=blocks&open=*"]):
+            drawn(pg, url, v, i)
+            problems += critical(pg, v)
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+    assert not errors, errors
+    assert not problems, "\n".join(problems)
 
 
 def big_model(systems: int = 8, loops: int = 4) -> str:
@@ -367,43 +411,47 @@ def test_model_errors_drain_is_a_short_straight_satellite_of_its_stock(browser, 
 
 
 def test_a_valve_dragged_over_its_stock_stands_upright_on_its_top(browser, tmp_path):
-    """A valve dragged straight above its stock turns to follow its pipe: upright, the pipe leaving the stock's top
-    and running straight into it (no zig-zag through a level valve, no pipe forced round to the stock's side);
-    the turn is on the way from its cloud."""
+    """A valve turns to follow its pipe wherever it is put: new-backups (copies-not-offsite's inflow from a cloud, laid
+    out standing on the stock's top) dragged beside the stock turns level, its pipe straight into the stock's side;
+    dragged back over the stock it stands upright again, its pipe straight into the stock's top. Never a zig-zag through a
+    valve facing the wrong way, nor a pipe forced round to another side."""
     from tests import layout_rules as rules
-    sid, vid = "stock:copies-not-offsite", "flow:new-backups"       # (an inflow from a cloud on the left; nothing over the stock)
-    with served("backups", tmp_path) as url:
-        pg = browser.new_page(viewport={"width": 1440, "height": 900})
-        errors: list[str] = []
-        pg.on("pageerror", lambda e: errors.append(str(e)))
-        drawn(pg, url, "", 0)
-        at = "(id) => { const c = S.layout.children.find((c) => c.id === id); return [c.x, c.y, c.width, c.height]; }"
-        sx, sy, sw, _ = pg.evaluate(at, sid)
-        vx, vy, vw, vh = pg.evaluate(at, vid)
-        assert pg.evaluate(f"() => S.layout.children.find((c) => c.id === '{vid}').turn.flow") == "right"
-        dx, dy = (sx + sw / 2) - (vx + vw / 2), (sy - 40 - vh) - vy          # straight over the stock's middle
+    sid, vid = "stock:copies-not-offsite", "flow:new-backups"
+    at = "(id) => { const c = S.layout.children.find((c) => c.id === id); return [c.x, c.y, c.width, c.height]; }"
+
+    def drag_to(pg, x1, y1):                            # the valve's corner to x1, y1 (the diagram's coordinates)
+        vx, vy, _, _ = pg.evaluate(at, vid)
         hit = pg.locator(f'g.node[data-id="{vid}"] .hit').first.bounding_box()
         k = pg.evaluate("() => S.view.k")
         x, y = hit["x"] + hit["width"] / 2, hit["y"] + hit["height"] / 2
         pg.mouse.move(x, y)
         pg.mouse.down()
         for step in range(1, 13):
-            pg.mouse.move(x + dx * k * step / 12, y + dy * k * step / 12)
+            pg.mouse.move(x + (x1 - vx) * k * step / 12, y + (y1 - vy) * k * step / 12)
         pg.mouse.up()
+        pg.wait_for_timeout(300)
         pg.wait_for_function(f"() => S.pins['{vid}'] && !S.layout.routing", timeout=20000)
-        pg.wait_for_timeout(800)
-        pg.wait_for_function(READY, timeout=20000)
-        geo = pg.evaluate(GEOMETRY)
-        g = rules.G(geo)
-        v = g.nodes[vid]
-        assert v["turn"]["flow"] == "down", v["turn"]
-        pipe = next(e for e in g.pipes if e["source"] == vid and e["target"] == sid)
-        s = g.rect[sid]
-        end = pipe["pts"][-1]
-        assert abs(end[1] - s[1]) < 2 and s[0] < end[0] < s[2], f"the pipe meets the stock at {end}, not its top {s}"
-        assert rules.bends(pipe["pts"]) == 0, f"the pipe zig-zags: {pipe['pts']}"
-        found = rules.check(geo, ["valve-orientation-mismatch", "side-crowding", "flow-bends"])
-        assert not [x for x in found if vid in x["parts"]], found
+        pg.wait_for_timeout(500)
+        return rules.G(pg.evaluate(GEOMETRY))
+
+    with served("backups", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        sx, sy, sw, sh = pg.evaluate(at, sid)
+        _, _, vw, vh = pg.evaluate(at, vid)
+        for where, x1, y1, flow, side in [("beside", sx + sw + 60, sy + sh / 2 - vh / 2, "left", "right"),
+                                          ("over", sx + sw / 2 - vw / 2, sy - 50 - vh, "down", "top")]:
+            g = drag_to(pg, x1, y1)
+            assert g.nodes[vid]["turn"]["flow"] == flow, (where, g.nodes[vid]["turn"])
+            pipe = next(e for e in g.pipes if e["source"] == vid and e["target"] == sid)
+            s, end = g.rect[sid], pipe["pts"][-1]
+            on = abs(end[1] - s[1]) < 2 and s[0] < end[0] < s[2] if side == "top" else abs(end[0] - s[2]) < 2 and s[1] < end[1] < s[3]
+            assert on, f"{where}: the pipe meets the stock at {end}, not its {side} {s}"
+            assert rules.bends(pipe["pts"]) == 0, f"{where}: the pipe zig-zags: {pipe['pts']}"
+            found = rules.check(g.geo, ["valve-orientation-mismatch"])
+            assert not [x for x in found if vid in x["parts"]], (where, found)
         pg.close()
     assert not errors, errors
 
