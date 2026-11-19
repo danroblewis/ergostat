@@ -10,7 +10,8 @@ Epics, each a fan-out of tickets that wait on one another, worked by stand-ins. 
 The planner (`bin/plan.py`) records each epic and its tickets with their relations as plain data
 (`{"event": "ticket.planned", "item": "ticket/e1-integrate", "data": {"parent": "epic/e1", "blocked_by": [...]}}`).
 The developer block takes only **unblocked** tickets, the critical ones first (`takes: {..., unblocked: true}`);
-the reviewer approves them; `bin/epics.py` moves each epic along by its tickets.
+the reviewer approves them; each epic is moved along by its tickets, a rule on its kind (`join:`, SPEC §5a, *Join*):
+underway once one has started, shipped once every one is done.
 
 ```bash
 ergostat -C examples/roadmap run            # then open the Items page: Graph, Timeline

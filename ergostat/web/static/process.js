@@ -207,11 +207,12 @@ function pmRoute(lay, g) {
 
 function pmNode(n, w, hgt, most) {
   const g = s("g");
-  if (n.kind !== "activity") {                         // a kind's start and end: pills, a play and a stop
+  if (n.kind !== "activity") {                         // a kind's start and end: pills, a play and a stop; a schedule, a clock
     g.append(s("rect", { class: "hit", width: w, height: hgt, rx: hgt / 2, fill: "var(--panel)", stroke: "var(--ink)", "stroke-width": 1.4 }));
     const cy = hgt / 2;
     g.append(n.kind === "start" ? s("path", { d: `M13,${cy - 5} L21,${cy} L13,${cy + 5} Z`, fill: "var(--ink)" })
-                                : s("rect", { x: 12, y: cy - 4.5, width: 9, height: 9, fill: "var(--ink)" }));
+             : n.kind === "schedule" ? s("path", { d: `M17,${cy - 3} V${cy} H20 M22,${cy} A5,5 0 1 1 22,${cy - 0.01}`, fill: "none", stroke: "var(--ink)", "stroke-width": 1.3 })
+             : s("rect", { x: 12, y: cy - 4.5, width: 9, height: 9, fill: "var(--ink)" }));
     g.append(s("text", { x: 28, y: cy + 4, class: "t-label" }, n.label, s("tspan", { class: "t-sub", dx: 6 }, String(n.count))));
     return g;
   }
@@ -283,8 +284,8 @@ function pmDraw(svg, g, lay) {
     // its top is a handle: dragged, the kind's map moves with it, and stays there (interact.js, places.js)
     frames.append(s("g", { class: "pm-frame hull" + (k.remote ? " pm-remote" : ""), "data-kind": f.name, "data-hull": f.name },
       s("rect", { x: f.x, y: f.y, width: f.width, height: f.height, rx: 10, ...(k.remote ? { "stroke-dasharray": "9 5" } : {}) }),
-      s("text", { x: f.x + 14, y: f.y + 22, class: "pm-title" }, k.remote ? `remote ${k.remote}: ${f.name}` : f.name,   // read from that ergostat
-        s("tspan", { class: "t-sub", dx: 8 }, `${k.items} item${k.items === 1 ? "" : "s"} · ${k.by}`)),
+      s("text", { x: f.x + 14, y: f.y + 22, class: "pm-title" }, k.remote ? `remote ${k.remote}: ${f.name}` : k.schedule ? "schedules" : f.name,   // read from that ergostat
+        s("tspan", { class: "t-sub", dx: 8 }, k.schedule ? `${k.items} run${k.items === 1 ? "" : "s"}` : `${k.items} item${k.items === 1 ? "" : "s"} · ${k.by}`)),
       s("rect", { class: "hull-grip", "data-act": "hull-drag", x: f.x, y: f.y, width: Math.max(0, f.width - 24), height: PM.TITLE + 6, rx: 10,
                   onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: f.name, x0: ev.clientX, y0: ev.clientY, moved: false }; } })));
     if (S.pins?.["hull:" + f.name]) pinsG.append(pinMark("hull:" + f.name, f.x + f.width - 14, f.y + 4, "moved here: click to let the layout place it again"));
@@ -367,7 +368,8 @@ function openProcessNode(n) {
   document.querySelector(`.node[data-id="${CSS.escape(n.id)}"]`)?.classList.add("sel");
   const into = g.edges.filter((e) => e.target === n.id && e.source !== n.id), out = g.edges.filter((e) => e.source === n.id && e.target !== n.id);
   const loop = g.edges.find((e) => e.source === n.id && e.target === n.id);
-  const what = n.kind === "start" ? `where ${n.itemKind} items start: their first event, in the window`
+  const what = n.kind === "schedule" ? `block ${n.activity}'s runs on its own schedule that caused events on items, in the window: what each run started fans out from here`
+    : n.kind === "start" ? `where ${n.itemKind} items start: their first event, in the window`
     : n.kind === "end" ? `where ${n.itemKind} items end: they reached a state the kind counts as finished, in the window`
     : g.by === "states" && (g.kinds.find((k) => k.name === n.itemKind)?.states || []).includes(n.activity)
       ? `a state of ${n.itemKind}: each time an item entered it, in the window`
@@ -377,15 +379,15 @@ function openProcessNode(n) {
     h("td", { class: "muted" }, e.kind === "caused" ? "caused" : e.rework ? "rework" : ""),
     h("td", { class: "num" }, String(e.count)), h("td", { class: "num muted" }, e.median != null ? dur(e.median) : ""))))
     : h("p", { class: "muted" }, "None in the window.");
-  showDetail(h("div", { class: "kind" }, n.kind === "activity" ? (g.by === "states" ? "State" : "Activity") : n.kind === "start" ? "Start" : "End"),
-    h("h2", {}, pmAct(n.activity), h("span", { class: "muted" }, ` (${n.itemKind})`)),
+  showDetail(h("div", { class: "kind" }, n.kind === "activity" ? (g.by === "states" ? "State" : "Activity") : n.kind === "start" ? "Start" : n.kind === "schedule" ? "Schedule" : "End"),
+    h("h2", {}, pmAct(n.activity), h("span", { class: "muted" }, ` (${n.kind === "schedule" ? "its schedule" : n.itemKind})`)),
     whatIs("activity"),
     h("p", { class: "muted" }, what[0].toUpperCase() + what.slice(1) + "."),
-    dl([["happened", `${n.count} time${n.count === 1 ? "" : "s"} in the window`], ["items", String(n.items)],
+    dl([["happened", `${n.count} time${n.count === 1 ? "" : "s"} in the window`], [n.kind === "schedule" ? "runs that caused something" : "items", String(n.items)],
         ["again on one item", loop ? `${loop.count} time${loop.count === 1 ? "" : "s"}, median ${loop.median != null ? dur(loop.median) : "–"} apart` : null]]),
     h("h3", {}, "Came from"), lines(into, (e) => e.source),
     h("h3", {}, "Went to"), lines(out, (e) => e.target),
-    pmSet({ kind: [n.itemKind], through: [n.activity] }, `${n.itemKind}, ${n.kind === "activity" ? "through " + n.activity : n.kind === "start" ? "started" : "ended"}`,
+    n.kind === "schedule" ? null : pmSet({ kind: [n.itemKind], through: [n.activity] }, `${n.itemKind}, ${n.kind === "activity" ? "through " + n.activity : n.kind === "start" ? "started" : "ended"}`,
           "the items behind this node of the process map, in its window"));
 }
 
@@ -397,8 +399,10 @@ function openProcessEdge(e) {
   let kids;
   if (e.kind === "caused") {
     kids = [h("div", { class: "kind" }, "Caused, across kinds"), h("h2", {}, `${a.itemKind} ${pmAct(a.activity)}`, " ⇢ ", `${b.itemKind} ${pmAct(b.activity)}`), whatIs("caused"),
-      h("p", { class: "muted" }, `An event on a ${a.itemKind} item caused one on a ${b.itemKind} item (its causedby, directly or through a run), ${e.count} time${e.count === 1 ? "" : "s"}: ` +
-        (e.causes < e.items ? `${e.causes} ${a.itemKind} item${e.causes === 1 ? "" : "s"} fanned out into ${e.items} ${b.itemKind} items.` :
+      h("p", { class: "muted" }, (a.kind === "schedule" ? `A run of ${a.activity} on its schedule caused an event on a ${b.itemKind} item, ${e.count} time${e.count === 1 ? "" : "s"}: ` :
+        `An event on a ${a.itemKind} item caused one on a ${b.itemKind} item (its causedby, directly or through a run), ${e.count} time${e.count === 1 ? "" : "s"}: `) +
+        (a.kind === "schedule" ? `${e.causes} run${e.causes === 1 ? "" : "s"} fanned out into ${e.items} ${b.itemKind} item${e.items === 1 ? "" : "s"}.` :
+         e.causes < e.items ? `${e.causes} ${a.itemKind} item${e.causes === 1 ? "" : "s"} fanned out into ${e.items} ${b.itemKind} items.` :
          e.causes > e.items ? `${e.causes} ${a.itemKind} items joined into ${e.items}.` : "one for one.")),
       dl([["cause", h("span", {}, link(a), ` on ${e.causes} ${a.itemKind} item${e.causes === 1 ? "" : "s"}`)],
           ["effect", h("span", {}, link(b), ` on ${e.items} ${b.itemKind} item${e.items === 1 ? "" : "s"}`)],
@@ -433,9 +437,10 @@ function pmSide(side, g) {
   side.append(...notes.map((t) => h("p", { class: "muted small" }, t)));
   side.append(h("h3", {}, "Kinds", h("span", { class: "muted" }, ` ${g.kinds.length}`)));
   if (!g.kinds.length) side.append(h("div", { class: "muted" }, "No kinds of item here."));
-  for (const k of g.kinds) side.append(h("div", { class: "looprow" }, h("b", {}, k.remote ? `${k.name} (remote ${k.remote})`
+  for (const k of g.kinds) side.append(h("div", { class: "looprow" }, h("b", {}, k.schedule ? "schedules" : k.remote ? `${k.name} (remote ${k.remote})`
                                                                                : h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name)), h("span"),
-    h("div", { class: "sub" }, k.drawn ? `${k.items} item${k.items === 1 ? "" : "s"} in the window, by ${k.by}` : "nothing on the record in the window")));
+    h("div", { class: "sub" }, k.schedule ? `${k.items} scheduled run${k.items === 1 ? "" : "s"} that caused events on items`
+      : k.drawn ? `${k.items} item${k.items === 1 ? "" : "s"} in the window, by ${k.by}` : "nothing on the record in the window")));
 }
 
 function processLegend() {
@@ -451,6 +456,8 @@ function processLegend() {
     row('<text x="3" y="14" font-size="12" fill="var(--muted)">↺</text>', "a line back to an earlier step (right to left), or a loop on one activity: rework"),
     row('<path d="M1 10 H22" stroke="var(--muted)" stroke-width="1.4" stroke-dasharray="5 4"/><path d="M21 6 L28 10 L21 14 Z" fill="var(--muted)"/>',
         "caused, across kinds: an event on an item of one kind caused one on another (fan-out, join)"),
+    row('<rect x="2" y="4" width="26" height="12" rx="6" fill="var(--panel)" stroke="var(--ink)" stroke-width="1.2"/><circle cx="11" cy="10" r="4" fill="none" stroke="var(--ink)"/>',
+        "a schedule: a block's runs on every: or cron:, the source of what they started (a sweep's fan-out)"),
     row('<rect x="2" y="2" width="26" height="16" rx="4" fill="none" stroke="var(--line-strong)"/>', "a kind of item: its own map, left to right in time order"),
     h("span", { class: "sym" }, "%"), h("span", {}, "the Paths slider hides lines rarer than that share of their kind's most frequent, as process mining tools do"));
 }
