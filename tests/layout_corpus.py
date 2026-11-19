@@ -2,7 +2,7 @@
 (tests/diagram_corpus.py), every view (Dynamics, Blocks, Process), each drawn whole, everything open, each system
 open, each system alone. Writes what was drawn and what each rule found, and a report.
 
-    uv run --with playwright==1.63.0 python scripts/layout_corpus.py OUT [--examples a,b | --no-examples]
+    uv run --with playwright==1.63.0 python -m tests.layout_corpus OUT [--examples a,b | --no-examples]
         [--generated N] [--seed 1] [--views dynamics,blocks,process] [--workers 3] [--shots worst|all|none]
         [--ports 8791,8793,8796] [--only MODEL,...]
 
@@ -29,13 +29,11 @@ import time
 import urllib.request
 from pathlib import Path
 
+from tests import diagram_corpus as corpus
+from tests import layout_rules as rules
+
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))                    # (tests/layout_rules.py and tests/diagram_corpus.py, shared with the tests)
-
-from tests import diagram_corpus as corpus  # noqa: E402
-from tests import layout_rules as rules  # noqa: E402
-
-GEOMETRY = (ROOT / "scripts" / "layout_geometry.js").read_text()
+GEOMETRY = (ROOT / "tests" / "layout_geometry.js").read_text()
 READY = ("() => typeof S !== 'undefined' && S.layout && S.graphSig && !S.layout.routing && "
          "document.querySelectorAll('svg.canvas g.node').length > 0")
 EMPTY = ("() => typeof S !== 'undefined' && !!S.graph && !(S.graph.nodes || []).length && "

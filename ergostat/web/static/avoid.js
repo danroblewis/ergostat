@@ -153,7 +153,6 @@ function avoidCore(A) {
       router.setRoutingOption(O.nudgeSharedPathsWithCommonEndPoint, !!spec.nudgeCommon);   // lines from one point share their way
       router.setRoutingOption(O.penaliseOrthogonalSharedPathsAtConnEnds, true);
       router.setRoutingOption(O.performUnifyingNudgingPreprocessingStep, true);
-      const f0 = performance.now();
       const turns = (spec.flows || []).length ? firstPass(spec) : {};
       const slides = turns.__slides || {};
       delete turns.__slides;
@@ -163,7 +162,6 @@ function avoidCore(A) {
         for (const l of s.labels || []) { l.x += dx; l.y += dy; }
         for (const k of Object.values(s.labelsBy || {})) for (const l of k) { l.x += dx; l.y += dy; }
       }
-      const firstMs = performance.now() - f0;
       for (const s of spec.shapes) {
         if (s.pinsBy && turns[s.id]) { s.pins = s.pinsBy[turns[s.id]]; if (s.labelsBy) s.labels = s.labelsBy[turns[s.id]]; }
         const sh = router.addShape({ x: s.x, y: s.y, width: s.w, height: s.h });
@@ -183,7 +181,7 @@ function avoidCore(A) {
       router.processTransaction();
       const ms = performance.now() - t0;
       const invalid = Object.values(conns).filter((c) => !c.hasValidRoute()).length;
-      return { routes: take(), ms, invalid, turns, firstMs, slides };
+      return { routes: take(), ms, invalid, turns, slides };
     },
     moveMany(list) {                                    // several parts moved together (an open system dragged): one routing
       if (!router) return {};
@@ -472,7 +470,6 @@ function avoidStart(lay, g) {
   const done = (m) => {
     if (m && !m.skipped) {
       const byLe = Object.fromEntries(lay.edges.map((le) => [le.id, le]));
-      AV.turns = m.turns;                                 // (the tests read them)
       for (const [id, [dx, dy]] of Object.entries(m.slides || {})) {   // (the router slid it along its pipe)
         const c = lay.children.find((k) => k.id === id);
         if (c) { c.x += dx; c.y += dy; }
@@ -489,7 +486,7 @@ function avoidStart(lay, g) {
       uncross(lay, g);
       if (g.kind === "dynamics") { sdSeparate(lay, g); uncross(lay, g); }   // (dynamics.js)
       unjog(lay, g);                                     // (last: the lines are where they stay)
-      AV.ms = m.ms; AV.invalid = m.invalid; AV.firstMs = m.firstMs; AV.slides = m.slides;               // (how long it took, and lines it found no way for: the tests read them)
+      AV.ms = m.ms; AV.invalid = m.invalid;               // (how long it took, and lines it found no way for: the tests read them)
       AV.routed = { lay, seq };
     }
     lay.routing = false;

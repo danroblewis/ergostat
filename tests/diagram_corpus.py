@@ -1,7 +1,7 @@
 """The models the layout rules (tests/layout_rules.py) are run over: every example, and generated ones of the shapes
 the diagrams must draw well, small to medium: chains, fan-outs, joins, rework loops, many clouds, links across
 systems, cascades, auxiliaries, and mixes of them. Shared by tests/test_diagram_rendering.py (a fast subset) and
-scripts/layout_corpus.py (the whole corpus). Also the views each model is drawn in, and a record of items moving
+tests/layout_corpus.py (the whole corpus). Also the views each model is drawn in, and a record of items moving
 through their states for the Process view."""
 from __future__ import annotations
 

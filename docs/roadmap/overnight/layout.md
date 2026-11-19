@@ -63,3 +63,25 @@ within the 600.
 - two critical instances main already had (recorded in `tests/fixtures/layout_known.json`): small-requests'
   regressions system and alert-triage with everything open;
 - the router's time on the largest views is close to the page's 20s bound under load.
+
+**After the gate review (layout and layout2 together).**
+
+- **Fit losses:** each loss against main is now justified or fixed, in docs/layout-rules.md under "Fit against main".
+  The satellites' room is kept only where it costs at most 10% of the fit, and a chain wraps when it is wider than
+  the canvas. Screenshots are in ~/ergostat-wt/layout-shots/fit-*.
+- **Size:** the corpus tools moved to tests/ (`python -m tests.layout_corpus`, no sys.path change), and standUpright
+  merged into seatCloudFlows. The engine is 599 net lines.
+- **Router time** on coordinator with everything open (one browser, other runs idle):
+
+  | engine | time |
+  |---|---|
+  | main | 11.0s |
+  | branch, full crossing penalty | 23s |
+  | branch, the cut (0.6 over 150 lines) | 17s |
+
+  The first pass is not the cause: it takes 0.3s, and dropping the turns it finds changes nothing. The cost is the
+  new layout's geometry. Without the reversed rework the branch takes 16s; without the valves put between their
+  stocks, 18s. Both are fixes for the owner's cases, so the cut stays, at 132 crossings against main's 117 at full
+  penalty.
+- **Ceilings** on valve-orientation-mismatch and satellite-far per example.
+- **Rejected wraps** are laid out dry and never routed.

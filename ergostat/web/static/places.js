@@ -118,61 +118,14 @@ function drainOf(g, v) {
   return cloud && stock ? { stock, cloud, out: pipes.some((e) => e.source === v && e.target === cloud) } : null;
 }
 
-/* a drain stood upright under its stock (its valve below it, its cloud below that), an inflow over it:
-   it reads as falling out of the stock, or into it. Only where that room is free, inside the stock's
-   own outline, and the drawing still fits the screen about as well; the chain of stocks keeps running
-   left to right */
-const UPRIGHT_GAP = 34, UPRIGHT_KEEP = 0.95;
-function standUpright(lay, g) {
-  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
-  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
-  const home = (id) => (byId[id]?.systems || [])[0] || null;
-  const r = document.querySelector("svg.canvas")?.getBoundingClientRect();
-  const [cw, ch] = r?.width ? [r.width - 40, r.height - 90] : [1260, 810];
-  const fit = () => {                                  // the zoom at which all of it fits the canvas (1: full size)
-    const bs = [...lay.children.map(partBox), ...(lay.containers || []).map((o) => ({ x0: o.x, y0: o.y, x1: o.x + o.width, y1: o.y + o.height }))];
-    return Math.min(1, cw / (Math.max(...bs.map((b) => b.x1)) - Math.min(...bs.map((b) => b.x0))), ch / (Math.max(...bs.map((b) => b.y1)) - Math.min(...bs.map((b) => b.y0))));
-  };
-  const stood = [];
-  for (const n of g.nodes) {
-    if (n.kind !== "valve" && n.kind !== "disturbance") continue;
-    const d = drainOf(g, n.id), v = box[n.id], c = d && box[d.cloud], st = d && box[d.stock];
-    if (!d || !v || !c || !st || S.pins?.[n.id] || S.pins?.[d.cloud] || home(n.id) !== home(d.stock)) continue;
-    if (lay.satellites?.has(n.id)) continue;           // (put beside its stock already: satellites.js)
-    const cx = st.x + st.width / 2, sb = partBox(st);
-    const vy = d.out ? sb.y1 + UPRIGHT_GAP : st.y - UPRIGHT_GAP - v.height;
-    const cy = d.out ? vy + v.height + UPRIGHT_GAP : vy - UPRIGHT_GAP - c.height;
-    const lw = Math.max(0, ...(v.labels || []).map((l) => l.width)) + 8;     // its name beside it once turned: one side free
-    const span = { y0: d.out ? sb.y1 + 4 : Math.min(vy, cy) - 6, y1: d.out ? Math.max(vy + v.height, cy + c.height) + 6 : st.y - 4 };
-    const half = Math.max(v.width, c.width) / 2;
-    const others = lay.children.filter((k) => k !== v && k !== c && k !== st);
-    const mine = home(d.stock);
-    const free = (room) => !others.some((k) => meets(room, partBox(k), 12)) &&
-      !(lay.containers || []).some((o) => o.name !== mine && !within(g, mine, o.name) && meets(room, { x0: o.x, y0: o.y, x1: o.x + o.width, y1: o.y + o.height }, 8));
-    if (![{ ...span, x0: cx - half, x1: cx + v.width / 2 + lw }, { ...span, x0: cx - v.width / 2 - lw, x1: cx + half }].some(free)) continue;
-    const before = fit(), was = [v.x, v.y, c.x, c.y];
-    Object.assign(v, { x: cx - v.width / 2, y: vy }); Object.assign(c, { x: cx - c.width / 2, y: cy });
-    if (fit() < before * UPRIGHT_KEEP || !outlinesClear(lay, g)) { [v.x, v.y, c.x, c.y] = was; continue; }   // it would not fit the
-                                                                                    // screen as well, or its outline would grow over another
-    stood.push(n.id);
-    for (const le of lay.edges) {                      // ELK's lines straight to where they are now, until libavoid's
-      const e = g.edges.find((x) => x.id === le.id), sec = (le.sections || [])[0];
-      if (!e || !sec || ![e.source, e.target].some((x) => x === n.id || x === d.cloud)) continue;
-      const at = (id) => { const b = box[id]; return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
-      le.sections = [{ startPoint: at(e.source), endPoint: at(e.target), bendPoints: [] }];
-    }
-  }
-  if (stood.length) { regrowOutlines(lay, g); refit(lay); }
-  return stood;
-}
-
 /* a flow between one stock and a cloud is that stock's satellite: its valve beside the stock, its cloud just
    beyond, on one straight line (docs/layout-rules.md: flow-excursion, valve-between-ends, cloud-by-valve). Where
    the layout left one elsewhere (pulled away by the links into its valve, or its cloud in a far corner), it is
    seated again: on the natural side first (a drain below or right of its stock, an inflow above or left of it),
    then the others, in the first place where it lies on nothing, inside its stock's own outline, and the drawing
-   still fits the screen about as well. One already beside its stock stays where it is */
-const SEAT_GAP = 34, SEAT_NEAR = 90, SEAT_CLOUD = 70;
+   still fits the screen about as well. One already beside its stock is only stood upright (a drain under it, an
+   inflow over it: it reads as falling out of the stock, or into it), where that room is free */
+const SEAT_GAP = 34, SEAT_NEAR = 90, SEAT_CLOUD = 70, SEAT_KEEP = 0.95;
 function seatCloudFlows(lay, g) {
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
@@ -198,11 +151,12 @@ function seatCloudFlows(lay, g) {
   for (const n of g.nodes) {
     if (n.kind !== "valve" && n.kind !== "disturbance") continue;
     const d = drainOf(g, n.id), v = box[n.id], c = d && box[d.cloud], st = d && box[d.stock];
-    if (!d || !v || !c || !st || S.pins?.[n.id] || S.pins?.[d.cloud] || home(n.id) !== home(d.stock)) continue;
-    if (seated(st, v, c)) continue;
+    if (!d || !v || !c || !st || S.pins?.[n.id] || S.pins?.[d.cloud] || home(n.id) !== home(d.stock) || lay.satellites?.has(n.id)) continue;
     const sb = partBox(st), sm = mid(st);
+    const upright = mid(v).x > sb.x0 && mid(v).x < sb.x1 && (d.out ? mid(v).y > sb.y1 : mid(v).y < sb.y0);
+    if (seated(st, v, c) && upright) continue;
     const lw = Math.max(0, ...(v.labels || []).map((l) => l.width)) + 8, lh = (v.labels || []).reduce((a, l) => a + l.height, 0) + 6;
-    const order = d.out ? ["down", "right", "up", "left"] : ["up", "left", "down", "right"];
+    const order = seated(st, v, c) ? [d.out ? "down" : "up"] : d.out ? ["down", "right", "up", "left"] : ["up", "left", "down", "right"];
     const others = lay.children.filter((k) => k !== v && k !== c && k !== st);
     const mine = home(d.stock);
     const free = (room) => !others.some((k) => meets(room, partBox(k), 12)) && !meets(room, sb, 4) &&
@@ -225,7 +179,7 @@ function seatCloudFlows(lay, g) {
         : [{ ...span, x1: Math.max(span.x1, vc.x + v.width / 2 + lw) }, { ...span, x0: Math.min(span.x0, vc.x - v.width / 2 - lw) }];
       if (!rooms.some(free)) continue;
       Object.assign(v, { x: vc.x - v.width / 2, y: vc.y - v.height / 2 }); Object.assign(c, { x: cc.x - c.width / 2, y: cc.y - c.height / 2 });
-      if (fit() < before * UPRIGHT_KEEP || !outlinesClear(lay, g)) { [v.x, v.y, c.x, c.y] = was; continue; }
+      if (fit() < before * SEAT_KEEP || !outlinesClear(lay, g)) { [v.x, v.y, c.x, c.y] = was; continue; }
       done = true;
       break;
     }
