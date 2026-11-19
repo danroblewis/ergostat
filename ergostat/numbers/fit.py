@@ -95,6 +95,7 @@ def stats(sim_: list, meas: list) -> dict | None:
         out["uc"] = max(0.0, 1.0 - out["um"] - out["us"])          # 2(1 − r)·S_s·S_a / MSE, by its definition
     else:
         out["exact"] = True                                         # no error to split: the replay is the record
+    out["skill"] = 1.0 - mse / (sa * sa) if sa > flat else None     # against holding it at its mean: below 0, worse
     out["scale"] = sa * sa + ma * ma                                # for a total across units
     out["nmse"] = mse / (out["scale"] or 1.0)                       # its own scaled error, as the total averages it
     out["says"] = says(out)
@@ -235,6 +236,20 @@ def compare(spec: Spec, data: ob.Data, run: sim.Run, partial: sim.Run | None = N
             "span": data.grid.until - data.grid.since}
 
 
+def worse_than_mean(spec: Spec, fit: dict) -> list[tuple[str, str]]:
+    """Each equation whose partial-model test (else its replay) fits worse than holding it at its mean, on enough
+    record: (its ref, the finding in words)."""
+    out = []
+    for ref in sorted({*fit.get("partial", {}), *fit.get("equations", {})}):
+        s = fit["partial"].get(ref) or fit["equations"].get(ref)
+        if s and not s.get("too_little") and s.get("skill") is not None and s["skill"] < 0:
+            kind, _, name = ref.partition(".")
+            out.append((ref, f"{kind} {name}: its equation fits its record worse than holding it at its mean (R² "
+                             f"{s['r2'] or 0:.2f}, scaled error {s['nmse']:.3g}, its mean squared error {1 - s['skill']:.3g} "
+                             f"times its readings' variance, over {s['n']} points): calibrate it, or write it again"))
+    return out
+
+
 def compute(p, snap: dict | None = None, n: int | None = None) -> tuple[ob.Data, sim.Run, dict]:
     """The fit on the reference window (the last day of record), whatever window the page shows;
     ``snap["at"]`` is the moment it looks back from."""
@@ -249,7 +264,7 @@ def compute(p, snap: dict | None = None, n: int | None = None) -> tuple[ob.Data,
 def _slim(s: dict | None) -> dict | None:
     return None if s is None else {k: (round(v, 6) if isinstance(v, float) else v) for k, v in s.items()
                                    if k in ("n", "r2", "mape", "um", "us", "uc", "rmse", "stocks", "exact", "still", "error_share",
-                                            "error_of", "says", "too_little", "nmse")}
+                                            "error_of", "says", "too_little", "nmse", "skill")}
 
 
 def history_path(p):
