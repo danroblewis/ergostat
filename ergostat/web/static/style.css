@@ -389,8 +389,9 @@ svg.canvas .pm-node { cursor: grab; }
 svg.dragging-part .pm-node { cursor: grabbing; }
 .edge.pm-follows .info { stroke: var(--ink); stroke-linejoin: round; opacity: .82; }
 .edge.pm-caused .info { stroke: var(--muted); stroke-dasharray: 6 4; }
+.edge.pm-related .info { stroke: var(--muted); stroke-dasharray: 1.5 3; }
 .edge.pm-follows.rework .elabel { font-style: italic; }
-.edge.pm-follows .elabel, .edge.pm-caused .elabel { fill: var(--muted); }
+.edge.pm-follows .elabel, .edge.pm-caused .elabel, .edge.pm-related .elabel { fill: var(--muted); }
 .toolbar .pm-paths { width: 96px; accent-color: var(--ink); }
 .toolbar .pm-paths-word { min-width: 7.5em; }
 .edge.influence .info { stroke: var(--dist); stroke-width: 1.4; stroke-dasharray: 7 4; }

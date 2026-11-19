@@ -14,6 +14,7 @@ const PM = { PAD: 22, TITLE: 26, GAP: 64, H: 44, PILL: 28 };
 
 function pmShow() { return S.pmShow === "times" ? "times" : "counts"; }
 function pmLabel(e) {                                  // a line's words: how many, or the median time between its ends
+  if (e.kind === "related") return pmShow() === "times" ? e.relation : `${e.relation} ${e.count}`;   // a relation: its name
   if (pmShow() === "times") return e.median != null ? dur(e.median) : "";
   return String(e.count);
 }
@@ -85,7 +86,7 @@ async function pmLayout(g, aspect = 1.6) {
   pmLines(lay, g);
   // the lines between kinds: stand-ins, drawn grey, until libavoid's come
   const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
-  for (const e of g.edges.filter((e) => e.kind === "caused")) {
+  for (const e of g.edges.filter((e) => e.kind !== "follows")) {
     const a = box[e.source], b = box[e.target];
     if (!a || !b) continue;
     const [sd, td] = pmSides(a, b);
@@ -227,14 +228,14 @@ function pmNode(n, w, hgt, most) {
 /* one scale for the map: the most frequent line within a kind, and between kinds */
 function pmMostLine(g) {
   const most = {};
-  for (const e of g.edges) { const k = e.kind === "caused" ? "~" : "|"; most[k] = Math.max(most[k] || 0, e.count); }
+  for (const e of g.edges) { const k = e.kind !== "follows" ? "~" : "|"; most[k] = Math.max(most[k] || 0, e.count); }
   return most;
 }
 /* a line as drawn: its way, its head, its words (where ELK put them while the line is ELK's, else on its longest
    straight stretch), and a wide line to point at; drawn again alone while a node it touches is dragged
    (diagram.js's redrawLine) */
 function pmEdgeContent(e, le, pts, mostLine = pmMostLine(S.graph)) {
-  const cross = e.kind === "caused";
+  const cross = e.kind !== "follows";
   const top = mostLine[cross ? "~" : "|"] || 1;
   const wgt = (cross ? 1.1 : 1.2) + (cross ? 2.2 : 4.8) * Math.sqrt(e.count / top);
   const out = [];
@@ -375,8 +376,8 @@ function openProcessNode(n) {
       ? `a state of ${n.itemKind}: each time an item entered it, in the window`
       : `an event about a ${n.itemKind} item: each time one was recorded, in the window`;
   const lines = (es, other) => es.length ? h("table", {}, es.map((e) => h("tr", { class: "click", onclick: () => openProcessEdge(e) },
-    h("td", {}, e.kind === "caused" ? `${(other(e) || "").split(":")[1]} · ${pmAct(other(e).split(":").slice(2).join(":"))}` : pmAct(g.nodes.find((x) => x.id === other(e))?.activity ?? "")),
-    h("td", { class: "muted" }, e.kind === "caused" ? "caused" : e.rework ? "rework" : ""),
+    h("td", {}, e.kind !== "follows" ? `${(other(e) || "").split(":")[1]} · ${pmAct(other(e).split(":").slice(2).join(":"))}` : pmAct(g.nodes.find((x) => x.id === other(e))?.activity ?? "")),
+    h("td", { class: "muted" }, e.kind === "caused" ? "caused" : e.kind === "related" ? e.relation : e.rework ? "rework" : ""),
     h("td", { class: "num" }, String(e.count)), h("td", { class: "num muted" }, e.median != null ? dur(e.median) : ""))))
     : h("p", { class: "muted" }, "None in the window.");
   showDetail(h("div", { class: "kind" }, n.kind === "activity" ? (g.by === "states" ? "State" : "Activity") : n.kind === "start" ? "Start" : n.kind === "schedule" ? "Schedule" : "End"),
@@ -397,7 +398,12 @@ function openProcessEdge(e) {
   const a = nodeOf(e.source), b = nodeOf(e.target);
   const link = (n) => h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openProcessNode(n); } }, pmAct(n.activity));
   let kids;
-  if (e.kind === "caused") {
+  if (e.kind === "related") {
+    kids = [h("div", { class: "kind" }, "Related"), h("h2", {}, `${a.itemKind} ${pmAct(a.activity)}`, ` ${e.relation} `, `${b.itemKind} ${pmAct(b.activity)}`), whatIs("related"),
+      h("p", { class: "muted" }, `${e.items} ${a.itemKind} item${e.items === 1 ? "" : "s"} last at ${pmAct(a.activity)} in the window name ${e.targets} ${b.itemKind} item${e.targets === 1 ? "" : "s"} last at ${pmAct(b.activity)} as ${e.relation}: ${e.count} link${e.count === 1 ? "" : "s"}, as they stand now.`),
+      dl([["from", link(a)], ["to", link(b)], ["relation", e.relation]]),
+      pmSet({ kind: [a.itemKind], through: [a.activity] }, `${a.itemKind}, through ${pmAct(a.activity)}`, "the items of the line's first end, in the window")];
+  } else if (e.kind === "caused") {
     kids = [h("div", { class: "kind" }, "Caused, across kinds"), h("h2", {}, `${a.itemKind} ${pmAct(a.activity)}`, " ⇢ ", `${b.itemKind} ${pmAct(b.activity)}`), whatIs("caused"),
       h("p", { class: "muted" }, (a.kind === "schedule" ? `A run of ${a.activity} on its schedule caused an event on a ${b.itemKind} item, ${e.count} time${e.count === 1 ? "" : "s"}: ` :
         `An event on a ${a.itemKind} item caused one on a ${b.itemKind} item (its causedby, directly or through a run), ${e.count} time${e.count === 1 ? "" : "s"}: `) +
@@ -458,6 +464,8 @@ function processLegend() {
         "caused, across kinds: an event on an item of one kind caused one on another (fan-out, join)"),
     row('<rect x="2" y="4" width="26" height="12" rx="6" fill="var(--panel)" stroke="var(--ink)" stroke-width="1.2"/><circle cx="11" cy="10" r="4" fill="none" stroke="var(--ink)"/>',
         "a schedule: a block's runs on every: or cron:, the source of what they started (a sweep's fan-out)"),
+    row('<path d="M1 10 H22" stroke="var(--muted)" stroke-width="1.4" stroke-dasharray="1.5 3"/><path d="M21 6 L28 10 L21 14 Z" fill="var(--muted)"/>',
+        "related: an item names another (a relation, such as parent or blocked_by), at the step each was last at; named, with how many links"),
     row('<rect x="2" y="2" width="26" height="16" rx="4" fill="none" stroke="var(--line-strong)"/>', "a kind of item: its own map, left to right in time order"),
     h("span", { class: "sym" }, "%"), h("span", {}, "the Paths slider hides lines rarer than that share of their kind's most frequent, as process mining tools do"));
 }
