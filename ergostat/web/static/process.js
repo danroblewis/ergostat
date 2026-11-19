@@ -254,7 +254,8 @@ function pmEdgeContent(e, le, pts, mostLine = pmMostLine(S.graph)) {
       let best = [pts[0], pts[1]], len = -1;
       for (let i = 1; i < pts.length; i++) { const L = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); if (L > len) { len = L; best = [pts[i - 1], pts[i]]; } }
       const vertical = Math.abs(best[0].x - best[1].x) < 1;
-      x = (best[0].x + best[1].x) / 2 + (vertical ? 6 : 0); y = (best[0].y + best[1].y) / 2 + (vertical ? 4 : -5);
+      const f = e.kind === "related" ? 0.25 : 0.5;     // a relation's name off the middle, where a caused line's number sits
+      x = best[0].x + (best[1].x - best[0].x) * f + (vertical ? 6 : 0); y = best[0].y + (best[1].y - best[0].y) * f + (vertical ? 4 : -5);
       anchor = vertical ? "start" : "middle";
     }
     out.push(s("text", { class: "elabel", x, y, "text-anchor": anchor, "paint-order": "stroke", stroke: "var(--bg)", "stroke-width": 4,

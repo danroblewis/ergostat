@@ -1419,10 +1419,15 @@ goals:
 The goal is still about one stock. Its value is the worst item's or group's (for `<=`, the greatest), worked out from
 the item index each time the stock's sensor reads, and as it stood at any moment the pages travel to; it is off while
 any breaks the setpoint (its `tolerance` as usual), and its `loop.off` names those that do (`breaking`: the worst
-20, each `{item}` or `{group}` with its `value`; `breaking_n`, how many). The loop's panel and "needs attention" list
-them. A group is only what its items name: an epic with no open ticket is no group, so `>=` per group sees only the
-groups that have items. `check` refuses `per:` on a goal not on a stock counted from items, and `per: item` on a
-count (**goal-per**).
+20, each `{item}` or `{group}` with its `value`; `breaking_n`, how many). A block serving it is given the same in its
+context (`goals.NAME`: `value`, the worst; `per`, `breaking`, `breaking_n`), and the loop's panel and "needs
+attention" list them. A setpoint an outer block sets (a cascade) holds each item or group. With no items (no
+groups), nothing breaks it and it holds: its value is 0, or the setpoint itself where 0 would break it (a floor on
+each item's age). A group is only what its items name: an epic with no open ticket is no group, so a floor on each
+group's count could never be broken, and `check` refuses it, as it refuses `per:` on a goal not on a stock counted
+from items and `per: item` on a count (**goal-per**); it notes a `per:` naming neither a relation nor a field the
+kind shows, folds or the sensor matches (**goal-per-field**). The items are read from the item index again only
+when the record changed; their hours are worked out again at each reading.
 
 ## 9. Blocks
 
