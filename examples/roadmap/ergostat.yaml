@@ -1,0 +1,113 @@
+# A roadmap: epics, each a fan-out of tickets that wait on one another (blocked_by), worked by stand-ins.
+# What it shows: relations between items (SPEC 5a, Relations), the Items page's Graph and Timeline, and a block
+# that takes only the tickets nothing unfinished blocks, the critical first (takes: unblocked).
+#
+#   epic/e1:  design ──> build-api ──┐
+#                   ├──> build-ui  ──┼──> integrate ──> release
+#                   └──> docs ───────┘
+#   epic/e2 comes after epic/e1 (after:), and so on: the planner keeps two epics in hand.
+name: roadmap
+
+systems:
+  delivery:
+    description: the tickets, from todo to done
+
+items:
+  epic:
+    id: epic/*
+    description: a piece of the roadmap, shipped when all its tickets are done
+    states: [planned, underway, shipped]
+    on: {epic.started: underway, epic.shipped: shipped}
+    relations:
+      after: epic                      # precedence: an epic follows the one before it
+    show: [title]
+  ticket:
+    id: ticket/*
+    description: one piece of an epic's work
+    states: [todo, doing, review, done]
+    on: {ticket.started: doing, ticket.submitted: review, ticket.approved: done}
+    relations:
+      blocked_by: ticket               # precedence: not ready until each ticket it names is done
+      parent: epic                     # cross-kind: the epic it is part of (the Graph groups by it)
+    show: [title, parent, blocked_by]
+    lease: {attempts: 3}
+
+messages:
+  done: {ticket: [done], epic: [shipped]}
+
+stocks:
+  todo:
+    unit: tickets
+    system: delivery
+    description: planned, not started (ready, or waiting on another)
+    sensor: {items: ticket, state: todo, every: 3s}
+  in-progress:
+    unit: tickets
+    system: delivery
+    description: being worked or reviewed
+    sensor: {items: ticket, state: [doing, review], every: 3s}
+  epics-underway:
+    unit: epics
+    system: delivery
+    description: epics with a ticket started, not shipped
+    sensor: {items: epic, state: underway, every: 3s}
+
+flows:
+  planned:
+    to: todo
+    system: delivery
+    description: "the roadmap's load: tickets planned, on the planner's own schedule"
+    sensor: {items: ticket, entering: todo, over: 2m}
+  started:
+    from: todo
+    to: in-progress
+    system: delivery
+    sensor: {items: ticket, entering: doing, over: 2m}
+  finished:
+    from: in-progress
+    system: delivery
+    sensor: {items: ticket, entering: done, over: 2m}
+  shipped:
+    from: epics-underway
+    system: delivery
+    sensor: {items: epic, entering: shipped, over: 5m}
+
+goals:
+  in-review-clear:
+    stock: in-progress
+    hold: "<= 0"
+    description: what is worked is reviewed, and nothing is left half done
+  nothing-ready-waits:
+    stock: todo
+    hold: "<= 0"
+    description: every ticket that can start, started
+
+blocks:
+  planner:
+    type: program
+    every: 15s
+    run: python3 bin/plan.py
+    out: flow.planned
+    description: keeps two epics in hand, each a fan-out of tickets, the next after the last
+  developer:
+    type: program
+    goal: nothing-ready-waits
+    run: python3 bin/work.py
+    takes: {kind: ticket, at: todo, to: [review], unblocked: true}
+    pool: 2
+    out: flow.started
+    description: a stand-in that works a ticket for a few seconds; takes only unblocked tickets, the critical first
+  reviewer:
+    type: program
+    goal: in-review-clear
+    run: python3 bin/review.py
+    takes: {kind: ticket, at: review, to: [done]}
+    pool: 1
+    out: flow.finished
+    description: a stand-in that approves a ticket after a moment
+  epics:
+    type: program
+    every: 3s
+    run: python3 bin/epics.py
+    out: flow.shipped
+    description: moves each epic along by its tickets (underway once one starts, shipped once all are done)
