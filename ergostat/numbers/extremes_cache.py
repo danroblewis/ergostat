@@ -244,15 +244,11 @@ def said(status: dict) -> str | None:
 
 
 def main(path: Path) -> None:
-    """The runner a _Job starts (``python -m ergostat.numbers.extremes_cache MODEL``): one per project (it exits at once
-    when another holds the run lock), at a low priority, stopped at ``BOUND`` seconds and a little more whatever it is
-    doing (what it finished is kept)."""
+    """The runner a _Job starts (``python -m ergostat.numbers.extremes_cache MODEL``, at a low priority and stopped at
+    ``BOUND`` seconds and a little more whatever it is doing: what it finished is kept): one per project, it returns at
+    once when another holds the run lock."""
     from ..spec import read
     from .extremes import failures
-    if hasattr(os, "nice"):
-        os.nice(10)
-    if hasattr(signal, "alarm"):
-        signal.alarm(int(BOUND) + 5)
     model, _ = read(path, extremes=False)
     where, last = _path(model), [0.0]
     if where is None:
@@ -270,5 +266,9 @@ def main(path: Path) -> None:
             failures(model, None, None, BOUND, told)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":                                # the process alone: a low priority, and stopped at the bound
+    if hasattr(os, "nice"):
+        os.nice(10)
+    if hasattr(signal, "alarm"):
+        signal.alarm(int(BOUND) + 5)
     main(Path(sys.argv[1]))
