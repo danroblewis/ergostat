@@ -326,7 +326,31 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     snap["messages"] = unrouted_messages(project, now)
     snap["actions"], snap["quarantined"] = held_actions(project, now), quarantined(project)
     snap["leases"] = lease_attention(project, now)
+    snap["cycles"] = relation_cycles(project)
     return snap
+
+
+_CYCLES: dict = {}
+
+
+def relation_cycles(project) -> list[list[str]]:
+    """Items whose precedence relations go round (SPEC §5a, *Relations*): none of them can ever be ready. Each needs
+    attention. Worked out again only when the record changes."""
+    spec = getattr(project.model, "spec", None)
+    if spec is None or not any(r.precedence for k in spec.items.values() for r in k.relations.values()):
+        return []
+    ev = project.events
+    key = (id(spec), ev.last_seq() if hasattr(ev, "last_seq") else None, ev.generation() if hasattr(ev, "generation") else None)
+    if key in _CYCLES:
+        return _CYCLES[key]
+    from .precedence import relation_cycles as found
+    try:
+        got = found(ev, spec)[:20]
+    except Exception:
+        return []
+    _CYCLES.clear()
+    _CYCLES[key] = got
+    return got
 
 
 def held_actions(project, now: float) -> list[dict]:
@@ -592,6 +616,11 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
             out.append({"level": "warn", "what": f"item {x['item']}", "says": f"the lease {x.get('block')} held on it "
                         f"expired" + (f": its run was silent {fmt(silent / 60)} min" if silent else "")
                         + "; it went back to be taken again"})
+    for c in snap.get("cycles", []):                 # precedence that goes round (SPEC §5a, relations)
+        said = ", ".join(c[:6]) + (f" and {len(c) - 6} more" if len(c) > 6 else "")
+        out.append({"level": "warn", "what": f"item {c[0]}", "item": c[0],
+                    "says": f"a cycle of precedence relations: {said} each wait on another, so none can be ready. "
+                    f"Take one of the links away"})
     for a in snap.get("actions", []):                # gated actions held for the owner (SPEC §12k)
         short = a["id"].split("/", 1)[1]
         cmd = a["command"] if len(a["command"]) <= 80 else a["command"][:77] + "..."
