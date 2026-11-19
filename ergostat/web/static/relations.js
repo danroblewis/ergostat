@@ -267,7 +267,7 @@ function relTimeline(open) {
     for (let t = Math.ceil(a / step) * step; t <= b; t += step) {
       const x = X(t);
       parts.push(s("line", { class: "rg-grid", x1: x, x2: x, y1: RG.AXIS - 4, y2: H }));
-      if (Math.abs(x - nx) > 40) parts.push(s("text", { class: "rg-tick", x, y: 14, "text-anchor": "middle" }, step >= 86400 ? new Date(t * 1000).toLocaleDateString() : clock(t)));
+      if (Math.abs(x - nx) > 40 && x < width - 30) parts.push(s("text", { class: "rg-tick", x, y: 14, "text-anchor": "middle" }, step >= 86400 ? new Date(t * 1000).toLocaleDateString() : clock(t)));
     }
     const at = {};                                         // where each row's bar starts and ends, for the arrows
     rows.forEach((x, i) => {
