@@ -91,3 +91,40 @@ possible, without check-ins. Check-ins are replaced by gates written down in adv
 - The light-theme contrast change is dropped, not merged: meeting 3:1 for the faded repeats forced every hue to one lightness. Reopened for a design pass (an outline or dash for the faded round, or alternating lightness).
 - The kill rule (two failed gates) was bent once for `resilience`: one final 45-minute round for three small, exact fixes, because its CLI fallback is what the owner's work laptop needs most. If it fails, it is split.
 - Redesign runs only when the owner asks (`when: ask` default); the automatic triggers are parked until a redesign on a large model succeeds (the-job's never compiled).
+
+## Morning report (11:20)
+
+**Merged and pushed (all four suites green, reviewed):** reloadfix, indexfix, gapsfix, reports (before the
+gates began); leasekill-only (a09c176), causes-join (b53a933), resilience-core (876b79b), smallgaps (02132f9),
+closedloop (6fc12bf), observer (e66245f), extremes (945ccea), layout + layout2 (2ed2f16); a flaky reload test
+fixed (d055399); tests take ports from the system.
+
+**Parked, each with "Where it stopped" in its definition file:** warm (per-item CPU of children, stray
+output, env per item); triggers (loops of five or more blocks, a full scan per hop); resilience's CLI
+fallback (includes read live mix with the kept YAML); modelling-core (5 of 7 safety fixes, tests and rebase
+left; continuing); the light-theme colours (reverted: 3:1 forced every hue to one lightness); layoutopt (an
+experiment, kept for reference); upkeep (prototype and proposal).
+
+**Gate failures caught before main:** a redesign could rewrite the owner's accept policy; a setpoint change
+passed as a rename; renames edited program files; an event trigger bypassed `mode: advise`; blocks triggered
+each other forever; the engine stayed down after a reboot; `compact --projects` on unmounted drives; warm
+processes leaked one item's state into the next; the observer slowed every model 20-50x and raised false
+findings on counts; an engine crash after a reload; the extremes runner left duplicate processes and made
+`check` create a project record; re-recorded diagram sizes hid 25-45% fit losses; a layout doc that did not
+describe its screenshot.
+
+**Size per merged gap (net code lines, budget 600):** leasekill-only 66, causes-join 256, smallgaps 216,
+observer 453, extremes 588, resilience-core 620 (594 code + schema), layout 600, closedloop 1,162 (reason in
+its definition file).
+
+**Decisions taken, for the owner to confirm:** `--service` prints by default, `--service --install` installs;
+redesign runs only when asked (`when: ask`); the light-theme change dropped; the kill rule bent once for
+resilience (which then failed and was split).
+
+**ergostat-dev** (http://127.0.0.1:8798, ~/ergostat-dev): its three views agree with git (98%); shots in
+~/ergostat-dev/shots/final-*.png; four upstream reports drafted in its state's reports/ folder (a person
+block with no goal crashes every pass; no way to draw a watched-but-not-run AI tier; collectors cannot
+timestamp events with when they happened; a failing sensor's error is cut to one line).
+
+**Continuing after noon (owner's request):** fastsuite (parallel suites), modelling-core, libraries,
+architecture (computed measures).
