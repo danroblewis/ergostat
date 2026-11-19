@@ -800,10 +800,13 @@ class _Diagram:
                   fn={"sym": "P", "sub": name, "arg": "s", "expr": "1/s", "linear": True},
                   math=[eq(sym("P", name, "s"), frac(mn(1), mi("s"))),
                         eq(sym("y", name), row(mo("∫"), mo("("), *_signed(terms), mo(")"), mi("d"), mi("t")))],
-                  says=f"integrator: the sum of its inputs over time, y_{name} = ∫({u}) dt.",
+                  says=f"integrator: the sum of its inputs over time, y_{name} = ∫({u}) dt." if flows else
+                  f"integrator with no inputs: no flow is modelled into or out of {name}, so it holds its value.",
                   part=o, rows=[["output", f"y_{name}"], ["unit", st.unit], ["now", self.now(o)], ["inputs", ", ".join(
                       ("+" if sg > 0 else "−") + f.split(".", 1)[1] for f, sg in flows)], ["description", st.description]])
         self.produce(o, nid, o)
+        if not flows:                                  # no flow modelled: it holds its value, nothing to sum
+            return
         if len(flows) == 1 and flows[0][1] > 0:
             self.wire(flows[0][0], nid, self.port(nid, "in", flows[0][0]))
             return
