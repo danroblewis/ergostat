@@ -16,7 +16,7 @@ SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variabl
             "loops", "claims", "contexts", "actions", "workspaces", "leases")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
             "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of"}
-TOP = {"name", "include", "keep", "messages", "storage", "intake", "defaults", "uses", "library", "remotes", *SECTIONS}
+TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "defaults", "uses", "library", "remotes", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -126,6 +126,7 @@ class Document:
     messages: object = None          # messages: how the owner's messages are routed (SPEC §12h), in one file
     messages_at: Where | None = None
     storage: object = None
+    purpose: str = ""                # what the whole model is for (main file only): goals trace to it (SPEC §4a)
     intake: object = None            # intake: what may push events to the running ergostat (main file only)
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
@@ -182,6 +183,12 @@ def load(main: Path) -> Document:
                 doc.name = str(data["name"])
             else:
                 doc.problems.append(Problem("error", "name: belongs in the main file only", data.at("name"), "name-in-include"))
+        if "purpose" in data:
+            if top:
+                doc.purpose = str(data["purpose"] or "")
+            else:
+                doc.problems.append(Problem("error", "purpose: belongs in the main file only", data.at("purpose"),
+                                            "purpose-in-include"))
         if "storage" in data:
             if top:
                 doc.storage = data["storage"]

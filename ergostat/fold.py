@@ -12,6 +12,7 @@ Only a YAML model has the tree (``spec.within``); an older model is drawn as it 
 from __future__ import annotations
 
 from .remote import box as remote_box
+from .spec.architecture import size, size_said
 
 WORST = ("off", "stale", "open", "unknown", "holding")
 
@@ -95,7 +96,8 @@ def fold(g: dict, model, open_: set[str] | None, focus: str | None = None) -> di
             boxes[r] = {"id": r, "kind": "system", "label": name, "description": spec.systems.get(name, ""),
                         "systems": [s for s in ch[1:] if s in open_ and s != focus and (not focus or focus in ch[1:])],
                         "ports": [], "loops": {}, "status": None, "inner": spec.inner_loops(name),
-                        "subsystems": spec.subsystems(name), "parts": 0, "remote": remote_box(spec, name)}
+                        "subsystems": spec.subsystems(name), "parts": 0, "remote": remote_box(spec, name),
+                        "size": size_said(size(spec, name))}             # parts, loops, depth (architecture.py)
         if r.startswith("system:"):
             boxes[r]["parts"] += 1
             boxes[r].setdefault("holds", []).append(i)            # (correspond.py: what it holds, as drawn)
