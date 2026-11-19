@@ -1686,8 +1686,8 @@ class Engine:
             self.p.model = model
             self.version = version
             self.full = True                                     # the next pass works out everything, under the new model
-        self.wake.set()
         self.daemons.sync(new)                                   # a daemon whose definition changed: drained, replaced
+        self.wake.set()
         self._ingest()
         finishing = {k: v for k, v in finishing.items() if v}   # what runs once more, under its old definition
         said = {"reload": "in place", "carried": len(carried), "runs": carried, "version_before": was,
