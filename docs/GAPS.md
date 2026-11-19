@@ -6,12 +6,13 @@ review). Newest decisions from the owner first within each section.
 
 ## Remote systems and libraries
 
-- **Remote systems** (in progress, `remote`; `docs/proposals/remote-systems.md`, SPEC §4c): a system run by
+- **Remote systems** (first slice done, 72da4e1, merged from `remote`; what is left below is open;
+  `docs/proposals/remote-systems.md`, SPEC §4c): a system run by
   another ergostat instance, composed into a local model. Its model is served by the remote instance and changes
   while it runs; its event log and metrics are queried where they live; its agents run on the remote machine,
   never locally. The local model reads it, links to its parts, and draws it as a subsystem; it never runs it.
   (Owner, 2026-11-18.)
-  - *Done on the branch*: the read-only remote API on every page server (`/remote/v1/`: status, model with
+  - *Done*: the read-only remote API on every page server (`/remote/v1/`: status, model with
     version and ETag, events by cursor, items, counts, readings, series, process; bearer tokens per consumer,
     hashed at rest, rate-limited); `remotes:` in the YAML (fetched, cached, refreshed on `every:` and when a
     reading says the version moved; parts brought in as an external subsystem, blocks never run, sensors
@@ -73,11 +74,11 @@ review). Newest decisions from the owner first within each section.
 
 ## Runtime, scale and latency
 
-- **Event-driven counts, a scheduler instead of a thread per reading, evaluation of what changed** (in
-  progress, `scale2`). The old design kernel-panicked the machine at 14,000 threads.
-- **Latency: push intake, notify-on-write, a local socket for calls from steps** (in progress, `latency`).
+- **Event-driven counts, a scheduler instead of a thread per reading, evaluation of what changed** (done,
+  96f02d9, merged from `scale2` through `latency`). The old design kernel-panicked the machine at 14,000 threads.
+- **Latency: push intake, notify-on-write, a local socket for calls from steps** (done, 96f02d9, merged from `latency`).
 - **Warm workers instead of a process per item** (open; designed in the latency work).
-- **What each run costs** (done on branch `runcost`, e26fcf4 and 4b39f0f, not merged yet): per run, its AI sessions' dollars (reported by Claude Code, or
+- **What each run costs** (done, 251df28, merged from `runcost`): per run, its AI sessions' dollars (reported by Claude Code, or
   estimated from tokens), tokens and model, the CPU time and peak memory of its process tree (one shared sampler and
   its wait status), wall time and exit; series per block, `ergostat.cost.*` measures a goal can hold, the Agents page
   and `ergostat agent NAME`. Network bytes per process are left out (macOS has them only through `nettop`).
@@ -99,9 +100,10 @@ review). Newest decisions from the owner first within each section.
 
 ## Interface
 
-- **Per-run cost and resources on the Agents page** (in progress, `runcost`): AI tokens and USD per run, CPU,
+- **Per-run cost and resources on the Agents page** (done, 251df28, merged from `runcost`; network left out, see
+  "What each run costs"): AI tokens and USD per run, CPU,
   memory, open files (network if attributable), history charts per agent, and measures a budget goal can read.
-- **Process view: drag, pin and re-route** (in progress, `procdrag`).
+- **Process view: drag, pin and re-route** (done, 4aa1bc0, merged from `procdrag`).
 - **Dark theme: the lighter correspondence colours are low in contrast** (open).
 
 ## The owner's work setup
