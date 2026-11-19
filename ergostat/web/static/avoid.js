@@ -428,8 +428,9 @@ function avoidSpec(lay, g) {
   for (const c of Object.values(box)) {
     if (!pinsBy[c.id] || S.pins?.["turn:" + c.id]) continue;
     const cin = conns.find((x) => x.t === c.id && edgeOf[x.id].kind === "pipe"), cout = conns.find((x) => x.s === c.id && edgeOf[x.id].kind === "pipe");
+    if (!cin || !cout) continue;
     const far = box[cout.t] && { x: box[cout.t].x + box[cout.t].width / 2, y: box[cout.t].y + box[cout.t].height / 2 };
-    if (cin && cout) flows.push({ id: c.id, s: cin.s, sp: cin.sp, t: cout.t, tp: cout.tp, x: c.x + c.width / 2, y: c.y + c.height / 2,
+    flows.push({ id: c.id, s: cin.s, sp: cin.sp, t: cout.t, tp: cout.tp, x: c.x + c.width / 2, y: c.y + c.height / 2,
                                   tx: far?.x, ty: far?.y });
   }
   // (in the dynamics view a flow's pipe reads best short and straight: a crossing there costs less than a long way round)
