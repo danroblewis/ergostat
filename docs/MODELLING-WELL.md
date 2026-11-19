@@ -487,14 +487,17 @@ Ordered by what matters most. Go through each after `check` is clean.
 
 1. Each item kind is one chain: in from outside at its first stock, out where the work ends, every move a flow
    from stock to stock (rework included).
-2. Every stock is a quantity with a natural unit, named as a noun; ages, ratios and scores are auxiliaries.
-3. Every flow but the measured arrivals has an equation, with parameters that have units, descriptions and
+2. Each kind arrives from a cloud once: no second inflow from outside counting the same kind into a later state
+   (`kind-enters-many-times`), unless the record shows items arriving there; few clouds, each really outside
+   (`many-cloud-inflows`).
+3. Every stock is a quantity with a natural unit, named as a noun; ages, ratios and scores are auxiliaries.
+4. Every flow but the measured arrivals has an equation, with parameters that have units, descriptions and
    `estimate: true` until known; shares have `range: [0, 1]`.
-4. Links are signed; any flow driven by a flow is `instant: true` with a comment, or has a stock between.
-5. Decisions read what their maker can see; slow perceptions are `SMOOTH`s.
-6. Systems of four to nine stocks, one chain each, split by kind or by who controls them; the boundary is
+5. Links are signed; any flow driven by a flow is `instant: true` with a comment, or has a stock between.
+6. Decisions read what their maker can see; slow perceptions are `SMOOTH`s.
+7. Systems of four to nine stocks, one chain each, split by kind or by who controls them; the boundary is
    written down.
-7. Every part has a description.
+8. Every part has a description.
 
 **Blocks**
 

@@ -2043,6 +2043,33 @@ state with no stock of its own). `numbers/structural.py` makes each a structural
 proposal that chains the whole kind; each carries `rewires` and waits for the owner whatever the judge's policy.
 `try_change` takes them as evidence (`finding:outflow-not-chained@flow.NAME`).
 
+**The boundary, crossed once** (findings, `ergostat/spec/chains.py`). A cloud is the system's boundary, so an item
+crosses it once, when it arrives; after that it moves between the model's own stocks. An inflow from a cloud is
+measured as items of a kind when its sensor counts them `entering:` a state, or, with no sensor of the kind, when the
+stock it fills counts a state of the kind (a sensor with a `where`, a part of the kind, and a `two-way` flow, an
+adjustment, are not arrivals). In the record, an item arrives in the state its first event leaves it in.
+
+- **kind-enters-many-times** (`items.KIND`): inflows from clouds measured as one kind enter two states or more. It
+  names the flows and the states they enter, and says the meaning: the same items counted twice, or their moves
+  between the kind's own stocks drawn as arrivals, so those stocks relate only through information links. The
+  arrival into the kind's first state is kept (the first by the kind's order among the states the record sees items
+  arrive in, else the first by the order); each other inflow is re-pointed `from:` the stock of the state its items
+  come from, by, strongest first, the flow's own `leaving:`, the record's moves (back through states with no stock),
+  a block taking them there, an outflow counting them entering it, and the kind's state order. When that is the stock
+  it fills, it is taken out (it counts them twice); when the items pass through one state with no stock, which an
+  outflow drains them into, that state gets a stock and the two flows meet at it. A flow the chain's own finding
+  already answers is left to it: `inflow-not-chained` on the same flow becomes this finding, and a flow
+  `outflow-not-chained` takes out, a stock the chain's fix fills, and the chain's aggregate (a stock filled by every
+  item entering it from two states or more) are not said again. Items the record shows arriving in a later state
+  directly (reopened in the outside system), or a state no state with a stock comes before (the items branch from
+  states the model keeps no stock of), are real arrivals: then it is a note, not a fault, with no change.
+  `numbers/structural.py` proposes the rewiring as one change (`rewires`), and `try_change` takes it as evidence.
+- **many-cloud-inflows** (`model`): more inflows from clouds than half the model's stocks, and at least five,
+  beyond each item kind's one arrival and leaving out two-way flows. Then most stocks fill from outside and pass
+  little to each other: a note to draw the boundary chart (Sterman ch. 3: what the model explains, what it takes as
+  given, what it leaves out) and decide what is really outside. Five, because fewer can be read at a glance, and a
+  model of a few independent quantities, each filled from outside, is right as it is.
+
 ## 12a. Feedback loops (system dynamics)
 
 Worked out, never written: every cycle of cause and effect through stocks, flows, auxiliaries,
