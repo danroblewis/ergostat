@@ -87,14 +87,20 @@ function avoidCore(A) {
         const p = cr.displayRoute().map((q) => [q.x, q.y]);
         let len = 0; for (let i = 1; i < p.length; i++) len += Math.abs(p[i][0] - p[i - 1][0]) + Math.abs(p[i][1] - p[i - 1][1]);
         return (p.length - 2) * 10000 + len; };
-      for (const [cr, f] of Object.values(fc)) {
-        if (!way(cr, f)?.corner) continue;
-        const tries = [across, upDown].map((ax) => {
-          cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: ax, departure: ax }]);
+      // (all of them at once: one routing for each axis, and one for the choices)
+      const corners = Object.values(fc).filter(([cr, f]) => way(cr, f)?.corner);
+      if (corners.length) {
+        const costs = corners.map(() => ({}));
+        for (const ax of [across, upDown]) {
+          for (const [cr, f] of corners) cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: ax, departure: ax }]);
           r1.processTransaction();
-          return [cost(cr), ax];
-        }).sort((a, b) => a[0] - b[0]);
-        if (tries[0][1] !== upDown) { cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: tries[0][1], departure: tries[0][1] }]); r1.processTransaction(); }
+          corners.forEach(([cr], i) => { costs[i][ax] = cost(cr); });
+        }
+        let again = false;
+        corners.forEach(([cr, f], i) => {
+          if (costs[i][across] < costs[i][upDown]) { cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: across, departure: across }]); again = true; }
+        });
+        if (again) r1.processTransaction();
       }
       for (const [id, [cr, f]] of Object.entries(fc)) {
         const w = way(cr, f);
@@ -120,7 +126,9 @@ function avoidCore(A) {
       router.setRoutingOption(O.nudgeSharedPathsWithCommonEndPoint, !!spec.nudgeCommon);   // lines from one point share their way
       router.setRoutingOption(O.penaliseOrthogonalSharedPathsAtConnEnds, true);
       router.setRoutingOption(O.performUnifyingNudgingPreprocessingStep, true);
+      const f0 = performance.now();
       const turns = (spec.flows || []).length ? firstPass(spec) : {};
+      const firstMs = performance.now() - f0;
       for (const s of spec.shapes) {
         if (s.pinsBy && turns[s.id]) { s.pins = s.pinsBy[turns[s.id]]; if (s.labelsBy) s.labels = s.labelsBy[turns[s.id]]; }
         const sh = router.addShape({ x: s.x, y: s.y, width: s.w, height: s.h });
@@ -140,7 +148,7 @@ function avoidCore(A) {
       router.processTransaction();
       const ms = performance.now() - t0;
       const invalid = Object.values(conns).filter((c) => !c.hasValidRoute()).length;
-      return { routes: take(), ms, invalid, turns };
+      return { routes: take(), ms, invalid, turns, firstMs };
     },
     moveMany(list) {                                    // several parts moved together (an open system dragged): one routing
       if (!router) return {};
@@ -436,7 +444,7 @@ function avoidStart(lay, g) {
                Object.fromEntries(spec.conns.map((c) => [c.id, [c.s, c.t]])));
       uncross(lay, g);
       if (g.kind === "dynamics") { sdSeparate(lay, g); uncross(lay, g); }   // (dynamics.js)
-      AV.ms = m.ms; AV.invalid = m.invalid;               // (how long it took, and lines it found no way for: the tests read them)
+      AV.ms = m.ms; AV.invalid = m.invalid; AV.firstMs = m.firstMs;               // (how long it took, and lines it found no way for: the tests read them)
       AV.routed = { lay, seq };
     }
     lay.routing = false;
