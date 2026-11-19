@@ -273,11 +273,15 @@ def test_printed_events_renew_the_lease_as_they_arrive(tmp_path):
     assert not p.events.query(n=None, type=EXPIRED)
 
 
-def test_a_fenced_runs_later_lines_are_refused_at_once(tmp_path):
+def test_a_fenced_runs_later_lines_are_refused_at_once(tmp_path, monkeypatch):
     """Its lease expires while it is silent; the line it prints after is refused when it prints it, before the run
-    ends, and changes nothing; what it printed while it held the lease stands."""
+    ends, and changes nothing; what it printed while it held the lease stands. (An expired run is killed: this one
+    ignores SIGTERM, and the grace before SIGKILL outlasts it, so it prints its late line while being stopped.)"""
+    from ergostat.leases import kill
+    monkeypatch.setattr(kill, "GRACE", 30.0)
     p = leased(tmp_path, """
-        import json, sys, time
+        import json, signal, sys, time
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         sys.stdin.read()
         print(json.dumps({"event": "ticket.started", "data": {"by": "first"}}), flush=True)
         time.sleep(3)

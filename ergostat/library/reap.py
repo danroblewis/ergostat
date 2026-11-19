@@ -95,6 +95,8 @@ def stop(pid: int, grace: float = 3.0, also_group: bool = False, also: set[int] 
     mine = {os.getpgrp()}
     seen: set[int] = set(also or ())
     for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 1.0)):
+        if sig == signal.SIGKILL and seen and not _alive(seen - {os.getpid()}):
+            break                                       # all gone: ``pid`` may be another's now, so not looked under again
         procs = tree()
         pids = descendants(pid, procs) | (_alive(seen) if seen else set())
         groups = {procs[p][1] for p in pids if p in procs} - mine
