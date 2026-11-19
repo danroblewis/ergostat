@@ -222,22 +222,29 @@ def identify(p, spec: Spec, data: ob.Data | None = None) -> dict[str, StandIn]:
     span_h = (g.until - g.since) / 3600.0
     times = g.times()
     out: dict[str, StandIn] = {}
-    for ref, name in actuated(spec).items():
-        b = spec.blocks[name]
+    for ref, block in actuated(spec).items():
+        b = spec.blocks[block]
         if b.builtin:
             continue                                        # a built-in moves its flow itself: run as the engine does
         f = spec.flows[ref[5:]]
-        cs = spec.commanders_of(name)
+        several = sum(1 for t in b.targets() if t.kind == "flow") > 1
+        name = f"{block} (on {f.name})" if several else block   # how it is said: which of its flows, when it moves several
+        cs = spec.commanders_of(block)
         gate = cs[0].name if cs else None
-        runs = _runs(p, name, g.since, g.until)
-        s = StandIn(name, ref, "rate", gate=gate, source=f.source, runs=len(runs), span=span_h)
+        runs = _runs(p, block, g.since, g.until)
+        s = StandIn(block, ref, "rate", gate=gate, source=f.source, runs=len(runs), span=span_h)
         gated = f" while {gate} commands it" if gate else ""
-        pts = _gate_series(p, spec, name, g.since, g.until)
+        pts = _gate_series(p, spec, block, g.since, g.until)
         vals = data.values.get(ref) or []
         lvl = data.values.get(f"stock.{f.source}") if f.source else None
         gate_on = _on_at(pts, times)
         on_b = [i for i in range(len(times)) if gate_on[i] and i < len(vals) and vals[i] is not None]
         off_b = [i for i in range(len(times)) if not gate_on[i] and i < len(vals) and vals[i] is not None]
+        moved_off = sum(vals[i] for i in off_b)
+        if gate and len(on_b) < MIN_BUCKETS <= len(off_b) and moved_off > 0 and not b.takes:
+            # it moved while nothing commanded it (a person answers before being asked): its flow is not its command's
+            on_b, off_b, s.gate = sorted(on_b + off_b), [], None
+            gated = f" whether or not {gate} commands it (it moved {moved_off * data.grid.width / 3600:.3g} while not commanded)"
         ok = [r for r in runs if r["type"] == "agent.ran"]
         took = [r for r in runs if (r.get("data") or {}).get("item")]
         if b.takes:
@@ -251,7 +258,7 @@ def identify(p, spec: Spec, data: ob.Data | None = None) -> dict[str, StandIn]:
                 med = _quantile(secs, 0.5)
                 good = sum(1 for r in took if r["type"] == "agent.ran" and not (r.get("data") or {}).get("nack"))
                 exp = sum(1 for e in p.events.query(n=None, type=EXPIRED, since=g.since, until=g.until)
-                          if (e.get("data") or {}).get("block") == name)
+                          if (e.get("data") or {}).get("block") == block)
                 s.service, s.success = med / 3600.0, good / len(took)
                 s.expired = min(1.0, exp / (len(took) + exp)) if exp else 0.0
                 s.se = {"service": sd / math.sqrt(len(took)) / 3600.0,
@@ -400,6 +407,24 @@ def start_of(p, spec: Spec, at: float) -> Start:
     return st
 
 
+class _Spec:
+    """The model as the shadow reads it: the spec itself, but who commands each block worked out once (the engine
+    asks at every pass; in a projection that is thousands of times)."""
+
+    def __init__(self, spec: Spec):
+        self._spec, self._commanders = spec, {}
+        self.goals, self.blocks = spec.goals, spec.blocks
+
+    def __getattr__(self, name):
+        return getattr(self._spec, name)
+
+    def commanders_of(self, block: str):
+        got = self._commanders.get(block)
+        if got is None:
+            got = self._commanders[block] = self._spec.commanders_of(block)
+        return got
+
+
 class Shadow:
     """The engine's control state without its machinery: the engine's own methods (``goals``, ``_builtins``, ``get``,
     ``command_of``) run on it, so what a built-in decides here is what it would decide there."""
@@ -414,7 +439,7 @@ class Shadow:
     command_of = en.Engine.command_of
 
     def __init__(self, spec: Spec, signals: dict, start: Start | None = None, setpoints: dict | None = None):
-        self.spec, self.signals = spec, signals
+        self.spec, self.signals = _Spec(spec), signals
         self.builtins = {n: make_builtin(spec.blocks[n], spec) for n in builtin_order(spec)}
         self.status: dict[str, str] = dict(start.status if start else {})
         self.setpoint: dict[str, float] = dict(start.setpoint if start else {})
@@ -588,6 +613,7 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
     want = {r: V.get(r, 0.0) for r in drains}
     moving_refs = {m[0] for m in moving}
     sh = Shadow(spec, V, start, whatif.setpoints)
+    blocks_on = sorted({s.block for s in standins.values() if s.block in spec.blocks})
     drawn = draw.get("standins") or {}
     for r, s in standins.items():                           # a pool tried: the stand-in's seats
         if s.block in whatif.pools:
@@ -611,8 +637,9 @@ def closed(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, pl: sim.Plan
         for r, src in drains.items():
             x = state.get(src)
             V[r] = min(want[r], max(0.0, x) / dt) if x is not None and dt > 0 else want[r]
+        ons = {b: sh.on(b) for b in blocks_on}
         for r, s in standins.items():
-            on = sh.on(s.block) if s.block in spec.blocks else True
+            on = ons.get(s.block, True) if s.gate else True
             eqv = None
             if r in own:
                 try:

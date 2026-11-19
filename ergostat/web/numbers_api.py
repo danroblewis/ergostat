@@ -24,6 +24,7 @@ ESTIMATING = threading.Lock()     # one estimate at a time: each is a few hundre
 HORIZON = 0.25           # a projection looks ahead at most a quarter of the window ...
 LEAST = 0.05             # ... at least a twentieth of it ...
 DOMINANT = 3.0           # ... and, between, three of the slowest time constant the replay met
+RISK_BUDGET = 8.0        # seconds the page's closed-loop Monte Carlo may take; past it, it says how many runs it made
 SAMPLED_KEYS = ("name", "how", "low", "high", "value", "sd", "unit", "duration")   # what the strip says of each sampled
 
 
@@ -105,7 +106,7 @@ def risk_of(live, p, snap: dict, mr: dict, inputs: str, whatif: dict | None = No
     got = live.cached(key)
     if got is None:
         got = cl.risk(spec, mr["data"], mr["run"], mr["horizon"], mr["points"], mr["standins"], mr["start"],
-                      _estimates(p, spec), whatif or None, inputs, other)
+                      _estimates(p, spec), whatif or None, inputs, other, budget=RISK_BUDGET)
         live.keep(key, got)
     return got
 

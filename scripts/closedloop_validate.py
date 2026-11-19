@@ -99,6 +99,7 @@ def main() -> int:
     ap.add_argument("--points", type=int, default=40)
     ap.add_argument("--double", action="append", default=[], metavar="FLOW", help="an input to double (flow.NAME)")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--per-stock", action="store_true", help="each stock's scaled error, held and closed")
     a = ap.parse_args()
     p = Project(mdl.load(Path(a.dir)))
     spec = p.model.spec
@@ -127,6 +128,14 @@ def main() -> int:
                 print(f"    {mode:7s} scaled error {t['nmse']:.3g}  R² {t['r2'] if t['r2'] is None else round(t['r2'], 2)}  "
                       f"MAPE {t['mape'] if t['mape'] is None else round(t['mape'], 2)}  "
                       f"U_M {t['um']:.2f}  U_S {t['us']:.2f}  U_C {t['uc']:.2f}  ({t['stocks']} stocks)")
+    if a.per_stock:
+        for x in got["splits"]:
+            print(f"\n split at -{human(until - x['split'])}, each stock's scaled error (held → closed):")
+            for r in sorted(x["closed"]["stocks"], key=lambda r: -x["held"]["stocks"].get(r, {}).get("nmse", 0)):
+                hs, cs = x["held"]["stocks"].get(r), x["closed"]["stocks"][r]
+                print(f"  {r[6:]:28s} {hs['nmse'] if hs else float('nan'):10.3g} → {cs['nmse']:.3g}"
+                      f"   (measured mean {cs['mean_measured']:.4g}; held {hs['mean_replay'] if hs else float('nan'):.4g}, "
+                      f"closed {cs['mean_replay']:.4g})")
     if a.double:
         d = got["doubled"]
         print(f"\n{', '.join(d['inputs'])} at their mean, and doubled, {human(d['horizon'])} ahead with the loops running:")
