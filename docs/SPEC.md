@@ -4101,6 +4101,7 @@ low with a stock fitting worse than its mean, an assumed model, or a projection 
 (`worst`: the stock with the lowest skill below 0, else the first assumed model), and **a low-confidence report opens
 its sentence with it** ("Low confidence: the model fits ready-work worse than its mean (skill −435)."). High when every
 model is identified and every charted stock's skill is at least 0.5; else medium.
+
 ## 12o. The inbox: everything waiting on a person, answered and delivered
 
 Human approval is for a system's early stages, while its owner and their agent work out its feedback loops; each kind
