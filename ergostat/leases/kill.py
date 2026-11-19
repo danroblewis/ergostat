@@ -31,7 +31,7 @@ def kill(eng, run: str, why: str, item: str | None = None, fence: int | None = N
 
 def _stop(eng, proc, run, why, item, fence, block) -> None:
     t0 = time.monotonic()
-    pids = reap.stop(proc.pid, grace=GRACE, also_group=True)
+    pids = reap.stop(proc.pid, grace=GRACE, also_group=True, also={proc.pid})   # (the run itself waited on too)
     sig = "TERM" if time.monotonic() - t0 < GRACE else "KILL"     # (TERM was enough when it ended inside the grace)
     eng.p.events.add(KILLED, item=block, source="ergostat", causedby=run,
                      data={"run": run, "why": why, "signal": sig, "pids": sorted(pids), "grace": GRACE,
