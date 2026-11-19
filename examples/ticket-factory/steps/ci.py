@@ -1,6 +1,7 @@
 """ci: watch CI on the pull request's head. Green: on to merge. Failed: to ci-failed, with the failing log,
 for `fix-ci`. A repository with no CI is taken as green once five minutes pass with no run. While CI runs,
-the ticket is given back and looked at again after POLL_EVERY."""
+the ticket is given back and looked at again soon (step.py: Wait), at once when CI's result is pushed (README,
+"Pushed, not polled")."""
 
 import github
 from step import Move, Wait

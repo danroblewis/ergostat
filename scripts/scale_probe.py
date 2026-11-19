@@ -13,7 +13,8 @@ are due), ``measure`` and ``goals`` (inside it), ``sensor.<kind>`` (one reading:
 built-in measure, a change), ``fold.catch_up`` (the item index following the record), ``items.project`` (every item
 of a kind, read), ``dispatch.tick`` (which items each block takes now), ``dispatch.watch`` (the lease watchdog),
 ``dispatch.take`` (one lease and its run started), ``run_block`` (a machine block's run, its process included),
-``judge`` (the judge's pass), ``sweep`` (messages, workspaces, actions)."""
+``judge`` (the judge's pass), ``sweep`` (messages, workspaces, actions); where the engine has them, ``batch`` (the
+loop's round: its readings taken and its pass) and ``counts.follow`` (the kept counts brought up to date)."""
 
 from __future__ import annotations
 
@@ -92,6 +93,10 @@ def install() -> None:
         wrap(D, attr, f"dispatch.{attr}")
     wrap(engine, "read_sensor", by=sensor_kind)
     wrap(itemindex.Index, "catch_up", "fold.catch_up")
+    if hasattr(E, "_readings"):                          # the loop's batch (scale.md #1) and the kept counts' follow (#4)
+        wrap(E, "_readings", "batch")
+        from ergostat.spec import counts
+        wrap(counts.Counts, "follow", "counts.follow")
     wrap(items, "project", "items.project")
     dispatch.its.project = items.project                 # (the dispatcher's own name for it)
 

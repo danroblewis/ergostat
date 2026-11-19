@@ -18,7 +18,7 @@ from datetime import datetime
 import github
 import json
 
-from tf import OFFLINE, RUN, conf, items, read_json, run_ergostat, seconds, throttled, write_json, yes
+from tf import OFFLINE, RUN, conf, items, read_json, record, run_ergostat, seconds, throttled, write_json, yes
 
 ASK = ("Could the file also say which ticket it is for, with the ticket's link? "
        "(A scripted review by the ticket factory's teammate.)")
@@ -26,6 +26,13 @@ ASK = ("Could the file also say which ticket it is for, with the ticket's link? 
 
 def when(iso: str) -> float:
     return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp() if iso else 0.0
+
+
+def news(tid: str, what: str) -> None:
+    """Offline, what GitHub's webhook would push at work (README, "Pushed, not polled"): news of the ticket, so the
+    review step waiting on it looks again at once."""
+    if OFFLINE:
+        record("ticket.news", tid, {"news": f"github: {what}"}, by="github")
 
 
 def main() -> int:
@@ -45,6 +52,7 @@ def main() -> int:
             if time.time() - m["since"] >= seconds(conf("TEAMMATE_AFTER", "120s")):
                 github.review_comment(f["repo"], f["pr"], ASK)
                 m.update(phase=1, asked=time.time())
+                news(t["id"], "a review asks for a change")
         elif m["phase"] == 1:
             looking += 1
             if throttled(f"teammate:{pr_key}"):
@@ -55,6 +63,7 @@ def main() -> int:
             if answered:
                 github.teammate_comment(f["repo"], f["pr"], f"{conf('APPROVE_WORD')} Looks good, thanks.")
                 m.update(phase=2, approved=time.time())
+                news(t["id"], "approved")
     write_json(RUN / "teammate.json", mem)
     if OFFLINE:                                          # the owner's stand-in: only ever offline
         for a in json.loads(run_ergostat("actions", "--json", "-n", "200"))["actions"]:

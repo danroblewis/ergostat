@@ -167,6 +167,7 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
             it.state, it.entered = to, e["time"]
         if lease is not None:
             lease_fold.renew(it, e)
+            lease_fold.news(it, e)
     return it
 
 

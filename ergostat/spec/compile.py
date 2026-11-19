@@ -774,6 +774,11 @@ class Compiler:
         spec.storage = storage(d.storage, wrong)
         for msg in wrong:
             self.err(msg, None, "bad-storage")
+        from ..intake.config import parse as intake
+        wrong = []
+        spec.intake = intake(d.intake, wrong)
+        for msg in wrong:
+            self.err(msg, None, "bad-intake")
         for name, m, what in self.named("systems"):
             self.keys(m, {"description", "within", "show"}, what)
             spec.systems[name] = self.text(m, "description")

@@ -175,3 +175,24 @@ def test_every_paces_a_commanded_block(tmp_path):
     p = run_for(tmp_path, paced, 5)
     starts = [e["time"] for e in p.events.query(n=None, type="agent.started", item="worker")]
     assert starts and all(b - a >= 1.9 for a, b in zip(starts, starts[1:], strict=False))
+
+
+def test_two_sensors_of_one_series_read_as_the_first_in_the_model_says(tmp_path):
+    """A stock and a flow of the same name write one series (sensor/NAME.main): the loop reads it on the schedule of the
+    first in the model's order (the stock's), as the clock always has."""
+    text = """
+    stocks:
+      q:
+        sensor:
+          run: echo 1
+          every: 0.5s
+    flows:
+      q:
+        to: q
+        sensor:
+          run: echo 2
+          every: 60s
+    """
+    p = run_for(tmp_path, text, 3.2)
+    got = p.measurements.range("sensor/q.main", 0, time.time() + 1)
+    assert len(got) >= 5, got
