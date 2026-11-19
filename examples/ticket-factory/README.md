@@ -84,8 +84,10 @@ ticket `ERGOSTAT_ITEM` names, and its `run(ticket)` returns:
 
 - `Move(fields)`: done; `ticket.NAME` is recorded, which the kind's `on:` maps to the next state (a state in `to`:
   the lease ends, acked);
-- `Wait(why)`: not yet (an approval, a reviewer, CI); the ticket is given back, put off for `POLL_EVERY` and not
-  counted (`{"nack": {"why": ..., "after": "15s", "count": false}}`), and its next run asks again;
+- `Wait(why)`: not yet (an approval, a reviewer, CI); the ticket is given back, not counted, and looked at again
+  soon: after `RECHECK_FIRST` (1 s), doubling each time in a row it waits at that step, at most `POLL_EVERY`
+  (`{"nack": {"why": ..., "after": "2s", "count": false, "news": true}}`), and **at once** when there is news of it
+  (below, "Pushed, not polled"). `Wait(why, due=S)`: no later than S seconds (the review step's re-ping);
 - `Stop(why)`: it cannot go on (an action denied or failed, a repository not its own); the ticket moves to
   `stopped`, for you (`bin/tickets.py retry KEY` sends it back).
 
@@ -234,6 +236,46 @@ credentials with ergostat alone (above).
 class proves itself (`ergostat actions` says when), promote it to `auto` in `factory/actions.yaml`; keep `deny` for
 what the factory must never do there (`pr-merge: {gate: deny}` makes every ticket stop at approved). A class of your
 own (`class: jira-write` on both Jira actions) is counted, and promoted, as one.
+
+## Pushed, not polled
+
+A step that waits on someone outside (a reviewer, CI, an approval) used to give its ticket back for `POLL_EVERY`
+(15 s) and ask again; most of a ticket's time went there (docs/proposals/latency.md). Now:
+
+- **News wakes it.** A `Wait` gives the ticket back with `news: true`: the first event about the ticket that its own
+  runs did not cause makes it ready at once (SPEC 9.5). At work, that event is GitHub's (or Jira's) webhook, pushed to
+  ergostat and mapped to the ticket by its branch (SPEC 5c):
+
+  ```yaml
+  # ergostat.yaml, as shipped (intake: belongs in the main file)
+  intake:
+    hooks:
+      github:                          # GitHub: Settings → Webhooks → https://<forwarded>/api/hooks/github,
+        event:                         #   content type JSON, secret: the token in <state>/intake.token
+          from: "header:X-GitHub-Event"
+          map: {pull_request_review: ticket.news, issue_comment: ticket.news, check_suite: ticket.news,
+                check_run: ticket.news}
+        item: "ticket/{pull_request.head.ref~^ergostat/([A-Z][A-Z0-9]*-[0-9]+)}"
+        id: "{header:X-GitHub-Delivery}"
+        data: {news: action}
+      jira:                            # Jira: a webhook on the project's issues, ?token=<the token> in its URL
+        event: {from: webhookEvent, map: {"jira:issue_created": ticket.news, "jira:issue_updated": ticket.news}}
+        item: "ticket/{issue.key}"
+        id: "jira-{issue.id}-{timestamp}"
+        data: {news: webhookEvent}
+  ```
+
+  (CI's `check_suite` names its branch elsewhere: `github-ci` in `ergostat.yaml` maps it, as a second GitHub
+  webhook.) Offline, the scripted teammate records the same news (`ticket.news`, as `github`) when it reviews and
+  when it approves.
+- **Short, adaptive re-checks** when nothing pushes: 1 s, 2 s, 4 s ... up to `POLL_EVERY`, so a CI run of a few
+  seconds is seen within a second or two of finishing, while a review that takes an hour costs a re-check every
+  `POLL_EVERY`, as before.
+- **No model load per call.** `bin/tf.py` and `bin/gated.py` ask the running ergostat over its socket
+  (`ERGOSTAT_SOCKET`) for the ticket, to record an event and to ask for an action; an action approved is answered
+  at once, not at the next half-second look. Without a running ergostat they run the commands, as before.
+- **Approvals are people.** A gated action held for approval waits for the owner (offline, the scripted stand-in
+  approves every 5 s): that is outside time. Promoting a class to `auto` (above) is how it goes.
 
 ## Measurements
 

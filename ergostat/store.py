@@ -13,6 +13,8 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
+from .notify import key_of, written
+
 EVENTS = """
 create table if not exists events (
   seq integer primary key autoincrement,
@@ -176,6 +178,7 @@ class _Conns:
 class Events:
     def __init__(self, directory: Path):
         self.path = directory / "events.db"
+        self._nkey = key_of(directory)                     # its waiters' board (notify.py)
         self._c = _Conns(self.path, EVENTS)
         with self._c():
             pass
@@ -200,7 +203,16 @@ class Events:
                             "values (?,?,?,?,?,?,?,?)",
                             (ev["id"], ev["time"], type, item, source, causedby, json.dumps(ev["data"]), change))
             ev["seq"] = cur.lastrowid if cur.rowcount else None
+        written(self._nkey)
         return ev
+
+    def board(self):
+        """What waits for this record's new events wakes on (``notify.py``): written here, or by another process."""
+        from .notify import board
+        b = board(self.path.parent)
+        if b.watcher is None:
+            b.watch([Path(str(self.path) + "-wal"), self.path])
+        return b
 
     name = "sqlite"
 
@@ -222,7 +234,9 @@ class Events:
             except BaseException:
                 c.execute("rollback")
                 raise
-            return c.total_changes - before
+            got = c.total_changes - before
+        written(self._nkey)
+        return got
 
     def known(self, ids: list[str]) -> set[str]:
         """Which of these event ids are recorded."""
@@ -502,6 +516,8 @@ class Measurements:
         self._newest: dict[str, tuple[float, float]] | None = None   # series → its newest reading (``newest``)
         self._newest_at = (None, 0)                        # (the deletions mark, the last row) it was brought up to
         self._newest_lock = threading.Lock()
+        self._log: list[str] = []                          # the series whose newest changed, in turn (``changes``)
+        self._log_at = (0, 0)                              # (its epoch: read afresh, the changes dropped before it)
         with self._c():
             pass
 
@@ -624,15 +640,33 @@ class Measurements:
                     x = self.latest(n)
                     if x is not None:
                         got[n] = x
+                self._log, self._log_at = [], (self._log_at[0] + 1, 0)
             else:
+                log = self._log
                 for rid, n, t, v in c.execute("select rowid, series, time, value from samples where rowid > ? order by rowid",
                                               (row,)):
                     old = got.get(n)
                     if old is None or t >= old[0]:       # (a tie: the later row, as latest's index reads it)
                         got[n] = (t, v)
+                        log.append(n)
                     row = rid
+                if len(log) > 100_000:                   # (a reader that far behind reads everything again)
+                    self._log_at = (self._log_at[0], self._log_at[1] + len(log))
+                    log.clear()
             self._newest, self._newest_at = got, (mark, row)
             return got
+
+    def changes(self, since: tuple | None) -> tuple[dict[str, tuple[float, float]], set[str] | None, tuple]:
+        """``newest()``, the series whose newest reading changed since ``since`` (a mark an earlier call returned;
+        None when that cannot be said: the first call, or every series read afresh since), and the mark for the next
+        call. The engine's pass reads only what changed (docs/proposals/scale.md, #1)."""
+        got = self.newest()
+        with self._newest_lock:
+            (epoch, base), n = self._log_at, len(self._log)
+            mark = (epoch, base + n)
+            if since is None or since[0] != epoch or since[1] < base:
+                return got, None, mark
+            return got, set(self._log[since[1] - base:]), mark
 
     @staticmethod
     def _deleted(c) -> None:

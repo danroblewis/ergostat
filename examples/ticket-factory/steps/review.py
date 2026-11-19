@@ -2,7 +2,8 @@
 its own) that is not answered yet: an approval (a review that approves, or a comment starting APPROVE_WORD)
 moves the ticket to approved; anything else to changes-asked, for `address`. No answer within REPING_AFTER of
 asking: ask again, at most REPING_MAX times (each one counted in `repings`). While it waits, the ticket is
-given back and looked at again after POLL_EVERY."""
+given back and looked at again soon (step.py: Wait), at once when a review is pushed (README, "Pushed, not
+polled"), and when the re-ping falls due."""
 
 import github
 from gated import act
@@ -40,7 +41,7 @@ def run(ticket):
     waited = now() - float(f.get("asked_at") or now())
     n = int(f.get("repings") or 0)
     if waited < seconds(conf("REPING_AFTER", "90s")):
-        return Wait(f"no answer yet ({waited:.0f}s)")
+        return Wait(f"no answer yet ({waited:.0f}s)", due=seconds(conf("REPING_AFTER", "90s")) - waited)
     if n >= int(conf("REPING_MAX", "3")):
         return Wait(f"no answer after {n} re-pings")
     act("pr-comment", repo=repo, pr=pr, body=f"Friendly re-ping ({n + 1}): this is waiting for a review." + (

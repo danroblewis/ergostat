@@ -218,6 +218,19 @@ for i in range(int(sys.argv[2])):
     t = time.perf_counter(); e.measure(); m = time.perf_counter() - t
     t = time.perf_counter(); e.evaluate(); times.append(time.perf_counter() - t)
     parts.setdefault("measure", []).append(m)
+extra = {}
+import inspect
+if "full" in inspect.signature(e.evaluate).parameters:       # a pass over what changed (scale.md #1): what it costs
+    full_t, batch_t = [], []
+    series = [x.series for x in p.model.spec.sensors() if x.measured]
+    for i in range(int(sys.argv[2])):
+        t = time.perf_counter(); e.evaluate(full=True); full_t.append(time.perf_counter() - t)
+        now = time.time()                                    # a batch: a tenth of the sensors read anew
+        p.measurements.add_many([(x, now, 0.001 * (i % 2)) for x in series[i % 10::10]])   # (no goal crosses)
+        t = time.perf_counter(); e.evaluate(); batch_t.append(time.perf_counter() - t)
+    full_t.sort(); batch_t.sort()
+    extra = {"evaluate_full_ms": round(1000 * full_t[len(full_t) // 2], 2),
+             "evaluate_tenth_ms": round(1000 * batch_t[len(batch_t) // 2], 2), "tenth": len(series) // 10}
 t = time.perf_counter(); e.dispatch.tick(); t_tick = time.perf_counter() - t
 t = time.perf_counter(); e.dispatch.watch(); t_watch = time.perf_counter() - t
 due = sum(1 for _ in e.machines)
@@ -228,7 +241,7 @@ times.sort()
 print(json.dumps({"load_s": round(t_load, 1), "evaluate_ms": round(1000 * times[len(times) // 2], 2),
                   "evaluate_min_ms": round(1000 * times[0], 2), "measure_ms": round(1000 * sorted(parts["measure"])[len(times) // 2], 2),
                   "command_of_all_ms": round(1000 * t_cmd, 2), "machines": due, "dispatch_tick_ms": round(1000 * t_tick, 2),
-                  "dispatch_watch_ms": round(1000 * t_watch, 2), "profile": s.getvalue()[-2500:]}))
+                  "dispatch_watch_ms": round(1000 * t_watch, 2), **extra, "profile": s.getvalue()[-2500:]}))
 '''
 
 
@@ -429,6 +442,9 @@ def record_stats(sd: Path) -> dict:
     try:
         m = sqlite3.connect(f"file:{sd / 'measurements.db'}?mode=ro", uri=True, timeout=30)
         out["readings"] = m.execute("select count(*) from samples").fetchone()[0]
+        n_, t0_, t1_ = m.execute("select count(*), min(time), max(time) from samples where series like 'sensor/%'").fetchone()
+        out["sensor_readings"] = n_                         # the sensors' readings recorded, whatever took them
+        out["sensor_readings_per_s"] = round(n_ / max(1.0, (t1_ or 0) - (t0_ or 0)), 2) if n_ else 0.0
         out["series"] = m.execute("select count(distinct series) from samples").fetchone()[0]
     except sqlite3.Error as e:
         out["readings_error"] = str(e)

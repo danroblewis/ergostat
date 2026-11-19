@@ -13,9 +13,10 @@ The item's field ``lease`` (ergostat's own: an event's data never replaces it):
   fence is not the next one, or when it is a dead letter;
 - ``renewed`` (run, fence): explicit; any event the holder caused about the item renews it too, and so does a line of
   its transcript (``claude.*``);
-- ``ended`` (run, fence, how ``ack`` or ``nack``, why, exit, after, count): ack, the work moved the item on (it stays
-  where the work moved it); nack, given back: to ``back``, its attempt counted unless ``count`` is false, and not taken
-  again before ``after`` seconds;
+- ``ended`` (run, fence, how ``ack`` or ``nack``, why, exit, after, count, news): ack, the work moved the item on (it
+  stays where the work moved it); nack, given back: to ``back``, its attempt counted unless ``count`` is false, and not
+  taken again before ``after`` seconds, or, with ``news``, before the first event about it its own runs did not cause
+  (a webhook's: the review it waits for);
 - ``expired`` (run, fence, silent): silent past its TTL: to ``back``, its attempt counted;
 - ``redriven`` (to, why): a dead letter given another go: to ``to`` (else ``back``), its attempts from nothing.
 
@@ -63,6 +64,8 @@ def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | N
                       "taken": now, "renewed": now, "expires": now + ttl, "back": d.get("back") or it.state,
                       "max": int(d.get("max") or 1), "attempts": int(cur.get("attempts") or 0)})
         lease.pop("not_before", None)
+        lease.pop("news", None)
+        lease.pop("woken", None)
         lease["history"].append({"fence": want, "run": d.get("run"), "block": d.get("block"), "taken": now})
         to = LEASED
     elif t == REDRIVEN:
@@ -96,6 +99,8 @@ def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | N
                 lease["attempts"] = int(cur.get("attempts") or 0) + (1 if counted else 0)
                 if d.get("after"):
                     lease["not_before"] = now + float(d["after"])
+                    if d.get("news"):                       # or sooner: at the first news of it (``news``)
+                        lease["news"] = True
                 if lease["attempts"] >= int(cur.get("max") or 1):
                     lease["dead"] = now
                     last["dead"] = True
@@ -122,6 +127,22 @@ def fenced(it, e: dict) -> str | None:
         return None
     return (f"from run {run[:8]}, whose lease on it (fence {h.get('fence')}) ended ({h.get('how')}); the lease now is "
             f"{lease.get('fence')}: refused, not applied (fencing)")
+
+
+def news(it, e: dict) -> None:
+    """An item given back to wait for news (a nack with ``news``) is ready again at the first event about it that its
+    own runs did not cause and that is not ergostat's: a webhook's, a person's, another block's."""
+    lease = it.fields.get("lease")
+    if not isinstance(lease, dict) or not lease.get("news") or lease.get("holder") or not lease.get("not_before"):
+        return
+    if e["type"].startswith(("ergostat.", "agent.")):
+        return
+    ran = {h.get("run") for h in lease.get("history") or []}
+    if e.get("causedby") and e["causedby"] in ran:
+        return
+    lease.pop("not_before", None)
+    lease.pop("news", None)
+    lease["woken"] = e["time"]
 
 
 def renew(it, e: dict) -> None:
