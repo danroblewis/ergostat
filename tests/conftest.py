@@ -97,36 +97,33 @@ def pytest_runtest_call(item):
                     pass
 
 
-_GATES: tuple | None = None
+_LOCK: tuple | None = None
 
 
-def _gates() -> tuple:
-    """This parallel run's two lock files (one run: xdist's id for it, the same in every worker), or () when serial."""
+def _lock() -> tuple:
+    """This parallel run's lock file (one run: xdist's id for it, the same in every worker), or () when serial."""
     uid = os.environ.get("PYTEST_XDIST_TESTRUNUID")
     if not uid or not os.environ.get("PYTEST_XDIST_WORKER"):
         return ()
-    base = Path(tempfile.gettempdir()) / f"ergostat-tests-{uid}"
-    return open(f"{base}.gate", "a+"), open(f"{base}.lock", "a+")      # noqa: SIM115  (held for the worker's life)
+    return (open(Path(tempfile.gettempdir()) / f"ergostat-tests-{uid}.lock", "a+"),)   # noqa: SIM115  (the worker's life)
 
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_protocol(item, nextitem):
     """Under xdist, a test marked ``serial`` (a time bound that holds only on a quiet machine) runs with nothing else
-    of this run alongside: every test holds the run's lock shared, a serial one holds it alone. A serial test waiting
-    for it holds the gate, so no other test starts meanwhile and the ones under way finish first."""
-    global _GATES
-    if _GATES is None:
-        _GATES = _gates()
-    if not _GATES:
+    of this run alongside: every test holds the run's lock shared, a serial one holds it alone. A serial test waits
+    for a moment when no other test runs (late in the run, as the others drain) and holds the rest back while it
+    runs; it never holds them back while it waits, so a long test under way does not stall every worker."""
+    global _LOCK
+    if _LOCK is None:
+        _LOCK = _lock()
+    if not _LOCK:
         return (yield)
-    gate, lock = _GATES
-    fcntl.flock(gate, fcntl.LOCK_EX)
-    fcntl.flock(lock, fcntl.LOCK_EX if item.get_closest_marker("serial") else fcntl.LOCK_SH)
-    fcntl.flock(gate, fcntl.LOCK_UN)
+    fcntl.flock(_LOCK[0], fcntl.LOCK_EX if item.get_closest_marker("serial") else fcntl.LOCK_SH)
     try:
         return (yield)
     finally:
-        fcntl.flock(lock, fcntl.LOCK_UN)
+        fcntl.flock(_LOCK[0], fcntl.LOCK_UN)
 
 
 @pytest.fixture(autouse=True)
