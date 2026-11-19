@@ -217,10 +217,10 @@ stateDiagram-v2
     [*] --> running: started
     running --> backoff: exited / silent past heartbeat /<br/>stdin not read (alarm) / ignored cancel
     backoff --> running: after 1s, 2s, 4s ... at most the most
-    backoff --> failed: more than max restarts within the window
-    failed --> [*]: alarm, ergostat.daemon.failed (an intervention)
+    running --> failed: the same, past max restarts within the window<br/>(alarm, ergostat.daemon.failed)
+    failed --> running: the owner's block NAME --restart, or any model change
     running --> draining: the model changed its definition
-    draining --> [*]: stop sent, its runs finish, killed after the grace once idle
+    draining --> [*]: stop sent, its runs finish, its group killed after the grace once idle
 ```
 
 - **Crash:** a daemon that exits is started again after a back-off that doubles each time. Its runs in flight fail
@@ -229,7 +229,14 @@ stateDiagram-v2
 - **Backpressure:** a daemon that stops reading its standard input (a write waits longer than `stdin-timeout`, or
   its queue fills) is restarted and an alarm raised.
 - **Too many restarts:** past `restart: max` within `within`, it is given up: state `failed`, an alarm on the page
-  and in `ergostat status`, and `ergostat.daemon.failed`, an intervention, recorded.
+  and in `ergostat status`, and `ergostat.daemon.failed`, an intervention, recorded once (a shared daemon's failure is
+  one event naming every block and sensor it served, not a failure per sensor). While it is failed, the dispatcher
+  hands its blocks no items (they wait in their queue, uncounted), a run already on its way is given back at once,
+  uncounted and put off a minute, and its sensors are not read. `ergostat block NAME --restart` (the block's daemon, or
+  a daemon by name) starts it afresh once its cause is fixed, as does any change to the model.
+- **Whole groups:** each daemon leads a process group of its own; whenever one ends (a crash, a restart, a drain,
+  ergostat stopping), the whole group is sent SIGTERM and then SIGKILL, so nothing it started is left running. A crash
+  is seen from the process's exit, even while something it started still holds its output open.
 - **Cancel:** a lease that expires, a run's timeout, or the owner's `block NAME --stop` sends `cancel`; a daemon still
   holding the run after the grace is restarted, and its other items given back uncounted.
 
