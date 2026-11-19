@@ -68,6 +68,16 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
         if st.limit is not None and not any(g.of == Ref("stock", st.name) for g in spec.goals.values()):
             say("unguarded-limit", f"stock {st.name}: has a limit ({st.limit:g}) but no goal: nothing keeps it from it",
                 st.where, f"stock.{st.name}")
+    for f in spec.flows.values():                   # a causal claim its measurement does not support
+        causes = [r.name for r in f.driven_by if r.kind == "flow" and r.name != f.name]
+        what = next((s.changes["what"][:-1] for s in f.sensors.values() if s.changes and s.changes["what"] in ("rises", "falls")),
+                    None)
+        if causes and what:
+            ys = " and ".join(causes)
+            say("measured-not-caused", f"flow {f.name}: measured as every {what} of {f.target or f.source}, but drawn as "
+                f"caused by {ys}: either measure what {ys} contribute{'s' if len(causes) == 1 else ''} (an items: sensor, "
+                f"with sum: for what each one moved), or say it is any {what} (drop the cause from driven-by)",
+                f.where, f"flow.{f.name}")
     if spec.stocks and not any(b.type == "judge" for b in spec.blocks.values()):
         from .load import Where
         say("no-modelling-loop", "the model has no loop that improves it: nothing measures its fit, proposes changes or "

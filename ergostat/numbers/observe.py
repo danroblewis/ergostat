@@ -149,6 +149,8 @@ def _flow_sensors(spec: Spec, name: str) -> list:
 def _item_moves(p, spec: Spec, q: dict, since: float, until: float) -> list[tuple[float, float]] | None:
     if not q or q.get("kind") not in spec.items:
         return None
+    if q.get("sum"):                                 # each move with its item's field, not one
+        return its.summed(p.events, spec, q, since, until)
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
     where = q.get("where") or {}
     return [(t, 1.0) for t in its.moved(p.events, spec, q["kind"], key, state, since, until, where, at=until)]
@@ -172,6 +174,22 @@ def _changes(p, spec: Spec, name: str, what: str, since: float, until: float) ->
             d = max(0.0, a - b)
         if d:
             out.append((t, d))
+    return out
+
+
+def _others(spec: Spec, d: Data, name: str, ch: dict) -> list[tuple[float, float]]:
+    """What a ``rest`` flow's stock's other flows moved, as they were measured, taken off its net change: counted
+    moves at their times, rates at their buckets' ends."""
+    st, out, edges = ch["stock"], [], d.grid.edges()
+    for g in spec.flows.values():
+        if g.name == name or st not in (g.source, g.target):
+            continue
+        k, ref = -ch["sign"] * (1 if g.target == st else -1), f"flow.{g.name}"
+        c = d.counted.get(ref)
+        if c is not None:
+            out += [(t, k * (b - a)) for t, a, b in zip(c.times, c.total, c.total[1:], strict=False)]
+        else:
+            out += [(edges[i + 1], k * v * d.grid.width / 3600.0) for i, v in enumerate(d.values.get(ref) or []) if v]
     return out
 
 
@@ -199,7 +217,9 @@ def measured(p, grid: Grid, spec: Spec | None = None) -> Data:
     valves = {}
     for v in getattr(p.model, "valves", {}).values():
         valves.setdefault(v.flow, []).append(v.name)
-    for name, f in spec.flows.items():
+    rest = [n for n, f in spec.flows.items() if any(s.changes and s.changes["what"] == "rest" for s in f.sensors.values())]
+    for name in [*(n for n in spec.flows if n not in rest), *rest]:          # the residual flows once the rest are known
+        f = spec.flows[name]
         ref = f"flow.{name}"
         sensors = _flow_sensors(spec, name)
         moves, how = None, None
@@ -215,6 +235,9 @@ def measured(p, grid: Grid, spec: Spec | None = None) -> Data:
         elif ch:
             moves = _changes(p, spec, name, ch["what"], g.since, g.until)
             how = "its stock's own changes, as they were read"
+            if ch["what"] == "rest" and moves is not None:
+                moves += _others(spec, d, name, ch)
+                how = "its stock's own changes, less what its other flows moved"
         if moves is not None:
             c = d.counted[ref] = Counted.of(moves)
             edges = g.edges()
