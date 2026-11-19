@@ -156,6 +156,15 @@ def cmd_block(args) -> int:
         p.events.add(STOP_ASKED, item=args.name, source="person", data={"note": args.note or ""})
         print(f"asked: {args.name}'s run under way stops (if ergostat is running here); nothing else changes")
         return 0
+    if getattr(args, "restart", False):                # a daemon given up, revived (SPEC §9.7): the block's, or one by name
+        from ..spec.engine import RESTART_ASKED
+        d = (spec.blocks[args.name].params.get("daemon") if args.name in spec.blocks else None) or args.name
+        if d not in spec.daemons:
+            print(f"{args.name}: no daemon (daemons: {', '.join(spec.daemons) or 'none'})", file=sys.stderr)
+            return 2
+        p.events.add(RESTART_ASKED, item=d, source="person", data={"note": args.note or ""})
+        print(f"asked: daemon {d} starts afresh, its restarts forgotten (if ergostat is running here)")
+        return 0
     b = spec.blocks.get(args.name)
     if b is None:
         print(f"no block {args.name!r}" + (f" (blocks: {', '.join(spec.blocks)})" if spec.blocks else ""), file=sys.stderr)

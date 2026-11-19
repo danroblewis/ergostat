@@ -2118,7 +2118,12 @@ from its wait status when it ends: on `ergostat.daemon.restarted`), shown on the
 A sensor read by a daemon starts no process and holds none of the sensor pool's threads while it waits.
 
 **Supervision** (`ergostat/daemons/supervise.py`: a thread of its own, never the engine's loop). Everything written
-to a daemon goes through a bounded queue (1,000 lines) and a writer thread per daemon: the engine never waits on one.
+to a daemon goes through a bounded queue (1,000 lines: items, reading requests and cancels together) and a writer
+thread per daemon: the engine never waits on one. A queue that fills is a daemon not reading: restarted, an alarm.
+A run is handed over only to the daemon running now under its name, checked and held under one lock (a restart or a
+swap in between never strands it), and only while its lease is still its own. `concurrency` is the daemon's, shared
+by every block it serves: the dispatcher takes no more items for them than it has room for. A push sensor's readings
+are taken at most one a second; more are dropped.
 
 - It **exits**: started again after a back-off, the first wait doubled each time, at most the most
   (`ergostat.daemon.restarted`, with why, its exit and its resources). Its runs in flight fail, counted.
@@ -2129,8 +2134,15 @@ to a daemon goes through a bounded queue (1,000 lines) and a writer thread per d
   its timeout or stopped by the owner; a daemon still holding the run a grace later (`ERGOSTAT_KILL_GRACE`, 10 s) is
   restarted, its other runs given back uncounted (not their fault).
 - **Given up**: more than `restart: max` restarts within `within`: no more starts; state `failed`, an alarm (it needs
-  attention until the model changes it), and `ergostat.daemon.failed` recorded with `intervention: true` and `class:
-  alarm:daemon:NAME`, the intervention the owner's interventions measure counts. Runs handed to it fail at once.
+  attention until it is revived), and one `ergostat.daemon.failed` recorded with `intervention: true`, `class:
+  alarm:daemon:NAME` and `users` (every block and sensor it served), the intervention the owner's interventions
+  measure counts. While failed, its blocks are handed no items (they stay in their queue, uncounted), a run already on
+  its way is given back at once (uncounted, put off 60 s), and its sensors are not read (no `sensor.failed` each).
+  `ergostat block NAME --restart` (a block: its daemon; or a daemon's name) records `daemon.restart.requested`, and the
+  engine starts it afresh, its restarts forgotten; so does any change to the model.
+- **Whole groups**: a daemon leads a process group of its own; whenever it ends (crashed, restarted, drained, ergostat
+  stopping) the group is sent SIGTERM, then SIGKILL after the grace, so nothing it started outlives it. A crash is
+  seen from its exit status, even while something it started holds its output open.
 - **A model swap** (section 9.1): a daemon whose definition changed, or that nothing uses now, is sent `stop` and
   drained: its runs finish under the old model, and once it holds none it is killed if it has not ended within the
   grace. A new one, started at once, takes the new work. One whose definition is the same carries on.

@@ -27,8 +27,10 @@ def beat():
         say(heartbeat=True); time.sleep(0.2)
 if "silent" not in mode:
     threading.Thread(target=beat, daemon=True).start()
+if "kids" in mode:                          # a child that keeps its output open, left behind by the crash
+    import subprocess; kid = subprocess.Popen(["sleep", "600"]); open("kid.pid", "w").write(str(kid.pid))
 if "crash" in mode:
-    time.sleep(0.3); sys.exit(3)
+    time.sleep(0.3); os._exit(3)
 if "noread" in mode:
     time.sleep(600)
 def work(m):
@@ -352,3 +354,94 @@ def test_daemons_on_the_agents_api(tmp_path):
     assert d["last_line"] and d["users"] == ["block.worker"]
     assert one["daemon"]["name"] == "block.worker" and one["daemon"]["state"] == "running"
     assert json.loads((p.dir / "daemons.json").read_text())["daemons"]["block.worker"]["state"] == "stopped"
+
+
+def test_a_failed_daemon_gives_items_back_at_once_until_revived(tmp_path):
+    p = setup(tmp_path, block("{run: python3 d.py crash, restart: {max: 1, within: 1m, backoff: [0.1s, 0.1s]}}"))
+    e = start(p)
+    try:
+        assert wait_for(lambda: events(p, "ergostat.daemon.failed"), 10)
+        assert e.daemons.free("block.worker") == 0, "the dispatcher hands it nothing"
+        from ergostat.leases.dispatch import Dispatcher
+        p.events.add("ticket.opened", item="ticket/9", source="t")
+        b = p.model.spec.blocks["worker"]
+        t0 = time.time()
+        out = e.run_block(b, "item", extra={}, item="ticket/9", fence=None, outcome=(o := {}))
+        assert time.time() - t0 < 2 and out == [] and o["nack"]["count"] is False and o["nack"]["after"] > 0
+        assert isinstance(e.dispatch, Dispatcher) and item(p, "ticket/9").state == "ready", "never taken while failed"
+        (tmp_path / "ergostat.yaml").write_text(block("{run: python3 d.py, restart: {max: 1, within: 1m}}"))
+        p.events.add("daemon.restart.requested", item="block.worker", source="person")
+        e.daemons.revive("block.worker")
+        assert e.daemons.slots["block.worker"].state in ("running", "starting")
+    finally:
+        e.close()
+
+
+def test_a_crash_ends_the_daemons_whole_group_even_when_a_child_holds_its_output(tmp_path):
+    p = setup(tmp_path, block("{run: python3 d.py kids-crash, restart: {max: 50, backoff: [5s, 5s]}}"))
+    e = start(p)
+    try:
+        assert wait_for(lambda: events(p, "ergostat.daemon.restarted"), 5), "the crash is seen though its child holds stdout"
+        kid = int((tmp_path / "kid.pid").read_text())
+        assert wait_for(lambda: not alive(kid), 5), "what it started goes with it"
+    finally:
+        e.close()
+
+
+def test_runs_handed_over_while_the_daemon_is_swapped_are_never_stranded(tmp_path):
+    p = setup(tmp_path, block("{run: python3 d.py, concurrency: 3}", pool=8))
+    for i in range(12):
+        p.events.add("ticket.opened", item=f"ticket/{i}", source="t", data={"sleep": 0.3})
+    e = start(p)
+    try:
+        for v in ("v2", "v3", "v4"):                 # swapped while items are being handed over
+            time.sleep(0.4)
+            (tmp_path / "ergostat.yaml").write_text(block(f"{{run: python3 d.py {v}, concurrency: 3}}", pool=8))
+            e.swap(mdl.load(tmp_path))
+        assert wait_for(lambda: all(item(p, f"ticket/{i}").state == "done" for i in range(12)), 30)
+        assert max(len(x.proc.runs) for x in e.daemons.slots.values() if x.proc) <= 3
+    finally:
+        e.close()
+    assert not [x for x in events(p, "agent.failed") if "stranded" in str(x["data"])]
+
+
+def test_blocks_sharing_a_daemon_share_its_room(tmp_path):
+    two = KIND + """
+daemons:
+  shared: {run: python3 d.py, concurrency: 2}
+blocks:
+  a: {type: program, takes: {kind: ticket, at: ready, where: {team: a}}, pool: 5, daemon: shared}
+  b: {type: program, takes: {kind: ticket, at: ready, where: {team: b}}, pool: 5, daemon: shared}
+"""
+    p = setup(tmp_path, two)
+    for i in range(6):
+        p.events.add("ticket.opened", item=f"ticket/{i}", source="t", data={"sleep": 0.8, "team": "ab"[i % 2]})
+    e = start(p)
+    most = 0
+    try:
+        end = time.time() + 15
+        while time.time() < end and not all(item(p, f"ticket/{i}").state == "done" for i in range(6)):
+            most = max(most, len(e.dispatch.going.get("a", {})) + len(e.dispatch.going.get("b", {})))
+            time.sleep(0.02)
+    finally:
+        e.close()
+    assert all(item(p, f"ticket/{i}").state == "done" for i in range(6)) and most <= 2
+
+
+def test_a_failed_shared_sensor_daemon_is_said_once_not_per_sensor(tmp_path):
+    text = """
+name: s
+daemons:
+  shared: {run: python3 d.py crash, restart: {max: 0, backoff: [0.1s, 0.1s]}}
+stocks:
+""" + "".join(f"  s{i}:\n    unit: things\n    sensor: {{daemon: shared, every: 1s}}\n" for i in range(20))
+    p = setup(tmp_path, text)
+    e = start(p)
+    try:
+        assert wait_for(lambda: events(p, "ergostat.daemon.failed"), 10)
+        time.sleep(1)                                # (readings asked during its back-off, failed before it gave up)
+        n = len(events(p, "sensor.failed"))
+        time.sleep(3)
+    finally:
+        e.close()
+    assert len(events(p, "ergostat.daemon.failed")) == 1 and len(events(p, "sensor.failed")) == n, "no failure per sensor"

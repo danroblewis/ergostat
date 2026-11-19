@@ -127,6 +127,11 @@ class Dispatcher:
             got = ix.items(it.kind, ids=[it.id])
         return got[0] if got else it
 
+    def handing(self, daemon: str) -> int:
+        """Runs taken for this daemon's blocks and not yet held by it (their threads starting)."""
+        return sum(1 for x in self.blocks if x.params.get("daemon") == daemon
+                   for g in self.going.get(x.name, {}).values() if not self.e.daemons._held(g["run"]))
+
     def going_items(self) -> set[str]:
         return {i for g in self.going.values() for i in g}
 
@@ -145,8 +150,9 @@ class Dispatcher:
             with self.lock:
                 every, ix = self.items_of(b.takes.kind)
                 mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
-                d = self.spec.daemons.get(b.params.get("daemon") or "")
-                room = min(b.pool, d.concurrency if d else b.pool) - len(mine | set(self.going.get(b.name, {})))
+                room = b.pool - len(mine | set(self.going.get(b.name, {})))
+                if b.params.get("daemon"):           # the daemon's room, shared by every block it serves (SPEC §9.7)
+                    room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
                 if room <= 0:
                     continue
                 for it in unblocked(self, b, self.ready(b, every, now))[:room]:

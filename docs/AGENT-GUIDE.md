@@ -484,8 +484,8 @@ for line in sys.stdin:                         # the reader: never blocked by th
     m = json.loads(line)                       # (a broken line: this raises, and the daemon fails hard)
     if m["op"] == "item":
         threading.Thread(target=work, args=(m,)).start()
-    elif m["op"] == "read":                    # a sensor's reading: "queue-depth.main"
-        say(reading=read_depth(m["sensor"]), request=m["request"])
+    elif m["op"] == "read":                    # a sensor's reading ("queue-depth.main"), off the reader's thread
+        threading.Thread(target=lambda m=m: say(reading=read_depth(m["sensor"]), request=m["request"])).start()
     elif m["op"] == "cancel":
         ...                                    # stop that run, then say(done=1, run=m["run"])
     elif m["op"] == "stop":

@@ -58,6 +58,7 @@ OUTCOMES_EVERY = 30.0       # how often the outcomes of the recipes' uses are fo
 SOURCE = "ergostat"
 STOPPED_BY_OWNER = "stopped as the owner asked"   # ergostat block NAME --stop: not the block's failure
 STOP_ASKED = "block.stop.requested"
+RESTART_ASKED = "daemon.restart.requested"
 AI_COMMAND = os.environ.get("ERGOSTAT_AI", "claude -p")
 AI_FOOTER = """
 
@@ -923,9 +924,9 @@ class Engine:
         with open(log, "a", encoding="utf-8") as lf:
             lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} ({why})\n")
             lf.flush()
-            requeue = False
+            back = None
             if b.params.get("daemon") and not refused:            # handed to its daemon (SPEC §9.7): wall time only
-                code, note, requeue = self.daemons.run_item(b, begun["id"], ctx, env, take, b.timeout, item, fence)
+                code, note, back = self.daemons.run_item(b, begun["id"], ctx, env, take, b.timeout, item, fence)
                 with self.lock:
                     killed = self.killing.pop(begun["id"], None)
                 note = f"killed: {killed}" if killed else note or (f"exited {code}" if code else "")
@@ -983,8 +984,8 @@ class Engine:
         failed = bool(note) and note not in (old.STOPPED_WITH_US, STOPPED_BY_OWNER) and not ready.full
         if outcome is not None:
             outcome.update({"exit": code, "note": note, "nack": said.nack, "stopped": note in (old.STOPPED_WITH_US, STOPPED_BY_OWNER)})
-            if requeue:                                          # its daemon restarted for another's fault: not counted
-                outcome["nack"] = {"why": note, "count": False}
+            if back:                                             # its daemon restarted for another's fault, or gave up
+                outcome["nack"] = {**back, "why": back.get("why") or note}
             if ready.full:                                       # no workspace free: given back, put off, not counted
                 outcome["nack"] = {"why": note, "after": POOL_FULL_AFTER, "count": False}
         ended = ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
@@ -1298,8 +1299,9 @@ class Engine:
                     here.append(s)
         for s in asked:
             if s.daemon is not None:                          # asked of its daemon: no process, no pool thread (SPEC §9.7)
-                self.daemons.read(s, lambda v, why, s=s: (self.results.put((s, v, why, time.time(), None)), self.wake.set()))
-                handed.add(s.series)
+                if self.daemons.read(s, lambda v, why, s=s: (self.results.put((s, v, why, time.time(), None)),
+                                                             self.wake.set())):
+                    handed.add(s.series)                      # (a daemon given up: not asked, its failure said once)
             elif s.items is None and s.changes is None:
                 which = "alarm_" if s.series in self._alarmed() else ""
                 with self.pool_lock:
@@ -1495,7 +1497,8 @@ class Engine:
                 new = sorted(self.p.events.query(n=None, after_seq=seq, type="block.approved") +
                              self.p.events.query(n=None, after_seq=seq, type="ergostat.action.approved") +
                              self.p.events.query(n=None, after_seq=seq, type="steptest.approved") +
-                             self.p.events.query(n=None, after_seq=seq, type=STOP_ASKED), key=lambda e: e["seq"])
+                             self.p.events.query(n=None, after_seq=seq, type=STOP_ASKED) +
+                             self.p.events.query(n=None, after_seq=seq, type=RESTART_ASKED), key=lambda e: e["seq"])
             except Exception:
                 self.stop.wait(1)
                 continue
@@ -1503,6 +1506,9 @@ class Engine:
                 seq = max(seq, e["seq"])
                 if e["type"] == STOP_ASKED:
                     self.stop_run(e.get("item") or "")
+                    continue
+                if e["type"] == RESTART_ASKED:                    # the owner reviving a daemon (SPEC §9.7)
+                    self.daemons.revive(e.get("item") or "")
                     continue
                 if e["type"] == "ergostat.action.approved":       # a program's action, run here, never by it (SPEC §12k)
                     threading.Thread(target=self.run_action, args=(e["item"],), daemon=True).start()
