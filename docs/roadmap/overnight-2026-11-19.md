@@ -79,6 +79,8 @@ possible, without check-ins. Check-ins are replaced by gates written down in adv
 - 04:20 resilience's final round fixed its three items but the fallback now mixes the kept YAML with include files on disk (a model that never existed): split. `resilience-core` (watcher, watchdog, alarms, caps, service) lands; the CLI fallback is parked.
 - 04:40 selfimprove + redesign review: seven blocking (a redesign could rewrite the owner's accept policy; a setpoint change passed as a rename; rule-tier rewiring without `rewires`; renames editing program files; a stuck redesign blocking the queue; redesigns run inside the web server, uncosted; installed builds lose checklists). Split: `modelling-core` (craft notes, use: modelling, renames with history, descriptions, redesign) lands after fixes; the rule tier's equations, event renames and chain copies are parked; redesign runs only when asked.
 
+- 04:55 causes-join merged and pushed (b53a933). smallgaps conflicted with it: rebasing. resilience-core's merge hit the flaky stop_still_kills test (fails on main 1 in 13; its run lasts 2 s against the reload's 1.5 s settle): fixing the test. observer review: merge after fixes; made opt-in (it slowed every model's pass 20-50x and raised false model-disagrees on item counts). closedloop's fixes in (1,162 net lines, down from 1,438), suites running.
+
 ## Decisions taken (for the owner to confirm)
 
 - `ergostat run --service` keeps printing the unit by default, as recorded in cli-rounds.md; installing needs `--service --install` (the resilience branch had made install the default).
