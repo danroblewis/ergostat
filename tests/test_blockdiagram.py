@@ -572,3 +572,23 @@ def test_every_block_says_its_tier(tmp_path):
     n = {x["id"]: x for x in drawn(load(tmp_path / "ergostat.yaml"))["nodes"]}
     assert {k: n[f"blk:{k}"].get("tier") for k in ("gate", "worker", "tidier", "pager", "outside")} == \
         {"gate": "rule", "worker": "ai", "tidier": "decision", "pager": "person", "outside": None}
+
+
+def test_a_stock_with_no_flows_is_an_integrator_with_no_inputs_in_every_view(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+        systems:
+          shop: {description: the shop}
+        stocks:
+          backlog: {unit: items, system: shop, sensor: {run: echo 1, every: 1m}}
+        goals:
+          low: {stock: backlog, hold: "<= 5"}
+        blocks:
+          watcher: {type: program, run: echo 1, every: 1m, goal: low}
+        """))
+    spec = load(tmp_path / "ergostat.yaml")
+    for open_, focus in views(spec):
+        g = drawn(spec, open_, focus)
+        n = {x["id"]: x for x in g["nodes"]}
+        if "proc:stock.backlog" in n:
+            assert "no inputs" in n["proc:stock.backlog"]["says"]
+            assert not [e for e in g["edges"] if e["target"] == "proc:stock.backlog"]
