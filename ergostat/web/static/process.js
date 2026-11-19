@@ -380,10 +380,10 @@ function openProcessNode(n) {
     h("td", { class: "num" }, String(e.count)), h("td", { class: "num muted" }, e.median != null ? dur(e.median) : ""))))
     : h("p", { class: "muted" }, "None in the window.");
   showDetail(h("div", { class: "kind" }, n.kind === "activity" ? (g.by === "states" ? "State" : "Activity") : n.kind === "start" ? "Start" : n.kind === "schedule" ? "Schedule" : "End"),
-    h("h2", {}, pmAct(n.activity), h("span", { class: "muted" }, ` (${n.itemKind})`)),
+    h("h2", {}, pmAct(n.activity), h("span", { class: "muted" }, ` (${n.kind === "schedule" ? "its schedule" : n.itemKind})`)),
     whatIs("activity"),
     h("p", { class: "muted" }, what[0].toUpperCase() + what.slice(1) + "."),
-    dl([["happened", `${n.count} time${n.count === 1 ? "" : "s"} in the window`], ["items", String(n.items)],
+    dl([["happened", `${n.count} time${n.count === 1 ? "" : "s"} in the window`], [n.kind === "schedule" ? "runs that caused something" : "items", String(n.items)],
         ["again on one item", loop ? `${loop.count} time${loop.count === 1 ? "" : "s"}, median ${loop.median != null ? dur(loop.median) : "–"} apart` : null]]),
     h("h3", {}, "Came from"), lines(into, (e) => e.source),
     h("h3", {}, "Went to"), lines(out, (e) => e.target),
