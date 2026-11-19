@@ -524,12 +524,6 @@ def _answer(live: Live, path: str, q: dict):
             add_to_series(live, p, snap, out, one("inputs") or "hold", one("whatif"),
                           "replay" if one("fan") == "replay" else bool(one("fan")), one("loops"))
         return out
-    if head == "risk":                            # the goals' chances of being off ahead, with the loops running (Monte Carlo)
-        from .numbers_api import risk_page
-        return risk_page(live, p, snap, one("goal"), one("whatif"), one("inputs") or "hold")
-    if head == "standins":                        # what stands in for each machine block in the closed-loop projection
-        from .numbers_api import standins_page
-        return standins_page(live, p, snap, one("block"))
     if head == "dominance":                       # which feedback loops drive the behaviour, and when (Loops That Matter)
         from .numbers_api import loop_dominance
         return loop_dominance(live, p, snap, int(one("points") or series.POINTS), one("loop"))

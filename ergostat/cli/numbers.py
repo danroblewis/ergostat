@@ -377,15 +377,16 @@ def cmd_improve(args) -> int:
 
 def cmd_project(args) -> int:
     """``ergostat project``: the model run on from now, with the loops running (``--closed``, the default where the model
-    has controllers: the goals, the built-ins and a stand-in for each machine block) or held (``--held``, open loop);
+    has controllers: the goals, the built-ins and each machine block's identified model) or held (``--held``, open loop);
     ``--whatif NAME=V`` tries a parameter, an input's rate (``flow.NAME=20`` an hour, or ``=x2``), a setpoint
     (``goal.NAME=5``) or a pool (``block.NAME.pool=4``); ``--risk`` runs it many times over what it does not know."""
     from ..durations import parse_duration
     from ..numbers import closedloop as cl
     from ..numbers import observe as ob
     from ..numbers import proposals as pr
+    from ..numbers import sensitivity as sens
     from ..numbers import simulate as sim
-    from ..web.numbers_api import _estimates, horizon_of
+    from ..web.numbers_api import horizon_of
     p = open_project(args)
     spec = _spec(p)
     snap = light_snap(p, args)
@@ -416,71 +417,42 @@ def cmd_project(args) -> int:
     run = sim.replay(spec, data, pl)
     horizon = parse_duration(args.horizon, "--horizon") if args.horizon else horizon_of(run, snap["at"] - since)
     points = max(2, min(args.points, 400))
-    stand, start = {}, None
-    if loops == "closed":
-        stand = cl.identify(p, spec, ob.measured(p, ob.reference(p, snap["at"])))
-        start = cl.start_of(p, spec, snap["at"])
-        proj = cl.closed(spec, data, run, horizon, pl, points, stand, start, args.inputs, other)
-    else:
-        proj = sim.project(spec, data, run, horizon, pl, points=points, inputs=args.inputs, held=set())
+    got = cl.projection(p, spec, data, run, horizon, pl, points, loops, args.inputs, other, held=set())
+    proj, stand, start = got["projection"], got["models"], got["start"]
     rk = None
     if args.risk and loops == "closed":
-        rk = cl.risk(spec, data, run, horizon, points, stand, start, _estimates(p, spec), tried or None, args.inputs, other,
+        rk = cl.risk(spec, data, run, horizon, points, stand, start, sens.estimates(p, spec), tried or None, args.inputs, other,
                      runs=args.runs, seed=args.seed, budget=args.budget)
-    left = sim.controlled(spec) if loops == "held" else set()
-    rows = {}
-    for r, vals in sorted(proj.values.items()):
-        if not r.startswith("stock."):
-            continue
-        end = next((v for v in reversed(vals) if v is not None), None)
-        band = (rk or {}).get("bands", {}).get(r)
-        rows[r] = {"now": data.recent(r), "end": end, "held_by_a_controller": r in left,
-                   **({k: band[k][-1] for k in ("p5", "p25", "p50", "p75", "p95") if k in band} if band else {})}
-    goals = {}
-    for g in spec.goals.values():
-        r = str(g.of)
-        y = (proj.values.get(r) or [None])[-1]
-        x = {"of": r, "hold": str(g.hold), "end": y,
-             "off_at_end": bool(proj.off_end[g.name][-1]) if isinstance(proj, cl.ClosedRun) else (
-                 None if y is None else g.hold.outside(y, g.tolerance)),
-             **({"hours_off": proj.off_hours[g.name]} if isinstance(proj, cl.ClosedRun) else {})}
-        if rk and g.name in rk["goals"]:
-            x.update(p_off_end=rk["goals"][g.name]["p_off_end"], expected_off=rk["goals"][g.name]["expected_off"],
-                     said=cl.risk_said(spec, rk, g.name))
-        goals[g.name] = x
+    closed = isinstance(proj, cl.ClosedRun)
+    rows = {r: {"now": data.recent(r), "end": vals[-1], **{k: v[-1] for k, v in ((rk or {}).get("bands", {}).get(r) or {}).items()}}
+            for r, vals in sorted(proj.values.items()) if r.startswith("stock.")}
+    goals = {g.name: {"of": str(g.of), "hold": str(g.hold), "end": (y := (proj.values.get(str(g.of)) or [None])[-1]),
+                      "off_at_end": bool(proj.off_end[g.name][-1]) if closed else None if y is None else g.hold.outside(y, g.tolerance),
+                      "hours_off": proj.off_hours[g.name] if closed else None,
+                      **({"p_off_end": rk["goals"][g.name]["p_off_end"], "expected_off": rk["goals"][g.name]["expected_off"],
+                          "said": cl.risk_said(rk, g.name)} if rk and g.name in rk["goals"] else {})} for g in spec.goals.values()}
     if args.json:
         return out_json({"loops": loops, "horizon": horizon, "notes": proj.notes, "invalid": proj.invalid, "stocks": rows,
-                         "goals": goals, "standins": {r: {**s.as_dict()} for r, s in stand.items()},
-                         "held": cl.held_by_blocks(spec) if loops == "closed" else [],
-                         "whatif": other.said() + list(tried),
-                         **({"risk": {k: v for k, v in rk.items() if k not in ("bands",)}} if rk else {})})
-    print(c(f"projected {human(horizon)} ahead, {'with the loops running' if loops == 'closed' else 'held (open loop)'}", "bold"))
-    for x in proj.notes:
+                         "goals": goals, "models": {r: m.as_dict() for r, m in stand.items()},
+                         "held": cl.held_by_blocks(spec) if closed else [], "whatif": other.said() + list(tried),
+                         **({"risk": {k: v for k, v in rk.items() if k != "bands"}} if rk else {})})
+    print(c(f"projected {human(horizon)} ahead, {'with the loops running' if closed else 'held (open loop)'}", "bold"))
+    for x in proj.notes + [f"not valid: {x}" for x in proj.invalid]:
         print(c(f"  {x}", "dim"))
-    for x in proj.invalid:
-        print(c(f"  not valid: {x}", "warn"))
-    trows = []
-    for r, x in rows.items():
-        lo, hi = ("p5", "p95") if "p5" in x else ("p25", "p75")
-        spread = f"{sig(x[lo])} to {sig(x[hi])}" if lo in x else ""
-        trows.append([r[6:], sig(x["now"]), "left out" if x["held_by_a_controller"] else sig(x["end"]), spread])
-    tails = rk and rk.get("tails")
-    print(table(["STOCK", "NOW", f"IN {human(horizon)}", ("9 IN 10 RUNS" if tails else "HALF THE RUNS") if rk else ""], trows,
+    lo, hi = ("p5", "p95") if rk and rk.get("tails") else ("p25", "p75")
+    print(table(["STOCK", "NOW", f"IN {human(horizon)}", ("9 IN 10 RUNS" if lo == "p5" else "HALF THE RUNS") if rk else ""],
+                [[r[6:], sig(x["now"]), sig(x["end"]), f"{sig(x[lo])} to {sig(x[hi])}" if lo in x else ""] for r, x in rows.items()],
                 "no stock is integrated"))
-    grows = []
-    for name, x in goals.items():
-        state = "–" if x["off_at_end"] is None else ("off" if x["off_at_end"] else "holding")
-        grows.append([name, f"{x['of'][6:] if x['of'].startswith('stock.') else x['of']} {x['hold']}", state,
-                      human(x["hours_off"] * 3600) if x.get("hours_off") else "", x.get("said") or ""])
-    if grows:
-        print(table(["GOAL", "HOLDS", "AT THE END", "TIME OFF", "RISK" if rk else ""], grows, ""))
-    if loops == "closed":
-        print(c("\nwhat stands in for each machine block:", "bold"))
-        for s in stand.values():
-            print(("  " + c("assumed: ", "warn") if s.assumed else "  ") + s.said)
+    print(table(["GOAL", "HOLDS", "AT THE END", "TIME OFF", "RISK" if rk else ""],
+                [[n, f"{x['of']} {x['hold']}", "–" if x["off_at_end"] is None else "off" if x["off_at_end"] else "holding",
+                  human(x["hours_off"] * 3600) if x["hours_off"] else "", x.get("said") or ""] for n, x in goals.items()], ""))
+    if closed:
+        print(c("\neach machine block's identified model:", "bold"))
+        for m in stand.values():
+            print(("  " + c("assumed: ", "warn") if m.assumed else "  ") + m.said())
         for x in cl.held_by_blocks(spec):
             print(c(f"  {x}", "dim"))
     if rk:
-        print(c(f"\nrisk: {rk['runs']} runs (seed {rk['seed']}, {rk['seconds']:.1f}s){'; ' + rk['stopped'] if rk['stopped'] else ''}; "
+        print(c(f"\nrisk: {rk['made']} runs (seed {rk['seed']}, {rk['seconds']:.1f}s){'; ' + rk['stopped'] if rk['stopped'] else ''}; "
                 f"{len(rk['sampled'])} numbers sampled", "dim"))
     return 0

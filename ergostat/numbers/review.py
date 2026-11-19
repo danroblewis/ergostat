@@ -511,19 +511,12 @@ def effect(p, spec: Spec, xs: list[dict], at: float | None = None, base_leverage
 
 def _projections(p, spec: Spec, after: Spec, data, data_a, run, run_a, horizon: float, points: int):
     """The model's projection as it is and with the change: with the loops running where the model has controllers
-    (closedloop.py: the goals, the built-ins and each machine block's stand-in, identified from the record), else
-    held. (before, after or None, "closed" or "held")"""
+    (closedloop.projection), else held. (before, after or None, "closed" or "held")"""
     from . import closedloop as cl
-    if cl.has_controllers(spec):
-        start = cl.start_of(p, spec, data.grid.until)
-        ref = ob.reference(p, data.grid.until)
-        b = cl.closed(spec, data, run, horizon, sim.plan(spec), points, cl.identify(p, spec, ob.measured(p, ref)), start)
-        a = cl.closed(after, data_a, run_a, horizon, sim.plan(after), points,
-                      cl.identify(p, after, ob.measured(p, ref, after)), cl.start_of(p, after, data.grid.until)) \
-            if run_a.valid else None
-        return b, a, "closed"
-    return (sim.project(spec, data, run, horizon, sim.plan(spec), points=points),
-            sim.project(after, data_a, run_a, horizon, sim.plan(after), points=points) if run_a.valid else None, "held")
+    loops = "closed" if cl.has_controllers(spec) else "held"
+    b = cl.projection(p, spec, data, run, horizon, sim.plan(spec), points, loops)["projection"]
+    a = cl.projection(p, after, data_a, run_a, horizon, sim.plan(after), points, loops)["projection"] if run_a.valid else None
+    return b, a, loops
 
 
 def base_leverage(p, spec: Spec, at: float | None = None) -> dict | None:

@@ -180,20 +180,23 @@ async function openLoop(name, asController = false) {
 /* a goal ahead, with the loops running (closedloop.py's Monte Carlo): "work-waiting: off at +8h with p≈0.3", and a
    setpoint to try (a what-if, drawn on every chart, never kept) */
 function goalAhead(name, lp) {
-  const box = h("div", { class: "ahead" });
+  const box = h("div", { class: "ahead whatif-redraw" });
   if (SNAP) return box;
   const now = String(lp.setpoint ?? "").split(" ").pop();
-  const load = () => api("risk", { goal: name, ...whatifParams() }).then((d) => {
-    const g = (d.goals || [])[0];
-    if (!g && !d.error) { box.replaceChildren(); return; }
+  let tries = 0;                                         // its risk is worked out apart: asked for again until it comes
+  const load = () => api("series", { refs: ["stock", "auxiliary", "flow"].map((k) => `${k}.${lp.stock}`).join(","), replay: 1, fan: 1,
+                                     points: CHART_POINTS, ...whatifParams() }).then((d) => {
+    const g = (d.risk || []).find((x) => x.goal === name);
+    if (d.fan_pending && tries++ < 8) setTimeout(() => { if (box.isConnected) load(); }, 2500);
+    if (d.loops !== "closed") { box.replaceChildren(); return; }
     box.replaceChildren(h("h3", {}, "Ahead, with the loops running"),
-      g?.said ? h("p", { class: g.p_off_end >= 0.5 ? "s-open" : "" }, g.said) : h("p", { class: "muted small" }, d.error || d.said || ""),
+      g?.said ? h("p", { class: g.p_off_end >= 0.5 ? "s-open" : "" }, g.said)
+        : h("p", { class: "muted small" }, d.fan_pending ? "being worked out\u2026" : "no risk to say"),
       h("p", { class: "muted small" }, "What if it held at ", whatifField(`goal.${name}`, `what if ${name} held at`, now, "another setpoint"),
-        d.runs ? ` (${d.runs} runs from a fixed seed${d.stopped ? `; ${d.stopped}` : ""}: the stand-ins and estimates by their errors, the inputs by how much their mean could move)` : ""));
+        " (the identified models and estimates by their errors, the inputs by how far their mean could move; a fixed seed)"));
   }).catch(() => box.replaceChildren());
   load();
-  box.redraw = load;
-  box.classList.add("whatif-redraw");
+  box.redraw = () => { tries = 0; load(); };
   return box;
 }
 

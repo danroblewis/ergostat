@@ -1,9 +1,9 @@
 """Validate the closed-loop projection on a project's own record: the model is identified on the record up to a split,
 projected past it held (open loop) and with its loops running, and both compared with the record held out after the
 split, by Sterman's measures (R², MAPE, Theil's U_M, U_S, U_C and the scaled error: numbers/fit.py). Then the extreme
-condition: with the inputs from outside doubled, what the stocks and the stand-ins do.
+condition: with the inputs from outside doubled, what the stocks and the identified models do.
 
-    python scripts/closedloop_validate.py DIR [--held-out 10m] [--splits 3] [--double flow.directed] [--json]
+    python tests/closedloop_validate.py DIR [--held-out 10m] [--splits 3] [--double flow.directed] [--json]
 
 DIR is a project with a record (a demo run for a while). Nothing is written."""
 from __future__ import annotations
@@ -47,7 +47,7 @@ def one_split(p, spec, split: float, held_out: float, points: int, fit_span: flo
     near = sim.controlled(spec)
     out = {"split": split, "fit_span": split - since, "held": compare(spec, held, truth, refs),
            "closed": compare(spec, closed, truth, refs), "controlled": sorted(r for r in refs if r in near),
-           "assumed": sorted({s.block for s in stand.values() if s.assumed}), "standins": len(stand)}
+           "assumed": sorted({s.block for s in stand.values() if s.assumed}), "models": len(stand)}
     sub = [r for r in refs if r in near]
     out["held_controlled"] = compare(spec, held, truth, sub)
     out["closed_controlled"] = compare(spec, closed, truth, sub)
@@ -126,7 +126,7 @@ def main() -> int:
     print(f"{spec.name}: {len(splits)} held-out stretches of {human(h)}")
     for x in got["splits"]:
         print(f"\n split at -{human(until - x['split'])}, identified on {human(x['fit_span'])} of record before it; "
-              f"{x['standins']} stand-ins, assumed: {', '.join(x['assumed']) or 'none'}")
+              f"{x['models']} identified models, assumed: {', '.join(x['assumed']) or 'none'}")
         for which in ("", "_controlled"):
             print(f"  {'every stock' if not which else 'stocks downstream of a controller'}:")
             for mode in ("held", "closed"):

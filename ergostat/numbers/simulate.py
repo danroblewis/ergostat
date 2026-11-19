@@ -520,7 +520,8 @@ def controlled(spec: Spec) -> set[str]:
 
 
 def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = None, points: int | None = None,
-            inputs: str = "hold", rescale: Plan | None = None, held: set[str] | None = None) -> Run:
+            inputs: str = "hold", rescale: Plan | None = None, held: set[str] | None = None,
+            override: dict[str, float] | None = None, control=None) -> Run:
     """From now (``data.grid.until``) for ``horizon`` seconds, open loop: stocks from their last
     readings (the mean of the last few; the replay's end where they have none), delays as the replay
     left them; every input held where it was (``inputs="hold"``) or carried on along its recent trend
@@ -530,7 +531,12 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
     material delay's contents are then rescaled to this plan's delay time at the same outflow (what is in a
     pipeline at a given throughput is that throughput times its time: Sterman ch. 11), so a sample with
     another delay time starts in its own steady state and the projection does not jump at now; a smoothed
-    value (SMOOTH) is a perceived level, the same whatever its time, and is kept."""
+    value (SMOOTH) is a perceived level, the same whatever its time, and is kept.
+
+    ``override`` holds some inputs at other values (a what-if's rate, a Monte Carlo draw). ``control`` closes the
+    loops (closedloop.py): it sets the flows it names (``control.flows``) at every step, before the equations are worked
+    out (``control.begin(V, state, moving, k, n, step)`` returns the steps a point it needs; ``control.step(t, dt)``;
+    ``control.point(i)`` at each point's end; ``control.notes()``)."""
     pl = pl or plan(spec)
     g = data.grid
     n = points or max(2, round(horizon / g.width))
@@ -560,9 +566,13 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
         V[r] = 0.0                                       # what was never measured is taken as 0, as in the replay
     held = controlled(spec) if held is None else held
     out: dict[str, list[float | None]] = {f"stock.{s}": [None] * n for s in pl.integrate} | {r: [None] * n for r in pl.eqs}
-    moving = [(r, v0, slope) for r, (v0, slope) in ahead.items() if slope or inputs != "hold"]
+    for r, v in (override or {}).items():
+        ahead[r] = (v, 0.0)
+    mine = control.flows if control is not None else set()
+    moving = [(r, v0, slope) for r, (v0, slope) in ahead.items() if (slope or inputs != "hold") and r not in mine]
     for r, (v0, _) in ahead.items():                     # held where they were: set once (an equation's own value wins)
-        V[r] = max(0.0, v0) if r in one_way and v0 >= 0 else v0
+        if r not in mine:
+            V[r] = max(0.0, v0) if r in one_way and v0 >= 0 else v0
 
     def inputs_at(t: float) -> None:
         h = (t - g.until) / 3600.0
@@ -578,15 +588,21 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
         _rescale(pl, rescale, st)
         st.evaluate()
     k, _ = _substeps(st.rates(state), step / 3600.0)
+    if control is not None:
+        k = control.begin(V, state, {m[0] for m in moving}, k, n, step)
     dt = step / 3600.0 / k
     for i in range(n):
         for _ in range(k):
             inputs_at(t)
+            if control is not None:
+                control.step(t, dt)
             st.evaluate(dt)
             st.step(state, dt)
             t += step / k
         inputs_at(t)
         st.evaluate()
+        if control is not None:
+            control.point(i, t)
         for s in pl.integrate:
             out[f"stock.{s}"][i] = state[s]
         for r in pl.eqs:
@@ -594,8 +610,8 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
     left = sorted(r for r in out if r in held)
     for r in left:
         out[r] = [None] * n
-    notes = [f"open loop: inputs {'held where they were' if inputs == 'hold' else 'carried on along their trend'}, "
-             f"controllers held"]
+    notes = control.notes() if control is not None else \
+        [f"open loop: inputs {'held where they were' if inputs == 'hold' else 'carried on along their trend'}, controllers held"]
     if left:
         notes.append(f"left out downstream of a controller's flow ({len(left)} part{'s' if len(left) > 1 else ''})")
     how = {f"stock.{s}": "integrated" for s in pl.integrate} | {r: "equation" for r in pl.eqs}
@@ -604,4 +620,4 @@ def project(spec: Spec, data: Data, run: Run, horizon: float, pl: Plan | None = 
         c.faults.clear()
         c.faults.update(saved[r])
     return Run(times, out, how, notes + st.clamps(), {s: v for s, v in state.items() if v is not None}, st.S,
-               invalid=st.clamps(), faults=counted)
+               steps=n * k, invalid=st.clamps(), faults=counted)

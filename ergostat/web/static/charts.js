@@ -297,7 +297,7 @@ function causesStrip(ref, group = chartGroup("strip")) {
         modelled ? (d.fan_pending ? "the spread with the loops running is being worked out" : fanSaid(d, list.some((s) => s.fan))) : "", replayFanSaid(d, list.some((s) => s.replay_fan)), whatifSaid(d),
         list[0].replay ? "" : noReplaySaid(list[0])].filter(Boolean).join(". ")),
         group.when),
-      ...riskLines(d), ...standinsSaid(d),
+      ...riskLines(d), ...modelsSaid(d),
       ...(!SNAP && (d.fan?.parameters?.length || d.loops_can_close) ? [h("div", { class: "actions" },
         d.fan?.parameters?.length ? h("button", { class: "ghost", onclick: () => { S.replayFan = !S.replayFan;
           for (const b of document.querySelectorAll(".strip")) b.redraw?.(); } }, S.replayFan ? "Hide the spread over the record" : "Spread over the record") : null,
@@ -367,14 +367,14 @@ function dominanceChart({ group, title, times, since, until, mine, others, xAxis
   return el;
 }
 
-/* the projection with the loops running (the goals, the built-ins and each machine block's stand-in, simulated) or
+/* the projection with the loops running (the goals, the built-ins and each machine block's identified model, simulated) or
    held (open loop): one choice for every chart on the page (S.loops), the loops running by default where there are any */
 function loopsToggle(now) {
   const closed = now === "closed";
   return h("span", { class: "seg", role: "group", "aria-label": "how the projection runs" },
     ...[["closed", "With the loops running"], ["held", "Held"]].map(([k, words]) => h("button", {
       class: `ghost${(k === "closed") === closed ? " on" : ""}`, "aria-pressed": String((k === "closed") === closed),
-      title: k === "closed" ? "The goals, the built-in blocks and a stand-in for each machine block run on past now"
+      title: k === "closed" ? "The goals, the built-in blocks and each machine block's identified model run on past now"
                             : "Open loop: every block held as it was, every input held where it was",
       onclick: () => { S.loops = k; for (const b of document.querySelectorAll(".strip")) b.redraw?.(); } }, words)));
 }
@@ -383,11 +383,13 @@ function riskLines(d) {
   return (d.risk || []).filter((r) => r.said).map((r) => h("p", { class: `small risk${r.p_off_end >= 0.5 ? " s-open" : ""}` }, r.said));
 }
 /* what stands in for the machine blocks near these parts, in words (the closed-loop projection runs them, not the blocks) */
-function standinsSaid(d) {
-  if (d.loops !== "closed" || !d.standins?.length) return [];
-  return [h("details", { class: "standins small" }, h("summary", { class: "muted" },
-    `What stands in for the blocks (${d.standins.length})${d.standins_assumed?.length ? `; assumed: ${d.standins_assumed.join(", ")}` : ""}`),
-    h("ul", {}, d.standins.map((x) => h("li", {}, x))))];
+function modelsSaid(d) {
+  if (d.loops !== "closed" || !d.models?.length) return [];
+  return [h("details", { class: "block-models small" }, h("summary", { class: "muted" },
+    `Each block's identified model (${d.models.length})${d.models_assumed?.length ? `; assumed: ${d.models_assumed.join(", ")}` : ""}`),
+    h("ul", {}, d.models.map((x) => h("li", { class: x.assumed ? "s-open" : null }, x.said,
+      SNAP || x.pool == null ? null : h("span", { class: "muted" }, "; what if its pool were ", whatifField(`block.${x.block}.pool`,
+        `what if ${x.block}'s pool were`, x.pool, "another number of runs at once"))))))];
 }
 /* a what-if only the closed-loop projection can try (an input's rate, a goal's setpoint, a pool), typed in a panel:
    drawn on every chart on the page, never kept */
@@ -398,21 +400,6 @@ function whatifField(key, label, shown, hint) {
   return h("span", { class: "nowrap" }, input);
 }
 
-/* a machine block in the closed-loop projection: what stands in for it, in words, and its pool to try */
-function standinBox(block) {
-  const box = h("div", { class: "standin" });
-  if (SNAP) return box;
-  api("standins", { block }).then((d) => {
-    const xs = d.standins || [];
-    if (!xs.length && !(d.held || []).length) return;
-    box.replaceChildren(...[h("h3", {}, "In a projection with the loops running"),
-      ...xs.map((x) => h("p", { class: x.assumed ? "s-open small" : "small" }, x.said, x.assumed ? " (an assumption, flagged)" : "")),
-      ...(d.held || []).map((x) => h("p", { class: "muted small" }, x)),
-      d.pool != null ? h("p", { class: "muted small" }, "What if its pool were ", whatifField(`block.${block}.pool`, `what if ${block}'s pool were`, d.pool,
-        "another number of runs at once"), " (drawn on every chart with the loops running)") : null].filter(Boolean));
-  }).catch(() => {});
-  return box;
-}
 /* an input from outside: its rate to try (per hour, or x2 for twice what it is now) */
 function inputWhatif(flow) {
   if (SNAP) return null;
@@ -446,7 +433,7 @@ function replayFanSaid(d, drawn) {
 /* why the part itself has no replay, projection or fan: the replay works out a stock with flows and a part with an
    equation; anything else it takes as measured */
 function noReplaySaid(s) {
-  if (s.modelled === "stand-in") return "no replay: a block moves it, and the replay takes it as measured; past now, its block's stand-in";
+  if (s.modelled === "identified model") return "no replay: a block moves it, and the replay takes it as measured; past now, its block's identified model";
   if (s.kind === "stock") return "no replay or projection: no flow fills or drains it in the model";
   return "no replay, projection or fan: no equation works it out, so the replay takes it as measured";
 }
@@ -455,10 +442,11 @@ function fanSaid(d, drawn) {
   if (!f) return "";
   if (f.closed) {
     if (!f.samples) return "no spread drawn: no run with the loops running was valid";
+    const bad = f.invalid ? `; ${f.invalid} of ${f.samples + f.invalid} runs not valid` : "";
     const names = f.parameters.map((u) => u.name);
     return `shaded: half${f.tails ? ", and nine in ten," : ""} of ${f.samples} runs with the loops running` +
-      (names.length ? `, over ${names.slice(0, 5).join(", ")}${names.length > 5 ? ` and ${names.length - 5} more` : ""} (estimates and stand-ins \u00b12 standard errors; inputs by how much their mean could move)` : "") +
-      (f.stopped ? `; ${f.stopped}` : "") + (drawn ? "" : "; too narrow to draw here");
+      (names.length ? `, over ${names.slice(0, 5).join(", ")}${names.length > 5 ? ` and ${names.length - 5} more` : ""} (estimates and identified models \u00b12 standard errors; inputs by how far their mean could move)` : "") +
+      bad + (f.stopped ? `; ${f.stopped}` : "") + (drawn ? "" : "; too narrow to draw here");
   }
   if (!f.parameters?.length) return "no spread drawn: no parameter it uses has a range or an estimate's error";
   if (!f.samples) return "no spread drawn: every run of the uncertain parameters blew up";
