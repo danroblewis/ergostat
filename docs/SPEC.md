@@ -568,6 +568,7 @@ stocks:
 | `unit` | string | none | Its unit. Flows and sensors on it must use the same unit |
 | `limit` | number | none | The physical limit: a full disk, a queue's capacity. Used to estimate time to failure |
 | `initial` | number | none | A starting value, for simulation only |
+| `observe` | bool | false | Estimated between readings (`stock.X.estimate`), its innovations recorded, and the goals on it watched for staleness (section 9.6) |
 | `cumulative` | bool | false | A running total that by its nature never drains (spent so far, kept so far): no outflow is missing, and `check` does not ask for one (**stock-without-outflow**) |
 | `rate-unit` | `minute`, `hour`, `day` or `week` | chosen by size | How the rates of its flows are shown, for each flow that says none (section 1a); display only, kept per hour |
 | `inferred` | model-change id, or `true` | none (declared) | Added by ergostat: the model change that added it (section 12e, *Inferred and declared*) |
@@ -1411,6 +1412,7 @@ goals:
 | `owner` | string | none | Who answers for it |
 | `process` | map | none | The loop's process, from what its controller moves (u) to what the goal holds (y), as control engineering writes it: `gain` (y per u), `time-constant` and `dead-time` (durations): P(s) = K e^(−θs)/(τs + 1); or `integrating: true`, `gain` per hour and `dead-time`: P(s) = k e^(−θs)/s. `identified:` says it was accepted from an identification (when, how, on how much record); without it, it is declared (section 12d) |
 | `per` | `item`, or a field | none | On a stock counted from items (an `items:` sensor): held by each item (`item`, by its own measure: its hours in its state for `measure: oldest`, since first seen for `age`), or by each group of the items by what a field holds (a relation such as `parent`: each id it names; an item with nothing there is in no group): each group's count, oldest or age. Below |
+| `on-stale` | `act`, `hold` or `off` | none (not watched) | Watched for staleness, and what it does while its reading is stale (section 9.6): worked out from the stale value as if it were current; its `.error` and `.off` kept as they were, so what it commands is kept; or counted as off (`.off` is 1, its error the last one). Its status shows `stale` under each |
 | `system`, `description` | | | |
 
 A goal exists whether or not anything serves it. A goal nothing serves is **missing feedback**.
@@ -1469,6 +1471,7 @@ Common keys:
 | `in` | reference, list, or map of port → reference | Its inputs. On a machine block, a stock, flow or auxiliary read may carry its sign, as a `driven-by` does: `+stock.x` (it does more as x rises), `-stock.x` (less); see §12a |
 | `out` | reference, list, or map of port → reference | Where its outputs go: a flow (it sets that flow), another block (it commands it), or a goal's setpoint (cascade) |
 | `role` | `controller`, `actuator`, `logic` | Optional label, for drawing and checks. Derived when left out |
+| `on-stale` | `act`, `hold` or `off` | Watches what it reads directly (a stock, flow or auxiliary, or a goal), and says what it does while that is stale (section 9.6; none: not watched): as before (`act`); keeps its last command (`hold`: a built-in is not stepped, a machine block is not started); or sees the goals it reads as off (`off`). A machine block's `goal:` passes it to the onoff it implies |
 | `system`, `description` | | |
 
 Every block has an output. A block with none has no visible effect: either it does nothing worth
@@ -1992,6 +1995,60 @@ last hour, needs attention (`ergostat`, the page's side panel); `ergostat lease 
 dead letter another go once its cause is fixed. The Items page shows, for a kind with leases, who
 holds each item and when its lease expires, and its attempts; an item's page, its lease and every
 attempt.
+
+### 9.6 The observer: stale readings and estimated stocks
+
+A controller acts on its picture of the world, and a reading is only a picture as of when it was taken. The engine can
+keep, beside a reading, its age, and beside a stock an estimate between readings (`ergostat/spec/observer.py`; the
+design is `docs/proposals/coordinator/06-observer.md`). **It is opt-in**: a model that asks for none of it records
+exactly what it did before (its events, series, signals, findings and statuses). A model asks for it by:
+
+- `observe: true` on a stock: it is estimated, and the goals on it are watched for staleness (policy `act`);
+- naming `stock.X.estimate` or `stock.X.uncertainty` in a block's `in:`: that stock is estimated;
+- `on-stale:` on a goal (that goal is watched) or on a block (what it reads directly, and the goals it reads, are watched).
+
+**Stale.** A watched part is stale once the third reading its quickest periodic sensor should have taken since its last
+is overdue: 3 × `every` after it, or the third time its `cron` comes round after it (as `sensor-stale` counts). One with
+an `items`, `changes` or `manual` sensor, or no reading yet, is never stale; nothing is stale before its sensors could
+have read since the engine started, or since it woke (the wall clock jumping ahead of the monotonic one by more than
+30 s between passes: a laptop that slept, recorded as `ergostat.engine.woke` with `slept`, which the page reads
+too). A watched goal on a stale part records `ergostat.goal.stale` and `ergostat.goal.fresh` as it
+goes stale and reads again (`part`, `age`, `on_stale`). What it and the blocks reading it do is their `on-stale:`
+(sections 8, 9): a built-in reading a stale goal whose policy is `hold` is held, and one whose policy is `off` sees it as
+off without reading its stale value (an onoff's `until:` does not release on it). A machine block's input names what it
+reads that is stale, with the ages in seconds, under every policy: `"stale": {"stock.inbox": 312.0}`, and each such goal
+under `goals` carries `"stale"` too. `on-stale: off` on a machine block: its stale goals are given to it as `status: off`;
+with `goal:`, the onoff it implies takes the policy too, so it is commanded to run (a stale stock it reads directly is
+given as it was read). The page, `ergostat status` and the MCP `status` show a watched goal as `stale`, with its age,
+only while it holds (off outranks stale), only while ergostat runs, and not before its sensors were due since ergostat
+started; so do the goal and controller panels and "needs attention".
+
+**Estimated stocks.** Between readings an estimate moves by the stock's modelled net flow, worked out once a pass: its
+flows' equations, by the replay's stepper (section 12b), where they have them; their measured rates otherwise; and the
+stock's last measured rate of change when a flow is neither. Each reading is weighed against the estimate at the moment
+it was taken (one that lands late is not compared with the estimate since moved on), and blended in with a Kalman
+gain, scalar per stock (no covariance between stocks), that is **adaptive**: re-estimated at each reading over the last
+50 open-loop one-step errors (a reading less the reading before it moved by the model). Their lag-1 autocovariance is
+minus the sensor's noise variance, and their variance the model's error over the interval plus twice the noise's; the
+gain is the steady state's for those at the median interval. Until four readings each is taken whole; the model's error
+is taken as at least 1% of the noise, so the estimate keeps listening. A model that is right drives the gain down (the
+model carries the estimate between readings); one that is structurally wrong makes its errors large and drives the gain
+towards 1, so the estimate follows the readings and is no better than them. A block reads it by naming it in `in:`:
+
+| Reference | What it is |
+|---|---|
+| `stock.X.estimate` | The estimate now, in the stock's unit |
+| `stock.X.uncertainty` | Its standard deviation now: after a reading, the steady state's; growing by the model's error until the next |
+
+(A stock with a sensor itself named `estimate` or `uncertainty` keeps that sensor under that name.)
+
+**Innovations.** For an estimated stock, each reading less what the estimate predicted for it is recorded as the series
+`observer/X/innovation`. Five in a row more than 3 expected standard deviations off (the standard deviation never taken
+below the sensor's resolution: half a count, for a stock read as whole numbers) record `ergostat.model.disagrees` (about
+`stock.X`: the last innovation, its standard deviation, the run), and the finding **model-disagrees** stands on that
+stock while one is in the window (`check`, `ergostat findings`): the model's flows miss something that moves it, which
+modelling takes as a request like any finding (`finding:model-disagrees@stock.X` as a proposal's evidence). Finding the
+structure behind a residual can build on these series.
 
 ## 10. Agents
 

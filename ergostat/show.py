@@ -41,7 +41,7 @@ def table(heads: list[str], rows: list[list[str]], empty: str = "none") -> str:
     return "\n".join([line(heads, True), *(line(r) for r in rows)])
 
 
-STATUS_STYLE = {"holding": "ok", "off": "bad", "open": "warn", "unknown": "dim"}
+STATUS_STYLE = {"holding": "ok", "off": "bad", "open": "warn", "stale": "warn", "unknown": "dim"}
 
 
 def status_word(s: str | None) -> str:

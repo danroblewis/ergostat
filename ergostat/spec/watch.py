@@ -115,6 +115,18 @@ def find(project, spec: Spec, window: float = WINDOW, now: float | None = None) 
         elif now - last[0] > 3 * period and project_running(project):
             say("sensor-stale", f"sensor {s.of.name}.{s.name}: last read {human(now - last[0])} ago (every {human(period)})",
                 s.where, f"{s.of.kind}.{s.of.name}.{s.name}")
+    # a stock whose readings the model keeps missing: a run of large innovations (the observer, SPEC §9.6)
+    said = set()
+    for e in reversed(ev.query(n=200, type="ergostat.model.disagrees", since=since)):
+        st = spec.stocks.get(e["data"].get("stock") or "")
+        if st is None or st.name in said:
+            continue
+        said.add(st.name)
+        d = e["data"]
+        say("model-disagrees", f"stock {st.name}: {d.get('run')} readings in a row were more than 3 expected standard "
+            f"deviations from what its flows predicted (the last off by {d.get('innovation', 0):+.3g} {st.unit}): the model "
+            f"misses something that moves it (the innovations: series observer/{st.name}/innovation)", st.where,
+            f"stock.{st.name}")
     # goals off, and critical goals decaying
     for g in spec.goals.values():
         lp = spec.loop(g.name)

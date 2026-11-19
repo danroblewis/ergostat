@@ -152,10 +152,12 @@ class Shadow:
     _event = en.Engine._event
     decided = en.Engine.decided
     command_of = en.Engine.command_of
+    stale_mode = en.Engine.stale_mode
 
     def __init__(self, spec: Spec, signals: dict, start: Start | None = None, setpoints: dict | None = None):
         from collections import deque
         self.spec, self.signals = spec, signals
+        self.stale, self.stale_parts = {}, {}               # a simulated reading is never stale (SPEC §9.6)
         self.builtins = {n: make_builtin(spec.blocks[n], spec) for n in builtin_order(spec)}
         start = start or Start()
         self.status, self.setpoint = dict(start.status), dict(start.setpoint)
