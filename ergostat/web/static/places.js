@@ -316,3 +316,26 @@ function applyPins(lay, g, placed = null) {        // (placed: parts the owner h
   refit(lay);
   return moved;
 }
+
+/* parts left out of the layout (a closed system linked to nothing: diagram.js) put back where they cost the drawing
+   least: the free place, among the others or round them, that leaves the drawing fitting the screen best (the
+   nearest the top left of those) */
+function packLoose(lay, nodes) {
+  const M = 40, STEP = 24, cv = document.querySelector("svg.canvas")?.getBoundingClientRect();
+  const [cw, ch] = cv?.width ? [cv.width - 40, cv.height - 90] : [1260, 810];
+  const boxes = () => [...lay.children.map(partBox), ...(lay.containers || []).map((o) => ({ x0: o.x, y0: o.y, x1: o.x + o.width, y1: o.y + o.height }))];
+  for (const n of nodes) {
+    const bs = boxes();
+    const u = { x0: Math.min(...bs.map((b) => b.x0)), y0: Math.min(...bs.map((b) => b.y0)), x1: Math.max(...bs.map((b) => b.x1)), y1: Math.max(...bs.map((b) => b.y1)) };
+    let best = null;
+    for (let y = u.y0 - n.height - M; y <= u.y1 + M; y += STEP) for (let x = u.x0 - n.width - M; x <= u.x1 + M; x += STEP) {
+      const r = { x0: x, y0: y, x1: x + n.width, y1: y + n.height };
+      if (bs.some((b) => meets(r, b, M))) continue;
+      const f = Math.min(cw / (Math.max(u.x1, r.x1) - Math.min(u.x0, r.x0)), ch / (Math.max(u.y1, r.y1) - Math.min(u.y0, r.y0)));   // (not capped at 1: ties are rare)
+      const d = Math.hypot(x - u.x0, y - u.y0);
+      if (!best || f > best.f + 1e-9 || (Math.abs(f - best.f) <= 1e-9 && d < best.d)) best = { x, y, f, d };
+    }
+    lay.children.push({ ...n, x: best ? best.x : u.x1 + M, y: best ? best.y : u.y0 });
+  }
+  refit(lay);
+}
