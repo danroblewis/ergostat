@@ -22,8 +22,15 @@ review). Newest decisions from the owner first within each section.
 
 - **One-line modelling loop** (open): `use: modelling` instead of about 150 lines copied into each example; a
   model built by an agent gets the improvement loop by default.
-- **Built-in join** (open): move a parent item once all its sub-items reach a state (fork-join); today it
-  takes a join block or an auxiliary.
+- **Built-in join** (open; relations make it a rule over `parent`/`children`): move a parent item once all its
+  children reach a state (fork-join). Relations (in progress, `relations`) now say which items are a parent's
+  children, both ways, from the item index, so the join is a rule on the kind (`join: {children: parent, all: done,
+  to: shipped}`, say) rather than a block that lists and matches items itself (`examples/roadmap/bin/epics.py`
+  does it today). Left: the rule's shape, when it fires (on each child's move, from the index), and the parent's
+  `entering` counted like any other move.
+- **Relations, what is left** (in progress, `relations`): the Graph and Timeline read relations as they stand now
+  (time travel does not reach them) and are not in a snapshot; the projection does not level resources (a
+  block's `pool`); `ticket-factory` does not record Jira's links yet; the Process view does not draw relations.
 - **Triggers on an event type** (open): a block started by an event type alone, not only by a state change.
 - **Closed-loop simulation** (open): projection holds blocks still; simulating with the controllers running.
 - **Operating modes, regime-scheduled thresholds, interlocks, risk gating** (open; designed in
