@@ -13,8 +13,42 @@ from ..show import c, table
 from .common import open_project, out_json
 
 
+def _wait_for_a_model_that_runs(args) -> None:
+    """A runner restarted in place (a new name or store, or a watchdog's last resort) whose files were edited again
+    meanwhile waits, holding its lock, until they settle into a model that may run, rather than exiting."""
+    from .. import reload as rl
+    here = Path(args.C).resolve() if args.C else Path.cwd()
+    said, good = None, None
+    while True:
+        try:
+            m = mdl.load(here)
+            errors = [msg for lv, msg in mdl.check(m, warnings=False) if lv == "error"]
+        except FileNotFoundError:
+            return                                       # (open_project says so)
+        except Exception as e:
+            lines = [x.strip() for x in str(e).splitlines()[1:] if x.strip()]
+            errors = lines or [f"{type(e).__name__}: {e}"]
+        if not errors:
+            stamp = mdl.stamp(m)
+            if good == stamp:
+                return
+            good = stamp
+            time.sleep(rl.SETTLE)
+            continue
+        good = None
+        if errors != said:
+            print(f"restarting: {rl.banner(errors).replace('; still running the last good version', '')}; waiting for it "
+                  f"to be fixed:", flush=True)
+            for msg in errors:
+                print(f"  {msg}", flush=True)
+            said = errors
+        time.sleep(0.5)
+
+
 def cmd_run(args) -> int:
     from .. import runner
+    if args.foreground and os.environ.get("ERGOSTAT_LOCK_FD") and not args.stop:
+        _wait_for_a_model_that_runs(args)
     p = open_project(args)
     pid = runner.running_pid(p)
     if args.stop:
@@ -63,17 +97,21 @@ def cmd_run(args) -> int:
         return 0
     stopping = []
     signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
+    import faulthandler
+    stacks = open(p.dir / "threads.txt", "a")           # noqa: SIM115  (kill -USR1 PID: every thread's stack, here)
+    faulthandler.register(signal.SIGUSR1, file=stacks, all_threads=True)
     server = None
     if not args.no_web:                                 # the page first, so its address is known at once
         from ..store import Project
         from ..web import serve
-        server, url = serve(Project(mdl.load(p.repo), p.dir), args.port)   # its own model: the page never hands the runner one
+        server, url = serve(Project(p.model, p.dir), args.port)   # its own Project: the page never hands the runner a model
         print(f"web: {url}", flush=True)
         print(f"push: POST {url}/api/events (token: {p.dir / 'intake.token'})", flush=True)
     say = lambda s: print(time.strftime("%H:%M:%S"), s, flush=True)       # noqa: E731
     if getattr(p.model, "spec", None) is not None:      # the YAML model: ergostat closes its loops itself
         from ..spec.engine import Engine
         r = Engine(p, say=say)
+        r.restart_hard = lambda why: _restart_hard(p, args, why)
         r.start_all()
         sp = p.model.spec
         print(f"running {len(sp.sensors())} sensors, {len(r.builtins)} built-in blocks, {len(r.machines)} machine blocks",
@@ -84,56 +122,94 @@ def cmd_run(args) -> int:
         print(f"running {len(r.queues)} agents", flush=True)
     from ..remote import refresh as remote_refresh
     remote_refresh.start(lambda: p)                     # remotes' models kept current: a new version reloads (SPEC §4c)
-    mtime = mdl.stamp(p.model)
+    from .. import reload as rl
+    watch = rl.Settled(p.model)                         # a change taken once the files settle, and only if it may run
+    rl.write_state(p.dir, None)
+    name = mdl.file_name(p.model)
     reload = False
     try:
         while not stopping:
-            time.sleep(0.5)
-            now_m = mdl.stamp(p.model)
-            if now_m != mtime:
-                mtime = now_m
-                try:
-                    fresh = mdl.load(p.model.path.parent)
-                except Exception as e:
-                    print(f"{mdl.file_name(p.model)} changed but does not load ({e}); still running the last one", flush=True)
-                    continue
-                errors = [msg for lv, msg in mdl.check(fresh, warnings=False) if lv == "error"]
-                if errors:                                  # each one, so the log alone is enough to fix it
-                    print(f"{mdl.file_name(p.model)} changed but has {len(errors)} error{'s' if len(errors) > 1 else ''}; "
-                          f"still running the last one:", flush=True)
-                    for msg in errors:
-                        print(f"  {msg}", flush=True)
-                    continue
-                if fresh.name != p.model.name or (getattr(fresh, "spec", None) is None) != (getattr(p.model, "spec", None) is None) or \
-                        getattr(fresh, "storage", None) != getattr(p.model, "storage", None):
-                    # another state directory, format or store: not the same runner any more
-                    print(f"{mdl.file_name(p.model)} changed its name, format or storage: restarting with it "
-                          f"(its runs are stopped)", flush=True)
-                    reload = True
-                    break
-                try:                                        # in place: runs under way carry on (SPEC §9.1)
-                    got = r.swap(fresh)
-                except Exception as e:
-                    print(f"{mdl.file_name(p.model)} changed but could not be taken in place ({type(e).__name__}: {e}); "
-                          f"still running the last one", flush=True)
-                    continue
-                mtime = mdl.stamp(p.model)
-                n = got["carried"]
-                print(f"{mdl.file_name(p.model)} changed: version {got['version']} from now"
-                      + (f"; {n} run{'s' if n != 1 else ''} under way carr{'y' if n != 1 else 'ies'} on under the last one "
-                         f"({', '.join(got['runs'])})" if n else ""), flush=True)
+            time.sleep(0.25)
+            wedged = getattr(r, "wedged", None)         # the engine's watchdog could not recover it in place
+            if wedged:
+                print(f"the engine is wedged ({wedged}): restarting it (its runs are stopped)", flush=True)
+                reload = True
+                break
+            due = watch.due()
+            if due is None:
+                continue
+            began = time.monotonic()
+            fresh, errors = rl.load_checked(p.model)
+            loaded = time.monotonic() - began
+            if fresh is None:                           # each one, so the log alone is enough to fix it
+                watch.refused(due)
+                rl.write_state(p.dir, errors, getattr(r, "version", None))
+                print(f"{name} changed: {rl.banner(errors)}:", flush=True)
+                for msg in errors:
+                    print(f"  {msg}", flush=True)
+                continue
+            if fresh.name != p.model.name or (getattr(fresh, "spec", None) is None) != (getattr(p.model, "spec", None) is None) or \
+                    getattr(fresh, "storage", None) != getattr(p.model, "storage", None):
+                # another state directory, format or store: not the same runner any more
+                print(f"{name} changed its name, format or storage: restarting with it (its runs are stopped)", flush=True)
+                rl.write_state(p.dir, None)
+                reload = True
+                break
+            old = p.model
+            try:                                        # in place: runs under way carry on (SPEC §9.1)
+                got = r.swap(fresh)
+            except Exception as e:                      # nothing of it was taken: the last one runs as it was
+                watch.refused(due)
+                why = f"{name}: it could not be taken in place ({type(e).__name__}: {e})"
+                rl.write_state(p.dir, [why], getattr(r, "version", None))
+                print(f"{why}; still running the last good version", flush=True)
+                continue
+            watch.took(fresh, due)
+            rl.write_state(p.dir, None)
+            name = mdl.file_name(p.model)
+            took = time.monotonic() - began
+            n = got["carried"]
+            secs = got.get("seconds") or {}
+            print(f"{name} changed: version {got['version']} from now ({took:.2f}s)"
+                  + (f"; {n} run{'s' if n != 1 else ''} under way carr{'y' if n != 1 else 'ies'} on under the last one "
+                     f"({', '.join(got['runs'])})" if n else ""), flush=True)
+            if took > rl.SLOW:                          # where the time went
+                parts = {"reading and checking the files": loaded, "taking it in place": secs.get("swap", 0.0),
+                         "recording the change": secs.get("record", 0.0)}
+                slow = max(parts, key=parts.get)
+                print(f"  slow change ({took:.1f}s), most of it {slow} ({parts[slow]:.1f}s): "
+                      + ", ".join(f"{k} {v:.2f}s" for k, v in parts.items())
+                      + f"; {len(getattr(old, 'files', None) or [])} files", flush=True)
     except KeyboardInterrupt:
         pass
+    if reload and getattr(r, "wedged", None) and not stopping:
+        _restart_hard(p, args, r.wedged)                # (closing may wait on what is wedged)
     r.close()
     if server:
         server.shutdown()
         server.server_close()
         (p.dir / "web.json").unlink(missing_ok=True)
     if reload and not stopping:                         # the same process, the new model (a stop asked meanwhile wins)
-        os.environ.update(runner.keep_lock_across_exec())
-        os.execv(sys.executable, [sys.executable, "-m", "ergostat", "-C", str(p.repo), "run", "--foreground",
-                                  *(["--no-web"] if args.no_web else []), *(["--port", str(args.port)] if args.port else [])])
+        _restart(p, args)
     return 0
+
+
+def _restart(p, args) -> None:
+    """This runner, started again in its own process (its lock kept across): a new model's name or store, or the
+    watchdog's last resort."""
+    from .. import runner
+    os.environ.update(runner.keep_lock_across_exec())
+    os.execv(sys.executable, [sys.executable, "-m", "ergostat", "-C", str(p.repo), "run", "--foreground",
+                              *(["--no-web"] if args.no_web else []), *(["--port", str(args.port)] if args.port else [])])
+
+
+def _restart_hard(p, args, why) -> None:
+    """The watchdog's restart when the run loop could not do it: its runs killed, nothing else waited on (what is
+    wedged may be what closing would wait for)."""
+    from .. import runner
+    print(f"restarting the engine's process at once ({why})", flush=True)
+    runner.kill_all()
+    _restart(p, args)
 
 def cmd_snapshot(args) -> int:
     from ..web.snapshot import build

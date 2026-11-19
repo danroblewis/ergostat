@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from .. import model as mdl
 from .. import show
@@ -35,12 +36,57 @@ def watch(args, every: float = 2.0) -> int:
         return 0
 
 
+def _edited(args, err: Exception) -> int | None:
+    """The model's files do not load: when a runner runs here, it still runs the last good version, and that is said
+    with every error (not the status, which needs a model). None: no runner here (the error is said as everywhere)."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from .. import reload as rl
+    from ..calls.client import state_of
+    from ..runner import running_pid, web_url
+    here = Path(args.C).resolve() if getattr(args, "C", None) else Path.cwd()
+    d = state_of(here)
+    pid = running_pid(SimpleNamespace(dir=d)) if d is not None else None
+    if not pid:
+        return None
+    lines = [x.strip() for x in str(err).splitlines()[1:] if x.strip()] or [str(err)]
+    known = rl.read_state(d) or {}
+    if getattr(args, "json", False):
+        out_json({"running": True, "web": web_url(SimpleNamespace(dir=d)), "edited": {"errors": lines,
+                  "banner": rl.banner(lines), "running": known.get("running")}, "ok": False})
+        return 1
+    print(f"{c('ergostat', 'bold')} · {c('running', 'ok')} ({pid})" + (f" · {web_url(SimpleNamespace(dir=d))}"
+                                                                       if web_url(SimpleNamespace(dir=d)) else ""))
+    print()
+    print(f"  {c('●', 'bad')} {rl.banner(lines)}" + (f" ({known['running']})" if known.get("running") else "") + ":")
+    for x in lines:
+        print(f"      {x}")
+    print(c("\n  the status shows again once the files load (ergostat check)", "dim"))
+    return 1
+
+
 def status(args) -> int:
     from ..runner import running_pid, web_url
-    p = open_project(args)
+    from ..store import Project
+    try:
+        p = Project(mdl.load(Path(args.C).resolve() if getattr(args, "C", None) else Path.cwd()))
+    except mdl.ModelError as e:                           # still running the last good version, when a runner runs
+        got = _edited(args, e)
+        if got is not None:
+            return got
+        p = open_project(args)                            # (which says it, as everywhere)
+    except Exception:
+        p = open_project(args)
     m, snap = p.model, snap_of(p, args)
     pid = running_pid(p)
     att = st.attention(snap, running=bool(pid) and snap["live"], model=m)
+    edited = None
+    if pid:                                               # loads, but the runner refused it (errors the check finds)
+        from ..reload import read_state
+        edited = read_state(p.dir)
+        if edited:
+            att.insert(0, {"level": "bad", "what": "the model", "says": edited["banner"]})
     spec = getattr(m, "spec", None)
     if spec is not None and not getattr(args, "at", None):   # the YAML model's findings: from the record, and missing loops
         from ..spec import watch
@@ -72,6 +118,9 @@ def status(args) -> int:
     hints = [a for a in att if a["level"] == "hint"]
     for a in problems:
         print(f"  {c('●', a['level'])} {a['what']}: {a['says']}")
+        if edited and a["says"] == edited["banner"]:
+            for x in edited["errors"]:
+                print(f"      {x}")
     if not problems:
         print(f"  {c('●', 'ok')} nothing needs you")
     if hints:
