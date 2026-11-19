@@ -24,6 +24,7 @@ from .changes import fold_event, form_of
 from .ir import ItemKind, Sensor, Spec
 
 REOPENED = "ergostat.item.reopened"   # any item moved back, by ergostat, to a state its data names (SPEC §12h)
+JOINED = "ergostat.item.joined"       # a parent moved on by its kind's join: to the state its data names (SPEC §5a)
 TRANSCRIPT_TYPES = "claude.*"     # a Claude Code transcript, line by line (transcripts.py): left out unless asked for
 SNAPSHOT = "ergostat.item.snapshot"    # an item's older events, folded into one (rollup.py): its document as a set
 LISTED = 500                           # the most items one listing carries; page through with offset
@@ -163,6 +164,9 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
         if e["type"] == REOPENED and kind and kind.states:     # reopened: back to the state it names (else the first)
             want = ((e.get("data") or {}).get("reopened") or {}).get("to")
             to = want if want in kind.states else kind.states[0]
+        if e["type"] == JOINED and kind and kind.states:
+            want = ((e.get("data") or {}).get("joined") or {}).get("to")
+            to = want if want in kind.states else None
         if to and to != it.state:
             it.moves.append({"time": e["time"], "from": it.state, "to": to, "event": e["id"], "type": e["type"]})
             it.state, it.entered = to, e["time"]

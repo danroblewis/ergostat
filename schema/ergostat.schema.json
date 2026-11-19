@@ -1976,6 +1976,21 @@
               }
             ]
           }
+        },
+        "join": {
+          "description": "Its children move it on (SPEC section 5a, Join): a rule, or a list of them",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/join"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/join"
+              },
+              "minItems": 1
+            }
+          ]
         }
       }
     },
@@ -2645,6 +2660,55 @@
           "description": "Only items whose precedence relations name only finished items, the critical first (SPEC section 5a, Relations)"
         }
       }
+    },
+    "join": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "children",
+        "to"
+      ],
+      "description": "To to: once all (or any) of the items naming it by the relation children: are in those states; only forward",
+      "properties": {
+        "children": {
+          "$ref": "#/$defs/name"
+        },
+        "all": {
+          "$ref": "#/$defs/states"
+        },
+        "any": {
+          "$ref": "#/$defs/states"
+        },
+        "to": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "all"
+          ]
+        },
+        {
+          "required": [
+            "any"
+          ]
+        }
+      ]
+    },
+    "states": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/name"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/name"
+          },
+          "minItems": 1
+        }
+      ]
     }
   }
 }

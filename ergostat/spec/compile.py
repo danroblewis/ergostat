@@ -61,7 +61,7 @@ COMMON = {"system", "description"}
 SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "every", "cron", "timeout", "parse", "unit", "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred",
@@ -639,11 +639,13 @@ class Compiler:
                 else:
                     rules[f] = str(rule)
         from ..leases import compile as leases
+        from . import joins
         from .relations import compile_relations
         relations = compile_relations(self, m, what, rules)
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
-                        fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations)
+                        fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
+                        join=joins.compile_join(self, m, what))
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""
@@ -1004,8 +1006,10 @@ class Compiler:
                                               description=f"the value block {b.name} set it to", where=b.where)
         self.messages(spec)
         self.counted(spec)
+        from .joins import check_joins
         from .relations import check_relations
         check_relations(self, spec)
+        check_joins(self, spec)
         self.references(spec)
         self.equations(spec)
         self.watched(spec)
