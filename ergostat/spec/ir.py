@@ -804,7 +804,15 @@ class Spec:
         return getattr(x, "system", None) if x else None
 
     def inside(self, r: Ref, system: str) -> bool:
-        return system in self.chain(self.owner(r))
+        """Whether a part is in the system, at any depth (each part's systems worked out once: ``reindex`` after
+        moving a part to another system in place)."""
+        return system in self._systems_of(self.lookups().kept.setdefault("ir.systems_of", {}), r)
+
+    def _systems_of(self, kept: dict, r: Ref) -> frozenset:
+        got = kept.get((r.kind, r.name))
+        if got is None:
+            got = kept[(r.kind, r.name)] = frozenset(self.chain(self.owner(r)))
+        return got
 
     def interface(self, system: str) -> list[dict]:
         """What crosses the system's boundary, each crossing a port: worked out, never written.
@@ -813,41 +821,74 @@ class Spec:
         inside), an action (an outside block moves a flow inside), a signal (something inside
         reads something outside), material (a flow from an outside stock into one inside), an
         influence (a flow inside driven by something outside). Out: the same, the other way."""
-        ports: dict[tuple, dict] = {}
+        kept = self.lookups().kept
+        if "ir.interfaces" not in kept:
+            kept["ir.interfaces"] = self._interfaces(kept.setdefault("ir.systems_of", {}))
+        return [{**p, "peers": list(p["peers"])} for p in kept["ir.interfaces"].get(system, [])]
 
-        def port(dir: str, kind: str, inner: Ref, outer: Ref) -> None:
-            p = ports.setdefault((dir, kind, str(inner)), {"dir": dir, "kind": kind, "part": str(inner), "peers": []})
+    def _interfaces(self, kept: dict) -> dict[str, list[dict]]:
+        """Every system's ports in one pass: a pair of parts crosses the boundary of each system one is in and the
+        other is not."""
+        ports: dict[str, dict[tuple, dict]] = {}
+
+        def systems(r: Ref) -> frozenset:
+            return self._systems_of(kept, r)
+
+        def port(system: str, dir: str, kind: str, inner: Ref, outer: Ref) -> None:
+            p = ports.setdefault(system, {}).setdefault((dir, kind, str(inner)),
+                                                         {"dir": dir, "kind": kind, "part": str(inner), "peers": []})
             if str(outer) not in p["peers"]:
                 p["peers"].append(str(outer))
+
+        def cross(a: Ref, b: Ref) -> tuple[frozenset, frozenset]:
+            """The systems ``a`` is in and ``b`` is not, and the other way."""
+            sa, sb = systems(a), systems(b)
+            return sa - sb, sb - sa
         for f in self.flows.values():
-            ends = [(e, self.inside(Ref("stock", e), system)) for e in (f.source, f.target) if e]
-            if len(ends) == 2 and ends[0][1] != ends[1][1]:
-                inner, outer = (ends[0][0], ends[1][0]) if ends[0][1] else (ends[1][0], ends[0][0])
-                port("out" if ends[0][1] else "in", "material", Ref("flow", f.name), Ref("stock", outer))
-            here = self.inside(Ref("flow", f.name), system)
+            me = Ref("flow", f.name)
+            if f.source and f.target:
+                src, dst = Ref("stock", f.source), Ref("stock", f.target)
+                out_, in_ = cross(src, dst)
+                for x in out_:
+                    port(x, "out", "material", me, dst)
+                for x in in_:
+                    port(x, "in", "material", me, src)
             for r in f.driven_by:
-                if self.inside(r, system) != here:
-                    port("in", "influence", Ref("flow", f.name), r) if here else port("out", "influence", r, Ref("flow", f.name))
+                here, there = cross(me, r)
+                for x in here:
+                    port(x, "in", "influence", me, r)
+                for x in there:
+                    port(x, "out", "influence", r, me)
         for b in self.blocks.values():
             if b.implied:                                 # its machine block's goal: says the same
                 continue
             me = Ref("block", b.name)
-            here = self.inside(me, system)
             for r in b.reads():
                 r = Ref(r.kind, r.name)
-                if r.kind == "block" or self.inside(r, system) == here:
+                if r.kind == "block":
                     continue
-                port("in", "signal", me, r) if here else port("out", "signal", r, me)
+                here, there = cross(me, r)
+                for x in here:
+                    port(x, "in", "signal", me, r)
+                for x in there:
+                    port(x, "out", "signal", r, me)
             for t in b.targets():
                 t = Ref(t.kind, t.name)
-                if self.inside(t, system) == here:
-                    continue
-                kind = {"goal": "setpoint", "block": "command", "flow": "action"}[t.kind]
-                port("out", kind, me, t) if here else port("in", kind, t, me)
+                kind = {"goal": "setpoint", "block": "command", "flow": "action"}.get(t.kind)
+                here, there = cross(me, t)
+                for x in here if kind else ():
+                    port(x, "out", kind, me, t)
+                for x in there if kind else ():
+                    port(x, "in", kind, t, me)
             for r in b.inputs.values():                  # a block inside reading one outside, or the other way
-                if r.kind == "block" and self.inside(Ref("block", r.name), system) != here:
-                    port("in", "command", me, Ref("block", r.name)) if here else port("out", "command", Ref("block", r.name), me)
-        return sorted(ports.values(), key=lambda p: (p["dir"] != "in", p["kind"], p["part"]))
+                if r.kind == "block":
+                    o = Ref("block", r.name)
+                    here, there = cross(me, o)
+                    for x in here:
+                        port(x, "in", "command", me, o)
+                    for x in there:
+                        port(x, "out", "command", o, me)
+        return {system: sorted(ps.values(), key=lambda p: (p["dir"] != "in", p["kind"], p["part"])) for system, ps in ports.items()}
 
     def inner_loops(self, system: str) -> list[str]:
         """Goals inside whose setpoint comes from outside and whose measurement goes back out: the

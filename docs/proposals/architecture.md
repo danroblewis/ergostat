@@ -21,28 +21,32 @@ evaluates the equations once, at the model's start.
 
 **Source.** Steward, "The design structure system", *IEEE Trans. Eng. Mgmt.* 1981; Eppinger and Browning,
 *Design Structure Matrix Methods and Applications*, MIT Press 2012 (clustering a component DSM into modules);
-Newman and Girvan 2004 and Newman, "Modularity and community structure in networks", *PNAS* 2006 (modularity Q:
-the share of links inside groups less what random links of the same degrees would put there; above 0.3 is
-structure); Clauset, Newman and Moore 2004 (greedy agglomeration). In software the same pair is coupling and
+Newman and Girvan, "Finding and evaluating community structure in networks", *Phys. Rev. E* 2004 (modularity Q:
+the share of links inside groups less what random links of the same degrees would put there; above about 0.3 is
+structure) and Newman, *PNAS* 2006; Clauset, Newman and Moore 2004 (greedy agglomeration). In software the same pair is coupling and
 cohesion (Stevens, Myers and Constantine 1974).
 
-**Computed today.** The DSM is the system's adjacency. Greedy modularity clustering joins the two linked groups
-whose joining raises Q most, while one does; then a group of fewer than 4 nodes joins the group it links to most,
-and two groups joined by more than a tenth of the links inside the smaller are one (a pipeline's stage is tied to
-the next by its flow: it is not a module). What is left, two groups or more at Q of 0.4 or more in a system of 20
-parts or more, is `system-splits`. Two sibling systems with at least three links between them, and at least as many
+**Computed today.** Modularity clustering of the system's link graph, an analogue of clustering its DSM, not the
+same algorithm (DSM clustering minimises a coordination cost over a reordered matrix; modularity compares links
+inside groups with chance). Greedy modularity clustering joins the two linked groups whose joining raises Q most,
+while one does; then a group of fewer than 4 parts joins the group it links to most, and two groups joined by more
+than a tenth of the links inside the smaller are one. The tenth is a heuristic, set on the examples: it keeps a
+pipeline's stages (each tied to the next by its flow) together, which modularity alone calls modules. What is left,
+two groups or more at Q of 0.4 or more in a system (or the top level) of 20 parts or more, is read two ways. When
+the groups are the system's own subsystems, it is **nearly decomposable** (Simon 1962): the shape of a good
+hierarchy, each subsystem understood and redesigned alone. That is information, said by `explain`, never a note
+asking for work. When some groups are loose parts in no subsystem of their own, `system-splits` names those. Two sibling systems with at least three links between them, and at least as many
 as inside the smaller, are `systems-merge`.
 
 **Not computed.** The strength of a link (how much of the effect's variance the cause explains) needs the record
 and a fitted model; every link counts one. Partitioning by the record's co-movement (which parts change together)
 is left for the AI rung.
 
-**Reads.** `system lab: its parts fall into 6 clusters with 0 links between them and 42 inside (modularity 0.72):
+**Reads.** `system lab: its parts fall into 6 clusters with 0 links between them (modularity 0.72):
 [goal.ideas-ready, goal.one-running, ...]; [goal.done-as-meant, ...]; .... Each may be a system of its own
-(systems:, and system: on its parts), redesigned on its own; or a link between them is missing.` When the clusters
-are the system's own subsystems: `system job: its systems fall into 10 groups with 1 link between them (modularity 0.88):
-[system.awareness]; [system.delivery]; ... They are independent systems held in one, each to be understood and
-redesigned on its own.` And `system a: more of its links
+(systems:, and system: on its parts), redesigned on its own; or a link between them is missing.` (at most six
+clusters listed). `explain system.job`: `It is nearly decomposable: its systems fall into 10 groups with 1 link
+between them (modularity 0.88); each can be understood and redesigned alone.` And `system a: more of its links
 go to b (3 links between them; 2 inside a, 6 inside b) than stay inside it: the boundary cuts through one system.`
 
 ## 2. Time-scale separation: singular perturbation and hierarchical control
@@ -57,8 +61,10 @@ Hierarchical, Multilevel Systems*, 1970; Skogestad and Postlethwaite, *Multivari
 **Computed today.** Each part's time constant as the model stands: a stock's own drain (1 over its Jacobian's
 diagonal) and a delay's time, from one evaluation of the equations at the model's start (`numbers/extremes.py`,
 `time_constants`, the same estimate the extreme-conditions tests size their runs by), and a goal's loop by its
-identified process (`process: time-constant`). Within a system, its own parts sorted by time constant; a gap of
-more than 10 times between neighbours is `time-scales`, naming the fast and the slow.
+identified process (`process: time-constant`). This is a screen, not the system's modes: each stock's own time
+constant, not the eigenvalues of the whole. Within a system, its own parts sorted by time constant; a gap of more
+than 10 times between neighbours (above 10, not at it), with the fast and slow parts linked within the system, is
+`time-scales`, naming the fast and the slow. Two time scales that never meet have nothing to arrange.
 
 **Not computed.** A stock with no equation (measured only) has no time constant; most observed models are mostly
 such stocks, so the measure is silent on them until equations are fitted. A loop's closed-loop speed (its
@@ -66,8 +72,9 @@ controller's period, its answer time from the record: `back_in` on the loop's pa
 the eigenvalues of the whole Jacobian (modes, not parts).
 
 **Reads.** `system plant: its parts run on time scales 20 times apart: fast [stock.fast 6m], slow [stock.slow
-1h59m]. The fast settle before the slow move (singular perturbation), so they are a candidate inner system, given
-its setpoint by the slow (hierarchical control).`
+1h59m], linked within it. Each stock's own time constant is a screen, not the system's modes; if they hold, the
+fast settle before the slow move (singular perturbation), so they are a candidate inner system, given its setpoint
+by the slow (hierarchical control).`
 
 ## 3. The relative gain array: interaction between loops
 
@@ -79,10 +86,11 @@ held quantity; pair loops on λ near 1, never on a negative λ; large λ means t
 `own-disturbance` are the extreme cases; `interface` says when a block outside moves or commands what a system's
 own loops use (a reach-in: two controllers on one path).
 
-**Not computed.** The steady-state gain matrix needs each loop's gain from every valve, not only its own: the
-identification (`control/ident.py`) fits one input per loop. With step tests that move one valve and record every
-goal (the owner's approval per test, SPEC §12d), the cross gains are a least-squares fit, and Λ is three lines.
-Next, after identifying existing controllers.
+**Not computed.** The relative gain array needs a square, non-singular steady-state gain matrix: as many valves
+as held quantities, each loop's gain from every valve, not only its own. The identification (`control/ident.py`)
+fits one input per loop. Step tests that move one valve at a time and record every goal, each approved by the
+owner (SPEC §12d), give the cross gains as a least-squares fit; with the matrix square and well conditioned, Λ
+follows. Next, after identifying existing controllers.
 
 **Would read.** `goals queue-short and latency-low: their loops interact (relative gain 2.4 on the pairing as built,
 0.6 if swapped): pair queue-short with flow.scale-up instead, or decouple.`
@@ -119,7 +127,7 @@ setpoint, command, action, signal, material, influence; `explain system.NAME` li
 crosses by kind, when one of three is true: material crosses through clouds on both sides (a flow to a cloud on
 one side drives a flow from a cloud on the other, in one unit: what is conserved is lost at the boundary); a block
 outside moves or commands what the system's own goals' loops use (filing work into a queue is not: that is how
-systems hand work on); or ten or more information links cross it (past what is read at a glance, 7 ± 2).
+systems hand work on); or ten or more information links cross it (a heuristic, set on the examples).
 
 **Not computed.** Whether a crossing is stable (an ICD's point is a boundary that changes slowly): the model's
 history (`history.py`) has every version, and how often each boundary's crossings changed is a count over it.
@@ -150,14 +158,15 @@ problem", 1994): every requirement traced to a need, every need to something tha
 loop holds a goal for a reason. Sterman ch. 3.2: a model is built for a purpose, and judged against it.
 
 **Computed today.** `purpose`, in a model with systems: a system with no `description` (its purpose); a described
-system with no goal inside it (its purpose is held by nothing); goals in no described system, when the model has no
+system whose blocks act for no goal inside it (a system of stocks with no goal, a plant's sector, is normal and not
+said); goals in no described system, when the model has no
 `purpose:` (a top-level key, the main file only, kept small: one sentence of what the whole model is for).
 
 **Not computed.** Whether a goal serves its system's purpose, or whether the goals together cover it, is a reading
 of the words: the AI rung, with the descriptions and the goals as its input.
 
-**Reads.** `system delivery: is for "the tickets, from todo to done", and no goal inside it holds anything: its
-purpose is not measured`; `goals in-review-clear, nothing-ready-waits: in no system that says what it is for, and
+**Reads.** `system idle: is for "nothing yet", and its blocks act for no goal inside it: its purpose is not
+measured`; `goals in-review-clear, nothing-ready-waits: in no system that says what it is for, and
 the model has no purpose: to trace them to`.
 
 ## 8. Beer's Viable System Model, as a checklist for purpose coverage
@@ -168,7 +177,8 @@ oscillation between them; S3 control of the operations now (resources, audit, S3
 and the future; S5 policy, identity and purpose. Each S1 is itself viable (recursion).
 
 **Computed today.** Nothing as a finding. The structure answers parts of it: S1 are systems whose goals hold
-stocks of the work; S2 shows as shared resources (a pool, a lease tier) across systems; S3 as goals that set other
+stocks of the work; S2, which damps oscillation between the operations, shows as what they share and are
+scheduled by (a pool, a lease tier) across systems; S3 as goals that set other
 goals' setpoints (a cascade's outer loop, `inner_loops`); S3* as sensors that audit (claims, the intent judge); S4 as
 a modelling loop (`use: modelling`: the model of the outside, improved); S5 as `purpose:` and the owner's accept
 policy.
@@ -185,12 +195,13 @@ resource and oscillate). Its evidence is the measures above.
 The computed measures are the rule rung: fast, deterministic, the same every time, and quiet when nothing is
 found. The AI rung comes next, per system, not on the whole model at once: the redesign that failed on the-job
 edited the whole model in one change. It takes one system's notes, its interface and its parts, proposes a change
-to that system alone, and the judge tests it. The notes say where to start: a system that splits is two redesigns;
-a pair that should merge is one.
+to that system alone, and the judge tests it. The notes say where to start: loose parts that split are two redesigns;
+a pair that should merge is one; a nearly decomposable system is already as many redesigns as its subsystems.
 
 ## What the examples say
 
-Run over every example on main at 2ed2f16 (`ergostat check`; each well under 50 ms):
+Run over every example on main at 2ed2f16 (`ergostat check` and `explain`; each well under 50 ms), after the gate
+review's fixes:
 
 | Example | Notes |
 |---|---|
@@ -198,9 +209,9 @@ Run over every example on main at 2ed2f16 (`ergostat check`; each well under 50 
 | big | `purpose` on its six systems (none described) and on its 24 goals (traced to nothing). |
 | deps, docs-fresh | `purpose`: the one system is not described; its goals are traced to nothing. |
 | image-squeeze | `system-splits@system.lab`: six clusters with no link between them (ideas and experiments; done-as-meant; sessions and spend; claims; decisions; messages): the lab is several systems. `interface@system.lab`: 11 information links cross its boundary, a wide interface. |
-| roadmap | `purpose`: system delivery is for "the tickets, from todo to done", and no goal is in it; the goals are in no system. |
-| small-requests | `system-splits@system.work`: its five subsystems share no link: independent systems held in one. |
-| the-job | `system-splits@system.job`: **yes, the-job is flagged as several systems.** Its ten subsystems are ten groups with one link between them in all (a ramp that broke, in safety, drives the outages noticed, in incidents), at modularity 0.88: independent systems held in one, each to be redesigned on its own. Inside them nothing splits, merges or crosses badly. |
+| roadmap | `purpose`: its goals are in no system that says what it is for (system delivery is described and holds stocks but no goal). |
+| small-requests | no note; `explain` says `work` is nearly decomposable: its five subsystems share no link. |
+| the-job | no note; **`explain` says `job` is several systems**: nearly decomposable, ten groups with one link between them in all (a ramp that broke, in safety, drives the outages noticed, in incidents), at modularity 0.88, each subsystem understood and redesigned alone. That is a good hierarchy, not a defect: the redesign should go one subsystem at a time. Inside them nothing splits, merges or crosses badly. |
 | backups, coordinator, disk-space, file-queue, first-loop, git-hygiene, ops, plain-crontab, software-factory, talking-scripts, this-mac, ticket-factory | nothing. |
 
 No example has a `time-scales` note: few have equations, and where they do (ticket-factory's intake: 5 s, 15 s,
@@ -209,5 +220,8 @@ triage 0.71, ticket-factory's factory and oversight 0.6, software-factory's deli
 
 Before the thresholds were set, a plain modularity threshold of 0.3 flagged every pipeline (ticket-factory's
 review, small-requests' regressions) as splitting at each stage: a pipeline's stages are linked by one flow each,
-which modularity alone calls modules. Merging groups tied by more than a tenth of the smaller's links is what keeps
-the stages of one pipeline together and leaves the-job's independent systems apart.
+which modularity alone calls modules. Merging groups tied by more than a tenth of the smaller's links (a heuristic,
+set on these examples) is what keeps the stages of one pipeline together and leaves the-job's subsystems apart.
+The generated scale model (`scripts/scale_model.py 100`) gets `system-splits` on each of its systems: half its
+workflows are plain parts in the system (no subsystem of their own), half come from the `steps` template; the
+plain ones are named.
