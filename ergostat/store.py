@@ -85,6 +85,31 @@ def state_dir(project: str, repo: Path | None = None) -> Path:
     return d
 
 
+def damaged(e: BaseException, io: bool = False) -> bool:
+    """Whether a SQLite error says the file itself is damaged (not a database, malformed), not that it is
+    busy; ``io``: a failed read or write of it counts too (a file deleted while open, say)."""
+    if not isinstance(e, sqlite3.DatabaseError):
+        return False
+    code = getattr(e, "sqlite_errorcode", None)
+    if code is not None:
+        return (code & 0xFF) in ((11, 26, 10) if io else (11, 26))    # SQLITE_CORRUPT, _NOTADB, _IOERR
+    text = str(e).lower()
+    return any(w in text for w in ("not a database", "malformed", *(("disk i/o error",) if io else ())))
+
+
+class RecordDamaged(sqlite3.DatabaseError):
+    """``events.db`` or ``measurements.db`` cannot be read. They are the record, never rebuilt: what to do is said."""
+
+    def __init__(self, path: Path, e: BaseException):
+        super().__init__(
+            f"{path} is damaged ({e}). It is the record and ergostat does not rebuild it. Stop ergostat "
+            f"(ergostat run --stop, and close its pages), copy {path.name} with its -wal and -shm somewhere safe, "
+            f"then recover what SQLite can: sqlite3 {path} .recover | sqlite3 {path}.recovered, and move "
+            f"{path.name}.recovered in place of {path.name} (removing the old -wal and -shm); or restore it from a "
+            f"backup; or start over with ergostat reset.")
+        self.path = path
+
+
 def _connect(path: Path, schema: str) -> sqlite3.Connection:
     c = sqlite3.connect(path, timeout=10, isolation_level=None, check_same_thread=False)   # lent to one thread at a time
     c.row_factory = sqlite3.Row
@@ -154,6 +179,18 @@ class _Conns:
 
     @contextmanager
     def __call__(self):
+        try:
+            with self._lend() as c:
+                yield c
+        except RecordDamaged:
+            raise
+        except sqlite3.DatabaseError as e:
+            if damaged(e):
+                raise RecordDamaged(self.path, e) from e
+            raise
+
+    @contextmanager
+    def _lend(self):
         held = getattr(self.local, "c", None)
         if held is not None:                       # already lent to this thread: the same one
             yield held
