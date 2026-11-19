@@ -52,3 +52,30 @@ whatever caused it" ("`X`'s net change less its other measured flows" for `rest`
 ## Budget
 
 300 net lines outside `tests/` and `docs/`.
+
+## Added during the branch (the coordinator, for the owner)
+
+**Finding the model's changes on the Items page.** What was there: every built-in `ergostat.*` kind (model-change,
+claim, message, verdict, decision, correction, context, report, action, workspace) sat in one `ergostat` section at
+the end of the page, after the project's own systems, headed by its raw kind name; nothing is folded by default
+(only what the owner folded, remembered per project); the search matched ids and fields, never a kind; and the list
+carried the newest 500 items of all kinds, so on a busy record a quiet kind's items were never listed at all, only
+counted. Now: a built-in kind is under the system that counts it (model-change under `modelling`; one nothing counts
+stays under `ergostat`); a built-in kind is headed by its plain name ("Model changes", its kind's name small beside
+it); every kind's newest items are listed however busy the rest; the search matches kind names (and plain names)
+and opens a folded system holding one; the stock panels link to their items (above); the Model page's review queue
+links each change to its item page.
+
+**A stock's panel names its kind first** and links to `/items` with exactly the query it counts (kind, states,
+`where:`); the Playwright test holds the list's length to the stock's reading.
+
+**A valve's leased items, live.** A valve whose flow a block that takes items moves: its panel names the kind, how
+many are leased now and by which block (and agent), and links to the Items page's list of exactly those (`leased`,
+`where=lease.block:BLOCK`). That list, like a stock's, follows the record by the page's existing poll (4 s, redrawing
+only what changed): items appear when leased and go when given back, finished, expired or killed. Each row shows its
+lease's holder, how long it has been held, and the time to expiry.
+
+**Tests added:** `tests/test_items_page.py::test_the_model_changes_are_found_by_heading_search_and_panel` and
+`::test_a_valves_leased_items_are_listed_live`; `tests/test_item_systems.py` follows the new placement.
+
+**Budget:** unchanged, 300 net lines: the additions fit (about 150 net lines at the end).

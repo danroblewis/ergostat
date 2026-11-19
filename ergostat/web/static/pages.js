@@ -505,7 +505,7 @@ function setSpan(params) {
 async function pageItems(main, q) {
   const p = page(main, "Items");
   const notes = h("div"), box = h("div", { class: "item-systems" });
-  const search = h("input", { type: "search", placeholder: "Search ids and fields", value: q.get("q") || "", "aria-label": "Search" });
+  const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const more = h("p", { class: "note" });
   let kind = q.get("kind"), state = q.get("state");
   // how the items are shown (relations.js): as lists, as a graph of their relations, or as a timeline; the graph's
@@ -580,7 +580,7 @@ async function pageItems(main, q) {
     try {
       d = await ans.api("items", { ...(kind ? { kind, ...setParams() } : {}), ...(state ? { state } : {}),
                                    ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}),
-                                                     ...(folded.size && !kind ? { hide: [...folded].join(",") } : {}) }) });
+                                                     ...(folded.size && !kind && !needle ? { hide: [...folded].join(",") } : {}) }) });
     } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
       patch(chip, h("span", { class: "set-chip bad" }, String(err.message || err), " ",
         h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7")));
@@ -588,7 +588,8 @@ async function pageItems(main, q) {
     }
     const flowsWere = JSON.stringify(flows);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
-    const isOpen = (sys) => !folded.has(sys) || (kind && sysOf[kind] === sys);    // a chosen kind's system is open
+    const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
+    const isOpen = (sys) => !folded.has(sys) || (kind && sysOf[kind] === sys) || d.kinds.some((k) => k.system === sys && named(k));
     const systems = d.systems || [{ name: "", kinds: d.kinds.map((k) => k.name) }];
     const kindOf = Object.fromEntries(d.kinds.map((x) => [x.name, x]));
     // each open kind: its states stacked over the window (a cumulative flow diagram), each named with its count,
@@ -633,7 +634,7 @@ async function pageItems(main, q) {
     const pick = (k, st) => { [kind, state] = kind === k.name && state === st ? [null, null] : [k.name, st]; dropSet(); go(); };
     const card = (k) => {
       const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; dropSet(); go(); } },
-        k.name, h("span", { class: "mono" }, k.id));
+        k.title || k.name, h("span", { class: "mono" }, k.title ? k.name : k.id));
       const fl = flows[k.name];
       if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
         h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); pick(k, st); } },
@@ -672,7 +673,9 @@ async function pageItems(main, q) {
         const its = rows.filter((i) => (i.kind || "") === name);
         if (!its.length) continue;
         const limit = kind ? 300 : 25, many = d.matched?.[name] ?? its.length;
-        parts.push(h("h3", { class: "kind-head", key: `head:${name}` }, name || "No kind", h("span", { class: "muted" }, ` ${many}`)));
+        const title = kindOf[name]?.title;
+        parts.push(h("h3", { class: "kind-head", key: `head:${name}` }, title || name || "No kind",
+          title ? h("span", { class: "muted small mono" }, ` ${name}`) : null, h("span", { class: "muted" }, ` ${many}`)));
         parts.push(keyed(tableOf(its, kindOf[name]?.show || [], limit), `table:${name}`));
         if (name === CLAIM_KIND && trust) parts.push(keyed(trustView(trust), "trust"));   // how far each block's claims held
         const fl = flows[name];                            // under its table: how long its finished items took
@@ -730,7 +733,8 @@ function leaseCells(l, state) {
   if (!l || typeof l !== "object") return [h("td", {}, ""), h("td", {}, ""), h("td", {}, "")];
   const left = l.holder ? l.expires - nowS() : null;
   return [h("td", { class: "nowrap", "data-lease": l.holder ? "held" : state === "dead" ? "dead" : "free" },
-            l.holder ? h("span", { title: `run ${l.holder}, lease ${l.fence}` }, `${l.block} `, h("span", { class: "muted" }, l.holder.slice(0, 8)))
+            l.holder ? h("span", { title: `run ${l.holder}, lease ${l.fence}` }, `${l.block} `, h("span", { class: "muted" }, l.holder.slice(0, 8)),
+                         l.taken ? h("span", { class: "muted", title: "held for" }, `, ${dur(nowS() - l.taken)}`) : null)
               : state === "dead" ? h("b", { class: "bad" }, "dead letter") : h("span", { class: "muted" }, "–")),
           h("td", { class: "num nowrap" + (left != null && left < 0 ? " bad" : "") }, left == null ? "" : left < 0 ? `overdue ${dur(-left)}` : dur(left)),
           h("td", { class: "num" }, `${l.attempts || 0}/${l.max ?? "?"}`)];
