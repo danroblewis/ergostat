@@ -183,11 +183,11 @@ def select(events, spec, s: ItemSet, until: float | None = None, n: int = its.LI
     if s.process():                                       # the process map's node or line: read as the map was
         return _through(events, spec, s, kinds, n, offset)
     if s.moved is None:                                   # counted and paged by the index
-        total, page_its = its.in_states_page(events, spec, s.kind, s.states or None, s.where, until, n, offset)
+        total, page_its = its.in_states_page(events, spec, s.kind, s.states or None, its.typed_too(s.where), until, n, offset)
     else:                                                 # the span's moves, from the index; which count, here
         a, b = s.moved
         key, states = ("to", b) if b else ("from", a)
-        got = its.moved_items(events, spec, s.kind, key, states, s.since, s.until, s.where)
+        got = its.moved_items(events, spec, s.kind, key, states, s.since, s.until, its.typed_too(s.where))
         for i in got:
             if not s.states or i.state in s.states:
                 ts = [m["time"] for m in i.moves if s.move_matches(m)]
@@ -218,10 +218,10 @@ def _through(events, spec, s: ItemSet, kinds: dict, n: int, offset: int) -> dict
     got = pm.items_through(events, spec, s.kind, s.since, s.until, s.by, s.through, s.followed, s.caused or None)
     if s.moved is not None:
         moved = {i.id for i in its.moved_items(events, spec, s.kind, "to" if s.moved[1] else "from",
-                                               s.moved[1] or s.moved[0], s.since, s.until, s.where)}
+                                               s.moved[1] or s.moved[0], s.since, s.until, its.typed_too(s.where))}
         got = {k: v for k, v in got.items() if k in moved}
     items = pm._folded(events, spec, s.kind, got)
-    rows = sorted((i for i in items.values() if (not s.states or i.state in s.states) and its.matches(i, s.where)),
+    rows = sorted((i for i in items.values() if (not s.states or i.state in s.states) and its.matches(i, its.typed_too(s.where))),
                   key=lambda i: -got[i.id][-1])
     from .item_systems import kind_systems
     where = kind_systems(spec)

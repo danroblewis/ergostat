@@ -1,0 +1,144 @@
+# The modelling loop as the-job wired it by hand before `use: modelling` (ergostat 7d74a9f): the template must
+# expand to exactly this (tests/test_modelling_template.py).
+defaults:
+  system: modelling
+
+items:
+  session:                                   # each run of the improver: a Claude Code session, or the stand-in's
+    id: session/*
+    states: [open, done, failed, lost]
+    on:
+      session.ran: done
+      session.failed: failed
+      session.lost: lost
+    show: [role, model, cost_usd, turns, seconds]
+
+stocks:
+  model-error:
+    unit: "1"
+    description: the scaled error of the model's replay on the record (the Fit page's total; lower is better)
+    sensor:
+      builtin: ergostat.model.fit
+      every: 1m
+  pending-changes:
+    unit: changes
+    description: changes to the model made and checked, waiting for the judge
+    sensor:
+      items: ergostat.model-change
+      state: checked
+      every: 10s
+  changes-testing:
+    unit: changes
+    description: changes being replayed on the record that comes after them
+    sensor:
+      items: ergostat.model-change
+      state: testing
+      every: 10s
+  passed-changes:
+    unit: changes
+    description: passed by the judge, waiting to be written (by the owner, for a change to the structure)
+    sensor:
+      items: ergostat.model-change
+      state: passed
+      every: 10s
+  accepted-changes:
+    unit: changes
+    description: changes accepted and written into the model
+    cumulative: true                          # every change written so far
+    sensor:
+      items: ergostat.model-change
+      state: accepted
+      every: 10s
+
+flows:
+  model-drift:                                # the record moving on, and the week changing under the model: nothing in the model drives it
+    to: model-error
+    sensor:
+      changes: rises
+      over: 10m
+      every: 1m
+  model-mended:
+    from: model-error
+    driven-by:                                # a change written lowers the error at once; the more error, the more there is to mend
+      - +stock.model-error
+      - {cause: +flow.changes-accepted, instant: true}
+    sensor:
+      changes: falls
+      over: 10m
+      every: 1m
+  changes-made:
+    to: pending-changes
+    sensor:
+      items: ergostat.model-change
+      entering: checked
+      over: 10m
+  changes-superseded:                         # made against a version of the model since changed
+    from: pending-changes
+    driven-by: +stock.pending-changes
+    sensor:
+      items: ergostat.model-change
+      entering: superseded
+      over: 10m
+  tests-started:
+    from: pending-changes
+    to: changes-testing
+    driven-by: +stock.pending-changes
+    sensor:
+      items: ergostat.model-change
+      entering: testing
+      over: 10m
+  changes-passed:
+    from: changes-testing
+    to: passed-changes
+    driven-by: +stock.changes-testing
+    sensor:
+      items: ergostat.model-change
+      entering: passed
+      over: 10m
+  changes-failed:
+    from: changes-testing
+    driven-by: +stock.changes-testing
+    sensor:
+      items: ergostat.model-change
+      entering: failed
+      over: 10m
+  changes-accepted:
+    from: passed-changes
+    to: accepted-changes
+    driven-by: +stock.passed-changes
+    sensor:
+      items: ergostat.model-change
+      entering: accepted
+      over: 10m
+
+goals:
+  model-fits:
+    stock: model-error
+    hold: "<= 0.05"
+    description: the model follows the record (its replay's scaled error at most 0.05)
+
+blocks:
+  improver:
+    type: ai
+    goal: model-fits
+    prompt: prompts/improver.md
+    run: python3 bin/improver.py              # JOB_AI=claude: a Claude Code session with ergostat's tools; otherwise a stand-in
+    every: 3m
+    timeout: 15m
+    out: flow.changes-made
+  judge:
+    type: judge                               # ergostat's judge (SPEC §12e): each change replayed on the record after it
+    every: 30s
+    hold-out: 4m                              # judged on four minutes of record after it was made ...
+    windows: [1, 2, 4]                        # ... whole, in halves and in quarters
+    threshold: 2%                             # passed when better by 2% in every one
+    accept:
+      parameter: auto                         # a value passed is written at once; the structure waits for me
+    in:
+      waiting: +stock.pending-changes
+      testing: +stock.changes-testing
+    out:
+      testing: flow.tests-started
+      passed: flow.changes-passed
+      failed: flow.changes-failed
+      accepted: flow.changes-accepted

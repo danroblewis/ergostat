@@ -67,6 +67,13 @@ review). Newest decisions from the owner first within each section.
   the block's panel only.
 - **A cause for a scheduled run's events** (open): a block on `every:` runs caused by nothing, so a sweep that opens
   sub-items draws no fan-out in the Process view; an event line cannot name its own cause (`causedby`).
+- **One-line modelling loop** (done, `modelfix`): `uses: {modelling: {use: modelling}}`, the built-in template
+  (once a model, its parts keeping their names), replaces the 150 lines each of image-squeeze, the-job and the
+  coordinator wired by hand; it expands to exactly those parts and loops (`tests/test_modelling_template.py`
+  against the-job's old file). The agent guide and the author skill say every model includes it, and `check` notes
+  one without it (`no-modelling-loop`, a finding).
+- **Built-in join** (open): move a parent item once all its sub-items reach a state (fork-join); today it
+  takes a join block or an auxiliary.
 - **Triggers on an event type** (open): a block started by an event type alone, not only by a state change.
 - **Closed-loop simulation** (open): projection holds blocks still; simulating with the controllers running.
 - **Operating modes, regime-scheduled thresholds, interlocks, risk gating** (open; designed in
@@ -94,13 +101,24 @@ review). Newest decisions from the owner first within each section.
 
 ## Bugs
 
-- **YAML 1.1 readings** (open): `9:30` is read as 570, `010` as 8, `1e3` as text; `check` should warn and the
-  format should pin one YAML version.
-- **`where:` compares strings** (open): a field holding `1.0` does not match `1`.
-- **Listing projects writes `repo.json` into other projects' state folders** (open).
-- **`try_use` trials can leave Claude sessions running** (open).
-- **Three tests fail only under heavy load** (open): `test_a_selection_is_model_parts_and_survives_switching_view`,
-  `test_a_page_left_open_does_not_grow`, `test_a_lease_held_by_a_run_survives_a_model_edit`.
+- **YAML 1.1 readings** (done, `modelfix`): `check` warns on every plain value YAML 1.1 and 1.2 read differently
+  (`yaml-1.1`, at its file and line, with the quoted form to write; shown beside errors too). The format follows
+  YAML 1.2's core schema (SPEC §2, *Which YAML*); loading with 1.2 semantics is planned after one release of the
+  warnings. No example or demo was flagged.
+- **`where:` compares strings** (done, `modelfix`): typed JSON equality (numbers as numbers, strings as strings,
+  booleans as booleans), for sensors and `takes:`; a filter typed as text (the Items page) matches either type;
+  `check` notes each bare number or boolean in a `where:` (`where-typed`). No example has one.
+- **Listing projects writes `repo.json` into other projects' state folders** (done, `modelfix`): the listing opens
+  each project without its note (`Project(..., note=False)`), and the event log's head is made once rather than
+  touched on every open. SQLite still does its own WAL bookkeeping when a store is opened to read.
+- **`try_use` trials can leave Claude sessions running** (done, `modelfix`): the trial runs in a session of its
+  own, watches what its runs start, and on its way out (or when it overruns) stops all of it, whatever process
+  group each put itself in (`library/reap.py`; `tests/test_trial_stops.py`).
+- **Three tests fail only under heavy load** (done, `modelfix`): they wait for conditions (the view standing still
+  after Fit, the selection as expected, the page settled, a server answering) rather than fixed times, with waits
+  long enough for a loaded machine; the lease test's TTL is 3 s (renewals are CLI calls) and it checks the run
+  outlived it; the long-task bound scales by how much slower the page's thread runs than the reference laptop. Each
+  passed 5 times beside 8 CPU hogs, all in background QoS (the old lease and selection tests failed there).
 
 ## Interface
 

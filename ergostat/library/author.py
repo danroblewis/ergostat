@@ -10,6 +10,7 @@ import fnmatch
 import json
 import os
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -366,9 +367,8 @@ def trial(root: Path, system: str | None = None, seconds: float = 30.0, change_a
         raise AuthorError(f"no system {system!r} in the model (systems: {', '.join(sorted(spec.systems))})")
     out["parts"] = parts_of(spec, system)
     began = time.time()
-    p = subprocess.run([sys.executable, "-m", "ergostat.library.trial", str(copy), str(seconds), system,
-                        *(["--blocks"] if blocks else [])], capture_output=True, text=True, env=env, cwd=copy,
-                       timeout=seconds + 120)
+    p = run_trial([sys.executable, "-m", "ergostat.library.trial", str(copy), str(seconds), system,
+                   *(["--blocks"] if blocks else [])], env, copy, seconds + 120)
     lines = [x for x in p.stdout.splitlines() if x.startswith("{")]
     if p.returncode != 0 or not lines:
         out["ran"] = False
@@ -378,6 +378,30 @@ def trial(root: Path, system: str | None = None, seconds: float = 30.0, change_a
     out["took"] = round(time.time() - began, 1)
     out["verdict"] = verdict(out["ran"])
     return out
+
+
+def run_trial(cmd: list[str], env: dict, cwd: Path, timeout: float) -> subprocess.CompletedProcess:
+    """The trial in a session of its own: it stops what it started on its way out; when it overruns, it is asked to
+    (SIGTERM), then it and everything under it is stopped, so no run, and no Claude session, outlives it."""
+    from .reap import stop
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, cwd=cwd,
+                            start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        stop(proc.pid, grace=10.0, also_group=True)
+        proc.kill()
+        out, err = proc.communicate()
+        err = (err or "") + f"\nthe trial overran {timeout:g}s and was stopped, with everything it started"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    try:                                                   # anything left in its session, should it have left any
+        if os.getpgid(0) != proc.pid:
+            os.killpg(proc.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
 
 def verdict(ran: dict) -> list[str]:
