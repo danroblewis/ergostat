@@ -457,21 +457,22 @@ class Index:
         taken out: a move into ``leased`` and the move out of it are one move, from the state it was taken from."""
         from collections import Counter
         out: Counter = Counter()
-        k = self.known(kind)
-        if k == -1:
-            return out
-        rid0, back = None, None
-        for rid, f, d in self.db.execute("select rid, frm, dst from moves where kind = ? order by rid, rowid", (k,)):
-            if rid != rid0:
-                rid0, back = rid, None
-            frm, to = self.name(f), self.name(d)
-            if to == "leased":
-                back = frm if frm != "leased" else back
-                continue
-            if frm == "leased":
-                frm = back
-            if frm != to:
-                out[(frm, to)] += 1
+        with self.lock:                                  # (its connection is shared by the process's threads)
+            k = self.known(kind)
+            if k == -1:
+                return out
+            rid0, back = None, None
+            for rid, f, d in self.db.execute("select rid, frm, dst from moves where kind = ? order by rid, rowid", (k,)):
+                if rid != rid0:
+                    rid0, back = rid, None
+                frm, to = self.name(f), self.name(d)
+                if to == "leased":
+                    back = frm if frm != "leased" else back
+                    continue
+                if frm == "leased":
+                    frm = back
+                if frm != to:
+                    out[(frm, to)] += 1
         return out
 
     def tally(self, kind: str, state: str, key: str, before: float, until_newest: float | None = None) -> int:
@@ -654,5 +655,8 @@ def reindex(events, spec) -> dict:
     for tr in (False, True):
         t = time.time()
         ix = index_for(events, spec, tr)
-        out["transcript" if tr else "items"] = {"items": ix.total() if ix else 0, "seconds": round(time.time() - t, 2)}
+        if ix is not None:
+            with ix.lock:
+                n = ix.total()
+        out["transcript" if tr else "items"] = {"items": n if ix else 0, "seconds": round(time.time() - t, 2)}
     return out

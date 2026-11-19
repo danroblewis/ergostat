@@ -19,6 +19,7 @@ Each finding names its fix, and ``fixes`` gives it as data, which ``numbers/stru
 from __future__ import annotations
 
 import hashlib
+import threading
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -70,6 +71,7 @@ class Found:
 # ---- the record's moves
 
 _CACHE: dict[str, tuple[float, dict]] = {}
+_READING = threading.Lock()        # one reading of the record's moves at a time; the others wait and take it
 
 
 def record_dir(spec: Spec) -> Path | None:
@@ -96,16 +98,21 @@ def recorded(spec: Spec) -> dict[str, Counter]:
     hit = _CACHE.get(key)
     if hit and time.time() - hit[0] < CACHE_FOR:
         return hit[1]
-    out: dict[str, Counter] = {}
-    try:
-        from ..storage import Storage, open_events
-        from .itemindex import index_for
-        ix = index_for(open_events(getattr(spec, "storage", None) or Storage(), d), spec, False)
-        if ix is not None:
-            out = {k: ix.transitions(k) for k in kinds}
-    except Exception:                       # a record that cannot be read now says nothing about the structure
-        out = {}
-    _CACHE[key] = (time.time(), out)
+    with _READING:                          # a model loaded by many threads at once reads the record once, not once each
+        hit = _CACHE.get(key)
+        if hit and time.time() - hit[0] < CACHE_FOR:
+            return hit[1]
+        out: dict[str, Counter] = {}
+        try:
+            from ..storage import Storage, open_events
+            from .itemindex import index_for
+            ix = index_for(open_events(getattr(spec, "storage", None) or Storage(), d), spec, False)
+            if ix is not None:
+                with ix.lock:               # the index's connection is the process's: one thread at a time on it
+                    out = {k: ix.transitions(k) for k in kinds}
+        except Exception:                   # a record that cannot be read now says nothing about the structure
+            out = {}
+        _CACHE[key] = (time.time(), out)
     return out
 
 
