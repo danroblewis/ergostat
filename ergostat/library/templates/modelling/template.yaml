@@ -3,8 +3,12 @@ once: true
 description: The model improved as a loop of its own (SPEC §12e) - its fit a stock held by a goal, an improver that proposes changes while it is off, and ergostat's judge that tests each on the record after it.
 reading: |
   System dynamics: the model's error is a stock (model-error, read by ergostat's built-in measure
-  ergostat.model.fit, the Fit page's total), filled as the record moves on and the world drifts from the model
-  (model-drift) and drained as changes are written (model-mended). The changes to the model are items of
+  ergostat.model.fit, the Fit page's total), drained as changes are written (model-mended) and moved either way by
+  everything else (model-drift). Each flow is measured as what it claims: model-mended sums what each change written
+  took off the error (its fit_gained, the fit before minus after as Accept measured it), so a fall with no change
+  written never shows in it; model-drift is the residual, the error's net change less model-mended, two-way: the
+  record moving on, the world drifting from the model, and a better fit that no change explains. It is one flow, not
+  drift beside an "unexplained improvement", because nothing measures the two apart. The changes to the model are items of
   ergostat's built-in kind ergostat.model-change, whoever made them (the improver's propose lines and ergostat's own
   finders alike), counted by state as an aging chain: made and checked (pending-changes), under test
   (changes-testing), passed (passed-changes), written (accepted-changes, a running total); a change made against a
@@ -140,19 +144,23 @@ stocks:
 flows:
   model-drift:                        # the record moving on, and the world changing under the model: nothing in the model drives it
     to: model-error
+    two-way: true
+    description: whatever moved the error that the changes written do not account for, rises and falls alike
     sensor:
-      changes: rises
+      changes: rest
       over: ${over}
       every: ${fit-every}
   model-mended:
     from: model-error
+    description: what the changes written took off the error, each as Accept measured it (its fit before minus after)
     driven-by:                        # a change written lowers the error at once; the more error, the more there is to mend
       - +stock.model-error
       - {cause: +flow.changes-accepted, instant: true}
     sensor:
-      changes: falls
+      items: ergostat.model-change
+      entering: accepted
+      sum: fit_gained
       over: ${over}
-      every: ${fit-every}
   changes-made:
     to: pending-changes
     sensor:

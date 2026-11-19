@@ -53,19 +53,23 @@ stocks:
 flows:
   model-drift:                                # the record moving on, and the week changing under the model: nothing in the model drives it
     to: model-error
+    two-way: true
+    description: whatever moved the error that the changes written do not account for, rises and falls alike
     sensor:
-      changes: rises
+      changes: rest
       over: 10m
       every: 1m
   model-mended:
     from: model-error
+    description: what the changes written took off the error, each as Accept measured it (its fit before minus after)
     driven-by:                                # a change written lowers the error at once; the more error, the more there is to mend
       - +stock.model-error
       - {cause: +flow.changes-accepted, instant: true}
     sensor:
-      changes: falls
+      items: ergostat.model-change
+      entering: accepted
+      sum: fit_gained
       over: 10m
-      every: 1m
   changes-made:
     to: pending-changes
     sensor:

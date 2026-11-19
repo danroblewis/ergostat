@@ -2086,7 +2086,7 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
             return None, "a flow read from its stock's changes needs the stock's readings, and there are none here"
         return changed(spec, s, measurements)
     if s.items is not None:
-        if counts is not None:
+        if counts is not None and not s.items.get("sum"):     # a field summed is read from the index itself
             return counts.value(spec, s)
         if events is None:
             return None, "items are counted from the record, and there is none here"
@@ -2119,7 +2119,8 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
 
 def changed(spec: Spec, s: Sensor, measurements, now: float | None = None) -> tuple[float | None, str]:
     """A flow's rate per hour from its stock's successive readings over the window: how much they
-    rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a two-way flow). A
+    rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a two-way flow), or that net
+    less what the stock's other measured flows moved (``rest``: the residual flow). A
     sudden drop is a big outflow: what the stock's sensor sees is what some process did."""
     c = s.changes
     st = spec.stocks[c["stock"]]
@@ -2135,8 +2136,16 @@ def changed(spec: Spec, s: Sensor, measurements, now: float | None = None) -> tu
     if len(pts) < 2:
         return 0.0, ""
     d = [b[1] - a[1] for a, b in zip(pts, pts[1:], strict=False)]
-    total = {"rises": sum(x for x in d if x > 0), "falls": sum(-x for x in d if x < 0), "net": c["sign"] * sum(d)}[c["what"]]
-    return round(total * 3600.0 / c["over"], 6), ""
+    total = {"rises": sum(x for x in d if x > 0), "falls": sum(-x for x in d if x < 0)}.get(c["what"], c["sign"] * sum(d))
+    rate = total * 3600.0 / c["over"]
+    if c["what"] == "rest":                              # less what its stock's other flows moved, as each last read it
+        for g in spec.flows.values():
+            o = g.sensors.get("main") or next(iter(g.sensors.values()), None)
+            if g.name != s.of.name and st.name in (g.source, g.target) and o is not None and o.measured:
+                got = measurements.latest(o.series, now)
+                if got is not None and got[0] >= since:
+                    rate -= c["sign"] * (1 if g.target == st.name else -1) * got[1]
+    return round(rate, 6), ""
 
 
 def number_in(text: str, parse: str | None) -> tuple[float | None, str]:

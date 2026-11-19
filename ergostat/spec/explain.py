@@ -33,7 +33,8 @@ def _items(q: dict) -> str:
     where = "".join(f", {k} {'/'.join(map(str, v)) if isinstance(v, list) else v}" for k, v in (q.get("where") or {}).items())
     if q.get("entering") or q.get("leaving"):
         verb = "entering" if q.get("entering") else "leaving"
-        return f"counts {q['kind']} items {verb} {q.get('entering') or q.get('leaving')}{where} (per hour, over " \
+        return f"{'sums the ' + q['sum'] + ' of' if q.get('sum') else 'counts'} {q['kind']} items {verb} " \
+               f"{q.get('entering') or q.get('leaving')}{where} (per hour, over " \
                f"{human(q.get('over') or 3600)})"
     states = " or ".join(q.get("state") or []) or "any state"
     if q.get("measure") == "oldest":
@@ -44,7 +45,7 @@ def _items(q: dict) -> str:
 
 
 def _changes(c: dict) -> str:
-    verb = {"rises": "rose", "falls": "fell", "net": "changed, net"}[c["what"]]
+    verb = {"rises": "rose", "falls": "fell", "net": "changed, net", "rest": "changed, net, less what its other flows moved"}[c["what"]]
     return f"reads how much stock {c.get('stock')}'s readings {verb} (per hour, over {human(c['over'])})"
 
 

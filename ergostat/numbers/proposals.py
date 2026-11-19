@@ -760,6 +760,9 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
     x["status"], x["state"], x["decided"], x["by"] = "accepted", "accepted", time.time(), by
     x["applied"] = {"version_before": v_before, "version_after": ver.version(p.model.spec),
                     "fit_before": ft._slim(fit_before["total"]), "fit_after": ft._slim(fit_after["total"])}
+    b, a = (fit_before.get("total") or {}).get("nmse"), (fit_after.get("total") or {}).get("nmse")
+    if b is not None and a is not None:             # what it took off the error: model-mended sums it (modelling template)
+        x["fit_gained"] = round(b - a, 6)
     if why:
         x["applied"]["why"] = why
     if policy:

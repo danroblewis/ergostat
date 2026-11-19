@@ -80,3 +80,15 @@ function partItemsSection(ref) {
     .catch(() => box.remove());
   return box;
 }
+
+/* the first lines of a stock's, flow's or valve's panel: what its sensor counts, its kind named, those very items one
+   link away (``counts``, ``items.set``); and the items leased to the blocks that move it, a live list (``leases``) */
+function countsLines(d) {
+  const c = d?.counts, set = d?.items?.set;
+  const named = (s, k) => (k ? s.split(k).flatMap((x, i) => (i ? [h("code", {}, k), x] : [x])) : [s]);
+  return [c ? h("p", { class: "counts-line" }, ...named(c.says, c.kind),
+                c.kind && set ? [". ", h("a", { href: itemsHref(set), class: "counts-link" }, "Show them on the Items page")] : null) : null,
+          ...(d?.leases || []).map((l) => h("p", { class: "leases-line" }, `${l.block}${l.agent ? ` (${l.agent})` : ""} works items of kind `,
+            h("code", {}, l.kind), `: ${l.held} leased now. `, h("a", { href: itemsHref(l.set), class: "leased-link" }, "Show the leased items")))]
+    .filter(Boolean);
+}

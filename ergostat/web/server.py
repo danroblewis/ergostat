@@ -253,10 +253,11 @@ def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: 
     if hide:
         gone = set(hide.split(","))
         items = [i for i in items if i.get("system") not in gone]
-    if needle:
+    if needle:                                       # a kind's name (or plain title) matched keeps all of its items
         low = needle.strip().lower()
+        named = {k["name"] for k in got["kinds"] if low in f"{k['name']} {k.get('title') or ''}".lower()}
         text = lambda i: i["id"] + " " + json.dumps(i["fields"], separators=(",", ":"), ensure_ascii=False, default=str)   # noqa: E731
-        items = [i for i in items if low in text(i).lower()]
+        items = [i for i in items if i.get("kind") in named or low in text(i).lower()]
     matched: dict[str, int] = {}
     kept = []
     for i in items:
@@ -525,6 +526,15 @@ def _answer(live: Live, path: str, q: dict):
             page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
             return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
         got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
+        pk = int(one("per_kind") or 0)
+        if pk and not one("kind") and not one("state") and spec is not None:   # each kind's newest, however busy the rest
+            have = {}
+            for i in got["items"]:
+                have[i.get("kind")] = have.get(i.get("kind"), 0) + 1
+            for k in got["kinds"]:
+                if have.get(k["name"], 0) < min(pk, sum(k["counts"].values())):
+                    more = its.listing(p.events, spec, kind=k["name"], until=snap["at"], n=pk)["items"]
+                    got["items"] = [i for i in got["items"] if i.get("kind") != k["name"]] + more
         if want is not None:
             got["set"] = {"says": want.says(), "params": want.params()}
         return _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
@@ -642,6 +652,13 @@ def _answer(live: Live, path: str, q: dict):
                           "decisions": p.events.query(n=20, type="controller.decided", item=pname)}
         if kind in ("stock", "flow", "disturbance", "sensor"):   # what goes through it: its items (SPEC §5a, which items)
             out["items"] = _items_of(p, m, kind, pname, snap)
+        spec = getattr(m, "spec", None)
+        if kind in ("stock", "flow", "disturbance", "sensor") and spec is not None:   # what it counts, first in its panel
+            from ..spec import item_sets
+            out["counts"] = item_sets.counted_by(spec, "flow" if kind == "disturbance" else kind, pname)
+        if kind in ("flow", "valve") and spec is not None:                   # the items leased to the blocks moving it
+            from ..spec import item_sets
+            out["leases"] = item_sets.leased_by(p.events, spec, x.flow if kind == "valve" else pname, snap["at"])
         agent = getattr(x, "agent", None)
         if agent and agent in m.agents:
             out["agent"] = {"name": agent, "kind": m.agents[agent].kind, "rung": m.agents[agent].rung}

@@ -60,8 +60,8 @@ from .load import SINGULAR, Document, Map, Problem, Where
 COMMON = {"system", "description"}
 SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "every", "cron", "timeout", "parse", "unit",
                "description", "averages"}
-ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
-CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
+ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
+CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
@@ -544,10 +544,10 @@ class Compiler:
             if s.get(k) is not None:
                 q[k] = str(s[k])
         if of.kind != "flow":
-            for k in ("entering", "leaving", "over"):
+            for k in ("entering", "leaving", "over", "sum"):
                 if s.get(k) is not None:
-                    self.err(f"{sw}.{k}: a stock counts the items in a state (state:); entering:, leaving: and over: "
-                             f"measure a flow", s.at(k), "items-on-stock")
+                    self.err(f"{sw}.{k}: a stock counts the items in a state (state:); entering:, leaving:, over: and "
+                             f"sum: measure a flow", s.at(k), "items-on-stock")
             m = s.get("measure", "count")
             if m not in ("count", "oldest", "age"):
                 self.err(f"{sw}.measure: count (how many), oldest (the oldest one's hours in its state) or age (the "
@@ -561,6 +561,8 @@ class Compiler:
                 self.err(f"{sw}: on a flow, say entering: or leaving: (the state the items move into or out of)", s.where,
                          "items-on-flow")
             q["over"] = self.duration(s, "over", sw, 3600.0)
+            if s.get("sum") is not None:                 # the rate of a field summed over the items moving, not their count
+                q["sum"] = str(s["sum"])
         w = s.get("where")
         if w is not None:
             if not isinstance(w, dict):
@@ -691,8 +693,13 @@ class Compiler:
                     self.err(f"{sw}: changes: {what} measures an {'in' if what == 'rises' else 'out'}flow; {f.name} "
                              f"{'drains' if f.source else 'fills'} its stock ({'falls' if f.source else 'rises'})", s.where,
                              "bad-changes")
-                elif what == "net" and not f.two_way:
-                    self.err(f"{sw}: changes: net may read either way: give the flow two-way: true", s.where, "bad-changes")
+                elif what in ("net", "rest") and not f.two_way:
+                    self.err(f"{sw}: changes: {what} may read either way: give the flow two-way: true", s.where, "bad-changes")
+                elif what == "rest" and sum(1 for g in spec.flows.values() if (f.target or f.source) in (g.source, g.target)
+                                            for x in g.sensors.values()
+                                            if x.changes and x.changes["what"] == "rest") > 1:
+                    self.err(f"{sw}: changes: rest is what the stock's other flows leave; only one of its flows may read it",
+                             s.where, "bad-changes")
                 elif (st := f.target or f.source) in spec.stocks:
                     if not any(x.measured or x.manual for x in spec.stocks[st].sensors.values()):
                         self.err(f"{sw}: changes: reads stock {st}'s readings, and nothing measures it", s.where, "bad-changes")

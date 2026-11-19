@@ -5,18 +5,24 @@ In order:
 
 1. **declared**: the kind's own ``system:``, or the ``defaults: system:`` of the file it is declared
    in. Where the model declares a kind wins over where it is counted.
-2. **built in**: ergostat's own kinds (``ergostat.*``) are in ``ergostat``, wherever they are counted.
-3. **counted**: the systems of the stocks, flows and auxiliaries whose ``items:`` sensors count the
+2. **counted**: the systems of the stocks, flows and auxiliaries whose ``items:`` sensors count the
    kind. One system: that one. Several: the innermost system they are all within (intake and
    delivery, both within the factory: the factory); none shared: the one counting it most, the
-   first declared on a tie.
+   first declared on a tie. A built-in kind too: the model's changes are under ``modelling``, which counts them.
+3. **built in**: ergostat's own kinds (``ergostat.*``) that nothing counts are in ``ergostat``.
 4. **other**: nothing says.
+
+A built-in kind is headed by its plain name (``TITLES``), its kind's name small beside it.
 """
 
 from __future__ import annotations
 
 BUILT_IN = "ergostat"
 OTHER = "other"
+TITLES = {f"ergostat.{k}": v for k, v in {
+    "model-change": "Model changes", "model-request": "Model requests", "claim": "Claims", "decision": "Decisions",
+    "correction": "Corrections", "message": "Messages", "verdict": "Verdicts", "context": "Context uses",
+    "report": "Reports", "action": "Actions", "workspace": "Workspaces", "failure": "Failures"}.items()}
 
 
 def kind_systems(spec) -> dict[str, dict]:
@@ -32,10 +38,10 @@ def kind_systems(spec) -> dict[str, dict]:
     for name, k in kinds.items():
         if k.system:
             out[name] = {"system": k.system, "why": "declared"}
-        elif name.startswith(BUILT_IN + "."):
-            out[name] = {"system": BUILT_IN, "why": "built in"}
         elif name in counted:
             out[name] = _counted(spec, counted[name])
+        elif name.startswith(BUILT_IN + "."):
+            out[name] = {"system": BUILT_IN, "why": "built in"}
         else:
             out[name] = {"system": OTHER, "why": "nothing says"}
     return out

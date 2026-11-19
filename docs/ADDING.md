@@ -222,8 +222,8 @@ uses:
   and verdicts are `judge-every`, `hold-out`, `windows`, `threshold` and `warm-up` (the judge's own defaults when
   left out); the improver's `every` (3m) and `timeout` (15m); `sessions: true` keeps each improver run as a
   `session` item, for an improver that reports `session.ran`.
-- **System dynamics:** `model-error` filled as the record moves on (`model-drift`) and drained as changes are
-  written (`model-mended`); the changes to the model (items of ergostat's kind `ergostat.model-change`, whoever
+- **System dynamics:** `model-error` drained by what the changes written took off it (`model-mended`, each
+  change's `fit_gained`) and moved either way by the rest (`model-drift`: the record moving on, the world drifting); the changes to the model (items of ergostat's kind `ergostat.model-change`, whoever
   made them) an aging chain by state: `pending-changes` (checked) → `changes-testing` → `passed-changes` →
   `accepted-changes` (a running total), leaving as superseded or failed.
 - **Once a model, names as written:** unlike the other templates, its parts are not prefixed: they are

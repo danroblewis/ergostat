@@ -310,6 +310,15 @@ boundary is a choice to be stated).
   the sign: `+` when the effect moves the same way as the cause, `-` the opposite way (Sterman ch. 5,
   link polarity).
 
+**A measured flow is not a causal claim.** A `driven-by` says what causes a flow; a sensor says what is counted
+as the flow. They must agree. A flow measured as every rise (or fall) of its stock (`changes: rises`) counts each
+rise whatever caused it: the record moving on, a fault, another flow. Draw it caused by another flow and the diagram
+claims that flow made those rises, which nothing measured; the owner looks for the cause and finds none.
+`measured-not-caused` says so. Either measure what the cause contributes (its items, `entering` the state that
+marks it, with `sum:` for what each one moved: the modelling template's `model-mended` sums what each written change
+took off the error), and give the rest of the stock's change to a two-way residual flow (`changes: rest`, its
+`model-drift`); or keep the measurement and drop the cause, saying the flow is any rise.
+
 ## 9. Quiet is not absent: a part the record has not exercised
 
 A flow that has not moved yet is not evidence that it does not exist. Points on a benchmark are
