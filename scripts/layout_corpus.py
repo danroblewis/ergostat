@@ -71,7 +71,8 @@ def serve(d: Path, port: int, home: Path):
             continue
         p = free[attempt % len(free)]
         py = str(Path(os.environ["LAYOUT_ENGINE"]) / ".venv" / "bin" / "python") if os.environ.get("LAYOUT_ENGINE") else sys.executable
-        proc = subprocess.Popen([py, "-m", "ergostat", "-C", str(d), "web", "--port", str(p)],
+        proc = subprocess.Popen([py, "-m", "ergostat", "-C", str(d), "web", "--port", str(p)], cwd=str(d.parent),   # (not here: -m
+                                # would import the ergostat in the working directory, whatever the engine)
                                 env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL, text=True)
         said: list[str] = []
@@ -256,7 +257,7 @@ def crops(out: Path, worst: list[dict], port: int) -> None:
         by_model.setdefault(inst["model"], []).append(inst)
     tmp = Path(tempfile.mkdtemp(prefix="layout-crops-"))
     os.environ["ERGOSTAT_HOME"] = str(tmp / "home")
-    srcs = dict(corpus.all_models(out / "models", 0, 0, examples=None))
+    srcs = dict(corpus.all_models(out / "models", 0, 0, examples=[]))
     (out / "crops").mkdir(exist_ok=True)
     try:
         with sync_playwright() as p:
