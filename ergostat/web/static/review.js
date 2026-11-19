@@ -344,3 +344,49 @@ function availableView(d, box) {
   draw();
   availLoops(goals, draw);
 }
+
+/* a fix's or a change's impact (SPEC §12n), on its item's page: worked out once, apart from the page's refresh; the
+   sentence, the stocks without the fix and with it at the best time, the cost by rollout time, each goal's chance of
+   being off, and the change-management fields */
+function impactBox(id) {
+  const box = h("div", { class: "impact" }, h("p", { class: "muted" }, "Working out its impact…"));
+  (async () => {
+    let d = null;
+    for (let i = 0; i < 90; i++) {                  // a minute and a half at most
+      try { d = await api("impact", { item: id }); } catch (e) { d = { error: String(e.message || e) }; }
+      if (!d.working) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    box.replaceChildren(...impactView(d || { error: "not worked out in time" }));
+  })();
+  return box;
+}
+function impactView(d) {
+  if (d.error) return [h("p", { class: "muted small" }, d.error)];
+  const group = chartGroup("impact"), at = d.at, ro = d.rollout, f = d.fields, t = f.touches;
+  const end = d.ptimes.length ? d.ptimes[d.ptimes.length - 1] : at;
+  const stocks = d.charts.map((c) => lineChart({ group, name: c.name, role: PART_WORDS[c.kind], unit: c.unit, per: c.per, times: d.times,
+    values: c.measured.length ? c.measured : d.times.map(() => null), since: d.times[0], until: at, projection: c.without, ptimes: d.ptimes,
+    whatifProjection: c.with, goal: c.goal, height: 56 }));
+  const opts = ro ? ro.options : [];
+  const cost = opts.length > 1 ? lineChart({ group: chartGroup("impact-cost"), name: "cost by rollout time", unit: "h", times: opts.map((o) => o.at),
+    values: opts.map((o) => o.cost), replay: opts.map((o) => o.hours_off), since: opts[0].at, until: opts[opts.length - 1].at, height: 64, xAxis: true, zero: true }) : null;
+  const risks = Object.entries(d.goals).filter(([, g]) => g.p_off).map(([n, g]) => lineChart({ group: chartGroup("impact-risk"), name: `${n}: chance off`,
+    times: d.ptimes, values: g.p_off, since: d.ptimes[0], until: end, height: 48, yRange: () => [0, 1], zero: true }));
+  const goalRows = Object.entries(d.goals).map(([n, g]) => h("div", {}, h("b", {}, n), ` (${g.of} ${g.hold}): `,
+    g.off_at == null ? "holds without the fix" : `off at +${dur(Math.max(0, g.off_at - at))} without the fix, ${dur(g.hours_off * 3600)} off`,
+    g.hours_off_fixed_now != null ? `; fixed now, ${g.hours_off_fixed_now ? dur(g.hours_off_fixed_now * 3600) + " off" : "it holds"}` : "",
+    g.said ? h("div", { class: "muted small" }, g.said) : null));
+  return [h("p", { class: "predicts" }, d.said),
+    stocks.length ? h("div", { class: "review-charts" }, ...stocks) : null,
+    stocks.length ? h("p", { class: "muted small" }, `Measured, solid; past now, ${d.kind === "change" ? "the model as it is, dashed; with the change, in blue" : "without the fix, dashed; with it at the best time, in blue"}, over ${dur(d.horizon)} with the loops running.`) : null,
+    cost ? h("div", { class: "review-charts" }, cost) : null,
+    cost ? h("p", { class: "muted small" }, `Each rollout time's cost: the goals' hours off (dashed) plus ${dur(ro.penalty * 3600)} for the busiest hour of the day. ${ro.said}.`) : null,
+    risks.length ? h("div", { class: "review-charts" }, ...risks) : null,
+    dl([["goals", goalRows.length ? h("div", {}, ...goalRows) : null],
+        ["touches", [t.blocks.length ? `blocks ${t.blocks.join(", ")}` : "", t.goals.length ? `goals ${t.goals.join(", ")}` : "",
+                     t.commands.length ? `commands ${t.commands.join(", ")}` : ""].filter(Boolean).join("; ") || "nothing else"],
+        ["writes", f.read_only ? "nothing: read-only" : t.actions.map((a) => `${a.name} (${a.gate})`).join(", ")],
+        ["rollback", f.rollback.said], ["risk", `${f.risk.level}: ${f.risk.why.join("; ")}`], ["confidence", f.confidence.said],
+        ["notes", (d.notes || []).length || d.stopped ? h("div", {}, ...[...d.notes, d.stopped].filter(Boolean).map((x) => h("div", { class: "small muted" }, x))) : null]])];
+}

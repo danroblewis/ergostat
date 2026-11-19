@@ -115,6 +115,39 @@ def risk_of(live, p, snap: dict, mr: dict, inputs: str) -> dict | None:
     return None
 
 
+def impact(live, p, snap: dict, one) -> dict:
+    """``GET /api/impact?block=NAME|item=ID|change=ID[&began=T&within=S&penalty=H]``: the impact report (SPEC §12n), worked
+    out in a thread of its own and kept a minute; ``{"working": true}`` until then, an error as ``{"error"}``."""
+    from ..numbers import impact as im
+    what = one("item") or one("change") or one("block")
+    if not what:
+        return {"error": "say which: block=NAME, item=ID or change=ID"}
+    num = lambda k: float(one(k)) if one(k) else None   # noqa: E731
+    try:
+        since, within, penalty = num("began"), num("within"), num("penalty")
+    except ValueError:
+        return {"error": "began, within and penalty are numbers (epoch seconds, seconds, hours)"}
+    key = ("impact", what, since, within, penalty, live.mtime, round(snap["at"] / 60))
+    got = live.cached(key)
+    if got is not None:
+        return got
+    with RISKING_LOCK:
+        if key not in RISKING:
+            def work():
+                try:
+                    try:
+                        r = im.report(p, what, since, at=snap["at"], within=within, penalty=penalty, budget=RISK_BUDGET * 2)
+                    except im.ImpactError as e:
+                        r = {"error": str(e)}
+                    live.keep(key, r)
+                finally:
+                    with RISKING_LOCK:
+                        RISKING.pop(key, None)
+            RISKING[key] = threading.Thread(target=work, name="ergostat-impact", daemon=True)
+            RISKING[key].start()
+    return {"working": True}
+
+
 def fan_of(live, p, snap: dict, mr: dict, inputs: str) -> dict | None:
     """The projection's Monte Carlo fan over the uncertain parameters (sensitivity.py), cached as the
     model run is (the same moment, window, grid and inputs)."""

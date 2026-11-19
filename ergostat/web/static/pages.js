@@ -785,6 +785,7 @@ async function pageItem(main, id) {
   p.append(body);
   const note = messageBox({ about: id, title: "Send a note about this", done: () => tick() });   // lives across refreshes: what is typed stays
   let full = null;                                   // its full history, once asked for: kept across refreshes
+  let impact = null;                                 // a failure's or a change's impact (review.js): worked out once
   const ans = answers();
   // a refresh asks for its answers first; if none changed (each a 304), nothing on the page is touched (its files
   // are still asked for: a transcript may grow before its events are recorded); else only what differs is
@@ -843,7 +844,9 @@ async function pageItem(main, id) {
     const rolled = ro ? h("p", { class: "note" }, `Its ${ro.archived.events} oldest events, up to ${when(ro.last)}, are rolled up into one snapshot and archived. `,
       full ? null : h("button", { class: "ghost", onclick: async () => { full = await api(`items/${encodeURIComponent(id)}`, { archived: 1, n: 1000 }); tick(); } }, "Show the full history"),
       full && full.total > full.events.length ? h("span", { class: "muted" }, ` (the first ${full.events.length} of ${full.total})`) : null) : null;
-    patch(body, head, track, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+    if (!impact && (/^ergostat\.failure\//.test(id) || k?.name === "ergostat.model-change")) impact = impactBox(id);
+    const imp = impact ? [h("h2", {}, "Impact"), live(impact)] : [];
+    patch(body, head, track, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
       eventsTable(full ? full.events : d.record, true));
   }

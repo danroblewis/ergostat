@@ -3979,7 +3979,8 @@ line, then the body to paste (*What went wrong*, *Where*, *Error*, *The model's 
 A fix for a failing program, or a change to the model, comes with the research a careful operator expects before
 approving a change, worked out from the model (`ergostat/numbers/impact.py`). It is shown on the item page of the
 failure (`ergostat.failure`, the repair loop's) or of the change (`ergostat.model-change`), with no page of its own;
-`GET /api/impact?block=NAME|item=ID|change=ID[&since=T&within=SECONDS&penalty=HOURS]` (worked out in a thread of its
+`GET /api/impact?block=NAME|item=ID|change=ID[&began=T&within=SECONDS&penalty=HOURS]` (`began`: when the
+failure began, epoch seconds) (worked out in a thread of its
 own: `{"working": true}` until it is done); `ergostat impact BLOCK|CHANGE [--since TIME] [--within DUR] [--penalty DUR]
 [--json]`.
 
@@ -4025,8 +4026,8 @@ began and now; one higher now is **building up**.
 
 **Without the fix**: the closed-loop projection (section 12b) from now, the block's flows by its identified model,
 identified on the reference window that ends when the failure began, times `share` (its failing self); every other
-machine block by its model identified now. The horizon is the time the rollout times span plus the projection's usual
-horizon. For each goal: when it goes off (`off_at`), whether it is off at the horizon, its hours off, and its risk
+machine block by its model identified now. The horizon is twice the time the rollout times span (at least that time plus the
+projection's usual horizon), so a fix rolled out last has room to recover. For each goal: when it goes off (`off_at`), whether it is off at the horizon, its hours off, and its risk
 (section 12c's Monte Carlo, `runs` runs, within what is left of the budget). **With the fix at time d**, for each
 rollout time: the same, the block's model restored from d. Its cost is the goals' hours off plus `penalty` × how busy
 the hour of day of d is (the record's mean arrival rate at that hour, over the last week at most, of the flows from
