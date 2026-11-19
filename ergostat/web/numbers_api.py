@@ -363,7 +363,8 @@ def parameter_rows(p, spec, names: list[str]) -> list[dict]:
 
 
 def exercised(live, p, snap: dict) -> list[dict]:
-    """The parts the record has not exercised (``numbers/exercised.py``), as findings: ``{level, code, about,
+    """The parts the record has not exercised (``numbers/exercised.py``) and the equations that fit it worse than their
+    mean (``fit.worse_than_mean``), as findings: ``{level, code, about,
     message}``, on the reference window as of the page's moment; kept a minute."""
     from ..numbers import exercised as ex
     spec = spec_of(p)
@@ -377,6 +378,11 @@ def exercised(live, p, snap: dict) -> list[dict]:
         except Exception:                            # a record that cannot be read says nothing here
             q = {}
         got = [{"level": "warn", "code": ex.CODE, "about": ref, "message": ex.said(x)} for ref, x in sorted(q.items())]
+        try:                                         # and each equation that fits worse than its mean (calibration per part)
+            got += [{"level": "warn", "code": "calibration-worse-than-mean", "about": ref, "message": msg}
+                    for ref, msg in ft.worse_than_mean(spec, reference(live, p, snap)["fit"])]
+        except Exception:
+            pass
         live.keep(key, got)
     return got
 

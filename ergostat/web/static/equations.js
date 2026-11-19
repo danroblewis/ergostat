@@ -224,7 +224,8 @@ function fitWords(s) {
   if (s.too_little) return `too little record (${s.too_little})`;
   if (s.exact) return `no error (${s.n} points)`;
   const err = s.mape != null ? `MAPE ${Math.round(s.mape * 100)}%` : s.error_share != null ? `error ${Math.round(s.error_share * 100)}% of the ${s.error_of}` : "";
-  return [s.r2 != null ? `R\u00b2 ${s.r2.toFixed(2)}` : "", err, s.says || "", `${s.n} points`].filter(Boolean).join(", ");
+  const skill = s.skill == null ? "" : s.skill < 0 ? `worse than holding it at its mean (skill ${s.skill.toFixed(2)})` : `skill ${s.skill.toFixed(2)} against its mean`;
+  return [s.r2 != null ? `R\u00b2 ${s.r2.toFixed(2)}` : "", s.nmse != null ? `scaled error ${s.nmse.toPrecision(2)}` : "", skill, err, s.says || "", `${s.n} points`].filter(Boolean).join(", ");
 }
 
 /* a proposal: what it changes, why, the fit before and after, the edit, and the owner's two answers */
