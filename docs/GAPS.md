@@ -76,7 +76,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **Operating modes, regime-scheduled thresholds, interlocks, risk gating** (open; designed in
   `docs/proposals/coordinator/08-modes-and-protection.md`).
 - **Observer staleness and estimated stocks** (open; `coordinator/06-observer.md`).
-- **Per-item and per-group goals** (done, dfa4008 on `smallgaps`; SPEC §8 `per:`): a goal on a stock counted from
+- **Per-item and per-group goals** (done, 8fb7440 and e46dc45 on `smallgaps`; SPEC §8 `per:`): a goal on a stock counted from
   items, held by each item or each group of them by a field (a relation such as `parent`), naming those that break it.
 - **Finding structure from residuals** (open; porting SD Lab's Kalman-LNA work; `parity/00-modeling-review.md`).
 - **Proposals drawn dashed in both diagrams; proposals that state the behaviour they predict** (the dashed drawing in
@@ -106,7 +106,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **Light theme: the repeats toward the paper are low in contrast** (open; for a design pass, no colour work until
   then; found fixing the dark theme's): the third round of correspondence colours (`--g-fade`, 55% of the hue) stands
   1.6:1 to 2.5:1 on white, and `--g9` (gold) 2.4:1 as it is; WCAG asks 3:1 for graphics. Tried on `smallgaps`
-  (226f0db, reverted in 443d5f3): six hues darkened and `--g-fade` 75% passed 3:1, but the gate review found the
+  (48b4254, reverted in 95e1a1f): six hues darkened and `--g-fade` 75% passed 3:1, but the gate review found the
   palette blurred: every hue at OKLCH L 0.50 to 0.56, gold and olive ΔE 4.9 apart, orange 3.0:1 and gold 3.8:1 against
   `--warn`, each repeat only about 12 from its hue. A repeat toward the paper that keeps 3:1 forces every hue to one
   lightness. To try next: mark the paper round by an ink outline or a dash instead of lightness, or alternate the
@@ -131,7 +131,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
 ## Done recently
 
 - **The Blocks view crashed on a stock with no flows** (`IndexError` at the integrator's summing junction): drawn as an
-  integrator with no inputs (b84e525, `smallgaps`).
+  integrator with no inputs (8148f5f and e46dc45, `smallgaps`).
 
 - **The reload wedge**: the item index read under its lock; a reload waits for edits to settle, never takes a broken
   model and swaps atomically; a watchdog recovers a stalled pool, loop or process (merged from `reloadfix`).
