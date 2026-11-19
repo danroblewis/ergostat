@@ -29,8 +29,9 @@ def _q(name: str) -> str:
 
 def _requests(project) -> list[tuple[str, dict]]:
     m = project.model
-    reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("items", {}), ("residuals", {}), ("fit", {}),
-                                    ("parts", {}), ("guide", {}), ("graph", {}), ("events", {"n": 80}), ("events", {"n": 80, "runs": 1})]
+    reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("daemons", {}), ("items", {}),
+                                    ("residuals", {}), ("fit", {}), ("parts", {}), ("guide", {}), ("graph", {}),
+                                    ("events", {"n": 80}), ("events", {"n": 80, "runs": 1})]
     for view in ("dynamics", "control", "blocks", "process"):
         for system in [None, *m.system_names()]:
             reqs.append(("graph", {"view": view, **({"system": system} if system else {})}))
