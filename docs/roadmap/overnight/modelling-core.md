@@ -67,37 +67,33 @@ verification harness and the craft bench in `scripts/`.
 
 ## Where it stopped
 
-Stopped at 10:50 on 2026-11-19 at the coordinator's cut-off (green by 11:15 was not reachable). Nothing here is ready
-to merge.
+Second stop, 2026-11-19 11:50, on main 2ed2f16. Everything in the definition of done is in place except one suite.
 
-**Done** (on a09c176; not yet rebased onto main 945ccea, where closedloop, observer and extremes touch
-`review.effect`, `proposals.accept` and `judge.run`, so expect conflicts there):
-- the split: what the review passed came in whole (squashed from `selfimprove` and `redesign`), then the parked parts
-  were taken out (the rule tier's first-order and measurable equations, its chain and structure copies, event-type
-  renames that edit programs, and `formerly:` on item kinds). The rule tier keeps units, a queue's goal and a process
-  nobody identified. The craft bench is in `scripts/craft_bench.py`; the harness's ports avoid 8798. `selfimprove`
-  has its "Where it stopped";
-- fix 1: `improve.governs`. A proposal or change set that changes the judge's policy, a block's `accept` or a
-  template instance's `with:` is refused. A redesign that removes a part, rewires a chain (`structural.rewired`) or
-  changes control is the owner's to write even under `redesign: auto` (`judge.owners`);
-- fix 2: a rename is a rename only when the structure, the control and every sensor are unchanged
-  (`version.renamed_parts`);
-- fix 3: `rewires` is worked out from what a change does (`structural.rewired`) in `improve.validate`, whoever made
-  it;
-- fix 5: a promoted redesign that cannot be written is superseded, and the pass goes on to the rest;
-- fix 6 (code done, untested): an owner's ask is only recorded (page and CLI), and the redesigner block takes it up.
-  There is no thread in the page server. The AI tier and the redesigner print result lines (`modeller.result_line`);
-- `when: auto` is parked (`ask` is the default). Redesign runs stop at a daily cap (`redesign: {daily: 2}`,
-  `redesign.spent`). "Redesigns judged not better" is gone from the Model page: the ask line links to the last
-  run's item. `unanswered-requests` counts only open and proposed requests, so `requests-handled` can be met.
+**Done:**
+- the split, and every blocking fix (1, 2, 3, 5, 6, 7). Fixes 4 and, mostly, 3 are moot with the parked parts gone;
+- the "also" list: the automatic triggers parked, the daily cap, carried redesigns checked again, Accept puts every
+  file back on any failure, `keep_history`'s result stored, the boundary rule scoped to a template's own parts, the
+  judged-not-better section gone (model-change items, on the Items page), `requests-handled` reachable, the
+  harness's ports;
+- `tests/test_modelling_core.py` has all 17 acceptance tests, passing. The four stale tests in
+  `tests/test_redesign.py` were rewritten. SPEC, ADDING, GAPS and both proposals are updated;
+- cuts: the craft bench went (it scored the parked rule tier; it stays on `selfimprove`), and the thirteen stocks
+  live in `scripts/self_improve_runs.py`. That also means the bench is no longer "in `scripts/`" as the definition
+  says above. Net lines outside `tests/` and `docs/`: +3,973.
 
-**Left:**
-- fix 7: the redesigner reading `MODELLING-WELL.md` through `helpdocs`;
-- `redesigner.run` still replaces `p.model` in its own process before submitting;
-- carried redesigns checked again; rollback of a multi-file write; `keep_history`'s result stored;
-- `chains.boundary`'s exception scoped to the template's own parts (the general version from the rebase is still
-  here);
-- the tests: `tests/test_modelling_core.py` (the acceptance tests named above) is not written. Four tests in
-  `tests/test_redesign.py` still assert the superseded behaviour (auto triggers; a chain-rewiring redesign written
-  under `redesign: auto`; promotion first and alone) and fail: they need rewriting to the new rules;
-- the SPEC and proposal text for the above, the rebase onto 945ccea, and the four suites.
+**Suites on 53f7032:**
+- unit: rc 0, 1,501 passed. The 12 skips are 5 page files when run without playwright (they run in the page
+  suite) and 7 VictoriaMetrics conformance tests;
+- ruff: rc 0;
+- `demo_check` on image-squeeze, alert-triage, ticket-factory and the-job: rc 0, all ok;
+- the four Playwright files: **not green**. Sizes and layout ceilings were recorded again (every example now draws
+  its modelling system; several examples' `satellite-far` ceilings rose, from 6 to 17 for backups). One test then
+  fails for all 20 examples: `test_model_errors_drain_is_a_short_straight_satellite_of_its_stock`, from `layout2`,
+  merged after `selfimprove` branched. With the larger modelling template, the router takes the connector
+  `model-error → gap:model-fits` out of the stock's bottom edge, 10 px left of `model-mended`'s pipe (stock bottom at
+  y 228, connector out at x 298, pipe at x 308). It then runs right 5.5 px below the stock and crosses the pipe.
+  Each failing test leaves its page open, so the suite grew past 6 GB and the watchdog killed it.
+
+**Left:** a layout fix (the connector should leave a stock by the side facing its target when that target sits
+within the stock's height, or the router should keep connectors off a pipe's first segment), or the layout
+owner's ruling on that test. Then the four suites again.
