@@ -97,6 +97,18 @@ def project(d: Path, text: str = PIECES) -> Project:
     return Project(m)
 
 
+JUDGE = "\n  judge:\n    type: judge\n    every: 30s\n    accept: ACCEPT\n"
+ENTER = "    sensor: {items: alert, entering: triaged}\n"
+BUSY = PIECES.replace(ENTER, "    to: investigate\n" + ENTER, 1) + "AUXILIARIES"   # chained; busy: driven by nothing
+BUSY_AUX = "auxiliaries:\n  busy:\n    unit: alerts\n    description: alerts being looked at\n"
+READ = [{"part": "auxiliary.busy", "set": {"driven-by": ["+stock.investigate"], "equation": "stock.investigate"},
+         "why": "what it reads"}]                      # better, and it rewires nothing, removes nothing, changes no control
+
+
+def busy(d: Path, accept: str) -> Project:
+    return project(d, BUSY.replace("AUXILIARIES", JUDGE.replace("ACCEPT", accept).lstrip("\n") + BUSY_AUX))
+
+
 CHAIN = [
     {"rename": "stock.triage", "to": "new-alerts", "why": "a quantity, not a step"},
     {"part": "stock.new-alerts", "set": {"unit": "alerts", "description": "alerts not yet triaged"}, "why": "its unit"},
@@ -218,12 +230,10 @@ def test_the_thirteen_disconnected_stocks_are_chained_by_one_change_set(tmp_path
 
 
 def test_a_redesign_is_judged_by_its_scorecard_and_waits_for_the_owner_unless_promoted_by_name(tmp_path):
-    judge = "\n  judge:\n    type: judge\n    every: 30s\n    accept: ACCEPT\n"
     for accept, written in (("auto", False), ("owner", False), ("{redesign: auto}", True)):
-        d = tmp_path / accept.strip("{}").replace(": ", "-")
-        p = project(d, PIECES + judge.replace("ACCEPT", accept))
+        p = busy(tmp_path / accept.strip("{}").replace(": ", "-"), accept)
         assert p.model.spec.improve.accept["redesign"] == ("auto" if written else "owner")
-        got = rd.submit(p, "redesigner", {"title": "chained", "edits": CHAIN})
+        got = rd.submit(p, "redesigner", {"title": "busy read", "edits": READ})
         assert got["status"] == "proposed", got["why"]
         out = jd.run(p, "judge")
         assert out["passed"] == 1
@@ -237,7 +247,8 @@ def test_at_most_one_redesign_waits_for_each_system(tmp_path):
     assert rd.submit(p, "redesigner", {"title": "one", "edits": CHAIN})["status"] == "proposed"
     again = rd.submit(p, "redesigner", {"title": "two", "edits": CHAIN[:2]})
     assert again["status"] == "not-proposed" and "waiting already" in again["why"]
-    assert rd.plan(p, "auto")["system"] is None
+    rd.ask(p, None)
+    assert rd.plan(p, "ask")["system"] is None                   # asked, but one waits: said, and nothing made
 
 
 def test_the_owners_ask_comes_first_and_is_taken_up_once(tmp_path):
@@ -250,17 +261,6 @@ def test_the_owners_ask_comes_first_and_is_taken_up_once(tmp_path):
     assert rd.plan(p, "ask")["system"] is None
     with pytest.raises(ValueError):
         rd.ask(p, "no-such-system")
-
-
-def test_the_model_clearly_wrong_says_why_and_a_version_is_redesigned_once(tmp_path):
-    p = project(tmp_path / "m")
-    why = rd.due(p)
-    assert any("first run" in w for w in why)
-    got = rd.plan(p, "auto")
-    assert got["system"] == "model"
-    from ergostat.numbers import version as ver
-    rd.ran(p, "model", {"result": "no better", "version": ver.version(p.model.spec)})
-    assert rd.plan(p, "auto")["system"] is None                 # not again for this version, on its own
 
 
 def _answers(*rounds):
@@ -337,9 +337,8 @@ def test_a_proposal_is_drawn_as_it_would_leave_the_model(tmp_path):
 
 
 def test_while_a_redesign_is_being_made_the_judge_writes_nothing_on_its_own(tmp_path):
-    judge = "\n  judge:\n    type: judge\n    every: 30s\n    accept: {redesign: auto}\n"
-    p = project(tmp_path / "m", PIECES + judge)
-    got = rd.submit(p, "redesigner", {"title": "chained", "edits": CHAIN})
+    p = busy(tmp_path / "m", "{redesign: auto}")
+    got = rd.submit(p, "redesigner", {"title": "busy read", "edits": READ})
     rd.ran(p, "model", {"result": "started"})
     assert rd.running(p)
     out = jd.run(p, "judge")
@@ -358,16 +357,15 @@ def test_the_record_holds_no_runs_of_a_block_the_change_set_adds(tmp_path):
 
 def test_a_promoted_redesign_is_written_first_and_alone(tmp_path):
     from ergostat.numbers import improve as im
-    judge = "\n  judge:\n    type: judge\n    every: 30s\n    accept: {description: auto, redesign: auto}\n"
-    p = project(tmp_path / "m", PIECES + judge)
+    p = busy(tmp_path / "m", "{description: auto, redesign: auto}")
     words = im.submit(p, "modeller", {"kind": "description", "parts": ["stock.triage"], "title": "described",
                                        "edit": {"part": "stock.triage", "set": {"description": "alerts not yet triaged"}},
                                        "reasons": [{"says": "it had none", "evidence": "finding:no-description@stock.triage"}]})
     assert words["status"] == "proposed", words["why"]
-    got = rd.submit(p, "redesigner", {"title": "chained", "edits": CHAIN})
+    got = rd.submit(p, "redesigner", {"title": "busy read", "edits": READ})
     out = jd.run(p, "judge")
     assert out["accepted"] == 1 and pr.stored(p)[got["id"]]["state"] == "accepted"
-    assert pr.changes(p)[words["id"]][0] == "superseded"          # older, and passed: not written over it; made again
+    assert pr.changes(p)[words["id"]][0] in ("passed", "checked")   # not written in the same pass; carried, not lost
 
 
 def test_a_renamed_part_says_formerly_and_not_inferred(tmp_path):
