@@ -115,6 +115,29 @@ review into *Done recently*). Newest decisions from the owner first within each 
   together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
   not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
   ends.
+- **Daemon YAML schema review** (open; owner, 2026-11-19): the functionality landed (`daemons`, `daemons2`; how to
+  use and write daemons: `docs/DAEMONS.md`, the skill's `daemons.md`), but the owner is not sure the YAML is the
+  best yet, and it may change. Alternatives worth considering:
+  - *a modifier instead of a kind*: `run: python3 probe.py` plus `keep: true` (or `mode: daemon`), so moving a
+    sensor over is one word and the command stays where it was, rather than `daemon: {run: ...}` as a seventh
+    sensor kind;
+  - *per-sensor arguments*: today a shared daemon works out what to read from the sensor's name (`orders.main` is
+    the `orders` queue), so names carry configuration; a sensor's own `with: {queue: orders}`, sent in its read
+    line, would free the names;
+  - *where shared daemons are declared*: a top-level `daemons:` beside `agents:` (SPEC §10, the machine several
+    blocks share), or a daemon as an agent's process (`agents: {svc: {kind: program, daemon: {...}}}`), which
+    would show it on its rung like every other agent;
+  - *the names of inline daemons* (`sensor.STOCK.SENSOR`, `block.NAME`), derived and dotted, used by
+    `ergostat block NAME --restart` and in logs;
+  - *push*: `push: true` beside `daemon:` on the sensor, or said once by the daemon (it pushes for every sensor
+    that names it);
+  - *the knobs*: `concurrency` beside the block's `pool` (two limits on one thing); `restart.backoff` as a
+    two-item list against `backoff:` and `max-backoff:`; `stdin-timeout`'s name; a heartbeat on by default for
+    block daemons;
+  - *the word*: "daemon" is Unix jargon; `runner`, `server` or `keep-alive` may read better to the owner's users.
+  Whatever changes, the protocol (SPEC §9.7) need not: these are only how the YAML says which process and how it
+  is supervised. The docs' examples are run by `tests/test_daemon_docs.py`, so a schema change shows every place
+  to rewrite.
 - **ergostat's upkeep as a modelled system** (idea; owner, 2026-11-19): a built-in `use: upkeep` template, like
   `use: modelling`, drawing ergostat's own housekeeping as control loops: item-index files (created on each change to
   the kinds, tidied, healed), event-log compaction, measurement retention, the worktree pool, expired leases, the
