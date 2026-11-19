@@ -309,9 +309,11 @@ class Dispatcher:
                                                  data={"run": lease["holder"], "fence": lease["fence"],
                                                        "block": lease.get("block"), "silent": round(silent, 1), "ttl": ttl,
                                                        **self.after(it, lease, True)}))
-                kill(self.e, lease["holder"], f"its lease on {it.id} expired: silent {silent:.0f}s, its TTL {ttl:g}s",
-                     it.id, lease["fence"], lease.get("block"))
                 after = its.one(self.p.events, self.spec, it.id)
+                last = ((after.fields.get("lease") or {}).get("history") or [{}])[-1] if after else {}
+                if last.get("fence") == lease["fence"] and last.get("how") == "expired":   # (not renewed meanwhile)
+                    kill(self.e, lease["holder"], f"its lease on {it.id} expired: silent {silent:.0f}s, its TTL {ttl:g}s",
+                         it.id, lease["fence"], lease.get("block"))
                 dead = after is not None and after.state == DEAD
                 self.e.say(f"{lease.get('block')}: the lease on {it.id} expired (silent {silent / 60:.1f} min)"
                            + (": a dead letter now" if dead else ""))

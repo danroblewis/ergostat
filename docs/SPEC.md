@@ -1822,9 +1822,11 @@ them, section 9.1): that is an ack. A lease that expired is not ended again when
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
 to run on, and the item was back in the queue meanwhile): when its lease expires, the engine that started it sends
 SIGTERM to its process group and every process it started (in whatever group or session), and SIGKILL after a grace
-(`ERGOSTAT_KILL_GRACE`, 10 s) to what is left, and records `ergostat.run.killed` (about its block; `run`, `item`,
+(`ERGOSTAT_KILL_GRACE`, read at each kill; 10 s when unset or not a number) to what is left, and records `ergostat.run.killed` (about its block; `run`, `item`,
 `fence`, `why`, `signal`: TERM or KILL, `pids`, `grace`). The run then ends as any run: `agent.failed`, its note
-`killed: ...`, its time, resources and cost measured (section 9.1); its lease is not ended again. A run that renews
+`killed: ...`, its time, resources and cost measured (section 9.1); its lease is not ended again. The lease is read
+again after the expiry is recorded, and the run is killed only when that expiry took (not renewed meanwhile); a run
+that ended meanwhile is not signalled, nor, once its tree is gone, anything under its pid. A run that renews
 is never killed, and a run left behind by an engine that stopped is not signalled (it is not this engine's). Whatever
 a run says about the item after its lease ended (before it is stopped, or from elsewhere) is refused, not applied: an event line about it is refused when it is printed, before it is recorded
 (`agent.refused`, its why the fencing), and an event recorded any other way, caused by a run whose lease on the item ended,

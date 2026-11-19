@@ -91,3 +91,32 @@ def test_the_killed_runs_item_returns_and_its_cost_is_recorded(tmp_path):
     assert failed["note"].startswith("killed: its lease on ticket/1 expired")
     assert failed["resources"]["processes_peak"] >= 1 and "cpu" in failed["resources"], "its cost measured as any run's"
     assert failed["seconds"] < 30, "stopped, not left to run its minute"
+
+
+def test_a_run_this_engine_did_not_start_is_not_signalled(tmp_path):
+    """A lease held by a run left behind (another engine's, or a process the test started) expires; nothing is killed."""
+    import subprocess
+
+    from .test_leases import take
+    p = project(tmp_path, model('echo "{\\"event\\": \\"ticket.done\\"}"', "{ttl: 1s}"))
+    p.events.add("ticket.opened", item="ticket/1", source="t")
+    outsider = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    take(p, "ticket/1", "left-behind", 1, ttl=1.0)
+    e = start(p)
+    try:
+        assert wait_for(lambda: p.events.query(n=None, type=EXPIRED), 10)
+        assert wait_for(lambda: item(p, "ticket/1").state == "done", 10), "taken again and done"
+        assert not kill.kill(e, "left-behind", "a test"), "nothing of this engine's to stop"
+    finally:
+        e.close()
+    try:
+        assert outsider.poll() is None and not p.events.query(n=None, type=KILLED)
+    finally:
+        outsider.kill()
+        outsider.wait()
+
+
+def test_the_grace_is_read_at_each_kill_with_a_safe_fallback(monkeypatch):
+    for raw, want in (("2.5", 2.5), ("soon", 10.0), ("-1", 10.0), ("", 10.0)):
+        monkeypatch.setenv("ERGOSTAT_KILL_GRACE", raw)
+        assert kill.grace() == want
