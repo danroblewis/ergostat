@@ -96,6 +96,35 @@ def test_a_run_under_way_carries_on_and_records_its_version(tmp_path):
     assert changed["version_before"] == v0 and "goal.enough" not in changed.get("finishing", {}).get("changed", [])
 
 
+def test_a_page_noticing_the_change_first_leaves_it_to_the_runner(tmp_path):
+    import fcntl
+
+    from ergostat.web.server import Live
+    p, e = engine(tmp_path, BASE.format(run="sleep 3; echo 5", every="60s"))
+    live = Live(Project(p.model, p.dir))                  # the page's own Project, on the same event log
+    live.watch.settle = 0
+    held = open(runner.pid_file(p), "a+")                # a runner holds run.pid (as `ergostat run` does)
+    try:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        held.write(str(os.getpid()))
+        held.flush()
+        assert until(lambda: p.events.query(type="agent.started", item="maker"))
+        v0 = history.version(p.model)
+        edited = BASE.format(run="sleep 3; echo 5", every="60s").replace('"<= 20"', '"<= 30"')
+        write(tmp_path, edited)
+        assert until(lambda: history.version(live.get().model) != v0)   # the page takes the edit first
+        assert len(p.events.query(n=None, type="model.changed")) == 1     # the startup record only: left to the runner
+        e.swap(mdl.load(tmp_path))
+    finally:
+        e.close()
+        held.close()
+    changes = p.events.query(n=None, type="model.changed")
+    assert len(changes) == 2 and changes[-1]["data"]["carried"] == 1 and changes[-1]["data"]["runs"] == ["maker"]
+    write(tmp_path, BASE.format(run="sleep 3; echo 5", every="60s"))   # no runner now: the page records it
+    assert until(lambda: history.version(live.get().model) == v0)
+    assert len(p.events.query(n=None, type="model.changed")) == 3
+
+
 def test_a_removed_block_finishes_its_run_and_starts_no_more(tmp_path):
     p, e = engine(tmp_path, BASE.format(run="sleep 1.5; echo 5", every="0.3s"))
     try:
@@ -233,18 +262,24 @@ def ergostat(repo, *args, **kw):
 
 
 def test_ergostat_run_takes_an_edit_in_place_and_stop_still_kills(tmp_path):
-    long = BASE.format(run="sleep 8; echo 5", every="60s")   # long enough that the edit, taken once it settles (1.5s), lands inside the run
+    long = BASE.format(run="sleep 15; echo 5", every="60s")  # the edit, taken once it settles (1.5s), lands inside the run, under load too
     write(tmp_path, long)
     p = Project(mdl.load(tmp_path))
     proc = ergostat(tmp_path, "run", "--foreground", "--no-web")
     try:
         assert until(lambda: p.events.query(type="agent.started", item="maker"), 60)
         write(tmp_path, long.replace('"<= 20"', '"<= 30"'))
+        def reloads():
+            return [x for x in p.events.query(n=None, type="model.changed") if x["data"].get("reload")]
+        assert until(reloads, 60), "the edit was taken in place"
         assert until(lambda: p.events.query(type="agent.ran,agent.failed", item="maker"), 60)
+        order = [x["type"] for x in p.events.query(n=None, type="model.changed,agent.ran,agent.failed")
+                 if x["type"] != "model.changed" or x["data"].get("reload")]
+        assert order == ["model.changed", "agent.ran"], order       # the swap came while the run was under way
         ran = p.events.query(type="agent.ran,agent.failed", item="maker")[0]
         assert ran["type"] == "agent.ran" and ran["data"]["exit"] == 0, ran
         assert [x["data"]["amount"] for x in p.events.query(type="valve.opened", item="maker")] == [5.0]
-        changed = p.events.query(type="model.changed")[-1]["data"]
+        changed = reloads()[0]["data"]
         assert changed["carried"] == 1 and changed["runs"] == ["maker"]
         assert len(p.events.query(type="ergostat.started")) == 1 and proc.poll() is None   # the same runner, no restart
 
