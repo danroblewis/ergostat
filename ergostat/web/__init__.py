@@ -63,8 +63,9 @@ class PooledServer(ThreadingHTTPServer):
 
     def server_close(self):
         super().server_close()
-        for _ in range(self.workers):
-            self.jobs.put(None)
+        jobs = getattr(self, "jobs", None)         # (none yet when the port could not be bound: the bind error is the news)
+        for _ in range(self.workers if jobs is not None else 0):
+            jobs.put(None)
 
 
 def record_fits(live, every: float = 300.0, stop: threading.Event | None = None) -> None:

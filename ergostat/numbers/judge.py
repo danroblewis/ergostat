@@ -294,6 +294,24 @@ def _event(p, x: dict, what: str, by: str, data: dict) -> None:
 
 
 JUDGED = ("parameter", "equation", "structure")        # what a replay can judge (a loop's process or gain is not)
+WORDING = ("description", "unit", "rename")            # what a reader is told: judged by check alone, not the record
+REDESIGN = "redesign"                                  # a change set: judged by its scorecard (redesign.py)
+WORDING_MOST = 20                                      # wording changes written in one pass (each is measured alone anyway)
+
+
+def wording(x: dict) -> tuple[str, str]:
+    """The verdict on a change of words (a description, a unit, a rename): the replay reads the same record alike, so
+    it is judged by what ``check`` says of the model it leaves: passed when it makes no new finding (and says what it
+    answers), failed when it makes one."""
+    f = x.get("findings") or {}
+    new, answered = [*(f.get("new") or []), *(f.get("notes_new") or [])], [*(f.get("answered") or []), *(f.get("notes_answered") or [])]
+    what = {"description": "a description", "unit": "a unit", "rename": "a rename"}.get(x.get("kind"), "a change of words")
+    if new:
+        return "failed", f"{what} that makes {len(new)} new finding{'s' if len(new) > 1 else ''} ({', '.join(new[:3])})"
+    return "passed", (f"{what}: the replay reads the record the same with it; it answers "
+                      + (f"{len(answered)} finding{'s' if len(answered) > 1 else ''} or note{'s' if len(answered) > 1 else ''} "
+                         f"check reported ({', '.join(answered[:3])})" if answered else "nothing check reported")
+                      + ", and makes none")
 
 
 def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict:
@@ -313,6 +331,31 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
     judged = 0
     with pr.locked(p):
         for x in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0):
+            if x.get("kind") == REDESIGN:                    # a change set: judged as a whole, by its scorecard on the record
+                if x["state"] == "checked":
+                    from . import redesign as rd
+                    try:
+                        verdict, why, card = rd.judged(p, x, now)
+                    except tr.TrialError as e:
+                        pr.event(p, x["id"], "superseded", {"why": f"its edit no longer applies ({e})"})
+                        out["verdicts"].append({"id": x["id"], "verdict": "superseded", "why": str(e)})
+                        continue
+                    pr.event(p, x["id"], "testing", {"testing": now, "judged_by": by})
+                    out["testing"] += 1
+                    pr.event(p, x["id"], verdict, {"verdict": {"verdict": verdict, "why": why, "at": now, "by": by},
+                                                   **({"scorecard": card} if card else {})})
+                    out[verdict] += 1
+                    out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
+                continue
+            if x["state"] != "passed" and x.get("kind") in WORDING:
+                verdict, why = wording(x)
+                if x["state"] == "checked":                  # tested like any change, on what check says of it
+                    pr.event(p, x["id"], "testing", {"testing": now, "judged_by": by})
+                    out["testing"] += 1
+                pr.event(p, x["id"], verdict, {"verdict": {"verdict": verdict, "why": why, "at": now, "by": by}})
+                out[verdict] += 1
+                out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
+                continue
             if x["state"] == "passed" or x.get("kind") not in JUDGED:
                 continue
             since = x.get("made") or x.get("created") or now
@@ -365,10 +408,21 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                                                       "tau": nd["tau"], "needs": nd["needs"], "scored": nd["stocks"]}})
             out[state] += 1
             out["verdicts"].append({"id": x["id"], "verdict": state, "why": why})
-    for x in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0):     # one written a pass, the oldest first
-        if x["state"] != "passed" or x.get("kind") not in JUDGED or pol.accept.get(x.get("kind")) != "auto":
+    words = 0
+    sets = [y for y in pr.pending(p, spec) if y.get("kind") == REDESIGN]     # a redesign waiting: nothing written over it
+    from . import redesign as rd
+    if rd.running(p, now, rd.HOLD_FOR):          # a redesign being made: the model it reads held still, for a while
+        return out
+    first = [y for y in sets if y["state"] == "passed" and pol.accept.get(REDESIGN) == "auto"]
+    todo = first[:1] or sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0)   # a redesign the owner promoted
+    for x in todo:                                   # and the judge passed is written first, alone; else one a pass, oldest first
+        if x["state"] != "passed" or x.get("kind") not in (*JUDGED, *WORDING, REDESIGN) or pol.accept.get(x.get("kind")) != "auto":
             continue
-        if removes(x) or x.get("rewires"):                 # a removal, or a flow re-pointed, waits for the owner
+        if x.get("kind") != REDESIGN and (removes(x) or x.get("rewires")):   # a removal, or a flow re-pointed, waits for the
+            continue                                                         # owner (a redesign promoted by name does not)
+        if x.get("kind") != REDESIGN and any(tr.conflicts(x, y) for y in sets):
+            continue
+        if x.get("kind") in WORDING and words >= WORDING_MOST:
             continue
         snap = {"at": now, "window": ob.reference(p, now).until - ob.reference(p, now).since}
         try:
@@ -378,6 +432,10 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
             out["verdicts"].append({"id": x["id"], "verdict": "passed", "why": f"not written: {e}"})
             continue
         out["accepted"] += 1
+        if x.get("kind") in WORDING:                       # words are written as many a pass as there are: the rest's
+            words += 1                                     # lines moved with them (proposals.rebase)
+            spec = p.model.spec
+            continue
         break
     return out
 
@@ -409,7 +467,10 @@ def pause(got: dict, every: float, idle: int) -> float:
 
 
 def removes(x: dict) -> bool:
-    """A change that takes structure away: never written by the judge's policy; the owner decides."""
+    """A change that takes structure away: never written by the judge's policy; the owner decides. A rename takes no
+    part away (each keeps its history under its new name)."""
+    if x.get("kind") == "rename":
+        return bool(x.get("removes"))
     return bool(x.get("removes") or x.get("gone_parts"))
 
 

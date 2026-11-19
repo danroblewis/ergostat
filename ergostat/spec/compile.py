@@ -24,7 +24,9 @@ from .ir import (
     MESSAGE,
     MODEL_CHANGE,
     MODEL_MEASURES,
+    MODEL_REQUEST,
     NAME,
+    NAMED_ONLY,
     VERDICT,
     WORKSPACE,
     Agent,
@@ -52,6 +54,7 @@ from .ir import (
     is_measure,
     message_kind,
     model_change_kind,
+    model_request_kind,
     verdict_kind,
     workspace_kind,
 )
@@ -62,14 +65,14 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "
                "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join"}
-STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "formerly"}
+STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
-FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred",
+FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
                       "rate-unit"}
 GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner", "process", "per", "on-stale"}
 PROCESS_KEYS = {"gain", "time-constant", "dead-time", "integrating", "identified", "description"}
-AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous", "equation", "inferred"}
+AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous", "equation", "inferred", "formerly"}
 PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table", "range", "inferred"}
 DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
 INFERRED = re.compile(r"^ergostat\.model-change/[0-9a-z-]+$")   # inferred: the model change that added a part
@@ -149,6 +152,17 @@ class Compiler:
                                         "deprecated-name", ""))
 
     # ---- small readers
+
+    def formerly(self, m: Map, what: str) -> list[str]:
+        """``formerly:`` the names a part had (one, or a list): a rename that keeps its history (SPEC §12e)."""
+        v = m.get("formerly")
+        if v is None:
+            return []
+        xs = v if isinstance(v, list) else [v]
+        if not all(isinstance(x, str) and NAME.match(x) for x in xs):
+            self.err(f"{what}.formerly: the name it had (or a list of them)", m.at("formerly"), "bad-formerly")
+            return []
+        return [str(x) for x in xs]
 
     def keys(self, m: Map, allowed: set[str], what: str) -> None:
         for k in m:
@@ -248,7 +262,7 @@ class Compiler:
                 self.err(f"{what}.accept: owner or auto (or by kind: parameter:, equation:, structure:)", m.at("accept"),
                          "bad-accept")
             else:
-                out.accept = dict.fromkeys(out.accept, acc)
+                out.accept = {k: (acc if k not in NAMED_ONLY else "owner") for k in out.accept}
         elif isinstance(acc, Map):
             for k, v in acc.items():
                 if k not in out.accept or str(v) not in ways:
@@ -652,6 +666,21 @@ class Compiler:
                              raw.at(f), "bad-fold")
                 else:
                     rules[f] = str(rule)
+        formerly = {}
+        raw = m.get("formerly") or {}
+        if not isinstance(raw, dict):
+            self.err(f"{what}.formerly: a map of an event type it had: the type it is now (a rename keeps the record's)",
+                     m.at("formerly"), "not-a-map")
+        else:
+            for old, now in raw.items():
+                if str(now) not in moves:
+                    self.err(f"{what}.formerly.{old}: {now!r} is not one of its events (on:)", raw.at(old), "unknown-ref")
+                elif str(old) in moves and moves[str(old)] != moves[str(now)]:
+                    self.err(f"{what}.formerly.{old}: on: moves it to {moves[str(old)]}, its new name to {moves[str(now)]}",
+                             raw.at(old), "bad-formerly")
+                else:
+                    formerly[str(old)] = str(now)
+                    moves.setdefault(str(old), moves[str(now)])          # the record's events of the old type still fold
         from ..leases import compile as leases
         from . import joins
         from .relations import compile_relations
@@ -659,7 +688,7 @@ class Compiler:
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
-                        join=joins.compile_join(self, m, what))
+                        join=joins.compile_join(self, m, what), formerly=formerly)
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""
@@ -860,6 +889,7 @@ class Compiler:
                 continue
             spec.items[name] = k
         spec.items[MODEL_CHANGE] = model_change_kind()       # built in: every change to the model (SPEC §12e)
+        spec.items[MODEL_REQUEST] = model_request_kind()     # built in: work for modelling, from what check finds
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
         spec.items[MESSAGE] = message_kind()                 # built in: the owner's messages, routed (SPEC §12h)
         spec.items[VERDICT] = verdict_kind()                 # built in: the intent judge's verdicts on work (SPEC §12i)
@@ -882,6 +912,7 @@ class Compiler:
                        observe=self.flag(m, "observe", what))
             st.sensors = self.sensors(m, Ref("stock", name), what)
             st.rate_unit = self.rate_unit(m, what)
+            st.formerly = self.formerly(m, what)
             spec.stocks[name] = st
         for name, m, what in self.named("flows"):
             self.keys(m, FLOW_KEYS, what)
@@ -899,6 +930,7 @@ class Compiler:
             f.rate_unit = self.rate_unit(m, what)
             f.driven_by, f.polarity, f.instant, f.inferred_links = self.driven(m, what)
             f.defined = d.defined[("flows", name)]
+            f.formerly = self.formerly(m, what)
             spec.flows[name] = f
         for section in ("auxiliaries", "variables"):        # variables: the old name, still read
             for name, m, what in self.named(section):
@@ -915,6 +947,7 @@ class Compiler:
                 v.sensors = self.sensors(m, Ref("auxiliary", name), what)
                 v.driven_by, v.polarity, v.instant, v.inferred_links = self.driven(m, what)
                 v.defined = self.doc.defined[(section, name)]
+                v.formerly = self.formerly(m, what)
                 if v.exogenous and v.driven_by:
                     self.err(f"{what}: exogenous (an input from outside the model) and driven-by something in it: one or the "
                              f"other", m.at("exogenous"), "exogenous-driven")

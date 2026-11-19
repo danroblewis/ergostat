@@ -96,13 +96,24 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `ticket-factory` does not record Jira's links: its collector does not read them (`bin/jira.py` asks Jira for
   summary, status, labels and description only), so `issuelinks` and `parent` must be asked for and folded as
   relations first.
-- **Craft findings in `check`** (in progress, `selfimprove`; from `docs/MODELLING-WELL.md`): `check` is silent on a
-  part with no `description`, a stock with no `unit`, a flow between stocks with no equation, a `process:` with no
-  `identified:`, a sensor (a collector) with no description, and event types of one kind in mixed forms. Each is a
-  review-checklist item an agent has to remember; a note-level finding would teach it.
-- **A step whose goal never goes off** (in progress, `selfimprove`): a `takes:` block runs only while its goal is
-  off, so a queue goal with a tolerance (or a setpoint above 0) lets items wait unseen; nothing says so. Found when
-  the example's first goals had tolerances and nothing ran.
+- **Modelling improves the model** (in progress, `selfimprove`; `docs/proposals/self-improvement.md`): what `check`
+  finds (findings, chain findings, craft notes, coherence mismatches, a fit that cannot be worked out) is held as
+  requests (`ergostat.model-request`); a rule tier and an AI tier (off unless `ai: true`), each a block of `use:
+  modelling`, answer them with ordinary changes; the judge decides by class (description, unit, rename judged by
+  check; values, equations and structure by the record). Every example uses it. What is left is listed there.
+- **Redesign beside refinement** (in progress, `redesign`; `docs/proposals/redesign.md`): one change set of many
+  coordinated edits for a whole system (renames with every reference, rewiring, removals, equations, descriptions),
+  made over a few rounds on a scratch copy by the redesigner (an `ai` block, haiku by default, budget-bounded, its cost
+  recorded), judged as a whole by a scorecard (findings, chain pieces, coherence per kind on the record, craft, fit not
+  worse, behaviour kept), one `ergostat.model-change` of kind `redesign`, drawn dashed on both diagrams, never written
+  without the owner unless `accept: {redesign: auto}`. Runs when the model is clearly wrong, on its first run, or when
+  the owner asks (`ergostat improve --redesign`, the Model page). Open: removed parts are named, not drawn as ghosts;
+  splitting a model into systems is in the guide but not scored; the judge scores a redesign on the record it has when
+  it takes it up, not on record that comes after it.
+- **Craft notes in `check`** (done, `selfimprove`): a part with no description, a stock with no unit, a flow between
+  stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
+  tolerance (a step whose goal never goes off), a `process:` with no `identified:` (`spec/craft.py`, notes, not
+  counted as findings).
 - **Proposals superseded by any edit** (partly done, `churn`; owner, 2026-11-19): a model change made against a version
   since changed, even only in its numbers, was superseded and never written (SPEC section 12e); and every pass of a
   finder made a new change for the same thing, letting the last go ("let go: found again otherwise, or no longer

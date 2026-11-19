@@ -62,3 +62,7 @@ blocks:
 agents:
   picker:
     kind: decision                        # a short model call, a rung below the writer (simulated here)
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

@@ -839,8 +839,120 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
     props[x["id"]] = x
     save(p, props)                                  # ergostat.model-change.accepted, from whoever decided
     written(p, x, by)
+    if x.get("renames"):
+        x["applied"]["history"] = keep_history(p, x["renames"], v_before)
+    rebase(p, edits, x["id"])                        # the lines of the others waiting move with what was written
     supersede(p, p.model.spec)                      # what was made against the version before is made again, or not
     return x
+
+
+CARRIED = ("description", "unit", "redesign")        # kept across a change to the model, if its edit still applies
+
+
+def carry(p, ids: list[str]) -> list[str]:
+    """Each change of words (a description, a unit) among these, made against the version before, still made against
+    the model as it is now: its edit applied to the files as they are (its lines moved, ``rebase``), and it still a
+    change of words. It is said so on its item and stays waiting, rather than superseded and made again."""
+    from . import improve as im
+    from . import trial as tr
+    spec = p.model.spec
+    v, st = ver.version(spec), ver.structure(spec)
+    out = []
+    for qid in ids:
+        y = stored(p).get(qid)
+        if y is None or y.get("kind") not in CARRIED or y["state"] not in OPEN:
+            continue
+        try:
+            after = tr.spec_after(p, tr.edits_of(y))
+        except tr.TrialError:
+            continue
+        if y["kind"] != "redesign" and im.kind_of(spec, after, y["kind"]) != y["kind"]:
+            continue
+        event(p, qid, y["state"], {"version": v, "structure": st, "carried": {"from": y.get("version"), "to": v}})
+        out.append(qid)
+    return out
+
+
+def rebase(p, written_edits: list, pid: str) -> list[str]:
+    """Every change still waiting whose edit is to a file just written, its hunks moved by the lines the written edit
+    added or took away above them (``ergostat.model-change.<its state>`` with the edit as it now stands); one whose
+    lines the written edit changed is left as it is (Accept refuses it, and it is made again)."""
+    shifts: dict[str, list[tuple[int, int, int]]] = {}
+    for e in written_edits:
+        for h in e.hunks:
+            shifts.setdefault(str(Path(e.file).resolve()), []).append((h.line, len(h.old), len(h.new) - len(h.old)))
+    out = []
+    for qid, y in stored(p).items():
+        if qid == pid or y["state"] not in OPEN or "error" in (y.get("edit") or {"error": 1}):
+            continue
+        files = []
+        moved = False
+        for d in y["edit"].get("files") or []:
+            f = str(Path(d["file"]).resolve())
+            mine = shifts.get(f)
+            if not mine:
+                files.append(d)
+                continue
+            hunks = []
+            for h in d["hunks"]:
+                line, n = int(h["line"]), len(h.get("old") or [])
+                how = [_relation(a, m, line, n) for a, m, _ in mine]
+                if "clash" in how:
+                    hunks = None                         # the same lines: it cannot be moved
+                    break
+                delta = sum(dl for (a, m, dl), r in zip(mine, how, strict=True) if r == "shift")
+                hunks.append({**h, "line": line + delta})
+                moved = moved or bool(delta)
+            if hunks is None:
+                moved = False
+                files = None
+                break
+            e = ye.Edit(d["file"], [ye.Hunk(int(h["line"]), list(h.get("old") or []), list(h.get("new") or [])) for h in hunks])
+            files.append(e.as_dict())
+        if not files or not moved:
+            continue
+        edit = {**y["edit"], "files": files, "diff": "\n".join(ye.Edit.from_dict({k: v for k, v in f_.items() if k != "diff"}).diff()
+                                                             for f_ in files)}
+        event(p, qid, y["state"], {"edit": edit})
+        out.append(qid)
+    carry(p, [qid for qid, y in stored(p).items() if qid != pid and y["state"] in OPEN])
+    return out
+
+
+def _relation(a: int, m: int, line: int, n: int) -> str:
+    """How a hunk written at ``a`` (replacing ``m`` lines) stands to one waiting at ``line`` (replacing ``n``; 0: put
+    in before it): ``shift`` (it is above: the waiting one moves by what it added), ``keep`` (below) or ``clash``."""
+    if m == 0:
+        if a <= line:
+            return "shift"
+        return "clash" if n and line < a < line + n else "keep"
+    if a + m <= line:
+        return "shift"
+    if (n and line + n <= a) or (not n and line <= a):
+        return "keep"
+    return "clash"
+
+
+def keep_history(p, renames: dict[str, str], version_before: str) -> dict:
+    """A part renamed keeps its history: each of its old sensors' readings written again under the new name's series
+    (the old series stay as they were: the record is never edited). Returns the readings copied, by series."""
+    spec = p.model.spec
+    out = {}
+    for old, new in renames.items():
+        kind, _, oname = old.partition(".")
+        _, _, nname = new.partition(".")
+        x = spec.measured(kind).get(nname)
+        if x is None:
+            continue
+        for s in x.sensors.values():
+            was = f"sensor/{oname}.{s.name}"
+            pts = p.measurements.range(was, 0.0)
+            have = {t for t, _ in p.measurements.range(s.series, 0.0)}
+            rows = [(s.series, t, v) for t, v in pts if t not in have]
+            if rows:
+                p.measurements.add_many(rows)
+            out[s.series] = {"from": was, "readings": len(rows)}
+    return out
 
 
 def written(p, x: dict, by: str) -> dict:

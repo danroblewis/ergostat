@@ -15,7 +15,8 @@ from ergostat.spec.item_systems import groups, kind_systems
 from ergostat.store import Project
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-BUILT_IN = ["ergostat.model-change", "ergostat.claim", "ergostat.message", "ergostat.verdict", "ergostat.decision",
+BUILT_IN = ["ergostat.model-change", "ergostat.model-request",
+            "ergostat.claim", "ergostat.message", "ergostat.verdict", "ergostat.decision",
             "ergostat.correction", "ergostat.context", "ergostat.report"]
 
 

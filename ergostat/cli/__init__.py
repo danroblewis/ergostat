@@ -277,6 +277,14 @@ def build() -> argparse.ArgumentParser:
                                                                "and measured as a block's would be, and kept nowhere")
     im.add_argument("--edit-value", metavar="NAME=VALUE", help="the edit that sets a parameter's value, in the form a "
                                                               "propose line takes (a time with its unit: 20s); writes nothing")
+    im.add_argument("--redesign", nargs="?", const="model", metavar="SYSTEM",
+                    help="ask for a redesign of a system (or the whole model): one change set, judged by its scorecard; "
+                         "runs the redesigner now (claude -p) and puts what it makes in the review queue")
+    im.add_argument("--model", dest="ai_model", default=None, help="with --redesign: the model the redesigner uses "
+                                                                   "(the template's redesign: model, else haiku)")
+    im.add_argument("--budget", type=float, default=None, help="with --redesign: the most dollars the run may spend")
+    im.add_argument("--rounds", type=int, default=None, help="with --redesign: the rounds on its scratch copy at most")
+    im.add_argument("--no-run", action="store_true", help="with --redesign: only ask; the template's redesigner takes it up")
     for t in PART_TOPICS:
         sp = topic(t, cmd_part, f"The {t}s, or one")
         sp.set_defaults(fn=cmd_part, topic=t)

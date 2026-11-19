@@ -128,6 +128,9 @@ def selectable(spec: Spec, parts: list[str]) -> list[str]:
 
 def _what(x: dict) -> str:
     k = x.get("kind")
+    if k == "redesign":
+        return f"A redesign of {'the whole model' if (x.get('system') or 'model') == 'model' else x['system']}, " \
+               f"{len((x.get('redesign') or {}).get('edits') or [])} edits judged together, proposed by {x.get('made_by')}"
     if x.get("said_kind"):                          # made by a block (a propose line), not by ergostat's own finders
         n = len(x.get("parameters") or {})
         words = {"parameter": "A parameter's value" if n <= 1 else f"{n} parameters' values", "equation": "An equation",
@@ -216,6 +219,8 @@ def _how(x: dict, spec: Spec) -> dict:
 def _why(x: dict, spec: Spec) -> str:
     """The evidence, in plain words."""
     k = x.get("kind")
+    if k == "redesign":
+        return x.get("summary") or x.get("reason") or x.get("title") or ""
     if x.get("said_kind"):
         return "; ".join(f"{r['says']} ({'; '.join(r.get('verified') or r.get('evidence') or [])})" for r in x.get("reasons") or []) + "."
     if k == "parameter":
@@ -300,7 +305,7 @@ def entry(x: dict, spec: Spec, others: list[dict] | None = None, root: Path | No
     sel = selectable(spec, parts)
     d = diff_of(x, root)
     clash = [{"id": y["id"], "why": w} for y in (others or []) if (w := tr.conflicts(x, y))]
-    simulable = x.get("kind") in ("parameter", "equation", "structure") and "error" not in d
+    simulable = x.get("kind") in ("parameter", "equation", "structure", "redesign") and "error" not in d
     return {"id": x["id"], "source": "control" if x.get("kind") in ("process", "tuning") else "numbers",
             "kind": x.get("kind"), "code": x.get("code"), "what": _what(x), "title": x.get("title"),
             "where": {"parts": parts, "select": sel, "words": [_words(r) for r in parts], "systems": _systems(spec, sel),
@@ -311,7 +316,18 @@ def entry(x: dict, spec: Spec, others: list[dict] | None = None, root: Path | No
                                                      "process or gain changes no replay; its effect is the step response "
                                                      "and margins on the loop's panel" if x.get("kind") in ("process", "tuning")
                                                      else d.get("error")),
-            "created": x.get("created"), "status": x.get("status", "pending"), **_by(x)}
+            "created": x.get("created"), "status": x.get("status", "pending"), **_by(x),
+            **({"redesign": redesign_view(x)} if x.get("kind") == "redesign" else {})}
+
+
+def redesign_view(x: dict) -> dict:
+    """A change set as its review section shows it: the system, what it does and why, each edit with its why, the
+    parts it adds, takes away, renames and changes, the scorecard (as the judge last worked it out), and its cost."""
+    r = x.get("redesign") or {}
+    card = x.get("scorecard") or {}
+    return {"system": x.get("system") or "model", "summary": x.get("summary"), "edits": r.get("edits") or [],
+            "parts": r.get("parts") or card.get("parts") or {}, "scorecard": card, "cost": r.get("cost"),
+            "rounds": r.get("rounds")}
 
 
 def _by(x: dict) -> dict:
@@ -362,7 +378,7 @@ def control_pending(p, spec: Spec) -> list[dict]:
 
 def entries(p, spec: Spec, control: list[dict] | None = None) -> list[dict]:
     xs = pr.pending(p, spec) + (control or [])
-    order = {"parameter": 0, "equation": 1, "structure": 2, "process": 3, "tuning": 4}
+    order = {"redesign": -1, "parameter": 0, "equation": 1, "structure": 2, "process": 3, "tuning": 4}
     xs.sort(key=lambda x: (order.get(x.get("kind"), 9), x.get("created") or 0))
     root = p.model.path.parent if getattr(p.model, "path", None) else None
     return [entry(x, spec, xs, root) for x in xs]
@@ -569,6 +585,13 @@ def show(e: dict) -> list[str]:
         out.append(f"  CONFLICT {c['id']}: {c['why']}")
     if e.get("not_simulated"):
         out.append(f"  EFFECT   not simulated: {e['not_simulated']}")
+    if e.get("redesign"):
+        from . import scorecard as sc
+        rd_ = e["redesign"]
+        out.append(f"  EDITS    {len(rd_['edits'])}, made in order:")
+        out += [f"           {i + 1}. {x['said']}" + (f": {x['why']}" if x.get("why") else "") for i, x in enumerate(rd_["edits"])]
+        if rd_.get("scorecard"):
+            out += ["  " + x for x in sc.lines(rd_["scorecard"])]
     d = e["diff"]
     out.append("  DIFF" + (f"     (cannot be made: {d['error']})" if "error" in d else ""))
     out += ["    " + x for x in (d.get("unified") or "").rstrip("\n").split("\n") if "error" not in d]

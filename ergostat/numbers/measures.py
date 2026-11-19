@@ -55,6 +55,30 @@ def fit(p) -> float | None:
     return t.get("nmse") if t and run.valid else None
 
 
+def fit_why(p) -> tuple[float | None, str | None]:
+    """The model's fit (``ergostat.model.fit``) and, when it cannot be worked out, why, in words that say what would
+    make it measurable: stocks read by a sensor, flows that move them (an equation, or a sensor), and record."""
+    from . import fit as ft
+    spec = p.model.spec
+    read = [n for n, st in spec.stocks.items() if st.sensors and not getattr(st.where, "template", None)]
+    if not read:
+        return None, "no stock of the model's own is read by a sensor, so there is nothing to replay the model against"
+    moved = [n for n in read if any(f.equation is not None or f.sensors or f.rate is not None for f in spec.flows_of(n))]
+    if not moved:
+        return None, (f"no flow of the stocks read ({', '.join(read[:4])}) has an equation or a sensor, so the replay "
+                      f"cannot move them: an equation on each flow makes the fit measurable")
+    try:
+        _, run, got = ft.compute(p, {"at": time.time()})
+    except Exception as e:                          # a replay that fails says why
+        return None, f"the replay failed: {type(e).__name__}: {e}"
+    t = got.get("total")
+    if t and run.valid and t.get("nmse") is not None:
+        return t["nmse"], None
+    if not run.valid:
+        return None, "the replay is not valid: " + "; ".join(run.invalid[:2])
+    return None, (t or {}).get("says") or (t or {}).get("too_little") or "too little record yet to replay the model against"
+
+
 def unexplained(p) -> float | None:
     from .. import state
     res = state.snapshot(p, state.WINDOW, None).get("residuals") or {}
@@ -82,7 +106,7 @@ def loops_unidentified(p) -> float:
 def findings(p) -> float:
     from ..spec import read
     _, problems = read(p.model.path)
-    return float(sum(1 for x in problems if x.level != "error"))
+    return float(sum(1 for x in problems if x.level not in ("error", "note")))   # a craft note is not a finding
 
 
 def _meta():

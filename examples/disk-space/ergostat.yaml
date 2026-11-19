@@ -29,3 +29,7 @@ blocks:
     until: "<= 65"               # ... until the disk is back to 65%
     run: python3 clean.py        # prints the % it freed
     out: flow.cleaned
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

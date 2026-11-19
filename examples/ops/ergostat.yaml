@@ -14,3 +14,7 @@ systems:
     description: the background job queue and its worker pool
   backups:
     description: the database's backups and their off-site copies
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)
