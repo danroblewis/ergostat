@@ -80,7 +80,7 @@ def test_the_interventions_loop_is_drawn_in_all_three_views(tmp_path):
         raise_alarm(p, time.time() - 3600 * (_i + 1))
     assert cli(["-C", str(tmp_path), "inbox", "--requests"]) == 0
     g = api(Live(Project(mdl.load(tmp_path))), "graph", {"view": ["process"], "since": ["1d"],
-                                                                   "system": ["ergostat"]})
+                                                                   "system": ["interventions"]})   # counted there
     assert MODEL_REQUEST in {k["name"] for k in g["kinds"]}
 
 

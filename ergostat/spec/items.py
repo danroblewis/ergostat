@@ -436,8 +436,22 @@ def measure(events, spec: Spec, s: Sensor, now: float | None = None) -> tuple[fl
     over = q.get("over") or 3600.0
     since = now - over
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
+    if q.get("sum"):                                # a field summed over the items moving, not how many moved
+        return sum(x for _, x in summed(events, spec, q, since, now)) * 3600.0 / over, ""
     n = sum(1 for t in moved(events, spec, q["kind"], key, state, since, now, where, at=now) if t > since)
     return n * 3600.0 / over, ""
+
+
+def summed(events, spec: Spec, q: dict, since: float, until: float) -> list[tuple[float, float]]:
+    """A flow's ``sum:`` sensor: each move of its items into (or out of) its state in the span, with the item's
+    field ``q["sum"]`` (a number; else 0), as the item stood at ``until``."""
+    key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
+    out = []
+    for i in moved_items(events, spec, q["kind"], key, [state], since, until, q.get("where")):
+        v = field_at(i.fields, q["sum"])
+        v = float(v) if isinstance(v, int | float) and not isinstance(v, bool) else 0.0
+        out += [(m["time"], v) for m in i.moves if m[key] == state and since < m["time"] <= until]
+    return sorted(out)
 
 
 def glob_ok(pattern: str) -> bool:
@@ -474,13 +488,13 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
         if (i.id in lines or i.rolled) and not any(f in i.fields for f in FIELDS):
             n_, last = lines.get(i.id, (0, i.last))
             i.n, i.last = i.n + n_ + i.rolled, max(i.last, last)
-    from .item_systems import OTHER, groups, kind_systems
+    from .item_systems import OTHER, TITLES, groups, kind_systems
     where = kind_systems(spec)               # each kind's system (item_systems.py): the page groups by it
     unkinded = sum(counts.get("", {}).values())
     systems = groups(spec, {**where, **({"": {"system": OTHER}} if unkinded else {})})
     for g in systems:
         g["kinds"] = [k for k in g["kinds"] if k]
-    return {"kinds": [{"name": k.name, "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
+    return {"kinds": [{"name": k.name, "title": TITLES.get(k.name), "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
                        "description": k.description, "system": where[k.name]["system"], "system_why": where[k.name]["why"],
                        "relations": {r: x.kinds for r, x in k.relations.items()},
                        "counts": counts.get(k.name, {})} for k in kinds.values()],

@@ -1109,7 +1109,8 @@ flows:
 | `state` | state or list | any | On a stock: which states count |
 | `measure` | `count`, `oldest` or `age` | `count` | On a stock: how many; the hours the oldest of them has been in its state; or the hours since the oldest of them was first seen, whatever states it passed through (an item taken, given back and taken again keeps its age: a commitment's clock) |
 | `entering`, `leaving` | state | | On a flow: exactly one; the move it counts |
-| `changes` | `rises`, `falls` or `net` | | On a flow into or out of one stock: its rate from that stock's own successive readings, how much they rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a `two-way` flow), per hour over `over` |
+| `sum` | field | | On a flow's `items`: the rate per hour of this field summed over the items moving (a number; else 0), not how many moved. `model-mended` sums each written change's `fit_gained`, what Accept measured it took off the error |
+| `changes` | `rises`, `falls`, `net` or `rest` | | On a flow into or out of one stock: its rate from that stock's own successive readings, how much they rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a `two-way` flow), per hour over `over`; `rest` (two-way, one a stock): the net change less what the stock's other measured flows moved, each at its last reading (the residual flow). Every rise or fall is whatever caused it: a flow so measured that is drawn as caused by another flow is the finding `measured-not-caused` |
 | `over` | duration | `1h` | On a flow: the window the rate is taken over |
 | `builtin` | `ergostat.model.fit`, `.unexplained`, `.unidentified-loops` or `.open-findings` | | On a stock or an auxiliary: one of ergostat's built-in measures of the model's own quality (section 12e), read by ergostat itself (`ergostat measure ergostat.model.fit`, in a process of its own; `timeout` 2m by default) |
 | `averages` | duration | none | On a flow's `run`, `query` or `manual` sensor: its reading is the average rate over this window before it (a count of the last ten minutes, per hour: `averages: 10m`). The model's rate is read through the same window before it is compared (section 12b) |
@@ -2944,7 +2945,8 @@ never one of them (a project's names have no dots). It is read by a sensor, `bui
 of its own); `ergostat measure` and the MCP tool `measures` print them all. *Decided:* a goal holds a measure
 through the part its sensor fills, not by naming the measure: a goal's loop closes through the flows of what it
 is about, and a measure has none, so the part gives it its history, its chart and the flows the loop closes
-through (it rises as the record moves on and the world drifts from the model, and falls as changes are written).
+through (it falls by what the changes written took off it, `model-mended`, and moves either way by the rest,
+`model-drift`: the record moving on and the world drifting from the model).
 The scaled error over the reference window is a statistic over a window, so that part is a stock (section 7a).
 
 ```yaml
