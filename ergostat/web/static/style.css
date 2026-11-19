@@ -30,6 +30,7 @@
   --g7: #7f8026;              /* oklch(0.58 0.11 110) olive */
   --g8: #84573e;              /* oklch(0.50 0.07 50) brown */
   --g9: #cda037;              /* oklch(0.73 0.13 85) gold */
+  --g-fade: 55%;              /* a third-round repeat: this much of its hue, the rest the paper */
   --shadow-menu: 0 6px 20px rgba(20, 26, 33, 0.12), 0 0 0 1px rgba(20, 26, 33, 0.04);
   /* a projection's sensitivity fan: nine in ten of its runs, and half (greys of their own, not the gridlines') */
   --fan-90: #d2d7dd;          /* oklch(0.88 0.010 250) */
@@ -80,6 +81,7 @@
     --g7: #b1b36c;            /* oklch(0.75 0.09 110) */
     --g8: #b48b75;            /* oklch(0.67 0.06 50) */
     --g9: #e5bf6c;            /* oklch(0.82 0.11 85) */
+    --g-fade: 68%;            /* the repeats toward the paper: at least 3.2:1 on it (55% fell to 2.5:1) */
     --shadow-menu: 0 6px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04);
     --fan-90: #33393f;        /* oklch(0.34 0.012 250) */
     --fan-50: #4f565e;        /* oklch(0.44 0.014 250) */
