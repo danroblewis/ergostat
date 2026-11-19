@@ -201,16 +201,27 @@ def _section_file(spec: Spec, near) -> Path:
 # ---- check's findings, each made a change
 
 CHAIN_CODES = ("outflow-not-chained", "inflow-not-chained", "state-stock-without-inflow", "move-without-flow",
-               "state-stocks-disconnected", "loops-not-connected")
+               "state-stocks-disconnected", "loops-not-connected", "kind-enters-many-times")
 
 
 def chain_edits(spec: Spec, fixes) -> list[ye.Edit]:
-    """The edits that carry a kind's moves (``spec/chains.py``): a flow re-pointed at the next state's stock, and the
-    flows added (each file's at once, so they go in together)."""
+    """The edits that carry a kind's moves (``spec/chains.py``): a flow re-pointed at the next state's stock, a flow
+    that counts them twice taken out, and the flows and stocks added (each file's at once, so they go in together)."""
     edits: list[ye.Edit] = []
     adds: dict[Path, list[list[str]]] = {}
+    stocks: dict[Path, list[list[str]]] = {}
     for x in fixes:
-        if x.op == "retarget":
+        if x.op == "remove":
+            h = spec.flows[x.flow]
+            ye.own(h.where, f"flow {h.name}")
+            hp, ha = _name_at(h, h.name)
+            edits.append(ye.remove_entry(hp, ha))
+        elif x.op == "stock":
+            path = _section_file(spec, spec.stocks[x.source])      # beside the stock its items come from
+            stocks.setdefault(path, []).append(
+                [f"  {x.stock}:"] + ([f"    unit: {x.unit}"] if x.unit else []) + [f"    description: {x.description}",
+                 "    sensor:", f"      items: {x.kind}", f"      state: {x.entering}", f"    inferred: {PENDING}"])
+        elif x.op == "retarget":
             f = spec.flows[x.flow]
             ye.own(f.where, f"flow {f.name}")
             path, at = _name_at(f, f.name)
@@ -230,6 +241,8 @@ def chain_edits(spec: Spec, fixes) -> list[ye.Edit]:
                 (["      where:"] + [f"        {k}: {v}" for k, v in x.where.items()] if x.where else []) + \
                 ["      over: 1h", f"    inferred: {PENDING}"]
             adds.setdefault(path, []).append(lines)
+    for path, entries in stocks.items():
+        edits.append(ye.add_entries(path, "stocks", entries))
     for path, entries in adds.items():
         edits.append(ye.add_entries(path, "flows", entries))
     return edits
@@ -249,11 +262,14 @@ def chained(c: Ctx) -> None:
             c.not_made.append({"title": f"{x.code} on {x.about}", "code": x.code, "why": str(e)})
             continue
         whole = x.code == "state-stocks-disconnected"
+        once = x.code == "kind-enters-many-times"
         parts = sorted({f"stock.{s}" for f in x.fixes for s in (f.source, f.target, f.stock) if s} |
-                       {f"flow.{f.flow}" for f in x.fixes if f.op == "retarget"})
-        kind = x.message.split(":", 1)[0].removeprefix("items ") if whole else ""
-        c.add("a kind's state stocks chained" if whole else "a move carried by a flow", x.code, x.about,
-              f"Chain the state stocks of {kind}" if whole else "; ".join(f.said() for f in x.fixes)[:200],
+                       {f"flow.{f.flow}" for f in x.fixes if f.op in ("retarget", "remove")})
+        kind = x.message.split(":", 1)[0].removeprefix("items ") if whole or once else ""
+        c.add("a kind's state stocks chained" if whole else "one arrival for a kind" if once else "a move carried by a flow",
+              x.code, x.about,
+              f"Chain the state stocks of {kind}" if whole else f"One arrival for {kind}, its other inflows from "
+              f"outside chained" if once else "; ".join(f.said() for f in x.fixes)[:200],
               parts, x.message, "a structural check (ergostat check: " + x.code + "), on the kind's states, the blocks that "
               "take its items, the flows' sensors and the moves in the record", edits, touched=parts, finding=x.code,
               rewires=True)                    # what the model says moves where: the owner decides, whatever the policy

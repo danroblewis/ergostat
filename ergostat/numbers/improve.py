@@ -230,7 +230,8 @@ class Evidence:
 
     def supports(self, ev, near: set[str], answered: set[str], fit_after: dict | None) -> str | None:
         """Whether checked evidence supports the change, not only exists: None when it does, else why not. A finding
-        is about a part the change touches or one next to it (or, about no part, one it answers); a fit statistic is
+        is about a part the change touches or one next to it, or one it answers (gone in the model it leaves); a fit
+        statistic is
         of such a part, or the total and the change does not raise it; a residual is of such a stock, and significant;
         a rule is one ``check`` applies to such a part now. A rule ``check`` does not test, a line and a URL are cited
         only: they say where a reason comes from, never that it holds here."""
@@ -244,7 +245,9 @@ class Evidence:
             about = what.split("@", 1)[1] if "@" in what else None
             if about is None:
                 return None if what in answered else f"{ev}: about no part, and the change does not answer it"
-            return None if about in near else f"{ev}: about {about}, which the change does not touch (it touches {where})"
+            if about in near or what in answered:          # (a finding about a kind, items.K, the change answers)
+                return None
+            return f"{ev}: about {about}, which the change does not touch (it touches {where})"
         if kind == "fit":
             ref, _, stat = what.rpartition(".")
             if ref == "total":
