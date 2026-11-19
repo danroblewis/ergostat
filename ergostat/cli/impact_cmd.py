@@ -20,8 +20,8 @@ def cmd_impact(args) -> int:
     from ..numbers import impact as im
     p = open_project(args)
     try:
-        since = at_of(SimpleNamespace(at=args.since)) if getattr(args, "since", None) else None
-        r = im.report(p, args.name, since, at=at_of(args),
+        began = at_of(SimpleNamespace(at=args.began)) if args.began else None
+        r = im.report(p, args.name, began, at=at_of(args),
                       within=parse_duration(args.within, "--within") if args.within else None, times=args.times,
                       penalty=parse_duration(args.penalty, "--penalty") / 3600.0 if args.penalty else None,
                       tests=args.tests, commit=args.commit, runs=args.runs, budget=args.budget)
@@ -49,12 +49,15 @@ def cmd_impact(args) -> int:
                  for g, x in r["goals"].items()], "the model has no goals"))
     ro = r["rollout"]
     if ro:
-        print(c(f"\nrolling it out (a busy hour costs {human(ro['penalty'] * 3600)})", "bold"))
-        print(table(["ROLL OUT", "GOAL-OFF", "PEAK", "MOVED", "RECOVERS IN", "BUSY", "COST"],
-                    [[_when(o["at"], now) + (" *" if o["at"] == ro["best"]["at"] else ""), human(o["hours_off"] * 3600) if o["hours_off"]
-                      else "0", "" if o["peak"] is None else f"{o['peak']:.3g}", f"{o['moved']:.3g}",
-                      "–" if o["recovery"] is None else human(o["recovery"] * 3600), f"{o['busy']:.0%}", f"{o['cost']:.3g}h"]
-                     for o in ro["options"]], ""))
+        print(c(f"\nrolling it out, each time against now to {human(ro['span'])} after it (a busy hour costs "
+                f"{human(ro['penalty'] * 3600)})", "bold"))
+        hrs = lambda x: human(abs(x) * 3600) if x else "0"   # noqa: E731
+        print(table(["ROLL OUT", "MORE GOAL-OFF", "OUTAGE", "THROUGHPUT LOST", "PEAK", "RECOVERS IN", "BUSY", "COST"],
+                    [[_when(o["at"], now) + (" *" if o["at"] == ro["best"]["at"] else "") + (" (ideal)" if o["at"] == ro["ideal"]["at"]
+                                                                                           and not ro["trusted"] else ""),
+                      ("-" if o["extra_off"] < 0 else "") + hrs(o["extra_off"]), hrs(o["outage"]), sig(o["lost"]),
+                      "" if o["peak"] is None else sig(o["peak"]), "–" if o["recovery"] is None else human(o["recovery"] * 3600),
+                      f"{o['busy']:.0%}", f"{o['cost']:.3g}h"] for o in ro["options"]], ""))
         print(f"  {ro['said']}")
     f, t = r["fields"], r["fields"]["touches"]
     print(c("\nchange management", "bold"))
@@ -64,7 +67,10 @@ def cmd_impact(args) -> int:
     print(f"  rollback    {f['rollback']['said']}")
     print(f"  risk        {f['risk']['level']}: {'; '.join(f['risk']['why'])}")
     print(f"  confidence  {f['confidence']['said']}")
-    for x in f["confidence"]["parts"]:
+    ok = [x for x in f["confidence"]["parts"] if x["how"] == "identified"]
+    if ok:
+        print(c(f"              {len(ok)} models identified from the record", "dim"))
+    for x in (x for x in f["confidence"]["parts"] if x["how"] != "identified"):
         fit = f", R² {x['r2'] or 0:.2f}, skill {x['skill']:.2f}" if x.get("skill") is not None else ""
-        print(c(f"              {x['ref']}: {x['how']}{fit}", "dim"))
+        print(c(f"              {x['ref']}: {x['how']}{': ' + x['said'] if x.get('said') else ''}{fit}", "dim"))
     return 0

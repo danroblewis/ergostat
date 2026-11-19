@@ -94,7 +94,7 @@ def test_a_synthetic_failure_names_the_broken_flows_and_the_stock_building_up(fa
     br = r["broken"]
     assert [x["ref"] for x in br["flows"]] == ["flow.served"]
     served = br["flows"][0]
-    assert served["before"] > 5 and served["since"] == pytest.approx(0.0) and "stopped" in served["said"]
+    assert served["before"] > 5 and served["during"] == pytest.approx(0.0) and "stopped" in served["said"]
     assert br["share"] == 0.0
     q = next(s for s in br["stocks"] if s["ref"] == "stock.queue")
     assert q["building"] and q["now"] > q["at_failure"] + 5
@@ -111,20 +111,26 @@ def test_without_the_fix_the_goal_goes_off_and_with_it_now_it_recovers(failing):
     assert g["hours_off_fixed_now"] < 0.1                       # restored now, it drains before the goal goes off
     assert g["p_off_end"] > 0.8 and g["expected_off"] > 1.0 and len(g["p_off"]) == len(r["ptimes"])
     now_opt = r["rollout"]["options"][0]
-    assert now_opt["at"] == now and now_opt["recovery"] is not None
+    assert now_opt["at"] == now and now_opt["recovery"] is not None and now_opt["cost"] == 0
     later = r["rollout"]["options"][-1]
-    assert later["hours_off"] > now_opt["hours_off"] and later["peak"] > now_opt["peak"]   # waiting costs
-    assert r["rollout"]["best"]["at"] == now and "now" in r["rollout"]["said"]
+    assert later["extra_off"] > 1.0 and later["peak"] > now_opt["peak"] and later["lost"] > 5   # waiting costs
+    assert later["outage"] == pytest.approx((later["at"] - now) / 3600) and later["cost"] > later["outage"]
+    assert all(a["cost"] <= b["cost"] for a, b in zip(r["rollout"]["options"], r["rollout"]["options"][1:], strict=False))
+    assert r["rollout"]["best"]["at"] == now and "every wait costs" in r["rollout"]["said"]
     ch = next(c for c in r["charts"] if c["ref"] == "stock.queue")
     assert ch["without"][-1] > ch["with"][-1] + 20
 
 
 def test_the_failure_began_is_read_from_the_record(failing):
     p, now, since = failing
-    got = im.failure_began(p, "worker", now)
-    assert got == pytest.approx(since, abs=300)
+    got, capped = im.failure_began(p, "worker", now)
+    assert got == pytest.approx(since, abs=300) and not capped
     r = im.report(p, "block.worker", at=now, runs=0)
-    assert r["broken"]["since"] == got
+    assert r["broken"]["began"] == got
+    with pytest.raises(im.ImpactError, match="epoch seconds"):
+        im.report(p, "worker", "yesterday", at=now, runs=0)
+    with pytest.raises(im.ImpactError, match="passed or failed"):
+        im.report(p, "worker", since, at=now, runs=0, tests="maybe")
     with pytest.raises(im.ImpactError, match="did not fail"):
         im.report(p, "watcher", at=now, runs=0)
 
@@ -142,7 +148,7 @@ def test_the_ideal_rollout_time_avoids_a_planted_busy_period(tmp_path):
     best = ro["best"]
     assert best["busy"] < 0.5 and best["at"] > now
     assert time.localtime(best["at"]).tm_hour not in busy
-    assert "avoids rolling out in a busy hour" in ro["said"]
+    assert "the busy hour now" in ro["said"] and "outweighs" in ro["said"] and ro["trusted"]
     calm = im.report(p, "worker", since, at=now, within=6 * 3600, times=7, penalty=0.0, runs=0)
     assert calm["rollout"]["best"]["at"] == now                 # no penalty: the sooner the better
 
@@ -173,9 +179,9 @@ def test_the_change_management_fields_say_what_it_touches_and_whether_it_writes(
 
 def test_a_failure_item_names_its_block(failing):
     p, now, since = failing
-    p.events.add("ergostat.failure.opened", item="ergostat.failure/1", data={"block": "worker", "since": since, "tests": "passed"})
+    p.events.add("ergostat.failure.opened", item="ergostat.failure/1", data={"block": "worker", "began": since, "tests": "passed"})
     r = im.report(p, "ergostat.failure/1", at=now, runs=0)
-    assert r["broken"]["since"] == since and r["about"] == "block worker"
+    assert r["broken"]["began"] == since and r["about"] == "block worker"
     assert not any("not run" in w for w in r["fields"]["risk"]["why"])
 
 
@@ -197,11 +203,11 @@ def test_a_model_change_gets_its_forecast_and_fields(tmp_path):
 
 def test_the_cli_prints_the_report(failing, tmp_path):
     p, now, since = failing
-    out = subprocess.run([sys.executable, "-m", "ergostat", "impact", "worker", "--since", str(since), "--runs", "5",
+    out = subprocess.run([sys.executable, "-m", "ergostat", "impact", "worker", "--began", str(since), "--runs", "5",
                           "-C", str(tmp_path)], capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
     assert "worker has failed since" in out.stdout and "ROLL OUT" in out.stdout and "rollback" in out.stdout
-    js = subprocess.run([sys.executable, "-m", "ergostat", "impact", "worker", "--since", str(since), "--runs", "0", "--json",
+    js = subprocess.run([sys.executable, "-m", "ergostat", "impact", "worker", "--began", str(since), "--runs", "0", "--json",
                          "-C", str(tmp_path)], capture_output=True, text=True, timeout=120)
     assert js.returncode == 0, js.stderr
     got = json.loads(js.stdout)
@@ -217,11 +223,13 @@ def test_the_api_answers_once_worked_out(failing):
     live = Live(p)
     q = {"block": ["worker"], "began": [str(since)], "since": ["1h"]}
     got = api(live, "impact", q)
+    q["at"] = [str(got["at"])]                          # the page asks again for the same moment
     for _ in range(300):
         if not got.get("working"):
             break
         time.sleep(0.1)
         got = api(live, "impact", q)
+    assert got["at"] == float(q["at"][0])
     assert got["broken"]["flows"][0]["ref"] == "flow.served" and got["rollout"]["best"] and got["charts"]
     assert api(live, "impact", {})["error"].startswith("say which")
     bad = {"block": ["nothing"]}
@@ -231,3 +239,30 @@ def test_the_api_answers_once_worked_out(failing):
             break
         time.sleep(0.05)
     assert "not a block" in x["error"]
+
+
+def test_each_rollout_time_is_scored_over_the_same_span_after_it(failing):
+    """Against rolling out now, to T after each time: T is at least twice the recovery when fixed now, and every time
+    tried has its T inside the horizon, so a late rollout's own effects are never cut off."""
+    p, now, since = failing
+    r = im.report(p, "worker", since, at=now, runs=0)
+    ro = r["rollout"]
+    assert ro["span"] >= 2 * ro["options"][0]["recovery"] * 3600 - 1
+    assert all(o["at"] + ro["span"] <= now + r["horizon"] + 1 for o in ro["options"])
+    assert ro["options"][1]["recovery"] is not None                       # a short wait still settles within the horizon
+
+
+def test_a_low_confidence_report_never_advises_waiting(tmp_path, monkeypatch):
+    p = project_of(tmp_path)
+    now = time.time()
+    busy = {time.localtime(now + h * 3600).tm_hour for h in (-0.5, 0, 0.5, 1)}
+    since = record(p, now, hours=72, failed_for=0.25, step=300,
+                   arrivals=lambda t: 30.0 if time.localtime(t).tm_hour in busy else 10.0, tau=0.3)
+    real = im.fl.confidence
+    monkeypatch.setattr(im.fl, "confidence", lambda *a: {**real(*a), "level": "low", "worst": "the model fits queue worse than "
+                                                         "its mean (skill -3)"})
+    r = im.report(p, "worker", since, at=now, within=6 * 3600, times=7, penalty=50.0, runs=0)
+    ro = r["rollout"]
+    assert ro["ideal"]["at"] > now and ro["best"]["at"] == now and not ro["trusted"]
+    assert r["said"].startswith("Low confidence: the model fits queue worse than its mean (skill -3).")
+    assert "as soon as its tests pass" in ro["said"] and "not a reason to wait" in ro["said"]

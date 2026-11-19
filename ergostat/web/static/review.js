@@ -351,10 +351,12 @@ function availableView(d, box) {
 function impactBox(id) {
   const box = h("div", { class: "impact" }, h("p", { class: "muted" }, "Working out its impact…"));
   (async () => {
-    let d = null;
-    for (let i = 0; i < 90; i++) {                  // a minute and a half at most
-      try { d = await api("impact", { item: id }); } catch (e) { d = { error: String(e.message || e) }; }
+    let d = null, at = null;                        // the first answer's moment, asked again: the same report
+    for (let i = 0; i < 90; i++) {                  // a minute and a half at most; none once the page has gone
+      if (i && !box.isConnected) return;
+      try { d = await api("impact", { item: id, ...(at ? { at } : {}) }); } catch (e) { d = { error: String(e.message || e) }; }
       if (!d.working) break;
+      at = d.at;
       await new Promise((r) => setTimeout(r, 1000));
     }
     box.replaceChildren(...impactView(d || { error: "not worked out in time" }));
@@ -370,7 +372,7 @@ function impactView(d) {
     whatifProjection: c.with, goal: c.goal, height: 56 }));
   const opts = ro ? ro.options : [];
   const cost = opts.length > 1 ? lineChart({ group: chartGroup("impact-cost"), name: "cost by rollout time", unit: "h", times: opts.map((o) => o.at),
-    values: opts.map((o) => o.cost), replay: opts.map((o) => o.hours_off), since: opts[0].at, until: opts[opts.length - 1].at, height: 64, xAxis: true, zero: true }) : null;
+    values: opts.map((o) => o.cost), replay: opts.map((o) => o.extra_off), since: opts[0].at, until: opts[opts.length - 1].at, height: 64, xAxis: true, zero: true }) : null;
   const risks = Object.entries(d.goals).filter(([, g]) => g.p_off).map(([n, g]) => lineChart({ group: chartGroup("impact-risk"), name: `${n}: chance off`,
     times: d.ptimes, values: g.p_off, since: d.ptimes[0], until: end, height: 48, yRange: () => [0, 1], zero: true }));
   const goalRows = Object.entries(d.goals).map(([n, g]) => h("div", {}, h("b", {}, n), ` (${g.of} ${g.hold}): `,
@@ -381,7 +383,8 @@ function impactView(d) {
     stocks.length ? h("div", { class: "review-charts" }, ...stocks) : null,
     stocks.length ? h("p", { class: "muted small" }, `Measured, solid; past now, ${d.kind === "change" ? "the model as it is, dashed; with the change, in blue" : "without the fix, dashed; with it at the best time, in blue"}, over ${dur(d.horizon)} with the loops running.`) : null,
     cost ? h("div", { class: "review-charts" }, cost) : null,
-    cost ? h("p", { class: "muted small" }, `Each rollout time's cost: the hours off of the goals the failure puts off (dashed) plus ${dur(ro.penalty * 3600)} for the busiest hour of the day. ${ro.said}.`) : null,
+    cost ? h("p", { class: "muted small" }, `Each rollout time's cost, against rolling out now to ${dur(ro.span)} after it: the goals' extra hours off (dashed), the outage's hours, and ${dur(ro.penalty * 3600)} for the busiest hour of the day.`) : null,
+    ro ? h("p", { class: ro.trusted ? "" : "muted" }, ro.trusted ? `Ideal: ${ro.said}.` : `Not trusted: ${ro.said}.`) : null,
     risks.length ? h("div", { class: "review-charts" }, ...risks) : null,
     dl([["goals", goalRows.length ? h("div", {}, ...goalRows) : null],
         ["touches", [t.blocks.length ? `blocks ${t.blocks.join(", ")}` : "", t.goals.length ? `goals ${t.goals.join(", ")}` : "",

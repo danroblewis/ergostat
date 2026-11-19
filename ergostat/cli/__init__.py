@@ -234,9 +234,10 @@ def build() -> argparse.ArgumentParser:
     pj.add_argument("--points", type=int, default=48, help="points along the horizon (default 48)")
     ip = topic("impact", cmd_impact, "What a fix or a change restores, the goals that fail without it, and when to roll it out",
                desc="The impact report of a fix for a failing block (NAME: the block, or an ergostat.failure item) or of a "
-                    "change to the model (its id): what broke and since when (--since: when the failure began, 30m ago, "
+                    "change to the model (its id): what broke and since when (--began: when the failure began, 30m ago, "
                     "07:30 or epoch seconds; else read from the record), the goals projected to fail without it, the cost of "
                     "rolling it out at each time ahead and the best one, and the change-management fields (SPEC §12n)")
+    ip.add_argument("--began", metavar="TIME", help="when the failure began: 30m (ago), 07:30, or epoch seconds")
     ip.add_argument("--within", metavar="DURATION", help="the rollout times tried span this long (default: seven of the model's time unit)")
     ip.add_argument("--times", type=int, default=12, help="how many rollout times (default 12, at most 24)")
     ip.add_argument("--penalty", metavar="DURATION",

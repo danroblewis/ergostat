@@ -65,3 +65,20 @@ Done, within the budget (600 net lines). Three departures from the text above, e
   made every report advise waiting. Goals already off when the failure began are said apart and not priced.
 - What waiting loses (`moved`, the block's flows over the horizon) is said beside each rollout time but not priced;
   the owner may want it in the cost.
+
+### After the gate review (merge after fixes)
+
+The review found the cost empty (0h at every rollout time in both validations). Fixed: each rollout time is scored
+against rolling out now over the same span (to T after it, T at least twice the recovery when fixed now), so the
+goal exclusion is gone; the cost adds the outage hours, (1 − share) × the wait, so a busy hour must outweigh a real
+loss; the extra goal-off counts every goal, and putting off the fix's own effects earns waiting nothing (without that,
+on both demos a downstream goal the restored flow keeps off made every wait look free). Throughput lost is said. A
+low-confidence report opens with its worst part, never advises waiting, and shows the model's ideal time muted;
+confidence counts every model the projection runs. Also: `horizon_of` moved to `numbers/simulate.py`; the fields and the
+change report in `impact_fields.py`; the API keyed on the first answer's `at`, its own five-minute store, two threads
+at most, the page's polling stopped when it is left; `began` everywhere; `began` and `tests` validated; recovery needs
+the stocks settled; the 500-run cap and an unmeasured rate said.
+
+**Size: 666 net lines, over the 600 budget by 66.** The overrun is the review's own list: the equal-span scoring and
+its second pass for T, the outage and throughput terms, the low-confidence path with its words, the API's store and
+thread cap, and the validations it asked for, each a few lines; nothing was added beyond it.
