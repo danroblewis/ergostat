@@ -198,7 +198,7 @@ function reviewEntry(e, { onDone }) {
         [e.benefit?.better === false ? "effect" : "benefit", benefitRows(e.benefit) ? h("div", {}, ...benefitRows(e.benefit)) : null],
         ["conflicts", e.conflicts.length ? h("div", {}, ...e.conflicts.map((c) => h("div", { class: "s-open small" }, `with ${c.id}: ${c.why}`))) : null]]),
     h("div", { class: "actions" }, canShow ? h("button", { class: "ghost", onclick: () => showOnDiagram(where.select, where.systems || []) }, "Show on diagram") : null, toggle,
-      h("span", { class: "muted small mono" }, e.id)),
+      h("a", { class: "muted small mono", href: `/item/${encodeURIComponent(`ergostat.model-change/${e.id}`)}`, title: "Its item: every event of this change" }, e.id)),
     body);
 }
 

@@ -1,5 +1,6 @@
-"""Which system each item kind is in (item_systems.py): declared where the model declares it, ergostat's
-own in ergostat, otherwise where it is counted, otherwise other; and the Items list says so."""
+"""Which system each item kind is in (item_systems.py): declared where the model declares it, otherwise where it
+is counted (ergostat's own kinds too: the model's changes under modelling), ergostat's own that nothing counts in
+ergostat, otherwise other; and the Items list says so."""
 
 import textwrap
 import time
@@ -26,12 +27,14 @@ def systems_of(demo: str) -> tuple[dict, list]:
 
 @pytest.mark.parametrize("demo, expected, order", [
     ("image-squeeze",
-     {"hypothesis": "lab", "release": "lab", "session": "lab", "case": "benchmark"},
-     ["lab", "benchmark", "ergostat"]),
+     {"hypothesis": "lab", "release": "lab", "session": "lab", "case": "benchmark", "ergostat.model-change": "modelling",
+      "ergostat.claim": "lab", "ergostat.message": "lab", "ergostat.decision": "lab"},
+     ["lab", "benchmark", "modelling", "ergostat"]),
     ("the-job",
      {"mention": "awareness", "secret": "awareness", "pr": "delivery", "doc": "documents", "alert": "incidents",
       "outage": "incidents", "action": "incidents", "note": "messages", "session": "modelling", "day": "rhythm",
-      "ramp": "safety", "ci": "safety", "review": "stewardship", "ticket": "support", "team-pr": "team", "update": "team"},
+      "ramp": "safety", "ci": "safety", "review": "stewardship", "ticket": "support", "team-pr": "team", "update": "team",
+      "ergostat.model-change": "modelling", "ergostat.message": "messages"},
      ["delivery", "stewardship", "documents", "awareness", "incidents", "safety", "support", "team", "rhythm", "messages",
       "modelling", "ergostat"]),
     ("software-factory",
@@ -40,9 +43,9 @@ def systems_of(demo: str) -> tuple[dict, list]:
 ])
 def test_each_demos_kinds_are_in_their_systems(demo, expected, order):
     got, grouped = systems_of(demo)
-    assert got == {**expected, **{k: "ergostat" for k in BUILT_IN}}
+    assert got == {**{k: "ergostat" for k in BUILT_IN}, **expected}
     assert [g for g, _ in grouped] == order
-    assert dict(grouped)["ergostat"] == BUILT_IN
+    assert dict(grouped)["ergostat"] == [k for k in BUILT_IN if k not in expected]
 
 
 def test_why_each_was_decided():
@@ -53,7 +56,7 @@ def test_why_each_was_decided():
     assert got["ergostat.claim"]["why"] == "built in"
     spec, _ = sp.read(EXAMPLES / "image-squeeze" / "ergostat.yaml")
     assert kind_systems(spec)["hypothesis"]["why"] == "declared"
-    assert kind_systems(spec)["ergostat.decision"]["system"] == "ergostat"    # counted in lab: built in all the same
+    assert kind_systems(spec)["ergostat.decision"] == {"system": "lab", "why": "counted in lab"}   # where it is counted
 
 
 COUNTED = """

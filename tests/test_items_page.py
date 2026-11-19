@@ -25,6 +25,7 @@ playwright = pytest.importorskip("playwright.sync_api")
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = "image-squeeze"
+HOME: dict = {}                       # the site's ERGOSTAT_HOME, for a test that adds to its record while it runs
 
 
 
@@ -48,6 +49,16 @@ p.events.add("ergostat.lease.taken", item="hypothesis/1", data={{**taken, "run":
 for n in (1, 2):
     p.events.add("ergostat.lease.taken", item="hypothesis/2", data={{**taken, "run": f"run2{{n}}aaaaaaa", "fence": n}})
     p.events.add("ergostat.lease.expired", item="hypothesis/2", data={{"run": f"run2{{n}}aaaaaaa", "fence": n, "silent": 2500}})
+for i, last in enumerate(("checked", "checked", "accepted"), 1):     # the model's changes: two waiting, one written
+    c = f"ergostat.model-change/c{{i}}"
+    p.events.add("ergostat.model-change.made", item=c, data={{"title": f"change {{i}}", "kind": "parameter"}}, at=t + 600 + i)
+    p.events.add("ergostat.model-change.checked", item=c, at=t + 601 + i)
+    if last == "accepted":
+        p.events.add("ergostat.model-change.accepted", item=c, data={{"fit_gained": 0.02}}, at=t + 700)
+from ergostat.spec.engine import read_sensor                          # the stocks' readings, as the engine would take them
+for st in ("pending-changes", "accepted-changes"):
+    s = p.model.spec.stocks[st].sensors["main"]
+    p.measurements.add(s.series, read_sensor(p.model.spec, s, p.events)[0])
 """
     subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
                    capture_output=True)
@@ -57,7 +68,7 @@ for n in (1, 2):
 def site(tmp_path_factory):
     d = tmp_path_factory.mktemp(EXAMPLE) / EXAMPLE
     shutil.copytree(ROOT / "examples" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
-    home = d.parent / "home"
+    home = HOME["home"] = d.parent / "home"
     seed(d, home)
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
@@ -104,12 +115,12 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(f"{site}/items")
     pg.wait_for_selector('section.sys-group[data-system="lab"] .kind-flow .uplot')
-    assert systems(pg) == ["lab", "benchmark", "ergostat"]
+    assert systems(pg) == ["lab", "benchmark", "modelling", "ergostat"]       # ergostat's own kinds where they are counted
     head = pg.locator('section.sys-group[data-system="lab"] .sys-head').inner_text()
-    assert "lab" in head and "24 items, 3 kinds" in head
+    assert "lab" in head and "24 items, 6 kinds" in head                      # and the claims, messages and decisions it counts
     pg.wait_for_function("""() => document.querySelectorAll('section[data-system="lab"] .kind-flow .uplot').length >= 2""")
     lab = cards(pg, "lab")
-    assert len(lab) == 3 and len({c["top"] for c in lab}) == 1, lab               # hypothesis, release, session: one row
+    assert len(lab) == 6 and len({c["top"] for c in lab[:3]}) == 1 and lab[3]["top"] > lab[0]["top"], lab   # three a row
     assert all(c["width"] > 300 for c in lab), lab
     for c in lab:
         if c["chart"] is not None:                                                 # each chart as wide as its card
@@ -117,7 +128,7 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg.set_viewport_size({"width": 900, "height": 1000})
     pg.wait_for_timeout(400)
     lab = cards(pg, "lab")
-    assert len({c["top"] for c in lab}) == 2 and lab[0]["top"] == lab[1]["top"], lab   # two across, the third below
+    assert len({c["top"] for c in lab}) == 3 and lab[0]["top"] == lab[1]["top"] < lab[2]["top"], lab   # two across
     for c in lab:
         if c["chart"] is not None:                                                 # the charts followed their cards
             assert abs(c["chart"] - c["width"]) < 4, lab
@@ -229,6 +240,95 @@ def test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_th
         assert len(rows) == n and all(r.startswith("hypothesis/") for r in rows), rows
         pg.locator(".set-chip button").click()                                     # the chip goes: the whole list again
         pg.wait_for_function("() => !document.querySelector('.set-chip') && location.search === ''")
+    assert not errors, errors
+    pg.close()
+
+
+def add_events(*events) -> None:
+    """Events added to the running site's record from outside, as a block's run would."""
+    code = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(HOME["home"].parent / EXAMPLE)!r})))
+for t, item, data in {events!r}:
+    p.events.add(t, item=item, data=data)
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True,
+                   capture_output=True)
+
+
+def open_part(pg, site, node: str, around: str) -> None:
+    pg.goto(f"{site}/diagram?view=dynamics&around={around}")
+    pg.wait_for_function("() => S.graph && document.querySelectorAll('.node').length > 0", timeout=60000)
+    pg.evaluate(f"() => openNode(S.graph.nodes.find((n) => {node}))")
+
+
+def test_the_model_changes_are_found_by_heading_search_and_panel(browser, site):
+    """The owner reaches the model's changes from the Items page by their plain heading under modelling, by searching
+    for "change", and from the accepted-changes stock's panel, whose first line names the kind it counts and links to
+    exactly the items it counts (as many as its reading); a flow's panel says what it measures."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/items")
+    card = pg.locator('section.sys-group[data-system="modelling"] .kind-flow .kname').first
+    card.wait_for()
+    assert card.inner_text().startswith("Model changes") and "ergostat.model-change" in card.inner_text()
+    head = pg.locator('section.sys-group[data-system="modelling"] h3.kind-head')
+    head.wait_for()
+    assert head.inner_text().startswith("Model changes")
+    pg.fill('input[aria-label="Search"]', "change")
+    pg.wait_for_function("() => location.search.includes('q=change')")
+    pg.wait_for_function("""() => [...document.querySelectorAll('section.sys-group table tr td:first-child')]
+        .map((td) => td.textContent).filter((t) => t.startsWith('ergostat.model-change/')).length === 3""")
+    for stock, state in (("accepted-changes", "accepted"), ("pending-changes", "checked")):
+        open_part(pg, site, f"n.label === '{stock}' && n.kind === 'stock'", f"stock/{stock}")
+        line = pg.locator("#detail .counts-line")
+        line.wait_for()
+        assert line.inner_text().startswith(f"Counts items of kind ergostat.model-change in state {state}"), line.inner_text()
+        assert pg.locator("#detail > *").evaluate_all("els => els.findIndex((e) => e.classList.contains('counts-line'))") <= 2
+        value = int(float(pg.evaluate(f"() => api('part/stock/{stock}').then((d) => d.now.value)")))
+        line.locator("a").click()
+        pg.wait_for_selector(".set-chip")
+        assert f"kind=ergostat.model-change&state={state}" in pg.url
+        pg.wait_for_selector('section.sys-group[data-system="modelling"] table tr td')
+        rows = pg.locator('section.sys-group table tr td:first-child').all_inner_texts()
+        assert len(rows) == value and all(r.startswith("ergostat.model-change/") for r in rows), (rows, value)
+    for flow, says in (("changes-accepted", "Items of kind ergostat.model-change entering accepted"),
+                       ("model-mended", "Items of kind ergostat.model-change entering accepted, summing their fit_gained"),
+                       ("model-drift", "The change of model-error that its other flows do not account for")):
+        open_part(pg, site, f"(n.flow || n.label) === '{flow}' && ['valve', 'disturbance'].includes(n.kind)", f"flow/{flow}")
+        pg.wait_for_selector("#detail .counts-line")
+        assert pg.locator("#detail .counts-line").inner_text().startswith(says)
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_valves_leased_items_are_listed_live(browser, site):
+    """A valve moved by a block that takes items: its panel names the kind, how many are leased now and to whom, and
+    links to exactly those items; the list follows leases taken and given back without a reload."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    open_part(pg, site, "(n.flow || n.label) === 'started' && ['valve', 'disturbance'].includes(n.kind)", "flow/started")
+    line = pg.locator("#detail .leases-line")
+    line.wait_for()
+    assert "developer" in line.inner_text() and "hypothesis" in line.inner_text() and "1 leased now" in line.inner_text()
+    line.locator("a").click()
+    pg.wait_for_selector('td[data-lease="held"]')
+    leased = lambda: pg.locator('section.sys-group table tr td:first-child').all_inner_texts()   # noqa: E731
+    assert leased() == ["hypothesis/1"]
+    assert "developer" in pg.locator('td[data-lease="held"]').inner_text()
+    pg.evaluate("() => { window.__same = true; }")                     # no reload: the page's own state survives
+    add_events(("ergostat.lease.taken", "hypothesis/3", {"run": "run3aaaaaaaa", "fence": 1, "block": "developer", "ttl": 2400,
+                                                          "max": 2, "back": "proposed", "tier": "ai"}))
+    pg.wait_for_function("""() => [...document.querySelectorAll('section.sys-group table tr td:first-child')]
+        .some((td) => td.textContent === 'hypothesis/3')""", timeout=20000)
+    add_events(("ergostat.lease.ended", "hypothesis/3", {"run": "run3aaaaaaaa", "fence": 1, "how": "nack", "count": False}))
+    pg.wait_for_function("""() => ![...document.querySelectorAll('section.sys-group table tr td:first-child')]
+        .some((td) => td.textContent === 'hypothesis/3')""", timeout=20000)
+    assert leased() == ["hypothesis/1"] and pg.evaluate("() => window.__same")
     assert not errors, errors
     pg.close()
 

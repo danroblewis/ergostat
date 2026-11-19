@@ -365,3 +365,41 @@ def events_items(events, ev: dict, since: float, until: float) -> dict:
         rows = [{"time": e["time"], "type": e["type"], "items": [e["item"]]} for e in reversed(got)
                 if "/" in (e.get("item") or "") and since < e["time"] <= until]
     return {"rows": rows, "total": len(rows)}
+
+
+def counted_by(spec, kind: str, name: str) -> dict | None:
+    """What a stock's or a flow's sensor counts, in plain words, for the first line of its side panel (``says``, and
+    ``kind`` when items): the unit alone did not say a stock was items of a kind. None when its sensor reads neither
+    items nor its stock's changes."""
+    part = (spec.flows if kind == "flow" else {**spec.auxiliaries, **spec.stocks}).get(name) if spec else None
+    s = next((x for x in (getattr(part, "sensors", None) or {}).values() if x.items or x.changes), None)
+    if s is None:
+        return None
+    if s.changes:
+        st, what = s.changes.get("stock"), s.changes["what"]
+        return {"says": f"The change of {st} that its other flows do not account for, rises and falls" if what == "rest"
+                else f"Every {'rise' if what == 'rises' else 'fall' if what == 'falls' else 'net change'} of {st}, "
+                     f"whatever caused it"}
+    q = s.items
+    where = "".join(f", where {f} is {' or '.join(vs)}" for f, vs in _where(q.get("where")).items())
+    if kind == "flow":
+        move = f"entering {q['entering']}" if q.get("entering") else f"leaving {q.get('leaving')}"
+        return {"kind": q["kind"], "says": f"Items of kind {q['kind']} {move}{where}"
+                + (f", summing their {q['sum']}" if q.get("sum") else "")}
+    states = " or ".join(q.get("state") or []) or "any state"
+    lead = {"oldest": "The hours the oldest has been in its state, of", "age": "The hours since the oldest was first seen, of"}
+    return {"kind": q["kind"], "says": f"{lead.get(q.get('measure'), 'Counts')} items of kind {q['kind']} in state {states}{where}"}
+
+
+def leased_by(events, spec, flow: str, until: float) -> list[dict]:
+    """The blocks that take items (``takes:``, leased one to a run) and move this flow: for its valve's panel, each
+    with its kind, how many it holds now, and the Items page's set of exactly those (``leased``, by that block)."""
+    from .ir import LEASED, Ref
+    out = []
+    for b in (spec.blocks.values() if spec else ()):
+        if b.takes and Ref("flow", flow) in b.targets():
+            x = ItemSet(b.takes.kind, states=[LEASED], where={"lease.block": [b.name]})
+            n, _, _ = its.in_states(events, spec, x.kind, x.states, {"lease.block": b.name}, until=until)
+            out.append({"block": b.name, "agent": b.agent, "kind": x.kind, "held": n,
+                        "set": x.params()})
+    return out
