@@ -54,6 +54,17 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **A step whose goal never goes off** (in progress, `selfimprove`): a `takes:` block runs only while its goal is
   off, so a queue goal with a tolerance (or a setpoint above 0) lets items wait unseen; nothing says so. Found when
   the example's first goals had tolerances and nothing ran.
+- **Proposals superseded by any edit** (open; owner, 2026-11-19): a model change made against a version since
+  changed, even only in its numbers, is superseded and never written (SPEC section 12e). With an agent editing the
+  YAML, or modelling accepting its own changes, nearly every open proposal goes stale before it is judged. Rebase
+  instead: carry a change to the new version when the parts it touches are unchanged and its diff still applies,
+  keeping its evidence; supersede only when its own neighbourhood changed.
+- **The judge almost never decides on a slow model** (open; owner, 2026-11-19: on the work model nearly every
+  change is inconclusive, a few refused, none accepted): a change must gain 2% in every window of at least twice
+  its stock's time constant, on record after it was made; a model whose flows run per day rarely has that, and a
+  change that cannot move the replay (structure, wiring, descriptions) can never prove itself. Say how much more
+  record a verdict needs, judge such changes by structural measures (as redesign's scorecard does), and let a
+  change carry over edits elsewhere (above).
 - **A cause for a scheduled run's events** (open): a block on `every:` runs caused by nothing, so a sweep that opens
   sub-items draws no fan-out in the Process view; an event line cannot name its own cause (`causedby`).
 - **Triggers on an event type** (open): a block started by an event type alone, not only by a state change.
