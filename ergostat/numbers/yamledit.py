@@ -75,6 +75,14 @@ def duration(hours: float) -> str:
 
 
 def lines_of(path: Path) -> list[str]:
+    """A file's lines: from the texts a change is being tried on (``spec.load.texts``, a scratch copy in memory) when
+    it is one of them, else from the disk."""
+    from ..spec.load import TEXTS
+    over = TEXTS.get()
+    if over:
+        got = over.get(Path(path).resolve())
+        if got is not None:
+            return got.split("\n")
     return path.read_text(encoding="utf-8").split("\n")
 
 
@@ -272,3 +280,40 @@ def unified(old: str, new: str, name: str) -> str:
     import difflib
     return "".join(difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True),
                                         f"a/{name}", f"b/{name}", n=3))
+
+
+# ---- a value written so YAML reads it back as given
+
+PLAIN = re.compile(r"^[A-Za-z0-9(+-][^:#'\"{}\[\],&*!|>%@`]*$")
+YAML11 = re.compile(r"^(?:y|n|yes|no|on|off|true|false|null|~|[-+]?[0-9_.:]+(?:e[-+]?[0-9]+)?)$", re.I)
+
+
+def scalar(v) -> str:
+    """A value as a YAML scalar: a number or a boolean as itself, plain text when it reads back as the same text
+    (YAML 1.1 and 1.2 alike), else double-quoted (a JSON string is a YAML one)."""
+    import json
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int | float):
+        return number(float(v)) if isinstance(v, float) else str(v)
+    t = str(v).replace("\n", " ").strip()
+    if PLAIN.match(t) and not YAML11.match(t) and not t.endswith(" ") and ": " not in t and " #" not in t:
+        return t
+    return json.dumps(t, ensure_ascii=False)
+
+
+def set_inline(path: Path, line: int, key: str, value: str) -> Edit:
+    """``key: value`` put into a map written on one line (``sensor: {run: x, every: 2s}``), or set there."""
+    ls = lines_of(path)
+    old = ls[line - 1]
+    m = re.search(r"\{(.*)\}\s*(#.*)?$", old)
+    if m is None or "{" in m.group(1):
+        raise EditError(f"{path.name}:{line}: not a map written on one line")
+    body = m.group(1)
+    hit = re.search(rf"(?:^|,)\s*{re.escape(key)}\s*:\s*{SCALAR}\s*(?=,|$)", body)
+    if hit:
+        new_body = body[:hit.start("v")] + value + body[hit.end("v"):]
+    else:
+        new_body = body.rstrip() + f", {key}: {value}"
+    new = old[:m.start(1)] + new_body + old[m.end(1):]
+    return Edit(str(path), [Hunk(line, [old], [new])])

@@ -129,6 +129,66 @@ function reasonsView(rs) {
     ...(r.verified || r.evidence || []).map((v) => h("div", { class: "small muted" }, v)))));
 }
 
+/* a redesign's scorecard (numbers/scorecard.py): each measure a modeller cares about, before and after, on the record */
+function scorecardView(c) {
+  if (!c || !c.findings) return h("p", { class: "muted small" }, "Not scored yet.");
+  const f = c.findings, pc = c.pieces, co = c.coherence, cr = c.craft, ft = c.fit;
+  const arrow = (a, b, lowerBetter = true) => h("span", { class: a === b ? "" : (lowerBetter ? b < a : b > a) ? "s-ok" : "s-open" }, `${a} → ${b}`);
+  const kinds = Object.entries(co.kinds || {}).map(([k, v]) => `${k} ${v.said_before || "–"} → ${v.said_after || "–"}`).join(", ");
+  const rows = [
+    ["findings", arrow(f.before, f.after), [f.resolved.length ? `resolved ${f.resolved.join(", ")}` : "", f.introduced.length ? `introduced ${f.introduced.join(", ")}` : ""].filter(Boolean).join("; ")],
+    ["chain pieces", arrow(pc.before, pc.after), "beyond one a kind" + (Object.keys(pc.by_kind || {}).length ? ": " + Object.entries(pc.by_kind).map(([k, v]) => `${k} ${v.before ?? "–"}→${v.after ?? "–"}`).join(", ") : "")],
+    ["coherence", arrow(co.mismatches_before, co.mismatches_after), (kinds ? `agree on the record: ${kinds}` : "nothing on the record to compare") + (co.introduced?.length ? `; new: ${co.introduced.join(", ")}` : "")],
+    ["craft notes", arrow(cr.before, cr.after), `closed ${cr.closed.length}, opened ${cr.opened.length}`],
+    ["fit", h("span", { class: ft.worse ? "s-open" : "" }, ft.worse ? "worse" : ft.made_measurable ? "made measurable" : ft.measurable_before ? "no worse" : "not measurable"), ft.says || ""],
+    ["behaviour", h("span", { class: (c.lost || []).length ? "s-open" : "s-ok" }, (c.lost || []).length ? `${c.lost.length} lost` : "kept"), (c.lost || []).join("; ") || "what the old model explained, the new still explains"],
+  ];
+  return h("div", { class: "scorecard" },
+    h("p", { class: c.verdict === "better" ? "s-ok" : "s-open" }, h("b", {}, c.verdict), " ", (c.why || "").replace(/^(better|mixed|no better): /, "")),
+    table(["measure", "before → after", ""], rows.map(([a, b, x]) => h("tr", {}, h("td", {}, a), h("td", { class: "nowrap" }, b), h("td", { class: "small" }, x))), "scorecard"));
+}
+
+/* what a redesign does: why, each edit with its why, the parts it adds, takes away, renames and changes, and the
+   scorecard; drawn as it would leave the model, its new and changed parts dashed, in either view */
+function redesignView(e) {
+  const r = e.redesign || {}, pt = r.parts || {};
+  const draw = (view) => { S.graphSig = ""; S.fitted = false; navigate(`/diagram?${new URLSearchParams({ view, open: "*", proposal: e.id })}`); };
+  const partsRow = (label, xs) => (xs || []).length ? h("div", { class: "small" }, h("span", { class: "muted" }, `${label} `), xs.join(", ")) : null;
+  return h("div", { class: "redesign" },
+    r.summary ? h("p", {}, r.summary) : null,
+    h("div", { class: "entry-label" }, "Scorecard"), scorecardView(r.scorecard),
+    h("div", { class: "entry-label" }, `The edits, made in order (${(r.edits || []).length})`),
+    h("ol", { class: "redesign-edits" }, ...(r.edits || []).map((x) => h("li", {}, h("span", { class: "mono small" }, x.said), x.why ? h("div", { class: "small muted" }, x.why) : null))),
+    h("div", { class: "entry-label" }, "Parts"),
+    partsRow("added", pt.added), partsRow("renamed", pt.renamed), partsRow("changed", pt.changed), partsRow("taken away", pt.removed),
+    r.cost ? h("p", { class: "muted small" }, `made by the redesigner on ${r.cost.model} in ${r.rounds || r.cost.calls} round${(r.rounds || r.cost.calls) === 1 ? "" : "s"}: $${(r.cost.usd || 0).toFixed(4)}, ${r.cost.tokens_in} tokens in, ${r.cost.tokens_out} out`) : null,
+    PANE || SNAP ? null : h("div", { class: "actions" }, h("span", { class: "small muted" }, "Draw it as it would leave the model: "),
+      h("button", { class: "ghost", onclick: () => draw("dynamics") }, "Dynamics"), h("button", { class: "ghost", onclick: () => draw("blocks") }, "Blocks")));
+}
+
+/* the redesigns judged not better: their scorecards, so the owner sees why */
+function redesignsJudgedView(rs) {
+  if (!rs?.judged?.length) return null;
+  return h("div", { class: "redesigns-judged" }, h("h3", {}, "Redesigns judged not better"),
+    ...rs.judged.map((x) => h("details", {}, h("summary", {}, x.title || "a redesign", h("span", { class: "muted small" }, ` ${x.state}: ${x.why || ""}`)),
+      scorecardView(x.scorecard), h("ol", { class: "redesign-edits" }, ...(x.edits || []).map((y) => h("li", { class: "small" }, y.said, y.why ? h("span", { class: "muted" }, ` — ${y.why}`) : null))))));
+}
+
+/* the owner asks for a redesign of a system (or the whole model): it runs in the background, its change set joins the queue */
+function redesignAsk(rs, onAsked) {
+  if (!rs || SNAP) return null;
+  const pick = h("select", { "aria-label": "The system to redesign" }, ...(rs.systems || ["model"]).map((x) => h("option", { value: x }, x === "model" ? "the whole model" : x)));
+  const said = h("span", { class: "muted small" }, rs.running ? `a redesign of ${rs.last?.system || "the model"} is running…`
+    : rs.last?.result ? `last redesign: ${rs.last.result}${rs.last.why_not ? ` (${rs.last.why_not})` : ""}` : "");
+  const btn = h("button", { class: "ghost", disabled: rs.running ? "" : null, title: `One change set of many edits, judged as a whole by a scorecard (${rs.settings?.model || "haiku"}, at most $${rs.settings?.budget ?? 0.5}, ${rs.settings?.rounds ?? 3} rounds)`,
+    onclick: async () => {
+      btn.disabled = true; said.textContent = "Asking…";
+      try { const g = await apiPost("redesign", { system: pick.value }); said.textContent = `Redesigning ${g.asked} on ${g.model}… its change set comes here when it ends.`; onAsked?.(); }
+      catch (err) { said.className = "s-open small"; said.textContent = String(err.message || err); btn.disabled = false; }
+    } }, "Redesign…");
+  return h("span", { class: "redesign-ask" }, pick, btn, said);
+}
+
 /* one entry of the queue */
 function reviewEntry(e, { onDone }) {
   const open = REVIEW_OPEN.has(e.id);
@@ -178,6 +238,7 @@ function reviewEntry(e, { onDone }) {
   const where = e.where;
   const canShow = where.select.length && !PANE;
   body.append(
+    ...(e.redesign ? [h("div", { class: "entry-label" }, "The redesign"), redesignView(e)] : []),
     h("div", { class: "entry-label" }, "Effect"),
     e.simulable ? effBox : h("p", { class: "muted small" }, `Not simulated: ${e.not_simulated || "nothing it changes is replayed"}.`),
     h("div", { class: "entry-label" }, "The change"),
@@ -193,6 +254,7 @@ function reviewEntry(e, { onDone }) {
                     where.files.length ? h("div", { class: "small muted mono" }, where.files.map((f) => `${f.file}:${f.lines.join(",")}`).join("  ")) : null)],
         ["made by", e.by_block ? proposedBy(e) : e.made_by === "owner" ? "you (a what-if)" : null],
         ["why", e.by_block && (e.reasons || []).length ? reasonsView(e.reasons) : e.why],
+        ["scorecard", e.redesign?.scorecard?.why ? h("div", { class: e.redesign.scorecard.verdict === "better" ? "small s-ok" : "small s-open" }, e.redesign.scorecard.why) : null],
         ["judged", e.verdict ? h("div", { class: e.verdict.verdict === "dropped" ? "s-open small" : "small" }, `${e.verdict.verdict === "testing" ? "testing" : e.verdict.verdict}: ${e.verdict.why}`) : null],
         ["how found", h("div", {}, ...howText(e.how))],
         [e.benefit?.better === false ? "effect" : "benefit", benefitRows(e.benefit) ? h("div", {}, ...benefitRows(e.benefit)) : null],

@@ -32,3 +32,7 @@ loops:                                # the loops a reader should find first, na
   join-keeps-up:
     goal: investigations-joined
     description: B - the investigators work off the alerts waiting on their facets
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

@@ -24,3 +24,7 @@ systems:
     description: tickets developed, reviewed and deployed
   product:
     description: textkit and its customers
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

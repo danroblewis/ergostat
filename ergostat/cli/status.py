@@ -104,10 +104,17 @@ def status(args) -> int:
         att = [a for a in att if a["what"].split(" ", 1)[-1] in parts | agents or a["what"] == "the record"]
     trouble = any(a["level"] in ("bad", "warn") for a in att)
     code = 1 if (getattr(args, "exit_code", False) and trouble) else 0
+    said = None
+    if spec is not None and not getattr(args, "at", None):    # the modelling loop, never silent: what it waits for
+        try:
+            from ..numbers import modelling_status as mst
+            said = mst.of(p)
+        except Exception as e:
+            said = {"on": None, "says": f"modelling: cannot say ({type(e).__name__}: {e})"}
     if args.json:
         out_json({"running": bool(pid), "web": web_url(p) if pid else None, "attention": att,
                   **({} if pid else {"last_seen": last_seen(p, snap)}),
-                  "loops": loops, "counts": counts(p), "ok": not trouble})
+                  "loops": loops, "counts": counts(p), "ok": not trouble, **({"modelling": said} if said else {})})
         return code
     seen = last_seen(p, snap) if not pid else None
     run = c("running", "ok") + (f" · {web_url(p)}" if web_url(p) else "") if pid else \
@@ -126,6 +133,8 @@ def status(args) -> int:
                 print(f"      {x}")
     if not problems:
         print(f"  {c('●', 'ok')} nothing needs you")
+    if said:
+        print(f"  {c('◆', 'accent')} modelling: {said['says']}")
     if hints:
         print(c(f"\n  suggestions ({len(hints)}): ergostat loop NAME shows the evidence", "dim"))
         for a in hints:

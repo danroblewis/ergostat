@@ -99,6 +99,8 @@ MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refu
                        "verified", "regressed",   # verified, regressed: an accepted change scored again later (SPEC §12f)
                        "inconclusive"]            # the record held out could not tell it from the model as it is
 JUDGE_PORTS = ("testing", "passed", "failed", "accepted", "inconclusive")
+MODEL_REQUEST = "ergostat.model-request"   # the built-in item kind: work for modelling, raised from what check finds
+MODEL_REQUEST_STATES = ["open", "proposed", "held", "answered"]
 CLAIM = "ergostat.claim"          # the built-in item kind: what a block said it did, checked against the record (SPEC §12g)
 CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
 CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
@@ -239,17 +241,30 @@ def is_measure(name: str) -> bool:
             or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES)
 
 
+CHANGE_CLASSES = ("parameter", "equation", "structure", "description", "unit", "rename", "redesign")   # what accept: names (SPEC §12e)
+NAMED_ONLY = ("redesign",)   # promoted only by name (accept: {redesign: auto}), never by accept: auto for every kind
+
+
 @dataclass
 class Improve:
     """The judge block's policy (SPEC §12e): who writes a change it passed, by its kind (``auto``: the judge writes
     it; ``owner``: it waits in the review queue), the least fall in scaled error that counts in every window, how much
     record after a change it is judged on, and how that record is split into windows (1: whole; 2: halves; ...)."""
-    accept: dict[str, str] = field(default_factory=lambda: {"parameter": "owner", "equation": "owner", "structure": "owner"})
+    accept: dict[str, str] = field(default_factory=lambda: dict.fromkeys(CHANGE_CLASSES, "owner"))
     threshold: float = 0.02
     hold_out: float = 600.0
     windows: list[int] = field(default_factory=lambda: [1, 2, 4])
     warm_up: float = 6 * 3600.0     # each window replayed from this long before it, its stocks and delays warm
     block: str | None = None
+
+
+def model_request_kind() -> ItemKind:
+    on = {f"{MODEL_REQUEST}.raised": "open", f"{MODEL_REQUEST}.reopened": "open", f"{MODEL_REQUEST}.proposed": "proposed",
+          f"{MODEL_REQUEST}.held": "held", f"{MODEL_REQUEST}.answered": "answered"}
+    return ItemKind(MODEL_REQUEST, f"{MODEL_REQUEST}/*", list(MODEL_REQUEST_STATES), on,
+                    ["code", "about", "source", "tier", "change"], {}, None,
+                    "work for the modelling subsystem: a finding, a chain finding, a coherence mismatch or a craft note "
+                    "check reports, held until it is answered (built in, SPEC §12e)")
 
 
 def model_change_kind() -> ItemKind:
@@ -502,6 +517,7 @@ class Stock:
     description: str = ""
     sensors: dict[str, Sensor] = field(default_factory=dict)
     cumulative: bool = False   # a running total that by its nature never drains (spent so far): no outflow is missing
+    formerly: list[str] = field(default_factory=list)   # the names it had (a rename keeps its history: SPEC §12e)
     rate_unit: str | None = None       # how its flows' rates are shown (rate-unit: minute, hour, day, week): display only
     inferred: str | None = None        # added by ergostat: the model change that added it (ergostat.model-change/<id>), or "true"
     where: Where | None = None
@@ -526,6 +542,7 @@ class Flow:
     rate_unit: str | None = None       # how its rate is shown (rate-unit: minute, hour, day, week): display only, kept per hour
     inferred: str | None = None        # added by ergostat: the model change that added it (ergostat.model-change/<id>), or "true"
     inferred_links: dict[str, str] = field(default_factory=dict)   # str(ref) of a driven-by ergostat added → its inferred:
+    formerly: list[str] = field(default_factory=list)   # the names it had (a rename keeps its history: SPEC §12e)
     where: Where | None = None
     defined: Where | None = None       # the line its name is on
 
@@ -550,6 +567,7 @@ class Auxiliary:
     equation: Equation | None = None   # its value, as an equation (SPEC §7b); without one it is measured
     inferred: str | None = None        # added by ergostat: the model change that added it (ergostat.model-change/<id>), or "true"
     inferred_links: dict[str, str] = field(default_factory=dict)
+    formerly: list[str] = field(default_factory=list)   # the names it had (a rename keeps its history: SPEC §12e)
     where: Where | None = None
     defined: Where | None = None       # the line its name is on
 
@@ -735,6 +753,7 @@ class ItemKind:
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # the terms of a lease on one of these (SPEC §9.5)
     relations: dict[str, Relation] = field(default_factory=dict)   # field → its relation to other items (SPEC §5a)
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
+    formerly: dict[str, str] = field(default_factory=dict)   # an event type renamed → its name now: the record's still fold
 
     def matches(self, id: str) -> bool:
         import fnmatch

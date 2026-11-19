@@ -935,3 +935,19 @@ a.button:hover { background: var(--fill); }
 .report-body { white-space: pre-wrap; max-height: 32rem; overflow: auto; border: var(--hair) solid var(--line); border-radius: var(--radius);
   padding: var(--sp-2); }
 .offscreen { position: fixed; opacity: 0; pointer-events: none; }
+
+/* a change waiting, drawn as it would leave the model (diagram.js markProposed): new parts dashed and tinted, changed
+   ones dashed; the banner says what it takes away */
+svg.canvas .proposed-new rect, svg.canvas .proposed-new circle, svg.canvas .proposed-new ellipse, svg.canvas .proposed-new polygon,
+svg.canvas .proposed-new path:not(.corr-ring), svg.canvas .proposed-changed rect, svg.canvas .proposed-changed circle,
+svg.canvas .proposed-changed ellipse, svg.canvas .proposed-changed polygon, svg.canvas .proposed-changed path:not(.corr-ring) {
+  stroke-dasharray: 6 4;
+}
+svg.canvas .proposed-new rect, svg.canvas .proposed-new circle, svg.canvas .proposed-new ellipse, svg.canvas .proposed-new polygon { fill: var(--accent-wash); stroke: var(--accent); }
+svg.canvas .proposed-changed rect, svg.canvas .proposed-changed circle, svg.canvas .proposed-changed polygon { stroke: var(--warn); }
+.proposed-banner { position: absolute; top: var(--sp-7); left: var(--sp-3); right: var(--sp-3); z-index: 5; background: var(--panel); border: 1px dashed var(--accent);
+  border-radius: var(--radius); padding: var(--sp-1) var(--sp-2); display: flex; gap: var(--sp-2); align-items: flex-start; justify-content: space-between; font-size: var(--text-sm); }
+.scorecard table td { vertical-align: top; }
+.redesign-edits { margin: var(--sp-1) 0 var(--sp-2) var(--sp-4); padding: 0; }
+.redesign-edits li { margin: var(--sp-0) 0; }
+.redesign-ask { display: inline-flex; gap: var(--sp-1); align-items: center; }

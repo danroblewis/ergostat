@@ -250,7 +250,9 @@ def loops(spec: Spec, longest: int = 30, most: int = 300) -> list[CausalLoop]:
 
 
 def _loops(spec: Spec, longest: int, most: int) -> list[CausalLoop]:
-    ls = links(spec)
+    judges = {f"block.{n}" for n, b in spec.blocks.items() if b.type == "judge"}
+    ls = [x for x in links(spec) if not (x.kind == "reads" and x.target in judges)]   # the judge's in: is drawn for the
+    # reader; what it moves follows its own clock and the record held out, not what it reads (SPEC §12e): no loop
     nxt: dict[str, list[Link]] = {}
     for x in ls:
         nxt.setdefault(x.source, []).append(x)

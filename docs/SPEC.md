@@ -173,7 +173,8 @@ value as given, checked where it is used), `example:` (a `uses:` entry), `once: 
 until answered, up to a count, then a person takes over), `daily-report` (a report on a schedule, kept as an
 item), `keep-under` (a level held under a limit by a corrective action), `steps` (an item worked through a list
 of steps, a block each), `collect` (the event collector) and `modelling` (the model improved as a loop of its
-own, section 12e; once a model, every model should have it). Each says its reading in both disciplines
+own, section 12e: its fit held by a goal, what `check` finds held as requests, a rule tier and an AI tier that answer
+them, and the judge; once a model, every model should have it). Each says its reading in both disciplines
 (`ergostat help adding`, `docs/ADDING.md`). They run ergostat's own programs (`python -m
 ergostat.library.run`): `collect` (a sensor that polls a command or an HTTP endpoint, records each new record as
 an event about an item, once, from a cursor, and prints the arrivals per hour), `each` (a block's program that
@@ -2298,6 +2299,22 @@ them for someone new to system dynamics):
   drained below empty, a one-way flow running backwards, a division by 0 or a blow-up is said, with
   the input or parameter that showed it and the fix.
 
+**The craft** (notes, `ergostat/spec/craft.py`; `docs/MODELLING-WELL.md`'s review checklists). Not wrong, but what a
+professional in each discipline would wince at; each a **note** (level `note`): `check` lists them after the findings,
+counted by code (`--json` gives each, with its `id`), they are not counted among the findings (`ergostat.model.open-findings`
+leaves them out), and the modelling loop takes each up as a request (§12e). Parts a template made are left out (they
+change only through the use's `with:`):
+
+- **no-description**: a stock, flow, auxiliary, parameter, goal, block, item kind or agent with no description;
+- **no-unit**: a stock with no unit;
+- **no-equation**: a flow between two stocks with no equation (nor a declared rate): replayed, never projected;
+- **collector-undescribed**: a sensor that reads the outside (`run:`, `query:`) with no description (the Blocks view
+  titles the collector with its command);
+- **event-names-mixed**: an item kind whose event types are not all `KIND.verb-past`, with the name each reads best as;
+- **queue-goal-tolerance**: a goal served by a block that takes the items its stock counts, with a tolerance or a
+  setpoint above 0, so items wait unseen (the block runs only while the goal is off);
+- **process-not-identified**: a goal's `process:` with no `identified:`.
+
 **A kind's states, chained** (findings, `ergostat/spec/chains.py`). When two or more stocks count the items of one
 kind in different states (`items: K, state: S`), the moves between those states are flows from one stock to the
 next: arrivals from outside into the first state's stock, a flow from each state's stock to the next, completions
@@ -3084,7 +3101,7 @@ Any block may print:
 
 | Key | Meaning |
 |---|---|
-| `kind` | `parameter` (values only), `equation`, `structure`, `measurement` (a sensor of a part already there) or `control` (a goal, a block, an agent, the judge's policy). What the edit does decides, whatever it is called: an edit to a goal, a block or an agent is a control change and one to a sensor a measurement change (`version.changed_control`, `changed_sensors`); else one that changes only values is a parameter change. Only the first three are judged by the replay or written by the judge; the others wait for the owner |
+| `kind` | `parameter` (values only), `equation`, `structure`, `measurement` (a sensor of a part already there), `control` (a goal, a block, an agent, the judge's policy), or a change of words: `description` (descriptions alone, a sensor's too), `unit` (units alone) and `rename` (the same model under new names: each renamed part says `formerly:` its old name, every reference follows; or event types renamed, each kept as `formerly:` on its kind so the record's events still fold, and written as the new name into the project's own programs where they are quoted literals, the only edit a change may make outside the model's files). What the edit does decides, whatever it is called (`improve.kind_of`). Parameter, equation and structure are judged by the replay; a change of words by `check` alone (passed when it makes no new finding or note); control and measurement wait for the owner |
 | `parts` | The parts it touches, as references (`stock.x`, `flow.y`, `parameter.z`) |
 | `edit` | In the review queue's form, `{"files": [{"file", "hunks": [{"line", "old", "new"}]}]}`, or `{"file", "replace", "with"}` (the lines as written now, found once, and what they become), or a list of either. Files are named from the model's folder, and only the model's own files may be edited |
 | `reasons` | Each `{"says", "evidence"}` (`evidence` one, or a list). Evidence is what ergostat can check: a finding `check` reports now, by its id (`finding:CODE@PART`, the `id` in `check --json` and the MCP `check`); a statistic of the fit (`fit:total.nmse`, `fit:stock.NAME.r2`, `.mape`, `.um`, `.us`, `.uc`, and an equation's `fit:flow.NAME.r2`); a residual (`residual:stock.NAME`); a line of a document or of the code, in the project or in ergostat (`docs/MODELLING.md:120`, `bin/lab.py:40-52`), or a URL; or a modelling rule (`rule:NAME`: the guidelines of `docs/MODELLING.md` and Sterman's tests, listed in `numbers/improve.py`) |
@@ -3202,7 +3219,7 @@ blocks:
 | `windows` | list of whole numbers | `[1, 2, 4]` | How that record is split into windows: 1 whole, 2 halves, 4 quarters (each at least a minute) |
 | `warm-up` | duration | `6h` | The longest before each window its replay starts, so the window is scored with its stocks and delays as the record left them, not started cold with every delay in equilibrium (section 12f): three time constants of what the change touches, and never more than the record held before the window |
 | `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better, and the most rise that counts as no worse |
-| `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged |
+| `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`, `description`, `unit`, `rename`, `redesign`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged. A redesign is written only when named (`redesign: auto`), never by `accept: auto`. Whatever the policy, a change that removes structure or rewires a kind's chain waits for the owner. Changes of words are written as many a pass as have passed; the rest one a pass. A change written moves the lines of the others waiting (their hunks shifted, `proposals.rebase`), and a description or unit change waiting stays waiting across a change to the model when its edit still applies (`carry`) |
 | `out` | map of `testing`, `passed`, `failed`, `accepted`, `inconclusive` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
 | `in`, `every` | | | What it reads (signed, as a machine block's), for the diagram; how often it passes |
 
@@ -3248,6 +3265,104 @@ structure: that waits for the owner, whatever the policy): Accept's way (section
 smallest edit, refused and put back if `check` would then find an error, recorded as `.accepted` from the judge
 with its policy named, and `ergostat.model.changed`. Accepting writes the YAML at once; ergostat never commits it:
 the owner does.
+
+### Requests: what check finds is modelling's work
+
+Everything `check` finds is a **request** the modelling loop holds (`ergostat/numbers/requests.py`): an item of the
+built-in kind `ergostat.model-request`, raised from each finding, chain finding and craft note (one about a part a
+template made, or one no change to the model answers, such as `template-stand-in` or `no-modelling-loop`, is left out),
+and, once the record is long enough to compare, each coherence mismatch (§12l) no finding already says (those about
+ergostat's own kinds are left out). Each records what it is about (`about`), why (`says`, check's words), where, its
+`source` (check, craft, coherence) and the tier that answers it first (`tier`: rule or ai).
+
+| State | When |
+|---|---|
+| open | check finds it, and no change waiting cites it |
+| proposed | a change waiting cites it (its finding, `finding:CODE@ABOUT` or `coherence:CODE@ABOUT`, among its evidence) |
+| held | no tier enabled has a change for it, or its change was turned away (with why); the owner's when the owner dismissed it; opened again when the model's version changes |
+| answered | check no longer finds it |
+
+The **request collector** (`modelling requests`, the sensor of the template's `requests-raised`) reads check, raises
+what is new, answers what is gone and moves each to where its changes say it is. **The tiers**, each an ordinary
+block of the template, answer them, the cheapest first:
+
+- **the rule tier** (`fixer`, a program, `ergostat/numbers/rules.py`): mechanical changes that are safe and certain:
+  a kind's chain rewired exactly as `chains.py` names it (the whole kind at once when its stocks are in pieces); the
+  structure tests' own fixes (§12b); a stock's unit carried along its flows from the stocks they join, or the plural of
+  the kind it counts; a first-order outflow (`stock.S / time-in-S`, the time by Little's law on the record, `estimate:
+  true`) for a flow between stocks that names no other cause; event types named `KIND.STATE` when the state reads as a
+  past tense; a queue's goal held at 0 with tolerance 0; a process nobody identified taken out. Each change cites
+  every request it answers. What it cannot answer it hands to the AI tier, saying why;
+- **the AI tier** (`modeller`, an `ai` block, on only with `ai: true`; `ergostat/numbers/modeller.py`): the requests
+  the rule tier could not answer, a few at a time, each with the neighbourhood of the model it touches (its part and
+  every part one link from it, as written, and the first lines of the programs they run), and a prompt that is the
+  author skill and the modelling guides made short (`library/templates/modelling/modeller.md`). It proposes
+  descriptions, units, equations, structure, loops and collectors as ordinary changes; each is tried first as
+  `try_change` tries it, and what would be turned away is given back once with why. Its cost is recorded on the
+  requests it was given (`cost_usd`), and a request it has tried twice waits for the owner.
+
+Edits may be written `{"part": "stock.x", "set": {"unit": "alerts"}}` (a sensor's: `"sensor": "main"`) or `{"add":
+"parameters", "name": "t", "set": {...}}` besides `replace` and hunks.
+
+### Redesign: a change set, judged as a whole
+
+Refinement (the tiers above, the improver) answers what `check` finds one change at a time, each judged alone, and the
+judge passes a change only when the record shows it better: most of what a model needs (a chain connected, a collector,
+a system split, the names of its parts) changes no replay error, and a real restructure is a dozen edits that only make
+sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
+
+- **A change set** (`ergostat/numbers/changeset.py`): one proposal holding many coordinated edits, made in order on a
+  scratch copy of the model's files in memory, each on the text the ones before it left; the model need compile only at
+  the end. Its edits take the forms a propose line takes (`{"part", "set"}`, `{"add", "name", "set"}`, `{"file",
+  "replace", "with"}`) and three more: `{"remove": "stock.x"}`, `{"rename": "stock.x", "to": "y"}` (every reference
+  follows: `stock.x`, a flow's `from:`/`to:`, a goal's `stock:`, a block's `goal:`, a parameter in an equation; a stock,
+  flow or auxiliary says `formerly:` its old name) and `{"file", "write"}` (a model file written whole; a part taken
+  away and one added that reads exactly what it read is the same part renamed, and says `formerly:` so). Each carries
+  its `why`. What it does is then one diff from the files as they are, applied atomically to judge it and on Accept; what
+  it adds says `inferred:` its change; its renames carry their readings across as a rename does.
+- **One item**, an `ergostat.model-change` of kind **`redesign`** (`ergostat/numbers/redesign.py`), with its system,
+  summary, each edit with its why, the parts it adds, renames, changes and takes away, its scorecard and its cost.
+- **Judged as a whole by a scorecard** (`ergostat/numbers/scorecard.py`), the model as it is and the scratch copy each
+  measured on the same record: `check`'s findings resolved and introduced (a finding about a renamed part is the same
+  finding); each kind's state stocks in pieces no flow joins; the coherence score per kind and the mismatches (§12l),
+  run again over the record as it is (what Blocks ↔ Process says of a block the change adds, or of a flow only such
+  blocks move, is left out and said as unseen: the record holds none of their runs, and cannot); the craft notes closed and opened; the fit, not worse beyond 10% over the stocks
+  both replay where it can be worked out (made measurable counts for it); and **behaviour kept**: a stock whose replay
+  followed the record (scaled error at most 0.5), or an equation that explained its flow (R² at least 0.5), is still
+  there, or renamed, and no worse beyond the tolerance. The verdict is **better** when findings, chains and coherence
+  improve (net), none is worse, the fit is no worse and nothing is lost; **mixed** when something improves and
+  something is worse; **no better** when nothing improves. Craft notes it opens (a new flow between stocks wants an
+  equation) are said beside the verdict and count against it only when nothing else moves. The judge takes a redesign
+  up at once: its scorecard worked out again on the record as it is, passed when better, failed otherwise; the owner
+  sees the scorecard either way (the review queue; the redesigns judged not better below it).
+- **Never written without the owner** unless the class is promoted by name: `accept: {redesign: auto}`; `accept: auto`
+  for every kind leaves it the owner's (promoted and passed, it is written first, alone in its pass). While one waits,
+  the judge writes no other change whose lines clash with it; a change written that does not clash moves its lines, and
+  it stays waiting (`proposals.carry`). While one is being made (a run started and not ended, for its first 5 minutes at most,
+  so refinement is never frozen by a slow run), the judge writes nothing on its own, so the model the redesigner reads is the one its change set is made
+  on; if the model moved anyway (the owner wrote a change), its edits are made again on the model as it is.
+- **The redesigner** (`ergostat/numbers/redesigner.py`; the template's block `redesigner`, an `ai` block, there with
+  `ai: true` unless `redesign: {when: off}`): given a whole system (or the whole model) as written, what `check` finds,
+  the coherence report, the moves the process map observed, the record's summary (each stock's fit, the event types
+  seen) and the guides (`library/templates/modelling/redesigner.md`, the modeller's craft, the review checklists of
+  `docs/MODELLING-WELL.md`), it answers one change set. Each round its edits are made on the scratch copy, which is
+  compiled, checked, held against the record and scored, and what is left (an edit that could not be made, an error, a
+  finding, a mismatch, the scorecard) is given back for the next, up to `rounds`; the best round's copy is proposed.
+  No call starts once `budget` dollars are spent; every call's cost is kept on the change and printed as a Claude Code
+  result line, so the run's cost is the run's (`ergostat.cost.*`, `run/redesigner/cost_usd`).
+- **When**: the owner asks (`ergostat improve --redesign [SYSTEM]`, which runs it at once with the template's settings;
+  the Model page's Redesign button, which runs it in the background), recorded as `ergostat.model.redesign-asked`; or,
+  with `when: auto`, the model clearly wrong: at least 3 findings, a kind's coherence under 80% on the record, a fit
+  that cannot be worked out, refinement stalling (its last 4 changes judged all turned away), or the model's first run
+  with `use: modelling`. Each run is recorded (`ergostat.model.redesign-ran`: started, then what it made and cost). At
+  most one redesign waits for each system; on its own it runs once a version of the model.
+- **Drawn as proposed**: `GET /api/graph?proposal=ID&view=dynamics|blocks` draws the model as the change would leave it
+  (nothing written), with `proposed: {added, changed, renamed, removed}`; the page draws the new parts dashed and
+  tinted, the changed and renamed dashed, and names what it takes away; the review section's Dynamics and Blocks
+  buttons open it.
+
+The template's parameter: `redesign: {when: auto|ask|off, model: haiku, budget: 0.5, rounds: 3}` (and
+`redesign-every`, 10m).
 
 ### The loop, in the model
 
