@@ -38,7 +38,9 @@ from tests import layout_rules as rules  # noqa: E402
 GEOMETRY = (ROOT / "scripts" / "layout_geometry.js").read_text()
 READY = ("() => typeof S !== 'undefined' && S.layout && S.graphSig && !S.layout.routing && "
          "document.querySelectorAll('svg.canvas g.node').length > 0")
-READY_OR_EMPTY = f"() => ({READY[6:]}) || !!document.querySelector('.canvas-wrap .empty')"
+EMPTY = ("() => typeof S !== 'undefined' && !!S.graph && !(S.graph.nodes || []).length && "
+         "!!document.querySelector('.canvas-wrap .empty')")      # (nothing to draw: no goal, or no record)
+READY_OR_EMPTY = f"() => ({READY[6:]}) || ({EMPTY[6:]})"
 VIEWPORT = {"width": 1440, "height": 900}        # a typical laptop
 MAX_THREADS, MAX_RSS_GB = 1500, 6.0
 
@@ -134,7 +136,7 @@ def run_model(pg, name: str, src: Path, port: int, out: Path, views: list[str], 
                 try:
                     pg.goto(f"{url}/diagram?v={i}&{q}", timeout=120000)
                     pg.wait_for_function(READY_OR_EMPTY, timeout=120000)
-                    if pg.evaluate("() => !!document.querySelector('.canvas-wrap .empty')"):
+                    if pg.evaluate(EMPTY):
                         continue                          # (nothing to draw here: no goal, or no record)
                     pg.wait_for_timeout(150)
                     geo = pg.evaluate(GEOMETRY)
