@@ -220,7 +220,8 @@ The Dynamics view is the workflow you declared; the Process view is the one that
       time says how long each try took).
 - [ ] **Fan-out and join** (dashed lines between kinds): work that starts other work (a ticket
       spawning research items) shows a line from the first kind into the second, and back where the
-      second's results finish the first. None means the runs do not record `causedby`.
+      second's results finish the first. None means the runs do not record `causedby`. A sweep on
+      `every:` or `cron:` that opens items draws its fan-out from its block's node in the **schedules** frame.
 - [ ] Switch **Events** on to see what happens between the moves (comments, retries, a session's
       steps), and **Times** to see where the time goes. Click a line to list the items that took it.
 
