@@ -193,9 +193,9 @@ MODELLING = {
                             **({"cumulative": True} if s == "accepted" else {})}
            for k, s in (("pending", "checked"), ("testing", "testing"), ("passed", "passed"), ("accepted", "accepted"))}},
     "flows": {
-        "model-drift": {"to": "model-error", "sensor": {"changes": "rises", "over": OVER, "every": "1m"}},
+        "model-drift": {"to": "model-error", "two-way": True, "sensor": {"changes": "rest", "over": OVER, "every": "1m"}},
         "model-mended": {"from": "model-error", "driven-by": ["+stock.model-error", {"cause": "+flow.changes-accepted", "instant": True}],
-                         "sensor": {"changes": "falls", "over": OVER, "every": "1m"}},
+                         "sensor": {"items": "ergostat.model-change", "entering": "accepted", "sum": "fit_gained", "over": OVER}},
         "changes-made": {"to": "pending-changes", "sensor": {"items": "ergostat.model-change", "entering": "checked", "over": OVER}},
         "changes-superseded": {"from": "pending-changes", "driven-by": "+stock.pending-changes",
                                "sensor": {"items": "ergostat.model-change", "entering": "superseded", "over": OVER}},
