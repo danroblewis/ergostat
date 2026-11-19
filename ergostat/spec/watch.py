@@ -172,7 +172,10 @@ def find(project, spec: Spec, window: float = WINDOW, now: float | None = None) 
     repeated(project, say)
     exercised(project, spec, now, say)
     from ..numbers.external import findings as external
-    external(project, spec, now, say)                  # an existing controller unidentified, or its law changed (§12d)
+    try:
+        external(project, spec, now, say)              # an existing controller unidentified, or its law changed (§12d)
+    except Exception:                                  # a record that cannot be read says nothing here
+        pass
     return out
 
 
