@@ -608,6 +608,27 @@ def d_side_crowding(r: Rule, g: G):
     return out
 
 
+FEEDBACK_ROLES = {"sensor", "collector"}
+
+
+def d_signal_backwards(r: Rule, g: G):
+    """A forward signal in a block diagram drawn right to left (its target left of its source), so it wraps round:
+    only the feedback path, through a sensor, runs back."""
+    out = []
+    for e in g.edges:
+        s, t = g.nodes.get(e["source"]), g.nodes.get(e["target"])
+        if not s or not t or s.get("role") in FEEDBACK_ROLES or t.get("role") in FEEDBACK_ROLES:
+            continue
+        if t.get("role") == "comparator" and s["kind"] in ("output", "port"):
+            continue                                  # (an output fed back to a comparator: a feedback path)
+        sc, tc = centre(g.rect[s["id"]]), centre(g.rect[t["id"]])
+        back = sc[0] - tc[0]
+        if back > 60 and length(e["pts"]) > manhattan(e["pts"][0], e["pts"][-1]) + 40:
+            out.append(inst(r, back, f"{e['id']}: {back:.0f}px right to left, wrapping round", [e["id"], s["id"], t["id"]],
+                            union(g.rect[s["id"]], g.rect[t["id"]]), "major" if back > 200 else "minor"))
+    return out
+
+
 RULES: list[Rule] = [
     Rule("flow-excursion", "critical", ("dynamics",), True, d_flow_excursion,
          "a flow's pipe at most 1.3x the distance between its ends, plus 80px"),
@@ -637,6 +658,8 @@ RULES: list[Rule] = [
          "no loop marker over a line or a part"),
     Rule("pipe-crossing", "minor", ("dynamics",), True, d_pipe_crossing,
          "no two flows crossing"),
+    Rule("signal-backwards", "minor", ("blocks",), True, d_signal_backwards,
+         "a forward signal runs left to right; only a feedback path (through a sensor) runs back"),
     Rule("line-detour", "minor", ("dynamics", "blocks", "process"), True, d_line_detour,
          "an information line at most 2x its straight distance, plus 160px"),
     Rule("line-bends", "minor", ("dynamics", "blocks", "process"), True, d_line_bends,

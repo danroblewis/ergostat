@@ -17,9 +17,11 @@ SHAPES = ["chain", "fanout", "join", "rework", "clouds", "cross", "cascade", "au
 
 # ------------------------------------------------------------------ the views
 
-def views_of(kind: str, tree: dict) -> list[str]:
-    """A view's queries: the whole, everything open, each system open, each system alone."""
+def views_of(kind: str, tree: dict, systems: int | None = None) -> list[str]:
+    """A view's queries: the whole, everything open, each system open, each system alone (the first `systems` of them
+    only, when given: a generated model's systems are alike)."""
     v = f"view={kind}"
+    tree = dict(list(tree.items())[:systems]) if systems is not None and tree else tree
     return [v, *([f"{v}&open=*"] if tree else []), *(f"{v}&open={s}" for s in tree), *(f"{v}&system={s}" for s in tree)]
 
 
