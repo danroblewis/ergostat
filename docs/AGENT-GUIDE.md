@@ -281,6 +281,10 @@ longer, then check again.
 - [ ] Ages, ratios and scores are **auxiliaries**, not stocks: a stock is something with memory that
       only flows change.
 - [ ] Every outward act goes through a gated action.
+- [ ] Once the model has **systems**, each says what it is for (`description:`), and `check`'s architecture notes
+      (`system-splits`, `systems-merge`, `interface`, `time-scales`, `purpose`) are answered or knowingly left: a
+      system whose parts fall into unlinked clusters is several systems, and is redesigned one at a time
+      (`docs/proposals/architecture.md`).
 
 ### Modelling well: beyond correct
 
