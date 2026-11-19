@@ -66,7 +66,7 @@ STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulat
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred",
                       "rate-unit"}
-GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner", "process"}
+GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner", "process", "per"}
 PROCESS_KEYS = {"gain", "time-constant", "dead-time", "integrating", "identified", "description"}
 AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous", "equation", "inferred"}
 PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table", "range", "inferred"}
@@ -922,9 +922,10 @@ class Compiler:
             if tol < 0:
                 self.err(f"{what}.tolerance: 0 or more", m.at("tolerance"), "bad-number")
             process = self.process(m, what) if m.get("process") is not None else None
+            per = self.per(spec, m, of, what)
             if of and hold:
                 spec.goals[name] = Goal(name, of, hold, tol, bool(m.get("critical")), self.text(m, "owner"),
-                                        self.system("goals", name, m), self.text(m, "description"), m.where, process)
+                                        self.system("goals", name, m), self.text(m, "description"), m.where, process, per)
         for name, m, what in self.named("agents"):
             self.keys(m, AGENT_KEYS, what)
             kind = m.get("kind")
@@ -1204,6 +1205,25 @@ class Compiler:
         import difflib
         near = difflib.get_close_matches(name, list(among), n=1)
         return f" (did you mean {near[0]}?)" if near else ""
+
+    def per(self, spec, m, of, what) -> str | None:
+        """A goal's ``per:`` (SPEC §8): ``item`` or a field, on a stock counted from items; else said, and None."""
+        per = m.get("per")
+        if per is None:
+            return None
+        st = spec.stocks.get(of.name) if of and of.kind == "stock" else None
+        s = next((x for x in (st.sensors.values() if st else ()) if x.items), None)
+        if not isinstance(per, str) or not per:
+            self.err(f"{what}.per: item, or the name of a field of its items", m.at("per"), "goal-per")
+        elif s is None:
+            self.err(f"{what}.per: held per item or group only on a stock counted from items (an items: sensor)",
+                     m.at("per"), "goal-per")
+        elif per == "item" and (s.items.get("measure") or "count") == "count":
+            self.err(f"{what}.per: item: each item counts one; hold each by its age with measure: oldest or age on "
+                     f"{of.name}'s sensor, or group them (per: a field)", m.at("per"), "goal-per")
+        else:
+            return per
+        return None
 
     def process(self, m: Map, what: str) -> dict | None:
         """A goal's ``process:``: the loop's process, from what its controller moves to what the goal

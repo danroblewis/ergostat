@@ -1399,9 +1399,29 @@ goals:
 | `critical` | bool | false | It guards against a cascade or an accumulating failure: watched for decay |
 | `owner` | string | none | Who answers for it |
 | `process` | map | none | The loop's process, from what its controller moves (u) to what the goal holds (y), as control engineering writes it: `gain` (y per u), `time-constant` and `dead-time` (durations): P(s) = K e^(−θs)/(τs + 1); or `integrating: true`, `gain` per hour and `dead-time`: P(s) = k e^(−θs)/s. `identified:` says it was accepted from an identification (when, how, on how much record); without it, it is declared (section 12d) |
+| `per` | `item`, or a field | none | On a stock counted from items (an `items:` sensor): held by each item (`item`, by its own measure: its hours in its state for `measure: oldest`, since first seen for `age`), or by each group of the items by what a field holds (a relation such as `parent`: each id it names; an item with nothing there is in no group): each group's count, oldest or age. Below |
 | `system`, `description` | | | |
 
 A goal exists whether or not anything serves it. A goal nothing serves is **missing feedback**.
+
+**Per item or per group.** "No ticket in review older than two days", and "each epic's open tickets at most 10":
+
+```yaml
+stocks:
+  review-age: {unit: hours, sensor: {items: ticket, state: review, measure: oldest}}
+  open-tickets: {unit: tickets, sensor: {items: ticket, state: [todo, doing, review]}}
+goals:
+  review-fresh: {stock: review-age, hold: "<= 48", per: item}
+  epics-small: {stock: open-tickets, hold: "<= 10", per: parent}
+```
+
+The goal is still about one stock. Its value is the worst item's or group's (for `<=`, the greatest), worked out from
+the item index each time the stock's sensor reads, and as it stood at any moment the pages travel to; it is off while
+any breaks the setpoint (its `tolerance` as usual), and its `loop.off` names those that do (`breaking`: the worst
+20, each `{item}` or `{group}` with its `value`; `breaking_n`, how many). The loop's panel and "needs attention" list
+them. A group is only what its items name: an epic with no open ticket is no group, so `>=` per group sees only the
+groups that have items. `check` refuses `per:` on a goal not on a stock counted from items, and `per: item` on a
+count (**goal-per**).
 
 ## 9. Blocks
 
