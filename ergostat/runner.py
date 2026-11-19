@@ -29,6 +29,7 @@ import time
 from pathlib import Path
 
 from . import state as st
+from .reports import crash as reports_crash
 
 RUN_TIMEOUT = 300.0
 OWN_TYPES = ("agent.", "loop.", "valve.", "controller.", "model.", "ergostat.", "auxiliary.", "variable.")   # no agent may publish these
@@ -410,6 +411,7 @@ class Runner:
                 r = run_agent(self.p, agent, trig, version=version)
             except Exception as e:                       # one agent failing never stops the rest
                 self.say(f"{name}: {type(e).__name__}: {e}")
+                reports_crash.noted(self.p, e, "runner")     # drafted as a report for the owner (SPEC §12m)
                 continue
             finally:
                 self.busy.discard(name)
