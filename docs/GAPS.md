@@ -39,12 +39,16 @@ review). Newest decisions from the owner first within each section.
 
 - **One-line modelling loop** (open): `use: modelling` instead of about 150 lines copied into each example; a
   model built by an agent gets the improvement loop by default.
-- **Built-in join** (open): move a parent item once all its sub-items reach a state (fork-join); today it
-  takes a join block or an auxiliary. Found again writing `docs/MODELLING-WELL.md` (2026-11-18): the join is the
-  last child's run, under a lock of its own, recording its own event with `event --add` (a printed line may not be
-  visible yet to the next sibling's run, reading through another process) and counting siblings by a field, since a
-  sibling still leased does not show its new state. A join stock also needs a goal and a block that reads it, or
-  coherence reports `waiting-without-goal`, though no block of its own works it.
+- **Built-in join** (open; relations make it a rule over `parent`/`children`): move a parent item once all its
+  children reach a state (fork-join). Relations (in progress, `relations`) now say which items are a parent's
+  children, both ways, from the item index, so the join is a rule on the kind (`join: {children: parent, all: done,
+  to: shipped}`, say) rather than a block that lists and matches items itself (`examples/roadmap/bin/epics.py`
+  does it today). Left: the rule's shape, when it fires (on each child's move, from the index), and the parent's
+  `entering` counted like any other move.
+- **Relations, what is left** (in progress, `relations`): the Graph and Timeline read relations as they stand now
+  (time travel does not reach them) and are not in a snapshot; the projection does not level resources (a
+  block's `pool`); `ticket-factory` does not record Jira's links yet; the Process view does not draw relations.
+
 - **Craft findings in `check`** (open; from `docs/MODELLING-WELL.md`): `check` is silent on a part with no
   `description`, a stock with no `unit`, a flow between stocks with no equation, a `process:` with no `identified:`,
   a sensor (a collector) with no description, and event types of one kind in mixed forms. Each is a review-checklist

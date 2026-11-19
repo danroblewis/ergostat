@@ -1899,7 +1899,7 @@
         },
         "fold": {
           "type": "object",
-          "description": "How each field folds the plain data its events carry: replace (the default), append (to a list), sum, min, max, union (a set, kept as a sorted list), merge (a deep merge of objects), first (keep the first value)",
+          "description": "How each field folds the plain data its events carry: replace (the default), append (to a list), sum, min, max, union (a set, kept as a sorted list), merge (a deep merge of objects), first (keep the first value, relation (a set of item ids: ids added, or {set, add, remove}))",
           "additionalProperties": {
             "enum": [
               "replace",
@@ -1909,12 +1909,73 @@
               "max",
               "union",
               "merge",
-              "first"
+              "first",
+              "relation"
             ]
           }
         },
         "lease": {
           "$ref": "#/$defs/lease_terms"
+        },
+        "relations": {
+          "type": "object",
+          "description": "Its typed relations to other items (SPEC section 5a, Relations): each a field holding the ids it names, folded as a set. A kind, a list of kinds, or {kind, precedence, inverse, group}. blocked_by, after and depends_on are precedence (the item is ready once each item it names is finished); parent is a group. Never enforced",
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_-]*$"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ]
+                  },
+                  "precedence": {
+                    "type": "boolean",
+                    "description": "Its targets come first: the item is ready once each is finished"
+                  },
+                  "inverse": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_-]*$",
+                    "description": "The other direction's name, derived (blocks, children)"
+                  },
+                  "group": {
+                    "type": "boolean",
+                    "description": "A parent: the Graph view hangs its children off it"
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
         }
       }
     },
@@ -2578,6 +2639,10 @@
         },
         "where": {
           "type": "object"
+        },
+        "unblocked": {
+          "type": "boolean",
+          "description": "Only items whose precedence relations name only finished items, the critical first (SPEC section 5a, Relations)"
         }
       }
     }

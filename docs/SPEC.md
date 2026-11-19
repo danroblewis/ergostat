@@ -590,6 +590,7 @@ items:
 | `show` | list of field names | none | Columns for the Items page and `ergostat item` |
 | `formats` | map of field → format | by extension | How a file a field names is shown: `image`, `markdown`, `code`, `text`, `json`, or `claude-session` (a Claude Code transcript, as the conversation; its lines are also recorded as events, below) |
 | `fold` | map of field → rule | `replace` | How the plain `data` of its events folds into each field (the rules below) |
+| `relations` | map of name → kind(s) | none | Its typed relations to other items, each a field holding the ids it names (*Relations*, below) |
 | `system`, `description` | | | |
 
 **Changesets.** An item's fields are one JSON document, and every event about it is a changeset
@@ -626,6 +627,7 @@ and MCP's `record_event` say at once when a patch they recorded changed nothing.
 | `union` | a set of the values given (a list given is each of its values), kept as a sorted list |
 | `merge` | an object, each object given deep-merged into it (an object's keys merged, anything else replaced) |
 | `first` | the first value given, kept |
+| `relation` | a set of item ids, kept as a sorted list: an id or a list of ids is added; `{"add": ..., "remove": ..., "set": ...}` says it outright (`set` first, the whole set, as a collector mirroring another system's links says it; then `add`, then `remove`). Anything but ids is refused. A relation's field folds by it unless `fold:` says `union` or `replace` |
 
 **History.** Every change is kept, per path, in order: when, by which event (its id and type),
 the operation (with its rule, or `patch` or `set`), the path, and the value before and after. A
@@ -636,6 +638,84 @@ history disclosure, each change linked to its event; `/api/items/ID`, each field
 changes and how many there were, all with `history=all`). An item can be read as it stood at any
 time (`--at`, the pages' time travel): its fields, its state and its history are folded from
 the events up to then.
+
+**Relations.** An item may name other items: a ticket blocked by another, a ticket's epic, a duplicate. A kind
+declares its relations, each a field of the item holding the ids it names, of the kinds it says (any kinds:
+cross-kind is the usual case):
+
+```yaml
+items:
+  epic:
+    id: epic/*
+    states: [planned, underway, shipped]
+    relations:
+      after: epic                           # precedence: it follows the epic it names
+  ticket:
+    id: ticket/*
+    states: [todo, doing, review, done]
+    relations:
+      blocked_by: ticket                    # a kind, or a list of kinds
+      parent: epic                          # a group
+      duplicates: {kind: [ticket, epic], inverse: duplicated_by}
+      relates_to: {kind: ticket, precedence: false}
+messages:
+  done: {ticket: [done], epic: [shipped]}   # what each kind counts as finished (else as the item index says)
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `kind` | a kind, or a list | required | The kinds it may name (the short form, `blocked_by: ticket`, is only this) |
+| `precedence` | true or false | true for `blocked_by`, `after`, `depends_on` | Its targets come first: the item is **ready** only once each item it names is finished |
+| `inverse` | a name | `blocks`, `before`, `dependents`, `children`, `duplicated_by`, `related_from`; else `NAME_of` | The other direction's name. Never written: ergostat derives it |
+| `group` | true or false | true for `parent` | A parent: the Graph view hangs its children off it, and the critical path treats it as their summary |
+
+A relation is a field like any other: events add and take away links as they change fields (`"data": {"blocked_by":
+"ticket/12"}`, `{"blocked_by": {"remove": "ticket/12"}}`, a JSON Patch), and every change is in its history. The
+item index keeps every item's links both ways (one row per link, indexed by the item and by the id it names), so
+what an item names and what names it (the inverse: `blocks`, `children`) are both one lookup: an item's page lists
+them both ways, each related item with its state, and what it waits on first. A link to an id that was never
+recorded is kept, and said: what it names is not known to be finished.
+
+**Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:
+true}`, section 9.5) takes an item whatever it waits on: the record holds what happened. What relations are read
+for:
+
+- **Each item's status**, derived: *done* (in a state its kind counts as finished, `messages: done:`, else as the
+  item index says; never its first state, a state a block takes from, `leased` or `dead`); *active* (leased, or in a
+  working state: past its first, not one a block takes from, not finished); *queued* (started, and waiting in a later
+  state a block takes from, such as review); *blocked* (a precedence relation names an item not finished); *ready*
+  (in its first state, nothing it waits on unfinished); *dead* (a dead letter).
+- **Durations**: each kind's time per state, the median of the stays its latest 2,000 items made in it (`leased`, a
+  run's hold, counted as the work it is), weighted by how often a finished item visits the state (a rework state,
+  seldom). An item's expected duration is that of its states after its first that are not finished (the wait in
+  its first state is the schedule's to say); a started item's, what is left of its state and the states after it.
+  A kind with no stays yet takes the median of the kinds that have them, else ten minutes, said as assumed.
+- **The critical path** (the critical path method, Kelley and Walker): a forward pass over the unfinished items in
+  precedence order (each starts once what it waits on is expected to end; a started item now), a backward pass
+  from the last expected end, and each item's **slack**, how long it may slip without moving that end; the
+  critical items have none. A parent with unfinished children is their summary: what comes before it comes before
+  its children, what comes after it waits for all of them. Resources are not levelled: a block's `pool` is not in
+  the projection.
+- **The projected schedule**: each unfinished item's states ahead, from its earliest start, state by state.
+- **Cycles**: items whose precedence relations go round can never all be ready. Each cycle needs attention
+  (`ergostat`, the page's side panel), and is left out of the projection.
+
+Relations are read as they stand now: time travel (`--at`, the pages') reaches an item's fields, its relations
+among them, but not the Graph and the Timeline, which are drawn from the item index as it is.
+
+**The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
+group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
+(`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes):
+
+| View | What it shows |
+|---|---|
+| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; ready: ink; blocked: dashed, with how many it waits on; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status and says when the critical path is expected to end; a click opens the item |
+| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead from the forward pass (what is projected), a parent's a bracket over its children's span. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier by default, the finished kept as what happened |
+
+Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
+the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
+the window, 400 more reached by relations (six links away at most), 300 cards and 200 rows drawn; a note says when
+any was reached. In a snapshot they are not drawn.
 
 **Built-in kinds.** Six kinds are ergostat's own, present in every project and never declared (a project's
 kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every change to the model (section 12e),
@@ -1640,7 +1720,7 @@ blocks:
 
 | Key | On | Meaning |
 |---|---|---|
-| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values) |
+| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*) |
 | `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
@@ -1654,7 +1734,10 @@ changed in the model reaches the next lease.
 **Dispatch.** While nothing commands the block, or what commands it is on (a `goal:` on it gates
 it, as on any machine block), every item of its kind in a state of `at`, not held, not put off, and
 matching `where`, is leased to a new run, oldest first (by when it entered its state), while the
-leases its runs hold are fewer than its `pool`. ergostat looks whenever the record has something new,
+leases its runs hold are fewer than its `pool`. With `unblocked: true`, an item a precedence relation says waits on
+an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
+slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The kind must have a
+precedence relation. ergostat looks whenever the record has something new,
 so a run starts as soon as its item reaches its state, and every second besides. A block that takes
 items has no `every:` or `cron:`: its items start it. A kind taken by a block gains two states, when
 it does not list them: `leased`, after the first `at` state, and `dead`, last.

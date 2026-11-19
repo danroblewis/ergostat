@@ -70,3 +70,15 @@ class Ready:
     def of(self, kind: str) -> list:
         """A kind's items kept, the latest first (as ``items.project`` lists them)."""
         return sorted(self.items.get(kind, {}).values(), key=lambda i: -i.last)
+
+
+def unblocked(d, b, got: list) -> list:
+    """The hook for ``takes: {unblocked: true}`` (SPEC §9.5): of the items a block may take (``Dispatcher.ready``, in
+    its order), those whose precedence relations name only finished items, the critical first
+    (``precedence.order_ready``). Any other block's are as they were."""
+    if not got or not getattr(b.takes, "unblocked", False):
+        return got
+    import time
+
+    from ..precedence import order_ready
+    return order_ready(d.p.events, d.spec, b.takes.kind, got, time.time())
