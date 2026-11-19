@@ -104,7 +104,7 @@ def _relation_ops(key: str, path: str, has: bool, cur, value) -> list[dict]:
     says it; then ``add``, then ``remove``)."""
     if has and cur is not None and not isinstance(cur, list):
         raise PatchError(f"{key}: a relation is a list of ids, and it holds {type(cur).__name__}")
-    members = list(cur or [])
+    members = list(_ids(key, cur)) if cur else []        # (a patch or a set may have put anything there)
     if isinstance(value, dict):
         bad = [k for k in value if k not in RELATION_KEYS]
         if bad or not value:

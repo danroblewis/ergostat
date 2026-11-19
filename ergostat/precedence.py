@@ -10,8 +10,8 @@ index (its links, both ways, and its moves); nothing is declared for it but the 
 - **Durations.** Each kind's time per state, the median of every stay its latest items made in it (``leased``, a
   run's hold, counted as the work it is), weighted by how often its items visit the state. An item's expected
   duration is that of every state after its first that is not finished (the wait in its first state is the
-  schedule's to say, not the item's); a started item's is what is left of its state and the states after it. A kind with no stays yet takes the median of the kinds that
-  have them, else ``ASSUMED``, said as assumed.
+  schedule's to say, not the item's); a started item's is what is left of its state and the states after it. A
+  kind with no stays yet takes the median of the kinds that have them, else ``ASSUMED``, said as assumed.
 - **The critical path** (CPM: Kelley and Walker's critical path method): a forward pass over the unfinished items
   in precedence order (each starts once its unfinished predecessors are expected to end; an active one now), a
   backward pass from the last end, and each item's slack, how long it may slip without moving the end. The
