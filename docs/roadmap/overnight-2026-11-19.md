@@ -75,9 +75,13 @@ possible, without check-ins. Check-ins are replaced by gates written down in adv
 - 03:30 triggers' second review failed (loops of 5+ blocks run forever; a full table scan per hop stalls the engine): split. Scheduled causes and the join land as `causes-join`; `on:` triggers parked.
 - 03:35 smallgaps review: merge after fixes. The light-theme colours pass 3:1 but blur together (gold and olive, orange and the warning colour): the colour commit is dropped and the gap reopened for a design pass.
 - 03:50 resilience's re-review failed narrowly (the fallback never keeps AI models with prompt files; the alarm pool can leak threads; `#!` launcher parsing). One final 45-minute round allowed (see Decisions taken); split if it fails.
+- 04:00 leasekill-only merged locally (66 lines), suites running. warm parked. selfimprove and redesign rebased and green (+2,662 and +1,921 lines, both before the budget); refinement reduced findings in no example, redesign fixed the planted ones. In review.
+- 04:20 resilience's final round fixed its three items but the fallback now mixes the kept YAML with include files on disk (a model that never existed): split. `resilience-core` (watcher, watchdog, alarms, caps, service) lands; the CLI fallback is parked.
+- 04:40 selfimprove + redesign review: seven blocking (a redesign could rewrite the owner's accept policy; a setpoint change passed as a rename; rule-tier rewiring without `rewires`; renames editing program files; a stuck redesign blocking the queue; redesigns run inside the web server, uncosted; installed builds lose checklists). Split: `modelling-core` (craft notes, use: modelling, renames with history, descriptions, redesign) lands after fixes; the rule tier's equations, event renames and chain copies are parked; redesign runs only when asked.
 
 ## Decisions taken (for the owner to confirm)
 
 - `ergostat run --service` keeps printing the unit by default, as recorded in cli-rounds.md; installing needs `--service --install` (the resilience branch had made install the default).
 - The light-theme contrast change is dropped, not merged: meeting 3:1 for the faded repeats forced every hue to one lightness. Reopened for a design pass (an outline or dash for the faded round, or alternating lightness).
 - The kill rule (two failed gates) was bent once for `resilience`: one final 45-minute round for three small, exact fixes, because its CLI fallback is what the owner's work laptop needs most. If it fails, it is split.
+- Redesign runs only when the owner asks (`when: ask` default); the automatic triggers are parked until a redesign on a large model succeeds (the-job's never compiled).
