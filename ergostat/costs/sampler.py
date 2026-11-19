@@ -190,8 +190,8 @@ class Tracker:
 class Sampler:
     """One thread that samples every run's process tree; it runs only while some run is tracked."""
 
-    def __init__(self, interval: float = INTERVAL):
-        self.interval = interval
+    def __init__(self, interval: float = INTERVAL, name: str = "ergostat-sampler"):
+        self.interval, self.name = interval, name
         self.lock = threading.Lock()
         self.runs: dict[int, Tracker] = {}
         self.thread: threading.Thread | None = None
@@ -205,7 +205,7 @@ class Sampler:
         with self.lock:
             self.runs[proc.pid] = t
             if self.thread is None or not self.thread.is_alive():
-                self.thread = threading.Thread(target=self._loop, name="ergostat-sampler", daemon=True)
+                self.thread = threading.Thread(target=self._loop, name=self.name, daemon=True)
                 self.thread.start()
         return t
 

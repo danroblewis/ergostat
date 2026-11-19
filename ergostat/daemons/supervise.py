@@ -23,7 +23,7 @@ from .work import Hands
 SOURCE = "ergostat"
 TICK = 0.2
 WRITE_EVERY = 2.0
-SAMPLER = Sampler(30.0)        # the daemons' CPU and memory, sampled every 30 s: one ps for all, not one a second
+SAMPLER = Sampler(30.0, "ergostat-daemon-sampler")   # the daemons' CPU and memory, every 30 s: one ps for all
 
 
 class Slot:
