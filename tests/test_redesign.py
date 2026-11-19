@@ -22,21 +22,16 @@ from ergostat.spec import read
 from ergostat.store import Project
 
 
-def _bench():
-    """The craft bench (``scripts/craft_bench.py``), loaded from its file: its thirteen disconnected stocks."""
+def thirteen(dest):
+    """The owner's 13 disconnected stocks, as the verification harness writes them (``scripts/self_improve_runs.py``)."""
     import importlib.util
     import sys
-    if "craft_bench" not in sys.modules:
-        f = Path(__file__).resolve().parent.parent / "scripts" / "craft_bench.py"
-        spec = importlib.util.spec_from_file_location("craft_bench", f)
-        m = importlib.util.module_from_spec(spec)
-        sys.modules["craft_bench"] = m                          # (its dataclasses look their module up by name)
-        spec.loader.exec_module(m)
-    return sys.modules["craft_bench"]
-
-
-def thirteen(dest):
-    return _bench().thirteen(dest)
+    if "self_improve_runs" not in sys.modules:
+        f = Path(__file__).resolve().parent.parent / "scripts" / "self_improve_runs.py"
+        spec = importlib.util.spec_from_file_location("self_improve_runs", f)
+        sys.modules["self_improve_runs"] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sys.modules["self_improve_runs"])
+    return sys.modules["self_improve_runs"].thirteen(dest)
 
 PIECES = """\
 name: t
@@ -207,7 +202,7 @@ def test_the_verdict_is_mixed_when_a_measure_gets_worse_and_lost_behaviour_count
 
 
 def test_the_thirteen_disconnected_stocks_are_chained_by_one_change_set(tmp_path):
-    defects = thirteen(tmp_path / "thirteen")
+    chained = thirteen(tmp_path / "thirteen")
     p = Project(mdl.load(tmp_path / "thirteen"))
     states = [f"s{i:02d}" for i in range(1, 14)]
     edits = [{"part": f"flow.{s}-worked", "set": {"to": f"{states[i + 1]}-waiting"}, "why": f"items move on from {s}"}
@@ -224,7 +219,7 @@ def test_the_thirteen_disconnected_stocks_are_chained_by_one_change_set(tmp_path
     assert after.spec.flows["s01-worked"].target is None
     pr.accept(p, got["id"], {"at": 0, "window": 600}, by="owner")
     p.model = mdl.load(tmp_path / "thirteen")
-    assert defects[0].repaired(p.model.spec, tmp_path / "thirteen")
+    assert chained(p.model.spec)
     _, problems = read(p.model.path)
     assert not sc.findings(problems)
 
