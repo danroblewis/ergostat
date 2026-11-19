@@ -103,21 +103,37 @@ def _luminance(lab: list[float]) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
-def test_dark_theme_correspondence_colours_stand_3_to_1_on_the_paper():
-    """WCAG's 3:1 for graphics: every correspondence colour in the dark theme, the hue and its repeats toward the ink
-    and toward the paper (colours.js's color-mix in oklab), against the dark paper."""
-    head, _ = split()
-    dark = dict(re.findall(r"(--[\w-]+):\s*([^;]+);", head.split("prefers-color-scheme: dark", 1)[1]))
-    js = (CSS.parent / "colours.js").read_text()
-    assert "${hue} var(--g-fade), var(--bg)" in js and "${hue} 62%, var(--ink)" in js
-    bg, ink, fade = _oklab(dark["--bg"].strip()), _oklab(dark["--ink"].strip()), float(dark["--g-fade"].strip(" %")) / 100
+def _low_contrast(theme: dict) -> list[str]:
+    """Each correspondence colour of a theme, the hue and its repeats toward the ink and toward the paper (colours.js's
+    color-mix in oklab), that stands under 3:1 on that theme's paper."""
+    bg, ink, fade = _oklab(theme["--bg"].strip()), _oklab(theme["--ink"].strip()), float(theme["--g-fade"].strip(" %")) / 100
     low = []
     for i in range(10):
-        hue = _oklab(dark[f"--g{i}"].strip())
+        hue = _oklab(theme[f"--g{i}"].strip())
         for step, lab in (("hue", hue), ("toward the ink", [0.62 * h + 0.38 * k for h, k in zip(hue, ink, strict=True)]),
                           ("toward the paper", [fade * h + (1 - fade) * p for h, p in zip(hue, bg, strict=True)])):
             ya, yb = _luminance(lab), _luminance(bg)
             ratio = (max(ya, yb) + 0.05) / (min(ya, yb) + 0.05)
             if ratio < 3:
                 low.append(f"--g{i} {step}: {ratio:.2f}")
+    return low
+
+
+def _themes() -> tuple[dict, dict]:
+    head, _ = split()
+    js = (CSS.parent / "colours.js").read_text()
+    assert "${hue} var(--g-fade), var(--bg)" in js and "${hue} 62%, var(--ink)" in js
+    light, dark = head.split("prefers-color-scheme: dark", 1)
+    return dict(re.findall(r"(--[\w-]+):\s*([^;]+);", light)), dict(re.findall(r"(--[\w-]+):\s*([^;]+);", dark))
+
+
+def test_dark_theme_correspondence_colours_stand_3_to_1_on_the_paper():
+    """WCAG's 3:1 for graphics, against the dark paper."""
+    low = _low_contrast(_themes()[1])
+    assert not low, low
+
+
+def test_light_theme_correspondence_colours_stand_3_to_1_on_the_paper():
+    """WCAG's 3:1 for graphics, against the light paper: the gold and the repeats toward the paper were 1.6:1 to 2.5:1."""
+    low = _low_contrast(_themes()[0])
     assert not low, low
