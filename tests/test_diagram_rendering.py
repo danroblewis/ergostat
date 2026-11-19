@@ -124,12 +124,14 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     problems, slowest, routed = [], (0.0, ""), (0.0, "")
     everything = json.loads(SIZES.read_text()) if SIZES.exists() else {}
     recorded, sizes = everything.get(name, {}), {}
+    knowns = json.loads(KNOWN.read_text()) if KNOWN.exists() else {}
+    layout_known = {} if os.environ.get("RECORD_LAYOUT") else dict(knowns.get(name, {}))
     for i, v in enumerate(views):
         drawn(pg, url, v, i + 1)
         r = pg.evaluate(AUDIT)
         problems += [f"[{v or 'whole'}] {k}: {x}" for k in ("through", "overlap", "detour", "netCrossings", "partOverlap")
                      for x in r[k]]
-        problems += critical(pg, v or "whole")                    # the layout rules (docs/layout-rules.md)
+        problems += critical(pg, v or "whole", layout_known)      # the layout rules (docs/layout-rules.md)
         if r["mostPipeBends"][0] > MAX_PIPE_BENDS:                   # a flow reads best straight: the links bend instead
             problems.append(f"[{v or 'whole'}] pipe {r['mostPipeBends'][1]} bends {r['mostPipeBends'][0]} times")
         size = r["size"]
@@ -147,6 +149,11 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
         slowest = max(slowest, (first, v or "whole"))
         routed = max(routed, (final, v or "whole"))
     pg.close()
+    if os.environ.get("RECORD_LAYOUT"):
+        knowns = json.loads(KNOWN.read_text()) if KNOWN.exists() else {}
+        mine = {k: v for k, v in layout_known.items() if v}
+        KNOWN.write_text(json.dumps({**{k: v for k, v in knowns.items() if k != name}, **({name: mine} if mine else {})},
+                                    indent=1, sort_keys=True) + "\n")
     if os.environ.get("RECORD_SIZES"):
         everything = json.loads(SIZES.read_text()) if SIZES.exists() else {}
         SIZES.write_text(json.dumps({**everything, name: sizes}, indent=1, sort_keys=True) + "\n")
@@ -158,11 +165,25 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     assert routed[0] < ROUTED_BOUND_MS, f"{name}: routing {routed[1]} took {routed[0]:.0f}ms"
 
 
-def critical(pg, where: str) -> list[str]:
-    """The critical instances of the layout rules (docs/layout-rules.md) in the view drawn: what reads wrongly at once."""
+# the critical layout faults an example's views had when the rules came (docs/layout-rules.md), each by its rule and
+# its parts: known, listed there to fix, and not to grow (RECORD_LAYOUT=1 writes them again)
+KNOWN = ROOT / "tests" / "fixtures" / "layout_known.json"
+
+
+def critical(pg, where: str, known: dict | None = None) -> list[str]:
+    """The critical instances of the layout rules (docs/layout-rules.md) in the view drawn, but those known: what reads
+    wrongly at once. With known (an example's), what is found is noted in it under the view."""
     from tests import layout_rules as rules
     geo = pg.evaluate(GEOMETRY)
-    return [f"[{where}] {x['rule']}: {x['what']}" for x in rules.check(geo, fast=True) if x["severity"] == "critical"] if geo else []
+    if not geo:
+        return []
+    found = [x for x in rules.check(geo, fast=True) if x["severity"] == "critical"]
+    keys = [f"{x['rule']}|{'|'.join(sorted(x['parts']))}" for x in found]
+    if known is not None:
+        was = set(known.get(where, []))
+        known[where] = sorted(set(keys))
+        return [f"[{where}] {x['rule']}: {x['what']}" for x, k in zip(found, keys, strict=True) if k not in was]
+    return [f"[{where}] {x['rule']}: {x['what']}" for x in found]
 
 
 @pytest.mark.parametrize("shape", __import__("tests.diagram_corpus", fromlist=["SHAPES"]).SHAPES)

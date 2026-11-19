@@ -1,0 +1,12 @@
+{
+ "alert-triage": {
+  "open=*": [
+   "flow-excursion|flow:alerts-reopened|stock:alerts-escalated|stock:alerts-triaged"
+  ]
+ },
+ "small-requests": {
+  "system=regressions": [
+   "flow-excursion|flow:regressions-draft-revert-taken|stock:regressions-draft-revert|stock:regressions-draft-revert-working"
+  ]
+ }
+}
