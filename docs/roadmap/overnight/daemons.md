@@ -80,8 +80,8 @@ a second, a shared daemon's failure said once (no `sensor.failed` per sensor), t
 shared across blocks, RUNTIME's state diagram, the guide's skeleton, and the work hand-out split into
 `daemons/work.py`.
 
-**Over budget: 932 net lines against 800.** Why: the fixes are each new behaviour, not rework of what was there: the
+**Over budget: 936 net lines against 800.** Why: the fixes are each new behaviour, not rework of what was there: the
 revival path (a CLI flag, an event the engine follows, the supervisor's revive), the whole-group kill on every way a
 daemon ends, the shared room across blocks (the dispatcher counts runs not yet held), the lease check and the
-locked hand-over loop, and push rate limiting, about 130 lines together. The size before the review was 798. Nothing
+locked hand-over loop, and push rate limiting, about 130 lines together; and, once `notify` landed, 4 lines so its interventions count a daemon given up (`alarm:daemon:NAME`). The size before the review was 798. Nothing
 was cut to fit: each piece closes a fault the reviewer reproduced or named.
