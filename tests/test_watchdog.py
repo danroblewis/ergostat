@@ -69,11 +69,11 @@ def test_a_wedged_sensor_pool_is_replaced_and_its_readings_asked_again(tmp_path)
     gate, calls = threading.Event(), []
     real = e._read_one
 
-    def wedged(s):
+    def wedged(s, *a):
         calls.append(s.series)
         if len(calls) == 1:
             gate.wait(60)                                 # held by something other than its command: never back
-        real(s)
+        real(s, *a)
     e._read_one = wedged
     try:
         e.start_all()

@@ -459,17 +459,17 @@ def test_a_snapshot_survives_html_in_the_record_and_odd_item_names(project):
     assert html.count("</script>") == html.lower().count("<script")
 
 
-def test_the_service_text_runs_this_repository_in_the_foreground(project):
+def test_the_service_text_runs_this_repositorys_watcher(project):
     import plistlib
 
     from ergostat import service
-    cmd = service.command(project.repo, ["--no-web"])
-    assert cmd[-4:] == [str(project.repo), "run", "--foreground", "--no-web"]
+    cmd = service.command(project.repo, ["--no-web"], "/opt/ergostat/bin/python")
+    assert cmd[-4:] == ["ergostat.watcher", "-C", str(project.repo), "--no-web"]
     plist = plistlib.loads(service.launchd("my repo", project.repo, cmd, project.dir).encode())
     assert plist["ProgramArguments"] == cmd and plist["Label"] == "local.ergostat.my-repo"
-    assert plist["KeepAlive"] == {"SuccessfulExit": False}                       # a stop on purpose stays stopped
+    assert plist["KeepAlive"] is True                    # the watcher always; it leaves an engine stopped on purpose
     unit = service.systemd("t", project.repo, cmd, project.dir)
-    assert "Restart=on-failure" in unit and "--foreground" in unit
+    assert "Restart=always" in unit and "ergostat.watcher" in unit
 
 
 def test_the_page_shares_one_estimate_per_moment(project, monkeypatch):

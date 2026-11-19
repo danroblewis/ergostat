@@ -16,11 +16,18 @@ suite holds them all to it (``tests/test_store_conformance.py``).
         every: 1h                      # how often the engine rolls up and forgets
       items:
         idle: 1d                       # an item with no event for this long is read from the item index, not kept folded in memory
+      logs:
+        block: 5MB                     # a block's log past this is cut to its last fifth, at its next run
+        run: 5MB                       # run.log past this is moved to run.log.1, at each start and every hour
+        threads: 1MB                   # threads.txt (kill -USR1's stacks) past this is cut to its last fifth
+        transcripts: 30d               # a transcript unchanged this long is forgotten by transcripts.json, never read again
 
 The defaults run on a laptop with no services."""
 
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -34,6 +41,8 @@ TIERS = ((60.0, 14 * 86400.0), (600.0, 90 * 86400.0), (3600.0, 730 * 86400.0))
 ROLLUP_AFTER = 7 * 86400.0
 EVERY = 3600.0
 ITEM_IDLE = 86400.0
+MB = 2**20
+LOGS = {"block": 5 * MB, "run": 5 * MB, "threads": MB, "transcripts": 30 * 86400.0}
 
 
 @dataclass
@@ -48,6 +57,7 @@ class Storage:
     rollup_kinds: dict[str, float] = field(default_factory=dict)
     every: float = EVERY
     item_idle: float = ITEM_IDLE                   # an open item untouched this long is not kept folded in memory
+    logs: dict[str, float] = field(default_factory=lambda: dict(LOGS))   # the caps on the logs (bytes; transcripts: s)
 
     def horizon(self, kind: str | None) -> float | None:
         """How old an item's events are before they are rolled up: its kind's, else the default."""
@@ -73,8 +83,8 @@ def parse(raw, problems: list[str]) -> Storage:
         problems.append("storage: a map (events:, measurements:, rollup:)")
         return s
     for k in raw:
-        if k not in ("events", "measurements", "rollup", "items"):
-            problems.append(f"storage: unknown key {k!r} (known: events, measurements, rollup, items)")
+        if k not in ("events", "measurements", "rollup", "items", "logs"):
+            problems.append(f"storage: unknown key {k!r} (known: events, measurements, rollup, items, logs)")
     ev = raw.get("events")
     if isinstance(ev, dict):
         ev = ev.get("backend")
@@ -140,7 +150,45 @@ def parse(raw, problems: list[str]) -> Storage:
                 problems.append(f"storage.items: unknown key {k!r} (known: idle)")
         if "idle" in it:
             s.item_idle = _dur(it["idle"], "storage.items.idle", problems) or ITEM_IDLE
+    lg = raw.get("logs")
+    for k, v in (lg.items() if isinstance(lg, dict) else ()):
+        if k not in LOGS:
+            problems.append(f"storage.logs: unknown key {k!r} (known: {', '.join(LOGS)})")
+        elif k == "transcripts":
+            s.logs[k] = _dur(v, "storage.logs.transcripts", problems) or LOGS[k]
+        else:
+            m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(KB|MB|GB)\s*", str(v), re.I)
+            if m:
+                s.logs[k] = float(m.group(1)) * 1024 ** ("KMG".index(m.group(2)[0].upper()) + 1)
+            else:
+                problems.append(f"storage.logs.{k}: a size, as 500KB, 5MB or 1GB")
+    if lg is not None and not isinstance(lg, dict):
+        problems.append("storage.logs: a map (block:, run:, threads:, transcripts:)")
     return s
+
+
+def trim(path: Path, most: float) -> None:
+    """A log past ``most`` bytes cut to its last fifth, from a line's start."""
+    try:
+        if path.stat().st_size > most:
+            with open(path, "rb") as f:
+                f.seek(-int(most // 5), 2)
+                tail = f.read()
+            path.write_bytes(tail[tail.find(b"\n") + 1:])
+    except OSError:
+        pass
+
+
+def rotate(path: Path, most: float) -> None:
+    """A log past ``most`` bytes copied to ``<name>.1`` (the one before replaced) and emptied in place, so whatever
+    has it open for appending writes on into the fresh one."""
+    try:
+        if path.stat().st_size > most:
+            import shutil
+            shutil.copyfile(path, path.with_name(path.name + ".1"))
+            os.truncate(path, 0)
+    except OSError:
+        pass
 
 
 def events_backend(cfg: Storage, directory: Path) -> str:

@@ -49,9 +49,11 @@ def cmd_run(args) -> int:
     from .. import runner
     if args.foreground and os.environ.get("ERGOSTAT_LOCK_FD") and not args.stop:
         _wait_for_a_model_that_runs(args)
-    p = open_project(args)
+    p = _stand_in(args) if args.stop or (args.service and args.uninstall) else open_project(args)
     pid = runner.running_pid(p)
     if args.stop:
+        from ..watcher import STOPPED
+        (p.dir / STOPPED).touch()                       # on purpose: the outer watcher leaves it stopped
         if not pid:
             print("not running")
             return 0
@@ -63,15 +65,11 @@ def cmd_run(args) -> int:
             time.sleep(0.1)
         print(f"{pid} did not stop within 10s; it still holds {runner.pid_file(p)}", file=sys.stderr)
         return 1
+    if (args.install or args.uninstall) and not args.service:
+        print("--install and --uninstall go with --service: ergostat run --service --install", file=sys.stderr)
+        return 2
     if getattr(args, "service", None):
-        from ..service import text
-        port = args.port
-        if not port and not args.no_web and runner.web_url(p):           # keep the page where it is now
-            port = int(runner.web_url(p).rsplit(":", 1)[1])
-        body, how = text(p, [*(["--no-web"] if args.no_web else []), *(["--port", str(port)] if port else [])], args.service)
-        print(body, end="")
-        print(c(how, "dim"), file=sys.stderr)
-        return 0
+        return _service(p, args)
     errors = [msg for lv, msg in mdl.check(p.model, warnings=False) if lv == "error"]
     if errors:
         print("the model has errors; fix them first (ergostat check):", file=sys.stderr)
@@ -95,8 +93,17 @@ def cmd_run(args) -> int:
         # not a failure: what was asked for (a runner here) is so; a service manager must not retry it
         print(f"already running ({runner.running_pid(p)}): one runner per repository", file=sys.stderr)
         return 0
+    from ..watcher import STOPPED
+    (p.dir / STOPPED).unlink(missing_ok=True)           # started: a stop on purpose is over
     stopping = []
     signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
+    from ..spec.watchdog import heartbeat, startup
+    heartbeat(p.dir, time.time())                       # this process's, before its slow start
+    started = startup(p.dir, lambda s: print(time.strftime("%H:%M:%S"), s, flush=True),
+                      lambda why: _restart_hard(p, args, why))   # a start that hangs (a lock held elsewhere): restarted
+    from ..storage import rotate, trim
+    rotate(p.dir / "run.log", p.storage.logs["run"])    # (storage: logs:) on every start, in the background or not
+    trim(p.dir / "threads.txt", p.storage.logs["threads"])
     import faulthandler
     stacks = open(p.dir / "threads.txt", "a")           # noqa: SIM115  (kill -USR1 PID: every thread's stack, here)
     faulthandler.register(signal.SIGUSR1, file=stacks, all_threads=True)
@@ -122,6 +129,7 @@ def cmd_run(args) -> int:
         print(f"running {len(r.queues)} agents", flush=True)
     from ..remote import refresh as remote_refresh
     remote_refresh.start(lambda: p)                     # remotes' models kept current: a new version reloads (SPEC §4c)
+    started.set()
     from .. import reload as rl
     watch = rl.Settled(p.model)                         # a change taken once the files settle, and only if it may run
     rl.write_state(p.dir, None)
@@ -192,6 +200,58 @@ def cmd_run(args) -> int:
     if reload and not stopping:                         # the same process, the new model (a stop asked meanwhile wins)
         _restart(p, args)
     return 0
+
+
+def _stand_in(args):
+    """For ``--stop`` and ``--service --uninstall``, which need only the state folder and the repository: with the files
+    broken, the folder found without the model."""
+    from types import SimpleNamespace
+
+    from ..projects import state_of
+    from ..store import Project
+    main = mdl.find(Path(args.C).resolve() if args.C else Path.cwd())
+    if main is not None:
+        try:
+            return Project(mdl.load(main.parent))
+        except Exception:
+            if (d := state_of(main)) is not None:
+                return SimpleNamespace(dir=d, repo=main.parent, model=None)
+    return open_project(args)                           # (which says what is wrong)
+
+
+def _service(p, args) -> int:
+    """``run --service``: the unit printed (the default), installed (``--install``) or removed (``--uninstall``)."""
+    from .. import runner, service
+    port = args.port
+    if not port and not args.no_web and runner.web_url(p):           # keep the page where it is now
+        port = int(runner.web_url(p).rsplit(":", 1)[1])
+    py = service.python()
+    if py is None and not args.uninstall:
+        print("no installed ergostat on PATH to run as a service (this one runs from a repository's .venv or a "
+              "temporary environment); install it first: uv tool install ergostat (or pipx), then ergostat run --service",
+              file=sys.stderr)
+        return 2
+    body, path, load, unload = service.text(p, [*(["--no-web"] if args.no_web else []),
+                                                *(["--port", str(port)] if port else [])], args.service, py or "")
+    if not (args.install or args.uninstall):
+        print(body, end="")
+        print(c(f"save it as {path}, then: {' && '.join(' '.join(x) for x in load)} (or: ergostat run --service "
+                f"--install)", "dim"), file=sys.stderr)
+        return 0
+    if path.exists():
+        service.run(unload)                             # (installed before: replaced)
+    if args.uninstall:
+        path.unlink(missing_ok=True)
+        print(f"removed {path}; ergostat runs here only when started (ergostat run)")
+        return 0
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+    wrong = service.run(load)
+    print(f"installed {path}: it keeps ergostat running here, restarted when it dies or freezes, and at login "
+          f"(ergostat run --service --uninstall removes it)")
+    for w in wrong:
+        print(f"  could not load it: {w}", file=sys.stderr)
+    return 1 if wrong else 0
 
 
 def _restart(p, args) -> None:
