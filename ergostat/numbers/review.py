@@ -31,6 +31,7 @@ from . import gate as gt
 from . import improve as im
 from . import leverage as lv
 from . import observe as ob
+from . import predict as pd
 from . import proposals as pr
 from . import simulate as sim
 from . import structural as stc
@@ -506,6 +507,7 @@ def effect(p, spec: Spec, xs: list[dict], at: float | None = None, base_leverage
             "horizon": horizon, "loops": loops, "charts": charts, "undrawn": undrawn,
             "fit_before": fit_b, "fit_after": fit_a, "valid": run_a.valid, "invalid": run_a.invalid,
             "operational": operational(after, refs, proj_b, proj_a, grid.until, horizon) if proj_a else [],
+            "predicts": pd.stated(after, refs, proj_b, proj_a, grid.until, horizon, loops) if proj_a else None,
             "leverage": lev}
 
 

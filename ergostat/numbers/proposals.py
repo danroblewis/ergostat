@@ -739,6 +739,12 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
         shown = diff_of(x, p.model.path.parent)
         if shown.get("hash") != expect:
             raise ProposalError("the files have changed since the diff was shown: look at it again before accepting")
+    if x.get("kind") in ("parameter", "equation", "structure"):     # what it predicts, held against what happens (predict.py)
+        try:
+            from .predict import of_change
+            x["predicted"] = of_change(p, p.model.spec, x, snap.get("at"))
+        except Exception:                                            # a prediction is a help, never a reason to refuse
+            x["predicted"] = None
     ft.record(p, fit_before, snap["window"], force=True)             # the version it leaves, as it fitted at the end
     for f, text in new_text.items():
         Path(f).write_text(text, encoding="utf-8")
