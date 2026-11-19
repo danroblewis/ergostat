@@ -285,8 +285,13 @@ def crops(out: Path, worst: list[dict], port: int) -> None:
                         clip["width"] = max(40, min(VIEWPORT["width"] - clip["x"], (x1 - x0 + 2 * pad) * k))
                         clip["height"] = max(40, min(VIEWPORT["height"] - clip["y"], (y1 - y0 + 2 * pad) * k))
                         path = out / "crops" / f"{inst['rule']}--{model}--{inst['view']}--{n}.png"
-                        pg.screenshot(path=str(path), clip=clip)
-                        inst["crop"] = str(path.relative_to(out))
+                        try:
+                            if clip["x"] >= VIEWPORT["width"] - 40 or clip["y"] >= VIEWPORT["height"] - 40:
+                                raise ValueError("off the screen")
+                            pg.screenshot(path=str(path), clip=clip)
+                            inst["crop"] = str(path.relative_to(out))
+                        except Exception as e:      # (beyond the screen at the fitted zoom: no crop)
+                            inst["crop_error"] = str(e).splitlines()[0][:80]
                     pg.close()
                 finally:
                     proc.terminate()

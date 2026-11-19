@@ -18,6 +18,17 @@ function orientValves(lay, g) {
   const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
   const mid = (c) => ({ x: c.x + c.width / 2, y: c.y + c.height / 2 });
   const turned = [];
+  // a cloud's words (where the flow comes from, or goes on to) beyond it, away from its valve: never on its pipe
+  for (const e of g.edges.filter((x) => x.kind === "pipe")) {
+    const [cl, v] = box[e.source]?.labels?.length && e.source.startsWith("cloud:") ? [box[e.source], box[e.target]]
+      : box[e.target]?.labels?.length && e.target.startsWith("cloud:") ? [box[e.target], box[e.source]] : [];
+    if (!cl || !v) continue;
+    const a = mid(cl), b = mid(v), dx = b.x - a.x, dy = b.y - a.y;
+    for (const l of cl.labels) {
+      if (Math.abs(dy) >= Math.abs(dx)) { l.x = (cl.width - l.width) / 2; l.y = dy > 0 ? -l.height - 2 : cl.height + 2; }
+      else { l.y = (cl.height - l.height) / 2; l.x = dx > 0 ? -l.width - 4 : cl.width + 4; }
+    }
+  }
   for (const n of g.nodes) {
     if (n.kind !== "valve" && n.kind !== "disturbance") continue;
     const c = box[n.id];
@@ -43,14 +54,18 @@ function orientValves(lay, g) {
         const m = mid(o);
         return { way, upright: stacked, off: stacked ? Math.abs(m.x - me.x) : Math.abs(m.y - me.y), d: stacked ? m.y - me.y : m.x - me.x };
       }).filter(Boolean).sort((p, q) => p.off - q.off);
+    let inLineEnd = null;
     if (inLine.length && Math.abs(inLine[0].d) > c.height && !(inLine.length > 1 && inLine[1].upright !== inLine[0].upright && inLine[1].off < inLine[0].off + 1)) {
       vertical = inLine[0].upright;
+      inLineEnd = inLine[0];
       if (vertical) dy = inLine[0].way * inLine[0].d;  // (the flow runs toward its out end, away from its in end)
     }
     // level: right to left only when what flows in lies right of it and what it flows to does not (a
     // flow back, with the valve between its ends); a valve beyond both ends stays as it reads, left to right
     const back = a ? a.x > me.x + 2 && (!b || b.x < me.x - 2) : b && b.x < me.x - 2;
-    const flow = vertical ? (dy > 0 ? "down" : "up") : back ? "left" : "right";
+    let flow = vertical ? (dy > 0 ? "down" : "up") : back ? "left" : "right";
+    if (inLineEnd && !vertical)                              // (level by the end in line with it: toward it if it is where the flow goes)
+      flow = (inLineEnd.way === 1) === (inLineEnd.d < 0) ? "left" : "right";
     const peers = g.edges.filter((e) => e.kind !== "pipe" && (e.target === n.id || e.source === n.id))
       .map((e) => box[e.target === n.id ? e.source : e.target]).filter(Boolean).map(mid);
     const most = (f) => peers.length > 0 && peers.filter(f).length > peers.length / 2;
@@ -58,9 +73,9 @@ function orientValves(lay, g) {
     c.turn = { flow, stem };
     c.stems = { level: most((q) => q.y > me.y + 10) ? "down" : "up", vertical: most((q) => q.x > me.x + 10) ? "right" : "left" };
     n.flip = !vertical && stem === "down";
+    placeLabels(c, lay.children, stem, vertical);             // (as laid out too: it may have been turned before)
     if (flow === "right" && stem === "up") continue;           // as laid out
     turned.push(n.id);
-    placeLabels(c, lay.children, stem, vertical);
     for (const p of c.ports || []) {                          // ELK's ports, where the pins now are
       const side = /:(ctl|sense)$/.test(p.id) ? stem : /:in$/.test(p.id) ? SIDE_OF[flow] : /:out$/.test(p.id) ? flow : null;
       if (side) [p.x, p.y] = sidePoint(side, 0.5, c.width, c.height);

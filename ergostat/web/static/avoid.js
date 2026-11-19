@@ -66,8 +66,13 @@ function avoidCore(A) {
       const way = (cr, f) => {
         if (!cr.hasValidRoute()) return null;
         const p = cr.displayRoute().map((q) => [q.x, q.y]);
-        const on = (a, b) => Math.abs((b[0] - a[0]) * (f.y - a[1]) - (b[1] - a[1]) * (f.x - a[0])) < 2 * Math.hypot(b[0] - a[0], b[1] - a[1]) &&
-          f.x >= Math.min(a[0], b[0]) - 1.5 && f.x <= Math.max(a[0], b[0]) + 1.5 && f.y >= Math.min(a[1], b[1]) - 1.5 && f.y <= Math.max(a[1], b[1]) + 1.5;
+        const dist = (a, b) => {                        // (the router's nudging may move a stretch a few pixels off the point)
+          const L2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2, t = L2 ? Math.max(0, Math.min(1, ((f.x - a[0]) * (b[0] - a[0]) + (f.y - a[1]) * (b[1] - a[1])) / L2)) : 0;
+          return Math.hypot(f.x - (a[0] + t * (b[0] - a[0])), f.y - (a[1] + t * (b[1] - a[1])));
+        };
+        let near = Infinity;
+        for (let i = 0; i + 1 < p.length; i++) near = Math.min(near, dist(p[i], p[i + 1]));
+        const on = (a, b) => near <= 8 && dist(a, b) <= near + 1.5;
         const cand = [];
         for (let i = 0; i + 1 < p.length; i++) if (on(p[i], p[i + 1])) cand.push(i);
         if (!cand.length) return null;
@@ -98,13 +103,19 @@ function avoidCore(A) {
         }
         let again = false;
         corners.forEach(([cr, f], i) => {
-          if (costs[i][across] < costs[i][upDown]) { cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: across, departure: across }]); again = true; }
+          const best = Math.min(costs[i][across], costs[i][upDown]);
+          if (best === Infinity) { cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: D.ConnDirAll, departure: D.ConnDirAll }]); again = true; }
+          else if (costs[i][across] < costs[i][upDown]) { cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: across, departure: across }]); again = true; }
         });
         if (again) r1.processTransaction();
       }
       for (const [id, [cr, f]] of Object.entries(fc)) {
         const w = way(cr, f);
-        if (w) out[id] = w.dir;
+        if (!w) continue;
+        // (a valve faces either way along its axis: the way toward the far end, where that is clear)
+        const level = w.dir === "left" || w.dir === "right";
+        const d = level ? (f.tx ?? f.x) - f.x : (f.ty ?? f.y) - f.y;
+        out[id] = Math.abs(d) > 20 ? (level ? (d < 0 ? "left" : "right") : (d < 0 ? "up" : "down")) : w.dir;
       }
     } catch (e) { /* no first pass: each valve as it was turned */ }
     try { r1?.delete(); } catch (e) { /* gone */ }
@@ -417,7 +428,9 @@ function avoidSpec(lay, g) {
   for (const c of Object.values(box)) {
     if (!pinsBy[c.id] || S.pins?.["turn:" + c.id]) continue;
     const cin = conns.find((x) => x.t === c.id && edgeOf[x.id].kind === "pipe"), cout = conns.find((x) => x.s === c.id && edgeOf[x.id].kind === "pipe");
-    if (cin && cout) flows.push({ id: c.id, s: cin.s, sp: cin.sp, t: cout.t, tp: cout.tp, x: c.x + c.width / 2, y: c.y + c.height / 2 });
+    const far = box[cout.t] && { x: box[cout.t].x + box[cout.t].width / 2, y: box[cout.t].y + box[cout.t].height / 2 };
+    if (cin && cout) flows.push({ id: c.id, s: cin.s, sp: cin.sp, t: cout.t, tp: cout.tp, x: c.x + c.width / 2, y: c.y + c.height / 2,
+                                  tx: far?.x, ty: far?.y });
   }
   // (in the dynamics view a flow's pipe reads best short and straight: a crossing there costs less than a long way round)
   return { shapes, conns, flows, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length) * (conns.length > 150 ? 0.6 : 1)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };

@@ -471,8 +471,8 @@ def test_a_valve_dragged_over_its_stock_stands_upright_on_its_top(browser, tmp_p
             on = abs(end[1] - s[1]) < 2 and s[0] < end[0] < s[2] if side == "top" else abs(end[0] - s[2]) < 2 and s[1] < end[1] < s[3]
             assert on, f"{where}: the pipe meets the stock at {end}, not its {side} {s}"
             assert rules.bends(pipe["pts"]) == 0, f"{where}: the pipe zig-zags: {pipe['pts']}"
-            found = rules.check(g.geo, ["valve-orientation-mismatch"])
-            assert not [x for x in found if vid in x["parts"]], (where, found)
+            found = rules.check(g.geo, ["valve-orientation-mismatch"])     # (on its way into the stock: from the cloud
+            assert not [x for x in found if pipe["id"] in x["parts"]], (where, found)    # an elbow may be unavoidable)
         pg.close()
     assert not errors, errors
 
@@ -496,8 +496,9 @@ UPRIGHT = """async () => {
   const at = (id) => S.layout.children.find((c) => c.id === id);
   const st = at("stock:building"), v = at("flow:abandoned"), cl = at("cloud:abandoned:out");
   const cx = st.x + st.width / 2;
-  S.pins = { "stock:building": { x: st.x, y: st.y }, "flow:abandoned": { x: Math.round(cx - v.width / 2), y: st.y - 150 },
-             "cloud:abandoned:out": { x: Math.round(cx - cl.width / 2), y: st.y - 280 } };
+  // (close over it: what the layout put further up, a goal, would lie between the valve and its cloud)
+  S.pins = { "stock:building": { x: st.x, y: st.y }, "flow:abandoned": { x: Math.round(cx - v.width / 2), y: st.y - 100 },
+             "cloud:abandoned:out": { x: Math.round(cx - cl.width / 2), y: st.y - 170 } };
   await S.relayout();
   await S.layout.whenRouted;
   const gEdge = (le) => S.graph.edges.find((x) => x.id === le.id);
