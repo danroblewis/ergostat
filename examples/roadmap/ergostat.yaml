@@ -44,8 +44,13 @@ stocks:
   in-progress:
     unit: tickets
     system: delivery
-    description: being worked or reviewed
-    sensor: {items: ticket, state: [doing, review], every: 3s}
+    description: being worked
+    sensor: {items: ticket, state: doing, every: 3s}
+  in-review:
+    unit: tickets
+    system: delivery
+    description: worked, waiting for review or being reviewed
+    sensor: {items: ticket, state: review, every: 3s}
   epics-underway:
     unit: epics
     system: delivery
@@ -63,8 +68,13 @@ flows:
     to: in-progress
     system: delivery
     sensor: {items: ticket, entering: doing, over: 2m}
-  finished:
+  submitted:
     from: in-progress
+    to: in-review
+    system: delivery
+    sensor: {items: ticket, entering: review, over: 2m}
+  finished:
+    from: in-review
     system: delivery
     sensor: {items: ticket, entering: done, over: 2m}
   shipped:
@@ -74,7 +84,7 @@ flows:
 
 goals:
   in-review-clear:
-    stock: in-progress
+    stock: in-review
     hold: "<= 0"
     description: what is worked is reviewed, and nothing is left half done
   nothing-ready-waits:
@@ -95,7 +105,7 @@ blocks:
     run: python3 bin/work.py
     takes: {kind: ticket, at: todo, to: [review], unblocked: true}
     pool: 2
-    out: flow.started
+    out: [flow.started, flow.submitted]
     description: a stand-in that works a ticket for a few seconds; takes only unblocked tickets, the critical first
   reviewer:
     type: program
