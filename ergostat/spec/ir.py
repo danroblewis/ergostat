@@ -185,10 +185,12 @@ INBOX_MEASURES = {                 # what waits on a person (SPEC §12o)
                               "model changes",
     "ergostat.inbox.oldest": "hours the oldest of them has waited (0 when none waits)",
     "ergostat.inbox.asked": "how many were asked of a person over the last day: the approval budget",
+    "ergostat.interventions.waiting": "interventions waiting now: the inbox's entries and the alarms raised",
     "ergostat.interventions.per-day": "interventions over the last day (suppressed classes at their rate before)",
-    "ergostat.interventions.trend": "the interventions' trend: per day, per week, a weighted slope over the window",
+    "ergostat.interventions.trend": "a rise in the interventions per day the record shows beyond its noise: the lower "
+                                    "bound (slope - 2 SE) of their slope over the window, per day per week, or 0",
     "ergostat.interventions.standing": "entries waiting longer than notify's standing (default 24h)",
-    "ergostat.interventions.chattering": "classes intervening 3 or more times within 10 minutes over the last day",
+    "ergostat.interventions.chattering": "classes intervening 3 or more times within a minute over the last day",
     "ergostat.interventions.blocked-hours": "hours the interventions blocked their processes over the last day",
     "ergostat.interventions.top-share": "the share of the interventions over the window from the top class",
 }

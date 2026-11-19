@@ -102,6 +102,11 @@ def find(project, spec: Spec, window: float = WINDOW, now: float | None = None) 
             say("not-answering", f"block {b.name}: asked {human(now - e['time'])} ago ({b.params.get('ask', '')}), no answer; "
                 f"they report with ergostat block {b.name} --done N", b.where, f"block.{b.name}")
     n = getattr(spec, "notify", None)                    # the owner's own goals for what waits on them (SPEC §12o)
+    if n is not None and n.channels:
+        from ..inbox.deliver import failing
+        for ch in failing(project, spec):
+            say("notify-failing", f"notify channel {ch}: its last three messages failed (ergostat actions lists their "
+                "output); what they carried is tried again with the next", None, f"notify.{ch}")
     if n is not None and (n.wait_at_most or n.asks_per_day):
         from ..inbox import entries, stats
         for e in entries.entries(project, spec) if n.wait_at_most else []:

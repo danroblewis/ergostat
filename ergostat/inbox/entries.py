@@ -40,22 +40,37 @@ def _actions(p, spec, now: float) -> list[dict]:
             for a in record.stored(p, until=now).values() if a["state"] == "requested"]
 
 
+def asks(p, b, since: float | None = None, until: float | None = None) -> list[dict]:
+    """Each time a person block was asked (``person.asked``) or an advised block advised (``block.advised``): its
+    ``seq``, time and data, and when and how it was answered (a person's report; an approval or a denial), by whom. An
+    ask a newer one replaced before any answer is ``superseded``: one waits at a time, the newest."""
+    person = b.type == "person"
+    out: list[dict] = []
+    for e in p.events.query(n=None, item=b.name, since=since, until=until,
+                            type="person.asked,agent.ran" if person else "block.advised,block.approved,block.denied"):
+        if e["type"] in ("person.asked", "block.advised"):
+            if out and out[-1]["answered"] is None:
+                out[-1].update(answered=e["time"], verdict="superseded", by=None)
+            out.append({"seq": e["seq"], "time": e["time"], "data": e["data"], "answered": None, "verdict": None})
+        elif out and out[-1]["answered"] is None:
+            out[-1].update(answered=e["time"], by=e.get("source"),
+                           verdict="denied" if e["type"] == "block.denied" else "approved")
+    return out
+
+
 def _blocks(p, spec, now: float) -> list[dict]:
     out = []
     for b in spec.blocks.values():
         if b.type != "person" and b.mode != "advise":
             continue
-        person = b.type == "person"
-        asked = p.events.query(n=1, item=b.name, type="person.asked" if person else "block.advised", until=now)
-        if not asked or p.events.query(n=1, item=b.name, after_seq=asked[-1]["seq"], until=now,
-                                       type="agent.ran" if person else "block.approved,block.denied"):
+        last = asks(p, b, now - 30 * 86400.0, now)[-1:]
+        if not last or last[0]["answered"] is not None:
             continue
-        e, ask = asked[-1], str(b.params.get("ask") or "")
-        cmd = f"command {e['data'].get('command', 0):g}"
-        out.append({"id": f"{'person' if person else 'advise'}/{b.name}", "kind": "person" if person else "advise",
-                    "time": e["time"], "link": f"/diagram?view=blocks&around=block/{b.name}",
-                    "verbs": ["done"] if person else ["approve", "deny"],
-                    "class": f"{'person' if person else 'advise'}:{b.name}", "why": "",
+        x, person, ask = last[0], b.type == "person", str(b.params.get("ask") or "")
+        kind, cmd = ("person" if person else "advise"), f"command {x['data'].get('command', 0):g}"
+        out.append({"id": f"{kind}/{b.name}@{x['seq']}", "kind": kind, "block": b.name, "seq": x["seq"],
+                    "time": x["time"], "link": f"/diagram?view=blocks&around=block/{b.name}",
+                    "verbs": ["done"] if person else ["approve", "deny"], "class": f"{kind}:{b.name}", "why": "",
                     "summary": f"{b.name} is asked: {_cut(ask) or cmd}" if person else f"{b.name} advises its {cmd}"})
     return out
 

@@ -37,9 +37,9 @@ def post(live, path: str, q: dict) -> tuple[int, dict]:
 
 
 def inbox(p) -> dict:
-    from ..inbox import entries, stats
+    from ..inbox import stats
     spec = getattr(p.model, "spec", None)
-    return {"entries": entries.entries(p, spec), "classes": stats.by_class(p, spec) if spec is not None else {}}
+    return {"entries": stats.listing(p, spec), "classes": stats.by_class(p, spec)} if spec is not None else {"entries": []}
 
 
 def answer(live, path: str, q: dict) -> tuple[int, dict]:

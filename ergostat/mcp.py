@@ -319,14 +319,13 @@ class Server:
             from .inbox.answer import person_done
             return _text(person_done(p, spec, b, float(a["moved"]), a.get("note")))
         if name in ("inbox", "answer"):
-            from .inbox import answer, entries, stats
+            from .inbox import answer, stats
             if name == "answer":
                 try:
-                    return _text(answer.answer(p, spec, a["id"], a["verb"], a.get("n"), a.get("note")))
+                    return _text(answer.answer(p, spec, a["id"], a["verb"], a.get("n"), a.get("note"), by=stats.BY_AGENT))
                 except answer.AnswerError as e:
                     return {**_text(str(e)), "isError": True}
-            rec = stats.by_class(p, spec)
-            return _text(rec if a.get("stats") else [{**e, "record": rec.get(e["class"])} for e in entries.entries(p, spec)])
+            return _text(stats.by_class(p, spec) if a.get("stats") else stats.listing(p, spec))
         if name == "read_sensor":
             from .spec.ir import Ref
             of, _, sn = str(a["sensor"]).partition(".")

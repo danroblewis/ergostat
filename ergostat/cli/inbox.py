@@ -53,16 +53,16 @@ def cmd_inbox(args) -> int:
             return out_json(got)
         print(f"{got['id']}: {got['said']}")
         return 0
-    rec = stats.by_class(p, spec)
     if args.stats:
+        rec = stats.by_class(p, spec)
         from ..inbox import interventions as iv
         n, m, reqs = getattr(spec, "notify", None), iv.measures(p, spec), iv.requests_now(p)
         today = len(stats.asked_today(p, spec))
         if args.json:
             return out_json({"classes": rec, "asked_today": today, "budget": n and n.asks_per_day, "interventions": m,
                              "requests": reqs})
-        print(table(["CLASS", "ASKED", "APPROVED", "DENIED", "WAITING", "MEDIAN ANSWER"],
-                    [[k, r["asked"], r["approved"], r["denied"], r["waiting"],
+        print(table(["CLASS", "ASKED", "APPROVED", "DENIED", "BY AN AGENT", "WAITING", "MEDIAN ANSWER"],
+                    [[k, r["asked"], r["approved"], r["denied"], r["by_agent"], r["waiting"],
                       human(r["median"]) if r["median"] is not None else "-"] for k, r in rec.items()],
                     "nothing asked of a person this week"))
         print(c(f"\n{today} asked over the last day" + (f", budget {n.asks_per_day}" if n and n.asks_per_day else ""), "dim"))
@@ -76,13 +76,10 @@ def cmd_inbox(args) -> int:
             if r["suggest"]:
                 print(c(r["suggest"], "dim"))
         return 0
-    es = entries.entries(p, spec)
+    es = stats.listing(p, spec)
     if args.name:
         one = entries.find(p, spec, args.name)
-        es = [one] if one else []
-    for e in es:
-        if e["class"] in rec:
-            e.update(record=stats.record_said(rec[e["class"]]), suggest=rec[e["class"]]["suggest"])
+        es = [e for e in es if one and e["id"] == one["id"]]
     if args.json:
         return out_json(es)
     if not es:

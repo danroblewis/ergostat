@@ -15,11 +15,11 @@ class AnswerError(ValueError):
     pass
 
 
-def person_done(p, spec, b, n: float, note: str | None = None) -> str:
+def person_done(p, spec, b, n: float, note: str | None = None, ask: int | None = None) -> str:
     """A person block's report: they moved ``n`` along its flow (``ergostat block NAME --done N``)."""
     from ..spec.legacy import valve_name
     flows = [t.name for t in b.targets() if t.kind == "flow"]
-    run = p.events.add("agent.ran", item=b.name, source="person", data={"done": n, "note": note or ""})
+    run = p.events.add("agent.ran", item=b.name, source="person", data={"done": n, "note": note or "", **({"ask": ask} if ask else {})})
     if flows and n > 0:
         p.events.add("valve.opened", item=valve_name(spec, b.name, flows[0]), source=b.name, causedby=run["id"],
                      data={"amount": float(n), "flow": flows[0], **({"note": note} if note else {})})
@@ -44,17 +44,17 @@ def answer(p, spec, eid: str, verb: str, n: float | None = None, note: str | Non
         elif kind == "person":
             if n is None:
                 raise AnswerError("--done N: how much they moved")
-            said = person_done(p, spec, spec.blocks[key], float(n), note)
-        elif kind == "advise":
-            p.events.add("block.approved" if yes else "block.denied", item=key, source=by, data={"note": note or ""})
+            said = person_done(p, spec, spec.blocks[e["block"]], float(n), note, ask=e["seq"])
+        elif kind == "advise":                            # exactly the ask shown: a newer one is another entry
+            p.events.add("block.approved" if yes else "block.denied", item=e["block"], source=by,
+                         data={"note": note or "", "ask": e["seq"]})
             said = "approved: it runs with its latest command" if yes else "denied: its command is not run"
         elif kind == "steptest" or e.get("control"):
-            if kind == "steptest":
-                cp.OFFERED.setdefault(key, {k: v for k, v in en.offers(p)[key].items() if k != "time"})
-            said = (cp.accept(p, key, by=by) if yes else cp.dismiss(p, key, note))["status"]
+            x = {k: v for k, v in en.offers(p)[key].items() if k != "time"} if kind == "steptest" else None
+            said = (cp.accept(p, key, by=by, offer=x) if yes else cp.dismiss(p, key, note, offer=x, by=by))["status"]
         else:
             snap = {"at": time.time(), "window": 3600.0, "starts": p.events.first_time()}
-            said = (pr.accept(p, key, snap, by=by) if yes else pr.dismiss(p, key, note))["status"]
+            said = (pr.accept(p, key, snap, by=by) if yes else pr.dismiss(p, key, note, by=by))["status"]
     except (gate.GateError, cp.ProposalError, pr.ProposalError, KeyError) as x:
         raise AnswerError(str(x)) from None
     return {"id": e["id"], "kind": kind, "verb": verb, "said": said, "summary": e["summary"]}
