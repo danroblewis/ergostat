@@ -292,3 +292,112 @@ def test_an_unsigned_influence_of_an_exogenous_input_is_in_no_loop_and_not_repor
     s = spec(tmp_path, text + "auxiliaries:\n  mix:\n    exogenous: true\n")
     from ergostat.spec.findings import find
     assert not [p for p in find(s) if p.code == "unsigned-link"]
+
+
+DRAINED = """
+stocks:
+  inbox:
+    sensor:
+      manual: true
+flows:
+  arrivals:
+    to: inbox
+  processed:
+    from: inbox
+goals:
+  inbox-short:
+    stock: inbox
+    hold: "<= 20"
+blocks:
+  worker:
+    type: program
+    run: echo 1
+    in: {READ}
+    out: flow.{OUT}
+"""
+
+
+def test_a_machine_block_reading_its_goal_s_error_is_signed_by_what_it_moves(tmp_path):
+    # e = r − y falls as the inbox fills; a worker draining it acts the more, the further the inbox is over (−)
+    s = spec(tmp_path, DRAINED.replace("{READ}", "goal.inbox-short.error").replace("{OUT}", "processed"))
+    signs = {(x.source, x.target): x.sign for x in links(s)}
+    assert signs[("stock.inbox", "goal.inbox-short")] == -1
+    assert signs[("goal.inbox-short", "block.worker")] == -1
+    assert by_name(s)["inbox-short"].polarity == "B"
+    # a dispatcher filling up to the ceiling acts the more, the more room is left under it (+): balancing too
+    s = spec(tmp_path, DRAINED.replace("{READ}", "goal.inbox-short.error").replace("{OUT}", "arrivals"))
+    assert {(x.source, x.target): x.sign for x in links(s)}[("goal.inbox-short", "block.worker")] == 1
+    assert by_name(s)["inbox-short"].polarity == "B"
+    # the goal itself (being off) for a ceiling: −, so the drained queue is balancing whichever is read
+    s = spec(tmp_path, DRAINED.replace("{READ}", "goal.inbox-short").replace("{OUT}", "processed"))
+    assert by_name(s)["inbox-short"].polarity == "B"
+
+
+def test_a_machine_block_reading_an_error_through_a_cascade_or_two_ways_at_once(tmp_path):
+    # the outer block sets the inner goal's setpoint, which the inner worker fills toward: + all the way
+    s = spec(tmp_path, """
+stocks:
+  queue:
+    sensor:
+      manual: true
+  served:
+    sensor:
+      manual: true
+flows:
+  admitted:
+    to: queue
+  done:
+    from: queue
+    to: served
+goals:
+  served-enough:
+    stock: served
+    hold: ">= 100"
+  queue-full:
+    stock: queue
+    hold: "== 10"
+blocks:
+  outer:
+    type: program
+    run: echo 1
+    in: goal.served-enough.error
+    out: goal.queue-full
+  inner:
+    type: program
+    run: echo 1
+    in: goal.queue-full.error
+    out: flow.admitted
+  server:
+    type: program
+    run: echo 1
+    in: +stock.queue
+    out: flow.done
+""")
+    signs = {(x.source, x.target): x.sign for x in links(s)}
+    assert signs[("goal.queue-full", "block.inner")] == 1
+    assert signs[("goal.served-enough", "block.outer")] == 1
+    assert all(lp.polarity == "B" for lp in loops(s) if any(p.startswith("goal.") for p in lp.parts))
+    # a block whose outputs move the quantity both ways: not known which way it closes the gap
+    s = spec(tmp_path, DRAINED.replace("{READ}", "goal.inbox-short.error").replace("out: flow.{OUT}",
+                                                                                   "out: [flow.arrivals, flow.processed]"))
+    assert {(x.source, x.target): x.sign for x in links(s)}[("goal.inbox-short", "block.worker")] is None
+
+
+def test_a_built_in_block_reading_an_error_keeps_its_own_law(tmp_path):
+    # compare below 0 on a ceiling's error: on while over, commanding the worker that drains: balancing as written
+    s = spec(tmp_path, DRAINED.replace("""  worker:
+    type: program
+    run: echo 1
+    in: {READ}
+    out: flow.{OUT}""", """  over:
+    type: compare
+    in: goal.inbox-short.error
+    below: 0
+    out: block.worker
+  worker:
+    type: program
+    run: echo 1
+    in: block.over
+    out: flow.processed"""))
+    assert {(x.source, x.target): x.sign for x in links(s)}[("goal.inbox-short", "block.over")] == -1
+    assert by_name(s)["inbox-short"].polarity == "B"

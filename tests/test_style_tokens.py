@@ -79,3 +79,45 @@ def test_the_gate_catches_what_it_should():
         hit = bool(COLOUR.search(value) or (prop in ("font-size", "font") and literal_lengths(value)) or
                    (SPACING.match(prop) and literal_lengths(value)))
         assert hit == caught, decl
+
+
+def _oklab(hexc: str) -> list[float]:
+    def lin(c):
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (lin(int(hexc[i:i + 2], 16) / 255) for i in (1, 3, 5))
+    lms = [(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b) ** (1 / 3),
+           (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b) ** (1 / 3),
+           (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b) ** (1 / 3)]
+    m = ((0.2104542553, 0.7936177850, -0.0040720468), (1.9779984951, -2.4285922050, 0.4505937099),
+         (0.0259040371, 0.7827717662, -0.8086757660))
+    return [sum(a * x for a, x in zip(row, lms, strict=True)) for row in m]
+
+
+def _luminance(lab: list[float]) -> float:
+    L, a, b = lab
+    l_, m_, s_ = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, \
+        (L - 0.0894841775 * a - 1.2914855480 * b) ** 3
+    rgb = [4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_, -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
+           -0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076147010 * s_]
+    r, g, b = (min(max(c, 0.0), 1.0) for c in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def test_dark_theme_correspondence_colours_stand_3_to_1_on_the_paper():
+    """WCAG's 3:1 for graphics: every correspondence colour in the dark theme, the hue and its repeats toward the ink
+    and toward the paper (colours.js's color-mix in oklab), against the dark paper."""
+    head, _ = split()
+    dark = dict(re.findall(r"(--[\w-]+):\s*([^;]+);", head.split("prefers-color-scheme: dark", 1)[1]))
+    js = (CSS.parent / "colours.js").read_text()
+    assert "${hue} var(--g-fade), var(--bg)" in js and "${hue} 62%, var(--ink)" in js
+    bg, ink, fade = _oklab(dark["--bg"].strip()), _oklab(dark["--ink"].strip()), float(dark["--g-fade"].strip(" %")) / 100
+    low = []
+    for i in range(10):
+        hue = _oklab(dark[f"--g{i}"].strip())
+        for step, lab in (("hue", hue), ("toward the ink", [0.62 * h + 0.38 * k for h, k in zip(hue, ink, strict=True)]),
+                          ("toward the paper", [fade * h + (1 - fade) * p for h, p in zip(hue, bg, strict=True)])):
+            ya, yb = _luminance(lab), _luminance(bg)
+            ratio = (max(ya, yb) + 0.05) / (min(ya, yb) + 0.05)
+            if ratio < 3:
+                low.append(f"--g{i} {step}: {ratio:.2f}")
+    assert not low, low
