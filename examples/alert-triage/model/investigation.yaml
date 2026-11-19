@@ -1,0 +1,73 @@
+# The facets: each alert worth a look is investigated along three lines at once, a facet item each, opened by the
+# fan-out (citing their alert) and finished by the investigator; the run that finishes an alert's last facet moves
+# the alert on (the join). A coflow of the alerts: three facets for every alert fanned out.
+defaults:
+  system: investigation
+
+items:
+  facet:
+    id: facet/*
+    description: one line of inquiry into one alert - its logs, its deploys or its metrics
+    states: [open, done]
+    on:
+      facet.opened: open
+      facet.done: done
+    show: [alert, facet, finding]
+
+parameters:
+  facets-per-alert:
+    value: 3
+    unit: facets/alert
+    description: the lines of inquiry each alert gets (logs, deploys, metrics)
+  investigate-time:
+    value: 2s
+    estimate: true
+    description: how long one facet takes to investigate
+
+stocks:
+  open-facets:
+    unit: facets
+    description: facets opened, not investigated yet
+    sensor: {items: facet, state: open, every: 2s}
+  facets-investigated:
+    unit: facets
+    cumulative: true                  # every facet investigated so far: it never drains
+    description: facets investigated, with their findings
+    sensor: {items: facet, state: done, every: 2s}
+
+flows:
+  facets-opened:
+    to: open-facets
+    description: three facets for every alert fanned out (a coflow)
+    driven-by:
+      - cause: +flow.facets-opened-for
+        instant: true                 # the fan-out opens them as it moves the alert
+    equation: facets-per-alert * flow.facets-opened-for
+    sensor: {items: facet, entering: open, over: 10m}
+  facets-done:
+    from: open-facets
+    to: facets-investigated
+    description: facets investigated
+    driven-by: [+stock.open-facets]
+    equation: stock.open-facets / investigate-time
+    sensor: {items: facet, entering: done, over: 10m}
+
+goals:
+  facets-investigated:
+    stock: open-facets
+    hold: "<= 0"
+    tolerance: 0
+    description: every open facet is being investigated
+
+blocks:
+  investigate:
+    type: ai
+    agent: claude
+    description: looks into one facet and records its finding; the run that finishes an alert's last facet moves the alert on
+    goal: facets-investigated
+    in: [+stock.alerts-investigating]   # it also works off the alerts waiting on their facets
+    prompt: prompts/investigate.md
+    run: python3 bin/step.py investigate # the stand-in
+    takes: {kind: facet, at: open, to: [done]}
+    pool: 3
+    out: [flow.facets-done, flow.alerts-investigated]
