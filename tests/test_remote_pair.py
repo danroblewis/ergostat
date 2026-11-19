@@ -6,32 +6,17 @@ import json
 import os
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import time
 import urllib.request
 from pathlib import Path
 
-import pytest
+from tests.ports import free_ports
 
 PAIR = Path(__file__).resolve().parent.parent / "examples" / "remote-pair"
-PORTS = range(8796, 8800)                   # (8790 is the owner's; these are the pair's)
 
 
-def free_ports(n: int) -> list[int]:
-    out = []
-    for p in PORTS:
-        with socket.socket() as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)     # (as the server binds: a port just left is free)
-            try:
-                s.bind(("127.0.0.1", p))
-            except OSError:
-                continue
-        out.append(p)
-        if len(out) == n:
-            return out
-    pytest.skip("no two free ports in 8796-8799")
 
 
 def cli(d: Path, *args) -> subprocess.CompletedProcess:

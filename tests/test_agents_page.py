@@ -11,7 +11,6 @@ With ``RUNCOST_SHOTS=DIR`` it leaves screenshots of the page and the panel there
 from __future__ import annotations
 
 import os
-import socket
 import subprocess
 import sys
 import textwrap
@@ -20,6 +19,8 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+
+from tests.ports import free_port
 
 playwright = pytest.importorskip("playwright.sync_api")
 
@@ -79,16 +80,6 @@ for i in range(60):                                   # the last twenty hours, a
 """
 
 
-def free_port() -> int:
-    """One of 8791-8799 (8790 is the owner's)."""
-    for port in range(8791, 8800):
-        with socket.socket() as s:
-            try:
-                s.bind(("127.0.0.1", port))
-            except OSError:
-                continue
-            return port
-    pytest.skip("no free port in 8791-8799")
 
 
 @pytest.fixture(scope="module")

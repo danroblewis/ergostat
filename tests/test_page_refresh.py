@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import socket
 import struct
 import subprocess
 import sys
@@ -24,6 +23,8 @@ import zlib
 from pathlib import Path
 
 import pytest
+
+from tests.ports import free_port
 
 playwright = pytest.importorskip("playwright.sync_api")
 
@@ -44,16 +45,6 @@ OBSERVE = """() => {
 }"""
 
 
-def free_port() -> int:
-    """One of 8791-8799 (8790 is the owner's)."""
-    for port in range(8791, 8800):
-        with socket.socket() as s:
-            try:
-                s.bind(("127.0.0.1", port))
-            except OSError:
-                continue
-            return port
-    pytest.skip("no free port in 8791-8799")
 
 
 def transcript() -> str:

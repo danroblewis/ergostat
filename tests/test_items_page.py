@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import time
@@ -20,22 +19,14 @@ from pathlib import Path
 
 import pytest
 
+from tests.ports import free_port
+
 playwright = pytest.importorskip("playwright.sync_api")
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = "image-squeeze"
-PORTS = range(8791, 8800)      # kept clear of a page the owner has open on 8790
 
 
-def free_port() -> int:
-    for port in PORTS:
-        with socket.socket() as s:
-            try:
-                s.bind(("127.0.0.1", port))
-                return port
-            except OSError:
-                continue
-    pytest.skip("no free port in 8791-8799")
 
 
 def seed(d: Path, home: Path) -> None:
