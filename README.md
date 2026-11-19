@@ -204,7 +204,9 @@ item page's "Show the full history"), readings older than two days are kept as 1
 hourly buckets, and nothing older than `keep:` (30 days) is kept. The engine does this hourly;
 `ergostat compact` does it now. VictoriaMetrics can hold the readings instead. The `storage:`
 section ([SPEC §4b](docs/SPEC.md)) sets all of it; `scripts/loadtest.py` measures it on the demos run
-for days.
+for days. How a running ergostat works inside (the loop, the sensor pool, leases, the watchdog):
+[docs/RUNTIME.md](docs/RUNTIME.md). Many sensors or many items, served by one long-lived program instead of a
+process each: [docs/DAEMONS.md](docs/DAEMONS.md).
 
 ## The web page
 

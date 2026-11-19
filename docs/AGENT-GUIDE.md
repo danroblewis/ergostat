@@ -435,77 +435,23 @@ is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p):
 ## 3e. Many sensors, or many items: a daemon instead of a process each
 
 A `run:` sensor starts a process for every reading, and a `run:` block one for every run. That is right for a few;
-for many (a hundred sensors every few minutes, or items arriving faster than a process starts) write a **daemon**
-(SPEC §9.7): one long-lived process ergostat hands readings and runs to as JSON lines. Put the sensors that read
-the same system on one daemon under `daemons:` and name it from each (`sensor: {daemon: probes, every: 3m}`); give a
-program block `daemon:` instead of `run:`.
+for many (a hundred sensors every few minutes, items arriving faster than a process starts, a client slow to log
+in) write a **daemon** (SPEC §9.7): one long-lived process ergostat hands readings and runs to as JSON lines.
 
-Write it to these rules:
+**Before writing or changing one, read the skill's resource file `docs/skills/ergostat-author/daemons.md`** (beside
+the skill's SKILL.md wherever it is installed). It has the shapes (a sensor's own daemon; one shared daemon per
+outside service, with a kept session and batched reads; a push daemon; a block daemon taking items under leases),
+the protocol, the rules, a tested template for each shape, and the checklist to run before you call a daemon done.
+The rules in brief:
 
-- **Fail hard.** On anything you cannot handle (a broken line, a lost connection you cannot get back), exit non-zero.
-  ergostat restarts you with a back-off and says why; a daemon that limps on, half working, is worse.
-- **Tag every line** with the `run` or `request` it answers. An untagged line is dropped. End each run with exactly
-  `{"done": EXIT, "run": ID}`, `EXIT` a whole number.
-- **Heartbeat** when you may be quiet: print `{"heartbeat": true}` more often than the `heartbeat:` you declare, from
-  a thread of its own, so a daemon that is busy but alive is not restarted.
-- **Never block reading your standard input.** Read it on one thread and do the work on others: a daemon that stops
-  reading for `stdin-timeout` is restarted and an alarm raised.
-- **Honour `cancel`** within the grace (10 s): stop that run and say `done` for it, or the whole daemon is restarted.
-  On `stop` (or end of input), finish what you hold and exit.
-- **Keep each item's `env` to that item.** Pass it to what you start for the item (`env={**os.environ, **m["env"]}`);
-  never write it into your own environment, where the next item would find it.
-- Flush every line (`flush=True`, `python -u`); print nothing else on standard output (standard error is the log).
-
-A minimal sensor and block daemon in Python:
-
-```python
-#!/usr/bin/env python3
-import json, sys, threading, time
-
-lock = threading.Lock()
-def say(**line):
-    with lock:
-        print(json.dumps(line), flush=True)
-
-def beat():
-    while True:
-        say(heartbeat=True)
-        time.sleep(10)
-
-def work(m):                                   # one item, on a thread of its own
-    run = m["run"]
-    say(event="ticket.started", run=run)       # (about its item: an event line naming none)
-    ...                                        # the work; m["input"] is what a run gets, m["env"] its ERGOSTAT_*
-    say(event="ticket.done", run=run)
-    say(done=0, run=run)
-
-threading.Thread(target=beat, daemon=True).start()
-for line in sys.stdin:                         # the reader: never blocked by the work
-    m = json.loads(line)                       # (a broken line: this raises, and the daemon fails hard)
-    if m["op"] == "item":
-        threading.Thread(target=work, args=(m,)).start()
-    elif m["op"] == "read":                    # a sensor's reading ("queue-depth.main"), off the reader's thread
-        threading.Thread(target=lambda m=m: say(reading=read_depth(m["sensor"]), request=m["request"])).start()
-    elif m["op"] == "cancel":
-        ...                                    # stop that run, then say(done=1, run=m["run"])
-    elif m["op"] == "stop":
-        break
-```
-
-And a sensor daemon in shell, for readings that are one command each (with `jq`):
-
-```sh
-#!/bin/sh
-while IFS= read -r line; do
-  [ "$(echo "$line" | jq -r .op)" = read ] || { [ "$(echo "$line" | jq -r .op)" = stop ] && exit 0; continue; }
-  req=$(echo "$line" | jq -r .request)
-  n=$(ls /var/spool/queue | wc -l) || exit 1
-  printf '{"reading": %s, "request": "%s"}\n' "$n" "$req"
-done
-```
-
-(The shell one still starts `jq` and `ls` per reading; it saves only ergostat's own process start. Write the daemon
-in the language of the system it reads, with its client kept open, for the real saving.)
+- one daemon per outside service, so a failure takes down only that service's sensors;
+- never block the standard-input reader: work on other threads, print whole lines under one lock;
+- tag every line with its `run` or `request`; end each run with exactly `{"done": EXIT, "run": ID}`, an int;
+- honour `cancel` within 10 s; heartbeat at a third of the declared `heartbeat:`;
+- fail hard (exit non-zero) on what you cannot handle; answer `{"error": WHY}` for one reading you could not take;
+- an item's `env` goes to what you start for that item, never into the daemon's own environment;
+- done means: `check` passes, a pipe test by hand passes, a short run on a scratch copy records readings and
+  moves items with no restarts, and replaced `run:` sensors read the same.
 
 ## 4. Common mistakes
 

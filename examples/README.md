@@ -10,6 +10,7 @@ folder (each ignores what it writes), and their records in `~/.ergostat/` like a
 | [`plain-crontab`](plain-crontab/) | Two cron one-liners, no scripts | bare numbers, cron, `open_loop`, a disturbance named with its agent, the longest period that can hold |
 | [`talking-scripts`](talking-scripts/) | Scripts that print sentences, used unchanged | `parse`, valve `max`, open loops, a declared disturbance rate |
 | [`disk-space`](disk-space/) | One program, three roles | JSON lines, one agent filling sensor, controller and valve |
+| [`daemon-demo`](daemon-demo/) | Jobs worked by one long-lived program, and counted by another | block and sensor daemons (`docs/DAEMONS.md`): items under leases, eight at once in one process, cancel, heartbeat, no process per reading |
 | [`file-queue`](file-queue/) | A folder as a queue | loops in series, folding, answer and recovery times, a load agent |
 | [`git-hygiene`](git-hygiene/) | Branches pruned on a real repository | real git, event-triggered agents |
 | [`backups`](backups/) | Nightly backups and off-site copies | events between agents, `on`, a declared disturbance rate |
