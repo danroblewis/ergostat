@@ -429,10 +429,15 @@ def _answer(live: Live, path: str, q: dict):
                     if e["type"] in ("agent.ran", "agent.failed")]
             from ..runner import log_path
             log = log_path(p, name)
+            from ..costs import record as costs
             return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:],
                     "log": _tail(log, 40), "log_path": str(log),
-                    "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name]}
-        return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n]} for n, a in snap["agents"].items()}
+                    "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
+                    "use": costs.of_block(p, name, snap["at"] - snap["window"], snap["at"])}   # what its runs cost (§9.1)
+        from ..costs import record as costs
+        use = costs.per_block(p, snap["at"] - snap["window"], snap["at"])
+        return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n], **({"use": use[n]} if n in use else {})}
+                for n, a in snap["agents"].items()}
     if head == "events":
         if name:                                  # one event, by id
             return p.events.get(name)

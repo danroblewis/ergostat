@@ -45,8 +45,10 @@ def cmd_agent(args) -> int:
         print(f"no agent {args.name!r}", file=sys.stderr)
         return 2
     s = snap["agents"][a.name]
+    from ..costs import record as costs
+    use = costs.of_block(p, a.name, snap["at"] - snap["window"], snap["at"])
     if args.json:
-        return out_json({"agent": a.__dict__, **s})
+        return out_json({"agent": a.__dict__, **s, "use": use})
     print(f"{c('agent', 'dim')} {a.name} · rung {a.rung} {a.kind}" + (f" · {a.description}" if a.description else ""))
     if a.command:
         print(f"  command  {a.command}")
@@ -62,11 +64,13 @@ def cmd_agent(args) -> int:
         failed = sum(1 for e in every[-40:] if e["type"] == "agent.failed")
         print(f"  durations {show.spark(list(enumerate(secs)), 40)}  {fmt(min(secs))}s to {fmt(max(secs))}s over the last "
               f"{len(secs)} runs" + (c(f", {failed} failed", "bad") if failed else ""))
+    for line in cost_lines(use, human(snap["window"])):
+        print(line)
     print()
-    print(table(["WHEN", "RESULT", "READINGS", "OPENINGS", "DECISIONS", "SECONDS"],
+    print(table(["WHEN", "RESULT", "READINGS", "OPENINGS", "DECISIONS", "SECONDS", "COST", "TOKENS", "CPU", "MEMORY"],
                 [[ago(e["time"]), c("failed: " + e["data"].get("note", ""), "bad") if e["type"] == "agent.failed" else "ok",
                   str(e["data"].get("readings", 0)), str(e["data"].get("openings", 0)), str(e["data"].get("decisions", 0)),
-                  str(e["data"].get("seconds", ""))] for e in runs], "no runs yet"))
+                  str(e["data"].get("seconds", "")), *run_costs(costs.numbers(e))] for e in runs], "no runs yet"))
     from ..runner import log_path
     log = log_path(p, a.name)
     if log.exists():
@@ -75,6 +79,44 @@ def cmd_agent(args) -> int:
             print(c("\nend of its log (" + str(log) + ")", "dim"))
             print("\n".join("  " + x for x in tail))
     return 0
+
+
+def usd(x) -> str:
+    return "–" if x is None else "$0" if x == 0 else f"${x:.4f}" if x < 0.01 else f"${x:,.2f}"
+
+
+def tokens(n) -> str:
+    return "–" if not n else f"{n / 1e6:.3g}M" if n >= 1e6 else f"{n / 1e3:.3g}k" if n >= 1e4 else str(n)
+
+
+def cpu(x) -> str:
+    return "–" if x is None else f"{x:.2g}s" if x < 60 else human(x)
+
+
+def mem(b) -> str:
+    return "–" if not b else f"{b / 1e9:.3g} GB" if b >= 1e9 else f"{b / 1e6:.3g} MB"
+
+
+def run_costs(n: dict) -> list[str]:
+    """A run's cost, tokens, CPU and peak memory, as a row's last cells (SPEC §9.1)."""
+    return [usd(n["cost_usd"]) + (" est." if n["cost"] and n["cost"] != "reported" else ""), tokens(n["tokens"]),
+            cpu(n["cpu"]), mem(n["memory"])]
+
+
+def cost_lines(use: dict, window: str) -> list[str]:
+    """What an agent's runs cost over the window: totals, and a spark line of each number run by run."""
+    t = use["totals"]
+    if not t["runs"]:
+        return []
+    est = f" ({t['cost']})" if t["cost"] and t["cost"] != "reported" else ""
+    out = [f"  cost     {usd(t['cost_usd'])}{est} · {tokens(t['tokens'])} tokens · {cpu(t['cpu'])} CPU · at most "
+           f"{mem(t['memory_peak'])} in one run, over {t['runs']} runs in {window}"]
+    for key, name, f in (("cost_usd", "cost", usd), ("cpu", "CPU", cpu), ("memory", "memory", mem)):
+        xs = [(r["time"], r[key]) for r in use["runs"] if r[key] is not None]
+        if len(xs) > 2:
+            vs = [v for _, v in xs]
+            out.append(f"  {name:<8} {show.spark(list(enumerate(vs[-40:])), 40)}  {f(min(vs))} to {f(max(vs))} a run")
+    return out
 
 
 def run_now(args) -> int:

@@ -229,6 +229,11 @@ function dur(x) {                                      // seconds, said shortly
   if (x < 86400) return `${(x / 3600).toFixed(x < 36000 ? 1 : 0)}h`;
   return `${Math.round(x / 86400)}d`;
 }
+/* what runs cost (SPEC §9.1): dollars, tokens, CPU seconds, memory; "–" when not known */
+function usd(x) { return x == null ? "\u2013" : x === 0 ? "$0" : x < 0.01 ? `$${x.toFixed(4)}` : x < 100 ? `$${x.toFixed(2)}` : `$${Math.round(x).toLocaleString("en-US")}`; }
+function tokensText(n) { return n == null ? "\u2013" : n === 0 ? "0" : n >= 1e6 ? `${+(n / 1e6).toPrecision(3)}M` : n >= 1e4 ? `${+(n / 1e3).toPrecision(3)}k` : String(n); }
+function cpuText(x) { return x == null ? "\u2013" : x < 60 ? `${+x.toPrecision(2)}s` : dur(x); }
+function bytesText(b) { return b == null ? "\u2013" : b >= 1e9 ? `${+(b / 1e9).toPrecision(3)} GB` : `${+(b / 1e6).toPrecision(3)} MB`; }
 function ago(t) {
   if (!t) return "never";
   const d = nowS() - t;
