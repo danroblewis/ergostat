@@ -840,12 +840,12 @@ td.bad, b.bad, .lease .bad { color: var(--bad); }
    its border its status; hue only for what needs it: active (the accent), the critical path and a dead letter (bad) */
 .rg-viewbar { display: inline-flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 .rg-check { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); color: var(--muted); }
-.rg-graph, .rg-timeline { position: relative; margin: var(--sp-2) 0 var(--sp-5); }
-.rg-tools { position: absolute; top: var(--sp-1); right: var(--sp-1); z-index: 1; display: inline-flex; gap: var(--sp-0); background: var(--bg); }
+.rg-graph, .rg-timeline { margin: var(--sp-1) 0 var(--sp-5); }
+.rg-tools { display: flex; justify-content: flex-end; gap: var(--sp-0); margin: 0 0 var(--sp-1); }
 .rg-tools button { border-color: transparent; background: transparent; }
 .rg-stage { border: var(--hair) solid var(--line); border-radius: var(--radius); overflow: hidden; cursor: grab; background: var(--bg); touch-action: none; }
 .rg-stage.dragging { cursor: grabbing; }
-.rg-tstage { overflow: visible; cursor: default; padding-top: var(--sp-5); }
+.rg-tstage { overflow: visible; cursor: default; }
 .rg-svg { display: block; width: 100%; height: 100%; user-select: none; }
 .rg-gantt { height: auto; }
 .rg-note:empty { display: none; }
