@@ -196,3 +196,31 @@ def test_two_sensors_of_one_series_read_as_the_first_in_the_model_says(tmp_path)
     p = run_for(tmp_path, text, 3.2)
     got = p.measurements.range("sensor/q.main", 0, time.time() + 1)
     assert len(got) >= 5, got
+
+
+def test_a_sensor_s_command_is_told_how_to_call_ergostat_back(tmp_path):
+    """A sensor's run gets what a block's run gets to call ergostat back (ERGOSTAT_CMD, ERGOSTAT_PROJECT,
+    ERGOSTAT_STATE_DIR, ERGOSTAT_SOCKET while the engine answers calls), so a collector can read and record items."""
+    text = """
+    name: t
+    stocks:
+      q:
+        sensor:
+          run: env | grep '^ERGOSTAT_' > env.txt; $ERGOSTAT_CMD event --add collector.ran --item c/1 --as collector >/dev/null; echo 1
+          every: 0.5s
+    """
+    p = run_for(tmp_path, text, 3)
+    env = dict(x.split("=", 1) for x in (tmp_path / "env.txt").read_text().splitlines())
+    assert env["ERGOSTAT_PROJECT"] == "t" and env["ERGOSTAT_STATE_DIR"] == str(p.dir)
+    assert "-m ergostat -C" in env["ERGOSTAT_CMD"] and env.get("ERGOSTAT_SOCKET")
+    assert p.events.query(n=None, type="collector.ran", item="c/1")
+
+
+def test_a_sensor_read_alone_works_out_the_project_s_state(tmp_path):
+    from ergostat.spec import read
+    from ergostat.spec.engine import read_sensor
+    from ergostat.spec.ir import Ref
+    (tmp_path / "ergostat.yaml").write_text("name: t\nstocks:\n  q:\n    sensor:\n      run: echo $ERGOSTAT_PROJECT; "
+                                            "test -n \"$ERGOSTAT_CMD\" && test -d \"$ERGOSTAT_STATE_DIR\" && echo 7\n")
+    spec, _ = read(tmp_path / "ergostat.yaml")
+    assert read_sensor(spec, spec.sensor(Ref("stock", "q", "main")))[0] == 7
