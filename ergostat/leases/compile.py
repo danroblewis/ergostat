@@ -76,7 +76,10 @@ def takes(c, m, what: str) -> Takes | None:
         c.err(f"{what}.takes.unblocked: true or false (true: only items whose precedence relations name only finished "
               f"items, the critical first)", raw.at("unblocked"), "bad-takes")
         unblocked = False
-    return Takes(kind, list(states), list(to), dict(where), unblocked)
+    where = dict(where)
+    if where:
+        c.where_values(where, raw["where"], f"{what}.takes", what.replace(" ", ".", 1))
+    return Takes(kind, list(states), list(to), where, unblocked)
 
 
 def pool(c, m, what: str) -> int:

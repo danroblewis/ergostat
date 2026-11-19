@@ -555,8 +555,29 @@ class Compiler:
                 self.err(f"{sw}.where: a map of field: value (or a list of values)", s.at("where"), "not-a-map")
             else:
                 q["where"] = {str(k): (list(v) if isinstance(v, list) else v) for k, v in w.items()}
+                self.where_values(q["where"], w, sw, sw.split(" sensor ")[0].replace(" ", ".", 1))
         q["at"] = s.where
         return q
+
+    def where_values(self, where: dict, w: Map, sw: str, about: str = "") -> None:
+        """``where:`` compares typed values (SPEC §6): a number matches a number, never its text. Note each value
+        whose meaning changed when it stopped comparing text (a number or a boolean written bare, which once also
+        matched a field holding its text); a value YAML read as neither (a date) is compared as its text."""
+        for k, v in where.items():
+            vals = v if isinstance(v, list) else [v]
+            fixed = [x.isoformat() if hasattr(x, "isoformat") else x for x in vals]
+            if fixed != vals:
+                where[k] = fixed if isinstance(v, list) else fixed[0]
+            typed = [x for x in fixed if isinstance(x, bool | int | float)]
+            if typed:
+                x = typed[0]
+                shown = str(x).lower() if isinstance(x, bool) else str(x)
+                kind = "a boolean" if isinstance(x, bool) else "a number"
+                self.problems.append(Problem(
+                    "finding", f"{sw}.where.{k}: {shown} is compared as {kind}: it matches a field holding {kind}"
+                    f"{' (1 and 1.0 alike)' if kind == 'a number' else ''}, and no longer a field holding the text "
+                    f"{shown!r}; write \"{shown}\" (quoted) if the field holds text", w.at(k) if hasattr(w, "at") else None,
+                    "where-typed", about))
 
     def item_kind(self, name: str, m: Map, what: str) -> ItemKind:
         self.keys(m, ITEM_KEYS, what)

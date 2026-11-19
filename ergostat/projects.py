@@ -39,7 +39,7 @@ def _row(d: Path, note: dict, pid: int | None) -> tuple[dict, list]:
         m = mdl.load(Path(note["repo"]))
     except Exception as e:                       # a repository moved or its model broken: say so, don't stop
         return {"name": d.name, "repo": None, "error": f"{type(e).__name__}: {e}"}, []
-    p = Project(m, d)
+    p = Project(m, d, note=False)                # read only: another project's note is its own to write
     snap = st.snapshot(p)
     loops = {n: lp["status"] for n, lp in snap["loops"].items()}
     files = list(getattr(m, "files", None) or ([m.path] if m.path else []))

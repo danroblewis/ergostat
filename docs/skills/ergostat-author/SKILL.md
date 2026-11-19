@@ -256,6 +256,13 @@ If nobody can answer, do not ask: choose, and list your assumptions at the end.
   request says, and keep it **read-only toward work systems**: a reply or reminder is written as a draft into a
   folder (`outbox/`), never sent, unless the owner said it may be. Put the command it returns under `with:`.
 
+- **Every model includes `use: modelling`**, once: `uses: {modelling: {use: modelling}}`. It gives the model
+  its improvement loop (SPEC §12e): its fit measured as a stock (`model-error`) and held by a goal
+  (`model-fits`), an `improver` block that proposes changes while it is off, and ergostat's `judge`, which
+  tests each on the record after it; the owner accepts what passes unless `accept:` says otherwise. Its parts
+  keep these names (not `INSTANCE-...`). When the model has none, add it (`check` notes it:
+  `no-modelling-loop`); options in `docs/ADDING.md` (modelling).
+
 Call `add_use` (without `write`). Read `errors` (each points at the `use:` line, or at the parameter that is wrong)
 and fix them until `ok` is true. `findings_for_it` says which parameters still run on stand-ins.
 

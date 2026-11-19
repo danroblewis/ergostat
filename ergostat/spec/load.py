@@ -73,8 +73,18 @@ class Map(dict):
 
 
 def _loader(path: Path, problems: list[Problem]):
+    from .yaml12 import ambiguous
+
     class Loader(yaml.SafeLoader):
-        pass
+        key = False                      # constructing a mapping's key
+
+        def construct_object(self, node, deep=False):
+            got = super().construct_object(node, deep=deep)
+            if isinstance(node, yaml.ScalarNode) and node.style is None:        # plain, not quoted
+                said = ambiguous(node.value, got, self.key)
+                if said:
+                    problems.append(Problem("finding", said, Where(path, node.start_mark.line + 1), "yaml-1.1"))
+            return got
 
     def mapping(loader, node, deep=False):
         m = Map()
@@ -82,7 +92,11 @@ def _loader(path: Path, problems: list[Problem]):
         m.lines = {}
         loader.flatten_mapping(node)
         for k_node, v_node in node.value:
-            k = loader.construct_object(k_node, deep=True)
+            loader.key = True
+            try:
+                k = loader.construct_object(k_node, deep=True)
+            finally:
+                loader.key = False
             if k in m:
                 problems.append(Problem("error", f"{k!r} is written twice in the same map (the second would win silently)",
                                         Where(path, k_node.start_mark.line + 1), "duplicate-key"))
@@ -120,6 +134,7 @@ class Document:
     library: list[Path] = field(default_factory=list)   # the owner's folders of templates (library:, main file only)
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
     remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
+    soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace
 
 
 def read_file(path: Path, problems: list[Problem]):
@@ -240,6 +255,9 @@ def load(main: Path) -> Document:
                 take(h.resolve(), False, data.at("include"))
 
     def put(section: str, name, entry, w: Where | None, defaults: dict) -> None:
+        if (section, name) in doc.soft:           # a once template's system, declared by the model too: the model's stands
+            doc.soft.discard((section, name))
+            doc.defined.pop((section, name))
         if (section, name) in doc.defined:
             first = doc.defined[(section, name)]
             one = SINGULAR.get(section, section[:-1])

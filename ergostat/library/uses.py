@@ -63,6 +63,11 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
         broken = [n for n in getattr(doc, "_template_notes", []) if f"{entry['use']}." in n or "/" + str(entry["use"]) in n]
         return err(f"no template {entry['use']!r} (there are: {', '.join(sorted(lib)) or 'none'}; the owner's own come "
                    f"from library: in the main file)" + (f"; {broken[0]}" if broken else ""), at, "unknown-template")
+    if t.once:
+        prior = next((n for n, u in doc.uses.items() if u["template"] == t.name), None)
+        if prior is not None:
+            return err(f"{t.name} is used at most once a model (already as {prior}, at {doc.uses[prior]['where']})", at,
+                       "used-twice")
     given = entry.get("with") or {}
     if not isinstance(given, dict):
         return err("with: a map of the template's parameters", entry.at("with"), "not-a-map")
@@ -76,9 +81,13 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
         return
     via = Via(at.file if at else doc.root, at.line if at else 1, t.name, inst)
     parent = entry.get("within") or within or defaults.get("system")
+    parent = None if parent == inst else parent
     system = {**made.system, **({"description": str(entry["description"])} if entry.get("description") else {}),
               **({"within": str(parent)} if parent else {})}
-    put("systems", inst, as_map(system, via), via, {})
+    if not (t.once and ("systems", inst) in doc.defined):     # a once template's system, when the model declares it, is the model's
+        put("systems", inst, as_map(system, via), via, {})
+        if t.once:
+            doc.soft.add(("systems", inst))
     for section, entries in made.sections.items():
         if section == "uses":
             continue

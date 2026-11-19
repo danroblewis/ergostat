@@ -56,6 +56,9 @@ def check_yaml(args, path: Path) -> int:
     for p in errors:
         print(f"{c('error', 'bad')}  {p}")
     if errors:
+        for p in findings:                       # how YAML read a value often explains an error beside it
+            if p.code == "yaml-1.1":
+                print(f"{c(p.code, 'warn')}  {p}")
         print(c(f"{n(len(errors), 'error')}: ergostat will not run this model until they are fixed", "dim"))
         return 1
     loops = spec.loops()

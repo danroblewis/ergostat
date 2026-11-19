@@ -104,9 +104,13 @@ def page_of(request, tmp_path_factory):
     proc.wait(10)
 
 
+DRAWN_S = 240                 # the most a view may take to be drawn before a test gives up: a wait, not a check (the
+                              # budgets that are checks are LAYOUT_BUDGET_MS and ROUTED_BOUND_MS), long for a loaded machine
+
+
 def drawn(pg, url: str, view: str, n: int) -> None:
-    pg.goto(f"{url}/diagram?v={n}&{view}")            # a new query: the page loads afresh, no layout carried over
-    pg.wait_for_function(READY, timeout=60000)
+    pg.goto(f"{url}/diagram?v={n}&{view}", timeout=DRAWN_S * 1000)   # a new query: the page loads afresh, no layout carried over
+    pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
 
 
 def test_every_view_draws_cleanly_and_in_time(browser, page_of):
@@ -272,11 +276,14 @@ def served(example: str, tmp_path: Path, edit=None):
                             stderr=subprocess.DEVNULL)
     url = f"http://127.0.0.1:{port}"
     try:
-        for _ in range(100):
+        deadline = time.monotonic() + 120                # a loaded machine starts it slowly; wait for it, not a count
+        while True:
             try:
-                urllib.request.urlopen(url + "/api/status", timeout=1)
+                urllib.request.urlopen(url + "/api/status", timeout=2)
                 break
             except Exception:
+                if time.monotonic() > deadline or proc.poll() is not None:
+                    raise AssertionError(f"{example}'s page never answered") from None
                 time.sleep(0.2)
         yield url
     finally:
@@ -2231,7 +2238,7 @@ def pane_of(pg):
             break
         pg.wait_for_timeout(100)
     assert fr is not None, "no second pane"
-    fr.wait_for_function(PANE_READY, timeout=60000)
+    fr.wait_for_function(PANE_READY, timeout=DRAWN_S * 1000)
     return fr
 
 
@@ -2287,9 +2294,17 @@ LOOK_AT_CHOSEN = """() => {
 }"""
 
 
+STILL = """() => { const v = JSON.stringify([S.view, S.layout && S.layout.width, S.layout && S.layout.height]);
+  const same = v === window.__still; window.__still = v; return same; }"""
+
+
 def fit(page_or_frame):
+    """Fit pressed, and waited on until the view stands still (two looks a tenth of a second apart agree), however
+    slow the machine."""
     page_or_frame.get_by_role("button", name="Fit", exact=True).click()
     page_or_frame.wait_for_timeout(150)
+    page_or_frame.evaluate("() => { window.__still = null; }")
+    page_or_frame.wait_for_function(STILL, polling=100, timeout=30000)
 
 
 def test_a_selection_is_model_parts_and_survives_switching_view(browser, tmp_path):
@@ -2297,30 +2312,37 @@ def test_a_selection_is_model_parts_and_survives_switching_view(browser, tmp_pat
     lit there by the shapes that are them (a stock: its integrator and its output y)."""
     with served("image-squeeze", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        pg.set_default_timeout(120000)                 # its clicks wait for the shapes as long as a loaded machine needs
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
         fit(pg)
         click_part(pg, "stock:capabilities")
-        pg.wait_for_function("() => S.sel.size > 0", timeout=5000)
+        pg.wait_for_function("() => S.sel.size > 0", timeout=30000)
         assert pg.evaluate("() => [...S.sel]") == ["stock.capabilities"]
         assert pg.evaluate(LIT) == ["stock:capabilities"]
         pg.locator(".toolbar .seg button", has_text="Blocks").click()
         pg.wait_for_function("() => S.graph?.kind === 'blocks' && document.querySelectorAll('svg.canvas g.node.selected').length > 0",
-                             timeout=60000)
+                             timeout=DRAWN_S * 1000)
         assert pg.evaluate("() => [...S.sel]") == ["stock.capabilities"]
-        assert pg.evaluate(LIT) == ["out:stock.capabilities", "proc:stock.capabilities", "sen:stock.capabilities"]
-        # Shift adds and takes away, in the block diagram too; the background lets everything go
+        lit = ["out:stock.capabilities", "proc:stock.capabilities", "sen:stock.capabilities"]
+        pg.wait_for_function(f"() => JSON.stringify(({LIT})()) === {json.dumps(json.dumps(lit, separators=(',', ':')))}", timeout=30000)
+        # Shift adds and takes away, in the block diagram too; the background lets everything go (each waited on
+        # until the selection says so, then checked exactly)
         fit(pg)
+        sel = "() => JSON.stringify([...S.sel].sort())"
         pg.keyboard.down("Shift")
         pg.locator('g.node[data-id="ref:every-case"]').click()
         pg.keyboard.up("Shift")
+        pg.wait_for_function(f"() => ({sel})() !== {json.dumps(json.dumps(['stock.capabilities'], separators=(',', ':')))}", timeout=30000)
         assert set(pg.evaluate("() => [...S.sel]")) == {"stock.capabilities", "goal.every-case.r"}
         pg.keyboard.down("Shift")
         pg.locator('g.node[data-id="ref:every-case"]').click()
         pg.keyboard.up("Shift")
+        pg.wait_for_function("() => S.sel.size === 1", timeout=30000)
         assert pg.evaluate("() => [...S.sel]") == ["stock.capabilities"]
         pg.keyboard.press("Escape")
+        pg.wait_for_function("() => S.sel.size === 0", timeout=30000)
         assert pg.evaluate("() => S.sel.size") == 0 and pg.evaluate(LIT) == []
         assert not errors, errors
         pg.close()

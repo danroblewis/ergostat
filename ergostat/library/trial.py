@@ -86,6 +86,27 @@ def _system_of(spec, name: str) -> str | None:
 
 
 def main(argv: list[str]) -> int:
+    """The trial, and on its way out (done, failed, or stopped with SIGTERM) everything it started stopped: the
+    engine's runs, and whatever they started (a Claude session), wherever they put themselves."""
+    import os
+    import signal
+
+    from .reap import Watch, stop
+
+    def stopped(*_):
+        raise SystemExit(143)
+    signal.signal(signal.SIGTERM, stopped)
+    watch = Watch(os.getpid())                   # what the runs start is known while they live, so none escapes
+    try:
+        return trial(argv, watch)
+    finally:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        from .. import runner
+        stop(os.getpid(), also=watch.close())
+        runner.kill_all()
+
+
+def trial(argv: list[str], watch=None) -> int:
     scratch, seconds, system = Path(argv[0]), float(argv[1]), argv[2]
     from .. import model as mdl
     from ..spec.engine import Engine
@@ -99,6 +120,8 @@ def main(argv: list[str]) -> int:
     try:
         time.sleep(seconds)
     finally:
+        if watch is not None:
+            watch.look()                         # before the engine kills its runs, and orphans what they started
         e.close()
     if "--blocks" in argv:                       # each block of the system run once more, at once, as --now does
         for b in spec.blocks.values():
