@@ -158,6 +158,7 @@ async function openLoop(name, asController = false) {
     kids.push(h("h3", {}, `Breaking it: ${lp.breaking_n} ${lp.per}${lp.breaking_n === 1 ? "" : "s"}`),
       h("table", {}, lp.breaking.map((b) => h("tr", {}, h("td", {}, id(String(b.item ?? b.group))), h("td", { class: "num" }, fmt(b.value))))));
   }
+  kids.push(goalAhead(name, lp));                       // with the loops running: its chance of being off ahead
   kids.push(controlBox(name, "loop"));                  // its process identified, its controller with it (control.js)
   for (const g of lp.gaps || []) kids.push(h("p", {}, h("b", { class: "lvl-warn" }, "Cannot close: "), g));
   for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
@@ -174,6 +175,29 @@ async function openLoop(name, asController = false) {
   }
   kids.push(h("p", {}, h("a", { href: `/diagram?around=loop/${encodeURIComponent(name)}` }, "Draw this loop alone")));
   showDetail(...kids);
+}
+
+/* a goal ahead, with the loops running (closedloop.py's Monte Carlo): "work-waiting: off at +8h with p≈0.3", and a
+   setpoint to try (a what-if, drawn on every chart, never kept) */
+function goalAhead(name, lp) {
+  const box = h("div", { class: "ahead whatif-redraw" });
+  if (SNAP) return box;
+  const now = String(lp.setpoint ?? "").split(" ").pop();
+  let tries = 0;                                         // its risk is worked out apart: asked for again until it comes
+  const load = () => api("series", { refs: ["stock", "auxiliary", "flow"].map((k) => `${k}.${lp.stock}`).join(","), replay: 1, fan: 1,
+                                     points: CHART_POINTS, ...whatifParams() }).then((d) => {
+    const g = (d.risk || []).find((x) => x.goal === name);
+    if (d.fan_pending && tries++ < 8) setTimeout(() => { if (box.isConnected) load(); }, 2500);
+    if (d.loops !== "closed") { box.replaceChildren(); return; }
+    box.replaceChildren(h("h3", {}, "Ahead, with the loops running"),
+      g?.said ? h("p", { class: g.p_off_end >= 0.5 ? "s-open" : "" }, g.said)
+        : h("p", { class: "muted small" }, d.fan_pending ? "being worked out\u2026" : "no risk to say"),
+      h("p", { class: "muted small" }, "What if it held at ", whatifField(`goal.${name}`, `what if ${name} held at`, now, "another setpoint"),
+        " (the identified models and estimates by their errors, the inputs by how far their mean could move; a fixed seed)"));
+  }).catch(() => box.replaceChildren());
+  load();
+  box.redraw = () => { tries = 0; load(); };
+  return box;
 }
 
 async function openAgent(name) {

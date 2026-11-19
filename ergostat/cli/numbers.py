@@ -373,3 +373,86 @@ def cmd_improve(args) -> int:
         if x.get("held_back"):
             print(f"  {c(x['held_back'], 'warn')}")
     return 0
+
+
+def cmd_project(args) -> int:
+    """``ergostat project``: the model run on from now, with the loops running (``--closed``, the default where the model
+    has controllers: the goals, the built-ins and each machine block's identified model) or held (``--held``, open loop);
+    ``--whatif NAME=V`` tries a parameter, an input's rate (``flow.NAME=20`` an hour, or ``=x2``), a setpoint
+    (``goal.NAME=5``) or a pool (``block.NAME.pool=4``); ``--risk`` runs it many times over what it does not know."""
+    from ..durations import parse_duration
+    from ..numbers import closedloop as cl
+    from ..numbers import observe as ob
+    from ..numbers import proposals as pr
+    from ..numbers import sensitivity as sens
+    from ..numbers import simulate as sim
+    from ..web.numbers_api import horizon_of
+    p = open_project(args)
+    spec = _spec(p)
+    snap = light_snap(p, args)
+    loops = "held" if args.held else "closed" if args.closed or cl.has_controllers(spec) else "held"
+    raw = {}
+    for x in args.whatif or []:
+        for part in x.split(","):
+            if "=" not in part:
+                print(f"--whatif {part}: NAME=VALUE", file=sys.stderr)
+                return 2
+            k, _, v = part.partition("=")
+            raw[k.strip()] = v.strip()
+    try:
+        params, other = cl.parse_whatif(spec, raw)
+        tried = pr.what_if(spec, params) if params else {}
+    except (cl.WhatIfError, pr.ProposalError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if other and loops == "held":
+        print("an input's rate, a setpoint or a pool is tried only with the loops running (--closed)", file=sys.stderr)
+        return 2
+    since = snap["at"] - snap["window"]
+    if snap["starts"] and snap["starts"] > since:
+        since = snap["starts"]
+    n = max(2, min(240, int((snap["at"] - since) // ob.MIN_BUCKET)))
+    data = ob.measured(p, ob.Grid(since, snap["at"], n))
+    pl = sim.plan(spec, tried or None)
+    run = sim.replay(spec, data, pl)
+    horizon = parse_duration(args.horizon, "--horizon") if args.horizon else horizon_of(run, snap["at"] - since)
+    points = max(2, min(args.points, 400))
+    got = cl.projection(p, spec, data, run, horizon, pl, points, loops, args.inputs, other, held=set())
+    proj, stand, start = got["projection"], got["models"], got["start"]
+    rk = None
+    if args.risk and loops == "closed":
+        rk = cl.risk(spec, data, run, horizon, points, stand, start, sens.estimates(p, spec), tried or None, args.inputs, other,
+                     runs=args.runs, seed=args.seed, budget=args.budget)
+    closed = isinstance(proj, cl.ClosedRun)
+    rows = {r: {"now": data.recent(r), "end": vals[-1], **{k: v[-1] for k, v in ((rk or {}).get("bands", {}).get(r) or {}).items()}}
+            for r, vals in sorted(proj.values.items()) if r.startswith("stock.")}
+    goals = {g.name: {"of": str(g.of), "hold": str(g.hold), "end": (y := (proj.values.get(str(g.of)) or [None])[-1]),
+                      "off_at_end": bool(proj.off_end[g.name][-1]) if closed else None if y is None else g.hold.outside(y, g.tolerance),
+                      "hours_off": proj.off_hours[g.name] if closed else None,
+                      **({"p_off_end": rk["goals"][g.name]["p_off_end"], "expected_off": rk["goals"][g.name]["expected_off"],
+                          "said": cl.risk_said(rk, g.name)} if rk and g.name in rk["goals"] else {})} for g in spec.goals.values()}
+    if args.json:
+        return out_json({"loops": loops, "horizon": horizon, "notes": proj.notes, "invalid": proj.invalid, "stocks": rows,
+                         "goals": goals, "models": {r: m.as_dict() for r, m in stand.items()},
+                         "held": cl.held_by_blocks(spec) if closed else [], "whatif": other.said() + list(tried),
+                         **({"risk": {k: v for k, v in rk.items() if k != "bands"}} if rk else {})})
+    print(c(f"projected {human(horizon)} ahead, {'with the loops running' if closed else 'held (open loop)'}", "bold"))
+    for x in proj.notes + [f"not valid: {x}" for x in proj.invalid]:
+        print(c(f"  {x}", "dim"))
+    lo, hi = ("p5", "p95") if rk and rk.get("tails") else ("p25", "p75")
+    print(table(["STOCK", "NOW", f"IN {human(horizon)}", ("9 IN 10 RUNS" if lo == "p5" else "HALF THE RUNS") if rk else ""],
+                [[r[6:], sig(x["now"]), sig(x["end"]), f"{sig(x[lo])} to {sig(x[hi])}" if lo in x else ""] for r, x in rows.items()],
+                "no stock is integrated"))
+    print(table(["GOAL", "HOLDS", "AT THE END", "TIME OFF", "RISK" if rk else ""],
+                [[n, f"{x['of']} {x['hold']}", "–" if x["off_at_end"] is None else "off" if x["off_at_end"] else "holding",
+                  human(x["hours_off"] * 3600) if x["hours_off"] else "", x.get("said") or ""] for n, x in goals.items()], ""))
+    if closed:
+        print(c("\neach machine block's identified model:", "bold"))
+        for m in stand.values():
+            print(("  " + c("assumed: ", "warn") if m.assumed else "  ") + m.said())
+        for x in cl.held_by_blocks(spec):
+            print(c(f"  {x}", "dim"))
+    if rk:
+        print(c(f"\nrisk: {rk['made']} runs (seed {rk['seed']}, {rk['seconds']:.1f}s){'; ' + rk['stopped'] if rk['stopped'] else ''}; "
+                f"{len(rk['sampled'])} numbers sampled", "dim"))
+    return 0

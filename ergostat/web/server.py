@@ -522,7 +522,7 @@ def _answer(live: Live, path: str, q: dict):
         if one("replay"):                         # and what the model says: its replay, and its projection past now
             from .numbers_api import add_to_series
             add_to_series(live, p, snap, out, one("inputs") or "hold", one("whatif"),
-                          "replay" if one("fan") == "replay" else bool(one("fan")))
+                          "replay" if one("fan") == "replay" else bool(one("fan")), one("loops"))
         return out
     if head == "dominance":                       # which feedback loops drive the behaviour, and when (Loops That Matter)
         from .numbers_api import loop_dominance
