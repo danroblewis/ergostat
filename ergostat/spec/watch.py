@@ -171,6 +171,8 @@ def find(project, spec: Spec, window: float = WINDOW, now: float | None = None) 
                     f"{human(b)} before: its loop is answering more slowly", g.where, f"goal.{g.name}")
     repeated(project, say)
     exercised(project, spec, now, say)
+    from ..numbers.external import findings as external
+    external(project, spec, now, say)                  # an existing controller unidentified, or its law changed (§12d)
     return out
 
 

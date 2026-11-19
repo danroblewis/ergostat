@@ -32,8 +32,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.
-- **Identifying existing controllers** (open; `docs/proposals/external-systems.md`): an autoscaler or alert
-  rule modelled from its record.
+- **Identifying existing controllers** (done on `identify`; SPEC §12d, *Existing controllers*): an external block's
+  `identify: {input, output}` fits on-off, proportional, PI and stepper laws with a delay from the record, picks one by
+  held-out error with a parsimony penalty, runs it in the closed-loop projection, draws it in the block, and says
+  `external-unidentified` and `external-law-changed`. Validated on a synthetic HPA-like stepper and an alert rule
+  (`~/orchestra-kube-sim` is not on this machine). *Left*: the library of known laws (`law: kubernetes-hpa`, declared and
+  tested against the record), the HPA's multiplicative rule as its own family, the risk sampling the law's numbers,
+  and a run against the kube sim.
 
 ## Modelling
 
