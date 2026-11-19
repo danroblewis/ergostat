@@ -54,6 +54,8 @@ def check_yaml(args, path: Path) -> int:
         spec, problems = read(path, extremes=False)
     errors = [p for p in problems if p.level == "error"]
     if not errors:                                # the extreme-conditions tests: kept, and at most a few seconds for the rest
+        from ..store import state_dir
+        state_dir(spec.name, spec.root)           # the project's own, where they are kept between checks
         problems += late(spec, wait=CHECK_WAIT) + calibration(path)
     findings = [p for p in problems if p.level != "error"]
     if args.json:
