@@ -69,7 +69,15 @@ possible, without check-ins. Check-ins are replaced by gates written down in adv
 - 01:10 closedloop finished; gate review: merge after fixes (state not restored for five built-ins, selective validation write-up, invalid risk runs dropped, no definition file; ~300 lines of bloat). Sent back.
 - 01:30 upkeep finished (exploration; proposal in docs/proposals/upkeep.md). Its fault injection found five real problems, queued as `resilience`, first in wave B.
 - 02:05 Main green (1338 unit, browser rc 0 with no skips, five demos ok): pushed reloadfix, indexfix, gapsfix, reports, the port change. leasekill finished (281 net lines, 2.2x latency with warm processes), in review. layoutopt started (an experiment the owner asked for: pure optimisation layouts). GAPS: superseded proposals, and the judge on slow models (owner).
+- 02:40 Reviews: leasekill, triggers and resilience all merge-after-fixes, each with real bugs (warm workers' per-item state, cost and kills; an event trigger bypassing `mode: advise`, and blocks triggering each other forever; the CLI fallback running commands in the copy, the engine staying down after a reboot, `compact --projects` on unmounted drives). Sent back. smallgaps started.
+- 03:05 leasekill's warm path failed its second review (children's CPU uncharged, env leaks, loose done detection, misattributed stops): split. The lease kill lands alone; warm processes parked on `warm` with where it stopped. smallgaps done (158 lines), in review.
+- 03:20 layoutopt (experiment) finished: today's pipeline wins overall; WebCola scores lower only by spreading out; annealing moves 69% of parts on one edit. Parked as reference; next idea: rule cost as a test referee, Cola's constraints as one compaction step. It found 8 page-test failures on `layout` itself. triggers fixed, in re-review.
+- 03:30 triggers' second review failed (loops of 5+ blocks run forever; a full table scan per hop stalls the engine): split. Scheduled causes and the join land as `causes-join`; `on:` triggers parked.
+- 03:35 smallgaps review: merge after fixes. The light-theme colours pass 3:1 but blur together (gold and olive, orange and the warning colour): the colour commit is dropped and the gap reopened for a design pass.
+- 03:50 resilience's re-review failed narrowly (the fallback never keeps AI models with prompt files; the alarm pool can leak threads; `#!` launcher parsing). One final 45-minute round allowed (see Decisions taken); split if it fails.
 
 ## Decisions taken (for the owner to confirm)
 
-(none yet)
+- `ergostat run --service` keeps printing the unit by default, as recorded in cli-rounds.md; installing needs `--service --install` (the resilience branch had made install the default).
+- The light-theme contrast change is dropped, not merged: meeting 3:1 for the faded repeats forced every hue to one lightness. Reopened for a design pass (an outline or dash for the faded round, or alternating lightness).
+- The kill rule (two failed gates) was bent once for `resilience`: one final 45-minute round for three small, exact fixes, because its CLI fallback is what the owner's work laptop needs most. If it fails, it is split.
