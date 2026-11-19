@@ -215,6 +215,7 @@ function centreValves(lay, g) {
         const e = g.edges.find((q) => q.id === le.id);
         if (!e || !(ids.has(e.source) || ids.has(e.target)) || !box[e.source] || !box[e.target]) continue;
         le.sections = [{ startPoint: mid(box[e.source]), endPoint: mid(box[e.target]), bendPoints: [] }];
+        le.cut = false;                                // (one drawn by hand between wrapped rows: routed now, from where it is)
       }
       break;
     }
