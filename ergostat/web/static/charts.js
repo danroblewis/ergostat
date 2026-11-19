@@ -274,13 +274,16 @@ function partRef(n) {
 }
 function causesStrip(ref, group = chartGroup("strip")) {
   const box = h("div", { class: "strip" }, h("div", { class: "muted small" }, "…"));
-  const load = () => api("series", { refs: ref, strip: 1, replay: 1, points: CHART_POINTS, ...(SNAP ? {} : { fan: S.replayFan ? "replay" : 1 }), ...whatifParams() }).then((d) => {
+  let tries = 0;                                         // the closed loop's fan, worked out apart: asked for again
+  const load = () => api("series", { refs: ref, strip: 1, replay: 1, points: CHART_POINTS, ...(SNAP ? {} : { fan: S.replayFan ? "replay" : 1 }),
+                                     ...(S.loops ? { loops: S.loops } : {}), ...whatifParams() }).then((d) => {
+    if (d.fan_pending && !SNAP && tries++ < 8) setTimeout(() => { if (box.isConnected) load(); }, 2500);
     const list = d.series || [];
     if (!list.length || list.every((s) => s.values.every((v) => v == null) && !(s.replay || []).some((v) => v != null))) {
       box.replaceChildren(h("p", { class: "muted small" }, `Nothing measured in ${windowSaid(d)}.`));
       return;
     }
-    const modelled = list.some((s) => s.replay);
+    const modelled = list.some((s) => s.replay || s.projection);
     box.replaceChildren(...list.map((s, i) => lineChart({
       group, name: i === 0 ? (s.kind === "flow" ? "rate" : "value") : s.name,
       role: i === 0 ? (s.kind === "flow" ? s.how : null) : ROLE_WORDS[s.role] || s.role,
@@ -291,16 +294,19 @@ function causesStrip(ref, group = chartGroup("strip")) {
       href: i === 0 ? null : () => openRef(s.ref) })),
       h("div", { class: "chart-foot" }, h("span", { class: "muted" }, [list.length > 1 ? "On one time axis; each rate in the unit that reads best for it" : "",
         modelled ? `dashed: the model's replay; past now, lighter: its projection ${dur(d.horizon)} ahead, ${d.inputs || "inputs held where they were"}` : "",
-        modelled ? fanSaid(d, list.some((s) => s.fan)) : "", replayFanSaid(d, list.some((s) => s.replay_fan)), whatifSaid(d),
+        modelled ? (d.fan_pending ? "the spread with the loops running is being worked out" : fanSaid(d, list.some((s) => s.fan))) : "", replayFanSaid(d, list.some((s) => s.replay_fan)), whatifSaid(d),
         list[0].replay ? "" : noReplaySaid(list[0])].filter(Boolean).join(". ")),
         group.when),
-      ...(!SNAP && d.fan?.parameters?.length ? [h("div", { class: "actions" }, h("button", { class: "ghost", onclick: () => { S.replayFan = !S.replayFan;
-        for (const b of document.querySelectorAll(".strip")) b.redraw?.(); } }, S.replayFan ? "Hide the spread over the record" : "Spread over the record"))] : []),
+      ...riskLines(d), ...modelsSaid(d),
+      ...(!SNAP && (d.fan?.parameters?.length || d.loops_can_close) ? [h("div", { class: "actions" },
+        d.fan?.parameters?.length ? h("button", { class: "ghost", onclick: () => { S.replayFan = !S.replayFan;
+          for (const b of document.querySelectorAll(".strip")) b.redraw?.(); } }, S.replayFan ? "Hide the spread over the record" : "Spread over the record") : null,
+        d.loops_can_close ? loopsToggle(d.loops) : null)] : []),
       ...(d.whatif_invalid?.length ? [h("p", { class: "s-open small" }, `With the what-if the model cannot run: ${d.whatif_invalid.join("; ")}. ` +
         "Each fault is taken as 0, so the blue lines are not what the model would do.")] : []));
   }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
   load();
-  box.redraw = load;                                    // a what-if tried: drawn again with it
+  box.redraw = () => { tries = 0; load(); };           // a what-if tried: drawn again with it
   if (!SNAP) rememberChart(ref);
   return box;
 }
@@ -361,6 +367,46 @@ function dominanceChart({ group, title, times, since, until, mine, others, xAxis
   return el;
 }
 
+/* the projection with the loops running (the goals, the built-ins and each machine block's identified model, simulated) or
+   held (open loop): one choice for every chart on the page (S.loops), the loops running by default where there are any */
+function loopsToggle(now) {
+  const closed = now === "closed";
+  return h("span", { class: "seg", role: "group", "aria-label": "how the projection runs" },
+    ...[["closed", "With the loops running"], ["held", "Held"]].map(([k, words]) => h("button", {
+      class: `ghost${(k === "closed") === closed ? " on" : ""}`, "aria-pressed": String((k === "closed") === closed),
+      title: k === "closed" ? "The goals, the built-in blocks and each machine block's identified model run on past now"
+                            : "Open loop: every block held as it was, every input held where it was",
+      onclick: () => { S.loops = k; for (const b of document.querySelectorAll(".strip")) b.redraw?.(); } }, words)));
+}
+/* with the loops running: each goal on these parts, its chance of being off at the horizon (the Monte Carlo's) */
+function riskLines(d) {
+  return (d.risk || []).filter((r) => r.said).map((r) => h("p", { class: `small risk${r.p_off_end >= 0.5 ? " s-open" : ""}` }, r.said));
+}
+/* what stands in for the machine blocks near these parts, in words (the closed-loop projection runs them, not the blocks) */
+function modelsSaid(d) {
+  if (d.loops !== "closed" || !d.models?.length) return [];
+  return [h("details", { class: "block-models small" }, h("summary", { class: "muted" },
+    `Each block's identified model (${d.models.length})${d.models_assumed?.length ? `; assumed: ${d.models_assumed.join(", ")}` : ""}`),
+    h("ul", {}, d.models.map((x) => h("li", { class: x.assumed ? "s-open" : null }, x.said,
+      SNAP || x.pool == null ? null : h("span", { class: "muted" }, "; what if its pool were ", whatifField(`block.${x.block}.pool`,
+        `what if ${x.block}'s pool were`, x.pool, "another number of runs at once"))))))];
+}
+/* a what-if only the closed-loop projection can try (an input's rate, a goal's setpoint, a pool), typed in a panel:
+   drawn on every chart on the page, never kept */
+function whatifField(key, label, shown, hint) {
+  const input = h("input", { class: "whatif-in num", value: S.whatif?.[key] ?? shown ?? "", size: 7, "aria-label": label,
+    "data-name": key, "data-declared": shown ?? "", title: `${hint}; drawn with the loops running, nothing is saved` });
+  input.addEventListener("change", () => { const v = input.value.trim(); setWhatif(key, v === String(shown ?? "") || v === "" ? null : v); });
+  return h("span", { class: "nowrap" }, input);
+}
+
+/* an input from outside: its rate to try (per hour, or x2 for twice what it is now) */
+function inputWhatif(flow) {
+  if (SNAP) return null;
+  return h("p", { class: "muted small" }, "What if it came at ", whatifField(`flow.${flow}`, `what if ${flow} came at`, "",
+    "a rate per hour, or x2 for twice its mean over the window"), " an hour (or x2: twice its mean), with the loops running");
+}
+
 /* the owner's what-if: parameters tried at other values, for every chart on the page, never kept (S.whatif) */
 function whatifParams() {
   const w = Object.entries(S.whatif || {});
@@ -370,13 +416,13 @@ function setWhatif(name, value) {
   S.whatif = { ...(S.whatif || {}) };
   if (value == null || value === "") delete S.whatif[name]; else S.whatif[name] = String(value).trim();
   for (const b of document.querySelectorAll(".strip")) b.redraw?.();
-  for (const f of document.querySelectorAll(".whatif")) f.redraw?.();
+  for (const f of document.querySelectorAll(".whatif, .whatif-redraw")) f.redraw?.();
 }
 const tried = (w) => (w.duration ? dur(w.value * 3600) : `${fmt(w.value)}${w.unit ? " " + w.unit : ""}`);
 function whatifSaid(d) {
   if (d.whatif_error) return `What-if not drawn: ${d.whatif_error}`;
   if (!d.whatif?.length) return "";
-  return `in blue, what if ${d.whatif.map((w) => `${w.name} were ${tried(w)}`).join(" and ")} (not saved)`;
+  return `in blue, what if ${d.whatif.map((w) => (w.said ? w.said : `${w.name} were ${tried(w)}`)).join(" and ")} (not saved)`;
 }
 function replayFanSaid(d, drawn) {
   const f = d.replay_fan;
@@ -387,12 +433,21 @@ function replayFanSaid(d, drawn) {
 /* why the part itself has no replay, projection or fan: the replay works out a stock with flows and a part with an
    equation; anything else it takes as measured */
 function noReplaySaid(s) {
+  if (s.modelled === "identified model") return "no replay: a block moves it, and the replay takes it as measured; past now, its block's identified model";
   if (s.kind === "stock") return "no replay or projection: no flow fills or drains it in the model";
   return "no replay, projection or fan: no equation works it out, so the replay takes it as measured";
 }
 function fanSaid(d, drawn) {
   const f = d.fan;
   if (!f) return "";
+  if (f.closed) {
+    if (!f.samples) return "no spread drawn: no run with the loops running was valid";
+    const bad = f.invalid ? `; ${f.invalid} of ${f.samples + f.invalid} runs not valid` : "";
+    const names = f.parameters.map((u) => u.name);
+    return `shaded: half${f.tails ? ", and nine in ten," : ""} of ${f.samples} runs with the loops running` +
+      (names.length ? `, over ${names.slice(0, 5).join(", ")}${names.length > 5 ? ` and ${names.length - 5} more` : ""} (estimates and identified models \u00b12 standard errors; inputs by how far their mean could move)` : "") +
+      bad + (f.stopped ? `; ${f.stopped}` : "") + (drawn ? "" : "; too narrow to draw here");
+  }
   if (!f.parameters?.length) return "no spread drawn: no parameter it uses has a range or an estimate's error";
   if (!f.samples) return "no spread drawn: every run of the uncertain parameters blew up";
   if (!drawn) return `no spread drawn: its projection is the same over ${f.parameters.map((u) => u.name).join(", ")} as far as it looks`;

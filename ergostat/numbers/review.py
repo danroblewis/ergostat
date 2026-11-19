@@ -472,8 +472,7 @@ def effect(p, spec: Spec, xs: list[dict], at: float | None = None, base_leverage
     from ..web.numbers_api import horizon_of
     horizon = horizon_of(run, grid.until - grid.since)
     points = max(2, round(CHART_POINTS * horizon / max(grid.until - grid.since, 1.0)))
-    proj_b = sim.project(spec, data, run, horizon, sim.plan(spec), points=points)
-    proj_a = sim.project(after, data_a, run_a, horizon, sim.plan(after), points=points) if run_a.valid else None
+    proj_b, proj_a, loops = _projections(p, spec, after, data, data_a, run, run_a, horizon, points)
     refs = _charted(after, taken, 4 * most) or _charted(spec, taken, 4 * most)
     charts, undrawn = [], []
     for r in refs:
@@ -504,10 +503,20 @@ def effect(p, spec: Spec, xs: list[dict], at: float | None = None, base_leverage
         except Exception:                                     # leverage is a help to reading, never a reason to fail
             lev = []
     return {**out, "times": [round(t, 3) for t in grid.times()], "ptimes": [round(t, 3) for t in proj_b.times],
-            "horizon": horizon, "charts": charts, "undrawn": undrawn,
+            "horizon": horizon, "loops": loops, "charts": charts, "undrawn": undrawn,
             "fit_before": fit_b, "fit_after": fit_a, "valid": run_a.valid, "invalid": run_a.invalid,
             "operational": operational(after, refs, proj_b, proj_a, grid.until, horizon) if proj_a else [],
             "leverage": lev}
+
+
+def _projections(p, spec: Spec, after: Spec, data, data_a, run, run_a, horizon: float, points: int):
+    """The model's projection as it is and with the change: with the loops running where the model has controllers
+    (closedloop.projection), else held. (before, after or None, "closed" or "held")"""
+    from . import closedloop as cl
+    loops = "closed" if cl.has_controllers(spec) else "held"
+    b = cl.projection(p, spec, data, run, horizon, sim.plan(spec), points, loops)["projection"]
+    a = cl.projection(p, after, data_a, run_a, horizon, sim.plan(after), points, loops)["projection"] if run_a.valid else None
+    return b, a, loops
 
 
 def base_leverage(p, spec: Spec, at: float | None = None) -> dict | None:
