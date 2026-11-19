@@ -91,7 +91,9 @@ function avoidCore(A) {
         if (cornerA && along < need && len_ - need >= need) slide = need - along;
         else if (cornerB && len_ - along < need && along - (len_ - need) >= 0 && len_ >= 2 * need) slide = -(need - (len_ - along));
         const ux = len_ ? (b[0] - a[0]) / len_ : 0, uy = len_ ? (b[1] - a[1]) / len_ : 0;
-        return { dir, corner: cand.length > 1 && cand.some((j) => level(j) !== level(i)), dx: ux * slide, dy: uy * slide };
+        // (a short stretch between two the other way, on the point: a jog there, as much a turn on the valve as a corner)
+        const jog = i > 0 && i + 2 < p.length && len_ < 40 && level(i - 1) !== level(i) && level(i + 1) !== level(i);
+        return { dir, corner: jog || (cand.length > 1 && cand.some((j) => level(j) !== level(i))), dx: ux * slide, dy: uy * slide };
       };
       // a flow that turns on its valve: routed again straight through it, on the axis of its stretch there, so its
       // turn moves off the valve (a corner on a valve is a stub out of it whichever way it faces)
@@ -114,7 +116,8 @@ function avoidCore(A) {
         corners.forEach(([cr, f], i) => {
           const best = Math.min(costs[i][across], costs[i][upDown]);
           if (best === Infinity) { cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: D.ConnDirAll, departure: D.ConnDirAll }]); again = true; }
-          else if (costs[i][across] < costs[i][upDown]) { cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: across, departure: across }]); again = true; }
+          // (a tie goes to the axis its two ends lie along)
+          else if (costs[i][across] < costs[i][upDown] || (costs[i][across] === costs[i][upDown] && f.level)) { cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: across, departure: across }]); again = true; }
         });
         if (again) r1.processTransaction();
       }
@@ -435,7 +438,11 @@ function avoidSpec(lay, g) {
       if (k === "stock") for (const v of alignedValves[c.id] || []) {
         const vx = v.x + v.width / 2, vy = v.y + v.height / 2, fx = (vx - c.x) / c.width, fy = (vy - c.y) / c.height;
         // (never on a point already there: two pins in one place are two pipes on one track)
-        const taken = (d, f, len) => pins.some((p) => p.cls === PIN.PIPE && p.dir === d && Math.abs((d === "up" || d === "down" ? p.x : p.y) - f) * len < 7);
+        // (a point already near it is moved onto the valve's line instead: a pipe a pixel off it would jog on the valve)
+        const taken = (d, f, len) => { const along = d === "up" || d === "down" ? "x" : "y";
+          const p = pins.find((q) => q.cls === PIN.PIPE && q.dir === d && Math.abs(q[along] - f) * len < 7);
+          if (p) p[along] = f;
+          return !!p; };
         if (fx > 0.08 && fx < 0.92 && (vy < c.y || vy > c.y + c.height)) { const d = vy < c.y ? "up" : "down"; if (!taken(d, fx, c.width)) at(PIN.PIPE, fx, d === "up" ? 0 : 1, d); }
         else if (fy > 0.12 && fy < 0.88 && (vx < c.x || vx > c.x + c.width)) { const d = vx < c.x ? "left" : "right"; if (!taken(d, fy, c.height)) at(PIN.PIPE, d === "left" ? 0 : 1, fy, d); }
       }
@@ -461,7 +468,8 @@ function avoidSpec(lay, g) {
     }
     // (the first pass, where flows are routed with their valves as points: a stock's and a cloud's pipes may meet
     // any side)
-    const pins1 = k === "stock" ? [...pins.filter((p) => p.cls !== PIN.PIPE), ...["left", "right", "up", "down"].flatMap((d) => PIPE_ALONG.map((f) => {
+    // (its points in line with the valves facing it kept too: a pipe a pixel off a fixed point jogs on the valve)
+    const pins1 = k === "stock" ? [...pins, ...["left", "right", "up", "down"].flatMap((d) => PIPE_ALONG.map((f) => {
       const [x, y] = sidePoint(d, f, 1, 1); return { cls: PIN.PIPE, x, y, dir: d, shared: false, abs: false }; }))]
       : k === "cloud" ? ["left", "right", "up", "down"].map((d) => { const [x, y] = sidePoint(d, 0.5, 1, 1); return { cls: PIN.PIPE, x, y, dir: d, shared: true, abs: false }; })
       : null;
@@ -487,9 +495,11 @@ function avoidSpec(lay, g) {
     if (!pinsBy[c.id] || S.pins?.["turn:" + c.id]) continue;
     const cin = conns.find((x) => x.t === c.id && edgeOf[x.id].kind === "pipe"), cout = conns.find((x) => x.s === c.id && edgeOf[x.id].kind === "pipe");
     if (!cin || !cout) continue;
+    const near = box[cin.s] && { x: box[cin.s].x + box[cin.s].width / 2, y: box[cin.s].y + box[cin.s].height / 2 };
     const far = box[cout.t] && { x: box[cout.t].x + box[cout.t].width / 2, y: box[cout.t].y + box[cout.t].height / 2 };
     flows.push({ id: c.id, s: cin.s, sp: cin.sp, t: cout.t, tp: cout.tp, x: c.x + c.width / 2, y: c.y + c.height / 2,
-                                  tx: far?.x, ty: far?.y, pinned: !!S.pins?.[c.id] || !!c.slid });   // (slid once a layout: no drift)
+                                  tx: far?.x, ty: far?.y, pinned: !!S.pins?.[c.id] || !!c.slid,   // (slid once a layout: no drift)
+                                  level: !!(near && far && Math.abs(far.x - near.x) >= Math.abs(far.y - near.y)) });
   }
   // (in the dynamics view a flow's pipe reads best short and straight: a crossing there costs less than a long way round)
   return { shapes, conns, flows, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length) * (conns.length > 150 ? 0.6 : 1)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
