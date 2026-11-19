@@ -969,7 +969,8 @@ class Engine:
     def _read(self, s: Sensor) -> None:
         """One reading on a thread of its own, then a pass: for an engine whose loop is not running."""
         try:
-            v, why = read_sensor(self.spec, s, self.p.events, self._observer(sensor_name(s.of.name, s.name)), self.p.measurements)
+            v, why = read_sensor(self.spec, s, self.p.events, self._observer(sensor_name(s.of.name, s.name)), self.p.measurements,
+                                   env=callback_env(self.spec, self.p.dir, self.socket))
             if v is None:
                 self.p.events.add("sensor.failed", item=sensor_name(s.of.name, s.name), source=SOURCE, data={"why": why})
                 self.say(f"sensor {s.of.name}.{s.name}: {why}")
@@ -987,7 +988,8 @@ class Engine:
     def _read_one(self, s: Sensor) -> None:
         """One reading of a command or a query, on the pool: its result posted to the loop."""
         try:
-            v, why = read_sensor(self.spec, s, self.p.events, self._observer(sensor_name(s.of.name, s.name)), self.p.measurements)
+            v, why = read_sensor(self.spec, s, self.p.events, self._observer(sensor_name(s.of.name, s.name)), self.p.measurements,
+                                   env=callback_env(self.spec, self.p.dir, self.socket))
             got = (s, v, why, time.time(), None)
         except Exception as e:
             got = (s, None, "", time.time(), e)
@@ -1758,10 +1760,24 @@ def observations(text: str) -> tuple[list[dict], list[str]]:
     return seen, refused
 
 
-def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=None, counts=None) -> tuple[float | None, str]:
+def callback_env(spec: Spec, state: os.PathLike | str, socket: str | None = None) -> dict[str, str]:
+    """How a sensor's command calls ergostat back, as a block's run is told: ``ERGOSTAT_CMD``, ``ERGOSTAT_PROJECT``,
+    ``ERGOSTAT_STATE_DIR``, and ``ERGOSTAT_SOCKET`` when the engine answers calls (none inherited otherwise)."""
+    env = {**os.environ, "ERGOSTAT_PROJECT": spec.name, "ERGOSTAT_STATE_DIR": str(state),
+           "ERGOSTAT_CMD": f"{shlex.quote(sys.executable)} -m ergostat -C {shlex.quote(str(spec.root))}"}
+    if socket:
+        env["ERGOSTAT_SOCKET"] = socket
+    else:
+        env.pop("ERGOSTAT_SOCKET", None)
+    return env
+
+
+def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=None, counts=None,
+                env: dict[str, str] | None = None) -> tuple[float | None, str]:
     """One reading: the number, or None and why not. Counting items needs the record (or ``counts``, what the
     engine keeps of it as it folds: counts.py), and a flow read from its stock's changes the measurements. A
-    command's observations (event lines about items) go to ``observe``, when given, even with no number."""
+    command's observations (event lines about items) go to ``observe``, when given, even with no number. A command
+    runs with ``env`` (``callback_env``: how to call ergostat back), else with the project's own worked out."""
     if s.changes is not None:
         if measurements is None:
             return None, "a flow read from its stock's changes needs the stock's readings, and there are none here"
@@ -1782,8 +1798,11 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
             return read(spec, src, s)
         return None, f"source type {src.type} cannot be queried"
     try:
+        if env is None:
+            from ..store import state_dir
+            env = callback_env(spec, state_dir(spec.name, spec.root))
         p = subprocess.run(s.run, shell=True, cwd=spec.root, capture_output=True, text=True, timeout=s.timeout,
-                           start_new_session=True)
+                           start_new_session=True, env=env)
     except subprocess.TimeoutExpired:
         return None, f"no answer within {s.timeout:g}s"
     if p.returncode != 0:

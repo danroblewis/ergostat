@@ -1046,7 +1046,7 @@ flows:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `run` | command | | A command whose output is the reading: a bare number, or JSON `{"value": n}` |
+| `run` | command | | A command whose output is the reading: a bare number, or JSON `{"value": n}`. Run in the model's folder; its environment carries `ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR` and (when the engine has one) `ERGOSTAT_SOCKET`, as a block's run does (section 9.3), so a collector can read the items with `$ERGOSTAT_CMD item --kind K --json` |
 | `query` | map | | A query against a source (section 11): `source` and the source's own fields |
 | `manual` | bool | | Readings recorded by a person |
 | `items` | item kind | | Counted from the record: on a stock, the items in `state` (any state when left out); on a flow, the items `entering` or `leaving` a state per hour, over `over` |
