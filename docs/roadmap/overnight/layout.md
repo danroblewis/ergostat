@@ -39,3 +39,27 @@ The rendering suite fails on any critical instance of the rules. Recorded sizes 
 About 450 net lines of JavaScript in `ergostat/web/static` (satellites.js, avoid.js's first pass, places.js, valves.js,
 layouts.js, diagram.js), within the 600 budget. The detectors, the corpus generator and runner, and the geometry reader
 are tests and scripts.
+
+## Where it stopped
+
+Landing early, at the coordinator's request, with the engine fixes above. The remaining rules continue on this
+branch.
+
+**Size, corrected.** The estimate above was low. The branch is 1,049 net lines outside `tests/` and `docs/`:
+
+- 585 in the engine (`ergostat/web/static`: satellites.js 224, avoid.js's first pass and routing fixes 199, places.js
+  77, valves.js 52, layouts.js 15, diagram.js 13, interact.js 4, index.html 1);
+- 464 in the opt-in corpus tools (`scripts/layout_corpus.py` 409, `scripts/layout_geometry.js` 55).
+
+The overrun is the corpus tools. They are test infrastructure (the opt-in run of the detectors over several hundred
+models the task asked for), kept in `scripts/` beside `diagram_audit.py`, which they extend. The engine itself is
+within the 600.
+
+**Left for this branch:**
+
+- `label-collision` and `marker-collision` in dense views (loop markers' names over lines);
+- `satellite-far` and `stranded-part` (a goal or auxiliary joined only through a satellite valve drifts);
+- `signal-backwards` in the Blocks view;
+- two critical instances main already had (recorded in `tests/fixtures/layout_known.json`): small-requests'
+  regressions system and alert-triage with everything open;
+- the router's time on the largest views is close to the page's 20s bound under load.
