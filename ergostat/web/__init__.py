@@ -91,7 +91,7 @@ def serve(project, port: int | None = None):
     another machine only events may be pushed (``intake: allow:``). The push token is made now (``intake/token.py``)."""
     spec = getattr(project.model, "spec", None)
     host = getattr(getattr(spec, "intake", None), "bind", None) or "127.0.0.1"
-    port = _free(port or DEFAULT_PORT, host)
+    port = _free(port or DEFAULT_PORT) if host == "127.0.0.1" else _free(port or DEFAULT_PORT, host)
     from ..intake.token import token
     token(project.dir)
     server = PooledServer((host, port), handler(project))
