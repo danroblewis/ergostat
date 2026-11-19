@@ -7,7 +7,7 @@
    just beyond. The router then turns the valve to its pipe (avoid.js) */
 "use strict";
 
-const SAT_GAP = 34;                                     // stock to valve, valve to cloud (as standUpright's)
+const SAT_GAP = 34;                                     // stock to valve, valve to cloud (as seatCloudFlows')
 
 /* which flows are satellites, and on which side of their stock: {valve: {stock, cloud, out, side}} */
 function satellitePlan(g) {

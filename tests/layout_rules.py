@@ -1,10 +1,10 @@
 """The layout rules of docs/layout-rules.md, each a detector over a diagram's drawn geometry (what
-scripts/layout_geometry.js reads off the page: parts' boxes and their labels, lines' points, the words as drawn,
+tests/layout_geometry.js reads off the page: parts' boxes and their labels, lines' points, the words as drawn,
 loop markers, open systems' frames). Each detector returns the instances it finds, each with a severity and a
 score (how bad: in pixels, or a count), the parts it is about and the box round it (for a crop of a screenshot).
 
 Pure Python, no browser: tests/test_diagram_rendering.py runs the fast ones on every view it draws, and
-scripts/layout_corpus.py runs all of them over a corpus of models. The rules are in the order of the document:
+tests/layout_corpus.py runs all of them over a corpus of models. The rules are in the order of the document:
 the worst-looking first."""
 from __future__ import annotations
 

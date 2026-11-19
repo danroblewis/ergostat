@@ -1,12 +1,125 @@
 {
  "alert-triage": {
-  "open=*": [
-   "flow-excursion|flow:alerts-reopened|stock:alerts-escalated|stock:alerts-triaged"
-  ]
+  "ceilings": {
+   "satellite-far": 27,
+   "valve-orientation-mismatch": 2
+  }
+ },
+ "backups": {
+  "ceilings": {
+   "satellite-far": 6,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "big": {
+  "ceilings": {
+   "satellite-far": 8,
+   "valve-orientation-mismatch": 4
+  }
+ },
+ "coordinator": {
+  "ceilings": {
+   "satellite-far": 23,
+   "valve-orientation-mismatch": 4
+  }
+ },
+ "deps": {
+  "ceilings": {
+   "satellite-far": 4,
+   "valve-orientation-mismatch": 1
+  }
+ },
+ "disk-space": {
+  "ceilings": {
+   "satellite-far": 2,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "docs-fresh": {
+  "ceilings": {
+   "satellite-far": 4,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "file-queue": {
+  "ceilings": {
+   "satellite-far": 0,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "first-loop": {
+  "ceilings": {
+   "satellite-far": 2,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "git-hygiene": {
+  "ceilings": {
+   "satellite-far": 2,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "image-squeeze": {
+  "ceilings": {
+   "satellite-far": 25,
+   "valve-orientation-mismatch": 3
+  }
+ },
+ "ops": {
+  "ceilings": {
+   "satellite-far": 9,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "plain-crontab": {
+  "ceilings": {
+   "satellite-far": 2,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "roadmap": {
+  "ceilings": {
+   "satellite-far": 15,
+   "valve-orientation-mismatch": 0
+  }
  },
  "small-requests": {
+  "ceilings": {
+   "satellite-far": 25,
+   "valve-orientation-mismatch": 5
+  },
   "system=regressions": [
    "flow-excursion|flow:regressions-draft-revert-taken|stock:regressions-draft-revert|stock:regressions-draft-revert-working"
   ]
+ },
+ "software-factory": {
+  "ceilings": {
+   "satellite-far": 4,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "talking-scripts": {
+  "ceilings": {
+   "satellite-far": 2,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "the-job": {
+  "ceilings": {
+   "satellite-far": 32,
+   "valve-orientation-mismatch": 2
+  }
+ },
+ "this-mac": {
+  "ceilings": {
+   "satellite-far": 4,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "ticket-factory": {
+  "ceilings": {
+   "satellite-far": 8,
+   "valve-orientation-mismatch": 2
+  }
  }
 }

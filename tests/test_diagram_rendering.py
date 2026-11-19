@@ -149,9 +149,14 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
         slowest = max(slowest, (first, v or "whole"))
         routed = max(routed, (final, v or "whole"))
     pg.close()
+    counts = layout_known.pop("counts", {})
+    ceilings = layout_known.pop("ceilings", {})
+    problems += [f"{rule}: {counts.get(rule, 0)} instances, the ceiling is {ceilings.get(rule, 0)} (docs/layout-rules.md)"
+                 for rule in CEILED if not os.environ.get("RECORD_LAYOUT") and counts.get(rule, 0) > ceilings.get(rule, 0)]
     if os.environ.get("RECORD_LAYOUT"):
         knowns = json.loads(KNOWN.read_text()) if KNOWN.exists() else {}
         mine = {k: v for k, v in layout_known.items() if v}
+        mine["ceilings"] = {rule: counts.get(rule, 0) for rule in CEILED}
         KNOWN.write_text(json.dumps({**{k: v for k, v in knowns.items() if k != name}, **({name: mine} if mine else {})},
                                     indent=1, sort_keys=True) + "\n")
     if os.environ.get("RECORD_SIZES"):
@@ -168,6 +173,8 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
 # the critical layout faults an example's views had when the rules came (docs/layout-rules.md), each by its rule and
 # its parts: known, listed there to fix, and not to grow (RECORD_LAYOUT=1 writes them again)
 KNOWN = ROOT / "tests" / "fixtures" / "layout_known.json"
+# rules with no gate of their own: an example's instances of each, over all its views, never more than recorded ("ceilings")
+CEILED = ["valve-orientation-mismatch", "satellite-far"]
 
 
 def critical(pg, where: str, known: dict | None = None) -> list[str]:
@@ -177,6 +184,9 @@ def critical(pg, where: str, known: dict | None = None) -> list[str]:
     geo = pg.evaluate(GEOMETRY)
     if not geo:
         return []
+    if known is not None:                                # (the ungated rules counted, against their ceilings below)
+        for x in rules.check(geo, CEILED):
+            known.setdefault("counts", {})[x["rule"]] = known.get("counts", {}).get(x["rule"], 0) + 1
     found = [x for x in rules.check(geo, fast=True) if x["severity"] == "critical"]
     keys = [f"{x['rule']}|{'|'.join(sorted(x['parts']))}" for x in found]
     if known is not None:
@@ -190,7 +200,7 @@ def critical(pg, where: str, known: dict | None = None) -> list[str]:
 def test_generated_models_of_every_shape_draw_with_no_critical_layout_fault(browser, tmp_path, shape):
     """One generated model of each shape (tests/diagram_corpus.py: chains, fan-outs, joins, rework, many clouds,
     systems linked across, cascades, auxiliaries, mixes, drains), in the Dynamics and Blocks views, whole and with
-    everything open: no critical instance of any layout rule. The whole corpus is scripts/layout_corpus.py's."""
+    everything open: no critical instance of any layout rule. The whole corpus is tests/layout_corpus.py's."""
     from tests import diagram_corpus as corpus
     name = f"gen-{shape}"
     d = tmp_path / name
@@ -381,7 +391,7 @@ VALVE_SIDES = """() => {
 }"""
 
 
-GEOMETRY = (ROOT / "scripts" / "layout_geometry.js").read_text()
+GEOMETRY = (ROOT / "tests" / "layout_geometry.js").read_text()
 MODELLING = [e for e in EXAMPLES if any(re.search(r"^\s+modelling:|use[s]?: modelling", f.read_text(), re.M)
                                         for f in (ROOT / "examples" / e).rglob("*.yaml"))]
 
@@ -496,7 +506,8 @@ UPRIGHT = """async () => {
   const at = (id) => S.layout.children.find((c) => c.id === id);
   const st = at("stock:building"), v = at("flow:abandoned"), cl = at("cloud:abandoned:out");
   const cx = st.x + st.width / 2;
-  // (close over it: what the layout put further up, a goal, would lie between the valve and its cloud)
+  // (pinned closer over it than before, 100 and 170 instead of 150 and 280: since the layout changed for docs/layout-rules.md,
+  // a goal lies further up, and would sit between the valve and its cloud)
   S.pins = { "stock:building": { x: st.x, y: st.y }, "flow:abandoned": { x: Math.round(cx - v.width / 2), y: st.y - 100 },
              "cloud:abandoned:out": { x: Math.round(cx - cl.width / 2), y: st.y - 170 } };
   await S.relayout();

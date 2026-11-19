@@ -216,7 +216,10 @@ async function runLayoutWith(graph, g, preset, name = "") {
     catch (e2) { state.dropped = []; state.reversed = new Set(); lay = await elk.layout(plain); }
   }
   if (p?.wrapOver && !p.wrap && g.edges.length <= WRAP_LINES) {    // one chain far wider than tall (a drawn system's, an open one's)
-    const long = [], chain = (n) => oneChain(n, g) && n.width > WRAP_WIDE && n.width / n.height > p.wrapOver;
+    // (far wider than the screen: wider than the canvas, at most WRAP_WIDE)
+    const cw = document.querySelector("svg.canvas")?.getBoundingClientRect()?.width;
+    const wide = cw ? Math.min(WRAP_WIDE, cw - 40) : WRAP_WIDE;
+    const long = [], chain = (n) => oneChain(n, g) && n.width > wide && n.width / n.height > p.wrapOver;
     if (!lay.children.some((c) => c.id.startsWith("hull:")) && chain(lay)) long.push("root");
     const walk = (n) => { for (const c of n.children || []) if (c.id.startsWith("hull:")) {
       if (!(c.children || []).some((k) => k.id.startsWith("hull:")) && chain(c)) long.push(c.id);
@@ -227,7 +230,7 @@ async function runLayoutWith(graph, g, preset, name = "") {
     // open systems side by side far wider than tall (the dynamics view: their real lines between them pull them
     // into one row): stacked instead, what feeds coming first, so the lines between them run down
     if (g.kind === "dynamics" && !p.stack && lay.children.filter((c) => c.id.startsWith("hull:")).length > 1 &&
-        lay.width > WRAP_WIDE && lay.width / lay.height > p.wrapOver)
+        lay.width > wide && lay.width / lay.height > p.wrapOver)
       return runLayoutWith(plain, g, { ...p, stack: true, root: { ...(p.root || {}), "elk.direction": "DOWN" } });
   }
   unreverse(lay, state.reversed);

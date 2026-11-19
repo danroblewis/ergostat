@@ -3,7 +3,7 @@
 Common-sense rules for how ergostat lays out its three diagrams: the stock-and-flow diagram (Dynamics), the block
 diagram (Blocks) and the process map (Process). Each rule is stated plainly, with why it matters and a measurable
 form. Each also has a detector in `tests/layout_rules.py`, which reads the drawn geometry off the page
-(`scripts/layout_geometry.js`: every part's box, every line's points, every word as drawn, the loop markers, the
+(`tests/layout_geometry.js`: every part's box, every line's points, every word as drawn, the loop markers, the
 open systems' frames).
 
 The rules are ordered by how bad a violation looks, worst first. A **critical** violation is one a reader notices
@@ -14,14 +14,14 @@ How they are checked:
 
 - `tests/test_diagram_rendering.py` runs the fast detectors on every view of every example it draws, and fails on
   any critical instance.
-- `scripts/layout_corpus.py` runs every detector over the whole corpus: every example, plus several hundred
+- `tests/layout_corpus.py` runs every detector over the whole corpus: every example, plus several hundred
   generated models from `tests/diagram_corpus.py` (chains, fan-outs, joins, rework, many clouds, systems linked
   across, cascades, auxiliaries, mixes). Each model is drawn in each view: whole, everything open, each system
   open, each system alone. The run writes counts per rule and crops of the worst instances.
 
 ```
-uv run --with playwright==1.63.0 python scripts/layout_corpus.py OUT --generated 300
-uv run --with playwright==1.63.0 python scripts/layout_corpus.py OUT --engine ../other-checkout   # a before
+uv run --with playwright==1.63.0 python -m tests.layout_corpus OUT --generated 300
+uv run --with playwright==1.63.0 python -m tests.layout_corpus OUT --engine ../other-checkout   # a before
 ```
 
 <!-- COUNTS -->
@@ -225,6 +225,34 @@ that, it runs off the screen one way while the screen is empty the other.
   than one row.
 - **A crossing costs the router less where a view has over 150 lines.** Its search is most of the routing time,
   and the bigger views' routing must stay within the page's bound.
+
+## Fit against main
+
+Recorded sizes (`tests/fixtures/diagram_sizes.json`) were written again for the new layouts. These are the views that
+fit the screen worse than on main, with before and after screenshots in `~/ergostat-wt/layout-shots/`
+(`fit-<example>-<view>-before.png`, `-after.png`; main's fit, then this branch's):
+
+| view | main | branch | why |
+|---|---|---|---|
+| the-job system=delivery | 1.40 (rows) | 0.80 | main's rows hold the owner's first antipattern: nudges-drafted's pipe runs up and round through the valve placed over the row. The branch draws the chain straight in one row. Its rows fit only 24% better, under the 25% a wrap must gain. |
+| coordinator, image-squeeze, the-job system=modelling | 0.99 | 0.86 | main is the owner's own case: model-mended's drain runs across the whole drawing to a cloud in a corner, and changes-made's valve sits far from its stock. Now both are short satellites, and the chain is one row, a little wider. |
+| image-squeeze open=lab | 0.53 | 0.46 | 16 drains and inflows stood beside their stocks (the satellites' room) where main left valves and clouds in other layers. The room is kept only when the drawing loses no more than 10% of its fit to it. Here it loses less than that, and the rest is the same layout's different layering. Not fixed. |
+| software-factory open=* | 0.74 | 0.60 | no satellites' room kept here (it cost more than 10%). The loss is the rework laid out backwards (the chain left to right) and valves put between their stocks, which change ELK's layering. Not fixed. |
+
+The other views the review named are back to main's fit or better: software-factory system=product 1.31 (main 1.31);
+ops open=* 1.02 (0.88). The remaining ones are within 15%: small-requests system=review-reminders 1.02 (1.10), big
+open=data 0.91 (1.02), big system=api and system=web 1.28 (1.38). Two changes brought them back:
+
+- **The satellites' room is optional.** The layout is computed with and without it, and the room is kept only if
+  it costs at most 10% of the fit.
+- **Wrapping follows the screen.** A chain counts as far wider than the screen when it is wider than the canvas,
+  not wider than a fixed 1,600px.
+
+## Ceilings
+
+Two rules with no gate of their own have ceilings: `valve-orientation-mismatch` and `satellite-far`. An example's
+instances of each, over all its views, may not exceed the counts recorded in `tests/fixtures/layout_known.json`
+(`ceilings`), written with `RECORD_LAYOUT=1`.
 
 ## Instances found on main (before)
 
