@@ -139,7 +139,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0) {
     return out;
   });
   // flows between one stock and a cloud: left out, their room kept on their stock (satellites.js)
-  const sat = ELK_PRESETS[LAYOUT]?.upright ? reserveSatellites(children, edges, satellitePlan(g)) : null;
+  const sat = ELK_PRESETS[LAYOUT]?.upright ? reserveSatellites(children, edges, satellitePlan(g), g) : null;
   if (sat) sat.ends = Object.fromEntries(g.edges.map((e) => [e.id, [e.source, e.target]]));
   const elkChildren = sat ? sat.children : children, elkEdges = sat ? sat.edges : edges;
   // an open system is laid out as one container, its parts together, nested as the systems nest

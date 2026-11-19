@@ -35,7 +35,8 @@ function satellitePlan(g) {
 
 /* the ELK graph's children and edges with the satellites taken out and their stocks grown to hold them; returns
    what placeSatellites needs to put them back */
-function reserveSatellites(children, edges, plan) {
+function reserveSatellites(children, edges, plan, g) {
+  const seeking = new Set(g.edges.filter((e) => e.goalSeeking).map((e) => e.id));
   const node = Object.fromEntries(children.map((c) => [c.id, c]));
   const kept = {};                                       // stock -> {w, h, dx, dy, sats: [{valve, cloud, side, out}]}
   const removed = {};
@@ -74,7 +75,11 @@ function reserveSatellites(children, edges, plan) {
       continue;
     }
     dropped.push(e.id);                                  // the pipes, and the links into or out of the valve: left out of
-  }                                                      // the layout (a link travels to its valve wherever it sits)
+    // the layout (a link travels to its valve wherever it sits); but a goal's gap that drives the valve is given to
+    // ELK as driving its stock, so the goal is laid out by the stock it holds, not adrift
+    if (seeking.has(e.id) && !stockOf[s] !== !stockOf[t])
+      keptEdges.push({ ...e, id: "sat:" + e.id, sources: [stockOf[s] || e.sources[0]], targets: [stockOf[t] || e.targets[0]], labels: undefined });
+  }
   return { children: out, edges: keptEdges, kept, removed, dropped };
 }
 

@@ -130,7 +130,7 @@ function reverseCommands(graph, g) {
   const kind = Object.fromEntries(g.edges.map((e) => [e.id, e.kind]));
   const seeking = new Set(g.edges.filter((e) => e.goalSeeking).map((e) => e.id));    // (a goal's gap and desired level: dynamics.js)
   const back = backPipes(g);
-  for (const e of graph.edges) if (kind[e.id] === "action" || seeking.has(e.id) || back.has(e.id)) { [e.sources, e.targets] = [e.targets, e.sources]; e.reversed = true; }
+  for (const e of graph.edges) if (kind[e.id.replace(/^sat:/, "")] === "action" || seeking.has(e.id.replace(/^sat:/, "")) || back.has(e.id)) { [e.sources, e.targets] = [e.targets, e.sources]; e.reversed = true; }
 }
 
 /* the pipes of a flow back up a chain (rework: into a stock the model names before the one it leaves), given to the
