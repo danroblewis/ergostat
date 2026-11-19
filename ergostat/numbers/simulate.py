@@ -281,6 +281,9 @@ class _Stepper:
                 for r, n in sorted(self.clamped.items())]
 
 
+Stepper = _Stepper           # the same arithmetic, for what steps the model's equations live (spec/observer.py)
+
+
 def _substeps(rate: float, width_h: float) -> tuple[int, bool]:
     """Steps for a bucket: a quarter of the fastest time constant (1/rate), at least SUBSTEPS, at
     most MAX_SUBSTEPS (and whether it had to stop there)."""

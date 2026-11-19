@@ -198,10 +198,10 @@ table.compact td, table.compact th { padding-top: var(--sp-1); padding-bottom: v
 /* state: a word, coloured only when it needs someone */
 .status { font-weight: 400; color: var(--muted); }
 .s-off, .status.s-off, .lvl-error, .lvl-bad { color: var(--bad); font-weight: 600; }
-.s-open, .status.s-open, .lvl-warning, .lvl-warn { color: var(--warn); font-weight: 600; }
+.s-open, .status.s-open, .s-stale, .status.s-stale, .lvl-warning, .lvl-warn { color: var(--warn); font-weight: 600; }
 .s-holding { color: var(--muted); }
 .s-unknown { color: var(--muted); }
-td.s-off, td.s-open { font-weight: 400; }
+td.s-off, td.s-open, td.s-stale { font-weight: 400; }
 h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 
 /* lists of things to look at: the side panel, the Check page, a panel's notes */

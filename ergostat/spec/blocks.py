@@ -196,15 +196,15 @@ class OnOff(Builtin):
     def compute(self, get, now):
         g = self.spec.goals[self.b.goal]
         off = get(Ref("goal", g.name, "off"))
-        y = get(g.of)
-        if off is None or y is None:
+        y = get(g.of)                                      # (None while it is stale and seen as off: SPEC §9.6)
+        if off is None or (y is None and not off):
             return None
         on = bool(self.out)
         held = now - self.changed_at if self.changed_at is not None else math.inf
         if not on:
             return 1.0 if off and held >= (self.p.get("min-off") or 0) else 0.0
         until: Setpoint | None = self.p.get("until")
-        done = (not until.outside(y)) if until else not off
+        done = (not until.outside(y)) if until and y is not None else not off
         return 0.0 if done and held >= (self.p.get("min-on") or 0) else 1.0
 
 

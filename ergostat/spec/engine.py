@@ -44,11 +44,13 @@ from . import blocks as bl
 from . import stream
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
+from .observer import KEEP, RUN, Observer, estimated, opted, stale_age
 
 TICK = 1.0
 READERS = 8                 # the fixed pool that runs sensors' commands and queries: no thread per reading (scale.md #1)
 BATCH = 0.05                # after a pass, what lands within this long (readings, runs ending) waits for one pass together
 MISSING = object()
+SLEPT = 30.0                # the wall clock ran this much further than the monotonic one between passes: it slept
 JUDGE_EVERY = 30.0          # a judge with no every: passes this often
 POOL_FULL_AFTER = 10.0      # seconds an item whose run found its workspace pool full is put off (SPEC §12k)
 SWEEP = 5.0                 # how often the owner's messages are swept: left received, or about work since finished
@@ -177,6 +179,14 @@ class Engine:
         self.wedged: str | None = None                 # set when only a restart of the process can recover it
         self.restart_hard = None                       # the restart itself, when the run loop cannot do it (running.py)
         self.watchdog = None
+        # the observer (observer.py, SPEC §9.6): the stale parts a goal or block reads, by signal, with their ages; the
+        # goals on a stale part; each stock's estimate between readings (made at the first pass: it reads the record)
+        self.stale_parts: dict[str, float] = {}
+        self.stale: dict[str, float] = {}
+        self.observer: Observer | None = None
+        self.observing = True
+        self.born = time.time()                        # (or when it last woke: nothing is stale before it could be read)
+        self.clock_at = (self.born, time.monotonic())
 
     # ---- signals
 
@@ -259,14 +269,17 @@ class Engine:
                     if sig.pop(k, MISSING) is not MISSING:
                         changed.add(k)
                 continue
+            policy = opted(spec).goals.get(name, "act") if name in self.stale else "act"   # stale: hold, or count as off
+            if policy == "hold":
+                continue
             before = self.status.get(name)
             now_s = g.status(y, before == "off", r)
-            e = g.hold.error(y, r)
-            for k, v in ((f"goal.{name}.error", e), (f"goal.{name}.off", 1.0 if now_s == "off" else 0.0)):
+            e = g.hold.error(y, r) if policy == "act" else sig.get(f"goal.{name}.error", g.hold.error(y, r))
+            for k, v in ((f"goal.{name}.error", e), (f"goal.{name}.off", 1.0 if now_s == "off" or policy == "off" else 0.0)):
                 if sig.get(k, MISSING) != v:
                     sig[k] = v
                     changed.add(k)
-            if now_s != before:
+            if now_s != before and policy == "act":
                 self.status[name] = now_s
                 ev = self._event(out, f"loop.{now_s}", item=name, source=SOURCE, causedby=(causes or {}).get(g.of.name),
                                  data={"value": y, "setpoint": f"{g.hold.op} {r:g}", "error": e,
@@ -313,7 +326,7 @@ class Engine:
                 newest, changed, mark = m.changes(self.mark)
             else:
                 newest = m.newest() if hasattr(m, "newest") else None
-            now = time.time()
+            now, mono = time.time(), time.monotonic()            # (together: a slow pass is no sleep)
             per_moved = self._per(now, full or tick or self.full or changed is None, changed)
             crossed: dict[str, str] = {}
             events: list[dict] = []
@@ -327,9 +340,12 @@ class Engine:
                 w = self._wiring()
                 if full:
                     self.measure(newest)
+                    self.observe(now, rows, events)
+                    self.staleness(now, events, mono)
                     self.goals(now, causes, crossed, out=events)
                 else:
                     keys |= self.measure(newest, changed)
+                    keys |= self.observe(now, rows, events) | self.staleness(now, events, mono)
                     series |= changed
                     goals_set |= {g for k in keys for g in w["goals_of"].get(k, ())} | per_moved
                     keys |= self.goals(now, causes, crossed, only=goals_set, out=events)
@@ -381,8 +397,13 @@ class Engine:
             name = names[i]
             blk, key = self.builtins[name], f"block.{name}"
             before = self.signals.get(key)
+            get, mode = self.get, self.stale_mode(blk.b)
+            if mode == "hold":                              # a stale input: it keeps its output
+                continue
+            if mode == "off":
+                get = self.seeing_off(blk.b)
             try:
-                v = blk.step(self.get, now)
+                v = blk.step(get, now)
             except Exception as e:                          # one block failing never stops the others
                 self.say(f"block {name}: {type(e).__name__}: {e}")
                 v = None
@@ -499,6 +520,112 @@ class Engine:
                                    "why": f"{b.type} {b.name} → {v:g}", "block": b.name, "value": v})
             self.cause[b.name] = ev["id"]
 
+    # ---- the observer (observer.py, SPEC §9.6)
+
+    def history(self, spec: Spec, n: str) -> list[tuple[float, float]]:
+        pts = sorted(p for s in spec.stocks[n].sensors.values() for p in self.p.measurements.range(s.series, 0, None, last=KEEP + 1))
+        return pts[-(KEEP + 1):]
+
+    def observe(self, now: float, rows: list, out: list) -> set[str]:
+        """Each estimated stock's estimate moved to now, once a pass, and its new readings blended in; their innovations
+        are recorded, and a run of large ones says the model disagrees. Returns the estimates and uncertainties that
+        changed. Nothing for a model that estimates no stock."""
+        if not self.observing or not opted(self.spec).stocks:
+            return set()
+        ob = self.observer
+        if ob is None:
+            ob = self.observer = Observer(self.spec, lambda n: self.history(self.spec, n))
+        ob.advance(now, self.signals)
+        new = []
+        for n, tr in ob.tracks.items():
+            got = max(((self.seen[s.series], s.name) for s in self.spec.stocks[n].sensors.values() if s.series in self.seen),
+                      default=None)
+            y = self.signals.get(f"stock.{n}.{got[1]}") if got else None
+            if isinstance(y, int | float) and (tr.last is None or got[0] > tr.last):
+                new.append((got[0], n, float(y)))
+        changed = set()
+        for t, n, y in sorted(new):
+            tr = ob.tracks[n]
+            got = tr.read(t, y, ob.rate.get(n, 0.0) * max(ob.t - t, 0.0) / 3600.0)   # (against its estimate then)
+            if got is not None:
+                rows.append((f"observer/{n}/innovation", t, got[0]))
+                if tr.run == RUN:
+                    self._event(out, "ergostat.model.disagrees", item=f"stock.{n}", source=SOURCE,
+                                data={"stock": n, "innovation": got[0], "sd": got[1], "run": RUN})
+        for n, tr in ob.tracks.items():
+            for port, v in (("estimate", tr.x), ("uncertainty", tr.uncertainty(now))):
+                k = f"stock.{n}.{port}"
+                if v is not None and port not in self.spec.stocks[n].sensors and self.signals.get(k) != v:
+                    self.signals[k] = v
+                    changed.add(k)
+        return changed
+
+    def staleness(self, now: float, out: list, mono: float | None = None) -> set[str]:
+        """Which parts the watched goals and blocks read are stale now (never before the engine has run long enough to
+        read them: since it started, or woke from a sleep); a watched goal going stale or reading again is recorded.
+        Returns the parts whose staleness changed. Nothing for a model that watches nothing."""
+        o = opted(self.spec)
+        if not o.parts:
+            return set()
+        mono = time.monotonic() if mono is None else mono
+        slept = (now - self.clock_at[0]) - (mono - self.clock_at[1])
+        if slept > SLEPT:                                  # the wall clock jumped: asleep (the page hears of it too)
+            self.born = now
+            self._event(out, "ergostat.engine.woke", source=SOURCE, data={"slept": round(slept, 1)})
+        self.clock_at = (now, mono)
+        ages = {}
+        for r in o.parts:
+            t = self.spec.measured(r.kind).get(r.name)
+            last = max((self.seen[s.series] for s in t.sensors.values() if s.series in self.seen), default=None) if t else None
+            age = stale_age(self.spec, r, last, now, self.born)
+            if age is not None:
+                ages[str(r)] = age
+        changed = set(ages) ^ set(self.stale_parts)
+        self.stale_parts = ages
+        for name, policy in o.goals.items():
+            g = self.spec.goals[name]
+            age = ages.get(str(Ref(g.of.kind, g.of.name)))
+            if (age is None) != (name not in self.stale):
+                self._event(out, "ergostat.goal.fresh" if age is None else "ergostat.goal.stale", item=name, source=SOURCE,
+                            data={"part": str(g.of), "age": age, "on_stale": policy})
+            if age is None:
+                self.stale.pop(name, None)
+            else:
+                self.stale[name] = age
+        return changed
+
+    def stale_in(self, b: Block) -> dict[str, float]:
+        """What it reads that is stale (a watched part, or a watched goal on one), with its reading's age."""
+        out = {}
+        for r in b.reads():
+            age = self.stale.get(r.name) if r.kind == "goal" else \
+                None if estimated(self.spec, r) else self.stale_parts.get(f"{r.kind}.{r.name}")
+            if age is not None:
+                out[str(r)] = age
+        return out
+
+    def stale_mode(self, b: Block) -> str | None:
+        """What a stale input makes it do: ``hold`` (keep its output), ``off`` (see its stale goals as off), or None (as
+        usual): its own ``on-stale:``, else the strictest of its stale goals'."""
+        if not self.stale_parts or not self.stale_in(b):
+            return None
+        if b.on_stale in ("hold", "off"):
+            return b.on_stale
+        pols = {opted(self.spec).goals.get(r.name) for r in b.reads() if r.kind == "goal" and r.name in self.stale}
+        return "hold" if "hold" in pols else "off" if "off" in pols else None
+
+    def seeing_off(self, b: Block):
+        """Its ``get``, with each stale goal it reads seen as off, and the goal's stale value not read (so an ``until``
+        does not release it on a value that is no longer true)."""
+        gone = {r.name for r in b.reads() if r.kind == "goal" and r.name in self.stale}
+        ofs = {self.spec.goals[g].of for g in gone}
+
+        def get(r):
+            if r.kind == "goal" and r.port == "off" and r.name in gone:
+                return 1.0
+            return None if r in ofs else self.get(r)
+        return get
+
     def touch(self, *keys: str, goals=()) -> None:
         """Signals that changed outside a pass (a run's command, a setpoint it set): the next pass works them out."""
         with self.lock:
@@ -551,6 +678,8 @@ class Engine:
         if not on:
             self.asked.pop(b.name, None)
             return False
+        if self.stale_mode(b) == "hold":
+            return False                                        # a stale reading: it keeps its last command
         if b.type == "person" or b.mode == "advise":
             if rising or (b.mode == "advise" and self.asked.get(b.name) != cmd):   # a new command asks again
                 self.asked[b.name] = cmd
@@ -653,8 +782,14 @@ class Engine:
                            "value": held[0] if held else self.signals.get(str(g.of)),
                            "error": self.signals.get(f"goal.{name}.error"), "status": self.status.get(name, "unknown"),
                            **({"per": g.per, "breaking": held[1], "breaking_n": held[2]} if held else {})}
+            if name in self.stale:                                # its reading is stale: it knows (SPEC §9.6)
+                goals[name]["stale"] = round(self.stale[name], 1)
+                if self.stale_mode(b) == "off":
+                    goals[name]["status"] = "off"
         out = {"block": b.name, "type": b.type, "trigger": why, "inputs": inputs, "goals": goals,
                "outputs": {p: [str(r) for r in rs] for p, rs in b.outputs.items()}}
+        if stale := self.stale_in(b):
+            out["stale"] = {k: round(v, 1) for k, v in stale.items()}
         law = {k: b.params[k] for k in ("gain", "integral-time", "deadband", "resolution", "limits") if b.params.get(k) is not None}
         if law:
             out["params"] = law                                   # its control law's constants, as the model writes them
@@ -1489,6 +1624,8 @@ class Engine:
                             setattr(x, k, v)
                 builtins[n] = x
             version = history.version(model)
+            observer = Observer(new, lambda n: self.history(new, n), carry=self.observer) \
+                if self.observer and opted(new).stocks else None
             carried = sorted(n for n in self.running if n.split(" ", 1)[0] in before.blocks)   # ("block item": a leased run)
             blk = lambda n: n.split(" ", 1)[0]                                                    # noqa: E731
             finishing = {"removed": [n for n in carried if blk(n) not in new.blocks],
@@ -1503,6 +1640,15 @@ class Engine:
             self.builtins = builtins
             for g in set(self.status) - set(new.goals):
                 self.status.pop(g, None)
+            o = opted(new)                                       # what the new model no longer asks the observer for
+            for g in set(self.stale) - set(o.goals):
+                self.stale.pop(g, None)
+            self.stale_parts = {k: v for k, v in self.stale_parts.items() if k in {str(r) for r in o.parts}}
+            for k in [k for k in self.signals if k.endswith((".estimate", ".uncertainty")) and k.startswith("stock.")]:
+                st = new.stocks.get(k.split(".")[1])
+                if st is None or k.split(".")[2] not in st.sensors and k.split(".")[1] not in o.stocks:
+                    self.signals.pop(k, None)
+            self.observer = observer
             for k in [k for k in self.signals if k.startswith("goal.") and k.split(".")[1] not in new.goals]:
                 self.signals.pop(k, None)
             setters = {t.name for b in new.blocks.values() for t in b.targets() if t.kind == "goal"}

@@ -62,11 +62,11 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "every", "cron", "t
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join"}
-STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit"}
+STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred",
                       "rate-unit"}
-GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner", "process", "per"}
+GOAL_KEYS = COMMON | {"stock", "flow", "auxiliary", "variable", "hold", "tolerance", "critical", "owner", "process", "per", "on-stale"}
 PROCESS_KEYS = {"gain", "time-constant", "dead-time", "integrating", "identified", "description"}
 AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous", "equation", "inferred"}
 PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table", "range", "inferred"}
@@ -75,7 +75,7 @@ INFERRED = re.compile(r"^ergostat\.model-change/[0-9a-z-]+$")   # inferred: the 
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file"}}
-BLOCK_COMMON = COMMON | {"type", "in", "out", "role"}
+BLOCK_COMMON = COMMON | {"type", "in", "out", "role", "on-stale"}
 MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
@@ -300,6 +300,14 @@ class Compiler:
                      "per hour)", m.at("rate-unit"), "bad-value")
             return None
         return str(v)
+
+    def on_stale(self, m: Map, what: str) -> str | None:
+        from .observer import POLICIES
+        v = m.get("on-stale")
+        if v is not None and v not in POLICIES:
+            self.err(f"{what}.on-stale: {', '.join(POLICIES)}", m.at("on-stale"), "bad-on-stale")
+            return None
+        return v
 
     def text(self, m: Map, key: str, default: str = "") -> str:
         v = m.get(key)
@@ -856,7 +864,8 @@ class Compiler:
             self.keys(m, STOCK_KEYS, what)
             st = Stock(name, self.text(m, "unit"), self.number(m, "limit", what), self.number(m, "initial", what),
                        self.system("stocks", name, m), self.text(m, "description"),
-                       cumulative=self.flag(m, "cumulative", what), inferred=self.inferred(m, what), where=m.where)
+                       cumulative=self.flag(m, "cumulative", what), inferred=self.inferred(m, what), where=m.where,
+                       observe=self.flag(m, "observe", what))
             st.sensors = self.sensors(m, Ref("stock", name), what)
             st.rate_unit = self.rate_unit(m, what)
             spec.stocks[name] = st
@@ -925,7 +934,8 @@ class Compiler:
             per = self.per(spec, m, of, what, name)
             if of and hold:
                 spec.goals[name] = Goal(name, of, hold, tol, bool(m.get("critical")), self.text(m, "owner"),
-                                        self.system("goals", name, m), self.text(m, "description"), m.where, process, per)
+                                        self.system("goals", name, m), self.text(m, "description"), m.where, process, per,
+                                        on_stale=self.on_stale(m, what))
         for name, m, what in self.named("agents"):
             self.keys(m, AGENT_KEYS, what)
             kind = m.get("kind")
@@ -1188,7 +1198,7 @@ class Compiler:
             if b.goal not in spec.goals:
                 continue                                   # reported with the references
             until = b.params.get("until")
-            key = (b.goal, str(until) if until else None)
+            key = (b.goal, str(until) if until else None, b.on_stale)
             if key not in made:
                 base = name = f"keep-{b.goal}"
                 i = 2
@@ -1197,7 +1207,8 @@ class Compiler:
                     i += 1
                 params = {"goal": b.goal, **({"until": until} if until else {})}
                 spec.blocks[name] = Block(name, "onoff", {}, {"out": []}, params, system=b.system, where=b.where,
-                                          implied=True, description=f"implied by {b.name}'s goal: {b.goal}")
+                                          implied=True, description=f"implied by {b.name}'s goal: {b.goal}",
+                                          on_stale=b.on_stale)
                 made[key] = name
             spec.blocks[made[key]].outputs["out"].append(Ref("block", b.name))
 
@@ -1399,7 +1410,8 @@ class Compiler:
                      system=self.system("blocks", name, m), description=self.text(m, "description"),
                      every=self.duration(m, "every", what), cron=self.cron(m, "cron", what),
                      timeout=self.duration(m, "timeout", what, 300.0), max=self.number(m, "max", what) if t in MACHINE else None,
-                     min=self.number(m, "min", what) if t in MACHINE else None, mode=mode, where=m.where)
+                     min=self.number(m, "min", what) if t in MACHINE else None, mode=mode, where=m.where,
+                     on_stale=self.on_stale(m, what))
 
     def references(self, spec: Spec) -> None:
         """Every reference resolves, to the right kind of thing; one actuator per flow; no algebraic
@@ -1409,7 +1421,7 @@ class Compiler:
                 st = spec.stocks.get(r.name)
                 if st is None:
                     return f"{r.name!r} is not a stock" + self.suggest(r.name, spec.stocks)
-                if r.port and r.port not in st.sensors:
+                if r.port and r.port not in st.sensors and not (st.sensors and r.port in ("estimate", "uncertainty")):
                     return f"stock {r.name} has no sensor {r.port!r} (it has: {', '.join(st.sensors) or 'none'})"
             elif r.kind == "flow":
                 f = spec.flows.get(r.name)
