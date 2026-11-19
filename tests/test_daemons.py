@@ -198,6 +198,9 @@ def test_restart_storm_gives_up_with_alarm_and_intervention(tmp_path):
     from ergostat import state as st
     att = [a for a in st.attention(st.snapshot(p)) if a["what"] == "daemon block.worker"]
     assert att and att[0]["level"] == "bad" and "given up after 3 restarts" in att[0]["says"]
+    from ergostat.inbox import interventions
+    got = [x for x in interventions.read(p, p.model.spec, 0, time.time() + 1) if x["class"] == "alarm:daemon:block.worker"]
+    assert len(got) == 1 and got[0]["cause"] == "block.worker" and got[0]["answered"] is None, "counted as an intervention"
 
 
 @pytest.mark.serial                                      # (its bound on the loop's latency holds on a quiet machine)
