@@ -5,6 +5,8 @@ Each names its fix in plain words and the YAML that writes it."""
 
 import textwrap
 
+import pytest
+
 from ergostat.spec import read
 from ergostat.spec.findings import base_unit
 
@@ -143,6 +145,7 @@ flows:
     assert {"missing-key", "bad-bool", "unknown-key"} <= codes, problems
 
 
+@pytest.mark.slow
 def test_the_examples_close_their_goals_with_no_structure_left_to_fix():
     """Every example's rate-to-rate links go through a stock or are declared instant, and its units convert."""
     from pathlib import Path

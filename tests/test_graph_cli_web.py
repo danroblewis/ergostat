@@ -5,6 +5,7 @@ import urllib.request
 
 from ergostat import graph, state
 from ergostat.cli import main
+from tests.ports import free_port
 
 
 def test_the_control_graph_has_pipes_through_the_valve_and_the_loop(project):
@@ -161,7 +162,7 @@ def test_no_model_says_how_to_start(tmp_path, capsys):
 def test_the_web_api_serves_what_the_cli_shows(project):
     from ergostat.web import serve
     project.measurements.add("sensor/disk-usage", 70)
-    server, url = serve(project, 18781)
+    server, url = serve(project, free_port())
     try:
         def get(path):
             with urllib.request.urlopen(url + path, timeout=10) as r:

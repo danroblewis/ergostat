@@ -261,6 +261,7 @@ def ergostat(repo, *args, **kw):
                             stderr=subprocess.STDOUT, text=True, **kw)
 
 
+@pytest.mark.slow
 def test_ergostat_run_takes_an_edit_in_place_and_stop_still_kills(tmp_path):
     long = BASE.format(run="sleep 15; echo 5", every="60s")  # the edit, taken once it settles (1.5s), lands inside the run, under load too
     write(tmp_path, long)

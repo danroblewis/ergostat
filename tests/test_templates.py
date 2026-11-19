@@ -406,6 +406,7 @@ def test_scaffold_writes_a_script_that_runs_as_it_is(tmp_path):
         author.scaffold(tmp_path, "act", str(tmp_path.parent / "private-scripts" / "act.py"))
 
 
+@pytest.mark.slow
 def test_a_trial_runs_a_copy_and_says_what_moved(tmp_path, monkeypatch):
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
     root = tmp_path / "p"
@@ -421,6 +422,7 @@ def test_a_trial_runs_a_copy_and_says_what_moved(tmp_path, monkeypatch):
     assert not (tmp_path / "home").exists() or not any((tmp_path / "home").iterdir()), "nor its record"
 
 
+@pytest.mark.slow
 def test_steps_lease_each_item_to_a_run_and_a_step_that_always_fails_makes_dead_letters(tmp_path, monkeypatch):
     from ergostat import model as mdl
     from ergostat.spec import items as its
@@ -445,6 +447,7 @@ def test_steps_lease_each_item_to_a_run_and_a_step_that_always_fails_makes_dead_
     assert ran["stocks"]["t-stuck"]["sensors"], "the dead letters are counted"
 
 
+@pytest.mark.slow
 def test_respond_to_answers_leased_items_and_counts_their_age_from_arrival(tmp_path, monkeypatch):
     from ergostat import model as mdl
     from ergostat.spec import items as its

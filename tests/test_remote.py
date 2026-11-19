@@ -9,6 +9,7 @@ import pytest
 
 from ergostat import spec as sp
 from ergostat.remote import cache, compose, readings, serve, tokens
+from tests.ports import free_port
 
 REMOTE = """
 name: incidents
@@ -85,7 +86,7 @@ def test_the_remote_api_answers_with_a_token_only_and_pages_by_cursor(tmp_path):
     for i in range(5):
         p.events.add("incident.opened", item=f"incident/{i}", source="pager", data={})
     p.measurements.add("sensor/open.main", 4.0)
-    server, url = web_serve(p, 8796)
+    server, url = web_serve(p, free_port())
     try:
         assert _get(f"{url}/remote/v1/status")[0] == 404                    # off until a token is made
         tok = tokens.issue(p.dir, "support")

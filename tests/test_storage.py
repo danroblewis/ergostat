@@ -11,6 +11,7 @@ import urllib.request
 import pytest
 
 from ergostat.storage import RAW, TIERS, Storage, parse
+from tests.ports import free_port
 
 
 def test_storage_defaults_and_what_it_says():
@@ -44,7 +45,7 @@ def test_answers_are_bounded_however_long_the_record(project):
     from ergostat.web import serve
     project.events.add_many([{"type": "x.y", "item": f"t/{i}", "data": {"i": i}, "at": time.time() - 3600 + i * 0.1}
                              for i in range(3000)])
-    server, url = serve(project, 18791)
+    server, url = serve(project, free_port())
     try:
         def get(path):
             with urllib.request.urlopen(url + path, timeout=20) as r:
@@ -62,7 +63,7 @@ def test_answers_are_bounded_however_long_the_record(project):
 
 def test_a_client_that_went_away_is_one_quiet_line(project, capsys):
     from ergostat.web import serve
-    server, url = serve(project, 18792)
+    server, url = serve(project, free_port())
     try:
         port = int(url.rsplit(":", 1)[1])
         for _ in range(5):                   # ask for the page, and hang up before it is written

@@ -12,6 +12,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+import pytest
+
 from tests.ports import free_ports
 
 PAIR = Path(__file__).resolve().parent.parent / "examples" / "remote-pair"
@@ -56,6 +58,7 @@ def stop(proc: subprocess.Popen) -> None:
             os.killpg(proc.pid, signal.SIGKILL)
 
 
+@pytest.mark.slow
 def test_a_local_model_follows_a_remote_one_and_marks_it_stale_when_it_stops(tmp_path):
     for d in ("incidents", "support"):
         shutil.copytree(PAIR / d, tmp_path / d)
