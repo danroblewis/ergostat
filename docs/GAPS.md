@@ -89,6 +89,18 @@ review into *Done recently*). Newest decisions from the owner first within each 
   no controller reads what it manages. If the engine stops, its loops stop: so correctness never depends on them, each fails
   safe (tidying stopped means files pile up, nothing breaks), and they are watched in layers (the engine's own
   watchdog, then the runner or launchd for a dead process, with a heartbeat goal an outside watcher reads).
+- **From upkeep's fault injection** (`docs/proposals/upkeep.md` §4; `docs/roadmap/overnight/resilience-core.md`):
+  - **Nothing restarts a dead engine; `status` shows a dead engine's last reading as alive** (done, 3e106ee:
+    `ergostat run --service [--install]`, the outer watcher; "engine not running (last seen ...)").
+  - **The watchdog restarts without finding the cause, every 6.5 minutes; a hang while starting is unseen; pool
+    wedge found at 130 s** (done, 3e106ee: the index lock's holder dumped; back-off 60 s to 30 m; a startup deadline).
+  - **An `alarm` block lights nothing** (done, 3e106ee).
+  - **Block logs, `threads.txt`, `transcripts.json` and `run.log` grow without limit; old project folders pile up**
+    (done, 3e106ee: `storage: logs:`; `ergostat compact --projects`).
+  - **The CLI refuses to run while the YAML is broken**, so every `$ERGOSTAT_CMD` call fails while an agent edits
+    (in progress, parked on branch `resilience`: its fallback to the engine's last good model settled includes
+    against the live files, so it could load a model that never existed; it needs includes settled against the kept
+    files, or the fallback refused when the live include set differs).
 - **Extreme-conditions tests and calibration per part of the model** (open; the Check page's first status
   takes 13 s even on small models).
 - **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`).
