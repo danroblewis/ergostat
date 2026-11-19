@@ -225,11 +225,12 @@ def test_a_kept_builtin_keeps_its_state_and_a_changed_one_takes_it_over(tmp_path
     p, e = engine(tmp_path, text)
     try:
         assert until(lambda: "block.count" in e.signals)
-        e.builtins["count"].n = 7.0
-        e.builtins["late"].since = 123.0
-        swap(e, tmp_path, text.replace("after: 100", "after: 200"))
-        assert e.builtins["count"].n == 7.0                       # written the same: the same block, kept
-        assert e.builtins["late"].p["after"] == 200 and e.builtins["late"].since == 123.0   # bumpless
+        with e.passing:                                           # (no pass between: it would step the timer)
+            e.builtins["count"].n = 7.0
+            e.builtins["late"].since = 123.0
+            swap(e, tmp_path, text.replace("after: 100", "after: 200"))
+            assert e.builtins["count"].n == 7.0                   # written the same: the same block, kept
+            assert e.builtins["late"].p["after"] == 200 and e.builtins["late"].since == 123.0   # bumpless
     finally:
         e.close()
 

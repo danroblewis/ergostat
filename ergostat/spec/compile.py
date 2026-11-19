@@ -58,7 +58,8 @@ from .ir import (
 from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
-SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "every", "cron", "timeout", "parse", "unit", "description", "averages"}
+SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "every", "cron", "timeout", "parse", "unit",
+               "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure"}
 CHANGES = ("rises", "falls", "net")                  # a flow measured from its stock's successive readings
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join"}
@@ -79,7 +80,7 @@ BLOCK_COMMON = COMMON | {"type", "in", "out", "role", "on-stale"}
 MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
-    "program": MACHINE_COMMON | LAW_KEYS | {"run", "parse", "goal", "until", "review", "workspace", "actions"},
+    "program": MACHINE_COMMON | LAW_KEYS | {"run", "daemon", "parse", "goal", "until", "review", "workspace", "actions"},
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review",
                                        "workdir", "workspace", "read", "tools", "actions"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
@@ -465,9 +466,9 @@ class Compiler:
             changes = s.get("changes")
             self.keys(s, SENSOR_KEYS | (ITEM_SENSOR_KEYS if counted else set()) | ({"changes", "over"} if changes is not None
                                                                                   else {"changes"}), sw)
-            kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin") if s.get(k) not in (None, False)]
+            kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin", "daemon") if s.get(k) not in (None, False)]
             if len(kinds) != 1:
-                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes: or builtin: (it has "
+                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes:, builtin: or daemon: (it has "
                          f"{', '.join(kinds) or 'none'})", s.where, "sensor-kind")
             measure = None
             if s.get("builtin") is not None:
@@ -526,7 +527,8 @@ class Compiler:
                                     cron=self.cron(s, "cron", sw),
                                     timeout=self.duration(s, "timeout", sw, 120.0 if measure else 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
-                                    description=self.text(s, "description"), where=s.where)
+                                    description=self.text(s, "description"), where=s.where,
+                                    daemon=s.get("daemon"), push=s.get("push") is True)
         return out
 
     def item_sensor(self, s: Map, of: Ref, sw: str) -> dict | None:
@@ -974,6 +976,8 @@ class Compiler:
             spec.items[WORKSPACE] = workspace_kind()         # built in, when there are any: the pools' workspaces
         from ..leases import compile as leases
         leases.section(self, spec)                           # leases: each tier's terms (SPEC §9.5)
+        from ..daemons import config as daemons
+        daemons.section(self, spec)                          # daemons: the long-lived runners (SPEC §9.7)
         leases.check(self, spec)                             # what each block takes: its kind gains leased and dead
         judges = [b for b in spec.blocks.values() if b.type == "judge" and b.params.get("judge", "model") == "model"]
         for b in judges[1:]:
@@ -1301,7 +1305,7 @@ class Compiler:
             else:
                 self.keys(_one(m, k), allowed, what)
         for k in NEEDS.get(t, []):
-            if m.get(k) is None:
+            if m.get(k) is None and not (k == "run" and m.get("daemon") is not None):
                 self.err(f"{what}: a {t} block needs {k}:", m.where, "missing-key")
         if t == "compare" and m.get("above") is None and m.get("below") is None:
             self.err(f"{what}: a compare block needs above: or below:", m.where, "missing-key")

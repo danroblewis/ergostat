@@ -182,6 +182,8 @@ def build() -> argparse.ArgumentParser:
     bk.add_argument("--approve", action="store_true", help="approve an advised command (mode: advise)")
     bk.add_argument("--stop", action="store_true", help="stop its run under way (one a model change left to finish, "
                     "say); it starts again only as the model says")
+    bk.add_argument("--restart", action="store_true", help="start its daemon (or the daemon of this name) afresh: one "
+                    "given up after too many restarts, once its cause is fixed")
     bk.add_argument("--note", help="with --done, --approve or --stop: what was done, or why")
     bk.add_argument("--now", action="store_true", help="run this block once, at once (recorded like any run)")
     bk.add_argument("--command", type=float, metavar="N", help="with --now: the command it is given, as if commanded")

@@ -1061,7 +1061,7 @@ waits for an approval holds no thread: it is answered when the owner answers.
 
 An instrument: it measures one stock or one flow, and nothing else. It never decides or acts. It
 is written inside the stock or flow it measures. Exactly one of `run`, `query`, `manual`, `items`,
-`changes` or `builtin`:
+`changes`, `builtin` or `daemon`:
 
 ```yaml
 sensors:
@@ -1102,6 +1102,8 @@ flows:
 |---|---|---|---|
 | `run` | command | | A command whose output is the reading: a bare number, or JSON `{"value": n}`. Run in the model's folder; its environment carries `ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR` and (when the engine has one) `ERGOSTAT_SOCKET`, as a block's run does (section 9.3), so a collector can read the items with `$ERGOSTAT_CMD item --kind K --json` |
 | `query` | map | | A query against a source (section 11): `source` and the source's own fields |
+| `daemon` | map, or a name under `daemons:` | | Read by a long-lived process (section 9.7): each reading asked as a line on its schedule, no process started per reading; several sensors may name one daemon |
+| `push` | bool | false | With `daemon`: the daemon sends its readings by itself (`{"reading": V, "sensor": "STOCK.SENSOR"}`); none is asked for |
 | `manual` | bool | | Readings recorded by a person |
 | `items` | item kind | | Counted from the record: on a stock, the items in `state` (any state when left out); on a flow, the items `entering` or `leaving` a state per hour, over `over` |
 | `state` | state or list | any | On a stock: which states count |
@@ -1747,7 +1749,7 @@ More (filters, rate of change, latches) can be added when a case needs them.
 
 | Type | What it runs | Key fields |
 |---|---|---|
-| `program` | a shell command | `run`, `parse` |
+| `program` | a shell command | `run`, `parse`; or `daemon` instead of `run` (a long-lived process its runs are handed to, section 9.7) |
 | `ai` | a prompt, given to a model | `prompt` (text or a file), `model` (when it has no agent), `run` (an optional wrapper command), `workdir` or `workspace` (where its session works), `read`, `tools` and `actions` (what it may use; section 12k) |
 | `person` | a request to a person | `ask` (what they are asked to do); they report with `ergostat block NAME --done ...` |
 | `external` | nothing: observed only | none |
@@ -2054,6 +2056,101 @@ below the sensor's resolution: half a count, for a stock read as whole numbers) 
 stock while one is in the window (`check`, `ergostat findings`): the model's flows miss something that moves it, which
 modelling takes as a request like any finding (`finding:model-disagrees@stock.X` as a proposal's evidence). Finding the
 structure behind a residual can build on these series.
+
+### 9.7 Daemons: long-lived runners
+
+A `run:` command is a process per run, and a `run:` sensor a process per reading: 170 sensors read every 3 minutes
+are 57 process starts a minute. A **daemon** is a long-lived process that runs and readings are handed to as JSON
+lines instead: on a `program` block, `daemon:` in place of `run:`; on a sensor, `daemon:` as its kind (section 6).
+Either is a map, or the name of a top-level `daemons:` entry, so one process may serve many sensors and blocks:
+
+```yaml
+daemons:
+  probes:
+    run: python3 probes.py             # started in the model's folder; its standard error goes to logs/daemon-probes.log
+    concurrency: 50                    # the most runs it holds at once (default 10; readings are not counted)
+    heartbeat: 30s                     # restarted when it prints no line of any kind for this long (default: never)
+    restart: {max: 5, within: 10m, backoff: [1s, 2m]}   # given up after more than 5 restarts within 10 minutes
+    stdin-timeout: 10s                 # restarted (an alarm) when a write to its standard input waits this long
+stocks:
+  queue-depth:
+    unit: jobs
+    sensor: {daemon: probes, every: 3m}
+  errors:
+    unit: errors
+    sensor: {daemon: {run: ./tail-errors.py}, push: true}    # its own daemon, which sends readings as it sees them
+blocks:
+  builder:
+    type: program
+    takes: {kind: ticket, at: ready}
+    pool: 20                           # at most the smaller of pool and the daemon's concurrency at once
+    daemon: {run: ./builder.py, concurrency: 20, heartbeat: 30s}
+```
+
+**The protocol.** One JSON object per line, both ways. In, on its standard input:
+
+| Line | Meaning |
+|---|---|
+| `{"op": "item", "run": ID, "item": ITEM, "lease": {...}, "input": {...}, "env": {...}}` | A run: `input` is what a run gets on its standard input (section 9.1; for an item, with `item` and `lease`, section 9.5); `env` the `ERGOSTAT_*` values a run's process would have (`ERGOSTAT_RUN`, `ERGOSTAT_ITEM`, `ERGOSTAT_LEASE`, ...). `item` and `lease` are null for a run that holds none |
+| `{"op": "read", "sensor": "STOCK.SENSOR", "request": ID}` | A reading asked for |
+| `{"op": "cancel", "run": ID}` | Stop that run (its lease expired, its timeout, the owner's `block NAME --stop`) and say `done` |
+| `{"op": "stop"}` | Finish what it holds and end; its standard input is closed after it |
+
+Out, on its standard output, every line tagged with what it is for:
+
+| Line | Meaning |
+|---|---|
+| a run's line with `"run": ID` added | As that run printed it (section 9.1): `{"event": ..., "run": ID}`, `{"out": ..., "moved": n, "run": ID}`, ... Event lines renew the run's lease as always |
+| `{"done": EXIT, "run": ID}` | The run ended with that exit code. Exactly these two keys, `EXIT` a whole number (never `true`, never `1.0`) |
+| `{"reading": V, "request": ID}` | The answer to a reading (`{"error": WHY, "request": ID}`: none) |
+| `{"reading": V, "sensor": "STOCK.SENSOR"}` | A reading it sends by itself, for a sensor with `push: true` |
+| `{"heartbeat": true}` | It lives (any line says so) |
+
+A line that is not a JSON object, tags nothing, or names a run or request the daemon does not hold, is written to its
+log and dropped: never taken as another run's. The `env` of an item travels in its line and never in the process's
+environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
+`ERGOSTAT_SOCKET`): a daemon passes an item's `env` to what it starts for that item, and never writes it into its own.
+
+**Each item is still a run**: `agent.started`, `agent.ran` or `agent.failed` (with `daemon`: its name), its lease
+and fencing, its lines taking effect as printed. Its time is its wall time only: a process serving many items at
+once cannot say which CPU second was whose, so a daemon's CPU and memory are its own, sampled every 30 s (and exact
+from its wait status when it ends: on `ergostat.daemon.restarted`), shown on the Agents page, and no run claims them.
+A sensor read by a daemon starts no process and holds none of the sensor pool's threads while it waits.
+
+**Supervision** (`ergostat/daemons/supervise.py`: a thread of its own, never the engine's loop). Everything written
+to a daemon goes through a bounded queue (1,000 lines: items, reading requests and cancels together) and a writer
+thread per daemon: the engine never waits on one. A queue that fills is a daemon not reading: restarted, an alarm.
+A run is handed over only to the daemon running now under its name, checked and held under one lock (a restart or a
+swap in between never strands it), and only while its lease is still its own. `concurrency` is the daemon's, shared
+by every block it serves: the dispatcher takes no more items for them than it has room for. A push sensor's readings
+are taken at most one a second; more are dropped.
+
+- It **exits**: started again after a back-off, the first wait doubled each time, at most the most
+  (`ergostat.daemon.restarted`, with why, its exit and its resources). Its runs in flight fail, counted.
+- It is **silent** past `heartbeat`: restarted.
+- It does **not read its standard input** for `stdin-timeout` (a write waits that long, or its queue is full):
+  restarted, and an alarm raised (`alarm: true` on the restart; it needs attention for the hour after).
+- **Cancel**: a run whose lease expired is sent `cancel` (`ergostat.run.killed`, `signal: cancel`), as is one past
+  its timeout or stopped by the owner; a daemon still holding the run a grace later (`ERGOSTAT_KILL_GRACE`, 10 s) is
+  restarted, its other runs given back uncounted (not their fault).
+- **Given up**: more than `restart: max` restarts within `within`: no more starts; state `failed`, an alarm (it needs
+  attention until it is revived), and one `ergostat.daemon.failed` recorded with `intervention: true`, `class:
+  alarm:daemon:NAME` and `users` (every block and sensor it served), the intervention the owner's interventions
+  measure counts. While failed, its blocks are handed no items (they stay in their queue, uncounted), a run already on
+  its way is given back at once (uncounted, put off 60 s), and its sensors are not read (no `sensor.failed` each).
+  `ergostat block NAME --restart` (a block: its daemon; or a daemon's name) records `daemon.restart.requested`, and the
+  engine starts it afresh, its restarts forgotten; so does any change to the model.
+- **Whole groups**: a daemon leads a process group of its own; whenever it ends (crashed, restarted, drained, ergostat
+  stopping) the group is sent SIGTERM, then SIGKILL after the grace, so nothing it started outlives it. A crash is
+  seen from its exit status, even while something it started holds its output open.
+- **A model swap** (section 9.1): a daemon whose definition changed, or that nothing uses now, is sent `stop` and
+  drained: its runs finish under the old model, and once it holds none it is killed if it has not ended within the
+  grace. A new one, started at once, takes the new work. One whose definition is the same carries on.
+- **ergostat stopping**: each is sent `stop`, and killed if it has not ended within the grace.
+
+Its state is written to `<state>/daemons.json` every 2 s (running, backoff, failed or stopped; its pid, restarts,
+last line, runs in flight, what it serves, CPU and memory): the Agents page lists the daemons, and an agent's panel
+names its daemon.
 
 ## 10. Agents
 
