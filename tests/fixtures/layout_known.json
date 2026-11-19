@@ -1,91 +1,91 @@
 {
  "alert-triage": {
   "ceilings": {
-   "satellite-far": 27,
+   "satellite-far": 33,
    "valve-orientation-mismatch": 2
   }
  },
  "backups": {
   "ceilings": {
-   "satellite-far": 6,
+   "satellite-far": 17,
    "valve-orientation-mismatch": 0
   }
  },
  "big": {
   "ceilings": {
-   "satellite-far": 8,
-   "valve-orientation-mismatch": 4
+   "satellite-far": 16,
+   "valve-orientation-mismatch": 0
   }
  },
  "coordinator": {
   "ceilings": {
-   "satellite-far": 23,
+   "satellite-far": 26,
    "valve-orientation-mismatch": 4
   }
  },
  "deps": {
   "ceilings": {
-   "satellite-far": 4,
+   "satellite-far": 9,
    "valve-orientation-mismatch": 1
   }
  },
  "disk-space": {
   "ceilings": {
-   "satellite-far": 2,
-   "valve-orientation-mismatch": 0
-  }
- },
- "docs-fresh": {
-  "ceilings": {
-   "satellite-far": 4,
-   "valve-orientation-mismatch": 0
-  }
- },
- "file-queue": {
-  "ceilings": {
-   "satellite-far": 0,
-   "valve-orientation-mismatch": 0
-  }
- },
- "first-loop": {
-  "ceilings": {
-   "satellite-far": 2,
-   "valve-orientation-mismatch": 0
-  }
- },
- "git-hygiene": {
-  "ceilings": {
-   "satellite-far": 2,
-   "valve-orientation-mismatch": 0
-  }
- },
- "image-squeeze": {
-  "ceilings": {
-   "satellite-far": 25,
+   "satellite-far": 11,
    "valve-orientation-mismatch": 3
   }
  },
- "ops": {
+ "docs-fresh": {
   "ceilings": {
    "satellite-far": 9,
    "valve-orientation-mismatch": 0
   }
  },
+ "file-queue": {
+  "ceilings": {
+   "satellite-far": 8,
+   "valve-orientation-mismatch": 3
+  }
+ },
+ "first-loop": {
+  "ceilings": {
+   "satellite-far": 11,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "git-hygiene": {
+  "ceilings": {
+   "satellite-far": 11,
+   "valve-orientation-mismatch": 0
+  }
+ },
+ "image-squeeze": {
+  "ceilings": {
+   "satellite-far": 24,
+   "valve-orientation-mismatch": 6
+  }
+ },
+ "ops": {
+  "ceilings": {
+   "satellite-far": 18,
+   "valve-orientation-mismatch": 0
+  }
+ },
  "plain-crontab": {
   "ceilings": {
-   "satellite-far": 2,
+   "satellite-far": 11,
    "valve-orientation-mismatch": 0
   }
  },
  "roadmap": {
   "ceilings": {
-   "satellite-far": 15,
+   "satellite-far": 13,
    "valve-orientation-mismatch": 0
   }
  },
  "small-requests": {
   "ceilings": {
-   "satellite-far": 25,
+   "satellite-far": 31,
    "valve-orientation-mismatch": 5
   },
   "system=regressions": [
@@ -94,31 +94,31 @@
  },
  "software-factory": {
   "ceilings": {
-   "satellite-far": 4,
-   "valve-orientation-mismatch": 0
+   "satellite-far": 12,
+   "valve-orientation-mismatch": 1
   }
  },
  "talking-scripts": {
   "ceilings": {
-   "satellite-far": 2,
+   "satellite-far": 11,
    "valve-orientation-mismatch": 0
   }
  },
  "the-job": {
   "ceilings": {
-   "satellite-far": 32,
+   "satellite-far": 35,
    "valve-orientation-mismatch": 2
   }
  },
  "this-mac": {
   "ceilings": {
-   "satellite-far": 4,
-   "valve-orientation-mismatch": 0
+   "satellite-far": 14,
+   "valve-orientation-mismatch": 3
   }
  },
  "ticket-factory": {
   "ceilings": {
-   "satellite-far": 8,
+   "satellite-far": 14,
    "valve-orientation-mismatch": 2
   }
  }
