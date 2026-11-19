@@ -1,4 +1,4 @@
-"""The craft and chain recovery benchmark (``ergostat bench improve --suite craft``): a good model (an example's, as
+"""The craft and chain recovery benchmark: a good model (an example's, as
 written) damaged in the ways ``check`` says as craft notes and chain findings, and the modelling subsystem's tiers run on
 it, as the template runs them: the requests raised (``numbers/requests.py``), the rule tier (``numbers/rules.py``) and,
 with ``--improver ai``, the AI tier (``numbers/modeller.py``), each proposal checked as a block's is, the judge with the
@@ -10,7 +10,9 @@ Each defect says how it is planted (lines of a file replaced), the finding it sh
 counts as repaired (the part as the good model has it: its unit, a target restored, an equation, an event name of the
 kind's form, a goal's tolerance 0, a description). Scores per defect: **visible** (check raised its finding), **asked**
 (a request held it), **proposed** (a change cited it), **fixed** (the model left says it as the good one does); and per
-case **damage** (findings or errors the model left has that the good one does not), proposals by tier and the cost."""
+case **damage** (findings or errors the model left has that the good one does not), proposals by tier and the cost.
+
+    uv run python scripts/craft_bench.py [--improver rules|ai] [--model haiku] [--out DIR] [--keep] [case ...]"""
 
 from __future__ import annotations
 
@@ -21,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
+ROOT = Path(__file__).resolve().parent.parent
 POLICY = {"description": "auto", "unit": "auto", "equation": "auto"}
 OWNER = ("structure", "rename", "control", "equation")   # the rule tier's, the owner (simulated) accepts: the guide's own
 # fixes; an equation the rule tier writes is a first-order outflow, which the judge cannot test with no record here
@@ -58,7 +60,7 @@ def _target(name: str, to: str):
 
 
 def _event_form(kind: str):
-    from ..spec import craft
+    from ergostat.spec import craft
     return lambda spec, root: kind in spec.items and not craft.event_forms(spec, kind)
 
 
@@ -173,22 +175,22 @@ def prepare(case: Case, work: Path) -> tuple[Path, list[Defect]]:
 
 
 def findings_of(root: Path) -> set[str]:
-    from .. import model as mdl
-    from ..spec import read
+    from ergostat import model as mdl
+    from ergostat.spec import read
     _, ps = read(mdl.find(root))
     return {f"{x.level}:{x.code}@{x.about}" for x in ps}
 
 
 def run(case: Case, work: Path, improver: str = "rules", model: str = "haiku", rounds: int = 4, approve: bool = True) -> dict:
-    from .. import model as mdl
-    from ..numbers import improve as im
-    from ..numbers import judge as jd
-    from ..numbers import modeller as md
-    from ..numbers import observe as ob
-    from ..numbers import proposals as pr
-    from ..numbers import requests as rq
-    from ..numbers import rules as ru
-    from ..store import Project
+    from ergostat import model as mdl
+    from ergostat.numbers import improve as im
+    from ergostat.numbers import judge as jd
+    from ergostat.numbers import modeller as md
+    from ergostat.numbers import observe as ob
+    from ergostat.numbers import proposals as pr
+    from ergostat.numbers import requests as rq
+    from ergostat.numbers import rules as ru
+    from ergostat.store import Project
     t0 = time.perf_counter()
     good = None
     if case.id != "thirteen-stocks":
@@ -302,3 +304,27 @@ def bench(work: Path, out: Path, improver: str = "rules", model: str = "haiku", 
     (out / "craft.json").write_text(json.dumps(results, indent=1, default=str))
     (out / "craft.md").write_text(markdown(results))
     return results
+
+
+def main() -> int:
+    import argparse
+    import tempfile
+    ap = argparse.ArgumentParser()
+    ap.add_argument("cases", nargs="*", help=f"by id (default: all): {', '.join(c.id for c in CASES)}")
+    ap.add_argument("--improver", choices=["rules", "ai"], default="rules", help="the rule tier alone, or with the ai tier")
+    ap.add_argument("--model", default="haiku")
+    ap.add_argument("--out", default="bench-craft")
+    ap.add_argument("--keep", action="store_true", help="keep each case's model and record under OUT/work")
+    a = ap.parse_args()
+    out = Path(a.out)
+    work = out / "work" if a.keep else Path(tempfile.mkdtemp(prefix="ergostat-bench-craft-"))
+    bench(work, out, a.improver, a.model, a.cases or None)
+    if not a.keep:
+        shutil.rmtree(work, ignore_errors=True)
+    print((out / "craft.md").read_text())
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

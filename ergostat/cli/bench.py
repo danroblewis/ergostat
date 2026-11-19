@@ -27,10 +27,6 @@ def register(sub, common) -> None:
     im.add_argument("--out", metavar="DIR", help="where the scorecard goes (default ./bench-IMPROVER)")
     im.add_argument("--keep", action="store_true", help="keep each case's model and record under DIR/work")
     im.add_argument("--list", action="store_true", help="list the cases and their defects")
-    im.add_argument("--suite", choices=["all", "values", "craft"], default="all",
-                    help="the planted values and structure on the truth's record (values), the craft and chain defects "
-                         "planted in the examples, answered by the modelling tiers (craft; the rule tier, and with "
-                         "--improver ai the AI tier too), or both (default)")
     im.add_argument("--json", action="store_true", help="print the scorecard as JSON")
     jd = bs.add_parser("judge", help="the judge's false-accept and false-reject rates over many seeds")
     jd.add_argument("--seeds", type=int, default=20)
@@ -88,29 +84,7 @@ def cmd_bench(args) -> int:
     return 2
 
 
-def _craft(args) -> int:
-    from ..bench import craft
-    names = [x.strip() for x in (args.cases or "").split(",") if x.strip()] or None
-    if args.list:
-        for c in craft.CASES:
-            print(f"{c.id:26s} {', '.join(d.kind for d in c.defects) or '(from the example)'}")
-        return 0
-    out = Path(args.out or f"bench-{args.improver}")
-    work = out / "work" if args.keep else Path(tempfile.mkdtemp(prefix="ergostat-bench-craft-"))
-    improver = "ai" if args.improver == "ai" else "rules"
-    model = args.model if args.model != "sonnet" or args.improver == "ai" else "haiku"
-    got = craft.bench(work, out, improver, model, [n for n in names or [] if n in {c.id for c in craft.CASES}] or None)
-    if not args.keep:
-        shutil.rmtree(work, ignore_errors=True)
-    print(json.dumps(got, indent=1, default=str) if args.json else (out / "craft.md").read_text())
-    return 0
-
-
 def _improve(args) -> int:
-    if getattr(args, "suite", "all") in ("craft", "all"):
-        code = _craft(args)
-        if args.suite == "craft" or code:
-            return code
     from ..bench import improvers, recovery, truth
     names = [x.strip() for x in (args.cases or "").split(",") if x.strip()] or None
     try:

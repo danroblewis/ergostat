@@ -30,12 +30,7 @@ from ..spec.ir import MODEL_REQUEST, Spec
 from . import proposals as pr
 from . import version as ver
 
-RULE = {                       # what the rule tier answers, when its change can be made (else the ai tier, or the owner)
-    "outflow-not-chained", "inflow-not-chained", "state-stock-without-inflow", "move-without-flow",
-    "state-stocks-disconnected", "rate-driven-by-rate", "stock-without-outflow", "units-mismatch",
-    "auxiliary-without-causes", "equation-sign", "extreme-conditions", "no-unit", "no-equation", "event-names-mixed",
-    "queue-goal-tolerance", "process-not-identified", "fit-unknown",
-}
+RULE = {"no-unit", "queue-goal-tolerance", "process-not-identified"}   # what the rule tier answers (else the ai tier)
 NOT_MODELLING = {              # said by check, but no change to the model answers it: the owner's
     "no-modelling-loop", "template-stand-in", "template-library", "yaml-1.1", "where-typed", "deprecated-name",
     "used-twice", "not-exercised",
@@ -90,7 +85,7 @@ def gather(p, spec: Spec, coherence: bool = True, extremes: bool = True) -> list
         v, why = None, f"{type(e).__name__}: {e}"
     if v is None and why:
         k = rid("fit", "fit-unknown", "model")
-        out[k] = {"id": k, "source": "fit", "code": "fit-unknown", "about": "model", "level": "finding", "tier": "rule",
+        out[k] = {"id": k, "source": "fit", "code": "fit-unknown", "about": "model", "level": "finding", "tier": "ai",
                   "says": f"the model's fit (ergostat.model.fit) cannot be worked out: {why}. Until it can, the goal "
                           f"model-fits says nothing and the improver never runs; what would make it measurable is work"}
     if coherence:

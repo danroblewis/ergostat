@@ -174,7 +174,7 @@ def structure_but_units(spec: Spec) -> str:
 
 
 def _kinds(spec: Spec) -> dict:
-    return {n: {"id": k.id, "states": list(k.states), "on": dict(k.on), "formerly": dict(getattr(k, "formerly", {}) or {})}
+    return {n: {"id": k.id, "states": list(k.states), "on": dict(k.on)}
             for n, k in sorted(spec.items.items()) if not n.startswith("ergostat.")}
 
 
@@ -183,35 +183,10 @@ def items(spec: Spec) -> str:
     return _hash(_kinds(spec))
 
 
-def renamed_events(before: Spec, after: Spec) -> dict[str, dict[str, str]] | None:
-    """Per kind, the events a change renames (``{kind: {old: new}}``): each kept as ``formerly:`` beside its new name,
-    moving its items to the same state; None when the item kinds change otherwise (or not at all)."""
-    a, b = _kinds(before), _kinds(after)
-    if a == b or set(a) != set(b):
-        return None
-    out: dict[str, dict[str, str]] = {}
-    for n in a:
-        x, y = a[n], b[n]
-        if x == y:
-            continue
-        if x["id"] != y["id"] or x["states"] != y["states"]:
-            return None
-        new = {k: v for k, v in y["formerly"].items() if x["formerly"].get(k) != v}
-        if not new:
-            return None
-        for old, nm in new.items():
-            if x["on"].get(old) is None or y["on"].get(nm) != x["on"][old]:
-                return None
-        if {**{k: v for k, v in x["on"].items() if k not in new}, **{nm: x["on"][old] for old, nm in new.items()}} != \
-                {k: v for k, v in y["on"].items() if k not in new}:
-            return None
-        out[n] = new
-    return out or None
-
-
 def renamed_parts(before: Spec, after: Spec) -> dict[str, str] | None:
     """The parts a change renames (``{"stock.old": "stock.new"}``): each new part says ``formerly:`` its old name, and
-    the model is the same but for the names. None when it is not a rename."""
+    the model is the same but for the names: its structure, its control and every sensor (what each part reads). None
+    when it is not a rename."""
     out: dict[str, str] = {}
     for kind, a, b in (("stock", before.stocks, after.stocks), ("flow", before.flows, after.flows),
                        ("auxiliary", before.auxiliaries, after.auxiliaries)):
@@ -247,5 +222,9 @@ def renamed_parts(before: Spec, after: Spec) -> dict[str, str] | None:
 
     def control_of(s: Spec) -> dict:
         return _plain({"goals": s.goals, "blocks": {n: b for n, b in s.blocks.items() if not b.implied}, "agents": s.agents})
-    same = renamed(_structure(before)) == plain(_structure(after)) and renamed(control_of(before)) == plain(control_of(after))
+
+    def sensors_of(s: Spec) -> dict:                 # what each part reads, under the part's name: a rename keeps it
+        return {f"{k}.{n}": _plain(x.sensors) for k, t in (("stock", s.stocks), ("flow", s.flows),
+                                                           ("auxiliary", s.auxiliaries)) for n, x in t.items()}
+    same = all(renamed(f(before)) == plain(f(after)) for f in (_structure, control_of, sensors_of))
     return out if same else None

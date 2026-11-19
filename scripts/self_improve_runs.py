@@ -3,7 +3,7 @@ its stand-ins with ``use: modelling`` on (the rule tier, and the AI tier on a ch
 recorded.
 
     uv run python scripts/self_improve_runs.py [--seconds 240] [--model haiku] [--no-ai] [--approve] [--out DIR]
-        [--parallel 3] [--redesign] [--ports 8792-8799] [example ...]
+        [--parallel 3] [--redesign] [--ports 8791-8797] [example ...]
 
 For each example: ``check --json`` before (findings, craft notes, coherence mismatches); ``ergostat run`` for the
 seconds given, with the modelling loop's parameters set for a short run (the rule tier every 20s, the AI tier every
@@ -15,7 +15,7 @@ source and code), the changes made by each tier (and by ergostat's own finders),
 written and by whom, and the AI tier's cost. With ``--redesign`` (docs/proposals/redesign.md) the redesigner runs too
 (``redesign: {when: auto}``, every minute) and the owner's promotion of the class is simulated (``accept: {redesign:
 auto}``), so a change set judged better is written; its scorecard and cost are recorded. ``thirteen`` is the owner's
-13 disconnected stocks (``bench/craft.py``), written fresh. Each run's page is on a port of ``--ports``.
+13 disconnected stocks (``scripts/craft_bench.py``), written fresh. Each run's page is on a port of ``--ports``.
 Each run is watched: past ``--threads`` threads or ``--gb`` of memory in
 the run's processes it is stopped. Writes ``DIR/results.json`` and prints a table."""
 
@@ -215,7 +215,7 @@ def one(example: str, a) -> dict:
     src = ROOT / "examples" / example
     work = Path(tempfile.mkdtemp(prefix=f"ergostat-si-{example.replace('/', '-')}-"))
     if example == "thirteen":                             # the owner's 13 disconnected stocks, written fresh
-        from ergostat.bench.craft import thirteen
+        from craft_bench import thirteen  # (beside this script)
         thirteen(work / example)
         dest = work / example
         f = dest / "ergostat.yaml"
@@ -283,10 +283,10 @@ def main() -> int:
     ap.add_argument("--gb", type=float, default=6.0)
     ap.add_argument("--out", default="/tmp/ergostat-self-improve")
     ap.add_argument("--redesign", action="store_true", help="the redesigner too, and accept: {redesign: auto}")
-    ap.add_argument("--ports", default="8792-8799", help="the ports the runs' pages may use (never the owner's 8790)")
+    ap.add_argument("--ports", default="8791-8797", help="the ports the runs' pages may use (never 8790 or 8798)")
     a = ap.parse_args()
     lo, _, hi = a.ports.partition("-")
-    PORTS[:] = [n for n in range(int(lo), int(hi or lo) + 1) if n != 8790]
+    PORTS[:] = [n for n in range(int(lo), int(hi or lo) + 1) if n not in (8790, 8798)]
     a.parallel = min(a.parallel, len(PORTS))
     names = a.examples or sorted(d.name for d in (ROOT / "examples").iterdir() if (d / "ergostat.yaml").is_file())
     out = Path(a.out)

@@ -49,8 +49,8 @@ Rules:
 - Never invent a measurement: a new flow between state stocks is measured as items of the kind entering the state
   (`sensor: {items: K, entering: S}`), with `where: {lease.back: PREV}` when items enter S from more than one state.
   A new parameter gets a first value, `estimate: true`, a unit and a description saying where the value comes from.
-- Event names and `on:` mappings: rename an event only by `formerly:` on its kind, and only if the programs that
-  emit it are not yours to change; prefer leaving event types as they are.
+- Event names and `on:` mappings: leave event types as they are (the programs emit them, and they are not the
+  model's to change).
 - Units: a stock's unit is what it counts (`alerts`); a flow's unit is the same as its stocks' (`alerts`, never
   `alerts/h`: ergostat counts a flow in its stock's unit, per hour); a time parameter is written as a duration
   (`value: 20m`) with no unit; a share has `unit: "1"` and `range: [0, 1]`.

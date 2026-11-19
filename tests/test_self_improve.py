@@ -123,31 +123,30 @@ def test_every_finding_becomes_a_request_answered_when_check_no_longer_finds_it(
     assert got["answered"] == 1 and rq.stored(p)[have[("no-unit", "stock.new-alerts")]["id"]]["state"] == "answered"
 
 
-def test_the_rule_tier_carries_units_writes_a_first_order_outflow_and_renames_events(tmp_path):
+def test_the_rule_tier_carries_units_and_holds_a_queues_goal_at_zero(tmp_path):
     p = project(tmp_path)
     rq.sync(p)
     mine = [r for r in rq.current(p) if r["tier"] == "rule"]
+    assert {r["code"] for r in mine} <= {"no-unit", "queue-goal-tolerance", "process-not-identified"}
     made, none = ru.propose(p, mine, most=20)
     by = {r["code"]: raw for r, raw in made}
     assert by["no-unit"]["edit"] and "unit: alerts" in json.dumps(by["no-unit"])             # from the stock it flows to
-    assert "stock.new-alerts / time-in-new-alerts" in json.dumps(by["no-equation"])
-    assert "alert.triaged" in json.dumps(by["event-names-mixed"]) and "step.py" in json.dumps(by["event-names-mixed"])
     assert by["queue-goal-tolerance"]["kind"] == "control"
     for r, raw in made:
         got = im.submit(p, "fixer", raw)
         assert got["status"] == "proposed", (r["code"], got["why"])
     xs = {x["kind"]: x for x in pr.stored(p).values()}
-    assert {"unit", "equation", "rename", "control"} <= set(xs)
-    assert xs["rename"]["renamed_events"] == {"alert": {"triage.finished": "alert.triaged"}}
+    assert {"unit", "control"} <= set(xs)
     rq.sync(p)
-    assert {r["code"] for r in rq.current(p, ("proposed",))} >= {"no-unit", "no-equation", "event-names-mixed"}
+    assert "no-unit" in {r["code"] for r in rq.current(p, ("proposed",))}
     assert none == [] or all(r["tier"] == "rule" for r, _ in none)
+    assert {r["tier"] for r in rq.current(p) if r["code"] in ("no-equation", "event-names-mixed")} <= {"ai"}   # (not the rule tier's)
 
 
 def test_the_judge_passes_words_by_check_and_writes_them_as_the_policy_allows_moving_the_rest(tmp_path):
     p = project(tmp_path)
     rq.sync(p)
-    made, _ = ru.propose(p, [r for r in rq.current(p) if r["code"] in ("no-unit", "event-names-mixed")], most=20)
+    made, _ = ru.propose(p, [r for r in rq.current(p) if r["code"] in ("no-unit", "queue-goal-tolerance")], most=20)
     for _, raw in made:
         assert im.submit(p, "fixer", raw)["status"] == "proposed"
     desc = {"kind": "description", "parts": ["goal.triaged-fast"], "title": "goal described",
@@ -156,17 +155,14 @@ def test_the_judge_passes_words_by_check_and_writes_them_as_the_policy_allows_mo
     assert im.submit(p, "modeller", desc)["status"] == "proposed"
     spec = p.model.spec
     spec.improve.accept.update({"unit": "auto", "description": "auto"})
-    got = jd.run(p)
-    assert got["passed"] == 3 and got["accepted"] == 2                # the rename waits: the policy leaves it to the owner
+    jd.run(p)
     text = p.model.path.read_text()
     assert "unit: alerts" in text and "description: the pager collector" in text
     p.model = mdl.load(tmp_path)
-    left = [x for x in pr.stored(p).values() if x["state"] == "passed"]
-    assert [x["kind"] for x in left] == ["rename"]
+    left = [x for x in pr.stored(p).values() if x["state"] in ("checked", "passed")]
+    assert [x["kind"] for x in left] == ["control"]                  # control waits for the owner, whatever the policy
     pr.accept(p, left[0]["id"], {"at": 0, "window": 600})            # its lines moved with the two written above it
-    assert "alert.triaged: triaged" in p.model.path.read_text()
-    assert '"alert.triaged"' in (tmp_path / "bin" / "step.py").read_text()
-    assert "triage.finished: alert.triaged" in p.model.path.read_text()   # the record's old events still fold
+    assert "tolerance: 0" in p.model.path.read_text()
 
 
 def test_a_rename_of_a_part_updates_every_reference_and_keeps_its_history(tmp_path):
@@ -191,14 +187,14 @@ def test_a_rename_of_a_part_updates_every_reference_and_keeps_its_history(tmp_pa
     assert len(p.measurements.range("sensor/new-alerts.main", 0)) == 5          # the old series is left as it was
 
 
-def test_a_change_that_also_edits_a_program_is_refused_unless_it_only_renames_event_types(tmp_path):
+def test_a_change_that_also_edits_a_program_is_refused(tmp_path):
     p = project(tmp_path)
     raw = {"kind": "description", "parts": ["stock.new-alerts"], "title": "x",
            "edit": [{"part": "stock.new-alerts", "set": {"unit": "alerts"}},
                     {"file": "bin/watch.py", "replace": "print(0)", "with": "print(1)"}],
            "reasons": [{"says": "no unit", "evidence": "finding:no-unit@stock.new-alerts"}]}
     got = im.trial(p, raw)
-    assert got["would"] == "not be proposed" and "only a rename of event types" in got["why"]
+    assert got["would"] == "not be proposed" and "not one of the model's files" in got["why"]
 
 
 def test_the_ai_tier_gives_each_request_its_neighbourhood_and_proposes_only_what_would_be_proposed(tmp_path):
@@ -291,11 +287,11 @@ def test_a_model_with_no_equations_wakes_modelling_whatever_the_fit_says_and_it_
     got = rq.sync(p)
     have = {(r["code"], r["about"]): r for r in rq.current(p)}
     fit = have[("fit-unknown", "model")]                                # the fit cannot be read: that is work, said why
-    assert "equation" in fit["says"] and fit["tier"] == "rule"
+    assert "equation" in fit["says"] and fit["tier"] == "ai"
     assert ("no-equation", "flow.working") in have and got["open"] >= 5
     made, _ = ru.propose(p, [r for r in rq.current(p) if r["tier"] == "rule"], most=20)
     kinds = {raw["kind"] for _, raw in made}
-    assert "equation" in kinds and "unit" in kinds                     # proposals, though model-fits says nothing
+    assert "unit" in kinds                                             # proposals, though model-fits says nothing
     for _, raw in made:
         assert im.submit(p, "fixer", raw)["status"] == "proposed"
     said = mst.of(p)["says"]
