@@ -325,6 +325,21 @@ def report(out: Path, judged: dict, recs: list[dict], per_rule: int) -> list[dic
     return worst
 
 
+def compare(before: Path, after: Path) -> str:
+    """Counts per rule and severity, before and after, over the views both drew (a markdown table)."""
+    b, a = json.loads((before / "findings.json").read_text()), json.loads((after / "findings.json").read_text())
+    views = lambda d: {f"{p.parent.name}/{p.stem}" for p in (d / "geometry").glob("*/*.json")}     # noqa: E731
+    both = views(before) & views(after)
+    rows = ["| rule | severity | before | after | change |", "|---|---|---|---|---|"]
+    for r in rules.RULES:
+        for sev in ("critical", "major", "minor"):
+            nb = sum(1 for i in b.get(r.name, []) if i["severity"] == sev and f"{i['model']}/{i['view']}" in both)
+            na = sum(1 for i in a.get(r.name, []) if i["severity"] == sev and f"{i['model']}/{i['view']}" in both)
+            if nb or na:
+                rows.append(f"| {r.name} | {sev} | {nb} | {na} | {na - nb:+d} |")
+    return f"{len(both)} views drawn both times.\n\n" + "\n".join(rows) + "\n"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
@@ -338,6 +353,7 @@ def main() -> int:
     ap.add_argument("--ports", default="8791,8793,8796")
     ap.add_argument("--only", default="")
     ap.add_argument("--engine", default="", help="draw with the ergostat at this checkout, by its own .venv (a before for a comparison)")
+    ap.add_argument("--compare", default="", help="with --judge-only: OUT/compare.md, counts per rule against this run")
     ap.add_argument("--judge-only", action="store_true", help="judge the geometry already in OUT again")
     ap.add_argument("--worst", type=int, default=4, help="worst views shown per rule")
     a = ap.parse_args()
@@ -376,6 +392,9 @@ def main() -> int:
         crops(out, worst, int(a.ports.split(",")[0]))
         report(out, judged, recs, a.worst)        # (again, with the crops)
     (out / "findings.json").write_text(json.dumps({k: v for k, v in judged["found"].items()}, indent=0))
+    if a.compare:
+        (out / "compare.md").write_text(compare(Path(a.compare), out))
+        print((out / "compare.md").read_text())
     print((out / "report.md").read_text().split("## Worst")[0])
     return 0
 

@@ -187,6 +187,9 @@ function centreValves(lay, g) {
     // (a flow back up a chain: in a lane under or over it, between its two stocks)
     if (xs != null) for (let k = 0; k < 6; k++)
       cands.push({ x: xs, y: Math.max(ra.y1, rb.y1) + 40 + 36 * k }, { x: xs, y: Math.min(ra.y0, rb.y0) - 40 - 36 * k });
+    // (one between stocks one over the other: in a lane beside them, between their rows)
+    if (ys != null) for (let k = 0; k < 6; k++)
+      cands.push({ x: Math.max(ra.x1, rb.x1) + 40 + 36 * k, y: ys }, { x: Math.min(ra.x0, rb.x0) - 40 - 36 * k, y: ys });
     const cost = (p) => Math.abs(p.x - a.x) + Math.abs(p.y - a.y) + Math.abs(b.x - p.x) + Math.abs(b.y - p.y) +
       (Math.abs(p.y - a.y) < 1 || Math.abs(p.y - b.y) < 1 || Math.abs(p.x - a.x) < 1 || Math.abs(p.x - b.x) < 1 ? 0 : 60);
     cands.sort((p, q) => cost(p) - cost(q));
