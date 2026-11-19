@@ -829,7 +829,8 @@ async function pageItem(main, id) {
     const verdict = k?.name === CLAIM_KIND ? [h("h2", {}, "Verdict"), claimView(d)]
       : k?.name === DECISION_KIND || k?.name === CORRECTION_KIND ? [h("h2", {}, k.name === DECISION_KIND ? "The decision" : "The correction"), whole(intentView(d, tick), d.state, d.fields)]
       : k?.name === MESSAGE_KIND ? [h("h2", {}, "Message"), whole(messageView(d, tick), d.state, d.fields)]
-      : k?.name === ACTION_KIND ? [h("h2", {}, "Gated action"), whole(actionView(d, tick), d.state, d.fields)] : [];
+      : k?.name === ACTION_KIND ? [h("h2", {}, "Gated action"), whole(actionView(d, tick), d.state, d.fields)]
+      : k?.name === REPORT_KIND ? [h("h2", {}, "Report upstream"), whole(reportView(d, tick), d.state, d.fields)] : [];
     let about = [];
     if (ms) about = [h("h2", {}, "Messages", h("span", { class: "muted" }, ` ${ms.messages.length}`)), messagesAbout(ms.messages), SNAP ? "" : live(note)];
     if (as && as.actions.length) {                      // the gated actions asked for about it
