@@ -39,6 +39,10 @@ review). Newest decisions from the owner first within each section.
   progress, `scale2`). The old design kernel-panicked the machine at 14,000 threads.
 - **Latency: push intake, notify-on-write, a local socket for calls from steps** (in progress, `latency`).
 - **Warm workers instead of a process per item** (open; designed in the latency work).
+- **What each run costs** (in progress, `runcost`): per run, its AI sessions' dollars (reported by Claude Code, or
+  estimated from tokens), tokens and model, the CPU time and peak memory of its process tree (one shared sampler and
+  its wait status), wall time and exit; series per block, `ergostat.cost.*` measures a goal can hold, the Agents page
+  and `ergostat agent NAME`. Network bytes per process are left out (macOS has them only through `nettop`).
 - **Extreme-conditions tests and calibration per part of the model** (open; the Check page's first status
   takes 13 s even on small models).
 - **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`).

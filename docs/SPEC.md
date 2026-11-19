@@ -1238,6 +1238,76 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
   its format (TOML to YAML) or of its storage is a new state directory or store: that one restarts, and stops the
   runs. `ergostat run --stop` (and any explicit restart) stops everything, as always.
 
+**What a run records.** Every machine block's run ends with `agent.ran` (or `agent.failed`), and besides what it said
+and moved, that event says what the run cost, measured by ergostat, never by the run's own say:
+
+| Field | What | How |
+|---|---|---|
+| `exit`, `seconds` | Its exit code; its wall time, from start to end | Its process's wait status; the clock |
+| `resources.cpu` (`cpu_user`, `cpu_system`) | CPU seconds of its whole process tree: its process, everything it started, user and system | The larger of its wait status (`wait4`: exact for the process and every descendant it waited for) and one shared sampler's sum (below) |
+| `resources.memory_peak` | The most memory the tree held at once, in bytes (resident) | The larger of the sampler's peak (summed over the tree at each sample) and the largest single process (`wait4`) |
+| `resources.processes_peak`, `open_files_peak` | The most processes in its tree, and the most files they held open at once | The sampler; open files where cheap to count (Linux `/proc`, macOS `libproc` for the user's own processes), else left out |
+| `resources.samples`, `method`, `sampler_cpu` | How many samples saw it; `wait4+sampled`, `wait4` (it ended before the first sample) or `sampled`; the sampler's own CPU, its share | |
+| `ai.cost_usd`, `ai.cost` | What its AI sessions cost, in USD, and how that is known: `reported` (Claude Code's `total_cost_usd`), `estimated` (tokens priced by ergostat's price table, `costs/prices.py`), `partly estimated`, or `unpriced` (tokens on a model with no price: `cost_usd` none) | Claude Code's result message (below) |
+| `ai.tokens` | `input`, `output`, `cache_read`, `cache_write` (of those, `cache_write_1h`: kept an hour, priced higher) and their `total` | The same |
+| `ai.model`, `ai.models`, `ai.sessions`, `ai.turns` | The model that used the most tokens, and each model's tokens and dollars; how many sessions reported, their turns | The same |
+
+Network bytes are not recorded: per process they are available only through `nettop` on macOS (root, or a process
+per sample) and per network namespace on Linux, so ergostat leaves them out rather than guess.
+
+*Where the AI usage comes from.* An `ai` block with no `run:` runs `claude -p` with `--output-format json`, and
+ergostat reads the result message in place of plain text: its text is taken line by line as before (its log too), its
+`total_cost_usd`, `usage` and `modelUsage` are the run's. A session started inside a run (`ergostat session`, from an
+`ai` block's `run:` or any program) prints `session.ran` with the same `ai` record, and the run that started it adds
+that to its own, so a session in a program is the program's run's cost. Any other line a program prints that is a
+Claude Code result message (`{"type": "result", ..., "total_cost_usd": ...}`, what `claude -p --output-format json`
+prints) counts the same way; a run whose AI says nothing has no `ai`.
+
+*How CPU and memory are measured.* One sampler thread serves every run at once (never a thread per run): every second
+it lists the processes once (`/proc` on Linux, one `ps` elsewhere), finds each run's tree (its process group: each run
+is a session of its own, and every descendant by parent), and keeps each process's last CPU time, the tree's summed
+resident memory, its processes and open files. It runs only while some run is under way. Its own CPU (its thread and
+the `ps` it runs) is measured and shared out among the runs it sampled (`sampler_cpu`): about 10 ms a sample on a
+laptop, so about 1% of one core while anything runs, however many runs. Accuracy: CPU is exact for everything the run
+waited for (the wait status), and within one sample interval for processes it left running; peak memory is exact for
+the largest single process and, for the tree together, sampled each second (a spike shorter than that is missed). A
+run shorter than a second is measured by its wait status alone.
+
+The same numbers are kept as series of the block, plain metrics beside the sensors' (`run/BLOCK/cost_usd`, `tokens`,
+`cpu`, `memory` in MB, `seconds`, one reading at each run's end), and read back as built-in measures a goal can hold
+through a sensor (`builtin:`, §6, §12e):
+
+| Reference | What it is |
+|---|---|
+| `ergostat.cost.usd` | Dollars the runs' AI sessions cost over the last day (reported, or estimated); `ergostat.cost.usd-hour` over the last hour |
+| `ergostat.cost.tokens` | Their tokens over the last day (`-hour`: the last hour) |
+| `ergostat.cost.cpu` | CPU seconds of the runs' process trees over the last day (`-hour`) |
+| `ergostat.cost.memory` | The largest peak memory of one run over the last day (`-hour`), in MB |
+| `ergostat.cost.runs` | Runs that ended over the last day (`-hour`) |
+
+Each is about every block, or with `@BLOCK` one block, or with `@model:MODEL` the runs whose sessions mostly used that
+model (`@model:haiku` matches `claude-haiku-5-5`). A budget on AI spend is a stock read from one and a goal on it:
+
+```yaml
+stocks:
+  ai-spend:
+    unit: USD
+    description: what the AI sessions cost over the last day
+    sensor: {builtin: ergostat.cost.usd, every: 5m}
+goals:
+  ai-budget:
+    stock: ai-spend
+    hold: "<= 5"                 # $5 a day
+blocks:
+  developer:
+    type: ai
+    in: -goal.ai-budget.error    # (an onoff in front of it, or its own prompt, decides what to do when over)
+```
+
+The Agents page shows each agent's totals over the window (runs, dollars, tokens, CPU, peak memory) and, in its panel,
+the history of each (dollars by hour, and tokens, CPU and memory run by run) and its runs with their numbers;
+`ergostat agent NAME` says the same in the terminal.
+
 ### 9.2 Built-in block types
 
 A first set, kept small:
@@ -2163,6 +2233,7 @@ Everything ergostat owns here is named `ergostat.`, so it never collides with a 
 | `ergostat.model.unexplained` | The share of each stock's change over the last hour that its flows do not explain, unexplained over explained plus unexplained (in size), averaged over the stocks that moved (the residuals) |
 | `ergostat.model.unidentified-loops` | The goals whose loop closes and whose process the model does not hold (no `process:`, section 8) |
 | `ergostat.model.open-findings` | What `ergostat check` finds, errors aside |
+| `ergostat.cost.usd`, `.tokens`, `.cpu`, `.memory`, `.runs` | What the runs cost over the last day (or `-hour`), every block's or `@BLOCK`'s (section 9.1) |
 
 A measure's reference is `ergostat.model.NAME`: it reads beside `stock.x`, `flow.x` and `auxiliary.x`, and is
 never one of them (a project's names have no dots). It is read by a sensor, `builtin: ergostat.model.fit`
