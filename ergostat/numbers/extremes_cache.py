@@ -4,13 +4,17 @@ Each condition's result is kept in ``<state>/extremes.json``, keyed by the condi
 connected part of the model its pushed part belongs to (stocks, flows, auxiliaries, parameters, goals and blocks
 joined by what they connect, name or read), each part as plain data (``version._plain``: where it is written and its
 words left out). A condition on the whole model is kept per connected part. So a second check runs nothing, and an
-edit runs again only the conditions whose part of the model changed. The conditions not kept run in a thread of their
-own, at most ``BOUND`` seconds in all; what is not run by then is said."""
+edit runs again only the conditions whose part of the model changed. The conditions not kept run in the background,
+by one low-priority process per project (``main``), at most ``BOUND`` seconds in all; what is not run by then is said.
+Writers merge what they added into the file under its lock."""
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -23,6 +27,7 @@ from . import version as ver
 BOUND = 60.0            # seconds: one model's conditions run at most this long in all; the rest are said, not run
 FILE = "extremes.json"
 MOST_KEPT = 4000        # results kept on disk, the newest
+KEYS = 2                # the keys' version: a change to what a result holds or how it is worked out raises it
 SAVE_EVERY = 1.0        # seconds: the results are written at most this often while running
 _MEM: dict[str, tuple[float | None, dict]] = {}   # the file → (its modification time as read, its results)
 _LOCK = threading.Lock()
@@ -66,10 +71,33 @@ def components(spec: Spec) -> tuple[dict[str, str], dict[str, str]]:
 
 
 def _path(spec: Spec) -> Path | None:
-    """The file in the project's state directory, when it has one (a model never run is kept in memory only)."""
+    """The file in the project's state directory, when it has one: never made here (a model never run is kept in
+    memory only)."""
     from ..store import state_dir
     d = state_dir(spec.name, spec.root, make=False) if spec.root else None
     return d / FILE if d is not None and d.is_dir() else None
+
+
+@contextlib.contextmanager
+def _locked(path: Path, wait: bool = True):
+    """The file's lock (``extremes.json.lock``), held across processes: yields whether it was taken."""
+    with open(path.with_name(path.name + ".lock"), "a") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+        except OSError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _read(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
 
 
 def _load(path: Path | None) -> dict:
@@ -81,19 +109,17 @@ def _load(path: Path | None) -> dict:
         m = None
     was = _MEM.get(str(path))
     if was is None or (m is not None and was[0] != m):
-        try:
-            got = json.loads(path.read_text()) if m is not None else {}
-        except (OSError, ValueError):
-            got = {}
-        _MEM[str(path)] = was = (m, {**(was[1] if was else {}), **got})
+        _MEM[str(path)] = was = (m, {**(was[1] if was else {}), **(_read(path) if m is not None else {})})
     return was[1]
 
 
-def _save(path: Path | None, kept: dict) -> None:
-    if path is None:
+def _save(path: Path | None, added: dict) -> None:
+    """What this run added, merged into what is on disk under the lock (another process may have written since)."""
+    if path is None or not added:
         return
-    with _LOCK:
-        mine = dict(list(kept.items())[-MOST_KEPT:])
+    with _LOCK, _locked(path):
+        mine = {**_read(path), **added}
+        mine = dict(list(mine.items())[-MOST_KEPT:])
         tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
         try:
             tmp.write_text(json.dumps(mine))
@@ -106,53 +132,60 @@ def _save(path: Path | None, kept: dict) -> None:
 def results(spec: Spec, conds: list, params: dict | None, scales: dict | None, budget: float | None = None,
             progress=None) -> list[tuple]:
     """Each condition's failures (``extremes.condition_result``), from what is kept where its part of the model is
-    unchanged, else run (within ``budget`` seconds, when given). ``progress(done, of, skipped, so_far)``."""
-    from .extremes import condition_result
+    unchanged, else run (within ``budget`` seconds, when given; each condition is itself bounded in steps,
+    ``closedloop.MAX_STEPS`` and ``extremes.CONFIRM``). A condition that could not run is not kept: it is tried
+    again next time. ``progress(done, of, skipped, so_far)``."""
+    from . import extremes as ex
     comp, fp = components(spec)
     path = _path(spec)
     kept = _load(path)
-    began, saved, out, skipped, ran = time.monotonic(), time.monotonic(), [], 0, False
-    salt = json.dumps([params or {}, scales or {}], sort_keys=True, default=str)
+    added: dict = {}
+    began, saved, out, skipped = time.monotonic(), time.monotonic(), [], 0
+    salt = json.dumps([KEYS, params or {}, scales or {}], sort_keys=True, default=str)
     for i, c in enumerate(conds):
         which = [comp[c.part]] if c.part in comp else sorted(fp)
         what = json.dumps([c.key, c.empty, c.inputs, c.params, c.pools, c.setpoints, salt], sort_keys=True, default=str)
         keys = {w: ver._hash([what, fp[w]]) for w in which}
         if all(k in kept for k in keys.values()):
-            got = [x for k in keys.values() for x in kept.pop(k)]
+            got = [x for k in keys.values() for x in kept[k]]
         elif budget is not None and time.monotonic() - began > budget:
-            skipped += 1
-            got = None
+            got, skipped = None, skipped + 1
         else:
-            got, ran = condition_result(spec, c, params, scales), True
+            got = ex.condition_result(spec, c, params, scales)
+            for w, k in (keys.items() if got is not None else ()):     # kept per connected part
+                kept[k] = added[k] = [x for x in got if comp.get(x[0], which[0]) == w]
         if got is not None:
-            for w, k in keys.items():                      # kept per connected part, the newest last
-                kept[k] = [x for x in got if comp.get(x[0], which[0]) == w]
             out.append((c, got))
-        if ran and path is not None and time.monotonic() - saved > SAVE_EVERY:
-            _save(path, kept)
-            saved = time.monotonic()
+        if added and time.monotonic() - saved > SAVE_EVERY:
+            _save(path, added)
+            added, saved = {}, time.monotonic()
         if progress:
             progress(i + 1, len(conds), skipped, out)
-    if ran:                                               # only what this run added: never over another's work
-        _save(path, kept)
+    _save(path, added)
     return out
 
 
-class _Job:
-    """One model's conditions, run in the background: in a process of its own at a low priority where the project has
-    a state directory to keep them in (so neither the engine nor the page server waits on them, and ``check`` may exit
-    while they finish), else in a thread."""
+def _running(path: Path) -> bool:
+    """Whether a runner holds this project's run lock (``extremes.run.lock``)."""
+    with _locked(path.with_name("extremes.run"), wait=False) as took:
+        return not took
 
-    def __init__(self, spec: Spec, scales: dict | None, alone: bool):
+
+class _Job:
+    """One model's conditions, run in the background: by one process per project, at a low priority, where the
+    project has a state directory to keep them in (so neither the engine nor the page server waits on them, and
+    ``check`` may exit while they finish), else in a thread."""
+
+    def __init__(self, spec: Spec, alone: bool):
         self.status = {"running": True, "done": 0, "of": 0, "skipped": 0}
         self.so_far: list = []
         self.got: dict | None = None
-        self.spec, self.scales, self.path = spec, scales, _path(spec)
-        self.proc = None
-        if alone and self.path is not None and spec.files and not scales:
+        self.spec, self.path, self.proc = spec, _path(spec), None
+        self.alone = bool(alone and self.path is not None and spec.files)
+        if self.alone and not _running(self.path):
             self.proc = subprocess.Popen([sys.executable, "-m", "ergostat.numbers.extremes_cache", str(spec.files[0])],
                                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                         preexec_fn=lambda: os.nice(10))
+                                         start_new_session=True)
         self.thread = threading.Thread(target=self._go, daemon=True, name="extremes")
         self.thread.start()
 
@@ -165,7 +198,9 @@ class _Job:
         try:
             if self.proc is not None:
                 self.proc.wait()
-            self.got = ex.failures(self.spec, None, self.scales, -1.0 if self.proc else BOUND, self._progress)
+            while self.alone and _running(self.path):     # another's runner (a check, the page), until it is done
+                time.sleep(0.25)
+            self.got = ex.failures(self.spec, None, None, -1.0 if self.alone else BOUND, self._progress)
         except Exception as e:                            # the tests are a help to the check, never a reason it fails
             self.got, self.status["error"] = {}, f"{type(e).__name__}: {e}"
         finally:
@@ -175,25 +210,25 @@ class _Job:
         if self.got is not None:
             return self.got
         from . import extremes as ex
-        if self.proc is not None:                         # what the process has kept so far, and how far it is
+        if self.alone:                                    # what the runner has kept so far, and how far it is
             try:
-                self.status.update(json.loads(self.path.with_suffix(".progress").read_text()))
+                self.status.update(json.loads(self.path.with_name("extremes.progress").read_text()))
             except (OSError, ValueError):
                 pass
-            return ex.failures(self.spec, None, self.scales, -1.0)
+            return ex.failures(self.spec, None, None, -1.0)
         return ex.merge(self.spec, self.so_far)
 
 
-def background(spec: Spec, scales: dict | None = None, wait: float | None = None) -> tuple[dict, dict]:
+def background(spec: Spec, wait: float | None = None) -> tuple[dict, dict]:
     """The failures found so far and where the run is (``{"running", "done", "of", "skipped"}``), after waiting at
-    most ``wait`` seconds (None: until done) for the conditions running in the background."""
+    most ``wait`` seconds (None: until done, in this process) for the conditions running in the background."""
     _, fp = components(spec)
-    key = (str(spec.root), spec.name, ver._hash([sorted(fp.values()), scales or {}]))
+    key = (str(spec.root), spec.name, ver._hash(sorted(fp.values())))
     job = _JOBS.get(key)
     if job is None or (job.status.get("skipped") and not job.thread.is_alive()):   # each asking runs more of what is left
         while len(_JOBS) >= 16:
             _JOBS.pop(next(iter(_JOBS)))
-        job = _JOBS[key] = _Job(spec, scales, wait is not None)
+        job = _JOBS[key] = _Job(spec, wait is not None)
     job.thread.join(wait)
     return job.found(), dict(job.status)
 
@@ -208,17 +243,32 @@ def said(status: dict) -> str | None:
     return None
 
 
-if __name__ == "__main__":                                # the process a _Job starts: python -m ... MODEL.yaml
+def main(path: Path) -> None:
+    """The runner a _Job starts (``python -m ergostat.numbers.extremes_cache MODEL``): one per project (it exits at once
+    when another holds the run lock), at a low priority, stopped at ``BOUND`` seconds and a little more whatever it is
+    doing (what it finished is kept)."""
     from ..spec import read
     from .extremes import failures
-    model, _ = read(Path(sys.argv[1]), extremes=False)
+    if hasattr(os, "nice"):
+        os.nice(10)
+    if hasattr(signal, "alarm"):
+        signal.alarm(int(BOUND) + 5)
+    model, _ = read(path, extremes=False)
     where, last = _path(model), [0.0]
+    if where is None:
+        return
 
     def told(done, of, skipped, _so_far):
-        if where is not None and (time.monotonic() - last[0] > SAVE_EVERY or done == of):
+        if time.monotonic() - last[0] > SAVE_EVERY or done == of:
             last[0] = time.monotonic()
             try:
-                where.with_suffix(".progress").write_text(json.dumps({"done": done, "of": of}))
+                where.with_name("extremes.progress").write_text(json.dumps({"done": done, "of": of}))
             except OSError:
                 pass
-    failures(model, None, None, BOUND, told)
+    with _locked(where.with_name("extremes.run"), wait=False) as took:
+        if took:
+            failures(model, None, None, BOUND, told)
+
+
+if __name__ == "__main__":
+    main(Path(sys.argv[1]))

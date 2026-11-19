@@ -53,7 +53,10 @@ error**, to compare versions and proposals on.
 the total), **Equations, inputs as measured** (each equation alone, the sharpest test of it),
 **Equations, replayed**, **Accounting** (stocks moved only by measured flows: they test no equation).
 For one part: Diagram → **Dynamics** → click a valve or an auxiliary with an equation → under its
-equation, "Inputs as measured (the partial-model test): R² …" (or, for a flow measured only by its
+equation, "Inputs as measured (the partial-model test): R² …, scaled error …, skill … against its mean"
+(skill is 1 − its mean squared error over its readings' variance: below 0, the equation does worse than
+holding the part at its mean, and the Check page and `ergostat check` say so, as
+`calibration-worse-than-mean`) (or, for a flow measured only by its
 stock's changes, "Measured from its stock's changes, so judged by quality's replay: R² 0.32, …").
 Command line: `ergostat fit`.
 
@@ -125,23 +128,34 @@ check` names it, and the Model page offers "A link's sign flipped" with Show on 
 
 ### Extreme conditions
 
-**What it is.** The equations alone, pushed to the extremes with no record: every stock empty with
-nothing coming in, nothing coming in, each input alone at 0 and at a hundred times its largest, and each
-estimated or timed parameter alone at its range's ends (else a hundredth and a hundred times its value).
+**What it is.** The model run forward from its own start with its loops running (the closed-loop
+projection: goals and built-in blocks as the engine works them out, each machine block by a model of it,
+here an assumption since no record is read), pushed to the extremes: everything as usual; every stock empty
+with nothing coming in; nothing coming in; each input alone at 0 and at ten times its largest; each block
+that takes items with a pool of 0; each goal's setpoint at its limits (0, and its stock's `limit:`, else ten
+times the setpoint); each estimated or timed parameter alone at its range's ends (else a hundredth and a
+hundred times its value).
 
-**What you get.** The places an equation is wrong where it was never tested: a queue held below
-nothing, a one-way flow running backwards, a division by an empty stock, a blow-up. Each failure names
-the input or parameter that caused it.
+**What you get.** The places the model does what the world cannot: a stock held below empty, an outflow
+taking more than its stock held and took in, a stock rising with nothing coming in (an input at 0, or a
+constant inflow, made from nothing), a run that blows up or runs away (grows faster each quarter), a law
+block with no limits that never saturates, a one-way flow running backwards, an equation that divides by
+0. Each finding names the part, every extreme that showed it, and the projection's numbers ("from 10 to
+−3.2 over 40h"). A failure is confirmed with far finer steps before it is said.
 
-**Where.** **Check** page (`extreme-conditions`); `ergostat check`. A guard that fixes it (`MAX(0, …)`,
-`ZIDZ(a, b)`) is offered in Model page → **Changes to review**. A what-if that fails one is proposed
-with that said.
+**Where.** **Check** page (`extreme-conditions`): "extremes: running (k of n conditions)" while they run;
+`ergostat check`, which waits for them at most 5 s and says what is left. A guard that fixes an equation
+(`MAX(0, …)`, `ZIDZ(a, b)`) is offered in Model page → **Changes to review**. A what-if that fails one is
+proposed with that said.
 
-**Needs.** Equations. What a block would do is not simulated.
+**Needs.** Equations, or blocks that move flows. Each condition's result is kept in the project's state
+directory (`extremes.json`), keyed by the connected part of the model it reaches: a second check runs
+nothing, and an edit reruns only the conditions of the part it changed. They run in the background, by one
+low-priority process per project, at most 60 s in all; a project never run keeps them in memory only, so
+its `check` runs them again each time.
 
-**How.** `ergostat check`; image-squeeze passes. A failure is said once when the model fails with
-everything as usual, and otherwise names the input or parameter that caused it, and what went wrong
-(a stock drained below empty, a one-way flow gone negative, a division by 0, a blow-up).
+**How.** `ergostat check`; every example passes. A failure is said once when the model fails with
+everything as usual, and otherwise names the input, pool, setpoint or parameter that caused it.
 
 ## What should I change?
 
@@ -172,6 +186,14 @@ can propose**, beneath, lists what can and cannot be proposed yet.
 **How.** `ergostat proposals --show ID` prints one in full; `ergostat accept ID` writes it (refused,
 and the file put back, if `check` would then find an error). Accepting records the fit before and after
 in the **History**.
+
+**Its forecast.** A change to the model changes nothing in the world: it revises the model's forecast.
+Opened, each entry says that forecast in one sentence above its charts ("with it the model forecasts
+queue settling at 4.4 within 1m (5.7 as it is) (over 30m, with the loops running)"): the closed-loop
+projection of the stocks it touches, the mean over the horizon's last quarter. Accepting records it on
+the change's item (`predicted`); once the horizon has passed, the judge's pass reads what those stocks
+did over the same last quarter and records it beside it (`observed`, the mean of the readings, and
+which forecast it was nearer to: the revised one or the model's as it was).
 
 ![A proposal opened in the review queue](screenshots/model-tools/model-review-queue.png)
 

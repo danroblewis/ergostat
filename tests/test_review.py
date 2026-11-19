@@ -396,6 +396,8 @@ def test_extreme_conditions_failures_get_guards(tmp_path):
     other = "stocks:\n  other:\n    unit: jobs\n    sensor:\n      manual: true\n"
     text = EXTREME.replace("parameters:\n", "parameters:\n  two-hours: 2h\n").replace("stocks:\n", other)
     p, snap = queue_project(tmp_path, text=text)
+    from ergostat.spec.findings import late
+    late(p.model.spec)                                   # the extremes run in the background: here, waited for
     got = [x for x in structural(p) if x["code"] == "extreme-conditions"]
     texts = " ".join(x["title"] for x in got)
     assert "MAX(0, " in texts and "ZIDZ(" in texts, texts
