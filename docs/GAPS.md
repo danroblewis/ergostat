@@ -104,8 +104,17 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Runtime, scale and latency
 
-- **Warm workers instead of a process per item** (parked on branch `warm`, after failing its gate twice; its
-  definition file, `docs/roadmap/overnight/leasekill.md`, says where it stopped and the fixes it needs).
+- **Warm workers instead of a process per item**: superseded by daemons (branch `daemons`, SPEC §9.7,
+  `docs/RUNTIME.md`): long-lived processes for blocks and sensors, many items at once, every line tagged with its run
+  or request, env per item in its line, supervised (crash, silence, stdin backpressure, restart storms, cancel on a
+  lease's expiry, drained on a swap). The `warm` branch stays parked as reference (its definition file,
+  `docs/roadmap/overnight/leasekill.md`, says where it stopped); its review's findings were taken as lessons: B4 (a
+  `done` for another item) by tagging, B1 (env leaking between items) by env in the line, B3 (a child's CPU never
+  charged) by charging no item CPU at all (the daemon's own CPU and memory are sampled and shown).
+- **Daemons, left over:** a daemon's lines are taken one at a time (a run's process batches the lines that arrive
+  together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
+  not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
+  ends.
 - **ergostat's upkeep as a modelled system** (idea; owner, 2026-11-19): a built-in `use: upkeep` template, like
   `use: modelling`, drawing ergostat's own housekeeping as control loops: item-index files (created on each change to
   the kinds, tidied, healed), event-log compaction, measurement retention, the worktree pool, expired leases, the

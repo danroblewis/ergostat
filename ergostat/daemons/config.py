@@ -9,40 +9,37 @@ KEYS = {"run", "concurrency", "heartbeat", "restart", "stdin-timeout", "descript
 RESTART = {"max", "within", "backoff"}
 
 
+def whole(c, m, key: str, least: int, default: int, what: str, says: str) -> int:
+    v = m.get(key, default)
+    if isinstance(v, bool) or not isinstance(v, int) or v < least:
+        c.err(f"{what}.{key}: a whole number, {least} or more ({says})", m.at(key), "bad-number")
+        return default
+    return v
+
+
 def one(c, m, name: str, what: str) -> Daemon | None:
     c.keys(m, KEYS, what)
     if not m.get("run"):
         c.err(f"{what}: run: the command that starts it (it reads JSON lines on its standard input, SPEC §9.7)",
               m.where, "missing-key")
         return None
-    n = m.get("concurrency", 10)
-    if isinstance(n, bool) or not isinstance(n, int) or n < 1:
-        c.err(f"{what}.concurrency: a whole number, 1 or more (the most runs it holds at once)", m.at("concurrency"),
-              "bad-number")
-        n = 1
     r = m.get("restart") or {}
     if not isinstance(r, dict):
         c.err(f"{what}.restart: a map: max, within, backoff", m.at("restart"), "not-a-map")
         r = {}
-    else:
-        c.keys(r, RESTART, f"{what}.restart")
-    most = r.get("max", 5)
-    if isinstance(most, bool) or not isinstance(most, int) or most < 0:
-        c.err(f"{what}.restart.max: a whole number (restarts allowed within: before it is given up)", r.at("max"),
-              "bad-number")
-        most = 5
+    c.keys(r, RESTART, f"{what}.restart")
     back = r.get("backoff") or ["1s", "2m"]
-    if not isinstance(back, list) or len(back) != 2:
-        c.err(f"{what}.restart.backoff: [first, most]: the first restart's wait, doubled each time up to the most",
-              r.at("backoff"), "bad-duration")
-        back = ["1s", "2m"]
     from ..durations import DurationError, parse_duration
     try:
-        backoff = tuple(parse_duration(x, f"{what}.restart.backoff") for x in back)
-    except DurationError as e:
-        c.err(f"{e} (like 1s, 2m)", r.at("backoff"), "bad-duration")
+        backoff = tuple(parse_duration(x, f"{what}.restart.backoff") for x in back) if isinstance(back, list) else ()
+    except DurationError:
+        backoff = ()
+    if len(backoff) != 2:
+        c.err(f"{what}.restart.backoff: [first, most], like [1s, 2m]: the first restart's wait, doubled each time up to "
+              f"the most", r.at("backoff"), "bad-duration")
         backoff = (1.0, 120.0)
-    return Daemon(name, str(m["run"]), n, c.duration(m, "heartbeat", what), most,
+    return Daemon(name, str(m["run"]), whole(c, m, "concurrency", 1, 10, what, "the most runs it holds at once"),
+                  c.duration(m, "heartbeat", what), whole(c, r, "max", 0, 5, f"{what}.restart", "restarts allowed within:"),
                   c.duration(r, "within", f"{what}.restart", 600.0) if r else 600.0, backoff,
                   c.duration(m, "stdin-timeout", what, 10.0), m.where)
 

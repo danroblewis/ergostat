@@ -1,12 +1,8 @@
-"""One daemon's process (SPEC §9.7): JSON lines in on its standard input, JSON lines out on its standard output.
-
-Everything written to it goes through a bounded queue to a writer thread of its own, so nothing that hands it work
-ever waits on it: a full queue, or a write that waits too long (``writing_since``), is the supervisor's to see. A
-reader thread takes its lines as they come and gives each to what it is tagged for: a run's lines (an event, an
-output, a lease renewal: as a run's standard output, SPEC §9.1) to that run, ``{"done": EXIT, "run"}`` ends the run,
-``{"reading": V, "request"}`` answers a reading, ``{"reading": V, "sensor"}`` is a push reading, ``{"heartbeat":
-true}`` says it lives. Every line it prints says it lives. A line tagged with nothing, or with a run or request it
-does not hold, is written to its log and dropped: never given to another run."""
+"""One daemon's process (SPEC §9.7). What is written to it goes through a bounded queue to a writer thread of its own,
+so nothing that hands it work waits on it (a full queue, or a write waiting too long, is the supervisor's to see). A
+reader thread gives each line it prints to what it is tagged for: a run's lines to that run, ``done`` (strict) ends
+it, a reading answers its request or is pushed for its sensor; every line says it lives. A line tagged with nothing,
+or with a run or request it does not hold, is written to its log and dropped: never given to another run."""
 
 from __future__ import annotations
 
@@ -45,11 +41,6 @@ class Handle:
             self.done.set()
 
 
-def daemon_env(env: dict) -> dict:
-    """Its process's environment: no ``ERGOSTAT_*`` but what every item shares (an item's travel in its line)."""
-    return {k: v for k, v in env.items() if not k.startswith("ERGOSTAT_") or k in SHARED}
-
-
 class Process:
     def __init__(self, d, cwd, env: dict, log, on_push):
         self.d, self.log, self.on_push = d, log, on_push
@@ -59,13 +50,14 @@ class Process:
         self.requests: dict[str, Handle] = {}
         self.writing_since: float | None = None
         self.full = False
-        self.started = self.last_out = time.monotonic()
+        self.last_out = time.monotonic()
         self.idle_since: float | None = None      # (draining: when its last run ended)
         self.served = 0
         self.ended = threading.Event()
         log.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} starting: {d.run}\n")
         log.flush()
-        self.proc = Measured(d.run, shell=True, cwd=cwd, env=daemon_env(env), stdin=subprocess.PIPE,
+        env = {k: v for k, v in env.items() if not k.startswith("ERGOSTAT_") or k in SHARED}   # (an item's: in its line)
+        self.proc = Measured(d.run, shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE, stderr=log, start_new_session=True)
         self.pid = self.proc.pid
         threading.Thread(target=self._write, name=f"daemon-{d.name}-in", daemon=True).start()
@@ -111,7 +103,10 @@ class Process:
     def _read(self) -> None:
         for raw in self.proc.stdout:
             self.last_out = time.monotonic()
-            self.line(raw.decode(errors="replace").strip())
+            try:
+                self.line(raw.decode(errors="replace").strip())
+            except Exception as err:                 # (a run ended meanwhile, its log closed): never the reader's end
+                self.stray(raw.decode(errors="replace").strip(), f"{type(err).__name__}: {err}")
         self.proc.wait()
         self.ended.set()
 
@@ -183,5 +178,3 @@ class Process:
         for h in reqs:
             h.answer(None, note)
 
-    def wall(self, mono: float) -> float:
-        return time.time() - (time.monotonic() - mono)
