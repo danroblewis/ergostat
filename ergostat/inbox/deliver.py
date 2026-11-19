@@ -1,16 +1,21 @@
-"""Sending what newly waits on a person to the channels ``notify:`` names (SPEC §12o), on the engine's clock:
+"""Sending what newly waits on a person to the channels ``notify:`` names (SPEC §12o), in a thread of its own (never
+the engine's clock):
 
 - entries new on a channel are held for ``group`` from the first of them, and then sent as one message;
 - at most ``per-hour`` messages an hour per channel, and none in the ``quiet`` hours (what waits is sent after);
 - each message is a gated action ``notify.CHANNEL``: its gate decides whether it is sent, held for the owner, or
-  never sent (and then the entries count as told on that channel, so it is not asked again);
+  never sent (and then the entries count as told on that channel, so it is not asked again); one that failed is
+  tried again with the next message (``notify-failing`` when the last three failed);
+- a message says only each entry's id, kind, class, age and link, unless the channel says ``detail: full``: then its
+  summary and why too, scrubbed as a report upstream is (``reports/scrub.py``);
 - an entry waiting longer than ``wait-at-most`` is sent once more, to ``escalate-to`` (else every channel);
-- each is recorded (``ergostat.notify.sent``: the channel, the entries, the action and how its gate took it), and
-  never about a ``notify.*`` action of its own: a held notification is not notified about."""
+- each is recorded (``ergostat.notify.sent``: the channel, the entries, the action and how it went), and never about
+  a ``notify.*`` action of its own: a held notification is not notified about."""
 
 from __future__ import annotations
 
 import json
+import threading
 import time
 
 from ..durations import human
@@ -20,6 +25,7 @@ HOUR = 3600.0
 WORDS = {"action": "approval", "person": "request", "advise": "advised command", "steptest": "step test",
          "change": "model change"}
 VERBS = {"approve": "--approve", "deny": "--deny", "done": "--done N"}
+_SENDING = threading.Lock()
 
 
 def quiet(n, now: float) -> bool:
@@ -30,16 +36,17 @@ def quiet(n, now: float) -> bool:
     return a <= m < b if a <= b else (m >= a or m < b)
 
 
-def message(n, es: list[dict], late: bool, base: str) -> tuple[str, str]:
-    """The subject and the text: each entry's summary, why it waits, its page and how to answer it."""
+def message(n, es: list[dict], late: bool, base: str, scrub=None) -> tuple[str, str]:
+    """The subject and the text: per entry its id, kind, class, age, link and how to answer it; with ``scrub`` (a
+    channel's ``detail: full``) its summary and why too, scrubbed."""
     kinds: dict[str, int] = {}
     for e in es:
         kinds[e["kind"]] = kinds.get(e["kind"], 0) + 1
-    subject = "ergostat: " + (es[0]["summary"] if len(es) == 1 else ", ".join(
-        f"{k} {WORDS[w]}{'' if k == 1 else 's'}" for w, k in kinds.items()) + " waiting")
+    subject = "ergostat: " + ", ".join(f"{k} {WORDS[w]}{'' if k == 1 else 's'}" for w, k in kinds.items()) + " waiting"
     if late:
-        subject += f" (waiting longer than {human(n.wait_at_most)})"
-    lines = [f"- {e['summary']} (waiting {human(e['age'])})" + (f"\n  why: {e['why']}" if e.get("why") else "")
+        subject += f" longer than {human(n.wait_at_most)}"
+    lines = [f"- {e['id']} ({WORDS[e['kind']]}, class {e['class']}), waiting {human(e['age'])}"
+             + (f"\n  {scrub(e['summary'])}" + (f"\n  why: {scrub(e['why'])}" if e.get("why") else "") if scrub else "")
              + (f"\n  {base}{e['link']}" if base else "")
              + f"\n  ergostat inbox {e['id']} " + " | ".join(VERBS[v] for v in e["verbs"]) for e in es[:10]]
     if len(es) > 10:
@@ -59,8 +66,12 @@ def body(kind: str, to: str, subject: str, text: str) -> str:
 
 def _send(p, spec, n, ch: str, es: list[dict], why: str, base: str) -> dict:
     from ..actions import gate
-    subject, text = message(n, es, why == "late", base)
     c = n.channels[ch]
+    scrub = None
+    if c.get("detail") == "full":
+        from ..reports.scrub import for_project
+        scrub = for_project(p, spec).scrub
+    subject, text = message(n, es, why == "late", base, scrub)
     a = gate.request(p, spec, f"notify.{ch}", {"subject": subject, "text": text,
                                                "body": body(c["type"], c["to"], subject, text)}, {"block": "ergostat"})
     return p.events.add(SENT, source="ergostat", data={"channel": ch, "entries": [e["id"] for e in es], "why": why,
@@ -78,7 +89,7 @@ def sweep(p, spec, now: float | None = None) -> int:
     es = [e for e in en.entries(p, spec, None if live else now) if not str(e.get("action") or "").startswith("notify.")]
     if not es:
         return 0
-    sent = [e["data"] for e in p.events.query(n=2000, type=SENT)]
+    sent = [e["data"] for e in p.events.query(n=2000, type=SENT) if e["data"].get("state") != "failed"]   # (retried)
     hour = [e["data"]["channel"] for e in p.events.query(n=None, type=SENT, since=now - HOUR)]
     base, k = n.base_url or (web_url(p) or "").rstrip("/"), 0
     for ch in n.channels:
@@ -96,3 +107,26 @@ def sweep(p, spec, now: float | None = None) -> int:
             _send(p, spec, n, ch, late, "late", base)
             k += 1
     return k
+
+
+def start(p, spec, say=print) -> None:
+    """A sweep in a thread of its own, unless one is under way: a slow channel never holds up the engine."""
+    if not _SENDING.acquire(blocking=False):
+        return
+
+    def run():
+        try:
+            sweep(p, spec)
+        except Exception as e:
+            say(f"notify: {type(e).__name__}: {e}")
+        finally:
+            _SENDING.release()
+    threading.Thread(target=run, name="ergostat-notify", daemon=True).start()
+
+
+def failing(p, spec) -> list[str]:
+    """The channels whose last three messages failed (``notify-failing``)."""
+    got: dict[str, list[str]] = {}
+    for e in p.events.query(n=200, type=SENT):
+        got.setdefault(e["data"]["channel"], []).append(e["data"].get("state"))
+    return [ch for ch, st in got.items() if len(st) >= 3 and st[-3:] == ["failed"] * 3]

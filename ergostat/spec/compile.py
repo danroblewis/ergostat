@@ -483,7 +483,7 @@ class Compiler:
                              f"denied, ran, failed), with @CLASS, or ergostat.workspaces.free (or in-use, held, quarantined), "
                              f"with @POOL, or ergostat.cost.usd (or tokens, cpu, memory, runs), over the last day or with "
                              f"-hour the last hour, with @BLOCK or @model:MODEL when about one, or ergostat.inbox.waiting (or "
-                             f"oldest, asked), or ergostat.interventions.per-day (or trend, standing, chattering, "
+                             f"oldest, asked), or ergostat.interventions.waiting (or per-day, trend, standing, chattering, "
                              f"blocked-hours, top-share)",
                              s.at("builtin"), "bad-measure")
                     measure = None

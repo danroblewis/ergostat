@@ -74,17 +74,17 @@ def test_approve_in_the_side_panel(site):
         row = pg.locator(f'[data-inbox="action/{short}"]')
         row.wait_for(timeout=20000)
         assert "push" in row.inner_text() and "waiting" in row.inner_text()
-        assert pg.locator('[data-inbox="person/reviewer"] input[type=number]').count() == 1
+        assert pg.locator('[data-inbox^="person/reviewer@"] input[type=number]').count() == 1
         shot(pg, "side-panel-waiting.png")
         row.locator('button[data-verb="approve"]').click()
         pg.wait_for_function(f"""() => !document.querySelector('[data-inbox="action/{short}"]')""", timeout=20000)
         got = record.get(p, a["id"])
         assert got["state"] == "ran" and got["approved_by"] == "owner"
-        person = pg.locator('[data-inbox="person/reviewer"]')
+        person = pg.locator('[data-inbox^="person/reviewer@"]')
         person.locator("input[type=number]").fill("2")
         shot(pg, "side-panel-after-approve.png")
         person.locator('button[data-verb="done"]').click()
-        pg.wait_for_function("""() => !document.querySelector('[data-inbox="person/reviewer"]')""", timeout=20000)
+        pg.wait_for_function("""() => !document.querySelector('[data-inbox^="person/reviewer@"]')""", timeout=20000)
         assert p.events.query(n=1, type="agent.ran", item="reviewer")[-1]["data"]["done"] == 2.0
         shot(pg, "side-panel-answered.png")
         assert not errors, errors

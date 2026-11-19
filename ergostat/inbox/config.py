@@ -14,8 +14,8 @@ from ..spec.ir import GATES, NAME, Action
 
 TYPES = ("macos", "email", "slack", "discord", "command")
 KEYS = {"channels", "base-url", "group", "per-hour", "quiet", "wait-at-most", "escalate-to", "asks-per-day", "trend-window",
-        "recurs", "verify", "standing"}
-CHANNEL_KEYS = {"type", "gate", "to", "command", "url-env", "url-file", "run"}
+        "recurs", "verify", "standing", "invest-for"}
+CHANNEL_KEYS = {"type", "gate", "to", "command", "url-env", "url-file", "run", "detail"}
 QUIET = re.compile(r"^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$")
 ENV = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ARGS = {"subject": "the message's first line", "text": "the message", "body": "the message as the channel takes it"}
@@ -35,6 +35,7 @@ class Notify:
     recurs: int | None = None
     verify: float | None = None
     standing: float | None = None
+    invest_for: float | None = None
 
 
 def _brace(s: str) -> str:
@@ -67,7 +68,7 @@ def parse(c, spec) -> None:
     c.keys(m, KEYS, "notify")
     n = Notify(base_url=str(m.get("base-url") or "").rstrip("/"), group=c.duration(m, "group", "notify", 120.0),
                wait_at_most=c.duration(m, "wait-at-most", "notify"))
-    for key in ("trend-window", "verify", "standing"):
+    for key in ("trend-window", "verify", "standing", "invest-for"):
         setattr(n, key.replace("-", "_"), c.duration(m, key, "notify"))
     for key, attr in (("per-hour", "per_hour"), ("asks-per-day", "asks_per_day"), ("recurs", "recurs")):
         v = c.number(m, key, "notify", positive=True)
@@ -109,7 +110,10 @@ def parse(c, spec) -> None:
             c.err(f"{what}.gate: auto (sent), approve (held until the owner approves) or deny (never sent)",
                   ch.at("gate"), "bad-value")
             gate = "deny"
-        n.channels[name] = {"type": kind, "to": str(ch.get("to") or "")}
+        if str(ch.get("detail") or "minimal") not in ("minimal", "full"):
+            c.err(f"{what}.detail: minimal (each entry's id, kind, class and link: the default) or full (its summary "
+                  "and why too, scrubbed)", ch.at("detail"), "bad-value")
+        n.channels[name] = {"type": kind, "to": str(ch.get("to") or ""), "detail": str(ch.get("detail") or "minimal")}
         spec.actions[f"notify.{name}"] = Action(f"notify.{name}", command(kind, ch), gate, "notify", dict(ARGS), 30.0,
                                                 0.0, None, f"a notification, by {kind}", ch.where)
     esc = m.get("escalate-to") or []

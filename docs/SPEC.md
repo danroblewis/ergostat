@@ -4111,23 +4111,27 @@ must reach the person and be quick to answer. **The inbox** is everything waitin
 | Kind | Waiting while | Id | Answered by |
 |---|---|---|---|
 | `action` | a gated action is held for the owner (section 12k) | `action/<short id>` | `approve`, `deny` (`gate.approve`, `gate.deny`) |
-| `person` | a person block was asked (`person.asked`) and has not reported (`agent.ran`) | `person/BLOCK` | `done N` (their report, as `ergostat block NAME --done N`) |
-| `advise` | an advised command (`block.advised`) is neither approved (`block.approved`) nor denied (`block.denied`) | `advise/BLOCK` | `approve`, `deny` |
+| `person` | a person block was asked (`person.asked`) and has not reported (`agent.ran`) | `person/BLOCK@SEQ` | `done N` (their report, as `ergostat block NAME --done N`) |
+| `advise` | an advised command (`block.advised`) is neither approved (`block.approved`) nor denied (`block.denied`) | `advise/BLOCK@SEQ` | `approve`, `deny` |
 | `steptest` | a step test was offered (`steptest.offered`, recorded when a loop's analysis first offers it, section 12d), is undecided, and the loop is as it was | `steptest/<id>` | `approve`, `deny` (accepted or dismissed) |
 | `change` | a change to the model awaits the owner (the review queue, section 12b; with a judge, the ones it passed) | `change/<id>` | `approve`, `deny` (accepted or dismissed) |
 
-Each entry has a one-line summary, its age, a link to its page (the action's or the change's item, the block's or
-the loop's place in the diagram), its answer verbs, why it waits (for an action about a work item: that item's
-`impact` sentence and `tests` result, when it has them, section 12n), and its class's record this week. An id may be
-given by any unique start of its key. **Answering** goes through the path each kind has always had, and is an event
-from whoever answered (the owner, unless `--as`):
+A person's or an advised block's entry is **one ask**: `SEQ` is the event that asked. A newer ask before any answer
+replaces it (the older is superseded, and no longer waits); an answer is to exactly the ask shown, and is recorded
+with it (`ask: SEQ`), so approving an entry never approves a command advised after it was shown. Each entry has a
+one-line summary, its age, a link to its page (the action's or the change's item, the block's or the loop's place in
+the diagram), its answer verbs, why it waits (for an action about a work item: that item's `impact` sentence and
+`tests` result, when it has them, section 12n), and its class's record this week. An id may be given by any unique
+start of its key (`person/reviewer` is the reviewer's ask now). **Answering** goes through the path each kind has
+always had, and is an event from whoever answered (the owner, unless `--as`):
 
 - `ergostat inbox` lists them; `ergostat inbox ID --approve | --deny [--note TEXT]` or `--done N` answers one; `--json`;
   `--stats` (below).
-- The MCP tools `inbox` and `answer`, so the owner's Claude session can answer on their behalf when told to.
-- The page: the entries come first in *Needs attention* (the side panel), each with Approve / Deny, or a number and
-  Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N` (`note=`); `GET /api/inbox`. The item pages keep
-  their own buttons. No page or panel of its own.
+- The MCP tools `inbox` and `answer`, so the owner's Claude session can answer on their behalf when told to; its
+  answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
+- The page: the entries are listed in *Needs attention* (the side panel) after its problems and before its warnings,
+  each with Approve / Deny, or a number and Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N`
+  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own.
 
 **`notify:`** (top level, main file only) sends what newly waits on a person:
 
@@ -4141,7 +4145,7 @@ notify:
   escalate-to: [phone]                # optional: where the late ones go (default: every channel)
   asks-per-day: 10                    # optional: the approval budget; over it, a finding
   channels:
-    desk: {type: macos}                                   # terminal-notifier if installed, else osascript
+    desk: {type: macos, detail: full}                     # terminal-notifier if installed, else osascript
     mail: {type: email, to: me@example.com, command: sendmail -t}   # the message on its standard input
     team: {type: slack, url-env: TEAM_HOOK, gate: deny}   # the webhook's URL from the environment...
     phone: {type: discord, url-file: ~/.config/ergostat/discord-url}   # ...or a file: never in the YAML
@@ -4150,13 +4154,17 @@ notify:
 
 **Each delivery is a gated action** `notify.CHANNEL` (class `notify`; section 12k): the channel's `gate:` (default
 `auto`) says whether it is sent, held for the owner, or never sent, so the owner decides where anything may go (at work,
-`deny` for some). The message has a subject (one entry's summary, or "3 approvals, 1 request waiting"), and per entry
-its summary, its age, why it waits, its link (`base-url` + its page, where Approve / Deny are one click away) and the
-command that answers it. The engine's clock sweeps it every few seconds: entries new on a channel wait `group` from the
-first of them and go as one message; at most `per-hour` messages an hour per channel; none in the `quiet` hours. Each
-is recorded as `ergostat.notify.sent` (the channel, the entries, the action and how its gate took it); a denied channel
-records its entries as told, so they are not asked again. **The cause-chain guard:** a `notify.*` action held for the
-owner is in the inbox but is never itself notified about, and nothing is sent because of a notification's own events.
+`deny` for some). **What leaves the machine is little by default** (`detail: minimal`): a subject that counts ("2
+approvals, 1 request waiting") and per entry its id, kind, class, age, link (`base-url` + its page, where Approve /
+Deny are one click away) and the command that answers it. A channel with `detail: full` also carries each entry's
+summary and why, scrubbed as a report upstream is (section 12m: the model's names, hosts, paths, secrets and the
+owner's denylist replaced). Sending runs in a thread of its own, every few seconds, never on the engine's clock:
+entries new on a channel wait `group` from the first of them and go as one message; at most `per-hour` messages an
+hour per channel; none in the `quiet` hours. Each is recorded as `ergostat.notify.sent` (the channel, the entries, the
+action and how it went); a denied channel records its entries as told, so they are not asked again; a message that
+failed is tried again with the next one, and a channel whose last three failed is a finding (`notify-failing`).
+**The cause-chain guard:** a `notify.*` action held for the owner is in the inbox but is never itself notified about,
+and nothing is sent because of a notification's own events.
 
 **Escalation and the budget.** With `wait-at-most`, an entry waiting longer is a finding (`waiting-on-owner`) and is
 sent once more, to `escalate-to` when given, else to every channel. With `asks-per-day`, more asked of a person over
@@ -4170,33 +4178,36 @@ rung up the ladder; the interventions loop (section 12p) is where such a class i
 | `ergostat.inbox.asked` | Asked of a person over the last day (the approval budget; ergostat's own notifications left out) |
 
 **Graduation.** Per class (an action's class, `advise:BLOCK`, `person:BLOCK`, `change:KIND`, `steptest`, and the
-interventions' `alarm:BLOCK` and `notify:CHANNEL`) over the last week: asked, approved (or done, or cleared), denied,
-waiting, and the median time to answer, shown on each entry and by `ergostat inbox --stats`. A class approved at
-least five times and never denied gets one line up the ladder: `gate: auto` or an AI approver for an action's class,
-`mode: auto` for an advised block, the judge's `accept: {KIND: auto}` for a kind of change. Nothing is changed
+interventions' `alarm:BLOCK`) over the last week: asked, approved (or done, or cleared), denied, answered by an agent,
+waiting, and the median time to answer, shown on each entry and by `ergostat inbox --stats`. A class the owner approved
+at least five times and never denied gets one line up the ladder: `gate: auto` or an AI approver for an action's
+class, `mode: auto` for an advised block, the judge's `accept: {KIND: auto}` for a kind of change. Nothing is changed
 automatically: promoting is the owner's edit (and is told from suppression, section 12p).
 
 ## 12p. Interventions: a stock under control
 
-Every intervention (an approval held, a person's request, an advised command, a raised alarm, a notification) is
-**evidence of a missing feedback loop or a gap in the model**. Silencing it is not a remedy; the remedy is more
-modelling and automation until it is unnecessary. ergostat reads each from the record with its **class** (the action's
-class, `person:BLOCK`, `advise:BLOCK`, `alarm:BLOCK`, `notify:CHANNEL`, `change:KIND`, `steptest`) and its **cause**
-(the process it blocked: `block NAME` and the work item, what an alarm watches, the goal, the change), when it was
-asked and when answered (an alarm: from its output rising to 1 until it falls; `ergostat/inbox/interventions.py`).
+Every intervention (an approval held, a person's request, an advised command, a raised alarm) is **evidence of a
+missing feedback loop or a gap in the model**. Silencing it is not a remedy; the remedy is more modelling and
+automation until it is unnecessary. ergostat reads each from the record with its **class** (the action's class,
+`person:BLOCK`, `advise:BLOCK`, `alarm:BLOCK`, `change:KIND`, `steptest`) and its **cause** (the process it blocked:
+`block NAME` and the work item, what an alarm watches, the goal, the change), when it was asked, when and how it was
+answered and by whom (an alarm: from its output rising to 1 until it falls; `ergostat/inbox/interventions.py`). A
+notification is not an intervention of its own: it carries these, and counting it too would count them twice (and
+reward grouping them).
 
 **The loop**, one line: `uses: {interventions: {use: interventions}}` (the built-in template, used once a model),
 drawn in all three views like the modelling loop:
 
-- *Dynamics:* the stock `interventions-per-day` (`builtin: ergostat.interventions.per-day`), raised as causes appear
-  and lowered as they are modelled away (driven by the open requests); the auxiliary `intervention-trend`
-  (`builtin: ergostat.interventions.trend`); the requests by state, items of the built-in kind
-  `ergostat.model-request` (open, investing, verifying, suppressed, resolved): `open-requests`, `resolved-requests`,
-  `suppressed-requests`.
-- *Blocks:* the goal `interventions-falling` holds the **trend** at or under 0 (not a count: a steady load of
-  interventions holds; a rising one does not), and the controller `remedies` (a program on ergostat's own command,
-  `ergostat inbox --requests`, on its own clock, whatever the short-term rate).
-- *Process:* the requests move open → investing → verifying → resolved, or to suppressed.
+- *Dynamics:* the stock `interventions-waiting` (`builtin: ergostat.interventions.waiting`: the inbox's entries and
+  the alarms raised), filled as interventions are asked (`interventions-asked`, which each resolved class lowers) and
+  drained as a person answers them (`interventions-answered`); the auxiliaries `interventions-per-day` (what is asked
+  a day) and `intervention-trend` (below). The requests by state, items of the built-in kind `ergostat.model-request`:
+  `open-requests` (open, investing, verifying), `suppressed-requests` (and back to open when the guard is put back),
+  `resolved-requests` (and back to open when the class intervenes again).
+- *Blocks:* the goal `interventions-falling` holds the trend at or under 0 (a steady load holds; a rise the record
+  shows does not), and the controller `remedies` (a program on ergostat's own command, `ergostat inbox --requests`, on
+  its own clock, whatever the short-term rate).
+- *Process:* the requests move open → investing → verifying → resolved, or to suppressed and back.
 
 **The controller**, each pass: (1) suppression and graduation recorded (below); (2) the classes ranked by the hours
 they blocked their processes over the window, then by count; each that recurs (`recurs`, 3 by default, over the
@@ -4205,31 +4216,38 @@ hours blocked, rank, most common cause, and **candidate remedies**: automate the
 person reviewing until its claims hold); graduate the gate (`gate: auto`, `mode: auto`, the judge's `accept:`) with
 its evidence; add the missing loop (a goal and a controller on what an alarm watches, a check that makes an approval
 a rule); change the software so the step no longer needs a person. (3) A request is **resolved** only when its class
-has not intervened over the verification window (`verify`, 7d) since it was last moved, and the process it blocked
-(its cause's block) has run in that window: its work completes without the intervention. A resolved class that
-intervenes again is reopened. `ergostat inbox --invest CLASS` marks a request as being worked on (investing).
+has not intervened for three of its mean intervals over the window (at least `verify`, 1d by default) since it was
+last moved, and the process it blocked has worked in that time without it: its cause's block ran; an alarm was
+evaluated and clear; a change of that kind was decided without the owner; a step test's loop holds its process. A
+resolved class that intervenes again is reopened. `ergostat inbox --invest CLASS` marks a request as being worked on.
 
-**Suppression does not count.** At each pass the model's guards (each alarm's bounds and what it watches, whether a
-goal holds that; each action class's gate; each advised and person block; each channel's gate) are compared with the
-last version seen. A change that removes or loosens an alarm with no goal newly holding what it watched; sets a gate
-or a channel to `deny`, or removes it; removes a person block with no machine block now moving its flows; or turns
-`approve` into `auto` (or `advise` into `auto`) without the evidence that graduates it (approved at least five
-times this week, never denied) is **suppression**: `ergostat.model-request.suppressed` on its class's request, with
-the guard before and after and the class's rate before (interventions per day over the window). A suppressed class
-keeps counting at that rate every day after, so suppression never lowers the measure, and it is never resolved; it
-reopens when the guard is put back as it was. A change with the evidence, or one that automates what the guard
-guarded, is **graduated** (`.graduated`: verifying), and resolved as above.
+**Suppression does not count.** At each pass the model's guards are compared with the last version seen: each alarm's
+bounds and what it watches; each action class's strictest gate, in the order `deny` > `approve` > `auto`; each
+advised and person block; each channel's gate. Only a guard **removed or loosened** is judged; one kept, tightened
+(`auto` to `approve`, `approve` to `deny`, a lower alarm bound) or edited otherwise is not. It is **suppression**
+(`ergostat.model-request.suppressed` on its class's request, with the guard before and after and the class's rate
+before, interventions per day over the window) when an alarm is removed or loosened and no goal holds what it
+watches; an `approve` gate is removed, or becomes `auto` without the evidence that graduates it (the owner approved
+the class at least five times this week, never denied); an advised block is removed, or turned `auto` without that
+evidence; a person block is removed with no machine block moving its flows; a channel is removed or its gate made
+stricter (shown, though it lowers nothing: notifications are not counted). A suppressed class keeps counting at its
+rate before every day after, so suppression never lowers the measure, and it is never resolved; it reopens when the
+guard is put back as it was. Otherwise the change **graduated** the class (`.graduated`: verifying), resolved as above.
 
-**The trend, tolerant of the valley.** Fixing a cause often needs approvals of its own, so the rate may rise before it
-falls. Let y_d be the interventions on day d of the window (`trend-window`, 21d; never more days than the record
-holds), each suppressed class adding its rate r for the part of each day after its suppression, and w_d a weight:
-0.25 on a day any request was investing, else 1. The trend is the weighted least-squares slope, per week:
+**The trend, and the valley.** Fixing a cause often needs approvals of its own, so the rate may rise before it falls.
+Let y_d be the interventions on day d of the window (`trend-window`, 21d; never more days than the record holds), each
+suppressed class adding its rate before for the part of each day after its suppression, and a class being worked on
+(investing, for at most `invest-for`, 14d) counting on those days at most at its rate before the work began (its
+interventions over the window before, per day since its first). With b the least-squares slope of y_d against d and
+SE its standard error (n days, residual variance over n − 2):
 
-    x̄ = Σ w_d·d / Σ w_d,   ȳ = Σ w_d·y_d / Σ w_d,   trend = 7 · Σ w_d (d − x̄)(y_d − ȳ) / Σ w_d (d − x̄)²
+    b = Σ (d − d̄)(y_d − ȳ) / Σ (d − d̄)²,   SE = √( Σ (y_d − ȳ − b (d − d̄))² / (n − 2) / Σ (d − d̄)² )
+    trend = 7 · max(0, b − 2·SE)
 
-A planned rise on investment days moves the slope a quarter as much; one short spike in a three-week window moves it
-little; the controller works the ranked classes whatever the trend says. (An alternative with the same aim, the
-integral of interventions above a baseline, was not taken: it needs a baseline the owner must choose.)
+the lower bound of the weekly slope, so the goal is off only on a rise the record shows beyond its noise (a flat
+Poisson load of 5 a day over 21 days is off about 3% of the time, not half of it). The planned rise of a class being worked on is
+removed from y_d while it is worked on, up to `invest-for`; after that it counts again, so investing cannot hide a
+class for good. The controller works the ranked classes whatever the trend says.
 
 **Alarm-management measures** (ISA-18.2, EEMUA 191), read by a sensor (`builtin:`), shown on the goal's panel (the
 loop's *Interventions*: the measures and the repeat offenders with their share, hours blocked and cause) and by
@@ -4237,14 +4255,15 @@ loop's *Interventions*: the measures and the repeat offenders with their share, 
 
 | Measure | What it is |
 |---|---|
-| `ergostat.interventions.per-day` | Interventions over the last day, suppressed classes at their rate before |
-| `ergostat.interventions.trend` | The trend above, per day, per week |
+| `ergostat.interventions.waiting` | Interventions waiting now: the inbox's entries and the alarms raised |
+| `ergostat.interventions.per-day` | Interventions over the last day, suppressed and invested classes counted as above |
+| `ergostat.interventions.trend` | The trend above, per day, per week (0 unless a rise is significant) |
 | `ergostat.interventions.standing` | Entries waiting longer than `standing` (notify's, default 24h) |
-| `ergostat.interventions.chattering` | Classes that intervened 3 or more times within 10 minutes over the last day |
+| `ergostat.interventions.chattering` | Classes that intervened 3 or more times within a minute over the last day |
 | `ergostat.interventions.blocked-hours` | Hours the interventions held their processes over the last day |
 | `ergostat.interventions.top-share` | The share of the window's interventions from the top class (the repeat offender) |
 
-`notify:` keys for the loop: `trend-window` (21d), `recurs` (3), `verify` (7d), `standing` (24h).
+`notify:` keys for the loop: `trend-window` (21d), `recurs` (3), `verify` (1d), `standing` (24h), `invest-for` (14d).
 
 ## 13. Examples
 

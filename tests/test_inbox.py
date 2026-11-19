@@ -190,10 +190,10 @@ def test_new_entries_within_the_window_are_one_message(tmp_path):
     text = sent(tmp_path)
     assert text.startswith("ergostat: 1 request, 1 advised command waiting\n")
     assert "http://ergostat.test:8791/diagram?view=blocks&around=block/reviewer" in text
-    assert "ergostat inbox person/reviewer --done N" in text and "ergostat inbox advise/pusher --approve | --deny" in text
+    assert "ergostat inbox person/reviewer@1 --done N" in text and "ergostat inbox advise/pusher@2 --approve | --deny" in text
     assert deliver.sweep(p, spec, now + 200) == 0                                 # told once
     told = p.events.query(n=None, type=deliver.SENT)
-    assert len(told) == 1 and told[0]["data"]["entries"] == ["person/reviewer", "advise/pusher"]
+    assert len(told) == 1 and told[0]["data"]["entries"] == ["person/reviewer@1", "advise/pusher@2"]
     a = record.get(p, told[0]["data"]["action"])
     assert a["action"] == "notify.log" and a["state"] == "ran" and a["approved_by"] == record.GATE
 
@@ -264,7 +264,7 @@ def test_a_notify_action_held_is_never_notified_about(tmp_path):
     for i in range(1, 4):
         deliver.sweep(p, spec, now + 3600 * i)
     told = [i for e in p.events.query(n=None, type=deliver.SENT) for i in e["data"]["entries"]]
-    assert told == ["person/reviewer"] * 3                                        # never about its own notify.* actions
+    assert told == ["person/reviewer@1"] * 3                                        # never about its own notify.* actions
 
 
 def test_channel_commands_are_built_without_the_url_in_the_yaml(tmp_path):
@@ -306,13 +306,13 @@ def test_an_entry_past_wait_at_most_is_a_finding_and_escalated_once(tmp_path):
     spec, now = p.model.spec, time.time()
     p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 3}, at=now - 300)
     deliver.sweep(p, spec, now)
-    assert "ergostat: reviewer is asked" in (tmp_path / "desk.txt").read_text() and not sent(tmp_path)
+    assert "ergostat: 1 request waiting" in (tmp_path / "desk.txt").read_text() and not sent(tmp_path)
     assert not [f for f in watch.find(p, spec) if f.code == "waiting-on-owner"]
     p.events.add("block.advised", item="pusher", source="ergostat", data={"command": 2}, at=now - 7200)
     found = [f for f in watch.find(p, spec) if f.code == "waiting-on-owner"]
-    assert [f.about for f in found] == ["advise/pusher"] and "longer than notify's wait-at-most of 1h" in found[0].message
+    assert [f.about.split("@")[0] for f in found] == ["advise/pusher"] and "longer than notify's wait-at-most of 1h" in found[0].message
     deliver.sweep(p, spec, now + 10)
-    assert "(waiting longer than 1h)" in sent(tmp_path) and "advise/pusher" in sent(tmp_path)
+    assert "waiting longer than 1h" in sent(tmp_path) and "advise/pusher@" in sent(tmp_path)
     deliver.sweep(p, spec, now + 4000)
     assert sent(tmp_path).count("waiting longer than") == 2                    # each late entry once: then reviewer
     deliver.sweep(p, spec, now + 8000)
@@ -345,3 +345,59 @@ def test_the_budget_and_an_always_approved_class_are_suggested_up_the_ladder(tmp
 @pytest.fixture(autouse=True)
 def _no_stdin(monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO(""))
+
+
+def test_each_ask_is_its_own_entry_and_the_answer_is_to_the_ask_shown(tmp_path):
+    p, snap = project(tmp_path)
+    spec, now = p.model.spec, time.time()
+    first = p.events.add("block.advised", item="pusher", source="ergostat", data={"command": 2}, at=now - 600)
+    deliver.sweep(p, spec, now)
+    assert sent(tmp_path).count("- advise/pusher@") == 1
+    p.events.add("block.approved", item="pusher", source="owner", data={}, at=now - 500)
+    second = p.events.add("block.advised", item="pusher", source="ergostat", data={"command": 5}, at=now - 400)
+    deliver.sweep(p, spec, now + 200)                                             # a second ask is told too
+    assert f"advise/pusher@{second['seq']}" in sent(tmp_path)
+    third = p.events.add("block.advised", item="pusher", source="ergostat", data={"command": 7}, at=now - 100)
+    with pytest.raises(answer.AnswerError):                                      # the ask shown is no longer waiting
+        answer.answer(p, spec, f"advise/pusher@{second['seq']}", "approve")
+    got = answer.answer(p, spec, "advise/pusher", "approve")                      # the block's name: its ask now
+    assert got["id"] == f"advise/pusher@{third['seq']}"
+    assert p.events.query(n=1, type="block.approved")[-1]["data"]["ask"] == third["seq"] != first["seq"]
+
+
+def test_a_message_says_little_unless_the_channel_asks_for_detail_and_then_scrubbed(tmp_path):
+    p, snap = project(tmp_path, MODEL.replace('run: "cat >> sent.txt"', 'run: "cat >> sent.txt"\n      detail: full'))
+    gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "secret-host.corp.internal"})
+    deliver.sweep(p, p.model.spec, time.time() + 300)
+    full = sent(tmp_path)
+    assert "secret-host.corp.internal" not in full and "for host-1: echo" in full      # its summary, scrubbed
+    (tmp_path / "minimal").mkdir()
+    p2, _ = project(tmp_path / "minimal")
+    gate.request(p2, p2.model.spec, "push", {}, {"block": "pusher", "item": "ticket/7"})
+    deliver.sweep(p2, p2.model.spec, time.time() + 300)
+    text = sent(tmp_path / "minimal")
+    assert "class outward" in text and "echo pushed" not in text and "ticket/7" not in text
+
+
+def test_an_agents_answer_is_its_own_and_never_evidence(tmp_path):
+    from ergostat.mcp import Server
+    p, snap = project(tmp_path)
+    for _ in range(6):
+        gate.request(p, p.model.spec, "push", {}, {"block": "pusher"})
+        e = entries.entries(p)[0]
+        Server(tmp_path).call("answer", {"id": e["id"], "verb": "approve"})
+    r = stats.by_class(p, p.model.spec)["outward"]
+    assert (r["approved"], r["by_agent"], r["suggest"]) == (0, 6, None)
+    assert record.stored(p).popitem()[1]["approved_by"] == "owner via mcp"
+
+
+def test_a_failed_delivery_is_tried_again_and_said(tmp_path):
+    p, snap = project(tmp_path, MODEL.replace('run: "cat >> sent.txt"', 'run: "exit 1"').replace("per-hour: 2",
+                                                                                                "per-hour: 9"))
+    spec, now = p.model.spec, time.time()
+    p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 3}, at=now - 300)
+    for i in range(3):
+        deliver.sweep(p, spec, now + i * 10)
+    states = [e["data"]["state"] for e in p.events.query(n=None, type=deliver.SENT)]
+    assert states == ["failed"] * 3
+    assert [f.about for f in watch.find(p, spec) if f.code == "notify-failing"] == ["notify.log"]
