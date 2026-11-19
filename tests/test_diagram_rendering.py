@@ -79,7 +79,11 @@ def browser():
         b.close()
 
 
-@pytest.fixture(scope="module", params=EXAMPLES)
+# the largest drawings route close to ROUTED_BOUND_MS on a quiet machine: under a parallel run they are run alone
+HEAVY = {"coordinator"}
+
+
+@pytest.fixture(scope="module", params=[pytest.param(e, marks=pytest.mark.serial) if e in HEAVY else e for e in EXAMPLES])
 def page_of(request, tmp_path_factory):
     """The example's page, served (the model is not run: what is drawn is its structure)."""
     name = request.param
