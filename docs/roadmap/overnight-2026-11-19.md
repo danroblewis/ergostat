@@ -12,6 +12,9 @@ possible, without check-ins. Check-ins are replaced by gates written down in adv
 2. **A branch merges only when:**
    - all four suites pass with rc 0 (unit; the four Playwright files; ruff; `demo_check` on the examples it
      touches);
+     the unit and browser suites run in parallel under the watchdog, one after the other (CLAUDE.md, *Testing*:
+     `scripts/suite_watch.py -- ... pytest -q -n 8 --dist worksteal`, and `-n 4` for the four Playwright files);
+     the serial commands (without `-n`) are the fallback;
    - no page test was skipped for want of a port;
    - its acceptance tests exist and pass;
    - it is within its **size budget:** net lines of code outside `tests/` and `docs/`, 600 by default. An

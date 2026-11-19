@@ -18,6 +18,7 @@ from ergostat.intake.config import parse
 from ergostat.intake.token import allowed, carried, token
 from ergostat.spec import items as its
 from ergostat.store import Project
+from tests.ports import free_port
 
 MODEL = """
 name: pushed
@@ -191,7 +192,7 @@ def _post(url: str, body: bytes, headers: dict) -> tuple[int, dict]:
 def page(tmp_path):
     from ergostat.web import serve
     p = project(tmp_path)
-    server, url = serve(p, 8798)
+    server, url = serve(p, free_port())
     yield p, url
     server.shutdown()
     server.server_close()

@@ -353,6 +353,7 @@ def test_cli_send_and_list(tmp_path, capsys):
     assert "hold that one" in capsys.readouterr().out
 
 
+@pytest.mark.slow
 def test_image_squeeze_developer_session_takes_a_note_while_it_builds(tmp_path, monkeypatch):
     """image-squeeze in AI mode, with ergostat's stand-in session (it runs the stand-in developer as the session's work,
     and echoes what it receives): a note to the developer, sent while its session builds a hypothesis, reaches it live."""

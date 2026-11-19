@@ -29,6 +29,8 @@ goals:
 """
 
 
+pytestmark = pytest.mark.serial            # its stall is 1 s: a pass slowed past it by the machine's load is a stall
+
 @pytest.fixture(autouse=True)
 def quick(monkeypatch):
     monkeypatch.setattr(wd, "STALL", 1.0)
