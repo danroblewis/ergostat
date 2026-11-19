@@ -96,19 +96,39 @@ def model_run(live, p, snap: dict, n: int = series.POINTS, inputs: str = "hold",
     return got
 
 
-def risk_of(live, p, snap: dict, mr: dict, inputs: str, whatif: dict | None = None, other: cl.WhatIf | None = None) -> dict:
+RISKING: dict = {}        # the risks being worked out, by key: one at a time for each, in a thread of its own
+RISKING_LOCK = threading.Lock()
+
+
+def risk_of(live, p, snap: dict, mr: dict, inputs: str, whatif: dict | None = None, other: cl.WhatIf | None = None,
+            wait: bool = True) -> dict | None:
     """The closed-loop projection's Monte Carlo (closedloop.risk): its spread and each goal's chance of being off,
-    cached as the model run is (half a minute when live)."""
+    cached as the model run is (half a minute when live). Worked out once however many ask, in a thread of its own so
+    the page's other requests are not held behind it; ``wait=False`` returns None while it is being worked out."""
     spec = spec_of(p)
     other = other or cl.WhatIf()
     key = ("risk", snap["window"], snap["at"] if not snap.get("live", True) else round(snap["at"] / 30), live.mtime,
            mr["data"].grid.n, inputs, tuple(sorted((whatif or {}).items())), other.key())
     got = live.cached(key)
-    if got is None:
-        got = cl.risk(spec, mr["data"], mr["run"], mr["horizon"], mr["points"], mr["standins"], mr["start"],
-                      _estimates(p, spec), whatif or None, inputs, other, budget=RISK_BUDGET)
-        live.keep(key, got)
-    return got
+    if got is not None:
+        return got
+    with RISKING_LOCK:
+        th = RISKING.get(key)
+        if th is None:
+            def work():
+                try:
+                    live.keep(key, cl.risk(spec, mr["data"], mr["run"], mr["horizon"], mr["points"], mr["standins"],
+                                           mr["start"], _estimates(p, spec), whatif or None, inputs, other,
+                                           budget=RISK_BUDGET))
+                finally:
+                    with RISKING_LOCK:
+                        RISKING.pop(key, None)
+            th = RISKING[key] = threading.Thread(target=work, name="ergostat-risk", daemon=True)
+            th.start()
+    if not wait:
+        return None
+    th.join(RISK_BUDGET + 30)
+    return live.cached(key)
 
 
 def fan_of(live, p, snap: dict, mr: dict, inputs: str) -> dict | None:
@@ -210,7 +230,9 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
                                f"running")
         other = cl.WhatIf()
     mw = model_run(live, p, snap, out["points"], inputs, tried, mr["horizon"], loops, other) if (tried or other) else None
-    rk = risk_of(live, p, snap, mr, inputs) if fan and loops == "closed" else None
+    rk = risk_of(live, p, snap, mr, inputs, wait=False) if fan and loops == "closed" else None
+    if fan and loops == "closed" and rk is None:
+        out["fan_pending"] = True                   # being worked out: the strip asks again for it
     fn = (rk if rk is not None else fan_of(live, p, snap, mr, inputs)) if fan else None
     rf = replay_fan_of(live, p, snap, mr) if fan == "replay" else None
     for s in out["series"]:
@@ -297,6 +319,8 @@ def risk_page(live, p, snap: dict, goal: str | None = None, whatif: str | None =
     if mr is None:
         return {"goals": []}
     rk = risk_of(live, p, snap, mr, inputs, tried or None, other)
+    if rk is None:
+        return {"goals": [], "error": "the runs took too long"}
     names = [goal] if goal else list(spec.goals)
     return {"horizon": rk["horizon"], "runs": rk["runs"], "asked": rk["asked"], "invalid": rk["invalid"], "seed": rk["seed"],
             "stopped": rk["stopped"], "seconds": rk["seconds"], "times": [round(t, 3) for t in mr["projection"].times],

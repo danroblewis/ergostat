@@ -274,8 +274,10 @@ function partRef(n) {
 }
 function causesStrip(ref, group = chartGroup("strip")) {
   const box = h("div", { class: "strip" }, h("div", { class: "muted small" }, "…"));
+  let tries = 0;                                         // the closed loop's fan, worked out apart: asked for again
   const load = () => api("series", { refs: ref, strip: 1, replay: 1, points: CHART_POINTS, ...(SNAP ? {} : { fan: S.replayFan ? "replay" : 1 }),
                                      ...(S.loops ? { loops: S.loops } : {}), ...whatifParams() }).then((d) => {
+    if (d.fan_pending && !SNAP && tries++ < 8) setTimeout(() => { if (box.isConnected) load(); }, 2500);
     const list = d.series || [];
     if (!list.length || list.every((s) => s.values.every((v) => v == null) && !(s.replay || []).some((v) => v != null))) {
       box.replaceChildren(h("p", { class: "muted small" }, `Nothing measured in ${windowSaid(d)}.`));
@@ -292,7 +294,7 @@ function causesStrip(ref, group = chartGroup("strip")) {
       href: i === 0 ? null : () => openRef(s.ref) })),
       h("div", { class: "chart-foot" }, h("span", { class: "muted" }, [list.length > 1 ? "On one time axis; each rate in the unit that reads best for it" : "",
         modelled ? `dashed: the model's replay; past now, lighter: its projection ${dur(d.horizon)} ahead, ${d.inputs || "inputs held where they were"}` : "",
-        modelled ? fanSaid(d, list.some((s) => s.fan)) : "", replayFanSaid(d, list.some((s) => s.replay_fan)), whatifSaid(d),
+        modelled ? (d.fan_pending ? "the spread with the loops running is being worked out" : fanSaid(d, list.some((s) => s.fan))) : "", replayFanSaid(d, list.some((s) => s.replay_fan)), whatifSaid(d),
         list[0].replay ? "" : noReplaySaid(list[0])].filter(Boolean).join(". ")),
         group.when),
       ...riskLines(d), ...standinsSaid(d),
@@ -304,7 +306,7 @@ function causesStrip(ref, group = chartGroup("strip")) {
         "Each fault is taken as 0, so the blue lines are not what the model would do.")] : []));
   }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
   load();
-  box.redraw = load;                                    // a what-if tried: drawn again with it
+  box.redraw = () => { tries = 0; load(); };           // a what-if tried: drawn again with it
   if (!SNAP) rememberChart(ref);
   return box;
 }

@@ -21,7 +21,7 @@ the panel says why in one line and what would change that (for example "33 readi
 |---|---|---|
 | [Is my model right?](#is-my-model-right) | fit, residuals, structure checks, equation signs, extreme conditions | Model page, a part's panel, Check page |
 | [What should I change?](#what-should-i-change) | the review queue, calibration, parameter, equation and structural proposals, not exercised by the record, fit history | Model page, a valve's or auxiliary's panel |
-| [What will happen?](#what-will-happen) | replay, projection, sensitivity fan, what-if, leverage, loop dominance | a part's panel in the Dynamics view, a feedback loop's panel, a proposal's effect |
+| [What will happen?](#what-will-happen) | replay, projection with the loops running or held, sensitivity fan, what-if, risk, leverage, loop dominance | a part's panel in the Dynamics view, a goal's panel, a block's panel, a feedback loop's panel, a proposal's effect, `ergostat project` |
 | [How we know the improver works](#how-we-know-the-improver-works) | the pipeline tests, the judge's error rates, the recovery benchmark, the prediction check, the loop's own measures | `ergostat bench`, `ergostat verify`, the test suite |
 | [How do my loops behave, and how should they be tuned?](#how-do-my-loops-behave-and-how-should-they-be-tuned) | identification, process step response and Bode, margins, closed-loop step and Bode, monitoring, SIMC tuning, detuning, step tests | Blocks view: the process block, the controller, the summing junction; Loops page |
 
@@ -292,31 +292,55 @@ up).
 
 **What it is.** The replay is the model run over the record: each stock integrated from its flows from
 its first reading, each equation worked out, every other input as measured. The projection runs on from
-now, open loop: the inputs held where they were, the controllers held, for three of the slowest time
-constant the replay met (within a twentieth and a quarter of the window).
+now for three of the slowest time constant the replay met (within a twentieth and a quarter of the window),
+two ways:
 
-**What you get.** Whether the model follows the part over time, and where the part goes next if nothing
-changes: a level ahead, a time to a limit.
+- **With the loops running** (the default where the model has controllers): the goals turn off and on, the
+  built-in blocks decide exactly as the engine would (the projection runs the engine's own code for them), and
+  each machine block (a program, an AI agent, a person) is replaced by a **stand-in**: what it does to its flow,
+  identified from the record and said in words. "dispatcher modelled as moving at most 1.08e+03/h (the most it
+  moved while keep-work-waiting commands it, from 17m of record), taking from ready-work, and never past
+  runs-within-limit's setpoint on runs-in-flight"; "developer modelled as 2.6/h a seat (20m a run), 3 seats, 80%
+  success, from 6h of record (40 runs)". Where the record is too short the stand-in is an assumption, and is
+  flagged as one.
+- **Held** (open loop): every block held as it was, every input held where it was. What a block's flow moves is
+  left out, since a held controller says nothing true about it.
+
+**What you get.** Whether the model follows the part over time, and where the part goes next: with the loops
+running, whether the backlog drains and the loop holds; held, where it goes if nothing acts.
 
 **Where.** Diagram → **Dynamics** → click a stock, a valve or an auxiliary: its panel opens with its
 **causes strip** (the part, then what drives it, on one time axis). The replay is dashed over the
-measured line; past now, lighter, the projection. The strip's foot says how the projection holds its
-inputs. Choosing parts (Shift-click) charts them in the side panel too.
+measured line; past now, lighter, the projection. The strip's foot says how the projection runs and holds
+its inputs; **With the loops running** and **Held** under it switch every chart on the page; **What stands
+in for the blocks** lists the stand-ins near the part. A flow a block moves has no replay, and with the
+loops running its projection is its stand-in's. Choosing parts (Shift-click) charts them in the side panel
+too. Diagram → **Blocks** → click a machine block: **In a projection with the loops running** says its
+stand-in. Command line: `ergostat project` (`--held` for open loop, `--horizon 8h`).
 
 **Needs.** An equation on the part, or (for a stock) flows in the model. A part the replay takes as
-measured says so under its chart ("no replay, projection or fan: no equation works it out"). What a
-flow a block sets moves is left out of the projection (the blocks are not simulated), and the foot says
-so.
+measured says so under its chart ("no replay, projection or fan: no equation works it out"). With the
+projection held, what a flow a block sets moves is left out, and the foot says so. A stand-in needs six
+buckets of its flow measured while its block was commanded (five runs for a block that takes items).
 
 **How.** On image-squeeze, click `quality` or `time` in the Dynamics view (or **What's available** →
 **Tools** → its link).
 
 ![A stock's causes strip: measured, replay, projection and fan](screenshots/model-tools/strip-replay-projection-fan.png)
 
+**How we know the closed loop is closer.** `scripts/closedloop_validate.py DIR` identifies the stand-ins on the
+record up to a split, projects past it both ways, and compares each with the record held out (Sterman's measures;
+`--double all` runs the inputs doubled). On demo runs of 40 minutes (2026-11-19), the scaled error over every stock,
+held → with the loops running: the coordinator 32.7 → 3.5, 6.5 → 1.1 and 38 → 8.1 (three stretches of 10 minutes);
+the-job 30 → 7.2, 36 → 1.2 and 101 → 25; ticket-factory (its eight tickets, one stretch of 4 minutes) 0.88 → 0.57.
+Most of what is left is bias (U_M about 0.7): inputs that changed after the split, and assumed stand-ins.
+
 ### Sensitivity fan
 
 **What it is.** The projection run two hundred times over what the model says is uncertain (a
-parameter's `range:`, else an estimate's standard error), estimates fitted together drawn together.
+parameter's `range:`, else an estimate's standard error), estimates fitted together drawn together. With
+the loops running the fan is the closed loop's own Monte Carlo (the risk, below): a hundred runs over the
+estimates, the stand-ins' numbers and the inputs.
 
 **What you get.** How much of the projection depends on what is not known: where half the runs fall,
 and nine in ten, shaded under the projection. A wide fan says measure that number before acting on the
@@ -352,6 +376,38 @@ equation says why in its panel ("No equation, what-if or calibration: tuner sets
 **Propose these** puts it in the queue with its fit; it changes the model only when accepted.
 
 ![A what-if on window-time](screenshots/model-tools/whatif.png)
+
+**With the loops running, three more.** What if arrivals doubled, the WIP limit were 8, or the developers
+were four? Typed in the panel of what they are about, drawn in blue on every chart with the loops running,
+and never proposals (they change the world, not the model):
+
+- an input's rate: a valve from outside (an arrival) → **What if it came at**: a rate an hour, or `x2` for
+  twice its mean over the window (`flow.NAME`);
+- a setpoint: a goal's panel (Loops page, or a loop's scope) → **What if it held at** (`goal.NAME`);
+- a pool: Blocks view → a block that takes items → **What if its pool were** (`block.NAME.pool`).
+
+Command line: `ergostat project --whatif flow.directed=x2 --whatif goal.runs-within-limit=8 --risk`.
+
+### Risk
+
+**What it is.** The projection with the loops running, run a hundred times over what it does not know: the
+model's uncertain parameters (as the sensitivity fan samples them), each stand-in's identified numbers by
+their standard errors (a rate, a run's time, a success rate), and each input from outside by how far its mean
+over the horizon could be from now. From a fixed seed, so the same model and record give the same answer.
+
+**What you get.** For each goal, the chance that it is off at the horizon and the time it is expected to spend
+off: "work-waiting: off at +4m28s with p≈1; 4m28s off expected over the 4m28s (100 runs)". For each part, the
+half and nine in ten of the runs, as the strip's fan.
+
+**Where.** The causes strip with the loops running: the fan, and a line for each goal on the part. A goal's
+panel (Loops page → a goal) → **Ahead, with the loops running**. `GET /api/risk?goal=NAME`. Command line:
+`ergostat project --risk` (`--runs`, `--seed`, `--budget`).
+
+**Needs.** Controllers in the model. Bounded: at most 400 runs and 4,000 steps a run; it stops at 8 seconds on
+the page (60 at the command line) and says how many runs it made. An estimate whose error spans more than a
+factor of ten is held at its value, not sampled.
+
+![The causes strip with the loops running: the fan, the goal's risk and the stand-ins](screenshots/model-tools/strip-closed-loop.png)
 
 ### Leverage
 
