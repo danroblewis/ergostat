@@ -158,7 +158,8 @@ The control diagram is the product's main view. Conventions:
   the event types about them), each kind's map laid out left to right in time order in a frame of its
   own, how often as line weight, rework marked, and dashed lines where an event on one kind's item
   caused one on another's. It replaced the wiring view (machines and what passed between them),
-  which stays on the command line (`ergostat system --wiring`).
+  which stays on the command line (`ergostat system --wiring`). Its nodes and its kinds' frames are put by
+  hand as the other views' parts are (below).
 - **The block view** draws each loop as a classic negative-feedback block diagram, one row per
   loop: the setpoint r into a summing junction (Σ, + and −), the error e into the controller C, its
   output u into the actuator (the valve), a second junction where the disturbance d joins, the
@@ -187,7 +188,14 @@ The control diagram is the product's main view. Conventions:
   from the corner of the frame it is in, so it survives a reload and a system opened or closed; a
   system's box and its open outline (or frame) share one. A pin clicked, or "Unpin all parts" (⋯), lets
   the layout place it again. The Blocks view is laid out by its own ELK graph (`blocks.js`); the pins
-  are applied to that layout afterwards, as to the Dynamics view's (`places.js`).
+  are applied to that layout afterwards, as to the Dynamics view's (`places.js`). So is the Process view's
+  (`process.js`): a node (an activity, a start or an end) or the chosen ones, and a kind's frame by its top
+  with its whole map, pinned in its own set (apart from the other two views'), each node from its kind's
+  frame; a line within a kind keeps ELK's way while its two ends moved together (a frame dragged) and that
+  way crosses no node, and is routed by libavoid otherwise, as the dashed lines between kinds always are.
+  A pin is kept by the node's name (its kind and activity), not per States or Events: a node drawn in both
+  stays where it was put in both, and the frames too; it holds through the map refreshed in place and laid
+  out again as events come, and whichever kinds are drawn.
 - **Two views at once.** A grip on each edge of the canvas, dragged inward, reveals a second pane
   behind a separator (left or right: side by side; top or bottom: stacked); the separator resizes it,
   a double-click halves it, dragged back to the edge it closes; the edge and size are remembered in the

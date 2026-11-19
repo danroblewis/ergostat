@@ -348,17 +348,23 @@ function setRoute(le, pts) {                            // a route from libavoid
 }
 
 /* parts dragged together (an open system): moved in one routing; resolves to the ids of the lines that changed
-   (null when the lines are not libavoid's) */
+   (null when the lines are not libavoid's). Where only some lines are libavoid's (the Process view's: r.keep), the
+   others keep their way unless they touch what moves */
 function avoidMoveMany(list) {
   const r = AV.routed;
   if (!r || r.lay !== S.layout) return null;
   const byId = Object.fromEntries(r.lay.children.map((k) => [k.id, k]));
   for (const [id, x, y] of list) if (byId[id]) { byId[id].x = x; byId[id].y = y; }
+  const moving = new Set(list.map(([id]) => id));
   const apply = (routes) => {
     if (r.lay !== S.layout) return [];
-    const byLe = Object.fromEntries(r.lay.edges.map((le) => [le.id, le]));
-    for (const [eid, pts] of Object.entries(routes)) setRoute(byLe[eid], pts.map(([px, py]) => ({ x: px, y: py })));
-    return Object.keys(routes);
+    const byLe = Object.fromEntries(r.lay.edges.map((le) => [le.id, le])), out = [];
+    for (const [eid, pts] of Object.entries(routes)) {
+      if (!byLe[eid] || (r.keep && !r.keep(byLe[eid], moving))) continue;
+      setRoute(byLe[eid], pts.map(([px, py]) => ({ x: px, y: py })));
+      out.push(eid);
+    }
+    return out;
   };
   if (AV.mode === "page") return Promise.resolve(apply(AV.core.moveMany(list)));
   const n = (AV.moving = (AV.moving || 0) + 1);

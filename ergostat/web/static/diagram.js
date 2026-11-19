@@ -562,6 +562,7 @@ function redrawLine(svg, id) {                         // a line's new way, whil
   const pts = edgePoints(le);
   if (pts.length < 2) return;
   if (S.graph.kind === "blocks") { eg.replaceChildren(...bdEdgeContent(e, pts).els); return; }   // (blocks.js)
+  if (S.graph.kind === "process") { eg.replaceChildren(...pmEdgeContent(e, le, pts)); return; }    // (process.js)
   if (S.graph.kind === "dynamics") {                  // drawn again whole: its curve depends on where the parts are
     eg.replaceChildren(...sdEdgeContent(e, pts, S.layout), s("path", { d: roundedPath(pts, 7), class: "edge-hit" }));
     return;
@@ -1009,6 +1010,7 @@ async function pageDiagram(main, q) {
   const file = (suffix = "") => `${S.status?.name || "ergostat"}-${system || "all"}-${view}${suffix}.svg`;
   const wrapOn = () => S.wrap === true || (S.wrap == null && S.wrapAuto);
   const loopsOn = () => !document.body.classList.contains("no-loops");   // the loop markers, hidden or shown (remembered)
+  const unpinAll = { label: "Unpin all parts", hint: "drag a part to pin it", onclick: () => { S.pins = {}; savePins(); S.relayout?.(); } };
   const more = menu("\u22ef", () => [
     view !== "blocks" && view !== "process" ? { label: "Wrap loops into rows", checked: wrapOn(), hint: "at the pipes between loops",
       onclick: () => { S.wrap = !wrapOn(); S.graphSig = ""; S.fitted = false; route(); } } : null,
@@ -1017,12 +1019,12 @@ async function pageDiagram(main, q) {
                        try { localStorage.setItem("ergostat.loops", on ? "1" : "0"); } catch (e) { /* not remembered */ } } } : null,
     view !== "process" ? { label: "Colour by correspondence", checked: CORR.on, hint: "or hold C",
       onclick: () => corrSet(!CORR.on) } : null,
-    ...(view === "process" ? pmKindItems() : [
+    ...(view === "process" ? [...pmKindItems(), { sep: true }, unpinAll] : [
       { label: "Open all systems", onclick: () => { S.graphSig = ""; go({ open: "*" }); } },
       { label: "Close all systems", onclick: () => { S.graphSig = ""; go({ open: "-" }); } },
       { sep: true },
-      { label: "Unpin all parts", hint: "drag a part to pin it", onclick: () => { S.pins = {}; savePins(); S.relayout?.(); } }]),
-  ], { cls: "dots", title: view === "process" ? "More: which kinds of item" : "More: wrap, open or close every system, unpin" });
+      unpinAll]),
+  ], { cls: "dots", title: view === "process" ? "More: which kinds of item, unpin" : "More: wrap, open or close every system, unpin" });
   function pmKindItems() {                         // the kinds drawn: the system's by default, any of them by choice
     const g = S.graph?.kind === "process" ? S.graph : null;
     if (!g) return [];

@@ -12,7 +12,8 @@ function partBox(k) {
 }
 const meets = (a, b, m = 0) => a.x0 < b.x1 + m && b.x0 < a.x1 + m && a.y0 < b.y1 + m && b.y0 < a.y1 + m;
 const PAD = { top: 44, side: 26 };
-const padOf = (g) => (g?.kind === "blocks" ? { top: bdFrameTitle() + 8, side: BD.PAD } : PAD);   // (a block diagram's frames: blocks.js)
+const padOf = (g) => (g?.kind === "blocks" ? { top: bdFrameTitle() + 8, side: BD.PAD }   // (a block diagram's frames: blocks.js)
+  : g?.kind === "process" ? { top: PM.PAD + PM.TITLE, side: PM.PAD } : PAD);              // (a kind's frame in the process map: process.js)
 
 /* the open system (or, in the block diagram, the frame) a system or frame is drawn in: the block
    diagram's frames are "frame:<system>" and "casc:<goal>", each with its parent frame (blocks.js) */

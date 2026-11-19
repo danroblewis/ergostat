@@ -728,6 +728,10 @@ each move it draws against the chain's flows, and who made each against the bloc
 first, its states in their declared order, its end last), in a frame named with its kind, how many items
 and by what; the frames are packed in rows to the screen's shape. The lines between kinds are routed by
 libavoid around every part, from the bottom or top of their ends. Plain ink: no colour carries meaning.
+A node dragged (or the nodes chosen), or a kind's frame dragged by its top, is pinned where it is put, as in
+the other two views (DESIGN, "Parts put by hand"): no new layout, the lines it touches routed again by
+libavoid. The Process view keeps its own pins, each node's from its kind's frame and by its kind and
+activity, so the same in States and in Events; "Unpin all parts" (⋯) lets the layout place them again.
 
 **Clicking.** A node or a line opens its panel: what it is, its count and median time, the lines into and
 out of a node, a cross-kind line's event types; and the items behind it, the first ten, linked to the Items

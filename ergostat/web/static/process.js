@@ -1,7 +1,13 @@
 /* the Process view: the process map of process mining, a directly-follows graph per kind of item (process.py),
    read from the record. Each kind's map is laid out on its own by ELK, left to right in time order, in a frame
    of its own; the frames are stacked, and the lines between kinds (an event on one item caused one on another:
-   fan-out and join) are routed between them by libavoid, dashed. Plain ink: how often is the line's weight */
+   fan-out and join) are routed between them by libavoid, dashed. Plain ink: how often is the line's weight.
+
+   In hand as the other views are (interact.js, places.js): a node dragged (or the chosen ones) and a kind's frame
+   dragged by its top are pinned where they are put, with no new layout; a line keeps ELK's way while its two ends
+   are where ELK put them (or moved together, as a frame's are), and is routed by libavoid otherwise. A pin is kept
+   from its kind's frame, and by the node's name (its kind and activity), so one pin holds in States and in Events,
+   through a refresh and whichever kinds are drawn */
 "use strict";
 
 const PM = { PAD: 22, TITLE: 26, GAP: 64, H: 44, PILL: 28 };
@@ -61,18 +67,22 @@ async function pmLayout(g, aspect = 1.6) {
   for (const [k, m] of maps) {
     if (x > 0 && x + m.width > rowW) { x = 0; y += rowH + PM.GAP; rowH = 0; }
     const dx = x, dy = y;
-    for (const c of m.children) lay.children.push({ ...c, x: c.x + dx, y: c.y + dy });
+    for (const c of m.children) lay.children.push({ ...c, x: c.x + dx, y: c.y + dy, x0: c.x + dx, y0: c.y + dy });   // (x0, y0: where ELK put it)
     for (const le of m.edges || []) {
       for (const sec of le.sections || []) for (const p of [sec.startPoint, sec.endPoint, ...(sec.bendPoints || [])]) { p.x += dx; p.y += dy; }
       for (const l of le.labels || []) { l.x += dx; l.y += dy; }
+      le.elk = { sections: structuredClone(le.sections || []), labels: structuredClone(le.labels || []) };   // its way, while its ends stay
       lay.edges.push(le);
     }
-    lay.containers.push({ id: "hull:" + k, name: k, x: dx, y: dy, width: m.width, height: m.height });
+    lay.containers.push({ id: "hull:" + k, name: k, depth: 0, x: dx, y: dy, width: m.width, height: m.height });
     lay.width = Math.max(lay.width, dx + m.width);
     lay.height = Math.max(lay.height, dy + m.height);
     x += m.width + PM.GAP;
     rowH = Math.max(rowH, m.height);
   }
+  lay.ox = 0; lay.oy = 0;
+  applyPins(lay, g);                                   // what the owner put by hand, back where it was put (places.js)
+  pmLines(lay, g);
   // the lines between kinds: stand-ins, drawn grey, until libavoid's come
   const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
   for (const e of g.edges.filter((e) => e.kind === "caused")) {
@@ -84,8 +94,44 @@ async function pmLayout(g, aspect = 1.6) {
     const mid = [{ x: s0.x, y: my }, { x: t0.x, y: my }];
     lay.edges.push({ id: e.id, cross: true, stale: true, sections: [{ startPoint: s0, bendPoints: mid, endPoint: t0 }] });
   }
-  lay.ox = 0; lay.oy = 0;
   return lay;
+}
+
+/* each line within a kind: ELK's way (moved with its ends) while both its ends moved together and that way
+   crosses no other node; else libavoid's (avoid), a square stand-in until it comes */
+function pmLines(lay, g) {
+  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
+  const byId = Object.fromEntries(g.edges.map((e) => [e.id, e]));
+  for (const le of lay.edges) {
+    const e = byId[le.id], a = e && box[e.source], b = e && box[e.target];
+    if (!le.elk || !a || !b) continue;
+    const dx = a.x - a.x0, dy = a.y - a.y0;
+    if (Math.abs(b.x - b.x0 - dx) < 0.5 && Math.abs(b.y - b.y0 - dy) < 0.5) {
+      const sections = structuredClone(le.elk.sections), labels = structuredClone(le.elk.labels);
+      for (const sec of sections) for (const p of [sec.startPoint, sec.endPoint, ...(sec.bendPoints || [])]) { p.x += dx; p.y += dy; }
+      for (const l of labels) { l.x += dx; l.y += dy; }
+      const pts = sections[0] ? [sections[0].startPoint, ...(sections[0].bendPoints || []), sections[0].endPoint] : [];
+      const clear = e.source === e.target || !lay.children.some((c) => c !== a && c !== b && pmCrosses(pts, c));
+      if (clear) { Object.assign(le, { sections, labels, avoid: false, stale: false }); continue; }
+    }
+    if (le.avoid && pmFits(edgePoints(le), a, b)) continue;   // libavoid's way already, still ending on its nodes
+    const s0 = pmSidePoint(a, "right", 0.5), t0 = pmSidePoint(b, "left", 0.5), mx = (s0.x + t0.x) / 2;
+    Object.assign(le, { avoid: true, stale: true, labels: [],
+                        sections: [{ startPoint: s0, bendPoints: [{ x: mx, y: s0.y }, { x: mx, y: t0.y }], endPoint: t0 }] });
+  }
+}
+function pmFits(pts, a, b) {                           // square, and from one node to the other
+  const on = (p, c) => p.x >= c.x - 2 && p.x <= c.x + c.width + 2 && p.y >= c.y - 2 && p.y <= c.y + c.height + 2;
+  return pts.length >= 2 && on(pts[0], a) && on(pts[pts.length - 1], b) &&
+    pts.slice(1).every((q, i) => Math.abs(q.x - pts[i].x) < 0.5 || Math.abs(q.y - pts[i].y) < 0.5);
+}
+function pmCrosses(pts, c) {                           // a way through a node's box (not along its edge)
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i - 1], q = pts[i];
+    if (Math.max(p.x, q.x) > c.x + 1 && Math.min(p.x, q.x) < c.x + c.width - 1 &&
+        Math.max(p.y, q.y) > c.y + 1 && Math.min(p.y, q.y) < c.y + c.height - 1) return true;
+  }
+  return false;
 }
 /* which sides a line between two kinds' parts leaves and arrives by: top or bottom, facing each other (a map's
    own lines take the left and right, as time runs); side by side, both from below */
@@ -99,23 +145,27 @@ function pmSidePoint(c, d, f) {
        : d === "left" ? { x: c.x, y: c.y + c.height * f } : { x: c.x + c.width, y: c.y + c.height * f };
 }
 
-/* the lines between kinds, routed by libavoid around every part and every line's words: each leaves its part
-   on the side facing the other kind and arrives the same way, a point of its own at each end */
+/* the lines between kinds, and the lines within a kind whose nodes were put by hand (avoid), routed by libavoid
+   around every node and every line's words: a line between kinds leaves its node on the side facing the other
+   kind and arrives the same way; one within a kind leaves on the right and arrives on the left, as time runs; a
+   point of its own at each end. Every line is in the router, so a node dragged takes all of its lines along
+   (interact.js); the rest keep ELK's way */
 function pmRoute(lay, g) {
   lay.routing = false;
   lay.whenRouted = Promise.resolve();
-  const cross = lay.edges.filter((le) => le.cross);
-  if (!cross.length || !AV.mode) return;
+  if (!AV.mode) return;
   const byId = Object.fromEntries(g.edges.map((e) => [e.id, e]));
   const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
+  const lines = lay.edges.filter((le) => { const e = byId[le.id]; return e && e.source !== e.target && box[e.source] && box[e.target]; });
+  if (!lines.length) return;
   const ends = {};
-  for (const le of cross) {
+  for (const le of lines) {
     const e = byId[le.id];
-    const [sd, td] = pmSides(box[e.source], box[e.target]);
+    const [sd, td] = le.cross ? pmSides(box[e.source], box[e.target]) : ["right", "left"];
     (ends[e.source] ||= []).push([le.id, "s", sd]);
     (ends[e.target] ||= []).push([le.id, "t", td]);
   }
-  const labels = (lay.edges.filter((le) => !le.cross).flatMap((le) => le.labels || []));
+  const labels = lay.edges.filter((le) => !le.cross && !le.avoid).flatMap((le) => le.labels || []);
   const shapes = [], pin = {};
   for (const c of lay.children) {
     const mine = ends[c.id] || [], pins = [];
@@ -131,14 +181,19 @@ function pmRoute(lay, g) {
     shapes.push({ id: c.id, x: c.x, y: c.y, w: c.width, h: c.height, pins, labels: [] });
   }
   labels.forEach((l, i) => shapes.push({ id: "label:" + i, x: l.x, y: l.y, w: Math.max(1, l.width), h: Math.max(1, l.height), pins: [], labels: [] }));
-  const conns = cross.map((le) => ({ id: le.id, s: byId[le.id].source, sp: pin[`${le.id}|s`], t: byId[le.id].target, tp: pin[`${le.id}|t`] }));
+  const conns = lines.map((le) => ({ id: le.id, s: byId[le.id].source, sp: pin[`${le.id}|s`], t: byId[le.id].target, tp: pin[`${le.id}|t`] }));
   const spec = { shapes, conns, crossingPenalty: 200, nudgeCommon: false };
   const seq = ++AV.seq;
   const done = (m) => {
     if (m && !m.skipped) {
       const byLe = Object.fromEntries(lay.edges.map((le) => [le.id, le]));
-      for (const [id, pts] of Object.entries(m.routes)) setRoute(byLe[id], pts.map(([x, y]) => ({ x, y })));
+      for (const [id, pts] of Object.entries(m.routes)) {
+        const le = byLe[id];
+        if (le && (le.cross || le.avoid)) { setRoute(le, pts.map(([x, y]) => ({ x, y }))); le.labels = le.cross ? le.labels : []; }
+      }
       AV.ms = m.ms; AV.invalid = m.invalid;
+      // (a node dragged: its lines routed again as it moves, and libavoid's own; the rest keep ELK's way: interact.js)
+      AV.routed = { lay, seq, keep: (le, moving) => le.cross || le.avoid || moving.has(byId[le.id]?.source) || moving.has(byId[le.id]?.target) };
     }
     lay.routing = false;
   };
@@ -168,55 +223,81 @@ function pmNode(n, w, hgt, most) {
   return g;
 }
 
+/* one scale for the map: the most frequent line within a kind, and between kinds */
+function pmMostLine(g) {
+  const most = {};
+  for (const e of g.edges) { const k = e.kind === "caused" ? "~" : "|"; most[k] = Math.max(most[k] || 0, e.count); }
+  return most;
+}
+/* a line as drawn: its way, its head, its words (where ELK put them while the line is ELK's, else on its longest
+   straight stretch), and a wide line to point at; drawn again alone while a node it touches is dragged
+   (diagram.js's redrawLine) */
+function pmEdgeContent(e, le, pts, mostLine = pmMostLine(S.graph)) {
+  const cross = e.kind === "caused";
+  const top = mostLine[cross ? "~" : "|"] || 1;
+  const wgt = (cross ? 1.1 : 1.2) + (cross ? 2.2 : 4.8) * Math.sqrt(e.count / top);
+  const out = [];
+  const d = roundedPath(pts, 8);
+  out.push(s("path", { d, class: "info pm-line", style: `stroke-width:${wgt.toFixed(2)}` }));
+  const ah = arrowHead(pts, "head", 6 + wgt * 0.9);
+  ah.style.setProperty("--head", cross ? "var(--muted)" : "var(--ink)");
+  out.push(ah);
+  const text = (e.rework && !cross ? "↺ " : "") + pmLabel(e);
+  const l = (le.labels || [])[0];
+  const near = l && pts.some((p, i) => i && pmNear(pts[i - 1], p, l.x + l.width / 2, l.y + l.height / 2) < 12);
+  if (pmLabel(e)) {
+    let x, y, anchor = "middle";
+    if (near) { x = l.x + l.width / 2; y = l.y + 11; }
+    else {                                            // a line between kinds, or one routed anew: on its longest straight stretch
+      let best = [pts[0], pts[1]], len = -1;
+      for (let i = 1; i < pts.length; i++) { const L = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); if (L > len) { len = L; best = [pts[i - 1], pts[i]]; } }
+      const vertical = Math.abs(best[0].x - best[1].x) < 1;
+      x = (best[0].x + best[1].x) / 2 + (vertical ? 6 : 0); y = (best[0].y + best[1].y) / 2 + (vertical ? 4 : -5);
+      anchor = vertical ? "start" : "middle";
+    }
+    out.push(s("text", { class: "elabel", x, y, "text-anchor": anchor, "paint-order": "stroke", stroke: "var(--bg)", "stroke-width": 4,
+                         "stroke-linejoin": "round" }, text));
+  }
+  out.push(s("path", { d, class: "edge-hit" }));
+  return out;
+}
+function pmNear(a, b, x, y) {                          // how far a point is from a straight stretch
+  const dx = b.x - a.x, dy = b.y - a.y, L = dx * dx + dy * dy;
+  const t = L ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / L)) : 0;
+  return Math.hypot(a.x + t * dx - x, a.y + t * dy - y);
+}
+
 function pmDraw(svg, g, lay) {
   S.drawN = (S.drawN || 0) + 1;
+  squareLines(lay, g);                                 // no line drawn across: a stand-in is drawn square, greyed (interact.js)
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const edgeById = Object.fromEntries(g.edges.map((e) => [e.id, e]));
   S.edgeById = edgeById;
-  const most = {}, mostLine = {};
+  const most = {}, mostLine = pmMostLine(g);
   for (const n of g.nodes) most.all = Math.max(most.all || 0, n.count);
-  for (const e of g.edges) { const k = e.kind === "caused" ? "~" : "|"; mostLine[k] = Math.max(mostLine[k] || 0, e.count); }   // one scale for the map
   const vp = s("g", { id: "viewport" });
+  const pinsG = s("g", { class: "pins" });              // what was put by hand: a pin on it, on top (diagram.js)
   const frames = s("g", { class: "pm-frames" });
   for (const f of lay.containers) {
     const k = g.kinds.find((x) => x.name === f.name) || {};
-    frames.append(s("g", { class: "pm-frame", "data-kind": f.name },
+    // its top is a handle: dragged, the kind's map moves with it, and stays there (interact.js, places.js)
+    frames.append(s("g", { class: "pm-frame hull", "data-kind": f.name, "data-hull": f.name },
       s("rect", { x: f.x, y: f.y, width: f.width, height: f.height, rx: 10 }),
       s("text", { x: f.x + 14, y: f.y + 22, class: "pm-title" }, f.name,
-        s("tspan", { class: "t-sub", dx: 8 }, `${k.items} item${k.items === 1 ? "" : "s"} · ${k.by}`))));
+        s("tspan", { class: "t-sub", dx: 8 }, `${k.items} item${k.items === 1 ? "" : "s"} · ${k.by}`)),
+      s("rect", { class: "hull-grip", "data-act": "hull-drag", x: f.x, y: f.y, width: Math.max(0, f.width - 24), height: PM.TITLE + 6, rx: 10,
+                  onpointerdown: (ev) => { if (ev.button) return; ev.stopPropagation(); S.hullDrag = { name: f.name, x0: ev.clientX, y0: ev.clientY, moved: false }; } })));
+    if (S.pins?.["hull:" + f.name]) pinsG.append(pinMark("hull:" + f.name, f.x + f.width - 14, f.y + 4, "moved here: click to let the layout place it again"));
   }
   const edgesG = s("g");
   for (const le of lay.edges) {
     const e = edgeById[le.id];
     const pts = edgePoints(le);
     if (!e || pts.length < 2) continue;
-    const cross = e.kind === "caused";
-    const top = mostLine[cross ? "~" : "|"] || 1;
-    const wgt = (cross ? 1.1 : 1.2) + (cross ? 2.2 : 4.8) * Math.sqrt(e.count / top);
     const eg = s("g", { class: ["edge", "pm-" + e.kind, e.rework ? "rework" : "", le.stale ? "stale" : ""].join(" "), "data-id": e.id,
                         "data-nodes": `${e.source} ${e.target}`, "data-link": `${e.kind}:${e.source}>${e.target}`,
-                        onpointerenter: () => { if (!S.dragging) hoverEdge(e); }, onpointerleave: () => hoverEdge(null) });
-    const d = roundedPath(pts, 8);
-    eg.append(s("path", { d, class: "info pm-line", style: `stroke-width:${wgt.toFixed(2)}` }));
-    const ah = arrowHead(pts, "head", 6 + wgt * 0.9);
-    ah.style.setProperty("--head", cross ? "var(--muted)" : "var(--ink)");
-    eg.append(ah);
-    const text = (e.rework && !cross ? "↺ " : "") + pmLabel(e);
-    const l = (le.labels || [])[0];
-    if (pmLabel(e)) {
-      let x, y, anchor = "middle";
-      if (l) { x = l.x + l.width / 2; y = l.y + 11; }
-      else {                                            // a line between kinds: on its longest straight stretch
-        let best = [pts[0], pts[1]], len = -1;
-        for (let i = 1; i < pts.length; i++) { const L = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); if (L > len) { len = L; best = [pts[i - 1], pts[i]]; } }
-        const vertical = Math.abs(best[0].x - best[1].x) < 1;
-        x = (best[0].x + best[1].x) / 2 + (vertical ? 6 : 0); y = (best[0].y + best[1].y) / 2 + (vertical ? 4 : -5);
-        anchor = vertical ? "start" : "middle";
-      }
-      eg.append(s("text", { class: "elabel", x, y, "text-anchor": anchor, "paint-order": "stroke", stroke: "var(--bg)", "stroke-width": 4,
-                            "stroke-linejoin": "round" }, text));
-    }
-    eg.append(s("path", { d, class: "edge-hit" }));
+                        onpointerenter: () => { if (!S.dragging && !S.nodeDrag?.moved && !S.hullDrag?.moved) hoverEdge(e); }, onpointerleave: () => hoverEdge(null) });
+    eg.append(...pmEdgeContent(e, le, pts, mostLine));
     edgesG.append(eg);
   }
   const nodesG = s("g");
@@ -224,24 +305,35 @@ function pmDraw(svg, g, lay) {
     const n = byId[ln.id];
     if (!n) continue;
     const ng = s("g", { class: `node k-${n.kind} pm-node`, transform: `translate(${ln.x},${ln.y})`, "data-id": n.id,
-                        onpointerdown: (ev) => { if (!ev.button) S.downOn = n.id; } });
+                        onpointerdown: (ev) => { if (!ev.target.closest("[data-act]")) partDown(ev, n); } });   // a drag, or a click (interact.js)
     ng.append(pmNode(n, ln.width, ln.height, most.all));
     nodesG.append(ng);
+    if (S.pins?.[pinId(n.id, n)]) pinsG.append(pinMark(pinId(n.id, n), ln.x + ln.width - 4, ln.y - 6));
   }
-  vp.append(frames, edgesG, nodesG);
+  vp.append(frames, edgesG, nodesG, pinsG);
   svg.replaceChildren(vp);
   svg.classList.remove("sd");
   applyView(svg);
   if (S.hoverKey || S.selKey) trace(S.hoverKey || S.selKey);
   for (const x of svg.querySelectorAll(".node.sel")) x.classList.remove("sel");
   if (S.pmSel) svg.querySelector(`.node[data-id="${CSS.escape(S.pmSel)}"]`)?.classList.add("sel");
+  markInteraction(svg);                                // the nodes chosen, the lines waiting for libavoid (interact.js)
+}
+
+/* nodes or a frame put down by hand (interact.js's putDown, after places.js has settled them): the lines whose
+   ends moved routed again, and nothing laid out */
+function pmPutDown(svg, g, lay) {
+  pmLines(lay, g);
+  pmDraw(svg, g, lay);
+  pmRoute(lay, g);
+  if (!lay.routing) pmDraw(svg, g, lay);
 }
 
 async function drawProcessView(svg, g) {
   for (const n of g.nodes) n.systems = [n.itemKind];   // (each part is inside its kind's frame: the audit reads it)
   const sg = pmSig(g), same = JSON.stringify([g.nodes, g.edges, g.kinds, pmShow()]);
   if (sg === S.graphSig && S.layout) {                 // the same map: nothing changed touches nothing
-    if (!S.layout.routing && same !== S.pmDrawn) { pmDraw(svg, g, S.layout); S.pmDrawn = same; }
+    if (!S.layout.routing && !S.nodeDrag && !S.hullDrag && same !== S.pmDrawn) { pmDraw(svg, g, S.layout); S.pmDrawn = same; }
     return S.layout;
   }
   S.pmDrawn = same;
