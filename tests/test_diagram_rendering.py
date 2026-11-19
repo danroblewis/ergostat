@@ -65,11 +65,16 @@ def free_port() -> int:
 
 @pytest.fixture(scope="module")
 def browser():
+    # Playwright's own Chromium, as the other page tests use (the installed Chrome 158 quits when a page is
+    # closed, under Playwright 1.63); the installed Chrome only where that is missing
     with playwright.sync_playwright() as p:
         try:
-            b = p.chromium.launch(channel="chrome")
-        except Exception as e:                        # no Chrome here
-            pytest.skip(f"no Chrome to drive: {e}")
+            b = p.chromium.launch()
+        except Exception:
+            try:
+                b = p.chromium.launch(channel="chrome")
+            except Exception as e:                    # no Chromium or Chrome here
+                pytest.skip(f"no Chromium to drive: {e}")
         yield b
         b.close()
 
@@ -1093,6 +1098,183 @@ def test_a_process_lines_panel_lists_its_items_and_the_paths_slider_hides_rare_o
         assert "show=times" in pg.url
         pg.close()
     assert not errors, errors
+
+
+# ---- the Process view in hand: the same dragging, pinning and unpinning as the other views (interact.js, places.js)
+
+PM_SLANTED = """() => {
+  // straight pieces of the process map's lines as drawn that run neither across nor up and down
+  let n = 0;
+  for (const p of document.querySelectorAll("svg.canvas g.edge path.pm-line")) {
+    let at = null;
+    for (const m of (p.getAttribute("d") || "").matchAll(/([MLQ])([^MLQ]*)/g)) {
+      const v = m[2].trim().split(/[\\s,]+/).map(Number), pt = { x: v[v.length - 2], y: v[v.length - 1] };
+      if (m[1] === "L" && at && Math.abs(pt.x - at.x) > 1 && Math.abs(pt.y - at.y) > 1) n++;
+      at = pt;
+    }
+  }
+  return n;
+}"""
+# its lines routed and drawn, nothing in hand, no line waiting for libavoid
+PM_ROUTED = ("() => S.layout && S.graph && S.graph.kind === 'process' && S.graphSig && !S.layout.routing && "
+             "!S.nodeDrag && !S.hullDrag && !S.layout.edges.some((le) => le.stale)")
+PM_KIND = """(kind) => Object.fromEntries(S.layout.children.filter((c) => S.graph.nodes.find((n) => n.id === c.id)?.itemKind === kind)
+  .map((c) => [c.id, [c.x, c.y]]))"""
+
+
+def pm_served(pg, url, n, by="events", kinds="ticket,pr,release"):
+    pg.goto(f"{url}/diagram?v={n}&view=process&by={by}&kinds={kinds}")
+    pg.wait_for_function(PM_ROUTED, timeout=60000)
+
+
+def test_a_process_node_dragged_stays_pinned_through_a_reload_a_refresh_and_states_and_unpin_all_restores_it(browser, tmp_path):
+    """In the Process view a node dragged moves, its lines (within its kind, and the dashed ones to other kinds)
+    never drawn across meanwhile; let go, it is pinned there with no new layout and its lines end on it; the pin is
+    the Process view's own, and holds through a reload, the map refreshed in place as events come, and States and
+    back (kept by the node's kind and name); the ⋯ menu's Unpin all parts puts it back where ELK laid it."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served("software-factory", tmp_path) as url:
+        p = Project(mdl.load(tmp_path / "software-factory"))
+        assert set(seed_workflows(p, time.time())) == {"ticket", "pr", "release"}
+        time.sleep(1.6)
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pm_served(pg, url, 0)
+        pg.get_by_role("button", name="fit").click()
+        nid = "p:pr:pr.merged"                         # lines in and out within pr, and one back (rework)
+        caused = pg.evaluate("() => S.graph.edges.find((e) => e.kind === 'caused' && e.target === 'p:pr:pr.opened')?.id")
+        assert caused, "a dashed line from ticket into pr"
+        before = pg.evaluate(BD_AT, nid)
+        layouts = pg.evaluate("() => S.layouts")
+        slanted = bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{nid}"]').bounding_box(), 60, 150, check=PM_SLANTED)
+        assert slanted == 0, f"{slanted} slanted pieces drawn while dragging"
+        pg.wait_for_function(f"() => S.pins['{nid}'] && ({PM_ROUTED})()", timeout=20000)
+        pg.wait_for_timeout(300)
+        assert pg.evaluate("() => S.layouts") == layouts, "letting go laid the map out again"
+        after = pg.evaluate(BD_AT, nid)
+        assert abs(after[0] - before[0] - 60) < 6 and abs(after[1] - before[1] - 150) < 6, (before, after)
+        assert pg.evaluate(PM_SLANTED) == 0
+        ends = pg.evaluate(BD_ENDS, nid)
+        assert len(ends) >= 3 and all(ends), "every line of the moved node ends on it"
+        assert all(pg.evaluate(BD_ENDS, "p:pr:pr.opened")), "the dashed line into pr still ends on its node"
+        r = pg.evaluate(AUDIT)
+        assert not r["through"] and not r["partOverlap"], (r["through"], r["partOverlap"])
+        assert pg.locator(f'svg.canvas g.pins .pin[data-id="{nid}"]').count() == 1
+        kept = pg.evaluate("() => Object.fromEntries(Object.keys(localStorage).filter((k) => k.startsWith('ergostat.pins.'))"
+                           ".map((k) => [k, JSON.parse(localStorage.getItem(k))]))")
+        assert [k for k, v in kept.items() if nid in v and ".process." in k], kept
+        assert not [k for k in kept if ".process." not in k], kept       # the Process view's pins are its own
+        assert next(v for v in kept.values() if nid in v)[nid].get("in") == "pr"   # kept from its kind's frame
+        pm_served(pg, url, 1)                                             # a new visit: still where it was put
+        assert pg.evaluate(BD_AT, nid) == pytest.approx(after, abs=2)
+        # the map refreshed: in place (an answer whose values differ and whose shape does not, as the page's poll
+        # brings it: drawn again, nothing laid out), then laid out again (a new line in pr, from the record); the
+        # pin holds through both
+        held = ("(id) => { const c = S.layout.children.find((c) => c.id === id); return [c.x, c.y, "
+                "!!document.querySelector(`svg.canvas g.pins .pin[data-id=\"${id}\"]`), S.drawN, S.layouts]; }")
+        x, y, _, drew, layouts = pg.evaluate(held, nid)
+        pg.evaluate("""async () => { const g = structuredClone(S.graph);
+          for (const e of g.edges) e.median = (e.median || 0) + 7;                  // (values only: the same map)
+          S.graph = g; await drawProcessView(document.querySelector('svg.canvas'), g); }""")
+        x, y, pinned, drawn_now, relaid = pg.evaluate(held, nid)
+        assert drawn_now > drew and relaid == layouts, "a refresh in place laid the map out again"
+        assert [x, y] == pytest.approx(after, abs=2) and pinned
+        shown = pg.evaluate("() => S.graph.events")
+        p.events.add("pr.merged", item="pr/pm1x0", at=time.time())
+        pg.wait_for_function(f"() => S.graph.events > {shown} && S.layouts > {layouts} && ({PM_ROUTED})()", timeout=30000)
+        x, y, pinned, _, _ = pg.evaluate(held, nid)
+        assert [x, y] == pytest.approx(after, abs=2) and pinned
+        assert all(pg.evaluate(BD_ENDS, nid))
+        # States and back: one pin for the node's name, in either mode it is drawn in
+        pm_served(pg, url, 2, by="states")
+        assert pg.evaluate(f"() => !!S.pins['{nid}']"), "the pin was lost"
+        pm_served(pg, url, 3)
+        assert pg.evaluate(BD_AT, nid) == pytest.approx(after, abs=2)
+        pg.locator(".toolbar .menu-btn.dots").click()                    # ⋯, Unpin all parts: as ELK laid it out
+        pg.get_by_role("menuitem", name=re.compile("Unpin all parts")).click()
+        pg.wait_for_function(f"() => !Object.keys(S.pins).length && ({PM_ROUTED})() && "
+                             f"Math.abs(S.layout.children.find((c) => c.id === '{nid}').y - {after[1]}) > 20", timeout=20000)
+        # (where ELK puts it: a line more since, so not to the pixel where it first was)
+        assert pg.evaluate("() => S.layout.children.every((c) => c.x === c.x0 && c.y === c.y0)")
+        assert pg.evaluate(BD_AT, nid) == pytest.approx(before, abs=40)
+        assert pg.locator("svg.canvas g.pins .pin").count() == 0
+        assert not errors, errors
+        pg.close()
+
+
+def test_a_kinds_frame_dragged_in_the_process_view_takes_its_map_and_nodes_chosen_move_together(browser, tmp_path):
+    """A kind's frame in the Process view, dragged by its top, moves with its whole map by the same amount (its
+    lines keep their way), stays after a reload, and its lines to other kinds end on their nodes; nodes chosen with
+    Shift and a box move together, each pinned, with no new layout and no line drawn across."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served("software-factory", tmp_path) as url:
+        p = Project(mdl.load(tmp_path / "software-factory"))
+        seed_workflows(p, time.time())
+        time.sleep(1.6)
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pm_served(pg, url, 0)
+        pg.get_by_role("button", name="fit").click()
+        frame = "(name) => { const c = S.layout.containers.find((c) => c.name === name); return [c.bx ?? c.x, c.by ?? c.y]; }"
+        ways = """(kind) => Object.fromEntries(S.layout.edges.filter((le) => S.graph.edges.find((e) => e.id === le.id &&
+          e.kind === 'follows' && e.itemKind === kind)).map((le) => [le.id, [le.sections[0].startPoint,
+          ...(le.sections[0].bendPoints || [])].map((q) => [q.x, q.y])]))"""
+        before, corner, lines = pg.evaluate(PM_KIND, "release"), pg.evaluate(frame, "release"), pg.evaluate(ways, "release")
+        layouts = pg.evaluate("() => S.layouts")
+        grip = pg.locator('svg.canvas g.hull[data-hull="release"] > rect.hull-grip').bounding_box()
+        slanted = bd_drag(pg, grip, 160, 90, at=(0.3, 0.5), check=PM_SLANTED)
+        assert slanted == 0, f"{slanted} slanted pieces drawn while dragging"
+        pg.wait_for_function(f"() => S.pins['hull:release'] && ({PM_ROUTED})()", timeout=20000)
+        assert pg.evaluate("() => S.layouts") == layouts, "letting go laid the map out again"
+        after = pg.evaluate(PM_KIND, "release")
+        assert before and set(before) == set(after)
+        offs = {(round(after[i][0] - before[i][0]), round(after[i][1] - before[i][1])) for i in before}
+        assert len(offs) == 1, offs                                   # all by the same amount
+        (dx, dy), = offs
+        assert abs(dx - 160) < 8 and abs(dy - 90) < 8, (dx, dy)
+        assert pg.evaluate(frame, "release") == pytest.approx([corner[0] + dx, corner[1] + dy], abs=2)
+        moved = pg.evaluate(ways, "release")                          # its own lines: ELK's way, moved with it
+        for k, pts in lines.items():
+            assert [c for q in moved[k] for c in q] == pytest.approx([c for x, y in pts for c in (x + dx, y + dy)], abs=1), k
+        for nid in before:
+            assert all(pg.evaluate(BD_ENDS, nid)), nid
+        r = pg.evaluate(AUDIT)
+        assert not r["through"] and not r["partOverlap"], (r["through"], r["partOverlap"])
+        pm_served(pg, url, 1)                                         # a new visit: still where it was put
+        again = pg.evaluate(PM_KIND, "release")
+        assert all(again[i] == pytest.approx(after[i], abs=2) for i in after)
+        # two nodes chosen with Shift and a box, dragged together
+        pg.get_by_role("button", name="fit").click()
+        ids = ["p:ticket:ticket.started", "p:ticket:ticket.submitted"]
+        boxes = [pg.locator(f'svg.canvas g.node[data-id="{i}"]').bounding_box() for i in ids]
+        x0, y0 = min(b["x"] for b in boxes) - 4, min(b["y"] for b in boxes) - 4
+        x1, y1 = max(b["x"] + b["width"] for b in boxes) + 4, max(b["y"] + b["height"] for b in boxes) + 4
+        pg.keyboard.down("Shift")
+        pg.mouse.move(x0, y0)
+        pg.mouse.down()
+        pg.mouse.move((x0 + x1) / 2, (y0 + y1) / 2)
+        pg.mouse.move(x1, y1)
+        pg.mouse.up()
+        pg.keyboard.up("Shift")
+        chosen = pg.evaluate("() => [...document.querySelectorAll('svg.canvas g.node.selected')].map((e) => e.dataset.id)")
+        assert set(ids) <= set(chosen), chosen
+        was = pg.evaluate("() => Object.fromEntries(S.layout.children.map((c) => [c.id, [c.x, c.y]]))")
+        layouts = pg.evaluate("() => S.layouts")
+        slanted = bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{ids[1]}"]').bounding_box(), 40, 120, check=PM_SLANTED)
+        assert slanted == 0, f"{slanted} slanted pieces drawn while dragging"
+        pg.wait_for_function(f"() => {json.dumps(chosen)}.every((i) => S.pins[i]) && ({PM_ROUTED})()", timeout=20000)
+        assert pg.evaluate("() => S.layouts") == layouts, "letting go laid the map out again"
+        now = pg.evaluate("() => Object.fromEntries(S.layout.children.map((c) => [c.id, [c.x, c.y]]))")
+        for i in chosen:
+            assert abs(now[i][0] - was[i][0] - 40) < 6 and abs(now[i][1] - was[i][1] - 120) < 6, (i, was[i], now[i])
+            assert all(pg.evaluate(BD_ENDS, i)), i
+        assert pg.evaluate(PM_SLANTED) == 0
+        assert not errors, errors
+        pg.close()
 
 
 BLOCKS_DOM = """() => {

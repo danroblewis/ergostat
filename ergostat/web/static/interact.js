@@ -20,12 +20,13 @@
 S.sel = new Set();                                     // model parts: stock.x, flow.x, goal.g, goal.g.r, block.b, system.s
 S.xhover = new Set();                                  // the parts pointed at in the other pane
 
-/* the parts a shape is, in the view drawn */
-function partsOf(id) { return S.graph?.corr?.shapes?.[id]?.is || []; }
+/* the parts a shape is, in the view drawn (the Process view's nodes are no model parts: each is itself) */
+function partsOf(id) { return S.graph?.kind === "process" ? [id] : S.graph?.corr?.shapes?.[id]?.is || []; }
 /* what a choice lights here: each part's shapes (own, else the region holding it: "within"), and every
    shape all of whose parts are chosen */
 function litShapes(sel = S.sel, corr = S.graph?.corr) {
   const out = new Map();
+  if (S.graph?.kind === "process") { for (const p of sel) out.set(p, "is"); return out; }
   if (!corr || !sel.size) return out;
   for (const p of sel) for (const id of corr.parts?.[p] || []) if (out.get(id) !== "is") out.set(id, corr.inside?.[p] ? "within" : "is");
   for (const [id, x] of Object.entries(corr.shapes || {})) if (x.is.length && x.is.every((p) => sel.has(p))) out.set(id, "is");
@@ -170,6 +171,7 @@ function putDown(svg, pins, placed) {
   S.dropAt = performance.now();                        // (the click that ends a drag opens nothing: blocks.js)
   settle(S.layout, S.graph, placed);
   if (S.graph.kind === "blocks") { bdDraw(svg, S.graph, S.layout); bdRouteDraw(svg, S.layout); return; }   // (blocks.js)
+  if (S.graph.kind === "process") { pmPutDown(svg, S.graph, S.layout); return; }                        // (process.js)
   drawGraph(svg, S.graph, S.layout);
   avoidStart(S.layout, S.graph);
 }
