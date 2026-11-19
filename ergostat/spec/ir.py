@@ -617,6 +617,19 @@ class Takes:
     at: list[str]                   # the states it takes from (the first: where an item goes back to, by default)
     to: list[str] = field(default_factory=list)   # the states that count as done: the lease's ack (else any state but these)
     where: dict = field(default_factory=dict)     # only items whose fields match (as a sensor's where:)
+    unblocked: bool = False         # only items whose predecessors are all finished, the critical first (SPEC §5a, relations)
+
+
+@dataclass
+class Relation:
+    """A kind's typed relation to other items (SPEC §5a, *Relations*): a field holding the ids it relates to, folded as a
+    set. Never enforced: what it says is read, for derived state, the critical path and the Items page's views."""
+
+    name: str                       # the field: blocked_by
+    kinds: list[str]                # the kinds it may name (a target of another kind is still kept, and said)
+    precedence: bool = False        # its targets come first: this item is not ready until each is finished
+    inverse: str = ""               # the other direction's name, derived (blocks, children)
+    group: bool = False             # a parent: the Graph view groups by it
 
 
 @dataclass
@@ -648,6 +661,7 @@ class ItemKind:
     where: Where | None = None
     fold: dict[str, str] = field(default_factory=dict)   # field → how plain data folds into it (changes.RULES); else replace
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # the terms of a lease on one of these (SPEC §9.5)
+    relations: dict[str, Relation] = field(default_factory=dict)   # field → its relation to other items (SPEC §5a)
 
     def matches(self, id: str) -> bool:
         import fnmatch

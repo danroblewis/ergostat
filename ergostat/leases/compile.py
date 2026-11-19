@@ -7,7 +7,7 @@ from __future__ import annotations
 from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Spec, Takes
 
 TERMS_KEYS = {"ttl", "attempts"}
-TAKES_KEYS = {"kind", "at", "to", "where"}
+TAKES_KEYS = {"kind", "at", "to", "where", "unblocked"}
 
 
 def terms(c, m, key: str, what: str) -> LeaseTerms:
@@ -71,7 +71,12 @@ def takes(c, m, what: str) -> Takes | None:
     if not isinstance(where, dict):
         c.err(f"{what}.takes.where: a map of field: value (or a list of values)", raw.at("where"), "not-a-map")
         where = {}
-    return Takes(kind, list(states), list(to), dict(where))
+    unblocked = raw.get("unblocked", False)
+    if not isinstance(unblocked, bool):
+        c.err(f"{what}.takes.unblocked: true or false (true: only items whose precedence relations name only finished "
+              f"items, the critical first)", raw.at("unblocked"), "bad-takes")
+        unblocked = False
+    return Takes(kind, list(states), list(to), dict(where), unblocked)
 
 
 def pool(c, m, what: str) -> int:
@@ -118,6 +123,9 @@ def check(c, spec: Spec) -> None:
                   b.where, "bad-takes")
             b.takes = None
             continue
+        if b.takes.unblocked and not any(r.precedence for r in k.relations.values()):
+            c.err(f"{what}.takes.unblocked: {k.name} has no precedence relation to be blocked by (relations: "
+                  f"{{blocked_by: {k.name}}})", b.where, "bad-takes")
         if LEASED not in k.states:                       # held by a run: after the first state it is taken from
             k.states.insert(k.states.index(b.takes.at[0]) + 1, LEASED)
         if DEAD not in k.states:

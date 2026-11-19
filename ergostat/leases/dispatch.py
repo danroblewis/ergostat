@@ -24,7 +24,7 @@ from ..spec import items as its
 from ..spec.ir import DEAD, LEASED
 from . import ENDED, EXPIRED, RENEWED, TAKEN
 from .fold import held
-from .ready import Ready
+from .ready import Ready, unblocked
 from .terms import terms
 
 SOURCE = "ergostat"
@@ -132,7 +132,7 @@ class Dispatcher:
                 room = b.pool - len(mine | set(self.going.get(b.name, {})))
                 if room <= 0:
                     continue
-                for it in self.ready(b, every, now)[:room]:
+                for it in unblocked(self, b, self.ready(b, every, now))[:room]:
                     self.stale = True
                     self.take(b, self.whole(ix, it))
 
@@ -147,7 +147,7 @@ class Dispatcher:
         """A run asked for by hand (``ergostat block NAME --now``): it leases the next item the block would take, and
         runs here, at once, whatever its pool; with nothing to take, nothing runs."""
         with self.lock:
-            got = self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False), time.time())
+            got = unblocked(self, b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False), time.time()))
             started = self.take(b, got[0], inline=True) if got else None
         if started is None:
             self.e.say(f"{b.name}: nothing to take ({b.takes.kind} at {', '.join(b.takes.at)})")

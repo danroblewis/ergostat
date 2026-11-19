@@ -19,7 +19,8 @@ import json
 
 from .jsonpatch import PatchError, apply, pointer
 
-RULES = ("replace", "append", "sum", "min", "max", "union", "merge", "first")
+RULES = ("replace", "append", "sum", "min", "max", "union", "merge", "first", "relation")
+RELATION_KEYS = ("set", "add", "remove")
 FORMS = ("data", "patch", "set")
 
 
@@ -85,7 +86,40 @@ def rule_ops(doc: dict, key: str, value, rule: str) -> list[dict]:
         if not isinstance(value, dict):
             raise PatchError(f"{key}: merge needs an object to merge in, not {type(value).__name__}")
         return [{"op": "add", "path": path, "value": merged(cur or {}, value)}]
+    if rule == "relation":
+        return _relation_ops(key, path, has, cur, value)
     raise PatchError(f"{key}: no fold rule {rule!r}")
+
+
+def _ids(key: str, v) -> list[str]:
+    got = v if isinstance(v, list) else [v]
+    if not all(isinstance(x, str) and x for x in got):
+        raise PatchError(f"{key}: a relation names items by their ids (text), not {json.dumps(v, default=str)[:60]}")
+    return got
+
+
+def _relation_ops(key: str, path: str, has: bool, cur, value) -> list[dict]:
+    """A relation (SPEC §5a): a set of item ids. An id or a list of them is added; ``{"add": ..., "remove": ...,
+    "set": ...}`` says it outright (``set`` first: the whole set, as a collector mirroring another system's links
+    says it; then ``add``, then ``remove``)."""
+    if has and cur is not None and not isinstance(cur, list):
+        raise PatchError(f"{key}: a relation is a list of ids, and it holds {type(cur).__name__}")
+    members = list(cur or [])
+    if isinstance(value, dict):
+        bad = [k for k in value if k not in RELATION_KEYS]
+        if bad or not value:
+            raise PatchError(f"{key}: a relation's change is ids, or an object of {', '.join(RELATION_KEYS)} ({', '.join(bad)})")
+        if "set" in value:
+            members = _ids(key, value["set"]) if value["set"] not in (None, []) else []
+        if value.get("add") not in (None, []):
+            members += _ids(key, value["add"])
+        if value.get("remove") not in (None, []):
+            gone = set(_ids(key, value["remove"]))
+            members = [x for x in members if x not in gone]
+    elif value is not None:
+        members += _ids(key, value)
+    new = sorted(set(members))
+    return [] if (has and new == cur) or (not has and not new) else [{"op": "add", "path": path, "value": new}]
 
 
 def form_of(e: dict) -> str:
