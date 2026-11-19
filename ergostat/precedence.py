@@ -3,13 +3,14 @@ path through the unfinished work, each item's slack, and a schedule projected fr
 index (its links, both ways, and its moves); nothing is declared for it but the relations themselves.
 
 - **Status.** *done*: in a state its kind counts as finished (``messages: done:``, else as the item index says;
-  never a queue state, ``leased`` or ``dead``). *active*: leased, or in a working state (one that is neither its
-  kind's first state, nor a state a block takes from, nor finished). *blocked*: a precedence relation names an item
-  not finished. *ready*: none does. *dead*: a dead letter.
+  never a state a block takes from, its first, ``leased`` or ``dead``). *active*: leased, or in a working state (one
+  that is neither its kind's first state, nor a state a block takes from, nor finished). *blocked*: a precedence
+  relation names an item not finished. *queued*: started, and waiting in a later state a block takes from (review).
+  *ready*: in its first state, nothing it waits on unfinished. *dead*: a dead letter.
 - **Durations.** Each kind's time per state, the median of every stay its latest items made in it (``leased``, a
   run's hold, counted as the work it is), weighted by how often its items visit the state. An item's expected
-  duration is its working states' (the queue's wait is the schedule's to say, not the item's); an active item's is
-  what is left of its state and the states after it. A kind with no stays yet takes the median of the kinds that
+  duration is that of every state after its first that is not finished (the wait in its first state is the
+  schedule's to say, not the item's); a started item's is what is left of its state and the states after it. A kind with no stays yet takes the median of the kinds that
   have them, else ``ASSUMED``, said as assumed.
 - **The critical path** (CPM: Kelley and Walker's critical path method): a forward pass over the unfinished items
   in precedence order (each starts once its unfinished predecessors are expected to end; an active one now), a
@@ -61,7 +62,7 @@ class Kinds:
                                  for s in b.takes.at if s != k.states[0]]
         finished = [s for s in done_states(k, self.ix.left(name) if self.ix else set(), declared)
                     if s not in queue and s not in (LEASED, DEAD)]
-        working = [s for s in k.states if s not in finished and s not in queue and s != DEAD]
+        working = [s for s in k.states[1:] if s not in finished and s != DEAD]      # what an item's time is spent in
         stays, visits, n = self.ix.stays(name, STAYS, finished) if self.ix else ({}, {}, 0)
         medians = {s: median(v) for s, v in stays.items() if v}
         # how often a finished item stayed in each state (a rework state, seldom; a state visited twice, twice);
@@ -84,14 +85,21 @@ def held(fields: dict) -> dict | None:
 
 
 def status(it, info: dict, waiting: list[str]) -> str:
-    """done, active, blocked, ready, or dead (above)."""
+    """done, active, blocked, queued, ready, or dead (above)."""
     if it.state == DEAD:
         return "dead"
     if it.state is not None and it.state in info["finished"]:
         return "done"
-    if held(it.fields) or it.state == LEASED or it.state in info["working"]:
+    if held(it.fields) or it.state == LEASED or (it.state in info["working"] and it.state not in info["queue"]):
         return "active"
-    return "blocked" if waiting else "ready"
+    if waiting:
+        return "blocked"
+    return "queued" if it.state in info["queue"] and it.state != info["queue"][0] else "ready"
+
+
+def started(it, info: dict) -> bool:
+    """Whether an unfinished item's work has begun: it is past its kind's first state."""
+    return bool(info["working"]) and it.state in info["working"] or held(it.fields) is not None
 
 
 def remaining(it, info: dict, now: float, fallback: float) -> tuple[float, list[tuple[str, float]], bool]:
@@ -101,16 +109,18 @@ def remaining(it, info: dict, now: float, fallback: float) -> tuple[float, list[
     work = info["working"]
     if not work or not any(s in med for s in work):
         return fallback, [], False
-    if it.state in work:
+    est = lambda s_: med[s_] * w[s_]                                     # noqa: E731
+    gone = lambda s_: max(0.0, med.get(s_, 0.0) - max(0.0, now - (it.entered or now)))   # noqa: E731
+    lease = it.fields.get("lease") if isinstance(it.fields.get("lease"), dict) else {}
+    if it.state == LEASED:                     # held: the hold, then what comes after where it was taken from
+        back = lease.get("back")
+        after = work[work.index(back) + 1:] if back in work else work
+        ahead = [(LEASED, gone(LEASED))] + [(s_, est(s_)) for s_ in after if s_ != LEASED and s_ in med and w[s_] > 0]
+    elif it.state in work:
         at = work.index(it.state)
-        left = max(0.0, med.get(it.state, 0.0) - max(0.0, now - (it.entered or now)))
-        ahead = [(it.state, left)] + [(s, med[s] * w[s]) for s in work[at + 1:] if s in med and w[s] > 0]
-    elif it.state == LEASED or held(it.fields):
-        ahead = [(s, med[s] * w[s]) for s in work if s in med and w[s] > 0]
-        if ahead and ahead[0][0] == LEASED:
-            ahead[0] = (LEASED, max(0.0, ahead[0][1] - max(0.0, now - (it.entered or now))))
+        ahead = [(it.state, gone(it.state))] + [(s_, est(s_)) for s_ in work[at + 1:] if s_ != LEASED and s_ in med and w[s_] > 0]
     else:
-        ahead = [(s, med[s] * w[s]) for s in work if s in med and w[s] > 0]
+        ahead = [(s_, est(s_)) for s_ in work if s_ in med and w[s_] > 0]
     return sum(x for _, x in ahead), ahead, True
 
 
@@ -322,7 +332,8 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None) -> 
     pairs = [(end_of(x), y) for x, y in before if x in todo and y in todo]
     for p_, cs in kids.items():
         pairs += [(p_, c) for c in cs] + [(end_of(c), p_ + END) for c in cs]
-    plan = cpm(d, pairs, [a for a in todo if st[a] == "active" and a not in kids])
+    plan = cpm(d, pairs, [a for a in todo if st[a] in ("active", "queued") or (st[a] == "blocked" and started(got[a], info[got[a].kind]))
+                          and a not in kids])
     end = max([p["ef"] for p in plan.values()] or [0.0])
     out["end"] = now + end
     crit = sorted((a for a, p in plan.items() if p["critical"] and d[a] > 0), key=lambda a: (plan[a]["es"], a))
