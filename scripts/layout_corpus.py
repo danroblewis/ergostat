@@ -125,7 +125,7 @@ def run_model(pg, name: str, src: Path, port: int, out: Path, views: list[str], 
                     tree = pg.evaluate("() => S.graph.tree || {}")
                 except Exception:
                     tree = {}
-                queries = corpus.views_of(kind, tree)
+                queries = corpus.views_of(kind, tree, 1 if name.startswith("gen-") else None)
             for q in queries:
                 i += 1
                 tag = corpus.view_tag(q)

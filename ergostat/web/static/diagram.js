@@ -5,6 +5,8 @@
 const SIZE = { terminal: [120, 34], auxiliary: [140, 62], stock: [168, 84], valve: [40, 40], disturbance: [40, 40], cloud: [54, 36], sensor: [44, 44], controller: [200, 92], agent: [210, 92] };
 const CH = 6.7;   // px per character, for label sizes
 const OPEN_LOOP = "open loop: acts on its schedule, reads nothing";
+const WRAP_LEGIBLE = 0.75;   // a chain that fits the window at this zoom or more is never wrapped into rows,
+const WRAP_GAIN = 1.25;      // and one that does only when its rows fit this much better
 
 function labelLines(n) {
   if (n.sd) return sdLabelLines(n);                    // the system dynamics view's (dynamics.js)
@@ -1192,9 +1194,13 @@ async function pageDiagram(main, q) {
       // a chain of loops far wider than the window is folded at the pipes between loops, unless told not to
       let lay = await layoutGraph(g, asp, S.wrap === true && (g.kind === "control" || g.kind === "dynamics"));
       S.wrapAuto = false;
-      if (S.wrap == null && (g.kind === "control" || g.kind === "dynamics") && couplings(g).length && lay.width / lay.height > 2 * asp) {
-        lay = await layoutGraph(g, asp, true);
-        S.wrapAuto = true;
+      // (kept only when it fits the window clearly better: a chain wrapped reads worse than one row that fits about as well)
+      const fitOf = (l) => Math.min((r.width - 40) / l.width, (r.height - 90) / l.height);
+      if (S.wrap == null && (g.kind === "control" || g.kind === "dynamics") && couplings(g).length && lay.width / lay.height > 2 * asp &&
+          fitOf(lay) < WRAP_LEGIBLE) {
+        const rows = await layoutGraph(g, asp, true);
+        if (fitOf(rows) >= WRAP_GAIN * fitOf(lay)) { lay = rows; S.wrapAuto = true; }
+        else avoidStart(lay, g);                       // (the router was given the rows last: this one routed again)
       }
       S.layout = lay;
       S.graphSig = sg;
