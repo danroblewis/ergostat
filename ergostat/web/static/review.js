@@ -374,14 +374,14 @@ function impactView(d) {
   const risks = Object.entries(d.goals).filter(([, g]) => g.p_off).map(([n, g]) => lineChart({ group: chartGroup("impact-risk"), name: `${n}: chance off`,
     times: d.ptimes, values: g.p_off, since: d.ptimes[0], until: end, height: 48, yRange: () => [0, 1], zero: true }));
   const goalRows = Object.entries(d.goals).map(([n, g]) => h("div", {}, h("b", {}, n), ` (${g.of} ${g.hold}): `,
-    g.off_at == null ? "holds without the fix" : `off at +${dur(Math.max(0, g.off_at - at))} without the fix, ${dur(g.hours_off * 3600)} off`,
+    g.off_before ? "off before it failed" : g.off_at == null ? "holds without the fix" : `off at +${dur(Math.max(0, g.off_at - at))} without the fix, ${dur(g.hours_off * 3600)} off`,
     g.hours_off_fixed_now != null ? `; fixed now, ${g.hours_off_fixed_now ? dur(g.hours_off_fixed_now * 3600) + " off" : "it holds"}` : "",
     g.said ? h("div", { class: "muted small" }, g.said) : null));
   return [h("p", { class: "predicts" }, d.said),
     stocks.length ? h("div", { class: "review-charts" }, ...stocks) : null,
     stocks.length ? h("p", { class: "muted small" }, `Measured, solid; past now, ${d.kind === "change" ? "the model as it is, dashed; with the change, in blue" : "without the fix, dashed; with it at the best time, in blue"}, over ${dur(d.horizon)} with the loops running.`) : null,
     cost ? h("div", { class: "review-charts" }, cost) : null,
-    cost ? h("p", { class: "muted small" }, `Each rollout time's cost: the goals' hours off (dashed) plus ${dur(ro.penalty * 3600)} for the busiest hour of the day. ${ro.said}.`) : null,
+    cost ? h("p", { class: "muted small" }, `Each rollout time's cost: the hours off of the goals the failure puts off (dashed) plus ${dur(ro.penalty * 3600)} for the busiest hour of the day. ${ro.said}.`) : null,
     risks.length ? h("div", { class: "review-charts" }, ...risks) : null,
     dl([["goals", goalRows.length ? h("div", {}, ...goalRows) : null],
         ["touches", [t.blocks.length ? `blocks ${t.blocks.join(", ")}` : "", t.goals.length ? `goals ${t.goals.join(", ")}` : "",

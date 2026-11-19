@@ -134,13 +134,13 @@ def impact(live, p, snap: dict, one) -> dict:
     with RISKING_LOCK:
         if key not in RISKING:
             def work():
+                r = {"error": "it could not be worked out"}
                 try:
-                    try:
-                        r = im.report(p, what, since, at=snap["at"], within=within, penalty=penalty, budget=RISK_BUDGET * 2)
-                    except im.ImpactError as e:
-                        r = {"error": str(e)}
-                    live.keep(key, r)
+                    r = im.report(p, what, since, at=snap["at"], within=within, penalty=penalty, budget=RISK_BUDGET * 2)
+                except Exception as e:                  # said on the page, never left working for ever
+                    r = {"error": str(e)}
                 finally:
+                    live.keep(key, r)
                     with RISKING_LOCK:
                         RISKING.pop(key, None)
             RISKING[key] = threading.Thread(target=work, name="ergostat-impact", daemon=True)

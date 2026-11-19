@@ -12,7 +12,7 @@ import time
 from statistics import fmean
 
 from ..durations import human
-from ..spec.ir import MODEL_CHANGE, Spec
+from ..spec.ir import DEAD, MODEL_CHANGE, Spec
 from . import closedloop as cl
 from . import fit as ft
 from . import observe as ob
@@ -32,20 +32,15 @@ class ImpactError(ValueError):
     pass
 
 
-def _fields(p, item: str) -> dict:
-    out: dict = {}
-    for e in p.events.query(n=None, item=item):
-        out.update(e.get("data") or {})
-    return out
-
-
 def resolve(p, spec: Spec, parts) -> dict:
     """What changes: ``{"block": NAME}`` or ``{"change": ID}``, with what a failure item says (its block, since, commit,
     tests)."""
     for x in [parts] if isinstance(parts, str) else list(parts or []):
         x = str(x)
         if x.startswith(FAILURE + "/"):
-            f = _fields(p, x)
+            f: dict = {}
+            for e in p.events.query(n=None, item=x):             # its fields: each key's latest value
+                f.update(e.get("data") or {})
             if f.get("block") not in spec.blocks:
                 raise ImpactError(f"{x} names no block of the model")
             return {"block": f["block"], "item": x, **{k: f[k] for k in ("since", "commit", "tests") if f.get(k) is not None}}
@@ -80,8 +75,7 @@ def broken(p, spec: Spec, block: str, since: float, at: float) -> dict:
     b = spec.blocks[block]
     flows = [f"flow.{t.name}" for t in b.targets() if t.kind == "flow" and t.name in spec.flows]
     span = min(DAY, max(3600.0, at - since))
-    n = max(2, min(120, int(span // ob.MIN_BUCKET)))
-    before = ob.measured(p, ob.Grid(since - span, since, n), spec)
+    before = ob.measured(p, ob.Grid(since - span, since, max(2, min(120, int(span // ob.MIN_BUCKET)))), spec)
     after = ob.measured(p, ob.Grid(since, max(at, since + 1.0), max(2, min(120, int((at - since) // ob.MIN_BUCKET)))), spec)
     rows, shares = [], []
     for r in flows:
@@ -133,7 +127,8 @@ def daily(p, spec: Spec, into: list[str], at: float) -> tuple[list[float] | None
     span = min(WEEK, at - oldest)
     if not ins or span < DAY:
         return None, ins
-    data = ob.measured(p, ob.Grid(at - span, at, int(span // 3600)), spec)
+    end = at // 3600 * 3600                                      # buckets of whole clock hours
+    data = ob.measured(p, ob.Grid(end - span // 3600 * 3600, end, int(span // 3600)), spec)
     by: dict[int, list[float]] = {}
     for i, t in enumerate(data.grid.times()):
         vs = [data.values.get(r, [None] * data.grid.n)[i] for r in ins]
@@ -148,8 +143,7 @@ def daily(p, spec: Spec, into: list[str], at: float) -> tuple[list[float] | None
 
 
 def _recovery(cr: cl.ClosedRun, d: float, goals: list[str], stocks: list[str], level: dict) -> float | None:
-    """Hours after ``d`` until, to the end, ``goals`` hold and ``stocks`` are near ``level`` (where the fix made now settles
-    them)."""
+    """Hours after ``d`` until, to the end, ``goals`` hold and ``stocks`` are near ``level`` (where fixing now settles them)."""
     def ok(i: int) -> bool:
         return not any(cr.off_end[g][i] for g in goals) and all((v := (cr.values.get(r) or [None])[i]) is None or level.get(r) is None or
                    v <= level[r] + BACK * max(abs(level[r]), 1.0) for r in stocks)
@@ -166,9 +160,8 @@ def _goal_rows(spec: Spec, cr: cl.ClosedRun, before: dict | None = None) -> dict
     for name, g in spec.goals.items():
         ends = cr.off_end.get(name) or []
         i = next((k for k, v in enumerate(ends) if v), None)
-        out[name] = {"of": str(g.of), "hold": str(g.hold), "off_at": cr.times[i] if i is not None else None,
-                     "off_before": (before or {}).get(name) == "off",
-                     "off_end": bool(ends and ends[-1]), "hours_off": round(cr.off_hours.get(name, 0.0), 4)}
+        out[name] = {"of": str(g.of), "hold": str(g.hold), "off_at": cr.times[i] if i is not None else None, "off_before": (
+            before or {}).get(name) == "off", "off_end": bool(ends and ends[-1]), "hours_off": round(cr.off_hours.get(name, 0.0), 4)}
     return out
 
 
@@ -184,11 +177,20 @@ def _charts(spec: Spec, data: ob.Data, refs: list[str], without, with_) -> list[
     return out
 
 
+def _ends(spec: Spec, refs) -> list[str]:
+    """``refs`` and the stocks their flows move."""
+    return list(dict.fromkeys([f"stock.{s}" for r in refs if r.startswith("flow.") and r[5:] in spec.flows
+                               for s in (spec.flows[r[5:]].source, spec.flows[r[5:]].target) if s] + list(refs)))
+
+
 def _around(spec: Spec, refs: set[str], but: str | None = None) -> tuple[list[str], list[str]]:
     """The blocks that read ``refs`` or the stocks their flows move (other than ``but``), and the goals on them."""
-    moved = refs | {f"stock.{s}" for r in refs if r.startswith("flow.") and r[5:] in spec.flows
-                    for s in (spec.flows[r[5:]].source, spec.flows[r[5:]].target) if s}
-    return (sorted(o.name for o in spec.blocks.values() if o.name != but and any(str(r) in moved for r in o.reads())),
+    moved = set(_ends(spec, refs))
+    held = {(z.items.get("kind"), st) for r in moved if r.startswith("stock.") and r[6:] in spec.stocks   # a block that takes
+            for z in spec.stocks[r[6:]].sensors.values() if z.items                                     # items from those
+            for st in (z.items.get("state") if isinstance(z.items.get("state"), list) else [z.items.get("state")])}   # reads them
+    reads = lambda o: any(str(r) in moved for r in o.reads()) or (o.takes and any((o.takes.kind, a) in held for a in o.takes.at))  # noqa: E731
+    return (sorted(o.name for o in spec.blocks.values() if o.name != but and reads(o)),
             sorted(g.name for g in spec.goals.values() if str(g.of) in moved))
 
 
@@ -203,7 +205,7 @@ def touches(p, spec: Spec, block: str) -> dict:
         from ..spec import items as its
         counts = (next((k for k in its.listing(p.events, spec, kind=b.takes.kind, n=1)["kinds"] if k["name"] == b.takes.kind),
                        {}).get("counts") or {})
-        items = {"kind": b.takes.kind, "states": {s: counts.get(s, 0) for s in b.takes.at}}
+        items = {"kind": b.takes.kind, "states": {s: counts.get(s, 0) for s in b.takes.at}, "dead": counts.get(DEAD, 0)}
     return {"touches": {"blocks": readers, "goals": goals, "commands": commands, "actions": acts},
             "read_only": not acts, "writes": [a["name"] for a in acts], "items": items}
 
@@ -216,38 +218,33 @@ def _rollback(t: dict, commit: str | None, block: str) -> dict:
         waiting = ", ".join(f"{n} in {s}" for s, n in it["states"].items())
         said += (f"; the {it['kind']} items it moved stay where they are, the ones it would take next wait ({waiting} now), "
                  f"and a run in flight gives its item back when its lease expires")
+        if it["dead"]:
+            said += (f". {it['dead']} {it['kind']} items are dead letters now (given up on after their attempts): the fix does "
+                     f"not bring them back; redrive them once it is in (ergostat lease ITEM --redrive)")
     if t["writes"]:
         said += f"; what its actions did outside ({', '.join(t['writes'])}) is not undone by the revert"
     return {"how": how, "items": it, "said": said}
 
 
 def risk_level(t: dict, tests: str | None) -> dict:
-    why, pts = [], 0
-    for a in t["touches"]["actions"]:
-        k = 2 if a["gate"] == "auto" else 1 if a["gate"] == "approve" else 0
-        if k:
-            pts += k
-            why.append(f"it writes: {a['name']} ({'runs without asking' if k == 2 else 'held for approval'})")
+    acts = [(2 if a["gate"] == "auto" else 1, a["name"]) for a in t["touches"]["actions"] if a["gate"] in ("auto", "approve")]
+    pts = sum(k for k, _ in acts)
+    why = [f"it writes: {n} ({'runs without asking' if k == 2 else 'held for approval'})" for k, n in acts]
     radius = sum(len(t["touches"][k]) for k in ("blocks", "goals", "commands"))
-    if radius > 3:
-        pts += 1
-        why.append(f"a blast radius of {radius} parts")
-    if tests in (None, ""):
-        pts += 1
-        why.append("its tests were not run")
-    elif tests != "passed":
-        pts += 4
-        why.append("its tests failed")
+    for k, said in ((1 if radius > 3 else 0, f"a blast radius of {radius} parts"), (1 if not tests else 0, "its tests were not run"),
+                    (4 if tests and tests != "passed" else 0, "its tests failed")):
+        pts, why = pts + k, why + [said] if k else why
     return {"level": "low" if pts <= 1 else "medium" if pts <= 3 else "high", "why": why or ["reads only, a small radius, tested"]}
 
 
 def confidence(spec: Spec, data: ob.Data, run: sim.Run, models: dict, refs: list[str], valid: bool) -> dict:
     fit = ft.compare(spec, data, run) if run.valid else {"stocks": {}}
-    parts = [{"ref": m.block, "how": f"assumed: {m.assumed}" if m.assumed else f"identified from {m.basis}"} for m in models.values()]
+    parts = [{"ref": m.label or m.block, "how": f"assumed: {m.assumed}" if m.assumed else f"identified from {m.basis}"}
+             for m in models.values()]
     skills, low = [], [x["ref"] for x in parts if x["how"].startswith("assumed")]
     for r in refs:
         s = fit["stocks"].get(r)
-        if s and s.get("n") and not s.get("exact"):
+        if s and s.get("n") and not s.get("exact") and s.get("r2") is not None:
             parts.append({"ref": r, "how": "fit on the reference window", "r2": s.get("r2"), "skill": s.get("skill")})
             if s.get("skill") is not None:
                 skills.append(s["skill"])
@@ -302,10 +299,11 @@ def report(p, parts, since: float | None = None, *, at: float | None = None, wit
     without, now_fixed = run_with(None), run_with(at)
     was = cl.start_of(p, spec, since).status                    # each goal as it was when the failure began
     held = [g for g in spec.goals if was.get(g) != "off"]       # what the failure can put off, and the fix restore
-    goals = _goal_rows(spec, without, was)
-    put_off = [g for g in held if goals[g]["off_at"] is not None]   # what the failure puts off: recovered once they hold
-    fixed_now = _goal_rows(spec, now_fixed)
-    rk = None
+    goals, fixed_now = _goal_rows(spec, without, was), _goal_rows(spec, now_fixed)
+    for g, x in goals.items():
+        x["hours_off_fixed_now"] = fixed_now[g]["hours_off"]
+        x["due"] = not x["off_before"] and x["hours_off"] > x["hours_off_fixed_now"] + 0.01 * horizon / 3600.0
+    put_off = [g for g in held if goals[g]["due"]]              # what the failure puts off: recovered once they hold
     building = [s["ref"] for s in br["stocks"] if s["building"]] or br["drains"]
     level = {r: next((v for v in reversed(now_fixed.values.get(r) or []) if v is not None), None) for r in building}
     prof, ins = daily(p, spec, br["drains"], at)
@@ -318,7 +316,8 @@ def report(p, parts, since: float | None = None, *, at: float | None = None, wit
             break
         d = at + within * i / max(1, n - 1)
         cr = now_fixed if i == 0 else run_with(d)
-        each = {g: round(cr.off_hours[g], 4) for g in held if cr.off_hours[g] > 0}
+        each = {g: round(cr.off_hours[g], 4) for g in put_off if cr.off_hours[g] > 0}   # the cost of waiting: the goals the
+        # failure puts off (what the fix itself puts off happens whenever it is rolled out, and only leaves the horizon later)
         moved = sum(v for r in mine for v in cr.values.get(r) or [] if v is not None) * horizon / POINTS / 3600.0
         off = sum(each.values())
         busy = prof[time.localtime(d).tm_hour] if prof else 0.0
@@ -326,10 +325,8 @@ def report(p, parts, since: float | None = None, *, at: float | None = None, wit
         options.append({"at": d, "hours_off": round(off, 4), "goals_off": each, "peak": peak, "busy": round(busy, 3), "moved": moved,
                         "recovery": _recovery(cr, d, put_off, building, level), "cost": round(off + penalty * busy, 4),
                         "_run": cr})
-    best = min(options, key=lambda o: (o["cost"], o["at"]))
-    with_best = best.pop("_run")
-    for o in options:
-        o.pop("_run", None)
+    with_best = (best := min(options, key=lambda o: (o["cost"], o["at"]))).pop("_run")   # the cheapest, the earliest of equals
+    [o.pop("_run", None) for o in options]
     left = budget - (time.monotonic() - began)
     if spec.goals and left > 0.5 and runs > 0:
         from . import sensitivity as sens
@@ -340,8 +337,6 @@ def report(p, parts, since: float | None = None, *, at: float | None = None, wit
                              "said": cl.risk_said(rk, g)})
         if rk.get("stopped"):
             notes.append(f"risk {rk['stopped']}")
-    for g, x in goals.items():
-        x["hours_off_fixed_now"] = fixed_now[g]["hours_off"]
     t = touches(p, spec, block)
     rollback = _rollback(t, commit, block)
     refs = list(dict.fromkeys(building + [s["ref"] for s in br["stocks"]] + mine +
@@ -361,8 +356,9 @@ def report(p, parts, since: float | None = None, *, at: float | None = None, wit
 def _best_said(options: list[dict], best: dict, penalty: float) -> str:
     first, h = options[0], (lambda x: human(x * 3600) if x else "none")
     if best is first:
-        why = "every wait adds goal-off time" if len(options) > 1 and options[-1]["hours_off"] > first["hours_off"] else \
-            "waiting saves nothing"
+        lost = first["moved"] - options[-1]["moved"]
+        why = ("every wait adds goal-off time" if len(options) > 1 and options[-1]["hours_off"] > first["hours_off"] else
+               "waiting gains nothing") + (f", and its flows move {lost:.3g} less by the last time tried" if lost > 1e-6 else "")
         off = f"{h(first['hours_off'])} of goal-off time" if first["hours_off"] else "no goal goes off"
         return f"roll it out now: {why} ({off})" + (f", though this hour is busy ({first['busy']:.0%})" if first["busy"] > 0.5 else "")
     when = f"at {time.strftime('%a %H:%M', time.localtime(best['at']))} (+{human(best['at'] - first['at'])})"
@@ -382,13 +378,13 @@ def _said(r: dict) -> str:
     br = r["broken"]
     flows = "; ".join(x["said"] for x in br["flows"]) or "it moves no flow"
     up = [f"{s['ref'][6:]} {s['at_failure']:.3g} → {s['now']:.3g}" for s in br["stocks"] if s["building"]]
-    off = sorted(((g, x) for g, x in r["goals"].items() if x["off_at"] is not None and not x["off_before"]),
-                 key=lambda gx: gx[1]["off_at"])
+    off = sorted(((g, x) for g, x in r["goals"].items() if x["due"]), key=lambda gx: gx[1]["off_at"])
     already = [g for g, x in r["goals"].items() if x["off_before"]]
     goals = "; ".join(f"{g} off at +{human(max(0.0, x['off_at'] - r['at']))}" + (f" (p≈{x['p_off_end']:.2g} off at the horizon)"
                                                                                 if x.get("p_off_end") is not None else "")
-                      for g, x in off[:3]) or "no goal that held goes off"
+                      for g, x in off[:3]) or "no goal that held goes off for want of it"
     goals += f" (off before it failed: {', '.join(already)})" if already else ""
+    flows += f"; {dead} items are dead letters" if (dead := (r["fields"]["rollback"]["items"] or {}).get("dead")) else ""
     return (f"{br['block']} has failed since {time.strftime('%a %H:%M', time.localtime(br['since']))} "
             f"({human(r['at'] - br['since'])} ago): {flows}" + (f"; building up: {', '.join(up)}" if up else "") +
             f". Without the fix: {goals} within {human(r['horizon'])}. {r['rollout']['said'][0].upper()}{r['rollout']['said'][1:]}."
@@ -409,6 +405,7 @@ def _change(p, spec: Spec, pid: str, data: ob.Data, run: sim.Run, at: float, beg
     b, a = fc["before"], fc["after"]
     refs = [r for r in (x.get("parts") or []) if r.startswith(("stock.", "flow."))] or \
         [str(g.of) for g in spec.goals.values() if g.of.kind == "stock"]
+    refs = _ends(spec, refs)
     goals = _goal_rows(spec, b) if isinstance(b, cl.ClosedRun) else {}
     if isinstance(a, cl.ClosedRun):
         for g, y in _goal_rows(after, a).items():

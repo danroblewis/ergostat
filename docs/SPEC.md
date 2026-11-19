@@ -4007,13 +4007,13 @@ tests=None, commit=None, runs=40, budget=20.0)`:
             "stocks": [{"ref", "at_failure", "now", "building"}]},          # a failure only
  "horizon": seconds, "times": [past grid], "ptimes": [projection times],
  "charts": [{"ref", "name", "unit", "per", "measured", "without", "with"}],   # with: at the ideal time (a change: with it)
- "goals": {NAME: {"of", "hold", "off_at": time | None, "off_before": bool, "off_end": bool, "hours_off": h, "hours_off_fixed_now": h,
+ "goals": {NAME: {"of", "hold", "off_at": time | None, "off_before": bool, "due": bool, "off_end": bool, "hours_off": h, "hours_off_fixed_now": h,
                   "p_off_end", "expected_off", "p_off": [per ptime], "said"}},
  "rollout": {"unit", "penalty", "busy_from", "options": [{"at", "hours_off", "goals_off", "peak", "moved", "recovery", "busy", "cost"}],
              "best": {"at", ...}, "said": one sentence} | None,            # a change: None, and why in "notes"
  "fields": {"touches": {"blocks": [...], "goals": [...], "commands": [...], "actions": [{"name", "gate"}]},
             "read_only": bool, "writes": [...],
-            "rollback": {"how", "items": {"kind", "states": {STATE: count}}, "said"},
+            "rollback": {"how", "items": {"kind", "states": {STATE: count}, "dead"}, "said"},
             "risk": {"level": "low" | "medium" | "high", "why": [...]},
             "confidence": {"level", "parts": [{"ref", "how", "r2", "skill"}], "said"}},
  "notes": [...], "stopped": None | why, "seconds": wall time}
@@ -4029,14 +4029,17 @@ identified on the reference window that ends when the failure began, times `shar
 machine block by its model identified now. The horizon is twice the time the rollout times span (at least that time plus the
 projection's usual horizon), so a fix rolled out last has room to recover. For each goal: when it goes off (`off_at`), whether it is off at the horizon, its hours off, and its risk
 (section 12c's Monte Carlo, `runs` runs, within what is left of the budget). **With the fix at time d**, for each
-rollout time: the same, the block's model restored from d. Its cost is the goals' hours off plus `penalty` × how busy
+rollout time: the same, the block's model restored from d. Its cost is the hours off of the goals the failure puts off (`due`, below: what the fix itself puts off
+happens whenever it is rolled out) plus `penalty` × how busy
 the hour of day of d is (the record's mean arrival rate at that hour, over the last week at most, of the flows from
 outside into the stocks the block's flows drain, else of every flow from outside; scaled from 0 at the quietest hour
 to 1 at the busiest; 0 everywhere when the record has no daily pattern, said). Also said: the backlog's peak (the
 highest of the stocks building up, else the stocks it drains) and what the block's flows move over the horizon (`moved`: what waiting loses, said, not
 priced), and the recovery time after d (until, to the end, every goal
 that held when the failure began and goes off without the fix holds and those stocks are within 5% of where the fix made now settles them). A
-goal already off when the failure began (`off_before`) is said apart, and its time off is not counted in the cost. The **ideal
+goal already off when the failure began (`off_before`) is said apart, and its time off is not counted in the cost. A
+goal is **due** to the failure when it held when the failure began and is off longer without the fix than with it
+made now (by more than a hundredth of the horizon); the sentence names those. The **ideal
 rollout time** is the cheapest, the earliest of equals, and why in one sentence. When the budget runs out, the rollout
 times not tried are left out and `stopped` says so.
 
@@ -4048,7 +4051,8 @@ the world.
 stocks, the blocks it commands, and its gated actions (section 12k) with their gates. *Read-only*: it has no gated
 actions; else *writes* names them. *Rollback*: revert the fix's commit (`git revert COMMIT`); a block that takes items
 leaves the items it moved where they are, the ones it would take next wait in its `takes.at` states (counted now), and
-a run in flight gives its item back when its lease expires. For a change: revert the edit; the record is untouched.
+a run in flight gives its item back when its lease expires; the items of its kind that are dead letters (given up on after their
+attempts while it failed, section 9.5) are counted and said: the fix does not bring them back, a redrive does. For a change: revert the edit; the record is untouched.
 *Risk level*: a point each for writes (two for an action with `gate: auto`), a blast radius of more than three parts,
 and tests not run; failed tests make it high; 0 or 1 is low, 2 or 3 medium, more high; each point said. *Confidence*:
 each part's identified model (identified, or assumed for want of record) and each stock's fit on the reference window
