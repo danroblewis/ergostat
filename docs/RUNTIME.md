@@ -246,8 +246,9 @@ stateDiagram-v2
 minutes (three rounds of readings), first as `run:` commands (a small Python script each) and then as one shared
 sensor daemon. It is watched: killed past 1,500 threads or 6 GB.
 
-Every number below is a field of one row of `docs/proposals/daemon-results.jsonl`, written by the script as it stands
-(one run each, 6.53 minutes, three rounds of readings, the watchdog on).
+The numbers below come from `docs/proposals/daemon-results.jsonl`, written by the script as it stands (one run each,
+6.53 minutes, three rounds of readings, the watchdog on): each is a field of its row, rounded, or (the share of a core)
+that field as a percentage.
 
 | | 20 sensors, processes | 20 sensors, daemon | 170 sensors, processes | 170 sensors, daemon |
 |---|---|---|---|---|
