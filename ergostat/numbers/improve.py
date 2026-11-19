@@ -326,7 +326,7 @@ class Evidence:
             return got[what]
         if kind == "request":
             from . import requests as rq
-            x = rq.stored(self.p).get(what.removeprefix(f"{rq.MODEL_REQUEST}/"))
+            x = rq.stored(self.p).get(what.removeprefix(f"{rq.MODELLING_REQUEST}/"))
             if x is None or x["state"] == "answered":
                 raise ProposeError(f"{ev}: no request open by that id")
             return str(x.get("says") or x.get("code"))
@@ -381,7 +381,7 @@ class Evidence:
         where = ", ".join(sorted(near)[:6]) + ("…" if len(near) > 6 else "")
         if kind == "request":
             from . import requests as rq
-            x = rq.stored(self.p).get(what.removeprefix(f"{rq.MODEL_REQUEST}/")) or {}
+            x = rq.stored(self.p).get(what.removeprefix(f"{rq.MODELLING_REQUEST}/")) or {}
             about = x.get("about")
             return None if about in (None, "model") or about in near else \
                 f"{ev}: about {about}, which the change does not touch (it touches {where})"

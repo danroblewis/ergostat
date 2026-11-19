@@ -1,5 +1,5 @@
 """Work for modelling (SPEC §12e): everything ``check`` finds becomes a **request** the modelling subsystem holds, an
-item of ergostat's built-in kind ``ergostat.model-request`` (``ergostat.model-request/<id>``), until it is answered.
+item of ergostat's built-in kind ``ergostat.modelling-request`` (``ergostat.modelling-request/<id>``), until it is answered.
 
 What raises one: a finding ``check`` reports (the structure tests, a kind's chain, control, signs, the extreme
 conditions), a craft note (``spec/craft.py``: a part with no description, a stock with no unit, a flow between stocks
@@ -26,7 +26,7 @@ import hashlib
 import time
 from pathlib import Path
 
-from ..spec.ir import MODEL_REQUEST, Spec
+from ..spec.ir import MODELLING_REQUEST, Spec
 from . import proposals as pr
 from . import version as ver
 
@@ -45,7 +45,7 @@ def rid(source: str, code: str, about: str) -> str:
 
 
 def item_of(x: str) -> str:
-    return f"{MODEL_REQUEST}/{x}"
+    return f"{MODELLING_REQUEST}/{x}"
 
 
 def evidence_of(r: dict) -> str:
@@ -113,12 +113,12 @@ def gather(p, spec: Spec, coherence: bool = True, extremes: bool = True) -> list
 def stored(p) -> dict[str, dict]:
     """Every request in the record, folded: ``{id: {state, ...fields}}``."""
     from ..spec import items as its
-    from ..spec.ir import model_request_kind
+    from ..spec.ir import modelling_request_kind
     by: dict[str, list[dict]] = {}
-    for e in p.events.query(n=None, type=f"{MODEL_REQUEST}.*"):
+    for e in p.events.query(n=None, type=f"{MODELLING_REQUEST}.*"):
         if "/" in str(e.get("item") or ""):
             by.setdefault(e["item"], []).append(e)
-    kind = model_request_kind()
+    kind = modelling_request_kind()
     out = {}
     for item, evs in by.items():
         it = its.fold(item, evs, kind)
@@ -127,7 +127,7 @@ def stored(p) -> dict[str, dict]:
 
 
 def event(p, x: str, what: str, data: dict | None = None, source: str = "ergostat") -> dict:
-    return p.events.add(f"{MODEL_REQUEST}.{what}", item=item_of(x), source=source, data=data or {})
+    return p.events.add(f"{MODELLING_REQUEST}.{what}", item=item_of(x), source=source, data=data or {})
 
 
 def _citing(changes: dict[str, tuple[str, dict]]) -> dict[str, list[dict]]:
