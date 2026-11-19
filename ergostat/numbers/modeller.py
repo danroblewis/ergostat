@@ -189,3 +189,11 @@ def answer(p, reqs: list[dict], model: str = "haiku", retry: bool = True) -> dic
             break
         reqs = left
     return {"proposals": good, "cannot": cannot, "cost": cost, "tried": tried}
+
+
+def result_line(cost: dict) -> dict:
+    """A run's cost as a Claude Code result message, so the engine records it on the run (``costs/ai.py``)."""
+    return {"type": "result", "subtype": "success", "total_cost_usd": round(cost.get("usd") or 0.0, 6),
+            "num_turns": cost.get("calls") or 0,
+            "usage": {"input_tokens": cost.get("tokens_in") or 0, "output_tokens": cost.get("tokens_out") or 0},
+            "modelUsage": {}}

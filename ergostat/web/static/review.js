@@ -167,23 +167,20 @@ function redesignView(e) {
 }
 
 /* the redesigns judged not better: their scorecards, so the owner sees why */
-function redesignsJudgedView(rs) {
-  if (!rs?.judged?.length) return null;
-  return h("div", { class: "redesigns-judged" }, h("h3", {}, "Redesigns judged not better"),
-    ...rs.judged.map((x) => h("details", {}, h("summary", {}, x.title || "a redesign", h("span", { class: "muted small" }, ` ${x.state}: ${x.why || ""}`)),
-      scorecardView(x.scorecard), h("ol", { class: "redesign-edits" }, ...(x.edits || []).map((y) => h("li", { class: "small" }, y.said, y.why ? h("span", { class: "muted" }, ` — ${y.why}`) : null))))));
-}
-
-/* the owner asks for a redesign of a system (or the whole model): it runs in the background, its change set joins the queue */
+/* the owner asks for a redesign of a system (or the whole model): recorded, and the redesigner block takes it up
+   on its next run; its change set joins the queue. What it made last is a model-change item (the Items tab) */
 function redesignAsk(rs, onAsked) {
-  if (!rs || SNAP) return null;
+  if (!rs || SNAP || !rs.on) return null;
   const pick = h("select", { "aria-label": "The system to redesign" }, ...(rs.systems || ["model"]).map((x) => h("option", { value: x }, x === "model" ? "the whole model" : x)));
-  const said = h("span", { class: "muted small" }, rs.running ? `a redesign of ${rs.last?.system || "the model"} is running…`
-    : rs.last?.result ? `last redesign: ${rs.last.result}${rs.last.why_not ? ` (${rs.last.why_not})` : ""}` : "");
-  const btn = h("button", { class: "ghost", disabled: rs.running ? "" : null, title: `One change set of many edits, judged as a whole by a scorecard (${rs.settings?.model || "haiku"}, at most $${rs.settings?.budget ?? 0.5}, ${rs.settings?.rounds ?? 3} rounds)`,
+  const asked = rs.asked || [];
+  const last = rs.last;
+  const said = h("span", { class: "muted small" }, asked.length ? `asked: a redesign of ${asked.join(", ")}; the redesigner takes it up on its next run` : "",
+    !asked.length && last ? [`last redesign of ${last.system}: ${last.result}${last.why ? ` (${last.why})` : ""}`,
+      last.id ? [" ", h("a", { href: `/item/${encodeURIComponent(`ergostat.model-change/${last.id}`)}` }, "its item")] : null] : null);
+  const btn = h("button", { class: "ghost", title: `One change set of many edits, judged as a whole by a scorecard (${rs.settings?.model || "haiku"}, at most $${rs.settings?.budget ?? 0.5} a run, $${rs.settings?.daily ?? 2} a day)`,
     onclick: async () => {
       btn.disabled = true; said.textContent = "Asking…";
-      try { const g = await apiPost("redesign", { system: pick.value }); said.textContent = `Redesigning ${g.asked} on ${g.model}… its change set comes here when it ends.`; onAsked?.(); }
+      try { const g = await apiPost("redesign", { system: pick.value }); said.textContent = `Asked: a redesign of ${g.asked}; the redesigner takes it up on its next run, and its change set comes here.`; onAsked?.(); }
       catch (err) { said.className = "s-open small"; said.textContent = String(err.message || err); btn.disabled = false; }
     } }, "Redesign…");
   return h("span", { class: "redesign-ask" }, pick, btn, said);

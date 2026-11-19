@@ -632,14 +632,9 @@ def queue(live, p, snap: dict) -> dict:
                   "code": "turned-away", "by": x["by"], "item": x["item"]}
                  for x in mem.turned(p, spec) if x["by"] == "ergostat"][:12]
     from ..numbers import redesign as rd
-    judged = sorted((x for x in pr.stored(p).values() if x.get("kind") == "redesign" and x["state"] in ("failed", "refused")),
-                    key=lambda x: -(x.get("made") or x.get("created") or 0))[:3]
     return {"queue": rv.entries(p, spec, control), "not_made": not_made,
-            "redesigns": {"judged": [{"id": x["id"], "title": x.get("title"), "state": x["state"],
-                                      "why": (x.get("verdict") or {}).get("why") or x.get("why"),
-                                      **rv.redesign_view(x)} for x in judged],
-                          "systems": ["model", *sorted(spec.systems)], "running": REDESIGNING.locked(),
-                          "last": dict(REDESIGN_STATUS) or None, "settings": rd.settings(spec)},
+            "redesigns": {"systems": ["model", *sorted(spec.systems)], "asked": rd.asked(p), "last": rd.last(p),
+                          "settings": rd.settings(spec), "on": "redesigner" in spec.blocks},
             "loops_analysed": sum(1 for g in goals if (LOOPS_SEEN.get(g) or (None,))[0] == live.mtime), "loops": len(goals),
             "can": [{"what": a, "how": b} for a, b in rv.stc.CAN], "cannot": rv.stc.CANNOT}
 
@@ -715,42 +710,21 @@ def effect(live, p, snap: dict, ids: str | None) -> dict:
     return got
 
 
-REDESIGNING = threading.Lock()
-REDESIGN_STATUS: dict = {}
-
-
 def redesign_asked(live, p, system: str) -> tuple[int, dict]:
-    """The owner asks for a redesign: recorded (``ergostat.model.redesign-asked``) and run now, in the background,
-    with the template's settings (one at a time); what it makes joins the review queue."""
+    """The owner asks for a redesign: recorded (``ergostat.model.redesign-asked``), for the redesigner block to take
+    up on its next run; what it makes joins the review queue. Nothing runs in the page server."""
     from ..numbers import redesign as rd
-    from ..numbers import redesigner as rdr
     try:
-        got = rd.ask(p, system)
+        s = rd.system_of(p.model.spec, system)
     except ValueError as e:
         return 400, {"error": str(e)}
-    s = got["asked"]
     w = rd.waiting(p, p.model.spec, s)
     if w is not None:
         return 409, {"error": f"a redesign of {s} is waiting already: in the queue below", "id": w["id"]}
-    if not REDESIGNING.acquire(blocking=False):
-        return 409, {"error": "a redesign is running already: its change set comes when it ends"}
-    conf = rd.settings(p.model.spec)
-    rd.ran(p, s, {"by": "owner", "asked": True, "result": "started", "version": rd.ver.version(p.model.spec)})
-    REDESIGN_STATUS.update({"system": s, "started": time.time(), "result": None})
-
-    def work():
-        try:
-            out = rdr.run(p, s, ["the owner asked"], model=conf["model"], budget=conf["budget"], rounds=conf["rounds"])
-            rd.ran(p, s, {"by": "owner", "asked": True, "result": out.get("result"), "id": out.get("id"),
-                          "cost": out["cost"], "version": out["version"], "rounds": len(out["rounds"])})
-            REDESIGN_STATUS.update({"result": out.get("result"), "id": out.get("id"), "ended": time.time(),
-                                    "cost": out["cost"], "why_not": out.get("why_not")})
-        except Exception as e:                       # said on the page, never lost
-            REDESIGN_STATUS.update({"result": "failed", "why_not": f"{type(e).__name__}: {e}", "ended": time.time()})
-        finally:
-            REDESIGNING.release()
-    threading.Thread(target=work, name="ergostat-redesign", daemon=True).start()
-    return 200, {"asked": s, "running": True, "model": conf["model"], "budget": conf["budget"], "rounds": conf["rounds"]}
+    if "redesigner" not in p.model.spec.blocks:
+        return 409, {"error": "no redesigner in the model: use: modelling with ai: true has one"}
+    got = rd.ask(p, s)
+    return 200, {"asked": got["asked"], **rd.settings(p.model.spec)}
 
 
 def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, dict]:

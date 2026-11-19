@@ -907,8 +907,8 @@ async function pageModel(main) {
   p.append(h("h2", {}, "What's available"), availBox);
   const fitBox = h("div"), eqBox = h("div"), accBox = h("div"), notes = h("div"), histBox = h("div"), resBox = h("div"), cap = h("p", { class: "note" });
   const qHead = h("h2", { id: "review-queue" }, "Changes to review"), qActions = h("div", { class: "actions" }), allBox = h("div", { class: "review-all" });
-  const queueBox = h("div", { class: "review" }), whyBox = h("div"), canBox = h("div"), redesignBox = h("div");
-  p.append(qHead, qActions, allBox, queueBox, redesignBox, whyBox, h("h2", {}, "What ergostat can propose"), canBox,
+  const queueBox = h("div", { class: "review" }), whyBox = h("div"), canBox = h("div");
+  p.append(qHead, qActions, allBox, queueBox, whyBox, h("h2", {}, "What ergostat can propose"), canBox,
            h("h2", { id: "model-fit" }, "How well the model fits"), fitBox, eqBox, accBox, notes, h("h2", {}, "History"), histBox, h("h2", {}, "Residuals"), resBox, cap);
   let propSig = null, busy = false, chosen = "parts";
   async function estimateNow(btn, said, which = "parts") {
@@ -948,7 +948,7 @@ async function pageModel(main) {
     const why = Object.entries(d.not_proposed || {});
     const q = d.queue || [];
     const sig = JSON.stringify(q.map((x) => [x.id, x.diff?.hash, x.conflicts.length, x.state])) + (d.estimated_at || "") + JSON.stringify(why) + d.loops_analysed +
-      JSON.stringify([(d.redesigns?.judged || []).map((x) => x.id), d.redesigns?.running, d.redesigns?.last?.result]);
+      JSON.stringify([d.redesigns?.asked, d.redesigns?.last?.id, d.redesigns?.last?.result]);
     if (sig !== propSig && !answering()) {
       propSig = sig;
       const said = h("span", { class: "muted small" });
@@ -970,7 +970,6 @@ async function pageModel(main) {
           : "no parameter is marked estimate: true"),
         d.loops_analysed < d.loops ? h("span", { class: "muted small" }, `loops analysed for proposals: ${d.loops_analysed} of ${d.loops}`) : null,
         said, redesignAsk(d.redesigns, () => { propSig = null; setTimeout(tick, 600); })].filter(Boolean));
-      patch(redesignBox, redesignsJudgedView(d.redesigns));
       queueBox.replaceChildren(...(q.length ? q.map((x) => reviewEntry(x, { onDone: () => { propSig = null; allBox.replaceChildren(); setTimeout(tick, 600); } }))
         : [h("p", { class: "muted" }, "Nothing waiting.")]));
       whyBox.replaceChildren(...(why.length ? [h("h3", {}, "Estimates not proposed"),

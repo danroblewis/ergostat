@@ -97,12 +97,12 @@ params:
     description: the requests given to one AI call
   redesign:
     type: any
-    default: {when: auto, model: haiku, budget: 0.5, rounds: 3}
-    description: 'the redesigner, with ai: true (SPEC §12e, Redesign): one change set of many edits for a whole system, judged by a scorecard; when (auto: when the model is clearly wrong, on its first run, or when the owner asks; ask: only when asked, by ergostat improve --redesign or the Model page; off), model (haiku), budget (dollars a run, 0.5), rounds (on its scratch copy, 3). Never written without the owner unless accept: {redesign: auto}'
+    default: {when: ask, model: haiku, budget: 0.5, rounds: 3, daily: 2}
+    description: 'the redesigner, with ai: true (SPEC §12e, Redesign): one change set of many edits for a whole system, judged by a scorecard; when (ask: when the owner asks, by ergostat improve --redesign or the Model page; off), model (haiku), budget (dollars a run, 0.5), rounds (on its scratch copy, 3), daily (dollars its runs spend in a day at most, 2). Never written without the owner unless accept: {redesign: auto}, and then never one that takes a part away, rewires a chain or changes control'
   redesign-every:
     type: duration
     default: 10m
-    description: the least time between the redesigner's runs while requests wait (each run does nothing unless the model is clearly wrong or the owner asked)
+    description: the least time between the redesigner's runs while requests wait (each run does nothing unless the owner asked)
   requests-every:
     type: duration
     default: 2m
@@ -181,10 +181,10 @@ stocks:
       every: ${count-every}
   unanswered-requests:
     unit: requests
-    description: what check finds that no change has answered yet (open, with a change waiting, or held for the owner or the AI tier)
+    description: what check finds that modelling is still working on (open, or with a change waiting); one held for the owner or more record leaves the count, so requests-handled can be met
     sensor:
       items: ergostat.model-request
-      state: [open, proposed, held]
+      state: [open, proposed]
       every: ${count-every}
   answered-requests:
     unit: requests
@@ -242,7 +242,7 @@ flows:
       over: ${over}
   changes-made-by-redesigner:
     if: ${ai}
-    unless: ${redesign.when|auto} == off
+    unless: ${redesign.when|ask} == off
     to: pending-changes
     description: change sets the redesigner made, each many edits judged together (or refused)
     driven-by: +stock.unanswered-requests
@@ -372,12 +372,12 @@ blocks:
     out: flow.changes-made-by-modeller
   redesigner:
     if: ${ai}
-    unless: ${redesign.when|auto} == off
+    unless: ${redesign.when|ask} == off
     type: ai
-    description: the redesigner, proposing one change set for a whole system when the model is clearly wrong or the owner asks
+    description: the redesigner, proposing one change set for a whole system when the owner asks
     goal: requests-handled
     prompt: ${folder}/redesigner.md
-    run: ${lib} modelling redesign --when ${redesign.when|auto} --model ${redesign.model|haiku} --budget ${redesign.budget|0.5} --rounds ${redesign.rounds|3}
+    run: ${lib} modelling redesign --when ${redesign.when|ask} --model ${redesign.model|haiku} --budget ${redesign.budget|0.5} --rounds ${redesign.rounds|3} --daily ${redesign.daily|2}
     model: ${redesign.model|haiku}
     every: ${redesign-every}
     timeout: ${timeout}
