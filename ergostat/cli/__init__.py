@@ -12,6 +12,7 @@ from ..durations import DurationError
 from .agents import cmd_agent
 from .claims import cmd_claims
 from .common import PART_TOPICS
+from .impact_cmd import cmd_impact
 from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
 from .numbers import cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
@@ -231,6 +232,20 @@ def build() -> argparse.ArgumentParser:
     pj.add_argument("--seed", type=int, default=20261118, help="with --risk: the draws' seed (the same seed, the same answer)")
     pj.add_argument("--budget", type=float, default=60.0, help="with --risk: seconds of wall time at most (default 60)")
     pj.add_argument("--points", type=int, default=48, help="points along the horizon (default 48)")
+    ip = topic("impact", cmd_impact, "What a fix or a change restores, the goals that fail without it, and when to roll it out",
+               desc="The impact report of a fix for a failing block (NAME: the block, or an ergostat.failure item) or of a "
+                    "change to the model (its id): what broke and since when (--began: when the failure began, 30m ago, "
+                    "07:30 or epoch seconds; else read from the record), the goals projected to fail without it, the cost of "
+                    "rolling it out at each time ahead and the best one, and the change-management fields (SPEC §12n)")
+    ip.add_argument("--began", metavar="TIME", help="when the failure began: 30m (ago), 07:30, or epoch seconds")
+    ip.add_argument("--within", metavar="DURATION", help="the rollout times tried span this long (default: seven of the model's time unit)")
+    ip.add_argument("--times", type=int, default=12, help="how many rollout times (default 12, at most 24)")
+    ip.add_argument("--penalty", metavar="DURATION",
+                    help="goal-off time a rollout at the busiest hour of the day costs (default: one time unit)")
+    ip.add_argument("--tests", choices=["passed", "failed"], help="the fix's tests (left out: not run)")
+    ip.add_argument("--commit", help="the fix's commit, for the rollback")
+    ip.add_argument("--runs", type=int, default=40, help="the risk's Monte Carlo runs (default 40)")
+    ip.add_argument("--budget", type=float, default=60.0, help="seconds of wall time at most (default 60)")
     pp = topic("proposals", cmd_proposals, "Estimate the parameters marked estimate: true, and list the changes the record "
                                            "supports", named=False)
     pp.add_argument("--dismiss", metavar="ID", help="let a proposal go (it is not made again for this model)")

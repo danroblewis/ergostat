@@ -290,6 +290,7 @@ class _Control:
         self.blocks = sorted({m.block for m in models.values() if m.gate})
         self.one_way = {f"flow.{f.name}" for f in spec.flows.values() if not f.two_way}
         self.faults: dict[str, int] = {}
+        self.timed = [m for m in models.values() if hasattr(m, "at")]   # a model that changes at a time (impact.py)
 
     def begin(self, V, state, moving, k, n, step):
         self.V, self.state, self.n = V, state, n
@@ -333,6 +334,8 @@ class _Control:
             x = state.get(src)
             V[r] = min(self.want[r], max(0.0, x) / dt) if x is not None else self.want[r]
         ons = {b: self.sh.on(b) for b in self.blocks}
+        for m in self.timed:
+            m.at(t)
         for r, m in self.models.items():
             eqv = None
             if r in self.own:

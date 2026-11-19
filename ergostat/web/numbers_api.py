@@ -18,27 +18,16 @@ from ..numbers import review as rv
 from ..numbers import sensitivity as sens
 from ..numbers import simulate as sim
 from ..numbers import version as ver
+from ..numbers.simulate import horizon_of  # noqa: F401  (the page's and the command line's horizon)
 from ..spec import equation as eq
 
 ESTIMATING = threading.Lock()     # one estimate at a time: each is a few hundred replays
-HORIZON = 0.25           # a projection looks ahead at most a quarter of the window ...
-LEAST = 0.05             # ... at least a twentieth of it ...
-DOMINANT = 3.0           # ... and, between, three of the slowest time constant the replay met
 RISK_BUDGET = 8.0        # seconds the page's closed-loop Monte Carlo may take; past it, it says how many runs it made
 SAMPLED_KEYS = ("name", "how", "low", "high", "value", "sd", "unit", "duration")   # what the strip says of each sampled
 
 
 def spec_of(p):
     return getattr(p.model, "spec", None)
-
-
-def horizon_of(run: sim.Run, window: float) -> float:
-    """How far a projection looks: a few of the model's slowest time constants, within a twentieth and
-    a quarter of the window."""
-    slow = max((v for r, v in run.time_constants.items() if r.startswith("stock.")), default=None)
-    if not slow:
-        return window * HORIZON
-    return min(window * HORIZON, max(window * LEAST, DOMINANT * slow * 3600.0))
 
 
 def loops_of(spec, asked: str | None) -> str:
@@ -113,6 +102,47 @@ def risk_of(live, p, snap: dict, mr: dict, inputs: str) -> dict | None:
             RISKING[key] = threading.Thread(target=work, name="ergostat-risk", daemon=True)
             RISKING[key].start()
     return None
+
+
+IMPACTS: dict = {}           # impact reports by key: (when kept, the report), each kept IMPACT_TTL seconds
+IMPACTING: dict = {}         # ... being worked out, at most IMPACT_THREADS at once
+IMPACT_TTL, IMPACT_THREADS = 300.0, 2
+
+
+def impact(live, p, snap: dict, one) -> dict:
+    """``GET /api/impact?block=NAME|item=ID|change=ID[&began=T&within=S&penalty=H]``: the impact report (SPEC §12n), worked
+    out in a thread of its own; ``{"working": true, "at"}`` until then, the page asking again with that ``at``, so every
+    request of one page is the same report; an error as ``{"error"}``."""
+    from ..numbers import impact as im
+    what = one("item") or one("change") or one("block")
+    if not what:
+        return {"error": "say which: block=NAME, item=ID or change=ID"}
+    num = lambda k: float(one(k)) if one(k) else None   # noqa: E731
+    try:
+        began, within, penalty = num("began"), num("within"), num("penalty")
+    except ValueError:
+        return {"error": "began, within and penalty are numbers (epoch seconds, seconds, hours)"}
+    at, now = snap["at"], time.monotonic()
+    key = (str(p.dir), what, began, within, penalty, live.mtime, at)
+    with RISKING_LOCK:
+        for k in [k for k, (t, _) in IMPACTS.items() if now - t > IMPACT_TTL]:
+            IMPACTS.pop(k)
+        if key in IMPACTS:
+            return IMPACTS[key][1]
+        if key not in IMPACTING and len(IMPACTING) < IMPACT_THREADS:
+            def work():
+                r = {"error": "it could not be worked out"}
+                try:
+                    r = im.report(p, what, began, at=at, within=within, penalty=penalty, budget=RISK_BUDGET * 2)
+                except Exception as e:                  # said on the page, never left working for ever
+                    r = {"error": str(e)}
+                finally:
+                    with RISKING_LOCK:
+                        IMPACTS[key] = (time.monotonic(), r)
+                        IMPACTING.pop(key, None)
+            IMPACTING[key] = threading.Thread(target=work, name="ergostat-impact", daemon=True)
+            IMPACTING[key].start()
+    return {"working": True, "at": at}
 
 
 def fan_of(live, p, snap: dict, mr: dict, inputs: str) -> dict | None:
