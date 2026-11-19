@@ -63,8 +63,11 @@ review). Newest decisions from the owner first within each section.
 - **`try_use` trials can leave Claude sessions running** (done, `modelfix`): the trial runs in a session of its
   own, watches what its runs start, and on its way out (or when it overruns) stops all of it, whatever process
   group each put itself in (`library/reap.py`; `tests/test_trial_stops.py`).
-- **Three tests fail only under heavy load** (open): `test_a_selection_is_model_parts_and_survives_switching_view`,
-  `test_a_page_left_open_does_not_grow`, `test_a_lease_held_by_a_run_survives_a_model_edit`.
+- **Three tests fail only under heavy load** (done, `modelfix`): they wait for conditions (the view standing still
+  after Fit, the selection as expected, the page settled, a server answering) rather than fixed times, with waits
+  long enough for a loaded machine; the lease test's TTL is 3 s (renewals are CLI calls) and it checks the run
+  outlived it; the long-task bound scales by how much slower the page's thread runs than the reference laptop. Each
+  passed 5 times beside 8 CPU hogs, all in background QoS (the old lease and selection tests failed there).
 
 ## Interface
 
