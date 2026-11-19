@@ -471,7 +471,7 @@ function systemSize(n) {
 function loopsText(n) {
   const l = n.loops || {}, total = Object.values(l).reduce((a, b) => a + b, 0);
   if (!total) return "no loops";
-  return `${total} loop${total > 1 ? "s" : ""}: ` + ["holding", "off", "open", "unknown"].filter((k) => l[k]).map((k) => `${l[k]} ${k}`).join(", ");
+  return `${total} loop${total > 1 ? "s" : ""}: ` + ["holding", "off", "stale", "open", "unknown"].filter((k) => l[k]).map((k) => `${l[k]} ${k}`).join(", ");
 }
 function drawSystem(n, w, hgt) {
   const tone = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[n.status] || "var(--unknown)";

@@ -136,6 +136,7 @@ async function openLoop(name, asController = false) {
   if (lp.open_loop) kids.push(h("p", {}, "It acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
   kids.push(dl([["status", statusEl(lp.status)], ["holds", `${lp.stock} ${op(lp.setpoint)}${lp.band || ""}${lp.per ? `, each ${lp.per}` : ""}`],
     ["now", lp.per ? `${fmt(lp.value)}, the worst ${lp.per}'s` : fmt(lp.value)],
+    ["stale", lp.stale != null ? `read ${dur(lp.stale)} ago, too long for its sensor; on-stale: ${lp.on_stale}` : null],
     ["error", lp.error ? fmt(lp.error) : "0"], ["time off", `${Math.round((lp.off_share || 0) * 100)}% ${windowWords}`],
     ["typically", lp.answers_in != null || lp.back_in != null ? [
       lp.answers_in != null ? `its valve opens ${dur(lp.answers_in)} after it goes off` : null,

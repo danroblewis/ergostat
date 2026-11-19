@@ -476,6 +476,7 @@ class Stock:
     rate_unit: str | None = None       # how its flows' rates are shown (rate-unit: minute, hour, day, week): display only
     inferred: str | None = None        # added by ergostat: the model change that added it (ergostat.model-change/<id>), or "true"
     where: Where | None = None
+    observe: bool = False              # estimated between readings, its staleness watched (SPEC §9.6)
 
 
 @dataclass
@@ -537,6 +538,7 @@ class Goal:
     where: Where | None = None
     process: dict | None = None    # the loop's process, u to y (SPEC §8): form, gain, tau and theta (s), identified
     per: str | None = None         # held by each item (``item``) or each group by a field, of its stock's items (§8)
+    on_stale: str | None = None    # what it does while its reading is stale: act, hold or off (SPEC §9.6); None: not watched
 
     def status(self, y: float, was_off: bool, r: float | None = None) -> str:
         """Off past the setpoint by more than the tolerance; once off, holding again only back
@@ -568,6 +570,7 @@ class Block:
     takes: Takes | None = None   # the items it works, one run per item, each leased (SPEC §9.5)
     pool: int = 1                # the most runs of it at once, when it takes items
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its kind's and its tier's
+    on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
 
     @property
     def builtin(self) -> bool:

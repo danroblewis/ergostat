@@ -18,6 +18,7 @@ from .durations import human
 from .spec.goal_per import cascade_setpoint as per_setpoint
 from .spec.goal_per import says as per_says
 from .spec.goal_per import worst as per_worst
+from .spec.observer import opted, shown_stale
 
 WINDOW = 3600.0
 STALE_RUNS = 3          # a reading older than this many of its agent's periods is stale
@@ -264,6 +265,9 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                              for e in project.events.query(n=1, type=t, item=knob, until=now)), default=None)
         reads = [project.measurements.latest(f"sensor/{s}", now) for s in lp.sensors]
         last_read = max((r[0] for r in reads if r), default=None)
+        stale = shown_stale(project, m.spec, lp.name, status, now) if getattr(m, "spec", None) else None
+        if stale is not None:                             # its reading is too old to trust (SPEC §9.6)
+            status = "stale"
         # how much of the recorded window the loop spent off, from its crossings
         crossings = crossed[lp.name]
         off_time, off_from = 0.0, None
@@ -304,7 +308,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                           "observed": cycled, "off_share": round(off_share, 3), "open_loop": lp.open_loop,
                           "answers_in": answers[len(answers) // 2] if answers else None,
                           "back_in": recoveries[len(recoveries) // 2] if recoveries else None,
-                          "back_in_slowest": recoveries[-1] if recoveries else None, "times_off": len(recoveries)}
+                          "back_in_slowest": recoveries[-1] if recoveries else None, "times_off": len(recoveries),
+                          **({"stale": stale, "on_stale": opted(m.spec).goals[lp.name]} if stale is not None else {})}
         if held:
             loops[lp.name].update(per=g.per, breaking=held[1], breaking_n=held[2],
                                   **({"setpoint": f"{g.hold.op} {r:g}"} if r is not None else {}))
@@ -625,6 +630,11 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         elif lp["status"] == "off":
             out.append({"level": "bad", "what": f"loop {name}", "says": f"{lp['stock']} is {fmt(lp['value'])}, "
                         f"setpoint {setpoint_text(lp)} (off by {fmt(abs(lp['error']))})"})
+        elif lp["status"] == "stale":
+            does = {"act": "its controllers act on it as it was", "hold": "what it commands is held",
+                    "off": "it counts as off"}[lp["on_stale"]]
+            out.append({"level": "warn", "what": f"loop {name}", "says": f"{lp['stock']} was last read {human(lp['stale'])} "
+                        f"ago, too long for its sensor: stale ({does}; on-stale: {lp['on_stale']})"})
         elif lp["status"] == "open":
             out.append({"level": "warn", "what": f"loop {name}", "says": "cannot close: " + "; ".join(lp["gaps"])})
         elif lp["status"] == "unknown" and running and snap.get("recorded", 0) > UNKNOWN_GRACE:

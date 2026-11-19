@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 from . import __version__
@@ -41,7 +42,7 @@ TOOLS = [
      "it, what it is doing now. part: a goal, block, stock, flow or auxiliary, as goal.x or just x; leave it out for the "
      "whole model, with its feedback loops (each R reinforcing, B balancing, or of unknown sign).",
      "inputSchema": _obj({"part": {"type": "string"}})},
-    {"name": "status", "description": "Every goal now: its value, setpoint, error and status (holding or off), and whether "
+    {"name": "status", "description": "Every goal now: its value, setpoint, error and status (holding, off, or stale), and whether "
      "a loop ergostat can see closes it.", "inputSchema": _obj()},
     {"name": "findings", "description": "What is worth a look, from the model and from the record: missing feedback, a stock "
      "heading for its limit (with the time left), blocks saturating or failing, a person not answering, a critical goal "
@@ -258,11 +259,14 @@ class Server:
         if name == "status":
             from .spec.explain import Explainer
             e = Explainer(spec, p)
-            goals = {}
+            from .spec.observer import shown_stale
+            goals, now = {}, time.time()
             for g, x in spec.goals.items():
                 goals[g] = {"of": str(x.of), "hold": str(x.hold), "tolerance": x.tolerance, "critical": x.critical,
                             "value": e.signals.get(str(x.of)), "error": e.signals.get(f"goal.{g}.error"),
                             "status": e.status.get(g, "unknown"), "closes": spec.loop(g).closes}
+                if (stale := shown_stale(p, spec, g, goals[g]["status"], now)) is not None:   # (SPEC §9.6)
+                    goals[g].update(status="stale", stale=round(stale, 1))
             from . import runner
             return _text({"running": bool(runner.running_pid(p, wait=False)), "goals": goals})
         if name == "findings":
