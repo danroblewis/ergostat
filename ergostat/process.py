@@ -102,12 +102,14 @@ def _moved_ids(events, spec, kind: str, since: float, until: float) -> tuple[lis
     ix = its._index(events, spec, False)
     if ix is not None:
         with ix.lock:
-            k = ix.known(kind)
-            if k == -1:
-                return [], False
-            rows = ix.db.execute("select i.id from moves m join items i on i.rid = m.rid where m.kind = ? and m.t >= ? "
-                                 "and m.t <= ? group by m.rid order by max(m.t) desc limit ?",
-                                 (k, since, until, MOST_ITEMS + 1)).fetchall()
+            def read():
+                k = ix.known(kind)
+                if k == -1:
+                    return []
+                return ix.db.execute("select i.id from moves m join items i on i.rid = m.rid where m.kind = ? and m.t >= ? "
+                                     "and m.t <= ? group by m.rid order by max(m.t) desc limit ?",
+                                     (k, since, until, MOST_ITEMS + 1)).fetchall()
+            rows = ix.guard(read)
             return [r[0] for r in rows[:MOST_ITEMS]], len(rows) > MOST_ITEMS
     got = [i for i in its.project(events, spec, kind, transcript=False) if any(since <= m["time"] <= until for m in i.moves)]
     got.sort(key=lambda i: -max(m["time"] for m in i.moves))
