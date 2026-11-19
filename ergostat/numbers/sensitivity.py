@@ -59,7 +59,10 @@ def uncertain(spec: Spec, estimates: dict | None = None) -> list[dict]:
             se = float(e["se"])
             gap = (math.log(e["value"] / p.value) if logged else e["value"] - p.value)
             sd = math.sqrt(se * se + gap * gap)          # about the value written, wide enough to reach the estimate
-            lo, hi = ((p.value * math.exp(-2 * sd), p.value * math.exp(2 * sd)) if logged else (p.value - 2 * sd, p.value + 2 * sd))
+            try:
+                lo, hi = ((p.value * math.exp(-2 * sd), p.value * math.exp(2 * sd)) if logged else (p.value - 2 * sd, p.value + 2 * sd))
+            except OverflowError:                        # an estimate so unsure it bounds nothing: not sampled
+                continue
             out.append({"name": name, "how": "estimate", "value": p.value, "se": se, "sd": sd, "estimate": e["value"],
                         "logged": logged, "low": lo, "high": hi, "unit": p.unit, "duration": p.duration,
                         "corr": {k: c for k, c in (e.get("corr") or {}).items() if c is not None}})
