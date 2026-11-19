@@ -348,6 +348,40 @@ function avoidSpec(lay, g) {
     for (const [st, v] of [[e.source, e.target], [e.target, e.source]])
       if (byId[st].kind === "stock" && ["valve", "disturbance"].includes(byId[v].kind)) (alignedValves[st] ||= []).push(box[v]);
   }
+  // the sides of a stock its links may leave or reach it by: every side no pipe meets (so a link leaves by the side
+  // facing its target), else its top or bottom where no satellite's pipe meets it (a flow to or from a cloud stood
+  // beside it), else its top and bottom as before (docs/layout-rules.md: a link never runs along a pipe)
+  const pipeSides = {};
+  for (const le of lines) {
+    const e = edgeOf[le.id];
+    if (e.kind !== "pipe") continue;
+    for (const [st, v] of [[e.source, e.target], [e.target, e.source]]) {
+      const a = box[st], b = box[v];
+      if (!a || !b || byId[st].kind !== "stock") continue;
+      const m = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+      const side = m.x > a.x && m.x < a.x + a.width ? (m.y < a.y ? "up" : "down") : m.y > a.y && m.y < a.y + a.height ? (m.x < a.x ? "left" : "right")
+        : Math.abs(m.x - (a.x + a.width / 2)) > Math.abs(m.y - (a.y + a.height / 2)) ? (m.x < a.x ? "left" : "right") : (m.y < a.y ? "up" : "down");
+      ((pipeSides[st] ||= {})[side] ||= []).push(drainOf(g, v) ? "satellite" : "pipe");
+    }
+  }
+  const linkSides = (c) => {
+    const used = pipeSides[c.id] || {}, sat = (d) => (used[d] || []).includes("satellite");
+    if (!sat("up") && !sat("down")) return ["up", "down"];    // (as before: more points cost the router time)
+    const toward = facing(c);                           // (a link toward a side a satellite takes goes round it, by either of the others)
+    if ((toward.has("up") && sat("up")) || (toward.has("down") && sat("down"))) { toward.add("left"); toward.add("right"); }
+    const free = ["up", "down", "left", "right"].filter((d) => !used[d] && toward.has(d)), level = ["up", "down"].filter((d) => !sat(d));
+    return free.length ? free : level.length ? level : ["up", "down"];
+  };
+  const facing = (c) => {                               // the sides of a part its links' other ends lie beyond (fewer points, less routing)
+    const out = new Set();
+    for (const le of lines) {
+      const e = edgeOf[le.id], o = e.kind !== "pipe" && box[e.source === c.id ? e.target : e.target === c.id ? e.source : null];
+      if (!o || o === c) continue;
+      const m = { x: o.x + o.width / 2, y: o.y + o.height / 2 };
+      if (m.x > c.x + c.width) out.add("right"); if (m.x < c.x) out.add("left"); if (m.y < c.y) out.add("up"); if (m.y > c.y + c.height) out.add("down");
+    }
+    return out;
+  };
   const pinOf = {};                                      // `${line}|${s or t}` -> pin class
   const pinsBy = {}, labelsBy = {};                      // a valve's pins (and its name) for each way it may face
   const shapes = [];
@@ -407,7 +441,7 @@ function avoidSpec(lay, g) {
       }
       // the rest: each net (lines of one kind, all leaving or all arriving) its own point on each side, shared by
       // its lines; single lines points of their own, one line each, enough of them for all
-      const sides = k === "stock" ? ["up", "down"] : ["up", "down", "left", "right"];
+      const sides = k === "stock" ? linkSides(c) : ["up", "down", "left", "right"];
       const groups = Object.entries(ends[c.id] || {});
       // (what arrives, in the system dynamics view: one point each, while few; what leaves shares one)
       const own = (key) => ownStem(c.id) && key[0] === "t";
@@ -484,7 +518,7 @@ function avoidStart(lay, g) {
       untangle(lay, Object.values(groups).filter((x) => x.ids.length > 1), lay.children,
                Object.fromEntries(spec.conns.map((c) => [c.id, [c.s, c.t]])));
       uncross(lay, g);
-      if (g.kind === "dynamics") { sdSeparate(lay, g); uncross(lay, g); }   // (dynamics.js)
+      if (g.kind === "dynamics") { sdSeparate(lay, g); uncross(lay, g); sdAroundSatellites(lay, g); }   // (dynamics.js)
       unjog(lay, g);                                     // (last: the lines are where they stay)
       AV.ms = m.ms; AV.invalid = m.invalid;               // (how long it took, and lines it found no way for: the tests read them)
       AV.routed = { lay, seq };

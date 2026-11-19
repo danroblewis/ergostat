@@ -794,3 +794,77 @@ function sdSeparate(lay, g) {
     sc.bendPoints = lean.slice(1, -1);
   }
 }
+
+/* after routing: a link that crosses a satellite's pipe (a flow between a stock and a cloud, stood beside the stock:
+   satellites.js) is moved past the far end of it, beyond the cloud, where it lies on no part and along no line: a
+   satellite reads as one short piece of its stock, with nothing drawn through it (docs/layout-rules.md) */
+function sdAroundSatellites(lay, g) {
+  const edge = Object.fromEntries(g.edges.map((e) => [e.id, e]));
+  const box = Object.fromEntries(lay.children.map((c) => [c.id, c]));
+  const pts = (le) => { const sc = le.sections[0]; return [sc.startPoint, ...(sc.bendPoints || []), sc.endPoint]; };
+  const cols = [];                                      // each satellite's column: from its stock's edge to past its cloud
+  for (const n of g.nodes) {                            // (laid out as satellites, or seated beside their stock after)
+    const v = n.id, d = (n.kind === "valve" || n.kind === "disturbance") && drainOf(g, v), a = box[v], c = d && box[d.cloud], st = d && box[d.stock];
+    if (!a || !c || !st) continue;
+    const gap = Math.max(a.x - st.x - st.width, st.x - a.x - a.width, a.y - st.y - st.height, st.y - a.y - a.height);
+    if (gap > 90) continue;
+    const xs = [a.x, a.x + a.width, c.x, c.x + c.width], ys = [a.y, a.y + a.height, c.y, c.y + c.height];
+    const upright = a.x + a.width / 2 > st.x && a.x + a.width / 2 < st.x + st.width;
+    if (upright) ys.push(a.y > st.y ? st.y + st.height : st.y); else xs.push(a.x > st.x ? st.x + st.width : st.x);
+    cols.push({ ids: new Set([v, d.cloud, d.stock]), upright, x0: Math.min(...xs) - 4, x1: Math.max(...xs) + 4, y0: Math.min(...ys), y1: Math.max(...ys) });
+  }
+  const lines = lay.edges.filter((le) => edge[le.id] && (le.sections || []).length);
+  const onPart = (a, b, mine) => lay.children.some((k) => !mine.has(k.id) &&
+    Math.max(a.x, b.x) > k.x - 4 && Math.min(a.x, b.x) < k.x + k.width + 4 && Math.max(a.y, b.y) > k.y - 4 && Math.min(a.y, b.y) < k.y + k.height + 4);
+  const along = (le, a, b) => lines.some((o) => o !== le && pts(o).slice(1).some((q, j) => { const p = pts(o)[j];
+    if (Math.abs(a.y - b.y) < 0.5 && Math.abs(p.y - q.y) < 0.5 && Math.abs(a.y - p.y) < 4) return Math.min(Math.max(a.x, b.x), Math.max(p.x, q.x)) - Math.max(Math.min(a.x, b.x), Math.min(p.x, q.x)) > 4;
+    if (Math.abs(a.x - b.x) < 0.5 && Math.abs(p.x - q.x) < 0.5 && Math.abs(a.x - p.x) < 4) return Math.min(Math.max(a.y, b.y), Math.max(p.y, q.y)) - Math.max(Math.min(a.y, b.y), Math.min(p.y, q.y)) > 4;
+    return false; }));
+  // (as the audit measures them: scripts/diagram_audit.js)
+  const short = (q) => { let L = 0; for (let j = 1; j < q.length; j++) L += Math.abs(q[j].x - q[j - 1].x) + Math.abs(q[j].y - q[j - 1].y);
+    return L <= 1.6 * (Math.abs(q[0].x - q[q.length - 1].x) + Math.abs(q[0].y - q[q.length - 1].y)) + 120; };
+  const cross = (a, b, c, d) => { const o = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+    return o(a, b, c) * o(a, b, d) < -1 && o(c, d, a) * o(c, d, b) < -1; };
+  const netCross = (le, q) => { const e = edge[le.id];
+    return lines.some((o) => { const f = edge[o.id];
+      if (o === le || f.kind === "pipe" || (f.source !== e.source && f.target !== e.target)) return false;
+      const r = pts(o);
+      return q.slice(1).some((b, j) => r.slice(1).some((d, k) => cross(q[j], b, r[k], d))); }); };
+  for (const le of lines) {
+    const e = edge[le.id];
+    if (e.kind === "pipe") continue;
+    let p = pts(le);
+    // (an end stretch across one: a stub at its part, so the rest of the stretch can move)
+    const stub = (q, r) => { const L = Math.hypot(r.x - q.x, r.y - q.y); return { x: q.x + ((r.x - q.x) / L) * 12, y: q.y + ((r.y - q.y) / L) * 12 }; };
+    const across = (a, b) => cols.some((k) => !k.ids.has(e.source) && !k.ids.has(e.target) && (Math.abs(a.y - b.y) < 0.5
+      ? !k.upright ? false : a.y > k.y0 && a.y < k.y1 && Math.min(a.x, b.x) < k.x0 && Math.max(a.x, b.x) > k.x1
+      : k.upright ? false : a.x > k.x0 && a.x < k.x1 && Math.min(a.y, b.y) < k.y0 && Math.max(a.y, b.y) > k.y1));
+    if (p.length >= 2 && across(p[0], p[1]) && Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) > 40) { const q = stub(p[0], p[1]); p.splice(1, 0, q, { ...q }); }
+    const n = p.length;
+    if (n >= 2 && across(p[n - 2], p[n - 1]) && Math.hypot(p[n - 1].x - p[n - 2].x, p[n - 1].y - p[n - 2].y) > 40) { const q = stub(p[n - 1], p[n - 2]); p.splice(n - 1, 0, { ...q }, q); }
+    le.sections = [{ startPoint: p[0], bendPoints: p.slice(1, -1), endPoint: p[p.length - 1] }];
+    p = pts(le);
+    for (let i = 1; i + 2 < p.length; i++) {             // inner stretches only: the ends stay on their parts
+      const a = p[i], b = p[i + 1], level = Math.abs(a.y - b.y) < 0.5;
+      for (const k of cols) {
+        if (k.ids.has(e.source) || k.ids.has(e.target) || k.upright !== level) continue;
+        const crosses = level ? a.y > k.y0 && a.y < k.y1 && Math.min(a.x, b.x) < k.x0 && Math.max(a.x, b.x) > k.x1
+                              : a.x > k.x0 && a.x < k.x1 && Math.min(a.y, b.y) < k.y0 && Math.max(a.y, b.y) > k.y1;
+        if (!crosses) continue;
+        for (const to of level ? [k.y1 + 10, k.y0 - 10] : [k.x1 + 10, k.x0 - 10]) {
+          const a2 = level ? { x: a.x, y: to } : { x: to, y: a.y }, b2 = level ? { x: b.x, y: to } : { x: to, y: b.y };
+          const mine = new Set([e.source, e.target]);
+          if ([[p[i - 1], a2], [a2, b2], [b2, p[i + 2]]].some(([q, r]) => onPart(q, r, mine) || along(le, q, r))) continue;
+          const moved = p.map((q, j) => (j === i ? a2 : j === i + 1 ? b2 : q));
+          if (!short(moved) || netCross(le, moved)) continue;     // (never a detour, nor across a line of its own net)
+          Object.assign(a, a2); Object.assign(b, b2);
+          break;
+        }
+      }
+    }
+    const q = pts(le).filter((r, j, all) => j === 0 || Math.abs(r.x - all[j - 1].x) + Math.abs(r.y - all[j - 1].y) > 0.5);
+    const lean = q.filter((r, j) => j === 0 || j === q.length - 1 ||        // (stubs that did not move: taken out again)
+      !((Math.abs(q[j - 1].x - r.x) < 0.5 && Math.abs(r.x - q[j + 1].x) < 0.5) || (Math.abs(q[j - 1].y - r.y) < 0.5 && Math.abs(r.y - q[j + 1].y) < 0.5)));
+    le.sections = [{ startPoint: lean[0], bendPoints: lean.slice(1, -1), endPoint: lean[lean.length - 1] }];
+  }
+}
