@@ -248,7 +248,8 @@ ROADMAP = "roadmap"
 OBSERVE = """() => {
   window.__mo?.disconnect();
   window.__muts = [];
-  window.__mo = new MutationObserver((rs) => { for (const r of rs) window.__muts.push({ target: r.target.nodeName, attr: r.attributeName }); });
+  window.__mo = new MutationObserver((rs) => {
+    for (const r of rs) window.__muts.push({ target: r.target.nodeName, attr: r.attributeName }); });
   window.__mo.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
 }"""
 
@@ -268,7 +269,8 @@ t = time.time() - 3000
 fan = [("design", []), ("build-api", ["design"]), ("build-ui", ["design"]), ("docs", ["design"]),
        ("integrate", ["build-api", "build-ui"]), ("release", ["integrate", "docs"])]
 def plan(n, at):
-    ev.add("epic.planned", item=f"epic/e{{n}}", data={{"title": f"release {{n}}", **({{"after": f"epic/e{{n-1}}"}} if n > 1 else {{}})}}, at=at)
+    after = {{"after": f"epic/e{{n-1}}"}} if n > 1 else {{}}
+    ev.add("epic.planned", item=f"epic/e{{n}}", data={{"title": f"release {{n}}", **after}}, at=at)
     for name, after in fan:
         ev.add("ticket.planned", item=f"ticket/e{{n}}-{{name}}", data={{"title": name, "parent": f"epic/e{{n}}",
                "blocked_by": [f"ticket/e{{n}}-{{a}}" for a in after]}}, at=at + 1)
@@ -327,7 +329,8 @@ def overlaps(boxes: list[dict]) -> list[tuple]:
     out = []
     for i, a in enumerate(boxes):
         for b in boxes[i + 1:]:
-            if a["x"] + 1 < b["x"] + b["w"] and b["x"] + 1 < a["x"] + a["w"] and a["y"] + 1 < b["y"] + b["h"] and b["y"] + 1 < a["y"] + a["h"]:
+            across = a["x"] + 1 < b["x"] + b["w"] and b["x"] + 1 < a["x"] + a["w"]
+            if across and a["y"] + 1 < b["y"] + b["h"] and b["y"] + 1 < a["y"] + a["h"]:
                 out.append((a["id"], b["id"]))
     return out
 
