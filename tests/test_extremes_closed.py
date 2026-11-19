@@ -183,7 +183,7 @@ def test_a_proposal_carries_its_prediction(tmp_path):
     p, snap, x = _accepted(tmp_path)
     d = rv.effect(p, p.model.spec, [x])
     said = d["predicts"]["said"]
-    assert said.startswith("queue settles at ") and " instead of " in said and "projected over" in said, said
+    assert said.startswith("with it the model forecasts queue settling at ") and " as it is)" in said, said
     assert d["predicts"]["stocks"]["stock.queue"]["after"] < d["predicts"]["stocks"]["stock.queue"]["before"]   # k 2 → 3
     pr.accept(p, x["id"], snap)
     kept = pr.stored(p)[x["id"]]
@@ -203,6 +203,71 @@ def test_the_prediction_is_compared_with_what_happened_after_acceptance(tmp_path
     got = jd.run(p, at=end + 1)
     assert got["observed"] == 1
     kept = pr.stored(p)[x["id"]]
-    assert kept["observed"]["stocks"]["stock.queue"] == 3.4 and "predicted" in kept["observed"]["said"]
-    assert "observed 3.4" in kept["observed"]["said"] and "nearer" in kept["observed"]["said"]
+    assert kept["observed"]["stocks"]["stock.queue"] == 3.4 and "forecast" in kept["observed"]["said"]
+    assert "observed 3.4 on average over" in kept["observed"]["said"] and "nearer" in kept["observed"]["said"]
     assert jd.run(p, at=end + 2)["observed"] == 0                        # once
+
+
+# ---- from the gate review: one runner per project, writers that merge, check makes no record, a failed run not kept
+
+def test_one_runner_per_project_and_a_job_waits_for_anothers(tmp_path, monkeypatch):
+    write(tmp_path, QUEUE.replace("equation: k * stock.queue", "equation: k * 5"))
+    Project(mdl.load(tmp_path))
+    spec, _ = sp.read(tmp_path / "ergostat.yaml", extremes=False)
+    path = xc._path(spec)
+    ran = []
+    monkeypatch.setattr(ex, "failures", lambda *a, **k: (ran.append(a), {})[1])
+    with xc._locked(path.with_name("extremes.run"), wait=False) as took:     # another runner holds the project
+        assert took
+        xc.main(tmp_path / "ergostat.yaml")
+        assert not ran                                                       # a second runner exits at once
+        job = xc._Job(spec, True)
+        assert job.proc is None and job.thread.is_alive()                    # no process started; it waits
+        time.sleep(0.3)
+        assert job.thread.is_alive() and job.status["running"]
+    job.thread.join(timeout=10)
+    assert not job.status["running"] and ran                                 # then reads what the runner kept
+
+
+def test_concurrent_writers_merge_what_each_added(tmp_path):
+    write(tmp_path, QUEUE)
+    Project(mdl.load(tmp_path))
+    path = xc._path(sp.read(tmp_path / "ergostat.yaml", extremes=False)[0])
+    xc._save(path, {"a": [["stock.queue", "negative", -1, ""]]})
+    xc._MEM.clear()
+    xc._save(path, {"b": []})                                                # a writer that never read a
+    import json
+    assert set(json.loads(path.read_text())) == {"a", "b"}
+
+
+def test_check_makes_no_record_of_a_project_never_run(tmp_path, home, capsys):
+    write(tmp_path, QUEUE.replace("equation: k * stock.queue", "equation: k * 5"))
+    from ergostat.cli import main
+    assert main(["-C", str(tmp_path), "check", "--no-coherence"]) == 0
+    assert "extreme-conditions" in capsys.readouterr().out
+    assert not home.exists() or not any(home.iterdir()), list(home.rglob("*"))
+
+
+def test_a_condition_that_raises_is_not_kept(tmp_path, monkeypatch):
+    write(tmp_path, QUEUE.replace("equation: k * stock.queue", "equation: k * 5"))
+    Project(mdl.load(tmp_path))
+    spec, _ = sp.read(tmp_path / "ergostat.yaml", extremes=False)
+    real, calls = ex._run, []
+
+    def confirm_fails(*a, **k):
+        calls.append(k.get("fine") or (a[5] if len(a) > 5 else 0))
+        if calls[-1]:
+            raise ArithmeticError("the confirm run failed")
+        return real(*a, **k)
+    monkeypatch.setattr(ex, "_run", confirm_fails)
+    assert not ex.failures(spec)                                             # nothing said, and nothing kept
+    monkeypatch.setattr(ex, "_run", real)
+    xc._MEM.clear()
+    ran = counting(monkeypatch)
+    assert ex.failures(spec) and "zero" in ran                               # run again, and found
+
+
+def test_a_constant_inflow_that_fills_an_empty_stock_is_caught(tmp_path):
+    text = QUEUE.replace("  served:", "  magic:\n    to: queue\n    equation: 5\n  served:")
+    spec, _ = sp.read(write(tmp_path, text), extremes=False)
+    assert any(a == "stock.queue" and "rises with nothing coming in" in m and "every stock empty" in m for a, m in found(spec))

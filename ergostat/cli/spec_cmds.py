@@ -53,10 +53,8 @@ def check_yaml(args, path: Path) -> int:
     with fresh():                                 # references into remotes checked against what each serves now
         spec, problems = read(path, extremes=False)
     errors = [p for p in problems if p.level == "error"]
-    if not errors:                                # the extreme-conditions tests: kept, and at most a few seconds for the rest
-        from ..store import state_dir
-        state_dir(spec.name, spec.root)           # the project's own, where they are kept between checks
-        problems += late(spec, wait=CHECK_WAIT) + calibration(path)
+    if not errors:                                # calibration on the record; the extremes kept, a few seconds for the rest
+        problems += calibration(path) + late(spec, wait=CHECK_WAIT)
     findings = [p for p in problems if p.level != "error"]
     if args.json:
         coh = coherence_of(args, spec, findings) if not errors else None

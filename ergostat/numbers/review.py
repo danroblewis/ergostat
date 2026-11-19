@@ -456,8 +456,6 @@ def effect(p, spec: Spec, xs: list[dict], at: float | None = None, base_leverage
     left += [{"id": x["id"], "why": "a loop's process or gain changes no replay"} for x in xs
              if x.get("kind") not in ("parameter", "equation", "structure")]
     grid = ob.reference(p, at, CHART_POINTS)
-    data = ob.measured(p, grid)
-    run, fit_b = tr.fit_of(spec, data)
     out: dict = {"taken": [x["id"] for x in taken], "left": left, "since": grid.since, "until": grid.until}
     if not taken:
         return {**out, "charts": [], "operational": [], "leverage": []}
@@ -465,15 +463,12 @@ def effect(p, spec: Spec, xs: list[dict], at: float | None = None, base_leverage
         after = tr.spec_after(p, edits)
     except tr.TrialError as e:
         return {**out, "error": str(e), "charts": [], "operational": [], "leverage": []}
-    data_a = ob.measured(p, grid, after)
-    run_a, _ = tr.fit_of(after, data_a)
+    f = forecast(p, spec, after, taken, at)
+    data, data_a, run, run_a, horizon = f["data"], f["data_a"], f["run"], f["run_a"], f["horizon"]
+    proj_b, proj_a, loops = f["before"], f["after"], f["loops"]
     ref = ob.reference(p, at)                          # the fit on the page's own grid (the Fit table's), as of now
     _, fit_b = tr.fit_of(spec, ob.measured(p, ref))
     _, fit_a = tr.fit_of(after, ob.measured(p, ref, after))
-    from ..web.numbers_api import horizon_of
-    horizon = horizon_of(run, grid.until - grid.since)
-    points = max(2, round(CHART_POINTS * horizon / max(grid.until - grid.since, 1.0)))
-    proj_b, proj_a, loops = _projections(p, spec, after, data, data_a, run, run_a, horizon, points)
     refs = _charted(after, taken, 4 * most) or _charted(spec, taken, 4 * most)
     charts, undrawn = [], []
     for r in refs:
@@ -507,8 +502,25 @@ def effect(p, spec: Spec, xs: list[dict], at: float | None = None, base_leverage
             "horizon": horizon, "loops": loops, "charts": charts, "undrawn": undrawn,
             "fit_before": fit_b, "fit_after": fit_a, "valid": run_a.valid, "invalid": run_a.invalid,
             "operational": operational(after, refs, proj_b, proj_a, grid.until, horizon) if proj_a else [],
-            "predicts": pd.stated(after, refs, proj_b, proj_a, grid.until, horizon, loops) if proj_a else None,
+            "predicts": f["predicts"],
             "leverage": lev}
+
+
+def forecast(p, spec: Spec, after: Spec, xs: list[dict], at: float | None = None) -> dict:
+    """The model's forecast as it is and with the change(s) applied in memory: the replays on the reference window, and
+    the projections over the horizon with the loops running where there are controllers; and what it predicts of the
+    stocks they touch, in a sentence (``predict.stated``). The one function both the review entry's strip and the
+    prediction recorded on acceptance come from."""
+    grid = ob.reference(p, at, CHART_POINTS)
+    data, data_a = ob.measured(p, grid), ob.measured(p, grid, after)
+    run, run_a = sim.replay(spec, data, sim.plan(spec)), sim.replay(after, data_a, sim.plan(after))
+    from ..web.numbers_api import horizon_of
+    horizon = horizon_of(run, grid.until - grid.since)
+    points = max(2, round(CHART_POINTS * horizon / max(grid.until - grid.since, 1.0)))
+    b, a, loops = _projections(p, spec, after, data, data_a, run, run_a, horizon, points)
+    refs = _charted(after, xs, 4 * CHARTS) or _charted(spec, xs, 4 * CHARTS)
+    return {"data": data, "data_a": data_a, "run": run, "run_a": run_a, "horizon": horizon, "before": b, "after": a,
+            "loops": loops, "predicts": pd.stated(after, refs, b, a, grid.until, horizon, loops) if a else None}
 
 
 def _projections(p, spec: Spec, after: Spec, data, data_a, run, run_a, horizon: float, points: int):

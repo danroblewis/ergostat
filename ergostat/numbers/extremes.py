@@ -8,7 +8,8 @@ what cannot happen in the world it describes:
 
 - a stock drained below empty (no two-way flow can take it there);
 - an outflow still running from an empty stock: it takes more than is there;
-- a stock fed only from outside that rises while nothing comes in;
+- a stock fed only from outside that rises while nothing comes in (its inputs at 0, or an inflow whose equation
+  is a constant, which no condition can turn off: made from nothing);
 - a one-way flow whose equation runs backwards;
 - an equation that divides by 0, takes the logarithm or square root of a number out of range, or
   overflows (the projection counts each);
@@ -281,19 +282,20 @@ def _failures(spec: Spec, pl: sim.Plan, run, zeros: set, d0: dict) -> dict[tuple
     return out
 
 
-def condition_result(spec: Spec, cond: Condition, params: dict | None, scales: dict | None) -> list[list]:
-    """One condition run: each failure as [part, what, worst, numbers]."""
+def condition_result(spec: Spec, cond: Condition, params: dict | None, scales: dict | None) -> list[list] | None:
+    """One condition run: each failure as [part, what, worst, numbers]; None when it could not be run (never kept)."""
     pl = sim.plan(spec, {**(params or {}), **cond.params})
     d = _data(spec, pl, 1 / 60, cond, scales, 2)
     d0 = {r: v[0] for r, v in d.values.items() if v} | {r: v for r, (_, v) in d.started.items()}
-    zeros = {r for r in inputs_of(spec, pl) if d0.get(r) == 0.0}
+    zeros = {r for r in inputs_of(spec, pl) if d0.get(r) == 0.0}    # nothing coming in: inputs at 0, and constants
+    zeros |= {f"flow.{n}" for n, f in spec.flows.items() if f.source is None and f.equation and not f.equation.refs}
     try:
         got = _failures(spec, pl, _run(spec, pl, cond, scales), zeros, d0)
         if got:                                          # confirmed with far finer steps: never the step's fault
             fine = _failures(spec, pl, _run(spec, pl, cond, scales, BUCKETS, CONFIRM), zeros, d0)
             got = {k: v for k, v in fine.items() if k in got}
     except (ArithmeticError, ValueError, KeyError, RecursionError):
-        return []                                        # a model check cannot run is reported by the checks that refuse it
+        return None                                      # a model check cannot run is reported by the checks that refuse it
     return [[r, w, v, said] for (r, w), (v, said) in got.items()]
 
 
@@ -329,13 +331,13 @@ def failures(spec: Spec, params: dict[str, float] | None = None, scales: dict | 
     return merge(spec, xc.results(spec, conditions(spec, base, scales), params, scales, budget, progress))
 
 
-def findings(spec: Spec, say, scales: dict | None = None, wait: float | None = None) -> dict:
+def findings(spec: Spec, say, wait: float | None = None) -> dict:
     """Each part that behaves implausibly under an extreme condition, once, with every condition that showed it
     (the input, pool, setpoint or parameter pushed, by name). The conditions run in the background
     (``extremes_cache.background``); ``wait`` seconds at most for them (None: until done). Returns where it is:
     ``{"running", "done", "of", "skipped"}``."""
     from . import extremes_cache as xc
-    got, status = xc.background(spec, scales, wait)
+    got, status = xc.background(spec, wait)
     pl = sim.plan(spec)
     for (ref, what), x in got.items():
         say("extreme-conditions", message(spec, pl, ref, what, x), _where(spec, ref), ref)
@@ -363,7 +365,8 @@ def message(spec: Spec, pl: sim.Plan, ref: str, what: str, x: dict) -> str:
                 f"extreme-conditions test{seen}). Make it stop when its stock is empty: first-order in it, or MIN(…, the stock / a time)")
     if what == "rises":
         return (f"stock {name}: {when}, it rises with nothing coming in (the extreme-conditions test{seen}): with its "
-                f"inputs at 0 it should drain, or hold where a loop stops draining it. An inflow is made from nothing")
+                f"inputs at 0 it should drain, or hold where a loop stops draining it. An inflow is made from nothing: "
+                f"a constant inflow is an input from outside (a sensor, or an exogenous auxiliary), not an equation")
     if what == "runs away":
         return (f"stock {name}: {when}, it runs away, growing faster each quarter (the extreme-conditions test{seen}): a "
                 f"reinforcing loop with nothing to limit it. Give it a limit: a capacity, or an outflow that grows with it")
