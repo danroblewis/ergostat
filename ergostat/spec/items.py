@@ -289,8 +289,11 @@ def in_states(events, spec: Spec, kind: str, states=None, where: dict | None = N
                     got = [i for i in ix.items(kind, states=states, until=until, moves=False) if matches(i, where)] + extra
                     return len(got), min((i.entered for i in got), default=None), got
                 n = ix.count(kind, states, until)
-                w, a = ix._where(kind, states, until)
-                oldest = ix.db.execute(f"select min(entered) from items{w}", a).fetchone()[0]
+
+                def oldest_entered():
+                    w, a = ix._where(kind, states, until)
+                    return ix.db.execute(f"select min(entered) from items{w}", a).fetchone()[0]
+                oldest = ix.guard(oldest_entered)
                 firsts = [x for x in (oldest, *(i.entered for i in extra)) if x is not None]
                 return n + len(extra), min(firsts, default=None), extra
     got = [i for i in project(events, spec, kind, until=until, fields=tuple(where), transcript=transcript)

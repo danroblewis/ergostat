@@ -22,11 +22,24 @@ read from disk when an event about it arrives. The record stays the truth: the i
 from it when it is missing, when the record went back (a fresh record, events gone that it held),
 or on ``ergostat compact --reindex``; it is checked against a fresh fold in
 ``tests/test_item_index.py``. A roll-up leaves it as it is (a snapshot folds to what its events
-folded to); a prune takes out the items whose events are all gone."""
+folded to); a prune takes out the items whose events are all gone.
+
+Several processes share an index file, so none deletes one another still has open (unlinking a
+SQLite file, its WAL or its shared memory while in use corrupts it): every process holds a shared
+``flock`` on ``<file>.lock`` while it has the file open, and a file is deleted (``_tidy``,
+``reindex``, healing) only under the exclusive lock, taken without waiting. A file that cannot be
+deleted now is *retired* (``<file>.retired``): it is not opened again, and the next name
+(``<hash>.1.db``, ...) is built in its place. Being a cache, an index that cannot be read (not a
+database, malformed) is built again from the record where it is found (``_heal``); the record
+itself (``events.db``, ``measurements.db``) never is (``store.RecordDamaged``)."""
 
 from __future__ import annotations
 
+import fcntl
+import functools
 import hashlib
+import logging
+import os
 import sqlite3
 import sys
 import threading
@@ -35,6 +48,7 @@ import uuid
 from collections import OrderedDict
 from pathlib import Path
 
+from ..store import damaged
 from . import codec
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of
 from .relations import links_of
@@ -44,6 +58,9 @@ CHUNK = 50_000              # events folded per transaction: other processes rea
 CACHED = 4096               # open items kept folded in memory, the latest touched
 IDLE = 86400.0              # an item with no event for this long is not kept in memory (storage: items: idle)
 KEPT_FILES = 6              # index files kept per record (a few models' kinds at once)
+TIDY_AGE = 3600.0           # an index file changed more recently than this is never tidied away
+
+log = logging.getLogger("ergostat")
 
 SCHEMA = """
 create table if not exists meta (key text primary key, value);
@@ -99,6 +116,104 @@ def done_states(kind, left: set[str], declared: dict | None = None) -> list[str]
     return done or kind.states[-1:]
 
 
+def _lock_path(path: Path) -> Path:
+    return path.with_suffix(".lock")             # <hash>.db: <hash>.lock
+
+
+def _retired(path: Path) -> Path:
+    return path.with_suffix(".retired")
+
+
+def _hold(path: Path) -> int:
+    """A shared lock on the index file's lock file, held while the file is open: no other process
+    deletes the file meanwhile. Waits out one that is deleting it, and then holds the new one."""
+    lp = _lock_path(path)
+    lp.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        fd = os.open(lp, os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH)
+            if os.fstat(fd).st_ino == os.stat(lp).st_ino:
+                return fd
+        except FileNotFoundError:
+            pass                                    # deleted while we waited: take the new one
+        except BaseException:
+            os.close(fd)
+            raise
+        os.close(fd)
+
+
+def _take(path: Path) -> int | None:
+    """The exclusive lock on an index file, without waiting: None while any process has it open."""
+    lp = _lock_path(path)
+    try:
+        fd = os.open(lp, os.O_RDWR | os.O_CREAT, 0o644)
+    except OSError:
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if os.fstat(fd).st_ino == os.stat(lp).st_ino:
+            return fd
+    except OSError:
+        pass
+    os.close(fd)
+    return None
+
+
+def _remove(path: Path, fd: int) -> None:
+    """An index file deleted, with its WAL, shared memory and lock file, under its exclusive lock ``fd``."""
+    try:
+        for suf in ("", "-wal", "-shm"):
+            Path(str(path) + suf).unlink(missing_ok=True)
+        _lock_path(path).unlink(missing_ok=True)
+    finally:
+        os.close(fd)
+
+
+def _current(d: Path, h: str) -> Path:
+    """The file this fold's index is kept in: ``<hash>.db``, or the next name after those retired."""
+    n = 0
+    while True:
+        p = d / (f"{h}.db" if n == 0 else f"{h}.{n}.db")
+        if not _retired(p).exists():
+            return p
+        n += 1
+
+
+def _touched(p: Path) -> float:
+    """When an index file last changed: its WAL takes the writes between checkpoints."""
+    t = 0.0
+    for suf in ("", "-wal", "-shm"):
+        try:
+            t = max(t, os.stat(str(p) + suf).st_mtime)
+        except OSError:
+            pass
+    return t
+
+
+_GUARD = threading.local()
+
+
+def _healing(f):
+    """An index method that, when the file cannot be read (not a database, malformed), builds it again
+    from the record and runs once more; the caller never sees the error."""
+    @functools.wraps(f)
+    def run(self, *a, **k):
+        if getattr(_GUARD, "on", False):             # inside another guarded call: the outermost heals
+            return f(self, *a, **k)
+        _GUARD.on = True
+        try:
+            return f(self, *a, **k)
+        except sqlite3.DatabaseError as e:
+            if not damaged(e, io=True):
+                raise
+            self._heal(e)
+            return f(self, *a, **k)
+        finally:
+            _GUARD.on = False
+    return run
+
+
 class Index:
     """One fold's index: followed by ``catch_up``, read by the queries below (each after one)."""
 
@@ -107,6 +222,8 @@ class Index:
         self.kinds = dict(getattr(spec, "items", None) or {})
         self.lock = threading.RLock()
         self._db: sqlite3.Connection | None = None
+        self._held: int | None = None                 # the shared lock on ``<file>.lock`` while open
+        self._events = None                           # the record last followed (to build it again from)
         self._kind_of: dict[str, object] = {}
         self._forget()
 
@@ -123,12 +240,18 @@ class Index:
         """The index's connection, opened when first used (and again after ``close``). Used under ``lock``."""
         if self._db is None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            if self._held is None:
+                self._held = _hold(self.path)
             c = sqlite3.connect(str(self.path), timeout=600, isolation_level=None, check_same_thread=False)
-            c.execute("pragma journal_mode=wal")
-            c.execute("pragma synchronous=normal")
-            c.execute("pragma cache_size=-16000")         # 16 MB of pages, at most
-            c.execute("pragma temp_store=memory")
-            c.executescript(SCHEMA)
+            try:
+                c.execute("pragma journal_mode=wal")
+                c.execute("pragma synchronous=normal")
+                c.execute("pragma cache_size=-16000")         # 16 MB of pages, at most
+                c.execute("pragma temp_store=memory")
+                c.executescript(SCHEMA)
+            except BaseException:
+                c.close()
+                raise
             self._db = c
             self._forget()
             self._load_names()
@@ -181,8 +304,10 @@ class Index:
             self.db.execute("insert into meta(key, value) values (?, ?) on conflict(key) do update set value = excluded.value",
                             (k, v))
 
+    @_healing
     def catch_up(self, events) -> None:
         """Fold what the record holds that the index does not (by ``seq``), a chunk per transaction."""
+        self._events = events
         gen, last = events.generation(), events.last_seq()
         if gen == self.gen and last == self.seq:
             return
@@ -195,12 +320,43 @@ class Index:
                     done = self._step(events, gen, last, skip)             # may have folded what came after
                     self.db.execute("commit")
                 except BaseException:
-                    self.db.execute("rollback")
+                    try:
+                        self.db.execute("rollback")
+                    except sqlite3.Error:
+                        pass                                       # (a file that cannot be read: healed above)
                     self.cache.clear()
                     self.seq = -1
                     raise
                 if done:
                     return
+
+    def _heal(self, e: Exception) -> None:
+        """The file cannot be read: deleted (or, while another process has it open, retired for the
+        next name) and built again from the record."""
+        with self.lock:
+            log.warning("ergostat: the item index %s could not be read (%s); building it again from the record",
+                        self.path, e)
+            self.close()
+            fd = _take(self.path)
+            if fd is not None:
+                _remove(self.path, fd)
+            else:
+                _retired(self.path).touch()
+                self.path = _current(self.path.parent, self.path.name.split(".")[0])
+            self._forget()
+            if self._events is not None:
+                self.catch_up.__wrapped__(self, self._events)
+
+    def guard(self, fn):
+        """``fn()``, which reads the index's file directly, healed and run again when the file cannot be read."""
+        return _healing(lambda self: fn())(self)
+
+    def moved_to(self, path: Path) -> None:
+        """Another process retired this file: the next one is opened instead."""
+        with self.lock:
+            self.close()
+            self.path = path
+            self._forget()
 
     def _step(self, events, gen: int, last: int, skip) -> bool:
         """Under the write lock: one chunk folded. True when the index is up to ``last``."""
@@ -336,6 +492,7 @@ class Index:
 
     # ---- reading it (after catch_up)
 
+    @_healing
     def left(self, kind: str) -> set[str]:
         """The states of ``kind`` some item has left."""
         got = self._left.get(kind)
@@ -345,11 +502,13 @@ class Index:
             self._left[kind] = got
         return got
 
+    @_healing
     def reached(self, kind: str) -> set[str]:
         """The states of ``kind`` some item has reached."""
         k = self.known(kind)
         return {self.name(s) for (s,) in self.db.execute("select state from reached where kind = ?", (k,))}
 
+    @_healing
     def changed_after(self, t: float | None) -> bool:
         """Whether any item has an event after ``t`` (else nothing need be left out as of then)."""
         return t is not None and self.db.execute("select 1 from items where newest > ? limit 1", (t,)).fetchone() is not None
@@ -374,16 +533,19 @@ class Index:
             args.append(until)
         return (" where " + " and ".join(sql)) if sql else "", args
 
+    @_healing
     def late(self, until: float, kind: str | None = None, limit: int | None = None) -> list[str]:
         """The items with an event after ``until`` (``kind``'s only, when given)."""
         w, a = self._where(kind)
         w = (w + " and " if w else " where ") + "newest > ?"
         return [r[0] for r in self.db.execute(f"select id from items{w}" + (f" limit {int(limit)}" if limit else ""), (*a, until))]
 
+    @_healing
     def total(self, kind: str | None = None) -> int:
         w, a = self._where(kind)
         return self.db.execute(f"select count(*) from items{w}", a).fetchone()[0]
 
+    @_healing
     def counts(self, until: float | None = None) -> dict[str, dict[str, int]]:
         """Per kind (``""``: none), how many items in each state (``""``: none)."""
         w, a = self._where(None, until=until)
@@ -393,10 +555,12 @@ class Index:
             c[self.name(s) or ""] = c.get(self.name(s) or "", 0) + n
         return out
 
+    @_healing
     def count(self, kind: str | None, states=None, until: float | None = None) -> int:
         w, a = self._where(kind, states, until)
         return self.db.execute(f"select count(*) from items{w}", a).fetchone()[0]
 
+    @_healing
     def items(self, kind: str | None = None, states=None, until: float | None = None, n: int | None = None,
               offset: int = 0, moves: bool = True, ids=None, has: str | None = None) -> list[Item]:
         """Items, the latest first (by their last event): ``n`` of them from ``offset``, with their moves;
@@ -421,6 +585,7 @@ class Index:
         mv = self.moves_of([r[0] for r in rows]) if moves else {}
         return [self._item(r, mv.get(r[0], [])) for r in rows]
 
+    @_healing
     def moves_of(self, rids: list[int]) -> dict[int, list[dict]]:
         out: dict[int, list[dict]] = {}
         if len(rids) > 2000:
@@ -435,6 +600,7 @@ class Index:
             out.setdefault(rid, []).append({"time": t, "from": self.name(f), "to": self.name(d), "event": ev, "type": self.name(ty)})
         return out
 
+    @_healing
     def moved(self, kind: str, key: str, state: str | None, since: float, until: float,
               until_newest: float | None = None) -> list[tuple[str, float]]:
         """(item, time) of each move of ``kind``'s items into (``key`` "to") or out of ("from") ``state``,
@@ -452,6 +618,7 @@ class Index:
         return self.db.execute(f"select i.id, m.t from moves m join items i on i.rid = m.rid where m.kind = ? and m.{col} = ? "
                                f"and m.t >= ? and m.t <= ?{extra} order by m.t", args).fetchall()
 
+    @_healing
     def transitions(self, kind: str, at_once: bool = False) -> dict:
         """How many times ``kind``'s items moved from one state to another (``(None, S)``: arrivals), a lease's hold
         taken out: a move into ``leased`` and the move out of it are one move, from the state it was taken from.
@@ -485,6 +652,7 @@ class Index:
                 out[(frm, to)] += 1
         return out
 
+    @_healing
     def tally(self, kind: str, state: str, key: str, before: float, until_newest: float | None = None) -> int:
         """How many moves of ``kind``'s items into (or out of) ``state`` were at or before ``before``."""
         col = "dst" if key == "to" else "frm"
@@ -498,6 +666,7 @@ class Index:
         return self.db.execute(f"select count(*) from moves m join items i on i.rid = m.rid where m.kind = ? and m.{col} = ? "
                                "and m.t <= ? and i.newest <= ?", (k, s, before, until_newest)).fetchone()[0]
 
+    @_healing
     def finished(self, kind: str, done: list[str], since: float, until: float,
                  until_newest: float | None = None) -> list[tuple[str, float, float]]:
         """(item, when it first entered a finished state, when it arrived) for each of ``kind``'s items
@@ -518,6 +687,7 @@ class Index:
             f"(select m.rid from moves m where {into} and m.t >= ? and m.t <= ?){extra} group by m.rid", args).fetchall()
         return [r for r in rows if since <= r[1] <= until]
 
+    @_healing
     def links_from(self, ids) -> list[tuple[str, str, str]]:
         """(item, relation, the id it names) of each link the items ``ids`` hold."""
         ids, out = list(ids), []
@@ -528,6 +698,7 @@ class Index:
                 part)]
         return out
 
+    @_healing
     def links_to(self, ids) -> list[tuple[str, str, str]]:
         """(item, relation, the id it names) of each link naming one of ``ids``: the inverse direction."""
         ids, out = list(ids), []
@@ -538,6 +709,7 @@ class Index:
                 part)]
         return out
 
+    @_healing
     def links(self, rels=None, limit: int | None = None) -> list[tuple[str, str, str]]:
         """Every link (of the relations ``rels``, when given): (item, relation, the id it names)."""
         sql, args = "select i.id, l.rel, l.dst from links l join items i on i.rid = l.rid", []
@@ -551,6 +723,7 @@ class Index:
             sql += f" limit {int(limit)}"
         return [(a, self.name(r), d) for a, r, d in self.db.execute(sql, args)]
 
+    @_healing
     def stays(self, kind: str, most: int = 2000, finished=()) -> tuple[dict[str, list[float]], dict[str, int], int]:
         """How long ``kind``'s items stayed in each state they left (a lease's hold, ``leased``, is a state of its own
         here: the work), over the moves of its ``most`` latest items; and, of those now in a ``finished`` state, how
@@ -575,11 +748,13 @@ class Index:
             rid0, t0, st0 = rid, t, d
         return out, visits, len(done)
 
+    @_healing
     def candidates(self) -> list[tuple[str, str | None, float]]:
         """(item, kind, the time of its first event since its snapshot) of each item with events a
         roll-up could take (``rollup.plan``)."""
         return [(id, self.name(k), t) for id, k, t in self.db.execute("select id, kind, raw_first from items where raw > 0")]
 
+    @_healing
     def rolled(self, rest: dict[str, list[tuple[int, float]]]) -> None:
         """After a roll-up: each item's events left outside its snapshot (seq, time), so it is a
         candidate again only once one of them is due (those the index has not folded yet count when it does)."""
@@ -606,9 +781,12 @@ class Index:
             if self._db is not None:
                 self._db.close()
                 self._db = None
+            if self._held is not None:
+                os.close(self._held)                  # (closing it lets the lock go)
+                self._held = None
 
 
-_OPEN: OrderedDict[str, Index] = OrderedDict()     # by file: one per process, whatever opened the record
+_OPEN: OrderedDict[str, Index] = OrderedDict()     # by fold (<items>/<hash>): one per process, whatever opened the record
 _OPEN_LOCK = threading.Lock()
 OPEN_MOST = 12                                      # indexes kept open at once (each holds its file, WAL and shm)
 
@@ -621,33 +799,53 @@ def index_for(events, spec, transcript: bool) -> Index | None:
         return None
     key = kinds_key(spec)
     h = hashlib.sha1(repr((key, transcript, VERSION)).encode()).hexdigest()[:16]
-    path = d / "items" / f"{h}.db"
+    path = _current(d / "items", h)
+    at = str(d / "items" / h)
     storage = getattr(spec, "storage", None)
     idle = getattr(storage, "item_idle", None) or IDLE
     with _OPEN_LOCK:
-        ix = _OPEN.get(str(path))
+        ix = _OPEN.get(at)
         if ix is None:
             if not path.exists():
                 _tidy(path.parent)
-            ix = _OPEN[str(path)] = Index(path, spec, transcript, idle)
+            ix = _OPEN[at] = Index(path, spec, transcript, idle)
             while len(_OPEN) > OPEN_MOST:
                 _OPEN.popitem(last=False)[1].close()
-        _OPEN.move_to_end(str(path))
+        elif ix.path != path:
+            ix.moved_to(path)                       # retired by another process (healed, reindexed)
+        _OPEN.move_to_end(at)
         ix.spec, ix.kinds, ix.idle = spec, dict(getattr(spec, "items", None) or {}), idle
     ix.catch_up(events)
     return ix
 
 
 def _tidy(d: Path) -> None:
-    """At most ``KEPT_FILES`` indexes per record: the least recently changed go."""
+    """At most ``KEPT_FILES`` indexes per record: the least recently changed go, but only those no
+    process has open (the exclusive lock taken without waiting) and none changed in ``TIDY_AGE``.
+    Retired files go as soon as no process has them open."""
     if not d.exists():
         return
-    got = sorted(d.glob("*.db"), key=lambda p: p.stat().st_mtime)
+    files = list(d.glob("*.db"))
+    retired = [p for p in files if _retired(p).exists()]
+    for p in retired:
+        if (fd := _take(p)) is not None:
+            _remove(p, fd)                          # (its mark stays: the name is not used again)
+    got = sorted((p for p in files if p not in retired), key=_touched)
+    now = time.time()
     for p in got[:max(0, len(got) - KEPT_FILES + 1)]:
-        if str(p) in _OPEN:
+        if now - _touched(p) < TIDY_AGE:
             continue
-        for suf in ("", "-wal", "-shm"):
-            Path(str(p) + suf).unlink(missing_ok=True)
+        if (fd := _take(p)) is not None:
+            _remove(p, fd)
+    _unmark(d)
+
+
+def _unmark(d: Path) -> None:
+    """The retired marks of a fold none of whose files is left: its next index starts at ``<hash>.db``."""
+    for m in d.glob("*.retired"):
+        h = m.name.split(".")[0]
+        if not any(d.glob(f"{h}.*db")):
+            m.unlink(missing_ok=True)
 
 
 def reindex(events, spec) -> dict:
@@ -659,8 +857,13 @@ def reindex(events, spec) -> dict:
     with _OPEN_LOCK:
         for k in [k for k in _OPEN if Path(k).parent == d / "items"]:
             _OPEN.pop(k).close()
-    for p in (d / "items").glob("*.db*") if (d / "items").exists() else ():
-        p.unlink(missing_ok=True)
+    for p in (d / "items").glob("*.db") if (d / "items").exists() else ():
+        if (fd := _take(p)) is not None:
+            _remove(p, fd)
+        else:
+            _retired(p).touch()                     # another process has it open: built again under the next name
+    if (d / "items").exists():
+        _unmark(d / "items")
     out = {}
     for tr in (False, True):
         t = time.time()
