@@ -152,6 +152,7 @@ class Engine:
         self.calls = None                              # the socket steps call (calls/server.py), once started
         self.socket: str | None = None
         self.count_last: dict[str, float] = {}         # an items sensor's series → the count last written for it
+        self.count_next = 0.0                          # (monotonic) not before: reading every count costs what it costs
 
     # ---- signals
 
@@ -1026,9 +1027,12 @@ class Engine:
         with self.lock:
             asked, self.wanted = list(self.wanted.values()), {}
             poked, self.poked = self.poked, False
-            moved, self.record_moved = self.record_moved, False
+            moved = self.record_moved and time.monotonic() >= self.count_next   # (at most a fifth of the loop's time)
+            if moved:
+                self.record_moved = False
         here = [s for s in asked if s.items is not None or s.changes is not None]
         extra: set[str] = set()
+        began = time.monotonic()
         if moved:
             mine = {s.series for s in here}
             by, _ = self._item_sensors()
@@ -1044,6 +1048,7 @@ class Engine:
                 self.pool.submit(self._read_one, s)
         got = self._read_here(here) if here else []
         if extra:                                         # read on a change of the record: kept only when it moved
+            self.count_next = time.monotonic() + 4 * (time.monotonic() - began)
             got = [g for g in got if g[0].series not in extra or (g[4] is None and g[1] is not None
                                                                    and g[1] != self.count_last.get(g[0].series))]
         for s, v, *_ in got:
