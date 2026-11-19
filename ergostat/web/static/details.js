@@ -63,7 +63,7 @@ function openSystem(n) {                               // a system as one part: 
   showDetail(h("div", { class: "kind" }, n.remote ? "System, remote" : "System"), h("h2", {}, n.label, exceptional(n.status) ? statusEl(n.status) : null),
     typeof moduleCharts === "function" ? moduleCharts(n) : null, whatIs("system"),
     n.description ? h("p", { class: "muted" }, n.description) : null, remoteNote(n.remote),
-    dl([["loops", loopsText(n)], ["inside", n.subsystems?.length ? n.subsystems.join(", ") : null],
+    dl([["loops", loopsText(n)], ["size", n.size], ["inside", n.subsystems?.length ? n.subsystems.join(", ") : null],
         ["inner loop", n.inner?.length ? `given a setpoint for ${n.inner.join(", ")} from outside, it holds it: an outer loop can treat it as one block` : null]]),
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),
     h("h3", {}, "Out, to outside"), list(side("out"), "Nothing outside sees it here."),
