@@ -305,8 +305,8 @@ setpoint faster than the inner can follow is a coupled loop, not a hierarchy.
 ### Few signals across systems
 
 Every signal that crosses a system's frame is a port mark and a long line. Keep them few: a system's blocks read
-and move that system's parts, and a step that must read another system reads one signal, signed
-(`in: [+stock.alerts-investigating]`; a goal's `error` read directly is drawn as a reinforcing loop). If two systems
+and move that system's parts, and a step that must read another system reads one signal: a goal's error, or a
+stock, signed (`in: [+stock.alerts-investigating]`). If two systems
 trade many signals, the boundary between them is in the wrong place.
 
 ### Tiers marked

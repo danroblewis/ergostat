@@ -9,10 +9,16 @@ The links, each with a sign (+1, -1, or None: not known):
   its flows);
 - a ``driven-by`` is the sign written on it (``+stock.x``, ``-auxiliary.y``), unknown unsigned;
 - what a goal is about drives the goal's error, e = r − y: −;
-- a block reading a goal: its error, + (a controller acts on its error: that is what serving a
-  goal means); while the goal is off (``.off``, an ``onoff`` or ``proportional`` on it, or the goal
-  itself), + for a goal held up (">= 5": off when the error is above 0), − for one held down,
-  unknown for "==";
+- a block reading a goal: while the goal is off (``.off``, an ``onoff`` or ``proportional`` on it,
+  or the goal itself), + for a goal held up (">= 5": off when the error is above 0), − for one held
+  down, unknown for "=="; its error, read by a built-in block, + (the block's own law says what it
+  does with the number); read by a machine block, as it must act to close the gap (a controller acts
+  on its error: that is what serving a goal means), so the sign with which the block moves the
+  goal's quantity: + when it raises it (it acts the more, the more room below the setpoint: a
+  dispatcher filling up to a limit), − when it lowers it (it acts the more, the further the quantity
+  is over: a worker draining a queue), not known when its paths there disagree or are not known.
+  (e = r − y falls as the quantity rises, so + throughout would make a block draining its own goal's
+  quantity a reinforcing loop.)
 - a built-in block passes its input on with its own sign (``compare`` ``below`` and a falling
   ``lookup`` −; ``expr`` unknown); a machine block does as it is commanded (+); any other reading
   is as written on it (``in: +stock.x``), else, when it reads what a goal it serves is about, as
@@ -114,9 +120,17 @@ def inferred(spec: Spec, b: Block, r: Ref, serves: dict[str, list[str]] | None =
 
 
 def input_sign(spec: Spec, b: Block, r: Ref, port: str | None = None, serves: dict[str, list[str]] | None = None) -> int | None:
-    """The sign of the link from what ``b`` reads (``r``, at its input ``port``) to ``b``'s output."""
+    """The sign of the link from what ``b`` reads (``r``, at its input ``port``) to ``b``'s output; for a machine
+    block reading a goal's error, ``_CLOSES``, which ``links`` works out from what the block moves."""
     if r.kind == "goal":
-        base = 1 if r.port == "error" else _held(spec, r.name) if r.name in spec.goals else None
+        if r.name not in spec.goals:
+            base = None
+        elif r.port == "error" and b.builtin:
+            base = 1                                    # its law is written: compare, limit, lookup … on the number
+        elif r.port == "error":
+            return _CLOSES                              # a machine block closes the gap: worked out from what it moves
+        else:
+            base = _held(spec, r.name)
     elif r.kind == "block":
         base = 1
     elif b.builtin:
@@ -131,6 +145,36 @@ def input_sign(spec: Spec, b: Block, r: Ref, port: str | None = None, serves: di
         f = _passes(b)
         return None if f is None else base * f
     return base
+
+
+_CLOSES = 2         # a machine block reading a goal's error: its sign is how the block moves the goal's quantity
+
+
+def _moves(ls: dict[tuple[str, str], Link], block: str, target: str, longest: int = 12, most: int = 200) -> int | None:
+    """The sign with which ``block`` moves ``target`` along the links: every simple path from one to the other
+    (through setpoints and other controllers too), signed alike; else not known (paths that disagree, or a link along
+    one whose sign is not known); ``_CLOSES`` while a path runs through another such reading not yet worked out."""
+    nxt: dict[str, list[Link]] = {}
+    for x in ls.values():
+        nxt.setdefault(x.source, []).append(x)
+    signs: set[int | None] = set()
+    paths = 0
+
+    def walk(n: str, sign: int | None, on: set[str]) -> None:
+        nonlocal paths
+        for x in nxt.get(n, []):
+            if paths >= most or None in signs:
+                return
+            s = None if sign is None or x.sign is None else _CLOSES if _CLOSES in (sign, x.sign) else sign * x.sign
+            if x.target == target:
+                paths += 1
+                signs.add(s)
+            elif x.target not in on and len(on) < longest:
+                walk(x.target, s, on | {x.target})
+    walk(block, 1, {block})
+    if None in signs or paths >= most or not signs:
+        return None
+    return _CLOSES if _CLOSES in signs else signs.pop() if len(signs) == 1 else None
 
 
 def links(spec: Spec) -> list[Link]:
@@ -180,6 +224,16 @@ def _links(spec: Spec) -> list[Link]:
                 add(me, _part(t), input_sign(spec, spec.blocks[t.name], Ref("block", b.name)), "acts")
             else:
                 add(me, _part(t), 1, "acts")
+    left = [k for k, x in out.items() if x.sign == _CLOSES]
+    while left:                                          # a goal's error: as the block moves the goal's quantity, the
+        done = {}                                        # inner loops of a cascade first
+        for src, me in left:
+            sign = _moves(out, me, _part(spec.goals[src.split(".", 1)[1]].of))
+            if sign != _CLOSES:
+                done[(src, me)] = sign
+        for k in left if not done else done:            # (readings that only wait on each other: not known)
+            out[k] = Link(*k, done.get(k), out[k].kind)
+        left = [k for k in left if k not in done] if done else []
     known = {f"{k}.{n}" for k, t in (("stock", spec.stocks), ("flow", spec.flows), ("auxiliary", spec.auxiliaries),
                                        ("goal", spec.goals), ("block", spec.blocks)) for n in t}
     return [x for x in out.values() if x.source in known and x.target in known]
