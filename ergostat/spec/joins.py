@@ -111,10 +111,11 @@ class Joins:
         kinds = {k.name: k for k in spec.items.values() if k.join}
         if self.mv is None:
             parents = [i.id for kn in kinds for i in ix.items(kn, moves=False)]
-        else:
+        else:                                           # the parents of the children that moved since
             rels = {j.children for k in kinds.values() for j in k.join}
-            moved = [r[0] for r in db.execute("select distinct i.id from moves m join items i on i.rid = m.rid "
-                                              "where m.rowid > ?", (self.mv,))]
+            kids = [x for x in (ix.known(c.name) for c in spec.items.values() if rels & set(c.relations)) if x != -1]
+            moved = [r[0] for r in db.execute(f"select distinct i.id from moves m join items i on i.rid = m.rid where "
+                                              f"m.rowid > ? and m.kind in ({','.join('?' * len(kids))})", (self.mv, *kids))]
             parents = sorted({d for _, r, d in ix.links_from(moved) if r in rels})
         self.mv = top
         out = []
@@ -122,8 +123,10 @@ class Joins:
             k = kinds.get(p.kind)
             state = p.state
             for j in k.join if k else ():
+                if state == j.to or (state in k.states and k.states.index(state) > k.states.index(j.to)):
+                    continue                            # only forward
                 kids = [a for a, r, _ in ix.links_to([p.id]) if r == j.children]
-                if not kids or state == j.to or (state in k.states and k.states.index(state) > k.states.index(j.to)):
+                if not kids:
                     continue
                 got = {i.id: i for i in ix.items(ids=kids, moves=False)}
                 ins = [x in got and got[x].state in j.states for x in kids]
