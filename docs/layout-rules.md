@@ -197,7 +197,7 @@ that, it runs off the screen one way while the screen is empty the other.
 - **A valve is placed as a point and then turned** (`avoid.js` `firstPass`, `valves.js` `turnValves`), so rule 8
   holds by construction. A stock gets a pipe point in line with any valve facing one of its sides, top and bottom
   included (rule 9).
-- **A chain is wrapped into rows only when the rows fit the window clearly better** (by 25%) than one row that
-  does not fit at zoom 0.75.
+- **A chain far wider than tall is wrapped into rows only when the rows fit the window clearly better** (by
+  25%) than one row.
 
 <!-- INSTANCES -->

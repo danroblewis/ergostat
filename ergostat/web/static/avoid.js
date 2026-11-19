@@ -62,19 +62,43 @@ function avoidCore(A) {
         fc[f.id] = [cr, f];
       }
       r1.processTransaction();
-      for (const [id, [cr, f]] of Object.entries(fc)) {
-        if (!cr.hasValidRoute()) continue;
+      // the way it runs through the point; and whether it turns there (a corner on the valve)
+      const way = (cr, f) => {
+        if (!cr.hasValidRoute()) return null;
         const p = cr.displayRoute().map((q) => [q.x, q.y]);
         const on = (a, b) => Math.abs((b[0] - a[0]) * (f.y - a[1]) - (b[1] - a[1]) * (f.x - a[0])) < 2 * Math.hypot(b[0] - a[0], b[1] - a[1]) &&
           f.x >= Math.min(a[0], b[0]) - 1.5 && f.x <= Math.max(a[0], b[0]) + 1.5 && f.y >= Math.min(a[1], b[1]) - 1.5 && f.y <= Math.max(a[1], b[1]) + 1.5;
         const cand = [];
         for (let i = 0; i + 1 < p.length; i++) if (on(p[i], p[i + 1])) cand.push(i);
-        if (!cand.length) continue;
+        if (!cand.length) return null;
         const len = (i) => Math.hypot(p[i + 1][0] - p[i][0], p[i + 1][1] - p[i][1]);
         const i = cand.find((j) => j === 0 || j === p.length - 2) ?? cand.reduce((a, b) => (len(b) > len(a) ? b : a));
         const dx = p[i + 1][0] - p[i][0], dy = p[i + 1][1] - p[i][1];
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
-        out[id] = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return null;
+        const dir = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+        const level = (j) => Math.abs(p[j + 1][1] - p[j][1]) < 0.5;
+        return { dir, corner: cand.length > 1 && cand.some((j) => level(j) !== level(i)) };
+      };
+      // a flow that turns on its valve: routed again straight through it, on the axis of its stretch there, so its
+      // turn moves off the valve (a corner on a valve is a stub out of it whichever way it faces)
+      const across = (D.ConnDirLeft | D.ConnDirRight) || 12, upDown = (D.ConnDirUp | D.ConnDirDown) || 3;
+      // (each axis tried: the one with fewer corners, then the shorter way, is kept)
+      const cost = (cr) => { if (!cr.hasValidRoute()) return Infinity;
+        const p = cr.displayRoute().map((q) => [q.x, q.y]);
+        let len = 0; for (let i = 1; i < p.length; i++) len += Math.abs(p[i][0] - p[i - 1][0]) + Math.abs(p[i][1] - p[i - 1][1]);
+        return (p.length - 2) * 10000 + len; };
+      for (const [cr, f] of Object.values(fc)) {
+        if (!way(cr, f)?.corner) continue;
+        const tries = [across, upDown].map((ax) => {
+          cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: ax, departure: ax }]);
+          r1.processTransaction();
+          return [cost(cr), ax];
+        }).sort((a, b) => a[0] - b[0]);
+        if (tries[0][1] !== upDown) { cr.setRoutingCheckpoints([{ x: f.x, y: f.y, arrival: tries[0][1], departure: tries[0][1] }]); r1.processTransaction(); }
+      }
+      for (const [id, [cr, f]] of Object.entries(fc)) {
+        const w = way(cr, f);
+        if (w) out[id] = w.dir;
       }
     } catch (e) { /* no first pass: each valve as it was turned */ }
     try { r1?.delete(); } catch (e) { /* gone */ }
