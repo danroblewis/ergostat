@@ -76,3 +76,56 @@ No test or demo sends a real notification, email or webhook: the `command` chann
 
 `uv run python -m pytest -q`; the Playwright files with no skips; `uv run ruff check ergostat tests scripts`;
 `demo_check.py ticket-factory`. Hand-started servers on 8791-8797.
+
+## Amendment (the owner, through the coordinator, 2026-11-19): interventions as a stock under control
+
+Approvals, notifications, person requests and alarms are **evidence of missing feedback loops and model gaps**.
+Silencing them is no remedy; the remedy is more modelling and automation until they are unnecessary. Added to the
+definition of done (the text above stands):
+
+**Interventions, with class and cause.** Every intervention (a held approval, a person's request, an advised command,
+a raised alarm, a notification sent) is read from the record with its class (the action's class, `person:BLOCK`,
+`advise:BLOCK`, `alarm:BLOCK`, `notify:CHANNEL`, `change:KIND`, `steptest`) and its cause (the block, item, goal or
+part whose process it blocked), when it was asked and when it was answered.
+
+**A built-in loop, `use: interventions`** (a template, `once: true`, drawn like `modelling` in all three views):
+stocks of interventions per day (`builtin: ergostat.interventions.per-day`), their trend
+(`ergostat.interventions.trend`), and the modelling requests by state (items of the built-in kind
+`ergostat.model-request`: open, investing, resolved, suppressed); the goal `interventions-falling` holds the **trend**
+at or under 0 (not a count); the controller `remedies` (a program on ergostat's own runner, `ergostat inbox
+--requests`) turns each recurring class (at least `recurs` in the window), ranked by time blocked then count, into a
+request naming its candidate remedies: automate the person's step with a block; graduate the gate (or `mode:`, or
+the judge's `accept:`) with its evidence; add the missing loop; change the software so the step no longer needs the
+person. The earlier approval-budget suggestion is part of this loop (its finding names the class's request).
+
+**Suppression does not count.** A model change that removes or loosens an alarm (unless a goal now holds what it
+watched), sets a channel or a gate to `deny`, removes a channel, a gate or a person block (unless a machine block now
+moves its flows), or turns `approve` into `auto` (or `advise` into `auto`) without the evidence that graduates it (at
+least 5 approved, none denied, this week) is recorded as **suppression** (`ergostat.model-request.suppressed`), shown
+on its request and in the inbox stats, and its class's rate before it is still counted every day after (imputed), so
+it never lowers the measure. A graduation with its evidence is recorded as such. A request is **resolved** only when
+its class has not intervened over the verification window (default 7d) and the process it blocked has run since.
+
+**The valley.** The goal is a trend over a long window (`trend-window:`, default 21d): the slope of a weighted
+least-squares line through the daily counts, days in an investment period (a request marked investing,
+`ergostat inbox --invest REQUEST`) weighted 0.25, so a planned rise costs little; the controller keeps working
+whatever the short-term rate. The maths is stated in SPEC.
+
+**Alarm-management measures (ISA-18.2, EEMUA 191):** interventions per day; the repeat offenders (the top classes and
+their share); standing (waiting longer than `standing:`, default 24h); chattering (a class intervening 3 or more
+times within 10 minutes); time blocked (hours). They rank the controller's work, show on the goal's panel (the loop's
+`says`, as `per:` goals do) and in `ergostat inbox --stats`, and are measures a sensor may read.
+
+Acceptance tests added (`tests/test_interventions.py`):
+- `test_interventions_carry_class_and_cause_from_every_kind`
+- `test_the_interventions_loop_is_drawn_in_all_three_views`
+- `test_a_recurring_class_becomes_a_request_with_remedies_ranked_by_time_blocked`
+- `test_removing_an_alarm_or_a_gate_is_suppression_and_does_not_lower_the_measure`
+- `test_a_graduation_with_evidence_is_not_suppression`
+- `test_a_request_is_resolved_only_after_the_verification_window_with_the_process_running`
+- `test_the_trend_tolerates_a_planned_rise`
+- `test_alarm_management_measures_and_the_stats`
+
+**Budget, amended: 1,300 net lines.** Why: the amendment is a second gap of its own size (a built-in template drawn in
+three views, a built-in item kind, a controller program, suppression detection over model versions, a robust trend
+estimator and five ISA-18.2 measures), on top of the 700 asked for the inbox and notify.
