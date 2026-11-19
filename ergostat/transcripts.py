@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -204,6 +205,11 @@ class Ingester:
         if f is None:
             if self.done.get(f"{item}\n{path}") == stamp:        # read to its end before, and unchanged since
                 return 0
+            if time.time() - st.st_mtime > self.p.storage.logs["transcripts"] and \
+                    self.p.events.query(n=1, item=item, type="claude.*"):   # read before, then forgotten: left as read
+                self.files[key] = f = _File()
+                f.stat = stamp
+                return 0
             f = self.files[key] = _File()
         if f.stat == stamp:
             return 0
@@ -236,6 +242,8 @@ class Ingester:
         return self.p.events.add_many(evs) if evs else 0
 
     def _save(self) -> None:
+        old = time.time() - self.p.storage.logs["transcripts"]          # unchanged since: forgotten, never read again
+        self.done = {k: v for k, v in self.done.items() if v[1] / 1e9 > old}
         try:
             tmp = self.note.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.done))

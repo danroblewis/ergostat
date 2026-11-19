@@ -141,7 +141,7 @@ ergostat snapshot            the page, as of now, in one HTML file that opens of
 ergostat message "TEXT"      tell the work in flight something (--about ITEM|PART); routed to what it concerns,
                              delivered to a running session as its next turn; ergostat messages: what became of each
 ergostat projects            every project on this machine, which are running, and their pages
-ergostat run --service       a launchd agent or systemd unit that keeps it running across reboots (printed only)
+ergostat run --service       a launchd agent or systemd unit that keeps it running across crashes and reboots (--install)
 ```
 
 Every topic takes `-s SYSTEM`, `--since 1h`, `--at 30m` (as it was then: `30m` ago, `07:30`) and

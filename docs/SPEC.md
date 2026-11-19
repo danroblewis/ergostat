@@ -344,7 +344,17 @@ storage:
     every: 1h                      # how often the engine rolls up and forgets
   items:
     idle: 1d                       # an item with no event for this long is read from the item index, not kept in memory
+  logs:                            # caps on what would otherwise grow without limit
+    block: 5MB                     # a block's log (logs/<block>.log) past this is cut to its last fifth, at its next run
+    run: 5MB                       # run.log past this is copied to run.log.1 and emptied, at each start and each roll-up
+    threads: 1MB                   # threads.txt (kill -USR1's stacks) past this is cut to its last fifth
+    transcripts: 30d               # a transcript unchanged this long is forgotten by transcripts.json, not read again
 ```
+
+`ergostat compact --projects` lists the record folders under `~/.ergostat` whose `repo.json` names a repository
+that is gone (its parent folder is there and it is not: an unmounted drive is not gone) and where no engine runs,
+with their sizes; `--yes` lists them, then deletes those folders and nothing else (a symlink, a folder without a
+`repo.json`, or whose repository is there, is never touched).
 
 **Events.** `segments` (the default) is an append-only log in `<state>/events/`: the newest events
 in `head.jsonl`, appended under a file lock by whichever process records them (the runner, the
@@ -1525,7 +1535,8 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
   the last good one runs on, and "the edited model has errors (`file:line`); still running the last good version"
   is said in the log (with every error), at the top of `ergostat status` (with every error, even when the files do
   not load at all) and in the page's header, from `<state>/reload.json`, until the files are fixed. The same files
-  are not read again until they change.
+  are not read again until they change. `run --stop` and `run --service --uninstall` work while they do not load
+  (the state folder found without the model).
 - **Atomic.** The new model is worked out whole (its built-ins made, its version hashed) before anything of the
   running one is touched: a change that cannot be taken leaves the last one running as it was.
 - **Timed.** The log gives each change's time; one slower than 2 s says where it went (reading and checking the
@@ -1538,14 +1549,37 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
   always.
 
 **The watchdog** (`ergostat/spec/watchdog.py`). Inside the engine, once a second: when the sensor pool has given
-nothing back for 30 s while readings are out (`ERGOSTAT_STALL`; or the longest timeout of those readings and 10 s
-more, when that is longer), a fresh pool takes over and the readings it held are asked for again; when no pass has
+nothing back for 30 s while readings are out (`ERGOSTAT_STALL`; or the longest timeout of the readings it has begun,
+and 10 s more, when that is longer: one still queued never lengthens it), a fresh pool takes over and the readings it held are asked for again; when no pass has
 finished for 30 s, the loop is started again; when there is still no pass 30 s after that, or the pool wedged three
 times in ten minutes, the process restarts in place (by the run loop, or by the watchdog itself if that has not
 happened within 20 s), which stops the runs under way (leased items are taken again when their leases end). Each
 time every thread's stack is written to `<state>/stalls/` and `ergostat.engine.stalled` is recorded (`what`: pool or
-pass, `seconds`, `recovery`, `stacks`). `kill -USR1` on the runner writes every thread's stack to
-`<state>/threads.txt` at any time, and the socket's `ping` says how long ago the last pass finished.
+pass, `seconds`, `recovery`, `stacks`); the stacks begin with what holds the item index (the thread holding its lock,
+with its stack, and any other process with the file open). **Restarts back off** (`ergostat/restarts.py`): the first
+is at once, but one wanted soon after the last (within 10 minutes, or twice its own wait) means the last did not help,
+and it waits 60 s from it, then 2 m, 4 m, ... at most 30 m, said once and recorded as a stall, while the cause lasts;
+the engine recovering meanwhile cancels it. The last restart is kept in `<state>/restarts.json`, so the back-off
+outlives the process. **A start that hangs** (a lock held by another process, say) is caught by a startup deadline
+(120 s, `ERGOSTAT_STARTUP`): its stacks dumped (`stalls/*-start.txt`) and the process restarted under the same
+back-off. Every 5 s the watchdog writes `<state>/heartbeat.json` (when the last pass finished, the pid), and the run
+writes it as it starts. The alarms' own sensor pool is watched as the sensors' is: replaced when wedged, and a third time in ten minutes
+restarts the process. `kill -USR1`
+on the runner writes every thread's stack to `<state>/threads.txt` at any time, and the socket's `ping` says how long
+ago the last pass finished.
+
+**The outer watcher** (`ergostat/watcher.py`). The engine cannot restart itself when it is killed or frozen whole.
+`ergostat run --service` prints, for the machine's service manager, a user LaunchAgent
+(`~/Library/LaunchAgents/local.ergostat.<name>-<hash>.plist`, `KeepAlive`) on macOS or a systemd user unit
+(`~/.config/systemd/user/ergostat-<name>-<hash>.service`, `Restart=always`) elsewhere, one per repository;
+`--service --install` installs and loads it, `--service --uninstall` removes it. It runs the `ergostat` installed on
+PATH (each in turn; one whose `#!` is a launcher, a repository's `.venv` or a temporary environment is passed over,
+and none left is refused). What it keeps running is the watcher,
+which reads only `run.pid`, `heartbeat.json` and `stopped` every 5 s: an engine dead, unless stopped on purpose
+(`ergostat run --stop` leaves `<state>/stopped`, removed by the next start; a logout or a shutdown leaves none), is
+started again; one whose last pass is older than 180 s is stopped (`SIGTERM`, then `SIGKILL`) and started again; each
+under the same back-off, said in `run.log`, and recorded as `ergostat.engine.restarted` when the start succeeded. `ergostat status` says "engine not running (last seen ...)", from the heartbeat, and
+shows each loop as it was then, never as holding now.
 
 **What a run records.** Every machine block's run ends with `agent.ran` (or `agent.failed`), and besides what it said
 and moved, that event says what the run cost, measured by ergostat, never by the run's own say:
@@ -1634,7 +1668,7 @@ A first set, kept small:
 | `expr` | several | an arithmetic expression of them | `expr: a * 2 + b`, with `in` as a map naming them |
 | `timer` | one signal | 1 once it has been nonzero this long | `after` |
 | `counter` | one signal | how many times it became nonzero | `reset` (a duration) |
-| `alarm` | one signal | raises a finding while out of bounds | `above`, `below`, `for` |
+| `alarm` | one signal | raises an alarm while out of bounds (`for` that long): one line in *needs attention*, and "alarm raised" on its block in the Blocks view (cleared when it fails or its input is unknown); a command or query sensor it reads is read on a pool of its own, never on the sensor pool it may watch | `above`, `below`, `for` |
 | `judge` | what it reads, for the diagram | what it moved on its ports (`testing`, `passed`, `failed`, `accepted`: flows) | `every`, `hold-out`, `windows`, `threshold`, `accept`: the judge of changes to the model, on its own clock and on the program rung (section 12e) |
 
 More (filters, rate of change, latches) can be added when a case needs them.

@@ -298,7 +298,7 @@ svg.canvas.dragging { cursor: grabbing; }
 .chart-line { fill: none; stroke: var(--ink); stroke-width: 1.5; }
 .chart-set { stroke: var(--muted); stroke-dasharray: 4 3; stroke-width: 1; }
 .chart-bar { fill: var(--ink-2); }
-.chart-bar.failed { fill: var(--bad); }
+.chart-bar.failed, .bd text.bd-note.s-off { fill: var(--bad); }
 .chart-bar.refused { fill: var(--warn); }
 svg.spark { vertical-align: middle; overflow: visible; }
 td.spark-cell svg { cursor: pointer; }

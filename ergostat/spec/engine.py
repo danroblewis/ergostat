@@ -147,6 +147,9 @@ class Engine:
         self.wake = threading.Event()
         self.looping = False                           # whether the loop runs: else a reading is a thread, as before
         self.pool: ThreadPoolExecutor | None = None
+        self.alarm_pool: ThreadPoolExecutor | None = None   # alarms' sensors: never on the pool an alarm may watch
+        self.alarm_pool_out: dict[str, tuple[float, float, float | None]] = {}   # as pool_out, for it
+        self.alarm_pool_done_at = time.monotonic()
         self.passing = threading.Lock()                # one pass at a time, whichever thread asks
         self.full = True                               # the next pass works out everything (the first, after a swap)
         self.mark = None                               # the measurements' changes, as of the last pass
@@ -165,7 +168,7 @@ class Engine:
         self.passed_at = self.loop_beat = time.monotonic()
         self.loop_gen = 0
         self.pool_lock = threading.Lock()
-        self.pool_out: dict[str, tuple[float, float]] = {}   # series → (when handed to the pool, its timeout)
+        self.pool_out: dict[str, tuple[float, float, float | None]] = {}   # series → (handed to the pool, timeout, begun)
         self.pool_done_at = time.monotonic()
         self.wedged: str | None = None                 # set when only a restart of the process can recover it
         self.restart_hard = None                       # the restart itself, when the run loop cannot do it (running.py)
@@ -352,6 +355,8 @@ class Engine:
                 self.say(f"block {name}: {type(e).__name__}: {e}")
                 v = None
             if v is None:
+                if before and self.spec.blocks[name].type == "alarm":
+                    rows.append((f"block/{name}", now, 0.0))   # failing, or its input unknown: no longer said raised
                 if self.signals.pop(key, None) is not None:
                     changed.add(key)
                     self._downstream(key, i, heap, late)
@@ -742,6 +747,8 @@ class Engine:
                     lf.write(raw if raw.endswith("\n") else raw + "\n")
             lf.flush()
             said.lines(got)
+        from ..storage import trim
+        trim(log, self.p.storage.logs["block"])                 # (storage: logs: block:)
         with open(log, "a", encoding="utf-8") as lf:
             lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} ({why})\n")
             lf.flush()
@@ -1005,8 +1012,22 @@ class Engine:
                 cause = self.read_cause.pop(s.series, None)
         self.evaluate({s.of.name: cause} if cause else None)
 
-    def _read_one(self, s: Sensor) -> None:
-        """One reading of a command or a query, on the pool: its result posted to the loop."""
+    def _alarmed(self) -> set[str]:
+        """The series of the sensors an alarm block reads."""
+        kept = self.spec.lookups().kept
+        if "engine.alarmed" not in kept:
+            kept["engine.alarmed"] = {x.series for b in self.spec.blocks.values() if b.type == "alarm"
+                                      for r in b.reads() if (t := self.spec.measured(r.kind).get(r.name))
+                                      for x in t.sensors.values()}
+        return kept["engine.alarmed"]
+
+    def _read_one(self, s: Sensor, which: str = "", handed: float = 0.0) -> None:
+        """One reading of a command or a query, on the pool (``which``: ``alarm_`` for the alarms' own), handed to it at
+        ``handed``: its result posted to the loop. A late one from a pool since replaced touches nothing of the new."""
+        out = getattr(self, f"{which}pool_out")
+        with self.pool_lock:                                  # begun: only now may its timeout lengthen the wedge limit
+            if out.get(s.series, (None,))[0] == handed:
+                out[s.series] = (*out[s.series][:2], time.monotonic())
         try:
             v, why = read_sensor(self.spec, s, self.p.events, self._observer(sensor_name(s.of.name, s.name)), self.p.measurements,
                                    env=callback_env(self.spec, self.p.dir, self.socket))
@@ -1014,8 +1035,9 @@ class Engine:
         except Exception as e:
             got = (s, None, "", time.time(), e)
         with self.pool_lock:
-            self.pool_out.pop(s.series, None)
-            self.pool_done_at = time.monotonic()
+            if out.get(s.series, (None,))[0] == handed:
+                out.pop(s.series, None)
+                setattr(self, f"{which}pool_done_at", time.monotonic())
         self.results.put(got)
         self.wake.set()
 
@@ -1095,17 +1117,19 @@ class Engine:
                     here.append(s)
         for s in asked:
             if s.items is None and s.changes is None:
+                which = "alarm_" if s.series in self._alarmed() else ""
                 with self.pool_lock:
-                    if self.pool is None:
-                        self.pool = ThreadPoolExecutor(max_workers=READERS, thread_name_prefix="ergostat-read")
-                    pool = self.pool
-                    self.pool_out[s.series] = (time.monotonic(), float(s.timeout or 30.0))
+                    if getattr(self, f"{which}pool") is None:
+                        setattr(self, f"{which}pool", ThreadPoolExecutor(max_workers=2 if which else READERS,
+                                                                         thread_name_prefix=f"ergostat-{which}read"))
+                    pool, at = getattr(self, f"{which}pool"), time.monotonic()
+                    getattr(self, f"{which}pool_out")[s.series] = (at, float(s.timeout or 30.0), None)
                 try:
-                    pool.submit(self._read_one, s)
+                    pool.submit(self._read_one, s, which, at)
                     handed.add(s.series)
                 except RuntimeError:                          # (a pool the watchdog just replaced: asked again next time)
                     with self.pool_lock:
-                        self.pool_out.pop(s.series, None)
+                        getattr(self, f"{which}pool_out").pop(s.series, None)
         return self._take(here, extra, began, poked, tick)
 
     def _take(self, here: list, extra: set, began: float, poked: bool, tick: bool) -> bool:
@@ -1477,8 +1501,9 @@ class Engine:
         self.wake.set()
         if self.calls is not None:
             self.calls.close()
-        if self.pool is not None:
-            self.pool.shutdown(wait=False, cancel_futures=True)
+        for pool in (self.pool, self.alarm_pool):
+            if pool is not None:
+                pool.shutdown(wait=False, cancel_futures=True)
         old.kill_all()
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:

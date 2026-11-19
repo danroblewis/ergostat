@@ -277,6 +277,8 @@ def cmd_compact(args) -> int:
     their horizon rolled up into snapshots and archived, what is older than ``keep`` forgotten, the
     measurements rolled into their tiers."""
     from ..rollup import Archive, compact, upkeep, vacuum
+    if getattr(args, "projects", False):
+        return _compact_projects(args)
     p = open_project(args)
     if getattr(args, "reindex", False):
         from ..spec.itemindex import reindex
@@ -303,4 +305,22 @@ def cmd_compact(args) -> int:
               f"measurements: {me.get('rolled', 0)} buckets made, {me.get('forgot', 0)} rows forgotten; "
               f"{got['vacuumed'] / 1e6:.1f} MB given back")
     print(c(f"archive: {got['archive_bytes'] / 1e6:.1f} MB in {p.dir / 'archive'}", "dim"))
+    return 0
+
+
+def _compact_projects(args) -> int:
+    """``ergostat compact --projects``: the record folders of repositories that are gone, listed; deleted with ``--yes``,
+    after the list."""
+    from ..projects import forget, orphans
+    found = orphans()
+    if not args.json:
+        for x in found:
+            print(f"{x['dir']}  {x['bytes'] / 1e6:.1f} MB  (its repository {x['repo']} is gone)", flush=True)
+    gone = forget(found) if args.yes else []
+    if args.json:
+        return out_json({"orphans": found, "deleted": gone})
+    total = sum(x["bytes"] for x in found) / 1e6
+    print(c(f"{len(gone)} of {len(found)} deleted" if args.yes else
+            f"{len(found)} folders, {total:.1f} MB, of repositories that are gone"
+            + ("; ergostat compact --projects --yes deletes them" if found else ""), "dim"))
     return 0
