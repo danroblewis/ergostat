@@ -205,6 +205,13 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
         res = json.loads(sh("-C", str(demo), "residual", "--json").stdout)
         notes.extend(f"note: stock {k}: {fmt(v['unexplained'])} unexplained" + (f" ({v['why']})" if v.get("why") else "")
                      for k, v in res.items() if v.get("significant"))
+        if spec is not None and any(k.join for k in spec.items.values()):   # parents its kinds' joins moved on
+            got = json.loads(sh("-C", str(demo), "event", "--type", "ergostat.item.joined", "-n", "1000", "--json").stdout)
+            moved: dict[tuple, int] = {}
+            for e in got:
+                k = (e["item"].split("/")[0], e["data"]["joined"]["to"])
+                moved[k] = moved.get(k, 0) + 1
+            notes.append("note: joined: " + (", ".join(f"{k} to {t} {n}" for (k, t), n in sorted(moved.items())) or "none"))
         url = st["web"]
         for path in ("status", "graph", "graph?view=process", "loops", "agents", "events", "items", "items-graph", "residuals",
                      "parts"):
