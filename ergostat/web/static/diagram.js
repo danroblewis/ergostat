@@ -1269,6 +1269,20 @@ function legendBox(view) {
   return d;
 }
 
+/* what waits on the owner (SPEC §12o), answered where it is listed: an event from the owner, as everywhere */
+function inboxAnswer(a) {
+  if (SNAP || S.at) return null;
+  const said = h("span", { class: "note", "aria-live": "polite" });
+  const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any", placeholder: "how many", "aria-label": "How much was done" }) : null;
+  const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async () => {
+    for (const b of row.querySelectorAll("button")) b.disabled = true;
+    try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, n?.value ? { n: n.value } : {})).said}`; refreshHeader(); }
+    catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; }
+  } }, { approve: "Approve", deny: "Deny", done: "Done" }[verb]);
+  const row = h("div", { class: "row inbox-act" }, n, ...a.answer.map(go), said);
+  return row;
+}
+
 function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
   const all = g.attention || st.attention;           // from the same snapshot as the diagram beside it
@@ -1295,7 +1309,9 @@ function renderSide(side, g, view) {
   };
   for (const a of problems.slice(0, MAX)) {
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-    att.append(h("div", {}, a.item ? h("a", { href: `/item/${encodeURIComponent(a.item)}`, class: "plain" }, what) : what, " ", linked(a.says)));
+    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
+    att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
+      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
   }
   if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
   side.append(att);

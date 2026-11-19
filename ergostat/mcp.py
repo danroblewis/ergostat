@@ -89,6 +89,15 @@ TOOLS = [
      "along its flow. The same as `ergostat block NAME --done N`.",
      "inputSchema": _obj({"block": {"type": "string"}, "moved": {"type": "number"}, "note": {"type": "string"}},
                          ["block", "moved"])},
+    {"name": "inbox", "description": "Everything waiting on a person: gated actions held for approval, person blocks' "
+     "requests, advised commands, step tests offered, changes to the model awaiting the owner. Each with its id, summary, "
+     "age, link, why it waits, its answer verbs and its class's record this week. stats: true gives each class's record "
+     "and what could move up the ladder instead.", "inputSchema": _obj({"stats": {"type": "boolean"}})},
+    {"name": "answer", "description": "Answer an entry of the inbox, on the owner's behalf: only when the owner told you "
+     "to, and as they said. id: the entry's id (or the start of its key); verb: approve, deny or done (with n, how much "
+     "a person moved); note: why. The same as `ergostat inbox ID --approve | --deny | --done N`.",
+     "inputSchema": _obj({"id": {"type": "string"}, "verb": {"type": "string", "enum": ["approve", "deny", "done"]},
+                          "n": {"type": "number"}, "note": {"type": "string"}}, ["id", "verb"])},
     {"name": "read_sensor", "description": "Record a reading of a manual sensor (manual: true), named as its stock and sensor: "
      "inbox.eyes. The same as `ergostat sensor inbox.eyes --read V`.",
      "inputSchema": _obj({"sensor": {"type": "string"}, "value": {"type": "number"}}, ["sensor", "value"])},
@@ -307,13 +316,16 @@ class Server:
             b = spec.blocks.get(a["block"])
             if b is None or b.type != "person":
                 return {**_text(f"{a['block']!r} is not a person block"), "isError": True}
-            from .spec.legacy import valve_name
-            run = p.events.add("agent.ran", item=b.name, source="person", data={"done": a["moved"], "note": a.get("note", "")})
-            flows = [t.name for t in b.targets() if t.kind == "flow"]
-            if flows and float(a["moved"]) > 0:
-                p.events.add("valve.opened", item=valve_name(spec, b.name, flows[0]), source=b.name, causedby=run["id"],
-                             data={"amount": float(a["moved"]), "flow": flows[0]})
-            return _text(f"recorded: {b.name} moved {a['moved']}")
+            from .inbox.answer import person_done
+            return _text(person_done(p, spec, b, float(a["moved"]), a.get("note")))
+        if name in ("inbox", "answer"):
+            from .inbox import answer, stats
+            if name == "answer":
+                try:
+                    return _text(answer.answer(p, spec, a["id"], a["verb"], a.get("n"), a.get("note"), by=stats.BY_AGENT))
+                except answer.AnswerError as e:
+                    return {**_text(str(e)), "isError": True}
+            return _text(stats.by_class(p, spec) if a.get("stats") else stats.listing(p, spec))
         if name == "read_sensor":
             from .spec.ir import Ref
             of, _, sn = str(a["sensor"]).partition(".")

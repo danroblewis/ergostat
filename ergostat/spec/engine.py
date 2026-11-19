@@ -1464,6 +1464,9 @@ class Engine:
                     gate.sweep(self.p, self.spec)
                 except Exception as e:
                     self.say(f"actions: {type(e).__name__}: {e}")
+            if getattr(self.spec, "notify", None):              # what newly waits on a person, sent (SPEC §12o)
+                from ..inbox import deliver
+                deliver.start(self.p, self.spec, self.say)
 
     def _follow(self, seq: int) -> None:
         """Approvals of advised commands, and the owner's asks to stop a run, from the CLI: looked for when the record is

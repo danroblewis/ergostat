@@ -101,6 +101,27 @@ def find(project, spec: Spec, window: float = WINDOW, now: float | None = None) 
         if not answered and now - e["time"] > PERSON_WAIT:
             say("not-answering", f"block {b.name}: asked {human(now - e['time'])} ago ({b.params.get('ask', '')}), no answer; "
                 f"they report with ergostat block {b.name} --done N", b.where, f"block.{b.name}")
+    n = getattr(spec, "notify", None)                    # the owner's own goals for what waits on them (SPEC §12o)
+    if n is not None and n.channels:
+        from ..inbox.deliver import failing
+        for ch in failing(project, spec):
+            say("notify-failing", f"notify channel {ch}: its last three messages failed (ergostat actions lists their "
+                "output); what they carried is tried again with the next", None, f"notify.{ch}")
+    if n is not None and (n.wait_at_most or n.asks_per_day):
+        from ..inbox import entries, stats
+        for e in entries.entries(project, spec) if n.wait_at_most else []:
+            if e["age"] > n.wait_at_most:
+                say("waiting-on-owner", f"{e['id']}: {e['summary']} has waited {human(e['age'])}, longer than "
+                    f"notify's wait-at-most of {human(n.wait_at_most)}: ergostat inbox", None, e["id"])
+        asked = stats.asked_today(project, spec, now) if n.asks_per_day else []
+        if n.asks_per_day and len(asked) > n.asks_per_day:
+            top = max(set(asked), key=asked.count)
+            r = stats.by_class(project, spec, now).get(top) or {}
+            say("approvals-over-budget", f"{len(asked)} asked of the owner over the last day, over the budget of "
+                f"{n.asks_per_day}; most of them {top} ({asked.count(top)}"
+                + (f"; this week {stats.record_said(r)}" if r else "") + ")"
+                + (f". {r['suggest']}" if r.get("suggest") else ": approval is for a system's early stages; move the "
+                   "class up the ladder (an AI approver, a program, a rule) once its answers are known"), None, top)
     # a sensor gone quiet
     for s in spec.sensors():
         if s.manual or not s.measured:

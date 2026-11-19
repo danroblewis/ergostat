@@ -1,0 +1,139 @@
+template: interventions
+once: true
+description: Interventions as a stock under control (SPEC §12p) - every approval, request, alarm and notification is evidence of a missing loop; their trend is held falling, and each recurring class becomes a modelling request.
+reading: |
+  System dynamics: the interventions waiting are a stock (interventions-waiting, read by ergostat's built-in measure
+  ergostat.interventions.waiting: the inbox's entries and the alarms raised), filled as they are asked
+  (interventions-asked) and drained as a person answers them (interventions-answered). How many are asked a day
+  (interventions-per-day, an auxiliary following what is asked; a suppressed class still counted at its rate before)
+  has a trend (intervention-trend, an auxiliary: the lower bound of its slope over notify's trend-window, so a rise
+  within the record's noise reads 0), and each class resolved asks no more. The modelling requests are items of
+  ergostat's built-in kind ergostat.model-request, counted by state: open, being worked on (investing) or graduated
+  and verifying (open-requests), suppressed (suppressed-requests: a guard removed with nothing automated in its
+  place, back to open when the guard is put back) and resolved (resolved-requests; back to open when the class
+  intervenes again).
+  Control: one balancing loop that closes the long way. The goal interventions-falling holds the trend at or under 0;
+  the controller remedies (a program on ergostat's own command) runs on its own clock whatever the short-term rate,
+  ranks the classes by the time they blocked their processes, and makes a request for each that recurs, naming its
+  remedies (automate the person's step, graduate the gate with its evidence, add the missing loop, change the
+  software). What is resolved asks no more, which the measures then see.
+  It is used once a model, and its parts keep the names written here, in a system named for the use (interventions,
+  by convention).
+example: |
+  uses:
+    interventions:
+      use: interventions
+params:
+  every:
+    type: duration
+    default: 10m
+    description: how often the controller looks at the record for recurring classes
+  count-every:
+    type: duration
+    default: 1m
+    description: how often the interventions and the requests are counted
+  over:
+    type: duration
+    default: 1d
+    description: the window the flows are measured over
+stocks:
+  interventions-waiting:
+    unit: interventions
+    description: interventions waiting on a person now (held approvals, requests, advised commands, alarms raised)
+    sensor:
+      builtin: ergostat.interventions.waiting
+      every: ${count-every}
+  open-requests:
+    unit: requests
+    description: classes of intervention to model away, open, being worked on, or graduated and verifying
+    sensor:
+      items: ergostat.model-request
+      state: [open, investing, verifying]
+      every: ${count-every}
+  suppressed-requests:
+    unit: requests
+    description: classes silenced with nothing automated in their place (still counted at their rate before)
+    sensor:
+      items: ergostat.model-request
+      state: suppressed
+      every: ${count-every}
+  resolved-requests:
+    unit: requests
+    description: classes whose processes no longer need a person
+    sensor:
+      items: ergostat.model-request
+      state: resolved
+      every: ${count-every}
+auxiliaries:
+  interventions-per-day:
+    unit: interventions/day
+    description: interventions asked over the last day (a suppressed class at its rate before)
+    driven-by: +flow.interventions-asked
+    sensor:
+      builtin: ergostat.interventions.per-day
+      every: ${count-every}
+  intervention-trend:
+    unit: interventions/day/week
+    description: a rise in the interventions per day beyond the record's noise (SPEC §12p), else 0
+    driven-by: +auxiliary.interventions-per-day
+    sensor:
+      builtin: ergostat.interventions.trend
+      every: ${count-every}
+flows:
+  interventions-asked:                # each class resolved asks no more
+    to: interventions-waiting
+    driven-by: -stock.resolved-requests
+  interventions-answered:
+    from: interventions-waiting
+    driven-by: +stock.interventions-waiting
+  requests-made:
+    to: open-requests
+    sensor:
+      items: ergostat.model-request
+      entering: open
+      over: ${over}
+  guards-suppressed:
+    from: open-requests
+    to: suppressed-requests
+    driven-by: +stock.open-requests
+    sensor:
+      items: ergostat.model-request
+      entering: suppressed
+      over: ${over}
+  guards-restored:
+    from: suppressed-requests
+    to: open-requests
+    driven-by: +stock.suppressed-requests
+    sensor:
+      items: ergostat.model-request
+      leaving: suppressed
+      over: ${over}
+  requests-resolved:
+    from: open-requests
+    to: resolved-requests
+    driven-by: +stock.open-requests
+    sensor:
+      items: ergostat.model-request
+      entering: resolved
+      over: ${over}
+  requests-reopened:
+    from: resolved-requests
+    to: open-requests
+    driven-by: +stock.resolved-requests
+    sensor:
+      items: ergostat.model-request
+      leaving: resolved
+      over: ${over}
+goals:
+  interventions-falling:
+    auxiliary: intervention-trend
+    hold: "<= 0"
+    description: the interventions per day show no rise beyond the record's noise, over the trend window (a class being worked on counted at its rate before)
+blocks:
+  remedies:
+    type: program
+    goal: interventions-falling
+    in: +stock.interventions-waiting
+    run: ${python} -m ergostat inbox --requests
+    every: ${every}
+    out: flow.requests-made

@@ -98,8 +98,8 @@ def test_approve_is_held_until_the_owner_approves_and_the_approval_is_recorded(t
     spec = p.model.spec
     a = gate.request(p, spec, "push", {}, ctx(tmp_path))
     assert a["state"] == "requested" and not (tmp_path / "pushed.txt").exists()
-    assert any(x["what"] == f"action {record.short(a['id'])}" and x["item"] == a["id"]
-               for x in st.attention(st.snapshot(p), False, p.model))
+    assert any(x["what"] == f"action/{record.short(a['id'])}" and x["link"] == f"/item/{a['id']}"   # the inbox (§12o)
+               and x["answer"] == ["approve", "deny"] for x in st.attention(st.snapshot(p), False, p.model))
     assert measures.measure(p, "ergostat.actions.held@outward") == 1.0
     got = gate.approve(p, spec, a["id"], note="looks right")          # no session waits: it runs here
     assert got["state"] == "ran" and got["output"] == "done" and got["approved_by"] == "owner"

@@ -560,6 +560,9 @@ def _answer(live: Live, path: str, q: dict):
     if head == "actions":                         # gated actions sessions asked for, about one item or all (SPEC §12k)
         from .actions_api import listing as actions
         return actions(p, one("item") or None)
+    if head == "inbox":                           # everything waiting on a person (SPEC §12o)
+        from .actions_api import inbox
+        return inbox(p)
     if head == "trust":                           # how far blocks' claims hold, by block, rung and model (SPEC §12g)
         from ..claims import trust
         return trust.table(p, snap["at"] - max(snap["window"], trust.WEEK), snap["at"])
@@ -743,6 +746,9 @@ def handler(project):
                 elif u.path.startswith("/api/action/"):    # the owner's answer to a gated action held (SPEC §12k)
                     from .actions_api import post as action
                     code, data = action(live, u.path.removeprefix("/api/"), q)
+                elif u.path.startswith("/api/inbox/"):     # the owner's answer to anything waiting on them (SPEC §12o)
+                    from .actions_api import answer
+                    code, data = answer(live, u.path.removeprefix("/api/"), q)
                 elif u.path.startswith("/api/verdict/"):   # the owner on the intent judge: overrule, reopen (SPEC §12i)
                     from .verdicts_api import post as verdict
                     code, data = verdict(live, u.path.removeprefix("/api/"), q)

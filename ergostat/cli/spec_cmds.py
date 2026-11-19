@@ -166,14 +166,8 @@ def cmd_block(args) -> int:
         if b.type != "person":
             print(f"block {b.name} is a {b.type}: it reports itself; --done is a person's report", file=sys.stderr)
             return 2
-        from ..spec.legacy import valve_name
-        flows = [t.name for t in b.targets() if t.kind == "flow"]
-        run = p.events.add("agent.ran", item=b.name, source="person", data={"done": args.done, "note": args.note or ""})
-        for f in flows[:1]:
-            if args.done > 0:
-                p.events.add("valve.opened", item=valve_name(spec, b.name, f), source=b.name, causedby=run["id"],
-                             data={"amount": float(args.done), "flow": f, **({"note": args.note} if args.note else {})})
-        print(f"recorded: {b.name} moved {args.done:g}" + (f" along flow.{flows[0]}" if flows else ""))
+        from ..inbox.answer import person_done
+        print(person_done(p, spec, b, args.done, args.note))
         return 0
     if args.approve:
         if b.mode != "advise":
