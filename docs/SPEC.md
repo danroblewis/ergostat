@@ -761,7 +761,7 @@ listed before a join's `to`, which the join would move on. Each child's move cos
 (their links and states): fine for tens of children, not tuned for thousands.
 
 Relations are read as they stand now: time travel (`--at`, the pages') reaches an item's fields, its relations
-among them, but not the Graph and the Timeline, which are drawn from the item index as it is.
+among them, but not the Graph and the Timeline, which are drawn from the item index as it is. The Process view draws them too (§5b).
 
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
@@ -941,6 +941,7 @@ page's window (`process.py`), with the item index's moves for the states.
 | rework | a line from a later step to an earlier one (by States, in the kind's declared order of states; by Events, by each type's usual place in its items' runs), or round to the same step: marked ↺, and laid out running back |
 | a dashed line between kinds | **caused**: an event on an item of one kind caused (`causedby`, followed up through events about no item, such as a block's run, up to four steps) an event on an item of another kind; aggregated by the two activities, with the event types under it. One into many is a fan-out, many into one a join |
 | a schedule | where a scheduled run's events come from: a cause followed up to a run a block started on its own schedule (`every:`, `cron:`; its `agent.started`, `"trigger": "schedule"`, caused by nothing) ends there. The run is the cause its events cite, so no event of its own is recorded for a firing. Drawn in a frame of its own, **schedules**, a node per block (a clock, its name and how often; its number, how many of its runs caused something), with a dashed line to each activity its runs caused, its fan-out; its items `caused=ergostat.schedule:BLOCK>A` |
+| a dotted line, named | **related**: an item names another in a relation its kind declares (§5a, *Relations*: `parent`, `blocked_by`), both drawn: from the activity the naming item was last at in the window to the one the named item was last at, aggregated by the relation and the two activities; its number how many links. Read as the links stand now; a link to an item not drawn is no line |
 
 **Which.** The kinds are the system's being viewed (`item_systems.py`: where each kind belongs); for
 everything, every kind but ergostat's own. The ⋯ menu chooses any of them. **States** is the default when
@@ -1409,9 +1410,34 @@ goals:
 | `critical` | bool | false | It guards against a cascade or an accumulating failure: watched for decay |
 | `owner` | string | none | Who answers for it |
 | `process` | map | none | The loop's process, from what its controller moves (u) to what the goal holds (y), as control engineering writes it: `gain` (y per u), `time-constant` and `dead-time` (durations): P(s) = K e^(−θs)/(τs + 1); or `integrating: true`, `gain` per hour and `dead-time`: P(s) = k e^(−θs)/s. `identified:` says it was accepted from an identification (when, how, on how much record); without it, it is declared (section 12d) |
+| `per` | `item`, or a field | none | On a stock counted from items (an `items:` sensor): held by each item (`item`, by its own measure: its hours in its state for `measure: oldest`, since first seen for `age`), or by each group of the items by what a field holds (a relation such as `parent`: each id it names; an item with nothing there is in no group): each group's count, oldest or age. Below |
 | `system`, `description` | | | |
 
 A goal exists whether or not anything serves it. A goal nothing serves is **missing feedback**.
+
+**Per item or per group.** "No ticket in review older than two days", and "each epic's open tickets at most 10":
+
+```yaml
+stocks:
+  review-age: {unit: hours, sensor: {items: ticket, state: review, measure: oldest}}
+  open-tickets: {unit: tickets, sensor: {items: ticket, state: [todo, doing, review]}}
+goals:
+  review-fresh: {stock: review-age, hold: "<= 48", per: item}
+  epics-small: {stock: open-tickets, hold: "<= 10", per: parent}
+```
+
+The goal is still about one stock. Its value is the worst item's or group's (for `<=`, the greatest), worked out from
+the item index each time the stock's sensor reads, and as it stood at any moment the pages travel to; it is off while
+any breaks the setpoint (its `tolerance` as usual), and its `loop.off` names those that do (`breaking`: the worst
+20, each `{item}` or `{group}` with its `value`; `breaking_n`, how many). A block serving it is given the same in its
+context (`goals.NAME`: `value`, the worst; `per`, `breaking`, `breaking_n`), and the loop's panel and "needs
+attention" list them. A setpoint an outer block sets (a cascade) holds each item or group. With no items (no
+groups), nothing breaks it and it holds: its value is 0, or the setpoint itself where 0 would break it (a floor on
+each item's age). A group is only what its items name: an epic with no open ticket is no group, so a floor on each
+group's count could never be broken, and `check` refuses it, as it refuses `per:` on a goal not on a stock counted
+from items and `per: item` on a count (**goal-per**); it notes a `per:` naming neither a relation nor a field the
+kind shows, folds or the sensor matches (**goal-per-field**). The items are read from the item index again only
+when the record changed; their hours are worked out again at each reading.
 
 ## 9. Blocks
 

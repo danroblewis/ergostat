@@ -536,6 +536,7 @@ class Goal:
     description: str = ""
     where: Where | None = None
     process: dict | None = None    # the loop's process, u to y (SPEC §8): form, gain, tau and theta (s), identified
+    per: str | None = None         # held by each item (``item``) or each group by a field, of its stock's items (§8)
 
     def status(self, y: float, was_off: bool, r: float | None = None) -> str:
         """Off past the setpoint by more than the tolerance; once off, holding again only back

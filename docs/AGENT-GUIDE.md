@@ -88,7 +88,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    is off (only `program` and `ai` blocks take items one at a time).
 6. **Goals on what matters**: how long the oldest item has waited in a state
    (`measure: oldest` on a stock's sensor, `hold: "<= 4"` hours), how many are waiting, throughput.
-   A goal is what makes a block's work a feedback loop; give each step's queue one.
+   A goal is what makes a block's work a feedback loop; give each step's queue one. A limit on each item
+   or on each group of items ("no ticket in review over 48 hours", "each epic's open tickets <= 10") is
+   `per: item` or `per: parent` on the goal over the counted stock (SPEC §8): it goes off naming the items
+   or groups that break it, where a plain goal on the oldest would name none.
 7. **Gated actions for anything that acts outward** (moving a Jira ticket, opening a PR, posting a
    message): declare them under `actions:` with a gate (`approve` to start, `auto` once trusted), and
    have the step ask for them (`$ERGOSTAT_CMD act NAME --arg k=v` from a script, or as a tool from an
