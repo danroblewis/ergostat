@@ -363,9 +363,13 @@ async function refreshHeader() {
     }
     const off = Object.values(st.loops).filter((l) => l.status === "off").length;
     const run = $("#running");
-    const cls = "runstate" + (off ? " bad" : !SNAP && !st.running ? " warn" : "");
+    const edited = !SNAP && st.edited;                 // the edited model has errors: the last good version still runs
+    const cls = "runstate" + (off || edited ? " bad" : !SNAP && !st.running ? " warn" : "");
     if (run.className !== cls) run.className = cls;
+    const tip = edited ? st.edited.errors.join("\n") : "";
+    if (run.title !== tip) run.title = tip;
     setText(run, SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
+      : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
       : off ? `${off} loop${off > 1 ? "s" : ""} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running");
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;

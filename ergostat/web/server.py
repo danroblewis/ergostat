@@ -106,8 +106,13 @@ class Live:
 
     def __init__(self, project):
         import threading
+
+        from ..reload import Settled
         self.p = project
         self.mtime = self._mtime()
+        self.watch = Settled(project.model)            # the files followed: taken once they settle (reload.py)
+        self.errors: list[str] = []                    # the edited model's errors, while the last good one is shown
+        self._loading = threading.Lock()               # one thread reads a changed model; the others answer meanwhile
         self._lock = threading.Lock()
         self._snaps: dict = {}
         self._making: dict = {}            # snapshots being made: one at a time for each moment, however many ask
@@ -126,6 +131,8 @@ class Live:
     def reloaded(self) -> None:
         """The model was changed here (a proposal accepted): take it as the one loaded."""
         self.mtime = self._mtime()
+        self.watch.took(self.p.model)
+        self.errors = []
         history.note(self.p)
 
     def _mtime(self):
@@ -162,15 +169,43 @@ class Live:
             busy.set()
 
     def get(self):
-        now = self._mtime()
-        if now != self.mtime:
+        """The project, its model the last good one. A change to the files is read once they have settled, by one
+        request while the others answer with the model as it was: every request after an edit reading the model at
+        once, each again while the file had errors, was what left the page with no answers (reload.py)."""
+        due = self.watch.due()
+        if due is not None and self._loading.acquire(blocking=False):
             try:
-                self.p.model = mdl.load(self.p.model.path.parent)
-                self.mtime = now
-                history.note(self.p)
-            except Exception:
-                pass                                   # keep the last model that loaded
+                due = self.watch.due()
+                if due is not None:
+                    from ..reload import load_checked
+                    fresh, errors = load_checked(self.p.model)
+                    if fresh is None:
+                        self.watch.refused(due)
+                        self.errors = errors
+                    else:
+                        self.p.model = fresh
+                        self.watch.took(fresh, due)
+                        self.mtime, self.errors = self._mtime(), []
+                        history.note(self.p)
+            except Exception:                          # keep the last model that loaded
+                pass
+            finally:
+                self._loading.release()
         return self.p
+
+
+def _edited(live: Live, p, running: bool) -> dict | None:
+    """The edited model's errors, while the last good version runs (and is shown): the runner's, when one runs here,
+    else the page's own."""
+    from ..reload import banner, read_state
+    got = read_state(p.dir) if running else None
+    if got is None and live.errors:
+        got = {"errors": live.errors, "banner": banner(live.errors)}
+    if got is None:
+        return None
+    if not running:
+        got = {**got, "banner": got["banner"].replace("still running", "still showing")}
+    return {"errors": got["errors"], "banner": got["banner"]}
 
 
 def _window(q) -> float:
@@ -325,8 +360,11 @@ def _answer(live: Live, path: str, q: dict):
         from .. import rates
         from ..runner import running_pid
         running = bool(running_pid(p))
+        edited = _edited(live, p, running)
         return {"name": m.name, "running": running, "live": snap["live"], "first": p.events.first_time(),
-                "attention": st.attention(snap, running and snap["live"], m), "loops": snap["loops"],
+                "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
+                + st.attention(snap, running and snap["live"], m), "loops": snap["loops"],
+                **({"edited": edited} if edited else {}),
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],

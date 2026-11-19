@@ -136,7 +136,10 @@ class Server:
             return self._answer(conn, {"elsewhere": str(self.e.spec.root)})
         try:
             if op == "ping":
-                return self._answer(conn, {"ok": True, "project": self.e.spec.name, "pid": os.getpid()})
+                e = self.e                              # (and how long since its last pass: the watchdog's measure)
+                return self._answer(conn, {"ok": True, "project": e.spec.name, "pid": os.getpid(), "version": e.version,
+                                           "passed": round(time.monotonic() - getattr(e, "passed_at", time.monotonic()), 2),
+                                           "stalls": getattr(e.watchdog, "stalls", 0)})
             if op == "event":
                 return self._answer(conn, ops.event(self.e, req))
             if op == "item":

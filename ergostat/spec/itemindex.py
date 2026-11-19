@@ -459,30 +459,31 @@ class Index:
         reopened in the outside system, say) counts as arriving in the state that event left it in."""
         from collections import Counter
         out: Counter = Counter()
-        k = self.known(kind)
-        if k == -1:
-            return out
-        rid0, back, came = None, None, None
-        for rid, f, d, ev in self.db.execute("select rid, frm, dst, event from moves where kind = ? order by rid, rowid",
-                                             (k,)):
-            if rid != rid0:
-                rid0, back, came = rid, None, None
-            frm, to = self.name(f), self.name(d)
-            if at_once and came is not None and ev == came[0] and frm == came[1] and to != "leased":
-                out[(None, frm)] -= 1                 # the event it arrived by moved it on: it arrived there
-                if not out[(None, frm)]:
-                    del out[(None, frm)]
-                out[(None, to)] += 1
-                came = (ev, to)
-                continue
-            came = (ev, to) if frm is None else None
-            if to == "leased":
-                back = frm if frm != "leased" else back
-                continue
-            if frm == "leased":
-                frm = back
-            if frm != to:
-                out[(frm, to)] += 1
+        with self.lock:                                  # (its connection is shared by the process's threads)
+            k = self.known(kind)
+            if k == -1:
+                return out
+            rid0, back, came = None, None, None
+            for rid, f, d, ev in self.db.execute("select rid, frm, dst, event from moves where kind = ? order by rid, rowid",
+                                                 (k,)):
+                if rid != rid0:
+                    rid0, back, came = rid, None, None
+                frm, to = self.name(f), self.name(d)
+                if at_once and came is not None and ev == came[0] and frm == came[1] and to != "leased":
+                    out[(None, frm)] -= 1                 # the event it arrived by moved it on: it arrived there
+                    if not out[(None, frm)]:
+                        del out[(None, frm)]
+                    out[(None, to)] += 1
+                    came = (ev, to)
+                    continue
+                came = (ev, to) if frm is None else None
+                if to == "leased":
+                    back = frm if frm != "leased" else back
+                    continue
+                if frm == "leased":
+                    frm = back
+                if frm != to:
+                    out[(frm, to)] += 1
         return out
 
     def tally(self, kind: str, state: str, key: str, before: float, until_newest: float | None = None) -> int:
@@ -665,5 +666,8 @@ def reindex(events, spec) -> dict:
     for tr in (False, True):
         t = time.time()
         ix = index_for(events, spec, tr)
-        out["transcript" if tr else "items"] = {"items": ix.total() if ix else 0, "seconds": round(time.time() - t, 2)}
+        if ix is not None:
+            with ix.lock:
+                n = ix.total()
+        out["transcript" if tr else "items"] = {"items": n if ix else 0, "seconds": round(time.time() - t, 2)}
     return out

@@ -1517,9 +1517,34 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
   counter's count, a timer's start, a delay's line) when it is of the same type.
 - `model.changed` records it, with how many runs carried over (`carried`, and which: `runs`), the version before
   and after, and the blocks still finishing under an old definition (`finishing`: `removed`, `changed`).
-- A model that does not load, or has errors, is not taken: the last one runs on. A change of the model's name, of
-  its format (TOML to YAML) or of its storage is a new state directory or store: that one restarts, and stops the
-  runs. `ergostat run --stop` (and any explicit restart) stops everything, as always.
+- **Only once the edits settle** (`ergostat/reload.py`): a change is taken once the model's files, and the folders
+  holding them, have stayed the same for 1.5 s (`ERGOSTAT_RELOAD_SETTLE`). A burst of writes is one change, and a file
+  read half written (truncated, then written in pieces, as an editor or an agent saves it) is never taken.
+- **Never a model with errors.** A model that does not load, has errors, or whose main file is empty is not taken:
+  the last good one runs on, and "the edited model has errors (`file:line`); still running the last good version"
+  is said in the log (with every error), at the top of `ergostat status` (with every error, even when the files do
+  not load at all) and in the page's header, from `<state>/reload.json`, until the files are fixed. The same files
+  are not read again until they change.
+- **Atomic.** The new model is worked out whole (its built-ins made, its version hashed) before anything of the
+  running one is touched: a change that cannot be taken leaves the last one running as it was.
+- **Timed.** The log gives each change's time; one slower than 2 s says where it went (reading and checking the
+  files, taking it in place, recording it).
+- The page follows the files the same way, and reads a change in one request while the others answer with the model
+  it had.
+- A change of the model's name, of its format (TOML to YAML) or of its storage is a new state directory or store:
+  that one restarts in place, and stops the runs; a restarted runner whose files were edited again meanwhile waits,
+  holding its lock, for a model that runs. `ergostat run --stop` (and any explicit restart) stops everything, as
+  always.
+
+**The watchdog** (`ergostat/spec/watchdog.py`). Inside the engine, once a second: when the sensor pool has given
+nothing back for 30 s while readings are out (`ERGOSTAT_STALL`; or the longest timeout of those readings and 10 s
+more, when that is longer), a fresh pool takes over and the readings it held are asked for again; when no pass has
+finished for 30 s, the loop is started again; when there is still no pass 30 s after that, or the pool wedged three
+times in ten minutes, the process restarts in place (by the run loop, or by the watchdog itself if that has not
+happened within 20 s), which stops the runs under way (leased items are taken again when their leases end). Each
+time every thread's stack is written to `<state>/stalls/` and `ergostat.engine.stalled` is recorded (`what`: pool or
+pass, `seconds`, `recovery`, `stacks`). `kill -USR1` on the runner writes every thread's stack to
+`<state>/threads.txt` at any time, and the socket's `ping` says how long ago the last pass finished.
 
 **What a run records.** Every machine block's run ends with `agent.ran` (or `agent.failed`), and besides what it said
 and moved, that event says what the run cost, measured by ergostat, never by the run's own say:

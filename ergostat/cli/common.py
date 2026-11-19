@@ -31,7 +31,8 @@ def open_project(args):
               file=sys.stderr)
         raise SystemExit(2) from None
     except (mdl.ModelError, DurationError) as e:
-        print(f"{mdl.FILE}: {e}", file=sys.stderr)
+        found = mdl.find(here)
+        print(f"{found.name if found else mdl.FILE}: {e}", file=sys.stderr)
         raise SystemExit(2) from None
     return Project(m)
 
