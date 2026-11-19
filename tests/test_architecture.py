@@ -63,13 +63,18 @@ def test_a_system_of_two_clusters_is_said_to_split_naming_them(tmp_path):
     assert "system-splits@system.plant" not in _notes(one)          # one piece, its stages tied together
 
 
-def test_a_system_of_independent_subsystems_is_said_to_be_several(tmp_path):
+def test_a_system_of_independent_subsystems_is_nearly_decomposable_and_no_note(tmp_path):
     text = _model({"job": "the whole job", "left": "the left queues", "right": "the right queues"},
                   _chain("a", 3, "left"), _chain("b", 3, "right")).replace(
         "  left: {description: the left queues}", "  left: {description: the left queues, within: job}").replace(
         "  right: {description: the right queues}", "  right: {description: the right queues, within: job}")
-    x = _notes(_write(tmp_path, text))["system-splits@system.job"]
-    assert "independent systems held in one" in x.message and "[system.left]" in x.message
+    path = _write(tmp_path / "good", text)
+    assert "system-splits@system.job" not in _notes(path)          # a good hierarchy (Simon): information, not work
+    spec, _ = read(path, extremes=False)
+    assert "It is nearly decomposable: its systems fall into 2 groups with 0 links" in explain(spec, "system.job")
+    loose = text.replace("system: right", "system: job")           # the right chain loose in job, not a system
+    x = _notes(_write(tmp_path / "loose", loose))["system-splits@system.job"].message
+    assert "1 of them in no system of their own: [goal.b1-short" in x and "system.left" not in x
 
 
 CHATTY = """
@@ -122,8 +127,11 @@ goals:
 def test_a_ten_times_gap_in_time_constants_is_a_candidate_for_a_hierarchy(tmp_path):
     x = _notes(_write(tmp_path / "gap", TIMES))["time-scales@system.plant"]
     assert "20 times apart" in x.message and "fast [stock.fast 6m], slow [stock.slow 1h59m]" in x.message
-    near = _write(tmp_path / "near", TIMES.replace("slow-time: {value: 2h}", "slow-time: {value: 30m}"))
-    assert "time-scales@system.plant" not in _notes(near)
+    near = _write(tmp_path / "near", TIMES.replace("slow-time: {value: 2h}", "slow-time: {value: 60m}"))
+    assert "time-scales@system.plant" not in _notes(near)                # 10 times apart: not above 10
+    apart = TIMES.replace("  pass: {from: fast, to: slow,", "  pass: {from: fast,").replace(
+        "  drain: {from: slow,", "  fill-slow: {to: slow, rate: 1, system: plant}\n  drain: {from: slow,")
+    assert "time-scales@system.plant" not in _notes(_write(tmp_path / "apart", apart))   # never linked: nothing to arrange
 
 
 BAD_INTERFACE = """
@@ -170,11 +178,17 @@ def test_a_bad_interface_is_flagged(tmp_path):
 
 def test_purpose_names_systems_without_one_and_goals_traced_to_none(tmp_path):
     text = CHATTY.replace("  a: {description: takes the work in}", "  a: {}").replace(
-        "  b: {description: does the work}", "  b: {description: does the work}\n  idle: {description: nothing yet}").replace(
-        "  gb: {stock: qb, hold: '<= 5', system: b}", "  gb: {stock: qb, hold: '<= 5', system: b}\n  gc: {stock: qb, hold: '>= 0'}")
+        "  b: {description: does the work}", "  b: {description: does the work}\n  idle: {description: nothing yet}\n"
+        "  sector: {description: a part of the plant}").replace(
+        "  gb: {stock: qb, hold: '<= 5', system: b}", "  gb: {stock: qb, hold: '<= 5', system: b}\n  gc: {stock: qb, hold: '>= 0'}"
+    ).replace("  qb: {unit: items, system: b, sensor: {manual: true}}", "  qb: {unit: items, system: b, sensor: {manual: true}}\n"
+              "  qs: {unit: items, system: sector, sensor: {manual: true}}") + \
+        "  idler: {type: program, run: 'echo 1', in: [+stock.qb], out: flow.done-idle, system: idle}\n"
+    text = text.replace("  done: {from: qb, system: b}", "  done: {from: qb, system: b}\n  done-idle: {from: qb, system: idle}")
     got = _notes(_write(tmp_path / "p", text))
     assert "says nothing of what it is for" in got["purpose@system.a"].message
-    assert "no goal inside it holds anything" in got["purpose@system.idle"].message
+    assert "its blocks act for no goal inside it" in got["purpose@system.idle"].message
+    assert "purpose@system.sector" not in got                          # a sector of stocks with no goal: normal
     assert got["purpose@model"].message.startswith("goals ga, gc: in no system that says what it is for")
     traced = _notes(_write(tmp_path / "q", "purpose: keep the work moving\n" + text))
     assert "purpose@model" not in traced and "purpose@system.a" in traced
