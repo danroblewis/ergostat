@@ -1,5 +1,6 @@
 """Gated actions on the page (SPEC §12k): ``GET /api/actions`` (the latest, or those about one item, with the counts
-per class) and ``POST /api/action/ID/approve`` or ``/deny`` (``note=``: why), the owner's answer to one held."""
+per class) and ``POST /api/action/ID/approve`` or ``/deny`` (``note=``: why), the owner's answer to one held. The inbox
+(SPEC §12o): ``GET /api/inbox`` and ``POST /api/inbox/ID/approve``, ``/deny`` or ``/done`` (``n=``), any kind."""
 
 from __future__ import annotations
 
@@ -33,3 +34,24 @@ def post(live, path: str, q: dict) -> tuple[int, dict]:
     except gate.GateError as e:
         return 400, {"error": str(e)}
     return 200, {k: a.get(k) for k in KEEP}
+
+
+def inbox(p) -> dict:
+    from ..inbox import entries, stats
+    spec = getattr(p.model, "spec", None)
+    return {"entries": entries.entries(p, spec), "classes": stats.by_class(p, spec) if spec is not None else {}}
+
+
+def answer(live, path: str, q: dict) -> tuple[int, dict]:
+    from urllib.parse import unquote
+
+    from ..inbox.answer import AnswerError
+    from ..inbox.answer import answer as give
+    p = live.get()
+    eid, _, verb = unquote(path.removeprefix("inbox/")).rpartition("/")
+    one = lambda k: (q.get(k) or [None])[0]               # noqa: E731
+    try:
+        n = float(one("n")) if one("n") not in (None, "") else None
+        return 200, give(p, p.model.spec, eid, verb, n, one("note"))
+    except (AnswerError, ValueError, AttributeError) as e:
+        return 400, {"error": str(e)}

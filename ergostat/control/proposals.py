@@ -400,6 +400,8 @@ def offered(p, a: dict) -> list[dict]:
             out.append(x)
             if x["kind"] in ("process", "tuning"):
                 _made(p, x)
+            elif not any(e["data"].get("id") == x["id"] for e in p.events.query(n=50, type="steptest.offered")):
+                p.events.add("steptest.offered", item=x["goal"], source="ergostat", data=x)   # it waits on the owner (SPEC §12o)
     return out
 
 

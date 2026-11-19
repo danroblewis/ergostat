@@ -159,6 +159,12 @@ async function openLoop(name, asController = false) {
     kids.push(h("h3", {}, `Breaking it: ${lp.breaking_n} ${lp.per}${lp.breaking_n === 1 ? "" : "s"}`),
       h("table", {}, lp.breaking.map((b) => h("tr", {}, h("td", {}, id(String(b.item ?? b.group))), h("td", { class: "num" }, fmt(b.value))))));
   }
+  if (lp.interventions) {                              // the interventions loop (SPEC §12p): ISA-18.2's measures, offenders first
+    const m = lp.interventions;
+    kids.push(h("h3", {}, "Interventions"), h("p", {}, `${fmt(m["per-day"])} over the last day; trend ${fmt(m.trend)} a day, per week, over ${m.days}d; standing ${m.standing}; chattering ${m.chattering}; ${fmt(m["blocked-hours"])}h blocked`),
+      h("table", {}, m.top.map((o) => h("tr", {}, h("td", {}, o.class), h("td", { class: "num" }, `${o.count} (${Math.round(o.share * 100)}%)`),
+        h("td", { class: "num" }, `${fmt(o.hours)}h blocked`), h("td", {}, o.cause)))));
+  }
   kids.push(goalAhead(name, lp));                       // with the loops running: its chance of being off ahead
   kids.push(controlBox(name, "loop"));                  // its process identified, its controller with it (control.js)
   for (const g of lp.gaps || []) kids.push(h("p", {}, h("b", { class: "lvl-warn" }, "Cannot close: "), g));

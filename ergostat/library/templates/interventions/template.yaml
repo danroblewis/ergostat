@@ -1,0 +1,125 @@
+template: interventions
+once: true
+description: Interventions as a stock under control (SPEC §12p) - every approval, request, alarm and notification is evidence of a missing loop; their trend is held falling, and each recurring class becomes a modelling request.
+reading: |
+  System dynamics: the interventions per day are a stock (read by ergostat's built-in measure
+  ergostat.interventions.per-day, a suppressed class still counted at its rate before), raised as new causes appear
+  (interventions-arising) and lowered as causes are modelled away (interventions-remedied, driven by the requests
+  resolved). Their trend (intervention-trend, an auxiliary, per day, per week: a weighted slope over notify's trend-window, the
+  days a request is being worked on weighted down) is what the goal holds. The modelling requests are items of
+  ergostat's built-in kind ergostat.model-request, counted by state: open, being worked on (investing) or graduated
+  and verifying (open-requests), resolved (resolved-requests, a running total) and suppressed (a guard removed with
+  nothing automated in its place).
+  Control: one balancing loop that closes the long way. The goal interventions-falling holds the trend at or under 0;
+  the controller remedies (a program on ergostat's own runner) runs on its own clock whatever the short-term rate,
+  ranks the classes by the time they blocked their processes, and makes a request for each that recurs, naming its
+  remedies (automate the person's step, graduate the gate with its evidence, add the missing loop, change the
+  software). What is remedied lowers the interventions, which the measure then sees.
+  It is used once a model, and its parts keep the names written here, in a system named for the use (interventions,
+  by convention).
+example: |
+  uses:
+    interventions:
+      use: interventions
+params:
+  every:
+    type: duration
+    default: 10m
+    description: how often the controller looks at the record for recurring classes
+  count-every:
+    type: duration
+    default: 1m
+    description: how often the interventions and the requests are counted
+  over:
+    type: duration
+    default: 1d
+    description: the window the flows are measured over
+stocks:
+  interventions-per-day:
+    unit: interventions
+    description: interventions over the last day (approvals held, requests, advised commands, alarms, notifications)
+    sensor:
+      builtin: ergostat.interventions.per-day
+      every: ${count-every}
+  open-requests:
+    unit: requests
+    description: classes of intervention to model away, open, being worked on, or graduated and verifying
+    sensor:
+      items: ergostat.model-request
+      state: [open, investing, verifying]
+      every: ${count-every}
+  resolved-requests:
+    unit: requests
+    description: classes whose processes no longer need a person
+    cumulative: true
+    sensor:
+      items: ergostat.model-request
+      state: resolved
+      every: ${count-every}
+  suppressed-requests:
+    unit: requests
+    description: classes silenced with nothing automated in their place (still counted at their rate before)
+    cumulative: true
+    sensor:
+      items: ergostat.model-request
+      state: suppressed
+      every: ${count-every}
+auxiliaries:
+  intervention-trend:
+    unit: interventions/day/week
+    description: the trend of the interventions per day, robust to a planned rise (SPEC §12p)
+    driven-by: +stock.interventions-per-day
+    sensor:
+      builtin: ergostat.interventions.trend
+      every: ${count-every}
+flows:
+  interventions-arising:
+    to: interventions-per-day
+    sensor:
+      changes: rises
+      over: ${over}
+      every: ${count-every}
+  interventions-remedied:
+    from: interventions-per-day
+    driven-by:                        # the more there are, and the more classes being modelled away, the more go
+      - +stock.interventions-per-day
+      - +stock.open-requests
+    sensor:
+      changes: falls
+      over: ${over}
+      every: ${count-every}
+  requests-made:
+    to: open-requests
+    sensor:
+      items: ergostat.model-request
+      entering: open
+      over: ${over}
+  requests-resolved:
+    from: open-requests
+    to: resolved-requests
+    driven-by: +stock.open-requests
+    sensor:
+      items: ergostat.model-request
+      entering: resolved
+      over: ${over}
+  guards-suppressed:                  # a guard removed with nothing automated in its place
+    from: open-requests
+    to: suppressed-requests
+    driven-by: +stock.open-requests
+    sensor:
+      items: ergostat.model-request
+      entering: suppressed
+      over: ${over}
+goals:
+  interventions-falling:
+    auxiliary: intervention-trend
+    hold: "<= 0"
+    description: the interventions per day are not rising, over the trend window (a planned rise weighted down)
+blocks:
+  remedies:
+    type: program
+    goal: interventions-falling
+    in: +stock.interventions-per-day
+    run: ${python} -m ergostat inbox --requests
+    every: ${every}
+    out: flow.requests-made

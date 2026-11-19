@@ -16,7 +16,8 @@ SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variabl
             "loops", "claims", "contexts", "actions", "workspaces", "leases")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
             "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of"}
-TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "defaults", "uses", "library", "remotes", *SECTIONS}
+TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "notify", "defaults", "uses", "library", "remotes",
+       *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -128,6 +129,7 @@ class Document:
     storage: object = None
     purpose: str = ""                # what the whole model is for (main file only): goals trace to it (SPEC §4a)
     intake: object = None            # intake: what may push events to the running ergostat (main file only)
+    notify: object = None            # notify: where what waits on a person is sent (main file only)
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
@@ -199,6 +201,11 @@ def load(main: Path) -> Document:
                 doc.intake = data["intake"]
             else:
                 doc.problems.append(Problem("error", "intake: belongs in the main file only", data.at("intake"), "intake-in-include"))
+        if "notify" in data:
+            if top:
+                doc.notify = data["notify"]
+            else:
+                doc.problems.append(Problem("error", "notify: belongs in the main file only", data.at("notify"), "notify-in-include"))
         if "keep" in data:
             if top:
                 doc.keep = data["keep"]

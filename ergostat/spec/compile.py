@@ -482,7 +482,9 @@ class Compiler:
                              f"overdue), with @KIND or @BLOCK when about one, or ergostat.actions.held (or approved, auto, "
                              f"denied, ran, failed), with @CLASS, or ergostat.workspaces.free (or in-use, held, quarantined), "
                              f"with @POOL, or ergostat.cost.usd (or tokens, cpu, memory, runs), over the last day or with "
-                             f"-hour the last hour, with @BLOCK or @model:MODEL when about one",
+                             f"-hour the last hour, with @BLOCK or @model:MODEL when about one, or ergostat.inbox.waiting (or "
+                             f"oldest, asked), or ergostat.interventions.per-day (or trend, standing, chattering, "
+                             f"blocked-hours, top-share)",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
@@ -852,6 +854,9 @@ class Compiler:
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
         spec.items[MESSAGE] = message_kind()                 # built in: the owner's messages, routed (SPEC §12h)
         spec.items[VERDICT] = verdict_kind()                 # built in: the intent judge's verdicts on work (SPEC §12i)
+        if any(u.get("template") == "interventions" for u in d.uses.values()):
+            from .ir import MODEL_REQUEST, model_request_kind
+            spec.items[MODEL_REQUEST] = model_request_kind()  # built in, with the interventions loop (SPEC §12p)
         self.claims(spec)
         from ..decisions.kinds import builtin as intent_kinds
         spec.items.update(intent_kinds())                    # built in: the owner's decisions and corrections (SPEC §5a)
@@ -961,6 +966,8 @@ class Compiler:
         pools.workspaces(self, spec)                         # workspaces: the pools AI blocks' runs work in (SPEC §12k)
         gated.actions(self, spec)                            # actions: what sessions may ask for, gated (SPEC §12k)
         gated.blocks(self, spec)  # ai: workdir, workspace, read, tools, actions; program: workspace, actions
+        from ..inbox import config as notify
+        notify.parse(self, spec)                             # notify: each channel a gated action notify.NAME (SPEC §12o)
         if spec.actions:
             spec.items[ACTION] = action_kind()               # built in, when there are any: gated actions asked for
         if spec.workspaces:
