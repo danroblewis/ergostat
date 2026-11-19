@@ -15,7 +15,7 @@ from ergostat.store import Project
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 BUILT_IN = ["ergostat.model-change", "ergostat.claim", "ergostat.message", "ergostat.verdict", "ergostat.decision",
-            "ergostat.correction", "ergostat.context"]
+            "ergostat.correction", "ergostat.context", "ergostat.report"]
 
 
 def systems_of(demo: str) -> tuple[dict, list]:
