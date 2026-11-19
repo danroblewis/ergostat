@@ -64,6 +64,7 @@ class Dispatcher:
         self.kept = Ready()                           # the items a look needs, followed as events arrive (ready.py)
         self.stale = True                             # read the record again before the next use: once a look, and after a take
         self.due = float("inf")                       # when the first item put off (not_before) may be taken
+        self.due_now: set[str] = set()                # items put off that may be taken now (their daemon revived)
 
     @property
     def spec(self):
@@ -167,7 +168,7 @@ class Dispatcher:
             if i.state not in b.takes.at or held(i.fields) or i.id in busy or not its.matches(i, b.takes.where):
                 continue
             after = float((i.fields.get("lease") or {}).get("not_before") or 0)
-            if after > now:                              # put off: looked at again when it falls due
+            if after > now and i.id not in self.due_now:   # put off: looked at again when it falls due
                 self.due = min(self.due, after)
                 continue
             got.append(i)
@@ -185,6 +186,7 @@ class Dispatcher:
         return self._work(*started, why=why)
 
     def take(self, b, it, inline: bool = False):
+        self.due_now.discard(it.id)
         t = terms(self.spec, b)
         lease = it.fields.get("lease") if isinstance(it.fields.get("lease"), dict) else {}
         fence = int(lease.get("fence") or 0) + 1

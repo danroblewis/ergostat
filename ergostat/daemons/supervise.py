@@ -61,6 +61,7 @@ class Supervisor(Hands):
         self.draining: list[tuple[Slot, Process]] = []
         self.push: dict[tuple[str, str], object] = {}
         self.pushed_at: dict[str, float] = {}
+        self.put_off: dict[str, str] = {}                # item → the daemon given up that gave it back, put off
         self.thread: threading.Thread | None = None
         self.written = 0.0
 
@@ -75,6 +76,8 @@ class Supervisor(Hands):
         with self.lock:
             for n, slot in list(self.slots.items()):
                 if n not in used or spec.daemons.get(n) != slot.d or slot.state == "failed":
+                    if slot.state == "failed":
+                        self._release(n)
                     self._drain(slot, "its definition changed" if n in used else "nothing uses it now")
                     del self.slots[n]
             for n in used - set(self.slots):
@@ -94,10 +97,18 @@ class Supervisor(Hands):
             if slot is None:
                 return False
             self._drain(slot, "the owner asked for a restart")
-            self.slots[name] = Slot(slot.d)
+            slot = self.slots[name] = Slot(slot.d)
+            self._release(name)
         self.e.say(f"daemon {name}: restarted, as the owner asked")
-        self._start(self.slots[name])
+        self._start(slot)
         return True
+
+    def _release(self, name: str) -> None:
+        """(under the lock) The items a daemon given up gave back, put off: due again at once, now it runs."""
+        mine = {i for i, d in self.put_off.items() if d == name}
+        for i in mine:
+            del self.put_off[i]
+        self.e.dispatch.due_now |= mine
 
     def _drain(self, slot: Slot, why: str) -> None:
         """(under the lock) Its process sent ``stop``, kept until it holds nothing and the grace has passed."""
@@ -129,7 +140,7 @@ class Supervisor(Hands):
                 elif slot.state == "running" and (why := self._trouble(slot, now)):
                     todo.append((slot, why))
             for slot, p in list(self.draining):
-                if p.ended.is_set():
+                if p.ended.is_set() or p.proc.poll() is not None:   # (ended, even while a child holds its output)
                     self.draining.remove((slot, p))
                     gone.append((slot, p))
                 elif (late := self._late(p, now)) or (p.idle_since is not None and now - p.idle_since > grace()):

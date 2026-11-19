@@ -37,6 +37,8 @@ class Hands:
                 slot = self.slots.get(name)
                 if slot is None or slot.state == "failed":
                     why = f"its daemon {name} " + ("has given up: " + slot.why if slot else "is not running")
+                    if item and slot is not None:    # (due again at once when it is revived: supervise.py)
+                        self.put_off[item] = name
                     return None, why, {"why": why, "count": False, "after": FAILED_AFTER}
                 ready = slot.state == "running" and slot.proc is not None and len(slot.proc.runs) < slot.d.concurrency
                 if ready and checked:
@@ -51,6 +53,7 @@ class Hands:
                 return None, f"its daemon {name} took no run within its timeout ({slot.state})", {"why": "", "count": False}
             slot.up.wait(min(0.2, max(0.0, limit - time.monotonic())))   # (a restart, a swap, room: looked at again)
             time.sleep(0.02)
+            checked = not item                       # (after a wait its lease is read again before it is held)
         if not h.done.wait(max(0.0, limit - time.monotonic())):
             self.cancel(run, "its timeout")
             h.done.wait(grace() + 7)
@@ -101,7 +104,10 @@ class Hands:
 
     def stop_block(self, block: str) -> bool:
         """The owner's ``block NAME --stop``: each run of that block a daemon holds, cancelled."""
-        runs = [r for p in self._procs() for r, h in list(p.runs.items()) if h.block == block]
+        runs = []
+        for p in self._procs():
+            with p.lock:
+                runs += [r for r, h in p.runs.items() if h.block == block]
         return any([self.cancel(r, "the owner's stop", asked=True) for r in runs])
 
     def read(self, s, answer) -> bool:
