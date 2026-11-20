@@ -204,8 +204,8 @@ blocks:
     description: a headless Claude Code session per gap in its own worktree (~/ergostat-wt/<branch>) - the definition committed first, the work, the fast suites
     run: python3 dev/bin/implement.py
     prompt: dev/prompts/implementor.md
-    takes: {kind: gap, at: [fix, ready], to: [built], unblocked: true, where: {waits_on_parked: null}}
-    # (its dependencies finished, none of them parked; the critical first)
+    takes: {kind: gap, at: [fix, ready], to: [built], unblocked: true, order: rank, where: {waits_on_parked: null}}
+    # (its dependencies finished, none of them parked; by the backlog's rank, the critical first among equals)
     pool: 4                          # the most: the pool now is implementor-pool (dev/model/pools.yaml)
     lease: {ttl: 90m, attempts: 2}
     timeout: 6h
