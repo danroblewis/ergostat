@@ -149,7 +149,7 @@ def next_due(p, now: float | None = None) -> dict:
              f"subsystems to take one at a time): split it into systems", owner=True)
     ran = [e for e in p.events.query(n=None, type=rd.RAN) if (e.get("data") or {}).get("result") != "call"]
     fit = _fit(p, spec)
-    skipped = []
+    skipped, due = [], []
     for u in ok:
         why = triggers(p, spec, u, now, fit=fit, ran=ran)
         if not why:
@@ -158,8 +158,10 @@ def next_due(p, now: float | None = None) -> dict:
         if rest:
             skipped.append(f"{u}: {rest}")
             continue
-        return {"system": u, "why": why, "trigger": why[0]}
-    return {"system": None, "why": skipped or ["nothing is due"]}
+        due.append({"system": u, "why": why, "trigger": why[0]})
+    routine = ("the first run with use: modelling", "its daily review")
+    due.sort(key=lambda d: all(w in routine for w in d["why"]))   # what is wrong first, the scheduled review after
+    return due[0] if due else {"system": None, "why": skipped or ["nothing is due"]}
 
 
 def hold(p, unit: str, code: str, says: str, owner: bool = False, state: str = "held") -> str:
