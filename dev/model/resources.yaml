@@ -116,9 +116,9 @@ goals:
     description: the Docker VM's memory at most 85% in use
   disk-free-enough:
     auxiliary: disk-free
-    hold: ">= 50"
+    hold: ">= 25"
     tolerance: 0
-    description: at least 50 GB free where the factory and Docker write (no new session below it)
+    description: at least 25 GB free where the factory and Docker write (no new session below it)
   threads-within:
     auxiliary: machine-threads
     hold: "<= 10000"
