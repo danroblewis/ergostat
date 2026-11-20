@@ -21,8 +21,8 @@ reading: |
   Control: two balancing loops that close the long way. The goal model-fits holds model-error at or under `fit`;
   while it is off the improver runs (an AI agent reading the model as a senior modeller would, a program, or a
   person) and proposes changes with their evidence; the judge (a built-in block, at most one a model) replays each
-  beside the model as it is on the record that comes after it, in several windows, passes it only when it is better
-  in every one, and writes what `accept` allows (nothing by default: the owner accepts in the review queue on the
+  beside the model as it is on the record that comes after it, all of it pooled, passes it only when it is better
+  beyond the record's noise, and writes what `accept` allows (nothing by default: the owner accepts in the review queue on the
   Fit page). What is written lowers the error, which the measure then sees. The goal requests-handled holds the
   unanswered requests at 0: while it is off the tiers run, their changes are judged, and what is written answers them.
   It is used once a model, and its parts keep the names written here (model-error, model-fits, improver, fixer,
@@ -128,10 +128,10 @@ params:
     description: how often the judge passes over the changes waiting
   hold-out:
     type: duration
-    description: 'how much record after a change it is judged on (the judge''s own default: 10m)'
+    description: 'the least record after a change it is judged on (the judge''s own default: 10m)'
   windows:
     type: any
-    description: 'how that record is split: 1 whole, 2 halves, 4 quarters (the judge''s own default: [1, 2, 4])'
+    description: 'how a verdict shows that record: 1 whole, 2 halves, 4 quarters (the judge''s own default: [1, 2, 4])'
   threshold:
     description: 'the least fall in scaled error that counts as better, like 2% (the judge''s own default)'
   warm-up:
