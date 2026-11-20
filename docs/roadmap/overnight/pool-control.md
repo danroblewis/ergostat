@@ -92,3 +92,12 @@ passed). No other test loads `dev/bin/pools.py`, `dev/bin/risk.py`, `dev/model/p
 `ergostat.yaml`. `risk.py` has only bounded loops (series at most 100,000 terms, bisection 80 steps). This session
 could not run the whole suite (only single files were allowed), so no code was changed blindly. The next step is a
 full `unit` run with its whole output (or `-o faulthandler_timeout=300` to show what hangs), to name the test.
+
+Round 2 (main 9244618, the $300 cap, merged in; no review findings were given to answer): no code changed. Running
+the whole unit suite was refused in this session again, serial or under `suite_watch`, so the failing or hanging test
+is still not named. After the merge, `tests/test_factory.py` (41 passed, 2 skipped) and
+`tests/test_factory_knowledge.py` (22 passed) pass, and ruff is clean (`ergostat tests scripts dev/bin`). A search of
+`tests/` again finds only those two files that load `dev/bin`, `pools.yaml`, `risk.py`, `status.py` or the repo's own
+`ergostat.yaml`. If the cut-off run comes from load (lesson-10) or from a test this branch does not touch (lesson-13),
+it belongs outside this gap. Left: one full `unit` run (and the browser files) by the factory, with the whole output,
+or with `-o faulthandler_timeout=300` if it hangs again.
