@@ -62,3 +62,24 @@ Failed its gates twice (the kill rule). Blocking findings:
 - ergostat/leases/measures.py:42,71 and ergostat/numbers/blockmodels.py:247: refused expiries are counted in ergostat.leases.expired, in the owner's attention list ('expired') and in block models, so a renewal that won the race shows up as an expiry: false alerts and wrong measures.
 - docs/SPEC.md:2101 and 2174-2180: the expiry event's new `renewed` field and the fold's refusal of an expiry written after a renewal are not documented, and SPEC still tells anything holding a resource to release on every lease.expired event (house rule: keep SPEC current with the change).
 - 4352f49 (scope): a change to the lease watchdog and fold in ergostat core is unrelated to this gap's definition of done (continuing a branch, merging main), is not in its acceptance tests, and is not mentioned in its 'Where it stopped'. Main is what people install, and this is the only core code on the branch. Take it off this branch and make it a gap of its own with its own definition.
+
+## Where it stopped
+
+continue-branch3, round 1: no code changed. Every finding above is already answered by what is on the branch.
+
+- The three lease findings and the scope finding: 4352f49 is reverted on the branch (02089d9), and
+  `git diff main HEAD` touches nothing under `ergostat/` (0 net lines of core code). The lease fix is main's own
+  (leaserenew, 1f013ba: a1fb62f writes no refused expiry, so the sweep, `ergostat.leases.expired` and the block models
+  never see one). Nothing about leases is left for this gap.
+- lesson-7: main 1f013ba is merged in (acd1d72) and is still the tip of main in this clone. Run on the merged tree,
+  one file at a time: `tests/test_factory.py` (32 passed, 2 skipped for want of Docker); `tests/test_factory_knowledge.py`,
+  `tests/test_ticket_factory_daemons.py`, `tests/test_intake.py` and `tests/test_review.py` (69 passed);
+  `tests/test_leases.py` (20 passed); ruff clean. The whole unit suite was not run here: that is the factory's
+  fast-suite run.
+- lesson-9: with `merge_main` (implement.py) made to return before merging, all four acceptance tests failed; the code
+  was then restored.
+- Gate 1 for this gap itself: the branch's first own commit (first parent) is 19b9998, `continue-branch.md`, the
+  original definition; `continue-branch3.md` was added last, when the branch was seeded by hand. Main's gate 1 (which
+  knows no `continues`) will find it is not first. Fixing that means rewriting the branch's history, which was not
+  done (the reversible choice). Once this branch is on main, a gap with `continues: continue-branch` reads the original
+  definition, as this gap's definition asks.
