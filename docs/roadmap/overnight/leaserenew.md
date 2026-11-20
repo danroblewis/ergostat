@@ -52,3 +52,18 @@ etamodel already has: the index keeps each item's `refused`, `spec/items.py`); i
 loop already projected; at the least skip `TRANSCRIPT_TYPES` and cache by (item, last seq). **The test needed:** a
 performance test with many expired items and long transcripts, bounding the time of `measures.counts`,
 `etamodel.read` and `blockmodels.identify` (against main's), besides the tests above.
+
+**Done (2026-11-20).** Merged origin/main (clean). `refused_expiries` now reads what each item refused from folds
+already in hand: the caller's (`items`, by id: `measures.counts` passes the items its first loop projected), else the
+item index (`ix`, which `etamodel.read` passes on; else the record's, `transcript=False`, caught up: the index is the
+cache by each item's last event), and folds only an item neither holds, its transcript left out. It answers only for
+the expiries it was given. `counts` narrows the expiries to its kinds and, with `@BLOCK`, to the block before asking.
+`tests/test_lease_refused_cost.py`: 300 items each taken and expired, each with a 200-line transcript; it asserts no
+item's events are read again by `measures.counts` (plain and `@developer`), `etamodel.read` and
+`blockmodels.identify`, and that each costs at most twice (+50 ms) what it costs with nothing left out (main's
+behaviour); the parked code fails both (0.21 s against 0.003 s for `counts`). At 1,000 items × 300 lines:
+main 0.15 / 0.13 / 0.10 s, the parked code 1.29 / 1.23 / 1.26 s, now 0.17 / 0.14 / 0.12 s (counts / estimate /
+identify). The GIL-hog evidence, once more on this code (a thread sorting 7M floats, about 0.9 s a hold, 48 copies
+at `-n 8`): 0 of 48 killed, all done, recorded renewal gaps up to 1.74 s.
+Unit suite (`-n 8 --dist worksteal`, under `suite_watch.py`): 1906 passed, 14 skipped, 1 xfailed, rc 0. The four
+browser files (`-n 4`, with playwright 1.63.0): 218 passed, rc 0.
