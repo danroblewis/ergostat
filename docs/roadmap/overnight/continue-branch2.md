@@ -162,3 +162,33 @@ failure on this branch. Leaving the code alone is also the reversible choice.
   test a TTL that does not race a CLI start-up), or judge this flake against main's tree under the same load. Then the
   factory's fast suites again on this branch. The open items from earlier rounds still stand: gate 1 for this salvage
   needs the coordinator, and main (5ac297a) is not merged in.
+
+## Where it stopped
+
+Round 3 of gap/continue-branch2 (on de17cd6): no code changed. Each finding listed for this round, answered:
+- Gate 1, "continue-branch2.md is not the branch's first commit" (the queue's line and the review's): unchanged, for
+  the coordinator, as in round 2. It comes from how the salvage was set up, not from the code. The way out is to accept
+  continue-branch.md (19b9998) as the definition by hand, or to request it again as `continues: continue-branch` once
+  this gate is on main. Rewriting history or special-casing the gate is hard to undo, so neither was done.
+- review.py:42-43/148, a stale base failing a continued gap: answered in 71c4a3b and still in place. implement.py:142
+  records `built_main` on gap.built. review.py:32-49 holds a continued branch to that main, and falls back to current
+  main when it is missing or not on main. `test_gate_one_accepts_a_continued_branch_definition` reviews twice after main
+  moves and is never parked.
+- implement.py:61 / fac.py:457, conflicts split on whitespace (lesson-12): answered in 71c4a3b. `fac.conflicted`
+  (fac.py:162) runs `git diff -z --name-only --diff-filter=U` and splits on NUL.
+  `test_conflicts_are_listed_whole_when_a_path_has_a_space` covers it.
+- lesson-7, main not merged in: this session was refused `git merge main` again, the fourth session to be refused. Main
+  is now 1f013ba (the leaserenew merge). `git diff --name-only 553b955 main` shares no file with this branch's changes:
+  main changed ergostat/leases, numbers, workspaces, docs/SPEC.md, docs/GAPS.md, the review lessons and lease tests,
+  while this branch changes dev/bin, dev/README.md, tests/test_factory.py and its definitions. A merge should therefore
+  be textually clean. It was not tried, so that is not proven.
+- The unit flake (`tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere`): main's
+  leaserenew (05edbe5, a1fb62f) now has the watchdog expire a lease only on a second look, a grace of at least 1s after
+  the first. That is the race rounds 1 and 2 described: a 1s TTL against a CLI's start-up. So the merge of main is
+  expected to end it. This is not proven here, because the merged tree could not be made.
+
+Run here, one file at a time, on this branch's tree (not merged): `tests/test_factory.py` (32 passed, 2 skipped for
+want of Docker); `tests/test_factory_knowledge.py`, `tests/test_ticket_factory_daemons.py`, `tests/test_intake.py` and
+`tests/test_review.py` together (69 passed); ruff clean on ergostat, tests, scripts and dev/bin. Left: main (1f013ba)
+merged in by the factory or a person, then the fast suites on the merged tree; and gate 1 for this salvage, by the
+coordinator.
