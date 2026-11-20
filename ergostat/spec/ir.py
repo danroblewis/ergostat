@@ -638,6 +638,7 @@ class Block:
     pool: int = 1                # the most runs of it at once, when it takes items
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its kind's and its tier's
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
+    on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
 
     @property
     def builtin(self) -> bool:
@@ -717,6 +718,18 @@ class Join:
     states: list[str]
     to: str
     all: bool = True                # all of them (a join), else any (the first to start)
+
+
+@dataclass
+class Trigger:
+    """What starts a block (SPEC §9.3, *Started by an event*): each event of these types whose data matches ``where``;
+    ``emits``, the types its runs may say (the trigger graph's edges, checked for loops)."""
+
+    events: list[str]               # types, or a prefix ending in .*
+    where: dict = field(default_factory=dict)
+    emits: list[str] = field(default_factory=list)
+    max_age: float = 3600.0         # seconds: older events, when looked at, are passed over (trigger.skipped)
+    most: int = 60                  # triggered runs a minute that trip its breaker (trigger.tripped)
 
 
 @dataclass

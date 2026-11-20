@@ -162,7 +162,8 @@ def add_event(p, args) -> int:
     from ..calls.client import Refused
     from . import fast
     try:                                                 # the running engine records it, when one listens (calls/)
-        sent = fast.call(args, "event", events=[one], source=args.by or "user", causedby=run)
+        sent = fast.call(args, "event", events=[one], source=args.by or "user", causedby=run,
+                         block=os.environ.get("ERGOSTAT_BLOCK") if run else None)
     except Refused as e:
         print(str(e), file=sys.stderr)
         return e.code
@@ -175,6 +176,11 @@ def add_event(p, args) -> int:
             return 1
         return 0
     p = p or open_project(args)
+    from ..spec.triggers import undeclared
+    why = run and undeclared(getattr(p.model, "spec", None), os.environ.get("ERGOSTAT_BLOCK"), [t])
+    if why:                                              # a run started by events says only what it declares (SPEC §9.3)
+        print(f"not recorded: {why}", file=sys.stderr)
+        return 2
     try:
         ev = p.events.add(t, item=args.item, source=args.by or "user", data=data, causedby=run, patch=got.get("--patch"),
                           set=got.get("--set"))

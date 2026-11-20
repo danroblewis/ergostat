@@ -49,6 +49,9 @@ def answer(p, spec, eid: str, verb: str, n: float | None = None, note: str | Non
             p.events.add("block.approved" if yes else "block.denied", item=e["block"], source=by,
                          data={"note": note or "", "ask": e["seq"]})
             said = "approved: it runs with its latest command" if yes else "denied: its command is not run"
+        elif kind == "breaker":                          # a block started by events, reset (SPEC §9.3)
+            p.events.add("trigger.reset", item=e["block"], source=by, data={"note": note or "", "tripped": e["seq"]})
+            said = "reset: its events start it again"
         elif kind == "steptest" or e.get("control"):
             x = {k: v for k, v in en.offers(p)[key].items() if k != "time"} if kind == "steptest" else None
             said = (cp.accept(p, key, by=by, offer=x) if yes else cp.dismiss(p, key, note, offer=x, by=by))["status"]
