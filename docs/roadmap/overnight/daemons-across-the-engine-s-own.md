@@ -81,3 +81,64 @@ All in `tests/test_daemons_restart.py`. `os.execv` is monkeypatched in `ergostat
 - If os.execv itself raises after end_all, CLOSING stays set and every later spawn kills itself. State the behaviour: the process exits, or _restart clears CLOSING and re-raises.
 - Confirm runner.kill_all() does not take the Supervisor lock; otherwise the hard-path test hangs for a reason outside this gap (report it, lesson-13).
 - Remove the contradiction in the existing-tests bullet (they 'pass unchanged' yet 'must reset proc.CLOSING'); keep only the fixture in the new file resetting CLOSING/GROUPS.
+
+## Where it stopped
+
+Built as defined, in 70 net lines outside `tests/` and `docs/` (`git diff --stat main -- ergostat`: +86 −16,
+docstrings included), so no overrun. All six acceptance tests are in `tests/test_daemons_restart.py` and pass.
+
+**Each test broken (lesson-9).** Each break was made by hand, run, seen to fail, and undone:
+- `_restart` not calling `end_all`: the hard and soft tests fail (daemon and child alive at the exec).
+- `end_all` signalling the pid (`os.kill`) instead of the group: the hard, soft and three-group tests fail (the
+  child lives).
+- `end_all` taking each `Supervisor`'s lock (found through `gc`): the hard test fails ("the hard restart hung").
+- No clamp: here the ceiling was raised to 6 s rather than removed, so the run cannot hang for an hour and leave
+  deaf processes behind. The three-group test fails ("not clamped to 3 s").
+- A wait per group: the three-group test fails (3.06 s against 2.5).
+- EPERM counted as still present: the EPERM test fails (waited out the deadline).
+- An EPERM group left in `GROUPS` (only `sent` removed): the EPERM test fails.
+- `killpg` not removing a group: `test_groups_are_forgotten_once_they_end` fails (both pgids kept).
+- Registration not checking `CLOSING`: the spawned-while-collecting test fails (the group escapes).
+
+**Answers to the plan review's notes.**
+- *Zombies.* In the tests, "dead" is ESRCH, or state `Z` in `/proc/<pid>/stat` (`ps -o stat=` where there is no
+  `/proc`). `end_all` treats a group as present while `killpg(pgid, 0)` succeeds. So a group with only unreaped
+  processes left is waited for until the shared deadline (≤ 3 s) and then sent SIGKILL, which does no harm. This is
+  said in its docstring. In the engine, a daemon's leader is reaped by its own reader thread (`proc.wait()`), so this
+  happens only to an orphan whose new parent does not reap it.
+  The patched `execv` polls each pid for at most 1 s before it records "dead". The SIGKILL has been sent by then,
+  but the process may not yet have been scheduled to die. A daemon that was never sent SIGKILL lives forever, so the
+  poll still tells the two cases apart.
+- *Atomicity (lesson-1).* `end_all`'s first step is the named helper `supervise.collect()`, which sets `CLOSING` and
+  takes the snapshot. The test wraps it to spawn a process right after the snapshot. No test pauses inside
+  registration between the check and the add, because that step has no hook short of splitting `Process.__init__`.
+  Atomicity rests on the code holding one lock: `CLOSING` is read and the pid added inside one `with GROUPS_LOCK:`
+  block in `Process.__init__`, and `collect` sets and snapshots inside the same lock.
+- *Forgotten groups.* The test asserts that its own pgids (every start in `starts.log`) are absent from
+  `proc.GROUPS`. It does not assert that the set is empty.
+- *Removal.* `killpg` uses `GROUPS.discard`. `end_all` uses `GROUPS.difference_update(snapshot)`, the same
+  operation for many entries (no `KeyError`). The window in which a group that `killpg` removed after the snapshot is
+  still signalled is noted in `end_all`'s docstring.
+  One choice wider than item 2 says, taken as the more reversible one (lesson-5): `killpg` removes the group whenever
+  it returns, and that includes after it sends SIGKILL, not only when it sees the group gone. A group sent SIGKILL
+  cannot outlive it. If the group were kept until the next check, a pgid the OS could reuse would stay in the set.
+- *`execv` raising.* `_restart` catches `OSError` from `os.execv`, clears `CLOSING` under `GROUPS_LOCK` and raises
+  again, so the supervisor can spawn daemons again in the process that carries on. The test's sentinel is not an
+  `OSError`, so in the tests `CLOSING` stays set until the fixture resets it.
+- *`runner.kill_all()`.* It takes no `Supervisor` lock: it sets `STOPPING` and SIGKILLs `runner.LIVE`. The hard test
+  passes with the supervisor's lock held throughout. It does set the process-wide `runner.STOPPING`, so the new file's
+  fixture clears it.
+- *Existing tests.* `tests/test_daemons.py`, `test_watchdog.py`, `test_resilience.py` and `test_runner_and_state.py`
+  are unchanged. Only the new file's autouse fixture resets `CLOSING` and `GROUPS` (to what was there before the
+  test) and `runner.STOPPING`. It also SIGKILLs every group the test started, so a failing test leaves no deaf process
+  behind.
+
+**What was run.**
+- `tests/test_daemons_restart.py` together with the four existing files, serially: 102 passed.
+- `uv run ruff check ergostat tests scripts`: clean.
+
+**What was not run.**
+- The full unit suite and the four browser files: left to the factory's watched run, as the instructions say.
+- No merge of origin/main: this clone has no `origin` remote ref and reaching the network is not allowed. Local
+  `main` (05c6dc9) is the branch's base, so there was nothing on it to merge. The merge and the suites after it are
+  still owed (lesson-7).
