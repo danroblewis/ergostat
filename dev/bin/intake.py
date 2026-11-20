@@ -9,6 +9,9 @@
 - each open gap with a definition of done: `gap.defined` (ready). A definition is the gap's `definition` field (a
   file in run/defs/), `run/defs/<branch>.md` in the instance's folder (written by the coordinator), or
   `docs/roadmap/overnight/<branch>.md` on main or on the gap's branch; nothing else is read;
+- a gap waiting for main to move (`waits_on_main`: its fast suites failed only on tests that fail on main too,
+  onmain.py) released once the checkout's main is another commit (what the drop gives the implementor, and what the
+  queue pushes to origin), so the implementor takes it again;
 - a gap that `continues` an existing branch (`"continues": "NAME"`, e.g. a parked one): that branch fetched into the
   factory's drop as factory/<branch> first, so its own definition file is found there.
 
@@ -162,6 +165,15 @@ def dependencies(cfg: dict, known: dict[str, dict], text: str) -> int:
     return n
 
 
+def main_moved(cfg: dict, known: dict[str, dict]) -> int:
+    """Each gap waiting on a main commit that is no longer the checkout's main, released (`waits_on_main` cleared)."""
+    now = fac.git(fac.path(cfg, "checkout"), "rev-parse", cfg["git"]["base"])
+    moved = [g for g in known.values() if g["fields"].get("waits_on_main") not in (None, "", now)]
+    for g in moved:
+        fac.say("gap.measured", g["id"], waits_on_main=None, main_moved_to=now)
+    return len(moved)
+
+
 def main() -> int:
     cfg = fac.config()
     repo = fac.path(cfg, "checkout")
@@ -189,8 +201,9 @@ def main() -> int:
             g["fields"]["definition"], g["state"] = where, "ready"
             defined += 1
     linked = dependencies(cfg, known, text)
+    released = main_moved(cfg, known)
     print(f"intake: {found} found, {closed} closed (GAPS.md marks them done), {defined} defined, {linked} with their "
-          "dependencies changed", file=sys.stderr)
+          f"dependencies changed, {released} released by main moving", file=sys.stderr)
     return 0
 
 

@@ -105,10 +105,10 @@ def test_a_block_switched_off_is_projected_not_to_take(tmp_path):
     p = project(tmp_path, GATED)
     p.events.add("ticket.opened", item="ticket/a", at=time.time() - 60)
     spec = p.model.spec
-    assert etamodel.gated_off(p, spec, time.time()) == {"dev": "dev-when"}       # never read: off
+    assert etamodel.gated_off(p, spec, time.time()) == {"dev": "dev-when, dev-open at 0"}   # never read: off
     inp = etamodel.read(p, spec, ["ticket"], time.time())
     why = eta.reasons(inp)["ticket/a"]
-    assert why["off"] and "switched off now (by dev-when)" in why["why"]
+    assert why["off"] and "switched off now (by dev-when, dev-open at 0)" in why["why"]
     got = eta.simulate(inp, runs=5, budget=2.0)
     assert got["items"]["ticket/a"]["p50"] is None                               # projected not to move
     series = next(iter(spec.auxiliaries["dev-open"].sensors.values())).series

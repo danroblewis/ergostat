@@ -224,8 +224,9 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
 
 
 def gated_off(p, spec, at: float) -> dict[str, str]:
-    """The blocks that take items and are commanded off at ``at`` (a switch at 0 or never read, a gate shut): {name:
-    what commands it}. Worked out as the engine would (``closedloop.Shadow``) from the record's newest readings."""
+    """The blocks that take items and are switched off at ``at``: commanded 0 while an exogenous switch their commander
+    reads is at 0 or never read (a controller commanding 0 because nothing waits is idle, not off): {name: why}.
+    Worked out as the engine would (``closedloop.Shadow``) from the record's newest readings."""
     want = [b for b in spec.blocks.values() if b.takes and b.machine and spec.commanders_of(b.name)]
     if not want:
         return {}
@@ -241,8 +242,17 @@ def gated_off(p, spec, at: float) -> dict[str, str]:
     try:
         sh = Shadow(spec, sig, start_of(p, spec, at))
         sh.step(at)
-        cmds = {b.name: sh.command_of(b) for b in want}   # (off only when worked out: a reading missing says nothing)
-        return {n: str(d.get("from")) for n, (cmd, d) in cmds.items() if cmd == 0 and d.get("from")}
+        out = {}
+        for b in want:                                    # off: commanded 0 while a switch it reads is at 0 (a
+            cmd, d = sh.command_of(b)                     # controller at 0 is idle, not off; a reading missing says
+            if cmd != 0 or not d.get("from"):             # nothing)
+                continue
+            c = spec.blocks[d["from"]]
+            off = [r.name for r in c.inputs.values() if r.kind == "auxiliary" and r.name in spec.auxiliaries
+                   and spec.auxiliaries[r.name].exogenous and not sig.get(f"auxiliary.{r.name}")]
+            if off:
+                out[b.name] = f"{c.name}, {' and '.join(off)} at 0"
+        return out
     except Exception:  # noqa: BLE001 - not worked out: every block projected as running, as before
         return {}
 
