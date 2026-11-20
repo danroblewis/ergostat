@@ -19,7 +19,7 @@ from ergostat import model as mdl
 from ergostat import sandbox
 from ergostat.actions import gate
 from ergostat.actions import record as actions
-from ergostat.repair import FAILURE, apply, fix
+from ergostat.repair import FAILURE, fix
 from ergostat.spec import items as its
 from ergostat.spec.engine import Engine
 from ergostat.store import Project
@@ -49,6 +49,7 @@ uses:
 """
 BROKEN = """\
 import json
+import os
 answer = json.loads(open("answer.json").read())
 for issue in answer["issues"]:
     print(json.dumps({"event": "issue.seen", "item": f"issue/{issue['key']}"}))
@@ -360,7 +361,10 @@ def test_x1_a_proposal_naming_another_file_or_a_link_is_refused(tmp_path, monkey
     path = {"other": "ergostat.yaml-missing", "git": ".git/config", "link": "collect.py", "same": "collect.py"}[bad]
     with pytest.raises(fix.Refused):
         fix.propose(c, path, FIXED if bad != "same" else BROKEN, f"{FAILURE}/collector-00000000")
-    assert c("rev-parse", "HEAD").strip() == base and (tmp_path / "outside.py").read_text() if bad == "link" else True
+    assert c("rev-parse", "HEAD").strip() == base and not c("status", "--porcelain", "--untracked-files=no").strip() \
+        or bad == "link", "nothing committed, nothing written"
+    if bad == "link":
+        assert (tmp_path / "outside.py").read_text() == BROKEN, "never written through a link"
 
 
 # ---- X2: reads by allowlist
@@ -532,4 +536,80 @@ def test_seatbelt_profiles_keep_filter_lists_short_and_no_syscall_rules(tmp_path
     src = (Path(fix.__file__).parent).glob("*.py")
     assert not any("sandbox-exec" in f.read_text() or "seatbelt" in f.read_text() for f in src), \
         "the repair loop builds no profile of its own: only ergostat.sandbox does"
-    assert apply.DONE and os.path.exists(sandbox.__file__)
+
+
+# ---- the second review's findings
+
+
+def test_r1_the_ai_approver_never_overrides_a_persons_answer(tmp_path, monkeypatch):
+    p, e = project(tmp_path, monkeypatch, approver="ai")
+    real = fix.ask
+
+    def denied_meanwhile(p_, prompt, system, a):          # the person denies it while the AI approver thinks
+        if prompt.startswith("You approve"):
+            gate.deny(p_, actions.about(p_, fid)[0]["id"])
+        return real(p_, prompt, system, a)
+    monkeypatch.setattr(fix, "ask", denied_meanwhile)
+    try:
+        fid = broken(p, e)
+        monkeypatch.setattr("ergostat.library.run.common.block_input", lambda: {"item": {"id": fid}})
+        monkeypatch.setenv("ERGOSTAT_STATE_DIR", str(p.dir))
+        monkeypatch.chdir(p.model.path.parent)
+        fix.main(["--approver", "ai"])
+        assert actions.about(p, fid)[0]["state"] == "denied"
+        assert gate.sweep(p, p.model.spec) == 0 and git("rev-parse", "HEAD", cwd=p.model.path.parent) != \
+            one(p, fid).fields["fix"]
+    finally:
+        e.close()
+
+
+def test_r2_a_large_fix_is_refused_and_the_diff_is_shown_whole(tmp_path, monkeypatch):
+    p, e = project(tmp_path, monkeypatch, program=FIXED + "#" * 40000 + "\nimport os; os.system('evil')\n", approver="ai")
+    try:
+        fid = broken(p, e)
+        it = fixed(p, e, fid)
+    finally:
+        e.close()
+    assert it.state == "open" and not actions.about(p, fid), "a program past 32,000 characters is no fix"
+    p, e = project(tmp_path / "b", monkeypatch, program=FIXED + "#" * 25000 + "\nprint('payload')\n", approver="ai")
+    try:
+        fid = broken(p, e)
+        it = fixed(p, e, fid)
+    finally:
+        e.close()
+    assert "print('payload')" in it.fields["diff"] and "print('payload')" in calls(tmp_path / "b")[-1]["prompt"]
+
+
+def test_r3_a_call_killed_midway_still_counts_its_whole_budget(tmp_path, monkeypatch):
+    p, e = project(tmp_path, monkeypatch, with_=", daily: 1, budget: 0.4")
+    e.close()
+    a = type("A", (), {"budget": 0.4, "daily": 1.0, "timeout": 30, "model": "haiku"})
+    hang = tmp_path / "hang.py"
+    hang.write_text("import sys, time\nsys.stdin.read()\ntime.sleep(30)\n")
+    monkeypatch.setenv("ERGOSTAT_AI", f"{PY} {hang}")
+    code = f"from tests.test_repair2 import *\nfrom ergostat.store import Project\nfrom ergostat import model as m\n" \
+           f"p = Project(m.load(__import__('pathlib').Path({str(p.model.path.parent)!r})))\n" \
+           f"a = type('A', (), {{'budget': 0.4, 'daily': 1.0, 'timeout': 30, 'model': 'haiku'}})\nfix.ask(p, 'x', '', a)\n"
+    child = subprocess.Popen([PY, "-c", code], cwd=Path(__file__).parent.parent, start_new_session=True)
+    import time
+    time.sleep(3)
+    os.killpg(child.pid, 9)                                  # as the engine kills a run past its timeout
+    child.wait()
+    rows = [json.loads(x) for x in (p.dir / "repair" / "spend.jsonl").read_text().splitlines()]
+    assert sum(r["usd"] for r in rows) == pytest.approx(0.4), rows
+    with pytest.raises(fix.Capped):                          # 0.4 counted, 0.4 more would be 0.8, 0.4 again past 1
+        monkeypatch.setenv("ERGOSTAT_AI", f"{PY} -c print")
+        fix.ask(p, "x", "", a)
+        fix.ask(p, "x", "", a)
+
+
+def test_r4_an_uncommitted_program_or_one_that_cannot_be_applied_goes_to_a_person(tmp_path, monkeypatch):
+    p, e = project(tmp_path, monkeypatch)
+    try:
+        fid = broken(p, e)
+        (p.model.path.parent / "collect.py").write_text(BROKEN + "# an edit not committed\n")
+        it = fixed(p, e, fid)
+    finally:
+        e.close()
+    assert it.state == "open" and not calls(tmp_path), "no AI call for a program it would fix from other text"
+    assert any("not committed" in str((x.get("data") or {}).get("why")) for x in p.events.query(n=None, item=fid))

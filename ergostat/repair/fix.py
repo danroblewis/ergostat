@@ -108,12 +108,13 @@ def ledger(p, budget: float, daily: float):
             raise Capped(f"the spend ledger cannot be read ({e}): no AI call") from None
         if spent + budget > daily:
             raise Capped(f"today's spend ${spent:.2f} and this call's ${budget:.2f} would pass the daily ${daily:.2f}")
+        with open(path, "a") as f:                           # reserved first: a run killed mid-call still counts it
+            f.write(json.dumps({"time": time.time(), "usd": budget}) + "\n")
         cost: list = []
-        try:
-            yield cost
-        finally:
+        yield cost
+        if cost and cost[0] < budget:
             with open(path, "a") as f:
-                f.write(json.dumps({"time": time.time(), "usd": cost[0] if cost else budget}) + "\n")
+                f.write(json.dumps({"time": time.time(), "usd": cost[0] - budget}) + "\n")
 
 
 def ask(p, prompt: str, system: str, a) -> dict:
@@ -121,7 +122,7 @@ def ask(p, prompt: str, system: str, a) -> dict:
     read as one of the run's lines. Returns the JSON object it answered."""
     with ledger(p, a.budget, a.daily) as cost, tempfile.TemporaryDirectory() as empty:
         r = subprocess.run(command(a.model, a.budget, system), input=prompt, capture_output=True, text=True,
-                           timeout=a.timeout, cwd=empty)
+                           timeout=a.timeout / 4, cwd=empty)          # (three steps well within the run's)
         try:
             d = json.loads(r.stdout)
         except ValueError:
@@ -195,8 +196,8 @@ def review(p, a, fid: str, action: dict, data: dict, risk: str) -> None:
     reasons = [str(x)[:300] for x in (got.get("reasons") or [])][:5] if isinstance(got.get("reasons"), list) else []
     record(p, "reviewed", fid, {"approval": {"by": by, "model": a.model, "verdict": verdict, "reasons": reasons,
                                              "guard": guard, "action": action["id"]}})
-    if verdict == "approve":
-        from ..actions import record as rec
+    from ..actions import record as rec
+    if verdict == "approve" and (rec.get(p, action["id"]) or {}).get("state") == "requested":    # (not if answered)
         rec.step(p, action["id"], "approved", {"approved_by": by, "note": "; ".join(reasons)[:500]}, by=by)
 
 
@@ -217,19 +218,23 @@ def run(a) -> int:
     if not (Path(c.work) / path).is_file():
         raise Refused(f"{path} is not in the repository's HEAD: commit it, and the failure is repaired")
     files = given(Path(c.work), Path(c.work) / path)
+    if path not in files or owner("status", "--porcelain", "--", path).strip():
+        raise Refused(f"{path} is too large to give the AI, not text, or changed and not committed: a person fixes it")
+    if sum(e["type"] == f"{FAILURE}.apply-failed" for e in p.events.query(n=None, item=fid)) >= 2:
+        raise Refused("its fixes could not be applied twice: a person looks at it")
     asked = {"failure": {**{k: f.get(k) for k in ("error", "traceback", "stderr", "note")}, "command": b.params.get("run")},
              "program": path, "files": {k: scrub(p, v) for k, v in files.items()},
              "last_test": f.get("test") if f.get("tests") == "failed" else None}
     got = ask(p, PROMPT.read_text() + "\n" + json.dumps(asked, default=str), SYSTEM, a)
-    if not isinstance(got.get("program"), str):
+    if not isinstance(got.get("program"), str) or len(got["program"]) > EACH:
         print(json.dumps({"nack": f"the AI proposed no fix: {str(got.get('cannot') or 'no answer')[:300]}"}))
         return 0
     fix = propose(c, path, got["program"], fid)
     stdin = (Path(p.dir) / "repair" / f"{name}.input").read_text(encoding="utf-8")
-    test = trial(p, b, Path(c.work), where, stdin, a.test, a.timeout)
+    test = trial(p, b, Path(c.work), where, stdin, a.test, a.timeout / 4)
     tests = {True: "passed", False: "failed", None: None}[test["passed"]]
     data = {"explanation": str(got.get("explanation") or "")[:2000], "fix": fix, "base": base, "test": test,
-            "tests": tests, "diff": c("diff", base, fix)[:20000]}
+            "tests": tests, "diff": c("diff", base, fix)}
     if not test["passed"] and tests == "failed":
         record(p, "fix-failed", fid, data)
         print(json.dumps({"nack": "the fix failed its test"}))

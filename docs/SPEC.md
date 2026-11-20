@@ -4763,7 +4763,10 @@ each open failure, leased (section 9.5), and:
    `budget`, in an empty folder) with the prompt `ergostat/repair/fixer.md` and the failure, given **only what ergostat
    read for it**: the program and the plain files beside it in the clone (committed files only: no dot-files, links or
    binaries; 32,000 characters each, 96,000 in all; scrubbed). It reads, runs and writes nothing itself. It answers with
-   the program's whole new text and an explanation, or why it cannot;
+   the program's whole new text (at most 32,000 characters) and an explanation, or why it cannot. Refused before the
+   AI is asked, and left to a person: a program not among the files given (too large, not text), one with changes in
+   the owner's tree not committed (its fix would be made from other text), and one whose fixes could not be applied
+   twice;
 3. writes that text over the program in the clone (refused: a link, a path outside the clone or in `.git`, no change;
    nothing else is ever written) and commits it;
 4. **tests** it in `ergostat.sandbox` (section 12q) on a throwaway copy of the clone's files without `.git`: reads only
@@ -4785,8 +4788,9 @@ the owner, answered from the inbox, the CLI or the failure's page. `approver: ai
 no tools, the prompt `ergostat/repair/approver.md`) reads the diff, the explanation, the test and the impact report, and
 answers approve or not, with reasons. A **guard** comes first: it may approve only a fix whose tests passed and whose
 risk is not high (with no impact report, the risk is high); else it is not asked. Its answer and the guard's are the
-**approval record** (`ergostat.failure.reviewed`: `approval: {by, model, verdict, reasons, guard, action}`). Approved,
-the action is approved `by: "ai approver (MODEL)"` and run by the engine's sweep; escalated, it stays held for the
+**approval record** (`ergostat.failure.reviewed`: `approval: {by, model, verdict, reasons, guard, action}`). It sees the
+whole diff, never a cut one. Approved, and only while the action is still held (a person's answer first stands), the
+action is approved `by: "ai approver (MODEL)"` and run by the engine's sweep; escalated, it stays held for the
 person. The inbox's record counts an AI approver's answers apart (`by_agent`), never as a person's, and never in the
 approvals asked of a person in a day. What an approved fix then does runs with the owner's rights, as the program it
 replaces did: the approver is told to escalate anything that adds network, files, credentials or commands.
@@ -4802,7 +4806,9 @@ removes the clones of failures applied, dismissed or dead.
 **Costs and the cap.** Each AI call's Claude Code result message is passed on without its text (so its cost is the
 run's, section 9.1, and nothing the AI wrote is read as one of the run's lines). Before every call the loop's ledger
 (`repair/spend.jsonl`, under a lock) is read: the day's spend plus the call's `budget` must not pass `daily`; a ledger
-that cannot be read means no call (it fails closed), and a call whose cost is not said counts as its whole budget. A
+that cannot be read means no call (it fails closed). The whole budget is written before the call and corrected after
+it to what it said it cost, so a run killed mid-call still counts it, and a call whose cost is not said counts whole.
+Each AI call and the test get a quarter of the block's `timeout`, so the three end before the run is killed. A
 capped failure is given back for an hour, not counted as an attempt. `repair-spend` charts the fixer's cost.
 
 | Part | What |
