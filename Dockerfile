@@ -21,5 +21,7 @@ COPY --chown=dev pyproject.toml uv.lock ./
 RUN python3 -c "import tomllib, pathlib; c = tomllib.load(open('pyproject.toml', 'rb'));\
 [(pathlib.Path(p).parent.mkdir(parents=True, exist_ok=True), pathlib.Path(p).touch())\
  for p in [*c['tool']['hatch']['build']['targets']['wheel']['force-include'], 'ergostat/__init__.py']]" \
-    && uv sync && uv run --with playwright==1.63.0 python -c "import playwright, pytest, xdist"
+    && uv sync && uv run --with playwright==1.63.0 python -c "import playwright, pytest, xdist" \
+    && uv run --no-project --with pillow --with numpy python -c "import PIL, numpy"
+# (pillow and numpy: examples/image-squeeze's bin/py)
 ENV UV_OFFLINE=1

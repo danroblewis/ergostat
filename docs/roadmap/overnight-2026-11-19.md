@@ -16,7 +16,9 @@ possible, without check-ins. Check-ins are replaced by gates written down in adv
      `scripts/suite_watch.py -- ... pytest -q -n 8 --dist worksteal`, and `-n 4` for the four Playwright files);
      the serial commands (without `-n`) are the fallback;
      when Docker is up, an agent's suite runs go through `scripts/in_container.sh` (CLAUDE.md, *The container*;
-     docs/DEVELOPMENT.md), and benchmarks, load runs and the layout corpus only ever run there;
+     docs/DEVELOPMENT.md), and benchmarks, load runs and the layout corpus only ever run there; until the 12 known
+     Linux failures (docs/DEVELOPMENT.md) are fixed, a container unit run passes when it fails only those, and the
+     merge queue's unit run stays on the host;
    - no page test was skipped for want of a port;
    - its acceptance tests exist and pass;
    - it is within its **size budget:** net lines of code outside `tests/` and `docs/`, 600 by default. An

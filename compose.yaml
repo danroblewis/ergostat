@@ -23,3 +23,5 @@ services:
     volumes:
       - ${ERGOSTAT_WORK:-.}:/work
     working_dir: /work
+    environment:
+      SPLIT_SHOTS: /tmp/split-shots     # tests/test_diagram_rendering.py's pictures go beside the checkout: / here

@@ -82,7 +82,8 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
   `scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal`
   (docs/DEVELOPMENT.md has every standard run). **Always** in the container: the benchmarks (`scale_bench`,
   `latency_bench`, `daemon_bench`, `loadtest`), any load or soak test, the layout corpus, and the Linux sandbox
-  tests. **Preferred** there: the unit and browser suites and `demo_check`. **On the host:** the macOS sandbox tests
+  tests. **Preferred** there: the unit and browser suites and `demo_check` (the unit suite has 12 known Linux failures,
+  listed in docs/DEVELOPMENT.md: a run is green when it fails only those). **On the host:** the macOS sandbox tests
   (`tests/test_sandbox_attacks.py` exercises `sandbox-exec` only on macOS; run it on both when the sandbox changes),
   and anything that needs the owner's real credentials or services. This Mac has kernel-panicked three times from
   development work (two thread exhaustions in benchmarks, one `sandbox-exec` profile bug); the watchdog alone is not
