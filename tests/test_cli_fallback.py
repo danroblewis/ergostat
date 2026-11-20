@@ -3,6 +3,7 @@ snapshot, read back from that alone, by commands that read; commands that act re
 tested by name: AI models with prompt files never kept, commands run in a copy, includes mixed from disk."""
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -234,6 +235,98 @@ def test_the_engine_keeps_the_model_it_takes(tmp_path):
         time.sleep(3)                                    # (a change it refuses is never kept)
         h = json.loads(good.read_text())["files"][str(d.resolve() / "ergostat.yaml")]
         assert "<= 7" in (p.dir / DIR / OBJECTS / h).read_text()
+    finally:
+        subprocess.run([sys.executable, "-m", "ergostat", "-C", str(d), "run", "--stop"], capture_output=True, timeout=60)
+        if proc.poll() is None:
+            proc.kill()
+
+
+def test_every_flag_of_a_read_topic_is_called_acting_or_read_only():
+    from ergostat.cli import build
+    from ergostat.goodmodel import ACTS, READ_FLAGS, READS
+    common = {"help", "C", "json", "system", "since", "at", "name", "version", "watch", "exit_code", "topic", "fn"}
+    sub = next(a for a in build()._actions if a.dest == "topic")
+    told = set(ACTS) | set(READ_FLAGS) | common
+    untold = {f"{t} --{a.dest}" for t in READS if t in sub.choices for a in sub.choices[t]._actions if a.dest not in told}
+    assert not untold, f"say whether each acts (goodmodel.ACTS) or only reads (goodmodel.READ_FLAGS): {sorted(untold)}"
+
+
+def test_the_fallbacks_record_refuses_every_write_whatever_the_flags(tmp_path, capsys, monkeypatch):
+    from ergostat import goodmodel
+    d = _broken(tmp_path)
+    p = fallback(d, mdl.ModelError("x"))
+    for write in (lambda: p.events.add("job.made", item="job/3"), lambda: p.events.add_many([{"type": "x"}]),
+                  lambda: p.measurements.add("s", 1.0)):
+        with pytest.raises(goodmodel.ReadOnlyRecord):
+            write()
+    monkeypatch.setattr(goodmodel, "ACTS", tuple(a for a in goodmodel.ACTS if a not in ("requests", "invest", "add")))
+    capsys.readouterr()
+    assert main(["-C", str(d), "event", "--add", "job.made", "--item", "job/3"]) == 2    # a flag the list missed
+    assert "would write to the record" in capsys.readouterr().err
+    from ergostat.inbox import interventions
+    monkeypatch.setattr(interventions, "requests", lambda p, spec, now=None: p.events.add("model-request.opened"))
+    assert main(["-C", str(d), "inbox", "--requests"]) == 2
+    assert "would write to the record" in capsys.readouterr().err
+    assert [e["item"] for e in Project(p.model, p.dir, note=False).events.query(n=None, type="job.made")] == ["job/1"]
+
+
+def test_the_read_topics_run_on_the_fallback_without_writing(tmp_path, capsys):
+    from ergostat.goodmodel import READS
+    d = _broken(tmp_path)
+    for t in sorted(x for x in READS if x and x not in ("status",)):
+        argv = ["-C", str(d), t]
+        try:
+            rc = main(argv)
+        except SystemExit as e:
+            rc = e.code
+        assert "would write" not in capsys.readouterr().err and rc in (0, 1), (t, rc)
+
+
+def test_old_snapshot_objects_are_kept_one_generation_and_stale_tmp_files_cleared(tmp_path):
+    d = _repo(tmp_path)
+    p = _kept(d)
+    objects = p.dir / DIR / OBJECTS
+    first = set(os.listdir(objects))
+    old = objects / "abc.123.tmp"
+    old.write_text("x")
+    os.utime(old, (time.time() - 7200, time.time() - 7200))
+    for limit in ("<= 6", "<= 7"):
+        (d / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace("<= 5", limit))
+        assert keep(Project(mdl.load(d))) is None
+        if limit == "<= 6":
+            assert first <= set(os.listdir(objects)), "a command reading the snapshot before keeps its objects"
+    now = set(json.loads((p.dir / DIR / MANIFEST).read_text())["files"].values())
+    assert (first - now) and not (first - now) & set(os.listdir(objects)), "two generations on, they go"
+    assert not old.exists()
+
+
+def test_a_missing_file_names_its_path_and_the_library_setting(tmp_path, capsys, monkeypatch):
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    d = _repo(tmp_path, MODEL + "uses:\n  modelling: {use: modelling}\n")
+    _kept(d)
+    _break(d)
+    monkeypatch.setenv("ERGOSTAT_LIBRARY", str(lib))     # folders the snapshot never looked in
+    assert fallback(d, mdl.ModelError("x")) is None
+    err = capsys.readouterr().err
+    assert str(lib) in err and "not in the last good model's snapshot" in err and "ERGOSTAT_LIBRARY" in err
+
+
+@pytest.mark.slow
+def test_an_engine_running_takes_event_add_from_a_run_while_the_yaml_is_broken(tmp_path):
+    d = _repo(tmp_path)
+    p = Project(mdl.load(d))
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "run", "--foreground", "--no-web"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        end = time.monotonic() + 60
+        while not (p.dir / DIR / MANIFEST).is_file() and time.monotonic() < end:
+            time.sleep(0.2)
+        _break(d)
+        got = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(d), "event", "--add", "job.made", "--item",
+                              "job/9"], capture_output=True, text=True, timeout=60)
+        assert got.returncode == 0, got.stderr
+        assert [e["item"] for e in p.events.query(n=None, type="job.made")] == ["job/9"]
     finally:
         subprocess.run([sys.executable, "-m", "ergostat", "-C", str(d), "run", "--stop"], capture_output=True, timeout=60)
         if proc.poll() is None:
