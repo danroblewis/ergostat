@@ -25,6 +25,7 @@ from ergostat.numbers import scorecard as sc
 from ergostat.numbers import structural as stc
 from ergostat.numbers import version as ver
 from ergostat.spec import chains, read
+from ergostat.store import Project
 
 from .test_redesign import CHAIN, JUDGE, PIECES, READ, busy
 from .test_redesign import project as redesign_project
@@ -342,3 +343,107 @@ def test_a_held_modelling_request_is_in_the_inbox(tmp_path):
     got = [e for e in en.entries(p) if e["kind"] == "request"]
     assert {e["id"] for e in got} == {f"request/{x}" for x in held | {r["id"]}} and got[0]["verbs"] == []
     assert f"/item/ergostat.modelling-request/{r['id']}" in {e["link"] for e in got}
+
+
+# ---- the redesigner on its own (when: auto, the owner's decision): per system, bounded, never written without the owner
+
+def _due(p, monkeypatch=None, fit=None):
+    from ergostat.numbers import redesign_due as due
+    if monkeypatch is not None:
+        monkeypatch.setattr(due, "_fit", lambda p_, spec: fit or {"stocks": {}, "span": 0.0})
+    return due
+
+
+def test_each_automatic_trigger_fires(tmp_path, monkeypatch):
+    from ergostat.numbers import requests as rq
+    p = busy(tmp_path / "m", "owner")
+    spec, now = p.model.spec, time.time()
+    due = _due(p, monkeypatch)
+    assert due.units(spec) == (["model"], [])                              # no systems of its own: one unit
+    assert due.triggers(p, spec, "model", now) == ["the first run with use: modelling"]
+    rd.ran(p, "model", {"result": "no better", "version": "x"})
+    assert due.triggers(p, spec, "model", now) == []                       # reviewed today: nothing due
+    assert due.triggers(p, spec, "model", now + due.DAILY + 1) == ["its daily review"]
+    worse = {"stocks": {"stock.triage": {"nmse": 1.8}}, "span": due.SUSTAINED}
+    assert "its replay is worse than its mean" in due.triggers(p, spec, "model", now, fit=worse)[0]
+    assert due.triggers(p, spec, "model", now, fit={**worse, "span": 60.0}) == []   # not sustained
+    rq.event(p, "w1", "raised", {"source": "check", "code": "measured-not-caused", "about": "flow.closed", "raised": now})
+    assert due.triggers(p, spec, "model", now) == ["measured-not-caused on flow.closed"]
+    rq.event(p, "w1", "answered", {})
+    rq.event(p, "c1", "raised", {"source": "check", "code": "outflow-not-chained", "about": "flow.closed", "raised": now})
+    assert due.triggers(p, spec, "model", now) == []                       # a structural finding: only once it is stale
+    assert "unresolved" in due.triggers(p, spec, "model", now + due.STALE + 1)[0]
+    rq.event(p, "c1", "answered", {})
+    for i in range(due.STALL):                                            # refinement stalled on its parts
+        pr.event(p, f"r{i}", "made", {"made_by": "modeller", "parts": ["stock.triage"], "made": now - 100 + i, "kind": "equation"})
+        pr.event(p, f"r{i}", "refused", {"why": "no better"})
+    assert due.triggers(p, spec, "model", now) == [f"refinement stalled: its last {due.STALL} changes were all turned away"]
+
+
+def test_one_pending_and_the_rest_after_one_no_better(tmp_path, monkeypatch):
+    from ergostat.numbers import version as v_
+    p = busy(tmp_path / "m", "owner")
+    spec, now = p.model.spec, time.time()
+    due = _due(p, monkeypatch)
+    assert rd.plan(p, "auto")["system"] == "model"                        # the first run: due
+    got = rd.submit(p, "redesigner", {"title": "busy read", "edits": READ})
+    assert rd.plan(p, "auto")["system"] is None and "waiting already" in rd.plan(p, "auto")["why"][0]
+    pr.event(p, got["id"], "failed", {"why": "no better", "decided": now})
+    assert "resting" in due.resting(p, spec, "model", now)                 # judged no better: it rests
+    assert due.resting(p, spec, "model", now + due.COOL + 1) is None       # for a while
+    q = busy(tmp_path / "n", "owner")
+    rd.ran(q, "model", {"result": "nothing proposed", "version": v_.version(q.model.spec)})   # made nothing: rests too
+    assert "resting" in due.resting(q, q.model.spec, "model", now)
+    rd.ran(q, "model", {"result": "nothing proposed", "version": "an older one"})
+    rd.ran(q, "model", {"result": "proposed", "version": v_.version(q.model.spec)})
+    assert due.resting(q, q.model.spec, "model", time.time() + 1) is None
+
+
+def test_a_large_system_is_taken_a_subsystem_at_a_time_or_said_too_large(tmp_path, monkeypatch):
+    from ergostat.numbers import redesign_due as due
+    from ergostat.numbers import requests as rq
+
+    def model(systems: bool, n: int) -> str:
+        head = "name: big\n" + ("systems:\n  plant:\n    description: the whole plant\n  left:\n    within: plant\n"
+                                "    description: one half\n  right:\n    within: plant\n    description: the other half\n"
+                                if systems else "")
+        stocks = "stocks:\n" + "".join(f"  s{i}:\n    unit: things\n    description: stock {i}\n"
+                                       + (f"    system: {'left' if i % 2 else 'right'}\n" if systems else "")
+                                       for i in range(n))
+        return head + stocks
+    monkeypatch.setattr(due, "MOST_PARTS", 10)
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "ergostat.yaml").write_text(model(False, 14))
+    p = Project(mdl.load(tmp_path / "a"))
+    assert due.units(p.model.spec) == ([], ["model"])                      # too large, nothing to split into
+    monkeypatch.setattr(due, "_fit", lambda p_, spec: {"stocks": {}, "span": 0.0})
+    assert due.next_due(p)["system"] is None
+    held = [r for r in rq.stored(p).values() if r["code"] == "too-large"]
+    assert held and held[0]["state"] == "held" and held[0]["owner"]        # said, for the owner: never attempted whole
+    (tmp_path / "b").mkdir()
+    (tmp_path / "b" / "ergostat.yaml").write_text(model(True, 14))
+    spec = mdl.load(tmp_path / "b").spec
+    assert due.units(spec) == (["left", "right"], [])                      # a subsystem at a time
+
+
+def test_nothing_the_redesigner_makes_on_its_own_is_written_without_the_owner(tmp_path, monkeypatch, capsys):
+    p = poor_project(tmp_path, POOR + MODELLING)
+    assert rd.settings(p.model.spec)["when"] == "auto"                     # the default: it reviews on its own
+    _block(monkeypatch, p)
+    _due(p, monkeypatch)
+
+    def run(p_, system, why, **k):
+        got = rd.submit(p_, "redesigner", {"title": "units", "system": system,
+                                           "edits": [{"part": "stock.new-alerts", "set": {"unit": "alerts"}}]})
+        return {"system": system, "rounds": [{}], "cost": {"usd": 0.0, "calls": 0}, "version": "v",
+                "result": got["status"], "id": got["id"], "reports": []}
+    monkeypatch.setattr(rdr, "run", run)
+    assert ml.redesign(["--when", "auto"]) == 0
+    from ergostat.numbers import requests as rq
+    trig = [r for r in rq.stored(p).values() if r.get("source") == "redesign"]
+    assert trig and trig[0]["code"] == "redesign-due" and "first run" in trig[0]["says"]    # its trigger, said
+    x = next(x for x in pr.stored(p).values() if x.get("kind") == "redesign")
+    jd.run(p, "judge")
+    assert pr.stored(p)[x["id"]]["state"] != "accepted"                    # the owner's to write (accept: owner)
+    from ergostat.numbers import modelling_status as mst
+    assert "the redesigner last reviewed model" in mst.of(p)["says"]

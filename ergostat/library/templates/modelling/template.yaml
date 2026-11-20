@@ -96,12 +96,12 @@ params:
     description: the requests given to one AI call
   redesign:
     type: any
-    default: {when: ask, model: haiku, budget: 0.5, rounds: 3, daily: 2}
-    description: 'the redesigner, with ai: true (SPEC §12e, Redesign): one change set of many edits for a whole system, judged by a scorecard; when (ask: when the owner asks, by ergostat improve --redesign or the Model page; off), model (haiku), budget (dollars a run, 0.5), rounds (on its scratch copy, 3), daily (dollars its runs spend in a day at most, 2). Never written without the owner unless accept: {redesign: auto}, and then never one that takes a part away, rewires a chain or changes control'
+    default: {when: auto, model: haiku, budget: 0.5, rounds: 3, daily: 2}
+    description: 'the redesigner, with ai: true (SPEC §12e, Redesign): one change set of many edits for a system, judged by a scorecard. when: auto (the default) reviews each system on its own when it is due (its replay worse than its mean for 30 minutes, a finding that says the structure is wrong, refinement stalled, the first run, and once a day), a system of more than 40 parts a subsystem at a time; ask: only when the owner asks (ergostat improve --redesign, the Model page); off. model (haiku), budget (dollars a run, 0.5), rounds (3), daily (dollars a day at most, 2: past it nothing runs). What it makes is never written without the owner: it waits in the review queue and the inbox, unless accept: {redesign: auto}, and even then not one that takes a part away, rewires a chain or changes control'
   redesign-every:
     type: duration
     default: 10m
-    description: the least time between the redesigner's runs while requests wait (each run does nothing unless the owner asked)
+    description: the least time between the redesigner's runs (each looks for a system that is due, or one the owner asked for, and does nothing else)
   requests-every:
     type: duration
     default: 2m
@@ -241,7 +241,7 @@ flows:
       over: ${over}
   changes-made-by-redesigner:
     if: ${ai}
-    unless: ${redesign.when|ask} == off
+    unless: ${redesign.when|auto} == off
     to: pending-changes
     description: change sets the redesigner made, each many edits judged together (or refused)
     driven-by: +stock.unanswered-requests
@@ -371,12 +371,12 @@ blocks:
     out: flow.changes-made-by-modeller
   redesigner:
     if: ${ai}
-    unless: ${redesign.when|ask} == off
+    unless: ${redesign.when|auto} == off
     type: ai
-    description: the redesigner, proposing one change set for a whole system when the owner asks
+    description: the redesigner, proposing one change set for a system when it is due or the owner asks; written only with the owner's approval
     goal: requests-handled
     prompt: ${folder}/redesigner.md
-    run: ${lib} modelling redesign --when ${redesign.when|ask} --model ${redesign.model|haiku} --budget ${redesign.budget|0.5} --rounds ${redesign.rounds|3} --daily ${redesign.daily|2} --timeout ${timeout:seconds}
+    run: ${lib} modelling redesign --when ${redesign.when|auto} --model ${redesign.model|haiku} --budget ${redesign.budget|0.5} --rounds ${redesign.rounds|3} --daily ${redesign.daily|2} --timeout ${timeout:seconds}
     model: ${redesign.model|haiku}
     every: ${redesign-every}
     timeout: ${timeout}

@@ -200,6 +200,12 @@ def sync(p, spec: Spec | None = None, now: float | None = None, coherence: bool 
             event(p, k, "reopened", {"change": None, "version": v, "why": None, "since": now})
             moved["reopened"] += 1
     for k, x in have.items():
+        if x.get("source") == "redesign":                 # a redesign's trigger: answered when its change is decided
+            c = (changes.get(x.get("change") or "") or (None, {}))[0]
+            if x["state"] == "proposed" and c is not None and c not in LIVE:
+                event(p, k, "answered", {"answered": now, "why": f"its redesign was {c}"})
+                moved["answered"] += 1
+            continue
         if x["state"] in OPEN and k not in found:
             event(p, k, "answered", {"answered": now, "why": "check no longer finds it"})
             moved["answered"] += 1

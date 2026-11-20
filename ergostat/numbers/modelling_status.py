@@ -66,6 +66,12 @@ def of(p, now: float | None = None) -> dict:
         parts.append(f"{len(owner)} change{'s' if len(owner) != 1 else ''} waiting for the owner (the Model page's review queue)")
     if waiting and len(waiting) > len(owner):
         parts.append(f"{len(waiting) - len(owner)} with the judge")
+    if "redesigner" in spec.blocks:                      # the structural review, on its own or asked: its last run
+        from . import redesign as rd
+        last = rd.last(p)
+        if last:
+            parts.append(f"the redesigner last reviewed {last['system']} {dur(now - last['at'])} ago"
+                         + (f" ({last['trigger']})" if last.get("trigger") else "") + f": {last['result']}")
     if not open_ and not waiting and (fit is None or holds is not False):
         parts.append("nothing to do: every request answered" + ("" if fit is None else " and the fit holds"))
     return {"on": True, "fit": fit, "fit_holds": holds, "fit_why": why, "requests": counts, "tiers": tiers,
