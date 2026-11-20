@@ -2,7 +2,9 @@
 (`takes:`), a run per ticket under a lease, ERGOSTAT_ITEM naming it. This runs the step's script
 (steps/<name>.py) for that ticket, and says how it went:
 
-    step.py NAME
+    step.py NAME     one run, a process of its own (the AI steps: steps/03-work.yaml)
+    step.py serve    the daemon `steps` (ergostat.yaml): the short steps' runs, many at once, each on a thread of
+                     its own; the step is the block's name (ERGOSTAT_BLOCK), the ticket the line's item
 
 The script's run(ticket) returns:
 
@@ -28,13 +30,13 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-import os
 import sys
 import traceback
 from dataclasses import dataclass, field
 
 import gated
-from tf import ROOT, conf, item, log, say, seconds
+from daemon import serve
+from tf import ROOT, conf, env, item, log, say, seconds
 
 
 @dataclass
@@ -95,38 +97,51 @@ def attempt(mod, ticket: dict):
         return Stop(f"{type(e).__name__}: {e}")
 
 
+def one(name: str, given: dict) -> int:
+    """One run of the step `name` for the ticket the run holds (ERGOSTAT_ITEM): its lines said, its exit returned.
+    `given` is the run's input: the ticket and its lease (SPEC 9.5)."""
+    tid = env("ERGOSTAT_ITEM")
+    ticket = item(tid) if tid else None
+    if ticket is None:
+        log(f"{name}: no ticket (ERGOSTAT_ITEM: {tid!r}): a step runs for the ticket its block takes")
+        return 1
+    got = attempt(load(name), ticket)
+    if isinstance(got, Move):
+        say({"event": got.event or f"ticket.{name}", "item": tid, "data": got.fields})
+        say({"out": got.out or f"flow.{name}", "moved": 1})
+        log(f"{tid}: {name} done" + (f" ({got.note})" if got.note else ""))
+    elif isinstance(got, Stop):
+        say({"event": "ticket.stopped", "item": tid, "data": {"stopped_why": got.why, "stopped_at": name,
+                                                              "stopped_from": (given.get("lease") or {}).get("back")}})
+        say({"out": f"flow.{name}", "moved": 0})
+        log(f"{tid}: stopped at {name}: {got.why}")
+    else:
+        if got.fields:
+            say({"event": "ticket.noted", "item": tid, "data": got.fields})
+        after = recheck(ticket, name, got.due)
+        say({"nack": {"why": got.why, "after": f"{after:g}s", "count": False, "news": True}})
+        say({"out": f"flow.{name}", "moved": 0})
+        log(f"{tid}: waits at {name}: {got.why}")
+    return 0
+
+
+def work(m: dict) -> int:
+    """A run handed to the daemon: the step its block names (ERGOSTAT_BLOCK), for the ticket its line names."""
+    return one(m["env"]["ERGOSTAT_BLOCK"], m.get("input") or {})
+
+
 def main() -> int:
     sys.modules.setdefault("step", sys.modules[__name__])   # the scripts' `from step import Move` is this module
     ap = argparse.ArgumentParser()
     ap.add_argument("name")
     a = ap.parse_args()
+    if a.name == "serve":
+        return serve(work=work)
     try:
-        given = json.loads(sys.stdin.read() or "{}")       # its input: the ticket and its lease (SPEC 9.5)
+        given = json.loads(sys.stdin.read() or "{}")
     except json.JSONDecodeError:
         given = {}
-    tid = os.environ.get("ERGOSTAT_ITEM")
-    ticket = item(tid) if tid else None
-    if ticket is None:
-        log(f"{a.name}: no ticket (ERGOSTAT_ITEM: {tid!r}): a step runs for the ticket its block takes")
-        return 1
-    got = attempt(load(a.name), ticket)
-    if isinstance(got, Move):
-        say({"event": got.event or f"ticket.{a.name}", "item": tid, "data": got.fields})
-        say({"out": got.out or f"flow.{a.name}", "moved": 1})
-        log(f"{tid}: {a.name} done" + (f" ({got.note})" if got.note else ""))
-    elif isinstance(got, Stop):
-        say({"event": "ticket.stopped", "item": tid, "data": {"stopped_why": got.why, "stopped_at": a.name,
-                                                              "stopped_from": (given.get("lease") or {}).get("back")}})
-        say({"out": f"flow.{a.name}", "moved": 0})
-        log(f"{tid}: stopped at {a.name}: {got.why}")
-    else:
-        if got.fields:
-            say({"event": "ticket.noted", "item": tid, "data": got.fields})
-        after = recheck(ticket, a.name, got.due)
-        say({"nack": {"why": got.why, "after": f"{after:g}s", "count": False, "news": True}})
-        say({"out": f"flow.{a.name}", "moved": 0})
-        log(f"{tid}: waits at {a.name}: {got.why}")
-    return 0
+    return one(a.name, given)
 
 
 if __name__ == "__main__":

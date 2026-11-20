@@ -11,6 +11,8 @@ from pathlib import Path
 
 import yaml
 
+from . import files
+
 FILE = "ergostat.yaml"
 SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
             "loops", "claims", "contexts", "actions", "workspaces", "leases", "daemons")
@@ -143,7 +145,7 @@ class Document:
 def read_file(path: Path, problems: list[Problem]):
     try:
         over = TEXTS.get()
-        text = over[path.resolve()] if over and path.resolve() in over else path.read_text(encoding="utf-8")
+        text = over[path.resolve()] if over and path.resolve() in over else files.read_text(path)
     except OSError as e:
         problems.append(Problem("error", f"cannot read {path}: {e.strerror or e}", None, "unreadable"))
         return None
@@ -259,11 +261,11 @@ def load(main: Path) -> Document:
             return
         for pat in inc:
             full = (path.parent / pat)
-            hits = sorted(Path(p) for p in glob.glob(str(full), recursive=True)) if glob.has_magic(pat) else [full]
+            hits = files.glob(path.parent, pat) if glob.has_magic(pat) else [full]
             if not hits:
                 doc.problems.append(Problem("error", f"include: {pat} matches no file", data.at("include"), "include-missing"))
             for h in hits:
-                if not h.is_file():
+                if not files.is_file(h):
                     doc.problems.append(Problem("error", f"include: {pat}: no such file", data.at("include"), "include-missing"))
                     continue
                 take(h.resolve(), False, data.at("include"))

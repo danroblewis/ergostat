@@ -41,7 +41,7 @@ blocks:
     goal: located-worked
     agent: ai
     prompt: prompts/work.md
-    run: python3 bin/step.py work
+    run: python3 bin/step.py work          # a process per run: an AI session of minutes, its CPU and cost its own
     takes: {kind: ticket, at: located, to: [worked, stopped]}
     pool: 1
     lease: {ttl: 20m, attempts: 2}

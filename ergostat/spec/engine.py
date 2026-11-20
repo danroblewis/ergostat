@@ -41,7 +41,7 @@ from ..costs.sampler import SAMPLER, Measured
 from ..reports import crash as reports_crash
 from ..reports import lines as report_lines
 from . import blocks as bl
-from . import stream
+from . import stream, triggers
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
 from .observer import KEEP, RUN, Observer, estimated, opted, stale_age
@@ -143,6 +143,8 @@ class Engine:
         self.following = False                         # whether _follow runs: it runs the actions programs ask for
         from ..leases.dispatch import Dispatcher
         self.dispatch = Dispatcher(self)              # blocks that take items: a run per item, each leased (SPEC §9.5)
+        from .triggers import Triggers
+        self.triggers = Triggers(self)                # blocks started by an event: a run per event (SPEC §9.3)
         from ..daemons.supervise import Supervisor
         self.daemons = Supervisor(self)               # the long-lived runners blocks and sensors hand work to (SPEC §9.7)
         from .joins import Joins
@@ -667,7 +669,7 @@ class Engine:
         return (max(vals) if vals else 0.0), detail
 
     def due(self, b: Block, out: list | None = None) -> bool:
-        if b.name in self.running or b.takes:                  # a block that takes items is started by them (leases)
+        if b.name in self.running or b.takes or b.on:         # started by the items it takes, or by its events
             return False
         cmd, _ = self.command_of(b)
         if cmd is None:
@@ -715,21 +717,24 @@ class Engine:
                                 else f"ergostat block {b.name} --approve"})
         self.say(f"{b.name}: {'asked' if b.type == 'person' else 'advised, waiting for approval'} (command {cmd:g})")
 
-    def start(self, b: Block, why: str) -> None:
+    def start(self, b: Block, why: str, extra: dict | None = None, cause: str | None = None) -> bool:
+        """A run of it, in a thread of its own; False when none started."""
         with self.lock:
             if b.name in self.running or self.stop.is_set():   # stopping: nothing new starts
-                return
+                return False
             if b.name in self.held:                             # a step test holds the loop still: its controller waits
-                return
+                return False
             b = self.spec.blocks.get(b.name)                    # a new run starts under the model as it is now
             if b is None or not b.machine:                      # (removed, or no longer a machine: no more runs)
-                return
+                return False
             self.running.add(b.name)
             self.began[b.name] = time.time()
             spec, version = self.spec, self.version
-        threading.Thread(target=self._run, args=(b, why, spec, version), daemon=True).start()
+        threading.Thread(target=self._run, args=(b, why, spec, version, extra, cause), daemon=True).start()
+        return True
 
-    def _run(self, b: Block, why: str, spec: Spec | None = None, version: str | None = None) -> None:
+    def _run(self, b: Block, why: str, spec: Spec | None = None, version: str | None = None, extra: dict | None = None,
+             cause: str | None = None) -> None:
         slot = self.slots.get(b.agent or "")                    # the one it takes is the one it gives back
         moved: list[str] = []
         run = None
@@ -737,7 +742,7 @@ class Engine:
             if slot:
                 slot.acquire()
             try:
-                moved = self.run_block(b, why, spec=spec, version=version)
+                moved = self.run_block(b, why, extra=extra, spec=spec, version=version, cause=cause)
                 run = self.last_run.get(b.name)
             except Exception as e:
                 self.say(f"{b.name}: {type(e).__name__}: {e}")
@@ -853,9 +858,11 @@ class Engine:
         ctx = {**self.context(b, why), **(extra or {})}
         ev = self.p.events
         commander = (ctx.get("command") or {}).get("from")          # caused by the decision or run that commanded it
-        begun = ev.add("agent.started", item=b.name, source=SOURCE, id=run_id,
-                       causedby=cause or (self.cause.get(commander) if commander else None),
+        cause = cause or (self.cause.get(commander) if commander else None)
+        begun = ev.add("agent.started", item=b.name, source=SOURCE, id=run_id, causedby=cause,
                        data={"trigger": why, "command": ctx.get("command"), "model": version,
+                             **({"event_seq": ctx["event"].get("seq")} if isinstance(ctx.get("event"), dict) else {}),
+                             **self.triggers.of_run(b, ctx, cause),          # what led to it, carried (SPEC §9.3)
                              **({"timeout": b.timeout} if b.timeout else {}),
                              **({"item": item, "lease": fence} if item else {})})
         if outcome is not None:
@@ -883,6 +890,9 @@ class Engine:
             env.pop("ERGOSTAT_SOCKET", None)
         if "command" in ctx:
             env["ERGOSTAT_COMMAND"] = f"{ctx['command']['amount']:g}"
+        env.pop("ERGOSTAT_EVENT", None)
+        if isinstance(ctx.get("event"), dict):                   # the event that started it (SPEC §9.3)
+            env["ERGOSTAT_EVENT"] = str(ctx["event"].get("id"))
         if item:                                                 # the item it holds, and its lease (SPEC §9.5)
             lease = ctx.get("lease") or {}
             env.update({"ERGOSTAT_ITEM": item, "ERGOSTAT_LEASE": str(fence or ""),
@@ -924,7 +934,7 @@ class Engine:
         with open(log, "a", encoding="utf-8") as lf:
             lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} ({why})\n")
             lf.flush()
-            back = None
+            back, pos = None, lf.tell()                          # (where its standard error begins)
             if b.params.get("daemon") and not refused:            # handed to its daemon (SPEC §9.7): wall time only
                 code, note, back, resources = self.daemons.run_item(b, begun["id"], ctx, env, take, b.timeout, item,
                                                                      fence)
@@ -996,6 +1006,14 @@ class Engine:
             self.say(f"{b.name}: its costs: {type(e).__name__}: {e}")
         if failed:
             self.say(f"{b.name}: {note}")
+            if spec.items.get("ergostat.failure"):               # triaged, one failure a signature (SPEC §12r)
+                try:
+                    from ..repair import capture
+                    with open(log, encoding="utf-8", errors="replace") as lf:
+                        lf.seek(pos)
+                        capture.failed(self.p, spec, b, begun, data, stdin, lf.read())
+                except Exception as e:
+                    self.say(f"{b.name}: its failure: {type(e).__name__}: {e}")
         if said.refused:
             self.say(f"{b.name}: {said.refused[0]}")
         if said.claims:                                          # what it said it did, checked by ergostat (SPEC §12g)
@@ -1447,6 +1465,10 @@ class Engine:
                 self.joins.look()                                # parents their children moved on: what was written since
             except Exception as e:
                 self.say(f"joins: {type(e).__name__}: {e}")
+            try:
+                self.triggers.look()                             # blocks started by an event: what was written since
+            except Exception as e:
+                self.say(f"triggers: {type(e).__name__}: {e}")
             tick = mono - last_eval >= TICK                      # the clock moves schedules, timers, delays
             if tick:
                 last_eval = mono
@@ -1495,7 +1517,7 @@ class Engine:
         while not self.stop.is_set():
             try:
                 top = self.p.events.last_seq()                # (what is written while it looks is looked at next time)
-                new = sorted(self.p.events.query(n=None, after_seq=seq, type="block.approved") +
+                new = sorted(self.p.events.query(n=None, after_seq=seq, type="block.approved,block.denied,trigger.reset") +
                              self.p.events.query(n=None, after_seq=seq, type="ergostat.action.approved") +
                              self.p.events.query(n=None, after_seq=seq, type="steptest.approved") +
                              self.p.events.query(n=None, after_seq=seq, type=STOP_ASKED) +
@@ -1519,7 +1541,11 @@ class Engine:
                     steptest.begin(self, e)
                     continue
                 b = self.spec.blocks.get(e.get("item") or "")
-                if b and b.machine:
+                if e["type"] == "trigger.reset":                  # a block's breaker, reset by the owner (SPEC §9.3)
+                    self.triggers.reset(e.get("item") or "")
+                elif b and b.machine and b.on is not None:        # an ask about an event (SPEC §9.3): it, or the next
+                    self.triggers.answered(b, e["type"] == "block.approved", (e.get("data") or {}).get("ask"))
+                elif b and b.machine and e["type"] == "block.approved":
                     cmd, _ = self.command_of(b)
                     if cmd == 0:                                # nothing to approve: its command fell back meanwhile
                         self.say(f"{b.name}: approved, but its command is 0 now; nothing to run")
@@ -1949,6 +1975,9 @@ class Said:
                 return
             if not isinstance(t, str) or not old.TYPE_NAME.match(t) or t.startswith((*old.OWN_TYPES, "block.", "person.")):
                 self.refuse(obj, "an event type is lowercase words joined by dots (backup.verified), and not ergostat's own")
+                return
+            if self.b.on is not None and not triggers.declared(self.b, t):   # the trigger graph holds (SPEC §9.3)
+                self.refuse(obj, f"{t} is not among what {self.b.name} emits: (on.emits: {self.b.on.emits or 'none'})")
                 return
             from ..store import ChangesetError, changeset
             data = obj.get("data") if isinstance(obj.get("data"), dict) else {}

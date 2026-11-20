@@ -529,15 +529,23 @@ def load(start: Path | None = None) -> Model:
     path = find(here)
     if path is None:
         raise FileNotFoundError(f"{YAML} (or {FILE})")
+    return load_main(path)
+
+
+def load_main(path: Path) -> Model:
+    """The model whose main file is ``path``; a YAML model notes every file it read (``reads``: SPEC §9.1)."""
     if path.name == YAML:
         from . import spec
+        from .spec import files
         from .spec.findings import late
         from .spec.legacy import to_model
-        compiled, problems = spec.read(path, extremes=False)
+        with files.noting() as reads:
+            compiled, problems = spec.read(path, extremes=False)
         errors = [p for p in problems if p.level == "error"]
         if errors:
             raise ModelError(f"{len(errors)} error{'s' if len(errors) > 1 else ''}:\n" + "\n".join(f"  {e}" for e in errors))
         m = to_model(compiled, problems)
+        m.reads = reads
         m._late = lambda: late(compiled, wait=0)   # found in the background when first asked for (Model.problems)
         return m
     try:

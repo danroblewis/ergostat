@@ -115,6 +115,10 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
         if e["type"] == SNAPSHOT:
             restore(it, e, history, transcript)
             continue
+        if kind is not None and kind.sealed and not e["type"].startswith("ergostat."):
+            it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "sealed",
+                               "why": f"only ergostat writes a {kind.name}"})    # (SPEC §12r: M1)
+            continue
         if not it.n:
             it.first = e["time"]
             if kind and kind.states:                 # it arrives: a move into its first state, counted like any other
@@ -169,6 +173,10 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
             ahead = it.state not in kind.states or kind.states.index(it.state) < kind.states.index(want) \
                 if want in kind.states else False
             to = want if ahead else None
+        if to and to != it.state and kind and it.state in kind.final:              # final: a move out of it is ignored, and said
+            it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "final",
+                               "why": f"after {it.state}: ignored"})
+            to = kind.final[it.state].get(to)
         if to and to != it.state:
             it.moves.append({"time": e["time"], "from": it.state, "to": to, "event": e["id"], "type": e["type"]})
             it.state, it.entered = to, e["time"]

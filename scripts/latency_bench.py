@@ -89,7 +89,7 @@ def others() -> list[int]:
 
 
 def threads_of(pid: int) -> int:
-    r = subprocess.run(["ps", "-M", "-p", str(pid)], capture_output=True, text=True)
+    r = subprocess.run(["ps", "-L" if sys.platform.startswith("linux") else "-M", "-p", str(pid)], capture_output=True, text=True)
     return max(0, len(r.stdout.splitlines()) - 1)
 
 

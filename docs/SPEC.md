@@ -1559,8 +1559,9 @@ long run's findings land one by one.
 - **Built-in blocks** (9.2) are executed by ergostat itself, on every reading of their inputs:
   no program, no machine. They are how ergostat closes loops by itself.
 - **Machine blocks** (9.3) run a program, an AI prompt or a request to a person. They run:
-  - when an input commands them (the input becomes nonzero, or a new command arrives); or
-  - on their own schedule (`every`, `cron`), when nothing commands them: an open loop.
+  - when an input commands them (the input becomes nonzero, or a new command arrives);
+  - on their own schedule (`every`, `cron`), when nothing commands them: an open loop; or
+  - when an event of a type they name is recorded (`on:`, section 9.3): a run for each.
 
   A machine block never runs twice at once. A command that arrives while it is running is held,
   not queued (anti-windup): the latest command is used when it finishes. Without an `agent`, a
@@ -1676,6 +1677,32 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
   not load at all) and in the page's header, from `<state>/reload.json`, until the files are fixed. The same files
   are not read again until they change. `run --stop` and `run --service --uninstall` work while they do not load
   (the state folder found without the model).
+- **The command line on the last good model.** Every file the model's loading reads goes through one place
+  (`ergostat/spec/files.py`): the main file, its includes and what each glob matched, prompt files, the library's
+  templates (ergostat's own too), remotes' cached models, and every file it looked for and did not find. When the
+  engine takes a model (at start, and at each change it takes) it keeps that model whole as one snapshot, in
+  `<state>/good/`: each file's bytes once, by their SHA-256 (`objects/`), and `manifest.json` (replaced atomically)
+  naming every path with its hash, every path found missing and every glob with its matches. A snapshot is kept only
+  when it reads back clean from itself. While the files do not load, a command that only reads (`status`, `item`,
+  `event`, `lease`, `loop`, `system`, `explain`, `findings`, `residual`, `fit`, `claims`, `messages`, `agent`,
+  `block`, `inbox` and the parts) loads that snapshot **alone**: every read, glob and existence check answered from
+  the manifest, never from disk, so it is the model the engine took and never a mix with files edited since; a path
+  the snapshot does not hold, or a kept file whose bytes no longer match its hash, fails the fallback, saying which
+  path (and `ERGOSTAT_LIBRARY` when it differs from when the snapshot was kept). While it loads, in the loading
+  thread, nothing may be opened or globbed in the model's folders and no process or connection started (a Python
+  audit hook refuses them; a `stat` or a folder listing is not hooked, so these rest on every read going through
+  `spec/files.py`). The snapshot is of loading only: what a command reads after the model is loaded, a prompt's text
+  for a run or the parts a context recipe includes, is read live. The model keeps its real paths, so the project is
+  the repository's, and its record is opened read-only: any write to the events or measurements is refused, so a
+  path that acts is refused whatever its flags. One line on standard error names the YAML's first error and when the
+  model was taken; `status` also shows "the edited model has errors (`file:line`); shown with the last good
+  version". A command that acts (every other topic, and these with an acting flag: `event --add`, `block --now`,
+  `lease --nack`, `inbox --approve`, `inbox --requests`, `sensor --read`, ...) refuses with the YAML's errors and
+  "ergostat TOPIC acts, so it never runs on the last good model", except that while an engine runs, `event --add`,
+  `lease --renew` and `lease --nack` go to it over its socket as always, without loading the files, so a run's
+  findings and leases are kept through an edit. With no snapshot kept, a broken YAML is refused as before; `check`
+  always reports the edited model's errors. The snapshot's objects are kept one generation past the snapshot that
+  names them, for a command reading it as it is replaced.
 - **Atomic.** The new model is worked out whole (its built-ins made, its version hashed) before anything of the
   running one is touched: a change that cannot be taken leaves the last one running as it was.
 - **Timed.** The log gives each change's time; one slower than 2 s says where it went (reading and checking the
@@ -1824,7 +1851,7 @@ More (filters, rate of change, latches) can be added when a case needs them.
 Common to machine blocks: `agent` (optional: the shared machine it runs on, section 10), `max`
 and `min` (limits on one run's amount), `timeout`, `every`/`cron` (its schedule when nothing commands it; when something does, `every`
 is the least time between runs), `takes`, `pool` and `lease` (the items it works, a run for each, and its leases' terms:
-section 9.5),
+section 9.5), `on` (the event types that start it, a run for each: *Started by an event*, below),
 `mode` (`auto`, or `advise`: its commands wait for a person to approve), and its control law's
 constants when it says them: `gain` (for a block that steps a setting by its goal's error, the step
 per unit of error, acting at once on the error it has just read, u_k = u_(k−1) + gain × e_k: integral
@@ -1859,6 +1886,72 @@ blocks:
     out: flow.processed
 ```
 
+**Started by an event.** `on: {event: TYPE, where: {...}, emits: [TYPES], max-age: 1h, most: 60}` on a `program` or
+`ai` block runs it once for each event of that type recorded (`event:` a type, a list of them, or a prefix, `ticket.*`;
+`on: TYPE` alone is the same) whose `data` matches `where:` (typed, as a sensor's: section 6; `a.b` reads a field's
+field), however it arrived: a block's line, a push or a webhook (section 5c), `ergostat event --add`. It is what a state
+change cannot say: a comment, a review, a webhook that moves nothing. `emits:` is the block's **declared output set**:
+the event types its runs may say, as lines or by `$ERGOSTAT_CMD event --add` (none, by default, which `check` notes:
+`trigger-no-emits`).
+
+```yaml
+blocks:
+  triage:
+    type: ai
+    on: {event: ticket.opened, where: {team: core}, emits: [ticket.triaged]}
+    prompt: prompts/triage.md
+    out: flow.triaged
+```
+
+- **One run at a time, in the record's order.** The record is the queue: an event recorded while a run is under way
+  waits for it to end, then starts the next. The engine's loop is woken by the write itself (section 9.1), so a run
+  starts within milliseconds of its event, and no clock looks for them. One look takes at most 100 of a block's events
+  (the rest at the next). Started again, ergostat goes on after the event the block's last run was for: what was
+  recorded while it was stopped runs then, nothing twice.
+- **Too old.** An event older than `max-age:` (1h by default; its own `time` against this machine's clock) when it is
+  looked at is passed over, and that is recorded, once per look (`trigger.skipped`: how many, the first and last `seq`).
+- **Its cause.** The run's `agent.started` is caused by (`causedby`) the event, and everything it prints is caused by
+  the run, so its events name what started it (and the Process view draws the line, §5b). Its input carries
+  `"trigger": "event"` and `event` (the event: `id`, `type`, `item`, `source`, `time`, `causedby`, `data`); its
+  environment `ERGOSTAT_EVENT` (its id).
+- **No loops, when the model is read.** The blocks started by events and their `emits:` make a graph: an edge from a
+  block to each block whose `on:` one of its `emits:` types can match (`where:` is not read, so an edge that `where:`
+  would rule out still counts). A cycle in it, of any length, a block that starts itself among them, is an error
+  naming it (`check`: `trigger-loop`, `a → b → c → a`). What a triggered run says outside its `emits:` is refused: a
+  line (`agent.refused`), or `$ERGOSTAT_CMD event --add` (by the engine's socket or without it: its block is read
+  from the run's own `agent.started`, the one `ERGOSTAT_RUN` names, never from what the caller says of itself).
+- **A budget carried on the record.** The graph cannot see what blocks that are not started by events say (one that
+  takes the items a triggered block moves, one it commands). So **every** run's `agent.started` carries what led to
+  it, inherited from what caused it, whatever started it (an event, an item it takes, a command): `depth`, how many
+  runs started by events in a row led to it, and `chain`, the blocks whose runs did (the newest 16, this one last). It
+  is read from the run among its causes, each looked up by its id (at most four causes back, never a scan of the
+  record); a cause not found, or further back, is recorded `unknown` (its depth counted 0: the breaker below still
+  holds). A goal's crossing (`loop.*`) begins afresh: a control loop closes through a measurement, which paces it. An
+  event that 8 runs started by events led to starts nothing, and is recorded once (`trigger.stopped`: the event, its
+  depth and chain). The 8 are counted along one line of causes: a loop of any length, through any blocks, runs at most
+  8 triggered runs in a row on each line. An event that starts several (one block on it and another taking the item
+  it opened; two blocks on it) starts a line for each, and each line has its own 8, so a block may run more than 8
+  times in all (twice 8 for two lines), each run's `depth` 8 at most.
+  (An event looked up by id, here and by `ergostat event ID`, is the one with exactly that id when there is one, else
+  the first, in id order, whose id starts with it, both by the index; before, any one starting with it could come.)
+- **A breaker per block.** More than `most:` (60) of its runs started by events within a minute trips it: recorded
+  (`trigger.tripped`), and an entry in the inbox (section 12o); its events then wait, starting nothing, until the
+  owner resets it (approving the entry, or `ergostat block NAME --reset`: `trigger.reset`). It bounds a fan-out, and a
+  loop through anything the budget cannot follow (a relay outside ergostat that drops `causedby`). A run never answers
+  for its own block: `ergostat block NAME --reset` or `--approve`, or the inbox's answer to its ask or its breaker, from
+  inside a run of `NAME` (`ERGOSTAT_RUN`, its block read from the record) is refused.
+- **Advised.** In `mode: advise` each event is asked about before it runs (`block.advised`, caused by the event, its
+  `data` naming it: `event`, `event_type`, `event_seq`), one at a time, in the inbox (section 12o); the events after
+  it wait. An answer names the ask it answers (`data.ask`, the `seq` of its `block.advised`; the inbox and
+  `ergostat block NAME --approve` say it), and an answer to any other ask changes nothing. Approved
+  (`block.approved`), it runs on that event, and keeps trying until it can start; denied (`block.denied`), it goes on to
+  the next. Started again, an ask not answered stands (it is not asked again), and one approved meanwhile runs.
+- **Gated** like any machine block: while what commands it (`goal:`, `in: block.x`) is off, its events wait.
+- **Alone, and on what blocks say.** A block started by events has no `every:`, `cron:` or `takes:`, and neither its
+  `on:` nor its `emits:` names a type of ergostat's own record (`agent.*`, `block.*`, `person.*`, `trigger.*`,
+  `loop.*`, `ergostat.*`, ...: which no block may say) (`check`: `bad-trigger`); a block that works items one by one,
+  each needing doing until done, takes them (section 9.5) instead.
+
 **How a commanded block runs.** While its command is nonzero it runs, once per fresh reading:
 after each run it waits for a new reading of the system before running again, so it never
 outruns its sensors. `every` on a commanded block paces it: it runs at most that often while
@@ -1877,7 +1970,8 @@ directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's 
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
 (`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
 block, or the AI agent it starts, to read and record items while it works; and `ERGOSTAT_SOCKET`, the running
-engine's socket, which answers `event --add`, `act`, `lease --renew` / `--nack` and `item ID --json` without
+engine's socket, which answers `event --add`, `act`, `lease --renew` / `--nack`, `item ID --json` and the listing
+`item --kind K --state S --json` (`{"op": "items", "offset": N}`: a page of 500 from `offset`, and `total`) without
 loading the model (section 5c). An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
 with its prompt, the JSON above, and how to answer, in the model's folder unless it names its own (`workdir:`, or a `workspace:` per item), and gated
 when it names its `tools:` or `actions:` (section 12k). Any block, whatever its type, may also propose a change to
@@ -4731,6 +4825,116 @@ that the worktree folder's `commondir` leads to the repository and its `gitdir` 
 and git is not run. `Repo.worktree(repo, work, branch)` makes such a copy.
 
 What it protects against and what it does not, for people: `docs/SECURITY.md`.
+
+## 12r. Repair: a failing program triaged, fixed, and proposed as a gated change
+
+Programs fail (an API changes shape, a field goes missing); a failure should need no person to find it or to fix it,
+and, once a system's loops are trusted, none to approve the fix. **`use: repair`** (a built-in template, `once: true`)
+is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (verifying
+a fix by the runs after it, offering its revert, the ladder's other rungs, a check for programs that swallow their
+errors) is in `docs/GAPS.md`.
+
+```yaml
+uses:
+  repair:
+    use: repair
+    with:
+      approver: person        # the only one for now
+      model: haiku            # the fixer's (default)
+      budget: 0.25            # dollars, one AI call at most
+      daily: 2                # dollars, every AI call of the loop in a day
+      test: pytest -q         # the project's tests, for a program that is not read-only
+      tries: 3                # fixes tried for one failure before it is a dead letter
+```
+
+**Triage.** In a model that uses repair, every failed run of a `program` or `ai` block is recorded as
+`ergostat.run.failed` about an item of the built-in kind **`ergostat.failure`** (it exists only in such a model), one
+item a **signature**: the block, its program (the first word of its `run:` that is a file under the model's folder), the
+exception's type and its innermost frame in the project (from Python's traceback); without a traceback, the block, its
+program and how it ended. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
+program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
+of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. A failure starts
+`noted` and is **opened** for repair only when its block runs a program of the project's and it did not end by a
+timeout, a kill, a signal or failing to start; one that fails again after its fix was applied is opened again. The loop's
+own blocks (`repair-fix`, `repair-settle`) and any run a failure's events caused (six steps up the cause chain) record no
+failure. States: `noted`, `open`, `leased` (being fixed), `awaiting-approval`, `applied`, `dismissed`, `dead` (its fixes
+failed `tries` times).
+
+**Sealed.** A failure's fields are ergostat's alone: its kind is *sealed* (`ItemKind.sealed`), so the fold
+(`spec/items.py`) refuses every event about it whose type is not ergostat's own (`ergostat.*`, which no block line,
+sensor observation, push, `event --add`, MCP call or legacy runner may write). The impact report reads its fields the
+same way. Nothing the loop runs is taken from a failure's fields: the block and its command come from the compiled
+model, the input from the state directory.
+
+**The fix** (`repair-fix`, an `ai` block whose `run:` is `python -m ergostat.repair fix`, its rung shown as AI) takes
+each open failure, leased (section 9.5), and:
+
+1. makes a **clone** of the project's repository at its `HEAD` under the state directory (`repair/NAME/`: `git clone
+   --no-local --no-hardlinks`, so its `.git` and objects are its own, never the owner's, never a worktree sharing them),
+   and runs git on it only through `ergostat.sandbox.git.Repo` (section 12q);
+2. asks the **AI** (`claude -p --tools "" --strict-mcp-config --no-session-persistence`, `--max-budget-usd` the
+   `budget`, in an empty folder) with the prompt `ergostat/repair/fixer.md` and the failure, given **only what ergostat
+   read for it**: the program and the plain files beside it in the clone (committed files only: no dot-files, links or
+   binaries; 32,000 characters each, 96,000 in all; scrubbed). It reads, runs and writes nothing itself. It answers with
+   the program's whole new text (at most 32,000 characters) and an explanation, or why it cannot. Refused before the
+   AI is asked, and left to a person: a program not among the files given (too large, not text), one with changes in
+   the owner's tree not committed (its fix would be made from other text), and one whose fixes could not be applied
+   twice;
+3. writes that text over the program in the clone (refused: a link, a path outside the clone or in `.git`, no change;
+   nothing else is ever written) and commits it;
+4. **tests** it in `ergostat.sandbox` (section 12q) on a throwaway copy of the clone's files without `.git`: reads only
+   the copy and the toolchain, writes only the copy and its temporary folder, an environment with no ergostat or test
+   variable, every process it started killed. A fix can still tell it is sandboxed (its home folder is unreadable, it
+   has no DNS), so a test shows only that it ran well there, not how it behaves outside. A block that says `read-only: true` (its program changes nothing outside)
+   is re-run with the input that failed; its `network:` hosts are reachable through the sandbox's proxy for `GET` and
+   `HEAD` only (an HTTPS host gets no tunnel, its methods unchecked inside TLS). Any other block runs the template's
+   `test:`; without one the fix is **untested**, said. The output is scrubbed and kept (`test`, `tests`), and what it
+   showed is said as it is: "exited 0 on the input that failed, in the sandbox", or "its test (CMD) exited 0 in the
+   sandbox", never "tests passed".
+5. A fix that failed its test is recorded (`fix-failed`) and the failure **given back** (a lease attempt: the fixer is
+   told what its last fix did; a dead letter after `tries`). Passed or untested: the **impact report** (section 12n) is
+   worked out for the failure (at most 20 seconds) and kept with it (`impact`, `risk`, the report as `repair/NAME.impact.json`),
+   and the gated action **`apply-fix`** is asked for (section 12k), its `key` naming the failure and the fix's commit:
+   the fix proposed as a gated change, in the inbox (section 12o). The inbox says it plainly: "Approving merges this
+   code into your repository; it then runs with your rights, outside the sandbox", then the link to the diff (the
+   failure's page), what the test showed and the impact sentence; the action's description says the same.
+
+A failure the AI cannot fix, a refused proposal, git refusing, or an AI call not answered within its time is given
+back with why.
+
+**The ladder's first rung only** (invariant 5). `apply-fix` is held for the person, answered from the inbox, the CLI
+or the failure's page; a notification of it (section 12o) always carries the sentence "Approving merges this code into
+your repository; it then runs with your rights, outside the sandbox", whatever the channel's `detail`, so a person
+answering from a phone has read it. What an approved fix then does runs with the owner's rights, as the program it
+replaces did. `approver: ai` is refused by `check` ("not yet: a sound allowlist guard is needed"): an AI approver was
+built and cut, since a guard that denies listed calls is bypassed many ways (`docs/GAPS.md`). **A denial is final**
+(the kind's `final` states, `spec/items.py`): an approval recorded after an action's denial, whoever wrote it and
+however the two raced, is ignored and listed (`ignored`); the action stays denied, is counted as denied (never as
+evidence for promoting its class to `gate: auto`), and is never run; one that ran anyway, having got through before the
+denial was seen, is shown as **ran despite denial** on the action's page.
+
+**Applying** (`python -m ergostat.repair apply`, the approved action, in the model's folder): the failure must be
+awaiting approval with a tested fix; the approved action's `key` must name that fix; the clone's metadata must be what ergostat made and its `HEAD` the tested commit;
+the owner's `HEAD` must still be the commit the fix was made on (else refused: fixed again on the new one). Then the
+tested commit is fetched from the clone and fast-forwarded (`git merge --ff-only`, which refuses atomically when the
+branch moved or a local change would be overwritten), and the clone removed. Refused, the failure goes back to open
+(`apply-failed`, with why). **`repair-settle`** (every 30 s) dismisses a failure whose `apply-fix` was denied, and
+removes the clones of failures applied, dismissed or dead.
+
+**Costs and the cap.** Each AI call's Claude Code result message is passed on without its text (so its cost is the
+run's, section 9.1, and nothing the AI wrote is read as one of the run's lines). Before every call the loop's ledger
+(`repair/spend.jsonl`, under a lock) is read: the day's spend plus the call's `budget` must not pass `daily`; a ledger
+that cannot be read means no call (it fails closed). The whole budget is written before the call and corrected after
+it by the difference to what it said it cost (either way), so a run killed mid-call still counts it, and a call whose cost is not said counts whole.
+Each AI call and the test get a quarter of the block's `timeout`, so the three end before the run is killed. A
+capped failure is given back for an hour, not counted as an attempt. `repair-spend` charts the fixer's cost.
+
+| Part | What |
+|---|---|
+| stocks | `open-failures`, `fixing` (leased), `awaiting-approval`, `applied-fixes` (cumulative) |
+| flows | `failures-found`, `fixes-started`, `fixes-proposed`, `fixes-failed` (rework), `fixes-applied`, `fixes-dismissed` |
+| goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver) |
+| action | `apply-fix` (`gate: approve` or `deny`; `auto` is not offered: approval is the ladder's) |
 
 ## 13. Examples
 
