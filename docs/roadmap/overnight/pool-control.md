@@ -149,3 +149,37 @@ tests scripts dev/bin`). A search of `tests/` again finds only those two files l
 `pools.py`, `risk.py` or `status.py`. Left: one full `unit` run that lives to print pytest's summary (with
 `-o faulthandler_timeout=300` if it hangs), and the browser files; if it is killed early again, the cause is the
 suite's container or slot (lesson-13), not this branch.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-20 14:05).
+
+Its fast suites failed 2 times (the kill rule); the last: the fast suites failed (unit: tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth).
+
+```
+     from ergostat import runner as old
+        old.kill_all()
+        held = item(p, "ticket/1").fields["lease"]
+        second = start(Project(mdl.load(tmp_path)))
+        try:
+            time.sleep(0.6)
+            assert item(p, "ticket/1").fields["lease"]["holder"] == held["holder"], "the new engine reads the lease, and keeps it"
+            assert item(p, "ticket/2").state == "ready", "the pool is full: the lease held counts"
+            assert wait_for(lambda: item(p, "ticket/1").fields["lease"]["history"][0].get("how") == "expired", 5), \
+                "expired on its TTL"
+            assert wait_for(lambda: item(p, "ticket/2").state == "leased" or item(p, "ticket/1").state == "leased", 5)
+        finally:
+            second.close()
+            old.STOPPING.clear()
+        for i in (1, 2):                                         # stopped with ergostat: given back, not counted
+            lease = item(p, f"ticket/{i}").fields["lease"]
+>           assert lease["holder"] is None
+E           AssertionError: assert 'fdf992014daa491082a945683c51c915' is None
+
+tests/test_leases.py:434: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth
+1 failed, 1890 passed, 69 skipped in 266.10s (0:04:26)
+{"rc": 1, "wall_s": 266.8, "peak": {"threads": 356, "rss_mb": 1570.7, "procs": 124, "worker_mb": 500.4}, "killed": null, "workers_killed": 0, "left_behind": 0}
+
+```
