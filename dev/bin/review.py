@@ -21,6 +21,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 import brief  # noqa: E402
 import fac  # noqa: E402
+import pools  # noqa: E402
 
 TOOLS = ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git status:*)",
          "Bash(uv run python -m pytest:*)", "Bash(ls:*)", "Bash(wc:*)"]
@@ -92,6 +93,9 @@ def main() -> int:
     refused = fac.may_spend(cfg, float(cfg["ai"]["reviewer_session_usd"]))
     if refused:
         fac.nack(f"budget: {refused}", after="1h", count=False)
+        return 0
+    if not pools.my_turn(cfg, "reviewer", "reviewer", gap["id"]):
+        fac.nack("the reviewer pool is full (run/pools.json): waits its turn", after="5m", count=False)
         return 0
     branch, base = fac.branch_of(gap), cfg["git"]["base"]
     n = int(f.get("reviews_n") or 0) + 1

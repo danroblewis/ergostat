@@ -74,6 +74,15 @@ Then: the implementor commits the definition first and builds; the reviewer appr
 findings) or parks it; the second failed gate parks it with where it stopped; the queue lands it. `ergostat item
 gap/NAME` shows each round, its reviews, the context each session was given and what it cost.
 
+## The pools: one at a time, raised on good results
+
+One implementor and one reviewer to start (`run/pools.json`; the blocks' `pool:` is only the most, 4 and 2, in
+`[pools]`). After three gaps in a row are approved within one fix round and none was reverted after merging, the pool
+tuner asks for `raise-pool` (the implementor first), held in the inbox; a park, a second fix round or a reverted merge
+lowers the pools by one at once. Say a merge was reverted on main with
+`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`. By hand:
+`python3 dev/bin/pools.py set implementor 2 "why"`.
+
 ## Approve the push
 
 A green merge asks for `push-main` (exactly that commit to origin's main), held for you:

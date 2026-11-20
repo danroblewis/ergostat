@@ -18,6 +18,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 import brief  # noqa: E402
 import fac  # noqa: E402
+import pools  # noqa: E402
 
 TOOLS = ["Read", "Edit", "Write", "Glob", "Grep", "Bash(uv run:*)", "Bash(git status:*)", "Bash(git diff:*)",
          "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(ls:*)", "Bash(cat:*)",
@@ -82,6 +83,9 @@ def main() -> int:
     refused = fac.may_spend(cfg, usd)
     if refused:
         fac.nack(f"budget: {refused}", after="1h", count=False)
+        return 0
+    if not pools.my_turn(cfg, "implementor", "implementor", gap["id"]):
+        fac.nack("the implementor pool is full (run/pools.json): waits its turn", after="5m", count=False)
         return 0
     rework = (given.get("lease") or {}).get("back", gap["state"]) == "fix"
     rounds = int(f.get("rounds") or 0) + 1

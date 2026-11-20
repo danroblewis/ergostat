@@ -159,13 +159,15 @@ blocks:
 
   implement-when:
     type: expr
-    description: build while gaps wait (ready, or sent back), the intake is open, and the day's AI money is not spent
+    description: build while gaps wait (ready, or sent back), the intake is open, the day's AI money is not spent, and the implementor pool has room
     in:
       ready: goal.ready-gaps-taken.off
       fixes: goal.fixes-taken.off
       open: auxiliary.intake-open
       over: goal.ai-budget.off
-    expr: max(ready, fixes) * min(open, 1) * (1 - over)
+      busy: stock.gaps-building
+      pool: stock.implementor-pool
+    expr: max(ready, fixes) * min(open, 1) * (1 - over) * (busy < pool)
     out: block.implementor
   implementor:
     type: ai
@@ -174,7 +176,7 @@ blocks:
     run: python3 dev/bin/implement.py
     prompt: dev/prompts/implementor.md
     takes: {kind: gap, at: [fix, ready], to: [built]}
-    pool: 2
+    pool: 4                          # the most: the pool now is implementor-pool (dev/model/pools.yaml)
     lease: {ttl: 90m, attempts: 2}
     timeout: 6h
     in: block.implement-when
@@ -182,11 +184,13 @@ blocks:
 
   review-when:
     type: expr
-    description: review while built gaps wait, and while the day's AI money is not spent
+    description: review while built gaps wait, the day's AI money is not spent, and the reviewer pool has room
     in:
       waiting: goal.built-gaps-reviewed.off
       over: goal.ai-budget.off
-    expr: waiting * (1 - over)
+      busy: stock.gaps-in-review
+      pool: stock.reviewer-pool
+    expr: waiting * (1 - over) * (busy < pool)
     out: block.reviewer
   reviewer:
     type: ai
@@ -195,7 +199,7 @@ blocks:
     run: python3 dev/bin/review.py
     prompt: dev/prompts/reviewer.md
     takes: {kind: gap, at: built, to: [approved, fix, parked]}
-    pool: 1
+    pool: 2                          # the most: the pool now is reviewer-pool (dev/model/pools.yaml)
     lease: {ttl: 60m, attempts: 2}
     timeout: 2h
     in: block.review-when
