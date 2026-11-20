@@ -189,7 +189,7 @@ def test_backlog_commands_on_a_fixture_instance(tmp_path):
     ranks = {g: f.item(g)["fields"]["rank"] for g in ("gap/one", "gap/two", "gap/three")}
     assert ranks["gap/one"] < ranks["gap/two"]                          # it comes first now
     r = f.tool("backlog.py", "dep", "add", "one", "two", ok=False)     # a cycle: refused, nothing written
-    assert "closes a cycle" in r.stdout and f.drain() == []
+    assert "closes a cycle" in r.stderr and f.drain() == []
     f.tool("backlog.py", "pin", "four", "1")
     f.drain()
     assert f.item("gap/four")["fields"]["rank"] == 1 and f.item("gap/four")["fields"]["rank_pin"] == 1
@@ -220,7 +220,7 @@ def test_close_done_and_duplicate_repoints_dependents(tmp_path):
     assert f.item("gap/four")["state"] == "closed" and f.item("gap/four")["fields"]["closed_reason"] == "landed in abc1234"
     f.fold([{"event": "gap.started", "item": "gap/three", "data": {}}], None)
     r = f.tool("backlog.py", "close", "three", "--done", "--why", "x", ok=False)   # started: not closed
-    assert "close gap/three: building" in r.stdout and f.item("gap/three")["state"] == "building"
+    assert "close gap/three: building" in r.stderr and f.item("gap/three")["state"] == "building"
     assert "gap/two" not in f.tool("backlog.py", "show").stdout
 
 
@@ -283,3 +283,21 @@ def test_status_prints_the_top_of_the_backlog(tmp_path):
     out = f.tool("status.py").stdout
     assert "Backlog (backlog.py show)" in out and out.split("Backlog")[1].splitlines()[1].split()[:2] == ["1*", "gap/three"]
 
+
+
+def test_a_duplicate_close_that_would_close_a_cycle_is_refused_and_nothing_is_written(tmp_path):
+    """b waits on d, d waits on a; a closed as a duplicate of b would leave d waiting on b: b -> d -> b."""
+    f = seeded(tmp_path)
+    f.fold([{"event": "gap.requested", "item": f"gap/{n}", "data": {"title": n, "source": "request", "branch": n}}
+            for n in ("a", "b", "d")], None)
+    f.tool("backlog.py", "dep", "add", "b", "d")
+    f.tool("backlog.py", "dep", "add", "d", "a")
+    f.drain()
+    r = f.tool("backlog.py", "close", "a", "--duplicate-of", "b", "--why", "same", ok=False)
+    assert "its dependents would close a cycle (gap/b -> gap/d)" in r.stderr
+    assert f.drain() == [] and f.item("gap/a")["state"] == "open"         # nothing written
+    gaps = f.py("import backlog, fac; fac.cli(fac.config()); g = {x['id']: x for x in fac.items('gap')}\n"
+                "p, ref = backlog.check(g, json.loads(sys.argv[1])); print(json.dumps([backlog.diff(g, p, ref), ref]))",
+                json.dumps({"closes": [{"gap": "gap/a", "end": "duplicate", "of": "gap/one", "reason": "x"}],
+                            "grooming": {"gap/b": {"value": 5}}}))
+    assert "~ gap/d waits on gap/one instead of gap/a" in gaps[0] and gaps[1] == []   # the re-pointing shown

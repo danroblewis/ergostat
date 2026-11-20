@@ -464,6 +464,26 @@ def open_view(browser, roadmap, route: str, ready: str):
     return pg, errors
 
 
+def test_the_graphs_status_counts_filter_it(browser, roadmap):
+    """Each status's count in the legend is a filter: a click shows only that status, again shows them all."""
+    pg, errors = open_view(browser, roadmap, "items?view=graph&frontier=0&collapse=0", ".rg-graph[data-drawn] .rg-node")
+    keys = pg.locator(".rg-legend button.rg-key")
+    assert keys.count() >= 2 and "ready" not in pg.locator(".rg-legend").inner_text().split()   # unblocked, not ready
+    key = keys.filter(has_text="blocked").first if keys.filter(has_text="unblocked").count() == 0 else \
+        keys.filter(has_text="unblocked").first
+    st = (key.get_attribute("class") or "").split("rg-")[-1].split()[0]
+    n = int(key.inner_text().split()[0])
+    key.click()
+    pg.wait_for_function(f"() => location.search.includes('status={st}')")
+    pg.wait_for_function(f"""() => document.querySelectorAll('.rg-graph .rg-node:not(.rg-hub)').length > 0 &&
+        [...document.querySelectorAll('.rg-graph .rg-node:not(.rg-hub)')].every((e) => e.classList.contains('rg-{st}'))""")
+    assert pg.locator(f".rg-graph .rg-node.rg-{st}:not(.rg-hub)").count() <= n
+    pg.locator(".rg-legend button.rg-key.on").click()
+    pg.wait_for_function("() => !location.search.includes('status=')")
+    assert not errors, errors
+    pg.close()
+
+
 def test_the_graph_draws_the_frontier_with_the_finished_collapsed(browser, roadmap):
     pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
     nodes = drawn(pg, ".rg-graph .rg-node")
@@ -474,7 +494,7 @@ def test_the_graph_draws_the_frontier_with_the_finished_collapsed(browser, roadm
     assert not any("rg-done" in n["cls"] and "rg-hub" not in n["cls"] for n in nodes), nodes   # collapsed
     st = {n["id"]: n["cls"] for n in nodes}
     assert "rg-active" in st["ticket/e2-docs"] and "rg-queued" in st["ticket/e2-build-ui"]     # leased; waiting for review
-    assert "rg-blocked" in st["ticket/e2-integrate"] and "rg-ready" in st["ticket/e3-design"]
+    assert "rg-blocked" in st["ticket/e2-integrate"] and "rg-unblocked" in st["ticket/e3-design"]
     assert "rg-hub" in st["epic/e2"]                                                  # a parent, its children hang off it
     labels = pg.locator(".rg-graph .rg-elabel").evaluate_all("els => els.map((e) => e.textContent)")
     assert "via 1 done" in labels, labels                                             # v1 -> (v2, done) -> v3

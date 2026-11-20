@@ -518,7 +518,7 @@ async function pageItems(main, q) {
   const said = (k) => (q.get(k) == null ? null : q.get(k) !== "0");
   const ask = { frontier: said("frontier"), collapse: said("collapse") };
   const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? view === "graph"; },
-               group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes" };
+               group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes", status: q.get("status") || null };
   const viewBar = h("span", { class: "rg-viewbar" });
   // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip
   // (and the process map's, process.js: through a node, along a line, caused from another kind, by states or events)
@@ -561,6 +561,7 @@ async function pageItems(main, q) {
                      if (sort && view === "list") u.set("sort", sort);
                      if (view !== "list") { u.set("view", view); for (const k of ["frontier", "collapse"]) if (ask[k] != null) u.set(k, ask[k] ? "1" : "0");
                                             if (view === "graph" && ro.group === "kind") u.set("group", "kind");
+                                            if (ro.status) u.set("status", ro.status);
                                             if (view === "timeline" && ro.lanes) u.set("rows", "lanes"); }
                      replaceRoute("/items" + (u.toString() ? "?" + u : "")); refresh(); };
   search.addEventListener("input", () => go());
@@ -707,12 +708,12 @@ async function pageItems(main, q) {
       const { want, d: rd } = relAsked[g.name] || { want: [] };
       if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "No relations among these kinds: a kind declares them under relations: (blocked_by: ticket).")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
-      const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle };
+      const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
       const m = rgModel(rd, o);
       const key = `rel:${view}:${g.name}`;
       const draw = (el) => { if (view === "graph") el.draw(m, o); else el.draw(m, rd, ro.lanes); return true; };
       const el = keep(key, JSON.stringify([view, o, rd, ro.lanes]), () => { const e = view === "graph" ? relGraph(openItem) : relTimeline(openItem); draw(e); return e; }, draw);
-      return [keyed(relLegend(m, rd), `legend:${g.name}`), el];
+      return [keyed(relLegend(m, rd, (st) => { ro.status = ro.status === st ? null : st; go(); }, ro.status), `legend:${g.name}`), el];
     };
     const groups = [];
     let anyRows = false;

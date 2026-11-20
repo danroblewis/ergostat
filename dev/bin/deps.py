@@ -1,8 +1,8 @@
 """The gaps' dependencies (the owner, 2026-11-20: "the gap items can have dependencies, so if there are any dependency
 trees we can map those out"). Each gap's `depends_on` is an item relation (ergostat.yaml: precedence, SPEC 5a): a gap
-is ready to build only once every gap it names is finished (`messages: done`: merged, or parked, so the estimates
-never carry a parked gap as open), and never while one is parked (`waits_on_parked`, the implementor's
-`takes: where`); the implementor takes the unblocked first,
+is ready to build only once every gap it names is finished (`messages: done`: merged or closed); a parked gap is
+paused (`messages: paused`), so it blocks what waits on it (ergostat's own status, and here `waits_on_parked` with
+its `blocked_reason`, the implementor's `takes: where`); the implementor takes the unblocked first,
 the critical first (`takes: unblocked`), the Process view and each gap's page draw the tree, and the completion
 estimates wait on it.
 

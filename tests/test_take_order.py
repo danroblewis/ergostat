@@ -9,6 +9,7 @@ import time
 from types import SimpleNamespace
 
 from ergostat import model as mdl
+from ergostat import precedence as pr
 from ergostat.leases.ready import order_key, ordered, unblocked
 from ergostat.numbers import eta, etamodel
 from ergostat.spec import items as its
@@ -80,6 +81,10 @@ def test_order_fields_ascending_descending_and_missing_last(tmp_path):
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace("order: [-priority]", "order: [3]"))
     _, problems = read(tmp_path / "ergostat.yaml")
     assert any("takes.order: a field's name" in x.message for x in problems if x.level == "error")
+    for bad in ('["pri ority"]', "[.nan]", '["-"]'):
+        (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace("order: [-priority]", f"order: {bad}"))
+        _, problems = read(tmp_path / "ergostat.yaml")
+        assert any("takes.order: a field's name" in x.message for x in problems if x.level == "error"), bad
 
 
 GATED = MODEL.replace("blocks:\n", """auxiliaries:
@@ -110,3 +115,29 @@ def test_a_block_switched_off_is_projected_not_to_take(tmp_path):
     p.measurements.add(series, 1.0, time.time() - 1)
     assert etamodel.gated_off(p, spec, time.time()) == {}
     assert not eta.reasons(etamodel.read(p, spec, ["ticket"], time.time()))["ticket/a"].get("off")
+
+
+PAUSED = MODEL.replace("messages:\n  done: {ticket: [done]}", """messages:
+  done: {ticket: [done]}
+  paused: {ticket: [held]}""").replace("states: [todo, fix, doing, done]", "states: [todo, fix, doing, held, done]").replace(
+    "ticket.done: done}", "ticket.done: done, ticket.held: held}")
+
+
+def test_a_paused_item_is_not_done_not_projected_and_blocks_its_dependents(tmp_path):
+    p = project(tmp_path, PAUSED)
+    ev, t = p.events, time.time() - 600
+    ev.add("ticket.opened", item="ticket/a", at=t)
+    ev.add("ticket.held", item="ticket/a", at=t + 1)                     # paused by hand
+    ev.add("ticket.opened", item="ticket/b", data={"blocked_by": "ticket/a"}, at=t + 2)
+    ev.add("ticket.opened", item="ticket/c", at=t + 3)
+    spec = p.model.spec
+    g = pr.build(ev, spec, ["ticket"], time.time(), t - 60)
+    st = {x["id"]: x["status"] for x in g["items"]}
+    assert st == {"ticket/a": "paused", "ticket/b": "blocked", "ticket/c": "unblocked"}
+    assert next(x for x in g["items"] if x["id"] == "ticket/b")["waiting"] == ["ticket/a"]   # the reason names it
+    assert dispatched(p) == ["ticket/c"]                                  # its dependent is not taken
+    inp = etamodel.read(p, spec, ["ticket"], time.time())
+    why = eta.reasons(inp)
+    assert why["ticket/a"]["paused"] and "continued by hand" in why["ticket/a"]["why"]
+    got = eta.simulate(inp, runs=5, budget=2.0)["items"]
+    assert got["ticket/a"]["p50"] is None and got["ticket/b"]["p50"] is None   # neither projected to move
