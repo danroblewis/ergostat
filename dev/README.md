@@ -134,8 +134,24 @@ the critical first. A name that is no gap, or a link that would close a cycle, i
 draw the tree; `python3 dev/bin/deps.py` prints it as mermaid.
 
 Then: the implementor commits the definition first and builds; the reviewer approves, sends it back (`fix`, with its
-findings) or parks it; the third failed gate (`[gates] kill_after`) parks it with where it stopped; the queue lands it. `ergostat item
+findings) or parks it; the sixth failed gate (`[gates] kill_after`) parks it with where it stopped; the queue lands it. `ergostat item
 gap/NAME` shows each round, its reviews, the context each session was given and what it cost.
+
+**The kill rule** is in `[gates]` (dev/factory.toml): `kill_after = 6` failed gates (fix verdicts, queue conflicts, real
+failures in the queue), `build_failures = 6` failed fast-suite runs of the implementor's, or `build_hours = 12` of
+building over its rounds, park a gap; within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make
+its failing fast suites pass.
+
+**A failure on main is not the gap's.** When the implementor's fast suites fail and name tests, `dev/bin/onmain.py`
+runs those tests again alone on the branch (the `[suites] alone` command, in the same kind of suite container, in the
+suite slot). Passing alone, they are flakes (`flake.seen`) and the fast suites run once more, uncounted. Still failing,
+they run once on clean main (the commit the branch merged, `built_main`). A test that fails there too becomes
+`flake/<test>` in the state `main-broken` and the intervention `intervention/main-broken-<sha12>` (class `main-broken`,
+with the tests and the gaps it holds), which `interventions-trend` counts; fix it on main in a gap of its own (review
+lesson 13). If every failing test fails on main, the failure is not counted and no fix session is spent on it: the gap
+is given back with `waits_on_main`, the implementor skips it, and the intake releases it once main is another commit.
+At most one alone run and one main run per failure, and none once the gap's building hours are nearly spent (then the
+failure counts as before). A dead letter whose last failing tests were all main-broken is parked saying so.
 
 ## The backlog: ranked, groomed
 
