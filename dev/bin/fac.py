@@ -121,7 +121,7 @@ def act(name: str, key: str, **args) -> tuple[int, str]:
     """Ask for a gated action ($ERGOSTAT_CMD act); (exit, what it said): 0 ran, 1 failed, 3 held, 4 denied, 2 refused."""
     a = ["act", name, "--key", key] + [x for k, v in args.items() for x in ("--arg", f"{k}={v}")]
     r = ergostat(*a, check=False)
-    return r.returncode, (r.stdout + r.stderr).strip()[-600:]
+    return r.returncode, (r.stdout + "\n" + r.stderr).strip()        # whole: the action's id is said first
 
 
 # ---- git
@@ -230,32 +230,36 @@ def may_spend(cfg: dict, usd: float) -> str | None:
     return None
 
 
-def record_cost(cfg: dict, usd: float, **what) -> None:
+def record_cost(cfg: dict, usd: float, at: float | None = None, **what) -> float:
+    at = time.time() if at is None else at
     with (run_dir(cfg) / "costs.jsonl").open("a") as f:
-        f.write(json.dumps({"at": time.time(), "usd": round(usd, 4), **what}) + "\n")
+        f.write(json.dumps({"at": at, "usd": round(usd, 4), **what}) + "\n")
+    return at
 
 
 class OverBudget(RuntimeError):
     pass
 
 
-def reserve(cfg: dict, usd: float, **what) -> None:
+def reserve(cfg: dict, usd: float, **what) -> float:
     """Charge a session's most (its --max-budget-usd) before it starts, under a lock, so two sessions never pass the
     cap together; refused (OverBudget) when it would. ``settle`` gives back what it did not spend, once its cost is
-    known: a session that times out, crashes or is killed keeps its whole reservation."""
+    known: a session that times out, crashes or is killed keeps its whole reservation. Returns its time."""
     with open(run_dir(cfg) / "costs.lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             why = may_spend(cfg, usd)
             if why:
                 raise OverBudget(why)
-            record_cost(cfg, usd, kind="reserved", **what)
+            return record_cost(cfg, usd, kind="reserved", **what)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def settle(cfg: dict, reserved: float, spent: float, **what) -> None:
-    record_cost(cfg, min(spent, reserved) - reserved, kind="settled", spent=round(spent, 4), **what)
+def settle(cfg: dict, reserved: float, spent: float, at: float, **what) -> None:
+    """The difference between what a session spent and what was reserved for it (negative: given back; positive: an
+    overshoot, charged), dated with the reservation, so the day it lands in is the session's."""
+    record_cost(cfg, spent - reserved, kind="settled", spent=round(spent, 4), at=at, **what)
 
 
 # ---- the load interlock
@@ -272,7 +276,9 @@ def suites_running() -> int:
     while p in rows and p not in mine:
         mine.add(p)
         p = rows[p][0]
-    return sum(1 for pid, (_, cmd) in rows.items() if pid not in mine and SUITE.match(cmd.strip()))
+    import agents
+    return sum(1 for pid, (_, cmd) in rows.items() if pid not in mine and SUITE.match(cmd.strip())) + \
+        agents.suite_containers()
 
 
 def wait_quiet(cfg: dict, why: str = "") -> float:
@@ -357,14 +363,14 @@ def session(cfg: dict, role: str, brief: str, work: Path) -> dict:
     if cfg["ai"]["mode"] != "standin":
         import agents
         agents.token(cfg)                                # no token, no session (and nothing charged)
-    reserve(cfg, usd, **who)
+    at = reserve(cfg, usd, **who)
     if cfg["ai"]["mode"] == "standin":
         out = standin(role, brief, work)
     else:
         with renewing():
             out = agents.session(cfg, role, brief, work)
     if out.get("total_cost_usd") is not None:
-        settle(cfg, usd, float(out["total_cost_usd"]), **who)
+        settle(cfg, usd, float(out["total_cost_usd"]), at, **who)
     print(json.dumps({k: v for k, v in out.items() if k != "result"} | {"type": "result"}), flush=True)
     if out.get("is_error"):
         raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
@@ -387,6 +393,27 @@ def standin(role: str, brief: str, cwd: Path) -> dict:
              "non_blocking": ["a stand-in's note"], "where_it_stopped": "stopped by the stand-in"}) + "\n```"
     return {"type": "result", "subtype": "success", "is_error": False, "result": said, "total_cost_usd": 0.0,
             "num_turns": 1, "usage": {"input_tokens": len(brief) // 4, "output_tokens": 50}}
+
+
+def last_attempt(given: dict) -> bool:
+    """Whether this run is its lease's last attempt (another failure would make the item a dead letter)."""
+    lease = given.get("lease") or {}
+    if "attempt" in lease:
+        return int(lease["attempt"]) >= int(lease.get("attempts") or lease.get("max") or 2)
+    return int(lease.get("attempts") or 0) + 1 >= int(lease.get("max") or 2)
+
+
+def guarded(given: dict, began: float, measured: str, stop) -> int:
+    """For a run's unexpected failure (a session timed out or gave no result, a verdict that does not parse, no
+    definition, Docker or the egress proxy failing): its hours recorded; on its last attempt, ``stop(why)`` (the gap
+    parked with where it stopped) instead of a dead letter; before, raised again (the attempt counted)."""
+    import traceback
+    e = sys.exc_info()[1]
+    say("gap.measured", **{measured: round((time.time() - began) / 3600, 3)}, last_error=f"{type(e).__name__}: {e}"[:500])
+    if last_attempt(given):
+        stop(f"Stopped on its last attempt by {type(e).__name__}: {e}\n\n```\n{traceback.format_exc()[-1500:]}\n```")
+        return 0
+    raise e
 
 
 def read_input() -> dict:

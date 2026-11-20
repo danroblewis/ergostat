@@ -25,7 +25,9 @@ answer questions: take the most reversible option and say so in the definition f
 
 # How to work
 
-1. The definition file is already the branch's first commit. Build exactly what it asks, nothing more: the owner's
+1. The definition file is already the branch's first commit. Its `depends-on: [...]` line names the gaps this one
+   waits on (they are merged before you start); if you find another this gap needs first, say so in "Where it
+   stopped" rather than building it here. Build exactly what it asks, nothing more: the owner's
    rule is to build only what was asked.
 2. Keep within the size budget: {budget} net lines of code outside `tests/`, `docs/` and `dev/`. An overrun needs a
    written reason in the definition file.

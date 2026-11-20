@@ -21,6 +21,14 @@ import live  # noqa: E402
 
 def watch() -> int:
     cfg = fac.config()
+    if cfg["ai"]["mode"] != "standin":
+        import agents
+        try:
+            gone = agents.sweep(cfg)                    # the factory's containers left past their time
+            if gone:
+                print(f"swept {', '.join(gone)}", file=sys.stderr)
+        except (OSError, RuntimeError) as e:
+            print(f"sweep: {e}", file=sys.stderr)
     repo, base, remote = fac.path(cfg, "checkout"), cfg["git"]["base"], cfg["git"]["remote"]
     fac.git(repo, "fetch", "-q", remote, f"+refs/heads/{base}:refs/remotes/{remote}/{base}")
     sha = fac.git(repo, "rev-parse", f"refs/remotes/{remote}/{base}")
