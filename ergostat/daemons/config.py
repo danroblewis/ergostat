@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from ..spec.ir import Daemon
 
-KEYS = {"run", "concurrency", "heartbeat", "restart", "stdin-timeout", "description"}
+KEYS = {"run", "concurrency", "heartbeat", "restart", "stdin-timeout", "description", "warm", "recycle"}
 RESTART = {"max", "within", "backoff"}
 
 
@@ -38,10 +38,16 @@ def one(c, m, name: str, what: str) -> Daemon | None:
         c.err(f"{what}.restart.backoff: [first, most], like [1s, 2m]: the first restart's wait, doubled each time up to "
               f"the most", r.at("backoff"), "bad-duration")
         backoff = (1.0, 120.0)
+    warm = m.get("warm", False)
+    if not isinstance(warm, bool) or ("recycle" in m and not warm):
+        c.err(f"{what}.warm: true or false (true: the program keeps no state between runs; recycle: only with it)",
+              m.at("warm") if "warm" in m else m.at("recycle"), "bad-daemon")
+        warm = False
     return Daemon(name, str(m["run"]), whole(c, m, "concurrency", 1, 10, what, "the most runs it holds at once"),
                   c.duration(m, "heartbeat", what), whole(c, r, "max", 0, 5, f"{what}.restart", "restarts allowed within:"),
                   c.duration(r, "within", f"{what}.restart", 600.0) if r else 600.0, backoff,
-                  c.duration(m, "stdin-timeout", what, 10.0), m.where)
+                  c.duration(m, "stdin-timeout", what, 10.0), warm is True,
+                  whole(c, m, "recycle", 1, 1000, what, "the most runs one warm process serves"), m.where)
 
 
 def section(c, spec) -> None:
@@ -72,6 +78,9 @@ def section(c, spec) -> None:
                 c.err(f"{what}: daemon: is a program block's, instead of run:", x.where, "bad-daemon")
         else:
             x.daemon = name
+            if name and spec.daemons[name].warm:
+                c.err(f"{what}.daemon: a warm daemon (warm: true) serves blocks' runs only, not readings", x.where,
+                      "bad-daemon")
             if x.push and raw is None:
                 c.err(f"{what}.push: a daemon's sensor (daemon:, and push: true when it sends readings itself)",
                       x.where, "bad-daemon")

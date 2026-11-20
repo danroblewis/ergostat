@@ -4,6 +4,7 @@ person's reading of a manual sensor."""
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -183,6 +184,17 @@ def cmd_block(args) -> int:
         return 2
     if getattr(args, "now", False):
         return run_now(p, b, args)
+    if getattr(args, "check_warm", None):            # a warm daemon's promise, checked on one input (SPEC §9.7)
+        d = spec.daemons.get(b.params.get("daemon") or "")
+        if d is None or not d.warm:
+            print(f"block {b.name}: its daemon is not warm (warm: true)", file=sys.stderr)
+            return 2
+        from ..daemons.warmcheck import check
+        from ..spec.engine import callback_env
+        print(f"running {d.run} for real, four times: twice on one process, once on each of two others")
+        rc, why = check(d, spec.root, callback_env(spec, p.dir), json.loads(Path(args.check_warm).read_text()))
+        print(why)
+        return rc
     if args.done is not None:
         if b.type != "person":
             print(f"block {b.name} is a {b.type}: it reports itself; --done is a person's report", file=sys.stderr)

@@ -13,6 +13,7 @@ import signal
 import threading
 import time
 from collections import deque
+from dataclasses import replace
 
 from .. import runner as old
 from ..costs.sampler import Sampler
@@ -72,16 +73,21 @@ class Supervisor(Hands):
         written the same revived."""
         used = {b.params["daemon"] for b in spec.blocks.values() if b.params.get("daemon")}
         used |= {s.daemon for s in spec.sensors() if s.daemon}
+        want = {}                                    # a warm one: a process of its own per run held at once, NAME#i
+        for n in used:
+            d = spec.daemons[n]
+            want |= {f"{n}#{i}": replace(d, name=f"{n}#{i}", concurrency=1) for i in range(1, d.concurrency + 1)} \
+                if d.warm else {n: d}
         start = []
         with self.lock:
             for n, slot in list(self.slots.items()):
-                if n not in used or spec.daemons.get(n) != slot.d or slot.state == "failed":
+                if n not in want or want[n] != slot.d or slot.state == "failed":
                     if slot.state == "failed":
                         self._release(n)
-                    self._drain(slot, "its definition changed" if n in used else "nothing uses it now")
+                    self._drain(slot, "its definition changed" if n in want else "nothing uses it now")
                     del self.slots[n]
-            for n in used - set(self.slots):
-                self.slots[n] = Slot(spec.daemons[n])
+            for n in set(want) - set(self.slots):
+                self.slots[n] = Slot(want[n])
                 start.append(self.slots[n])
             self.push = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon and s.push}
             if self.slots and (self.thread is None or not self.thread.is_alive()):
@@ -93,15 +99,28 @@ class Supervisor(Hands):
     def revive(self, name: str) -> bool:
         """The owner's ``block NAME --restart``: a daemon given up (or any) started afresh, its restarts forgotten."""
         with self.lock:
-            slot = self.slots.get(name)
-            if slot is None:
-                return False
-            self._drain(slot, "the owner asked for a restart")
-            slot = self.slots[name] = Slot(slot.d)
-            self._release(name)
+            fresh = []
+            for old in self.subs(name):
+                self._drain(old, "the owner asked for a restart")
+                fresh.append(Slot(old.d))
+                self.slots[old.d.name] = fresh[-1]
+                self._release(old.d.name)
+        if not fresh:
+            return False
         self.e.say(f"daemon {name}: restarted, as the owner asked")
-        self._start(slot)
+        for slot in fresh:
+            self._start(slot)
         return True
+
+    def subs(self, name: str) -> list[Slot]:
+        """(under the lock) The daemon of that name: its one slot, or a warm one's process slots (NAME#i)."""
+        return [s for n, s in self.slots.items() if n == name or n.rpartition("#")[0] == name]
+
+    def _recycle(self, slot: Slot, why: str) -> None:
+        """(under the lock) A warm process replaced, uncounted: drained, a new one started at the next tick."""
+        new = self.slots[slot.d.name] = Slot(slot.d)
+        new.restarts, new.total = slot.restarts, slot.total
+        self._drain(slot, why)
 
     def _release(self, name: str) -> None:
         """(under the lock) The items a daemon given up gave back, put off: due again at once, now it runs."""
@@ -134,11 +153,14 @@ class Supervisor(Hands):
         now = time.monotonic()
         todo, gone = [], []
         with self.lock:                              # what to do worked out under the lock; done outside it
-            for slot in self.slots.values():
+            for slot in list(self.slots.values()):
                 if slot.state in ("starting", "backoff") and now >= slot.next_at:
                     todo.append((slot, None))
                 elif slot.state == "running" and (why := self._trouble(slot, now)):
                     todo.append((slot, why))
+                elif slot.state == "running" and slot.proc.recycle and not slot.proc.runs:
+                    why, counted = slot.proc.recycle  # (warm) misbehaved: restarted, counted; else replaced
+                    todo.append((slot, (why, False))) if counted else self._recycle(slot, why)
             for slot, p in list(self.draining):
                 if p.ended.is_set() or p.proc.poll() is not None:   # (ended, even while a child holds its output)
                     self.draining.remove((slot, p))
@@ -256,11 +278,12 @@ class Supervisor(Hands):
     # ---- what is seen of them
 
     def failed(self, name: str | None) -> bool:
-        slot = self.slots.get(name or "")
-        return slot is not None and slot.state == "failed"
+        with self.lock:
+            subs = self.subs(name or "")
+        return bool(subs) and all(s.state == "failed" for s in subs)
 
     def users(self, name: str) -> list[str]:
-        spec = self.e.spec
+        spec, name = self.e.spec, name.split("#")[0]
         return [f"block.{b.name}" for b in spec.blocks.values() if b.params.get("daemon") == name] + \
             [f"sensor.{s.of.name}.{s.name}" for s in spec.sensors() if s.daemon == name]
 

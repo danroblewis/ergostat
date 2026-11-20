@@ -2662,6 +2662,8 @@
         "heartbeat": {"$ref": "#/$defs/duration"},
         "stdin-timeout": {"$ref": "#/$defs/duration"},
         "description": {"type": "string"},
+        "warm": {"type": "boolean", "description": "The program keeps no state between runs: concurrency processes, one run each at a time, its CPU charged to the run"},
+        "recycle": {"type": "integer", "minimum": 1, "description": "With warm: the most runs one process serves"},
         "restart": {
           "type": "object",
           "additionalProperties": false,

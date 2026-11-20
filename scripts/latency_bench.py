@@ -1,6 +1,7 @@
 """How long a workflow's steps take, hop by hop (docs/proposals/latency.md).
 
     uv run python scripts/latency_bench.py synth 1 50 100 500 --label before     # a 5-step workflow whose steps do no work
+    uv run python scripts/latency_bench.py synth 100 --warm 20 --label warm      # each step a warm daemon (SPEC §9.7)
     uv run python scripts/latency_bench.py synth 50 --intake collector            # arrivals by a polling collector (3 s)
     uv run python scripts/latency_bench.py factory --tickets 3 --label before     # ticket-factory offline (fakes, stand-in)
     uv run python scripts/latency_bench.py calls --label before                   # what one call from a step costs
@@ -54,6 +55,16 @@ zmodload zsh/datetime
 t=$EPOCHREALTIME
 cat >/dev/null
 print -r -- "{\\"event\\":\\"job.$1\\",\\"data\\":{\\"started\\":$t}}"
+"""
+
+WARM_STEP = """#!/bin/zsh -f
+zmodload zsh/datetime
+while IFS= read -r line; do
+  [[ $line == *'"op": "stop"'* ]] && exit 0
+  [[ $line == *'"op": "item"'* && $line =~ '"run": "([^"]+)"' ]] || continue
+  print -r -- "{\\"event\\":\\"job.$1\\",\\"run\\":\\"$match[1]\\",\\"data\\":{\\"started\\":$EPOCHREALTIME}}"
+  print -r -- "{\\"done\\":0,\\"run\\":\\"$match[1]\\"}"
+done
 """
 
 COLLECT = """import json, os, sys
@@ -166,9 +177,9 @@ def events_of(home: Path, project: Path) -> list[dict]:
 
 # ---- the synthetic workflow
 
-def synth_model(d: Path, steps: int, pool: int, intake: str) -> None:
+def synth_model(d: Path, steps: int, pool: int, intake: str, warm: int = 0) -> None:
     d.mkdir(parents=True, exist_ok=True)
-    (d / "step.zsh").write_text(STEP)
+    (d / "step.zsh").write_text(WARM_STEP if warm else STEP)
     (d / "collect.py").write_text(COLLECT)
     states = [f"s{i}" for i in range(steps + 1)]
     on = {"job.arrived": "s0", **{f"job.s{i}": f"s{i}" for i in range(1, steps + 1)}}
@@ -185,7 +196,9 @@ def synth_model(d: Path, steps: int, pool: int, intake: str) -> None:
         y += ["  arrivals:", "    to: s0", f"    sensor: {{run: {PY} collect.py spool.jsonl, every: 3s}}"]
     y += ["blocks:"]
     for i in range(1, steps + 1):
-        y += [f"  step{i}:", "    type: program", f"    run: zsh -f step.zsh s{i}",
+        run = f"daemon: {{run: zsh -f step.zsh s{i}, warm: true, concurrency: {warm}}}" if warm else \
+            f"run: zsh -f step.zsh s{i}"
+        y += [f"  step{i}:", "    type: program", f"    {run}",
               f"    takes: {{kind: job, at: s{i - 1}, to: [s{i}]}}", f"    pool: {pool}", f"    out: flow.step{i}"]
     (d / "ergostat.yaml").write_text("\n".join(y) + "\n")
 
@@ -313,7 +326,7 @@ def synth(a, n: int) -> dict | None:
     work = Path(tempfile.mkdtemp(prefix="latbench-", dir=a.work))
     d, home = work / "proj", work / "home"
     pool = a.pool or min(n, 100)
-    synth_model(d, a.steps, pool, a.intake)
+    synth_model(d, a.steps, pool, a.intake, a.warm)
     port = a.port if a.intake == "push" or a.web else None
     log = work / "engine.log"
     proc = start_engine(d, home, port, log)
@@ -337,7 +350,7 @@ def synth(a, n: int) -> dict | None:
         stop_engine(proc)
         done_count.__dict__.pop("p", None)
     res = breakdown(events_of(home, d), a.steps)
-    row = write(a.out, {"bench": "synth", "label": a.label, "items": n, "steps": a.steps, "pool": pool, "intake": a.intake,
+    row = write(a.out, {"bench": "synth", "label": a.label, "items": n, "steps": a.steps, "pool": pool, "warm": a.warm, "intake": a.intake,
                         "startup_s": round(startup, 2), "max_threads": watch.threads, "max_rss_mb": round(watch.rss / 1e6),
                         "max_procs": watch.procs, "killed": watch.killed, "timed_out": got < n, **res})
     if not a.keep:
@@ -589,6 +602,7 @@ def main() -> int:
     ap.add_argument("n", nargs="*", type=int, default=[1, 50, 100, 500])
     ap.add_argument("--label", default="")
     ap.add_argument("--steps", type=int, default=5)
+    ap.add_argument("--warm", type=int, default=0, help="each step a warm daemon of this many processes (SPEC §9.7)")
     ap.add_argument("--pool", type=int, default=0, help="each step's pool (default: min(N, 100))")
     ap.add_argument("--intake", default="record", choices=["record", "collector", "push"])
     ap.add_argument("--port", type=int, default=8793)
