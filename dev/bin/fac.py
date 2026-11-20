@@ -159,6 +159,13 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
     return r.stdout.strip()
 
 
+def conflicted(repo: Path) -> list[str]:
+    """The files a merge left in conflict, read NUL-separated so a path with a space (or one at its ends) stays whole."""
+    r = subprocess.run(["git", "-C", str(repo), "diff", "-z", "--name-only", "--diff-filter=U"], capture_output=True,
+                       text=True, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, timeout=600)
+    return [p for p in r.stdout.split("\0") if p]
+
+
 def git_ok(repo: Path, *args: str) -> bool:
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=600).returncode == 0
 
@@ -184,11 +191,24 @@ SAFE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 def branch_of(gap: dict) -> str:
     """The gap's branch name (its worktree, its session folders, its definition file): only lowercase words and
-    dashes, so no path or ref can be made of it. Anything else raises."""
-    b = gap["fields"].get("branch") or slug(gap["id"].split("/", 1)[1], 32)
+    dashes, so no path or ref can be made of it. Anything else raises. A gap that `continues` a branch (NAME or
+    factory/NAME, an existing branch) is on NAME, and may name no other branch."""
+    c = gap["fields"].get("continues")
+    c = str(c).removeprefix("factory/") if c else None
+    if c and gap["fields"].get("branch") not in (None, "", c):
+        raise ValueError(f"{gap['id']}: it continues {c!r} but names the branch {gap['fields']['branch']!r}")
+    b = gap["fields"].get("branch") or c or slug(gap["id"].split("/", 1)[1], 32)
     if not isinstance(b, str) or not SAFE.match(b):
         raise ValueError(f"{gap['id']}: branch {b!r} is not lowercase words and dashes (at most 64)")
     return b
+
+
+def definition_file(gap: dict) -> str:
+    """The definition's path in the repository: `docs/roadmap/overnight/<branch>.md`, or, for a gap that `continues` a
+    branch and names its `definition` as `REF:docs/roadmap/overnight/X.md`, that file (the continued branch's own, so
+    no copy is made under the new gap's name)."""
+    m = re.fullmatch(r"[\w/.-]+:(docs/roadmap/overnight/[a-z0-9-]+\.md)", str(gap["fields"].get("definition") or ""))
+    return m.group(1) if m and gap["fields"].get("continues") else f"{DEFS}/{branch_of(gap)}.md"
 
 
 def git_branch(branch: str) -> str:
@@ -196,6 +216,12 @@ def git_branch(branch: str) -> str:
     if not SAFE.match(branch):
         raise ValueError(f"branch {branch!r} is not lowercase words and dashes")
     return f"factory/{branch}"
+
+
+def run_tag(branch: str, began: float) -> str:
+    """A run's log name: the branch and when the run began (UTC, to the second; never a gap's own count, which starts
+    again for a gap that continues a branch another gap built)."""
+    return f"{branch}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(began))}"
 
 
 def net_lines(repo: Path, base: str, head: str) -> int:
@@ -431,14 +457,21 @@ STANDIN = {
 
 
 def standin(role: str, brief: str, cwd: Path) -> dict:
-    """Free and scripted. FACTORY_STANDIN_<ROLE> is what a role says, when set. Else the implementor writes a note into
-    the work; the planner, researcher and librarian say STANDIN's; a reviewer's (or plan reviewer's) verdict is
-    FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
+    """Free and scripted. FACTORY_STANDIN_<ROLE> is what a role says, when set. Else the implementor finishes a merge
+    it was handed (main's side of each conflict; or aborts it, when FACTORY_STANDIN_MERGE=abort) and writes a note
+    into the work; the planner, researcher and
+    librarian say STANDIN's; a reviewer's (or plan reviewer's) verdict is FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
     b = re.search(r"Branch: `([a-z0-9-]+)`", brief)
     said = os.environ.get(f"FACTORY_STANDIN_{role.upper()}") or STANDIN.get(role, "").replace("{b}", b[1] if b else "x")
     if said:
         pass
     elif role == "implementor":
+        if (cwd / ".git" / "MERGE_HEAD").exists() and os.environ.get("FACTORY_STANDIN_MERGE") == "abort":
+            git(cwd, "merge", "--abort")                     # (a session walking away from it: refused after)
+        elif (cwd / ".git" / "MERGE_HEAD").exists():         # a merge handed over: main's side of each conflict
+            git(cwd, "checkout", "--theirs", "--", *conflicted(cwd))
+            git(cwd, "add", "-A")
+            git(cwd, "-c", "user.name=factory", "-c", "user.email=factory@localhost", "commit", "-q", "--no-edit")
         note = cwd / "standin" / f"{cwd.name}.txt"
         note.parent.mkdir(exist_ok=True)
         with note.open("a") as f:
