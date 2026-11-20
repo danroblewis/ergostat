@@ -81,7 +81,8 @@ def _rms(xs) -> float:
 def _flows(spec, data, extra=None) -> dict:
     """Every flow's rate on the truth's record (each part the truth measured taken as it was, a stock the truth has
     not integrated from its start): the partial-model test, ``recovery.stock_errors``'s."""
-    hidden = {n for n in spec.stocks if f"stock.{n}" not in data.values}
+    hidden = {n for n in spec.stocks if f"stock.{n}" not in data.values and all(   # (one whose flows can be worked out:
+        f.equation or f"flow.{f.name}" in data.values for f in spec.flows_of(n))}     # a template's are read, never run)
     for n in hidden:
         data.started.setdefault(f"stock.{n}", (data.grid.since, spec.stocks[n].initial or 0.0))
     try:
@@ -225,7 +226,8 @@ def run_case(c: tt.Case, v: dict, work: Path, model: str = "haiku", budget: floa
             "fit_before": fb, "fit_after": fa, "fit_truth": total(truth),
             "fit_improved": bool(fb is not None and fa is not None and fa < fb), "cost": out["cost"],
             "rounds": len(out["rounds"]), "prompt_chars": max((r.get("prompt_chars") or 0 for r in out["rounds"]), default=0),
-            "seconds": round(time.perf_counter() - t0, 1), "result": out.get("result") or "made"}
+            "seconds": round(time.perf_counter() - t0, 1), "result": out.get("result") or "made",
+            "edits": (out.get("change_set") or {}).get("edits")}           # kept, so a run can be scored again
 
 
 def extra(after, added: list[str], v: dict) -> int:
