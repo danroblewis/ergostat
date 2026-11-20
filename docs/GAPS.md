@@ -54,6 +54,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Running code ergostat does not trust
 
+- **The Linux sandbox's attack suite asserts macOS behaviour in five places** (open; `devcontainer`, 2026-11-19).
+  On Linux (bwrap, in the dev container) 26 of 31 pass; the five failures were probed by hand and none is an escape:
+  UDP to 127.0.0.1 "sends" but only to the sandbox's own loopback (the outer listener got nothing); the process list
+  and another process's environment are probed with macOS `sysctl` (inside, only pids 1 and 2 are visible and the
+  neighbour's `/proc/PID/environ` is absent), and the environment test is a strict xfail for a macOS-only leak, so
+  Linux's pass fails it; listing the toolchain's parents shows bwrap's mount-point stubs (`/usr/local`: `bin`, `lib`
+  with only libpython) where macOS denies; the pid hopper is contained but the run's exit when its supervisor is
+  killed differs. Each needs a Linux form of its assertion.
 - **An allowlist sandbox** (done on `sandbox`, SPEC §12q, `docs/SECURITY.md`): `ergostat/sandbox/`, reads only the
   copy, the toolchain and declared paths; writes only the copy (not `.git`) and a private temporary folder; network
   only through a filtering proxy (listed hosts, SNI checked, methods for plain HTTP, every connection logged), no DNS;
@@ -176,6 +184,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Runtime, scale and latency
 
+- **Linux: two bugs the dev container found** (open; `devcontainer`, 2026-11-19, docs/DEVELOPMENT.md). (1) The
+  segmented event log (`ergostat/segments.py`, `_sync`) notices new sealed segments by the directory's mtime, and
+  Linux timestamps are coarse (one jiffy: 50 file creates on tmpfs gave one mtime; ext4 is the same before
+  multigrain timestamps), so a seal within the same tick is missed and its events vanish from queries: 5 to 6
+  `[segments]` cases in `tests/test_store_conformance.py` fail on `/tmp`, by timing. (2) `shell=True` runs `/bin/sh`,
+  which on Debian is dash, and dash forks for `sh -c CMD` where macOS's bash execs: the pid ergostat records for a
+  daemon (`ergostat/daemons/proc.py`) is the shell's, not the program's (`tests/test_daemons.py::
+  test_daemons_on_the_agents_api`).
 - **Warm workers instead of a process per item**: superseded by daemons (branch `daemons`, SPEC §9.7,
   `docs/RUNTIME.md`): long-lived processes for blocks and sensors, many items at once, every line tagged with its run
   or request, env per item in its line, supervised (crash, silence, stdin backpressure, restart storms, cancel on a

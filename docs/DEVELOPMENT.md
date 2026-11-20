@@ -58,6 +58,40 @@ scripts/in_container.sh uv run --with playwright==1.63.0 python -m tests.layout_
 Write results under `/work` (here `/work/.out/`) to keep them: everything else in the container, `/tmp` included,
 is gone when it ends.
 
+## Measured (2026-11-19)
+
+On the 28-core Mac Studio, Docker Desktop 29.1.2 (a 24-CPU VM), the container at 14 CPUs and 12 GB, with other
+agents' suites running on the host (load 3 to 7). Wall times include starting the container (about 1 s; the first
+build took 74 s).
+
+| Run | In the container | On the host |
+|---|---|---|
+| unit, `-n 8` | 1698 passed, 12 failed, 14 skipped; 164 s; peak 376 threads, 1.6 GB | 1623 passed, 13 skipped, 1 xfailed; 150 s; peak 385 threads, 2.6 GB (\*) |
+| browser, `-n 4` | 217 passed, 1 failed (fixed since: `SPLIT_SHOTS`), no skips; 565 s; peak 556 threads, 4.1 GB | 200 passed, no skips; 463 s; peak 632 threads, 3.7 GB (\*) |
+| `tests/test_sandbox_attacks.py` | 26 passed, 5 failed (bwrap) | 30 passed, 1 xfailed (seatbelt) |
+
+(\*) On main at 214d864, before the rebase brought 87 unit and 18 browser tests: the host stayed busy with the merge
+queue's suites, so it was not rerun beside them. Inside, every collected test ran (1,718 collected, plus 6
+page modules skipped whole without Playwright; 218 of 218 browser tests). Per test the container is about as
+fast as the host: 0.095 s against 0.092 s for the unit suite, 2.6 s against 2.3 s for the browser suite.
+
+The bind mount is not the bottleneck (the venv and the uv cache live in the image), so there is no named volume.
+
+**The limits hold.** A thread bomb inside (stopped at 10,000 or the first refusal) was refused at 4,094 threads
+(`pids.current` 4096 = `pids.max`); a memory bomb under `ERGOSTAT_MEM=2g` was killed by the kernel's OOM killer at
+1,792 MB held. The host's threads meanwhile: 2,818 before, 2,856 at the peak, 2,807 after (other agents' suites
+were running; nothing of the bomb reached the host).
+
+**Known failures on Linux** (docs/GAPS.md), so the unit suite is not yet rc 0 in the container:
+
+- 5 or 6 `[segments]` cases in `tests/test_store_conformance.py`, by timing: the segmented log watches its
+  directory's mtime, which Linux keeps to a jiffy (a real bug, not the container's);
+- `tests/test_daemons.py::test_daemons_on_the_agents_api`: Debian's `/bin/sh` (dash) forks where macOS's execs, so
+  the daemon's recorded pid is the shell's (a real bug);
+- 5 in `tests/test_sandbox_attacks.py` that assert macOS behaviour; probed by hand on Linux, none is an escape.
+
+Until they are fixed, compare a container run with this list; a failure outside it is yours.
+
 ## What stays on your computer
 
 - The macOS sandbox tests: `tests/test_sandbox_attacks.py` tests `sandbox-exec` only on macOS; in the container it
