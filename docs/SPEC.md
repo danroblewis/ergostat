@@ -2912,36 +2912,47 @@ scope (performance), and a loop's panel on the Loops page (all of it).
 
 **Existing controllers** (`numbers/extlaw.py`, `numbers/external.py`; the gap in `docs/proposals/external-systems.md`):
 a controller ergostat does not run (an autoscaler, an alert rule, a vendor's limiter) is an `external` block, and
-`identify: {input: SIGNAL, output: SIGNAL}` (a stock, flow or auxiliary each) asks for its law from the record. Both
-signals' readings on the reference window are put on one grid at the output's median sensor period (each its last
-reading at or before each moment; at most 2,000 points), and each candidate law is fitted on the first three quarters,
-each with a pure delay of 0 to 6 samples searched:
+`identify: {input: SIGNAL, output: SIGNAL}` (a stock, flow or auxiliary each, one sensor of each: the one named by its
+port, else the first) asks for its law from the record. Both signals' readings on the reference window are put on one
+grid at the output's median sensor period, each its last reading at or before each moment, over at most the last 2,000
+samples (the grid is never widened: a law's durations are whole samples of its own period, and a coarser grid mistells
+them). Each candidate law is fitted on the first three quarters, each with a pure delay of 0 to 6 samples searched:
 
 | Law | Its parameters | Fitted by |
 |---|---|---|
-| **on-off** (an alert rule; a relay with hysteresis) | two levels; on once its input is past `on` (above, or below) for `for`, off once back past `off` for `for_off`; at least `min_on` on and `min_off` off | the output's switches: for each threshold (40, at the input's quantiles) and delay, the longest duration and wait consistent with every switch (or none, when that mistells no more), by the fewest switches mistold |
+| **on-off** (an alert rule; a relay with hysteresis) | two levels; on once its input is past `on` (above, or below) for `for`, off once back past `off` for `for_off`; at least `min_on` on and `min_off` off | the output's switches: for each threshold (40, at the quantiles of the input just before each switch) and delay, the longest duration and wait consistent with every switch (or none, when that mistells no more; a wait only where it mistells at least three fewer), by the fewest switches mistold; a negative hysteresis is refused |
 | **proportional** with saturation | u = c + k x, within [lo, hi] | least squares off the bounds |
 | **PI**, velocity form, with a deadband | u += kp Δx + ki T (x − r) while \|x − r\| > db | least squares on Δu (r from the constant); the band from the errors where u held exactly, and its centre, each from the other |
-| **stepper** (the HPA's shape) | up `step_up` once above `up` for `for_up`, `cool_up` after its last move; down `step_down` once below `down`, likewise; within [lo, hi] | as on-off, each direction on its own; a bound only where its rule held three times and it did not move |
+| **three-position step (floating) control**, a stepper (the HPA's shape) | up `step_up` once above `up` for `for_up`, `cool_up` after its last move; down `step_down` once below `down`, likewise; within [lo, hi] | as on-off, each direction on its own; up below down is refused; a bound only where its rule held three times and it did not move |
 
 Each is judged on the last quarter: its **skill** one step ahead (1 − its squared errors over those of holding the last
 value) and its **R²** run free from that quarter's start on the input as measured (inside the loop it controls, the
 input answered the true controller, so a free run that strays is not corrected: the skill is the sharper number there).
-The law kept has the least held-out error penalised by Schwarz's criterion, n ln(SSE/n) + k ln n with k its parameters
-(PI in velocity form fits a proportional law as well, and a stepper between two levels an on-off law: the fewer
-parameters win). Each threshold's standard error is the spread of the thresholds that mistell as few (at least the grid's
-step over √12); a step's, its moves' spread over √n; a linear law's, least squares'. Said: the law, its parameters and
-errors, the skill, the R² and the delay. The law is the block's model in the closed-loop projection (§12b), in place of
-the stand-in, said "identified, external": sampled every grid period past its delay, from the state the record left
-(its last output, the time since it last moved, how long its conditions have held), its input read from the projection's
-own values, and its output, when a stock, reached through the block's flow into it; an auxiliary output is drawn and
-checked, not run ahead. `check` (the findings that need the record) says **external-unidentified** (fewer than 40
-points, fewer than three moves, or no law fits) and **external-law-changed** (the law identified on the window's first
-half and on its second are of different families, or a number moved by more than three combined standard errors and a
-fifth of itself: someone retuned it). The Blocks view writes the law in the block, its sketch (a relay, a staircase, a
-saturation) and a small *identified* mark; its panel says the rest. *Not yet*: a library of known laws declared and
-tested against the record (the proposal's `law: kubernetes-hpa`), an HPA's multiplicative rule (desired = ⌈u x /
-target⌉) as its own family, and the law's numbers sampled by the risk.
+The law kept has the least n ln(SSE/n) + k ln n on the record held out, k its **active** parameters (those not none or 0,
+its delay when not 0): a Schwarz-like parsimony rule, not a likelihood, since a switching law's errors are counts of
+moves mistold, not Gaussian noise. PI in velocity form fits a proportional law as well, and a stepper between two levels
+an on-off law: the fewer parameters win. A linear law's numbers carry least squares' standard errors (±); a threshold
+carries the **spread** of the thresholds that mistell as few moves (at least the grid's step over √12), not a standard
+error; a step, its moves' spread over √n. **Closed-loop bias** (Ljung ch. 13): where the controller's input answers its
+output within a sample (an HPA's utilisation, a limiter's queue), the regression's input and its noise are correlated
+and a gain fitted with no delay is biased toward 0 (a proportional law of 0.5 fits as about 0.44); a linear law with
+delay 0 says so. The delay is as the record shows it, with how much of it may be the sensors' sampling said apart (the
+median age of the input's reading at the output's, and one grid step). Said: the law, its parameters, the skill, the R²
+and the delay.
+
+The law is the block's model in the closed-loop projection (§12b), in place of the stand-in, said "identified,
+external": sampled every grid period past its delay, from the state the record left (its last output, the time since it
+last moved, how long its conditions have held), its input read from the projection's own values. An output flow is set
+to the law's value; an output stock is moved by the block's own flow by each change of the law's level, so its other
+flows still move it (the law's level is not imposed on the stock); an auxiliary output is identified and drawn, not run
+ahead. Each projection run starts from a copy of that state. `check` (the findings that need the record) says
+**external-unidentified** (fewer than 40 points, fewer than three moves, or no law fits) and **external-not-run** (a law
+identified whose output the projection cannot move). The Blocks view writes the law in the block, its sketch (a relay,
+a staircase, a saturation) and a small *identified* mark, from laws already fitted (a miss is fitted in a thread and
+drawn on a later poll); its panel says the rest. *Not yet*: whether the law changed (someone retuned the controller:
+two laws against one on held-out error; a first comparison of each half's numbers raised it on unchanged controllers),
+a library of known laws declared and tested against the record (the proposal's `law: kubernetes-hpa`), an HPA's
+multiplicative rule (desired = ⌈u x / target⌉) as its own family, and the law's numbers sampled by the risk.
 
 ## 12e. Improving the model, as a loop
 

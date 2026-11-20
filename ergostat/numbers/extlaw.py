@@ -6,13 +6,14 @@
   hysteresis);
 - **proportional**: ``u = c + k x``, clamped to ``[lo, hi]`` where the record shows it saturating;
 - **pi**: velocity form, ``u += kp Δx + ki dt (x − r)`` while ``|x − r|`` is past the deadband ``db``;
-- **stepper**: up by ``step_up`` while above ``up`` for ``for_up`` and ``cool_up`` since its last move, down by
-  ``step_down`` while below ``down`` (the HPA's shape), within ``[lo, hi]``.
+- **stepper**, three-position step (floating) control: up by ``step_up`` while above ``up`` for ``for_up`` and
+  ``cool_up`` since its last move, down by ``step_down`` while below ``down`` (the HPA's shape), within ``[lo, hi]``.
 
 Each is fitted on the record's first three quarters and judged on the last (Ljung, *System Identification*, ch. 16):
 its **skill** one step ahead against holding the last value, and its **R²** run free from the held-out record's start.
-The law kept is the one with the least held-out error, penalised by Schwarz's criterion per parameter (a law that only
-adds parameters never wins on a tie). Durations in seconds; thresholds in the input's units; steps in the output's."""
+The law kept is the one with the least held-out error, n ln(SSE/n), plus k ln n for its k active parameters: a
+Schwarz-like parsimony rule, not a likelihood (a switching law's errors are counts of moves mistold, not Gaussian noise),
+so a law that only adds parameters never wins on a tie. Durations in seconds; thresholds in the input's units; steps in the output's."""
 
 from __future__ import annotations
 
@@ -22,12 +23,13 @@ from statistics import fmean, median, pstdev
 
 from .estimate import _invert, solve_linear
 
-NPAR = {"onoff": 9, "proportional": 5, "pi": 7, "stepper": 11}   # parameters each fits, its delay included
+FAMILIES = ("onoff", "proportional", "pi", "stepper")
+SPREAD = ("on", "off", "up", "down")   # thresholds: their uncertainty is the spread of those that mistell as few moves
 MIN_POINTS = 40           # points of record, at least
 MIN_MOVES = 3             # moves of a switching law's output in the part fitted, at least
 MAX_DELAY = 6             # the longest pure delay searched, in samples
 HELD_OUT = 0.25
-GRID = 40                 # thresholds tried, at the input's quantiles
+GRID = 40                 # thresholds tried, at the quantiles of the input just before each move
 
 
 @dataclass
@@ -41,6 +43,7 @@ class Law:
     r2: float | None = None
     score: float = math.inf
     points: int = 0
+    sampling: float = 0.0     # seconds of the delay that may be the sensors' (the input read before the output; a grid step)
 
     @property
     def d(self) -> int:
@@ -49,18 +52,26 @@ class Law:
     def n(self, key: str) -> int:
         return round((self.p.get(key) or 0.0) / self.dt)
 
+    @property
+    def k(self) -> int:
+        """Its active parameters: each it sets that is not none or 0, and its delay when not 0."""
+        return sum(1 for key, v in self.p.items() if key != "side" and v not in (None, 0)) + (self.delay > 0)
+
     def said(self) -> str:
         from ..durations import human
-        p, g = self.p, lambda k: f"{p[k]:.3g}" + (f" ± {self.se[k]:.2g}" if self.se.get(k) else "")
+        p = self.p
+        g = lambda k: f"{p[k]:.3g}" + ("" if not self.se.get(k) else f" (spread {self.se[k]:.2g})" if k in SPREAD   # noqa: E731
+                                       else f" ± {self.se[k]:.2g}")
         t = lambda k: human(p[k]) if p.get(k) else "0s"   # noqa: E731
         if self.family == "onoff":
             past = "above" if p["side"] > 0 else "below"
             law = (f"on-off between {p['lo']:g} and {p['hi']:g}: on once {past} {g('on')} for {t('for')}, off once back past "
-                   f"{g('off')} (hysteresis {abs(p['on'] - p['off']):.3g}) for {t('for_off')}; at least {t('min_on')} on, "
+                   f"{g('off')} (hysteresis {p['side'] * (p['on'] - p['off']):.3g}) for {t('for_off')}; at least {t('min_on')} on, "
                    f"{t('min_off')} off")
         elif self.family == "stepper":
-            law = (f"a stepper: up {p['step_up']:g} once above {g('up')} for {t('for_up')}, {t('cool_up')} after its last move;"
-                   f" down {p['step_down']:g} once below {g('down')} for {t('for_down')}, {t('cool_down')} after")
+            law = "three-position step (floating) control:" + "; ".join(
+                f" {w} {p['step_' + w]:g} once {past} {g(w)} for {t('for_' + w)}, {t('cool_' + w)} after its last move"
+                for w, past in (("up", "above"), ("down", "below")) if p[w] is not None)
         elif self.family == "proportional":
             law = f"proportional: u = {g('c')} + {g('k')} x"
         else:
@@ -69,7 +80,12 @@ class Law:
             law += f", within [{_g(p.get('lo'))}, {_g(p.get('hi'))}]"
         fit = ", ".join(x for x in (f"skill {self.skill:.2f}" if self.skill is not None else "",
                                     f"R² {self.r2:.2f}" if self.r2 is not None else "") if x)
-        return f"{law}; delay {human(self.delay) if self.delay else '0s'}" + (f" ({fit} on the record held out)" if fit else "")
+        delay = f"; delay {human(self.delay) if self.delay else '0s'}" + (
+            f" (up to {human(self.sampling)} of it may be the sensors' sampling)" if self.delay and self.sampling else "")
+        if not self.delay and self.family in ("proportional", "pi"):
+            delay += (" (with no delay, a controller whose input answers its output within a sample is fitted with its "
+                      "gain biased toward 0: Ljung ch. 13)")
+        return law + delay + (f" ({fit} on the record held out)" if fit else "")
 
     def short(self) -> str:
         """The law in a few characters, as a block writes it."""
@@ -77,7 +93,8 @@ class Law:
         if self.family == "onoff":
             return f"on {'>' if p['side'] > 0 else '<'} {p['on']:.3g}, off {'<' if p['side'] > 0 else '>'} {p['off']:.3g}"
         if self.family == "stepper":
-            return f"+{p['step_up']:g} > {p['up']:.3g}, −{p['step_down']:g} < {p['down']:.3g}"
+            return ", ".join(f"{s}{p['step_' + w]:g} {c} {p[w]:.3g}" for w, s, c in (("up", "+", ">"), ("down", "−", "<"))
+                             if p[w] is not None)
         if self.family == "proportional":
             return f"K_p = {p['k']:.3g}"
         return f"K_p = {p['kp']:.3g}, K_i = {p['ki']:.3g}"
@@ -137,7 +154,7 @@ def step(law: Law, st: dict, x: float) -> float:
     return st["u"]
 
 
-def _since(us: list[float], tol: float) -> list[int]:
+def since_moves(us: list[float], tol: float) -> list[int]:
     out = [10 ** 6]
     for k in range(1, len(us)):
         out.append(0 if abs(us[k] - us[k - 1]) > tol else out[-1] + 1)
@@ -146,7 +163,7 @@ def _since(us: list[float], tol: float) -> list[int]:
 
 def run(law: Law, xs: list[float], us: list[float], free_from: int | None = None) -> list[float]:
     """What the law puts out at each sample: one step ahead from the record's state before ``free_from``, free after."""
-    ms, d = _since(us, _tol(us)), law.d
+    ms, d = since_moves(us, tol(us)), law.d
     st, out = start(law, us[0], xs[0]), [us[0]]
     for k in range(1, len(xs)):
         if free_from is None or k < free_from:
@@ -155,7 +172,7 @@ def run(law: Law, xs: list[float], us: list[float], free_from: int | None = None
     return out
 
 
-def _tol(us: list[float]) -> float:
+def tol(us: list[float]) -> float:
     return 1e-3 * ((max(us) - min(us)) or 1.0)
 
 
@@ -175,7 +192,7 @@ def _rule(xs, ev, ok, since, side) -> dict | None:
     evk = [k for k in idx if ev[k]]
     if len(evk) < MIN_MOVES:
         return None
-    qs = sorted(xs)
+    qs = sorted(xs[k - j] for k in evk for j in range(MAX_DELAY + 16) if k >= j)   # where a move's threshold can be
     grid = sorted({(qs[int(i * (len(qs) - 1) / GRID)] + qs[int((i + 1) * (len(qs) - 1) / GRID)]) / 2 for i in range(GRID)})
     tried = []
     for thr in grid:
@@ -186,8 +203,9 @@ def _rule(xs, ev, ok, since, side) -> dict | None:
             for nf in {1, max(1, min(rd[k] for k in evk))}:
                 for nc in {0, min(since[k] for k in evk)}:
                     miss = sum(1 for k in idx if (rd[k] >= nf and since[k] >= nc) != ev[k])
-                    if best is None or (miss, nf + nc) < best[:2]:
-                        best = (miss, nf + nc, nf, nc)
+                    cost = miss + 2 * (nc > 0)              # a wait only where it tells more than two moves
+                    if best is None or (cost, nf + nc) < best[:2]:
+                        best = (cost, nf + nc, nf, nc, miss)
             tried.append((best[0], d, thr, best[2], best[3]))
     least = min(t[0] for t in tried)
     d = min(t[1] for t in tried if t[0] == least)
@@ -199,15 +217,15 @@ def _rule(xs, ev, ok, since, side) -> dict | None:
 
 
 def _fit_switching(family: str, xs, us, dt) -> Law | None:
-    tol = _tol(us)
+    eps = tol(us)
     lo, hi = min(us), max(us)
     dus = [0.0] + [us[k] - us[k - 1] for k in range(1, len(us))]
-    moves = [k for k, x in enumerate(dus) if abs(x) > tol]
+    moves = [k for k, x in enumerate(dus) if abs(x) > eps]
     if len(moves) < MIN_MOVES or len(moves) > 0.25 * len(us):
         return None                                            # not a switching law's record: it hardly moves, or always
-    since = [s + 1 for s in [10 ** 6] + _since(us, tol)[:-1]]
+    since = [s + 1 for s in [10 ** 6] + since_moves(us, eps)[:-1]]
     if family == "onoff":
-        if any(min(abs(u - lo), abs(u - hi)) > tol for u in us):
+        if any(min(abs(u - lo), abs(u - hi)) > eps for u in us):
             return None
         on = [u > (lo + hi) / 2 for u in us]
         best = None
@@ -215,7 +233,8 @@ def _fit_switching(family: str, xs, us, dt) -> Law | None:
         for side in (1, -1):
             r_on = _rule(xs, [a and not w for a, w in zip(on, was, strict=True)], [not w for w in was], since, side)
             r_off = _rule(xs, [w and not a for a, w in zip(on, was, strict=True)], was, since, -side)
-            if r_on and r_off and (best is None or r_on["miss"] + r_off["miss"] < best[0]):
+            ok = r_on and r_off and side * (r_on["thr"] - r_off["thr"]) >= 0      # never a negative hysteresis
+            if ok and (best is None or r_on["miss"] + r_off["miss"] < best[0]):
                 best = (r_on["miss"] + r_off["miss"], side, r_on, r_off)
         if best is None:
             return None
@@ -224,20 +243,20 @@ def _fit_switching(family: str, xs, us, dt) -> Law | None:
         return Law("onoff", {"side": side, "on": a["thr"], "off": b["thr"], "for": (a["nf"] - 1 + a["d"] - d) * dt,
                              "for_off": (b["nf"] - 1 + b["d"] - d) * dt, "min_off": a["nc"] * dt, "min_on": b["nc"] * dt,
                              "lo": lo, "hi": hi}, dt, d * dt, {"on": a["se"], "off": b["se"]})
-    bound = {k: v if sum(1 for u in us if abs(u - v) <= tol) >= max(3, 0.05 * len(us)) else None for k, v in (("lo", lo), ("hi", hi))}
+    bound = {k: v if sum(1 for u in us if abs(u - v) <= eps) >= max(3, 0.05 * len(us)) else None for k, v in (("lo", lo), ("hi", hi))}
     ups, downs = [dus[k] for k in moves if dus[k] > 0], [-dus[k] for k in moves if dus[k] < 0]
     rs = []
-    for side, ev, room in ((1, [x > tol for x in dus], lambda u: bound["hi"] is None or u < hi - tol),
-                           (-1, [x < -tol for x in dus], lambda u: bound["lo"] is None or u > lo + tol)):
+    for side, ev, room in ((1, [x > eps for x in dus], lambda u: bound["hi"] is None or u < hi - eps),
+                           (-1, [x < -eps for x in dus], lambda u: bound["lo"] is None or u > lo + eps)):
         rs.append(_rule(xs, ev, [k > 0 and room(us[k - 1]) for k in range(len(us))], since, side))
     for key, side, r in (("hi", 1, rs[0]), ("lo", -1, rs[1])):   # a bound only where its rule held and it did not move
         rd = _runs(xs, side, r["thr"]) if r and bound[key] is not None else []
-        held = sum(1 for k in range(1, len(us)) if rd and abs(us[k - 1] - bound[key]) <= tol and abs(dus[k]) <= tol
+        held = sum(1 for k in range(1, len(us)) if rd and abs(us[k - 1] - bound[key]) <= eps and abs(dus[k]) <= eps
                    and rd[max(0, k - r["d"])] >= r["nf"] and since[k] >= r["nc"])
         bound[key] = bound[key] if held >= MIN_MOVES else None
     up, down = rs
-    if up is None and down is None:
-        return None
+    if up is None and down is None or up and down and up["thr"] < down["thr"]:
+        return None                                            # nothing epsd, or up below down: no such controller
     d = min(r["d"] for r in rs if r)
     p, se = {"lo": bound["lo"], "hi": bound["hi"]}, {}
     for key, r, sizes in (("up", up, ups), ("down", down, downs)):
@@ -262,8 +281,8 @@ def _ols(rows, ys, names) -> tuple[dict, dict, float] | None:
 
 
 def _bounds(us) -> tuple:
-    tol = 5 * _tol(us)
-    return tuple(v if sum(1 for u in us if abs(u - v) <= tol) >= max(3, 0.05 * len(us)) else None for v in (min(us), max(us)))
+    eps = 5 * tol(us)
+    return tuple(v if sum(1 for u in us if abs(u - v) <= eps) >= max(3, 0.05 * len(us)) else None for v in (min(us), max(us)))
 
 
 def _pi(xd, us, free, db: float, r0: float | None, dt: float) -> tuple[dict, dict] | None:
@@ -280,8 +299,8 @@ def _pi(xd, us, free, db: float, r0: float | None, dt: float) -> tuple[dict, dic
 
 def _fit_linear(family: str, xs, us, dt) -> Law | None:
     lo, hi = _bounds(us)
-    tol = 5 * _tol(us)
-    free = [k for k in range(1, len(us)) if not any(b is not None and abs(us[j] - b) <= tol for b in (lo, hi) for j in (k, k - 1))]
+    eps = 5 * tol(us)
+    free = [k for k in range(1, len(us)) if not any(b is not None and abs(us[j] - b) <= eps for b in (lo, hi) for j in (k, k - 1))]
     best = None
     for d in range(MAX_DELAY + 1):
         xd = [xs[max(0, k - d)] for k in range(len(xs))]
@@ -293,7 +312,7 @@ def _fit_linear(family: str, xs, us, dt) -> Law | None:
             if base:                                         # the deadband: a share of the errors about the first fit's r
                 es = sorted(abs(xd[k] - base[0]["r"]) for k in free)
                 cands += [c for q in (0.05, 0.1, 0.2, 0.3) if (c := _pi(xd, us, free, es[int(q * len(es))], base[0]["r"], dt))]
-                still = [k for k in free if abs(us[k] - us[k - 1]) <= 1e-9 * _tol(us)]   # held exactly: inside the band
+                still = [k for k in free if abs(us[k] - us[k - 1]) <= 1e-9 * tol(us)]   # held exactly: inside the band
                 c = base
                 for _ in range(3) if len(still) >= 5 else ():        # the band and its centre, each from the other
                     c = _pi(xd, us, free, max(abs(xd[k] - c[0]["r"]) for k in still), c[0]["r"], dt) or c
@@ -316,7 +335,7 @@ def fit(xs: list[float], us: list[float], dt: float) -> tuple[Law | None, list[L
         return None, [], "its output never moved in the record"
     nf = int(n * (1 - HELD_OUT))
     laws = []
-    for fam in NPAR:
+    for fam in FAMILIES:
         law = (_fit_switching if fam in ("onoff", "stepper") else _fit_linear)(fam, xs[:nf], us[:nf], dt)
         if law is not None:
             judge(law, xs, us, nf)
@@ -338,21 +357,15 @@ def judge(law: Law, xs, us, nf: int) -> None:
     sst = sum((us[k] - m) ** 2 for k in h)
     law.r2 = 1 - sum((free[k] - us[k]) ** 2 for k in h) / sst if sst > 0 else None
     nh = len(h)
-    law.score = nh * math.log(max(sse / nh, _tol(us) ** 2)) + NPAR[law.family] * math.log(nh)
+    law.score = nh * math.log(max(sse / nh, tol(us) ** 2)) + law.k * math.log(nh)
     law.points = len(us)
 
 
-def drifted(a: Law, b: Law) -> list[str]:
-    """What moved between two identifications of one controller: another law, or a number past three combined standard
-    errors and a fifth of itself."""
-    if a.family != b.family:
-        return [f"its law was {a.family}, now {b.family}"]
-    out = []
-    for k, va in a.p.items():
-        vb = b.p.get(k)
-        if not isinstance(va, int | float) or not isinstance(vb, int | float) or k == "side":
-            continue
-        se = math.hypot(a.se.get(k, 0.0), b.se.get(k, 0.0)) or 0.5 * a.dt
-        if abs(va - vb) > 3 * se and abs(va - vb) > 0.2 * max(abs(va), abs(vb), 1e-9):
-            out.append(f"{k} {va:.3g} → {vb:.3g}")
-    return out
+def settle(law: Law, xs: list[float], us: list[float]) -> dict:
+    """Its state where the record ends: run one step ahead over it, its output and its last move as measured."""
+    st, ms = start(law, us[0], xs[0]), since_moves(us, tol(us))
+    for k in range(1, len(xs)):
+        st["u"], st["since"] = us[k - 1], ms[k - 1]
+        step(law, st, xs[max(0, k - law.d)])
+    st["u"], st["since"] = us[-1], ms[-1]
+    return st

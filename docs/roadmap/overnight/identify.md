@@ -44,3 +44,13 @@ and their parameters are recovered within tolerance (the numbers, true against i
 ## Size budget
 
 600 net non-test lines (outside `tests/` and `docs/`); expected about 500.
+
+## Where it stopped
+
+After the gate review (merge after fixes): `external-law-changed` is **not built**. Comparing the numbers fitted on
+each half of the window raised it on unchanged controllers (alert 24 of 30 seeds, HPA 7 of 30), and a held-out test of
+two laws against one still raised it on some unchanged seeds (counts of moves mistold are small and noisy). The finding
+was dropped, as the review allowed, and recorded in GAPS; `test_a_retuned_controller_raises_external_law_changed` is
+gone with it. In its place: `external-not-run` (a law identified whose output the projection cannot move), and tests for
+a day of record at the sensors' own period, every seed recovering the alert and the HPA with no spurious waits, and the
+no-delay bias note.
