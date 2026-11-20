@@ -16,11 +16,16 @@ from where the record did not reach, and scored in a regime of its own).
 δ(δ + 2(after − record)), δ what the change moves the replay by: known exactly, so the only noise is the record's
 own about the better replay, taken as AR(1) (its correlation from one reading to the next, and from a twelfth of the
 record on; while the record spans fewer than three time constants of what the change touches, noise that drifts is
-taken to last that long; a bias in the better replay counts as noise). Errors within ``FLOOR`` count neither way.
-That gives the change's effect (the share by which it lowers
-the scaled error) and its standard error, and an **always-valid confidence sequence** (a normal mixture) bounds it, in
-units of the record the change needs: however often the judge looks as the record grows, a change no better than the
-model as it is passes at most ``ALPHA`` of the time, and one no worse fails at most that. It **passes** a change whose
+taken to last that long; what only accumulates, with no time constant, as a walk as well; a bias in the better replay
+counts as noise). Several stocks' noises may be correlated: their standard errors add. Errors within ``FLOOR`` count
+neither way. That gives the change's effect (the share by which it lowers the scaled error) and its standard error,
+and a **confidence sequence** (a normal mixture) bounds it, in units of the record the change needs. It is a plug-in,
+asymptotic sequence, valid under stationary AR(1) noise (or a walk) read well enough from the record: then, however
+often the judge looks as the record grows, a change no better than the model as it is passes at most about ``ALPHA``
+of the time and one no worse fails at most about that (two-sided at 2·ALPHA by Ville's inequality, each way ALPHA by
+the noise's symmetry; the fail side's several tests, near it, elsewhere and each goal's stock, share ALPHA:
+Bonferroni). Measured on records made to that model: at most 5% passed, 6% failed (``tests/test_slowjudge.py``).
+It **passes** a change whose
 bound's low end is above no change and that is better by the threshold, near it, and no worse elsewhere or on a goal's
 stock; or one the bound holds no worse (within the threshold) that answers findings ``check`` reported (making none),
 or that is simpler (fewer parts, parameters and terms: Occam) where the record replays what it touches. It **fails**
@@ -220,13 +225,14 @@ def _change(b: float | None, a: float | None) -> float | None:
     return (b - a) / b if b else (0.0 if a == 0 else -1.0)
 
 
-def bound(se: float, units: float) -> float:
-    """The half-width of an always-valid confidence sequence for a mean (a normal mixture, Robbins 1970; Howard et
-    al. 2021: |S| ≥ √((V + M) log((V + M) / (M α²))), by Ville's inequality), its standard error ``se`` on ``units``
-    of the record it needs: looking again as the record grows never raises the chance of a false verdict past ALPHA
-    (each side: the bound is two-sided at twice it, and the noise symmetric)."""
+def bound(se: float, units: float, alpha: float = ALPHA) -> float:
+    """The half-width of a confidence sequence for a mean (a normal mixture, Robbins 1970; Howard et al. 2021:
+    |S| ≥ √((V + M) log((V + M) / (M a²))), by Ville's inequality), its standard error ``se`` on ``units`` of the record
+    it needs. Two-sided at a = 2·``alpha``: by Ville the chance it is ever crossed, either way, however often it is
+    looked at, is at most 2·alpha, and each way about alpha when the noise is symmetric. It is a plug-in, asymptotic
+    sequence: valid as far as the standard error is (stationary AR(1) noise, read well enough from the record)."""
     v = max(units, 1e-9)
-    return se * math.sqrt((v + MIX) / v * math.log((v + MIX) / (MIX * 4 * ALPHA * ALPHA)))
+    return se * math.sqrt((v + MIX) / v * math.log((v + MIX) / (MIX * 4 * alpha * alpha)))
 
 
 def horizon(needs: float) -> float:
@@ -243,9 +249,13 @@ def due(looked: float, needs: float) -> float:
 def floor_of(ev: dict) -> float:
     """The least noise correlation from one bucket to the next: what the slower time constant of what the change
     touches carries over, while the record held out spans fewer than ``SPANS`` of them (a short record reads a slow
-    noise's correlation low, and a day of a day-long drain is one draw); none after."""
+    noise's correlation low, and a day of a day-long drain is one draw); none after. What only accumulates (no time
+    constant) keeps whatever it gets wrong: its noise, once it drifts, is as slow as can be (``RHO_MAX``), and is
+    also taken as a walk (``pooled``'s ``walk``)."""
     tau = ev.get("tau")
-    return math.exp(-ev["width"] / tau) if tau and ev["until"] - ev["since"] < SPANS * tau else 0.0
+    if not tau:
+        return RHO_MAX
+    return math.exp(-ev["width"] / tau) if ev["until"] - ev["since"] < SPANS * tau else 0.0
 
 
 def _rho(e: list[float]) -> float:
@@ -261,13 +271,15 @@ def _rho(e: list[float]) -> float:
     return min(RHO_MAX, max(0.0, r1 + (1 + 3 * r1) / n, max(0.0, rl) ** (1.0 / lag)))
 
 
-def _effect(rows: list[tuple], least: float = 0.0) -> tuple[float, float, float, bool]:
+def _effect(rows: list[tuple], least: float = 0.0, walk: bool = False) -> tuple[float, float, float, bool]:
     """One stock's scaled error before and after, and the variance of their difference's mean, given how far the
     two replays are apart: the difference at each reading is δ(δ + 2(after − record)), δ what the change moves the
     replay by, so its noise is the record's own about the better replay (AR(1); its second moment about that replay,
     not its mean, so a bias in the better one counts as noise, never against it), from one bucket to the next at least
     ``least`` once the record says it drifts at all (``DRIFTS``): what the stock's own time constant carries over (its
-    process noise drains no faster than the stock), given while the record spans too few of them to read it."""
+    process noise drains no faster than the stock), given while the record spans too few of them to read it. With
+    ``walk`` (what only accumulates) the noise may be a walk as well, its steps read from the record's successive
+    differences: Var = σ²_step Σ_k (Σ_{i≥k} δ_i)², and the larger of the two is taken."""
     n = len(rows)
     b = sum((x - y) ** 2 for _, x, _, y in rows) / n
     a = sum((z - y) ** 2 for _, _, z, y in rows) / n
@@ -281,22 +293,30 @@ def _effect(rows: list[tuple], least: float = 0.0) -> tuple[float, float, float,
         run_ *= rho ** (i - last)
         acc += d * d + 2 * d * run_
         run_, last = run_ + d, i
+    if walk and rho >= DRIFTS and n > 1:                # a walk: its steps from the record, min(i, j) its covariance
+        step = sum((e[j + 1] - e[j]) ** 2 for j in range(n - 1)) / max(1, rows[-1][0] - rows[0][0])
+        tail, cov = 0.0, 0.0
+        for j in range(n - 1, -1, -1):
+            tail += rows[j][1] - rows[j][2]
+            cov += tail * tail * ((rows[j][0] - rows[j - 1][0]) if j else 1)
+        acc = max(acc, step * cov / max(s2, 1e-300))
     return b, a, 4 * s2 * max(acc, 0.0) / (n * n), any(x != z for _, x, z, _ in rows)
 
 
-def pooled(stocks: dict[str, list], units: float, least: float = 0.0) -> dict | None:
+def pooled(stocks: dict[str, list], units: float, least: float = 0.0, alpha: float = ALPHA, walk: bool = False) -> dict | None:
     """The change's effect on these stocks' scaled error, with its noise from the record itself: the estimate (the
-    share by which it lowers the error) and the always-valid bound about it (``lo``, ``hi``); None with no rows."""
-    got = [_effect(rows, least) for rows in stocks.values() if rows]
+    share by which it lowers the error) and the bound about it (``lo``, ``hi``, at ``alpha`` each way); None with no
+    rows. The stocks' noises may be correlated: their standard errors add (the worst case, Cauchy–Schwarz)."""
+    got = [_effect(rows, least, walk) for rows in stocks.values() if rows]
     if not got:
         return None
     k = len(got)
     before, after = sum(g[0] for g in got) / k, sum(g[1] for g in got) / k
-    se = math.sqrt(sum(g[2] for g in got)) / k
+    se = sum(math.sqrt(g[2]) for g in got) / k
     scale = before or 1.0
     est = _change(before, after) or 0.0
-    h = bound(se, units) / scale
-    return {"before": before, "after": after, "est": est, "lo": est - h, "hi": est + h, "half": h,
+    h = bound(se, units, alpha) / scale
+    return {"before": before, "after": after, "est": est, "lo": est - h, "hi": est + h, "half": h, "se": se / scale,
             "readings": sum(len(r) for r in stocks.values()), "moved": any(g[3] for g in got)}
 
 
@@ -327,6 +347,15 @@ def _pct(v: float) -> str:
     return f"{v * 100:.0f}%"
 
 
+def _more(s: dict, held: float, needs: float, gap: float) -> float:
+    """About how much more record the bound needs to narrow to ``gap``, the record going on as it has (its standard
+    error falling as one over the root of the record, its mixture's log factor counted)."""
+    t = held
+    while gap > 0 and t < 100 * horizon(needs) and bound(s["se"] * math.sqrt(held / t), t / max(needs, 1.0)) > gap:
+        t *= 1.1
+    return t - held if gap > 0 else horizon(needs)
+
+
 def _says(s: dict) -> str:
     return f"{_pct(s['est'])} (bound {_pct(s['lo'])} to {_pct(s['hi'])}; {s['before']:.3g} → {s['after']:.3g})"
 
@@ -342,7 +371,8 @@ def decide(ev: dict, threshold: float, answers: int, new: int, held: float, need
     it needs: keep testing. ``needs``: the least record the change is judged on, the unit the bound counts in."""
     units = held / max(needs, 1.0)
     least = floor_of(ev)
-    near = pooled(ev["near"], units, least)
+    walk = not ev.get("tau")                              # what only accumulates: its noise may walk
+    near = pooled(ev["near"], units, least, walk=walk)
     sc = ev.get("scored") or []
     where = (", ".join(sc[:4]) + (f" and {len(sc) - 4} more" if len(sc) > 4 else "")) or "every stock"
     if near is None:
@@ -355,10 +385,12 @@ def decide(ev: dict, threshold: float, answers: int, new: int, held: float, need
                                 f"follow in {dur(held)} held out; it needs more record"), None
     span = f"over {dur(held)} held out ({near['readings']} readings)"
     near_ = f"near what it touches ({where})"
-    if _harm(near, threshold):
+    worse = [(n, r) for n, r in [("the rest of the model", ev["rest"]), *((f"goal {g}'s stock", r) for g, r in ev["goals"].items())]
+             if any(r.values())]
+    a_fail = ALPHA / (1 + len(worse))                     # it can fail on any of these: the error split (Bonferroni)
+    if _harm(pooled(ev["near"], units, least, a_fail, walk), threshold):
         return "dropped", f"worse {near_}: the scaled error rises by {_says(near)[1:]} {span}", None
-    others = [("the rest of the model", pooled(ev["rest"], units, least)),
-              *((f"goal {g}'s stock", pooled(r, units, least)) for g, r in ev["goals"].items())]
+    others = [(n, pooled(r, units, least, a_fail, walk)) for n, r in worse]
     for name, s in others:
         if _harm(s, threshold):
             return "dropped", (f"worse elsewhere: {name} by {_says(s)[1:]} {span}, though {near_} it falls by "
@@ -391,7 +423,7 @@ def decide(ev: dict, threshold: float, answers: int, new: int, held: float, need
         return None, f"within {_pct(threshold)} so far ({_says(near)})", None
     e = abs(near["est"])
     gap = e if e >= threshold else threshold - e
-    more = held * max(0.0, (near["half"] / gap) ** 2 - 1) if gap > 0 else horizon(needs)
+    more = _more(near, held, needs, gap)
     if held >= horizon(needs):
         return "inconclusive", (f"not yet told from the model as it is: {near_} {_says(near)} {span}; it needs about "
                                 f"{dur(more)} more record, as the record has gone"), None
@@ -488,6 +520,13 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
             held = now - since
             reach = recorded(p, spec, nd["stocks"], now)
             stalled = reach is not None and reach <= since + looked     # no reading of what it touches since the last look
+            if stalled and held >= horizon(nd["needs"]):      # the record of what it touches stopped, and stayed so
+                why = (f"the record of what it touches stopped {dur(held - (reach - since))} ago, "
+                       f"{dur(max(0.0, reach - since))} after it was made; it needs more record")
+                pr.event(p, x["id"], "inconclusive", {"verdict": {"verdict": "inconclusive", "why": why, "at": now, "by": by}})
+                out["inconclusive"] += 1
+                out["verdicts"].append({"id": x["id"], "verdict": "inconclusive", "why": why})
+                continue
             if held < due(looked, nd["needs"]) or judged >= most or stalled:
                 out["waiting"].append({"id": x["id"], "held": now - since, "needs": due(looked, nd["needs"]),
                                        **({"record": reach - since} if stalled else {})})
@@ -509,8 +548,7 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                                        "why": why, **({"more": more} if more else {})})
                 continue
             state = {"kept": "passed", "dropped": "failed"}.get(verdict, verdict)
-            stat = pooled(ev["near"], held / max(nd["needs"], 1.0),
-                          floor_of(ev))
+            stat = pooled(ev["near"], held / max(nd["needs"], 1.0), floor_of(ev), walk=not ev["tau"])
             pr.event(p, x["id"], state, {"verdict": {"verdict": state, "why": why, "at": now, "threshold": pol.threshold,
                                                       "windows": results, "pooled": stat, "alpha": ALPHA, "held": held,
                                                       "by": by, "warm_up": nd["warm_up"], "tau": nd["tau"],
