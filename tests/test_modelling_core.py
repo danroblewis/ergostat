@@ -329,3 +329,15 @@ def test_the_boundary_leaves_out_only_a_templates_parts(tmp_path):
     (tmp_path / "with").mkdir()
     (tmp_path / "with" / "ergostat.yaml").write_text(own + MODELLING.replace("      ai: true\n", ""))
     assert chains.boundary(read(tmp_path / "with" / "ergostat.yaml")[0], {}).code == "many-cloud-inflows"
+
+
+def test_a_held_modelling_request_is_in_the_inbox(tmp_path):
+    from ergostat.inbox import entries as en
+    from ergostat.numbers import requests as rq
+    p = poor_project(tmp_path, POOR + MODELLING)
+    rq.sync(p)
+    r = next(iter(rq.current(p)))
+    rq.mark(p, r, "held", "no tier has a change for it")
+    got = [e for e in en.entries(p) if e["kind"] == "request"]
+    assert [e["id"] for e in got] == [f"request/{r['id']}"] and got[0]["verbs"] == []
+    assert got[0]["link"] == f"/item/ergostat.modelling-request/{r['id']}"

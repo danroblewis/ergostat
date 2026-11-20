@@ -96,7 +96,7 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
             continue
         for name, got in entries.items():
             put(section, name, as_map(got, via), via, {})
-    doc.uses[inst] = {"template": t.name, "path": str(t.path), "owners": not t.builtin, "values": made.values,
+    doc.uses[inst] = {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once, "values": made.values,
                       "standins": made.standins, "where": via, "within": parent, "depth": depth}
     if made.standins:
         doc.problems.append(Problem("finding", f"use {inst}: runs on free stand-ins ({'; '.join(made.standins)}); "

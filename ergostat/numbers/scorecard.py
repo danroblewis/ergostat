@@ -33,8 +33,9 @@ WEIGHTS = {"findings": 3.0, "pieces": 3.0, "mismatches": 2.0, "coherence": 4.0, 
 
 
 def _skip(x) -> bool:
+    from ..spec.ir import template_made
     from .requests import NOT_MODELLING
-    return x.code in NOT_MODELLING or bool(getattr(getattr(x, "where", None), "template", None)) or not x.code
+    return x.code in NOT_MODELLING or template_made(x) or not x.code
 
 
 def findings(problems) -> set[str]:

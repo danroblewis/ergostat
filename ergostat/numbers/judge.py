@@ -414,13 +414,15 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
     if rd.running(p, now, rd.HOLD_FOR):          # a redesign being made: the model it reads held still, for a while
         return out
     first = [y for y in sets if y["state"] == "passed" and pol.accept.get(REDESIGN) == "auto" and not owners(y)][:1]
+    held = sets if pol.accept.get(REDESIGN) == "auto" else []   # a redesign the judge may write holds its lines; one
+    # only the owner writes holds nothing (it is carried, or superseded, as the model moves)
     todo = first + [y for y in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0) if y not in first]
     for x in todo:                                   # a redesign the owner promoted and the judge passed is written first,
         if x["state"] != "passed" or x.get("kind") not in (*JUDGED, *WORDING, REDESIGN) or pol.accept.get(x.get("kind")) != "auto":
             continue                                 # alone; else one a pass, the oldest first (words as many as passed)
         if owners(x):                                # a removal, a chain rewired, a redesign's control: the owner's
             continue
-        if x.get("kind") != REDESIGN and any(tr.conflicts(x, y) for y in sets):
+        if x.get("kind") != REDESIGN and any(tr.conflicts(x, y) for y in held):
             continue
         if x.get("kind") in WORDING and words >= WORDING_MOST:
             continue
@@ -431,7 +433,7 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
         except pr.ProposalError as e:
             if x.get("kind") == REDESIGN:            # a promoted redesign that cannot be written never blocks the rest
                 pr.event(p, x["id"], "superseded", {"why": f"it could not be written: {e}"})
-                sets = [y for y in sets if y["id"] != x["id"]]
+                held = [y for y in held if y["id"] != x["id"]]
                 out["verdicts"].append({"id": x["id"], "verdict": "superseded", "why": f"not written: {e}"})
                 continue
             out["verdicts"].append({"id": x["id"], "verdict": "passed", "why": f"not written: {e}"})

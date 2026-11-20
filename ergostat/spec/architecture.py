@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .ir import Ref, Spec
+from .ir import Ref, Spec, once_made
 
 SPLIT_Q = 0.4      # the split's modularity at or above which its clusters are well separated (Newman and Girvan 2004: 0.3 is structure)
 SMALL = 20         # a system of fewer parts is read at a glance: not split
@@ -32,10 +32,10 @@ PARTS = (("stock", "stocks"), ("flow", "flows"), ("auxiliary", "auxiliaries"), (
 
 
 def _parts(spec: Spec) -> dict[str, str | None]:
-    """Every part (an implied block left out: it is its goal's; a part a template made left out: its architecture is
-    the template's) → the system it is directly in."""
+    """Every part (an implied block left out: it is its goal's; a part a once template made left out: its architecture
+    is the template's) → the system it is directly in."""
     return {f"{k}.{n}": x.system for k, t in PARTS for n, x in getattr(spec, t).items()
-            if not (k == "block" and x.implied) and not getattr(getattr(x, "where", None), "template", None)}
+            if not (k == "block" and x.implied) and not once_made(spec, x)}
 
 
 def _edges(spec: Spec) -> Counter:
@@ -338,8 +338,8 @@ def _coupled(a: set[str], b: set[str], near: dict[str, set[str]], within: set[st
 
 
 def purpose(spec: Spec, say) -> None:
-    if not [s for s in spec.systems if s not in spec.uses]:     # (a template's own system, as use: modelling's, is the
-        return                                                  # template's: a model of no systems of its own has none)
+    if not [s for s in spec.systems if not (spec.uses.get(s) or {}).get("once")]:   # (a once template's system, as use:
+        return                                                  # modelling's, is the template's: the model has none of its own)
     for s in sorted(spec.systems):
         if not spec.systems[s]:
             say("purpose", f"system {s}: says nothing of what it is for: a description, its purpose, is what its goals "

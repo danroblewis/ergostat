@@ -748,10 +748,10 @@ def boundary(spec: Spec, moves: dict[str, Counter] | None = None) -> Found | Non
         if entered:
             proper |= {f.name for f in entered[_first(c, entered, moves.get(k) or Counter())]}
 
-    def made(x) -> bool:                                  # a template's own part: the template's boundary, not the model's
-        return bool(getattr(getattr(x, "where", None), "template", None))
-    extra = [f.name for f in ix.out_of.get(None, ()) if f.target and not f.two_way and f.name not in proper and not made(f)]
-    stocks = [st for st in spec.stocks.values() if not made(st)]
+    from .ir import once_made  # a once template's part: its boundary, not the model's
+    extra = [f.name for f in ix.out_of.get(None, ()) if f.target and not f.two_way and f.name not in proper
+             and not once_made(spec, f)]
+    stocks = [st for st in spec.stocks.values() if not once_made(spec, st)]
     if len(extra) < MANY_CLOUDS or 2 * len(extra) <= len(stocks):
         return None
     from .load import Where

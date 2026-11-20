@@ -19,7 +19,7 @@ import re
 import time
 from pathlib import Path
 
-from ..spec.ir import Spec
+from ..spec.ir import Spec, template_made
 from . import changeset as cs
 from . import modeller as md
 
@@ -82,7 +82,7 @@ def _check(problems) -> list[str]:
     for lv in ("finding", "note"):
         for x in problems:
             if x.level == lv or (lv == "finding" and x.level not in ("error", "note")):
-                if getattr(getattr(x, "where", None), "template", None):
+                if template_made(x):
                     continue
                 out.append(f"{'note' if x.level == 'note' else 'finding'} {x.code}@{x.about}: {str(x.message)[:400]}")
     return out
