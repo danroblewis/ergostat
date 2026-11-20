@@ -117,7 +117,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    stand-in improver until given a prompt and `run: ""` (a Claude session) or a program; its options are in
    `docs/ADDING.md` (modelling). With `ai: true` it also reviews the structure on its own, a system at a time (the
    redesigner, `when: auto`), and what it proposes waits for the owner: keep the systems small (40 parts or fewer)
-   so each can be reviewed whole. Do not hand-write these parts.
+   so each can be reviewed whole. With `ai: true` a reviewer also reads every structural change and redesign the
+   judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a change you see
+   failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way they say rather
+   than proposing the same idea again. Do not hand-write these parts.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three

@@ -412,6 +412,7 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
     words = 0
     sets = [y for y in pr.pending(p, spec) if y.get("kind") == REDESIGN]     # a redesign waiting: nothing written over it
     from . import redesign as rd
+    from . import reviewer as rv
     if rd.running(p, now, rd.HOLD_FOR):          # a redesign being made: the model it reads held still, for a while
         return out
     first = [y for y in sets if y["state"] == "passed" and pol.accept.get(REDESIGN) == "auto" and not owners(y)][:1]
@@ -422,6 +423,8 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
         if x["state"] != "passed" or x.get("kind") not in (*JUDGED, *WORDING, REDESIGN) or pol.accept.get(x.get("kind")) != "auto":
             continue                                 # alone; else one a pass, the oldest first (words as many as passed)
         if owners(x):                                # a removal, a chain rewired, a redesign's control: the owner's
+            continue
+        if rv.awaiting(spec, x):                     # a reviewed kind: written only after the reviewer's pass
             continue
         if x.get("kind") != REDESIGN and any(tr.conflicts(x, y) for y in held):
             continue

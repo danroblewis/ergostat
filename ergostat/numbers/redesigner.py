@@ -145,7 +145,8 @@ def _record(p, spec: Spec) -> list[str]:
     return out
 
 
-def prompt(p, s: cs.Scratch, system: str, why: list[str], feedback: list[str] | None = None, card: dict | None = None) -> str:
+def prompt(p, s: cs.Scratch, system: str, why: list[str], feedback: list[str] | None = None, card: dict | None = None,
+           by: str = "redesigner") -> str:
     spec, problems = s.compiled()
     shown = spec or s.base
     lines = [guides(), "", "## The task", "",
@@ -166,6 +167,8 @@ def prompt(p, s: cs.Scratch, system: str, why: list[str], feedback: list[str] | 
     if card:
         from . import scorecard as sc
         lines += ["", "## The scorecard of your edits so far", ""] + sc.lines(card)
+    from . import reviewer as rv
+    lines += rv.lines(p, by)
     if feedback:
         lines += ["", "## What ergostat said of your last answer (fix these in this round's edits)", ""] + [f"- {x}" for x in feedback]
     if s.done:
@@ -232,7 +235,7 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
             log.append({"round": r, "stopped": f"the budget (${budget:.2f}) is spent"})
             break
         t_p = time.perf_counter()
-        text = prompt(p, s, system, why or [], feedback, card)
+        text = prompt(p, s, system, why or [], feedback, card, by)
         t_c = time.perf_counter()
         got = call(text, model, md.per_call(timeout, rounds))
         if on_call is not None:                     # each call's cost said as it is spent: a run cut short keeps it

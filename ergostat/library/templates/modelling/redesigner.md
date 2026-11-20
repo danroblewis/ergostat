@@ -66,6 +66,9 @@ Rules:
   a stock, under its name or renamed; never remove it or turn it into an auxiliary.
 - A block's `out:` names the flow its runs move; a goal on a queue of items is `hold: "<= 0"` with `tolerance: 0`.
 - Prefer a complete, coherent design over a timid one: this is the change refinement could not make.
+- With the reviewer on, a change set the judge passes is then read by a disagreeable senior modeller; "The reviewer on
+  your recent proposals" (when there is one) is what it said: answer every finding of one it sent back (a second revise
+  is a reject), and never propose again what it rejected.
 - Answer with the one JSON line only. If nothing should change, answer `{"redesign": null, "why": "..."}`.
 - When the design needs something ergostat cannot express (the format has no way to say it), add a line
   `{"report": "<what ergostat could not express, in one sentence>"}` after the change set: it is drafted, scrubbed,

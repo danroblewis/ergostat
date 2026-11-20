@@ -127,7 +127,8 @@ def _changes(p, spec, now: float) -> list[dict]:
     from ..numbers import proposals as pr
     from ..numbers.review import control_pending
     judged = any(b.type == "judge" for b in spec.blocks.values())      # with a judge, what it passed waits for the owner
-    xs = [x for x in pr.pending(p, spec) if not judged or x.get("state") == "passed"]
+    from ..numbers import reviewer as rv
+    xs = [x for x in pr.pending(p, spec) if (not judged or x.get("state") == "passed") and not rv.awaiting(spec, x)]
     return [{"id": f"change/{x['id']}", "kind": "change", "time": x.get("created") or now, "verbs": ["approve", "deny"],
              "link": f"/item/ergostat.model-change/{x['id']}", "class": f"change:{x.get('kind')}",
              "summary": f"model change: {_cut(x.get('title') or x['id'])}", "why": _cut(x.get("reason") or "", 200),

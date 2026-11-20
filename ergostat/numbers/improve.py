@@ -802,6 +802,7 @@ def _rung(spec: Spec, by: str) -> str | None:
 def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None, at: float | None = None) -> dict:
     """A block's proposal: recorded as made (``ergostat.model-change.made``, from the block, caused by its run), then
     checked, or refused with why. Returns ``{"status": "proposed" | "not-proposed", "id", "title", "why"}``."""
+    from . import reviewer as rv
     spec: Spec = p.model.spec
     now = at or time.time()
     title = str((raw or {}).get("title") or "a change")[:200] if isinstance(raw, dict) else "a change"
@@ -837,6 +838,7 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
                                          **({"gated": True, "key": k} if gated else {})})
             return {"status": "not-proposed", "id": pid, "title": title, "why": err.args[0] if gated else str(err)}
         x["edit"] = stamped(x["edit"], pid)
+        x.update(rv.asked(p, by, x.get("parts")))   # sent back by the reviewer: this is its next round
         x.update({"made_by_rung": _rung(spec, by), "window": data.grid.until - data.grid.since if data else None,
                   "method": f"made by {by} ({_rung(spec, by) or 'a block'}); checked by ergostat on a scratch copy: "
                             f"compiled, checked, replayed and refitted on the reference window"})

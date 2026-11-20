@@ -798,6 +798,10 @@ class Engine:
                "outputs": {p: [str(r) for r in rs] for p, rs in b.outputs.items()}}
         if stale := self.stale_in(b):
             out["stale"] = {k: round(v, 1) for k, v in stale.items()}
+        if self.spec.improve.reviewed and b.type in ("ai", "person"):   # an author: the reviewer's verdicts on its changes
+            from ..numbers import reviewer as rv
+            if said := rv.memory(self.p, b.name):
+                out["reviewer"] = said
         law = {k: b.params[k] for k in ("gain", "integral-time", "deadband", "resolution", "limits") if b.params.get(k) is not None}
         if law:
             out["params"] = law                                   # its control law's constants, as the model writes them

@@ -115,6 +115,8 @@ def prompt(p, spec: Spec, reqs: list[dict], feedback: list[str] | None = None) -
         lines += ["", "## Programs they run (read before you describe what they measure or do)", ""]
         for t in progs:
             lines += ["```", t, "```"]
+    from . import reviewer as rv
+    lines += rv.lines(p, os.environ.get("ERGOSTAT_BLOCK") or "modeller")
     if feedback:
         lines += ["", "## What ergostat said of your last answer (fix these, or say cannot)", ""] + [f"- {x}" for x in feedback]
     return "\n".join(lines)
