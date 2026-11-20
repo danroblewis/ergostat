@@ -380,7 +380,6 @@ def test_each_automatic_trigger_fires(tmp_path, monkeypatch):
 
 
 def test_one_pending_and_the_rest_after_one_no_better(tmp_path, monkeypatch):
-    from ergostat.numbers import version as v_
     p = busy(tmp_path / "m", "owner")
     spec, now = p.model.spec, time.time()
     due = _due(p, monkeypatch)
@@ -391,10 +390,11 @@ def test_one_pending_and_the_rest_after_one_no_better(tmp_path, monkeypatch):
     assert "resting" in due.resting(p, spec, "model", now)                 # judged no better: it rests
     assert due.resting(p, spec, "model", now + due.COOL + 1) is None       # for a while
     q = busy(tmp_path / "n", "owner")
-    rd.ran(q, "model", {"result": "nothing proposed", "version": v_.version(q.model.spec)})   # made nothing: rests too
+    sig = due.signature(q.model.spec, "model")
+    rd.ran(q, "model", {"result": "nothing proposed", "unit_sig": sig})  # made nothing: rests too
     assert "resting" in due.resting(q, q.model.spec, "model", now)
-    rd.ran(q, "model", {"result": "nothing proposed", "version": "an older one"})
-    rd.ran(q, "model", {"result": "proposed", "version": v_.version(q.model.spec)})
+    rd.ran(q, "model", {"result": "nothing proposed", "unit_sig": "its parts as they were"})
+    rd.ran(q, "model", {"result": "proposed", "unit_sig": sig})
     assert due.resting(q, q.model.spec, "model", time.time() + 1) is None
 
 
