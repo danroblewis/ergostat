@@ -203,6 +203,12 @@ def git_branch(branch: str) -> str:
     return f"factory/{branch}"
 
 
+def run_tag(branch: str, began: float) -> str:
+    """A run's log name: the branch and when the run began (UTC, to the second; never a gap's own count, which starts
+    again for a gap that continues a branch another gap built)."""
+    return f"{branch}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(began))}"
+
+
 def net_lines(repo: Path, base: str, head: str) -> int:
     """Net lines of ergostat's core changed: outside tests/, docs/, dev/ and the root model."""
     add = rem = 0
@@ -432,14 +438,17 @@ STANDIN = {
 
 def standin(role: str, brief: str, cwd: Path) -> dict:
     """Free and scripted. FACTORY_STANDIN_<ROLE> is what a role says, when set. Else the implementor finishes a merge
-    it was handed (main's side of each conflict) and writes a note into the work; the planner, researcher and
+    it was handed (main's side of each conflict; or aborts it, when FACTORY_STANDIN_MERGE=abort) and writes a note
+    into the work; the planner, researcher and
     librarian say STANDIN's; a reviewer's (or plan reviewer's) verdict is FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
     b = re.search(r"Branch: `([a-z0-9-]+)`", brief)
     said = os.environ.get(f"FACTORY_STANDIN_{role.upper()}") or STANDIN.get(role, "").replace("{b}", b[1] if b else "x")
     if said:
         pass
     elif role == "implementor":
-        if (cwd / ".git" / "MERGE_HEAD").exists():           # a merge handed over: main's side of each conflict
+        if (cwd / ".git" / "MERGE_HEAD").exists() and os.environ.get("FACTORY_STANDIN_MERGE") == "abort":
+            git(cwd, "merge", "--abort")                     # (a session walking away from it: refused after)
+        elif (cwd / ".git" / "MERGE_HEAD").exists():         # a merge handed over: main's side of each conflict
             git(cwd, "checkout", "--theirs", "--", *git(cwd, "diff", "--name-only", "--diff-filter=U").split())
             git(cwd, "add", "-A")
             git(cwd, "-c", "user.name=factory", "-c", "user.email=factory@localhost", "commit", "-q", "--no-edit")

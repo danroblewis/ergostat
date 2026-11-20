@@ -94,6 +94,14 @@ def main() -> int:
         return fac.guarded(given, began, "review_hours", lambda why: park(cfg, given["item"], why, "reviewer"))
 
 
+def next_review(branch: str) -> int:
+    """The number of a new review of the branch: past the highest review/<branch>-N in the record, so a gap that
+    continues a branch already reviewed (or its fix rounds) never reuses a parked gap's review item. A record that
+    cannot be read raises (fac.items)."""
+    got = [re.fullmatch(rf"review/{re.escape(branch)}-(\d+)", str(r.get("id"))) for r in fac.items("review")]
+    return max([int(m[1]) for m in got if m] or [0]) + 1
+
+
 def judge(cfg: dict, gap: dict, began: float) -> int:
     f = gap["fields"]
     refused = fac.may_spend(cfg, float(cfg["ai"]["reviewer_session_usd"]))
@@ -105,7 +113,7 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
         return 0
     branch, base = fac.branch_of(gap), f"origin/{cfg['git']['base']}"       # (in the clone made from the drop)
     n = int(f.get("reviews_n") or 0) + 1
-    rid = f"review/{branch}-{n}"
+    rid = f"review/{branch}-{next_review(branch)}"
     fac.say("gap.review-started", review_at=began, reviews_n=1)
     head = str(f.get("head") or "")
     if not re.fullmatch(r"[0-9a-f]{40}", head):

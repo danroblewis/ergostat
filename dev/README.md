@@ -100,9 +100,10 @@ The intake fetches it into the drop as `factory/NAME` (never over a `factory/NAM
 that is not lowercase words and dashes). Before each implementor run on a branch behind main, implement.py merges main
 in itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its
 brief (it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in
-it, or with the merge unfinished, is refused. The fast suites run after. The reviewer's gate 1 takes the branch's own
-first commit (its first-parent line) as the definition, and for a continued branch also requires its merge base to
-be current main.
+it (say, the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast
+suites run after. The reviewer's gate 1 takes the branch's own first commit (its first-parent line) as the definition,
+and for a continued branch also requires its merge base to be current main. Its reviews are numbered past the
+branch's earlier ones (`review/NAME-3` after a parked gap's `-1` and `-2`), and run logs are named by when they ran.
 
 **Dependencies.** A gap waits on others named by `depends-on: [name, ...]` in its definition (the template is
 `dev/prompts/definition.md`), `"depends_on": ["gap/..."]` in its request, or `after `name``, `needs `name` first` and a

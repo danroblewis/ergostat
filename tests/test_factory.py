@@ -931,6 +931,9 @@ def test_a_conflicted_merge_is_handed_to_the_session_with_its_conflicts(tmp_path
     drop = tmp_path / "live" / "drop.git"
     f.run("implement.py", gid, fails=True, FACTORY_STANDIN_IMPLEMENTOR="I did nothing")   # the merge left unfinished
     assert git(drop, "rev-parse", "factory/warm") == tip                        # refused: nothing came back
+    f.run("implement.py", gid, fails=True, FACTORY_STANDIN_MERGE="abort")      # aborted, and its work committed
+    assert git(drop, "rev-parse", "factory/warm") == tip                        # refused before the drop's branch moved
+    assert git(drop, "for-each-ref", "refs/incoming/") == ""                    # (its side ref gone)
     said, _ = f.run("implement.py", gid)
     assert said == ["gap.started", "gap.built"]
     brief = sorted((f.model / "run" / "briefs").glob("warm-implementor-*.md"))[-1].read_text()
@@ -961,3 +964,24 @@ def test_gate_one_accepts_a_continued_branch_definition(tmp_path):
     said, _ = f.run("review.py", gid)
     assert said[-1] == "gap.sent-back"
     assert any("merge base is not current main" in b for b in f.item("review/warm-2")["fields"]["blocking"])
+
+
+def test_a_continued_branch_already_reviewed_gets_reviews_and_logs_of_its_own(tmp_path):
+    f = Factory(tmp_path)
+    behind_main(f)
+    f.fold([{"event": "review.written", "item": "review/warm-1", "data": {"verdict": "fix", "classes": ["lesson-5"]}},
+            {"event": "review.written", "item": "review/warm-2", "data": {"verdict": "park", "where_it_stopped": "x"}},
+            {"event": "review.written", "item": "review/warmer-7", "data": {"verdict": "merge"}}], None)
+    logs = f.model / "run" / "logs"
+    logs.mkdir(parents=True)
+    (logs / "warm-1-0-unit.txt").write_text("the parked gap's log")             # (the old tag: branch-round-i)
+    gid = continues(f)
+    f.run("implement.py", gid)
+    assert (logs / "warm-1-0-unit.txt").read_text() == "the parked gap's log"
+    said, _ = f.run("review.py", gid)
+    assert said[-1] == "gap.approved"
+    new = f.item("review/warm-3")                                                # past the parked gap's, not -1
+    assert new["fields"]["gap"] == [gid] and "classes" not in new["fields"]
+    assert new["fields"].get("where_it_stopped") != "x" and new["fields"]["verdict"] == "merge"
+    assert f.item("review/warm-1")["fields"] == {"verdict": "fix", "classes": ["lesson-5"]}
+    assert f.item("review/warm-2")["fields"] == {"verdict": "park", "where_it_stopped": "x"}

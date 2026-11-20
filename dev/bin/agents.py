@@ -248,10 +248,11 @@ def publish(cfg: dict, work: Path, branch: str) -> None:
     fac.git(work, "remote", "remove", "origin")
 
 
-def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str) -> str:
+def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str, *also: str) -> str:
     """After the implementor's session: what it left committed, and bundled, in a container with no network (git is
-    never run here on a folder a session had); the bundle fetched into the drop. The new head (it must still hold the
-    definition's commit)."""
+    never run here on a folder a session had); the bundle fetched into the drop, to a side ref first: the branch moves
+    only when the new head holds the definition's commit and each of `also` (main, when it was merged in). The new
+    head."""
     ref = fac.git_branch(branch)
     out = home / "out"
     out.mkdir(exist_ok=True)
@@ -274,10 +275,16 @@ def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str) ->
             killed(name)
     d = drop(cfg)
     fac.git(d, "bundle", "verify", "-q", str(out / "out.bundle"))
-    fac.git(d, "fetch", "-q", str(out / "out.bundle"), f"+refs/heads/{ref}:refs/heads/{ref}")
-    head = fac.git(d, "rev-parse", f"refs/heads/{ref}")
-    if not fac.git_ok(d, "merge-base", "--is-ancestor", must_hold, head):
-        raise RuntimeError(f"the branch no longer holds its definition's commit {must_hold[:12]}: refused")
+    side = f"refs/incoming/{ref}"
+    fac.git(d, "fetch", "-q", str(out / "out.bundle"), f"+refs/heads/{ref}:{side}")
+    head = fac.git(d, "rev-parse", side)
+    try:
+        for sha, what in [(must_hold, "its definition's commit"), *((a, "main, merged in before it") for a in also)]:
+            if not fac.git_ok(d, "merge-base", "--is-ancestor", sha, head):
+                raise RuntimeError(f"the branch no longer holds {what} {sha[:12]}: refused (the drop's branch kept)")
+        fac.git(d, "update-ref", f"refs/heads/{ref}", head)
+    finally:
+        fac.git(d, "update-ref", "-d", side)
     return head
 
 
