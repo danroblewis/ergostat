@@ -121,3 +121,31 @@ FAILED tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth
 {"rc": 1, "wall_s": 241.4, "peak": {"threads": 374, "rss_mb": 1552.6, "procs": 122, "worker_mb": 561.1}, "killed": null, "workers_killed": 0, "left_behind": 0}
 
 ```
+
+## Where it stopped
+
+Round 3: the leases failure that parked the branch is a real race in ergostat, not a slow test (lesson-10). This branch
+does not touch that code, but the failure blocks the branch, so it is fixed here.
+
+What happens: `Engine.close()` sets `stop`, runs `runner.kill_all()` (which kills the processes in `runner.LIVE`),
+then waits up to 5 s for `running` to empty. A block run whose process was spawned just after `kill_all()` joined
+`LIVE` too late. Nothing killed it, so close gave up after 5 s with the run (`sleep 30` in the test) still holding its
+lease. The test hits exactly that window. Its `wait_for(... "leased")` returns as soon as `TAKEN` is written, while the
+run's thread is still starting its process, and `second.close()` comes next. A second, smaller gap is in
+`Dispatcher.take`: a lease could be taken after close had checked `running`, and close did not wait for it.
+
+The fix (about 20 net lines, so about 105 in all, within the 250 budget):
+- `ergostat/spec/engine.py`: after a run's process joins `LIVE`, if the engine is stopping it is killed there, and its
+  end is noted as "stopped with ergostat". Either `kill_all` sees the process in `LIVE`, or the run sees `stop`.
+- `ergostat/leases/dispatch.py::take`: the run is counted in `running` before its lease is written, then `stop` is
+  looked at. If it is set, nothing is taken. Either close waits for the run, or the run sees close began.
+
+Tests (each was seen to fail with its fix disabled, lesson-9):
+`tests/test_leases.py::test_a_run_started_as_ergostat_stops_is_killed_and_gives_its_lease_back` (it monkeypatches the
+spawn so the stop lands between it and `LIVE`; without the fix the lease is still held after 8 s), and
+`tests/test_leases.py::test_nothing_is_taken_once_ergostat_is_stopping`.
+
+Run here, each file alone or in small serial groups: leases, daemons, leased workspaces, spec engine, workspaces, the
+ticket factory's daemons, trial stops, spec items, spec blocks, inbox, modelling core. All pass, and ruff is clean.
+Not run here: the whole suite, under load (not allowed), and the parked test many times in a row (not allowed). Only
+the factory's run under load can show that the flake is gone.
