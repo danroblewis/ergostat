@@ -107,6 +107,13 @@ flows:
     description: a split gap moved to merged once every sub-gap was merged (a join; also counted by gaps-merged)
     driven-by: [+stock.gaps-split]
     equation: stock.gaps-split / split-time
+  splits-parked:
+    system: intake
+    from: gaps-split
+    description: a split gap parked because one of its sub-gaps parked (or died) - where it stopped names which
+    driven-by: [+stock.gaps-split]
+    equation: stuck-share * stock.gaps-split / split-time
+    sensor: {items: gap, entering: parked, where: {parked_in: split}, over: 1d}
   plans-approved:
     from: gaps-planned
     to: gaps-ready
@@ -184,6 +191,13 @@ parameters:
     value: 3d
     estimate: true
     description: how long a split gap waits for every one of its sub-gaps to merge
+  stuck-share:
+    system: intake
+    value: 0.1
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of split gaps one of whose sub-gaps parks
   research-time:
     system: research
     value: 1h
@@ -280,6 +294,15 @@ blocks:
     in: block.plan-review-when
     out: [flow.plans-approved, flow.plans-sent-back, flow.parked-in-plan]
 
+  split-watch:
+    type: program
+    system: intake
+    description: parks a split gap one of whose sub-gaps parked or died, naming it (the join only moves it on once all merged)
+    run: python3 dev/bin/plan.py splits
+    every: 5m
+    timeout: 5m
+    out: flow.splits-parked
+
   research-when:
     type: expr
     system: research
@@ -306,7 +329,7 @@ blocks:
   librarian:
     type: program
     system: knowledge
-    description: after each review, its findings against the review lessons (one small AI step on haiku) - new shapes and classes found twice proposed
+    description: after each review, its findings against the review lessons (one small AI step on haiku) - new shapes and classes found twice proposed; off until [knowledge] librarian = true
     run: python3 dev/bin/librarian.py
     on: {event: review.written, emits: [review.measured, lesson.seen, lesson.measured, lesson.proposed]}
     actions: [knowledge-change]
