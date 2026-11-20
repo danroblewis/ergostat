@@ -29,15 +29,19 @@ VERDICT_EVENT = {"merge": "review.approved", "fix": "review.sent-back", "park": 
 VERDICT = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
 
 
-def gates(cfg: dict, wt: Path, branch: str, base: str) -> tuple[list[str], str]:
-    """The mechanical gates: (blocking findings, the definition as committed first)."""
+def gates(cfg: dict, wt: Path, branch: str, base: str, continued: bool = False) -> tuple[list[str], str]:
+    """The mechanical gates: (blocking findings, the definition as committed first). The branch's own commits are
+    its first-parent line (main merged in is not the branch's); a continued branch's merge base must be main itself."""
     rel = f"{fac.DEFS}/{branch}.md"
     found = []
-    commits = fac.git(wt, "rev-list", "--reverse", f"{base}..HEAD").split()
-    touched = fac.git(wt, "log", "--reverse", "--format=%H", f"{base}..HEAD", "--", rel).split()
+    own = ("--first-parent", "--topo-order", "--reverse")
+    commits = fac.git(wt, "rev-list", *own, f"{base}..HEAD").split()
+    touched = fac.git(wt, "log", *own, "--format=%H", f"{base}..HEAD", "--", rel).split()
     on_base = fac.git_ok(wt, "cat-file", "-e", f"{base}:{rel}")
     if not on_base and (not touched or not commits or touched[0] != commits[0]):
         found.append(f"gate 1: {rel} is not the branch's first commit")
+    if continued and fac.git(wt, "merge-base", base, "HEAD", check=False) != fac.git(wt, "rev-parse", base):
+        found.append(f"gate 1: the continued branch's merge base is not current main ({base}): main is not merged in")
     first = fac.git(wt, "show", f"{touched[0] if touched else base}:{rel}", check=False)
     now = (wt / rel).read_text() if (wt / rel).is_file() else ""
     cut = lambda t: re.split(r"^## Where it stopped", t, flags=re.M)[0].strip()  # noqa: E731
@@ -107,7 +111,7 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
     if not re.fullmatch(r"[0-9a-f]{40}", head):
         raise RuntimeError(f"{gap['id']} has no built head to review")
     home, wt = agents.clone(cfg, branch, "reviewer", at=head)
-    blocking, definition = gates(cfg, wt, branch, base)
+    blocking, definition = gates(cfg, wt, branch, base, continued=bool(f.get("continues")))
     net, budget = fac.net_lines(wt, base, "HEAD"), fac.budget_of(definition)
     if net > budget and not re.search(r"over.*reason|reason.*over", definition, re.I | re.S):
         blocking.append(f"size: {net} net lines of core code against a budget of {budget}, with no reason written")

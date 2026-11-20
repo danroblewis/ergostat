@@ -184,8 +184,13 @@ SAFE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 def branch_of(gap: dict) -> str:
     """The gap's branch name (its worktree, its session folders, its definition file): only lowercase words and
-    dashes, so no path or ref can be made of it. Anything else raises."""
-    b = gap["fields"].get("branch") or slug(gap["id"].split("/", 1)[1], 32)
+    dashes, so no path or ref can be made of it. Anything else raises. A gap that `continues` a branch (NAME or
+    factory/NAME, an existing branch) is on NAME, and may name no other branch."""
+    c = gap["fields"].get("continues")
+    c = str(c).removeprefix("factory/") if c else None
+    if c and gap["fields"].get("branch") not in (None, "", c):
+        raise ValueError(f"{gap['id']}: it continues {c!r} but names the branch {gap['fields']['branch']!r}")
+    b = gap["fields"].get("branch") or c or slug(gap["id"].split("/", 1)[1], 32)
     if not isinstance(b, str) or not SAFE.match(b):
         raise ValueError(f"{gap['id']}: branch {b!r} is not lowercase words and dashes (at most 64)")
     return b
@@ -426,14 +431,18 @@ STANDIN = {
 
 
 def standin(role: str, brief: str, cwd: Path) -> dict:
-    """Free and scripted. FACTORY_STANDIN_<ROLE> is what a role says, when set. Else the implementor writes a note into
-    the work; the planner, researcher and librarian say STANDIN's; a reviewer's (or plan reviewer's) verdict is
-    FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
+    """Free and scripted. FACTORY_STANDIN_<ROLE> is what a role says, when set. Else the implementor finishes a merge
+    it was handed (main's side of each conflict) and writes a note into the work; the planner, researcher and
+    librarian say STANDIN's; a reviewer's (or plan reviewer's) verdict is FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
     b = re.search(r"Branch: `([a-z0-9-]+)`", brief)
     said = os.environ.get(f"FACTORY_STANDIN_{role.upper()}") or STANDIN.get(role, "").replace("{b}", b[1] if b else "x")
     if said:
         pass
     elif role == "implementor":
+        if (cwd / ".git" / "MERGE_HEAD").exists():           # a merge handed over: main's side of each conflict
+            git(cwd, "checkout", "--theirs", "--", *git(cwd, "diff", "--name-only", "--diff-filter=U").split())
+            git(cwd, "add", "-A")
+            git(cwd, "-c", "user.name=factory", "-c", "user.email=factory@localhost", "commit", "-q", "--no-edit")
         note = cwd / "standin" / f"{cwd.name}.txt"
         note.parent.mkdir(exist_ok=True)
         with note.open("a") as f:
