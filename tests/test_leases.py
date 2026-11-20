@@ -436,6 +436,42 @@ def test_leases_survive_a_restart_the_fold_is_the_truth(tmp_path):
                for i in (1, 2) for h in item(p, f"ticket/{i}").fields["lease"]["history"])
 
 
+def test_a_run_started_as_ergostat_stops_is_killed_and_gives_its_lease_back(tmp_path, monkeypatch):
+    """The stop lands between a run's process starting and its being counted among those ``kill_all`` kills: the run
+    still ends at once, its lease given back, not counted (it once ran on, its lease held past the engine's close)."""
+    from ergostat import runner as old
+    from ergostat.spec import engine as eng
+    p = project(tmp_path, model("sleep 30").replace("pool: 2", "pool: 1"))
+    e = Engine(p, say=lambda s: None)
+    real = eng.Measured
+
+    def spawned_as_close_begins(*a, **k):
+        e.stop.set()                                         # what close does first: stop, and kill what is live
+        old.kill_all()
+        return real(*a, **k)
+    monkeypatch.setattr(eng, "Measured", spawned_as_close_begins)
+    opened(p, 1)
+    e.start_all()
+    try:
+        assert wait_for(lambda: item(p, "ticket/0").fields.get("lease"), 5), "taken"
+        assert wait_for(lambda: item(p, "ticket/0").fields["lease"]["holder"] is None, 8), "it ended, not ran on for 30s"
+        lease = item(p, "ticket/0").fields["lease"]
+        assert lease["history"][-1]["why"] == "stopped with ergostat" and lease["history"][-1]["counted"] is False
+    finally:
+        e.close()
+        old.STOPPING.clear()
+
+
+def test_nothing_is_taken_once_ergostat_is_stopping(tmp_path):
+    p = project(tmp_path, model("sleep 30"))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+    e.stop.set()                                             # close began between the look and the take
+    assert e.dispatch.take(p.model.spec.blocks["worker"], item(p, "ticket/0")) is None
+    assert not p.events.query(n=None, type=TAKEN), "no lease taken after the stop: close would not wait for it"
+    assert not e.running
+
+
 # ---- measures, attention, the command line
 
 
