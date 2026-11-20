@@ -16,7 +16,7 @@ auxiliaries:
 goals:
   ai-budget:
     auxiliary: ai-spend
-    hold: "<= 80"
+    hold: "<= 300"
     tolerance: 0
     on-stale: "off"                    # a spend not read is counted as over: the gates close
-    description: the implementor and the reviewer spend at most $80 a day (change it here)
+    description: the implementor and the reviewer spend at most $300 a day (change it here)

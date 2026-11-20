@@ -198,9 +198,19 @@ items:
     show: [kind, lesson, name, text, times, gap]
     fold: {times: sum, reviews: union, findings: append}
 
+  knowledge:
+    id: knowledge/*
+    description: one entry of dev/knowledge/ in the running version (a house rule, a review lesson, a decision) - what the briefs carry, kept by the collector knowledge-sync
+    states: [active, retired]
+    on:
+      knowledge.found: active        # knowledge-sync: an entry in the files (or back in them)
+      knowledge.changed: active      # knowledge-sync: its title, text, areas or how many briefs carried it changed
+      knowledge.retired: retired     # knowledge-sync: no longer in the files
+    show: [kind, title, file, areas, carried, text]
+
 messages:
   done: {gap: [merged, parked], upgrade: [healthy, reverted, superseded, failed], research: [answered],
-         lesson: [requested, retired]}   # (finished, for the estimates)
+         lesson: [requested, retired], knowledge: [retired]}   # (finished, for the estimates)
 
 agents:
   opus:
