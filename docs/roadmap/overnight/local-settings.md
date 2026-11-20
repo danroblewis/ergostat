@@ -25,3 +25,26 @@ never turns it into a model-edit gap. The ergostat-on-ergostat instance's `web:`
 ## Size budget
 
 200 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built (43 net lines outside tests, docs and dev). No one was there to ask, so these are the choices I made, each the
+easiest to undo:
+
+- The per-machine settings are an allowlist (`PER_MACHINE` in `ergostat/spec/load.py`): `web:`, and under `intake:`
+  only `bind:` and `allow:`. `hooks:` are part of the model, so in the local file they are an error
+  (**not-per-machine**), like any other key. Widening the list is a one-line change, and SPEC §2 lists it.
+- The local `web:` replaces the main file's whole; the local `intake:` keys go over the main file's (its hooks stay).
+  When the main file's `intake:` is malformed, it is left as written so that its own error still shows.
+- The local file is not one of `spec.files`, so no proposal or template author can edit it. The engine's reload stamp
+  (`model.stamp`) follows it, so editing or creating it reloads the model.
+- A last-good-model snapshot made before this code never looked for the file. When that snapshot is replayed, the
+  file counts as absent, which is how that model ran.
+- The upgrader (`dev/bin/live.py`) already placed and compared only `ergostat.yaml` and `dev/`. The new factory test
+  pins that down and was seen to fail when the local file was added to the comparison.
+
+Left, outside the repository: the running instance's `web:` was only ever in the instance's own copy
+(`~/ergostat-live/instance/ergostat.yaml`, dropped by the upgrade). The repository's model has no `web:`. Moving it
+means writing `~/ergostat-live/instance/ergostat.local.yaml` on the coordinator's machine (dev/README.md, "Start it",
+shows how), which cannot be done from this container. `origin/main` was not merged: this clone has no `origin`, and
+its `main` is the branch's base.
