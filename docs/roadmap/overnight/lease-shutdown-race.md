@@ -174,3 +174,19 @@ Round 1, built; one acceptance check not run here (below).
 - **Ran serially:** `test_leases` (26 passed); `test_lease_kill`, `test_leased_workspaces`, `test_daemons`,
   `test_watchdog`, `test_resilience`, `test_reload_in_place`, `test_runner_and_state`, `test_streamed_output` (130
   passed). Ruff is clean.
+
+### Round 4 (the findings carried from review lease-shutdown-race-2)
+
+- **The restart test's fixed sleep: already fixed in round 3, nothing new.** Checked again: no `sleep` is left in
+  `test_leases_survive_a_restart_the_fold_is_the_truth`. It judges the record by `seq` (see Round 3), and it was
+  seen to fail with the pool count broken.
+- **The 30 loaded `-n 8` runs: still not run. They still block "done", and this round cannot clear them.** This
+  session's harness refused `scripts/suite_watch.py -- pytest -n 8 tests/test_leases.py` again, even one run, and also
+  refused a serial loop that repeats the restart test. I did not get around that. No code changed this round, because
+  the finding asks for a measurement, not a fix. Writing more code to stand in for the measurement would just be the
+  wider claim lesson-8 warns against. **What the factory must do:** run `suite_watch.py -- pytest -n 8
+  tests/test_leases.py` 30 times with the CPU loaded, and record the pass/fail counts here. If that is never allowed
+  from an implementor's session, the gap should be parked with this line as the one thing left. Each implementor
+  round can only repeat this same answer.
+- **Ran:** `tests/test_leases.py` serially (26 passed); ruff is clean. There is no remote and nothing newer on local
+  `main` to merge.
