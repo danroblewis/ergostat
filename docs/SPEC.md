@@ -3415,8 +3415,10 @@ where the goal read 0.03 to 0.14).
 **The evidence is pooled, with its error rate stated.** At each reading the two scaled errors differ by
 δ(δ + 2(after − record)), δ what the change moves the replay by. δ is known exactly; the only noise is the record's
 own about the better replay, taken as AR(1) (its correlation from one reading to the next, its small-record bias taken
-out, and from a twelfth of the record on, whichever is larger; its second moment about that replay, so a bias counts
-as noise). That gives the change's effect, the share by which it lowers the scaled error, and its standard error; an
+out, and from a twelfth of the record on, whichever is larger; while the record spans fewer than three of the slower
+time constant of what it touches, with and without the change, noise that drifts at all is taken to last that long,
+since a short record reads a slow noise's correlation low; its second moment about that replay, so a bias counts as
+noise). Scaled errors that stay within 0.005 of each other, bound and all, count neither way. That gives the change's effect, the share by which it lowers the scaled error, and its standard error; an
 **always-valid confidence sequence** (a normal mixture, Robbins 1970; Howard et al. 2021) bounds it, in units of the
 record the change needs, so looking again as the record grows never raises the chance of a false verdict: a change no
 better than the model as it is passes at most 5% of the time (`ALPHA`), and one no worse fails at most that. It
