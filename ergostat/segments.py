@@ -12,11 +12,17 @@ interface as ``store.Events``, without SQLite.
   and the columns (seq, time, item, type, and the rows ordered by item and by type), so a query by
   item, type and time reads only what matches, and only the blocks those rows are in;
 - ``seg-<...>.ids``: the ids, a line per row, read only to find one event by its id;
-- ``meta.json``: the generation, changed whenever events are taken out (pruned, rolled up).
+- ``meta.json``: the generation, changed whenever events are taken out (pruned, rolled up);
+- ``layout``: a token replaced (atomically, under the lock) after every change to the segments or a
+  rewrite of the head: a seal, a roll-up, a prune.
 
-Readers follow the head by its offset, and see a sealed or rewritten segment by the folder
-changing. A roll-up or a prune rewrites the segments it touches (a new name, then the old one
-removed); a reader that finds a file gone asks again."""
+Readers follow the head by its offset, and see a sealed or rewritten segment by the layout token
+changing (the folder's mtime is checked too, but it cannot be relied on alone: Linux records it to
+the clock's tick, so two seals within one tick leave it unchanged, and a reader keyed on it would
+miss the second seal's events; nor can the head's inode, which a file system reuses). When the
+layout changes, a reader lists the segments again and reads the head from its start. A roll-up or a
+prune rewrites the segments it touches (a new name, then the old one removed); a reader that finds a
+file gone asks again."""
 
 from __future__ import annotations
 
@@ -311,7 +317,7 @@ class Segments:
         with self._lock:
             for _ in range(20):
                 ino = os.stat(self.head_path).st_ino
-                stamp = os.stat(self.dir).st_mtime_ns
+                stamp = self._stamp()
                 if stamp != self._dir_stamp:
                     have = {s.name: s for s in self._segs}
                     segs = []
@@ -325,7 +331,8 @@ class Segments:
                         segs.append(s)
                     self._segs = sorted(segs, key=lambda s: s.first)
                     self._dir_stamp = stamp
-                if ino != self._head_ino:
+                    self._head_ino = None                    # the head may have been rewritten in place of one
+                if ino != self._head_ino:                    # whose inode it reuses: read it from its start
                     self._head, self._head_off, self._head_ino = _Head(), 0, ino
                 with open(self.head_path, "rb") as f:
                     f.seek(self._head_off)
@@ -339,11 +346,26 @@ class Segments:
                             if e["seq"] > sealed:
                                 self._head.add(e)
                     self._head_off += end + 1
-                if os.stat(self.head_path).st_ino == ino and os.stat(self.dir).st_mtime_ns == stamp:
+                if os.stat(self.head_path).st_ino == ino and self._stamp() == stamp:
                     sealed = self._segs[-1].last if self._segs else 0
                     if self._head.evs and self._head.evs[0]["seq"] <= sealed:
                         self._head = _Head(e for e in self._head.evs if e["seq"] > sealed)
                     return
+
+    def _stamp(self) -> tuple:
+        """What changes whenever the segments do or the head is rewritten: the layout token, and the
+        folder's mtime (for a writer that keeps no token)."""
+        try:
+            token = (self.dir / "layout").read_bytes()
+        except FileNotFoundError:
+            token = b""
+        return token, os.stat(self.dir).st_mtime_ns
+
+    def _relayout(self) -> None:
+        """Under the lock, after the segments changed or the head was rewritten: a new layout token."""
+        tmp = self.dir / f"layout.{uuid.uuid4().hex[:8]}.tmp"
+        tmp.write_bytes(uuid.uuid4().hex.encode())
+        os.replace(tmp, self.dir / "layout")
 
     def _state(self) -> tuple[list[Segment], list[dict]]:
         self._sync()
@@ -588,6 +610,7 @@ class Segments:
             part, rest = self._head.evs[:self.seal], self._head.evs[self.seal:]
             write_segment(self.dir, part)
             self._rewrite_head(rest)
+            self._relayout()
             self._sync()
 
     def _rewrite_head(self, evs: list[dict]) -> None:
@@ -918,6 +941,7 @@ class Segments:
         if len(head) != len(self._head) or extra:
             head.sort(key=lambda e: e["seq"])
             self._rewrite_head(head)
+        self._relayout()
         self._dir_stamp = None
         self._sync()
         return gone

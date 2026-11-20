@@ -189,6 +189,32 @@ def test_history_survives_a_reopen(ev, tmp_path):
     assert [e["data"]["i"] for e in ev.query(n=2)] == [8, 9]
 
 
+def test_seals_within_one_mtime_tick_are_seen(tmp_path):
+    """Linux records a folder's mtime to the clock's tick: several seals within one leave it unchanged
+    (forced here with ``os.utime``), and a reader that went by it alone lost the sealed events."""
+    writer, reader = Segments(tmp_path, seal=7), Segments(tmp_path, seal=7)
+    d = writer.dir
+    frozen = os.stat(d).st_mtime_ns
+    n = 0
+    for step in (3, 5, 9, 1, 14, 2, 21):         # some seal nothing, some one segment, some several at once
+        writer.add_many([{"type": "x", "item": f"t/{i % 3}", "data": {"i": i}, "at": T + i} for i in range(n, n + step)])
+        n += step
+        os.utime(d, ns=(frozen, frozen))
+        got = reader.query(n=None)
+        assert [e["data"]["i"] for e in got] == list(range(n))
+        assert reader.count() == n and reader.last_seq() == got[-1]["seq"]
+        assert [e["data"]["i"] for e in reader.query(n=None, item="t/1")] == list(range(1, n, 3))
+    assert len(list(d.glob("seg-*.idx"))) == n // 7
+    for i in range(n):                           # every event found by its id too
+        writer.add("y", item="u/1", id=f"id{i}", at=T + n + i)
+        os.utime(d, ns=(frozen, frozen))
+        assert reader.get(f"id{i}")["type"] == "y"
+    total = 2 * n
+    assert writer.prune(T + n) == n              # a rewrite within the tick: what went stays gone
+    os.utime(d, ns=(frozen, frozen))
+    assert reader.count() == total - n and {e["type"] for e in reader.query(n=None)} == {"y"}
+
+
 # ---- measurements
 
 VM = os.environ.get("ERGOSTAT_TEST_VM_URL")
