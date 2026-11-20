@@ -89,9 +89,9 @@ def ai(argv: list[str]) -> int:
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--most", type=int, default=8)
     ap.add_argument("--tries", type=int, default=2, help="calls on one request before it waits for the owner")
+    ap.add_argument("--timeout", type=float, default=None, help="the block's timeout, in seconds: its calls fit in it")
     a = ap.parse_args(argv)
     sys.stdin.read()
-    import json
 
     from ...numbers import modeller as md
     from ...numbers import requests as rq
@@ -102,7 +102,7 @@ def ai(argv: list[str]) -> int:
         note("modeller: no request waiting for the ai tier")
         return 0
     group = _near(p, mine)[:a.most]
-    got = md.answer(p, group, a.model)
+    got = md.answer(p, group, a.model, timeout=md.per_call(a.timeout, 2), on_call=_said)
     c = got["cost"]
     answered = {e for raw in got["proposals"] for r in raw.get("reasons") or []
                 for e in ([r.get("evidence")] if not isinstance(r.get("evidence"), list) else r.get("evidence"))}
@@ -117,7 +117,6 @@ def ai(argv: list[str]) -> int:
         rq.mark(p, r, "held", f"the ai tier ({a.model}): {why}", tried=tried,
                 cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
     n = submitted(p, got["proposals"], "modeller")
-    print(json.dumps(md.result_line(c)), flush=True)          # the run's cost, recorded as any AI run's (ergostat.cost.*)
     note(f"modeller ({a.model}): {n} proposed for {len(group)} requests, {len(cannot)} it cannot; "
          f"${c['usd']:.4f}, {c['tokens_in']} tokens in, {c['tokens_out']} out, {c['calls']} call(s)"
          + (f"; {c['error']}" if c.get("error") else ""))
@@ -131,11 +130,11 @@ def redesign(argv: list[str]) -> int:
     ap.add_argument("--budget", type=float, default=0.5)
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--daily", type=float, default=2.0, help="the most dollars the redesigner's runs spend in a day")
+    ap.add_argument("--timeout", type=float, default=None, help="the block's timeout, in seconds: its rounds fit in it")
     a = ap.parse_args(argv)
     sys.stdin.read()
     import json
 
-    from ...numbers import modeller as md
     from ...numbers import redesign as rd
     from ...numbers import redesigner as rdr
     p = project()
@@ -152,11 +151,15 @@ def redesign(argv: list[str]) -> int:
         return 0
     rd.ran(p, plan["system"], {"by": "redesigner", "result": "started", "why": plan["why"],
                                "version": rd.ver.version(p.model.spec)})
-    out = rdr.run(p, plan["system"], plan["why"], model=a.model, budget=min(a.budget, left), rounds=a.rounds, by="redesigner")
-    rd.ran(p, plan["system"], {"by": "redesigner", "result": out.get("result"), "id": out.get("id"), "cost": out["cost"],
+
+    def charged(got: dict) -> None:               # each call charged as it is spent, so a run cut short still counts
+        _said(got)
+        rd.charge(p, plan["system"], got)
+    out = rdr.run(p, plan["system"], plan["why"], model=a.model, budget=min(a.budget, left), rounds=a.rounds, by="redesigner",
+                  timeout=a.timeout, on_call=charged)
+    rd.ran(p, plan["system"], {"by": "redesigner", "result": out.get("result"), "id": out.get("id"), "total": out["cost"],
                                "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"],
                                **({"why_not": out["why_not"]} if out.get("why_not") else {})})
-    print(json.dumps(md.result_line(out["cost"])), flush=True)   # the run's cost, recorded as any AI run's
     for r in out.get("reports") or []:                        # what ergostat could not express: drafted for the owner
         print(json.dumps({"report": r}), flush=True)
     c = out["cost"]
@@ -164,6 +167,15 @@ def redesign(argv: list[str]) -> int:
          + (f", {out['scorecard']['verdict']}" if out.get("scorecard") else "")
          + f"; {len(out['rounds'])} round(s), ${c['usd']:.4f}, {c['calls']} call(s)")
     return 0
+
+
+def _said(got: dict) -> None:
+    """One call's cost, printed as a Claude Code result line as it is spent: the engine adds each to the run's
+    (``ergostat.cost.*``), so a run the block's timeout cuts short still says what it spent."""
+    import json
+
+    from ...numbers import modeller as md
+    print(json.dumps(md.result_line({**got, "calls": 1})), flush=True)
 
 
 def _near(p, reqs: list[dict]) -> list[dict]:

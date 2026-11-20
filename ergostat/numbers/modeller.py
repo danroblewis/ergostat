@@ -144,8 +144,8 @@ def call(text: str, model: str, timeout: float = 600.0) -> dict:
     try:
         got = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=timeout)
         out = json.loads(got.stdout)
-    except (subprocess.TimeoutExpired, ValueError, OSError) as e:
-        return {"result": "", "usd": 0.0, "tokens_in": 0, "tokens_out": 0, "seconds": time.perf_counter() - t0,
+    except (subprocess.TimeoutExpired, ValueError, OSError) as e:      # what it cost is not said: charged as the most it
+        return {"result": "", **unsaid(text, model), "seconds": time.perf_counter() - t0,   # could have (fail closed)
                 "error": f"{type(e).__name__}: {e}"}
     u = out.get("usage") or {}
     tin = int(u.get("input_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0)
@@ -153,7 +153,26 @@ def call(text: str, model: str, timeout: float = 600.0) -> dict:
             "tokens_out": int(u.get("output_tokens") or 0), "seconds": round(time.perf_counter() - t0, 1)}
 
 
-def answer(p, reqs: list[dict], model: str = "haiku", retry: bool = True) -> dict:
+MOST_OUT = 16000            # output tokens a call that said nothing of its cost is charged for, besides its prompt
+
+
+def unsaid(text: str, model: str) -> dict:
+    """The cost charged for a call that never said its own (killed, timed out, or answered no JSON): its prompt read
+    and the most it could have written, at the model's price; dear rather than free, so a cap fails closed."""
+    from ..costs import prices
+    tin = len(text) // 3 + 1
+    usd = prices.estimate(model, {"input": tin, "output": MOST_OUT})
+    return {"usd": round(usd if usd is not None else 1.0, 6), "tokens_in": tin, "tokens_out": MOST_OUT, "estimated": True}
+
+
+def per_call(timeout: float | None, calls: int) -> float:
+    """Each call's time limit, so ``calls`` of them (and the work between) fit in the block's ``timeout``."""
+    if not timeout:
+        return 600.0
+    return max(30.0, min(600.0, (float(timeout) * 0.8) / max(1, calls)))
+
+
+def answer(p, reqs: list[dict], model: str = "haiku", retry: bool = True, timeout: float = 600.0, on_call=None) -> dict:
     """The AI tier on these requests: ``{"proposals": [propose], "cannot": [{id, why}], "cost": {...}, "tried": [...]}``,
     each proposal one ``try_change`` would propose (the rest given back once, with why)."""
     spec: Spec = p.model.spec
@@ -161,10 +180,12 @@ def answer(p, reqs: list[dict], model: str = "haiku", retry: bool = True) -> dic
     good, cannot, tried = [], [], []
     feedback: list[str] | None = None
     for attempt in range(2 if retry else 1):
-        got = call(prompt(p, spec, reqs, feedback), model)
+        got = call(prompt(p, spec, reqs, feedback), model, timeout)
         cost["calls"] += 1
         for k in ("usd", "tokens_in", "tokens_out", "seconds"):
             cost[k] = round(cost[k] + got.get(k, 0), 6)
+        if on_call is not None:                     # each call's cost said as it is spent: a run cut short keeps it
+            on_call(got)
         if got.get("error"):
             cost["error"] = got["error"]
             break
@@ -192,8 +213,8 @@ def answer(p, reqs: list[dict], model: str = "haiku", retry: bool = True) -> dic
 
 
 def result_line(cost: dict) -> dict:
-    """A run's cost as a Claude Code result message, so the engine records it on the run (``costs/ai.py``)."""
+    """A call's (or run's) cost as a Claude Code result message, so the engine adds it to the run (``costs/ai.py``)."""
     return {"type": "result", "subtype": "success", "total_cost_usd": round(cost.get("usd") or 0.0, 6),
-            "num_turns": cost.get("calls") or 0,
+            "num_turns": cost.get("calls") or 1,
             "usage": {"input_tokens": cost.get("tokens_in") or 0, "output_tokens": cost.get("tokens_out") or 0},
             "modelUsage": {}}

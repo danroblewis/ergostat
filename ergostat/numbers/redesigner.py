@@ -185,7 +185,8 @@ def reports(text: str) -> list:
 
 
 def run(p, system: str = "model", why: list[str] | None = None, model: str = "haiku", budget: float = BUDGET,
-        rounds: int = ROUNDS, by: str = "redesigner", submit: bool = True, call=None) -> dict:
+        rounds: int = ROUNDS, by: str = "redesigner", submit: bool = True, call=None, timeout: float | None = None,
+        on_call=None) -> dict:
     """One run: rounds on a scratch copy, then the best copy proposed. Returns what it did and what it cost."""
     from ..spec import read
     from . import redesign as rd
@@ -212,7 +213,9 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
         t_p = time.perf_counter()
         text = prompt(p, s, system, why or [], feedback, card)
         t_c = time.perf_counter()
-        got = call(text, model)
+        got = call(text, model, md.per_call(timeout, rounds))
+        if on_call is not None:                     # each call's cost said as it is spent: a run cut short keeps it
+            on_call(got)
         took = {"prompt_s": round(t_c - t_p, 1), "call_s": round(time.perf_counter() - t_c, 1), "prompt_chars": len(text)}
         if os.environ.get("ERGOSTAT_REDESIGN_LOG"):                 # the transcript, for whoever studies the redesigner
             d = Path(os.environ["ERGOSTAT_REDESIGN_LOG"])

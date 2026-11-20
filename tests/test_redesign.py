@@ -261,7 +261,7 @@ def test_the_owners_ask_comes_first_and_is_taken_up_once(tmp_path):
 def _answers(*rounds):
     it = iter(rounds)
 
-    def call(text, model):
+    def call(text, model, timeout=None):
         call.prompts.append(text)
         return {"result": json.dumps({"redesign": next(it)}), "usd": 0.01, "tokens_in": 1000, "tokens_out": 200, "seconds": 0.1}
     call.prompts = []
@@ -296,7 +296,7 @@ def test_the_redesigner_stops_at_its_budget(tmp_path):
 def test_a_report_in_the_redesigners_answer_is_passed_on_for_the_block_to_print(tmp_path):
     p = project(tmp_path / "m")
 
-    def call(text, model):
+    def call(text, model, timeout=None):
         return {"result": json.dumps({"redesign": None, "why": "the format cannot say it"}) + "\n"
                 + json.dumps({"report": "a flow's rate cannot read another flow's delayed value"}), "usd": 0.01}
     out = rdr.run(p, "model", [], budget=1.0, rounds=1, call=call)

@@ -85,27 +85,33 @@ def test_a_redesign_that_removes_rewires_or_changes_control_waits_for_the_owner(
 
 
 def test_a_rename_that_changes_a_sensor_or_control_is_not_a_rename(tmp_path):
+    base = POOR.replace("flows:\n", "parameters:\n  slow:\n    value: 3\n    unit: alerts\nflows:\n")
     rename = [("  new-alerts:\n", "  alerts-waiting:\n    formerly: new-alerts\n"), ("to: new-alerts", "to: alerts-waiting"),
               ("from: new-alerts", "from: alerts-waiting"), ("+stock.new-alerts", "+stock.alerts-waiting"),
               ("stock: new-alerts", "stock: alerts-waiting")]
 
-    def spec_of(name: str, more: list[tuple[str, str]]):
-        text = POOR
+    def spec_of(name: str, more: list[tuple[str, str]], text: str = base):
         for a, b in rename + more:
             text = text.replace(a, b)
         d = tmp_path / name
         d.mkdir()
         (d / "ergostat.yaml").write_text(text)
-        return read(d / "ergostat.yaml")[0]
-    (tmp_path / "before").mkdir()
-    (tmp_path / "before" / "ergostat.yaml").write_text(POOR)
-    before = read(tmp_path / "before" / "ergostat.yaml")[0]
+        got, problems = read(d / "ergostat.yaml")
+        assert not [x for x in problems if x.level == "error"], (name, [str(x) for x in problems if x.level == "error"])
+        return got
+    (tmp_path / "base").mkdir()
+    (tmp_path / "base" / "ergostat.yaml").write_text(base)
+    before = read(tmp_path / "base" / "ergostat.yaml")[0]
     assert ver.renamed_parts(before, spec_of("plain", [])) == {"stock.new-alerts": "stock.alerts-waiting"}
-    sensor = spec_of("sensor", [("sensor: {items: alert, state: new, every: 2s}", "sensor: {items: alert, state: closed, every: 2s}")])
-    control = spec_of("control", [('hold: "<= 3"', 'hold: "<= 50"')])
-    for after in (sensor, control):
-        assert ver.renamed_parts(before, after) is None
-        assert im.kind_of(before, after, "rename") != "rename"
+    cases = {"sensor": [("sensor: {items: alert, state: new, every: 2s}", "sensor: {items: alert, state: closed, every: 2s}")],
+             "control": [('hold: "<= 3"', 'hold: "<= 50"')],
+             "a value": [("value: 3", "value: 300")],                       # the dynamics, past the fit test
+             "a rate": [("    description: closed\n", "    description: closed\n    rate: 5\n")],
+             "an item kind": [("triage.finished: triaged", "triage.done: triaged")]}
+    for name, more in cases.items():
+        after = spec_of(name, more)
+        assert ver.renamed_parts(before, after) is None, name
+        assert im.kind_of(before, after, "rename") != "rename", name
 
 
 def test_every_change_that_rewires_a_chain_says_so(tmp_path):
@@ -171,20 +177,44 @@ def _results(out: str) -> list[dict]:
 def test_the_redesigner_and_the_ai_tier_print_result_lines(tmp_path, monkeypatch, capsys):
     p = poor_project(tmp_path, POOR + MODELLING)
     _block(monkeypatch, p)
-    cost = {"usd": 0.012, "tokens_in": 900, "tokens_out": 100, "calls": 1, "seconds": 1.0, "model": "haiku"}
+    one = {"usd": 0.012, "tokens_in": 900, "tokens_out": 100, "seconds": 1.0}
+    cost = {**one, "calls": 1, "model": "haiku"}
     rd.ask(p, None)
-    monkeypatch.setattr(rdr, "run", lambda *a, **k: {"system": "model", "rounds": [{}], "cost": cost, "version": "v",
-                                                     "result": "nothing proposed", "reports": []})
+
+    def run(*a, on_call=None, **k):
+        on_call(one)                                 # each call said as it is spent
+        on_call(one)
+        return {"system": "model", "rounds": [{}, {}], "cost": cost, "version": "v", "result": "nothing proposed",
+                "reports": []}
+    monkeypatch.setattr(rdr, "run", run)
     assert ml.redesign(["--when", "ask"]) == 0
     got = _results(capsys.readouterr().out)
-    assert len(got) == 1 and got[0]["total_cost_usd"] == pytest.approx(0.012)
+    assert [x["total_cost_usd"] for x in got] == [pytest.approx(0.012)] * 2
+    assert rd.spent(p) == pytest.approx(0.024)        # charged as spent, not only when the run ends
     from ergostat.numbers import modeller as md
     from ergostat.numbers import requests as rq
     rq.sync(p)
-    monkeypatch.setattr(md, "answer", lambda *a, **k: {"proposals": [], "cannot": [], "cost": cost, "tried": []})
+
+    def answer(*a, on_call=None, **k):
+        on_call(one)
+        return {"proposals": [], "cannot": [], "cost": cost, "tried": []}
+    monkeypatch.setattr(md, "answer", answer)
     assert ml.ai(["--model", "haiku"]) == 0
     got = _results(capsys.readouterr().out)
     assert len(got) == 1 and got[0]["total_cost_usd"] == pytest.approx(0.012)
+
+
+def test_a_call_that_never_says_its_cost_is_charged_the_most_it_could_and_calls_fit_the_timeout(monkeypatch):
+    import subprocess
+
+    from ergostat.numbers import modeller as md
+
+    def slow(*a, **k):
+        raise subprocess.TimeoutExpired("claude", k.get("timeout"))
+    monkeypatch.setattr(subprocess, "run", slow)
+    got = md.call("x" * 30000, "haiku", 5)
+    assert got["error"] and got["estimated"] and got["usd"] > 0.0          # dear, not free: the cap fails closed
+    assert md.per_call(900, 3) * 3 <= 900 and md.per_call(None, 3) == 600.0
 
 
 def test_the_redesigners_guides_come_through_the_help_documents(monkeypatch):
@@ -269,7 +299,7 @@ def test_the_judges_hold_while_a_redesign_is_made_is_bounded(tmp_path):
 def test_redesigns_stop_at_the_daily_cap(tmp_path, monkeypatch, capsys):
     p = poor_project(tmp_path, POOR + MODELLING)
     _block(monkeypatch, p)
-    rd.ran(p, "model", {"result": "proposed", "cost": {"usd": 2.5}})
+    rd.charge(p, "model", {"usd": 2.5})
     assert rd.spent(p) == pytest.approx(2.5)
     rd.ask(p, None)
 
