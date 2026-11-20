@@ -29,7 +29,7 @@ stocks:
     system: knowledge
     unit: entries
     description: the entries of dev/knowledge/ (house rules, review lessons, decisions) the briefs carry, in the running version
-    sensor: {run: python3 dev/bin/knowledge.py count, every: 10m, timeout: 1m, description: the knowledge files}
+    sensor: {items: knowledge, state: active, every: 1m}
   lessons-proposed:
     system: knowledge
     unit: proposals
@@ -159,7 +159,7 @@ flows:
   lessons-added:
     system: knowledge
     to: knowledge-entries
-    description: a knowledge gap merged and the instance switched to it - an entry (or a shape) added, counted by the stock's own reading
+    description: a knowledge gap merged and the instance switched to it - an entry (or a shape) added, said by knowledge-sync and counted by the stock's own reading
   lessons-retired:
     system: knowledge
     from: knowledge-entries
@@ -335,6 +335,14 @@ blocks:
     actions: [knowledge-change]
     timeout: 15m
     out: flow.lessons-found
+  knowledge-sync:
+    type: program
+    system: knowledge
+    description: the collector - each entry of the running version's dev/knowledge/ an item (knowledge.found, .changed, .retired), with how many briefs carried it
+    run: python3 dev/bin/knowledge.py sync
+    every: 10m
+    timeout: 2m
+    out: flow.lessons-added
   approve-lesson:
     type: external
     system: knowledge
