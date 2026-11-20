@@ -30,7 +30,9 @@ from ..spec.ir import MODELLING_REQUEST, Spec, template_made
 from . import proposals as pr
 from . import version as ver
 
-RULE = {"no-unit", "queue-goal-tolerance", "process-not-identified"}   # what the rule tier answers (else the ai tier)
+RULE = {"no-unit"}             # what the rule tier answers (else the ai tier)
+OWNER = {"queue-goal-tolerance": "a goal's setpoint and tolerance are what decides: the owner's to change",
+         "process-not-identified": "a loop's process is the owner's to declare or take out"}   # held for the owner at once
 NOT_MODELLING = {              # said by check, but no change to the model answers it: the owner's
     "no-modelling-loop", "template-stand-in", "template-library", "yaml-1.1", "where-typed", "deprecated-name",
     "used-twice", "not-exercised",
@@ -161,6 +163,11 @@ def sync(p, spec: Spec | None = None, now: float | None = None, coherence: bool 
             moved["raised" if x is None else "reopened"] += 1
             x = {**(x or {}), **r, "state": "open", "since": now, "version": v}
             have[k] = x
+            if r["code"] in OWNER:                        # control: no tier changes it; it waits for the owner
+                event(p, k, "held", {"why": OWNER[r["code"]], "owner": True, "tier": "owner", "version": v})
+                x.update(state="held", owner=True)
+                moved["held"] += 1
+                continue
         elif x.get("says") != r["says"]:                  # check says it otherwise now (its counts, its fix): kept current
             event(p, k, x["state"], {"says": r["says"], "where": r.get("where"), "fix": r.get("fix")})
         since = float(x.get("since") or x.get("raised") or 0.0)

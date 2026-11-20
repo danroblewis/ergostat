@@ -14,7 +14,6 @@ change and printed as a Claude Code result line, so the run's cost is recorded a
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from pathlib import Path
@@ -217,11 +216,6 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
         if on_call is not None:                     # each call's cost said as it is spent: a run cut short keeps it
             on_call(got)
         took = {"prompt_s": round(t_c - t_p, 1), "call_s": round(time.perf_counter() - t_c, 1), "prompt_chars": len(text)}
-        if os.environ.get("ERGOSTAT_REDESIGN_LOG"):                 # the transcript, for whoever studies the redesigner
-            d = Path(os.environ["ERGOSTAT_REDESIGN_LOG"])
-            d.mkdir(parents=True, exist_ok=True)
-            (d / f"round{r}-prompt.md").write_text(text, encoding="utf-8")
-            (d / f"round{r}-answer.txt").write_text(str(got.get("result") or got.get("error") or ""), encoding="utf-8")
         cost["calls"] += 1
         for k in ("usd", "tokens_in", "tokens_out", "seconds"):
             cost[k] = round(cost[k] + float(got.get(k) or 0), 6) if k in ("usd", "seconds") else cost[k] + int(got.get(k) or 0)

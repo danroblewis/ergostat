@@ -336,8 +336,9 @@ def test_a_held_modelling_request_is_in_the_inbox(tmp_path):
     from ergostat.numbers import requests as rq
     p = poor_project(tmp_path, POOR + MODELLING)
     rq.sync(p)
-    r = next(iter(rq.current(p)))
+    held = {r["id"] for r in rq.current(p, ("held",))}            # control, held for the owner at once
+    r = next(r for r in rq.current(p, ("open",)))
     rq.mark(p, r, "held", "no tier has a change for it")
     got = [e for e in en.entries(p) if e["kind"] == "request"]
-    assert [e["id"] for e in got] == [f"request/{r['id']}"] and got[0]["verbs"] == []
-    assert got[0]["link"] == f"/item/ergostat.modelling-request/{r['id']}"
+    assert {e["id"] for e in got} == {f"request/{x}" for x in held | {r["id"]}} and got[0]["verbs"] == []
+    assert f"/item/ergostat.modelling-request/{r['id']}" in {e["link"] for e in got}

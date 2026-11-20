@@ -29,8 +29,7 @@ from . import trial as tr
 from . import yamledit as ye
 
 OPS = ("set", "add", "replace", "remove", "rename", "write")
-SECTION_OF = {"stock": "stocks", "flow": "flows", "auxiliary": "auxiliaries", "parameter": "parameters",
-              "goal": "goals", "block": "blocks", "items": "items", "agent": "agents"}
+SECTION_OF = im.SECTIONS                 # stock → stocks, and so on
 NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 
 
@@ -317,10 +316,6 @@ class Scratch:
             out.append(ye.Edit(f, hunks))
         return out
 
-    def unified(self) -> str:
-        return "".join(ye.unified(self.original[f], self.texts[f], self.rel(f)) for f in self.files
-                       if self.texts[f] != self.original[f])
-
 
 def _signature(x) -> str | None:
     """What a part reads, as text: its sensors' sources (items and their state, a command, a query, a measure), not their
@@ -353,11 +348,10 @@ class _Problem:
 def parts_changed(before: Spec, after: Spec) -> dict[str, list[str]]:
     """What a change set does to the parts: each added, removed, renamed (``old → new``, from ``formerly:``) or
     changed (its definition as compiled differs), as references."""
-    from . import version as ver
     out = {"added": [], "removed": [], "renamed": [], "changed": []}
-    tables = (("stock", "stocks"), ("flow", "flows"), ("auxiliary", "auxiliaries"), ("parameter", "parameters"),
-              ("goal", "goals"), ("block", "blocks"), ("items", "items"))
-    for kind, attr in tables:
+    for kind, attr in SECTION_OF.items():
+        if kind == "agent":
+            continue
         a, b = getattr(before, attr), getattr(after, attr)
         if kind == "block":
             a = {n: x for n, x in a.items() if not x.implied}
@@ -380,7 +374,6 @@ def parts_changed(before: Spec, after: Spec) -> dict[str, list[str]]:
         for o, n in renamed.items():
             if _plain(a[o], o) != _plain(b[n], n):
                 out["changed"].append(f"{kind}.{n}")
-    _ = ver
     return out
 
 

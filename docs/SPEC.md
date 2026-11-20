@@ -3287,8 +3287,9 @@ what is new, answers what is gone and moves each to where its changes say it is.
 block of the template, answer them, the cheapest first:
 
 - **the rule tier** (`fixer`, a program, `ergostat/numbers/rules.py`): mechanical changes that are safe and certain:
-  a stock's unit carried along its flows from the stocks they join, or the plural of the kind it counts; a queue's
-  goal held at 0 with tolerance 0; a process nobody identified taken out. Each change cites every request it answers.
+  a stock's unit carried along its flows from the stocks they join, or the plural of the kind it counts. Each change
+  cites every request it answers. A queue's goal with a tolerance and a process nobody identified are control: their
+  requests are held for the owner as they are raised (they are in the inbox).
   What it cannot answer it hands to the AI tier, saying why. A kind's chain and the structure tests are answered by
   ergostat's own finders (§12b), whose changes say `rewires`. Each tier records and checks its changes in its own
   process, as the engine checks a block's propose line;

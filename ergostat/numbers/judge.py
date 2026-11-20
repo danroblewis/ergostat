@@ -53,6 +53,7 @@ from . import observe as ob
 from . import proposals as pr
 from . import simulate as sim
 from . import trial as tr
+from .improve import WORDING  # what a reader is told: judged by check alone, not the record
 
 SPLITS = (1, 2, 4)            # the record held out, whole, in halves and in quarters
 MIN_WINDOW = 60.0             # a window shorter than this (s) is not judged
@@ -294,7 +295,7 @@ def _event(p, x: dict, what: str, by: str, data: dict) -> None:
 
 
 JUDGED = ("parameter", "equation", "structure")        # what a replay can judge (a loop's process or gain is not)
-WORDING = ("description", "unit", "rename")            # what a reader is told: judged by check alone, not the record
+
 REDESIGN = "redesign"                                  # a change set: judged by its scorecard (redesign.py)
 WORDING_MOST = 20                                      # wording changes written in one pass (each is measured alone anyway)
 

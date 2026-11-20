@@ -60,7 +60,8 @@ def fit_why(p) -> tuple[float | None, str | None]:
     make it measurable: stocks read by a sensor, flows that move them (an equation, or a sensor), and record."""
     from . import fit as ft
     spec = p.model.spec
-    read = [n for n, st in spec.stocks.items() if st.sensors and not getattr(st.where, "template", None)]
+    from ..spec.ir import template_made
+    read = [n for n, st in spec.stocks.items() if st.sensors and not template_made(st)]
     if not read:
         return None, "no stock of the model's own is read by a sensor, so there is nothing to replay the model against"
     moved = [n for n in read if any(f.equation is not None or f.sensors or f.rate is not None for f in spec.flows_of(n))]

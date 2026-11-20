@@ -123,30 +123,29 @@ def test_every_finding_becomes_a_request_answered_when_check_no_longer_finds_it(
     assert got["answered"] == 1 and rq.stored(p)[have[("no-unit", "stock.new-alerts")]["id"]]["state"] == "answered"
 
 
-def test_the_rule_tier_carries_units_and_holds_a_queues_goal_at_zero(tmp_path):
+def test_the_rule_tier_carries_units_and_control_waits_for_the_owner(tmp_path):
     p = project(tmp_path)
     rq.sync(p)
     mine = [r for r in rq.current(p) if r["tier"] == "rule"]
-    assert {r["code"] for r in mine} <= {"no-unit", "queue-goal-tolerance", "process-not-identified"}
+    assert {r["code"] for r in mine} <= {"no-unit"}
     made, none = ru.propose(p, mine, most=20)
     by = {r["code"]: raw for r, raw in made}
     assert by["no-unit"]["edit"] and "unit: alerts" in json.dumps(by["no-unit"])             # from the stock it flows to
-    assert by["queue-goal-tolerance"]["kind"] == "control"
     for r, raw in made:
         got = im.submit(p, "fixer", raw)
         assert got["status"] == "proposed", (r["code"], got["why"])
-    xs = {x["kind"]: x for x in pr.stored(p).values()}
-    assert {"unit", "control"} <= set(xs)
+    assert {x["kind"] for x in pr.stored(p).values()} == {"unit"}
     rq.sync(p)
     assert "no-unit" in {r["code"] for r in rq.current(p, ("proposed",))}
-    assert none == [] or all(r["tier"] == "rule" for r, _ in none)
-    assert {r["tier"] for r in rq.current(p) if r["code"] in ("no-equation", "event-names-mixed")} <= {"ai"}   # (not the rule tier's)
+    goal = next(r for r in rq.current(p) if r["code"] == "queue-goal-tolerance")       # control: held for the owner
+    assert goal["state"] == "held" and goal["owner"] and goal["tier"] == "owner"
+    assert {r["tier"] for r in rq.current(p) if r["code"] in ("no-equation", "event-names-mixed")} <= {"ai"}
 
 
-def test_the_judge_passes_words_by_check_and_writes_them_as_the_policy_allows_moving_the_rest(tmp_path):
+def test_the_judge_passes_words_by_check_and_writes_them_as_the_policy_allows(tmp_path):
     p = project(tmp_path)
     rq.sync(p)
-    made, _ = ru.propose(p, [r for r in rq.current(p) if r["code"] in ("no-unit", "queue-goal-tolerance")], most=20)
+    made, _ = ru.propose(p, [r for r in rq.current(p) if r["code"] == "no-unit"], most=20)
     for _, raw in made:
         assert im.submit(p, "fixer", raw)["status"] == "proposed"
     desc = {"kind": "description", "parts": ["goal.triaged-fast"], "title": "goal described",
@@ -155,14 +154,10 @@ def test_the_judge_passes_words_by_check_and_writes_them_as_the_policy_allows_mo
     assert im.submit(p, "modeller", desc)["status"] == "proposed"
     spec = p.model.spec
     spec.improve.accept.update({"unit": "auto", "description": "auto"})
-    jd.run(p)
+    got = jd.run(p)
+    assert got["accepted"] == 2                                         # words: as many a pass as passed
     text = p.model.path.read_text()
     assert "unit: alerts" in text and "description: the pager collector" in text
-    p.model = mdl.load(tmp_path)
-    left = [x for x in pr.stored(p).values() if x["state"] in ("checked", "passed")]
-    assert [x["kind"] for x in left] == ["control"]                  # control waits for the owner, whatever the policy
-    pr.accept(p, left[0]["id"], {"at": 0, "window": 600})            # its lines moved with the two written above it
-    assert "tolerance: 0" in p.model.path.read_text()
 
 
 def test_a_rename_of_a_part_updates_every_reference_and_keeps_its_history(tmp_path):

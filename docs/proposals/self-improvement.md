@@ -24,8 +24,8 @@ Notes are listed after the findings, grouped by code, never counted as findings.
 **A tiered improver**, each tier an ordinary block of `use: modelling`, the cheapest first:
 
 - **rule tier** (`rules`, a program, on by default; `ergostat/numbers/rules.py`): units carried along flows from the
-  stocks they join (or the plural of the kind a stock counts), a queue's goal held at 0, a guessed process taken out.
-  Each change cites every request it answers. (As verified below it also wrote the chain's rewiring, first-order
+  stocks they join (or the plural of the kind a stock counts); a queue's goal and a guessed process are held for the
+  owner. Each change cites every request it answers. (As verified below it also wrote the chain's rewiring, first-order
   outflows, event-type renames into programs and a measurable-fit equation; those are parked on `selfimprove`.);
 - **AI tier** (`modeller`, an `ai` block, only with `ai: true`, haiku by default; `ergostat/numbers/modeller.py`):
   the requests the rule tier hands on, eight at a time, each with its neighbourhood as written and the first lines of
@@ -55,7 +55,7 @@ and the AI tier off.
 
 Run 2026-11-19 on the branch rebased onto main, all on haiku; costs are what Claude Code reported.
 
-**Every example** (`scripts/self_improve_runs.py --seconds 240 --model haiku --approve --parallel 3`): each on a
+**Every example** (`scripts/self_improve_runs.py` on `selfimprove`, `--seconds 240 --model haiku --approve --parallel 3`): each on a
 scratch copy for 4 minutes on its stand-ins, the rule tier every 20 s, the AI tier every 90 s, the test policy
 (parameters, descriptions, units and equations written when the judge passes them), and the owner's approval
 simulated for the rule tier's structure, renames and goals. Findings and notes are `check`'s, before → after.
