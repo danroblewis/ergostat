@@ -1,7 +1,8 @@
 """The load interlock's sensor: `load.py suites | threads | memory` prints one reading.
 
   suites    test suites running on this machine now: processes whose command is `python -m pytest` (anyone's: the
-            coordinator's, a block's, another agent's), the same test the coordinator's wait uses
+            coordinator's, a block's, another agent's), the same test the coordinator's wait uses, and the factory's
+            suite containers
   threads   the threads of those suites' process trees, with every process scripts/suite_watch.py tagged
   memory    their resident memory, in GB
 
@@ -32,6 +33,16 @@ def processes() -> dict[int, tuple[int, int, str]]:
     return rows
 
 
+def docker_suites() -> int:
+    """The factory's suite containers (ergostat-factory-suite-*): their processes run in Docker's VM, not here."""
+    try:
+        got = subprocess.run(["docker", "ps", "-q", "--filter", "name=ergostat-factory-suite-"], capture_output=True,
+                             text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return 0
+    return len(got.stdout.split())
+
+
 def suite_trees(rows: dict) -> set[int]:
     kids: dict[int, list[int]] = {}
     for pid, (ppid, _, _) in rows.items():
@@ -58,7 +69,7 @@ def threads(pids: set[int]) -> int:
 def reading(what: str) -> float:
     rows = processes()
     if what == "suites":
-        return float(sum(1 for _, _, cmd in rows.values() if SUITE.match(cmd.strip())))
+        return float(sum(1 for _, _, cmd in rows.values() if SUITE.match(cmd.strip())) + docker_suites())
     pids = suite_trees(rows)
     if what == "threads":
         return float(threads(pids))
