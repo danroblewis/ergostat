@@ -924,6 +924,7 @@ function bdDraw(svg, g, lay) {
   applyView(svg);
   if (S.bdSel) bdTrace(svg, S.bdSel);
   if (typeof markInteraction === "function" && svg.matches("svg.canvas")) markInteraction(svg);   // the parts chosen, lit
+  if (typeof markProposed === "function" && svg.matches("svg.canvas")) markProposed(svg, S.graph);   // a proposal drawn
 }
 
 /* a signal's line as drawn: its way, its head, its name as a tooltip, and a vector's slash and count (where

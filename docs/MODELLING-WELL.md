@@ -521,8 +521,11 @@ Ordered by what matters most. Go through each after `check` is clean.
 
 ## 6. What ergostat does not help with yet
 
-[GAPS.md](GAPS.md) lists what makes this harder than it should be: no built-in join, no `check` finding for a
-missing description, unit or equation, and no way for a scheduled block's events to name a cause.
+`check` says much of the craft above as **notes** (a part with no description, a stock with no unit, a flow between
+stocks with no equation, an undescribed collector, event types in mixed forms, a queue's goal with a tolerance, a
+process nobody identified), and `use: modelling` takes each up as a request: its rule tier answers the mechanical ones
+and, with `ai: true`, its AI tier the rest (SPEC §12e). [GAPS.md](GAPS.md) lists what is still harder than it should
+be: no built-in join, and no way for a scheduled block's events to name a cause.
 
 ## Sources
 

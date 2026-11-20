@@ -210,9 +210,29 @@ uses:
       fit: 0.05                           # the most scaled error the replay may have (the goal model-fits)
       prompt: prompts/improver.md         # the improver's prompt (else ergostat's own, which reviews any model)
       run: ""                             # give it to claude -p (else the free stand-in); or a wrapper of your own
+      rules: true                         # the rule tier (default on, free): mechanical fixes for what check finds
+      ai: true                            # the AI tier (default off): what the rules cannot answer, on ai-model
+      ai-model: haiku                     # (default haiku); ai-every 10m, ai-most 8 requests a call
+      redesign: {when: auto, model: haiku, budget: 0.5, rounds: 3, daily: 2}   # with ai: true, the redesigner (auto|ask|off)
       accept:
         parameter: auto                   # a value the judge passes is written at once (else the owner accepts each)
+        description: auto                 # and so on for unit, equation, rename, structure (a rewired chain or a
+        unit: auto                        # removal always waits for the owner)
 ```
+
+- **Requests and tiers:** everything `check` finds (findings, a kind's chain, the craft notes, the coherence
+  mismatches once there is record) is a request (`ergostat.modelling-request`), raised by the collector on
+  `requests-raised` (every `requests-every`, 2m) and counted while unanswered (`unanswered-requests`, held at 0 by
+  the goal `requests-handled`). The `fixer` block (the rule tier, every `rules-every`, 1m) proposes the changes a rule makes
+  safely and certainly; the `modeller` block (with `ai: true`) proposes the rest, given each request with the model
+  near it. Both propose ordinary changes; the judge decides by class (SPEC §12e).
+- **Redesign:** with `ai: true`, the `redesigner` block reviews the structure on its own (`when: auto`), a system at a
+  time: when its replay is worse than its mean, a finding says the structure is wrong, refinement stalled, on the
+  first run and once a day; or when the owner asks (`ergostat improve --redesign [SYSTEM]`, the Model page's Redesign
+  button). It proposes one change set (renames, rewiring, removals, equations, descriptions), worked a few `rounds` on
+  a scratch copy within `budget` dollars a run and `daily` dollars a day, judged as a whole by a scorecard. **It is
+  never written without the owner's approval** (the review queue and the inbox) unless `accept: {redesign: auto}`, and
+  even then not one that takes a part away, rewires a chain or changes control.
 
 - **Control:** one balancing loop that closes the long way (SPEC §12e). The goal `model-fits` holds `model-error`
   (ergostat's measure `ergostat.model.fit`, the Fit page's total) at or under `fit`; while it is off the
@@ -229,8 +249,9 @@ uses:
 - **Once a model, names as written:** unlike the other templates, its parts are not prefixed: they are
   `model-error`, `pending-changes`, `changes-testing`, `passed-changes`, `accepted-changes`, the flows
   `model-drift`, `model-mended`, `changes-made`, `changes-superseded`, `tests-started`, `changes-passed`,
-  `changes-failed`, `changes-accepted`, the goal `model-fits`, and the blocks `improver` (or `improver-by-hand`) and
-  `judge`, in a system named for the instance (`modelling`). A system the model declares under that name (to give
+  `changes-failed`, `changes-accepted`, `unanswered-requests`, `answered-requests`, `requests-raised`,
+  `requests-answered`, `changes-made-by-fixer`, `changes-made-by-modeller`, the goals `model-fits` and
+  `requests-handled`, and the blocks `improver` (or `improver-by-hand`), `fixer`, `modeller` and `judge`, in a system named for the instance (`modelling`). A system the model declares under that name (to give
   it `show:` or `within:`) is the model's. `check` notes a model without it (`no-modelling-loop`).
 
 ## From a described workflow to a model

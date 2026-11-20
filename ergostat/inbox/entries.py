@@ -1,14 +1,17 @@
 """Everything waiting on a person now, in one list (SPEC §12o): gated actions held for the owner, a person block's
-request not yet reported, an advised command not yet approved or denied, a step test offered and not decided, and the
-model changes awaiting the owner. Each entry: ``id`` (``KIND/KEY``), ``kind``, ``summary``, ``time`` (asked) and
-``age``, ``link`` (its item's or block's page), ``verbs`` (how it is answered), ``class`` (what it is counted with
-toward graduation) and ``why`` (an action about an item: the item's impact sentence and tests, when it has them)."""
+request not yet reported, an advised command not yet approved or denied, a step test offered and not decided, the
+model changes awaiting the owner, and what check finds that modelling holds (no tier has a change for it). Each entry:
+``id`` (``KIND/KEY``), ``kind``, ``summary``, ``time`` (asked) and ``age``, ``link`` (its item's or block's page),
+``verbs`` (how it is answered), ``class`` (what it is counted with toward graduation) and ``why`` (an action about an
+item: the item's impact sentence and tests, when it has them)."""
 
 from __future__ import annotations
 
 import time
 
-KINDS = ("action", "person", "advise", "steptest", "change")
+from ..spec.ir import MODELLING_REQUEST
+
+KINDS = ("action", "person", "advise", "steptest", "change", "request")
 _CACHE: dict = {}
 
 
@@ -109,6 +112,18 @@ def _changes(p, spec, now: float) -> list[dict]:
             for x in xs + control_pending(p, spec)]
 
 
+def _requests(p, spec, now: float) -> list[dict]:
+    """What check finds that modelling holds (``ergostat.modelling-request``, held: no tier has a change for it): read
+    on its item's page; answered when check no longer finds it, so it has no verb here."""
+    from ..numbers import requests as rq
+    if MODELLING_REQUEST not in spec.items:
+        return []
+    return [{"id": f"request/{r['id']}", "kind": "request", "time": r.get("raised") or now, "verbs": [],
+             "link": f"/item/{MODELLING_REQUEST}/{r['id']}", "class": f"request:{r.get('code')}",
+             "summary": f"modelling holds {r.get('code')} on {r.get('about')}", "why": _cut(r.get("why") or "", 200)}
+            for r in rq.stored(p).values() if r["state"] == "held"]
+
+
 def entries(p, spec=None, now: float | None = None) -> list[dict]:
     """Everything waiting on a person, oldest first, each with its age. Worked out again when the record changes."""
     spec = spec if spec is not None else getattr(p.model, "spec", None)
@@ -120,7 +135,7 @@ def entries(p, spec=None, now: float | None = None) -> list[dict]:
     got = _CACHE.get(key)
     if got is None:
         got = []
-        for part in (_actions, _blocks, _steptests, _changes):
+        for part in (_actions, _blocks, _steptests, _changes, _requests):
             try:
                 got += part(p, spec, now)
             except Exception:                               # one kind that cannot be read leaves the others

@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -37,7 +38,8 @@ from . import trial as tr
 from . import version as ver
 from . import yamledit as ye
 
-KINDS = ("parameter", "equation", "structure", "measurement", "control")
+KINDS = ("parameter", "equation", "structure", "measurement", "control", "description", "unit", "rename")
+WORDING = ("description", "unit", "rename")   # what a reader is told, not what moves: judged without the record
 WORSE = gt.WORSE            # a proposal whose scaled error rises past this share (and not by a trifle) clearly worsens the fit
 TRIFLE = gt.TRIFLE
 CITED = "cited, not checked"   # a rule, a line or a URL: it says where a reason comes from, not that it holds here
@@ -118,8 +120,81 @@ def _replace(spec: Spec, one: dict) -> ye.Edit:
     return ye.Edit(str(f), [ye.Hunk(at[0] + 1, old, new)])
 
 
+SECTIONS = {"stock": "stocks", "flow": "flows", "auxiliary": "auxiliaries", "parameter": "parameters", "goal": "goals",
+            "block": "blocks", "items": "items", "agent": "agents"}
+
+
+def _value(v) -> str:
+    if isinstance(v, list):
+        return "[" + ", ".join(ye.scalar(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{" + ", ".join(f"{k}: {_value(x)}" for k, x in v.items()) + "}"
+    return ye.scalar(v)
+
+
+def _part(spec: Spec, ref: str):
+    kind, _, name = str(ref).partition(".")
+    table = {"stock": spec.stocks, "flow": spec.flows, "auxiliary": spec.auxiliaries, "parameter": spec.parameters,
+             "goal": spec.goals, "block": spec.blocks, "items": spec.items, "agent": spec.agents}.get(kind)
+    x = (table or {}).get(name)
+    if x is None:
+        raise ProposeError(f"part: {ref} is not a part of the model (stock.x, flow.y, auxiliary.z, parameter.p, goal.g, "
+                           f"block.b, items.k, agent.a)")
+    ye.own(getattr(x, "where", None), str(ref))
+    w = getattr(x, "defined", None) or getattr(x, "where", None)
+    if w is None:
+        raise ProposeError(f"{ref}: where it is written is not known")
+    path = _model_file(spec, str(w.file))
+    ls = ye.lines_of(path)
+    for i in range(min(w.line, len(ls)) - 1, -1, -1):          # the line its name is on (its map, or inline)
+        if re.match(rf"^\s*{re.escape(name)}\s*:", ls[i]):
+            return x, path, i + 1
+    raise ProposeError(f"{ref}: its name is not found above {path.name}:{w.line}")
+
+
+def _set(spec: Spec, one: dict) -> list[ye.Edit]:
+    """``{"part": "stock.x", "set": {"unit": "alerts", "description": "..."}}``: each key set on the part (replaced
+    when it is there, else added), ``"sensor": NAME`` to set them on one of its sensors; or ``{"add": "parameters",
+    "name": "time-in-x", "set": {...}}``: a new entry in a section (``file`` names the file, else the main one)."""
+    keys = one.get("set")
+    if not isinstance(keys, dict) or not keys:
+        raise ProposeError("set: a map of key: value")
+    if one.get("add"):
+        sec = str(one["add"])
+        name = str(one.get("name") or "")
+        if sec not in SECTIONS.values() or not re.match(r"^[a-z][a-z0-9-]*$", name):
+            raise ProposeError(f"add: a section ({', '.join(SECTIONS.values())}) and name: the new entry's name")
+        path = _model_file(spec, str(one.get("file") or spec.files[0]))
+        lines = [f"  {name}:"] + [f"    {k}: {_value(v)}" for k, v in keys.items()]
+        return [ye.add_entries(path, sec, [lines])]
+    x, path, at = _part(spec, str(one.get("part") or ""))
+    ls = ye.lines_of(path)
+    if one.get("sensor"):
+        sname = str(one["sensor"])
+        end, _ = ye.children(ls, at)
+        hit = None
+        for i in range(at, end):
+            t = ls[i].strip()
+            if (sname == "main" and re.match(r"^sensor\s*:", t)) or re.match(rf"^{re.escape(sname)}\s*:", t):
+                hit = i + 1
+                break
+        if hit is None and re.search(r"sensor\s*:\s*\{", ls[at - 1]):
+            raise ProposeError(f"{one['part']}: written on one line with its sensor; write it out a key a line first")
+        if hit is None:
+            raise ProposeError(f"{one['part']}: no sensor {sname}")
+        return [ye.set_inline(path, hit, k, _value(v)) if re.search(r":\s*\{", ls[hit - 1]) else ye.set_key(path, hit, k, _value(v))
+                for k, v in keys.items()]
+    out = []
+    for k, v in keys.items():
+        if re.search(r":\s*\{", ls[at - 1]):
+            out.append(ye.set_inline(path, at, str(k), _value(v)))
+        else:
+            out.append(ye.set_key(path, at, str(k), _value(v)))
+    return out
+
+
 def edits(spec: Spec, raw) -> list[ye.Edit]:
-    """A proposal's edit, as ``ye.Edit``s on the model's files: the review queue's form, or ``replace``."""
+    """A proposal's edit, as ``ye.Edit``s on the model's files: the review queue's form, ``replace``, or ``set``."""
     if isinstance(raw, dict) and "files" in raw:
         raw = raw["files"]
     if isinstance(raw, dict):
@@ -128,8 +203,18 @@ def edits(spec: Spec, raw) -> list[ye.Edit]:
         raise ProposeError("edit: {files: [{file, hunks: [{line, old, new}]}]}, or {file, replace, with}")
     out = []
     for one in raw:
-        if not isinstance(one, dict) or not one.get("file"):
-            raise ProposeError("each edit names its file (from the model's folder)")
+        if not isinstance(one, dict) or not (one.get("file") or one.get("part") or one.get("add")):
+            raise ProposeError("each edit names its file (from the model's folder), or the part it sets")
+        if "set" in one:
+            try:
+                got = _set(spec, one)
+            except ye.EditError as e:
+                raise ProposeError(str(e)) from None
+            by: dict[str, list] = {}
+            for e in got:
+                by.setdefault(e.file, []).append(e)
+            out += [ye.merge(es_) for es_ in by.values()]
+            continue
         if "replace" in one:
             out.append(_replace(spec, one))
             continue
@@ -156,6 +241,33 @@ def joined(es: list[ye.Edit]) -> dict:
 
 # ---- the evidence
 
+_FOUND: dict[str, tuple] = {}             # the model's findings by its files' texts: one check a model, however
+_FOUND_LOCK = threading.Lock()            # many proposals a block prints against it
+
+
+def _found(path: Path, files) -> tuple[dict[str, str], set[str]]:
+    """What ``check`` finds in the model at ``path`` as its files read now (``finding_id``: message), and its notes."""
+    from ..spec import read
+    h = hashlib.sha1(str(path).encode())
+    for f in sorted({str(x) for x in files}):
+        try:
+            h.update(f.encode() + b"\0" + Path(f).read_bytes() + b"\0")
+        except OSError:
+            h.update(f.encode() + b"\0-\0")
+    key = h.hexdigest()
+    with _FOUND_LOCK:
+        got = _FOUND.get(key)
+    if got is None:
+        _, problems = read(path)
+        got = ({finding_id(x.code, x.about): x.message for x in problems if x.level != "error"},
+               {finding_id(x.code, x.about) for x in problems if x.level == "note"})
+        with _FOUND_LOCK:
+            if len(_FOUND) > 8:
+                _FOUND.clear()
+            _FOUND[key] = got
+    return dict(got[0]), set(got[1])
+
+
 class Evidence:
     """What ergostat can check a reason against, worked out once and only when a reason needs it."""
 
@@ -166,16 +278,30 @@ class Evidence:
 
     def findings(self) -> dict[str, str]:
         if self._findings is None:
-            from ..spec import read
-            _, problems = read(self.p.model.path)
-            self._findings = {finding_id(x.code, x.about): x.message for x in problems if x.level != "error"}
+            self._findings, self._notes = _found(self.p.model.path, getattr(self.spec, "files", None) or [])
         return self._findings
+
+    def notes(self) -> set[str]:
+        self.findings()
+        return self._notes
 
     def fit(self) -> dict:
         if self._fit is None:
             data = self.data or ob.measured(self.p, ob.reference(self.p))
             _, self._fit = tr.fit_of(self.spec, data)
         return self._fit
+
+    def mismatches(self) -> dict[str, str]:
+        """The coherence mismatches over the record (``coherence.py``), by ``CODE@ABOUT``."""
+        if getattr(self, "_mismatches", None) is None:
+            try:
+                from .. import coherence as co
+                got = co.of_project(self.p, self.spec)
+            except Exception:
+                got = {"findings": []}
+            self._mismatches = {f"{f['code']}@{f['about']}": f["message"] for f in got.get("findings") or []
+                                if f.get("level") == "mismatch"}
+        return self._mismatches
 
     def residuals(self) -> dict:
         if self._residuals is None:
@@ -187,7 +313,7 @@ class Evidence:
         """What the evidence says, checked; or ``ProposeError`` with why it is not evidence."""
         if isinstance(ev, dict) and len(ev) == 1:
             (k, v), = ev.items()
-            ev = f"{k}:{v}" if k in ("finding", "fit", "residual", "rule") else str(v)
+            ev = f"{k}:{v}" if k in ("finding", "fit", "residual", "rule", "coherence", "request") else str(v)
         if not isinstance(ev, str) or not ev.strip():
             raise ProposeError("no evidence")
         ev = ev.strip()
@@ -197,6 +323,17 @@ class Evidence:
             if what not in got:
                 near = [k for k in got if k.split("@")[0] == what.split("@")[0]]
                 raise ProposeError(f"{ev}: check does not find it now" + (f" (it finds {', '.join(near[:3])})" if near else ""))
+            return got[what]
+        if kind == "request":
+            from . import requests as rq
+            x = rq.stored(self.p).get(what.removeprefix(f"{rq.MODELLING_REQUEST}/"))
+            if x is None or x["state"] == "answered":
+                raise ProposeError(f"{ev}: no request open by that id")
+            return str(x.get("says") or x.get("code"))
+        if kind == "coherence":
+            got = self.mismatches()
+            if what not in got:
+                raise ProposeError(f"{ev}: coherence does not find it now over the record")
             return got[what]
         if kind == "fit":
             ref, _, stat = what.rpartition(".")
@@ -224,7 +361,8 @@ class Evidence:
         m = PATH_LINE.match(ev)
         if m:
             return self._lines(m.group("path"), int(m.group("a")), int(m.group("b") or m.group("a")))
-        raise ProposeError(f"{ev}: not evidence ergostat can check: a finding (finding:CODE@PART), a fit statistic "
+        raise ProposeError(f"{ev}: not evidence ergostat can check: a finding (finding:CODE@PART), a coherence mismatch "
+                           f"(coherence:CODE@PART), a fit statistic "
                            f"(fit:total.nmse), a residual (residual:stock.NAME), a document or code line (path:LINE), a URL, "
                            f"or a modelling rule (rule:NAME)")
 
@@ -237,11 +375,17 @@ class Evidence:
         only: they say where a reason comes from, never that it holds here."""
         if isinstance(ev, dict) and len(ev) == 1:
             (k, v), = ev.items()
-            ev = f"{k}:{v}" if k in ("finding", "fit", "residual", "rule") else str(v)
+            ev = f"{k}:{v}" if k in ("finding", "fit", "residual", "rule", "coherence", "request") else str(v)
         ev = str(ev).strip()
         kind, _, what = ev.partition(":")
         where = ", ".join(sorted(near)[:6]) + ("…" if len(near) > 6 else "")
-        if kind == "finding":
+        if kind == "request":
+            from . import requests as rq
+            x = rq.stored(self.p).get(what.removeprefix(f"{rq.MODELLING_REQUEST}/")) or {}
+            about = x.get("about")
+            return None if about in (None, "model") or about in near else \
+                f"{ev}: about {about}, which the change does not touch (it touches {where})"
+        if kind in ("finding", "coherence"):
             about = what.split("@", 1)[1] if "@" in what else None
             if about is None:
                 return None if what in answered else f"{ev}: about no part, and the change does not answer it"
@@ -338,16 +482,52 @@ def _nmse(f: dict | None) -> float | None:
 
 def kind_of(before: Spec, after: Spec, said: str) -> str:
     """What the change is, by what it does, whatever it was called: a goal, a block (the judge's policy among its
-    keys) or an agent changed is a **control** change; a sensor of a part already there, a **measurement** change;
-    else values only is a parameter change, and the rest an equation or the structure. Only the last three are the
-    dynamics model's to judge."""
+    keys) or an agent changed is a **control** change; a sensor of a part already there, a **measurement** change; the
+    same model under new names (each says ``formerly:`` its old one) a **rename**; else values only is a parameter
+    change, units alone a **unit** change, descriptions alone a **description** change, and the rest an equation or the
+    structure. The parameter, equation and structure are the dynamics model's to judge on the record; a description,
+    a unit and a rename change what a reader is told, not what moves."""
+    if ver.renamed_parts(before, after):
+        return "rename"
     if ver.control(before) != ver.control(after):
         return "control"
     if ver.changed_sensors(before, after):
         return "measurement"
+    if ver.items(before) != ver.items(after):
+        return "structure"                                   # how items move: what the chains and the record read
+    if ver.structure_but_units(before) == ver.structure_but_units(after) and ver.values(before) == ver.values(after):
+        if ver.units(before) != ver.units(after):
+            return "unit"
+        if ver.words(before) != ver.words(after):
+            return "description"
+        return "parameter"
     if ver.structure(before) == ver.structure(after):
         return "parameter"
     return said if said in ("equation", "structure") else "structure"
+
+
+def governs(before: Spec, after: Spec) -> list[str]:
+    """What a change alters of who decides what is written: the judge's policy (``accept``, its threshold, hold-out,
+    windows), a block's ``accept``, a template instance's ``with:``. Only the owner changes these, by hand: a proposal
+    that does is refused, whoever made it."""
+    import dataclasses
+    out = []
+    if dataclasses.asdict(before.improve) != dataclasses.asdict(after.improve):
+        out.append("the judge's policy")
+    for n in sorted(set(before.blocks) & set(after.blocks)):
+        if (before.blocks[n].params or {}).get("accept") != (after.blocks[n].params or {}).get("accept"):
+            out.append(f"block {n}'s accept")
+    for n in sorted(set(before.uses) | set(after.uses)):
+        a, b = (before.uses.get(n) or {}).get("values"), (after.uses.get(n) or {}).get("values")
+        if a != b:
+            out.append(f"use {n}'s with:")
+    return out
+
+
+def _governed(before: Spec, after: Spec) -> None:
+    got = governs(before, after)
+    if got:
+        raise ProposeError(f"it changes {', '.join(got)}: who decides what is written is the owner's to change, by hand")
 
 
 def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> dict:
@@ -397,11 +577,13 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
         texts = ye.apply_together(es_)
     except ye.EditError as e:
         raise ProposeError(f"its edit cannot be made: {e}") from None
-    after, problems = tr.compiled(p.model.path, texts, findings=True)
+    after, problems = tr.compiled(p.model.path, texts)   # its errors first; what check finds once, on the text kept
     errors = [x for x in problems if x.level == "error"]
     if errors:
         raise ProposeError("the model it leaves does not compile: " + "; ".join(str(x) for x in errors[:3]))
+    _governed(spec, after)
     marked = mark_new(es_, spec, after)                  # what it adds says so: inferred: (the change's id when recorded)
+    problems = None
     if marked is not None:
         try:
             after2, problems2 = tr.compiled(p.model.path, ye.apply_together(marked), findings=True)
@@ -409,26 +591,37 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
             after2, problems2 = None, []
         if after2 is not None and not [x for x in problems2 if x.level == "error"]:
             es_, after, problems = marked, after2, problems2
+    if problems is None:
+        after, problems = tr.compiled(p.model.path, texts, findings=True)
     before_f = set(ev.findings())
     after_f = {finding_id(x.code, x.about) for x in problems if x.level != "error"}
-    data_a = ob.measured(p, data.grid, after)
-    run_a, fit_a = tr.fit_of(after, data_a)
-    again = refit(spec, after, data_a)
-    a = _nmse(fit_a)
-    ar = _nmse(again["fit"]) if again else None
-    best_fit = again["fit"] if ar is not None and (a is None or ar < a) else fit_a
-    if run_b.valid and not run_a.valid and not (again and again["fit"].get("total")):
-        raise ProposeError("with it the replay is not valid: " + "; ".join(run_a.invalid[:2]))
+    notes = {finding_id(x.code, x.about) for x in problems if x.level == "note"} | ev.notes()   # the craft: not findings
     kind = kind_of(spec, after, said_kind)
+    if kind == "rename":                                   # the same findings under the new names are not new
+        before_f = {_renamed_id(f, ver.renamed_parts(spec, after) or {}) for f in before_f}
+    if kind in WORDING:                                   # what a reader is told: the replay reads the same record alike
+        fit_a, again, best_fit = fit_b, None, fit_b
+    else:
+        data_a = ob.measured(p, data.grid, after)
+        run_a, fit_a = tr.fit_of(after, data_a)
+        again = refit(spec, after, data_a)
+        a = _nmse(fit_a)
+        ar = _nmse(again["fit"]) if again else None
+        best_fit = again["fit"] if ar is not None and (a is None or ar < a) else fit_a
+        if run_b.valid and not run_a.valid and not (again and again["fit"].get("total")):
+            raise ProposeError("with it the replay is not valid: " + "; ".join(run_a.invalid[:2]))
     refs = touched_refs(spec, after, said_parts, kind)
     near = gt.neighbourhood(spec, refs) | gt.neighbourhood(after, refs)
     g = gt.check(spec, fit_b, best_fit, refs)
+    if kind in WORDING:
+        g["worse"] = None
     if g["worse"]:
         key = mem.key({"kind": kind, "target": _target(spec, after, said_parts, kind), "made_by": by})
-        raise GateError(f"it clearly worsens the fit: {g['worse']}" + (" even refitted" if ar is not None else ""), key)
+        raise GateError(f"it clearly worsens the fit: {g['worse']}" + (" even refitted" if again else ""), key)
     from . import exercised as ex
     q = ex.quiet(spec, data)
-    for r in sorted(_parts(spec) - _parts(after)):            # a declared part taken away for being quiet: not proposed
+    renames = ver.renamed_parts(spec, after) or {}
+    for r in sorted(_parts(spec) - _parts(after) - set(renames)):   # a declared part taken away for being quiet: not proposed
         kind_, _, name = r.partition(".")
         if r in q and not ex.inferred(spec.measured(kind_).get(name)):
             key = mem.key({"kind": kind, "target": _target(spec, after, said_parts, kind), "made_by": by})
@@ -450,7 +643,8 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
                     [r for r in sorted(_moved(spec, after)) if r.split(".")[0] in ("stock", "flow", "auxiliary")],
          "title": str(raw.get("title") or kept[0]["says"])[:200], "reasons": kept, "refused_reasons": refused,
          "reason": "; ".join(r["says"] for r in kept), "confidence": conf, "edit": j,
-         "findings": {"answered": sorted(before_f - after_f), "new": sorted(after_f - before_f)},
+         "findings": {"answered": sorted((before_f - after_f) - notes), "new": sorted((after_f - before_f) - notes),
+                      "notes_answered": sorted((before_f - after_f) & notes), "notes_new": sorted((after_f - before_f) & notes)},
          "gate": {"whole": g["whole"], "local": g["local"], "said": gt.summary(g)}, "neighbourhood": g["neighbourhood"],
          "fit_before": fit_b, "fit_after": fit_a, "refit": again, "new_parts": sorted(_parts(after) - _parts(spec)),
          "gone_parts": sorted(_parts(spec) - _parts(after))}
@@ -477,11 +671,26 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
         x["target"] = _target(spec, after, parts, kind) or (x["new_parts"] or x["gone_parts"] or [""])[0]
         x["change"] = {"equation": "an equation changed", "structure": "a change to the structure",
                        "control": "a change to what decides (a goal, a block or the judge)",
-                       "measurement": "a change to how the world is read (a sensor)"}[kind]
+                       "measurement": "a change to how the world is read (a sensor)",
+                       "description": "a part's description: what the diagrams say of it",
+                       "unit": "a part's unit", "rename": "a part renamed, every reference with it, its history kept"}[kind]
+        from . import structural as stc
+        if stc.rewired(spec, after):                     # whoever made it: a chain rewired is the owner's to write
+            x["rewires"] = True
+        if kind == "rename":
+            x["renames"] = renames
+        if kind in ("description", "unit"):
+            x["parts"] = list(dict.fromkeys([*(".".join(r.split(".")[:2]) for r in (
+                ver.changed_words(spec, after) if kind == "description" else ver.changed_units(spec, after))), *parts]))
         if moved_ctl:
             x["parts"] = list(dict.fromkeys([*moved_ctl, *parts]))
     x["key"] = mem.key(x)
     return x
+
+
+def _renamed_id(fid: str, renames: dict[str, str]) -> str:
+    code, _, about = fid.partition("@")
+    return f"{code}@{renames.get(about, about)}" if about else fid
 
 
 def _new_named(before: Spec, after: Spec) -> list[tuple[str, str]]:
@@ -552,6 +761,8 @@ def touched_refs(before: Spec, after: Spec, parts: list[str], kind: str) -> list
     out += [f"parameter.{n}" for n, q in after.parameters.items()
             if n in before.parameters and q.value != before.parameters[n].value]
     out += ver.changed_control(before, after) + ver.changed_sensors(before, after)
+    out += [".".join(r.split(".")[:2]) for r in ver.changed_words(before, after) + ver.changed_units(before, after)]
+    out += list((ver.renamed_parts(before, after) or {}).values())
     return list(dict.fromkeys(out))
 
 

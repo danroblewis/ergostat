@@ -74,3 +74,7 @@ blocks:
     run: jobs/app.sh
     every: 3s
     out: [flow.logging, flow.uploads-left]
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

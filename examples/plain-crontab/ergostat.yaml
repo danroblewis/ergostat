@@ -59,3 +59,7 @@ blocks:
     run: mkdir -p logs; head -c 3000 /dev/urandom | base64 >> logs/app.log; echo 4
     every: 3s
     out: flow.app-logging
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

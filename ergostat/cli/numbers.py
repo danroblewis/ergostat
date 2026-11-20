@@ -322,6 +322,31 @@ def cmd_judge(args) -> int:
     return 0
 
 
+def _redesign(p, args) -> int:
+    """``ergostat improve --redesign [SYSTEM]``: the owner asks for a redesign, recorded for the redesigner block
+    (``use: modelling`` with ``ai: true``) to take up on its next run; what it makes joins the review queue."""
+    from ..numbers import redesign as rd
+    if "redesigner" not in p.model.spec.blocks:
+        print("no redesigner in the model: use: modelling with ai: true has one", file=sys.stderr)
+        return 2
+    try:
+        s = rd.system_of(p.model.spec, args.redesign)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    w = rd.waiting(p, p.model.spec, s)
+    if w is not None:
+        print(f"a redesign of {s} is waiting already: {w['id']} (the review queue)", file=sys.stderr)
+        return 1
+    got = rd.ask(p, s)
+    if args.json:
+        return out_json(got)
+    conf = rd.settings(p.model.spec)
+    print(f"asked: a redesign of {got['asked']}; the redesigner takes it up on its next run (ergostat run), on "
+          f"{conf['model']}, at most ${conf['budget']:.2f} a run and ${conf['daily']:.2f} a day")
+    return 0
+
+
 def cmd_improve(args) -> int:
     """``ergostat improve``: what blocks proposed for the model and ergostat did not take, with why; ``--try
     FILE`` (or - for standard input) checks a proposal, as a propose line would be checked, and lands nowhere."""
@@ -344,6 +369,8 @@ def cmd_improve(args) -> int:
         except (pr.ProposalError, ye.EditError, ValueError) as e:
             print(e, file=sys.stderr)
             return 2
+    if getattr(args, "redesign", None):
+        return _redesign(p, args)
     if args.try_:
         raw = sys.stdin.read() if args.try_ == "-" else open(args.try_, encoding="utf-8").read()
         try:

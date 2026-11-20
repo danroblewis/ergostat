@@ -501,7 +501,7 @@ def test_a_collector_read_by_many_counts_has_one_input_and_a_bus_to_them():
     spec = load(ROOT / "examples" / "ticket-factory" / "ergostat.yaml")
     g = drawn(spec, {"*"})
     n = {x["id"]: x for x in g["nodes"]}
-    col = next(x for x in g["nodes"] if x["role"] == "collector")
+    col = next(x for x in g["nodes"] if x.get("role") == "collector" and "requests-raised" not in x["id"])
     assert len(col["ins"]) == 1 and len(col["outs"]) == 1          # it watches the outside, once; it records, once
     bus = n["bus:" + col["id"][4:]]
     out = [e for e in g["edges"] if e["source"] == col["id"]]

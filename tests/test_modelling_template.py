@@ -75,9 +75,20 @@ def test_it_expands_to_exactly_the_loop_the_examples_wired_by_hand(tmp_path):
     hand, hps = model(tmp_path / "hand", FIXTURE.read_text())
     used, ups = model(tmp_path / "used", USE)
     a, b = parts(hand), parts(used)
-    for k in a:
-        assert a[k] == b[k], k
-    assert sorted(f"{p.code} {p.about}" for p in hps) == sorted(f"{p.code} {p.about}" for p in ups)
+    new = {"stocks": {"unanswered-requests", "answered-requests"}, "goals": {"requests-handled"},
+           "blocks": {"fixer", "keep-requests-handled"},
+           "flows": {"changes-made-by-fixer", "requests-raised", "requests-answered"}}
+    for k in ("stocks", "flows", "goals", "blocks", "auxiliaries"):   # the hand-wired loop, and the requests and the rule tier
+        assert set(b[k]) - set(a[k]) == new.get(k, set()), k
+        for n in a[k]:
+            if n == "changes-made":                    # now the improver's and ergostat's finders' (the tiers have their own)
+                continue
+            got = {f: v for f, v in b[k][n].items() if f != "description"}
+            want = {f: v for f, v in a[k][n].items() if f != "description"}
+            assert got == want, (k, n)
+    assert a["improve"]["accept"]["parameter"] == b["improve"]["accept"]["parameter"] == "auto"
+    assert sorted(f"{p.code} {p.about}" for p in hps if p.level != "note") == \
+        sorted(f"{p.code} {p.about}" for p in ups if p.level != "note")
     assert used.uses["modelling"]["template"] == "modelling"
     assert used.blocks["improver"].where.line == used.stocks["model-error"].where.line   # every part points at use:
 

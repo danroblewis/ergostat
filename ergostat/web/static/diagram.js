@@ -830,6 +830,7 @@ function drawGraph(svg, g, lay) {
   if (sd && S.hlCausal) sdApply(S.hlCausal);
   if (S.hoverKey || S.selKey) trace(S.hoverKey || S.selKey);   // a redraw keeps the line being followed
   markInteraction(svg);                                // the chosen parts, the lines waiting for libavoid
+  markProposed(svg, g);                                // a proposal drawn: its new and changed parts (every redraw)
 }
 
 /* a standalone copy of the diagram: every computed style written inline, framed to the layout */
@@ -1021,6 +1022,7 @@ async function pageDiagram(main, q) {
   const system = q.get("system") || "";
   const around = q.get("around") || "";
   const openQ = q.has("open") ? q.get("open") : null;          // the systems opened; absent: the server's default
+  const proposal = view !== "process" ? q.get("proposal") || "" : "";   // a change waiting, drawn as it would leave the model
   S.portAt = {}; S.portRank = {};                                 // a new view: ports face what they join here
   S.pinKey = `ergostat.pins.${S.status?.name || ""}.${view}.${system}.${around}`;   // (whatever is open: kept from systems' frames)
   S.pins = loadPins();
@@ -1031,7 +1033,8 @@ async function pageDiagram(main, q) {
   for (const name of S.status?.systems || []) sysSel.append(h("option", { value: name, selected: name === system ? "" : null }, name));
   function go(over) {
     const to = over.view || view;
-    const p = new URLSearchParams({ view, system, around, ...(openQ != null ? { open: openQ } : {}), ...(to === "process" ? pq : {}), ...over });
+    const p = new URLSearchParams({ view, system, around, ...(openQ != null ? { open: openQ } : {}), ...(to === "process" ? pq : {}),
+                                    ...(proposal && to !== "process" ? { proposal } : {}), ...over });
     for (const [k, v] of [...p]) if (!v) p.delete(k);
     navigate("/diagram?" + p.toString());
   }
@@ -1134,7 +1137,7 @@ async function pageDiagram(main, q) {
     const openArg = openQ != null && view !== "process" ? { open: openQ } : {};
     S.graphQ = { system, around, ...openArg };      // (the other view's answer is asked the same: interact.js)
     const pmArg = view !== "process" ? {} : Object.fromEntries(["kinds", "by", "paths"].filter((k) => pq[k]).map((k) => [k, pq[k]]));
-    const ask = { view, system, around, ...openArg, ...pmArg }, key = JSON.stringify(ask);
+    const ask = { view, system, around, ...openArg, ...pmArg, ...(proposal ? { proposal } : {}) }, key = JSON.stringify(ask);
     if (!SNAP) ask.have = (S.held?.key === key && S.held.hash) || "-";   // the structure it holds: then only the values come
     const t0 = performance.now();
     try { g = await api("graph", ask); fails = 0; }
@@ -1158,6 +1161,7 @@ async function pageDiagram(main, q) {
   async function show(g) {
     wrap.querySelector(".loading")?.remove();
     S.graph = g;
+    proposedBanner(wrap, g, proposal, go);
     if (g.tree && !sysSel.dataset.tree) {            // the picker as the tree it is: each system under the one it is within
       sysSel.dataset.tree = "1";
       const kids = (p) => Object.keys(g.tree).filter((x) => (g.tree[x].within || null) === p).sort();
@@ -1242,6 +1246,32 @@ async function pageDiagram(main, q) {
   S.redraw = () => { if (!S.pressed && !S.nodeDrag && !S.hullDrag && S.layout) (S.graph?.kind === "process" ? pmDraw : drawGraph)(svg, S.graph, S.layout); };   // libavoid's lines came
   const first = await tick();
   S.timer = poll(tick, 2500, shell, first);
+}
+
+/* a change waiting, drawn as it would leave the model (/api/graph?proposal=ID): the shapes of the parts it adds dashed
+   and tinted, those it changes or renames dashed, and what it takes away named in a banner, with the way back to the
+   model as it is */
+function markProposed(svg, g) {
+  const pr = g?.proposed, corr = g?.corr?.parts;
+  if (!pr || !corr) return;
+  const mark = (refs, cls) => {
+    for (const r of refs || []) for (const id of corr[r] || []) for (const el of svg.querySelectorAll(`[data-id="${CSS.escape(id)}"]`)) el.classList.add(cls);
+  };
+  mark(pr.changed, "proposed-changed");
+  mark(pr.added, "proposed-new");
+}
+function proposedBanner(wrap, g, proposal, go) {
+  wrap.querySelector(".proposed-banner")?.remove();
+  if (!proposal) return;
+  const pr = g?.proposed;
+  const names = (xs) => (xs || []).map((r) => r.split(".").slice(1).join(".")).join(", ");
+  wrap.append(h("div", { class: "proposed-banner", role: "status" },
+    g?.error ? h("span", { class: "s-open" }, g.error)
+      : h("span", {}, h("b", {}, "Proposed, not written: "), pr?.title || proposal,
+          h("span", { class: "muted small" }, ` — new parts dashed and tinted (${(pr?.added || []).length}), changed or renamed dashed (${(pr?.changed || []).length})`),
+          (pr?.removed || []).length ? h("div", { class: "small" }, h("span", { class: "muted" }, "taken away: "), names(pr.removed)) : null,
+          (pr?.renamed || []).length ? h("div", { class: "small" }, h("span", { class: "muted" }, "renamed: "), pr.renamed.map((x) => x.split(" → ").map((r) => r.split(".").slice(1).join(".")).join(" → ")).join(", ")) : null),
+    " ", h("button", { class: "ghost", onclick: () => { S.graphSig = ""; S.fitted = false; go({ proposal: "" }); } }, "The model as it is")));
 }
 
 /* an answer of values only (graph_poll.py) put into a copy of the whole answer the page holds: every part (each object

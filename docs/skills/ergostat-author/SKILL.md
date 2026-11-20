@@ -266,7 +266,9 @@ If nobody can answer, do not ask: choose, and list your assumptions at the end.
 - **Every model includes `use: modelling`**, once: `uses: {modelling: {use: modelling}}`. It gives the model
   its improvement loop (SPEC §12e): its fit measured as a stock (`model-error`) and held by a goal
   (`model-fits`), an `improver` block that proposes changes while it is off, and ergostat's `judge`, which
-  tests each on the record after it; the owner accepts what passes unless `accept:` says otherwise. Its parts
+  tests each on the record after it; the owner accepts what passes unless `accept:` says otherwise. What `check` finds
+  (its findings, the chain's, the craft notes, the coherence mismatches) becomes its work: a rule tier answers the
+  mechanical ones, and an AI tier the rest when `ai: true` is given. Its parts
   keep these names (not `INSTANCE-...`). When the model has none, add it (`check` notes it:
   `no-modelling-loop`); options in `docs/ADDING.md` (modelling).
 

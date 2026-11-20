@@ -177,6 +177,9 @@ def find(project, spec: Spec, window: float = WINDOW, now: float | None = None) 
     except Exception:                                  # a record that cannot be read says nothing here, and is logged
         import logging
         logging.getLogger("ergostat").exception("identifying the external blocks' laws failed")
+    from ..control.proposals import unidentified
+    for g, x in unidentified(project, spec).items():    # a loop's process the record does not identify (§12d)
+        say("loop-not-identifiable", f"goal {g}: {x['said']}", spec.goals[g].where, f"goal.{g}")
     return out
 
 

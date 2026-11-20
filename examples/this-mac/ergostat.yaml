@@ -63,3 +63,7 @@ agents:
   owner:                         # one person fills both loops
     kind: person
     description: frees space and tidies downloads, when they choose to
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

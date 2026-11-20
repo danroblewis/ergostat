@@ -952,6 +952,7 @@ async function pageModel(main) {
     availableView(d, availBox);
     const span = d.until && d.since ? dur(d.until - d.since) : "";
     patch(fitBox, 
+      ...(d.modelling?.says ? [h("p", { class: "muted" }, h("b", {}, "Modelling: "), d.modelling.says)] : []),
       ...(d.invalid?.length ? [h("p", { class: "s-off" }, `The replay is not valid: ${d.invalid.join("; ")}.`)] : []),
       h("h3", {}, "Model fit", h("span", { class: "muted" }, ` the stocks an equation moves, over the last ${span} of record`)),
       d.stocks.length ? table(fitHead(d.words, "stock"), fitRows(d.stocks, d.total), "fit")
@@ -969,7 +970,8 @@ async function pageModel(main) {
     patch(notes, ...d.notes.map((n) => h("p", { class: "muted small" }, n)));
     const why = Object.entries(d.not_proposed || {});
     const q = d.queue || [];
-    const sig = JSON.stringify(q.map((x) => [x.id, x.diff?.hash, x.conflicts.length])) + (d.estimated_at || "") + JSON.stringify(why) + d.loops_analysed;
+    const sig = JSON.stringify(q.map((x) => [x.id, x.diff?.hash, x.conflicts.length, x.state])) + (d.estimated_at || "") + JSON.stringify(why) + d.loops_analysed +
+      JSON.stringify([d.redesigns?.asked, d.redesigns?.last?.id, d.redesigns?.last?.result]);
     if (sig !== propSig && !answering()) {
       propSig = sig;
       const said = h("span", { class: "muted small" });
@@ -990,7 +992,7 @@ async function pageModel(main) {
           ? `${d.to_estimate.length} parameter${d.to_estimate.length > 1 ? "s" : ""} to estimate${d.estimated_at ? `, last calibrated ${ago(d.estimated_at)}` : ", not calibrated yet"}`
           : "no parameter is marked estimate: true"),
         d.loops_analysed < d.loops ? h("span", { class: "muted small" }, `loops analysed for proposals: ${d.loops_analysed} of ${d.loops}`) : null,
-        said].filter(Boolean));
+        said, redesignAsk(d.redesigns, () => { propSig = null; setTimeout(tick, 600); })].filter(Boolean));
       queueBox.replaceChildren(...(q.length ? q.map((x) => reviewEntry(x, { onDone: () => { propSig = null; allBox.replaceChildren(); setTimeout(tick, 600); } }))
         : [h("p", { class: "muted" }, "Nothing waiting.")]));
       whyBox.replaceChildren(...(why.length ? [h("h3", {}, "Estimates not proposed"),

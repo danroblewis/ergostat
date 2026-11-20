@@ -75,3 +75,7 @@ agents:
     model: haiku
     at-once: 1
     description: Claude Code on haiku (AI=claude), or the free stand-in (AI=standin); never pushes or calls gh
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)
