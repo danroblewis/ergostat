@@ -1,0 +1,61 @@
+# warm2: warm processes for blocks, built on daemons
+
+Branch `warm2`, from origin/main at dd91518. Gap (`docs/GAPS.md`, *Warm workers instead of a process per item*;
+`docs/proposals/latency.md`): a process per item costs its start-up on every item (2.2x the latency of warm
+processes, measured on branch `warm`). The first attempt (branch `warm`, definition in
+`docs/roadmap/overnight/leasekill.md`) failed its gate twice: a child's CPU was not charged to its item, the
+environment leaked between items, `done` was read loosely, the owner's stop was misattributed, and one item's state
+could reach the next. This attempt builds on the daemons (SPEC §9.7), which already give a strict, run-tagged `done`,
+an item's `env` in its line and never in the process's environment, per-run `cancel`, supervision and whole-group
+kills; it adds what a daemon cannot give: one item at a time per process, so its CPU is the item's.
+
+## Definition of done
+
+**`warm: true` on a daemon** (a block's `daemon:` map or a top-level `daemons:` entry) is the owner's declared
+promise that the program keeps no state between items. Such a daemon is `concurrency` processes of its command, each
+holding **one run at a time**; the dispatcher's room is the sum of the idle ones. Everything else is the daemon
+protocol unchanged (strict `{"done": EXIT, "run": ID}`, lines tagged with their run, `cancel`, `stop`, heartbeats,
+restarts, back-off, given up, swaps). A warm daemon serves blocks only (a sensor naming one is an error), and
+`recycle: M` (default 1,000; only with `warm`) is the most items one process serves.
+
+1. **Per-item accounting.** Each run handed to a warm process is charged the CPU its process group used while it
+   held the run: the process's own CPU and the CPU of every descendant it reaped (`RUSAGE_CHILDREN`, read from
+   outside: `proc_pid_rusage` on macOS, `/proc/PID/stat` on Linux), as the difference between hand-over and `done`,
+   plus the CPU of any member of its group still alive at `done`. The run's `resources` say `method: warm`. The
+   charges of a process's runs never exceed its whole life's CPU, and what is left over is its start-up.
+2. **A fresh environment per item.** The process's environment holds only what every item shares (as for any
+   daemon); each item's `ERGOSTAT_*` values travel in its line, complete, including `ERGOSTAT_WORKDIR`. The guide's
+   example passes `{**os.environ, **env}` to what it starts and never writes `os.environ`.
+3. **Strict done,** from the daemon protocol: only `{"done": EXIT, "run": ID}` with a whole-number `EXIT` and the
+   run it holds ends it.
+4. **A process that misbehaves is recycled:** a line tagged with a run it does not hold (a late `done` from the item
+   before), a line tagged with nothing, or a member of its group still alive at `done` (killed with the group). It is
+   restarted as any daemon is (`ergostat.daemon.restarted`, counted toward giving up), after the run it held has
+   ended, and is handed nothing in between. A process whose run was cancelled (lease expired, timeout, the owner's
+   stop) is replaced once it says `done`, uncounted; one that served `recycle` items too. The owner's stop is said
+   only on the run it stopped, and only when that run did not finish well.
+5. **The promise is checked:** `ergostat block NAME --check-warm FILE` (FILE: the input of one run, as JSON) runs
+   that input twice on one fresh process and once on each of two other fresh processes, and compares what each run
+   printed and its exit (`daemons/warmcheck.py`): the same, the promise holds for that input; the second run on one
+   process differing from a fresh process's run, state leaked; two fresh runs differing, the program is not
+   deterministic and nothing is concluded. It says that it runs the program for real, four times.
+
+The latency bench (`scripts/latency_bench.py synth 100 --warm N`, watchdogged at 1,500 threads and 6 GB) measures it
+again against a process per item. SPEC §9.7 and the agent guide say all of the above; GAPS records it.
+
+## Acceptance tests
+
+- `tests/test_warm.py::test_warm_processes_hold_one_item_at_a_time_and_are_reused`
+- `tests/test_warm.py::test_a_childs_cpu_is_charged_to_its_item`
+- `tests/test_warm.py::test_no_items_environment_reaches_the_process_or_the_next_item`
+- `tests/test_warm.py::test_a_late_or_loose_done_never_ends_the_next_item_and_recycles_the_process`
+- `tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped`
+- `tests/test_warm.py::test_a_process_leaving_a_child_running_is_recycled_with_its_group`
+- `tests/test_warm.py::test_processes_are_recycled_after_m_items_uncounted`
+- `tests/test_warm.py::test_the_check_finds_state_kept_between_items`
+- `tests/test_warm.py::test_warm_is_checked`
+- the four suites, rc 0; ruff.
+
+## Size budget
+
+400 net lines outside `tests/` and `docs/` (code, schema, scripts).
