@@ -2540,6 +2540,14 @@ slowest time constant the replay met, within a twentieth and a quarter of the wi
   and what follows from them) is left out, and the chart says so. `replay` is never closed-loop: the replay is the
   model driven by what was measured, as calibration and the judge use it.
 
+**Honest about fit** (*decided*, the owner, 2026-11-19: projections far off after a burst, drawn as sure as any).
+Where the parts a projection rests on fit badly, a charted stock (or a charted flow's stock) that the replay fits worse
+than its mean on the reference window (skill < 0), or a goal on one whose loop the record does not identify
+(**loop-not-identifiable**, §12d), the strip says so in front ("Low confidence: reviews-answered's model follows 2% held
+out; the band is widened by the replay's own error", `low_confidence` in `/api/series`), as the impact report leads
+with its confidence, and draws a wider band: the spread it has, or the projection itself, widened by two of the replay's
+root mean squared error against the record (half and nine in ten at 0.67 and 2 of it) (`numbers_api.honest`).
+
 The strip's foot has **With the loops running** and **Held**, one choice for every chart on the page
 (`GET /api/series?…&loops=closed|held`); `ergostat project` (`--closed`, `--held`, `--horizon`, `--whatif`, `--risk`)
 says the same in the terminal. Proposal effects (the review queue) project closed-loop where the model has
@@ -2620,7 +2628,8 @@ for it is recorded `inconclusive` at once with what it needs (`needs`), which th
 its range (the record would take it outside what the model says it might be: said first) nor at its
 bound (one there is a question of structure), the record tells it apart, it is more than two
 standard errors (within them, it says how much more record would tell a difference that size) and 2% from the value
-written, and it fits the record held out better; otherwise it
+written, and it fits the record held out better (with no record held out, nothing supports it out of sample, and it
+is not proposed); otherwise it
 is kept with why, shown beside the parameter and on the Model page, and proposes nothing. Its reason
 and the numbers first shown are those of the objective it minimised, on the record fitted and the
 record held out. An **equation** for a flow that has declared causes and none, a coefficient for
@@ -2826,6 +2835,26 @@ no confidence interval and is said so (Ljung §11.4). The step tests' estimate a
 are held out on different records, so they are ranked by how precise they are, not by their fits;
 otherwise it says why.
 
+**A quality floor** (*decided*, the owner, 2026-11-19, after a closed-loop identification that followed 2% held out
+was proposed): whatever the rest says, it is not proposed when it follows less of the record held out than half of
+what y's own jitter allows (at most 50%), when its errors held out are not independent of u, or, identified in closed
+loop, when they are not white (there their colour is what was not measured, and it biases the estimate; an open-loop
+output-error model needs only the independence, Ljung §16.6). Instead the goal has the finding
+**loop-not-identifiable** (`ergostat findings`, the Check page): "the record so far does not identify this loop's
+process (follows 2% held out; its errors held out not white). What would: a step test (offered), a large outside change
+in its input (a burst of arrivals), or 2h more of record". It holds while the loop is as it was (`loop.key`) and clears
+once an identification passes.
+
+**Outside steps** (`ident.outside_steps`, `ident.around`, `loop.around_step`): a large change in what arrives at the
+goal's stock (a flow into it from outside the loop, measured) or in a measured input beside the path (a change from one
+bucket to the next past six of its typical changes and a fifth of its range: a burst like 130 tickets added at once)
+excites the loop from outside, as a step test does, while the controller keeps working. The process is identified
+from the record around the largest one, that input fitted beside u: from forty buckets before it to where y has come
+half way back from its furthest, fitted; as long again after, held out. Its estimate leans far less toward the
+controller's inverse than one from the loop working (on a synthetic loop with a known process, its gain within a
+quarter where the loop working's was off by half or more: `tests/test_churn.py`). It is ranked with the others, and
+said "identified around an outside step at 14:20 (flow.asked)", in its reason and its `identified:`.
+
 **Analysis** (`lti.py`; Åström & Wittenmark, *Computer-Controlled Systems*, ch. 2, 3, 8): with the
 process (the model's, else the one identified, said as such) and the controller as its block writes
 it, in velocity form and acting at once on the error it has just read: integral action u_k = u_(k−1)
@@ -2901,7 +2930,8 @@ give the loop back, recording each move and what the block said it moved (`stept
 `.started`, `.stepped`, `.finished`). A block that moves anything but what it was commanded (to
 within the setting's resolution) stops the test, the setting put back at once.
 
-**Proposals.** Each is worked out afresh when the loop is looked at; Accept applies what the page was
+**Proposals.** Each is worked out afresh when the loop is looked at, and is one item while the loop is as it was
+(`loop.key`): offered again with other numbers, the item is `revised`, never made anew; Accept applies what the page was
 shown (the goal's `process:`, a block's `gain:`, made on the file's text so its comments stay, and
 refused, with the file put back, if `check` would then find an error), recorded as `model.accepted`;
 Approve records a step test's approval; a dismissed one is not offered again until what it depends
@@ -3025,7 +3055,8 @@ and the item, folded from them, is the change.
 | inconclusive | `.inconclusive`: the record held out could not tell it from the model as it is; it needs more record, and is not failed | ergostat |
 | accepted | `.accepted`: written into the YAML | who decided: the owner, or the judge's policy (the judge, naming the policy) |
 | dismissed | `.dismissed`: with the owner's reason | the owner |
-| superseded | `.superseded`: made against a version of the model that has since changed, or no longer found by the finder that made it | ergostat |
+| revised | `.revised` (no move of state): ergostat's own change found again with other numbers or evidence, or carried to a new version of the model (`rebased`) | ergostat |
+| superseded | `.superseded`: what it is about was removed or edited since it was made (said which), its edit no longer applies, or no longer found by the finder that made it | ergostat |
 
 Its fields are folded from the events as any item's are (section 5a): `kind`, `parts`, `edit`, `reasons` with their
 evidence, `confidence`, the measured effect (`fit_before`, `fit_after`, `refit`, `findings`), `verdict`, `made_by` and
@@ -3175,8 +3206,22 @@ blocks:
 | `out` | map of `testing`, `passed`, `failed`, `accepted`, `inconclusive` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
 | `in`, `every` | | | What it reads (signed, as a machine block's), for the diagram; how often it passes |
 
+**One change, whatever its numbers** (*decided*, the owner, 2026-11-19: every proposal ended "superseded" before it
+was judged). A change ergostat's own finders make is identified by what it is about, never by its numbers: its kind, how
+it was found (the calibration, the rule, the finding it answers), the parts it is about and those parts as the model has
+them now (`proposals.subject`: each part as written, less where and its words; a structural change by its edit with the
+numbers taken out). Found again with other numbers, the same item is **revised** in place (`.revised`: the new numbers,
+reason and evidence, and `revisions` counted; found again saying the same, nothing is recorded); its history keeps every
+earlier statement, and the judge holds out the record after its last revision. One under test or passed is left to the
+judge, one decided is not made again, and one turned away is revised and checked again once `memory` lets it go. When
+the model's version changes, a change not yet under test whose subject is as it was is **carried** to the new version
+(`.revised` with `rebased`; a value's or an equation's edit made again on the files as they are now); only one whose
+subject was removed or edited, or whose edit cannot be made again, is superseded, saying which. Each finder lets go only
+of its own changes it no longer finds: the calibration of values and equations, the structural finder of structure; a
+loop's process or gain is its analysis's alone. A block's proposal is not carried yet (GAPS).
+
 Each pass (`ergostat/numbers/judge.py`; `ergostat judge` makes one by hand) supersedes every open change made
-against a version of the model since changed, starts **testing** each checked change it can replay (a value, an
+against a version of the model since changed (but those it carries, above), starts **testing** each checked change it can replay (a value, an
 equation, the structure; a loop's process or gain is not replayed, and waits for the owner), and replays each beside
 the model as it is on the record that came **after** it was made, which neither its maker nor any estimate it rests
 on has seen, in every window. It scores **what the change touches**: the stocks of its neighbourhood (as the gate
