@@ -180,3 +180,25 @@ Every finding of the reviews before this round:
 
 No ergostat code changed this round. The only code change was a new test (with its mode in the test program), so
 the size outside `tests/` and `docs/` is unchanged and within the 400 budget.
+
+## Where it stopped (gap/warm-continued, round 2, 2026-11-20)
+
+The factory ran its gates after round 1: the four suites on the merged tree (f2f1891, with `main` f158e00 merged in
+as 2ca24c7) passed, as review/warm3-3 reports. That replaces round 1's "the four suites were not run here". This
+session did not see that run. It ran only the test files named below.
+
+Every finding of review/warm3-3:
+
+- **`daemons/warmcheck.py`, the not-deterministic message (lesson-12; review/warm3-2's finding, missed in round 1):**
+  it now prints all three fresh runs (one process's 1st, then the two fresh ones). When the first run is the one that
+  differs, what it printed is now shown. `test_the_check_concludes_nothing_unless_every_run_says_done` gains a case,
+  `quiet-firstrun`, where only the first run in its folder prints something different. It asserts that this output
+  is in the message. I put the old message back, saw the test fail, and restored the fix.
+- **`docs/GAPS.md`, the entry said "not done" (keep GAPS current):** moved under *Done recently*. It says what was
+  merged and when, and that the factory's gates passed. The older *Warm workers* entry now says a warm daemon charges
+  a child's CPU per item.
+- **This file, round 1's "the four suites were not run here":** answered by the paragraph above, which names the run.
+- **review/warm3-3 could not run `tests/test_warm.py`:** this session ran it. The counts are in the commit's report.
+
+The only change outside `tests/` and `docs/` is one message, now split over two lines (+1 net). That is within the
+400 budget. The four suites have not been rerun since this change. That rerun is the factory's job.

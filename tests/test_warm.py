@@ -40,6 +40,9 @@ while (m := q.get())["op"] != "stop":
         say(done=0, run=last)
     if "loose" in mode:
         say(done=0.0, run=r); say(done=True, run=r); say(done=0, run=r, extra=1)
+    if "firstrun" in mode:                       # the first run of all (in this folder) differs; every later one alike
+        f = {**f, "seen": "later" if os.path.exists("firstran") else "the very first"}
+        open("firstran", "a").close()
     if "stateful" in mode:                       # keeps what it saw: the promise broken
         f = {**f, "seen": len(seen)}
     say(event="ticket.started", run=r, data={"pid": 0 if "quiet" in mode else os.getpid(), "keys": sorted(env), "seen": f.get("seen"),
@@ -453,3 +456,6 @@ def test_the_check_concludes_nothing_unless_every_run_says_done(tmp_path):
     for mode, says in (("crash", "did not end with its own done"), ("quiet-once", "did not end with its own done")):
         rc, why = check(Daemon("w", f"python3 w.py {mode}", warm=True), tmp_path, dict(os.environ), given, timeout=10)
         assert rc == 3 and says in why and "exits:" in why, (mode, why)
+    rc, why = check(Daemon("w", "python3 w.py quiet-firstrun", warm=True), tmp_path, dict(os.environ), given, timeout=10)
+    assert rc == 3 and "not deterministic" in why, why
+    assert "the very first" in why, "the fresh run that differs is shown, even when it is the first: " + why

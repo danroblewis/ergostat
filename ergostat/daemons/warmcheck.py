@@ -87,7 +87,8 @@ def check(d, cwd, env: dict, given: dict, timeout: float = 60.0) -> tuple[int, s
         bad = next(o for o, x in zip(outs, exits, strict=True) if x is None)
         return 3, said + f"nothing concluded: a run did not end with its own done ({bad[-1] if bad else 'it printed nothing'})"
     if not first == fresh == fresh2:
-        return 3, said + f"not deterministic for this input: three fresh processes printed different lines ({fresh} / {fresh2})"
+        return 3, said + ("not deterministic for this input: three fresh processes printed different lines "
+                          f"(one process's 1st: {first} / fresh: {fresh} / fresh: {fresh2})")
     if second != fresh:
         return 1, said + f"state kept between runs: its second run on one process printed {second}, a fresh one {fresh}"
     return 0, said + "the same on one process twice as on fresh processes: no state kept, for this input"
