@@ -607,7 +607,9 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
    ```
 
    and `cloudflared tunnel run NAME`.
-3. Declare it in the main file (`web: {names: [...], access: {team, aud, emails}}`), `ergostat check`, and open
+3. Declare it in the main file (`web: {names: [...], access: {team, aud, emails}}`), or, when the model is in a
+   shared repository, in `ergostat.local.yaml` beside it (untracked, in `.gitignore`: the tunnel is this machine's,
+   SPEC §2), `ergostat check` (it says where `web:` came from), and open
    the name: Access asks for the login, the page opens, and what the owner answers there is recorded as their
    email. Without the declaration every request through the tunnel is refused (403), even one whose Host was
    rewritten. Pushes (`/api/events`, `/api/hooks/`) and the remote API pass Access only with a service token or a
