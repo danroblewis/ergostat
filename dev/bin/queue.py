@@ -26,8 +26,6 @@ import agents  # noqa: E402
 import fac  # noqa: E402
 import review  # noqa: E402
 
-KILL = 2
-
 
 def clean_main(cfg: dict, repo) -> str | None:
     """Why the checkout cannot take a merge now, or None."""
@@ -40,10 +38,10 @@ def clean_main(cfg: dict, repo) -> str | None:
     return None
 
 
-def suites(cfg: dict, repo, branch: str, logs, n: int) -> dict:
+def suites(cfg: dict, repo, branch: str, logs, began: float) -> dict:
     out = {}
     for name in ("ruff", "unit", "browser", "demo"):
-        log = logs / f"{branch}-{n}-{name}.txt"
+        log = logs / f"{fac.run_tag(branch, began)}-{name}.txt"
         rc, secs = fac.suite(cfg, name, repo, log, slot=False)        # the queue's lock is its slot
         text = log.read_text()
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
@@ -174,12 +172,12 @@ def main() -> int:
         try:
             msg = f"Merge branch '{fac.git_branch(branch)}'\n\n{fac.TRAILER}"
             if not fac.git_ok(repo, "merge", "-q", "--no-ff", sha, "-m", msg):
-                files = fac.git(repo, "diff", "--name-only", "--diff-filter=U", check=False).split()
+                files = fac.conflicted(repo)
                 fac.git(repo, "merge", "--abort", check=False)
                 findings = [f"conflicts with {base}: {' '.join(files)}"]
-                if int(f.get("failed_gates") or 0) + 1 >= KILL:          # a conflict is a failed gate too
+                if int(f.get("failed_gates") or 0) + 1 >= fac.kill_after(cfg):          # a conflict is a failed gate too
                     fac.say("gap.measured", failed_gates=1, findings=findings)
-                    review.park(cfg, gap, "Failed its gates twice (the kill rule); the last, a conflict in the "
+                    review.park(cfg, gap, f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, a conflict in the "
                                           f"merge queue: {findings[0]}", "merge-queue", where="queue")
                 else:
                     fac.say("gap.sent-back", sent_back_by="queue", findings=findings, failed_gates=1, fix_rounds=1,
@@ -187,8 +185,7 @@ def main() -> int:
                 done = True
                 return 0
             logs = fac.run_dir(cfg, "queue")
-            n = int(f.get("queue_attempts") or 0) + 1
-            got = suites(cfg, repo, branch, logs, n)
+            got = suites(cfg, repo, branch, logs, began)
             minutes = round((time.time() - began) / 60, 1)
             timing = dict(queue_wait_hours=round((began - approved) / 3600, 3), queue_minutes=minutes,
                           lock_and_load_wait_s=round(waited), suites_queue=got)

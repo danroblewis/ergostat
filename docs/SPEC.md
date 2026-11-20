@@ -94,6 +94,15 @@ out, never written.
   name twice is an error**, reported with both files and lines. There is no overriding.
 - A file may set `defaults:` (at present only `system:`), which applies to the stocks, flows,
   goals and blocks defined in that file, and not to the files it includes.
+- **This machine's settings: `ergostat.local.yaml`.** Beside the main file, never required and never tracked (list it
+  in the repository's `.gitignore`), it holds what belongs to the machine a model runs on rather than to the model, so
+  a model shared through git carries no private hostname and a copy placed again keeps them. It is read after the
+  main file and over it. The **per-machine settings** are exactly these: `web:` (section 4d; it replaces the main
+  file's whole) and `intake:`'s `bind:` and `allow:` (section 5c; each over the main file's, whose `hooks:` stay
+  the model's). Any other key, or another key under `intake:`, is an error at its line in `ergostat.local.yaml`
+  (**not-per-machine**). `check` says each setting it took and where (`web: from ergostat.local.yaml:1, this
+  machine's own`; `--json`: `local`). It is not one of the model's files: nothing that edits the model (a proposal,
+  a template's author) writes it, and a change to it reloads the model like any other.
 
 ## 2a. Templates: one shape, used many times
 
@@ -270,7 +279,7 @@ uses:                           # optional: instances of templates (section 2a)
   ...
 remotes:                        # optional: systems other ergostats run, read here (section 4c)
   ...
-web:                            # optional, main file only: the page's public names and their login (section 4d)
+web:                            # optional, main file only (or ergostat.local.yaml, section 2): the page's public names and their login (section 4d)
   ...
 library:                        # optional, main file only: folders of the owner's templates (section 2a)
   - ...
@@ -555,7 +564,8 @@ most); `ergostat remote refresh` asks each again now.
 The page answers on this machine only: a request must name it as `127.0.0.1:PORT` (or `localhost`, `[::1]`) in its
 `Host`, so a page on another site whose name was pointed at this machine (DNS rebinding) is refused. To reach it
 from elsewhere through a tunnel (cloudflared) at a public name, the main file declares the name and the Cloudflare
-Access application that logs people in there:
+Access application that logs people in there (a tunnel belongs to one machine: put `web:` in that machine's
+`ergostat.local.yaml`, section 2, when the model is shared):
 
 ```yaml
 web:
@@ -1119,6 +1129,7 @@ their ids. An event type is lowercase words joined by dots, never ergostat's own
 intake:
   allow: [10.0.0.0/8]                  # who may push besides this machine (default: nobody else)
   bind: 0.0.0.0                        # where the page listens (default 127.0.0.1); others reach only the push paths
+                                       # (allow: and bind: are this machine's: they may go in ergostat.local.yaml, §2)
   hooks:
     jira:                              # POST /api/hooks/jira
       event: {from: webhookEvent, map: {"jira:issue_created": ticket.found, "jira:issue_updated": ticket.changed}}
@@ -2098,7 +2109,7 @@ it does not list them: `leased`, after the first `at` state, and `dead`, last.
 | `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
 | `ergostat.lease.renewed` | `run`, `fence`, `seen` (`activity` or `asked`) | its lease expires a TTL after this |
 | `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds), `count` and `news`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after`, or, with `news`, before the first event about it its own runs did not cause |
-| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`; `item`, `state`, `terminal` | back to `back`, the attempt counted |
+| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `item`, `state`, `terminal` | back to `back`, the attempt counted; refused when the lease was renewed after that `expires` was judged (it expires later now): the watchdog reads the lease again just before it writes and writes none then, and one written in the moment between is no expiry to anything that reads the record (workspaces, measures, estimates) |
 | `ergostat.lease.redriven` | `why`, `to` | a dead letter back to `to` (else `back`), its attempts from nothing |
 
 A counted attempt that reaches the most allowed moves the item to `dead` instead: a **dead letter**.
@@ -2185,7 +2196,8 @@ watches them; `ergostat lease` lists who holds what.
 
 **Stalls, as a watchdog loop.** The built-in measures `ergostat.leases.held` (leases held now),
 `ergostat.leases.expired` (expiries over the last day), `ergostat.leases.dead` (dead letters now) and
-`ergostat.leases.overdue` (held past their expiry, not yet expired: 0 while the watchdog keeps up),
+`ergostat.leases.overdue` (held past their expiry, not yet expired: non-zero during the watchdog's grace below even
+when it keeps up, so a goal on stalls holds `expired`, not `overdue`),
 each narrowed by `@KIND` or `@BLOCK`, are read by a sensor (`builtin:`), so a goal can hold them:
 
 ```yaml
@@ -2197,8 +2209,10 @@ goals:
   no-stalls: {auxiliary: stalled-runs, hold: "<= 0"}
 ```
 
-ergostat's own watchdog, on the program rung, is what acts on it: it expires a silent lease within a
-second of its TTL, and the item is taken again. Each dead letter, and each lease that expired in the
+ergostat's own watchdog, on the program rung, is what acts on it: it expires a silent lease on a second look at the same
+expiry, a grace after it first found it past its TTL (a tenth of the TTL, at least a second and at most 30 s; renewed
+meanwhile, the grace starts again: a renewal the run asked for in time may still be on its way into the record, the
+engine or the machine busy), and the item is taken again. Each dead letter, and each lease that expired in the
 last hour, needs attention (`ergostat`, the page's side panel); `ergostat lease ITEM --redrive` gives a
 dead letter another go once its cause is fixed. The Items page shows, for a kind with leases, who
 holds each item and when its lease expires, and its attempts; an item's page, its lease and every
@@ -3610,6 +3624,31 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   a modelling request about the system (`source: redesign`, on the Items tab; `ergostat status` says the last). What
   it makes is written only with the owner's approval (the review queue, the inbox, its notifications), unless
   `accept: {redesign: auto}`.
+- **What it learns from** (`ergostat/numbers/redesign_memory.py`). Its prompt also carries, for the system:
+  *what was proposed before*, its past change sets (for the whole model, every system's) newest first, each with what
+  became of it (proposed, judged better or NOT better with the scorecard's verdict and why, refused with why,
+  accepted, dismissed with the owner's reason), its summary and its edits, and the other changes about its parts the
+  owner dismissed with a reason; at most 6, 3,000 characters together, 600 each; and *interventions: evidence of
+  missing loops* (§12p), by class over the interventions loop's window, the most hours blocked first: how many, their
+  causes, how they were answered, the notes given with the answers (`inbox --note`, a person's report, a dismissal's
+  reason; not only the owner's: a person block's report and whoever approved or denied an advised block's command
+  are read too, each note once), and the class's request from `ergostat inbox --requests` with its state and the note it was worked
+  on with (not its remedies: generic, they led haiku to add a goal and a controller for
+  every class, and its change sets stopped compiling; `docs/redesign-bench.md`); a class is the system's when its block, or a part its cause names, is in it; at most 8, 2,500 characters.
+  The guide says never to propose again what was dismissed or judged not better unless the record now answers the
+  reason given, and to read each recurring intervention as a loop the model lacks, with a lookup from symptom to
+  structure (a queue that builds only in bursts: a capacity; items seen twice: rework; a part that lags another: a
+  delay or a stock between; a level that settles whatever its start: a balancing flow).
+- **The benchmark** (`scripts/redesign_bench.py`, `docs/redesign-bench.md`): models of known structure
+  (`tests/redesign_cases/`) each cut (a capacity limit, a rework loop, a delay, a goal gap, a stock merged away, an
+  outflow), the record made from the whole model, the redesigner asked to repair the cut one (nothing submitted), and
+  each case scored: the missing structure found again (by place and shape, a rename followed by `formerly:`, and
+  working on the truth's record: the flow moves something, the limit binds, the goal's sign closes the gap, the delay
+  takes what leaves the stock before (how long it delays is not checked: a DELAY3 of near-zero time passes);
+  necessary for a repair, not sufficient), the parts added beyond the known
+  repair's, the fit before and after, compiled, the verdict, the cost; `--without memory,interventions` for an
+  ablation; haiku by default under a cap for the run ($3), `--stand-in` for the
+  harness alone; one JSON row a case appended to `docs/redesign-bench.jsonl`.
 - **Drawn as proposed**: `GET /api/graph?proposal=ID&view=dynamics|blocks` draws the model as the change would leave it
   (nothing written), with `proposed: {added, changed, renamed, removed}`; the page draws the new parts dashed and
   tinted, the changed and renamed dashed, and names what it takes away; the review section's Dynamics and Blocks
@@ -4777,8 +4816,9 @@ they blocked their processes over the window, then by count; each that recurs (`
 window) and has no request gets one (`ergostat.model-request/<hash of the class>`, `.opened`), with its count, share,
 hours blocked, rank, most common cause, and **candidate remedies**: automate the person's step with a block (the
 person reviewing until its claims hold); graduate the gate (`gate: auto`, `mode: auto`, the judge's `accept:`) with
-its evidence; add the missing loop (a goal and a controller on what an alarm watches, a check that makes an approval
-a rule); change the software so the step no longer needs a person. (3) A request is **resolved** only when its class
+its evidence; add the missing structure (for an alarm, what explains what it watches: a capacity, rework, a delay, a
+balancing flow, with a goal and a controller on it only where something should act before it rises, as the
+redesigner's guide says; a check that makes an approval a rule); change the software so the step no longer needs a person. (3) A request is **resolved** only when its class
 has not intervened for three of its mean intervals over the window (at least `verify`, 1d by default) since it was
 last moved, and the process it blocked has worked in that time without it: its cause's block ran; an alarm was
 evaluated and clear; a change of that kind was decided without the owner; a step test's loop holds its process. A

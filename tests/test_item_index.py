@@ -248,3 +248,59 @@ def test_storage_items_idle_is_read_and_checked():
     assert parse({"items": {"idle": "2h"}}, problems).item_idle == 7200 and not problems
     parse({"items": {"kept": 1}}, problems)
     assert problems and "unknown key" in problems[0]
+
+
+class _Watched:
+    """The index's connection, noting each statement run on it by a thread that did not hold the index's lock."""
+
+    def __init__(self, c, lock):
+        self.c, self.lock, self.unlocked = c, lock, []
+
+    def execute(self, sql, *a):
+        if not self.lock._is_owned():
+            self.unlocked.append(sql.split()[:4])
+        return self.c.execute(sql, *a)
+
+    def __getattr__(self, name):
+        return getattr(self.c, name)
+
+
+def test_every_read_of_the_index_holds_its_lock(tmp_path):
+    """The index's one connection is shared by the process's threads (the page's requests, the engine, the
+    estimates); two stepping it at once break each other's reads (the same query twice at once shares SQLite's
+    prepared statement: the page's items-graph was handed a row of nothing, ``not enough values to unpack``, a 500).
+    Each query takes the lock itself, whoever calls it."""
+    p = _ticket(tmp_path)
+    spec = p.model.spec
+    for i in range(20):
+        p.events.add("ticket.opened", item=f"ticket/{i}", data={"spent": i}, at=T0 + i)
+        p.events.add("ticket.started", item=f"ticket/{i}", at=T0 + 100 + i)
+        if i % 2:
+            p.events.add("ticket.done", item=f"ticket/{i}", at=T0 + 200 + i)
+    ix = itemindex.index_for(p.events, spec, False)
+    w = ix._db = _Watched(ix.db, ix.lock)
+    ix._forget()                                              # names read again: inside each query below
+    ix.catch_up(p.events)
+    ix.known("ticket")
+    ix.name(1)
+    ix.left("ticket")
+    ix.reached("ticket")
+    ix.changed_after(T0)
+    ix.late(T0, "ticket")
+    ix.total("ticket")
+    ix.counts(T0 + 150)
+    ix.count("ticket", ["doing"], T0 + 150)
+    ix.items("ticket", n=5)
+    ix.items("ticket", ids=["ticket/1", "ticket/2"])
+    ix.moves_of([1, 2, 3])
+    ix.moved("ticket", "to", "doing", T0, T0 + 300, T0 + 150)
+    ix.transitions("ticket")
+    ix.tally("ticket", "done", "to", T0 + 300, T0 + 150)
+    ix.finished("ticket", ["done"], T0, T0 + 300, T0 + 150)
+    ix.links_from(["ticket/1"])
+    ix.links_to(["ticket/1"])
+    ix.links()
+    ix.stays("ticket", finished=["done"])
+    ix.candidates()
+    ix.guard(lambda: ix.db.execute("select count(*) from items").fetchone())
+    assert w.unlocked == []
