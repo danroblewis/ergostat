@@ -16,7 +16,7 @@ DIR, MANIFEST, OBJECTS = "good", "manifest.json", "objects"
 READS = {None, "status", "item", "event", "lease", "loop", "system", "explain", "findings", "residual", "fit", "claims",
          "messages", "agent", "block", "inbox", "stock", "flow", "valve", "sensor", "controller", "disturbance"}
 ACTS = ("add", "redrive", "renew", "nack", "check", "about", "reopen", "now", "done", "approve", "deny", "stop",
-        "restart", "opened", "read", "forget_above", "forget_below", "decided", "requests", "invest")
+        "restart", "opened", "read", "forget_above", "forget_below", "decided", "requests", "invest", "reset")
 # the read topics' other flags, each one that only reads (tests/test_cli_fallback.py holds every flag to one list or
 # the other); what decides is the record, which the fallback opens refusing every write
 READ_FLAGS = ("n", "kind", "state", "history", "type", "item", "source", "follow", "runs", "data", "patch", "set_", "by",
