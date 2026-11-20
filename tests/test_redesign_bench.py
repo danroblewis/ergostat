@@ -86,3 +86,14 @@ def test_the_cap_stops_new_cases_and_rows_are_appended(tmp_path, monkeypatch):
         assert rb.main(["--stand-in", "--cases", "outflow", "--hours", "4", "--results", str(out), "--work", str(tmp_path / "w")]) == 0
     got = [json.loads(x) for x in out.read_text().splitlines()]
     assert [r["case"] for r in got] == ["outflow", "outflow"] and all(r["found"] and r["commit"] for r in got)
+
+
+def test_a_template_used_counts_as_one_extra_part():
+    c, _ = dict((c.id, (c, v)) for c, v in rb.cases())["outflow"]
+    plain = c.spec()
+    used = tt.spec_of(c.text() + "uses:\n  modelling: {use: modelling}\n")
+    added = [f"{k}.{n}" for k, t in (("stock", "stocks"), ("flow", "flows"), ("auxiliary", "auxiliaries"), ("goal", "goals"),
+                                     ("block", "blocks")) for n in getattr(used, t) if n not in getattr(plain, t)]
+    assert len(added) > 5
+    assert rb.extra(used, added, {"stand_in": []}) == 1
+    assert rb.extra(used, added + ["flow.a-in"], {"stand_in": [{"add": "flows"}]}) == 1

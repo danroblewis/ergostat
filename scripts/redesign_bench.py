@@ -220,12 +220,28 @@ def run_case(c: tt.Case, v: dict, work: Path, model: str = "haiku", budget: floa
     fa = (card.get("fit") or {}).get("total_after") if card else None
     added = ((card.get("parts") or {}).get("added") or []) if after is not None else []
     return {"case": c.id, "found": bool(after is not None and found(after, v["expect"], truth.stocks, (s.record, s.since, s.rounds_end))),
-            "extra_parts": max(0, len(added) - sum(1 for e in v["stand_in"] if "add" in e)) if after is not None else None,
+            "extra_parts": extra(after, added, v) if after is not None else None,
             "compiles": after is not None, "verdict": card.get("verdict"), "title": (out.get("change_set") or {}).get("title"),
             "fit_before": fb, "fit_after": fa, "fit_truth": total(truth),
             "fit_improved": bool(fb is not None and fa is not None and fa < fb), "cost": out["cost"],
             "rounds": len(out["rounds"]), "prompt_chars": max((r.get("prompt_chars") or 0 for r in out["rounds"]), default=0),
             "seconds": round(time.perf_counter() - t0, 1), "result": out.get("result") or "made"}
+
+
+def extra(after, added: list[str], v: dict) -> int:
+    """The parts a change set adds beyond what the known repair adds (each template it uses counted once: one line)."""
+    own, uses = 0, set()
+    tables = {"stock": "stocks", "flow": "flows", "auxiliary": "auxiliaries", "parameter": "parameters", "goal": "goals",
+              "block": "blocks"}
+    for r in added:
+        kind, _, name = r.partition(".")
+        x = getattr(after, tables.get(kind, "stocks"), {}).get(name)
+        t = getattr(getattr(x, "where", None), "template", None)
+        if t:
+            uses.add(str(t))
+        else:
+            own += 1
+    return max(0, own + len(uses) - sum(1 for e in v["stand_in"] if "add" in e))
 
 
 # ---- the run
