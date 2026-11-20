@@ -100,6 +100,23 @@ def alive(pid: int) -> bool:
     return True
 
 
+def spawned(p) -> int:
+    """Processes the supervisor spawned, by its log: one killed as soon as spawned (never in starts.log) counts too."""
+    return (p.dir / "logs" / "daemon-block.worker.log").read_text().count(" starting: ")
+
+
+def test_first_start_spawns_once(tmp_path):
+    p = setup(tmp_path, block("{run: python3 d.py}"))
+    e = start(p)
+    try:
+        assert wait_for(lambda: starts(tmp_path), 10)
+        time.sleep(0.5)                                  # (the supervisor's first ticks, which once started it again)
+    finally:
+        e.close()
+    assert spawned(p) == 1, "the engine's start and the supervisor's first tick both spawned it"
+    assert len(events(p, "ergostat.daemon.started")) == 1
+
+
 def test_interleaved_items_are_attributed_to_their_runs(tmp_path):
     p = setup(tmp_path, block("{run: python3 d.py, concurrency: 6}"))
     for i, s in enumerate([0.9, 0.2, 0.6, 0.1, 0.4, 0.7]):
@@ -193,6 +210,7 @@ def test_restart_storm_gives_up_with_alarm_and_intervention(tmp_path):
     finally:
         e.close()
     assert n == 3, "started, restarted twice, then given up: no more"
+    assert spawned(p) == 3, "each start spawned one process: none spawned and killed as a duplicate"
     f = events(p, "ergostat.daemon.failed")[0]
     assert f["item"] == "block.worker" and f["data"]["intervention"] is True
     assert f["data"]["class"] == "alarm:daemon:block.worker" and f["data"]["users"] == ["block.worker"]
