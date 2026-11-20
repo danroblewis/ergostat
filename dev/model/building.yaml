@@ -16,7 +16,7 @@ stocks:
     sensor: {items: gap, state: ready, every: 1m}
   gaps-fix:
     unit: gaps
-    description: gaps sent back with findings (a fix verdict, a conflict, a real failure in the queue), waiting for the implementor
+    description: gaps sent back with findings (a fix verdict, a conflict, a real failure in the queue), waiting for the implementor (or for main to move, when their fast suites failed only on tests that fail on main too)
     sensor: {items: gap, state: fix, every: 1m}
   gaps-building:
     unit: gaps
@@ -105,7 +105,7 @@ flows:
     sensor: {items: gap, entering: fix, where: {sent_back_by: review}, over: 1d}
   parked-in-review:
     from: gaps-in-review
-    description: a park verdict, or a second failed gate (the kill rule) - where it stopped written into its definition
+    description: a park verdict, or the last failed gate ([gates] kill_after, the kill rule) - where it stopped written into its definition
     driven-by: [+stock.gaps-in-review]
     equation: park-share * stock.gaps-in-review / review-time
     sensor: {items: gap, entering: parked, where: {parked_in: review}, over: 1d}
@@ -206,8 +206,9 @@ blocks:
     description: a headless Claude Code session per gap in its own worktree (~/ergostat-wt/<branch>) - the definition committed first, the work, the fast suites
     run: python3 dev/bin/implement.py
     prompt: dev/prompts/implementor.md
-    takes: {kind: gap, at: [fix, ready], to: [built], unblocked: true, where: {waits_on_parked: null}}
-    # (its dependencies finished, none of them parked; the critical first)
+    takes: {kind: gap, at: [fix, ready], to: [built], unblocked: true, where: {waits_on_parked: null, waits_on_main: null}}
+    # (its dependencies finished, none of them parked; not waiting for main to move past tests failing on it; the
+    # critical first)
     pool: 4                          # the most: the pool now is implementor-pool (dev/model/pools.yaml)
     lease: {ttl: 90m, attempts: 2}
     timeout: 6h

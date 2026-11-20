@@ -82,8 +82,11 @@ GAPS = """\
 class Factory:
     """A fixture: an origin, its checkout with a GAPS.md, the factory's settings, a model folder, a fake ergostat."""
 
-    def __init__(self, tmp: Path, unit: str = "true"):
+    GATES = {"kill_after": 3, "build_failures": 2, "build_hours": 4.0}   # the kill rule's numbers, read by the tests
+
+    def __init__(self, tmp: Path, unit: str = "true", alone: str = "true", **gates):
         self.tmp = tmp
+        self.gates = {**self.GATES, **gates}
         self.origin, self.checkout = tmp / "origin.git", tmp / "checkout"
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.origin)], check=True)
         subprocess.run(["git", "clone", "-q", str(self.origin), str(self.checkout)], check=True, capture_output=True)
@@ -105,6 +108,10 @@ class Factory:
             live = "{tmp / 'live'}"
             queue_lock = "{tmp / 'queue.lock'}"
             run = "run"
+            [gates]
+            kill_after = {self.gates["kill_after"]}
+            build_failures = {self.gates["build_failures"]}
+            build_hours = {self.gates["build_hours"]}
             [git]
             base = "main"
             remote = "origin"
@@ -132,6 +139,7 @@ class Factory:
             browser = "true"
             demo = "true"
             rerun = "echo again {{tests}}"
+            alone = "{alone} {{tests}}"
             """))
         self.fake = tmp / "fake_ergostat.py"
         self.fake.write_text(FAKE)
@@ -323,18 +331,18 @@ def test_dry_run_one_gap(tmp_path):
 def test_fix_then_park(tmp_path):
     f = Factory(tmp_path)
     gid = ready(f)
-    f.run("implement.py", gid)
-    said, _ = f.run("review.py", gid, FACTORY_STANDIN_VERDICT="fix")
-    assert said[-1] == "gap.sent-back" and f.item(gid)["state"] == "fix"
-    assert f.item(gid)["fields"]["findings"] == ["the stand-in's blocking finding"]
-    said, _ = f.run("implement.py", gid)
-    assert said == ["gap.started", "gap.built"] and f.item(gid)["fields"]["rework"] is True
-    assert f.item(gid)["fields"]["contexts"][-1]["findings"] == 1              # the findings went into its brief
-    said, _ = f.run("review.py", gid, FACTORY_STANDIN_VERDICT="fix")
-    assert said[-1] == "gap.sent-back" and f.item(gid)["state"] == "fix"      # two failed gates: a third round
-    f.run("implement.py", gid)
-    said, _ = f.run("review.py", gid, FACTORY_STANDIN_VERDICT="fix")
-    assert said[-1] == "gap.parked" and f.item(gid)["state"] == "parked"      # the kill rule: the third failed gate
+    last = f.gates["kill_after"]
+    for n in range(1, last + 1):
+        said, _ = f.run("implement.py", gid)
+        assert said == ["gap.started", "gap.built"]
+        if n > 1:
+            assert f.item(gid)["fields"]["rework"] is True
+            assert f.item(gid)["fields"]["contexts"][-1]["findings"] == 1      # the findings went into its brief
+        said, _ = f.run("review.py", gid, FACTORY_STANDIN_VERDICT="fix")
+        if n < last:                                                          # a failed gate: another round
+            assert said[-1] == "gap.sent-back" and f.item(gid)["state"] == "fix"
+            assert f.item(gid)["fields"]["findings"] == ["the stand-in's blocking finding"]
+    assert said[-1] == "gap.parked" and f.item(gid)["state"] == "parked"      # the kill rule: the last failed gate
     assert f.item(gid)["fields"]["parked_in"] == "review"
     definition = git(tmp_path / "live" / "drop.git", "show",
                      "factory/alpha-thing:docs/roadmap/overnight/alpha-thing.md")
@@ -506,10 +514,95 @@ def test_the_queue_refuses_a_branch_moved_after_its_review(tmp_path):
 def test_failing_fast_suites_park_the_gap(tmp_path):
     f = Factory(tmp_path, unit="exit 1")
     gid = ready(f)
-    said, lines = f.run("implement.py", gid)
-    assert said == ["gap.started", "gap.measured"] and any("nack" in x for x in lines)
+    for _ in range(f.gates["build_failures"] - 1):
+        said, lines = f.run("implement.py", gid)
+        assert said == ["gap.started", "gap.measured"] and any("nack" in x for x in lines)
     said, _ = f.run("implement.py", gid)
     assert said[-1] == "gap.parked" and f.item(gid)["fields"]["parked_in"] == "building"   # never stuck
+
+
+T = "tests/test_x.py::test_y"
+
+
+def suite_sh(tmp: Path, fails: str) -> Path:
+    """A stand-in for the unit suite and its `alone` run: each run logged (where, and the tests it was given), and
+    failing T while the shell test ``fails`` holds in the folder it runs in."""
+    sh = tmp / "suite.sh"
+    sh.write_text(f"#!/bin/sh\necho \"$PWD $*\" >> {tmp}/runs.log\nif {fails}; then echo 'FAILED {T} - boom'; exit 1; fi\n"
+                  "echo '1 passed'\n")
+    sh.chmod(0o755)
+    return sh
+
+
+def runs(tmp: Path) -> list[str]:
+    log = tmp / "runs.log"
+    return log.read_text().splitlines() if log.exists() else []
+
+
+def test_a_failure_on_main_too_waits_for_main(tmp_path):
+    sh = suite_sh(tmp_path, "[ -e broken ]")
+    f = Factory(tmp_path, unit=str(sh), alone=str(sh))
+    (f.checkout / "broken").write_text("main's own failure\n")
+    git(f.checkout, "add", "broken")
+    git(f.checkout, "commit", "-q", "-m", "main breaks a test")
+    main = git(f.checkout, "rev-parse", "main")
+    gid = ready(f)
+    said, lines = f.run("implement.py", gid)
+    assert said == ["gap.started", "flake.main-broken", "intervention.recorded", "gap.measured"]
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert nack["count"] is False and "waits for main to move" in nack["why"]
+    gap = f.item(gid)["fields"]
+    assert gap["waits_on_main"] == main and gap["main_broken_tests"] == [T] and not gap.get("build_failures")
+    assert f.item("flake/tests-test-x-py-test-y")["state"] == "main-broken"
+    iv = f.item(f"intervention/main-broken-{main[:12]}")
+    assert iv["state"] == "open" and iv["fields"]["class"] == "main-broken" and iv["fields"]["gaps"] == [gid]
+    alone = [r for r in runs(tmp_path) if r.endswith(T)]
+    assert len(runs(tmp_path)) == 3 and len(alone) == 2                    # the suite, alone on the branch, on main
+    assert sum("-main-" in r for r in alone) == 1                           # one run on main for the failure
+    takes = read(ROOT / "ergostat.yaml")[0].blocks["implementor"].takes
+    assert takes.where.get("waits_on_main", "unset") is None                # the implementor skips it meanwhile
+    said, _ = f.run("intake.py")
+    assert "gap.measured" not in said                                       # main has not moved: still waits
+    git(f.checkout, "rm", "-q", "broken")
+    git(f.checkout, "commit", "-q", "-m", "main fixed")
+    said, _ = f.run("intake.py")
+    assert said == ["gap.measured"] and f.item(gid)["fields"]["waits_on_main"] is None
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]                             # retried once main moved
+
+
+def test_a_failure_that_passes_on_main_is_counted(tmp_path):
+    sh = suite_sh(tmp_path, "[ -d standin ]")                              # (the stand-in's work: on the branch only)
+    f = Factory(tmp_path, unit=str(sh), alone=str(sh))
+    gid = ready(f)
+    said, lines = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1
+    assert not f.item(gid)["fields"].get("waits_on_main") and "flake/tests-test-x-py-test-y" not in f.db()["items"]
+    assert [r for r in runs(tmp_path) if "-main-" in r and r.endswith(T)]   # it was run on main, and passed there
+    for _ in range(f.gates["build_failures"] - 1):
+        said, _ = f.run("implement.py", gid)
+    assert said[-1] == "gap.parked"                                         # counted, as before
+
+
+def test_a_flake_in_the_fast_suites_is_retried(tmp_path):
+    sh = suite_sh(tmp_path, f"[ ! -e {tmp_path}/once ] && touch {tmp_path}/once")   # fails its first run only
+    f = Factory(tmp_path, unit=str(sh), alone=str(sh))
+    gid = ready(f)
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "flake.seen", "gap.built"]
+    assert f.item(gid)["fields"]["flakes"] == [T] and not f.item(gid)["fields"].get("build_failures")
+    assert f.item("flake/tests-test-x-py-test-y")["state"] == "seen"
+    assert not [r for r in runs(tmp_path) if "-main-" in r]                # passed alone: never run on main
+
+
+def test_no_reruns_past_the_building_hours(tmp_path):
+    sh = suite_sh(tmp_path, "true")
+    f = Factory(tmp_path, unit=str(sh), alone=str(sh))
+    gid = ready(f)
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"build_hours": f.gates["build_hours"] - 0.001}}], None)
+    said, _ = f.run("implement.py", gid)                                    # (3.6 seconds left: no room for a rerun)
+    assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1
+    assert len(runs(tmp_path)) == 1 and "no building hours" in f.item(gid)["fields"]["suites_fast"]["not_checked"]
 
 
 def test_upgrades_follow_the_pushed_main(tmp_path):
@@ -1183,3 +1276,13 @@ def test_a_continued_branch_already_reviewed_gets_reviews_and_logs_of_its_own(tm
     assert new["fields"].get("where_it_stopped") != "x" and new["fields"]["verdict"] == "merge"
     assert f.item("review/warm-1")["fields"] == {"verdict": "fix", "classes": ["lesson-5"]}
     assert f.item("review/warm-2")["fields"] == {"verdict": "park", "where_it_stopped": "x"}
+
+
+def test_a_dead_letter_on_main_broken_tests_says_so(monkeypatch):
+    monkeypatch.setitem(sys.modules, "fac", sys.modules.get("fac") or module("fac"))
+    monkeypatch.setitem(sys.modules, "review", type(sys)("review"))     # (its park is not called here)
+    dead = module("dead")
+    f = {"suites_fast": {"tests": [T]}, "main_broken_tests": [T], "built_main": "a" * 40}
+    assert "fail on main too" in dead.on_main(f) and "aaaaaaaaaaaa" in dead.on_main(f)
+    assert dead.on_main({**f, "suites_fast": {"tests": [T, "tests/test_z.py::test_own"]}}) == ""   # one is the gap's
+    assert dead.on_main({"suites_fast": {}}) == ""

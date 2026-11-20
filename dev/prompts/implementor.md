@@ -37,7 +37,9 @@ answer questions: take the most reversible option and say so in the definition f
    written reason in the definition file.
 3. Write the acceptance tests it names. Run the tests you touch one file at a time
    (`uv run python -m pytest -q tests/test_x.py`); never the whole suite in parallel yourself: the factory runs the
-   fast suites after you, under the watchdog.
+   fast suites after you, under the watchdog. A failure on main is reported, not fixed (lesson 13): a test that
+   fails on main too, or on something your change did not touch, is named in your report with why it is unrelated,
+   and left alone; the factory runs failing tests again on clean main and holds the gap until main is fixed.
 4. `uv run ruff check ergostat tests scripts` must be clean.
 5. Commit your work with `git add` and `git commit` as you go, each message ending with the line
    `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.

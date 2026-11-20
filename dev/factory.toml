@@ -11,7 +11,10 @@ queue_lock = "~/ergostat-live/queue.lock"   # set it to the coordinator's queue-
 run = "run"                          # briefs, logs, the cost ledger (from the model's folder)
 
 [gates]
-kill_after = 3                       # failed gates (reviews, queue conflicts, real failures) that park a gap
+kill_after = 6                       # failed gates (reviews, queue conflicts, real failures) that park a gap
+build_failures = 6                   # the implementor's failed fast suites that park a gap (main's own failures
+                                     # are not counted: dev/bin/onmain.py)
+build_hours = 12                     # the implementor's hours on a gap, over its rounds, that park it
 
 [git]
 base = "main"                        # what a gap's branch starts from, and what the queue merges into
@@ -23,7 +26,7 @@ implementor_model = "opus"
 reviewer_model = "opus"
 implementor_session_usd = 15.0       # the most one implementor session may spend (claude --max-budget-usd)
 reviewer_session_usd = 5.0
-suite_fix_rounds = 1                 # sessions the implementor gets to make its failing fast suites pass
+suite_fix_rounds = 2                 # sessions the implementor gets to make its failing fast suites pass
 planner_model = "opus"               # the planner: a gap's definition of done, or its split (dev/bin/plan.py)
 planner_session_usd = 5.0
 plan_reviewer_model = "opus"         # the plan review: the definition and the lessons only, so cheap
@@ -74,4 +77,6 @@ ruff = "uv run ruff check ergostat tests scripts"
 unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal"
 browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
 demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-factory image-squeeze the-job roadmap"
+alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"   # the
+                                     # implementor's failing tests again, on its branch and on main (onmain.py)
 rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -p no:randomly {tests}"
