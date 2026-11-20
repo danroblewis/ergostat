@@ -26,3 +26,36 @@ answered (`--as`). A dismissed finding counts as an answered intervention, not a
 ## Size budget
 
 250 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Done, round 1: all four acceptance tests are written and pass. The budget used is about 85 net lines (ergostat/ and the
+page's diagram.js).
+
+The choices made with nobody to ask, each the most reversible one I could find:
+
+- **Deny needs a note.** `--deny` on a request without `--note` is refused ("a dismissal says why"), because the
+  definition is `--deny --note WHY`. The page's inbox row now has a "why (to deny)" field for every kind that can be
+  denied, and it is sent as `note`.
+- **Approve means `reopened`.** The request is open again, with `approved_by` and a fresh `since`, so a change the
+  request cited before does not hold it again at once. The tiers take it up through `rq.waiting`. If no tier can
+  answer it, it is held again and comes back to the inbox. No new mechanism was added for this.
+- **"The part changes"** is `numbers.version.part(spec, about)`: the part's definition (through `version._plain`,
+  which ignores where it sits in the file) plus its description. A finding about `model`, or about a part that cannot
+  be found, waits on the whole model (`version.whole`). `sync` leaves a dismissed request alone while that hash is
+  unchanged and reopens it once the hash changes. A dismissed request that check stops finding stays dismissed. It
+  is not marked answered.
+- **Counted as an intervention.** `inbox.stats.asked` now counts every held modelling request (class
+  `request:CODE`). A dismissal is counted as `denied` and an approval as `approved`, each with who gave it. A move the
+  request made on its own (answered, proposed, or reopened by `sync`) ends the wait as `superseded`. The
+  interventions' suppression watch judges only guards in the model, so a dismissal can never count as a suppression.
+  The `request` kind gets no "up the ladder" suggestion.
+- **No verbs.** If an entry kind has no verbs, `answer` now replies "is not answered from the inbox: LINK", and
+  `ergostat inbox` prints no answer line for it. Today every kind has a verb.
+- `tests/test_modelling_core.py::test_a_held_modelling_request_is_in_the_inbox` expected `verbs == []`. It now expects
+  `["approve", "deny"]`.
+
+Left: nothing that blocks. `tests/test_inbox_page.py` clicks the inbox row in a browser, but it was skipped here
+because Playwright is not installed and running it with Playwright was not allowed. The new field is a text input
+that appears only on rows that can be denied. That test selects the person row's `input[type=number]` and buttons by
+`data-verb`, so the field should not get in its way. The factory's browser run should confirm this.
