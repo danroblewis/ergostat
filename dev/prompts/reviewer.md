@@ -37,6 +37,8 @@ only the work: judge what is in the branch, not what anyone says about it.
   always installable; no employer names or private material;
 - correctness: races, error handling that hides failures, tests that assert nothing, docs that do not match the code;
 - each review lesson above: name its id (`lesson-3`) in a finding of its class.
+- a failure on main is reported, not fixed (lesson 13): a fix in the branch for a test that fails on main too, or for
+  something the definition does not ask, is a finding; a test failing on main is never the branch's fault.
 
 Read the code; run single test files if you need to (`uv run python -m pytest -q tests/test_x.py`), never the whole
 suite. Change nothing.
