@@ -97,3 +97,9 @@ def test_a_template_used_counts_as_one_extra_part():
     assert len(added) > 5
     assert rb.extra(used, added, {"stand_in": []}) == 1
     assert rb.extra(used, added + ["flow.a-in"], {"stand_in": [{"add": "flows"}]}) == 1
+
+
+def test_a_repair_that_also_adds_the_modelling_loop_is_still_found():
+    c, v = dict((c.id, (c, v)) for c, v in rb.cases())["outflow"]
+    with_loop = tt.spec_of(c.text() + "uses:\n  modelling: {use: modelling}\n")
+    assert rb.found(with_loop, v["expect"], c.spec().stocks, rec_of(c))     # its flows are read, never run
