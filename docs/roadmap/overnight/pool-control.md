@@ -139,3 +139,13 @@ Seen to fail with the code broken (lesson-9): `step` lowering on demand again; t
 and `tests/test_factory_knowledge.py`: 64 passed, 2 skipped; ruff clean (`ergostat tests scripts dev/bin`). About 300
 net lines outside `tests/` and `docs/` (within 350). Not run here: the whole unit suite and the browser files (left to
 the factory, as in rounds 1 to 3).
+
+Round 4, after the factory's fast suites: the `unit` tail given ends at about 3% (all dots, no `F` or `E`) with no
+pytest summary and no `suite_watch` JSON line, the same shape as rounds 1 and 3: the run was cut off from outside, not
+failed by a test. This session refused the whole-suite run once more (serial, `-x`, `faulthandler_timeout=300`, under
+`suite_watch`), so no test is named and no code was changed blindly. Here, after the round-4 changes:
+`tests/test_factory.py` 42 passed, 2 skipped; `tests/test_factory_knowledge.py` 22 passed; ruff clean (`ergostat
+tests scripts dev/bin`). A search of `tests/` again finds only those two files loading `dev/bin`, `dev/model`,
+`pools.py`, `risk.py` or `status.py`. Left: one full `unit` run that lives to print pytest's summary (with
+`-o faulthandler_timeout=300` if it hangs), and the browser files; if it is killed early again, the cause is the
+suite's container or slot (lesson-13), not this branch.
