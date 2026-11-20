@@ -117,7 +117,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    stand-in improver until given a prompt and `run: ""` (a Claude session) or a program; its options are in
    `docs/ADDING.md` (modelling). With `ai: true` it also reviews the structure on its own, a system at a time (the
    redesigner, `when: auto`), and what it proposes waits for the owner: keep the systems small (40 parts or fewer)
-   so each can be reviewed whole. Do not hand-write these parts.
+   so each can be reviewed whole. It learns from what happened: its past change sets for the system with what
+   became of each, and the interventions about it (approvals, denials, a person's requests, alarms, with their
+   notes) as evidence of missing loops. So when you dismiss a redesign or deny an approval, give the reason
+   (`--note`): it is what the next one reads. Do not hand-write these parts.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
@@ -605,7 +608,9 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
    ```
 
    and `cloudflared tunnel run NAME`.
-3. Declare it in the main file (`web: {names: [...], access: {team, aud, emails}}`), `ergostat check`, and open
+3. Declare it in the main file (`web: {names: [...], access: {team, aud, emails}}`), or, when the model is in a
+   shared repository, in `ergostat.local.yaml` beside it (untracked, in `.gitignore`: the tunnel is this machine's,
+   SPEC §2), `ergostat check` (it says where `web:` came from), and open
    the name: Access asks for the login, the page opens, and what the owner answers there is recorded as their
    email. Without the declaration every request through the tunnel is refused (403), even one whose Host was
    rewritten. Pushes (`/api/events`, `/api/hooks/`) and the remote API pass Access only with a service token or a

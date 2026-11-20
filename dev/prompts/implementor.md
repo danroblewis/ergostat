@@ -23,6 +23,10 @@ answer questions: take the most reversible option and say so in the definition f
 
 {guides}
 
+# What the factory knows (check your branch against every review lesson before you say it is built)
+
+{knowledge}
+
 # How to work
 
 1. The definition file is already the branch's first commit. Its `depends-on: [...]` line names the gaps this one

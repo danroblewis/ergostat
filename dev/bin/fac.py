@@ -111,6 +111,18 @@ def renewing(every: float = 300.0):
         done.set()
 
 
+def cli(cfg: dict) -> None:
+    """For the coordinator's tools, outside a run: ergostat on this instance (the live version's, else on the PATH)."""
+    exe = path(cfg, "live") / "current" / ".venv" / "bin" / "ergostat"
+    os.environ.setdefault("ERGOSTAT_CMD", f"{shlex.quote(str(exe)) if exe.exists() else 'ergostat'} -C "
+                                          f"{shlex.quote(str(MODEL))}")
+
+
+def add(event: str, item: str, **data) -> None:
+    """An event recorded by `ergostat event --add` (outside a run, or about another item from a gated action)."""
+    ergostat("event", "--add", event, "--item", item, "--data", json.dumps(data, default=str))
+
+
 def items(kind: str, state: str | None = None) -> list[dict]:
     """The items of a kind (in a state), from the record (at most 5,000: the factory's kinds are small)."""
     args = ["item", "--kind", kind, "--json", "-n", "5000"] + (["--state", state] if state else [])
@@ -126,12 +138,32 @@ def act(name: str, key: str, **args) -> tuple[int, str]:
 
 # ---- git
 
+def ids(v) -> list[str]:
+    """A relation's ids (a field holding one id, or the list the record folds it to)."""
+    return [v] if isinstance(v, str) else list(v or [])
+
+
+def rel(p: Path) -> str:
+    """A path as the record keeps it: from the model's folder when it is inside it."""
+    try:
+        return str(p.relative_to(MODEL))
+    except ValueError:
+        return str(p)
+
+
 def git(repo: Path, *args: str, check: bool = True) -> str:
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=env, timeout=600)
     if check and r.returncode:
         raise RuntimeError(f"git {' '.join(args)} in {repo}: {r.stderr.strip()[-400:]}")
     return r.stdout.strip()
+
+
+def conflicted(repo: Path) -> list[str]:
+    """The files a merge left in conflict, read NUL-separated so a path with a space (or one at its ends) stays whole."""
+    r = subprocess.run(["git", "-C", str(repo), "diff", "-z", "--name-only", "--diff-filter=U"], capture_output=True,
+                       text=True, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, timeout=600)
+    return [p for p in r.stdout.split("\0") if p]
 
 
 def git_ok(repo: Path, *args: str) -> bool:
@@ -159,11 +191,24 @@ SAFE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 def branch_of(gap: dict) -> str:
     """The gap's branch name (its worktree, its session folders, its definition file): only lowercase words and
-    dashes, so no path or ref can be made of it. Anything else raises."""
-    b = gap["fields"].get("branch") or slug(gap["id"].split("/", 1)[1], 32)
+    dashes, so no path or ref can be made of it. Anything else raises. A gap that `continues` a branch (NAME or
+    factory/NAME, an existing branch) is on NAME, and may name no other branch."""
+    c = gap["fields"].get("continues")
+    c = str(c).removeprefix("factory/") if c else None
+    if c and gap["fields"].get("branch") not in (None, "", c):
+        raise ValueError(f"{gap['id']}: it continues {c!r} but names the branch {gap['fields']['branch']!r}")
+    b = gap["fields"].get("branch") or c or slug(gap["id"].split("/", 1)[1], 32)
     if not isinstance(b, str) or not SAFE.match(b):
         raise ValueError(f"{gap['id']}: branch {b!r} is not lowercase words and dashes (at most 64)")
     return b
+
+
+def definition_file(gap: dict) -> str:
+    """The definition's path in the repository: `docs/roadmap/overnight/<branch>.md`, or, for a gap that `continues` a
+    branch and names its `definition` as `REF:docs/roadmap/overnight/X.md`, that file (the continued branch's own, so
+    no copy is made under the new gap's name)."""
+    m = re.fullmatch(r"[\w/.-]+:(docs/roadmap/overnight/[a-z0-9-]+\.md)", str(gap["fields"].get("definition") or ""))
+    return m.group(1) if m and gap["fields"].get("continues") else f"{DEFS}/{branch_of(gap)}.md"
 
 
 def git_branch(branch: str) -> str:
@@ -171,6 +216,12 @@ def git_branch(branch: str) -> str:
     if not SAFE.match(branch):
         raise ValueError(f"branch {branch!r} is not lowercase words and dashes")
     return f"factory/{branch}"
+
+
+def run_tag(branch: str, began: float) -> str:
+    """A run's log name: the branch and when the run began (UTC, to the second; never a gap's own count, which starts
+    again for a gap that continues a branch another gap built)."""
+    return f"{branch}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(began))}"
 
 
 def net_lines(repo: Path, base: str, head: str) -> int:
@@ -321,7 +372,9 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
         cmd = f"{cfg['suites']['slot']} {cmd}"
     began = time.time()
     with log.open("w") as out:
-        p = subprocess.Popen(cmd, shell=True, cwd=cwd, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}   # (never the engine's socket)
+        p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
+                             start_new_session=True)
         try:
             while p.poll() is None:
                 renew()
@@ -337,6 +390,11 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
                 except subprocess.TimeoutExpired:
                     os.killpg(p.pid, signal.SIGKILL)
     return p.returncode, time.time() - began
+
+
+def kill_after(cfg: dict) -> int:
+    """The failed gates that park a gap (the kill rule): [gates] kill_after."""
+    return int(cfg.get("gates", {}).get("kill_after", 3))
 
 
 def stop_on_term() -> None:
@@ -377,10 +435,43 @@ def session(cfg: dict, role: str, brief: str, work: Path) -> dict:
     return out
 
 
+def attempt(cfg: dict, role: str, brief: str, work: Path) -> dict | None:
+    """A run's session, or None when the day's cap refuses it (the item given back for an hour, uncounted)."""
+    why = may_spend(cfg, float(cfg["ai"][f"{role}_session_usd"]))
+    if not why:
+        try:
+            return session(cfg, role, brief, work)
+        except OverBudget as e:
+            why = str(e)
+    nack(f"budget: {why}", after="1h", count=False)
+    return None
+
+
+STANDIN = {
+    "planner": '<definition branch="{b}">\n# {b}: planned by the stand-in\n\ndepends-on: []\n\n## Definition of done\n\n'
+               'It works.\n\n## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
+               '100 net lines.\n</definition>',
+    "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
+                  "<summary>The stand-in's answer.</summary>",
+    "librarian": "```json\n[]\n```"}
+
+
 def standin(role: str, brief: str, cwd: Path) -> dict:
-    """Free and scripted. The implementor writes a note into the work; the reviewer's verdict is FACTORY_STANDIN_VERDICT
-    (merge by default; fix, or park)."""
-    if role == "implementor":
+    """Free and scripted. FACTORY_STANDIN_<ROLE> is what a role says, when set. Else the implementor finishes a merge
+    it was handed (main's side of each conflict; or aborts it, when FACTORY_STANDIN_MERGE=abort) and writes a note
+    into the work; the planner, researcher and
+    librarian say STANDIN's; a reviewer's (or plan reviewer's) verdict is FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
+    b = re.search(r"Branch: `([a-z0-9-]+)`", brief)
+    said = os.environ.get(f"FACTORY_STANDIN_{role.upper()}") or STANDIN.get(role, "").replace("{b}", b[1] if b else "x")
+    if said:
+        pass
+    elif role == "implementor":
+        if (cwd / ".git" / "MERGE_HEAD").exists() and os.environ.get("FACTORY_STANDIN_MERGE") == "abort":
+            git(cwd, "merge", "--abort")                     # (a session walking away from it: refused after)
+        elif (cwd / ".git" / "MERGE_HEAD").exists():         # a merge handed over: main's side of each conflict
+            git(cwd, "checkout", "--theirs", "--", *conflicted(cwd))
+            git(cwd, "add", "-A")
+            git(cwd, "-c", "user.name=factory", "-c", "user.email=factory@localhost", "commit", "-q", "--no-edit")
         note = cwd / "standin" / f"{cwd.name}.txt"
         note.parent.mkdir(exist_ok=True)
         with note.open("a") as f:

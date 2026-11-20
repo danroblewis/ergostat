@@ -850,6 +850,7 @@ class Spec:
     storage: object = None                  # storage.Storage: where the record is kept (SPEC §4b)
     intake: object = None                   # intake.config.Intake: who may push events, and the webhooks' mappings
     web: object = None                      # webaccess.Web: the page's public names and their login (SPEC §4d)
+    local: dict = field(default_factory=dict)   # each setting ergostat.local.yaml set (web, intake): where (SPEC §2)
     stocks: dict[str, Stock] = field(default_factory=dict)
     flows: dict[str, Flow] = field(default_factory=dict)
     goals: dict[str, Goal] = field(default_factory=dict)

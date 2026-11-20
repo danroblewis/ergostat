@@ -25,13 +25,18 @@ only the work: judge what is in the branch, not what anyone says about it.
 
 {diff}
 
+# What the factory knows (look for every review lesson in this branch)
+
+{knowledge}
+
 # Judge it against
 
 - the definition of done above: every point of it done, and its acceptance tests present and meaningful;
 - docs/SPEC.md and the invariants and rules in CLAUDE.md (read them: {guides});
 - the owner's recorded rules: no new pages or panels; the disciplines' own terms; build only what was asked; main
   always installable; no employer names or private material;
-- correctness: races, error handling that hides failures, tests that assert nothing, docs that do not match the code.
+- correctness: races, error handling that hides failures, tests that assert nothing, docs that do not match the code;
+- each review lesson above: name its id (`lesson-3`) in a finding of its class.
 
 Read the code; run single test files if you need to (`uv run python -m pytest -q tests/test_x.py`), never the whole
 suite. Change nothing.

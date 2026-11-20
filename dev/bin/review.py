@@ -24,20 +24,32 @@ import brief  # noqa: E402
 import fac  # noqa: E402
 import pools  # noqa: E402
 
-KILL = 2                     # the failed gates that park a gap
 VERDICT_EVENT = {"merge": "review.approved", "fix": "review.sent-back", "park": "review.parked"}
 VERDICT = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
 
 
-def gates(cfg: dict, wt: Path, branch: str, base: str) -> tuple[list[str], str]:
-    """The mechanical gates: (blocking findings, the definition as committed first)."""
-    rel = f"{fac.DEFS}/{branch}.md"
+def gates(cfg: dict, wt: Path, branch: str, base: str, continued: bool = False,
+          built_main: str = "", rel: str = "") -> tuple[list[str], str]:
+    """The mechanical gates: (blocking findings, the definition as committed first). The branch's own commits are
+    its first-parent line (main merged in is not the branch's). The definition is ``rel`` (fac.definition_file: for a
+    continued gap, the file its `definition` names, first committed on the continued branch under whatever name that
+    branch had), else `docs/roadmap/overnight/<branch>.md`. A continued branch must hold the main implement.py
+    merged at its build (``built_main``), not the main of this moment: main moving between build and review is the
+    merge queue's to settle (it merges and runs the suites again), never a failed gate. A ``built_main`` missing, or
+    not on main, counts as the worst case: current main."""
+    if not (re.fullmatch(r"[0-9a-f]{40}", built_main) and fac.git_ok(wt, "merge-base", "--is-ancestor", built_main, base)):
+        built_main = fac.git(wt, "rev-parse", base)
+    rel = rel or f"{fac.DEFS}/{branch}.md"
     found = []
-    commits = fac.git(wt, "rev-list", "--reverse", f"{base}..HEAD").split()
-    touched = fac.git(wt, "log", "--reverse", "--format=%H", f"{base}..HEAD", "--", rel).split()
+    own = ("--first-parent", "--topo-order", "--reverse")
+    commits = fac.git(wt, "rev-list", *own, f"{base}..HEAD").split()
+    touched = fac.git(wt, "log", *own, "--format=%H", f"{base}..HEAD", "--", rel).split()
     on_base = fac.git_ok(wt, "cat-file", "-e", f"{base}:{rel}")
     if not on_base and (not touched or not commits or touched[0] != commits[0]):
         found.append(f"gate 1: {rel} is not the branch's first commit")
+    if continued and not fac.git_ok(wt, "merge-base", "--is-ancestor", built_main, "HEAD"):
+        found.append(f"gate 1: the continued branch does not hold main as of its build ({built_main[:12]}): main is "
+                     "not merged in")
     first = fac.git(wt, "show", f"{touched[0] if touched else base}:{rel}", check=False)
     now = (wt / rel).read_text() if (wt / rel).is_file() else ""
     cut = lambda t: re.split(r"^## Where it stopped", t, flags=re.M)[0].strip()  # noqa: E731
@@ -61,8 +73,7 @@ def verdict(said: str) -> dict:
 def park(cfg: dict, gap: dict, why: str, by: str, where: str = "review") -> None:
     """Where it stopped, written into the definition file on the gap's branch (a commit this program makes in a clone
     of its own, pushed to the drop), then the gap parked."""
-    branch = fac.branch_of(gap)
-    rel = f"{fac.DEFS}/{branch}.md"
+    branch, rel = fac.branch_of(gap), fac.definition_file(gap)
     d = agents.drop(cfg)
     if fac.git_ok(d, "rev-parse", "--verify", "-q", f"refs/heads/{fac.git_branch(branch)}"):
         _, work = agents.clone(cfg, branch, "park")
@@ -90,6 +101,14 @@ def main() -> int:
         return fac.guarded(given, began, "review_hours", lambda why: park(cfg, given["item"], why, "reviewer"))
 
 
+def next_review(branch: str) -> int:
+    """The number of a new review of the branch: past the highest review/<branch>-N in the record, so a gap that
+    continues a branch already reviewed (or its fix rounds) never reuses a parked gap's review item. A record that
+    cannot be read raises (fac.items)."""
+    got = [re.fullmatch(rf"review/{re.escape(branch)}-(\d+)", str(r.get("id"))) for r in fac.items("review")]
+    return max([int(m[1]) for m in got if m] or [0]) + 1
+
+
 def judge(cfg: dict, gap: dict, began: float) -> int:
     f = gap["fields"]
     refused = fac.may_spend(cfg, float(cfg["ai"]["reviewer_session_usd"]))
@@ -101,13 +120,14 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
         return 0
     branch, base = fac.branch_of(gap), f"origin/{cfg['git']['base']}"       # (in the clone made from the drop)
     n = int(f.get("reviews_n") or 0) + 1
-    rid = f"review/{branch}-{n}"
+    rid = f"review/{branch}-{next_review(branch)}"
     fac.say("gap.review-started", review_at=began, reviews_n=1)
     head = str(f.get("head") or "")
     if not re.fullmatch(r"[0-9a-f]{40}", head):
         raise RuntimeError(f"{gap['id']} has no built head to review")
     home, wt = agents.clone(cfg, branch, "reviewer", at=head)
-    blocking, definition = gates(cfg, wt, branch, base)
+    blocking, definition = gates(cfg, wt, branch, base, continued=bool(f.get("continues")),
+                           built_main=str(f.get("built_main") or ""), rel=fac.definition_file(gap))
     net, budget = fac.net_lines(wt, base, "HEAD"), fac.budget_of(definition)
     if net > budget and not re.search(r"over.*reason|reason.*over", definition, re.I | re.S):
         blocking.append(f"size: {net} net lines of core code against a budget of {budget}, with no reason written")
@@ -138,8 +158,8 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
     if v["verdict"] == "merge":
         fac.say("gap.approved", approved_at=time.time(), approved_by="review", first_pass=n == 1, reviewed_head=head,
                 **record)
-    elif v["verdict"] == "park" or failed >= KILL:
-        why = v["where_it_stopped"] or "Failed its gates twice (the kill rule). Blocking findings:\n" + "\n".join(
+    elif v["verdict"] == "park" or failed >= fac.kill_after(cfg):
+        why = v["where_it_stopped"] or f"Failed its gates {fac.kill_after(cfg)} times (the kill rule). Blocking findings:\n" + "\n".join(
             f"- {b}" for b in v["blocking"])
         fac.say("gap.measured", failed_gates=int(v["verdict"] == "fix"), findings=v["blocking"], **record)
         park(cfg, gap, why, rid)

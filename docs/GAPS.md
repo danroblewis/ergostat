@@ -220,6 +220,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `docs/roadmap/overnight/leasekill.md`, says where it stopped); its review's findings were taken as lessons: B4 (a
   `done` for another item) by tagging, B1 (env leaking between items) by env in the line, B3 (a child's CPU never
   charged) by charging no item CPU at all (the daemon's own CPU and memory are sampled and shown).
+- **A renewing run killed because the engine was busy recording its renewal** (parked on `leaserenew`,
+  `docs/roadmap/overnight/leaserenew.md`, *Where it stopped*). A renewal through the engine's socket is recorded only
+  when the engine gets the GIL; the watchdog could expire the lease first and kill a run that asked in time (16 of 32
+  killed with a GIL-holding thread in the engine, 0 of 48 on the branch). The branch adds a grace and a second look,
+  a re-read before the write, and a fold refusal that the raw readers honour; parked because its
+  `refused_expiries` folds each expired item uncached, transcripts included, on every measure sample and estimate
+  read. Still needed: read `refused` from the item index, and a performance test with many expired items and long
+  transcripts.
 - **Daemons, left over:** a daemon's lines are taken one at a time (a run's process batches the lines that arrive
   together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
   not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
@@ -337,6 +345,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
   commanded and event-started blocks ask. The factory pauses its implementor with a gate instead (the auxiliary
   `intake-open`, read by hand, in an `expr` that commands it). Either ask once per item before it is leased
   (`block.advised` naming the item), or refuse `mode: advise` with `takes:` in `check`.
+- **A gap continues an existing branch, with main merged in by the factory** (awaiting its gate; branch
+  `factory/continue-branch3`, the salvage of `continue-branch`; its definition is
+  `docs/roadmap/overnight/continue-branch.md`, and `continue-branch2.md` and `continue-branch3.md` hold where the later
+  rounds stopped). A request may name `continues: <branch>`;
+  implement.py merges origin/main before each session (a clean merge committed by the program, a conflicted one handed
+  to the session with its conflict list), and gate 1 reads the continued branch's own definition and holds it to the
+  main merged at its build. Main (1f013ba) is merged into the branch. Left: the factory's fast suites on the merged
+  tree, and gate 1 for this salvage, which the coordinator judges by hand (its first commit is continue-branch.md).
 
 ## Done recently
 
