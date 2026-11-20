@@ -17,7 +17,9 @@ The item's field ``lease`` (ergostat's own: an event's data never replaces it):
   stays where the work moved it); nack, given back: to ``back``, its attempt counted unless ``count`` is false, and not
   taken again before ``after`` seconds, or, with ``news``, before the first event about it its own runs did not cause
   (a webhook's: the review it waits for);
-- ``expired`` (run, fence, silent): silent past its TTL: to ``back``, its attempt counted;
+- ``expired`` (run, fence, silent, expires): silent past its TTL: to ``back``, its attempt counted. Refused when the
+  lease was renewed after the watchdog judged it (its ``expires`` now later than the one the event names): a renewal
+  recorded between the watchdog's look and its write wins;
 - ``redriven`` (to, why): a dead letter given another go: to ``to`` (else ``back``), its attempts from nothing.
 
 A counted attempt that reaches ``max`` moves the item to ``dead`` instead. An event about the item caused by a run
@@ -81,6 +83,8 @@ def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | N
             last = next((h for h in reversed(cur.get("history") or []) if h.get("fence") == d.get("fence")), None)
             return None, (f"lease {d.get('fence')} is not held: it ended ({last.get('how')})" if last and last.get("how")
                           else f"lease {d.get('fence')} is not the one held ({cur.get('fence') or 'none'})")
+        if t == EXPIRED and d.get("expires") is not None and float(cur.get("expires") or 0) > float(d["expires"]):
+            return None, f"renewed since it was judged expired: it expires at {cur['expires']:.1f} now, not {float(d['expires']):.1f}"
         if t == RENEWED:
             lease["renewed"] = max(now, float(cur.get("renewed") or 0))
             lease["expires"] = lease["renewed"] + float(cur.get("ttl") or 0)
@@ -114,6 +118,32 @@ def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | N
         it.changes.append({"time": now, "event": e["id"], "type": t, "form": "lease", "op": t.rsplit(".", 1)[1],
                            "path": "/lease", "before": _summary(cur) or None, "after": _summary(lease)})
     return to, None
+
+
+def refused_expiries(events, spec, evs: list[dict], items: dict | None = None, ix=None) -> set[str]:
+    """Of these events, the ``expired`` ones the fold refused (the lease renewed after the watchdog judged it, written
+    in the moment between its last look and its write): not expiries, for whatever reads the record raw (the
+    workspaces, the measures, the estimates). What each item refused is read from ``items`` (folds the caller already
+    has, by id), else from the item index (``ix``, or the record's: it keeps each item's ``refused``, caught up), and
+    only an item neither holds is folded, its transcript left out (a lease's fold never reads one)."""
+    from ..spec import items as its
+    want = sorted({e.get("item") for e in evs if e["type"] == EXPIRED and e.get("item")})
+    if not want:
+        return set()
+    got: dict = {i: items[i] for i in want if items and i in items}
+    rest = [i for i in want if i not in got]
+    if rest:
+        ix = ix if ix is not None else its._index(events, spec, False)
+        if ix is not None:
+            with ix.lock:
+                got.update({it.id: it for it in ix.items(ids=rest, moves=False)})
+    for item in want:
+        if item not in got:
+            got_evs = events.query(n=None, item=item, skip=(its.TRANSCRIPT_TYPES,))
+            got[item] = its.fold(item, got_evs, its.kind_of(spec, item), transcript=False) if got_evs else None
+    ids = {e["id"] for e in evs if e["type"] == EXPIRED}
+    return {r["event"] for it in got.values() if it is not None for r in it.refused
+            if r.get("type") == EXPIRED and r.get("event") in ids}
 
 
 def fenced(it, e: dict) -> str | None:

@@ -207,6 +207,7 @@ def identify(p, spec: Spec, data: ob.Data | None = None) -> dict[str, BlockModel
     """Each flow a machine block moves → its identified model, from the record on ``data``'s grid (the reference window
     when none is given)."""
     from ..leases import EXPIRED
+    from ..leases.fold import refused_expiries
     from ..leases.terms import terms
     data = data or ob.measured(p, ob.reference(p))
     g = data.grid
@@ -244,8 +245,10 @@ def identify(p, spec: Spec, data: ob.Data | None = None) -> dict[str, BlockModel
             if len(took) >= MIN_RUNS:
                 secs = [float((r.get("data") or {}).get("seconds") or 0.0) for r in took]
                 good = sum(1 for r in took if r["type"] == "agent.ran" and not (r.get("data") or {}).get("nack"))
-                exp = sum(1 for e in p.events.query(n=None, type=EXPIRED, since=g.since, until=g.until)
-                          if (e.get("data") or {}).get("block") == block)
+                evs = [e for e in p.events.query(n=None, type=EXPIRED, since=g.since, until=g.until)
+                       if (e.get("data") or {}).get("block") == block]
+                void = refused_expiries(p.events, spec, evs)
+                exp = sum(1 for e in evs if e["id"] not in void)
                 m.service, m.success = median(secs) / 3600.0, good / len(took)
                 m.expired = exp / (len(took) + exp)
                 m.se = {"service": _sd(secs) / math.sqrt(len(took)) / 3600.0,
