@@ -115,6 +115,10 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
         if e["type"] == SNAPSHOT:
             restore(it, e, history, transcript)
             continue
+        if kind is not None and kind.sealed and not e["type"].startswith("ergostat."):
+            it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "sealed",
+                               "why": f"only ergostat writes a {kind.name}"})    # (SPEC §12r: M1)
+            continue
         if not it.n:
             it.first = e["time"]
             if kind and kind.states:                 # it arrives: a move into its first state, counted like any other

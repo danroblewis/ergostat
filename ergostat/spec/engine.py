@@ -924,7 +924,7 @@ class Engine:
         with open(log, "a", encoding="utf-8") as lf:
             lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} ({why})\n")
             lf.flush()
-            back = None
+            back, pos = None, lf.tell()                          # (where its standard error begins)
             if b.params.get("daemon") and not refused:            # handed to its daemon (SPEC §9.7): wall time only
                 code, note, back = self.daemons.run_item(b, begun["id"], ctx, env, take, b.timeout, item, fence)
                 with self.lock:
@@ -995,6 +995,14 @@ class Engine:
             self.say(f"{b.name}: its costs: {type(e).__name__}: {e}")
         if failed:
             self.say(f"{b.name}: {note}")
+            if spec.items.get("ergostat.failure"):               # triaged, one failure a signature (SPEC §12r)
+                try:
+                    from ..repair import capture
+                    with open(log, encoding="utf-8", errors="replace") as lf:
+                        lf.seek(pos)
+                        capture.failed(self.p, spec, b, begun, data, stdin, lf.read())
+                except Exception as e:
+                    self.say(f"{b.name}: its failure: {type(e).__name__}: {e}")
         if said.refused:
             self.say(f"{b.name}: {said.refused[0]}")
         if said.claims:                                          # what it said it did, checked by ergostat (SPEC §12g)
