@@ -225,6 +225,8 @@ def test_the_factory_model_loads():
     assert {"gap", "review", "flake", "intervention", "upgrade"} <= set(spec.items)
     assert {"intake", "implementor", "reviewer", "merge-queue", "flake-triage", "upgrader"} <= set(spec.blocks)
     assert {"ai-budget", "machine-quiet", "first-pass-good", "suites-in-time"} <= set(spec.goals)
+    assert {"sessions-fit", "cpu-within", "memory-within", "disk-free-enough", "factory-disk-within"} <= set(spec.goals)
+    assert {"machine-full", "disk-cleanup"} <= set(spec.blocks)
     assert spec.blocks["implementor"].takes.at == ["fix", "ready"] and spec.blocks["implementor"].pool == 4
     assert {"implementor-pool", "reviewer-pool"} <= set(spec.stocks) and "raise-pool" in spec.actions
     assert spec.blocks["merge-queue"].pool == 1
