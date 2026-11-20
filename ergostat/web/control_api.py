@@ -9,6 +9,7 @@ import threading
 
 from ..control import loop as lp
 from ..control import proposals as cp
+from ..webaccess import who
 
 WORKING = threading.Lock()        # one analysis at a time: each fits a few hundred models
 
@@ -43,7 +44,7 @@ def post(live, path: str) -> tuple[int, dict]:
         if parts[2] == "dismiss":
             got = cp.dismiss(p, parts[1])
         else:
-            got = cp.accept(p, parts[1], by="owner")
+            got = cp.accept(p, parts[1], by=who())
             live.reloaded()
     except cp.ProposalError as e:
         return 409, {"error": str(e)}

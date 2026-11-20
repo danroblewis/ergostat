@@ -842,6 +842,11 @@ class Compiler:
         spec.intake = intake(d.intake, wrong)
         for msg in wrong:
             self.err(msg, None, "bad-intake")
+        from ..webaccess import parse as web
+        wrong = []
+        spec.web = web(d.web, wrong)
+        for msg in wrong:
+            self.err(msg, None, "bad-web")
         for name, m, what in self.named("systems"):
             self.keys(m, {"description", "within", "show"}, what)
             spec.systems[name] = self.text(m, "description")

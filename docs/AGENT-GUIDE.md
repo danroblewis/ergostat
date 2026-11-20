@@ -584,6 +584,22 @@ What you set:
 - **`daily:`** and **`budget:`**: what the loop may spend. The model's folder must be in a git repository, its programs
   committed.
 
+## 3j. The page from elsewhere: cloudflared and Cloudflare Access
+
+When the owner wants to watch the page from another device, never bind it to a public address: put it behind a
+Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
+
+1. In Cloudflare Zero Trust, add a **self-hosted Access application** for the hostname (`ergostat.example.org`) with
+   a policy allowing the owner's email. Note its **Application Audience (AUD) tag** and the team domain
+   (`myteam.cloudflareaccess.com`).
+2. Run the tunnel to the page's port on this machine, **keeping the Host header** (no `httpHostHeader` rewrite):
+   `cloudflared tunnel route dns NAME ergostat.example.org`, then an ingress rule
+   `{hostname: ergostat.example.org, service: http://127.0.0.1:8781}` and `cloudflared tunnel run NAME`.
+3. Declare it in the main file (`web: {names: [...], access: {team, aud, emails}}`), `ergostat check`, and open
+   the name: Access asks for the login, the page opens, and what the owner answers there is recorded as their
+   email. Without the declaration every request through the tunnel is refused (403), even one whose Host was
+   rewritten.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |

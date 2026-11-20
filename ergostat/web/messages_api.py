@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 
+from ..webaccess import who
+
 
 def post(live, q: dict, body: bytes) -> tuple[int, dict]:
     from ..messages import record, route
@@ -25,9 +27,9 @@ def post(live, q: dict, body: bytes) -> tuple[int, dict]:
             mid = str(got.get("route") or q["route"][0])
             if not about:
                 return 400, {"error": "route a message to something: about (an item, or a part)"}
-            return 200, route.route(p, spec, mid, about=about, by="owner")
+            return 200, route.route(p, spec, mid, about=about, by=who())
         text = got.get("text") or (q.get("text") or [""])[0]
-        return 200, route.send(p, spec, str(text), by="owner", about=about or None, via="page")
+        return 200, route.send(p, spec, str(text), by=who(), about=about or None, via="page")
     except record.MessageError as e:
         return 400, {"error": str(e)}
 
