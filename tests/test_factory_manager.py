@@ -127,6 +127,28 @@ def test_an_old_open_intervention_is_raised_but_never_the_managers_own(tmp_path)
     assert got["trigger"] == "intervention" and got["subject"] == "intervention/old"
 
 
+def test_only_unremedied_defects_are_raised_and_at_most_three_an_hour(tmp_path):
+    f = Pipe(tmp_path, manager="heartbeat_minutes = 100000\n")
+    old = f.now - 20 * H
+    f.put("intervention/pools-raised", "open", recorded_at=old, **{"class": "operator-decision"})
+    f.put("intervention/tuned", "open", recorded_at=old, **{"class": "factory-tuning"})
+    f.put("intervention/not-ours", "open", recorded_at=old, factory=False, **{"class": "environment-defect"})
+    f.put("intervention/said-remedied", "open", recorded_at=old, remedy="fixed", **{"class": "main-broken"})
+    for n in range(5):
+        f.put(f"intervention/d{n}", "open", recorded_at=old + n, **{"class": ["scope-creep", "something-new"][n % 2]})
+    raised = []
+    while (got := f.watch()) is not None:
+        raised.append(got)
+        f.handled(got["id"])
+    subjects = [r["subject"] for r in raised if r["trigger"] == "intervention"]
+    assert subjects == ["intervention/d0", "intervention/d1", "intervention/d2"]    # three this hour, oldest first
+    db = f.db()
+    for r in raised:
+        db["items"][r["id"]]["fields"]["raised_at"] = f.now - 2 * H                  # an hour on
+    f.record.write_text(json.dumps(db))
+    assert [f.watch()["subject"]] == ["intervention/d3"]
+
+
 def test_the_heartbeat_comes_only_when_the_pipeline_changed_and_its_time_came(tmp_path):
     f = Pipe(tmp_path)
     got = f.watch()

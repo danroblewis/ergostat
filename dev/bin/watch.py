@@ -16,6 +16,7 @@ import pools  # noqa: E402
 
 BY = "pipeline-manager"
 ENDED = ("merged", "parked", "closed")
+DECISIONS = ("operator-decision", "factory-tuning", "queue")    # records of a decision (or the queue's own trigger)
 STUCK = {"ready": 6, "fix": 6, "leased": 3, "building": 5, "built": 2, "in-review": 2, "approved": 4, "queued": 3,
          "queue-failed": 1}                         # hours, the defaults of [manager.stuck_hours]
 
@@ -24,6 +25,7 @@ def settings(cfg: dict) -> dict:
     m = cfg.get("manager") or {}
     return {"open": int(m.get("open", 1)), "parked": float(m.get("parked_within_hours", 48)),
             "intervention": float(m.get("intervention_hours", 12)), "heartbeat": float(m.get("heartbeat_minutes", 30)),
+            "per_hour": int(m.get("interventions_per_hour", 3)),
             "stuck": {**STUCK, **(m.get("stuck_hours") or {})}}
 
 
@@ -114,7 +116,9 @@ def candidates(cfg: dict, now: float) -> list[dict]:
     out += stuck(cfg, gaps, now)
     for i in sorted(opened, key=lambda i: float(i["fields"].get("recorded_at") or i.get("first") or 0)):
         at = float(i["fields"].get("recorded_at") or i.get("first") or now)
-        if i["fields"].get("class") != "queue" and now - at > s["intervention"] * 3600:
+        f = i["fields"]
+        defect = f.get("class") not in DECISIONS and f.get("factory") is not False and not f.get("remedied_at")
+        if defect and not f.get("remedy") and now - at > s["intervention"] * 3600:
             out.append(sit("intervention", i["id"], f"{i['id']} ({i['fields'].get('class')}) open {(now - at) / 3600:.0f}h:"
                            f" {i['fields'].get('reason')}", i.get("last")))
     shape = sorted((g["id"], g["state"]) for g in gaps.values() if g["state"] not in ENDED)
@@ -130,8 +134,11 @@ def raise_one(cfg: dict, now: float | None = None) -> dict | None:
         return None
     seen = {x["fields"].get("print") for x in known}
     beat = max([float(x["fields"].get("raised_at") or 0) for x in known if x["fields"].get("trigger") == "heartbeat"] or [0])
+    hour = sum(x["fields"].get("trigger") == "intervention" and now - float(x["fields"].get("raised_at") or 0) < 3600
+               for x in known)                             # (old interventions at most per_hour: the first run's backlog)
     for c in candidates(cfg, now):
-        if c["print"] in seen or (c["trigger"] == "heartbeat" and now - beat < s["heartbeat"] * 60):
+        if c["print"] in seen or (c["trigger"] == "heartbeat" and now - beat < s["heartbeat"] * 60) or (
+                c["trigger"] == "intervention" and hour >= s["per_hour"]):
             continue
         sid = f"situation/{c['trigger']}-{fac.slug(c['subject'].split('/')[-1], 40)}-{c['print'][:8]}"
         fac.say("situation.raised", sid, **c, raised_at=now, **({"gap": c["subject"]} if c["subject"].startswith("gap/") else {}))
