@@ -17,7 +17,7 @@ It ships **off**: the implementor takes nothing until you open the intake.
 | `~/ergostat-live/sessions/` | each session's clone (made from the drop, never the owner's repository) |
 | `~/ergostat-live/<sha>` | each installed version: a detached worktree with its own `.venv` |
 | `~/ergostat-live/current`, `previous` | the version running, and the one a revert goes back to |
-| `~/ergostat-live/instance/` | the instance's folder, the same across versions (its record is keyed by it): copies of the version's `ergostat.yaml` and `dev/`, made at each switch (an edit made in them since, such as a model change you accepted, is kept as a patch in `run/model-edits/`: bring it to the repository as a gap), `run/` (briefs, logs, the cost ledger, definitions you write), `factory.local.toml` |
+| `~/ergostat-live/instance/` | the instance's folder, the same across versions (its record is keyed by it): copies of the version's `ergostat.yaml` and `dev/`, made at each switch (an edit made in them since, such as a model change you accepted, is kept as a patch in `run/model-edits/`: bring it to the repository as a gap), `run/` (briefs, logs, the cost ledger, definitions you write), `factory.local.toml`, and `ergostat.local.yaml`: the instance's own `web:` (its tunnel's public name) and `intake:` bind, never in the repository, kept across switches and never made a gap (SPEC §2) |
 | `dev/factory.toml` | the settings (paths, models, per-session limits, the suites' commands); `factory.local.toml` in the instance's folder overrides any of them |
 | `dev/model/budget.yaml` | **the daily dollar cap** (the goal `ai-budget`, $40 a day): change it there and nowhere else |
 
@@ -50,6 +50,9 @@ cat > factory.local.toml <<'EOF'
 queue_lock = "/path/to/the/coordinator's/queue.lock"   # the same lock as queue-fast.sh, while both are in use
 [suites]
 slot = "/path/to/suite-slot.sh"      # the machine-wide suite slots every agent's suites share
+EOF
+cat > ergostat.local.yaml <<'EOF'      # only with a tunnel: its public name, this machine's alone (SPEC §2, §4d)
+web: {names: [your-tunnel.example.org], open: read}
 EOF
 uv run --project ~/ergostat ergostat -C ~/ergostat-dev run --stop      # the old observe-only instance, on 8798
 python3 dev/bin/live.py start                  # the engine of current, on port 8798
