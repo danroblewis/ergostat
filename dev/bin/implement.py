@@ -58,7 +58,7 @@ def merge_main(work: Path, main: str) -> list[str]:
     if fac.git_ok(work, *who, "merge", "--no-ff", "-m", f"Merge main ({main[:12]}) into the branch\n\n{fac.TRAILER}",
                   main):
         return []
-    conflicts = fac.git(work, "diff", "--name-only", "--diff-filter=U").split()
+    conflicts = fac.conflicted(work)
     if not conflicts:                                 # failed for another reason than a conflict: stop, never guess
         raise RuntimeError(f"merging main {main[:12]} failed without conflicts: {fac.git(work, 'status', '--short')}")
     return conflicts
@@ -139,7 +139,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
             break
     net = fac.net_lines(agents.drop(cfg), cfg["git"]["base"], head)
     record = dict(rounds=1, ai_cost_usd=round(cost, 4), sessions=sessions, contexts=[context], head=head,
-                  net_lines=net, budget=fac.budget_of(definition), suites_fast=suites, session_dir=str(home),
+                  net_lines=net, budget=fac.budget_of(definition), built_main=base_sha, suites_fast=suites, session_dir=str(home),
                   build_hours=round((time.time() - began) / 3600, 3), said=str(got.get("result", ""))[-600:])
     if suites.get("failed"):
         fails = int(f.get("build_failures") or 0) + 1

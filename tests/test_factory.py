@@ -988,14 +988,41 @@ def test_gate_one_accepts_a_continued_branch_definition(tmp_path):
     said, _ = f.run("review.py", gid)
     assert said[-1] == "gap.approved"                                           # its first commit is its definition
     assert not f.item("review/warm-1")["fields"]["blocking"]
+    built = f.item(gid)["fields"]["built_main"]
     (f.checkout / "later.py").write_text("print('later')\n")                   # main moves on after the build
     git(f.checkout, "add", "-A")
     git(f.checkout, "commit", "-q", "-m", "main moved on again")
-    f.fold([{"event": "gap.sent-back", "item": gid, "data": {}}], None)
-    f.fold([{"event": "gap.built", "item": gid, "data": {}}], None)
+    for n in (2, 3):                                                            # reviewed twice more: never parked
+        f.fold([{"event": "gap.sent-back", "item": gid, "data": {}}], None)   # for main moving (the queue's to
+        f.fold([{"event": "gap.built", "item": gid, "data": {}}], None)       # settle), not past the kill rule
+        said, _ = f.run("review.py", gid)
+        assert said[-1] == "gap.approved" and f.item(gid)["state"] != "parked"
+        assert not f.item(f"review/warm-{n}")["fields"]["blocking"]
+    assert f.item(gid)["fields"]["built_main"] == built
+    moved = git(f.checkout, "rev-parse", "main")                                # a build that claims a main its
+    f.fold([{"event": "gap.sent-back", "item": gid, "data": {}}], None)       # branch does not hold: refused
+    f.fold([{"event": "gap.built", "item": gid, "data": {"built_main": moved}}], None)
     said, _ = f.run("review.py", gid)
     assert said[-1] == "gap.sent-back"
-    assert any("merge base is not current main" in b for b in f.item("review/warm-2")["fields"]["blocking"])
+    assert any("does not hold main as of its build" in b for b in f.item("review/warm-4")["fields"]["blocking"])
+
+
+def test_conflicts_are_listed_whole_when_a_path_has_a_space(tmp_path):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    (repo / "my app.py").write_text("base\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "base")
+    git(repo, "checkout", "-q", "-b", "side")
+    (repo / "my app.py").write_text("side\n")
+    git(repo, "commit", "-qam", "side")
+    git(repo, "checkout", "-q", "main")
+    (repo / "my app.py").write_text("main\n")
+    git(repo, "commit", "-qam", "main")
+    assert subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", "merge",
+                           "-q", "side"], capture_output=True).returncode
+    assert module("fac").conflicted(repo) == ["my app.py"]
 
 
 def test_a_continued_branch_already_reviewed_gets_reviews_and_logs_of_its_own(tmp_path):
