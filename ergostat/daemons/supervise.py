@@ -18,6 +18,7 @@ from dataclasses import replace
 from .. import runner as old
 from ..costs.sampler import Sampler
 from ..leases.kill import grace
+from . import proc
 from .config import WARM_ALL
 from .proc import Process
 from .work import Hands
@@ -41,19 +42,62 @@ class Slot:
 
 
 def killpg(pgid: int, wait: float) -> None:
-    """Its whole process group (it leads a session of its own): TERM, then KILL after ``wait`` for what is left."""
-    for sig, then in ((signal.SIGTERM, wait), (signal.SIGKILL, 0.0)):
-        try:
-            os.killpg(pgid, sig)
-        except OSError:                              # (none left)
-            return
-        end = time.monotonic() + then
-        while time.monotonic() < end:
+    """Its whole process group (it leads a session of its own): TERM, then KILL after ``wait`` for what is left. Once
+    gone (or sent KILL, which it cannot outlive) it leaves ``proc.GROUPS``: no id kept that the OS could reuse."""
+    try:
+        for sig, then in ((signal.SIGTERM, wait), (signal.SIGKILL, 0.0)):
             try:
-                os.killpg(pgid, 0)
-            except OSError:
+                os.killpg(pgid, sig)
+            except OSError:                          # (none left)
                 return
-            time.sleep(0.05)
+            end = time.monotonic() + then
+            while time.monotonic() < end:
+                try:
+                    os.killpg(pgid, 0)
+                except OSError:
+                    return
+                time.sleep(0.05)
+    finally:
+        with proc.GROUPS_LOCK:
+            proc.GROUPS.discard(pgid)
+
+
+def _signal(pgid: int, sig: int) -> bool:
+    """False when the group cannot be signalled: none left, or (EPERM) it cannot be ours any more."""
+    try:
+        os.killpg(pgid, sig)
+        return True
+    except OSError:
+        return False
+
+
+def collect() -> set[int]:
+    """``end_all``'s first step: new groups closed off (each kills itself) and the live ones taken, under the one
+    lock ``Process`` checks and adds under, so a group spawned meanwhile is in this snapshot or killed by itself."""
+    with proc.GROUPS_LOCK:
+        proc.CLOSING = True
+        return set(proc.GROUPS)
+
+
+def end_all(wait: float) -> list[int]:
+    """Every daemon's group ended before ergostat starts itself again in place, with no ``Supervisor`` lock taken (what
+    is wedged may hold it): TERM to each, one shared deadline ``wait`` (clamped to 0..3 s) for all, then KILL to what
+    is left. A group that cannot be signalled (gone, EPERM) is dropped, never retried. A group ``killpg`` ended after
+    the snapshot may still be signalled from it: harmless while its leader is unreaped, a small window otherwise.
+    A group with only unreaped processes left counts as present, so it is waited for to the deadline, then KILLed.
+    The groups that were sent TERM, returned."""
+    wait = min(max(float(wait), 0.0), 3.0)
+    groups = collect()
+    sent = [g for g in sorted(groups) if _signal(g, signal.SIGTERM)]
+    left, deadline = set(sent), time.monotonic() + wait
+    while left and time.monotonic() < deadline:
+        time.sleep(0.05)
+        left = {g for g in left if _signal(g, 0)}
+    for g in left:
+        _signal(g, signal.SIGKILL)
+    with proc.GROUPS_LOCK:
+        proc.GROUPS.difference_update(groups)
+    return sent
 
 
 class Supervisor(Hands):
