@@ -190,3 +190,34 @@ Round 1, built; one acceptance check not run here (below).
   round can only repeat this same answer.
 - **Ran:** `tests/test_leases.py` serially (26 passed); ruff is clean. There is no remote and nothing newer on local
   `main` to merge.
+
+### After round 4's unit run (failed again; no cause found, no code changed)
+
+- **What the tail showed.** The run stopped at 80% with no failure line, and with no `suite_watch` line either (no
+  "past the limits", no closing JSON line). So it was not the watcher's own thread or memory kill. The watcher itself
+  was stopped from outside, most likely by an outer timeout. Round 1 stopped at 73%, and round 3 before its first
+  test, which no change in this branch can cause (collection is fine).
+- **A reading of the stall.** Under xdist, `conftest.py` makes a `serial` test (all of `test_watchdog`, one in
+  `test_daemons`, `test_parallel_runs`, `test_notify`, the heavy diagram ones) hold the run's lock alone. One of them
+  hanging, or running very slowly on a loaded machine, holds back every worker. That fits a stall at any percentage
+  better than one test hanging on its own worker. Nothing here shows which test it was.
+- **What was looked for, and not found.** I went through every lock and wait this branch adds:
+  - The lock order is unchanged from main. `take` holds the dispatcher's lock and then takes the engine's, as main
+    did. Nothing in `ergostat/` takes the dispatcher's lock while holding the engine's (`dispatch` is only touched
+    from `engine.py`, plus `due_now` in `daemons/supervise.py`, which takes no lock).
+  - Both of `close`'s new waits have a limit (`lock_wait`).
+  - `give_back` runs inside `take` only on the race path. The locks are RLocks, so taking one again in the same
+    thread does not deadlock.
+  - The `run_block` kill applies only to this engine's own `stop`. No test outside `test_leases` sets an engine's
+    `stop` and then starts a run on it.
+  - `runner.STOPPING` is cleared before every test by `conftest._not_stopping`.
+- **Run here, one file at a time, all passed:** `test_notify` + `test_parallel_runs` (serial-marked), `test_spec_engine`,
+  `test_ticket_factory_daemons`, `test_triggers2` + `test_triggers3`, `test_reload_safety` + `test_repair2` +
+  `test_workspaces`, `test_reload_soak` + `test_calls` + `test_messages`. This session's harness refused a loop over
+  every test file, even one at a time, and refused any `-n 8` run, so the whole suite was not run here.
+- **Decision taken alone (reversible).** No code change this round. Changing code without a cause would hide what
+  the next watched run could show. What is needed is a watched unit run that names the stuck test: for example
+  `pytest -n 8 -o faulthandler_timeout=300`, which dumps every thread's stack for a test past 300 s. It is also worth
+  running main's unit suite on the same machine, to see whether main stalls the same way.
+- **Still open, as before:** the 30 loaded `-n 8` runs of the restart test (the DoD's last acceptance line), and a
+  green unit run. The gap is not done.
