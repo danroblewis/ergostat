@@ -244,11 +244,11 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
     said: list = []                                   # report lines, for the block to print (SPEC §12m)
     t0 = time.perf_counter()
     for r in range(1, max(1, rounds) + 1):
-        if cost["usd"] >= budget:
-            log.append({"round": r, "stopped": f"the budget (${budget:.2f}) is spent"})
-            break
         t_p = time.perf_counter()
         text = prompt(p, s, system, why or [], feedback, card, by)
+        if cost["usd"] + md.unsaid(text, model)["usd"] > budget:    # its dearest: no call that could pass the cap
+            log.append({"round": r, "stopped": f"the budget (${budget:.2f}) is spent"})
+            break
         t_c = time.perf_counter()
         got = call(text, model, md.per_call(timeout, rounds))
         if on_call is not None:                     # each call's cost said as it is spent: a run cut short keeps it

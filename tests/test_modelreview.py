@@ -199,6 +199,41 @@ def test_a_review_of_an_earlier_version_of_the_same_change_does_not_carry_over(t
     assert [y["id"] for y in rv.due(p, p.model.spec)] == [pid]           # read again
 
 
+def test_a_change_carried_and_passed_again_during_its_review_is_not_passed_by_it(tmp_path):
+    p = judged(tmp_path)
+    pid = passed_redesign(p)
+    first = answers(PASS)
+
+    def slow(text, model, timeout=None):                                 # while the reviewer reads, the judge again
+        pr.event(p, pid, "checked", {})
+        time.sleep(0.01)
+        jd.run(p, "judge")
+        assert pr.stored(p)[pid]["state"] == "passed"
+        return first(text, model, timeout)
+    assert rv.run(p, call=slow)["verdicts"] == [{"id": pid, "verdict": rv.STALE}]
+    x = pr.stored(p)[pid]
+    assert p.events.query(n=None, type="ergostat.model-change.reviewed") == []
+    assert rv.review_of(x) is None and rv.awaiting(p.model.spec, x)
+    jd.run(p, "judge")
+    assert pr.stored(p)[pid]["state"] == "passed"                       # nothing written that nobody reviewed
+    rv.run(p, call=answers(PASS))                                        # read again, as it is now
+    assert rv.review_of(pr.stored(p)[pid])["read"] == rv.seen(pr.stored(p)[pid])
+
+
+def test_the_redesigner_never_calls_past_its_cap(tmp_path):
+    p = judged(tmp_path)
+    calls = []
+
+    def call(text, model, timeout=None):                                 # the first costs most of the cap; its dearest
+        calls.append(md.unsaid(text, model)["usd"])                     # (~$0.01 on haiku, claude's system prompt
+        return {"result": "", "usd": 0.012}                             # with it) would pass what is left
+    out = rdr.run(p, "model", budget=0.02, rounds=3, call=call)
+    assert len(calls) == 1 and 0.008 < calls[0] <= 0.02 and out["cost"]["usd"] == 0.012
+    assert "spent" in out["rounds"][-1]["stopped"]
+    out = rdr.run(p, "model", budget=0.01, call=lambda *a, **k: pytest.fail("called past the cap"))
+    assert out["cost"]["calls"] == 0
+
+
 def test_the_authors_prompts_carry_the_reviewers_recent_verdicts(tmp_path, monkeypatch):
     p = judged(tmp_path)
     monkeypatch.setenv("ERGOSTAT_BLOCK", "modeller")

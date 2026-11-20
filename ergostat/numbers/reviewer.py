@@ -14,6 +14,7 @@ recorded (``ergostat.model.review-ran``) and counted against the template's dail
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -35,11 +36,18 @@ def kinds(spec: Spec) -> list[str]:
     return list(getattr(spec.improve, "reviewed", None) or [])
 
 
+def seen(x: dict) -> str:
+    """What the reviewer read, stamped: the judge's verdict and the edit as they stand. A change made again, revised, or
+    carried and judged since has another stamp."""
+    got = {"verdict": x.get("verdict"), "edit": x.get("edit"), "redesign": x.get("redesign"), "version": x.get("version")}
+    return hashlib.sha256(json.dumps(got, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
 def review_of(x: dict) -> dict | None:
-    """Its review, if it is of the change as the judge last passed it: one older than the judge's verdict (the change
-    made again, revised or carried and judged since) is stale, as if never read."""
+    """Its review, if it is of the change as the judge last passed it (the stamp of what it read is the change's now):
+    any other is stale, as if never read."""
     r = x.get("review") or None
-    return r if r and float(r.get("at") or 0) >= float((x.get("verdict") or {}).get("at") or 0) else None
+    return r if r and r.get("read") == seen(x) else None
 
 
 def awaiting(spec: Spec, x: dict) -> bool:
@@ -117,19 +125,31 @@ def parse(text: str) -> dict | None:
     return None
 
 
+STALE = "stale"                          # what record returns when the change moved on while it was read: nothing recorded
+
+
 def record(p, spec: Spec, x: dict, got: dict, by: str = "reviewer", cost: float = 0.0, now: float | None = None) -> str:
-    """The verdict on its item, and where it sends the change. Returns the verdict as recorded."""
+    """The verdict on its item, and where it sends the change, under the changes' lock and only if the change is still
+    the one it read (else ``stale``, nothing recorded: it is read again). Returns the verdict as recorded."""
+    with pr.locked(p):
+        st, now_x = pr.changes(p).get(x["id"], (None, {}))
+        if st != "passed" or seen(now_x) != seen(x):
+            return STALE
+        return _record(p, spec, x, got, by, cost, now)
+
+
+def _record(p, spec: Spec, x: dict, got: dict, by: str, cost: float, now: float | None) -> str:
     now = now or time.time()
     verdict, rounds, who = got["verdict"], int(x.get("review_round") or 1), author(spec, x)
     if verdict == UNDECIDED:                    # it could not decide: the owner's, said so
         pr.event(p, x["id"], "reviewed", {"review": {"verdict": verdict, "findings": [], "summary": got["summary"], "by": by,
-                                                     "at": now, "round": rounds, "author": who}}, source=by)
+                                                     "at": now, "round": rounds, "author": who, "read": seen(x)}}, source=by)
         return verdict
     said = "; ".join(f["says"] for f in got["findings"][:3]) or got["summary"]
     if verdict == "revise" and rounds >= 2:
         verdict, said = "reject", f"sent back once already and still: {said}"
     review = {"verdict": verdict, "findings": got["findings"], "summary": got["summary"], "by": by, "at": now,
-              "round": rounds, "author": who, "cost_usd": round(cost, 6)}
+              "round": rounds, "author": who, "cost_usd": round(cost, 6), "read": seen(x)}
     pr.event(p, x["id"], "reviewed", {"review": review}, source=by)
     if verdict == "reject":
         pr.event(p, x["id"], "failed", {"verdict": {"verdict": "failed", "why": f"the reviewer rejected it: {said}", "at": now,
