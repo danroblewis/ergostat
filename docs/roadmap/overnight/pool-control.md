@@ -83,3 +83,12 @@ Not built, or not checked:
 - The Dynamics and Blocks diagrams were not looked at: the model loads with no problem from `pools.yaml`, which the
   model test now asserts. The full unit and browser suites were not run here (the factory runs them); there is no
   remote in this clone, and the branch is already on the local main.
+
+Round 1, after the factory's fast suites: `unit` was reported failed, but the output given names no failing test. It
+ends at about 36% (all dots and skips, no `F` or `E`), with no pytest summary and no `suite_watch` JSON line, so the
+run looks cut off from outside (a timeout or a kill), not failed by a test. The two test files this branch changes
+pass on their own here: `tests/test_factory.py` (41 passed, 2 skipped) and `tests/test_factory_knowledge.py` (22
+passed). No other test loads `dev/bin/pools.py`, `dev/bin/risk.py`, `dev/model/pools.yaml` or the repo's own
+`ergostat.yaml`. `risk.py` has only bounded loops (series at most 100,000 terms, bisection 80 steps). This session
+could not run the whole suite (only single files were allowed), so no code was changed blindly. The next step is a
+full `unit` run with its whole output (or `-o faulthandler_timeout=300` to show what hangs), to name the test.
