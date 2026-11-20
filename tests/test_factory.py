@@ -197,6 +197,7 @@ class Factory:
                            capture_output=True, text=True, timeout=120,
                            env={**self.env, **({"ERGOSTAT_ITEM": iid, "ERGOSTAT_LEASE": "1"} if iid else {}), **env})
         assert (r.returncode != 0) == fails, r.stderr
+        self.stderr = r.stderr
         lines = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
         return self.fold(lines, iid), lines
 
@@ -579,9 +580,9 @@ def test_containers_reach_only_the_api_and_return_a_bundle(tmp_path):
     f = Factory(tmp_path)
     code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac, agents; cfg = fac.config(); "
             "cfg['ai']['mode'] = 'container'; home, work = agents.clone(cfg, 'alpha-thing', 'implementor'); "
-            "base = fac.git(work, 'rev-parse', 'origin/main'); agents.publish(cfg, work, 'alpha-thing'); "
+            "base = fac.git(work, 'rev-parse', 'origin/main'); was = agents.publish(cfg, work, 'alpha-thing'); "
             "(work / 'made-inside.txt').write_text('x'); "
-            "print(json.dumps([agents.finish(cfg, home, 'alpha-thing', base, base), str(home)]))")
+            "print(json.dumps([agents.finish(cfg, home, 'alpha-thing', base, base, was=was), str(home)]))")
     r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True,
                        timeout=600)
     assert r.returncode == 0, r.stderr[-800:]
@@ -890,3 +891,289 @@ def test_a_push_without_an_action_id_never_stalls_silently(tmp_path):
     h.run("review.py", gid)
     h.run("queue.py", gid)
     assert "is held" in settle(h)[1]
+
+
+def behind_main(f: Factory, conflict: bool = False, name: str = "warm") -> tuple[str, str]:
+    """A branch of the checkout (its definition its first commit, then work), and main moved on since (in the file the
+    branch changed, when ``conflict``); (the branch's tip, main's)."""
+    git(f.checkout, "checkout", "-q", "-b", name, "main")
+    (f.checkout / "docs" / "roadmap" / "overnight" / f"{name}.md").write_text(
+        f"# {name}\n\n## Definition of done\n\nIt works.\n\n## Size budget\n\n600 net lines.\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", f"{name}: the definition of done")
+    (f.checkout / "app.py").write_text("print('the branch')\n")
+    git(f.checkout, "commit", "-qam", "the branch's work")
+    tip = git(f.checkout, "rev-parse", "HEAD")
+    git(f.checkout, "checkout", "-q", "main")
+    (f.checkout / ("app.py" if conflict else "main.py")).write_text("print('main')\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "main moved on")
+    return tip, git(f.checkout, "rev-parse", "main")
+
+
+def continues(f: Factory, name: str = "warm", gid: str = "gap/warm-again") -> str:
+    f.fold([{"event": "gap.requested", "item": gid, "data": {"title": "Warm again", "source": "request",
+                                                             "continues": name}}], None)
+    f.run("intake.py")
+    return gid
+
+
+def test_a_gap_continues_a_named_branch(tmp_path):
+    f = Factory(tmp_path)
+    tip, _ = behind_main(f)
+    f.fold([{"event": "gap.requested", "item": "gap/escape", "data": {"source": "request", "continues": "../warm"}},
+            {"event": "gap.requested", "item": "gap/nowhere", "data": {"source": "request", "continues": "no-such"}},
+            {"event": "gap.requested", "item": "gap/two", "data": {"continues": "warm", "branch": "other"}}], None)
+    gid = continues(f)
+    drop = tmp_path / "live" / "drop.git"
+    assert git(drop, "rev-parse", "factory/warm") == tip                       # fetched into the drop as factory/warm
+    assert f.item(gid)["state"] == "ready"                                      # its own definition, found on it
+    assert f.item(gid)["fields"]["definition"] == "factory/warm:docs/roadmap/overnight/warm.md"
+    for refused in ("gap/escape", "gap/nowhere", "gap/two"):
+        assert f.item(refused)["state"] == "open"
+    assert git(drop, "for-each-ref", "--format=%(refname)", "refs/heads/factory/").split() == ["refs/heads/factory/warm"]
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]
+    head = f.item(gid)["fields"]["head"]
+    assert git(drop, "rev-parse", "factory/warm") == head
+    assert subprocess.run(["git", "-C", str(drop), "merge-base", "--is-ancestor", tip, head]).returncode == 0
+    first = git(drop, "log", "--reverse", "--first-parent", "--format=%s", "main..factory/warm").splitlines()
+    assert first[:2] == ["warm: the definition of done", "the branch's work"]  # no second definition committed
+
+
+def test_a_branch_behind_main_has_main_merged_before_the_session(tmp_path):
+    f = Factory(tmp_path)
+    tip, main = behind_main(f)
+    gid = continues(f)
+    f.run("implement.py", gid)
+    drop = tmp_path / "live" / "drop.git"
+    line = git(drop, "log", "--first-parent", "--format=%H %P|%s", "factory/warm").splitlines()
+    session, merge = line[0].split("|"), line[1].split("|")
+    assert session[1].endswith("uncommitted")                                   # the stand-in's work, after the merge
+    assert merge[0].split()[1:] == [tip, main]                                   # main merged into the branch
+    assert merge[1] == f"Merge main ({main[:12]}) into the branch"              # by the program, before the session
+    assert session[0].split()[1] == merge[0].split()[0]
+    assert f.item(gid)["fields"]["contexts"][0]["merge_conflicts"] == []
+    assert f.item(gid)["fields"]["suites_fast"]["unit"]["rc"] == 0              # the fast suites ran after it
+
+
+def test_a_conflicted_merge_is_handed_to_the_session_with_its_conflicts(tmp_path):
+    f = Factory(tmp_path)
+    tip, main = behind_main(f, conflict=True)
+    gid = continues(f)
+    drop = tmp_path / "live" / "drop.git"
+    f.run("implement.py", gid, fails=True, FACTORY_STANDIN_IMPLEMENTOR="I did nothing")   # the merge left unfinished
+    assert git(drop, "rev-parse", "factory/warm") == tip                        # refused: nothing came back
+    f.run("implement.py", gid, fails=True, FACTORY_STANDIN_MERGE="abort")      # aborted, and its work committed
+    assert git(drop, "rev-parse", "factory/warm") == tip                        # refused before the drop's branch moved
+    assert git(drop, "for-each-ref", "refs/incoming/") == ""                    # (its side ref gone)
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]
+    brief = sorted((f.model / "run" / "briefs").glob("warm-implementor-*.md"))[-1].read_text()
+    assert "finish the merge of main" in brief and "- `app.py`" in brief and main in brief
+    assert f.item(gid)["fields"]["contexts"][-1]["merge_conflicts"] == ["app.py"]
+    sys.modules.setdefault("fac", module("fac"))                                 # (agents.py imports fac beside it)
+    tools = module("agents").TOOLS["implementor"]
+    assert {"Bash(git merge:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git status:*)"} <= set(tools)
+    assert not {t for t in tools if t.startswith(("Bash(git push", "Bash(git fetch", "Bash(git pull", "Bash(git remote"))}
+    head = f.item(gid)["fields"]["head"]
+    assert subprocess.run(["git", "-C", str(drop), "merge-base", "--is-ancestor", main, head]).returncode == 0
+    assert git(drop, "show", f"{head}:app.py") == "print('main')"             # the session's resolution kept
+
+
+def test_a_branch_moved_by_another_writer_during_the_session_is_not_overwritten(tmp_path):
+    f = Factory(tmp_path)
+    drop = tmp_path / "live" / "drop.git"
+    code = ("import sys, json, subprocess; sys.path[:0] = [sys.argv[1]]; import fac, agents; cfg = fac.config(); "
+            "home, work = agents.clone(cfg, 'alpha-thing', 'implementor'); "
+            "base = fac.git(work, 'rev-parse', 'origin/main'); was = agents.publish(cfg, work, 'alpha-thing'); "
+            "d = agents.drop(cfg); tree = fac.git(d, 'rev-parse', was + '^{tree}'); "
+            "other = fac.git(d, 'commit-tree', tree, '-p', was, '-m', 'another writer'); "
+            "fac.git(d, 'update-ref', 'refs/heads/factory/alpha-thing', other); "   # (in the session's gap)
+            "(work / 'made-inside.txt').write_text('x'); out = [other]\n"
+            "try:\n    out.append(agents.finish(cfg, home, 'alpha-thing', base, base, was=was))\n"
+            "except RuntimeError as e:\n    out.append(str(e))\n"
+            "print(json.dumps(out))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True,
+                       timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    other, said = json.loads(r.stdout.strip().splitlines()[-1])
+    assert "moved" in said and "refused" in said                                # not moved over the other write
+    assert git(drop, "rev-parse", "factory/alpha-thing") == other              # the other writer's commit kept
+    assert git(drop, "for-each-ref", "refs/incoming/") == ""
+
+
+def test_gate_one_accepts_a_continued_branch_definition(tmp_path):
+    f = Factory(tmp_path)
+    behind_main(f)
+    gid = continues(f)
+    f.run("implement.py", gid)
+    said, _ = f.run("review.py", gid)
+    assert said[-1] == "gap.approved"                                           # its first commit is its definition
+    assert not f.item("review/warm-1")["fields"]["blocking"]
+    built = f.item(gid)["fields"]["built_main"]
+    (f.checkout / "later.py").write_text("print('later')\n")                   # main moves on after the build
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "main moved on again")
+    for n in (2, 3):                                                            # reviewed twice more: never parked
+        f.fold([{"event": "gap.sent-back", "item": gid, "data": {}}], None)   # for main moving (the queue's to
+        f.fold([{"event": "gap.built", "item": gid, "data": {}}], None)       # settle), not past the kill rule
+        said, _ = f.run("review.py", gid)
+        assert said[-1] == "gap.approved" and f.item(gid)["state"] != "parked"
+        assert not f.item(f"review/warm-{n}")["fields"]["blocking"]
+    assert f.item(gid)["fields"]["built_main"] == built
+    moved = git(f.checkout, "rev-parse", "main")                                # a build that claims a main its
+    f.fold([{"event": "gap.sent-back", "item": gid, "data": {}}], None)       # branch does not hold: refused
+    f.fold([{"event": "gap.built", "item": gid, "data": {"built_main": moved}}], None)
+    said, _ = f.run("review.py", gid)
+    assert said[-1] == "gap.sent-back"
+    assert any("does not hold main as of its build" in b for b in f.item("review/warm-4")["fields"]["blocking"])
+
+
+def test_gate_one_takes_a_continued_gaps_named_definition_first_committed_under_the_branchs_old_name(tmp_path):
+    f = Factory(tmp_path)
+    tip, _ = behind_main(f)
+    git(f.checkout, "branch", "warm2", tip)                                     # warm, carried on under a new name:
+    gid = "gap/warm2-again"                                                     # its first commit is warm.md
+    f.fold([{"event": "gap.requested", "item": gid, "data": {
+        "title": "Warm 2", "source": "request", "continues": "warm2",
+        "definition": "factory/warm2:docs/roadmap/overnight/warm.md"}}], None)
+    f.run("intake.py")
+    assert f.item(gid)["state"] == "ready"
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]
+    drop = tmp_path / "live" / "drop.git"
+    head = f.item(gid)["fields"]["head"]
+    assert subprocess.run(["git", "-C", str(drop), "cat-file", "-e", f"{head}:docs/roadmap/overnight/warm2.md"],
+                          capture_output=True).returncode                       # no copy under the new name
+    said, _ = f.run("review.py", gid)
+    assert said[-1] == "gap.approved"
+    assert not f.item("review/warm2-1")["fields"]["blocking"]
+    wt = tmp_path / "wt-check"                                                  # the program's own check, not the
+    subprocess.run(["git", "clone", "-q", str(drop), str(wt)], check=True, capture_output=True)   # prompt's
+    git(wt, "checkout", "-q", "--detach", head)
+
+    def gate(rel: str) -> list[str]:
+        code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import review; "
+                "print(json.dumps(review.gates({}, __import__('pathlib').Path(sys.argv[2]), 'warm2', 'origin/main', "
+                "continued=True, rel=sys.argv[3])[0]))")
+        r = subprocess.run([sys.executable, "-c", code, str(BIN), str(wt), rel], cwd=f.model, env=f.env,
+                           capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, r.stderr[-800:]
+        return json.loads(r.stdout.strip().splitlines()[-1])
+
+    assert gate("docs/roadmap/overnight/warm.md") == []
+    assert gate("") == ["gate 1: docs/roadmap/overnight/warm2.md is not the branch's first commit"]   # (without it)
+    (wt / "docs" / "roadmap" / "overnight" / "later.md").write_text("# later\n")  # a file the branch added later
+    git(wt, "add", "-A")
+    git(wt, "commit", "-q", "-m", "a later file")
+    assert gate("docs/roadmap/overnight/later.md") == [
+        "gate 1: docs/roadmap/overnight/later.md is not the branch's first commit"]
+
+
+def test_a_branch_another_gap_still_holds_is_not_continued_until_it_stops(tmp_path):
+    f = Factory(tmp_path)
+    behind_main(f)
+    first = continues(f, gid="gap/warm-first")
+    f.run("implement.py", first)
+    assert f.run("review.py", first)[0][-1] == "gap.approved"                  # approved, waiting for the queue
+    drop = tmp_path / "live" / "drop.git"
+    reviewed = git(drop, "rev-parse", "factory/warm")
+    second = continues(f, gid="gap/warm-second")
+    assert f.item(second)["state"] == "open"                                    # not taken: warm is the first's
+    assert "gap/warm-second continues 'warm', which gap/warm-first still holds (approved)" in f.stderr
+    assert git(drop, "rev-parse", "factory/warm") == reviewed
+    for state in ("building", "built", "fix", "queued"):                         # nor while it is anywhere live
+        db = f.db()
+        db["items"][first]["state"] = state
+        f.record.write_text(json.dumps(db))
+        f.run("intake.py")
+        assert f.item(second)["state"] == "open"
+    f.fold([{"event": "gap.parked", "item": first, "data": {}}], None)        # parked: the branch is free
+    f.run("intake.py")
+    assert f.item(second)["state"] == "ready"
+    f.fold([{"event": "gap.requested", "item": f"gap/warm-{n}", "data": {"source": "request", "continues": "warm"}}
+            for n in ("x", "y")], None)                                         # two asked at once: neither blocks
+    f.run("intake.py")                                                           # the other while open, and only
+    assert [f.item(f"gap/warm-{n}")["state"] for n in ("x", "y")] == ["open", "open"]   # (the second holds it now)
+    f.fold([{"event": "gap.parked", "item": second, "data": {}}], None)
+    f.run("intake.py")
+    assert sorted(f.item(f"gap/warm-{n}")["state"] for n in ("x", "y")) == ["open", "ready"]   # one is taken
+
+
+def test_overlapping_finishes_on_one_branch_each_read_their_own_side_ref(tmp_path):
+    f = Factory(tmp_path)
+    drop = tmp_path / "live" / "drop.git"
+    script = tmp_path / "overlap.py"
+    script.write_text(textwrap.dedent("""\
+        import json, sys
+        sys.path[:0] = [sys.argv[1]]
+        import agents, fac
+        cfg = fac.config()
+        runs = [agents.clone(cfg, "alpha-thing", "implementor") for _ in range(2)]
+        base = fac.git(runs[0][1], "rev-parse", "origin/main")
+        was = [agents.publish(cfg, work, "alpha-thing") for _, work in runs][0]
+        for i, (_, work) in enumerate(runs):
+            (work / f"run{i}.txt").write_text(str(i))
+        real, got = fac.git, {}
+        def spy(repo, *args, check=True):                  # the second run finishes between the first's fetch to
+            out = real(repo, *args, check=check)           # its side ref and its reading it back
+            if args[:1] == ("fetch",) and any("refs/incoming/" in a for a in args) and "second" not in got:
+                got["second"] = "running"
+                got["second"] = agents.finish(cfg, runs[1][0], "alpha-thing", base, base, was=was)
+            return out
+        fac.git = spy
+        try:
+            got["first"] = agents.finish(cfg, runs[0][0], "alpha-thing", base, base, was=was)
+        except RuntimeError as e:
+            got["first"] = str(e)
+        fac.git = real
+        print(json.dumps(got))
+        """))
+    r = subprocess.run([sys.executable, str(script), str(BIN)], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    got = json.loads(r.stdout.strip().splitlines()[-1])
+    assert git(drop, "rev-parse", "factory/alpha-thing") == got["second"]      # the second's own head, moved in
+    assert git(drop, "show", f"{got['second']}:run1.txt") == "1"
+    assert "moved" in got["first"] and "refused" in got["first"]                # the first refused for the move,
+    assert git(drop, "for-each-ref", "refs/incoming/") == ""                    # never reading the second's head
+
+
+def test_conflicts_are_listed_whole_when_a_path_has_a_space(tmp_path):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    (repo / "my app.py").write_text("base\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "base")
+    git(repo, "checkout", "-q", "-b", "side")
+    (repo / "my app.py").write_text("side\n")
+    git(repo, "commit", "-qam", "side")
+    git(repo, "checkout", "-q", "main")
+    (repo / "my app.py").write_text("main\n")
+    git(repo, "commit", "-qam", "main")
+    assert subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", "merge",
+                           "-q", "side"], capture_output=True).returncode
+    assert module("fac").conflicted(repo) == ["my app.py"]
+
+
+def test_a_continued_branch_already_reviewed_gets_reviews_and_logs_of_its_own(tmp_path):
+    f = Factory(tmp_path)
+    behind_main(f)
+    f.fold([{"event": "review.written", "item": "review/warm-1", "data": {"verdict": "fix", "classes": ["lesson-5"]}},
+            {"event": "review.written", "item": "review/warm-2", "data": {"verdict": "park", "where_it_stopped": "x"}},
+            {"event": "review.written", "item": "review/warmer-7", "data": {"verdict": "merge"}}], None)
+    logs = f.model / "run" / "logs"
+    logs.mkdir(parents=True)
+    (logs / "warm-1-0-unit.txt").write_text("the parked gap's log")             # (the old tag: branch-round-i)
+    gid = continues(f)
+    f.run("implement.py", gid)
+    assert (logs / "warm-1-0-unit.txt").read_text() == "the parked gap's log"
+    said, _ = f.run("review.py", gid)
+    assert said[-1] == "gap.approved"
+    new = f.item("review/warm-3")                                                # past the parked gap's, not -1
+    assert new["fields"]["gap"] == [gid] and "classes" not in new["fields"]
+    assert new["fields"].get("where_it_stopped") != "x" and new["fields"]["verdict"] == "merge"
+    assert f.item("review/warm-1")["fields"] == {"verdict": "fix", "classes": ["lesson-5"]}
+    assert f.item("review/warm-2")["fields"] == {"verdict": "park", "where_it_stopped": "x"}
