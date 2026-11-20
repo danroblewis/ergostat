@@ -183,3 +183,23 @@ FAILED tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth
 {"rc": 1, "wall_s": 266.8, "peak": {"threads": 356, "rss_mb": 1570.7, "procs": 124, "worker_mb": 500.4}, "killed": null, "workers_killed": 0, "left_behind": 0}
 
 ```
+
+Round 5 (main bccf2e5 merged in): the one conflict, `dev/bin/status.py`, is resolved keeping both sides: main's
+`status.py session GAP [ROLE] [N]` (and its `import sessions`) and the branch's `Pools` line (`pool_line`, `import
+pools`), the docstring naming both. No other code changed.
+
+The unit run that parked the branch is the first to reach pytest's summary: 1890 passed, 1 failed,
+`tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`. That failure is outside this gap
+(lesson-13): the test builds its own model in `tmp_path` and exercises `ergostat/leases` and the engine, and this
+branch changes nothing under `ergostat/` (its files: `dev/bin/{pools,risk,status}.py`, `dev/model/pools.yaml`,
+`dev/factory.toml`, `dev/README.md`, the comment and `pools` system in `ergostat.yaml`, docs and tests). It is the
+fixed 0.6 s sleep against a 1.5 s TTL that review/lease-shutdown-race-2 already named as load-dependent (lesson-10); its
+fix belongs to that gap. No lease change is made here.
+
+Here, after the merge: `tests/test_factory.py` 42 passed, 2 skipped; `tests/test_factory_knowledge.py` 22 passed; ruff
+clean (`ergostat tests scripts dev/bin`). `tests/test_factory_sessions.py` (new from main) gives 4 passed, 1 failed:
+`test_the_container_mounts_only_the_sessions_own_folder`, at line 179 only (`str(Path.home())` found inside a mount
+path), while line 178's exact mount list passes. That looks like this container's HOME/tmp layout and is main's code
+(`agents.py`, `sessions.py`), untouched by this branch; this session could not look at HOME to confirm. Left: the
+factory's unit run on the merged tree (expected to pass once the lease test is fixed in its own gap, or on a quieter
+run), and the browser files.
