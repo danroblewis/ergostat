@@ -26,6 +26,8 @@ def _when(x) -> str:
         return f"on cron {x.cron}"
     if getattr(x, "every", None):
         return f"every {human(x.every)}"
+    if getattr(x, "on", None):
+        return f"on each {' or '.join(x.on.events)} event"
     return ""
 
 
@@ -51,7 +53,8 @@ def _changes(c: dict) -> str:
 
 def _sensor(s) -> str:
     how = (f"reads the built-in measure {s.builtin}" if s.builtin else
-           f"runs `{s.run}`" if s.run else f"queries {s.query.get('source')}" if s.query else _items(s.items) if s.items
+           f"runs `{s.run}`" if s.run else f"is read by its daemon {s.daemon}" if s.daemon
+           else f"queries {s.query.get('source')}" if s.query else _items(s.items) if s.items
            else _changes(s.changes) if s.changes
            else "is read by a person" if s.manual else f"is {s.description}" if s.description else "is not read")
     when = _when(s) if not s.manual else ""

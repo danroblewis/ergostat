@@ -70,18 +70,25 @@ review into *Done recently*). Newest decisions from the owner first within each 
   repair and libraries reviews, and the branch's own review (pid hopping, a ClientHello split across records, wide
   toolchain reads, the process table). *Left*: on macOS another process's argv and environment stay readable
   (`kern.procargs2` is not mediated by the sandbox for the same user; closing it needs a uid per run, an
-  administrator's setup), recorded as a strict expected failure; the suite runs on macOS and, in the dev container, on Linux; no CPU, memory or disk limit beyond the time limit and `RLIMIT_NPROC`; neither caller
-  uses it yet.
-- **Repair** (parked on `repair`, `docs/roadmap/overnight/repair.md`, *Where it stopped*): a failing program caught,
-  fixed by an AI agent, tested, approved and verified. **Unblocked on the sandbox side**: X1 (git running the fixer's
-  config) and X2 (the jail a deny list, its network open), M2 (a fix telling it is under test) and M3 (processes
-  outliving the jail) are answered by `ergostat.sandbox`. *Still needed:* adopt the module (replace `jail.py` with
-  `sandbox.run`, every git call in `steps.py` through `sandbox.git.Repo`, the fixer's workspace without write access to
-  git metadata, the test output scrubbed like the rest); M1 (failure fields spoofed through a sensor's observation
-  lines and the legacy `Recorder`); M4 (the fixer's regression test runs first and stays in the repository); M5 (the
-  swallowed-errors check is easy to evade); M6 (a `read-only: true` re-run can still POST: list its hosts GET-only);
-  M7 (the daily cap fails open and overshoots); M8 (apply races between its checks and `--ff-only`); then the rebase
-  onto main, its SPEC section after §12q, and the inbox integration.
+  administrator's setup), recorded as a strict expected failure; the suite runs on macOS and, in the dev container,
+  on Linux; no CPU, memory or disk limit beyond the time limit and `RLIMIT_NPROC`; repair uses it (`repair2`),
+  libraries does not yet.
+- **Repair** (SPEC §12r; `docs/roadmap/overnight/repair2.md`): **built on branch `repair2`** (not merged): triage into
+  `ergostat.failure` (sealed: M1), the fix by an AI with no tools in a disposable clone with its own `.git` (X1), tested
+  in `ergostat.sandbox` (X2, M2, M3; a read-only re-run's hosts GET-only, M6), proposed as `apply-fix` with its impact
+  report, the ladder's first rung (a person; a denial final), a daily cap that fails closed
+  (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
+  program). *Left*: verifying a fix by the runs after it and offering its revert; per-run logs and log events; the
+  swallowed-errors check (M5); the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically;
+  failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text; two
+  runs of one block at once share the block's log, so a failure's stderr may hold the other's lines.
+- **AI approver for repairs: needs a positive allowlist of the AST changes a fix may make** (SPEC §12r). One was built
+  on `repair2` (the AI shown only the diff and pass or fail, behind a guard that escalated new imports, processes,
+  network, environment, writes and URL or path literals) and cut before merging: a guard that denies by list was
+  bypassed many ways in review: `vars(os)['sys'+'tem']`, `sys.modules[...]`, `().__class__.__subclasses__()`, an
+  existing `subprocess.run` given `['sh', '-c', x]`, calls it did not list (`os.chmod`, `Path.rename`, `marshal`), and
+  relative path literals. A sound guard says what a fix may change (the shapes of expressions and names it may touch)
+  and refuses the rest; until then `approver: ai` is refused by `check`.
 
 ## Modelling
 
@@ -155,8 +162,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **A cause for a scheduled run's events** (done, e4800ea, on `causes-join`; SPEC §5b): the run is the cause its
   events cite (no `ergostat.schedule.fired` event per firing); the Process view draws each scheduled block in a
   **schedules** frame with its fan-out. *Left*: an event line still cannot name a cause of its own (`causedby`).
-- **Triggers on an event type** (parked on `triggers`, failed its gate twice; `docs/roadmap/overnight/triggers.md`,
-  *Where it stopped*): a block started by an event type alone, not only by a state change.
+- **Triggers on an event type** (done on `triggers2`, after `triggers` was parked; SPEC §9.3, *Started by an event*):
+  `on: {event: TYPE, where:, emits:, max-age:, most:}`, a run per event; loops refused when the model is read
+  (`trigger-loop`, any length) and stopped at run time by the depth every run carries, whatever started it (8 at
+  most, `trigger.stopped`); a breaker per block (`most:` a minute, reset by the owner); advise asks per event, answers
+  naming their ask; lookups by id and prefix types indexed. *Left*: a relay outside ergostat that drops `causedby`
+  is caught only by the breaker; `max-age` reads the event's own clock.
 - **Closed-loop simulation** (done, `closedloop`; docs/roadmap/overnight/closedloop.md): projection held the blocks still; now it runs with the loops
   running by default (`numbers/closedloop.py`, SPEC §12b): goals and built-ins by the engine's own code, each machine
   block by its identified model (or a flagged assumption), on the causes strip, what-if (parameters,
@@ -204,6 +215,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
   not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
   ends.
+- **Daemons across the engine's own restarts** (follow-up, found in `tf-daemons`' review): the paths that start the
+  engine's process again in place (`_restart` and `_restart_hard` in `ergostat/cli/running.py`: an exec for a new
+  model's name or store, and the watchdog's last resort after `runner.kill_all()`) do not stop the daemons first. A
+  daemon reading its standard input sees it end when the old process goes and exits, but nothing waits for that,
+  drains its runs or ends its process group, so a daemon that ignores the end of its input, or a child it started,
+  can outlive the engine.
 - **Daemon YAML schema review** (open; owner, 2026-11-19): the functionality landed (`daemons`, `daemons2`; how to
   use and write daemons: `docs/DAEMONS.md`, the skill's `daemons.md`), but the owner is not sure the YAML is the
   best yet, and it may change. Alternatives worth considering:
@@ -244,9 +261,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   - **Block logs, `threads.txt`, `transcripts.json` and `run.log` grow without limit; old project folders pile up**
     (done, 3e106ee: `storage: logs:`; `ergostat compact --projects`).
   - **The CLI refuses to run while the YAML is broken**, so every `$ERGOSTAT_CMD` call fails while an agent edits
-    (in progress, parked on branch `resilience`: its fallback to the engine's last good model settled includes
-    against the live files, so it could load a model that never existed; it needs includes settled against the kept
-    files, or the fallback refused when the live include set differs).
+    (done on branch `cli-fallback`, `docs/roadmap/overnight/cli-fallback.md`: the engine keeps the model it takes as
+    one content-addressed snapshot of every file its loading read; commands that read load that snapshot alone,
+    never running anything; commands that act, `event --add` among them, refuse naming the YAML's error).
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per

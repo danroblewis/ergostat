@@ -190,12 +190,26 @@ def cmd_block(args) -> int:
         from ..inbox.answer import person_done
         print(person_done(p, spec, b, args.done, args.note))
         return 0
+    from ..spec.triggers import own
+    if (args.approve or getattr(args, "reset", False)) and own(p.events, b.name):
+        print(f"a run of {b.name} answers for it to no one: its approvals and its breaker are the owner's", file=sys.stderr)
+        return 2
     if args.approve:
         if b.mode != "advise":
             print(f"block {b.name} is not in advise mode: nothing waits for approval", file=sys.stderr)
             return 2
-        p.events.add("block.approved", item=b.name, source="person", data={"note": args.note or ""})
-        print(f"approved: {b.name} runs with its latest command (if ergostat is running here)")
+        ask = p.events.query(n=1, item=b.name, type="block.advised") if b.on is not None else []
+        p.events.add("block.approved", item=b.name, source="person",
+                     data={"note": args.note or "", **({"ask": ask[0]["seq"]} if ask else {})})
+        print(f"approved: {b.name} runs " + (f"on event {ask[0]['data'].get('event_type')}" if ask else "with its latest command")
+              + " (if ergostat is running here)")
+        return 0
+    if getattr(args, "reset", False):
+        if b.on is None:
+            print(f"block {b.name} is not started by events: it has no breaker", file=sys.stderr)
+            return 2
+        p.events.add("trigger.reset", item=b.name, source="person", data={"note": args.note or ""})
+        print(f"reset: {b.name}'s events start it again (if ergostat is running here)")
         return 0
     info = {"name": b.name, "type": b.type, "role": spec.role(b), "in": {k: str(v) for k, v in b.inputs.items()},
             "out": {k: [str(r) for r in v] for k, v in b.outputs.items()}, "agent": b.agent,

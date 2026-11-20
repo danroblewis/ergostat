@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 import fakes
-from tf import OFFLINE, REPO, conf, git
+from tf import OFFLINE, REPO, conf, git, timeout
 
 MARK = "<!-- ergostat ticket-factory -->"          # on everything the factory writes: whatever lacks it is a person's
 
@@ -54,9 +54,11 @@ def refresh(repo: str) -> Path:
 def _refresh(repo: str) -> Path:
     if not (REPO / ".git").exists():
         if OFFLINE:
-            subprocess.run(["git", "clone", "-q", str(fakes.origin(repo)), str(REPO)], check=True, capture_output=True)
+            subprocess.run(["git", "clone", "-q", str(fakes.origin(repo)), str(REPO)], check=True, capture_output=True,
+                           timeout=timeout())
         else:
-            r = subprocess.run(["gh", "repo", "clone", repo, str(REPO), "--", "-q"], capture_output=True, text=True)
+            r = subprocess.run(["gh", "repo", "clone", repo, str(REPO), "--", "-q"], capture_output=True, text=True,
+                               timeout=timeout())
             if r.returncode != 0:
                 raise GitHubError(f"cloning {repo}: {r.stderr.strip()}")
     git("fetch", "-q", "--prune", "origin", cwd=REPO)

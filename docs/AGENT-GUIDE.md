@@ -86,7 +86,18 @@ Work through these steps in order. Ask the person only what you cannot infer.
    progress is never taken for silent. A run silent past its lease's TTL is **killed** (SIGTERM, then
    SIGKILL), its item retried: a long, quiet step must print progress or `$ERGOSTAT_CMD lease --renew`, or
    be given a longer `lease: {ttl: ...}`. If it is stopped part way, what it printed stays. A step a person must do is a `type: person` block with `ask:`; it is asked while its goal
-   is off (only `program` and `ai` blocks take items one at a time).
+   is off (only `program` and `ai` blocks take items one at a time). A step started by something that
+   happens rather than by a state (a comment, a review, a webhook that moves nothing) is
+   `on: {event: TYPE, where: {...}, emits: [TYPES]}`: a run per event, caused by it. List in `emits:` every event
+   type its runs print, as lines or by `event --add` (others are refused); `check` refuses blocks that would
+   start each other in a loop, so end each chain of them in a type nothing is `on:`. Loops through other blocks
+   of the model stop after 8 triggered runs in a row on each line of causes (`trigger.stopped`), and more than
+   `most:` (60) a minute trips the block's breaker until the owner resets it (`ergostat block NAME --reset`; never
+   from its own run); events older than `max-age:` (1h) are passed over. A loop through a step that drops the
+   cause (a poller, a hook, a process outside ergostat that writes events with no `causedby`) is **not stopped**:
+   each pass starts a new line. Below the breaker's rate it runs on, only held to that rate; so record such a
+   step's events from inside a run (`$ERGOSTAT_CMD event --add`, which names the run as their cause), or narrow
+   `where:` so what it passes on cannot start the block again.
 6. **Goals on what matters**: how long the oldest item has waited in a state
    (`measure: oldest` on a stock's sensor, `hold: "<= 4"` hours), how many are waiting, throughput.
    A goal is what makes a block's work a feedback loop; give each step's queue one. A limit on each item
@@ -194,7 +205,10 @@ You are not done when the YAML loads. Do this every time you change the model:
 
 (Edit freely while `ergostat run` runs: it takes your edits once the files have been still for about 1.5 s, and
 while they have errors it keeps running the last good model, saying so, with each error's file and line, in its log,
-`ergostat status` and the page's header. Nothing half written is ever taken.)
+`ergostat status` and the page's header. Nothing half written is ever taken. Meanwhile the commands that only read,
+`ergostat status`, `item`, `event`, `fit`, `residual`, the parts and the like, still answer from the last model the
+engine took, with one line on stderr naming the first error; anything that acts (`event --add`, `block --now`,
+`accept`, `run`, ...) refuses until the YAML is fixed, so fix it before you act.)
 
 1. **`ergostat check`** (or the MCP `check` tool). It reports errors with file and line, then what
    the model is missing. Treat every finding as something to fix or to explain to the person.
@@ -546,6 +560,29 @@ still count), a step whose runs give the item back while they wait for something
 takes each give-back as rework, so the estimates come out late), and a step nothing has
 left yet (its items are assumed to go to the next state in order). Under twenty runs no p90 is said. A block with
 fewer than five runs on record is said as assumed on the item's page.
+
+## 3i. Programs fail hard, and are repaired
+
+The scripts the model's blocks run (collectors, steps, actuators) will fail: an API changes shape, a field goes
+missing, a token expires. Write them to **fail hard**: let an error they cannot handle raise, its traceback on standard
+error, and exit non-zero. Never `except: pass`, `except Exception: pass` or `|| true` on the whole command: a failure
+hidden is one nobody sees and nothing can fix.
+
+Add `use: repair` (once a model, like `modelling`; SPEC §12r) when the owner wants failures fixed without them. Each
+failed run becomes an `ergostat.failure` item, one per signature, counted; one whose block runs a program of the
+project's is fixed by an AI (haiku by default, with no tools: ergostat gives it the program and the files beside it) in
+a clone of the repository, tested in the sandbox, and proposed as the gated action `apply-fix` with its impact report.
+What you set:
+
+- **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is
+  re-run for real on the input that failed. Say it of nothing that writes. List the hosts it reads in `network:`
+  (`[tracker.example.com]`): only those, for GET and HEAD.
+- **`test:`** in `with:` for programs that write: the project's tests, run in the sandbox. Without it such a fix is
+  untested, and only a person may approve it.
+- **`approver:`** `person`, the only one for now: the owner reads each fix in the inbox. `ai` is refused by `check`
+  until a sound guard exists (GAPS).
+- **`daily:`** and **`budget:`**: what the loop may spend. The model's folder must be in a git repository, its programs
+  committed.
 
 ## 4. Common mistakes
 
