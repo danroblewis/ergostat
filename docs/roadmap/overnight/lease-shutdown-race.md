@@ -39,8 +39,8 @@ Round 1, built; one acceptance check not run here (below).
     write it checks `stop` again, and a take that raced the stop is given back (`nack`, "stopped with ergostat",
     uncounted) before any run starts.
   - `dispatch._work`: a run whose thread starts after the stop is not started; its lease is given back uncounted.
-  - `engine.run_block`: a process started after `kill_all` has run (`STOPPING` set) is killed at once (it is added to
-    `LIVE` before the check, so either `kill_all` or this check sees it).
+  - `engine.run_block`: a process started once this engine is stopping (`stop` set, which `close` does before its
+    `kill_all`) is killed at once (it is added to `LIVE` before the check, so either `kill_all` or this check sees it).
   - `dispatch.give_back`, called by `close` after its five-second wait: any lease still going here is given back
     uncounted before `ergostat.stopped` is written. `_work`'s own ending and `give_back` both hold the dispatcher's
     lock and end a lease only while it is still in `going` under the same run, so it is ended once.
@@ -55,3 +55,24 @@ Round 1, built; one acceptance check not run here (below).
 - **Decision taken alone (reversible):** `finish`'s existing "stopping" label for any non-zero exit while the engine
   closes (review inbox-dismiss-1's note) is left as it is on main: narrowing it is outside this gap.
 - No origin remote in this worktree; the branch is made from local `main`, with nothing newer to merge in.
+
+### After the factory's unit run (failed)
+
+- **What the tail showed.** The factory's `unit` run stopped at 73% with no failure line and no summary, so the
+  output does not name the test. It looks like a hang, or the watchdog killing the run, not an assertion.
+- **What was changed.** `run_block` killed a newly started run when `runner.STOPPING` was set. That flag is
+  process-wide: any engine's `close` (and `kill_all`) sets it, and only an engine's start clears it. So once any
+  engine in a pytest worker had closed (or a test called `kill_all`), every run that a *different*, unstarted engine
+  began was killed as it started. A test waiting for such a run to finish could wait to its timeout or hang. The check
+  is now this engine's own `stop`, which `close` sets (under its lock) before its `kill_all`, so the window it guards is
+  still covered. One line changed.
+- **Not shown to be the cause.** Run serially, the suites did not reproduce the hang with either check. Under `-n 8`
+  the factory's watched run is still the test of this fix.
+- **Unrelated, found while looking:** `tests/test_messages.py` followed by `tests/test_run_costs.py` in one process fails
+  `test_fifty_short_runs_at_once_share_one_sampler_and_its_cost_stays_small` (`SAMPLER.stats()["running"]` still true),
+  with or without this round's change. `test_messages` takes no lease and closes no engine, so it does not touch what
+  this branch changed. It could not be checked against `main` here (no second worktree allowed). Reported, not fixed
+  (lesson-13).
+- Ran serially: `test_leases`, `test_lease_kill`, `test_leased_workspaces`, `test_streamed_output`,
+  `test_runner_and_state`, `test_daemons`, `test_resilience`, `test_watchdog`, `test_reload_in_place` (152 passed);
+  ruff clean.

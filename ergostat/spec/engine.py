@@ -951,8 +951,8 @@ class Engine:
                     note = refused or f"could not start: {e}"
                 else:
                     old.LIVE.add(proc)
-                    if old.STOPPING.is_set():                    # started as ergostat stopped: kill_all may have missed it
-                        old._kill(proc)
+                    if self.stop.is_set():                       # this engine stopping (set before its kill_all): it may
+                        old._kill(proc)                          # have missed this run (not STOPPING: process-wide)
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
