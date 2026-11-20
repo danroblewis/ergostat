@@ -144,3 +144,39 @@ Failed its gates twice (the kill rule). Blocking findings:
 - docs/roadmap/overnight/warm2.md:136-137 (lesson-7): origin/main, by the branch's own account ahead by several merges, was not merged in and the four suites were not run after it. The house rules need both before 'done'. The supervisor and daemon code this branch rewrites (supervise.py, work.py, proc.py) has already conflicted with main once (61cd918), so a merge that passes for each side alone is a real risk to the main people install.
 - docs/SPEC.md:2325 and ergostat/daemons/usage.py:8 (lesson-8; warm2-1's finding, not addressed in round 3): both still say 'CPU used after done falls into the next run's charge'. Process.hand (proc.py) takes the next run's starting snapshot at its hand-over, so CPU used between one run's done and the next hand-over is charged to no run; only CPU still in use after that snapshot reaches the next run. The same SPEC sentence also says time outside a run is the process's own. Say what the code does: after done and while idle, the process's own (left over, with its start-up). No test backs the current claim.
 - ergostat/cli/spec_cmds.py:197 (lesson-3; warm2-1's finding, not addressed): json.loads(Path(args.check_warm).read_text()) has no error handling. A missing or unreadable FILE, invalid JSON, or JSON that is not an object (warmcheck._run calls given.get) ends in a traceback instead of a message naming the file. Catch OSError/ValueError and check isinstance(given, dict), say what is wrong, and return a usage rc.
+
+## Where it stopped (gap/warm-continued, round 1, 2026-11-20)
+
+`main` (f158e00) is merged into the branch (2ca24c7, the factory's merge). No conflict markers are left. Since that
+merge: `tests/test_warm.py` 21 passed, `tests/test_daemons.py` 26 passed, `tests/test_cli_fallback.py` 17 passed,
+and ruff is clean. These were run one file at a time. **The four suites were not run here** (that is the factory's
+job, under the watchdog). They are what is left before done.
+
+Every finding of the reviews before this round:
+
+- **review/warm2-2, merge `main` and rerun (lesson-7):** merged (2ca24c7). `--check-warm` is in main's
+  `goodmodel.ACTS`, so the read-only fallback never runs it on the last good model, and `test_cli_fallback.py`
+  passes. The four suites after the merge are still the factory's to run.
+- **review/warm2-2 and warm2-1, the CPU-after-`done` sentence (lesson-8):** fixed in 056a0c6. SPEC §9.7 and
+  `daemons/usage.py` say that CPU after `done` and before the next hand-over is no run's (the process's own, left
+  over with its start-up), and that only CPU after the next hand-over's snapshot is that run's.
+- **review/warm3-2, the sentence's second half untested:** a new test,
+  `test_cpu_still_in_use_after_the_next_hand_over_is_that_runs`. The program starts a thread after its first
+  `done` that waits for the next item, then spins 0.6 s. That run is charged at least 0.5 s, and the first run less
+  than 0.4 s. It fails (`0.0 >= 0.5`) when the hand-over snapshot is taken 1 s after the line is sent; I made that
+  change in `Process.hand` for the check and then took it out.
+- **review/warm2-2 and warm2-1, `--check-warm FILE` errors (lesson-3):** fixed in 056a0c6
+  (`test_the_check_says_what_is_wrong_with_its_file`). A FILE that is missing, unreadable, not JSON, or not an object
+  is said on stderr with the file named, and the command returns rc 2.
+- **review/warm2-2, rc 2 used for two things:** "nothing concluded" is rc 3, as SPEC §9.7 says (056a0c6).
+- **review/warm3-1, GAPS stale:** the entry now names `factory/warm3`, says that `main` is merged, and says that
+  only the four suites after the merge remain.
+- **review/warm3-2, gate 1 (`warm3.md` not the first commit):** this gap's named definition is this file, `warm2.md`.
+  `warm3.md` was a copy of it plus warm3's rounds, so it is now cut to a pointer here plus its own "Where it
+  stopped" sections. The same was done for continue-branch2.md, which is already on main. History was not
+  rewritten.
+- **review/warm3-1 and warm3-2, the reviewers could not run tests:** the counts above are from this session's runs
+  after the merge.
+
+No ergostat code changed this round. The only code change was a new test (with its mode in the test program), so
+the size outside `tests/` and `docs/` is unchanged and within the 400 budget.
