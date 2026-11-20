@@ -89,9 +89,44 @@ def test_time_in_each_state_sums_visits_for_any_end(tmp_path):
     lines = [json.loads(x) for x in run(tmp_path, "times.py", items=[gap], details={"gap/x": detail}).stdout.splitlines()]
     assert [(x["event"], x["item"]) for x in lines] == [("gap.timed", "gap/x")]
     said = lines[0]["data"]
-    assert said["time_in"]["fix"]["visits"] == 2 and said["loop_rounds"] == 3 and said["timed_n"] == 41
+    assert said["time_in"]["fix"]["visits"] == 2 and said["loop_rounds"] == 3 and "timed_n" not in said
+    assert json.loads((tmp_path / "run" / "times.json").read_text()) == {"gap/x": 41}   # its own gap.timed counted
     gap["events"], gap["fields"] = 41, said                       # timed, and nothing since: not read or said again
     assert run(tmp_path, "times.py", items=[gap], details={}).stdout == ""
+
+
+def test_an_event_that_changes_no_timing_is_read_once(tmp_path):
+    """review/state-times-1: the bookmark is kept outside the record and moves on every read, so a later event that
+    changes no timing (gap.dependencies on a parked gap) is read once, and never holds a slot from an untimed gap."""
+    marks = tmp_path / "times.json"
+    detail = {"id": "gap/x", "events": 40, "moves": FIXED_TWICE, "record": [], "record_total": 0}
+    timed = {"id": "gap/x", "kind": "gap", "state": "parked", "events": 40, "fields": {}}
+    said, read = [], []
+    was = times.fac.ergostat, times.fac.say, times.MOST
+
+    def item(*args, **_):
+        read.append(args[1])
+        return type("R", (), {"stdout": json.dumps(details[args[1]])})()
+    times.fac.ergostat, times.fac.say = item, lambda event, gid, **data: said.append((gid, data))
+    try:
+        details = {"gap/x": detail}
+        times.write([timed], marks)
+        timed["fields"], timed["events"] = said[0][1], 42           # its gap.timed, then a gap.dependencies
+        details["gap/x"] = {**detail, "events": 42}
+        assert times.write([timed], marks) == 1 and len(said) == 1  # read once, nothing changed: nothing said
+        assert times.write([timed], marks) == 0                     # and not read again
+        times.MOST = 1                                              # an untimed gap gets the run's one slot first
+        new = {"id": "gap/a", "kind": "gap", "state": "open", "events": 3, "fields": {}}
+        details["gap/a"] = {"id": "gap/a", "events": 3, "moves": FIXED_TWICE[:2], "record": [], "record_total": 0}
+        timed["events"] = 43
+        times.write([timed, new], marks)
+        assert read[-1] == "gap/a" and said[-1][0] == "gap/a"
+        new["fields"] = said[-1][1]
+        marks.write_text("not json")                              # unreadable: read again, no change said twice
+        times.MOST = 50
+        assert times.write([timed, new], marks) == 2 and len(said) == 2
+    finally:
+        times.fac.ergostat, times.fac.say, times.MOST = was
 
 
 def test_the_build_review_loop_counts_rounds_and_its_span():
@@ -131,12 +166,17 @@ def test_gate_times_from_the_lease_and_queue_events():
     pushed_at_once = times.gates([ev("merged", 1), ev("push-asked", 1.5, push="pushed")])
     assert pushed_at_once == {"push-wait": {"minutes": 30.0, "at": T0 + 1.5 * H}}
     assert times.gates([ev("merged", 1), ev("push-asked", 1.1, push="held")]) == {}             # not pushed yet
+    # the implementor's every try in a round (fast_seconds), not only the last suites_fast
+    tries = times.gates([ev("built", 1, suites_fast=fast, fast_seconds=480)])
+    assert tries["fast"]["minutes"] == 8.0
+    assert set(times.WAITING) & set(times.WORKING) == set() and "queued" in times.WORKING
+    assert {"queue-failed", "dead", "planned", "replan", "split"} <= set(times.WAITING)
 
 
 def gap(gid: str, state: str, ready_hours: float | None, left: float, **fields) -> dict:
     t = {"ready": {"hours": ready_hours, "visits": 1, "left": left}} if ready_hours is not None else {}
     return {"id": gid, "kind": "gap", "state": state, "events": 1, "entered": left,
-            "fields": {"time_in": t, "timed_n": 1, **fields}}
+            "fields": {"time_in": t, **fields}}
 
 
 def test_a_measure_per_state_counts_gaps_that_left_it_not_only_merged_ones(tmp_path):

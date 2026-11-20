@@ -177,8 +177,10 @@ A gap is never left a dead letter: a run that fails on its last attempt parks th
 ## Time in each state
 
 Every ten minutes the `timer` block (`dev/bin/times.py`) reads the record of each gap whose events grew since it was
-last timed (at most 50 a run) and writes `gap.timed` on it, for any gap whatever its end (merged, parked, dead or still
-open). Each is counted from the record alone:
+last read (at most 50 a run, those never read first) and writes `gap.timed` on it when its timing changed, for any gap
+whatever its end (merged, parked, dead or still open). Its bookmark, each gap's count of events read, is kept in
+`run/times.json`, outside the record, and moves on every read, so an event that changes no timing is read once; a lost
+or unreadable bookmark only makes it read every gap again. Each is counted from the record alone:
 
 - `time_in`: per state, the hours of its visits summed and how many (`visits`), and when it last left (`left`). A
   visit runs from the move into the state to the next move, in the record's order (the fold's moves, the lease's own
@@ -188,7 +190,8 @@ open). Each is counted from the record alone:
   builds. A queue send-back (a conflict, a denied push, a real failure) is part of the loop: it ends at the last
   approval. While it still goes round, `loop_ended` is empty and its span runs to its latest move.
 - `gates`: the minutes of each gate, summed over its rounds, and when it last ran: `implementor` (its runs,
-  `build_hours`), `fast` (its ruff and unit suites, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
+  `build_hours`), `fast` (its ruff and unit suites, every try in a round, `fast_seconds`; a build recorded before it
+  has only its last try, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
   `browser` and `demo` (`suites_queue`, failed runs too), and `push-wait` (a merge to `gap.pushed`, a push said pushed
   at once, or the coordinator settling it).
 
@@ -197,9 +200,12 @@ The measures (`dev/model/times.yaml`, the system `times`) are `in-STATE-hours`, 
 gaps that left the state, ended the loop or passed the gate in the window, not only the merged ones; 0 with none.
 Each has a goal (`hold:`) to set; the shipped ones are first guesses, and `python3 dev/bin/times.py setpoints` in the
 instance's folder sets each to today's reading (one with nothing in the window keeps its own). `status.py` prints them
-as a table, the waiting states first (open, ready, fix, built, approved, queued: time spent waiting on someone else,
-the cheapest to remove; queued counts the wait for the lock and a quiet machine with the queue's run), then the working
-ones, the loop and the gates, with how many gaps are in each state now and the oldest of them.
+as a table, the waiting states first (time spent waiting on someone else, the cheapest to remove: open and replan for
+the planner, planned for the plan review, split for its sub-gaps, ready and fix for the implementor, built for the
+reviewer, approved for the queue, queue-failed for triage, dead for a park), then the working ones, where a run holds
+the gap (leased: the planner's, the plan review's and triage's whole run and the others' start; building; in-review;
+queued: the queue's run from its `gap.queued`, its lock, the merge and the suites), the loop and the gates, with how
+many gaps are in each state now and the oldest of them.
 
 ## Record an intervention
 

@@ -1,8 +1,8 @@
 """Time in each state, the build-review loop and the gates, per gap, from its record alone (dev/README.md, *Time in
 each state*): its moves (the fold's, in the record's order, the lease's own among them: leased, dead) and its events.
 
-  times.py            each gap whose record grew since it was last timed (at most MOST a run): `gap.timed`, with
-                      time_in, loop_rounds, loop_hours, loop_ended and gates, when they changed
+  times.py            each gap whose record grew since it was last read (run/times.json; at most MOST a run):
+                      `gap.timed`, with time_in, loop_rounds, loop_hours, loop_ended and gates, when they changed
   times.py setpoints  each goal in dev/model/times.yaml set to today's reading of its measure (the last 14 days); a
                       measure with nothing in the window keeps its setpoint
 
@@ -17,12 +17,17 @@ import re
 import statistics
 import sys
 import time
+from pathlib import Path
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
-WAITING = ("open", "ready", "fix", "built", "approved", "queued")       # waiting on someone else: the cheapest to remove
-WORKING = ("replan", "planned", "split", "leased", "building", "in-review", "queue-failed", "dead")
+# Waiting on someone else (the cheapest to remove): open and replan for the planner, planned for the plan review, split
+# for its sub-gaps, ready and fix for the implementor, built for the reviewer, approved for the queue, queue-failed for
+# triage, dead for a park. Working, a run holds it: leased (the planner's, plan review's and triage's whole run, the
+# others' start), building, in-review, queued (the queue's run, from its gap.queued: the lock, the merge, its suites).
+WAITING = ("open", "replan", "planned", "split", "ready", "fix", "built", "approved", "queue-failed", "dead")
+WORKING = ("leased", "building", "in-review", "queued")
 GATES = ("implementor", "fast", "review", "unit", "browser", "demo", "push-wait")
 EXITS = ("approved", "parked", "dead")
 MOST = 50                                      # gaps timed in one run, at most (each is one read of its record)
@@ -72,7 +77,9 @@ def gates(events: list[dict]) -> dict:
         for field, gate in (("build_hours", "implementor"), ("review_hours", "review")):
             if d.get(field) is not None:
                 add(gate, float(d[field]) * 60, t)
-        if isinstance(d.get("suites_fast"), dict):
+        if d.get("fast_seconds") is not None:                   # every try in the round (implement.py)
+            add("fast", float(d["fast_seconds"]) / 60, t)
+        elif isinstance(d.get("suites_fast"), dict):            # a build from before it: its last try only
             add("fast", sum(float((d["suites_fast"].get(s) or {}).get("seconds") or 0) for s in ("ruff", "unit")) / 60, t)
         for s in ("unit", "browser", "demo"):
             if isinstance(d.get("suites_queue"), dict) and isinstance(d["suites_queue"].get(s), dict):
@@ -95,14 +102,28 @@ def timing(d: dict) -> dict:
     return {"time_in": visits(moves), **loop(moves), "gates": gates([e for e in evs if e["type"].startswith("gap.")])}
 
 
-def write(gaps: list[dict]) -> int:
-    """`gap.timed` on each gap whose record grew since it was timed, when its timing changed; how many were read."""
-    grown = [g for g in gaps if g.get("events") != g["fields"].get("timed_n")]
+def write(gaps: list[dict], marks: Path) -> int:
+    """`gap.timed` on each gap whose record grew since it was last read, when its timing changed; how many were read.
+    The bookmark (each gap's count of events read) is kept in ``marks``, outside the record, and moved on every read,
+    so an event that changes no timing is read once; the gaps never read come first. An unreadable bookmark counts as
+    none: every gap is read again, MOST a run, and only a changed timing is written."""
+    try:
+        seen = json.loads(marks.read_text())
+        seen = seen if isinstance(seen, dict) else {}
+    except (OSError, ValueError):
+        seen = {}
+    grown = sorted((g for g in gaps if g.get("events") != seen.get(g["id"])), key=lambda g: g["id"] in seen)
     for g in grown[:MOST]:
         d = json.loads(fac.ergostat("item", g["id"], "--json").stdout)
         got = timing(d)
-        if any(got[k] != g["fields"].get(k) for k in got) or g["fields"].get("timed_n") is None:
-            fac.say("gap.timed", g["id"], timed_n=int(d.get("events") or 0) + 1, **got)
+        seen[g["id"]] = int(d.get("events") or 0)
+        if any(got[k] != g["fields"].get(k) for k in got):
+            fac.say("gap.timed", g["id"], **got)
+            seen[g["id"]] += 1                          # its own gap.timed; anything else since is read next run
+    ids = {g["id"] for g in gaps}
+    tmp = marks.with_suffix(".tmp")
+    tmp.write_text(json.dumps({k: v for k, v in seen.items() if k in ids}))
+    tmp.replace(marks)
     return len(grown[:MOST])
 
 
@@ -183,7 +204,7 @@ def main() -> int:
     if sys.argv[1:2] == ["setpoints"]:
         fac.cli(fac.config())
         return setpoints(time.time())
-    write(fac.items("gap"))
+    write(fac.items("gap"), fac.run_dir(fac.config()) / "times.json")
     return 0
 
 
