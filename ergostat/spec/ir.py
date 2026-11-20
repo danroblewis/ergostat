@@ -248,8 +248,8 @@ NAMED_ONLY = ("rename", "redesign")   # promoted only by name (accept: {rename: 
 @dataclass
 class Improve:
     """The judge block's policy (SPEC §12e): who writes a change it passed, by its kind (``auto``: the judge writes
-    it; ``owner``: it waits in the review queue), the least fall in scaled error that counts in every window, how much
-    record after a change it is judged on, and how that record is split into windows (1: whole; 2: halves; ...)."""
+    it; ``owner``: it waits in the review queue), the least fall in scaled error that counts as better, the least
+    record after a change it is judged on, and how that record is shown in windows (1: whole; 2: halves; ...)."""
     accept: dict[str, str] = field(default_factory=lambda: dict.fromkeys(CHANGE_CLASSES, "owner"))
     threshold: float = 0.02
     hold_out: float = 600.0

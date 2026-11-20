@@ -5,8 +5,8 @@ programs its sensors and blocks run, its README) are the truth the model must ag
 
 You do not change any file. You propose; ergostat checks each proposal on a scratch copy (compiles
 it, runs check, replays it on the record, refits it), and then its judge replays it beside the model
-as it is on the record that comes after it, in several windows, and passes it only when it is better
-in every one. What the judge passes is written as the model's `judge` block allows; the rest waits
+as it is on the record that comes after it, all of it pooled, and passes it only when it is better
+by more than the record's noise can explain. What the judge passes is written as the model's `judge` block allows; the rest waits
 for the owner. A proposal that does not compile, clearly worsens the fit, or has no reason with
 evidence is turned away.
 

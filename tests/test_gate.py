@@ -298,10 +298,12 @@ def test_the_judge_scores_what_the_change_touches_where_the_whole_mean_would_dil
     out = jd.run(p, "judge")
     x = pr.stored(p)[got["id"]]
     assert out["passed"] == 1 and x["state"] == "passed", x.get("verdict")
-    ws = x["verdict"]["windows"]
-    assert all(w["scored"] == ["stock.queue"] for w in ws) and all(w["change"] > 0.5 for w in ws)
-    whole = [((w["before"] + w["rest_before"]) - (w["after"] + w["rest_after"])) / (w["before"] + w["rest_before"]) for w in ws]
-    assert min(whole) < max(w["change"] for w in ws) / 2       # the whole model's mean says far less
+    from ergostat.numbers import trial as tr
+    v = x["verdict"]
+    assert v["scored"] == ["stock.queue"] and all(w["change"] > 0.5 for w in v["windows"]) and v["pooled"]["est"] > 0.5
+    ev = jd.compare(p, p.model.spec, tr.spec_after(p, tr.edits_of(x)), x["made"], v["at"], v["warm_up"], v["scored"])
+    whole = jd.pooled({**ev["near"], **ev["rest"]}, 3.0)
+    assert whole["est"] < v["pooled"]["est"] / 2                # the whole model's mean says far less
     assert "near what it touches (stock.queue)" in x["verdict"]["why"] and "no worse elsewhere" in x["verdict"]["why"]
 
 
@@ -400,16 +402,17 @@ def test_the_warm_up_is_bounded_by_the_record_and_the_time_constants_and_windows
 
 
 def test_the_verdict_rules_inconclusive_elsewhere_and_simpler():
-    def w(b, a, rb=None, ra=None):
-        return {"since": 0, "until": 600, "before": b, "after": a, "change": (b - a) / b, "scored": ["stock.q"],
-                "rest_before": rb, "rest_after": ra, "rest_change": None if rb is None else (rb - ra) / rb}
-    assert jd.decide([w(1, 1.0)] * 3, 0.02, 0, 0, 600, 600) is None                      # cannot tell yet: more record
-    v, why = jd.decide([w(1, 1.0)] * 3, 0.02, 0, 0, 1800, 600)
+    from .test_slowjudge import evidence as w
+    assert jd.decide(w(1, 0.995), 0.02, 0, 0, 600, 600)[:1] == (None,)              # cannot tell yet: more record
+    v, why, _ = jd.decide(w(1, 0.995), 0.02, 0, 0, 1800, 600)
     assert v == "inconclusive" and "needs more record" in why
-    assert jd.decide([w(1, 1.0)] * 3, 0.02, 0, 0, 600, 600, simpler=True)[0] == "kept"
-    v, why = jd.decide([w(1, 0.5, 1, 1.5)] * 3, 0.02, 0, 0, 600, 600)
-    assert v == "dropped" and why.startswith("worse elsewhere in 3 of 3") and "the rest of the model 50% worse" in why
-    assert jd.decide([], 0.02, 0, 0, 1800, 600)[0] == "inconclusive"                    # too little record: not failed
+    assert jd.decide(w(1, 1.0), 0.02, 0, 0, 1800, 600)[:1] == (None,)               # the replay the same: it waits
+    v, why, _ = jd.decide(w(1, 1.0), 0.02, 0, 0, 86400, 600)                        # ... a day at least
+    assert v == "inconclusive" and why.startswith("the replay is the same with it")
+    assert jd.decide(w(1, 1.0), 0.02, 0, 0, 600, 600, simpler=True)[0] == "kept"
+    v, why, _ = jd.decide(w(1, 0.5, 1, 1.5), 0.02, 0, 0, 600, 600)
+    assert v == "dropped" and why.startswith("worse elsewhere: the rest of the model by 50%")
+    assert jd.decide(w(1, 1.0, n=0), 0.02, 0, 0, 1800, 600)[0] == "inconclusive"      # too little record: not failed
 
 
 def test_what_only_accumulates_is_judged_without_a_warm_up(tmp_path):
@@ -420,8 +423,6 @@ def test_what_only_accumulates_is_judged_without_a_warm_up(tmp_path):
 
 
 def test_simpler_passes_only_where_the_record_replays_what_it_touches():
-    def w(fallback):
-        return {"since": 0, "until": 600, "before": 1.0, "after": 1.0, "change": 0.0, "scored": ["stock.a"],
-                "rest_before": None, "rest_after": None, "rest_change": None, "fallback": fallback}
-    assert jd.decide([w(False)] * 3, 0.02, 0, 0, 600, 600, simpler=True)[0] == "kept"
-    assert jd.decide([w(True)] * 3, 0.02, 0, 0, 1800, 600, simpler=True)[0] == "inconclusive"   # no evidence about it
+    from .test_slowjudge import evidence as w
+    assert jd.decide(w(1, 1.0), 0.02, 0, 0, 600, 600, simpler=True)[0] == "kept"
+    assert jd.decide(w(1, 1.0, fallback=True), 0.02, 0, 0, 1800, 600, simpler=True)[0] == "inconclusive"   # no evidence about it

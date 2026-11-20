@@ -3415,10 +3415,10 @@ blocks:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `hold-out` | duration | `10m` | How much record after a change it is judged on |
-| `windows` | list of whole numbers | `[1, 2, 4]` | How that record is split into windows: 1 whole, 2 halves, 4 quarters (each at least a minute) |
+| `hold-out` | duration | `10m` | The least record after a change it is judged on (with twice the dominant time constant of what it touches, at most a day): the unit its bound counts in |
+| `windows` | list of whole numbers | `[1, 2, 4]` | How the verdict shows its evidence: the record held out whole, in halves, in quarters (each at least a minute), sliced from the one replay the verdict pools |
 | `warm-up` | duration | `6h` | The longest before each window its replay starts, so the window is scored with its stocks and delays as the record left them, not started cold with every delay in equilibrium (section 12f): three time constants of what the change touches, and never more than the record held before the window |
-| `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better, and the most rise that counts as no worse |
+| `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better (its estimate; the bound must also exclude no change), and the most rise that counts as no worse |
 | `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`, `description`, `unit`, `rename`, `redesign`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged. `accept: auto` promotes `parameter`, `equation`, `structure`, `description` and `unit`; a rename and a redesign are written only when named (`rename: auto`, `redesign: auto`), never by `accept: auto`. Whatever the policy, the judge never writes a change that removes structure or rewires a kind's chain, a redesign that changes control, or any change to who decides (the judge's policy, a block's `accept`, a template instance's `with:`: refused when proposed); those are the owner's. How each is judged differs (the exemptions from the replay): parameter, equation and structure by the replay on the record after the change; description, unit and rename by `check` alone (they change no replay); a redesign by its scorecard on the record it has when the judge takes it up, its fit allowed 10% worse; control and measurement not at all (the owner's). Changes of words are written as many a pass as have passed; the rest one a pass. A change written moves the lines of the others waiting (their hunks shifted, `proposals.rebase`), and a change waiting is carried to the new version rather than superseded when its edit still applies (`proposals.supersede`: ergostat's own when their subject is unchanged; a description, a unit or a redesign whoever made it) |
 | `out` | map of `testing`, `passed`, `failed`, `accepted`, `inconclusive` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
 | `in`, `every` | | | What it reads (signed, as a machine block's), for the diagram; how often it passes |
@@ -3447,19 +3447,48 @@ whatever its time constant (the fit's total leaves out a stock slower than its w
 would look better; section 12f); the rest of the model and each goal's stock must be no worse. A mean over every
 stock let one far stock's error dilute any change to 0%. It waits for **record long enough for the change to show**:
 the hold-out, and at least twice the dominant time constant of what it touches (in the model as it is and with the
-change), at most a day; a window shorter than that time constant is not judged. Each window is replayed warm, from
-three of those time constants before it, never longer than `warm-up` nor than the record held before the window (on
-a young record a six-hour warm-up integrated the stocks from where the record did not reach, and scored a regime of
-its own: errors of 12 to 700 where the goal read 0.03 to 0.14). Two scaled errors closer than 0.005 are within the record's noise
-and count neither way. It **passes** one when the scaled error falls by the `threshold` or more in every window
-judged that can tell (the rest within the noise) and is no worse elsewhere; when it is no worse in any window and answers
-findings without making any; or when it is no worse and **simpler** (fewer parts, parameters and terms). It
-**fails** one that is worse by the threshold in any window, near it, elsewhere or on a goal's stock, or better only
-in some. One that no window can tell from the model as it is stays under test for more record, up to three times
-what it needs, and is then **inconclusive** ("needs more record"), not failed; as is one too few windows can judge,
-and one it would pass whose parts the record held out has not exercised (above: it does not vouch for a quiet
-part's rate). Each verdict keeps its windows (each one's span, and the scaled error
-before and after) as its evidence, shown with the item in the review queue. Then, where `accept` says `auto` for a
+change), at most a day. Both are replayed once over all of the record held out, warm, from three of those time
+constants before it, never longer than `warm-up` nor than the record held before it (on a young record a six-hour
+warm-up integrated the stocks from where the record did not reach, and scored a regime of its own: errors of 12 to 700
+where the goal read 0.03 to 0.14).
+
+**The evidence is pooled, with its error rate stated.** At each reading the two scaled errors differ by
+δ(δ + 2(after − record)), δ what the change moves the replay by. δ is known exactly; the only noise is the record's
+own about the better replay, taken as AR(1) (its correlation from one reading to the next, its small-record bias taken
+out, and from a twelfth of the record on, whichever is larger; while the record spans fewer than three of the time
+constant of what it touches, in whichever of the two replays the record better, noise that drifts at all is taken to last that long,
+since a short record reads a slow noise's correlation low; a stock with no time constant, which keeps whatever it gets
+wrong, is also taken as a walk, its steps read from the record's successive differences, and the larger variance
+counts; its second moment about that replay, so a bias counts as noise). Several stocks' noises may be correlated:
+their standard errors add (the worst case). Scaled errors that stay within 0.005 of each other, bound and all, count
+neither way. That gives the change's effect, the share by which it lowers the scaled error, and its standard error; a
+**confidence sequence** (a normal mixture, Robbins 1970; Howard et al. 2021) bounds it, in units of the record the
+change needs. It is a plug-in, asymptotic sequence: valid as far as its standard error is, under stationary AR(1)
+noise (or a walk) read well enough from the record. Then looking again as the record grows does not raise the chance
+of a false verdict: two-sided at 10%, by Ville's inequality it is ever crossed either way at most 10% of the time, and
+each way about 5% (`ALPHA`) by the noise's symmetry: a change no better than the model as it is passes about 5% of
+the time at most, and one no worse fails about that, its several fail tests (near it, the rest of the model, each
+goal's stock) sharing the 5% (Bonferroni). On records made to that noise model (AR(1), far slower than the record, a
+walk, two stocks sharing their noise, both replays wrong) it passed at most 5% and failed at most 6% of equally good
+changes looked at seven times each (1,500 records each; a walk well under 1%). It
+**passes** a change whose bound's low end is above no change and whose estimate is better by the `threshold`, near
+what it touches, with the rest of the model and each goal's stock no worse by the threshold; one the bound holds no
+worse than the threshold that answers findings without making any; or one no worse and **simpler** (fewer parts,
+parameters and terms) where the record replays what it touches. It **fails** one whose bound's high end is below no
+change and whose estimate is worse by the threshold, near it, elsewhere or on a goal's stock, and one no better that
+makes new findings. One the bound holds within the threshold both ways is **inconclusive** once it has three times
+the record it needs (the record tells it from the model as it is by less than the threshold), and one whose replay is
+the same as the model's on all the record waits for record in which what it touches moves. One the bound cannot
+decide yet stays under test and says **about how much more record it needs** (the bound narrows as one over the root
+of the record; on its testing event and in the judge's waiting list), looked at again each time the record it needs,
+or a quarter more, has come; after seven times the record it needs (a day at least) it is inconclusive, saying how
+much more. As is one too few readings can judge, and one it would pass whose parts the record held out has not
+exercised (above: it does not vouch for a quiet part's rate). Measured (docs/roadmap/overnight/slowjudge.md): on a
+queue drained over a day, filled at random and read every 15 minutes, the judge before this passed a change a fifth
+worse in 6 of 20 records and failed one a fifth better in 11 of 20; now it passes none of the worse, and a change
+halving a wrong drain within five days of record.
+Each verdict keeps its windows (each one's span, and the scaled error
+before and after), its pooled estimate and bound, as its evidence, shown with the item in the review queue. Then, where `accept` says `auto` for a
 passed change's kind, it writes the oldest, one a pass, so each is measured alone (never one that removes
 structure: that waits for the owner, whatever the policy): Accept's way (section 12b), the
 smallest edit, refused and put back if `check` would then find an error, recorded as `.accepted` from the judge
