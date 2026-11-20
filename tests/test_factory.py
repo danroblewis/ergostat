@@ -159,7 +159,7 @@ class Factory:
             iid = line.get("item") or about
             kind = next(k for k in self.kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
             assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
-                                                                                ".dependencies", ".push-settled")), line
+                                                                                ".dependencies", ".push-settled", ".groomed")), line
             it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
             for k, v in (line.get("data") or {}).items():
                 rule = "relation" if k in kind.relations else kind.fold.get(k, "replace")

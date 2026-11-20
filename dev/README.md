@@ -130,6 +130,27 @@ Then: the implementor commits the definition first and builds; the reviewer appr
 findings) or parks it; the third failed gate (`[gates] kill_after`) parks it with where it stopped; the queue lands it. `ergostat item
 gap/NAME` shows each round, its reviews, the context each session was given and what it cost.
 
+## The backlog: ranked, groomed
+
+Each gap has a `rank` (lower first), and `value` (1-5), `size` (S/M/L or hours), `risk` and `groomed_why`; the planner
+and the implementor take the unblocked gaps in rank order (`takes: {order: rank}`), and the Items page's Timeline
+projects them in that order. `dev/bin/solve.py` ranks them: a topological order, by value / size (risk weighs the
+size) and a bonus for each gap waiting on it; pins held; a cycle refused. The groomer (`backlog.py groom`, an Opus
+session, off until `ergostat sensor grooming-open.main --read 1`) proposes links, value, size and risk, closes (done on
+main, or a duplicate) and splits, and asks for `groom-backlog` with the diff (`run/backlog/<time>.md`): approve it in the
+inbox. By hand, each change re-ranking the backlog:
+
+```sh
+python3 dev/bin/backlog.py show                   # the backlog in rank order (* pinned)
+python3 dev/bin/backlog.py pin GAP 1              # or: pin GAP --off
+python3 dev/bin/backlog.py dep add GAP ON         # or: dep rm GAP ON (kept: GAPS.md does not add it again)
+python3 dev/bin/backlog.py close GAP --done --why "landed in abc1234"   # or --duplicate-of OTHER
+python3 dev/bin/backlog.py propose                # the solver's order and why, writing nothing
+```
+
+A GAPS.md entry whose head (its opening parenthetical, or the clause after its colon) begins with "done" or
+"superseded by" is never found as open, and one the record holds not yet started is closed.
+
 ## Plans, research and what the factory knows
 
 A gap with no definition is **planned** (`dev/bin/plan.py`), once you open planning

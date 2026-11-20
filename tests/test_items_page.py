@@ -136,6 +136,27 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg.close()
 
 
+def test_items_list_sorts_by_a_column(browser, site):
+    """A column's header sorts the list by its field (up, down, off), kept in the address (sort=FIELD, -FIELD)."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    rows = lambda: pg.locator('section[data-system="lab"] table tr td:first-child b').all_inner_texts()  # noqa: E731
+    pg.goto(f"{site}/items?kind=hypothesis&sort=-title")
+    pg.wait_for_selector('section[data-system="lab"] table button.sort')
+    assert rows()[:3] == ["hypothesis/8", "hypothesis/7", "hypothesis/6"]
+    head = pg.locator('section[data-system="lab"] table button.sort', has_text="title")
+    assert head.get_attribute("aria-sort") == "descending"
+    head.click()                                                                   # down, then off
+    pg.wait_for_function("() => !location.search.includes('sort=')")
+    pg.wait_for_function("""() => [...document.querySelectorAll('section[data-system="lab"] table button.sort')]
+                            .every((b) => b.getAttribute('aria-sort') === 'none')""")      # drawn again, unsorted
+    pg.locator('section[data-system="lab"] table button.sort', has_text="title").click()
+    pg.wait_for_function("() => location.search.includes('sort=title')")
+    pg.wait_for_function("""() => document.querySelector('section[data-system="lab"] table tr td:first-child b')
+                            ?.textContent === 'hypothesis/1'""")
+    assert rows()[:3] == ["hypothesis/1", "hypothesis/2", "hypothesis/3"]
+    pg.close()
+
+
 def test_a_folded_system_keeps_its_charts_not_its_lists_and_stays_folded(browser, site):
     ctx = browser.new_context(viewport={"width": 1500, "height": 1000})
     pg = ctx.new_page()

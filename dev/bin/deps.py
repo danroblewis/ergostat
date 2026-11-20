@@ -101,7 +101,8 @@ def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: d
          merged: set[str] = frozenset()) -> dict[str, dict]:
     """Each gap's dependencies as they should be: {gap id: {depends_on, sources, problems, blocked_reason}}. Links are
     added one at a time; one that would close a cycle is refused and said. A name that is no gap but a branch already
-    merged into main (``merged``) is work done: satisfied, kept as a source, no link."""
+    merged into main (``merged``) is work done: satisfied, kept as a source, no link; one the backlog took away
+(``depends_on_removed``) is kept as a source, no link."""
     find = resolver(gaps, own)
     graph = {gid: set(g["fields"].get("depends_on") or []) for gid, g in gaps.items()}
     out = {gid: {"sources": [], "problems": []} for gid in gaps}
@@ -122,6 +123,8 @@ def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: d
                 out[gid]["problems"].append(f"depends on {name!r} ({where}), which is no gap")
             elif dep == gid:
                 continue
+            elif dep in (gaps[gid]["fields"].get("depends_on_removed") or []):    # taken away by the backlog
+                out[gid]["sources"].append({"on": dep, "from": where, "removed": "by the backlog (backlog.py)"})
             elif dep in graph[gid]:
                 out[gid]["sources"].append({"on": dep, "from": where})
             else:

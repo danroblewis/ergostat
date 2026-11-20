@@ -32,6 +32,11 @@ researcher_model = "opus"            # research questions (dev/bin/research.py)
 researcher_session_usd = 5.0
 librarian_model = "haiku"            # the librarian's one step: a review's findings against the lessons
 librarian_session_usd = 0.25
+groomer_model = "opus"               # the groomer: the backlog's links, value, size, risk, closes and splits (backlog.py)
+groomer_session_usd = 3.0
+
+[backlog]
+every_hours = 12                     # the groomer grooms again this long after the last, with no new gap before
 
 [knowledge]                          # what a brief may carry beyond the house rules and the review lessons (always)
 chars = 24000                        # the whole knowledge section, in characters, unless the role has its own

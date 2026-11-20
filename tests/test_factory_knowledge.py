@@ -53,7 +53,7 @@ class Instance(Factory):
         super().__init__(tmp, **kw)
         self.config.write_text(self.config.read_text().replace("[ai]\n", "[ai]\n" + "".join(
             f'{r}_model = "opus"\n{r}_session_usd = 1.0\n' for r in ("planner", "plan_reviewer", "researcher",
-                                                                     "librarian"))))
+                                                                     "librarian", "groomer"))))
         self.config.write_text(self.config.read_text() + "[knowledge]\nlibrarian = true\n")
         self.fake.write_text(FAKE_MORE)
 
