@@ -135,3 +135,12 @@ ergostat code changed. The failure seen was in the test program, not the code; t
 - `tests/test_warm.py`: 18 passed. Ruff is clean. No ergostat code changed.
 - Not done: merging `main` into the branch (`main` is ahead by several merges). This session was not allowed to
   run `git merge`, so the factory's merge and a rerun of the suites remain.
+
+## Where it stopped
+
+Parked by the factory (review/warm2-2, 2026-11-20 05:20).
+
+Failed its gates twice (the kill rule). Blocking findings:
+- docs/roadmap/overnight/warm2.md:136-137 (lesson-7): origin/main, by the branch's own account ahead by several merges, was not merged in and the four suites were not run after it. The house rules need both before 'done'. The supervisor and daemon code this branch rewrites (supervise.py, work.py, proc.py) has already conflicted with main once (61cd918), so a merge that passes for each side alone is a real risk to the main people install.
+- docs/SPEC.md:2325 and ergostat/daemons/usage.py:8 (lesson-8; warm2-1's finding, not addressed in round 3): both still say 'CPU used after done falls into the next run's charge'. Process.hand (proc.py) takes the next run's starting snapshot at its hand-over, so CPU used between one run's done and the next hand-over is charged to no run; only CPU still in use after that snapshot reaches the next run. The same SPEC sentence also says time outside a run is the process's own. Say what the code does: after done and while idle, the process's own (left over, with its start-up). No test backs the current claim.
+- ergostat/cli/spec_cmds.py:197 (lesson-3; warm2-1's finding, not addressed): json.loads(Path(args.check_warm).read_text()) has no error handling. A missing or unreadable FILE, invalid JSON, or JSON that is not an object (warmcheck._run calls given.get) ends in a traceback instead of a message naming the file. Catch OSError/ValueError and check isinstance(given, dict), say what is wrong, and return a usage rc.
