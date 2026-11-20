@@ -25,7 +25,23 @@ from ergostat.spec.engine import Engine
 from ergostat.store import Project
 
 PY = sys.executable
-pytestmark = pytest.mark.skipif(sandbox.backend() is None, reason="no OS sandbox here")
+LINUX = sys.platform.startswith("linux")
+# What a read the sandbox refuses raises: macOS's seatbelt denies it; Linux's bwrap starts from an empty root, where
+# the path is not there at all
+DENIED = "denied FileNotFoundError" if LINUX else "denied PermissionError"
+
+
+def _no_sandbox() -> str | None:
+    if sandbox.backend() is None:
+        return "no OS sandbox here"
+    if sandbox.backend() == "bwrap" and subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "true"],
+                                                       capture_output=True).returncode:
+        return "bwrap cannot make its namespaces here (in the dev container: scripts/in_container.sh --sandbox)"
+    return None
+
+
+_WHY = _no_sandbox()
+pytestmark = pytest.mark.skipif(_WHY is not None, reason=_WHY or "")
 
 MODEL = """\
 name: repair-demo
@@ -369,7 +385,7 @@ def test_x2_a_fix_under_test_reads_nothing_outside_its_allowlist_and_its_output_
     finally:
         e.close()
     out = it.fields["test"]["stdout"]
-    assert out.count("denied PermissionError") == 4 and not any(v in out for v in secrets.values()), out
+    assert out.count(DENIED) == 4 and not any(v in out for v in secrets.values()), out
     assert "sk-ant-api03-xxxx" not in out, "the test's output is scrubbed"
 
 
@@ -684,4 +700,4 @@ def test_g5_a_symlinked_directory_is_neither_given_nor_readable(tmp_path, monkey
     finally:
         e.close()
     assert "linked-secret" not in calls(tmp_path)[0]["prompt"]
-    assert "denied PermissionError" in it.fields["test"]["stdout"] and "linked-secret" not in it.fields["test"]["stdout"]
+    assert DENIED in it.fields["test"]["stdout"] and "linked-secret" not in it.fields["test"]["stdout"]

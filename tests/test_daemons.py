@@ -565,3 +565,47 @@ def test_a_run_whose_lease_ends_while_it_waits_for_room_is_never_handed_over(tmp
     assert taken, "its lease was read while its own, and the room taken after"
     assert out["note"] == "its lease ended before it was handed over", out
     assert not [x for x in events(p, "ticket.started") if x["causedby"] == "r2"], "the daemon never got it"
+
+
+def test_a_simple_command_is_execd_and_anything_else_left_to_its_shell():
+    from ergostat.daemons.proc import execd
+    assert execd("python3 d.py crash") == "exec python3 d.py crash"
+    assert execd('./run.sh "a b" \'c;d\'') == 'exec ./run.sh "a b" \'c;d\''
+    assert execd("python3 d.py\n") == "exec python3 d.py"            # a YAML block scalar's newline
+    assert execd("prog a#b") == "exec prog a#b"
+    for left in ("A=1 prog", "cd x && prog", "a | b", "prog > log", "prog &", "if true; then p; fi", "a\nb",
+                 "echo $(x)", "echo `x`", '"unbalanced', "", "exec prog", "source env.sh",
+                 "prog a#b; other", "prog # c; other", "read x", "pushd d", "let x=1", "declare -x A=1"):
+        assert execd(left) == left, left
+
+
+PIDS = "import os, time; open({out!r}, 'w').write(str(os.getpid())); time.sleep(30)"
+
+
+def test_the_pid_recorded_is_the_programs_and_a_kill_reaches_it_through_a_shell(tmp_path):
+    """Debian's sh (dash) forks for ``sh -c CMD`` where macOS's execs: ``execd`` makes the pid the program's on both;
+    a command its shell must stay for still has the program killed, by the session's group."""
+    import subprocess
+    import sys
+
+    from ergostat.costs.sampler import Measured
+    from ergostat.daemons.proc import execd
+    from ergostat.daemons.supervise import killpg
+
+    def started(cmd, out):
+        p = Measured(execd(cmd), shell=True, start_new_session=True, stdin=subprocess.DEVNULL)
+        assert wait_for(lambda: out.exists() and out.read_text(), 10)
+        return p, int(out.read_text())
+
+    exe = sys.executable
+    p, pid = started(f'"{exe}" -c "{PIDS.format(out=str(tmp_path / "a"))}"', tmp_path / "a")
+    try:
+        assert pid == p.pid
+    finally:
+        killpg(p.pid, 1.0)
+        p.wait(5)
+    p, pid = started(f'true && "{exe}" -c "{PIDS.format(out=str(tmp_path / "b"))}"', tmp_path / "b")
+    killpg(p.pid, 1.0)
+    p.wait(5)
+    assert wait_for(lambda: not alive(pid), 5), "the program in the shell's group is killed with it"
+
