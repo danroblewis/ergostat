@@ -26,7 +26,8 @@ all. It never falls back to running it unprotected.
   none, so it cannot leak data through DNS), and logs every connection, allowed or not. It cannot reach other
   programs on your machine through local ports either.
 - **Leaving something running.** Everything the program starts is killed when the run ends or times out, including
-  processes that tried to detach (`nohup … &`, a new session, a double fork).
+  processes that tried to detach (`nohup … &`, a new session, a double fork, a process that keeps forking itself to
+  a new process id). If ever one cannot be killed, the run fails and says which.
 - **Knowing it is being tested.** The program gets a short list of ordinary environment variables and what the caller
   passes on purpose: no `ERGOSTAT_…`, dry-run or test markers, and a temporary folder with an ordinary name.
 
@@ -34,10 +35,20 @@ Each of these is tested by an attack (`tests/test_sandbox_attacks.py`), with fak
 
 ## What it does not stop
 
+- **Reading other programs' command lines and environments (macOS).** Any of your own processes' arguments and
+  environment variables can be read from inside: macOS's sandbox does not guard that kernel call
+  (`kern.procargs2`) for the same user, and ergostat runs the program as you. The process list itself is denied, but
+  process ids can be guessed. So a token you keep in an environment variable of a running program (a shell, an
+  editor, an agent) can be read. Keep tokens in files, not in long-lived environments, until runs get a user of their
+  own (which needs an administrator to set up). The attack suite records this as an expected failure. On Linux the
+  run's own process namespace hides other processes.
 - **Doing harm to a listed host.** If you list `api.example.com`, the program may send it anything that host accepts.
   Method limits (for example "GET only") are enforced for plain HTTP. For HTTPS the proxy cannot see inside the
   encryption, so a host limited to some methods gets no HTTPS connection at all, unless the caller says the limit may
-  go unchecked there. List as few hosts as you can.
+  go unchecked there. List as few hosts as you can. The proxy checks the host the program connects to and the name in
+  its TLS greeting, not what it asks for once inside: a listed host that serves many sites (a CDN) may be asked for
+  another site by its `Host` header inside TLS (domain fronting), and a greeting whose real name is encrypted (ECH)
+  shows the proxy only the outer name.
 - **Damaging its own work copy.** It may change or delete anything in its copy (except `.git`). The copy should be a
   throwaway, which is how repair uses it.
 - **Using what it can read.** It can read the toolchain and the folders named for it. Do not name a folder that holds
@@ -52,6 +63,10 @@ Each of these is tested by an attack (`tests/test_sandbox_attacks.py`), with fak
 - **Bugs in the operating system's sandbox**, or a process that escapes it through one. macOS's `sandbox-exec` is
   marked deprecated by Apple, though still shipped and used (Chrome and Claude Code use the same mechanism).
 - **Linux**: built and its command line tested, but the attack suite has been run on macOS only so far.
+- **A known macOS kernel bug.** On macOS 15.5 a sandbox profile with a long list of filters in one rule (seen with a
+  list of about twenty `sysctl` names) panics the kernel instead of being refused: the machine restarts. Ergostat's
+  profile keeps every rule to five filters or fewer and allows sysctl reads with a single small deny, and a test holds
+  it there. Do not add long lists to it.
 - **Claude Code sessions** (AI blocks with `tools:` or `actions:`) use Claude Code's own sandbox, not this one: they can
   still read most of the machine (SPEC §12k, *Not enforced*).
 - **What happens after you approve.** Once a fix is approved and merged, it runs as your code always does, with your

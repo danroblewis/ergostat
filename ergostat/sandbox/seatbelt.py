@@ -4,20 +4,26 @@ run, wherever it went (a new session, a double fork), by asking the kernel which
 from __future__ import annotations
 
 import ctypes
+import functools
 import os
+import re
 import signal
-import subprocess
 import tempfile
+import time
 
-DEVICES = ("/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/dev/tty", "/dev/dtracehelper")
+PER = 5
+DEVICES = ("/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", "/dev/tty")
 
 
 def _q(p: str) -> str:
     return '"' + p.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _any(kind: str, paths) -> str:
-    return " ".join(f"({kind} {_q(p)})" for p in paths)
+def _rules(action: str, kind: str, paths) -> str:
+    """One rule per five filters: long filter lists have panicked macOS 15.5's kernel (docs/SECURITY.md)."""
+    paths = list(paths)
+    return "\n".join(f"({action} " + " ".join(f"({kind} {_q(p)})" for p in paths[i:i + PER]) + ")"
+                     for i in range(0, len(paths), PER))
 
 
 def ancestors(paths) -> list[str]:
@@ -30,72 +36,120 @@ def ancestors(paths) -> list[str]:
     return sorted(out)
 
 
-def profile(work: str, tmp: str, reads: list[str], port: int | None) -> str:
+def profile(work: str, tmp: str, reads: list[str], libs: list[str], port: int | None) -> str:
     readable = [work, tmp, *reads]
     git = os.path.join(work, ".git")
     return "\n".join([
         "(version 1)", "(deny default)",
-        "(allow process-fork)", f"(allow process-exec {_any('subpath', readable)})",
+        "(allow process-fork)", _rules("allow process-exec", "subpath", readable),
         "(allow signal (target same-sandbox))", "(allow sysctl-read)",
+        '(deny sysctl-read (sysctl-name-prefix "kern.proc") (sysctl-name "kern.procargs2") (sysctl-name "kern.procargs"))',
         "(allow ipc-posix-sem)",                                   # Python's multiprocessing locks
-        f'(allow file-read* (literal "/") (literal "/etc") (literal "/var") {_any("subpath", readable)})',
-        f"(allow file-read-metadata {_any('literal', ancestors(readable))})",
-        f'(allow file-read* file-write-data file-ioctl {_any("literal", DEVICES)} (subpath "/dev/fd"))',
-        f"(allow file-write* {_any('subpath', [work, tmp])})",
+        _rules("allow file-read*", "literal", ["/", "/etc", "/var", "/private/etc/localtime"]),
+        _rules("allow file-read*", "subpath", readable),
+        *(f'(allow file-read* (regex #"^{re.escape(d)}/[^/]+\\.(dylib|so)$"))' for d in libs),
+        _rules("allow file-read-metadata", "literal", ancestors([*readable, *libs])),
+        _rules("allow file-read* file-write-data", "literal", DEVICES), '(allow file-read* file-write-data (subpath "/dev/fd"))',
+        _rules("allow file-write*", "subpath", [work, tmp]),
         f"(deny file-write* (literal {_q(git)}) (subpath {_q(git)}))",
         *([f'(allow network-outbound (remote ip "localhost:{port}"))'] if port else []),
     ])
 
 
-def argv(cmd: list[str], work: str, tmp: str, reads: list[str], port: int | None) -> list[str]:
-    return ["sandbox-exec", "-p", profile(work, tmp, reads, port), *cmd]
+# The program's parent inside: it reports the exit, then stops the whole run at once (kill -1 reaches this sandbox's
+# processes only, itself included), so none can fork away while ergostat, outside, finds and kills them.
+SUPERVISE = r"""
+import os, signal, subprocess, sys
+fd, argv = int(sys.argv[1]), sys.argv[2:]
+p = subprocess.Popen(argv)
+signal.signal(signal.SIGTERM, lambda *a: p.kill())
+os.write(fd, b"%d\n" % p.wait())
+os.kill(-1, signal.SIGSTOP)
+"""
 
 
-_check = None
+def argv(cmd: list[str], work: str, tmp: str, reads: list[str], libs: list[str], port: int | None, python: str,
+         fd: int) -> list[str]:
+    return ["sandbox-exec", "-p", profile(work, tmp, reads, libs, port), python, "-I", "-c", SUPERVISE, str(fd), *cmd]
 
 
-def _sandbox_check():
-    global _check
-    if _check is None:
-        f = ctypes.CDLL("/usr/lib/libSystem.dylib").sandbox_check
-        f.restype, f.argtypes = ctypes.c_int, [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]   # then one variadic
-        _check = f
-    return _check
+@functools.cache
+def _libs():
+    lib = ctypes.CDLL("/usr/lib/libSystem.dylib")
+    lib.sandbox_check.restype = ctypes.c_int
+    lib.sandbox_check.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]       # then one variadic
+    lib.proc_listallpids.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+    return lib
+
+
+def pids() -> list[int]:
+    buf = (ctypes.c_int * (_libs().proc_listallpids(None, 0) + 512))()
+    return list(buf[:max(_libs().proc_listallpids(buf, ctypes.sizeof(buf)), 0)])
+
+
+def alive(pid: int) -> bool:
+    """Not gone and not a zombie (``proc_bsdinfo.pbi_status`` is SZOMB, 5)."""
+    info = ctypes.create_string_buffer(136)
+    return _libs().proc_pidinfo(pid, 3, 0, info, 136) > 0 and info.raw[4] != 5
 
 
 class Canary:
-    """A run's fingerprint: its processes may read its temporary folder but not this file. An unsandboxed process
-    may read both; another app's sandbox does not allow this run's random folder."""
+    """A run's fingerprint: its processes may read its temporary folder but not this file (an unsandboxed process may
+    read both; another app's sandbox, neither)."""
 
     def __init__(self, tmp: str, readable: list[str]):
         fd, self.path = tempfile.mkstemp()
         os.close(fd)
-        self.tmp = tmp
+        self.tmp, self.others = tmp, set()
         if any(self.path.startswith(r.rstrip("/") + "/") for r in readable):
             os.unlink(self.path)
             raise ValueError(f"the temporary folder is readable inside ({self.path}): the run could not be reaped")
 
     def ours(self, pid: int) -> bool:
-        f = _sandbox_check()
+        f = _libs().sandbox_check
         denied = f(pid, b"file-read-data", 1, ctypes.c_char_p(self.path.encode()))
         return denied == 1 and f(pid, b"file-read-data", 1, ctypes.c_char_p(self.tmp.encode())) == 0
 
-    def reap(self, rounds: int = 50) -> int:
-        """Kill every process of this user that carries the run's sandbox, until none is left."""
-        killed = 0
+    def _find(self, skip=()) -> list[int]:     # a process found not to be the run's never becomes one
+        found = []
+        for p in pids():
+            if p in skip or p in self.others or p == os.getpid():
+                continue
+            if self.ours(p) and alive(p):
+                found.append(p)
+            else:
+                self.others.add(p)
+        return found
+
+    def reap(self, rounds: int = 500, quiet: int = 3) -> list[int]:
+        """Stop every live process carrying the run's sandbox, round after round until ``quiet`` rounds find none,
+        then kill them all. Returns what is still alive after that: the caller fails the run on it."""
+        held: set[int] = set()
         try:
+            empty = 0
             for _ in range(rounds):
-                out = subprocess.run(["ps", "-U", str(os.getuid()), "-o", "pid=,stat="], capture_output=True, text=True)
-                live = [int(pid) for pid, stat in (r.split() for r in out.stdout.splitlines()) if "Z" not in stat]
-                found = [pid for pid in live if pid != os.getpid() and self.ours(pid)]
-                if not found:
+                new = self._find(held)
+                for pid in new:
+                    _signal(pid, signal.SIGSTOP)
+                held.update(new)
+                empty = 0 if new else empty + 1
+                if empty >= quiet:
                     break
-                for pid in found:
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                        killed += 1
-                    except OSError:
-                        pass
+            for _ in range(50):
+                for pid in held:
+                    _signal(pid, signal.SIGKILL)
+                held = set(self._find())
+                if not held:
+                    return []
+                time.sleep(0.01)
+            return sorted(held)
         finally:
             os.unlink(self.path)
-        return killed
+
+
+def _signal(pid: int, sig: int) -> None:
+    try:
+        os.kill(pid, sig)
+    except OSError:
+        pass

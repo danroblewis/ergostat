@@ -110,7 +110,7 @@ def test_a_program_runs_reading_its_copy_its_toolchain_and_declared_reads(box, t
     assert r.exit == 0, r.stderr
     assert r.stdout.strip() == "ok"
     assert (work / "out.txt").read_text() == "copydeclared"
-    prof = seatbelt.profile(str(work), "/t", ["/usr/lib"], None)
+    prof = seatbelt.profile(str(work), "/t", ["/usr/lib"], [], None)
     assert "(deny default)" in prof and "allow default" not in prof
     assert "mach" not in prof and re.findall(r"ipc-\S+", prof) == ["ipc-posix-sem)"]
 
@@ -456,13 +456,13 @@ def test_the_linux_command_binds_only_the_allowlist(tmp_path):
     work, tmp = str(tmp_path / "w"), str(tmp_path / "t")
     os.makedirs(work + "/.git")
     reads = ["/usr/lib", "/usr/bin", "/opt/py"]
-    a = bwrap.argv(["prog"], work, tmp, reads, work, None, None, "/opt/py/bin/python")
+    a = bwrap.argv(["prog"], work, tmp, reads, [], work, None, None, "/opt/py/bin/python")
     assert a[:4] == ["bwrap", "--unshare-all", "--die-with-parent", "--new-session"]
     binds = [(a[i], a[i + 1]) for i in range(len(a) - 1) if a[i] in ("--bind", "--ro-bind")]
     assert binds == [("--ro-bind", r) for r in reads] + [("--bind", work), ("--bind", tmp), ("--ro-bind", work + "/.git")]
     assert "/" not in [b[1] for b in binds] and not any(str(Path.home()) in b[1] for b in binds)
     assert "--share-net" not in a and a[a.index("--") + 1:] == ["prog"]
-    a = bwrap.argv(["prog"], work, tmp, reads, work, "/s/proxy.sock", 4321, "/opt/py/bin/python")
+    a = bwrap.argv(["prog"], work, tmp, reads, [], work, "/s/proxy.sock", 4321, "/opt/py/bin/python")
     assert a[a.index("--") + 1:a.index("--") + 4] == ["/opt/py/bin/python", "-I", "-c"] and a[-3:] == ["/s/proxy.sock",
                                                                                                   "4321", "prog"]
 
@@ -482,3 +482,167 @@ def test_the_linux_forwarder_reaches_only_the_proxy(upstream, tmp_path):
         proxy.close()
     assert "b'ok'" in r.stdout and "403" in r.stderr
     assert [c["allowed"] for c in proxy.log] == [True, False]
+
+
+# The adversarial review of the branch (rp2): process listing, pid hopping, a split ClientHello, wide toolchain reads,
+# unbounded proxy threads, and the profile's own size (long filter lists have panicked macOS 15.5's kernel).
+
+PROCARGS = """
+import ctypes, sys
+libc = ctypes.CDLL(None)
+pid = int(sys.argv[1])
+for name, mib in (("procargs2", (1, 49, pid)), ("procargs", (1, 38, pid)), ("proc.all", (1, 14, 0))):
+    m = (ctypes.c_int * len(mib))(*mib); size = ctypes.c_size_t(1 << 20); buf = ctypes.create_string_buffer(size.value)
+    ok = libc.sysctl(m, len(mib), buf, ctypes.byref(size), None, 0) == 0
+    print(name, "LEAKED" if ok and b"FAKE-SECRET-procenv" in buf.raw[:size.value] else ("read" if ok else "denied"))
+"""
+
+
+@pytest.fixture
+def neighbour():
+    """A process of the same user with a fake secret in its environment."""
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                         env={**os.environ, "FAKE_TOKEN": "FAKE-SECRET-procenv"})
+    yield p.pid
+    p.kill()
+    p.wait()
+
+
+def test_the_process_list_is_denied(box, neighbour):
+    home, work = box
+    r = run([sys.executable, "-c", PROCARGS, str(neighbour)], Policy(work=work))
+    assert "proc.all denied" in r.stdout, r.stdout + r.stderr
+
+
+@pytest.mark.xfail(strict=True, reason="macOS's sandbox does not mediate KERN_PROCARGS2 for the same user: another "
+                   "process's argv and environment stay readable (docs/SECURITY.md); a separate uid would close it")
+def test_another_processes_environment_is_unreadable(box, neighbour):
+    home, work = box
+    r = run([sys.executable, "-c", PROCARGS, str(neighbour)], Policy(work=work))
+    assert "LEAKED" not in r.stdout
+
+
+HOP = """
+import os, sys, time, signal
+start, sup = time.time(), os.getppid()
+if os.fork() == 0:
+    os.setsid(); n = 0
+    while time.time() - start < 6:            # a new pid every hop; it ends itself after 6 s whatever happens
+        if os.fork():
+            os._exit(0)
+        n += 1
+        if n % 300 == 0:
+            open("alive.txt", "w").write(str(time.time()))
+    os._exit(0)
+time.sleep(1)
+if sys.argv[1:] == ["kill"]:
+    os.kill(sup, signal.SIGKILL)              # ergostat's supervisor, inside the sandbox
+    time.sleep(0.5)
+"""
+
+
+@pytest.mark.parametrize("supervisor", ["kept", "kill"])
+def test_a_pid_hopping_process_does_not_outlive_the_run(box, supervisor):
+    home, work = box
+    r = run([sys.executable, "-c", HOP, supervisor], Policy(work=work), timeout=20)
+    alive = work / "alive.txt"
+    assert alive.exists()
+    before = alive.stat().st_mtime
+    import time
+    time.sleep(1)
+    assert alive.stat().st_mtime == before, "the hopper outlived the run"
+    assert r.escaped == [] and (r.exit == 0 if supervisor == "kept" else r.exit is None)
+
+
+def _hello(name: str) -> bytes:
+    import ssl
+    out = ssl.MemoryBIO()
+    tls = ssl.create_default_context().wrap_bio(ssl.MemoryBIO(), out, server_hostname=name)
+    try:
+        tls.do_handshake()
+    except ssl.SSLWantReadError:
+        pass
+    return out.read()
+
+
+def _records(h: bytes, size: int) -> bytes:
+    body = h[5:]
+    return b"".join(h[:3] + len(body[i:i + size]).to_bytes(2, "big") + body[i:i + size]
+                    for i in range(0, len(body), size))
+
+
+@pytest.mark.parametrize("data", ["split", "nameless", "garbled"])
+def test_the_proxy_refuses_a_hello_it_cannot_read_a_matching_name_from(upstream, data):
+    proxy = Proxy({f"127.0.0.1:{upstream.port}": None})
+    good = _hello("127.0.0.1.example")
+    sent = {"split": _records(_hello("evil.example"), 8), "nameless": _records(_hello("x")[:5] + b"\x01\x00\x00\x02\x03\x03", 3),
+            "garbled": b"\x16\x03\x01\x00\x08" + b"\x01\x00\x00\x04abcd"}[data]
+    try:
+        with socket.create_connection(("127.0.0.1", proxy.port)) as c:
+            c.sendall(f"CONNECT 127.0.0.1:{upstream.port} HTTP/1.1\r\n\r\n".encode())
+            assert b"200" in c.recv(100)
+            c.sendall(sent)
+            c.settimeout(3)
+            assert c.recv(100) == b""
+    finally:
+        proxy.close()
+    assert upstream.got == [] and good
+    assert proxy.log[-1]["allowed"] is False and "TLS server name" in proxy.log[-1]["why"]
+
+
+def test_the_proxy_refuses_a_duplicate_content_length(upstream):
+    proxy = Proxy({f"127.0.0.1:{upstream.port}": None})
+    try:
+        with socket.create_connection(("127.0.0.1", proxy.port)) as c:
+            c.sendall(f"POST http://127.0.0.1:{upstream.port}/x HTTP/1.1\r\nContent-Length: 0\r\n"
+                      f"Content-Length: 40\r\n\r\n".encode())
+            assert c.recv(100).startswith(b"HTTP/1.1 400")
+    finally:
+        proxy.close()
+    assert upstream.got == []
+
+
+def test_the_proxy_serves_a_bounded_number_of_connections_at_once():
+    from ergostat.sandbox import proxy as px
+    p = Proxy({"example.com": None})
+    before = threading.active_count()
+    socks = [socket.create_connection(("127.0.0.1", p.port)) for _ in range(px.MOST + 40)]
+    import time
+    time.sleep(0.5)
+    try:
+        assert threading.active_count() - before <= px.MOST
+    finally:
+        for s in socks:
+            s.close()
+        p.close()
+
+
+def test_the_profile_keeps_its_filter_lists_short(tmp_path):
+    reads, libs = sandbox.toolchain(sys.executable)
+    prof = seatbelt.profile(str(tmp_path), "/t", [*reads, *[f"/r{i}" for i in range(30)]], libs, 4321)
+    for rule in prof.splitlines():
+        assert len(re.findall(r"\((?:subpath|literal|regex|sysctl-name|sysctl-name-prefix|remote) ", rule)) <= 5, rule
+    assert "syscall" not in prof and "mach" not in prof and "allow default" not in prof
+    sysctl = [r for r in prof.splitlines() if "sysctl" in r]
+    assert sysctl == ["(allow sysctl-read)", '(deny sysctl-read (sysctl-name-prefix "kern.proc") '
+                      '(sysctl-name "kern.procargs2") (sysctl-name "kern.procargs"))']
+
+
+def test_the_toolchain_is_the_interpreters_own_folders_never_a_whole_prefix(box, monkeypatch):
+    home, work = box
+    reads, libs = sandbox.toolchain(sys.executable)
+    assert sys.base_prefix not in reads and os.path.realpath(sys.base_prefix) not in reads
+    with pytest.raises(ValueError):
+        sandbox.toolchain("python3")
+    r = py(f"""
+        import os
+        for d in ({os.path.realpath(sys.base_prefix)!r}, {os.path.dirname(os.path.realpath(sys.prefix))!r}):
+            try:
+                print("LISTED", d, len(os.listdir(d)))
+            except OSError:
+                print("denied")
+        """, Policy(work=work))
+    assert r.stdout.count("denied") == 2, r.stdout
+    for bad in (Path.home(), Path("/")):
+        with pytest.raises(ValueError):
+            run(["/bin/true"], Policy(work=bad))

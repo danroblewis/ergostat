@@ -50,8 +50,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   only through a filtering proxy (listed hosts, SNI checked, methods for plain HTTP, every connection logged), no DNS;
   every process killed at the end; no markers in the environment; git run by ergostat with its dangerous settings off
   and the copy's pointers verified. The attack suite (`tests/test_sandbox_attacks.py`) blocks every finding of the
-  repair and libraries reviews. *Left*: the suite has run on macOS only (Linux's bwrap command is tested, not run);
-  no CPU, memory or disk limit beyond the time limit; neither caller uses it yet.
+  repair and libraries reviews, and the branch's own review (pid hopping, a ClientHello split across records, wide
+  toolchain reads, the process table). *Left*: on macOS another process's argv and environment stay readable
+  (`kern.procargs2` is not mediated by the sandbox for the same user; closing it needs a uid per run, an
+  administrator's setup), recorded as a strict expected failure; the suite has run on macOS only (Linux's bwrap
+  command is tested, not run); no CPU, memory or disk limit beyond the time limit and `RLIMIT_NPROC`; neither caller
+  uses it yet.
 - **Repair** (parked on `repair`, `docs/roadmap/overnight/repair.md`, *Where it stopped*): a failing program caught,
   fixed by an AI agent, tested, approved and verified. **Unblocked on the sandbox side**: X1 (git running the fixer's
   config) and X2 (the jail a deny list, its network open), M2 (a fix telling it is under test) and M3 (processes
