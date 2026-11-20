@@ -520,6 +520,28 @@ def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap
     pg.close()
 
 
+def test_the_timeline_levels_lanes_per_block(browser, roadmap):
+    """The projected bars are levelled (numbers/eta.py): by lanes, each block that takes items a row a lane, no more
+    lanes than its capacity, one run at a time in each; by item, each open item's p50 tick and p90 whisker."""
+    pg, errors = open_view(browser, roadmap, "items?view=timeline&rows=lanes", ".rg-timeline[data-drawn] .rg-lane .rg-lanebar")
+    lanes = pg.evaluate("""() => [...document.querySelectorAll('.rg-timeline .rg-lane')].map((r) => ({
+      block: r.dataset.block, lane: +r.dataset.lane,
+      bars: [...r.querySelectorAll('.rg-lanebar')].map((b) => [+b.getAttribute('x'),
+                                                               +b.getAttribute('x') + +b.getAttribute('width')]) }))""")
+    per = {}
+    for x in lanes:
+        per.setdefault(x["block"], set()).add(x["lane"])
+        bars = sorted(x["bars"])
+        assert all(a[1] <= b[0] + 0.5 for a, b in zip(bars, bars[1:], strict=False)), x       # one run at a time
+    assert per.get("developer") and max(per["developer"]) < 2 and max(per.get("reviewer", {0})) < 1, per   # pool 2, pool 1
+    assert pg.locator(".rg-key.rg-eta").count() >= 1                                   # when the last is done, p50 and p90
+    pg.locator(".rg-viewbar button", has_text="By item").click()
+    pg.wait_for_selector(".rg-timeline .rg-row .rg-whisker", timeout=20000)
+    assert pg.locator(".rg-timeline .rg-p50").count() >= 5
+    assert not errors, errors
+    pg.close()
+
+
 @pytest.mark.parametrize("view", ["graph", "timeline"])
 def test_the_graph_and_the_timeline_left_open_change_nothing(browser, roadmap, view):
     pg, errors = open_view(browser, roadmap, f"items?view={view}", f".rg-{view} [data-drawn], .rg-{view}[data-drawn]")

@@ -92,10 +92,16 @@ review into *Done recently*). Newest decisions from the owner first within each 
   tickets, not tuned for thousands).
 - **Relations, what is left** (open; the first part merged as c4888bd from `relations`; the Process view draws them,
   done in 0f7f870 on `smallgaps`): the Graph and Timeline read relations as they stand now (time travel does
-  not reach them) and are not in a snapshot; the projection does not level resources (a block's `pool`);
+  not reach them) and are not in a snapshot;
   `ticket-factory` does not record Jira's links: its collector does not read them (`bin/jira.py` asks Jira for
   summary, status, labels and description only), so `issuelinks` and `parent` must be asked for and folded as
   relations first.
+- **Resource levelling and completion estimates** (done, on `eta`; SPEC §5a, *Completion estimates*): the
+  projection levels resources now: each open item's p50 and p90 finish from a Monte Carlo over every open item (a
+  block's capacity, its recorded runs and rework, time in a state by Kaplan–Meier given the item's age, the
+  record's paths, dependencies and arrivals); the Timeline's lanes, the list's *done by*, the item's why. Left: a
+  goal's gate on a block is not simulated, and a capacity no block declares (ticket-factory's workspace pool, held
+  from `work` to `close`) is not modelled.
 - **Craft findings in `check`** (in progress, `selfimprove`; from `docs/MODELLING-WELL.md`): `check` is silent on a
   part with no `description`, a stock with no `unit`, a flow between stocks with no equation, a `process:` with no
   `identified:`, a sensor (a collector) with no description, and event types of one kind in mixed forms. Each is a

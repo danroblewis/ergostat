@@ -336,6 +336,14 @@ def _items_of(p, m, kind: str, name: str, snap: dict) -> dict | None:
     return got
 
 
+def _estimates(p, m, snap: dict, whatif: str | None) -> dict | None:
+    """The completion estimates (``eta_api``), of now only: a moment travelled to has none."""
+    if abs(time.time() - snap["at"]) >= 5:
+        return None
+    from .eta_api import estimates
+    return estimates(p, m, whatif)
+
+
 def _process(p, m, snap: dict, q: dict, system: str | None) -> dict:
     """The Process view (``process.py``): the kinds asked for (``kinds``, joined by commas), else the system's;
     ``by`` states or events; ``paths``, the frequency filter, a percentage."""
@@ -538,8 +546,11 @@ def _answer(live: Live, path: str, q: dict):
             from ..rollup import archived
             return archived(p, name, offset=int(one("offset") or 0), n=min(int(one("n") or 200), EVENTS_MOST))
         if name:
-            return its.detail(p.events, spec, name, until=snap["at"],
-                              history=None if one("history") == "all" else its.HISTORY_SHOWN)
+            d = its.detail(p.events, spec, name, until=snap["at"], history=None if one("history") == "all" else its.HISTORY_SHOWN)
+            est = _estimates(p, m, snap, one("whatif"))
+            if d and est and name in est.get("items", {}):
+                d["eta"] = {**est["items"][name], "at": est["at"], "runs": est["runs"]}
+            return d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
         want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or one("alone") or item_sets.asked(q)) else None
@@ -563,7 +574,12 @@ def _answer(live: Live, path: str, q: dict):
                     got["items"] = [i for i in got["items"] if i.get("kind") != k["name"]] + more
         if want is not None:
             got["set"] = {"says": want.says(), "params": want.params()}
-        return _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
+        out = _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
+        est = _estimates(p, m, snap, one("whatif"))
+        if est and est.get("items"):                  # each open item's estimate (SPEC §5a, Completion estimates)
+            out["items"] = [{**i, "eta": {k: est["items"][i["id"]].get(k) for k in ("p50", "p90", "why")}}
+                            if i["id"] in est["items"] else i for i in out["items"]]
+        return out
     if head == "series":                          # behaviour over time: each part's values, bucketed over the window
         refs = [r for r in (one("refs") or "").split(",") if r]
         out = series.series(p, snap, refs, int(one("points") or series.POINTS), bool(one("strip")))
@@ -611,8 +627,9 @@ def _answer(live: Live, path: str, q: dict):
         from .verdicts_api import table as verdicts
         return verdicts(p, snap)
     if head == "items-graph":                     # the Items page's Graph and Timeline: relations (SPEC §5a)
+        from .eta_api import merge
         from .relations_api import graph as items_graph
-        return items_graph(p, m, snap, q)
+        return merge(items_graph(p, m, snap, q), _estimates(p, m, snap, one("whatif")))
     if head == "items-flow":
         return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":
