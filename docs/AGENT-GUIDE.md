@@ -72,7 +72,8 @@ Work through these steps in order. Ask the person only what you cannot infer.
    too, or it shows as "not recorded" and counts as unfinished. Then the step that starts the work can take only
    what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. Look at the Items
    page's **Graph** (what waits on what, the critical path) and **Timeline** (what happened, and what is projected)
-   to check the links came through; `examples/roadmap/` is a small model built this way. A parent that moves on
+   to check the links came through (the Timeline's projection and the list's **done by** are the completion
+   estimates: see "When will it be done", below); `examples/roadmap/` is a small model built this way. A parent that moves on
    when its children do (an epic shipped once every ticket is done) is a rule on its kind, never a block:
    `join: {children: parent, all: done, to: shipped}` (`any:` for the first child to start).
 5. **One block per step that does the work**, taking items in its state:
@@ -518,6 +519,33 @@ blocks:
   model missing structure only chase the burst.
 - The proposals ergostat makes are the same items as the record grows: one revised in place (`revisions`) is not
   churn. One superseded says why (what it was about was edited or removed, or it is no longer found).
+
+## 3h. When will it be done: the items' completion estimates
+
+The Items list's **done by**, an item's page and the Timeline give each open item a p50 and a p90 finish (SPEC §5a,
+*Completion estimates*). They are not a median per state added up: they come from a simulation of every open item
+together, run 200 times from the record of the last two weeks:
+
+- each step a block takes is a **queue** at that block, at most its capacity at once: the smallest of its `pool`, its
+  agent's `at-once` and its daemon's `concurrency` (an agent's seats are shared by every block it runs); a
+  `workspace:` pool of three keeps at most three items between their first take and their finish; 100 tickets
+  and a pool of six finish about 100 / 6 run times after now, not one run time after it;
+- each run is one the block really made, drawn whole: how long, and whether it moved the item on, gave it back
+  (rework: back in the queue, after its put-off) or expired;
+- a step no block takes (a person's review, CI that pushes its answer) is the time items stayed there, given how
+  long this item has been there already (Kaplan–Meier: the ones still waiting count, as censored);
+- where an item goes next is where the record's items went (the rework loops too); what it waits on (`blocked_by`)
+  holds it in its first state.
+
+The item page says why ("6 of 6 busy in dev; 34 ahead of it; a run takes 18m (median)"); the what-if beside a
+block's identified model (its pool, its share of failed runs) moves the estimates. **What makes them wrong**, and
+so what to model: a capacity no block declares (one reviewer for two kinds, an API's rate limit: give the step a
+`pool` or the agent an `at-once` that says it), a goal that switches a block off
+(the estimate assumes it takes whenever it has room), a process that changed in the last two weeks (the old runs
+still count), a step whose runs give the item back while they wait for something undeclared (the simulation
+takes each give-back as rework, so the estimates come out late), and a step nothing has
+left yet (its items are assumed to go to the next state in order). Under twenty runs no p90 is said. A block with
+fewer than five runs on record is said as assumed on the item's page.
 
 ## 4. Common mistakes
 

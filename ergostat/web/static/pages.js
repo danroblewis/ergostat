@@ -516,7 +516,7 @@ async function pageItems(main, q) {
   const said = (k) => (q.get(k) == null ? null : q.get(k) !== "0");
   const ask = { frontier: said("frontier"), collapse: said("collapse") };
   const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? view === "graph"; },
-               group: q.get("group") === "kind" ? "kind" : "parent" };
+               group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes" };
   const viewBar = h("span", { class: "rg-viewbar" });
   // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip
   // (and the process map's, process.js: through a node, along a line, caused from another kind, by states or events)
@@ -557,7 +557,8 @@ async function pageItems(main, q) {
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
                      if (view !== "list") { u.set("view", view); for (const k of ["frontier", "collapse"]) if (ask[k] != null) u.set(k, ask[k] ? "1" : "0");
-                                            if (view === "graph" && ro.group === "kind") u.set("group", "kind"); }
+                                            if (view === "graph" && ro.group === "kind") u.set("group", "kind");
+                                            if (view === "timeline" && ro.lanes) u.set("rows", "lanes"); }
                      replaceRoute("/items" + (u.toString() ? "?" + u : "")); refresh(); };
   search.addEventListener("input", () => go());
   let sysOf = {};                                      // each kind's system, as last listed
@@ -579,7 +580,7 @@ async function pageItems(main, q) {
     let d;
     try {
       d = await ans.api("items", { ...(kind ? { kind, ...setParams() } : {}), ...(state ? { state } : {}),
-                                   ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}),
+                                   ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}), ...whatifParams(),
                                                      ...(folded.size && !kind && !needle ? { hide: [...folded].join(",") } : {}) }) });
     } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
       patch(chip, h("span", { class: "set-chip bad" }, String(err.message || err), " ",
@@ -612,7 +613,7 @@ async function pageItems(main, q) {
     if (view !== "list") for (const g of systems) {
       if (!isOpen(g.name) || (d.set && !g.kinds.includes(kind))) continue;
       const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : g.kinds.filter((n) => relKinds.has(n));
-      relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(",") }).catch((err) => ({ err })) : null };
+      relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...whatifParams() }).catch((err) => ({ err })) : null };
     }
     if (!p.isConnected) return;
     if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
@@ -626,7 +627,9 @@ async function pageItems(main, q) {
         check(ro.frontier, "Frontier", "Only the unfinished, and what they wait on however far back", (ev) => { ask.frontier = ev.target.checked; go(); }),
         check(ro.collapse, "Collapse done", "Finished items vanish; a chain through them is one dashed line, via N done", (ev) => { ask.collapse = ev.target.checked; go(); }),
         ...(view === "graph" ? [seg("Group", [[ro.group === "parent", "By parent", "A parent (an epic) is a stadium its children hang off", () => { ro.group = "parent"; go(); }],
-                                              [ro.group === "kind", "By kind", "Each kind a frame", () => { ro.group = "kind"; go(); }]])] : [])]));
+                                              [ro.group === "kind", "By kind", "Each kind a frame", () => { ro.group = "kind"; go(); }]])]
+          : [seg("Rows", [[!ro.lanes, "By item", "A row an item: what happened, and its projected bars", () => { ro.lanes = false; go(); }],
+                          [ro.lanes, "Lanes", "A row a lane of each block that takes items: at most its capacity at once, the projected runs in them", () => { ro.lanes = true; go(); }]])])]));
     patch(chip, ...(d.set ? [h("span", { class: "set-chip", title: "The items shown are this set: the address is shareable" },
       d.set.says + setSpan(d.set.params), h("b", { class: "n" }, d.moves != null ? ` ${d.total} item${d.total === 1 ? "" : "s"}, ${d.moves} move${d.moves === 1 ? "" : "s"}` : ` ${d.total}`),
       h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7"))] : []));
@@ -654,15 +657,17 @@ async function pageItems(main, q) {
       const nums = new Set(show.filter((f) => isNum(its, f)));
       const leased = its.some((i) => i.fields.lease && typeof i.fields.lease === "object");   // leases on them (SPEC §9.5)
       const movedCol = its.some((i) => i.moved_at);       // a set of moves: when each moved, in its span
+      const etaCol = its.some((i) => i.eta);              // each open item's completion estimate (eta.py): p50, p90 in its title
       show = show.filter((f) => f !== "lease");
       return table(["item", "state", ...show.map((f) => (nums.has(f) ? [f, "num"] : f)),
-        ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
+        ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
         its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
           h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),
           show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldView(i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
           ...(leased ? leaseCells(i.fields.lease, i.state) : []),
           ...(movedCol ? [h("td", { class: "num nowrap", title: (i.moved_at || []).map(when).join("\n") },
                               (i.moved_at || []).length ? when(i.moved_at[i.moved_at.length - 1]) + (i.moved_at.length > 1 ? ` (${i.moved_at.length}\u00d7)` : "") : "")] : []),
+          ...(etaCol ? [etaCell(i.eta)] : []),
           h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
           h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items");
     };
@@ -694,8 +699,8 @@ async function pageItems(main, q) {
       const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle };
       const m = rgModel(rd, o);
       const key = `rel:${view}:${g.name}`;
-      const draw = (el) => { if (view === "graph") el.draw(m, o); else el.draw(m, rd); return true; };
-      const el = keep(key, JSON.stringify([view, o, rd]), () => { const e = view === "graph" ? relGraph(openItem) : relTimeline(openItem); draw(e); return e; }, draw);
+      const draw = (el) => { if (view === "graph") el.draw(m, o); else el.draw(m, rd, ro.lanes); return true; };
+      const el = keep(key, JSON.stringify([view, o, rd, ro.lanes]), () => { const e = view === "graph" ? relGraph(openItem) : relTimeline(openItem); draw(e); return e; }, draw);
       return [keyed(relLegend(m, rd), `legend:${g.name}`), el];
     };
     const groups = [];
@@ -726,6 +731,19 @@ async function pageItems(main, q) {
   }
   await refresh();
   S.timer = poll(() => refresh(false), 4000, p);
+}
+
+/* an item's completion estimate (SPEC §5a, Completion estimates): when, by the p50; the p90 and why on hover */
+const etaWhen = (t) => (t == null ? "beyond the horizon" : new Date(t * 1000).toLocaleString([], { hour12: false, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }));
+/* a p90 after its p50: the time alone on the same day, else with its date; not said under twenty runs */
+const etaP90 = (e) => (e.p90 == null && e.runs != null && e.runs < 20 ? `p90 not worked out (${e.runs} runs)`
+  : e.p90 == null || e.p50 == null || new Date(e.p90 * 1000).toDateString() !== new Date(e.p50 * 1000).toDateString() ? `p90 ${etaWhen(e.p90)}`
+  : `p90 ${new Date(e.p90 * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" })}`);
+const ordinal = (n) => n + (n % 100 > 10 && n % 100 < 14 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+function etaCell(e) {
+  if (!e) return h("td", {}, "");
+  return h("td", { class: "num nowrap", "data-eta": "", title: `p50 ${etaWhen(e.p50)}, ${etaP90(e)}${e.why ? "\n" + e.why : ""}` },
+    e.p50 == null ? h("span", { class: "muted" }, "beyond the horizon") : etaWhen(e.p50), h("span", { class: "muted small" }, ` ${etaP90(e)}`));
 }
 
 /* an item's lease (SPEC §9.5): who holds it and until when, its attempts; a dead letter said as one */
@@ -809,7 +827,7 @@ async function pageItem(main, id) {
   async function tick(force = true) {
     ans.begin();
     let d;
-    try { d = await ans.api(`items/${encodeURIComponent(id)}`); } catch (e) { d = null; }
+    try { d = await ans.api(`items/${encodeURIComponent(id)}`, whatifParams()); } catch (e) { d = null; }
     if (!d) { patch(body, h("p", { class: "muted" }, "Nothing is recorded about this id.")); return; }
     const k = d.kind_of;
     const ms = !k?.name?.startsWith("ergostat.") ? await ans.api("messages", { item: id }).catch(() => null) : null;
@@ -821,6 +839,9 @@ async function pageItem(main, id) {
     const head = h("div", { class: "meta" },
       pair("Kind", k ? h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name) : h("span", { class: "muted" }, "none (nothing under items: matches this id)")),
       d.state ? pair("State", h("span", {}, h("b", {}, d.state), ` for ${dur(nowS() - d.entered)}`)) : null,
+      d.eta ? pair("Expected done", h("span", { "data-eta": "" }, h("b", {}, etaWhen(d.eta.p50)), h("span", { class: "muted" }, ` (${etaP90(d.eta)}`
+        + (d.eta.start != null && d.eta.start > nowS() + 60 ? `; started about ${etaWhen(d.eta.start)}` : "")
+        + (d.eta.dead ? `; a dead letter in ${Math.round(d.eta.dead * 100)}% of runs` : "") + ")"))) : null,
       pair("Events", String(d.events)), pair("First", ago(d.first)), pair("Latest", h("span", {}, d.latest, h("span", { class: "muted" }, `, ${ago(d.last)}`))));
     const track = k && k.states.length ? h("div", { class: "track" }, k.states.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
       h("span", { class: `stbox${st === d.state ? " on" : ""}${d.moves.some((m) => m.to === st) || (i === 0) ? " been" : ""}` }, st)])) : null;
@@ -863,7 +884,9 @@ async function pageItem(main, id) {
       full && full.total > full.events.length ? h("span", { class: "muted" }, ` (the first ${full.events.length} of ${full.total})`) : null) : null;
     if (!impact && (/^ergostat\.failure\//.test(id) || k?.name === "ergostat.model-change")) impact = impactBox(id);
     const imp = impact ? [h("h2", {}, "Impact"), live(impact)] : [];
-    patch(body, head, track, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+    const why = d.eta?.why ? h("p", { class: "note eta-why" }, h("b", {}, d.eta.waits_in ? `Waiting in ${d.eta.waits_in}` + (d.eta.position ? `, ${ordinal(d.eta.position)} in its queue` : "") + ": " : ""),
+      d.eta.why, h("span", { class: "muted" }, ` (estimated from the record: ${d.eta.runs} runs of a simulation of every open item, which leaves out a goal that switches a block off and a capacity no block declares; `, h("a", { href: `/items?kind=${encodeURIComponent(k?.name || "")}&view=timeline` }, "the timeline"), ")")) : null;
+    patch(body, head, track, why, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
       eventsTable(full ? full.events : d.record, true));
   }

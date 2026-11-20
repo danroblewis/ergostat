@@ -728,9 +728,10 @@ for:
   precedence order (each starts once what it waits on is expected to end; a started item now), a backward pass
   from the last expected end, and each item's **slack**, how long it may slip without moving that end; the
   critical items have none. A parent with unfinished children is their summary: what comes before it comes before
-  its children, what comes after it waits for all of them. Resources are not levelled: a block's `pool` is not in
-  the projection.
-- **The projected schedule**: each unfinished item's states ahead, from its earliest start, state by state.
+  its children, what comes after it waits for all of them. The critical path itself is not levelled (a block's
+  `pool` is not in it); the completion estimates are (below).
+- **The projected schedule**: each unfinished item's states ahead, from its earliest start, state by state; once the
+  completion estimates are worked out, from a levelled run of their simulation instead (below).
 - **Cycles**: items whose precedence relations go round can never all be ready. Each cycle needs attention
   (`ergostat`, the page's side panel), and is left out of the projection.
 
@@ -770,14 +771,78 @@ listed before a join's `to`, which the join would move on. Each child's move cos
 Relations are read as they stand now: time travel (`--at`, the pages') reaches an item's fields, its relations
 among them, but not the Graph and the Timeline, which are drawn from the item index as it is. The Process view draws them too (§5b).
 
+**Completion estimates.** Each open item's time to completion (a state its kind counts as finished, or a dead
+letter) is estimated by a discrete-event **Monte Carlo over every open item together** (`numbers/eta.py`), from what
+the record measured before now (`numbers/etamodel.py`: two weeks; every open item, and each kind's latest 2,000 items
+for the fit; a stay that began before the record counts from its first move there, and relations are read as they
+stand now):
+
+- **The path** (a semi-Markov model per kind): each state's next-state shares from the items' moves, a lease's hold
+  folded into the state it was taken from, rework loops kept; each kind's expected visits per state, the first row of
+  the absorbing chain's fundamental matrix N = (I − Q)⁻¹, said in the Timeline's legend.
+- **Time in a state** no block takes from: Kaplan–Meier over the stays that ended, the stays still going censored at
+  their age; an item's residual life given its age there, S(a + t) / S(a); past the longest stay seen an exponential
+  tail whose mean is the longest tenth's mean excess over the 90th percentile (every stay's mean when they are alike),
+  so an item older than every stay seen is never given nothing left. A state with fewer than five ended stays takes its kind's pooled stays, then every
+  kind's.
+- **A state a block takes from** is a wait and a run: the item queues at the block in its `takes:` order (the states
+  of `at` in order, then by when it came back to the state, so a nack's return goes to the back; with
+  `unblocked: true`, those more items wait on first), at most the block's capacity at once: its `pool`, its agent's
+  `at-once` and its daemon's `concurrency`, whichever binds (seats and daemons shared with the other blocks that use
+  them), and its `workspace:` pool (§12k): a workspace taken at the item's first run of such a block is held by the
+  item across every state until it finishes, so a pool of three keeps at most three items between that take and their
+  finish; an item that would need one while all are held waits in the queue, holding nothing (the record's runs given
+  back for want of one, "put off ten seconds, not counted", are that wait, never runs; who holds which workspace now is
+  read from the workspaces' own events). A run's length is drawn from the block's run-time curve (Kaplan–Meier, the leases still held censored, so the
+  long runs are not lost to those not yet ended), and how it ended from the recorded attempt nearest that long
+  (bootstrapped per Monte Carlo run): moved on (to where), given back (its `after` kept: put off) or expired; a run
+  past its lease's TTL expires at it. The last two return the item to the queue, its attempts counted, a dead letter
+  after the most its terms allow. A
+  block with fewer than five attempts on record runs an assumed one (its `every`, else a quarter of its TTL, at most
+  ten minutes), said so; one whose state items have stayed in takes that stay's curve as its runs instead.
+- **A leased item's** run is drawn the same way, given how long its lease has been held; past every run seen, the
+  tail; never past its TTL. A failure share tried in the what-if reaches the runs already held too.
+- **Dependencies:** an item does not leave its kind's first state, nor is it taken by an `unblocked` block, until
+  every item its precedence relations name is finished (an item named but not in the record is not waited on).
+- **Arrivals:** new items at the record's rate per kind (a batch brought in at one moment is not a rate), into the
+  states they arrive in, competing for the same capacity.
+
+200 runs at most, within five seconds (and the levelled run within as much again: ten at most), a fixed seed (each
+run its own, so the same record gives the same estimates), 90 days ahead at most (past that: "beyond the horizon"). No
+run finished within the budget: no estimate ("not worked out"); fewer than 20: no p90 is said, only the run count. Per item: its **p50** and **p90** finish, its
+expected start, what it waits in now (a block, or a state), its place in that block's queue, and why, in words ("6
+of 6 busy in dev; 34 ahead of it; a run takes 18m (median)"); per kind, when its last open item finishes (p50, p90).
+The schedule the Timeline draws is the run whose last finish is the median's: never more runs in a block at once
+than its capacity, each in a lane (leases held over a pool the what-if lowered keep theirs until they end). The Items page's list gives each open item's p50 (**done by**, the p90 beside it
+and why in its title), and an item's page its estimate and why. Worked out in a thread, never on a page's request: a
+page is given the latest, and the next is worked out by one worker (the latest asked for first; the eight used last
+kept) when the record changed (at most every thirty seconds, and every
+two minutes regardless); of now only (a moment travelled to has none), and not in a snapshot. The owner's what-if
+(`block.NAME.pool`, `block.NAME.failure`: a share of its runs given back, `0.2` or `20%`; typed beside each block's
+identified model) is worked out the same way, apart, and drawn on the same pages. The pages say what is left out
+(below), how many runs, and which blocks' runs are assumed.
+
+**What it leaves out**, and so what makes it wrong: a capacity no block declares (a reviewer who is one person across
+two kinds, a rate limit), a goal that switches a block off (its
+gate is not simulated: a block takes whenever it has room), a process that changed (the record's two weeks are taken
+as how the work goes now), relations as they stand now, and a state never seen left (its items move to the next state
+in their kind's order, assumed). **Validated** (`tests/test_eta.py`; `tests/eta_backtest.py` replays past moments,
+estimates from the record before each alone, and compares with what happened): an M/M/c queue's mean wait matches
+Erlang C within 12%; on three synthetic records of the owner's case (100 tickets brought in at once, a pool of six)
+the p90 covers 89 to 94% of the items, the estimates' mean is within a fifth of the error of what happened, and the
+p50's error is about a third of the median path's, whose p90 covered 36 to 42%. The components were kept by a
+backtest with ablations (`docs/roadmap/overnight/eta.md`): a throughput cap measured from the record changed no
+estimate, and was dropped. On the ticket-factory demo's record, with its workspace pool read as a capacity, the p90
+covers every item.
+
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
 (`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes):
 
 | View | What it shows |
 |---|---|
-| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; ready: ink; blocked: dashed, with how many it waits on; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status and says when the critical path is expected to end; a click opens the item |
-| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead from the forward pass (what is projected), a parent's a bracket over its children's span. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier by default, the finished kept as what happened |
+| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; ready: ink; blocked: dashed, with how many it waits on; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status and says when the critical path is expected to end (until the completion estimates are worked out); a click opens the item |
+| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the forward pass), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend says when each kind's last open item is done (p50, p90). Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier by default, the finished kept as what happened |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
@@ -2733,11 +2798,12 @@ it is accepted. A what-if is refused as a proposal when it faults or blows up wh
 written does not, or is what is written already; one outside the parameter's range, or that fails an
 extreme condition the model as written passes, is proposed with that said in its reason.
 
-Three more what-ifs are tried only **with the loops running**, and are never proposals (they change the world, not the
+Four more what-ifs are tried only **with the loops running**, and are never proposals (they change the world, not the
 model): an input's rate (`flow.NAME:20`, an hour; `flow.NAME:x2`, twice its mean over the window, "arrivals doubled":
-typed in the panel of a flow from outside), a goal's setpoint (`goal.NAME:5`, in the goal's panel) and a pool
-(`block.NAME.pool:4`, beside its identified model in the causes strip). A rate tried on a flow a block moves replaces its
-identified model. With the projection held they are refused and the strip says why.
+typed in the panel of a flow from outside), a goal's setpoint (`goal.NAME:5`, in the goal's panel), a pool
+(`block.NAME.pool:4`) and a block's share of failed runs (`block.NAME.failure:20%`, its success the rest), both
+beside its identified model in the causes strip; the last two change the items' completion estimates too (§5a). A
+rate tried on a flow a block moves replaces its identified model. With the projection held they are refused and the strip says why.
 
 **Sensitivity** (`ergostat/numbers/sensitivity.py`; the causes strip with the projection held; with the loops running
 the strip's fan is the risk's, below): Monte Carlo over what the model

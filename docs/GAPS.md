@@ -92,10 +92,16 @@ review into *Done recently*). Newest decisions from the owner first within each 
   tickets, not tuned for thousands).
 - **Relations, what is left** (open; the first part merged as c4888bd from `relations`; the Process view draws them,
   done in 0f7f870 on `smallgaps`): the Graph and Timeline read relations as they stand now (time travel does
-  not reach them) and are not in a snapshot; the projection does not level resources (a block's `pool`);
+  not reach them) and are not in a snapshot;
   `ticket-factory` does not record Jira's links: its collector does not read them (`bin/jira.py` asks Jira for
   summary, status, labels and description only), so `issuelinks` and `parent` must be asked for and folded as
   relations first.
+- **Resource levelling and completion estimates** (done, on `eta`; SPEC §5a, *Completion estimates*): the
+  projection levels resources now: each open item's p50 and p90 finish from a Monte Carlo over every open item (a
+  block's capacity, its recorded runs and rework, time in a state by Kaplan–Meier given the item's age, the
+  record's paths, dependencies and arrivals); the Timeline's lanes, the list's *done by*, the item's why. Left: a
+  goal's gate on a block is not simulated, and a capacity no block declares is not modelled (a block's `workspace:`
+  pool is: held from the item's first take until it finishes).
 - **Modelling improves the model** (landing, `modelling-core`; `docs/proposals/self-improvement.md`): what `check`
   finds is held as requests (`ergostat.modelling-request`); the rule tier (units, a queue's goal, a process nobody
   identified) and the AI tier (off unless `ai: true`), each a block of `use: modelling`, answer them with ordinary
