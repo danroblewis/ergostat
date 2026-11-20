@@ -104,7 +104,7 @@ def test_knowledge_files_parse():
     ids = [e["id"] for e in es]
     assert len(ids) == len(set(ids)) and all(e["text"] for e in es)
     assert {"rules-process", "rules-machine", "rules-code", "rules-outside"} <= set(ids)
-    assert [i for i in ids if i.startswith("lesson-")] == [f"lesson-{n}" for n in range(1, 12)]
+    assert [i for i in ids if i.startswith("lesson-")] == [f"lesson-{n}" for n in range(1, 13)]
     decisions = [e for e in es if e["id"].startswith("decision-")]
     assert len(decisions) == 9 and all(e["areas"] for e in decisions)       # each says the areas it is about
 
@@ -126,7 +126,7 @@ def test_brief_carries_knowledge_within_budget(tmp_path):
     assert "decision-one-model-three-drawings" in small["knowledge"]             # the higher priority fits
     assert [k for k in small["knowledge_dropped"] if k.startswith("modules@")]   # the lower is dropped, and said
     lean = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "plan_reviewer", "a diagram")
-    assert lean["knowledge"] == [f"lesson-{n}" for n in range(1, 12)]            # the plan review: the lessons only
+    assert lean["knowledge"] == [f"lesson-{n}" for n in range(1, 13)]            # the plan review: the lessons only
 
 
 def test_module_map_from_main_cached_by_sha(tmp_path):
@@ -322,7 +322,7 @@ def test_cli_tools_on_a_fixture_instance(tmp_path):
     f.tool("lesson.py", "add", "Stale cache", "--check", "clear it on merge", "--seen", "a map read after a merge")
     assert f.drain() == ["gap.requested"]
     text = (f.model / "run" / "defs" / "knowledge-stale-cache.md").read_text()
-    assert "## 12. Stale cache\nSeen as: a map read after a merge.\n**Check:** clear it on merge" in text
+    assert "## 13. Stale cache\nSeen as: a map read after a merge.\n**Check:** clear it on merge" in text
     assert "## Size budget" in text and "## Acceptance tests" in text
     f.tool("lesson.py", "add", "Stale cache", "--check", "again", ok=False)        # asked for already
     f.fold([{"event": "lesson.proposed", "item": "lesson/seen-lesson-1-abc", "data": {
