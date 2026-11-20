@@ -105,10 +105,12 @@ class Hands:
         if killing:                                  # (its lease expired: the run's note says so, leases/kill.py)
             with self.e.lock:
                 self.e.killing[run] = why
-        if h.cancelled is None:
-            h.cancelled = time.monotonic()
-            p.send({"op": "cancel", "run": run})
-            p.log.write(f"cancel {run[:8]}: {why}\n")
+        with p.lock:                                 # (with ``hand``'s: never sent before its run's line)
+            if h.cancelled is None:
+                h.cancelled = time.monotonic()
+                if h.sent:                           # (not yet sent: ``hand`` refuses it)
+                    p.send({"op": "cancel", "run": run})
+                p.log.write(f"cancel {run[:8]}: {why}\n")
         return True
 
     def stop_block(self, block: str) -> bool:

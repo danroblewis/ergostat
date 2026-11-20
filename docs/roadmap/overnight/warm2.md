@@ -98,3 +98,18 @@ outside the supervisor's lock opened a race:
   `test_a_hand_over_not_read_charges_nothing`.
 - Size: about 364 net lines outside `tests/` and `docs/`, within the 400 budget. Still to do: the gate's review, and
   the four suites under the watchdog (the factory's).
+
+### Round 2 (2026-11-20): a cancel before the hand-over
+
+- **Blocking (the queue's finding): a cancel could reach a warm process before its run's line,** in the same gap
+  between hold and hand-over, with cancel instead of the drain coming in between. Closed under the process's own
+  lock. `Handle.sent` marks a run whose line was queued (`hold` sets it for a daemon that is not warm, `hand` for a
+  warm one). `Hands.cancel` marks the run cancelled under `p.lock` and queues `cancel` only if the line was sent.
+  `Process.hand` refuses a run already cancelled. That run ends without being sent and is not requeued: its note is
+  "stopped as the owner asked" for the owner's stop, or "cancelled before it was handed over" (a lease kill's note
+  is still its `killed: ...`). The process is not blamed, recycled or restarted. Neither its line nor a `cancel`
+  ever reaches the process. I chose this over a requeue because a cancelled run is meant to end, and it is the more
+  local change: one flag and two checks.
+- **Test added:** `test_a_run_cancelled_before_its_hand_over_is_never_sent` (the owner's stop between hold and
+  hand-over). It fails with the check disabled: the line is sent and the stop is not honoured.
+- Size: about 10 more net lines, still within the 400 budget.
