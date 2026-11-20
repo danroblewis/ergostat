@@ -310,6 +310,34 @@ def test_a_run_held_but_drained_before_its_hand_over_is_given_back_never_failed(
     assert "ended while draining" not in said and "was stopping before the run was handed over" in said
 
 
+def test_a_run_cancelled_before_its_hand_over_is_never_sent(tmp_path, monkeypatch):
+    from ergostat.daemons import proc
+    p = setup(tmp_path, "{run: python3 w.py, warm: true, concurrency: 1}")
+    real, e, stopped, sent = proc.usage.snapshot, None, [], []
+
+    def snapshot(pgid):                              # between the hold and the hand-over: the owner's stop
+        if not stopped and e is not None:
+            stopped.append(e.daemons.stop_block("worker"))
+        return real(pgid)
+    monkeypatch.setattr(proc.usage, "snapshot", snapshot)
+    send = proc.Process.send
+    monkeypatch.setattr(proc.Process, "send", lambda self, obj: sent.append((obj.get("op"), obj.get("run"))) or send(self, obj))
+    e = start(p)
+    try:
+        assert wait_for(lambda: len(starts(tmp_path)) == 1 and e.daemons.free("block.worker") == 1, 10)
+        p.events.add("ticket.opened", item="ticket/0", source="t", data={"sleep": 30})
+        assert wait_for(lambda: events(p, "agent.ran") + events(p, "agent.failed"), 10)
+    finally:
+        e.close()
+    assert stopped == [True], "the run was held, not yet handed over, when the owner stopped it"
+    first = (events(p, "agent.ran") + events(p, "agent.failed"))[0]
+    assert first["data"]["note"] == "stopped as the owner asked", first
+    ops = [op for op, run in sent if run == first["causedby"]]
+    assert first["causedby"] and ops == [], f"neither its line nor a cancel sent for the run stopped: {sent}"
+    assert len(starts(tmp_path)) == 1, "its process not blamed, not replaced"
+    assert not events(p, "ergostat.daemon.restarted")
+
+
 def test_a_hand_over_not_read_charges_nothing():
     from ergostat.daemons import usage
     cpu, _, _ = usage.charge({}, os.getpgid(0))

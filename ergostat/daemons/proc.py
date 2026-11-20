@@ -65,6 +65,7 @@ class Handle:
         self.requeue = False             # given back uncounted: its daemon restarted for something else's fault
         self.cancelled: float | None = None
         self.asked = False               # the owner's stop
+        self.sent = False                # its line queued for the daemon (a cancel is sent only after it)
         self.resources: dict | None = None   # a warm process's run: the CPU its group used while it held it
 
     def answer(self, v, why: str) -> None:
@@ -225,22 +226,26 @@ class Process:
         with self.lock:
             self.runs[run] = h
             self.idle_since = None
-        return self.send(line) if line is not None else True
+            h.sent = line is not None
+            return self.send(line) if line is not None else True
 
     def hand(self, run: str, line: dict) -> bool:
         """(warm) Its group's CPU noted, then the run's line sent: what it uses from here is the run's. Refused once
         it was asked to stop (drained, replaced, ergostat stopping) after the run was held: the run given back,
-        uncounted, never left held by a process that will not be sent it."""
+        uncounted, never left held by a process that will not be sent it. Refused too once it was cancelled (the
+        owner's stop, its lease killed) before it was sent: ended so, never sent, the process not blamed."""
         before = usage.snapshot(self.pid)
         with self.lock:
             h = self.runs.get(run)
-            if h is not None and not self.stopping:
-                self.before = before
+            if h is not None and not self.stopping and h.cancelled is None:
+                self.before, h.sent = before, True
                 return self.send(line)
             self.runs.pop(run, None)
             if not self.runs:
                 self.idle_since = time.monotonic()
-        if h is not None:
+        if h is not None and h.cancelled is not None:
+            h.end(None, "stopped as the owner asked" if h.asked else "cancelled before it was handed over")
+        elif h is not None:
             h.end(None, f"its daemon {self.d.name} was stopping before the run was handed over", requeue=True)
         return False
 
