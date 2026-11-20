@@ -75,7 +75,7 @@ def _in(spec: Spec, unit: str, ref: str | None) -> bool:
 
 
 def triggers(p, spec: Spec, unit: str, now: float, fit: dict | None = None, reqs: dict | None = None,
-             changes: dict | None = None, ran: list | None = None) -> list[str]:
+             changes: dict | None = None, ran: list | None = None, ever: bool | None = None) -> list[str]:
     """Why this unit is due now, each reason in words (none: it is not)."""
     from . import proposals as pr
     from . import redesign as rd
@@ -97,71 +97,129 @@ def triggers(p, spec: Spec, unit: str, now: float, fit: dict | None = None, reqs
         elif (r["code"] in stc.CHAIN_CODES or r["code"] in STRUCTURAL or r.get("source") == "coherence") and \
                 now - float(r.get("raised") or now) >= STALE:
             why.append(f"{r['code']} on {r['about']}, unresolved for {round((now - float(r['raised'])) / 3600, 1)} h")
-    changes = changes if changes is not None else pr.stored(p)
+    changes = changes if changes is not None else _changes(p)
     mine = sorted((x for x in changes.values() if x.get("kind") != rd.KIND and x.get("made_by") in REFINERS
                    and any(_in(spec, unit, t) for t in (x.get("parts") or x.get("touched") or []))
                    and x["state"] not in pr.OPEN), key=lambda x: x.get("made") or x.get("created") or 0)[-STALL:]
     if len(mine) >= STALL and all(x["state"] in TURNED for x in mine):
         why.append(f"refinement stalled: its last {STALL} changes were all turned away")
-    ran = ran if ran is not None else [e for e in p.events.query(n=None, type=rd.RAN)
-                                       if (e.get("data") or {}).get("result") not in ("call",)]
+    ran = ran if ran is not None else _ran(p, now)
     mine_ran = [e for e in ran if ((e.get("data") or {}).get("system") or "model") == unit]
-    if not ran:
+    if not (ever if ever is not None else bool(p.events.query(n=1, type=rd.RAN))):
         why.append("the first run with use: modelling")
     elif not mine_ran or now - max(e["time"] for e in mine_ran) >= DAILY:
         why.append("its daily review")
     return why
 
 
-def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None) -> str | None:
-    """Why this unit is not to be redesigned now, whatever is due: a redesign waiting, or the rest after one that was
-    no better (or made nothing) while the model has not changed since."""
-    from . import proposals as pr
-    from . import redesign as rd
+def signature(spec: Spec, unit: str) -> str:
+    """The unit's own parts as written (what they are and connect, not their words): what a rest is keyed on, so a
+    change elsewhere in the model does not end it, and one to its parts does."""
+    from ..spec import architecture as ar
     from . import version as ver
+    refs = sorted(r for r, ch in ar._chains(spec).items() if unit == "model" or unit in ch)
+    tables = {"stock": spec.stocks, "flow": spec.flows, "auxiliary": spec.auxiliaries, "goal": spec.goals,
+              "block": spec.blocks}
+    used = set()
+    for r in refs:
+        x = tables[r.split(".")[0]].get(r.split(".", 1)[1])
+        if getattr(x, "equation", None) is not None:
+            used |= set(x.equation.parameters)
+    return ver._hash([[r, ver._plain(tables[r.split(".")[0]].get(r.split(".", 1)[1]))] for r in refs]
+                     + [[f"parameter.{n}", ver._plain(spec.parameters.get(n))] for n in sorted(used)])
+
+
+ENDED = ("failed", "refused", "dismissed", "superseded")
+
+
+def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None, changes: dict | None = None) -> str | None:
+    """Why this unit is not to be redesigned now, whatever is due: a redesign waiting, or the rest after one that was
+    no better, dismissed, superseded, made nothing, or never ended, while the unit's own parts have not changed
+    since (``signature``)."""
+    from . import redesign as rd
     if rd.waiting(p, spec, unit) is not None:
         return "a redesign of it is waiting already"
-    v = ver.version(spec)
-    ran = ran if ran is not None else p.events.query(n=None, type=rd.RAN, since=now - COOL)
+    sig = signature(spec, unit)
+    ran = ran if ran is not None else _ran(p, now)
     mine = [e for e in ran if ((e.get("data") or {}).get("system") or "model") == unit
-            and (e.get("data") or {}).get("result") not in ("started", "call", "waiting")]
-    last = max(mine, key=lambda e: e["time"], default=None)            # its last run that ended
-    if last is not None and now - last["time"] <= COOL:
+            and (e.get("data") or {}).get("result") not in ("call", "waiting")]
+    last = max(mine, key=lambda e: e["time"], default=None)            # its last run, ended or not
+    if last is not None and now - last["time"] <= COOL + rd.RUNNING_FOR:
         d = last.get("data") or {}
-        if d.get("result") != "proposed" and d.get("version") == v:
-            return f"resting: its last redesign was {d.get('result')}, and the model has not changed since"
-    for x in pr.stored(p).values():
-        if x.get("kind") == rd.KIND and (x.get("system") or "model") == unit and x["state"] in ("failed", "refused") \
-                and now - float(x.get("decided") or x.get("made") or 0) <= COOL and x.get("version") == v:
+        if d.get("result") == "started" and now - last["time"] > rd.RUNNING_FOR:
+            return "resting: its last run never ended"
+        if d.get("result") not in ("proposed", "started") and now - last["time"] <= COOL and d.get("unit_sig") == sig:
+            return f"resting: its last redesign was {d.get('result')}, and its parts have not changed since"
+    for x in (changes if changes is not None else _changes(p)).values():
+        if x.get("kind") == rd.KIND and (x.get("system") or "model") == unit and x["state"] in ENDED \
+                and now - float(x.get("decided") or x.get("made") or 0) <= COOL and x.get("unit_sig") == sig:
             return f"resting: its last redesign was {x['state']}"
     return None
 
 
-def next_due(p, now: float | None = None) -> dict:
-    """The unit to redesign now, ``{"system", "why", "trigger"}``, or ``{"system": None, "why"}``; units too large are
-    held for the owner as requests (``too-large``) on the way."""
+def unfinished(p, ran: list, now: float) -> None:
+    """A run that never ended (crashed, or its block timed out: only ``started`` and ``call``): its ``redesign-due``
+    request closed, saying so."""
     from . import redesign as rd
+    from . import requests as rq
+    last: dict = {}
+    for e in sorted(ran, key=lambda e: e["time"]):
+        d = e.get("data") or {}
+        if d.get("result") not in ("call", "waiting"):
+            last[d.get("system") or "model"] = e
+    for u, e in last.items():
+        if (e.get("data") or {}).get("result") == "started" and now - e["time"] > rd.RUNNING_FOR:
+            k = rq.rid("redesign", "redesign-due", u)
+            x = rq.stored(p).get(k)
+            if x is not None and x["state"] in ("open", "proposed"):
+                rq.event(p, k, "answered", {"why": "its run never ended (it crashed, or its block timed out)"})
+
+
+def _changes(p) -> dict:
+    """Every change to the model, whatever its state (superseded and dismissed ones too), with its state."""
+    from . import proposals as pr
+    return {k: {**f, "id": k, "state": st} for k, (st, f) in pr.changes(p).items()}
+
+
+def _ran(p, now: float) -> list:
+    """The redesigner's runs over the last day and the rest after them (bounded: never the whole record)."""
+    from . import redesign as rd
+    return [e for e in p.events.query(n=None, type=rd.RAN, since=now - max(DAILY, COOL + rd.RUNNING_FOR) - 60)
+            if (e.get("data") or {}).get("result") != "call"]
+
+
+def next_due(p, now: float | None = None) -> dict:
+    """The unit to redesign now, ``{"system", "why", "trigger", "unit_sig"}``, or ``{"system": None, "why"}``; units
+    too large are held for the owner as requests (``too-large``) on the way. Among units equally due, the one reviewed
+    longest ago (or never) comes first: they take turns."""
+    from . import redesign as rd
+    from . import requests as rq
     spec = p.model.spec
     now = now or time.time()
     ok, big = units(spec)
     for u in big:
         hold(p, u, "too-large", f"system {u} is too large to redesign in one pass (more than {MOST_PARTS} parts, and no "
              f"subsystems to take one at a time): split it into systems", owner=True)
-    ran = [e for e in p.events.query(n=None, type=rd.RAN) if (e.get("data") or {}).get("result") != "call"]
+    ran, reqs, changes = _ran(p, now), rq.stored(p), _changes(p)      # read once for every unit
+    ever = bool(ran) or bool(p.events.query(n=1, type=rd.RAN))
+    unfinished(p, ran, now)
     fit = _fit(p, spec)
     skipped, due = [], []
     for u in ok:
-        why = triggers(p, spec, u, now, fit=fit, ran=ran)
+        why = triggers(p, spec, u, now, fit=fit, reqs=reqs, changes=changes, ran=ran, ever=ever)
         if not why:
             continue
-        rest = resting(p, spec, u, now, ran=ran)
+        rest = resting(p, spec, u, now, ran=ran, changes=changes)
         if rest:
             skipped.append(f"{u}: {rest}")
             continue
-        due.append({"system": u, "why": why, "trigger": why[0]})
+        seen = max((e["time"] for e in ran if ((e.get("data") or {}).get("system") or "model") == u), default=0.0)
+        due.append({"system": u, "why": why, "trigger": why[0], "unit_sig": signature(spec, u), "_seen": seen})
     routine = ("the first run with use: modelling", "its daily review")
-    due.sort(key=lambda d: all(w in routine for w in d["why"]))   # what is wrong first, the scheduled review after
-    return due[0] if due else {"system": None, "why": skipped or ["nothing is due"]}
+    due.sort(key=lambda d: (all(w in routine for w in d["why"]), d["_seen"]))   # what is wrong first; then turns
+    if not due:
+        return {"system": None, "why": skipped or ["nothing is due"]}
+    return {k: v for k, v in due[0].items() if k != "_seen"}
 
 
 def hold(p, unit: str, code: str, says: str, owner: bool = False, state: str = "held") -> str:
