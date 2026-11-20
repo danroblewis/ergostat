@@ -832,6 +832,7 @@ class Compiler:
         d = self.doc
         spec = Spec(d.name, d.root, d.files, purpose=d.purpose)
         spec.uses = dict(d.uses)
+        spec.local = dict(d.local)
         spec.template_files = sorted({Path(u["path"]) for u in d.uses.values() if u.get("owners")})
         spec.remotes = dict(d.remotes)                 # each remote system (SPEC §4c): its model's file reloads this one
         spec.remote_files = [Path(r["dir"]) / "model.json" for r in d.remotes.values()]
@@ -850,6 +851,14 @@ class Compiler:
         spec.intake = intake(d.intake, wrong)
         for msg in wrong:
             self.err(msg, None, "bad-intake")
+        from ..webaccess import parse as web
+        wrong = []
+        spec.web = web(d.web, wrong)
+        for msg in wrong:
+            self.err(msg, None, "bad-web")
+        if spec.web.open:
+            self.problems.append(Problem("finding", f"web: {', '.join(spec.web.names)} is public and read only, with no login "
+                                         "(open: read): anyone who reaches it reads everything the page shows", None, "web-public"))
         for name, m, what in self.named("systems"):
             self.keys(m, {"description", "within", "show"}, what)
             spec.systems[name] = self.text(m, "description")

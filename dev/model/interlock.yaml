@@ -1,0 +1,44 @@
+# The load interlock: the test suites running on this machine (anyone's), their threads and memory, and goals that
+# hold the suite-running blocks (the merge queue, flake triage) while the machine is busy. Inside their runs, the
+# implementor and triage hold a machine-wide suite slot around each suite ([suites] slot) and wait while the machine
+# is full ([load] most_suites; dev/bin/fac.py, wait_quiet); the queue's lock is its slot. The hard rule is
+# scripts/suite_watch.py's: a suite past 1,500 threads or 6 GB is killed.
+defaults:
+  system: load
+
+auxiliaries:
+  suites-running:
+    unit: suites
+    description: test suites (python -m pytest) running on this machine now, the factory's and everyone else's
+    driven-by: [+stock.gaps-queued, +stock.gaps-building, +stock.gaps-queue-failed]
+    sensor: {run: python3 dev/bin/load.py suites, every: 15s, timeout: 20s, description: the load sensor - running suites}
+  suite-threads:
+    unit: threads
+    description: the threads of the running suites' process trees
+    driven-by: [+auxiliary.suites-running]
+    sensor: {run: python3 dev/bin/load.py threads, every: 15s, timeout: 20s, description: the load sensor - threads}
+  suite-memory:
+    unit: GB
+    description: the resident memory of the running suites' process trees
+    driven-by: [+auxiliary.suites-running]
+    sensor: {run: python3 dev/bin/load.py memory, every: 15s, timeout: 20s, description: the load sensor - memory}
+
+goals:
+  machine-quiet:
+    auxiliary: suites-running
+    hold: "<= 3"
+    tolerance: 0
+    on-stale: "off"                    # not knowing the load holds the suites
+    description: the machine's suite slots not all taken (three shared, and the queue's) when the queue or triage starts one
+  suite-threads-within:
+    auxiliary: suite-threads
+    hold: "<= 1200"
+    tolerance: 0
+    on-stale: "off"
+    description: the suites' threads below the watchdog's 1,500, with room
+  suite-memory-within:
+    auxiliary: suite-memory
+    hold: "<= 5"
+    tolerance: 0
+    on-stale: "off"
+    description: the suites' memory below the watchdog's 6 GB, with room

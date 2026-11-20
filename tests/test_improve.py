@@ -418,14 +418,14 @@ def test_a_change_whose_model_changed_under_it_is_superseded(tmp_path):
 
 
 def test_the_verdict_rules():
-    w = lambda b, a: {"since": 0, "until": 600, "before": b, "after": a, "change": (b - a) / b}   # noqa: E731
-    assert jd.decide([w(1, 0.9)] * 3, 0.02, 0, 0, 600, 600)[0] == "kept"
-    assert jd.decide([w(1, 0.9), w(1, 0.9), w(1, 0.99)], 0.02, 0, 0, 600, 600)[1].startswith("not consistently better")
-    assert jd.decide([w(1, 0.9), w(1, 0.9), w(1, 1.1)], 0.02, 0, 0, 600, 600)[1].startswith("worse in 1 of 3")
-    assert jd.decide([w(1, 1.0)] * 3, 0.02, 2, 0, 600, 600)[0] == "kept"            # no worse, and answers two findings
-    assert jd.decide([w(1, 1.0)] * 3, 0.02, 2, 1, 600, 600)[0] == "dropped"         # ... but makes one
-    assert jd.decide([w(1, 0.9)] * 2, 0.02, 0, 0, 600, 600) is None                 # too few windows yet: testing
-    assert jd.decide([], 0.02, 0, 0, 3600, 600)[1].startswith("too little record")
+    from .test_slowjudge import evidence as w
+    assert jd.decide(w(1, 0.9), 0.02, 0, 0, 600, 600)[0] == "kept"
+    assert jd.decide(w(1, 0.99), 0.02, 0, 0, 600, 600)[:1] == (None,)              # better, but by less than 2%: more record
+    assert jd.decide(w(1, 1.1), 0.02, 0, 0, 600, 600)[1].startswith("worse near what it touches")
+    assert jd.decide(w(1, 1.0), 0.02, 2, 0, 600, 600)[0] == "kept"                 # no worse, and answers two findings
+    assert jd.decide(w(1, 1.0), 0.02, 2, 1, 600, 600)[0] == "dropped"              # ... but makes one
+    assert jd.decide(w(1, 0.9, n=0), 0.02, 0, 0, 600, 600)[:1] == (None,)          # nothing read yet: testing
+    assert jd.decide(w(1, 0.9, n=0), 0.02, 0, 0, 3600, 600)[1].startswith("too little record")
     assert jd.windows(0, 3600) == [(0, 3600), (0, 1800), (1800, 3600), (0, 900), (900, 1800), (1800, 2700), (2700, 3600)]
     assert jd.windows(0, 3600, [1, 3]) == [(0, 3600), (0, 1200), (1200, 2400), (2400, 3600)]
     assert jd.windows(0, 100) == [(0, 100)]                                        # halves under a minute are not judged

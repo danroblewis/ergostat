@@ -62,7 +62,7 @@ def asks(p, b, since: float | None = None, until: float | None = None) -> list[d
                 out[-1].update(answered=e["time"], verdict="superseded", by=None)
             out.append({"seq": e["seq"], "time": e["time"], "data": e["data"], "answered": None, "verdict": None})
         elif out and out[-1]["answered"] is None:
-            out[-1].update(answered=e["time"], by=e.get("source"),
+            out[-1].update(answered=e["time"], by=e.get("source"), note=(e.get("data") or {}).get("note") or None,
                            verdict="denied" if e["type"] == "block.denied" else "approved")
     return out
 

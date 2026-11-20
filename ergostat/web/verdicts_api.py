@@ -6,6 +6,7 @@ own act, recorded as an event (``intent/record.py``); neither changes the model.
 from __future__ import annotations
 
 from ..intent import measures, record
+from ..webaccess import who
 
 
 def table(p, snap) -> dict | None:
@@ -25,9 +26,9 @@ def post(live, path: str, q: dict) -> tuple[int, dict]:
         return 404, {"error": "not found: POST /api/verdict/overrule?id=... or /api/verdict/reopen?item=..."}
     try:
         if act == "overrule":
-            got = record.overrule(p, first("id") or "", first("reason"))
+            got = record.overrule(p, first("id") or "", first("reason"), by=who())
             return 200, {"id": got["id"], "state": "overruled", "work": got["work"]}
-        ev = record.reopen(p, spec, first("item") or "", first("reason"))
+        ev = record.reopen(p, spec, first("item") or "", first("reason"), by=who())
         return 200, {"item": ev["item"], "reopened": ev["data"]["reopened"]}
     except record.VerdictError as e:
         return 400, {"error": str(e)}

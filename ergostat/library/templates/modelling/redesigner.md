@@ -66,6 +66,16 @@ Rules:
   a stock, under its name or renamed; never remove it or turn it into an auxiliary.
 - A block's `out:` names the flow its runs move; a goal on a queue of items is `hold: "<= 0"` with `tolerance: 0`.
 - Prefer a complete, coherent design over a timid one: this is the change refinement could not make.
+- What was proposed before (when the prompt has it): never propose again a change set the owner dismissed or the
+  judge found not better, nor one of its edits, unless the record now answers the reason given; read the owner's
+  reason as evidence of what the model lacks, and say in your summary how your design differs from what was turned
+  away.
+- Interventions (when the prompt has them): each recurring one is a person's time spent where the model has no
+  loop, so treat it as evidence of a missing loop or of structure the model lacks: a queue that only builds in bursts is a capacity, items
+  seen twice are rework, a part that lags another is a delay or a stock between them, a level that settles whatever
+  its start is a balancing flow that seeks it (in the flow's equation; add goals and blocks only for a controller the
+  record shows acting). Answer it with the stocks, flows and equations the record supports, and name it in a `why`:
+  an edit that does not compile sinks the whole change set, so keep to what you can write correctly. Never answer it by removing or loosening a guard (an alarm, a gate, an advised block): that is suppression.
 - With the reviewer on, a change set the judge passes is then read by a disagreeable senior modeller; "The reviewer on
   your recent proposals" (when there is one) is what it said: answer every finding of one it sent back (a second revise
   is a reject), and never propose again what it rejected.

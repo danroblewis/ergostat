@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from ..decisions import acts
 from ..decisions.kinds import CORRECTION, DECISION, kind_of_id
+from ..webaccess import who
 
 ACTS = {DECISION: ("confirm", "dismiss", "supersede"), CORRECTION: ("confirm", "dismiss", "retire")}
 
@@ -22,13 +23,13 @@ def post(live, path: str, q: dict) -> tuple[int, dict]:
     act, reason = parts[1], first("reason")
     try:
         if act == "confirm":
-            got = acts.confirm(p, kind, id, reason)
+            got = acts.confirm(p, kind, id, reason, by=who())
         elif act == "dismiss":
-            got = acts.dismiss(p, kind, id, reason)
+            got = acts.dismiss(p, kind, id, reason, by=who())
         elif act == "supersede":
-            got = acts.supersede(p, id, first("by") or "", reason)
+            got = acts.supersede(p, id, first("by") or "", reason, by=who())
         else:
-            got = acts.retire(p, id, reason)
+            got = acts.retire(p, id, reason, by=who())
     except acts.ActError as e:
         return 409, {"error": str(e)}
     return 200, got

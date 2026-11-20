@@ -179,7 +179,8 @@ def remedies(spec, cls: str, rec: dict | None) -> list[str]:
                 "until its claims hold", "add the missing loop that makes the request unnecessary (a goal on what they "
                 "are asked to restore)", "change the software so the step is not needed"]
     if kind == "alarm":
-        return [f"add the missing loop: a goal and a controller on what {name} watches, acting before it rises",
+        return [f"add the structure that explains what {name} watches (a capacity, rework, a delay, a balancing flow), "
+                "and a goal and a controller on it only where something should act before it rises",
                 "change the software so what it watches no longer drifts", "an AI or program block that answers the "
                 "alarm, the person reviewing until it holds"]
     ev = f" (this week: {record_said(rec)})" if rec else ""
@@ -278,8 +279,9 @@ def _ran(p, spec, cls: str, cause: str, since: float) -> bool:
     if kind == "alarm":
         return any(not v for _, v in p.measurements.range(f"block/{name}", since, time.time() + DAY))
     if kind == "change":
-        return any(e["source"] not in ("owner",) for e in p.events.query(n=200, type="ergostat.model-change.accepted",
-                                                                           since=since))
+        from .stats import by_person
+        return any(not by_person(e["source"]) for e in p.events.query(n=200, type="ergostat.model-change.accepted",
+                                                                      since=since))
     if kind == "steptest":
         g = spec.goals.get(cause.removeprefix("goal "))
         return bool(g is not None and g.process)

@@ -590,6 +590,9 @@ def stamp(m: Model) -> tuple:
         out.append(was[1])
         out.append(tuple(_mtime(Path(f)) for f in getattr(m.spec, "template_files", ())))   # the owner's templates
         out.append(tuple(_mtime(Path(f)) for f in getattr(m.spec, "remote_files", ())))     # remotes' models (SPEC §4c)
+    if m.path:
+        from .spec.load import LOCAL
+        out.append(_mtime(Path(m.path).parent / LOCAL))                                   # this machine's settings
     return tuple(out)
 
 
