@@ -13,12 +13,29 @@ It ships **off**: the implementor takes nothing until you open the intake.
 | | |
 |---|---|
 | `~/ergostat` | the checkout the queue merges into, runs the suites in, and pushes from. Never the instance's code |
-| `~/ergostat-wt/<branch>` | each gap's worktree (`.review/`, `.triage/`: the reviewer's and triage's own) |
+| `~/ergostat-live/drop.git` | the factory's own bare repository: each gap's work, on `factory/<branch>`, as the sessions bundled it back; the queue fetches the reviewed commit from it |
+| `~/ergostat-live/sessions/` | each session's clone (made from the drop, never the owner's repository) |
 | `~/ergostat-live/<sha>` | each installed version: a detached worktree with its own `.venv` |
 | `~/ergostat-live/current`, `previous` | the version running, and the one a revert goes back to |
 | `~/ergostat-live/instance/` | the instance's folder, the same across versions (its record is keyed by it): copies of the version's `ergostat.yaml` and `dev/`, made at each switch (an edit made in them since, such as a model change you accepted, is kept as a patch in `run/model-edits/`: bring it to the repository as a gap), `run/` (briefs, logs, the cost ledger, definitions you write), `factory.local.toml` |
 | `dev/factory.toml` | the settings (paths, models, per-session limits, the suites' commands); `factory.local.toml` in the instance's folder overrides any of them |
 | `dev/model/budget.yaml` | **the daily dollar cap** (the goal `ai-budget`, $40 a day): change it there and nowhere else |
+
+## Sessions in containers
+
+Each implementor and reviewer session runs in a Docker container of its own (`dev/bin/agents.py`): on its own clone
+(read-only for the reviewer), its result bundled back into `drop.git`; on an internal network whose only way out is
+the egress proxy (`dev/agent/egress.py`, container `ergostat-egress`), which reaches `api.anthropic.com` alone; with
+one secret, the session token, and nothing else of this machine. Claude Code inside still runs `--restricted` with the
+role's narrow tools.
+
+**What it needs from the owner:** the token file `~/.config/ergostat/claude-token` (one line, mode 600, from
+`claude setup-token` in your own terminal). Without it, or with any other mode, sessions refuse to start. Then, once:
+
+```sh
+scripts/in_container.sh true                                  # the dev image, if not built
+docker build -t ergostat-agent:latest dev/agent               # the agent image: the dev image and Claude Code
+```
 
 ## Start it (the first time)
 
@@ -63,7 +80,7 @@ mkdir -p run/defs && $EDITOR run/defs/<branch>.md        # the gap's `branch` fi
 ```
 
 (or `docs/roadmap/overnight/<branch>.md` on main or on its branch). A gap that is not in GAPS.md is asked for as an
-event, its definition with it (a file, or the text):
+event, its definition a file in `run/defs/` (a branch is lowercase words and dashes; nothing else is taken):
 
 ```sh
 ergostat event --add gap.requested --item gap/my-change \

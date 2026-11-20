@@ -5,7 +5,7 @@ only the work: judge what is in the branch, not what anyone says about it.
 # The branch
 
 - Gap: {gap} ({title}), review round {round}
-- Branch `{branch}`, checked out read-only at `{worktree}`; compare with `{base}` (`git diff {base}...HEAD`)
+- Branch `{branch}`, checked out read-only at `{worktree}`; compare with `origin/{base}` (`git diff origin/{base}...HEAD`)
 - Net lines of core code changed: {net_lines} against a budget of {budget}
 - Mechanical gates already checked by the factory: {gates}
 

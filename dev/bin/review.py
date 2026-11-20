@@ -19,15 +19,11 @@ import time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
+import agents  # noqa: E402
 import brief  # noqa: E402
 import fac  # noqa: E402
 import pools  # noqa: E402
 
-TOOLS = ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git status:*)",
-         "Bash(uv run python -m pytest:*)", "Bash(ls:*)", "Bash(wc:*)"]
-NEVER = ["Edit", "Write", "NotebookEdit", "Bash(git push:*)", "Bash(git commit:*)", "Bash(git stash:*)",
-         "Bash(git checkout:*)", "Bash(git reset:*)", "Bash(gh:*)", "Bash(curl:*)", "WebFetch", "WebSearch",
-         "Read(~/.claude/**)", "Grep(~/.claude/**)", "Glob(~/.claude/**)"]
 KILL = 2                     # the failed gates that park a gap
 VERDICT_EVENT = {"merge": "review.approved", "fix": "review.sent-back", "park": "review.parked"}
 VERDICT = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
@@ -62,28 +58,22 @@ def verdict(said: str) -> dict:
             "where_it_stopped": str(v.get("where_it_stopped") or "")}
 
 
-def review_tree(cfg: dict, branch: str) -> Path:
-    """A detached worktree at the branch's head, for the reviewer alone (not the implementor's folder)."""
-    repo, wt = fac.path(cfg, "checkout"), fac.path(cfg, "worktrees") / ".review" / branch
-    if not (wt / ".git").exists():
-        wt.parent.mkdir(parents=True, exist_ok=True)
-        fac.git(repo, "worktree", "add", "-q", "--detach", str(wt), branch)
-    else:
-        fac.git(wt, "checkout", "-q", "--detach", branch)
-    return wt
-
-
-def park(cfg: dict, gap: dict, why: str, review_id: str, where: str = "review") -> None:
-    """Write where it stopped into the definition file on the branch (a commit in its worktree), then park."""
+def park(cfg: dict, gap: dict, why: str, by: str, where: str = "review") -> None:
+    """Where it stopped, written into the definition file on the gap's branch (a commit this program makes in a clone
+    of its own, pushed to the drop), then the gap parked."""
     branch = fac.branch_of(gap)
-    wt = fac.path(cfg, "worktrees") / branch
-    rel = wt / fac.DEFS / f"{branch}.md"
-    if rel.is_file():
-        with rel.open("a") as fh:
-            fh.write(f"\n## Where it stopped\n\nParked by the factory ({review_id}, {time.strftime('%Y-%m-%d %H:%M')})."
-                     f"\n\n{why.strip()}\n")
-        fac.commit_all(wt, f"{branch}: where it stopped")
-    fac.say("gap.parked", parked_at=time.time(), where_it_stopped=why[:4000], parked_by=review_id, parked_in=where)
+    rel = f"{fac.DEFS}/{branch}.md"
+    d = agents.drop(cfg)
+    if fac.git_ok(d, "rev-parse", "--verify", "-q", f"refs/heads/{fac.git_branch(branch)}"):
+        _, work = agents.clone(cfg, branch, "park")
+        if (work / rel).is_file():
+            with (work / rel).open("a") as fh:
+                fh.write(f"\n## Where it stopped\n\nParked by the factory ({by}, {time.strftime('%Y-%m-%d %H:%M')})."
+                         f"\n\n{why.strip()}\n")
+            fac.git(work, "-c", "user.name=factory", "-c", "user.email=factory@localhost", "commit", "-q", "-am",
+                    f"{branch}: where it stopped\n\n{fac.TRAILER}")
+            agents.publish(cfg, work, branch)
+    fac.say("gap.parked", parked_at=time.time(), where_it_stopped=why[:4000], parked_by=by, parked_in=where)
 
 
 def main() -> int:
@@ -97,12 +87,15 @@ def main() -> int:
     if not pools.my_turn(cfg, "reviewer", "reviewer", gap["id"]):
         fac.nack("the reviewer pool is full (run/pools.json): waits its turn", after="5m", count=False)
         return 0
-    branch, base = fac.branch_of(gap), cfg["git"]["base"]
+    branch, base = fac.branch_of(gap), f"origin/{cfg['git']['base']}"       # (in the clone made from the drop)
     n = int(f.get("reviews_n") or 0) + 1
     rid = f"review/{branch}-{n}"
     began = time.time()
     fac.say("gap.review-started", review_at=began, reviews_n=1)
-    wt = review_tree(cfg, branch)
+    head = str(f.get("head") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        raise RuntimeError(f"{gap['id']} has no built head to review")
+    home, wt = agents.clone(cfg, branch, "reviewer", at=head)
     blocking, definition = gates(cfg, wt, branch, base)
     net, budget = fac.net_lines(wt, base, "HEAD"), fac.budget_of(definition)
     if net > budget and not re.search(r"over.*reason|reason.*over", definition, re.I | re.S):
@@ -115,20 +108,25 @@ def main() -> int:
         cfg, "reviewer", gap, wt, definition=definition, diff=f"```diff\n{diff}\n```", net_lines=net,
         gates="; ".join(blocking) or "all passed")
     context["brief"] = brief.save(cfg, "reviewer", gap, text)
-    got = fac.session(cfg, "reviewer", text, wt, TOOLS, NEVER)
+    try:
+        got = fac.session(cfg, "reviewer", text, wt)
+    except fac.OverBudget as e:
+        fac.nack(f"budget: {e}", after="1h", count=False)
+        return 0
     v = verdict(str(got.get("result", "")))
     v["blocking"] = blocking + v["blocking"]
     if v["blocking"] and v["verdict"] == "merge":
         v["verdict"] = "fix"
     cost = round(float(got.get("total_cost_usd") or 0), 4)
     fac.say("review.written", rid, gap=gap["id"], round=n, written_at=time.time(), **v, context=context, ai_cost_usd=cost,
-            head=fac.git(wt, "rev-parse", "HEAD"), net_lines=net, budget=budget)
+            head=head, net_lines=net, budget=budget)
     fac.say(VERDICT_EVENT[v["verdict"]], rid, gap=gap["id"])
     record = dict(reviews=[rid], contexts=[context], ai_cost_usd=cost,
                   review_hours=round((time.time() - began) / 3600, 3))
     failed = int(f.get("failed_gates") or 0) + (v["verdict"] == "fix")
     if v["verdict"] == "merge":
-        fac.say("gap.approved", approved_at=time.time(), approved_by="review", first_pass=n == 1, **record)
+        fac.say("gap.approved", approved_at=time.time(), approved_by="review", first_pass=n == 1, reviewed_head=head,
+                **record)
     elif v["verdict"] == "park" or failed >= KILL:
         why = v["where_it_stopped"] or "Failed its gates twice (the kill rule). Blocking findings:\n" + "\n".join(
             f"- {b}" for b in v["blocking"])

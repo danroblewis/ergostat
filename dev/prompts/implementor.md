@@ -5,7 +5,7 @@ answer questions: take the most reversible option and say so in the definition f
 
 - Item: {gap}, round {round}
 - Title: {title}
-- Branch: `{branch}`, in the worktree `{worktree}` (made from `{base}`)
+- Branch: `{branch}`, in `{worktree}`: a clone of your own, in a container (made from `{base}`)
 
 ## Its definition of done (committed first, at `{definition_path}`; never change it except to add a "Where it stopped" section)
 

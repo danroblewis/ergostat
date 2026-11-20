@@ -5,8 +5,8 @@
 - requests submitted as events (`ergostat event --add gap.requested --item gap/NAME --data '{"title": ...}'`) are in
   the record already, open;
 - each open gap with a definition of done: `gap.defined` (ready). A definition is the gap's `definition` field (a
-  file, or the text itself), `run/defs/<branch>.md` in the instance's folder (written by the coordinator), or
-  `docs/roadmap/overnight/<branch>.md` on main or on the gap's branch.
+  file in run/defs/), `run/defs/<branch>.md` in the instance's folder (written by the coordinator), or
+  `docs/roadmap/overnight/<branch>.md` on main or on the gap's branch; nothing else is read.
 
 It reads git with commands that write nothing, and never acts. Run as a block: its lines are the record's."""
 
@@ -17,6 +17,7 @@ import sys
 import time
 
 sys.dont_write_bytecode = True
+import brief  # noqa: E402
 import fac  # noqa: E402
 
 ENTRY = re.compile(r"^- \*\*(.+?)\*\*\s*(\((?:[^()]|\([^()]*\))*\))?")
@@ -43,17 +44,18 @@ def gaps_md(text: str) -> list[dict]:
 
 
 def definition(cfg: dict, gap: dict) -> str | None:
-    """Where the gap's definition of done is, or None."""
-    f, branch = gap["fields"], fac.branch_of(gap)
-    if f.get("definition"):
-        return str(f["definition"])
-    draft = fac.run_dir(cfg, "defs") / f"{branch}.md"
-    if draft.is_file():
-        return str(draft)
-    repo, rel = fac.path(cfg, "checkout"), f"{fac.DEFS}/{branch}.md"
-    for ref in (cfg["git"]["base"], branch):
-        if fac.git_ok(repo, "cat-file", "-e", f"{ref}:{rel}"):
-            return f"{ref}:{rel}"
+    """Where the gap's definition of done is (only run/defs/ or REF:docs/roadmap/overnight/, brief.definition_text),
+    or None; None too for a gap whose branch is not a safe name."""
+    try:
+        branch = fac.branch_of(gap)
+    except ValueError as e:
+        print(f"intake: {e}: not taken", file=sys.stderr)
+        return None
+    rel = f"{fac.DEFS}/{branch}.md"
+    for where in (str(gap["fields"].get("definition") or ""), f"run/defs/{branch}.md", f"{cfg['git']['base']}:{rel}",
+                  f"{fac.git_branch(branch)}:{rel}"):
+        if where and brief.definition_text(cfg, where, branch).strip():
+            return where
     return None
 
 
