@@ -88,10 +88,12 @@ flows:
 goals:
   in-review-clear:
     stock: in-review
+    system: delivery
     hold: "<= 0"
     description: what is worked is reviewed, and nothing is left half done
   nothing-ready-waits:
     stock: todo
+    system: delivery
     hold: "<= 0"
     description: every ticket that can start, started
 
@@ -118,3 +120,7 @@ blocks:
     pool: 1
     out: flow.finished
     description: a stand-in that approves a ticket after a moment
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

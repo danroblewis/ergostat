@@ -6,6 +6,8 @@ systems:
   work:
     description: the small things I want kept going
 uses:
+  modelling:
+    use: modelling                  # the model improved as a loop of its own: what check finds is its work (SPEC §12e)
   help-queue:                       # "draft an answer for each question in the help queue; none waits four hours"
     use: respond-to
     within: work

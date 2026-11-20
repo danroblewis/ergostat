@@ -103,7 +103,9 @@ Work through these steps in order. Ask the person only what you cannot infer.
    changes with their evidence while it is off, and ergostat's judge tests each on the record after it; the
    owner accepts what passes (or `accept: {parameter: auto}` writes passed values at once). It runs free on a
    stand-in improver until given a prompt and `run: ""` (a Claude session) or a program; its options are in
-   `docs/ADDING.md` (modelling). Do not hand-write these parts.
+   `docs/ADDING.md` (modelling). With `ai: true` it also reviews the structure on its own, a system at a time (the
+   redesigner, `when: auto`), and what it proposes waits for the owner: keep the systems small (40 parts or fewer)
+   so each can be reviewed whole. Do not hand-write these parts.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three

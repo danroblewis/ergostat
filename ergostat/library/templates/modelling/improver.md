@@ -29,8 +29,8 @@ Read `improve_model` (the guidelines: docs/MODELLING.md and the review skill) fi
    something.
 4. **What could be simpler**: a part that explains nothing, two flows that are one.
 
-The parts of the modelling loop itself (model-error, the changes counted by state, model-fits, this
-improver and the judge) are made by `use: modelling`: leave them alone.
+The parts of the modelling loop itself (model-error, the changes and requests counted by state, model-fits, this
+improver, the fixer, the modeller and the judge) are made by `use: modelling`: leave them alone.
 
 ## Tools
 

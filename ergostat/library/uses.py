@@ -80,7 +80,7 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
             err(msg, given.at(key) if key and hasattr(given, "at") else at, "bad-param")
         return
     via = Via(at.file if at else doc.root, at.line if at else 1, t.name, inst)
-    parent = entry.get("within") or within or defaults.get("system")
+    parent = entry.get("within") or within or (None if t.once else defaults.get("system"))   # once a model: the model's
     parent = None if parent == inst else parent
     system = {**made.system, **({"description": str(entry["description"])} if entry.get("description") else {}),
               **({"within": str(parent)} if parent else {})}
@@ -96,7 +96,7 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
             continue
         for name, got in entries.items():
             put(section, name, as_map(got, via), via, {})
-    doc.uses[inst] = {"template": t.name, "path": str(t.path), "owners": not t.builtin, "values": made.values,
+    doc.uses[inst] = {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once, "values": made.values,
                       "standins": made.standins, "where": via, "within": parent, "depth": depth}
     if made.standins:
         doc.problems.append(Problem("finding", f"use {inst}: runs on free stand-ins ({'; '.join(made.standins)}); "

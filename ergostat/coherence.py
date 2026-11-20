@@ -291,7 +291,8 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                 parts.append(f"{MIN_ITEMS - n_items} more item{'s' if MIN_ITEMS - n_items != 1 else ''}")
             need = f"{' and '.join(parts)} of {k} in the window (has {n_moves} move{'s' if n_moves != 1 else ''} of " \
                    f"{n_items} item{'s' if n_items != 1 else ''}; needs {MIN_MOVES} moves of {MIN_ITEMS} items)"
-        kinds_info[k] = {"moves": n_moves, "items": n_items, "needs": need, "chained": k in built}
+        kinds_info[k] = {"moves": n_moves, "items": n_items, "needs": need, "chained": k in built,
+                         "moved": {f"{a or 'arrived'} -> {b}": n for (a, b), n in window_moves.get(k, Counter()).most_common(24)}}
         if k not in built:
             if need is None and n_moves:
                 stocked = sorted({s for st in spec.stocks.values() for x in st.sensors.values()
@@ -344,6 +345,9 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                            and b.type != "external"})
             if not ours:
                 continue                              # items wait on the world here: every flow out is from outside
+            if all(spec.blocks[b].type == "judge" for b in ours):
+                sc.add("dynamics-blocks", True)       # the judge works them off on its own clock (SPEC §12e)
+                continue
             filling = {m[1] for f in spec.flows.values() if f.target == st and (m := moved_by.get(f.name) or ch.mover(f.name))
                        and m[0] == "block"}
             emptying = {m[1] for f in spec.flows.values() if f.source == st and (m := moved_by.get(f.name) or ch.mover(f.name))
@@ -485,7 +489,8 @@ def compare(spec, events, since: float | None = None, until: float | None = None
                     bl = spec.blocks[wn]
                     t = bl.takes
                     declared = (t is not None and t.kind == k and (p is None or p in t.at) and (not t.to or s in t.to)) or \
-                        any(r.kind == "flow" and r.name in carriers for r in bl.targets())
+                        any(r.kind == "flow" and (r.name in carriers or _measures_entering(spec, r.name, k, s))
+                            for r in bl.targets())
                     sc.add("blocks-process", declared)
                     if not declared:
                         what = (f"takes items of {k} at {', '.join(t.at)}" + (f" to {', '.join(t.to)}" if t.to else "")
@@ -595,6 +600,13 @@ def _goals_on(spec, stock: str) -> list:
                 drives.add(f"auxiliary.{a.name}")
                 todo = True
     return [g for g in spec.goals.values() if str(g.of) in drives]
+
+
+def _measures_entering(spec, flow: str, kind: str, state: str) -> bool:
+    """A flow measured as the items of a kind entering a state: what a block that names it in ``out:`` says it moves."""
+    f = spec.flows.get(flow)
+    return f is not None and any((x.items or {}).get("kind") == kind and (x.items or {}).get("entering") == state
+                                 for x in f.sensors.values())
 
 
 def _undeclared_fix(k: str, p: str | None, s: str, t, carriers: set[str]) -> str:

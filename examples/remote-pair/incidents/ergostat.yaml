@@ -67,3 +67,7 @@ blocks:
       for f in $(cat .batch); do rm -f "queue/$f"; echo "{\"event\": \"incident.resolved\", \"item\": \"incident/$f\"}"; done;
       echo "{\"moved\": $(wc -l < .batch | tr -d ' ')}"
     out: flow.resolved
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)
