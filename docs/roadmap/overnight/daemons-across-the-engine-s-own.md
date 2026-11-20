@@ -142,3 +142,19 @@ docstrings included), so no overrun. All six acceptance tests are in `tests/test
 - No merge of origin/main: this clone has no `origin` remote ref and reaching the network is not allowed. Local
   `main` (05c6dc9) is the branch's base, so there was nothing on it to merge. The merge and the suites after it are
   still owed (lesson-7).
+
+**The factory's unit run (after the work above).** 1 failed, 1908 passed, 69 skipped, rc 1:
+`tests/test_lease_refused_cost.py::test_many_expired_items_with_long_transcripts_cost_about_what_they_did`, on
+`etamodel.read: 0.090s, against 0.012s without`. It is left unfixed in this branch, as lesson-13 says:
+- The branch changes nothing that the test reaches. `git diff main..HEAD` touches no file under `ergostat/numbers/`,
+  `ergostat/leases/` or `ergostat/spec/items.py`. The test and its bounds are unchanged from main. `etamodel.read`
+  never touches `proc.GROUPS`, the supervisor or `cli/running.py`.
+- Run alone on this branch afterwards, it passes (`1 passed in 0.81s`).
+- The comparison is between two timings of a few milliseconds, one taken after the other, under `-n` load. The extra
+  cost the test measures is `fold.refused_expiries` reading 300 items from the item index under its lock. That is
+  file and lock work, which a busy worker slows unevenly. Nothing this branch's tests leave behind could cause it:
+  the run reported `left_behind: 0`, and the `deaf` programs sleep rather than spin and are SIGKILLed by the new
+  file's fixture.
+- If the failure is a real cost in `refused_expiries` or the item index under load, and not a timing flake, it
+  needs its own gap. I could not profile it here: this session was only allowed to run pytest, so no ad hoc
+  script could be run.
