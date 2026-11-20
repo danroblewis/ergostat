@@ -115,6 +115,8 @@ def test_a_wait_the_pipeline_explains_is_not_stuck(tmp_path):
     assert f.tool("watch.py", "stuck").stdout.strip() == "0"
     f.put("gap/busy", "merged")
     assert f.tool("watch.py", "stuck").stdout.strip() == "1"
+    f.put("gap/waiting", "ready", moves=moves, entered=9 * H, waits_on_main="a" * 40)   # main-broken's wait
+    assert f.tool("watch.py", "stuck").stdout.strip() == "0"
 
 
 def test_an_old_open_intervention_is_raised_but_never_the_managers_own(tmp_path):
@@ -227,8 +229,9 @@ def test_reapprove_takes_a_fast_suite_failure_to_built_and_refuses_a_moved_branc
     db["items"][gid]["state"] = "fix"
     fields.update(failed_tests=[], suites_fast={"failed": "unit", "tests": ["tests/test_y.py::test_b"]})
     f.record.write_text(json.dumps(db))
-    f.config.write_text(f.config.read_text().replace('rerun = "echo again {tests}"',
-                                                     "rerun = 'printf \"FAILED %s\\n\" {tests}; false'"))
+    assert "not environmental" in f.manage("reapprove", gid, "--why", "fails on main?", ok=False)  # (passes there)
+    f.config.write_text(f.config.read_text().replace('alone = "true {tests}"',
+                                                     "alone = 'printf \"FAILED %s\\n\" {tests}; false'"))
     assert "back to built" in f.manage("reapprove", gid, "--why", "fails only in the container, on main too")
     assert f.item(gid)["state"] == "built" and f.item(gid)["fields"]["head"] == fields["head"]
     db = f.db()

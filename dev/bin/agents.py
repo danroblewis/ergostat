@@ -307,11 +307,14 @@ def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str, *a
     return head
 
 
-def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str) -> dict:
-    """The fast suites on a session's work, each in a named container with no network, in a machine-wide slot."""
+def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, tests: list[str] | None = None) -> dict:
+    """The fast suites on a session's work, each in a named container with no network, in a machine-wide slot;
+    ``tests``: the test ids a suite's `{tests}` names (each shell-quoted)."""
     out: dict = {}
     for n in names:
         cmd, name = cfg["suites"][n], None
+        if tests is not None:
+            cmd = cmd.format(tests=" ".join(map(shlex.quote, tests)))
         if cfg["ai"]["mode"] != "standin":
             name, cmd = contained(cfg, cmd, home / "work")
         log = logs / f"{tag}-{n}.txt"

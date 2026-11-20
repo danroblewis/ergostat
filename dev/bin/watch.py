@@ -72,9 +72,12 @@ def hours_in(g: dict, start: float, now: float) -> float:
 
 
 def explained(g: dict, gaps: dict, cfg: dict) -> bool:
-    """A wait that is no trouble: its dependencies unmerged or its pool full, the queue busy or its push held."""
+    """A wait that is no trouble: waiting on main to move, its dependencies unmerged or its pool full, the queue busy or
+    its push held."""
     st, n, p = g["state"], lambda *s: sum(x["state"] in s for x in gaps.values()), pools.state(cfg)  # noqa: E731
     waits = [d for d in fac.ids(g["fields"].get("depends_on")) if gaps.get(d, {}).get("state") != "merged"]
+    if g["fields"].get("waits_on_main"):                 # (main-broken: it waits for main to move, by design)
+        return True
     return (st in ("ready", "fix") and bool(waits or n("building") >= p["implementor"])) or (
         st == "built" and n("in-review") >= p["reviewer"]) or (
         st == "approved" and bool(n("queued", "queue-failed") or queue_state(cfg).get("pending")))

@@ -22,6 +22,7 @@ import uuid
 sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import fac  # noqa: E402
+import onmain  # noqa: E402
 
 BY = ["coordinator"]                      # who acts: the coordinator by hand, the pipeline manager from its run
 SITUATION = [""]
@@ -78,26 +79,24 @@ def do_continue(cfg: dict, a) -> str:
     return f"{gid} requested, continuing {branch}"
 
 
-def on_main(cfg: dict, tests: list[str], contained: bool) -> tuple[int, list[str], str]:
-    """The tests again on main: in a container on a clone of it (the fast suites' place), or in a worktree of the
-    checkout of its own (the queue's). (exit, the tests that failed, the log)."""
-    base = cfg["git"]["base"]
-    log = fac.run_dir(cfg, "manager") / f"main-{time.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:4]}.txt"
+def on_main(cfg: dict, g: dict, tests: list[str], contained: bool) -> tuple[int, list[str], str]:
+    """The tests again on main where they failed: the fast suites' in a suite container on the main the branch merged
+    (main-broken's own run, onmain.failing), the queue's in a worktree of the checkout of its own at main. (exit, the
+    tests that failed, the log)."""
+    base, tag = cfg["git"]["base"], f"manager-{time.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:4]}"
+    if contained:
+        main = str(g["fields"].get("built_main") or "") or f"origin/{base}"
+        got = onmain.failing(cfg, fac.branch_of(g), main, tests, fac.run_dir(cfg, "manager"), tag)
+        return int(bool(got.get("failed"))), list(got.get("tests") or []), fac.rel(fac.run_dir(cfg, "manager")
+                                                                                   / f"{tag}-alone.txt")
+    log = fac.run_dir(cfg, "manager") / f"{tag}.txt"
     cmd = cfg["suites"]["rerun"].format(tests=" ".join(map(shlex.quote, tests)))
-    if contained and cfg["ai"]["mode"] != "standin":
-        _, work = agents.clone(cfg, "main-check", "pipeline_manager", at=f"origin/{base}")
-        name, cmd = agents.contained(cfg, cmd, work)
-        try:
-            rc, _ = fac.suite(cfg, "rerun", work, log, command=cmd)
-        finally:
-            agents.killed(name)
-    else:
-        wt = fac.path(cfg, "worktrees") / ".manager"
-        if not (wt / ".git").exists():
-            wt.parent.mkdir(parents=True, exist_ok=True)
-            fac.git(fac.path(cfg, "checkout"), "worktree", "add", "-q", "--detach", str(wt), base)
-        fac.git(wt, "checkout", "-q", "--detach", fac.git(fac.path(cfg, "checkout"), "rev-parse", base))
-        rc, _ = fac.suite(cfg, "rerun", wt, log, command=cmd)
+    wt = fac.path(cfg, "worktrees") / ".manager"
+    if not (wt / ".git").exists():
+        wt.parent.mkdir(parents=True, exist_ok=True)
+        fac.git(fac.path(cfg, "checkout"), "worktree", "add", "-q", "--detach", str(wt), base)
+    fac.git(wt, "checkout", "-q", "--detach", fac.git(fac.path(cfg, "checkout"), "rev-parse", base))
+    rc, _ = fac.suite(cfg, "rerun", wt, log, command=cmd)
     return rc, fac.failed_tests(log.read_text()), fac.rel(log)
 
 
@@ -115,7 +114,7 @@ def do_reapprove(cfg: dict, a) -> str:
         raise Refused(f"{a.gap} ({st}) has no failure of named tests in the queue or its fast suites to re-approve")
     if not head or head != tip:
         raise Refused(f"{a.gap}'s branch moved since its failure ({head[:12] or 'none'} failed, {tip[:12] or 'none'} now)")
-    rc, failed, log = on_main(cfg, tests, contained)
+    rc, failed, log = on_main(cfg, g, tests, contained)
     passed = [t for t in tests if t not in failed]
     if not rc or passed:
         raise Refused(f"not environmental: on main {', '.join(passed) or 'they'} passed ({log}); the failure is the branch's")
