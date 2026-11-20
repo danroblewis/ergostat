@@ -54,3 +54,8 @@ was dropped, as the review allowed, and recorded in GAPS; `test_a_retuned_contro
 gone with it. In its place: `external-not-run` (a law identified whose output the projection cannot move), and tests for
 a day of record at the sensors' own period, every seed recovering the alert and the HPA with no spurious waits, and the
 no-delay bias note.
+
+**Size: 625 net lines, 25 over the budget.** The review's fixes added the Blocks view's fit in a thread on a miss
+(rather than on the page's request), logging where errors were swallowed, `external-not-run`, the sensors' share of the
+delay and the no-delay bias note, per-sensor readings and a stock moved by the law's changes; dropping
+`external-law-changed` gave back less than they took.
