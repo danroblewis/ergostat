@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import threading
@@ -153,8 +154,23 @@ def slug(text: str, most: int = 0) -> str:
     return s
 
 
+SAFE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+
+
 def branch_of(gap: dict) -> str:
-    return gap["fields"].get("branch") or slug(gap["id"].split("/", 1)[1], 32)
+    """The gap's branch name (its worktree, its session folders, its definition file): only lowercase words and
+    dashes, so no path or ref can be made of it. Anything else raises."""
+    b = gap["fields"].get("branch") or slug(gap["id"].split("/", 1)[1], 32)
+    if not isinstance(b, str) or not SAFE.match(b):
+        raise ValueError(f"{gap['id']}: branch {b!r} is not lowercase words and dashes (at most 64)")
+    return b
+
+
+def git_branch(branch: str) -> str:
+    """The git ref a gap's work is on, in the drop and the checkout: factory/<branch>."""
+    if not SAFE.match(branch):
+        raise ValueError(f"branch {branch!r} is not lowercase words and dashes")
+    return f"factory/{branch}"
 
 
 def net_lines(repo: Path, base: str, head: str) -> int:
@@ -219,6 +235,29 @@ def record_cost(cfg: dict, usd: float, **what) -> None:
         f.write(json.dumps({"at": time.time(), "usd": round(usd, 4), **what}) + "\n")
 
 
+class OverBudget(RuntimeError):
+    pass
+
+
+def reserve(cfg: dict, usd: float, **what) -> None:
+    """Charge a session's most (its --max-budget-usd) before it starts, under a lock, so two sessions never pass the
+    cap together; refused (OverBudget) when it would. ``settle`` gives back what it did not spend, once its cost is
+    known: a session that times out, crashes or is killed keeps its whole reservation."""
+    with open(run_dir(cfg) / "costs.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            why = may_spend(cfg, usd)
+            if why:
+                raise OverBudget(why)
+            record_cost(cfg, usd, kind="reserved", **what)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def settle(cfg: dict, reserved: float, spent: float, **what) -> None:
+    record_cost(cfg, min(spent, reserved) - reserved, kind="settled", spent=round(spent, 4), **what)
+
+
 # ---- the load interlock
 
 SUITE = re.compile(r"^[^ ]*python[0-9.]* -m pytest")
@@ -265,22 +304,39 @@ def queue_lock(cfg: dict):
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
-def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, **fmt) -> tuple[int, float]:
-    """One of [suites] in cwd, its output to log; (exit, seconds). Run by the shell, as the coordinator does, inside
-    [suites] slot (a machine-wide suite slot, waited for) unless ``slot`` is False (the queue: its lock is its slot)."""
-    cmd = cfg["suites"][name].format(**fmt)
+def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
+          **fmt) -> tuple[int, float]:
+    """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
+    shell, as the coordinator does, inside [suites] slot (a machine-wide suite slot, waited for) unless ``slot`` is
+    False (the queue: its lock is its slot). The suite's whole process group is killed if this one is stopped."""
+    quoted = {k: " ".join(map(shlex.quote, v)) if isinstance(v, list) else shlex.quote(str(v)) for k, v in fmt.items()}
+    cmd = command or cfg["suites"][name].format(**quoted)
     if slot and cfg["suites"].get("slot") and name != "ruff":
         cmd = f"{cfg['suites']['slot']} {cmd}"
     began = time.time()
     with log.open("w") as out:
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
-        while p.poll() is None:
-            renew()
-            try:
-                p.wait(timeout=60)
-            except subprocess.TimeoutExpired:
-                pass
+        try:
+            while p.poll() is None:
+                renew()
+                try:
+                    p.wait(timeout=60)
+                except subprocess.TimeoutExpired:
+                    pass
+        finally:
+            if p.poll() is None:                        # stopped part way (an error, a kill): its whole group goes
+                os.killpg(p.pid, signal.SIGTERM)
+                try:
+                    p.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    os.killpg(p.pid, signal.SIGKILL)
     return p.returncode, time.time() - began
+
+
+def stop_on_term() -> None:
+    """SIGTERM (a lease expired, ergostat stopping) raised as SystemExit, so every finally runs: a merge undone, a
+    suite's processes killed."""
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
 
 
 FAILED = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.M)
@@ -292,23 +348,23 @@ def failed_tests(text: str) -> list[str]:
 
 # ---- an AI session
 
-def session(cfg: dict, role: str, brief: str, cwd: Path, tools: list[str], never: list[str]) -> dict:
-    """One headless session on the brief, in cwd: Claude Code (claude -p) or the stand-in. Returns its result
-    message (Claude Code's JSON: result, total_cost_usd, usage, ...), and prints it, so the run is charged with it."""
+def session(cfg: dict, role: str, brief: str, work: Path) -> dict:
+    """One session on the brief, on a work folder: in its own container (agents.py), or the free stand-in. Its most
+    (--max-budget-usd) is reserved first and what it did not spend given back once its cost is known; a session that
+    fails keeps its whole reservation. Returns Claude Code's result message, and prints it so the run is charged."""
     model, usd = cfg["ai"][f"{role}_model"], float(cfg["ai"][f"{role}_session_usd"])
+    who = dict(role=role, model=model, item=os.environ.get("ERGOSTAT_ITEM", ""), run=os.environ.get("ERGOSTAT_RUN", ""))
+    if cfg["ai"]["mode"] != "standin":
+        import agents
+        agents.token(cfg)                                # no token, no session (and nothing charged)
+    reserve(cfg, usd, **who)
     if cfg["ai"]["mode"] == "standin":
-        out = standin(role, brief, cwd)
+        out = standin(role, brief, work)
     else:
-        cmd = ["claude", "-p", "--model", model, "--output-format", "json", "--max-budget-usd", f"{usd:g}",
-               "--permission-mode", "dontAsk", "--allowedTools", *tools, "--disallowedTools", *never]
         with renewing():
-            r = subprocess.run(cmd, input=brief, cwd=cwd, capture_output=True, text=True, timeout=3 * 3600)
-        try:
-            out = json.loads(r.stdout)
-        except json.JSONDecodeError:
-            raise RuntimeError(f"claude answered no JSON (exit {r.returncode}): {(r.stderr or r.stdout)[-400:]}") from None
-    record_cost(cfg, float(out.get("total_cost_usd") or 0), role=role, model=model,
-                item=os.environ.get("ERGOSTAT_ITEM", ""), run=os.environ.get("ERGOSTAT_RUN", ""))
+            out = agents.session(cfg, role, brief, work)
+    if out.get("total_cost_usd") is not None:
+        settle(cfg, usd, float(out["total_cost_usd"]), **who)
     print(json.dumps({k: v for k, v in out.items() if k != "result"} | {"type": "result"}), flush=True)
     if out.get("is_error"):
         raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")

@@ -18,7 +18,7 @@ stocks:
     sensor: {items: gap, state: queue-failed, every: 1m}
   upgrades-available:
     unit: upgrades
-    description: new green mains the instance does not run yet
+    description: new commits on origin/main the instance does not run yet
     sensor: {items: upgrade, state: available, every: 1m}
   upgrades-installed:
     unit: upgrades
@@ -86,8 +86,8 @@ flows:
     sensor: {items: gap, entering: parked, where: {parked_in: triage}, over: 1d}
   upgrades-opened:
     to: upgrades-available
-    description: a new main the queue landed green
-    driven-by: [{cause: +flow.gaps-merged, instant: true, description: each green merge is a new main}]
+    description: a new commit on the remote's pushed main (the push follows each green merge, once approved)
+    driven-by: [{cause: +flow.gaps-merged, instant: true, description: "each green merge, once pushed, is a new main"}]
     equation: upgrades-per-merge * flow.gaps-merged
     sensor: {items: upgrade, entering: available, over: 1d}
   upgrades-installed:
@@ -249,7 +249,7 @@ blocks:
     timeout: 3h
     actions: [push-main]
     in: block.queue-when
-    out: [flow.gaps-queued, flow.gaps-merged, flow.sent-back-by-queue, flow.queue-failures, flow.upgrades-opened]
+    out: [flow.gaps-queued, flow.gaps-merged, flow.sent-back-by-queue, flow.queue-failures]
 
   triage-when:
     type: expr
@@ -270,14 +270,21 @@ blocks:
     in: block.triage-when
     out: [flow.flakes-retried, flow.sent-back-by-triage, flow.parked-in-triage]
 
+  main-watch:
+    type: program
+    description: the collector of upgrades - a new commit on origin/main (pushed, never only merged) opens one
+    run: python3 dev/bin/upgrade.py watch
+    every: 10m
+    timeout: 2m
+    out: flow.upgrades-opened
   upgrader:
     type: program
     description: installs a new main into its own folder and checks it, then asks for the switch (gated)
     run: python3 dev/bin/upgrade.py
     takes: {kind: upgrade, at: available, to: [installed, superseded, failed]}
     pool: 1
-    lease: {ttl: 20m, attempts: 2}
-    timeout: 15m
+    lease: {ttl: 25m, attempts: 2}
+    timeout: 20m                     # uv sync (10m at most) and the check (5m)
     actions: [switch-instance]
     goal: upgrades-taken-up
     out: [flow.upgrades-installed, flow.upgrades-superseded]

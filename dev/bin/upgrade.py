@@ -1,4 +1,7 @@
-"""upgrader: takes an upgrade the merge queue opened (upgrade/<sha12>, available) under a lease, installs it into
+"""upgrader. `upgrade.py watch` (a collector): opens an upgrade (upgrade/<sha12>, available) for each new commit on
+the remote's pushed main (origin/main, fetched into the checkout), never for a merge not pushed.
+
+`upgrade.py` takes an upgrade (upgrade/<sha12>, available) under a lease, installs it into
 <live>/<sha> with its own environment (live.py install), checks the model with its own code, and asks for the gated
 action `switch-instance`. The switch itself (stop, point current at it, start, health-check, revert to the previous
 on failure) runs in a process of its own once the coordinator approves it (live.py switch --detach), since it stops
@@ -14,6 +17,18 @@ import time
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import live  # noqa: E402
+
+
+def watch() -> int:
+    cfg = fac.config()
+    repo, base, remote = fac.path(cfg, "checkout"), cfg["git"]["base"], cfg["git"]["remote"]
+    fac.git(repo, "fetch", "-q", remote, f"+refs/heads/{base}:refs/remotes/{remote}/{base}")
+    sha = fac.git(repo, "rev-parse", f"refs/remotes/{remote}/{base}")
+    known = {u["fields"].get("sha") for u in fac.items("upgrade")}
+    running = live.target(live.live(cfg) / "current")
+    if sha not in known and sha != running:
+        fac.say("upgrade.opened", f"upgrade/{sha[:12]}", sha=sha, available_at=time.time(), source=f"{remote}/{base}")
+    return 0
 
 
 def main() -> int:
@@ -42,4 +57,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(watch() if sys.argv[1:2] == ["watch"] else main())

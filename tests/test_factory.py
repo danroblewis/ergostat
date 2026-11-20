@@ -16,6 +16,8 @@ import textwrap
 import time
 from pathlib import Path
 
+import pytest
+
 from ergostat.spec import read
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -162,11 +164,11 @@ class Factory:
         self.record.write_text(json.dumps(db))
         return said
 
-    def run(self, program: str, iid: str | None = None, **env) -> tuple[list[str], list[dict]]:
+    def run(self, program: str, iid: str | None = None, argv: tuple = (), **env) -> tuple[list[str], list[dict]]:
         """A run of a block: (the events it said, every JSON line it printed)."""
         it = self.item(iid) if iid else None
         given = {"trigger": "item", "item": it, "lease": {"fence": 1, "back": it["state"]} if it else None}
-        r = subprocess.run([sys.executable, str(BIN / program)], input=json.dumps(given), cwd=self.model,
+        r = subprocess.run([sys.executable, str(BIN / program), *argv], input=json.dumps(given), cwd=self.model,
                            capture_output=True, text=True, timeout=120,
                            env={**self.env, **({"ERGOSTAT_ITEM": iid, "ERGOSTAT_LEASE": "1"} if iid else {}), **env})
         assert r.returncode == 0, r.stderr
@@ -201,11 +203,16 @@ def test_intake_reads_gaps_and_requests(tmp_path):
     assert "gap.defined" not in said                                    # no definition yet
     (tmp_path / "instance" / "run" / "defs").mkdir(parents=True, exist_ok=True)
     (tmp_path / "instance" / "run" / "defs" / "alpha-thing.md").write_text("# alpha\n\n## Definition of done\n\nIt.\n")
+    (tmp_path / "instance" / "run" / "defs" / "ask.md").write_text("# my ask\n\nDo it.\n")
     f.fold([{"event": "gap.requested", "item": "gap/my-ask", "data": {"title": "My ask", "source": "request",
-                                                                       "definition": "# my ask\n\nDo it.\n"}}], None)
+                                                                       "definition": "run/defs/ask.md"}},
+            {"event": "gap.requested", "item": "gap/sneaky", "data": {"source": "request", "definition": "/etc/hosts"}},
+            {"event": "gap.requested", "item": "gap/escape", "data": {"source": "request", "branch": "../ergostat",
+                                                                      "definition": "run/defs/ask.md"}}], None)
     said, lines = f.run("intake.py")
     assert [x["item"] for x in lines if x["event"] == "gap.found"] == []    # nothing found twice
     assert {x["item"] for x in lines if x["event"] == "gap.defined"} == {"gap/alpha-thing", "gap/my-ask"}
+    # (not gap/sneaky: a definition outside run/defs/; not gap/escape: a branch that is a path)
     assert f.item("gap/alpha-thing")["state"] == "ready" and f.item("gap/delta")["state"] == "open"
 
 
@@ -257,8 +264,8 @@ def test_dry_run_one_gap(tmp_path):
     gid = ready(f)
     said, lines = f.run("implement.py", gid)
     assert said == ["gap.started", "gap.built"]
-    wt = tmp_path / "wt" / "alpha-thing"
-    first = git(wt, "log", "--reverse", "--format=%s", "main..HEAD").splitlines()
+    drop = tmp_path / "live" / "drop.git"
+    first = git(drop, "log", "--reverse", "--format=%s", "main..factory/alpha-thing").splitlines()
     assert first[0] == "alpha-thing: the definition of done" and len(first) == 2
     gap = f.item(gid)
     assert gap["state"] == "built" and gap["fields"]["suites_fast"]["unit"]["rc"] == 0
@@ -274,13 +281,13 @@ def test_dry_run_one_gap(tmp_path):
 
     origin_before = git(f.origin, "rev-parse", "main")
     said, _ = f.run("queue.py", gid)
-    assert said == ["gap.queued", "gap.merged", "upgrade.opened", "gap.push-asked"]
+    assert said == ["gap.queued", "gap.merged", "gap.push-asked"]
     gap = f.item(gid)
     assert gap["state"] == "merged" and gap["fields"]["push"] == "held"
     assert git(f.checkout, "rev-parse", "main") == gap["fields"]["main_sha"]
     assert git(f.origin, "rev-parse", "main") == origin_before                 # asked for, not made
     assert f.db()["acts"][0][:2] == ["act", "push-main"]
-    assert f.item(f"upgrade/{gap['fields']['main_sha'][:12]}")["state"] == "available"
+    assert git(f.checkout, "rev-parse", "main^2") == gap["fields"]["reviewed_head"]   # the reviewed commit merged
 
 
 def test_fix_then_park(tmp_path):
@@ -296,7 +303,8 @@ def test_fix_then_park(tmp_path):
     said, _ = f.run("review.py", gid, FACTORY_STANDIN_VERDICT="fix")
     assert said[-1] == "gap.parked" and f.item(gid)["state"] == "parked"      # the kill rule: the second failed gate
     assert f.item(gid)["fields"]["parked_in"] == "review"
-    definition = (tmp_path / "wt" / "alpha-thing" / "docs" / "roadmap" / "overnight" / "alpha-thing.md").read_text()
+    definition = git(tmp_path / "live" / "drop.git", "show",
+                     "factory/alpha-thing:docs/roadmap/overnight/alpha-thing.md")
     assert "## Where it stopped" in definition
 
 
@@ -374,3 +382,196 @@ def test_a_run_waits_its_turn_in_the_pool(tmp_path):
             "pools.my_turn(cfg, 'implementor', 'implementor', 'gap/b'))")
     r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
     assert r.stdout.split() == ["True", "False"], r.stderr                     # a pool of 1: the first taken goes on
+
+
+def fac_module(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    return module("fac")
+
+
+def test_names_and_definitions_stay_inside(tmp_path, monkeypatch):
+    fac = fac_module(tmp_path, monkeypatch)
+    for bad in ("../ergostat", "Main", "a/b", "-x", "x" * 65, "a b"):
+        with pytest.raises(ValueError):
+            fac.branch_of({"id": "gap/x", "fields": {"branch": bad}})
+    assert fac.branch_of({"id": "gap/ok", "fields": {"branch": "ok-1"}}) == "ok-1"
+    f = Factory(tmp_path / "f")
+    code = ("import sys; sys.path[:0] = [sys.argv[1]]; import fac, brief; cfg = fac.config(); "
+            "print([bool(brief.definition_text(cfg, w, 'alpha-thing')) for w in sys.argv[2:]])")
+    d = f.model / "run" / "defs"
+    d.mkdir(parents=True)
+    (d / "ok.md").write_text("# ok\n")
+    (f.model / "run" / "elsewhere.md").write_text("# no\n")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), "run/defs/ok.md", "/etc/hosts", "run/elsewhere.md",
+                        "run/defs/../elsewhere.md", "inline text", "main:../../etc/hosts"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True)
+    assert r.stdout.strip() == "[True, False, False, False, False, False]", r.stderr
+
+
+def test_a_session_that_fails_keeps_its_whole_reservation(tmp_path, monkeypatch):
+    fac = fac_module(tmp_path, monkeypatch)
+    cfg = {"paths": {"run": str(tmp_path / "run")}, "ai": {"mode": "container", "implementor_model": "opus",
+                                                         "implementor_session_usd": 5.0}}
+    fake = type(sys)("agents")
+    fake.token = lambda cfg: "t"
+    def crash(*a, **k):
+        raise RuntimeError("the implementor session ran past 10800s and was killed")
+    fake.session = crash
+    monkeypatch.setitem(sys.modules, "agents", fake)
+    with pytest.raises(RuntimeError):
+        fac.session(cfg, "implementor", "brief", tmp_path)
+    assert fac.spent_today(cfg) == 5.0                                         # a timeout or crash: the whole most
+    fake.session = lambda *a, **k: {"type": "result", "is_error": False, "result": "ok", "total_cost_usd": 0.75}
+    fac.session(cfg, "implementor", "brief", tmp_path)
+    assert fac.spent_today(cfg) == 5.75                                        # a known cost: what it spent
+    fake.token = lambda cfg: (_ for _ in ()).throw(RuntimeError("no session token"))
+    with pytest.raises(RuntimeError):
+        fac.session(cfg, "implementor", "brief", tmp_path)
+    assert fac.spent_today(cfg) == 5.75                                        # refused before: nothing charged
+
+
+def test_the_token_file_must_be_the_owners_alone(tmp_path, monkeypatch):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    tok = tmp_path / "claude-token"
+    cfg = {"agents": {"token_file": str(tok)}}
+    with pytest.raises(agents.Refused, match="claude setup-token"):
+        agents.token(cfg)                                                      # missing: refused
+    tok.write_text("secret-value-123\n")
+    tok.chmod(0o644)
+    with pytest.raises(agents.Refused) as e:
+        agents.token(cfg)                                                      # readable by others: refused
+    assert "secret-value-123" not in str(e.value)
+    tok.chmod(0o600)
+    assert agents.token(cfg) == "secret-value-123"
+    args = agents.run_args({**cfg, "ai": {"reviewer_model": "opus", "reviewer_session_usd": 1}}, "reviewer",
+                           tmp_path, "n")
+    assert "secret-value-123" not in " ".join(args) and "CLAUDE_CODE_OAUTH_TOKEN" in args   # by name only
+    assert f"{tmp_path}:/work:ro" in args and "--restricted" in args and "--network" in args
+    assert not any(a.startswith(("-v", str(Path.home()))) and ".git" in a for a in args)
+
+
+def test_the_queue_refuses_a_branch_moved_after_its_review(tmp_path):
+    f = Factory(tmp_path)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    f.run("review.py", gid)
+    drop = tmp_path / "live" / "drop.git"
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", "-b", "factory/alpha-thing", str(drop), str(other)], check=True, env=f.env)
+    (other / "late.txt").write_text("after the review\n")
+    git(other, "add", "-A")
+    subprocess.run(["git", "-C", str(other), "commit", "-q", "-m", "late"], check=True, env=f.env)
+    git(other, "push", "-q", "origin", "factory/alpha-thing")
+    said, _ = f.run("queue.py", gid)
+    assert said == ["gap.queued", "gap.sent-back"] and "moved after the review" in f.item(gid)["fields"]["findings"][0]
+    assert git(f.checkout, "log", "-1", "--format=%s", "main") == "start"
+
+
+def test_failing_fast_suites_park_the_gap(tmp_path):
+    f = Factory(tmp_path, unit="exit 1")
+    gid = ready(f)
+    said, lines = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.measured"] and any("nack" in x for x in lines)
+    said, _ = f.run("implement.py", gid)
+    assert said[-1] == "gap.parked" and f.item(gid)["fields"]["parked_in"] == "building"   # never stuck
+
+
+def test_upgrades_follow_the_pushed_main(tmp_path):
+    f = Factory(tmp_path)
+    said, lines = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened"] and lines[0]["data"]["sha"] == git(f.origin, "rev-parse", "main")
+    (f.checkout / "x.txt").write_text("merged, not pushed\n")
+    git(f.checkout, "add", "-A")
+    subprocess.run(["git", "-C", str(f.checkout), "commit", "-q", "-m", "local"], check=True, env=f.env)
+    assert f.run("upgrade.py", argv=["watch"])[0] == []                        # a local merge opens nothing
+    git(f.checkout, "push", "-q", "origin", "main")
+    said, lines = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened"] and lines[0]["data"]["sha"] == git(f.origin, "rev-parse", "main")
+
+
+def fake_version(live: Path, sha: str, starts: bool) -> None:
+    """A version whose `ergostat` is a script: it starts (writing the heartbeat) or fails to."""
+    d = live / sha
+    (d / ".venv" / "bin").mkdir(parents=True)
+    (d / "dev").mkdir()
+    (d / "ergostat.yaml").write_text("name: fake\n")
+    log = live / "calls.log"
+    (d / ".venv" / "bin" / "ergostat").write_text(f"""#!{sys.executable}
+import json, os, sys, time, hashlib, pathlib
+args = sys.argv[3:]
+open({str(log)!r}, "a").write({sha!r} + " " + " ".join(args) + "\\n")
+inst = pathlib.Path(sys.argv[2]).resolve()
+state = pathlib.Path(os.environ["ERGOSTAT_HOME"]) / ("fake-" + hashlib.sha256(str(inst).encode()).hexdigest()[:8])
+if args[:1] == ["run"] and "--stop" not in args:
+    if not {starts!r}:
+        sys.exit("does not start")
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "heartbeat.json").write_text(json.dumps({{"pass": time.time() + 3600}}))
+elif args[:1] == ["sensor"]:
+    print(json.dumps({{"now": {{"readings": [{{"at": time.time(), "value": 0}}]}}}}))
+elif args[:1] == ["item"]:
+    print(json.dumps({{"items": []}}))
+""")
+    (d / ".venv" / "bin" / "ergostat").chmod(0o755)
+
+
+def test_a_switch_to_a_version_that_will_not_start_reverts(tmp_path):
+    f = Factory(tmp_path)
+    live = tmp_path / "live"
+    fake_version(live, "a" * 40, starts=True)
+    fake_version(live, "b" * 40, starts=False)
+    with f.config.open("a") as c:
+        c.write("health_wait = 1\n")
+    env = {**f.env, "ERGOSTAT_HOME": str(tmp_path / "home"), "FACTORY_CONFIG": str(f.config)}
+    live_py = [sys.executable, str(BIN / "live.py")]
+    inst = live / "instance"
+    inst.mkdir(parents=True)
+    (live / "current").symlink_to("a" * 40)
+    subprocess.run([*live_py, "init"], cwd=inst, env=env, check=True, capture_output=True)
+    subprocess.run([*live_py, "start"], cwd=inst, env=env, check=True, capture_output=True)
+    r = subprocess.run([*live_py, "switch", "b" * 40], cwd=inst, env=env, capture_output=True, text=True)
+    assert r.returncode == 1 and "does not start" in r.stdout
+    assert os.readlink(live / "current") == "a" * 40                           # back on the version before
+    calls = (live / "calls.log").read_text()
+    assert f"{'a' * 40} run --port" in calls.splitlines()[-2] or "upgrade.reverted" in calls
+    assert "upgrade.reverted" in calls
+
+
+def docker_ready() -> bool:
+    try:
+        return all(subprocess.run(["docker", "image", "inspect", i], capture_output=True, timeout=20).returncode == 0
+                   for i in ("ergostat-agent:latest", "ergostat-dev:latest"))
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+@pytest.mark.skipif(not docker_ready(), reason="needs Docker and the agent image (dev/agent/Dockerfile)")
+def test_containers_reach_only_the_api_and_return_a_bundle(tmp_path):
+    f = Factory(tmp_path)
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac, agents; cfg = fac.config(); "
+            "cfg['ai']['mode'] = 'container'; home, work = agents.clone(cfg, 'alpha-thing', 'implementor'); "
+            "base = fac.git(work, 'rev-parse', 'origin/main'); agents.publish(cfg, work, 'alpha-thing'); "
+            "(work / 'made-inside.txt').write_text('x'); "
+            "print(json.dumps([agents.finish(cfg, home, 'alpha-thing', base, base), str(home)]))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True,
+                       timeout=600)
+    assert r.returncode == 0, r.stderr[-800:]
+    head, home = json.loads(r.stdout.strip().splitlines()[-1])
+    drop = tmp_path / "live" / "drop.git"
+    assert git(drop, "rev-parse", "factory/alpha-thing") == head                 # the bundle came back to the drop
+    assert "made-inside.txt" in git(drop, "show", "--name-only", "--format=", head)
+    check = tmp_path / "egress_check.py"
+    check.write_text(
+        "import socket, http.client\n"
+        "def tunnel(h):\n"
+        "    c = http.client.HTTPConnection('ergostat-egress', 3128, timeout=10); c.set_tunnel(h, 443)\n"
+        "    try:\n        c.connect(); return True\n    except Exception:\n        return False\n"
+        "def direct(h):\n"
+        "    try:\n        socket.create_connection((h, 443), timeout=5); return True\n    except Exception:\n"
+        "        return False\n"
+        "print([tunnel('api.anthropic.com'), tunnel('github.com'), tunnel('example.com'), direct('github.com')])\n")
+    r = subprocess.run(["docker", "run", "--rm", "--network", "ergostat-agents", "-v", f"{tmp_path}:/c:ro",
+                        "ergostat-agent:latest", "python3", "/c/egress_check.py"], capture_output=True, text=True,
+                       timeout=120)
+    assert r.stdout.strip() == "[True, False, False, False]", r.stderr[-400:]   # the API alone

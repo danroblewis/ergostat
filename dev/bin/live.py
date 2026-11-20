@@ -77,11 +77,11 @@ def install(cfg: dict, ref: str) -> dict:
     d = live(cfg) / sha
     if not (d / ".git").exists():
         fac.git(repo, "worktree", "add", "-q", "--detach", str(d), sha)
-    r = run(["uv", "sync", "--frozen", "--quiet"], cwd=d)
+    r = run(["uv", "sync", "--frozen", "--quiet"], cwd=d, timeout=600)
     if r.returncode:
         raise RuntimeError(f"uv sync in {d}: {r.stderr[-400:]}")
     home = live(cfg) / ".check" / sha                  # check with a record of its own, outside the version
-    r = run([ergostat_of(cfg, sha), "-C", d, "check"], env={**os.environ, "ERGOSTAT_HOME": str(home)}, timeout=600)
+    r = run([ergostat_of(cfg, sha), "-C", d, "check"], env={**os.environ, "ERGOSTAT_HOME": str(home)}, timeout=300)
     errors = re.search(r"(\d+) errors?", r.stdout)
     ok = r.returncode == 0 or (errors is not None and errors.group(1) == "0")
     return {"sha": sha, "dir": str(d), "check": "ok" if ok else "failed", "check_said": r.stdout[-600:]}
@@ -191,28 +191,56 @@ def record(cfg: dict, sha: str, event: str, **data) -> None:
            "--as", "upgrader")
 
 
+def edits_as_gap(cfg: dict, sha: str, patch: Path) -> None:
+    """A change made to the model inside the instance (one the owner accepted) becomes a gap through the factory's own
+    pipeline: its definition, with the patch, in run/defs/, and gap.requested."""
+    name = f"model-edit-{time.strftime('%Y%m%d-%H%M%S')}"
+    (fac.run_dir(cfg, "defs") / f"{name}.md").write_text(
+        f"# {name}: bring the model changes accepted in the instance into the repository\n\n## Definition of done\n\n"
+        f"The changes below, made to the instance's copy of the model while it ran {sha[:12]}, are in the repository's"
+        f" model files, `ergostat check` is clean, and tests/test_factory.py passes.\n\n```diff\n"
+        f"{patch.read_text()}\n```\n\n## Size budget\n\n0 net lines of core code (the model and dev/ only).\n")
+    engine(cfg, sha, "event", "--add", "gap.requested", "--item", f"gap/{name}", "--data",
+           json.dumps({"title": f"Model changes accepted in the instance ({name})", "source": "request",
+                       "branch": name, "definition": f"run/defs/{name}.md"}), "--as", "upgrader")
+
+
 def switch(cfg: dict, sha: str) -> dict:
+    """Stop, point current at ``sha``, start, and wait for it to be healthy; on any failure after the stop (a model
+    that does not place, an engine that does not start, a health check that does not pass or raises), back to the
+    version before, recorded."""
     lv = live(cfg)
     if not ergostat_of(cfg, sha).exists():
         raise SystemExit(f"{sha[:12]} is not installed: live.py install {sha}")
     was, before = target(lv / "current"), target(lv / "previous")
     began = time.time()
+    wait = float((cfg.get("instance") or {}).get("health_wait", HEALTH_WAIT))
     stop(cfg)
-    if was and was != sha:
-        point(lv / "previous", was)
-    point(lv / "current", sha)
-    kept = place_model(cfg, was)
-    start(cfg)
-    record(cfg, sha, "upgrade.switched", switched_at=began, previous=was or "", switch="ran",
-           model_edits=str(kept or ""))
-    deadline, h = time.time() + HEALTH_WAIT, {}
-    while time.time() < deadline:
-        time.sleep(5)
-        h = health(cfg, since=began)
-        if h["healthy"]:
-            record(cfg, sha, "upgrade.kept", health=h, healthy_at=time.time())
-            return h
-    stop(cfg)
+    h: dict = {"healthy": False}
+    try:
+        if was and was != sha:
+            point(lv / "previous", was)
+        point(lv / "current", sha)
+        kept = place_model(cfg, was)
+        start(cfg)
+        record(cfg, sha, "upgrade.switched", switched_at=began, previous=was or "", switch="ran",
+               model_edits=str(kept or ""))
+        deadline = time.time() + wait
+        while time.time() < deadline:
+            time.sleep(min(5.0, wait))
+            h = health(cfg, since=began)
+            if h["healthy"]:
+                record(cfg, sha, "upgrade.kept", health=h, healthy_at=time.time())
+                if kept:
+                    edits_as_gap(cfg, sha, kept)
+                return h
+        h["why"] = f"not healthy within {wait:g}s"
+    except Exception as e:  # noqa: BLE001 - whatever failed, the instance goes back to what ran
+        h = {"healthy": False, "why": f"{type(e).__name__}: {str(e)[:300]}"}
+    try:
+        stop(cfg)
+    except Exception:  # noqa: BLE001
+        pass
     if not was or was == sha:
         return h                                         # nothing to go back to: left stopped, said by the caller
     point(lv / "current", was)

@@ -17,7 +17,8 @@ KILL = 2
 RETRIES = 2
 
 
-def rerun(cfg: dict, branch: str, pre: str, tests: list[str], n: int) -> tuple[int, dict]:
+def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int) -> tuple[int, dict]:
+    """The failed tests again, alone, on ``pre`` with the reviewed commit merged; each test id shell-quoted."""
     repo = fac.path(cfg, "checkout")
     wt = fac.path(cfg, "worktrees") / ".triage"
     if not (wt / ".git").exists():
@@ -26,10 +27,10 @@ def rerun(cfg: dict, branch: str, pre: str, tests: list[str], n: int) -> tuple[i
     fac.git(wt, "merge", "--abort", check=False)
     fac.git(wt, "checkout", "-q", "--detach", pre)
     try:
-        if not fac.git_ok(wt, "merge", "-q", "--no-ff", "--no-commit", branch):
+        if not fac.git_ok(wt, "merge", "-q", "--no-ff", "--no-commit", sha):
             return 1, {"why": "the merge no longer applies"}
         log = fac.run_dir(cfg, "queue") / f"{branch}-{n}-triage.txt"
-        rc, secs = fac.suite(cfg, "rerun", wt, log, tests=" ".join(tests))
+        rc, secs = fac.suite(cfg, "rerun", wt, log, tests=tests)
         return rc, {"seconds": round(secs), "log": str(log), "tests": fac.failed_tests(log.read_text())}
     finally:
         fac.git(wt, "merge", "--abort", check=False)
@@ -48,7 +49,7 @@ def main() -> int:
     elif tests:
         with fac.queue_lock(cfg):
             fac.wait_quiet(cfg)
-            rc, got = rerun(cfg, branch, str(f.get("pre") or cfg["git"]["base"]), tests, n)
+            rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n)
     if rc == 0:
         for t in tests:
             fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=[gap["id"]], times=1, seen_at=time.time())

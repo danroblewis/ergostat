@@ -5,8 +5,8 @@
 
 [paths]
 checkout = "~/ergostat"              # where the queue merges and pushes from; never the instance's code
-worktrees = "~/ergostat-wt"          # each gap's worktree: <worktrees>/<branch>
-live = "~/ergostat-live"             # installed versions: <live>/<sha>, <live>/current, <live>/instance
+worktrees = "~/ergostat-wt"          # flake triage's worktree: <worktrees>/.triage
+live = "~/ergostat-live"             # versions <live>/<sha>, current, instance/; drop.git and sessions/
 queue_lock = "~/ergostat-live/queue.lock"   # set it to the coordinator's queue-fast.sh lock during the switch-over
 run = "run"                          # briefs, logs, the cost ledger (from the model's folder)
 
@@ -15,12 +15,18 @@ base = "main"                        # what a gap's branch starts from, and what
 remote = "origin"
 
 [ai]
-mode = "claude"                      # claude, or standin (free, scripted: the dry run)
+mode = "container"                   # container (each session in Docker, dev/bin/agents.py), or standin (free)
 implementor_model = "opus"
 reviewer_model = "opus"
 implementor_session_usd = 15.0       # the most one implementor session may spend (claude --max-budget-usd)
 reviewer_session_usd = 5.0
 suite_fix_rounds = 1                 # sessions the implementor gets to make its failing fast suites pass
+
+[agents]                             # the sessions' containers (dev/bin/agents.py, dev/agent/)
+image = "ergostat-agent:latest"      # docker build -t ergostat-agent:latest dev/agent (after the dev image)
+proxy_image = "ergostat-dev:latest"  # runs the egress proxy, dev/agent/egress.py
+hosts = ["api.anthropic.com"]        # the only hosts a session can reach, on 443
+token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude setup-token`; mode 600, or no session
 
 [pools]                              # the AI pools start at 1 and ramp up on good results (dev/bin/pools.py)
 implementor_max = 4                  # the most each may reach (the blocks' pool: in the model is this cap)
