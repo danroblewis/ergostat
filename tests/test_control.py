@@ -508,9 +508,24 @@ def test_a_loop_is_identified_and_its_process_accepted_into_the_goal(tmp_path):
     assert "# q a step per unit of error" in (tmp_path / "ergostat.yaml").read_text()
 
 
+def test_the_process_identified_does_not_depend_on_when_the_record_is_looked_at(tmp_path):
+    p = tune_project(tmp_path)
+    sig = record.signals(p.model.spec, "level-held")
+    now, last = time.time(), p.measurements.latest("sensor/level.main")[0]
+    for d in (0.0, 0.7, 1.3, 2.5, 2.9, 4.4, 8.0):     # the buckets' width and phase were the clock's: θ moved a bucket with them
+        since, until, n = record.grid(p, sig, now + d, fine=True)
+        assert (until - since) / n == pytest.approx(5.0)                 # half the level sensor's 10s, exactly
+        assert (until - last) % 5.0 == pytest.approx(2.5)    # the level's last reading in a bucket's middle
+        r = lp.analyse(p, "level-held", at=now + d)["identified"]
+        assert r["proposable"], (d, r["why"])
+        assert r["K"] == pytest.approx(K, rel=0.1) and r["theta"] == pytest.approx(THETA, abs=1.0)
+
+
 def test_a_gain_with_little_margin_at_the_worst_the_process_could_be_is_offered_a_detuning(tmp_path):
     p = tune_project(tmp_path)
-    text = (tmp_path / "ergostat.yaml").read_text().replace("    gain: 0.5 ", "    gain: 1.2 ")
+    # at 1.4, the true process (K 0.2, τ 60s, θ 20s) at K + 2σ, θ + 2σ leaves a gain margin of 1.85
+    # (1.2 left 2.16: it looked short of margin only when the buckets' phase put θ at 25s)
+    text = (tmp_path / "ergostat.yaml").read_text().replace("    gain: 0.5 ", "    gain: 1.4 ")
     (tmp_path / "ergostat.yaml").write_text(text)
     p.model = mdl.load(tmp_path)
     a = lp.analyse(p, "level-held")
@@ -518,7 +533,7 @@ def test_a_gain_with_little_margin_at_the_worst_the_process_could_be_is_offered_
     assert a["tuning"]["why"].startswith("the process it is tuned for is not in the model")    # SIMC waits for it
     x = next(x for x in cp.offered(p, a) if x["kind"] == "tuning")
     assert "detuned for robustness" in x["title"] and "K + 2σ" in x["reason"]
-    assert x["values"]["g"] < 1.2 and a["tuning"]["detune"]["robust"]["gain_margin"] == pytest.approx(2.0, abs=0.05)
+    assert x["values"]["g"] < 1.4 and a["tuning"]["detune"]["robust"]["gain_margin"] == pytest.approx(2.0, abs=0.05)
     cp.accept(p, x["id"])
     assert p.model.spec.blocks["tuner"].params["gain"] == pytest.approx(x["values"]["g"], rel=1e-3)
 
