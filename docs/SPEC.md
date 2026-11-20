@@ -2058,7 +2058,7 @@ it does not list them: `leased`, after the first `at` state, and `dead`, last.
 | `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
 | `ergostat.lease.renewed` | `run`, `fence`, `seen` (`activity` or `asked`) | its lease expires a TTL after this |
 | `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds), `count` and `news`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after`, or, with `news`, before the first event about it its own runs did not cause |
-| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`; `item`, `state`, `terminal` | back to `back`, the attempt counted |
+| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `item`, `state`, `terminal` | back to `back`, the attempt counted; refused when the lease was renewed after that `expires` was judged (it expires later now) |
 | `ergostat.lease.redriven` | `why`, `to` | a dead letter back to `to` (else `back`), its attempts from nothing |
 
 A counted attempt that reaches the most allowed moves the item to `dead` instead: a **dead letter**.
@@ -2145,7 +2145,7 @@ watches them; `ergostat lease` lists who holds what.
 
 **Stalls, as a watchdog loop.** The built-in measures `ergostat.leases.held` (leases held now),
 `ergostat.leases.expired` (expiries over the last day), `ergostat.leases.dead` (dead letters now) and
-`ergostat.leases.overdue` (held past their expiry, not yet expired: 0 while the watchdog keeps up),
+`ergostat.leases.overdue` (held past their expiry, not yet expired: 0 while the watchdog keeps up, but for the grace below),
 each narrowed by `@KIND` or `@BLOCK`, are read by a sensor (`builtin:`), so a goal can hold them:
 
 ```yaml
@@ -2157,8 +2157,10 @@ goals:
   no-stalls: {auxiliary: stalled-runs, hold: "<= 0"}
 ```
 
-ergostat's own watchdog, on the program rung, is what acts on it: it expires a silent lease within a
-second of its TTL, and the item is taken again. Each dead letter, and each lease that expired in the
+ergostat's own watchdog, on the program rung, is what acts on it: it expires a silent lease on a second look at the same
+expiry, a grace after it first found it past its TTL (a tenth of the TTL, at least a second and at most 30 s; renewed
+meanwhile, the grace starts again: a renewal the run asked for in time may still be on its way into the record, the
+engine or the machine busy), and the item is taken again. Each dead letter, and each lease that expired in the
 last hour, needs attention (`ergostat`, the page's side panel); `ergostat lease ITEM --redrive` gives a
 dead letter another go once its cause is fixed. The Items page shows, for a kind with leases, who
 holds each item and when its lease expires, and its attempts; an item's page, its lease and every

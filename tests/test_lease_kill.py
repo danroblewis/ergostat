@@ -120,3 +120,78 @@ def test_the_grace_is_read_at_each_kill_with_a_safe_fallback(monkeypatch):
     for raw, want in (("2.5", 2.5), ("soon", 10.0), ("-1", 10.0), ("", 10.0)):
         monkeypatch.setenv("ERGOSTAT_KILL_GRACE", raw)
         assert kill.grace() == want
+
+
+def test_an_expiry_judged_before_a_renewal_landed_is_refused(tmp_path):
+    """The fold is the truth: an expiry names the ``expires`` it judged, and a renewal recorded after that look wins."""
+    import time
+
+    from ergostat.leases import RENEWED
+
+    from .test_leases import KIND, take
+    p = project(tmp_path, KIND)
+    t0 = time.time() - 10
+    p.events.add("ticket.opened", item="ticket/1", source="t", at=t0 - 1)
+    take(p, "ticket/1", "r1", 1, ttl=1.0, at=t0)
+    p.events.add(RENEWED, item="ticket/1", source="w", causedby="r1", data={"run": "r1", "fence": 1, "seen": "asked"},
+                 at=t0 + 0.9)
+    late = p.events.add(EXPIRED, item="ticket/1", source="ergostat", data={"run": "r1", "fence": 1, "expires": t0 + 1.0})
+    it = item(p, "ticket/1")
+    assert it.state == "leased" and it.fields["lease"]["holder"] == "r1", "renewed since it was judged: still held"
+    assert it.refused[-1]["event"] == late["id"] and "renewed since" in it.refused[-1]["why"]
+    p.events.add(EXPIRED, item="ticket/1", source="ergostat", data={"run": "r1", "fence": 1, "expires": t0 + 1.9})
+    assert item(p, "ticket/1").fields["lease"]["history"][-1]["how"] == "expired", "judged on the renewal: it takes"
+
+
+def renewing_engine(tmp_path, monkeypatch):
+    import time
+
+    from ergostat.spec.engine import Engine
+
+    from .test_leases import take
+    p = project(tmp_path, model("true", "{ttl: 1s}"))
+    now = time.time()
+    p.events.add("ticket.opened", item="ticket/1", source="t", at=now - 10)
+    take(p, "ticket/1", "r1", 1, ttl=1.0, at=now - 5)
+    e = Engine(p, say=lambda s: None)
+    killed = []
+    monkeypatch.setattr("ergostat.leases.dispatch.kill", lambda eng, run, *a: killed.append(run) or True)
+    return p, e, now, killed
+
+
+def test_the_watchdog_waits_a_grace_for_a_renewal_on_its_way(tmp_path, monkeypatch):
+    """A lease found overdue expires only on a second look a grace later: a renewal the run asked for in time, still
+    on its way into the record when the first look came (a busy engine), keeps it."""
+    from ergostat.leases import RENEWED
+    from ergostat.leases.dispatch import grace
+
+    p, e, now, killed = renewing_engine(tmp_path, monkeypatch)
+    assert grace(1.0) == 1.0 and grace(120) == 12.0 and grace(40 * 60) == 30.0
+    e.dispatch.watch(now, mono=100.0)
+    assert not p.events.query(n=None, type=EXPIRED), "first found overdue: looked at again before it expires"
+    p.events.add(RENEWED, item="ticket/1", source="w", causedby="r1", data={"run": "r1", "fence": 1, "seen": "asked"}, at=now)
+    e.dispatch.watch(now + 0.5, mono=101.5)
+    assert not p.events.query(n=None, type=EXPIRED) and not e.dispatch.overdue, "renewed: no longer overdue"
+    e.dispatch.watch(now + 3, mono=104.0)
+    e.dispatch.watch(now + 3.5, mono=104.5)
+    assert not p.events.query(n=None, type=EXPIRED), "silent again: within the grace of the first look"
+    e.dispatch.watch(now + 4.2, mono=105.2)
+    assert p.events.query(n=None, type=EXPIRED) and killed == ["r1"], "silent past the grace: expired, its run killed"
+
+
+def test_a_renewal_recorded_between_the_look_and_the_expiry_is_not_killed(tmp_path, monkeypatch):
+    from ergostat.leases import RENEWED
+
+    p, e, now, killed = renewing_engine(tmp_path, monkeypatch)
+    e.dispatch.watch(now, mono=100.0)
+    looked = e.dispatch.activity
+
+    def landing(it, lease):                          # the run's renewal lands just after the watchdog looked
+        got = looked(it, lease)
+        p.events.add(RENEWED, item=it, source="w", causedby="r1", data={"run": "r1", "fence": 1, "seen": "asked"})
+        return got
+    monkeypatch.setattr(e.dispatch, "activity", landing)
+    e.dispatch.watch(now + 1.5, mono=101.5)
+    lease = item(p, "ticket/1").fields["lease"]
+    assert lease["holder"] == "r1" and [h.get("how") for h in lease["history"]] == [None], "still held"
+    assert p.events.query(n=None, type=EXPIRED) and not killed, "the expiry was refused, and nothing was killed"
