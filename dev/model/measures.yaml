@@ -1,0 +1,110 @@
+# How well the factory works, read from its own record (dev/bin/measure.py, over the last 14 days), and the goals on
+# them. When one is off, the coordinator is asked to request a gap about the factory itself (prompts, briefs, the
+# model, the programs): the factory improves by its own work, and the measure follows what it merges.
+defaults:
+  system: measures
+
+auxiliaries:
+  cycle-hours:
+    unit: hours
+    description: median hours from ready to merged, over the gaps merged
+    driven-by: [-flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py cycle-hours, every: 10m, timeout: 1m, description: the factory's measures}
+  build-hours:
+    unit: hours
+    description: median hours of the implementor's runs per merged gap (every round)
+    driven-by: [+stock.gaps-building]
+    sensor: {run: python3 dev/bin/measure.py build-hours, every: 10m, timeout: 1m, description: the factory's measures}
+  review-hours:
+    unit: hours
+    description: median hours of reviews per merged gap
+    driven-by: [+stock.gaps-in-review]
+    sensor: {run: python3 dev/bin/measure.py review-hours, every: 10m, timeout: 1m, description: the factory's measures}
+  queue-wait-hours:
+    unit: hours
+    description: median hours from approved to the queue starting on it, per merged gap
+    driven-by: [+stock.gaps-approved]
+    sensor: {run: python3 dev/bin/measure.py queue-wait-hours, every: 10m, timeout: 1m, description: the factory's measures}
+  queue-minutes:
+    unit: minutes
+    description: median minutes of a queue run (merge and suites)
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/measure.py queue-minutes, every: 10m, timeout: 1m, description: the factory's measures}
+  suite-minutes:
+    unit: minutes
+    description: median minutes of the queue's suites (unit, browser, demo_check) on its green runs
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/measure.py suite-minutes, every: 10m, timeout: 1m, description: the factory's measures}
+  first-pass-yield:
+    unit: share
+    description: the share of first reviews whose verdict was merge
+    driven-by: [+flow.gaps-requested]
+    sensor: {run: python3 dev/bin/measure.py first-pass-yield, every: 10m, timeout: 1m, description: the factory's measures}
+  fix-rounds:
+    unit: rounds
+    description: mean rounds sent back to the implementor per merged gap
+    driven-by: [+flow.sent-back-by-review]
+    sensor: {run: python3 dev/bin/measure.py fix-rounds, every: 10m, timeout: 1m, description: the factory's measures}
+  flake-rate:
+    unit: share
+    description: flaky retries per queue run
+    driven-by: [+flow.flakes-retried]
+    sensor: {run: python3 dev/bin/measure.py flake-rate, every: 10m, timeout: 1m, description: the factory's measures}
+  cost-per-merged:
+    unit: USD
+    description: dollars of AI sessions per merged gap, every round of the implementor and the reviewer
+    driven-by: [+auxiliary.ai-spend]
+    sensor: {run: python3 dev/bin/measure.py cost-per-merged, every: 10m, timeout: 1m, description: the factory's measures}
+
+goals:
+  first-pass-good:
+    auxiliary: first-pass-yield
+    hold: ">= 0.6"
+    tolerance: 0.1
+    description: most gaps pass their first review
+  few-fix-rounds:
+    auxiliary: fix-rounds
+    hold: "<= 1"
+    tolerance: 0.25
+    description: a merged gap goes back to the implementor at most once, on average
+  suites-in-time:
+    auxiliary: suite-minutes
+    hold: "<= 15"
+    tolerance: 2
+    description: the queue's suites within their time budget, 15 minutes
+  queue-wait-short:
+    auxiliary: queue-wait-hours
+    hold: "<= 2"
+    tolerance: 0.5
+    description: an approved gap lands within two hours
+  flakes-rare:
+    auxiliary: flake-rate
+    hold: "<= 0.1"
+    tolerance: 0.05
+    description: at most one queue run in ten retried for a flake
+  merged-gap-cost:
+    auxiliary: cost-per-merged
+    hold: "<= 25"
+    tolerance: 5
+    description: a merged gap costs at most $25 of AI sessions
+
+blocks:
+  factory-off:
+    type: expr
+    description: any of the factory's own measures off
+    in:
+      firstpass: goal.first-pass-good.off
+      fixes: goal.few-fix-rounds.off
+      suites: goal.suites-in-time.off
+      wait: goal.queue-wait-short.off
+      flakes: goal.flakes-rare.off
+      cost: goal.merged-gap-cost.off
+    expr: max(firstpass, fixes, suites, wait, flakes, cost)
+    out: block.improve-factory
+  improve-factory:
+    type: person
+    agent: coordinator
+    description: the coordinator requests a gap about the factory itself when one of its measures is off
+    ask: "One of the factory's measures is off (ergostat explain block.factory-off): request a gap that removes its cause - ergostat event --add gap.requested --item gap/NAME --data '{\"title\": ..., \"source\": \"request\"}'."
+    in: block.factory-off
+    out: flow.gaps-requested
