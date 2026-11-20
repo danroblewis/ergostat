@@ -59,3 +59,10 @@ Left: nothing that blocks. `tests/test_inbox_page.py` clicks the inbox row in a 
 because Playwright is not installed and running it with Playwright was not allowed. The new field is a text input
 that appears only on rows that can be denied. That test selects the person row's `input[type=number]` and buttons by
 `data-verb`, so the field should not get in its way. The factory's browser run should confirm this.
+
+After the factory's `unit` run failed (its tail shows about 20 F's in one burst near 57% and no test names, and the
+output stops mid-line), every test file was run alone here, one at a time, on this branch: all pass. The only failure
+was `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`, once. It is a race in an engine's
+shutdown that this gap does not touch, and it passed when run again. No code was changed for this, because no failing
+test could be found that this branch's code causes. The burst looks like the load on a shared machine (slot 4 of 4,
+8 workers). If the next run names failing tests, they will be the place to start.
