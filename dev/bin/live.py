@@ -94,12 +94,16 @@ def edits(cfg: dict, was: str | None) -> Path | None:
     if not was or not (inst / "ergostat.yaml").is_file():
         return None
     out = []
-    for rel in ["ergostat.yaml", *sorted(str(p.relative_to(lv / was)) for p in (lv / was / "dev").rglob("*")
-                                         if p.is_file() and "__pycache__" not in p.parts)]:
+
+    def files(root: Path) -> set[str]:
+        return {str(p.relative_to(root)) for p in (root / "dev").rglob("*") if p.is_file()
+                and "__pycache__" not in p.parts} if (root / "dev").is_dir() else set()
+    for rel in ["ergostat.yaml", *sorted(files(lv / was) | files(inst))]:
         a, b = lv / was / rel, inst / rel
-        if b.is_file() and a.read_bytes() != b.read_bytes():
-            out += difflib.unified_diff(a.read_text().splitlines(True), b.read_text().splitlines(True),
-                                        f"a/{rel}", f"b/{rel}")
+        old = a.read_text().splitlines(True) if a.is_file() else []
+        new = b.read_text().splitlines(True) if b.is_file() else []
+        if old != new and b.is_file():
+            out += difflib.unified_diff(old, new, f"a/{rel}" if a.is_file() else "/dev/null", f"b/{rel}")
     if not out:
         return None
     d = fac.run_dir(cfg, "model-edits")
@@ -110,23 +114,43 @@ def edits(cfg: dict, was: str | None) -> Path | None:
 
 def place_model(cfg: dict, was: str | None = None) -> Path | None:
     """The current version's ergostat.yaml and dev/, copied into the instance's folder: copies, not links, since
-    ergostat takes a model's folder (and keys its record) by where its files really are. What was edited in the copy
-    since ``was`` was placed is kept first (``edits``); the patch is returned."""
+    ergostat takes a model's folder (and keys its record) by where its files really are. The instance's model as it
+    was is kept beside them (dev.prev, ergostat.yaml.prev) until the new one is healthy (``forget_previous``), so a
+    revert puts back exactly what ran (``restore_previous``). What was edited in the copy since ``was`` was placed is
+    kept as a patch first (``edits``); the patch is returned."""
     inst, cur = instance(cfg), live(cfg) / "current"
     kept = edits(cfg, was)
-    if (inst / "dev.new").exists():
-        shutil.rmtree(inst / "dev.new")
+    for p in ("dev.new", "dev.prev"):
+        shutil.rmtree(inst / p, ignore_errors=True)
     shutil.copytree(cur / "dev", inst / "dev.new", ignore=shutil.ignore_patterns("__pycache__"))
     if (inst / "dev").is_symlink() or (inst / "dev").is_file():
         (inst / "dev").unlink()
     elif (inst / "dev").exists():
-        (inst / "dev").rename(inst / "dev.old")
+        (inst / "dev").rename(inst / "dev.prev")
     (inst / "dev.new").rename(inst / "dev")
-    shutil.rmtree(inst / "dev.old", ignore_errors=True)
+    if (inst / "ergostat.yaml").is_file():
+        shutil.copy2(inst / "ergostat.yaml", inst / "ergostat.yaml.prev")
     tmp = inst / "ergostat.yaml.new"
     tmp.write_bytes((cur / "ergostat.yaml").read_bytes())
     tmp.replace(inst / "ergostat.yaml")
     return kept
+
+
+def restore_previous(cfg: dict) -> bool:
+    """The instance's model as it was before the last placing, back in place; False when none was kept."""
+    inst = instance(cfg)
+    if not (inst / "dev.prev").is_dir() or not (inst / "ergostat.yaml.prev").is_file():
+        return False
+    shutil.rmtree(inst / "dev", ignore_errors=True)
+    (inst / "dev.prev").rename(inst / "dev")
+    (inst / "ergostat.yaml.prev").replace(inst / "ergostat.yaml")
+    return True
+
+
+def forget_previous(cfg: dict) -> None:
+    inst = instance(cfg)
+    shutil.rmtree(inst / "dev.prev", ignore_errors=True)
+    (inst / "ergostat.yaml.prev").unlink(missing_ok=True)
 
 
 def init(cfg: dict, sha: str | None = None) -> Path:
@@ -194,7 +218,13 @@ def record(cfg: dict, sha: str, event: str, **data) -> None:
 def edits_as_gap(cfg: dict, sha: str, patch: Path) -> None:
     """A change made to the model inside the instance (one the owner accepted) becomes a gap through the factory's own
     pipeline: its definition, with the patch, in run/defs/, and gap.requested."""
-    name = f"model-edit-{time.strftime('%Y%m%d-%H%M%S')}"
+    name = f"model-edit-{hashlib.sha256(patch.read_bytes()).hexdigest()[:10]}"      # the same edits, the same gap
+    got = engine(cfg, sha, "item", f"gap/{name}", "--json")
+    try:
+        if got.returncode == 0 and json.loads(got.stdout).get("id") == f"gap/{name}":
+            return
+    except ValueError:
+        pass
     (fac.run_dir(cfg, "defs") / f"{name}.md").write_text(
         f"# {name}: bring the model changes accepted in the instance into the repository\n\n## Definition of done\n\n"
         f"The changes below, made to the instance's copy of the model while it ran {sha[:12]}, are in the repository's"
@@ -205,10 +235,18 @@ def edits_as_gap(cfg: dict, sha: str, patch: Path) -> None:
                        "branch": name, "definition": f"run/defs/{name}.md"}), "--as", "upgrader")
 
 
+def intervene(cfg: dict, sha: str, why: str) -> None:
+    """Ask the coordinator: the instance could not be brought back by itself."""
+    engine(cfg, sha, "event", "--add", "intervention.recorded", "--item",
+           f"intervention/switch-{time.strftime('%Y%m%d-%H%M%S')}", "--data",
+           json.dumps({"reason": why, "class": "switch", "recorded_at": time.time()}), "--as", "upgrader")
+
+
 def switch(cfg: dict, sha: str) -> dict:
     """Stop, point current at ``sha``, start, and wait for it to be healthy; on any failure after the stop (a model
     that does not place, an engine that does not start, a health check that does not pass or raises), back to the
-    version before, recorded."""
+    version before, with the instance's model as it was, recorded. A revert whose own start fails is tried once more,
+    then recorded as failed with an intervention, and raised."""
     lv = live(cfg)
     if not ergostat_of(cfg, sha).exists():
         raise SystemExit(f"{sha[:12]} is not installed: live.py install {sha}")
@@ -217,6 +255,7 @@ def switch(cfg: dict, sha: str) -> dict:
     wait = float((cfg.get("instance") or {}).get("health_wait", HEALTH_WAIT))
     stop(cfg)
     h: dict = {"healthy": False}
+    kept = None
     try:
         if was and was != sha:
             point(lv / "previous", was)
@@ -231,6 +270,7 @@ def switch(cfg: dict, sha: str) -> dict:
             h = health(cfg, since=began)
             if h["healthy"]:
                 record(cfg, sha, "upgrade.kept", health=h, healthy_at=time.time())
+                forget_previous(cfg)
                 if kept:
                     edits_as_gap(cfg, sha, kept)
                 return h
@@ -246,10 +286,24 @@ def switch(cfg: dict, sha: str) -> dict:
     point(lv / "current", was)
     if before:
         point(lv / "previous", before)                  # previous is what it was: the failed one is never gone back to
-    place_model(cfg, sha)
-    start(cfg)
+    if not restore_previous(cfg):
+        place_model(cfg, sha)
+    for attempt in (1, 2):
+        try:
+            start(cfg)
+            break
+        except Exception as e:  # noqa: BLE001
+            if attempt == 2:
+                why = f"the switch to {sha[:12]} failed ({h.get('why')}), and its revert to {was[:12]} did not start: {e}"
+                engine(cfg, was, "event", "--add", "upgrade.failed", "--item", f"upgrade/{sha[:12]}", "--data",
+                       json.dumps({"health": h, "why": why, "failed_at": time.time()}), "--as", "upgrader")
+                intervene(cfg, was, why)
+                raise RuntimeError(why) from e
+            time.sleep(5)
     engine(cfg, was, "event", "--add", "upgrade.reverted", "--item", f"upgrade/{sha[:12]}", "--data",
            json.dumps({"health": h, "reverted_to": was, "reverted_at": time.time()}), "--as", "upgrader")
+    if kept:
+        edits_as_gap(cfg, was, kept)                    # the instance's edits never lost, whatever became of the switch
     return h
 
 
