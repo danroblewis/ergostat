@@ -36,3 +36,31 @@ runs through `scripts/in_container.sh` when Docker is up; `docs/DEVELOPMENT.md` 
 ## Size budget
 
 **300 net lines outside `tests/` and `docs/`** (Dockerfile, compose.yaml, the script, the watchdog's Linux path).
+
+## Where it stopped
+
+Everything is written; **nothing has run in a container yet.** The Docker Desktop engine did not come up in the 30
+minutes it was polled (`docker info` every 30 s, 17:00 to 17:30), and the branch does not start it. Left, in order,
+once the engine is up:
+
+1. `scripts/in_container.sh true` (builds the image; first check that `ghcr.io/astral-sh/uv:0.12.19` and Playwright
+   1.63.0's `install --with-deps` work on `python:3.12-slim-trixie`).
+2. The unit and browser suites inside, against the host's figures below.
+3. `tests/test_sandbox_attacks.py` inside. Unverified guess: bwrap needs `seccomp=unconfined` (user namespaces) and
+   `systempaths=unconfined` (its own `/proc`), both set in `compose.yaml`; if Docker Desktop refuses either, say so.
+   `scripts/latency_bench.py`'s `ps -axeww` is also untried on Linux procps.
+4. The thread bomb, inside, with the host's thread count (`ps -M -A | wc -l`) before, during and after:
+   `scripts/in_container.sh python3 -c "import threading as t; t.stack_size(65536); e = t.Event(); n = 0`
+   `exec('try:\n while n < 10000: t.Thread(target=e.wait, daemon=True).start(); n += 1\nexcept RuntimeError as x: print(\"refused at\", n, x)\nelse: print(\"reached\", n)'); e.set()"`
+5. Whether the bind mount is slow (a named volume for caches only if it is: the venv and uv cache are already in
+   the image, outside `/work`).
+
+Host figures (the 28-core Mac Studio, load 2 to 5, this branch, under `scripts/suite_watch.py`):
+
+| Suite | Result | Wall | Peak threads | Peak RSS |
+|---|---|---|---|---|
+| unit, `-n 8` | 1623 passed, 13 skipped, 1 xfailed | 150 s | 385 | 2.6 GB |
+| browser, `-n 4` | 200 passed, no skips | 463 s | 632 | 3.7 GB |
+| `tests/test_sandbox_attacks.py` (seatbelt) | 30 passed, 1 xfailed | 15 s | 69 | 0.1 GB |
+
+Size so far: about 108 net lines outside `tests/` and `docs/` (budget 300).

@@ -15,6 +15,8 @@ possible, without check-ins. Check-ins are replaced by gates written down in adv
      the unit and browser suites run in parallel under the watchdog, one after the other (CLAUDE.md, *Testing*:
      `scripts/suite_watch.py -- ... pytest -q -n 8 --dist worksteal`, and `-n 4` for the four Playwright files);
      the serial commands (without `-n`) are the fallback;
+     when Docker is up, an agent's suite runs go through `scripts/in_container.sh` (CLAUDE.md, *The container*;
+     docs/DEVELOPMENT.md), and benchmarks, load runs and the layout corpus only ever run there;
    - no page test was skipped for want of a port;
    - its acceptance tests exist and pass;
    - it is within its **size budget:** net lines of code outside `tests/` and `docs/`, 600 by default. An
