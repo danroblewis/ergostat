@@ -6,6 +6,9 @@ risk is much lower"). What a session's container is given, and nothing else:
   its own with no network), fetched into the factory's drop repository (``<live>/drop.git``), never the owner's;
 - **the network to the Anthropic API alone**: the container is on an internal Docker network (no route out) whose
   only way out is the egress proxy (dev/agent/egress.py, its own container), which tunnels to [agents] hosts on 443;
+- **its transcript's folder**: one folder of its own (sessions.py), mounted as Claude Code's projects folder
+  (/home/dev/.claude/projects), read-write, so the session's own file is kept (copied, the token scrubbed, into
+  run/sessions/); nothing else of the host's home;
 - **one secret, the session token**: read from [agents] token_file (mode 600, written by the owner from
   `claude setup-token`), given as CLAUDE_CODE_OAUTH_TOKEN at `docker run` by name (never in the command line, a log
   or an error), and nothing else of the host's environment: no home, no ERGOSTAT_*, no other variable;
@@ -108,24 +111,27 @@ def _egress(cfg: dict) -> None:
     docker("network", "connect", NET, PROXY)
 
 
-def claude_args(cfg: dict, role: str) -> list[str]:
+def claude_args(cfg: dict, role: str, sid: str | None = None) -> list[str]:
     usd = float(cfg["ai"][f"{role}_session_usd"])
     tools = TOOLS[role]
-    return ["claude", "-p", "--model", cfg["ai"][f"{role}_model"], "--output-format", "json", "--max-budget-usd",
-            f"{usd:g}", "--restricted", "--tools", ",".join(sorted({t.split("(", 1)[0] for t in tools})),
+    return ["claude", "-p", "--model", cfg["ai"][f"{role}_model"], "--output-format", "json",
+            *(["--session-id", sid] if sid else []), "--max-budget-usd", f"{usd:g}", "--restricted",
+            "--tools", ",".join(sorted({t.split("(", 1)[0] for t in tools})),
             "--permission-mode", "dontAsk", "--strict-mcp-config", "--allowedTools", ",".join(tools),
             "--disallowedTools", ",".join(d for d in DENY if d not in tools)]
 
 
-def run_args(cfg: dict, role: str, work: Path, name: str) -> list[str]:
-    """`docker run` for a session: the token by name only (its value is in the docker client's environment alone)."""
+def run_args(cfg: dict, role: str, work: Path, name: str, keep=None) -> list[str]:
+    """`docker run` for a session: the token by name only (its value is in the docker client's environment alone).
+    ``keep`` (sessions.Session): its own folder mounted as Claude Code's projects folder, and its session id."""
     proxy = f"http://{PROXY}:{PORT}"
     return ["run", "--rm", "-i", "--name", name, "--network", NET, *LIMITS,
             "-v", f"{work}:/work{':ro' if role != 'implementor' else ''}", "-w", "/work",
+            *(["-v", f"{keep.raw}:{keep.HOME}"] if keep else []),
             "-e", "CLAUDE_CODE_OAUTH_TOKEN", "-e", f"HTTPS_PROXY={proxy}", "-e", f"https_proxy={proxy}",
             "-e", "NO_PROXY=", *[x for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME") for x in ("-e", f"{k}=factory")],
             *[x for k in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL") for x in ("-e", f"{k}=factory@localhost")],
-            settings(cfg)["image"], *claude_args(cfg, role)]
+            settings(cfg)["image"], *claude_args(cfg, role, keep.sid if keep else None)]
 
 
 RUNNING: set[str] = set()                # this process's containers, killed on any way out (killed())
@@ -165,9 +171,10 @@ def sweep(cfg: dict) -> list[str]:
     return gone
 
 
-def session(cfg: dict, role: str, brief: str, work: Path, timeout: int | None = None) -> dict:
+def session(cfg: dict, role: str, brief: str, work: Path, timeout: int | None = None, keep=None) -> dict:
     """One session in its container; Claude Code's result message. Raises on a failure (a timeout kills it; so does
-    any way out of this process: the container is killed in a finally)."""
+    any way out of this process: the container is killed in a finally). ``keep`` (sessions.Session): its transcript
+    copied as it grows, the token scrubbed."""
     timeout = timeout or TIMEOUTS[role]
     tok = token(cfg)
     sweep(cfg)
@@ -176,14 +183,20 @@ def session(cfg: dict, role: str, brief: str, work: Path, timeout: int | None = 
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "DOCKER_HOST", "DOCKER_CONFIG",
                                                         "DOCKER_CONTEXT", "TMPDIR")}
     env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
+    stop = None
+    if keep:
+        keep.copy.tok = tok
+        stop = keep.copy.follow()
     try:
-        r = subprocess.run(["docker", *run_args(cfg, role, work, name)], input=brief, capture_output=True, text=True,
-                           timeout=timeout, env=env)
+        r = subprocess.run(["docker", *run_args(cfg, role, work, name, keep)], input=brief, capture_output=True,
+                           text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"the {role} session ran past {timeout}s and was killed") from None
     finally:
         del env["CLAUDE_CODE_OAUTH_TOKEN"]
         killed(name)
+        if stop:
+            stop()
     said = scrub(r.stdout, tok)
     try:
         out = json.loads(said.strip().splitlines()[-1]) if said.strip() else None

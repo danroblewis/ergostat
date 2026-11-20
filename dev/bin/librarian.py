@@ -38,7 +38,7 @@ def classify(cfg: dict, rid: str, found: list[str], lessons: dict) -> list[dict]
         "{findings}", "\n".join(f"{i}. {x}" for i, x in enumerate(found, 1)))
     work = agents.scratch(cfg, fac.slug(rid.split("/", 1)[1], 48) or "review", "librarian") / "work"
     work.mkdir()
-    said = str(fac.session(cfg, "librarian", prompt, work).get("result", ""))
+    said = str(fac.session(cfg, "librarian", prompt, work, item=rid).get("result", ""))
     rows = json.loads(LIST.findall(said)[-1]) if LIST.findall(said) else None
     if not isinstance(rows, list):
         raise RuntimeError("the librarian's step gave no fenced JSON list")
