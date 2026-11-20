@@ -202,8 +202,10 @@ items:
     fold: {times: sum, reviews: union, findings: append}
 
 messages:
-  done: {gap: [merged, parked, closed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+  done: {gap: [merged, closed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
          lesson: [requested, retired]}   # (finished, for the estimates)
+  paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
+                                   # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
 
 agents:
   opus:

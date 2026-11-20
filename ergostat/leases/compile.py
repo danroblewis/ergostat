@@ -4,6 +4,8 @@ itself, for its ``named``, ``keys``, ``err`` and ``duration``."""
 
 from __future__ import annotations
 
+import re
+
 from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Spec, Takes, own_kind
 
 TERMS_KEYS = {"ttl", "attempts"}
@@ -78,7 +80,7 @@ def takes(c, m, what: str) -> Takes | None:
         unblocked = False
     order = raw.get("order") or []
     order = [order] if isinstance(order, str) else order
-    if not isinstance(order, list) or not all(isinstance(f, str) and f.lstrip("-").strip() for f in order):
+    if not isinstance(order, list) or not all(isinstance(f, str) and re.fullmatch(r"-?[^\s-]\S*", f) for f in order):
         c.err(f"{what}.takes.order: a field's name, or a list of them (lowest first; -FIELD: highest first; the items "
               f"without it after those with it)", raw.at("order"), "bad-takes")
         order = []

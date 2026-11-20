@@ -858,7 +858,8 @@ def test_a_gap_is_taken_only_once_its_dependencies_merged_the_critical_first(tmp
     got = [i.id for i in pr.order_ready(ev, spec, "gap", takeable, t + 13)]
     assert "gap/top" not in got and "gap/other" in got                         # a parked dependency still holds it
     from ergostat.spec.itemindex import index_for
-    assert "parked" in pr.Kinds(spec, index_for(ev, spec, False))["gap"]["finished"]   # never open in the estimates
+    info = pr.Kinds(spec, index_for(ev, spec, False))["gap"]
+    assert info["paused"] == ["parked"] and "parked" not in info["finished"]   # paused, not done: never projected on
 
 
 def test_a_push_without_an_action_id_never_stalls_silently(tmp_path):

@@ -80,8 +80,16 @@ def check(gaps: dict[str, dict], p: dict) -> tuple[dict, list[str]]:
         if not g or g["state"] not in CLOSABLE or c.get("end") not in ("done", "duplicate") or (
                 c["end"] == "duplicate" and (of not in gaps or of == c["gap"])):
             refused.append(f"close {c.get('gap')}: {g['state'] if g else 'no gap'}, or no end (done, duplicate of a gap)")
+            continue
+        moved = {d: (ds - {c["gap"]}) | ({of} if of and of != d else set())
+                 for d, ds in graph.items() if c["gap"] in ds}           # its dependents wait on what it duplicates
+        loop = next((x for d in moved if of and of != d and (x := deps.reaches({**graph, **moved}, of, d))), None)
+        if loop:
+            refused.append(f"close {c['gap']} as a duplicate of {of}: its dependents would close a cycle "
+                           f"({' -> '.join(loop)})")
         else:
-            out["closes"].append(c)
+            graph.update(moved)
+            out["closes"].append({**c, "repointed": sorted(moved)})
     out["splits"] = [s for s in p.get("splits") or [] if s.get("gap") in gaps and gaps[s["gap"]]["state"] in CLOSABLE
                      and 2 <= len(s.get("into") or []) <= 6 and f"{s['gap']}-1" not in gaps]
     return out, refused
@@ -98,8 +106,14 @@ def close(gaps: dict, gid: str, end: str, why: str, of: str | None, by: str) -> 
 
 
 def apply(gaps: dict[str, dict], p: dict, by: str) -> tuple[list[str], list[str]]:
-    """A checked proposal written: links, closes, splits, then the grooming with the ranks; (lines, refused)."""
+    """A checked proposal written, all or nothing: checked and solved whole first, then its links, closes, splits, and
+    the grooming with the ranks; (lines, refused)."""
     p, refused = check(gaps, p)
+    if refused and by == "backlog.py":                # one change by hand: refused whole, nothing written
+        raise SystemExit("\n".join(f"refused: {x}" for x in refused))
+    order = solved(trial(gaps, p), p["grooming"])
+    if order["refused"]:
+        raise SystemExit(f"nothing written: the order would have a cycle, {order['refused']}")
     for a, b, *why in p["links_add"]:
         gaps[a]["fields"]["depends_on"] = sorted({*(gaps[a]["fields"].get("depends_on") or []), b})
         say("gap.groomed", a, depends_on={"add": [b]}, link_why=" ".join(why), groomed_by=by)
@@ -131,20 +145,30 @@ def apply(gaps: dict[str, dict], p: dict, by: str) -> tuple[list[str], list[str]
     return lines + [f"  refused: {x}" for x in refused], refused
 
 
+def trial(gaps: dict[str, dict], p: dict) -> dict[str, dict]:
+    """The gaps as a checked proposal would leave them (links, closes and their dependents re-pointed), on a copy."""
+    t = json.loads(json.dumps(gaps))
+    for a, b, *_ in p["links_add"]:
+        t[a]["fields"]["depends_on"] = [*(t[a]["fields"].get("depends_on") or []), b]
+    for a, b, *_ in p["links_rm"]:
+        t[a]["fields"]["depends_on"] = [d for d in t[a]["fields"].get("depends_on") or [] if d != b]
+    for c in p["closes"]:
+        t[c["gap"]]["state"] = "closed"
+        for d in c.get("repointed") or []:
+            t[d]["fields"]["depends_on"] = sorted({*t[d]["fields"]["depends_on"], *([c["of"]] if c.get("of") and
+                                                                                     c["of"] != d else [])} - {c["gap"]})
+    return t
+
+
 def diff(gaps: dict[str, dict], p: dict, refused: list[str]) -> str:
     """The proposal as the coordinator reads it: links, closes, splits, then each rank change, and the order."""
-    trial = json.loads(json.dumps(gaps))
-    for a, b, *_ in p["links_add"]:
-        trial[a]["fields"]["depends_on"] = [*(trial[a]["fields"].get("depends_on") or []), b]
-    for a, b, *_ in p["links_rm"]:
-        trial[a]["fields"]["depends_on"] = [d for d in trial[a]["fields"].get("depends_on") or [] if d != b]
-    for c in p["closes"]:
-        trial[c["gap"]]["state"] = "closed"
-    order = solved(trial, p["grooming"])
+    order = solved(trial(gaps, p), p["grooming"])
     lines = [f"+ {a} waits on {b}: {''.join(w)}" for a, b, *w in p["links_add"]]
     lines += [f"- {a} no longer waits on {b}: {''.join(w)}" for a, b, *w in p["links_rm"]]
     lines += [f"x close {c['gap']} ({c['end']}{' of ' + c['of'] if c.get('of') else ''}): {c.get('reason', '')}"
               for c in p["closes"]]
+    lines += [f"~ {d} waits on {c['of'] if c.get('of') and c['of'] != d else 'nothing'} instead of {c['gap']}"
+              for c in p["closes"] for d in c.get("repointed") or []]
     lines += [f"/ split {s['gap']} into {len(s['into'])}: {'; '.join(str(x.get('title')) for x in s['into'])}"
               for s in p["splits"]]
     lines += [f"! refused: {x}" for x in refused + order["findings"]]

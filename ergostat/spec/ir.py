@@ -384,6 +384,7 @@ class Messages:
     follow_up: str | None = None
     reopen_to: dict[str, str] = field(default_factory=dict)
     done: dict[str, list[str]] = field(default_factory=dict)
+    paused: dict[str, list[str]] = field(default_factory=dict)   # by kind: states an item waits in, held by hand
     where: Where | None = None
 
 

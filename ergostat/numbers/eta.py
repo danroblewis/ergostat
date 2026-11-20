@@ -106,6 +106,8 @@ class _Run:
         if state in k.finished or state == DEAD:
             self.done(i, t, state == DEAD)
             return
+        if state in k.paused:
+            return                                     # paused: continued by hand, projected not to move
         if i not in self.start and state != k.states[0] and i in self.inp.items:
             self.start[i] = t
         bs = self.by_state.get((it[0], state))
@@ -385,7 +387,7 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
             if w and w not in x.holds and sum(1 for y in inp.items.values() if w in y.holds) >= inp.workspaces[w]:
                 put += f"; every workspace of {w} is held ({inp.workspaces[w]}): it waits for one, holding nothing"
             med = b.run.quantile(0.5) if b.run else None
-            if b.off:
+            if all(o.off for o in inp.blocks if o.kind == x.kind and x.state in o.at):
                 out[x.id] = {"waits_in": b.name, "position": None, "capacity": cap, "off": True,
                              "why": waits + f"waits for {b.name}, which is switched off now (by {b.off}): projected "
                              "not to move until it is on"}
@@ -394,6 +396,10 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
                          "why": waits + f"{held.get(b.name, 0)} of {cap} busy in {b.name}{bind}"
                          + (f"; {pos} ahead of it" if pos is not None else "") + put
                          + (f"; a run takes {human(med)} (median)" if med else "") + (f"; assumed: {b.assumed}" if b.assumed else "")}
+            continue
+        if x.state in k.paused:
+            out[x.id] = {"waits_in": x.state, "position": None, "paused": True,
+                         "why": waits + f"paused in {x.state}: continued by hand, projected not to move until then"}
             continue
         km = k.km[x.state]
         age = inp.at - x.entered

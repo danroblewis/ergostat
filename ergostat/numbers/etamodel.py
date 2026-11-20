@@ -65,6 +65,7 @@ class KindIn:
     arrivals: float = 0.0                          # an hour
     arrive_at: list[tuple[str, float]] = field(default_factory=list)
     visits: dict[str, float] = field(default_factory=dict)   # N's row for the first state
+    paused: set = field(default_factory=set)       # states an item waits in, held by hand (messages: paused): no move
 
 
 @dataclass
@@ -198,6 +199,7 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
         every[1].extend(goingk)
         pooled[k] = (allk, goingk)
         kin = KindIn(k, ik.states, fin, nxt, ended, {}, {})
+        kin.paused = set(info[k].get("paused") or ())
         kin.km = {s: KM(ended.get(s, []), going.get(s, [])) for s in ik.states if len(ended.get(s, [])) >= MIN_OBS}
         kin.said = {s: "own" for s in kin.km}
         many = {c for c, n in Counter(came).items() if n > 2}   # a batch brought in at once (a backlog imported): not a rate
