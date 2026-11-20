@@ -248,8 +248,8 @@ NAMED_ONLY = ("rename", "redesign")   # promoted only by name (accept: {rename: 
 @dataclass
 class Improve:
     """The judge block's policy (SPEC §12e): who writes a change it passed, by its kind (``auto``: the judge writes
-    it; ``owner``: it waits in the review queue), the least fall in scaled error that counts in every window, how much
-    record after a change it is judged on, and how that record is split into windows (1: whole; 2: halves; ...)."""
+    it; ``owner``: it waits in the review queue), the least fall in scaled error that counts as better, the least
+    record after a change it is judged on, and how that record is shown in windows (1: whole; 2: halves; ...)."""
     accept: dict[str, str] = field(default_factory=lambda: dict.fromkeys(CHANGE_CLASSES, "owner"))
     threshold: float = 0.02
     hold_out: float = 600.0
@@ -850,6 +850,8 @@ class Spec:
     keep: float = 30 * 86400.0
     storage: object = None                  # storage.Storage: where the record is kept (SPEC §4b)
     intake: object = None                   # intake.config.Intake: who may push events, and the webhooks' mappings
+    web: object = None                      # webaccess.Web: the page's public names and their login (SPEC §4d)
+    local: dict = field(default_factory=dict)   # each setting ergostat.local.yaml set (web, intake): where (SPEC §2)
     stocks: dict[str, Stock] = field(default_factory=dict)
     flows: dict[str, Flow] = field(default_factory=dict)
     goals: dict[str, Goal] = field(default_factory=dict)

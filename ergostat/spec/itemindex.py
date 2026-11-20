@@ -195,22 +195,26 @@ _GUARD = threading.local()
 
 
 def _healing(f):
-    """An index method that, when the file cannot be read (not a database, malformed), builds it again
-    from the record and runs once more; the caller never sees the error."""
+    """An index method, run under the index's lock, that, when the file cannot be read (not a database, malformed),
+    builds it again from the record and runs once more; the caller never sees the error. The lock: the index's one
+    connection is shared by the process's threads (the page's requests, the engine, the estimates), and two of them
+    stepping it at once break each other's reads (the same query run twice at once shares SQLite's prepared
+    statement, and one is handed a row of nothing: ``not enough values to unpack``)."""
     @functools.wraps(f)
     def run(self, *a, **k):
-        if getattr(_GUARD, "on", False):             # inside another guarded call: the outermost heals
-            return f(self, *a, **k)
-        _GUARD.on = True
-        try:
-            return f(self, *a, **k)
-        except sqlite3.DatabaseError as e:
-            if not damaged(e, io=True):
-                raise
-            self._heal(e)
-            return f(self, *a, **k)
-        finally:
-            _GUARD.on = False
+        with self.lock:
+            if getattr(_GUARD, "on", False):         # inside another guarded call: the outermost heals
+                return f(self, *a, **k)
+            _GUARD.on = True
+            try:
+                return f(self, *a, **k)
+            except sqlite3.DatabaseError as e:
+                if not damaged(e, io=True):
+                    raise
+                self._heal(e)
+                return f(self, *a, **k)
+            finally:
+                _GUARD.on = False
     return run
 
 
@@ -260,15 +264,17 @@ class Index:
     # ---- names: kinds, states and types as numbers
 
     def _load_names(self) -> None:
-        for i, n in self.db.execute("select id, name from names"):
-            self.names[n], self.rnames[i] = i, n
+        with self.lock:                                  # (a name asked for by any thread: see ``_healing``)
+            for i, n in self.db.execute("select id, name from names"):
+                self.names[n], self.rnames[i] = i, n
 
     def nid(self, name: str | None) -> int | None:
         got = self.names.get(name, -1)
         if got != -1:
             return got
-        self.db.execute("insert or ignore into names(name) values (?)", (name,))
-        i = self.db.execute("select id from names where name = ?", (name,)).fetchone()[0]
+        with self.lock:
+            self.db.execute("insert or ignore into names(name) values (?)", (name,))
+            i = self.db.execute("select id from names where name = ?", (name,)).fetchone()[0]
         name = sys.intern(name)
         self.names[name], self.rnames[i] = i, name
         return i
@@ -296,7 +302,8 @@ class Index:
     # ---- following the record
 
     def _meta(self, key: str, default=None):
-        r = self.db.execute("select value from meta where key = ?", (key,)).fetchone()
+        with self.lock:
+            r = self.db.execute("select value from meta where key = ?", (key,)).fetchone()
         return r[0] if r else default
 
     def _set_meta(self, **kv) -> None:
@@ -348,7 +355,8 @@ class Index:
                 self.catch_up.__wrapped__(self, self._events)
 
     def guard(self, fn):
-        """``fn()``, which reads the index's file directly, healed and run again when the file cannot be read."""
+        """``fn()``, which reads the index's file directly, under the index's lock, healed and run again when the file
+        cannot be read."""
         return _healing(lambda self: fn())(self)
 
     def moved_to(self, path: Path) -> None:

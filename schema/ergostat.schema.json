@@ -346,6 +346,18 @@
         }
       }
     },
+    "web": {"type": "object", "additionalProperties": false,
+            "description": "The page's public names and the Cloudflare Access login in front of them (SPEC \u00a74d); main file only",
+            "properties": {
+              "names": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
+                        "description": "The public host names the page answers to"},
+              "open": {"enum": ["read"], "description": "The names are public and read only, with no login (in place of access)"},
+              "access": {"type": "object", "additionalProperties": false, "required": ["team", "aud", "emails"],
+                         "properties": {
+                           "team": {"type": "string", "description": "The Access team domain (myteam.cloudflareaccess.com)"},
+                           "aud": {"type": "string", "description": "The Access application's audience (AUD) tag"},
+                           "emails": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
+                                      "description": "Who may use the page"}}}}},
     "intake": {
       "type": "object",
       "additionalProperties": false,

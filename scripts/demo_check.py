@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -27,9 +28,17 @@ def sh(*args, cwd=None) -> subprocess.CompletedProcess:
     return subprocess.run([*ERGOSTAT, *args], cwd=cwd, capture_output=True, text=True, timeout=60)
 
 
+class Refused(RuntimeError):
+    """An API that answered with an error: which one, and what the server said (its error message)."""
+
+
 def get(url: str):
-    with urllib.request.urlopen(url, timeout=10) as r:
-        return json.loads(r.read())
+    try:
+        with urllib.request.urlopen(url, timeout=10) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace").strip()
+        raise Refused(f"GET {url.split('/api/', 1)[-1] if '/api/' in url else url}: HTTP {e.code}: {body[:600]}") from None
 
 
 def page_errors(url: str, shot: Path | None) -> list[str]:
@@ -230,7 +239,10 @@ def check(demo: Path, seconds: float, shots: Path | None) -> list[str]:
         url = st["web"]
         for path in ("status", "graph", "graph?view=process", "loops", "agents", "events", "items", "items-graph", "residuals",
                      "parts"):
-            get(f"{url}/api/{path}")
+            try:
+                get(f"{url}/api/{path}")
+            except Refused as e:                           # which page, and the server's error (its crash report: SPEC §12m)
+                problems.append(str(e))
         problems += items_as_before(url, spec)
         problems += incoherent(demo, notes)
         if spec is not None:                                     # each loop as a control engineer reads it

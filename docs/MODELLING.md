@@ -597,9 +597,11 @@ refused, with why; `ergostat improve --try FILE` (the MCP tool `try_change`) say
 Every change to the model, the block's and ergostat's own calibrations and structural proposals alike, is an item
 (`ergostat.model-change`, Items and the review queue; its page keeps each field's history, so the reasons as made and
 as checked, and each verdict, stay readable), and a judge (`type: judge`, a built-in block) tests each the
-way a rollout tests a build: beside the model as it is, on the record that comes after it was made, over the whole
-of that record, its halves and its quarters. It passes only when it is better in every window (or, for a change the
-fit cannot see, no worse anywhere and answering findings), and fails otherwise, with the windows as its evidence.
+way a rollout tests a build: beside the model as it is, on the record that comes after it was made, all of it pooled.
+It passes only when it is better by more than the record's own noise can explain, with a stated error rate however
+often it looks (or, for a change the fit cannot see, no worse and answering findings), fails when it is worse by
+more than that, and otherwise says how much more record it needs; the record whole, its halves and its quarters are
+its evidence.
 This matters because a change fitted to the record it was found on will always look good on that record: the judge
 looks only at record the change has not seen (Sterman ch. 21, behaviour reproduction; Ljung ch. 16,
 cross-validation).

@@ -134,18 +134,33 @@ def _every(spec: Spec, ref: str) -> float | None:
     return min(evs) if evs else None
 
 
+def _phased(p, sig: Signals, until: float, h: float) -> float:
+    """``until`` moved back by less than a bucket of ``h``, so y's last reading sits in the middle of
+    a bucket: the record cut the same way whenever it is looked at (a u step and the y reading
+    after it are in one bucket or in two by the buckets' phase, not by the clock, and θ with them)."""
+    name = sig.y.split(".", 1)[1]
+    last = max((r[0] for s in series._sensors(p.model, name)
+                if (r := p.measurements.latest(f"sensor/{s}", until)) is not None), default=None)
+    return until if last is None else until - (until - (last + h / 2)) % h
+
+
 def grid(p, sig: Signals, at: float | None = None, window: float | None = None, fine: bool = False) -> tuple[float, float, int]:
     """The reference window's grid: (since, until, buckets). With ``fine``, buckets of half y's sensor
     period, over the most recent record that many buckets cover (the window, at most)."""
     until = at if at is not None else time.time()
     oldest = min((t for t in (p.events.first_time(), p.measurements.first_time()) if t), default=None)
     least = max((_every(p.model.spec, sig.y) or 2 * LEAST) / 2, LEAST)          # half its sensor's period: θ to within it
+    if fine:
+        until = _phased(p, sig, until, least)
     since = until - (window or (min(REFERENCE, MAX_POINTS * least) if fine else REFERENCE))
     if oldest and oldest > since:
         since = oldest
     span = max(until - since, 1.0)
     h = least if fine else max(least, span / MAX_POINTS)
-    return since, until, max(2, int(span // h))
+    n = max(2, int(span // h))
+    if fine:
+        since = until - n * h            # whole buckets of h: a sensor's readings keep one place in each
+    return since, until, n
 
 
 def fine(p, sig: Signals, since: float, until: float) -> tuple[float, float, int]:
