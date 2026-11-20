@@ -499,6 +499,24 @@ blocks:
 - When the vendor documents the law (the HPA's is public), say so in the block's `description:` and compare: the
   identified thresholds and cooldowns are what it actually did, which is the point.
 
+## 3g. A loop the record does not identify, and projections far off after a burst
+
+- **`loop-not-identifiable`** on a goal means the record so far does not identify its loop's process (it follows little
+  of the record held out, or its errors are not white, or not independent of u): no `process:` is proposed, and you must
+  not write one by hand from those numbers. Do what the finding says would identify it: approve the **step test** it
+  offers (from the loop's panel, or the inbox; ergostat must be running), or wait for a large outside change in its
+  input (a burst of arrivals identifies it best: ergostat looks around one by itself and says "identified around an
+  outside step at T"), or for more record. A loop that never sees either stays unidentified, and that is the honest
+  answer.
+- **Projections far off after a burst** (the strip says "Low confidence: ..." in front, the band wide): the model fit the
+  quiet record, and the burst found what it lacks. Before tuning a value, suspect missing structure: a **capacity**
+  (reviewers or workers at their most: a `MIN(stock / time, capacity)` outflow, or a block's `pool:`), a queue that
+  drops or times out, a second path the burst took. Say so to the owner and ask for a redesign (the modelling loop's
+  `redesign`, or a proposal of the structure with the record of the burst as its evidence); value proposals on a
+  model missing structure only chase the burst.
+- The proposals ergostat makes are the same items as the record grows: one revised in place (`revisions`) is not
+  churn. One superseded says why (what it was about was edited or removed, or it is no longer found).
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |
