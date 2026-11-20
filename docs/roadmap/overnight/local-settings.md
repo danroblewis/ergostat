@@ -48,3 +48,12 @@ Left, outside the repository: the running instance's `web:` was only ever in the
 means writing `~/ergostat-live/instance/ergostat.local.yaml` on the coordinator's machine (dev/README.md, "Start it",
 shows how), which cannot be done from this container. `origin/main` was not merged: this clone has no `origin`, and
 its `main` is the branch's base.
+
+The factory's `unit` run after this failed with no test output: the log ends at uv's "Installed 1 package", with
+neither a pytest line nor `suite_watch.py`'s closing JSON line, which it prints even when it kills a run. So pytest and the
+watchdog were both gone before either wrote anything, most likely because the suite's container was stopped from
+outside. No failing test is named. Each file the change can reach was run alone (`-p no:randomly`) and passed:
+test_local_settings, test_factory, test_cli_fallback, test_spec_compile, test_web_access, test_intake, test_model,
+test_reload_safety, test_reload_in_place, test_reload_soak, test_spec_watch, test_spec_schema, test_daemon_docs,
+test_parity, test_coherence. Ruff is clean. The whole suite under `-n 8` was not run here: the house rules leave that to the
+factory's watchdog. So no code was changed for this failure; the next `unit` run should show whether it happens again.
