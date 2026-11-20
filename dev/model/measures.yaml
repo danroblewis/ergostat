@@ -100,7 +100,8 @@ blocks:
       flakes: goal.flakes-rare.off
       cost: goal.merged-gap-cost.off
       deps: goal.dependencies-sound.off
-    expr: max(firstpass, fixes, suites, wait, flakes, cost, deps)
+      plans: goal.plans-pass-first.off
+    expr: max(firstpass, fixes, suites, wait, flakes, cost, deps, plans)
     out: block.improve-factory
   improve-factory:
     type: person

@@ -1,7 +1,7 @@
 # Knowledge and planning (docs/roadmap/overnight/knowledge.md; the owner, 2026-11-20: "think of this ergostat instance
 # as a resource for you"). Briefs carry the factory's knowledge (dev/knowledge/, dev/bin/knowledge.py); a planner
-# writes each open gap's definition of done, or splits it, and a cheap plan review checks it before anything is built;
-# a researcher answers questions; the librarian turns review findings into proposed lessons, approved by the
+# writes each open gap's definition of done, or splits it; a program lints it, and a plan review checks it against
+# the code and the task graph before anything is built; a researcher answers questions; the librarian turns review findings into proposed lessons, approved by the
 # coordinator and landed as gaps like any other.
 defaults:
   system: planning
@@ -59,6 +59,11 @@ auxiliaries:
     description: of planned gaps reviewed, the share whose first review found none of the lesson classes their plan named as risks (the plan's tests held them)
     driven-by: [+flow.plans-approved]
     sensor: {run: python3 dev/bin/measure.py plan-risks-held, every: 10m, timeout: 1m, description: the factory's measures}
+  plan-first-pass:
+    unit: share
+    description: plan first-pass yield - of gaps whose first plan review was in the last 14 days, the share it approved (the lint's format misses never reach it)
+    driven-by: [+flow.plans-approved, -flow.plans-sent-back]
+    sensor: {run: python3 dev/bin/plan.py yield, every: 10m, timeout: 1m, description: the factory's measures}
   splits-clean:
     system: intake
     unit: share
@@ -124,13 +129,17 @@ flows:
   plans-sent-back:
     from: gaps-planned
     to: gaps-replan
-    description: a plan the plan review sent back, with its findings
+    description: a plan the plan review sent back, with its findings (counted by the plan kill rule)
     driven-by: [+stock.gaps-planned]
     equation: plan-fix-share * stock.gaps-planned / plan-review-time
-    sensor: {items: gap, entering: replan, over: 1d}
+    sensor: {items: gap, entering: replan, where: {plan_sent_back_by: review}, over: 1d}
+  plans-failing-lint:
+    to: gaps-replan
+    description: a plan the plan lint sent back (a section, a test name, the budget, a lesson, a dependency or a file missing) - never counted by the plan kill rule
+    sensor: {items: gap, entering: replan, where: {plan_sent_back_by: lint}, over: 1d}
   parked-in-plan:
     from: gaps-replan
-    description: a plan that failed its review twice, or was parked
+    description: a plan sent back by [gates] plan_kill_after reviews (or the 6th lint failure), or parked
     sensor: {items: gap, entering: parked, where: {parked_in: plan}, over: 1d}
   research-questions:
     system: research
@@ -216,6 +225,11 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: every open gap planned (while planning is open and money is left)
+  plans-pass-first:
+    auxiliary: plan-first-pass
+    hold: ">= 0.5"
+    tolerance: 0.1
+    description: most plans pass their first plan review (the planner plans with the graph and the code)
   plans-reviewed:
     stock: gaps-planned
     hold: "<= 0"
@@ -273,6 +287,14 @@ blocks:
     in: block.plan-when
     out: [flow.plans-written, flow.replans-written, flow.gaps-split-off, flow.replans-split-off, flow.sub-gaps-planned]
 
+  plan-lint:
+    type: program
+    description: the plan lint, no AI - sections, test names, a budget within the limit, lessons, dependencies and files that exist; the planner runs it on each plan it writes, the plan review before its session, and this on any planned plan not yet linted
+    run: python3 dev/bin/plan.py lint
+    every: 5m
+    timeout: 5m
+    out: flow.plans-failing-lint
+
   plan-review-when:
     type: expr
     description: review plans while they wait and the day's AI money is not spent
@@ -284,7 +306,7 @@ blocks:
   plan-review:
     type: ai
     agent: opus
-    description: the reviewer in plan mode, cheap - the plan and the lessons only; do its acceptance tests fail on the known traps?
+    description: the plan review, after the lint - in a read-only clone of main with the task graph; can an implementor alone build this well, and is it the right thing to build now?
     run: python3 dev/bin/plan.py review
     prompt: dev/prompts/plan_reviewer.md
     takes: {kind: gap, at: planned, to: [ready, replan, parked]}

@@ -45,7 +45,7 @@ TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600,
             "plan_reviewer": 1200, "researcher": 3600, "librarian": 600}   # seconds, each below its block's
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
-TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=["Read"], librarian=["Read"],   # all read-only: only the
+TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=TOOLS["reviewer"], librarian=["Read"],   # read-only: only the
              researcher=TOOLS["reviewer"] + ["WebSearch"])      # implementor writes; WebSearch is run by the API itself
 
 
