@@ -26,20 +26,47 @@ VERDICTS = ("pass", "revise", "reject")
 RAN = "ergostat.model.review-ran"        # each call, with its cost
 MEMORY = 5                               # the reviewer's recent verdicts an author is shown
 DAY = 86400.0
+TRIES = 3                                # calls on one change with no usable verdict before it goes to the owner
+RESERVE = 0.25                           # the share of the template's daily cap kept for the reviewer
+UNDECIDED = "undecided"                  # what is recorded when it could not decide: the owner's
 
 
 def kinds(spec: Spec) -> list[str]:
     return list(getattr(spec.improve, "reviewed", None) or [])
 
 
+def review_of(x: dict) -> dict | None:
+    """Its review, if it is of the change as the judge last passed it: one older than the judge's verdict (the change
+    made again, revised or carried and judged since) is stale, as if never read."""
+    r = x.get("review") or None
+    return r if r and float(r.get("at") or 0) >= float((x.get("verdict") or {}).get("at") or 0) else None
+
+
 def awaiting(spec: Spec, x: dict) -> bool:
-    """A change of a reviewed kind the reviewer has not passed: the judge does not write it, the inbox does not offer it."""
-    return x.get("kind") in kinds(spec) and (x.get("review") or {}).get("verdict") != "pass"
+    """A change of a reviewed kind the reviewer has not passed: the judge's policy does not write it."""
+    return x.get("kind") in kinds(spec) and (review_of(x) or {}).get("verdict") != "pass"
+
+
+def unread(spec: Spec, x: dict) -> bool:
+    """A change of a reviewed kind the reviewer has not read yet: the inbox does not offer it. One it read (sent back
+    with no author to take it, or it could not decide) is the owner's, its findings beside it."""
+    return x.get("kind") in kinds(spec) and review_of(x) is None
+
+
+def read_for_owner(spec: Spec, x: dict) -> bool:
+    """Read, and left to the owner (sent back with no author to take it, or undecided): the judge never writes it."""
+    return x.get("kind") in kinds(spec) and (review_of(x) or {}).get("verdict") in ("revise", UNDECIDED)
 
 
 def due(p, spec: Spec) -> list[dict]:
     """The changes the judge passed that wait for a review, oldest first."""
-    return [x for x in pr.pending(p, spec) if x["state"] == "passed" and x.get("kind") in kinds(spec) and not x.get("review")]
+    return [x for x in pr.pending(p, spec) if x["state"] == "passed" and unread(spec, x)]
+
+
+def tries(p, x: dict) -> int:
+    """Calls on this change since the judge last passed it."""
+    since = float((x.get("verdict") or {}).get("at") or 0)
+    return sum(1 for e in p.events.query(n=None, type=RAN, since=since) if (e.get("data") or {}).get("change") == x["id"])
 
 
 def author(spec: Spec, x: dict) -> str | None:
@@ -94,6 +121,10 @@ def record(p, spec: Spec, x: dict, got: dict, by: str = "reviewer", cost: float 
     """The verdict on its item, and where it sends the change. Returns the verdict as recorded."""
     now = now or time.time()
     verdict, rounds, who = got["verdict"], int(x.get("review_round") or 1), author(spec, x)
+    if verdict == UNDECIDED:                    # it could not decide: the owner's, said so
+        pr.event(p, x["id"], "reviewed", {"review": {"verdict": verdict, "findings": [], "summary": got["summary"], "by": by,
+                                                     "at": now, "round": rounds, "author": who}}, source=by)
+        return verdict
     said = "; ".join(f["says"] for f in got["findings"][:3]) or got["summary"]
     if verdict == "revise" and rounds >= 2:
         verdict, said = "reject", f"sent back once already and still: {said}"
@@ -115,14 +146,19 @@ def asked(p, by: str, parts, system: str | None = None) -> dict:
     """What a new proposal by ``by`` on these parts (a redesign: of this system) carries, when the reviewer sent back one
     of its own on them that no later proposal has answered: ``{"revising", "review_round", "review_asked"}``, else
     nothing."""
-    every = pr.changes(p)
-    answered = {f.get("revising") for _, f in every.values()}
-    for pid, (st, f) in sorted(every.items(), key=lambda kv: -float(kv[1][1].get("created") or 0)):
-        r = f.get("review") or {}
-        if (st == "superseded" and r.get("verdict") == "revise" and f.get("made_by") == by and pid not in answered
-                and (set(f.get("parts") or []) & set(parts or []) or (system and f.get("system") == system))):
-            return {"revising": pid, "review_round": int(r.get("round") or 1) + 1, "review_asked": r.get("findings") or []}
-    return {}
+    now = time.time()
+    sent = sorted(((pid, f) for pid, (st, f) in pr.changes(p).items()
+                   if (f.get("review") or {}).get("verdict") == "revise" and f.get("made_by") == by
+                   and now - float(f["review"].get("at") or 0) <= DAY
+                   and (set(f.get("parts") or []) & set(parts or []) or (system and f.get("system") == system))),
+                  key=lambda kv: -float(kv[1]["review"].get("at") or 0))
+    if not sent:                                # every revise on these parts counts, whatever became of the next round
+        return {}
+    pid, f = sent[0]
+    out = {"revising": pid, "review_round": len(sent) + 1, "review_asked": f["review"].get("findings") or []}
+    if len(sent) >= 2:
+        out["review_held"] = f"held back: the reviewer sent back {len(sent)} changes by {by} on these parts in the last day"
+    return out
 
 
 def memory(p, by: str, most: int = MEMORY) -> list[dict]:
@@ -150,16 +186,18 @@ def spent(p, now: float | None = None) -> float:
 
 
 def run(p, model: str = "haiku", most: int = 3, left: float = 1.0, timeout: float = 600.0, call=None, on_call=None) -> dict:
-    """One pass: each change waiting for a review, while the day's allowance ``left`` lasts. Returns ``{"verdicts", "cost"}``."""
+    """One pass: each change waiting for a review, while the day's allowance ``left`` lasts (no call starts that could cost
+    more than is left). Returns ``{"verdicts", "cost"}``."""
     from . import modeller as md
     call = call or md.call
     spec: Spec = p.model.spec
     out = {"verdicts": [], "cost": {"usd": 0.0, "calls": 0}}
     for x in due(p, spec)[:most]:
-        if out["cost"]["usd"] >= left:
+        text = prompt(p, spec, x)
+        if out["cost"]["usd"] + md.unsaid(text, model)["usd"] > left:     # its dearest: never past the cap
             out["verdicts"].append({"id": x["id"], "verdict": None, "why": "the day's allowance is spent"})
             break
-        got = call(prompt(p, spec, x), model, timeout)
+        got = call(text, model, timeout)
         usd = float(got.get("usd") or 0.0)
         out["cost"]["usd"] = round(out["cost"]["usd"] + usd, 6)
         out["cost"]["calls"] += 1
@@ -167,6 +205,9 @@ def run(p, model: str = "haiku", most: int = 3, left: float = 1.0, timeout: floa
         if on_call is not None:
             on_call(got)
         v = parse(got.get("result") or "")
+        if v is None and tries(p, x) >= TRIES:   # it cannot decide: given up, the owner's
+            v = {"verdict": UNDECIDED, "findings": [], "summary": f"the reviewer could not decide in {TRIES} tries "
+                 f"({got.get('error') or 'no verdict with its reasons'})"}
         if v is None:                       # no verdict with specific reasons: nothing recorded; it is read again next pass
             out["verdicts"].append({"id": x["id"], "verdict": None, "why": got.get("error") or "no verdict with its reasons"})
             continue

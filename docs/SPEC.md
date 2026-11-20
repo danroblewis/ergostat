@@ -3559,11 +3559,14 @@ their whys), its diff and the model near it.
 | Verdict | Recorded | What happens |
 |---|---|---|
 | `pass` | `ergostat.model-change.reviewed` (from `reviewer`, no move of state): `review: {verdict, findings, summary, round, author, cost_usd}` | the judge's policy may write it; the inbox offers it to the owner |
-| `revise` | the same, then `.superseded` ("sent back to AUTHOR by the reviewer: ...") | back to its author (a block of rung `ai` or `person`): its next proposal on the same parts (a redesign: of the same system, asked for again at once) carries `revising`, `review_round: 2` and `review_asked`, the findings, and is read as the second round. A second revise is a **reject**. A change no author can revise (ergostat's finders, a program, the owner's what-if) stays passed, the findings beside it, for the owner |
+| `revise` | the same, then `.superseded` ("sent back to AUTHOR by the reviewer: ...") | back to its author (a block of rung `ai` or `person`): its next proposal on the same parts (a redesign: of the same system, asked for again at once) carries `revising`, `review_round: 2` and `review_asked`, the findings, and is read as the second round. A second revise is a **reject**, and every revise on those parts in the last day counts (a second round the judge failed is still the second round); after two, the author's proposals on them are held back for the day. A change no author can revise (ergostat's finders, a program, the owner's what-if) stays passed and goes to the inbox with the findings, for the owner; the judge never writes it, and a redesign so left holds no lines |
 | `reject` | the same, then `.failed` (the verdict "the reviewer rejected it: ...") | it leaves the queue, and the memory (*Turned away, remembered*) holds the same target back |
 
 Each verdict needs a specific finding (`{"check", "says"}`) unless it is a pass; an answer without one records nothing,
-and the change is read again on the next run. **The authors remember:** the improver's input (`reviewer`), and the
+and the change is read again on the next run, at most 3 times: then it is recorded `undecided` ("the reviewer could not
+decide") and goes to the inbox for the owner, and the reviewer moves on. A review holds for the change as the judge last
+passed it: one made again under the same id, revised or carried and judged again is read again (a review older than
+the judge's verdict counts for nothing). **The authors remember:** the improver's input (`reviewer`), and the
 modeller's and the redesigner's prompts ("The reviewer on your recent proposals") carry its latest five verdicts on
 their own changes, with the findings, so they stop repeating what it rejected and answer what it sent back.
 
@@ -3571,7 +3574,9 @@ their own changes, with the findings, so they stop repeating what it rejected an
 reviewer's pass; one that waits for the owner reaches the inbox only after it. The owner may still accept it from the
 review queue at any time (the owner asks; the review queue shows the reviewer's verdict beside the judge's).
 **Cost:** each call is recorded (`ergostat.model.review-ran`, its dollars) and counted with the redesigner's against the
-template's one daily cap (`redesign.daily`): past it no call starts, and what waits for a review stays unwritten.
+template's one daily cap (`redesign.daily`): no call starts that could cost more than is left (each priced at the most
+it could cost), and what waits for a review stays unwritten. A quarter of the cap is kept for the reviewer: the
+redesigner stops at three quarters of it.
 **Measured:** `ergostat.model.reviews-passed`, `-revised`, `-rejected` and `review-misses` (changes it passed that the
 prediction check later flagged for revert, §12f); the template's flow `changes-sent-back` counts what it rejected or
 sent back from the passed changes. The template's parameter: `review: {when: auto|off, model: haiku, kinds: structure

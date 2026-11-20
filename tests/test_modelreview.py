@@ -154,15 +154,49 @@ def test_two_revises_on_one_change_mean_reject(tmp_path):
 
 
 def test_a_change_no_author_can_revise_waits_for_the_owner_with_the_findings(tmp_path):
+    from ergostat.inbox import entries
     p = judged(tmp_path)
     pid = passed_redesign(p, by="ergostat")
     rv.run(p, call=answers(REVISE))
     x = pr.stored(p)[pid]
     assert x["state"] == "passed" and x["review"]["verdict"] == "revise" and x["review"]["author"] is None
+    assert rv.due(p, p.model.spec) == [] and rv.read_for_owner(p.model.spec, x)
+    shown = [e for e in entries._changes(p, p.model.spec, time.time()) if e["id"] == f"change/{pid}"]
+    assert shown                                                        # in the inbox, for the owner
+    other = im.submit(p, "modeller", DESCRIBE)["id"]                    # its lines released: others are written
     jd.run(p, "judge")
-    assert pr.stored(p)[pid]["state"] == "passed"                       # not written: the owner decides
+    rv.run(p, call=answers(PASS))
+    jd.run(p, "judge")
+    assert pr.stored(p)[other]["state"] == "accepted"
+    assert pr.changes(p)[pid][0] != "accepted"                          # never written by the policy
+
+
+def test_a_reviewer_that_cannot_decide_gives_up_and_leaves_it_to_the_owner(tmp_path):
     from ergostat.inbox import entries
-    assert not [e for e in entries._changes(p, p.model.spec, time.time()) if e["id"] == f"change/{pid}"]
+    p = judged(tmp_path)
+    pid = passed_redesign(p)
+    for _ in range(rv.TRIES - 1):
+        assert rv.run(p, call=answers("no idea"))["verdicts"][0]["verdict"] is None
+    assert rv.run(p, call=answers("still no idea"))["verdicts"] == [{"id": pid, "verdict": rv.UNDECIDED}]
+    x = pr.stored(p)[pid]
+    assert x["review"]["verdict"] == rv.UNDECIDED and "could not decide in 3 tries" in x["review"]["summary"]
+    assert rv.due(p, p.model.spec) == [] and rv.run(p, call=answers())["cost"]["calls"] == 0   # moved on: no more calls
+    assert [e for e in entries._changes(p, p.model.spec, time.time()) if e["id"] == f"change/{pid}"]
+    jd.run(p, "judge")
+    assert pr.stored(p)[pid]["state"] == "passed"                       # never written without a pass
+
+
+def test_a_review_of_an_earlier_version_of_the_same_change_does_not_carry_over(tmp_path):
+    p = judged(tmp_path, accept="{description: auto}")
+    pid = passed_redesign(p, by="ergostat")
+    rv.run(p, call=answers(PASS))
+    assert not rv.awaiting(p.model.spec, pr.stored(p)[pid])
+    pr.event(p, pid, "revised", {"title": "busy read, found again"})    # made again under the same id, judged again
+    pr.event(p, pid, "checked", {})
+    jd.run(p, "judge")
+    x = pr.stored(p)[pid]
+    assert x["state"] == "passed" and rv.review_of(x) is None and rv.awaiting(p.model.spec, x)
+    assert [y["id"] for y in rv.due(p, p.model.spec)] == [pid]           # read again
 
 
 def test_the_authors_prompts_carry_the_reviewers_recent_verdicts(tmp_path, monkeypatch):
@@ -218,12 +252,10 @@ def test_a_change_for_the_owner_reaches_the_inbox_only_after_the_pass(tmp_path):
 
 def test_the_reviewer_stops_at_the_daily_cap(tmp_path, monkeypatch, capsys):
     p = judged(tmp_path)
-    a = passed_redesign(p)
-    rd.charge(p, "model", {"usd": 1.995})
-    assert rd.spent(p) == pytest.approx(1.995)
-    out = rv.run(p, left=round(2.0 - rd.spent(p), 6), call=answers(REVISE, PASS, usd=0.01))
-    assert [v["id"] for v in out["verdicts"]] == [a] and out["cost"]["usd"] == pytest.approx(0.01)
-    assert rd.spent(p) == pytest.approx(2.005)                          # the reviewer's call counts on the shared cap
+    passed_redesign(p)
+    out = rv.run(p, left=1.0, call=answers(PASS, usd=0.01))
+    assert out["cost"]["usd"] == pytest.approx(0.01) and rd.spent(p) == pytest.approx(0.01)   # counted on the shared cap
+    rd.charge(p, "model", {"usd": 1.99})
     from ergostat.library.run import modelling
     monkeypatch.setattr(modelling, "project", lambda: p)
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO("{}"))
@@ -231,6 +263,17 @@ def test_the_reviewer_stops_at_the_daily_cap(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(md, "call", called)
     assert modelling.review(["--daily", "2"]) == 0 and called.prompts == []
     assert "spent" in capsys.readouterr().err
+    q = judged(tmp_path / "q")
+    passed_redesign(q)
+    assert rv.run(q, left=0.001, call=answers(PASS))["cost"]["calls"] == 0   # no call that could overshoot what is left
+    rd.charge(q, "model", {"usd": 1.5})                                       # the redesigner at 75% of the day's 2
+    monkeypatch.setattr(modelling, "project", lambda: q)
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("{}"))
+    monkeypatch.setattr(rdr, "run", lambda *a, **k: pytest.fail("the redesigner ran into the reviewer's share"))
+    assert modelling.redesign(["--daily", "2"]) == 0                          # its share spent; the reviewer's is kept
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("{}"))
+    monkeypatch.setattr(md, "call", answers(PASS))
+    assert modelling.review(["--daily", "2"]) == 0 and rv.counts(q, 0, time.time() + 1)["pass"] == 1
 
 
 def test_an_answer_without_specific_reasons_records_nothing(tmp_path):
@@ -257,3 +300,25 @@ def test_the_reviews_and_the_misses_are_measured(tmp_path):
     assert m["ergostat.model.reviews-passed"] == 1 and m["ergostat.model.reviews-rejected"] == 1
     assert m["ergostat.model.reviews-revised"] == 0 and m["ergostat.model.review-misses"] == 1
     assert pr.stored(p)[pid]["state"] == "failed"
+
+
+def test_the_revise_loop_is_bounded_and_a_failed_second_round_still_counts(tmp_path):
+    from ergostat.numbers import redesign_due as due
+    p = judged(tmp_path)
+    first = im.submit(p, "modeller", DESCRIBE)["id"]
+    jd.run(p, "judge")
+    rv.run(p, call=answers(REVISE))
+    second = im.submit(p, "modeller", {**DESCRIBE, "title": "again"})["id"]
+    pr.event(p, second, "failed", {"verdict": {"verdict": "failed", "why": "worse", "at": time.time()}})   # the judge's
+    other = {**DESCRIBE, "title": "a third", "edit": {"part": "stock.triage", "set": {"description": "alerts waiting"}},
+             "parts": ["stock.triage", "stock.investigate"]}
+    assert rv.asked(p, "modeller", other["parts"])["review_round"] == 2      # still the second round
+    x = {**pr.changes(p)[first][1], "id": "x2", "made_by": "modeller"}
+    pr.event(p, "x2", "made", {k: x[k] for k in ("title", "parts", "made_by")})
+    pr.event(p, "x2", "reviewed", {"review": {**x["review"], "at": time.time()}})   # a second revise on these parts
+    got = rv.asked(p, "modeller", ["stock.triage"])
+    assert got["review_round"] == 3 and "held back" in got["review_held"]
+    refused = im.submit(p, "modeller", other)
+    assert refused["status"] == "not-proposed" and "the reviewer sent back 2 changes" in refused["why"]
+    assert not due._sent_back({"state": "failed", "review": {"verdict": "revise"}})
+    assert due._sent_back({"state": "superseded", "review": {"verdict": "revise"}})   # not turned away, no rest

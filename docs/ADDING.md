@@ -241,7 +241,8 @@ uses:
   proposal on those parts is the second round, and a second revise is a reject), or rejects it (the change fails, and
   the memory holds it back). Those kinds are written by the policy, and offered in the inbox, only after its pass; the
   owner may still accept one from the review queue. Each author's prompt carries the reviewer's recent verdicts on its
-  own changes. Its calls count against `redesign.daily`, the template's one daily cap; `ergostat measure` says its
+  own changes. Its calls count against `redesign.daily`, the template's one daily cap (a quarter kept for it); one it
+  cannot decide on in 3 tries goes to the owner. `ergostat measure` says its
   passes, revises, rejects and misses (`ergostat.model.reviews-*`, `review-misses`).
 
 - **Control:** one balancing loop that closes the long way (SPEC §12e). The goal `model-fits` holds `model-error`
