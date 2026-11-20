@@ -141,17 +141,18 @@ def redesign(argv: list[str]) -> int:
     if a.when == "off":
         note("redesigner: off")
         return 0
+    left = round(a.daily - rd.spent(p), 6)
+    if left <= 0:                                 # the daily cap, before anything is planned: nothing runs past it
+        note(f"redesigner: the day's ${a.daily:.2f} is spent; nothing is reviewed until tomorrow's allowance")
+        return 0
     plan = rd.plan(p, a.when)
     if plan["system"] is None:
         note(f"redesigner: nothing to do ({'; '.join(plan['why'])})")
         return 0
-    left = round(a.daily - rd.spent(p), 6)
-    if left <= 0:                                 # the daily cap: the ask waits for tomorrow's allowance
-        note(f"redesigner: the day's ${a.daily:.2f} is spent; {plan['system']} waits")
-        return 0
     from ...numbers import redesign_due as due
+    sig = plan.get("unit_sig") or due.signature(p.model.spec, plan["system"])
     rd.ran(p, plan["system"], {"by": "redesigner", "result": "started", "why": plan["why"],
-                               "version": rd.ver.version(p.model.spec)})
+                               "version": rd.ver.version(p.model.spec), "unit_sig": sig})
     req = due.hold(p, plan["system"], "redesign-due", "; ".join(plan["why"]), state="open")   # its trigger, said
 
     def charged(got: dict) -> None:               # each call charged as it is spent, so a run cut short still counts
@@ -160,7 +161,7 @@ def redesign(argv: list[str]) -> int:
     out = rdr.run(p, plan["system"], plan["why"], model=a.model, budget=min(a.budget, left), rounds=a.rounds, by="redesigner",
                   timeout=a.timeout, on_call=charged)
     rd.ran(p, plan["system"], {"by": "redesigner", "result": out.get("result"), "id": out.get("id"), "total": out["cost"],
-                               "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"],
+                               "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"], "unit_sig": sig,
                                **({"why_not": out["why_not"]} if out.get("why_not") else {})})
     from ...numbers import requests as rq
     if out.get("result") == "proposed":

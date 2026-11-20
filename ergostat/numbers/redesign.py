@@ -102,7 +102,9 @@ def validate(p, spec: Spec, by: str, raw: dict, scratch: cs.Scratch | None = Non
     refs = [*parts["added"], *parts["changed"], *(x.split(" → ")[1] for x in parts["renamed"])]
     j = im.joined(es_)
     conf = raw.get("confidence")
+    from . import redesign_due as due
     return {"kind": KIND, "said_kind": KIND, "made_by": by, "system": system, **owners(spec, after),
+            "unit_sig": due.signature(spec, system),
             "title": str(raw.get("title") or f"A redesign of {system}")[:200],
             "summary": str(raw.get("summary") or "")[:2000], "reason": str(raw.get("summary") or raw.get("title") or "")[:500],
             "confidence": conf if isinstance(conf, int | float) and 0 <= conf <= 1 else None,
@@ -275,8 +277,9 @@ def ask(p, system: str | None = None, by: str = "owner", why: str | None = None)
 
 def asked(p, now: float | None = None) -> list[str]:
     """The systems the owner asked a redesign of that no run has taken up since."""
-    asks = p.events.query(n=None, type=ASKED)
-    ran = p.events.query(n=None, type=RAN)
+    now = now or time.time()
+    asks = p.events.query(n=None, type=ASKED, since=now - WEEK)          # (an ask unanswered a week is let go)
+    ran = p.events.query(n=None, type=RAN, since=now - WEEK)
     last = {}
     for e in ran:
         s = (e.get("data") or {}).get("system") or "model"
@@ -293,6 +296,7 @@ def ran(p, system: str, data: dict) -> None:
     p.events.add(RAN, item=p.model.name, source=data.get("by") or "redesigner", data={"system": system, **data})
 
 
+WEEK = 7 * 86400.0
 RUNNING_FOR = 15 * 60.0      # a run started and not ended this long ago is taken as gone (the block's timeout)
 HOLD_FOR = 5 * 60.0          # the judge holds its own writes for a run this long at most: refinement is never frozen
 
