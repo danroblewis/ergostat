@@ -3528,12 +3528,17 @@ ergostat's own kinds are left out). Each records what it is about (`about`), why
 
 A held request **approved** from the inbox is `reopened`: open again, for the AI tier (`tier: ai`, its tries given
 back, `approved_by` kept); if the AI tier holds it again after its tries, it is back in the inbox. Approval is offered
-only when the model has the AI tier and the finding is not one only the owner changes; otherwise the owner's own change
-citing it answers it, or a dismissal.
+from an allowlist: only for a request the tiers take up (raised by check, a craft note, a coherence mismatch or the
+fit; never a redesign's, such as `too-large`), whose tier is the rule or the AI tier (not the owner's), whose finding is
+not one only the owner changes, and only when the model runs the AI tier. Otherwise the owner's own change citing it
+answers it, or a dismissal. A redesign's request the owner dismissed stays dismissed across the redesigner's passes
+while its unit is as it was (its own parts, hashed), and is held again once the unit changes.
 
-The owner's answer, the collector's moves and a tier's word on a request are each read and written under one lock
-(`requests.lock` in the project's state). A tier that read a request before calling its model writes its word only if
-the request is still in the state it read: an answer the owner gave meanwhile stands.
+Every write of a request's state (the owner's answer, the collector's moves, a tier's word, the redesigner's holds and
+its run's end) is made under one lock (`requests.lock` in the project's state), the request read again inside it. A
+tier that read a request before calling its model writes its word only if the request is still in the state it read:
+an answer the owner gave meanwhile stands. The redesigner's run writes its end only on a request still open (or
+answered as never ended), never over a dismissal.
 
 The **request collector** (`modelling requests`, the sensor of the template's `requests-raised`) reads check, raises
 what is new, answers what is gone and moves each to where its changes say it is. **The tiers**, each an ordinary
@@ -4716,7 +4721,7 @@ must reach the person and be quick to answer. **The inbox** is everything waitin
 | `advise` | an advised command (`block.advised`) is neither approved (`block.approved`) nor denied (`block.denied`) | `advise/BLOCK@SEQ` | `approve`, `deny` |
 | `steptest` | a step test was offered (`steptest.offered`, recorded when a loop's analysis first offers it, section 12d), is undecided, and the loop is as it was | `steptest/<id>` | `approve`, `deny` (accepted or dismissed) |
 | `change` | a change to the model awaits the owner (the review queue, section 12b; with a judge, the ones it passed) | `change/<id>` | `approve`, `deny` (accepted or dismissed) |
-| `request` | a modelling request is `held` (section 12e, *Requests*) | `request/<id>` | `approve` (`reopened`: open again for the AI tier, its tries given back; offered only when the model has the AI tier and the finding is not one only the owner changes), `deny --note WHY` (`dismissed`, with the note, until its part changes) |
+| `request` | a modelling request is `held` (section 12e, *Requests*) | `request/<id>` | `approve` (`reopened`: open again for the AI tier, its tries given back; offered only for a request the tiers take up, never a redesign's, and when the model has the AI tier: section 12e), `deny --note WHY` (`dismissed`, with the note, until its part changes) |
 | `breaker` | a block started by events tripped its breaker (`trigger.tripped`, section 9.3) | `breaker/BLOCK@SEQ` | `approve` (`trigger.reset`) |
 
 An entry kind with no verb is not shown as answerable (`answer` says where it is settled instead); today every kind has

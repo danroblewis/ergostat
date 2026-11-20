@@ -551,6 +551,64 @@ def test_a_held_request_no_tier_takes_up_is_only_dismissed(tmp_path):
     assert rq.stored(q)[r["id"]]["state"] == "held"
 
 
+def test_a_redesign_request_is_never_approved_to_the_ai_tier(tmp_path):
+    from ergostat.numbers import redesign_due as due
+    from ergostat.numbers import requests as rq
+    p, r, _ = held_request(tmp_path)                                      # a model running the ai tier
+    assert rq.approvable(p.model.spec, rq.stored(p)[r["id"]])
+    k = due.hold(p, "model", "too-large", "too large to redesign in one pass", owner=True)
+    assert entries.find(p, p.model.spec, f"request/{k}")["verbs"] == ["deny"]   # the allowlist: check's, not a redesign's
+    with pytest.raises(rq.RequestError, match="no tier"):
+        rq.answer(p, p.model.spec, k, True)
+    assert rq.stored(p)[k]["state"] == "held" and k not in {w["id"] for w in rq.for_ai(p, 2)}
+
+
+def test_a_dismissed_redesign_request_stays_dismissed_across_the_redesigners_passes(tmp_path, monkeypatch):
+    from ergostat.numbers import redesign_due as due
+    from ergostat.numbers import requests as rq
+
+    def big(n: int) -> str:
+        return "name: big\nstocks:\n" + "".join(f"  s{i}:\n    unit: things\n    description: stock {i}\n" for i in range(n))
+    monkeypatch.setattr(due, "MOST_PARTS", 10)
+    monkeypatch.setattr(due, "_fit", lambda p_, spec: {"stocks": {}, "span": 0.0})
+    (tmp_path / "ergostat.yaml").write_text(big(14))
+    p = Project(mdl.load(tmp_path))
+    due.next_due(p)
+    r = next(r for r in rq.stored(p).values() if r["code"] == "too-large")
+    assert r["state"] == "held"
+    rq.answer(p, p.model.spec, r["id"], False, note="one plant, kept whole", by="sam")
+    due.next_due(p)                                                       # the redesigner's next pass: still dismissed
+    x = rq.stored(p)[r["id"]]
+    assert x["state"] == "dismissed" and x["note"] == "one plant, kept whole"
+    (tmp_path / "ergostat.yaml").write_text(big(15))                      # the unit changed: said again, for the owner
+    q = Project(mdl.load(tmp_path))
+    due.next_due(q)
+    x = rq.stored(q)[r["id"]]
+    assert x["state"] == "held" and x["owner"] and all(x.get(k) is None for k in rq.DISMISSAL)
+
+
+def test_the_redesigner_holds_under_the_lock(tmp_path, monkeypatch):
+    import threading
+
+    from ergostat.numbers import redesign_due as due
+    from ergostat.numbers import requests as rq
+    p, _, _ = held_request(tmp_path)
+    k = due.hold(p, "model", "too-large", "too large", owner=True)
+    real, seen = rq.stored, {}
+
+    def gap(p_):                                          # between hold's read and its write: the owner dismisses it
+        if not seen:
+            seen["thread"] = t = threading.Thread(target=lambda: rq.answer(p, p.model.spec, k, False, note="kept whole"))
+            t.start()
+            t.join(0.5)
+            seen["waited"] = t.is_alive()
+        return real(p_)
+    monkeypatch.setattr(rq, "stored", gap)
+    due.hold(p, "model", "too-large", "too large still: 40 parts", owner=True)
+    seen["thread"].join(10)
+    assert seen["waited"] and real(p)[k]["state"] == "dismissed"          # it waited, then the owner's answer landed
+
+
 def test_the_status_and_notifications_say_how_a_request_is_denied(tmp_path):
     p, _, eid = held_request(tmp_path)
     e = next(e for e in entries.entries(p) if e["id"] == eid)

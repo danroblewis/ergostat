@@ -163,10 +163,12 @@ def redesign(argv: list[str]) -> int:
                                "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"], "unit_sig": sig,
                                **({"why_not": out["why_not"]} if out.get("why_not") else {})})
     from ...numbers import requests as rq
+    run = ("open", "answered")                     # (as it was opened, or answered as never ended meanwhile)
     if out.get("result") == "proposed":
-        rq.event(p, req, "proposed", {"change": out.get("id"), "why": None})
+        rq.move(p, req, "proposed", {"change": out.get("id"), "why": None}, run)
     else:
-        rq.event(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")})
+        rq.move(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")},
+                run)
     for r in out.get("reports") or []:                        # what ergostat could not express: drafted for the owner
         print(json.dumps({"report": r}), flush=True)
     c = out["cost"]

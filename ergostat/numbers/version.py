@@ -101,9 +101,12 @@ def changed_control(before: Spec, after: Spec) -> list[str]:
 
 
 def part(spec: Spec, about: str) -> str:
-    """One part as it is written (``stock.x``, ``block.y``; its description too), hashed: what a dismissed finding about
+    """One part as it is written (``stock.x``, ``block.y``, ``system.z``; its description too), hashed: what a dismissed finding about
     it waits on. A finding about the model, or about no part found, waits on the whole model."""
     kind, _, name = str(about).partition(".")
+    if kind == "system" and name in spec.systems:               # a system: its own parts as written, and its words
+        from .redesign_due import signature
+        return _hash([signature(spec, name), spec.systems[name]])
     table = {"stock": spec.stocks, "flow": spec.flows, "auxiliary": spec.auxiliaries, "parameter": spec.parameters,
              "goal": spec.goals, "block": spec.blocks, "agent": spec.agents, "items": spec.items}.get(kind) or {}
     x = table.get(name)

@@ -18,8 +18,9 @@ a missing loop, a block that moves nothing).
 | answered | ``.answered`` | check no longer finds it (a change written, or anything else) |
 | dismissed | ``.dismissed`` | the owner denied it from the inbox, with why: not raised again until its part changes |
 
-A held request approved from the inbox is ``.reopened`` (open again, for the ai tier, its tries given back), when the
-model has the ai tier and the finding is not the owner's alone (``OWNER``); else only a dismissal is offered.
+A held request approved from the inbox is ``.reopened`` (open again, for the ai tier, its tries given back), only
+when the tiers take it up (``approvable``: check's, not a redesign's; not the owner's alone) and the model has the ai
+tier; else only a dismissal is offered. Every write of a request's state is made under ``locked``, read again first.
 
 ``sync`` is the request collector: run by the modelling template's sensor on ``open-requests``, it raises what is
 new, answers what has gone, and moves each to where its changes say it is. The record is the only store."""
@@ -45,6 +46,13 @@ OPEN = ("open", "proposed", "held")
 LIVE = pr.OPEN                 # a change waiting: checked, testing or passed
 ENDED = ("refused", "failed", "dismissed", "inconclusive")
 DISMISSAL = ("note", "dismissed_by", "dismissed", "part", "approved_by")   # cleared when it is raised again
+TAKEN_UP = {"check", "craft", "coherence", "fit"}   # the sources the tiers take up (gather's): never a redesign's
+TIERS = {"rule", "ai"}
+
+
+def fresh() -> dict:
+    """What a dismissed request raised again starts from: a new finding, untried, not the owner's, no dismissal."""
+    return {"tried": {}, "owner": False, **dict.fromkeys(DISMISSAL)}
 
 
 class RequestError(ValueError):
@@ -179,12 +187,12 @@ def _moved(p, spec: Spec, now: float, found: dict[str, dict]) -> dict:
         if x is not None and x["state"] == "dismissed" and x.get("part") == ver.part(spec, r["about"]):
             continue                                      # the owner dismissed it, and its part is as it was
         if x is None or x["state"] in ("answered", "dismissed"):
-            fresh = {"tried": {}, "owner": False, **dict.fromkeys(DISMISSAL)} if x and x["state"] == "dismissed" else {}
+            new = fresh() if x and x["state"] == "dismissed" else {}
             event(p, k, "raised" if x is None else "reopened",   # a dismissal's part changed: a new finding, untried
                   {**{a: b for a, b in r.items() if a != "id"}, **({"raised": now} if x is None else {}), "since": now,
-                   "version": v, "change": None, "why": None, **fresh})
+                   "version": v, "change": None, "why": None, **new})
             moved["raised" if x is None else "reopened"] += 1
-            x = {**(x or {}), **r, **fresh, "state": "open", "since": now, "version": v}
+            x = {**(x or {}), **r, **new, "state": "open", "since": now, "version": v}
             have[k] = x
             if r["code"] in OWNER:                        # control: no tier changes it; it waits for the owner
                 event(p, k, "held", {"why": OWNER[r["code"]], "owner": True, "tier": "owner", "version": v})
@@ -236,10 +244,15 @@ def _moved(p, spec: Spec, now: float, found: dict[str, dict]) -> dict:
 
 
 def approvable(spec: Spec, r: dict) -> bool:
-    """Whether approving a held request hands it to a tier that takes it: the model has the ai tier (the modelling
-    template's ``modeller``, ``modelling ai``) and the finding is not one only the owner changes (``OWNER``)."""
-    return r.get("code") not in OWNER and any(" modelling ai" in str(b.params.get("run") or "")
-                                              for b in spec.blocks.values())
+    """Whether approving a held request hands it to a tier that takes it, an allowlist: a finding of check's, a craft
+    note, a coherence mismatch or the fit (``TAKEN_UP``; never a redesign's, which the redesigner holds), its tier the
+    rule or the ai tier (never ``owner``), its code not one only the owner changes (``OWNER``), and the model running
+    the ai tier (a block whose run is ``... modelling ai``, the modelling template's ``modeller``)."""
+    def ai(b) -> bool:
+        w = str(b.params.get("run") or "").split()
+        return any(w[i:i + 2] == ["modelling", "ai"] for i in range(len(w)))
+    return (r.get("source") in TAKEN_UP and r.get("tier") in TIERS and r.get("code") not in OWNER
+            and any(ai(b) for b in spec.blocks.values()))
 
 
 def answer(p, spec: Spec, x: str, yes: bool, note: str | None = None, by: str = "owner") -> str:
@@ -293,11 +306,16 @@ def mark(p, x: dict, what: str, why: str | None = None, **more) -> bool:
     """A tier's word on a request as it read it (``x``): held (it has nothing it can make), with why; or its tries
     and cost, in the state it was in. Written only if the request is still in the state the tier read (under
     ``locked``): the owner's answer, or the collector's move, made while the tier was working, stands."""
+    return move(p, x["id"], what, {**({"why": why} if why is not None else {}), **more}, (x["state"],))
+
+
+def move(p, x: str, what: str, data: dict, states) -> bool:
+    """``what`` written on request ``x`` only if, read again under ``locked``, it is in one of ``states``."""
     with locked(p):
-        now = stored(p).get(x["id"])
-        if now is None or now["state"] != x["state"]:
+        now = stored(p).get(x)
+        if now is None or now["state"] not in states:
             return False
-        event(p, x["id"], what, {**({"why": why} if why is not None else {}), **more})
+        event(p, x, what, data)
         return True
 
 
