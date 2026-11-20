@@ -3701,14 +3701,15 @@ their whys), its diff and the model near it.
 | `reject` | the same, then `.failed` (the verdict "the reviewer rejected it: ...") | it leaves the queue, and the memory (*Turned away, remembered*) holds the same target back |
 
 Each verdict needs a specific finding (`{"check", "says"}`) unless it is a pass; an answer without one records nothing,
-and the change is read again on the next run, at most 3 times: then it is recorded `undecided` ("the reviewer could not
+and the change is read again on the next run, at most 3 times on the change as it stands (each call is stamped with
+what it read, and calls on an earlier version do not count): then it is recorded `undecided` ("the reviewer could not
 decide") and goes to the inbox for the owner, and the reviewer moves on. A review holds for the change as the judge last
 passed it: each is stamped with what it read (`read`: the judge's verdict and the edit, fingerprinted), and one made
 again under the same id, revised or carried and judged again has another stamp and is read again. The verdict is
 recorded under the changes' lock and only if the change is still the one it read; one that moved on during the call
 records nothing and is read again. **The authors remember:** the improver's input (`reviewer`), and the
 modeller's and the redesigner's prompts ("The reviewer on your recent proposals") carry its latest five verdicts on
-their own changes, with the findings, so they stop repeating what it rejected and answer what it sent back.
+their own changes (each on the version as it stands), with the findings, so they stop repeating what it rejected and answer what it sent back.
 
 **With the accept policy.** With the reviewer on, a change of a reviewed kind that the policy would write waits for the
 reviewer's pass; one that waits for the owner reaches the inbox only after it. The owner may still accept it from the
@@ -3720,8 +3721,8 @@ it could write), and what waits for a review stays unwritten. What is left is re
 call's most is held against the cap while it runs (`ergostat.model.ai-held`, checked and held under one lock, let go
 once its real cost is charged, kept for the day if the call fails), so the two running at once never both spend one
 remainder. A quarter of the cap is kept for the reviewer: the redesigner stops at three quarters of it.
-**Measured:** `ergostat.model.reviews-passed`, `-revised`, `-rejected` and `review-misses` (changes it passed that the
-prediction check later flagged for revert, §12f); the template's flow `changes-sent-back` counts what it rejected or
+**Measured:** `ergostat.model.reviews-passed`, `-revised`, `-rejected` and `review-misses` (changes it passed, in the
+version that was written, that the prediction check later flagged for revert, §12f); the template's flow `changes-sent-back` counts what it rejected or
 sent back from the passed changes. The template's parameter: `review: {when: auto|off, model: haiku, kinds: structure
 redesign, most: 3}` (and `review-every`, 2m).
 

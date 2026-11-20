@@ -374,6 +374,59 @@ def test_the_reviews_and_the_misses_are_measured(tmp_path):
     assert pr.stored(p)[pid]["state"] == "failed"
 
 
+def test_calls_on_an_earlier_version_do_not_count_toward_giving_up(tmp_path):
+    p = judged(tmp_path)
+    pid = passed_redesign(p)
+    first = answers("no idea")
+
+    def rejudged(text, model, timeout=None):                             # judged again while it reads the old version
+        pr.event(p, pid, "revised", {"title": "busy read, found again"})
+        pr.event(p, pid, "checked", {})
+        jd.run(p, "judge")
+        return first(text, model, timeout)
+    assert rv.run(p, call=rejudged)["verdicts"][0]["verdict"] is None
+    x = pr.stored(p)[pid]
+    assert x["state"] == "passed" and rv.tries(p, x) == 0                # that call read the earlier version
+    for _ in range(rv.TRIES - 1):                                        # not the owner's until three on this one
+        assert rv.run(p, call=answers("no idea"))["verdicts"][0]["verdict"] is None
+    assert rv.run(p, call=answers("no idea"))["verdicts"] == [{"id": pid, "verdict": rv.UNDECIDED}]
+
+
+def test_a_review_of_an_earlier_version_is_neither_shown_to_its_author_nor_counted_as_a_miss(tmp_path, monkeypatch):
+    p = judged(tmp_path, accept="owner")
+    pid = passed_redesign(p)
+    rv.run(p, call=answers(PASS))
+    assert [m["verdict"] for m in rv.memory(p, "redesigner")] == ["pass"]
+    pr.event(p, pid, "revised", {"title": "busy read, made again"})     # made again under the same id, judged again
+    pr.event(p, pid, "checked", {})
+    jd.run(p, "judge")
+    assert pr.stored(p)[pid]["state"] == "passed" and rv.memory(p, "redesigner") == []
+    pr.accept(p, pid, {"at": time.time(), "window": 600.0})              # the owner accepts it, its pass out of date
+    pr.event(p, pid, "regressed", {"why": "the forecast is better without it"})
+    assert rv.counts(p, 0, time.time() + 1)["missed"] == 0
+    q = judged(tmp_path / "q", accept="owner")
+    qid = passed_redesign(q)
+    rv.run(q, call=answers(PASS))
+    pr.accept(q, qid, {"at": time.time(), "window": 600.0})              # accepted under a pass of this version
+    pr.event(q, qid, "regressed", {"why": "the forecast is better without it"})
+    assert rv.counts(q, 0, time.time() + 1)["missed"] == 1
+
+
+def test_two_holds_at_once_never_share_one_remainder(tmp_path):
+    import threading
+    p = judged(tmp_path)
+    both, fits = threading.Barrier(2, timeout=10), []
+
+    def one():
+        with rd.held(p, 0.6, lambda: 1.0 - rd.spent(p), by="reviewer") as ok:   # each wants most of what is left
+            fits.append(ok)
+            both.wait()                                                   # the other checks while this one holds
+    ts = [threading.Thread(target=one) for _ in range(2)]
+    [t.start() for t in ts]
+    [t.join(10) for t in ts]
+    assert sorted(fits) == [False, True] and rd.spent(p) == pytest.approx(0.0)
+
+
 def test_the_revise_loop_is_bounded_and_a_failed_second_round_still_counts(tmp_path):
     from ergostat.numbers import redesign_due as due
     p = judged(tmp_path)

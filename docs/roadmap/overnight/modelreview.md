@@ -91,3 +91,22 @@ which charges the other block's spending inside each call; with the `room` wirin
 Size: 448 net lines outside tests, docs and dev against main (482 added, 34 removed), within the 450. Narrowing the
 SPEC claim instead was the smaller option, but would have left a daily cap that does not fail closed, against the
 owner's rule.
+
+Continued, round 3 (2026-11-20), answering every finding of review/modelreview-1 and -2 still open:
+(a) `reviewer.tries` counted `review-ran` events by `since=verdict.at`, the judge's pass-start stamp. Each such event
+is now stamped `read: seen(x)` and counted by equality, so calls on an earlier version never count toward the new
+one's three. (b) `reviewer.memory` (the authors' prompts and the improver's input) and `counts()['missed']` read the
+raw `review` field; both now go through `review_of`, so a review of an earlier version made again under the same id
+is not shown to its author, and a change the owner accepted under a pass that is out of date is not counted as the
+reviewer's miss (only a pass of the version that was written). To keep a reject visible to `review_of` (its own
+`failed` event replaces the judge's verdict, which `seen` stamps), the reviewer's failed verdict carries the judge's
+verdict it read (`judged`), and `seen` reads that one. (c) review/modelreview-2's non-blocking finding (no test held
+two holds at once): `test_two_holds_at_once_never_share_one_remainder` enters `redesign.held` from two threads, each
+wanting 0.6 of 1.0, a barrier keeping both inside; exactly one fits. (review/modelreview-1's other non-blocking
+finding, the pinned price, was answered in round 2.) `reviewer.asked` still reads the raw review: it counts the
+revises of the last day on the author's parts, whatever became of them, which is the round count SPEC states.
+Tests: `test_calls_on_an_earlier_version_do_not_count_toward_giving_up` (the change judged again inside a call),
+`test_a_review_of_an_earlier_version_is_neither_shown_to_its_author_nor_counted_as_a_miss`,
+`test_two_holds_at_once_never_share_one_remainder`; each fails with the code it guards put back as it was (`since=`
+ordering; the raw `review` in memory, then in counts; the hold not recorded), checked by hand. SPEC §12e says the
+tries, the memory and the misses are of the version as it stands. Size: 450 net lines (484 added, 34 removed).
