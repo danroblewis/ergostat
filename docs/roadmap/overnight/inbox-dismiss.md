@@ -66,3 +66,12 @@ was `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`,
 shutdown that this gap does not touch, and it passed when run again. No code was changed for this, because no failing
 test could be found that this branch's code causes. The burst looks like the load on a shared machine (slot 4 of 4,
 8 workers). If the next run names failing tests, they will be the place to start.
+
+Round 2: the cause was found on main. Commit c45d619 ("the factory's fixture repositories carry their own git
+identity") says the unit failure was `tests/test_factory.py`. Its fixture repositories committed with no git identity,
+so they failed with exit 128 in the suite containers, which have no global git config. The cause was not this
+branch's code. It was not seen here in round 1 because this container can commit without that config. Merging main
+into the branch was not allowed, so the same four-line change to `tests/test_factory.py::git` was made here by hand.
+The file is now byte-for-byte the same as main's, so the merge back has nothing to resolve. No code outside `tests/`
+changed in this round. Each of `tests/test_factory.py`, `tests/test_inbox.py` and `tests/test_modelling_core.py` was
+run alone and passes, and ruff is clean.
