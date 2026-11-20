@@ -166,7 +166,6 @@ function redesignView(e) {
       h("button", { class: "ghost", onclick: () => draw("dynamics") }, "Dynamics"), h("button", { class: "ghost", onclick: () => draw("blocks") }, "Blocks")));
 }
 
-/* the redesigns judged not better: their scorecards, so the owner sees why */
 /* the owner asks for a redesign of a system (or the whole model): recorded, and the redesigner block takes it up
    on its next run; its change set joins the queue. What it made last is a model-change item (the Items tab) */
 function redesignAsk(rs, onAsked) {

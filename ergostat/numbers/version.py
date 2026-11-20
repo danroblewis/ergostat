@@ -55,12 +55,7 @@ def values(spec: Spec) -> str:
 
 
 def version(spec: Spec) -> str:
-    numbers = {"parameters": {n: [p.value, p.table] for n, p in sorted(spec.parameters.items())},
-               "rates": {n: f.rate for n, f in sorted(spec.flows.items()) if f.rate is not None}}
-    ranges = {n: list(p.range) for n, p in sorted(spec.parameters.items()) if p.range}
-    if ranges:                                          # only where written, so a model without one keeps its version
-        numbers["ranges"] = ranges
-    return _hash([_structure(spec), numbers])
+    return _hash([_structure(spec), _numbers(spec)])
 
 
 PLACES = ("where", "defined", "value_at", "description")     # where a thing is written, and its words: not what it is

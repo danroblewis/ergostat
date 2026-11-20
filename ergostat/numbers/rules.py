@@ -3,9 +3,9 @@ it can answer (``requests.py``, ``tier: rule``), a mechanical change that is saf
 block's (checked on a scratch copy, judged, written as the judge's policy allows):
 
 - **a stock's unit** (``no-unit``), carried along its flows from the stocks they join, or, for a stock that counts the
-  items of a kind, that kind's name in the plural, when exactly one unit is said;
-- **a queue's goal held at 0** (``queue-goal-tolerance``) and **a process nobody identified taken out**
-  (``process-not-identified``): control changes, which wait for the owner whatever the policy.
+  items of a kind, that kind's name in the plural, when exactly one unit is said.
+
+A queue's goal with a tolerance and a process nobody identified are control: held for the owner (``requests.OWNER``).
 
 A kind's chain and the structure tests are answered by ergostat's own finders (``structural.py``), whose changes say
 ``rewires``. Each proposal cites the request's finding and every other finding it answers (worked out on the model it
@@ -13,8 +13,6 @@ leaves), so the requests it answers are all marked proposed. What it cannot answ
 ai tier."""
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from ..spec import craft
 from ..spec.ir import Spec
@@ -69,35 +67,6 @@ def unit(spec: Spec, r: dict) -> dict:
     return _raw("unit", f"{name}: unit {u}", [f"stock.{name}"], edits, r, f"stock {name} has no unit; {how} say {u}")
 
 
-def goal_queue(spec: Spec, r: dict) -> dict:
-    name = r["about"].split(".", 1)[1]
-    g = spec.goals.get(name)
-    if g is None:
-        raise NoFix(f"no goal {name}")
-    from .improve import _set
-    sets = {"tolerance": 0}
-    if g.hold.op in ("<=", "<") and g.hold.value > 0:
-        sets["hold"] = "<= 0"
-    edits = _set(spec, {"part": f"goal.{name}", "set": sets})
-    return _raw("control", f"{name}: held at 0, tolerance 0", [f"goal.{name}"], edits, r,
-                f"goal {name} holds a queue its block takes items from: held at \"<= 0\" with tolerance 0, items are worked "
-                f"as they come")
-
-
-def process(spec: Spec, r: dict) -> dict:
-    name = r["about"].split(".", 1)[1]
-    g = spec.goals.get(name)
-    if g is None or g.where is None:
-        raise NoFix(f"no goal {name}")
-    path = Path(g.where.file)
-    at = ye.name_line(path, g.where.line, name)
-    e = ye.remove_key(path, at, "process")
-    if e is None:
-        raise NoFix(f"goal {name}: its process: is not written a key a line")
-    return _raw("control", f"{name}: the process nobody identified taken out", [f"goal.{name}"], [e], r,
-                f"goal {name}'s process was not identified from the record: drawn as not identified until it is")
-
-
 def _answered(p, spec: Spec, raw: dict, requests: list[dict]) -> list[dict]:
     """The other requests a change answers: check no longer finds them in the model it leaves."""
     from ..spec.findings import find
@@ -116,7 +85,7 @@ def propose(p, requests: list[dict], most: int = 8) -> tuple[list[tuple[dict, di
     """What the rule tier proposes for these requests (each ``(request, propose)``), at most ``most``, and the ones it
     has no change for (``(request, why)``). A proposal that answers several requests cites them all, and is made once."""
     spec: Spec = p.model.spec
-    rules = {"no-unit": unit, "queue-goal-tolerance": goal_queue, "process-not-identified": process}
+    rules = {"no-unit": unit}
     made, none, covered = [], [], set()
     for r in sorted(requests, key=lambda r: r.get("raised") or 0.0):
         if r["id"] in covered:

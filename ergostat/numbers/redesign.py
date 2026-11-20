@@ -28,23 +28,13 @@ RAN = "ergostat.model.redesign-ran"
 
 
 def settings(spec: Spec) -> dict:
-    """The redesigner's settings, as the template's ``redesign:`` gave its block (``--model``, ``--budget``,
-    ``--rounds``, ``--when``, ``--daily``), else the defaults."""
-    import shlex
+    """The redesigner's settings, as the model's ``use: modelling`` gave them (``redesign: {when, model, budget, rounds,
+    daily}``), else the defaults."""
     out = {"when": "ask", "model": "haiku", "budget": 0.5, "rounds": 3, "daily": 2.0}
-    b = spec.blocks.get("redesigner")
-    run = str((b.params.get("run") if b is not None else "") or "")
-    try:
-        words = shlex.split(run)
-    except ValueError:
-        words = []
-    for k in ("when", "model", "budget", "rounds", "daily"):
-        if f"--{k}" in words and words.index(f"--{k}") + 1 < len(words):
-            v = words[words.index(f"--{k}") + 1]
-            try:
-                out[k] = float(v) if k in ("budget", "daily") else int(v) if k == "rounds" else v
-            except ValueError:
-                pass
+    for u in (spec.uses or {}).values():
+        got = (u.get("values") or {}).get("redesign") if u.get("template") == "modelling" else None
+        if isinstance(got, dict):
+            out.update({k: got[k] for k in out if got.get(k) is not None})
     return out
 
 

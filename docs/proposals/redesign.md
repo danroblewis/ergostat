@@ -77,12 +77,11 @@ dashed and tinted, changed and renamed parts dashed, and a banner naming what it
 
 ![blocks, proposed](img/redesign-blocks-proposed.png)
 
-![the review section](img/redesign-review.png)
 
 ## Results
 
 All on haiku. Costs are what Claude Code reported. The runs used the harness that verified selfimprove
-(`scripts/self_improve_runs.py`, now with `--redesign` and the `thirteen` case): each example on a scratch copy, run on
+(`scripts/self_improve_runs.py` on `selfimprove` and `redesign`, now with `--redesign` and the `thirteen` case): each example on a scratch copy, run on
 its stand-ins with the AI tier on, a test policy writing descriptions, units, equations and parameters, and the owner's
 approval simulated for the rule tier's structure, renames and goals. The redesign arm adds the redesigner (`when: auto`)
 and the owner's promotion (`accept: {redesign: auto}`); the refinement arm sets `redesign: {when: off}`.

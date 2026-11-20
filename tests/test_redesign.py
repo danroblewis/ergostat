@@ -22,16 +22,40 @@ from ergostat.spec import read
 from ergostat.store import Project
 
 
-def thirteen(dest):
-    """The owner's 13 disconnected stocks, as the verification harness writes them (``scripts/self_improve_runs.py``)."""
-    import importlib.util
-    import sys
-    if "self_improve_runs" not in sys.modules:
-        f = Path(__file__).resolve().parent.parent / "scripts" / "self_improve_runs.py"
-        spec = importlib.util.spec_from_file_location("self_improve_runs", f)
-        sys.modules["self_improve_runs"] = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sys.modules["self_improve_runs"])
-    return sys.modules["self_improve_runs"].thirteen(dest)
+def thirteen(dest: Path):
+    """A model shaped like the owner's 13 disconnected stocks (as the verification harness on ``selfimprove`` writes
+    it): one kind through 13 states, a stock a state, every move written as an outflow to a cloud, a goal and a block a
+    step. Returns whether a spec has them chained."""
+    states = [f"s{i:02d}" for i in range(1, 14)]
+    lines = ["name: thirteen", "items:", "  request:", "    id: request/*", "    description: a request worked through 13 steps",
+             f"    states: [{', '.join(states)}, done]", "    on:"]
+    lines += [f"      request.{s}-reached: {s}" for s in states] + ["      request.finished: done"]
+    lines += ["stocks:"]
+    for s in states:
+        lines += [f"  {s}-waiting:", "    unit: requests", f"    description: requests at step {s}",
+                  f"    sensor: {{items: request, state: {s}, every: 5s}}"]
+    lines += ["flows:", "  arrivals:", "    to: s01-waiting", "    description: requests arriving",
+              "    sensor: {items: request, entering: s01, over: 10m}"]
+    for i, s in enumerate(states):
+        nxt = states[i + 1] if i + 1 < len(states) else "done"
+        lines += [f"  {s}-worked:", f"    from: {s}-waiting", f"    description: requests leaving step {s}",
+                  f"    driven-by: +stock.{s}-waiting", f"    sensor: {{items: request, entering: {nxt}, over: 10m}}"]
+    lines += ["goals:"]
+    for s in states:
+        lines += [f"  {s}-clear:", f"    stock: {s}-waiting", '    hold: "<= 0"', f"    description: nothing waits at {s}"]
+    lines += ["blocks:"]
+    for i, s in enumerate(states):
+        nxt = states[i + 1] if i + 1 < len(states) else "done"
+        lines += [f"  step-{s}:", "    type: program", f"    description: works step {s}", f"    goal: {s}-clear",
+                  "    run: python3 -c pass", f"    takes: {{kind: request, at: {s}, to: [{nxt}]}}", f"    out: flow.{s}-worked"]
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "ergostat.yaml").write_text("\n".join(lines) + "\n\nuses:\n  modelling: {use: modelling}\n", encoding="utf-8")
+
+    def chained(spec):
+        return all(spec.flows[f"{s}-worked"].target == (f"{states[i + 1]}-waiting" if i + 1 < len(states) else None)
+                   for i, s in enumerate(states))
+    return chained
+
 
 PIECES = """\
 name: t
@@ -79,7 +103,6 @@ blocks:
     takes: {kind: alert, at: new, to: [triaged]}
     out: flow.triaged
 """
-
 
 def project(d: Path, text: str = PIECES) -> Project:
     d.mkdir(parents=True, exist_ok=True)

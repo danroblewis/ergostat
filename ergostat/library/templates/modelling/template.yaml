@@ -16,8 +16,7 @@ reading: |
   What check finds (its findings, a kind's chain, the craft notes, the coherence mismatches once there is record) is
   work for it too: each a request (ergostat.modelling-request), raised by a collector (requests-raised), counted while it
   is not answered (unanswered-requests) and answered when check no longer finds it. The tiers answer them, the
-  cheapest first: the rule tier (fixer, a program: units carried along a flow, a queue's goal held at 0, a process
-  nobody identified taken out) and, when asked (ai: true), the AI tier (modeller, an AI agent given
+  cheapest first: the rule tier (fixer, a program: units carried along a flow) and, when asked (ai: true), the AI tier (modeller, an AI agent given
   each request with the model near it and the modelling guides). Both propose ordinary changes; the judge decides.
   Control: two balancing loops that close the long way. The goal model-fits holds model-error at or under `fit`;
   while it is off the improver runs (an AI agent reading the model as a senior modeller would, a program, or a
