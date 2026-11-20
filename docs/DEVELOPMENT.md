@@ -81,9 +81,12 @@ build took 74 s).
 | unit, `-n 8` (after the review fixes, same commit both sides) | rc 0: 1682 passed, 34 skipped, 8 xfailed, 2 xpassed; 162 s; peak 378 threads, 1.6 GB | rc 0: 1712 passed, 13 skipped, 1 xfailed; 157 s; peak 371 threads, 2.1 GB |
 | browser, `-n 4` | 217 passed, 1 failed (fixed since: `SPLIT_SHOTS`; that test then passed 5 runs of 5), no skips; 565 s; peak 556 threads, 4.1 GB | 200 passed, no skips; 463 s; peak 632 threads, 3.7 GB (\*) |
 | `tests/test_sandbox_attacks.py` (`--sandbox`) | 26 passed, 5 failed (bwrap); now 26 passed, 4 xfailed, 1 xpassed | 30 passed, 1 xfailed (seatbelt) |
+| after `linuxfix`: unit, `-n 8` | rc 0: 1695 passed, 34 skipped, no xfail; 166 s | rc 0: 1715 passed, 13 skipped, 1 xfailed; 169 s |
+| after `linuxfix`: browser, `-n 4`, one file at a time | | rc 0: 180 + 17 + 13 + 8 passed |
+| after `linuxfix`: `tests/test_sandbox_attacks.py` | 31 passed (`--sandbox`) | 30 passed, 1 xfailed (in the unit run) |
 
 The unit suite's 1,726 tests are the same on both sides; inside, 20 more skip (the attack suite, without
-`--sandbox`) and the Linux known failures are expected failures. (\*) The browser suite's host figure is from main
+`--sandbox`); since `linuxfix` nothing is an expected failure on Linux. (\*) The browser suite's host figure is from main
 at 214d864, before the rebase brought 18 browser tests: the host stayed busy with the merge
 queue's suites, so it was not rerun beside them. Inside, all 218 browser tests ran. Per test the container is about as fast as the host: the unit suite 162 s
 against 157 s, the browser suite 2.6 s a test against 2.3 s.
