@@ -51,6 +51,8 @@ POINTS_MIN = 40
 SPAN_MIN = 5.0           # the part fitted spans at least this many of τ + θ
 SE_MAX = 0.5             # a standard error past this share of its value: not told apart
 LAGS = 20
+FOLLOWS_MIN = 50.0       # % of the record held out it follows, at least (or half of what y's own jitter allows, if less)
+JUMP = 6.0               # an outside step: a change past this many of the input's typical changes
 
 
 def _ffill(xs: list) -> list[float] | None:
@@ -372,6 +374,7 @@ def identify(h: float, t: list[float], u: list, y: list, others: dict[str, list]
                gains={k: c for k, c in zip(oth, coef[1:1 + k_oth], strict=True)},
                fit_est=f["fit_est"], fit_val=f["fit_val"], se=se, rms_est=rms_est, rms_val=f["rms_val"], noise=floor,
                fit_best=(100.0 * (1 - floor / spread) if spread and spread > floor else 0.0) if val else None,
+               fit_jitter=100.0 * (1 - (noise or 0.0) / spread) if val and spread and spread > (noise or 0.0) else None,
                whiteness=whiteness(resid), independence=independence(resid, [uu[k] for k in (val if resid is res_val else est)]),
                steps=[[round(t[k], 3), d] for k, d in mv[:40]], tau_max=tau_max, theta_max=theta_max,
                other_form={x: {"fit_val": v["fit_val"], "tau": v["tau"], "theta": v["theta"]} for x, v in fits.items() if x != form},
@@ -403,10 +406,19 @@ def judge(r: dict) -> dict:
     elif r["rms_val"] > RES_MAX * r["noise"]:
         why.append(f"it leaves {r['rms_val'] / r['noise']:.2g} times the noise of the record held out (at most {RES_MAX:g}): "
                    "it does not follow what it was not fitted to")
+    cap = r.get("fit_jitter") if r.get("fit_jitter") is not None else r.get("fit_best")
+    need = min(FOLLOWS_MIN, 0.5 * cap) if cap is not None else FOLLOWS_MIN
+    poor = []                                        # the quality floor: what it follows held out, and its errors
+    if r.get("fit_val") is not None and r["fit_val"] < need:
+        poor.append(f"follows {r['fit_val']:.0f}% held out (at least {need:.0f}%)")
+    w = r.get("whiteness") or {}          # an output-error model needs white errors only in closed loop, where colour
+    if w and not w.get("white") and r["closed_loop"]:          # is what was not measured, and biases it (Ljung §16.6)
+        poor.append(f"its errors held out not white (Ljung–Box Q = {w['q']:.3g} against {w['limit']:.3g})")
     ind = r.get("independence") or {}
-    if not r["closed_loop"] and ind and not ind.get("ok"):
-        why.append(f"its errors are not independent of u (cross-correlation {ind['max']:.2f}, past ±{ind['bound']:.2f}): "
-                   "it misses some of what u does")
+    if ind and not ind.get("ok"):
+        poor.append(f"its errors not independent of u (cross-correlation {ind['max']:.2f}, past ±{ind['bound']:.2f})")
+    r["poor"] = poor
+    why += [f"{x}: it does not identify the process" for x in poor]
     if not se:
         why.append("how sure it is cannot be worked out (the record does not tell its numbers apart)")
     else:
@@ -422,6 +434,44 @@ def judge(r: dict) -> dict:
         why.append("its time constant is at the longest the record can tell: it acts as an integrator over this record")
         r["told_apart"] = False
     r["proposable"] = not why
+    return r
+
+
+def outside_steps(x: list, least: int = POINTS_MIN) -> list[tuple[int, float]]:
+    """Where an input from outside the loop jumps (a burst of arrivals, a step of a disturbance measured): a change
+    from one bucket to the next past ``JUMP`` of its typical changes (their median, robustly) and a fifth of its
+    range, with ``least`` buckets of record before and after; the largest first, each at most once in ``least``."""
+    xs = _ffill(x)
+    if xs is None or len(xs) < 2 * least:
+        return []
+    d = [b - a for a, b in zip(xs, xs[1:], strict=False)]
+    typical = 1.4826 * sorted(abs(v) for v in d)[len(d) // 2]
+    big = max(JUMP * typical, 0.2 * (max(xs) - min(xs)), 1e-12)
+    out: list[tuple[int, float]] = []
+    for k in sorted(range(least, len(d) - least), key=lambda k: -abs(d[k])):
+        if abs(d[k]) <= big:
+            break
+        if all(abs(k - j) >= least for j, _ in out):
+            out.append((k + 1, d[k]))
+    return out
+
+
+def around(h: float, t: list, u: list, y: list, ins: dict[str, list], k: int, noise: float | None = None) -> dict:
+    """The process identified around an outside step at ``k``, the inputs from outside fitted beside u: from
+    ``POINTS_MIN`` buckets before it to where y has come half way back from its furthest, fitted; from there on, as long
+    again, held out (the loop answering the step, which still moves past its noise)."""
+    n = len(t)
+    a = max(0, k - POINTS_MIN)
+    before = [v for v in y[a:k] if v is not None]
+    base = sum(before) / len(before) if before else 0.0
+    off = [abs(v - base) if v is not None else 0.0 for v in y[k:]]
+    top = max(off, default=0.0)
+    pk = k + off.index(top) if off else k
+    half = next((i for i in range(pk, n) if y[i] is not None and abs(y[i] - base) <= top / 2), n)
+    b = min(n, half + max(half - k, POINTS_MIN // 2))
+    r = identify(h, t[a:b], u[a:b], y[a:b], {o: xs[a:b] for o, xs in ins.items()}, list(range(half - a)),
+                 list(range(half - a, b - a)), noise=noise)
+    r["outside_step"] = {"at": t[k], "since": t[a], "until": t[b - 1], "held": t[min(half, b - 1)]}
     return r
 
 

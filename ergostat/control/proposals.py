@@ -142,7 +142,7 @@ def _unit(spec, ref: str) -> str:
 
 def _process_lines(spec, a: dict, r: dict) -> list[str]:
     yu, uu = _unit(spec, a["y"]), _unit(spec, a["u"]) + ("/h" if a["how"] == "valve" else "")
-    how = ("from a step test, open loop" if r.get("test") else "from the loop working, closed loop")
+    how = ("from a step test, open loop" if r.get("test") else _around(r) or "from the loop working, closed loop")
     when = time.strftime("%Y-%m-%d", time.localtime())
     unit = f"{yu} per {uu}" if yu and uu else ""
     if r["form"] == "integrating":
@@ -154,6 +154,11 @@ def _process_lines(spec, a: dict, r: dict) -> list[str]:
     out.append(f"dead-time: {_sec(r['theta'])}" if r["theta"] >= 0.05 else "dead-time: 0")
     out.append(f'identified: "{when}, {how}, {dur(r["span"])} of record"')
     return out
+
+
+def _around(r: dict) -> str | None:
+    o = r.get("outside_step")
+    return o and f"identified around an outside step at {time.strftime('%H:%M', time.localtime(o['at']))} ({o['input']})"
 
 
 def _pm(x) -> str:
@@ -173,7 +178,7 @@ def _process(p, spec, a: dict, done: dict) -> dict | None:
                              "tau": r.get("tau"), "theta": r["theta"]})
     w = r.get("whiteness") or {}
     ind = r.get("independence") or {}
-    parts = [f"identified {'from the step test' if r.get('test') else 'from the loop working (closed loop)'} on "
+    parts = [f"{'identified from the step test' if r.get('test') else _around(r) or 'identified from the loop working (closed loop)'} on "
              f"{dur(r['span'])} of record, {r['n_est']} readings fitted and {r['n_val']} held out",
              f"it follows {r['fit_val']:.0f}% of the record held out ({r['fit_est']:.0f}% of what it was fitted to)",
              f"K = {r['K']:.3g} ± {_pm(se.get('K'))}" + (f", τ = {r['tau']:.3g}s ± {_pm(se.get('tau'))}" if r.get("tau") else "")
@@ -184,7 +189,7 @@ def _process(p, spec, a: dict, done: dict) -> dict | None:
     if ind:
         parts.append("and independent of u" if ind["ok"] else f"and not independent of u (cross-correlation {ind['max']:.2f} "
                      f"past ±{ind['bound']:.2f}): a model of this order misses some of what u does")
-    if r.get("closed_loop"):
+    if r.get("closed_loop") and not r.get("outside_step"):
         parts.append("identified in closed loop: where disturbances are not measured, the estimate leans toward the "
                      "controller's inverse (Ljung ch. 13); a step test identifies it open loop")
     edit = process_edit(spec, a["goal"], _process_lines(spec, a, r))
@@ -383,8 +388,43 @@ def _step_test(p, spec, a: dict, done: dict) -> dict | None:
                      f"{dur(pl['hold'])}, then back", "reason": reason, "plan": pl}
 
 
+UNIDENTIFIED = "control/unidentified.json"
+
+
+def unidentified(p, spec=None) -> dict[str, dict]:
+    """``loop-not-identifiable``: each goal whose loop's process the record so far does not identify, with what would,
+    while the loop is as it was when it was said (``loop.key``)."""
+    from . import loop as lp
+    spec = spec or p.model.spec
+    try:
+        got = json.loads((p.dir / UNIDENTIFIED).read_text())
+    except (OSError, ValueError):
+        return {}
+    return {g: x for g, x in got.items() if g in spec.goals and x.get("key") == lp.key(spec, g)}
+
+
+def _unidentified(p, a: dict, step: bool) -> None:
+    r = a.get("identified") or {}
+    f = p.dir / UNIDENTIFIED
+    try:
+        got = json.loads(f.read_text())
+    except (OSError, ValueError):
+        got = {}
+    if r.get("found") and r.get("poor") and not a.get("declared") and not r.get("proposable"):
+        span = r.get("span") or 0.0
+        got[a["goal"]] = {"key": a["key"], "poor": r["poor"], "said": (
+            f"the record so far does not identify this loop's process ({'; '.join(r['poor'])}). What would: a step test"
+            f"{' (offered)' if step else ''}, a large outside change in its input (a burst of arrivals), or "
+            f"{dur(max(span, 3600.0))} more of record")}
+    elif got.pop(a["goal"], None) is None:
+        return
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(got, indent=1))
+
+
 def offered(p, a: dict) -> list[dict]:
-    """The proposals for one loop's analysis (``loop.analyse``), and remembered as shown."""
+    """The proposals for one loop's analysis (``loop.analyse``), and remembered as shown; a loop the record does not
+    identify, said (``unidentified``)."""
     spec = p.model.spec
     done = decisions(p)
     out = []
@@ -402,6 +442,7 @@ def offered(p, a: dict) -> list[dict]:
                 _made(p, x)
             elif not any(e["data"].get("id") == x["id"] for e in p.events.query(n=50, type="steptest.offered")):
                 p.events.add("steptest.offered", item=x["goal"], source="ergostat", data=x)   # it waits on the owner (SPEC §12o)
+    _unidentified(p, a, any(x["kind"] == "step-test" for x in out))
     return out
 
 
@@ -409,11 +450,16 @@ def _made(p, x: dict) -> None:
     """A loop's process or gain offered for the first time: an ``ergostat.model-change`` item, made by ergostat and
     checked (its analysis is its check), like every change to the model."""
     from ..numbers import proposals as pr
-    if x["id"] in pr.changes(p):
-        return
+    was = pr.changes(p).get(x["id"])
     body = {"kind": x["kind"], "title": x["title"], "goal": x.get("goal"), "block": x.get("block"), "reason": x.get("reason"),
-            "target": f"goal.{x.get('goal')}", "made_by": "ergostat", "created": time.time(), "edit": x.get("edit")}
-    pr.event(p, x["id"], "made", body)
+            "target": f"goal.{x.get('goal')}", "made_by": "ergostat", "edit": x.get("edit")}
+    if was is not None and was[0] in pr.OPEN:        # offered again: the same change, with the numbers found now
+        if any(was[1].get(k) != body[k] for k in ("title", "reason", "edit")):
+            pr.event(p, x["id"], "revised", {**body, "revisions": (was[1].get("revisions") or 0) + 1})
+        return
+    if was is not None and was[0] != "superseded":
+        return
+    pr.event(p, x["id"], "made", {**body, "created": time.time()})
     pr.event(p, x["id"], "checked", {})
 
 
