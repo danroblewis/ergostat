@@ -220,6 +220,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `docs/roadmap/overnight/leasekill.md`, says where it stopped); its review's findings were taken as lessons: B4 (a
   `done` for another item) by tagging, B1 (env leaking between items) by env in the line, B3 (a child's CPU never
   charged) by charging no item CPU at all (the daemon's own CPU and memory are sampled and shown).
+- **A renewing run killed because the engine was busy recording its renewal** (parked on `leaserenew`,
+  `docs/roadmap/overnight/leaserenew.md`, *Where it stopped*). A renewal through the engine's socket is recorded only
+  when the engine gets the GIL; the watchdog could expire the lease first and kill a run that asked in time (16 of 32
+  killed with a GIL-holding thread in the engine, 0 of 48 on the branch). The branch adds a grace and a second look,
+  a re-read before the write, and a fold refusal that the raw readers honour; parked because its
+  `refused_expiries` folds each expired item uncached, transcripts included, on every measure sample and estimate
+  read. Still needed: read `refused` from the item index, and a performance test with many expired items and long
+  transcripts.
 - **Daemons, left over:** a daemon's lines are taken one at a time (a run's process batches the lines that arrive
   together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
   not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
