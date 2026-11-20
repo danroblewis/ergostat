@@ -151,7 +151,8 @@ class Factory:
         return self.db()["items"][iid]
 
     def fold(self, lines: list[dict], about: str | None) -> list[str]:
-        """The event lines into the record, by the root model's kinds; the event types, in order."""
+        """The event lines into the record, by the root model's kinds; the event types, in order (but a session item's,
+        test_factory_sessions.py)."""
         db, said = self.db(), []
         for line in lines:
             if "event" not in line:
@@ -182,7 +183,8 @@ class Factory:
                     it["fields"][k] = v
             if line["event"] in kind.on:
                 it["state"] = kind.on[line["event"]]
-            said.append(line["event"])
+            if not line["event"].startswith("session."):          # (each AI session's own item: sessions.py)
+                said.append(line["event"])
         self.record.write_text(json.dumps(db))
         return said
 
@@ -439,8 +441,10 @@ def test_names_and_definitions_stay_inside(tmp_path, monkeypatch):
 
 def test_a_session_that_fails_keeps_its_whole_reservation(tmp_path, monkeypatch):
     fac = fac_module(tmp_path, monkeypatch)
-    cfg = {"paths": {"run": str(tmp_path / "run")}, "ai": {"mode": "container", "implementor_model": "opus",
-                                                         "implementor_session_usd": 5.0}}
+    monkeypatch.setitem(sys.modules, "fac", fac)
+    monkeypatch.setitem(sys.modules, "sessions", module("sessions"))           # (each session kept: sessions.py)
+    cfg = {"paths": {"run": str(tmp_path / "run"), "live": str(tmp_path / "live")},
+           "ai": {"mode": "container", "implementor_model": "opus", "implementor_session_usd": 5.0}}
     fake = type(sys)("agents")
     fake.token = lambda cfg: "t"
     def crash(*a, **k):
