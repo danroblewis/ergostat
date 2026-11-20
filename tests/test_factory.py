@@ -326,7 +326,10 @@ def test_fix_then_park(tmp_path):
     assert said == ["gap.started", "gap.built"] and f.item(gid)["fields"]["rework"] is True
     assert f.item(gid)["fields"]["contexts"][-1]["findings"] == 1              # the findings went into its brief
     said, _ = f.run("review.py", gid, FACTORY_STANDIN_VERDICT="fix")
-    assert said[-1] == "gap.parked" and f.item(gid)["state"] == "parked"      # the kill rule: the second failed gate
+    assert said[-1] == "gap.sent-back" and f.item(gid)["state"] == "fix"      # two failed gates: a third round
+    f.run("implement.py", gid)
+    said, _ = f.run("review.py", gid, FACTORY_STANDIN_VERDICT="fix")
+    assert said[-1] == "gap.parked" and f.item(gid)["state"] == "parked"      # the kill rule: the third failed gate
     assert f.item(gid)["fields"]["parked_in"] == "review"
     definition = git(tmp_path / "live" / "drop.git", "show",
                      "factory/alpha-thing:docs/roadmap/overnight/alpha-thing.md")
@@ -713,6 +716,35 @@ def test_a_revert_puts_back_the_instances_model_and_says_when_it_cannot(tmp_path
     assert r.returncode != 0 and "did not start" in r.stderr                   # the revert's start failed twice
     calls = (live / "calls.log").read_text()
     assert "upgrade.failed" in calls and "intervention.recorded" in calls
+
+
+@pytest.mark.slow
+def test_a_switch_keeps_the_local_settings_and_makes_no_gap_of_them(tmp_path):
+    f = Factory(tmp_path)
+    live = tmp_path / "live"
+    fake_version(live, "a" * 40, starts=True)
+    fake_version(live, "b" * 40, starts=True)
+    with f.config.open("a") as c:
+        c.write("health_wait = 1\n")
+    env = {**f.env, "ERGOSTAT_HOME": str(tmp_path / "home")}
+    live_py = [sys.executable, str(BIN / "live.py")]
+    inst = live / "instance"
+    inst.mkdir(parents=True)
+    (live / "current").symlink_to("a" * 40)
+    subprocess.run([*live_py, "init"], cwd=inst, env=env, check=True, capture_output=True)
+    local = "web: {names: [private-tunnel.example.org], open: read}\n"
+    (inst / "ergostat.local.yaml").write_text(local)
+    r = subprocess.run([*live_py, "switch", "b" * 40], cwd=inst, env=env, capture_output=True, text=True)
+    assert r.returncode == 0 and os.readlink(live / "current") == "b" * 40, r.stdout + r.stderr
+    assert (inst / "ergostat.local.yaml").read_text() == local                  # kept across the switch
+    assert "gap.requested" not in (live / "calls.log").read_text()              # and no gap made of it
+    (inst / "ergostat.yaml").write_text("name: fake\n# an edit made in the instance\n")
+    r = subprocess.run([*live_py, "switch", "a" * 40], cwd=inst, env=env, capture_output=True, text=True)
+    assert r.returncode == 0 and (inst / "ergostat.local.yaml").read_text() == local
+    assert "gap.requested" in (live / "calls.log").read_text()                  # a model edit is a gap all the same,
+    made = [p.read_text() for p in tmp_path.rglob("model-edit-*.md")]
+    assert len(made) == 1 and "an edit made in the instance" in made[0]
+    assert "private-tunnel" not in made[0] and "ergostat.local.yaml" not in made[0]   # with nothing of this machine's
 
 
 @pytest.mark.skipif(not docker_ready(), reason="needs Docker and the agent image (dev/agent/Dockerfile)")
