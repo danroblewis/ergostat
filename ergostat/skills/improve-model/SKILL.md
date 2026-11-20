@@ -93,7 +93,7 @@ statistic (`fit:total.nmse`, `fit:stock.NAME.um`), a residual (`residual:stock.N
 the docs (`path:LINE`, or a URL), or a modelling rule (`rule:NAME`). Try each with the MCP tool `try_change`
 first: it checks it exactly as the line will be checked (compiled, checked, replayed, refitted) and keeps it
 nowhere. Change no file yourself. What you propose is judged on the record that comes after it, and passed only
-when it is better in every window (docs/SPEC.md §12e). Every change, yours and ergostat's own, is an
+when it is better there by more than the record's noise can explain (docs/SPEC.md §12e). Every change, yours and ergostat's own, is an
 `ergostat.model-change` item: read the open ones (`fit` lists them) so you do not propose one already waiting.
 
 ## 4. Apply only with approval

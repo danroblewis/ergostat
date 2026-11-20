@@ -153,12 +153,18 @@ review into *Done recently*). Newest decisions from the owner first within each 
   and widens the band where the parts it rests on fit badly. **Left:** a burst's window is chosen from y's own
   excursion (where it comes half way back), not from the process; several outside steps are not yet fitted together as
   experiments; the projections do not yet suggest the missing structure (capacity) themselves.
-- **The judge almost never decides on a slow model** (open; owner, 2026-11-19: on the work model nearly every
-  change is inconclusive, a few refused, none accepted): a change must gain 2% in every window of at least twice
-  its stock's time constant, on record after it was made; a model whose flows run per day rarely has that, and a
-  change that cannot move the replay (structure, wiring, descriptions) can never prove itself. Say how much more
-  record a verdict needs, judge such changes by structural measures (as redesign's scorecard does), and let a
-  change carry over edits elsewhere (above).
+- **The judge almost never decides on a slow model** (owner, 2026-11-19: on the work model nearly every change is
+  inconclusive, a few refused, none accepted; partly done on `slowjudge`, docs/roadmap/overnight/slowjudge.md; SPEC
+  §12e): a change had to gain 2% in every window of at least twice its stock's time constant, above an absolute noise
+  floor, so on a slow or noisy record each window was one noisy draw (measured: a change a fifth worse passed in 6 of
+  20 records, one a fifth better failed in 11 of 20). *Done*: one replay of each over the whole record held out, the
+  noise taken from the record about the better replay (AR(1)), and an always-valid confidence sequence with its error
+  rate stated (a change no better passes at most 5% of the time, however often looked at); an undecided change says
+  about how much more record it needs and stays under test up to seven times the record it needs (a day at least); a
+  change whose replay is the same as the model's waits for record in which it moves, rather than three hold-outs.
+  *Left*: on a record as slow as the information allows (a fifth off a day-long drain) most changes still need more
+  than a week; a change that cannot move the replay (structure, wiring, descriptions) should be judged by structural
+  measures (as redesign's scorecard does); and a change should carry over edits elsewhere (above).
 - **A cause for a scheduled run's events** (done, e4800ea, on `causes-join`; SPEC §5b): the run is the cause its
   events cite (no `ergostat.schedule.fired` event per firing); the Process view draws each scheduled block in a
   **schedules** frame with its fan-out. *Left*: an event line still cannot name a cause of its own (`causedby`).
