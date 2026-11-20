@@ -305,7 +305,7 @@ def test_the_policy_is_the_judge_blocks(tmp_path):
     assert spec.improve.accept["parameter"] == "auto" and spec.improve.accept["structure"] == "owner"
     assert spec.improve.threshold == pytest.approx(0.05) and spec.improve.hold_out == 180 and spec.improve.windows == [1, 3]
     every = policy(judge_block(accept="auto"))[0].improve.accept
-    assert {k for k, v in every.items() if v != "auto"} == {"redesign"}   # a redesign is promoted only by name
+    assert {k for k, v in every.items() if v != "auto"} == {"rename", "redesign"}   # promoted only by name
     for bad in (judge_block(accept="always"), judge_block(accept="{loops: auto}"), judge_block(threshold="150%"),
                 judge_block(windows="[0]"), judge_block(run="echo"), judge_block(out="{kept: flow.arrivals}"),
                 judge_block() + "  judge-2:\n    type: judge\n"):
