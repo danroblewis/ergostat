@@ -161,7 +161,14 @@ def prompt(p, s: cs.Scratch, system: str, why: list[str], feedback: list[str] | 
         lines += _coherence(p, spec, problems) or ["nothing to compare"]
     lines += ["", "## The record", ""] + _record(p, shown)
     from . import redesign_memory as rm
-    mem, ivs = rm.memory(p, s.base, system), rm.interventions(p, s.base, system)
+    try:                                              # what it learns from: never a failed prompt
+        mem = rm.memory(p, s.base, system)
+    except Exception as e:
+        mem = [f"(its past proposals could not be read: {type(e).__name__})"]
+    try:
+        ivs = rm.interventions(p, s.base, system)
+    except Exception as e:
+        ivs = [f"(the interventions could not be read: {type(e).__name__})"]
     if mem:
         lines += ["", "## What was proposed before for this system (newest first: never again what was turned away)", ""] + mem
     if ivs:

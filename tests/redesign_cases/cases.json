@@ -23,7 +23,7 @@
    {"add": "flows", "name": "rework", "set": {"from": "b", "to": "a", "driven-by": ["+stock.b"], "equation": "rework-per-b * stock.b"}}],
   "seed": {
    "history": [{"title": "A faster drain from b", "summary": "b-out-per-b raised so b empties as the record shows", "edits": ["b-out-per-b from 4 to 6"], "state": "dismissed", "note": "a is fuller than its inflow explains; changing b's drain does not touch that"}],
-   "interventions": [{"class": "person:recount", "cause": "stock.a", "count": 4, "hours": 3.0, "note": "the recount found items in a that had already been through b once"}]}
+   "interventions": [{"class": "person:recount", "cause": "stock.a", "count": 4, "hours": 3.0, "note": "a's count stays above what its arrivals alone would leave, and higher still while b is full"}]}
  },
  "delay": {
   "title": "a supply line without its delay",
@@ -61,7 +61,7 @@
    {"add": "flows", "name": "b-to-c", "set": {"from": "b", "to": "c", "driven-by": ["+stock.b"], "equation": "b-to-c-per-b * stock.b"}}],
   "seed": {
    "history": [{"title": "A faster move from a", "summary": "a-to-b-per-a raised", "edits": ["a-to-b-per-a from 10 to 14"], "state": "failed", "verdict": "no better: c's replay leads the record"}],
-   "interventions": [{"class": "alarm:c-late", "cause": "stock.c", "count": 4, "hours": 3.0, "note": "what leaves a reaches c only after a stage in between"}]}
+   "interventions": [{"class": "alarm:c-late", "cause": "stock.c", "count": 4, "hours": 3.0, "note": "c starts to rise well after a falls; on the charts the two never move together"}]}
  },
  "outflow": {
   "title": "a chain whose last stock has lost its outflow",
@@ -73,6 +73,6 @@
    {"add": "flows", "name": "b-out", "set": {"from": "b", "driven-by": ["+stock.b"], "equation": "b-out-per-b * stock.b"}}],
   "seed": {
    "history": [{"title": "Rename b to done", "summary": "b named for what it holds", "edits": ["rename stock.b to done"], "state": "dismissed", "note": "b does not keep growing in the record; a name does not fix that"}],
-   "interventions": [{"class": "alarm:b-full", "cause": "stock.b", "count": 3, "hours": 1.0, "note": "b levels off on its own; something takes items out of it"}]}
+   "interventions": [{"class": "alarm:b-full", "cause": "stock.b", "count": 3, "hours": 1.0, "note": "b's count climbs for the first hours, then stays flat although a keeps feeding it"}]}
  }
 }
