@@ -2,7 +2,8 @@
 by name, and nothing else.
 
   - session folders, `<live>/sessions/<branch>-<role>-<YYYYmmddHHMMSS>-<6 hex>` (agents.scratch), older than
-    [resources] session_keep_hours by their name and their time;
+    [resources] session_keep_hours by their name and their time, and Claude Code's folder for each session,
+    `<item>-<role>-<n>-claude-<8 hex>` (sessions.py: its transcript is already copied to run/sessions/), by its time;
   - installed versions, `<live>/<40-hex sha>` that are worktrees of the checkout (live.install), other than current,
     previous, and any younger than the same hours (one installed and waiting for its switch): removed with
     `git worktree remove`, never by hand.
@@ -24,6 +25,7 @@ sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
 SESSION = re.compile(r"^[a-z0-9][a-z0-9-]*-(\d{14})-[0-9a-f]{6}$")
+CLAUDE = re.compile(r"^[a-z0-9][a-z0-9-]*-\d+-claude-[0-9a-f]{8}$")      # Claude Code's folder for one (sessions.py)
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -51,9 +53,9 @@ def sessions(cfg: dict, now: float | None = None, every: bool = False) -> list[P
     out = []
     for d in sorted(root.iterdir()) if root.is_dir() and not root.is_symlink() else []:
         m = SESSION.match(d.name)
-        if not m or d.is_symlink() or not d.is_dir():
+        if not (m or CLAUDE.match(d.name)) or d.is_symlink() or not d.is_dir():
             continue
-        born = time.mktime(time.strptime(m[1], "%Y%m%d%H%M%S"))
+        born = time.mktime(time.strptime(m[1], "%Y%m%d%H%M%S")) if m else 0
         if every or now - max(born, d.stat().st_mtime) > keep_seconds(cfg):
             out.append(d)
     return out

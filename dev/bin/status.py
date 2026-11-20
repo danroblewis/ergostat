@@ -1,7 +1,11 @@
 """One screen of the factory for the coordinator, from its record; run in the instance's folder.
 
     status.py      in flight, blocked (on what), failed (why), the queue, research, proposed lessons, spend today and
-                   first-pass yield"""
+                   first-pass yield
+    status.py session GAP [ROLE] [N]
+                   a session's conversation (run/sessions/, sessions.py): each message, each tool call with its input
+                   summarised, each result cut short. Without N, the role's latest; without ROLE, the gap's sessions
+                   listed and its latest shown"""
 
 from __future__ import annotations
 
@@ -12,6 +16,7 @@ sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import measure  # noqa: E402
 import resources  # noqa: E402
+import sessions  # noqa: E402
 
 FLIGHT = ("planned", "building", "in-review", "queued")
 WAITING = ("open", "replan", "ready", "fix", "built", "approved")
@@ -35,8 +40,24 @@ def blocked_on(g: dict, by: dict) -> str:
                                                                      for d in waits), ", ".join(research)) if x)
 
 
+def session(cfg: dict, args: list[str]) -> int:
+    if not args or len(args) > 3 or (len(args) == 3 and not args[2].isdigit()):
+        print("usage: status.py session GAP [ROLE] [N]", file=sys.stderr)
+        return 2
+    found = sessions.find(cfg, args[0], args[1] if len(args) > 1 else None, int(args[2]) if len(args) > 2 else None)
+    if not found:
+        print(f"no session of {' '.join(args)} in {fac.rel(fac.run_dir(cfg, 'sessions'))}/", file=sys.stderr)
+        return 1
+    if len(args) == 1:
+        print("\n".join(f"  {p.stem}  ({p.stat().st_size // 1024} KB)" for p in found) + "\n")
+    print(sessions.readable(found[-1]))
+    return 0
+
+
 def main() -> int:
     cfg = fac.config()
+    if sys.argv[1:2] == ["session"]:
+        return session(cfg, sys.argv[2:])
     fac.cli(cfg)
     gaps = fac.items("gap")
     by = {g["id"]: g for g in gaps}
