@@ -7,6 +7,7 @@ own measures do).
   review-hours        median hours its reviews took per merged gap
   queue-wait-hours    median hours from approved to the queue starting on it, per merged gap (every attempt)
   queue-minutes       median minutes of a queue run (merge and suites), over the gaps the queue ran
+  merges-per-hour     gaps merged per hour of the queue's runs (a batch's run counted once)
   suite-minutes       median minutes of the queue's suites (unit, browser, demo) on the runs that passed
   first-pass-yield    the share of first reviews whose verdict was merge
   fix-rounds          mean rounds sent back to the implementor per merged gap
@@ -65,6 +66,13 @@ def reading(name: str, now: float | None = None) -> float:
         return round(statistics.mean(f("fix_rounds")), 3) if merged else 0.0
     if name == "cost-per-merged":
         return round(sum(f("ai_cost_usd")) / len(merged), 2) if merged else 0.0
+    if name == "merges-per-hour":
+        runs: dict[str, float] = {}                        # each queue run's minutes once, however many it landed
+        for i, g in enumerate(merged):
+            k = str(g.get("batch_id") or i)
+            runs[k] = max(runs.get(k, 0.0), float(g.get("queue_minutes") or 0))
+        hours = sum(runs.values()) / 60
+        return round(len(merged) / hours, 3) if hours else 0.0
     queued = [g["fields"] for g in recent(gaps, "queued_at", since)]
     if name == "queue-minutes":
         return median([float(g["queue_minutes"]) for g in queued if g.get("queue_minutes")])
