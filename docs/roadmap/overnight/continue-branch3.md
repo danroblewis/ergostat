@@ -99,3 +99,34 @@ continue-branch3, round 2: no code changed. Both findings of review/continue-bra
   `tests/test_factory.py` (32 passed, 2 skipped for want of Docker); `tests/test_review.py` with
   `tests/test_intake.py` (43 passed); ruff clean on ergostat, tests, scripts and dev. Main is still 1f013ba in this
   clone, so there was nothing new to merge. The whole unit suite was not run here: that is the factory's fast-suite run.
+
+## Where it stopped
+
+continue-branch3, round 3. Every finding of review/continue-branch3-2, and the two of review/continue-branch3-1 that
+round 2 left unanswered, with what changed:
+
+- Correction to round 2's note: it said "both findings of review/continue-branch3-1 are answered", but that review had
+  four. Round 2 answered the GAPS entry and the reviewer's own limit; it left the `update-ref` finding and the copies of
+  the definition unanswered. Both are answered below.
+- dev/bin/agents.py `finish` (lesson-1, lesson-12): the drop's branch now moves only from the sha the session was
+  given. `publish` returns the sha it pushed; `finish` takes it as `was` and runs
+  `update-ref refs/heads/factory/<branch> <head> <was>`, so a branch another writer moved during the session
+  (review.park's note, another gap's finish, a second gap continuing the same branch) is refused and the drop's branch
+  kept, not overwritten. implement.py passes the published sha, then each round's new head to the next suite-fix
+  round. New test: `tests/test_factory.py::test_a_branch_moved_by_another_writer_during_the_session_is_not_overwritten`
+  (moves the drop's branch between publish and finish). With the old value dropped from `update-ref` it fails (seen);
+  restored, it passes. Not done: intake.continued still does not check that no live gap owns an existing factory/NAME.
+  With the old value in place, two gaps on one branch cost a refused finish, not a lost commit; a refusal at intake
+  would be a further change and was left out to stay inside the definition.
+- The copies of the definition (lesson-12): continue-branch2.md is cut to a pointer to continue-branch.md plus its own
+  rounds' "Where it stopped". This file keeps its copy: it is this gap's definition file, which the house rule lets
+  change only by appending. When the branch lands it can be cut the same way (git keeps the text). docs/GAPS.md now
+  names one definition, continue-branch.md, and the other two files as the later rounds' notes.
+- Gate 1 (this file is not the branch's first commit): unchanged, for the reason given in rounds 1 and 2 (rewriting the
+  branch's history cannot be undone in the drop).
+- lesson-7: this clone has no `origin/main` (`git rev-parse origin/main` fails), so main could be neither merged nor
+  compared here. The factory's merge before the session (this gap's own code, once on main) or the merge queue must do
+  it, with the suites run again on the merged tree.
+- Run here, one file at a time: `tests/test_factory.py` (33 passed, 2 skipped for want of Docker); `tests/test_review.py`
+  with `tests/test_intake.py` (43 passed); ruff clean on ergostat, tests, scripts and dev. The whole unit suite was not
+  run here: that is the factory's fast-suite run.
