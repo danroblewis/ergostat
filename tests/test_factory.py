@@ -155,12 +155,21 @@ class Factory:
                 continue
             iid = line.get("item") or about
             kind = next(k for k in self.kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
-            assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed")), line
+            assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
+                                                                                ".dependencies")), line
             it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
             for k, v in (line.get("data") or {}).items():
-                rule = kind.fold.get(k, "replace")
+                rule = "relation" if k in kind.relations else kind.fold.get(k, "replace")
                 was = it["fields"].get(k)
-                if rule == "sum":
+                if rule == "relation":                                 # (SPEC 5a: a set of ids, or set/add/remove)
+                    got = set(was or [])
+                    if isinstance(v, dict):
+                        got = set(v.get("set", got)) | set([v["add"]] if isinstance(v.get("add"), str) else
+                                                            v.get("add") or []) - set(v.get("remove") or [])
+                    else:
+                        got |= set([v] if isinstance(v, str) else v)
+                    it["fields"][k] = sorted(got)
+                elif rule == "sum":
                     it["fields"][k] = (was or 0) + v
                 elif rule == "append":
                     it["fields"][k] = (was or []) + (v if isinstance(v, list) else [v])
@@ -720,3 +729,91 @@ def test_the_factorys_containers_are_counted_and_swept(tmp_path, monkeypatch):
         assert subprocess.run(["docker", "inspect", name], capture_output=True).returncode != 0
     finally:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+
+
+DEPS_GAPS = """\
+# Known gaps
+
+## Modelling
+
+- **Warm workers** (parked on `warm`, *Where it stopped*): per-item state.
+- **Remote systems** (open): composed. The rest comes after `warm`, and the cache needs `nosuch` first.
+- **Layout rules** (open): see `docs/x.md`; the watchdog's last resort after `runner.kill_all()` stays.
+- **Loop a** (open): after `loop-b`.
+- **Loop b** (open): after `loop-a`.
+
+| Branch | Gap | Depends on |
+|---|---|---|
+| `layout-rules` | layout | `remote-systems` |
+
+## Done recently
+
+- **Old** (done): after `warm`.
+"""
+
+
+def test_dependencies_are_read_conservatively_with_where_they_came_from(tmp_path, monkeypatch):
+    fac_module(tmp_path, monkeypatch)
+    sys.modules["fac"] = module("fac")
+    deps = module("deps")
+    parsed, own = deps.from_gaps(DEPS_GAPS)
+    assert [n for n, _ in parsed["gap/remote-systems"]] == ["warm", "nosuch"]
+    assert "gap/layout-rules" not in parsed                                    # not `runner.kill_all()`
+    assert [n for n, _ in parsed["@layout-rules"]] == ["remote-systems"]       # the table
+    assert own["gap/warm-workers"] == {"warm"} and "GAPS.md:" in parsed["gap/remote-systems"][0][1]
+    assert deps.from_definition("# x\n\ndepends-on: [warm, `gap/loop-a`]\n") == ["warm", "gap/loop-a"]
+    assert deps.from_definition("no line here") == []
+    gaps = {f"gap/{g}": {"id": f"gap/{g}", "state": "open", "fields": {"branch": g}}
+            for g in ("warm-workers", "remote-systems", "layout-rules", "loop-a", "loop-b", "asked")}
+    gaps["gap/warm-workers"]["state"] = "parked"
+    gaps["gap/warm-workers"]["fields"]["where_it_stopped"] = "per-item state leaked"
+    gaps["gap/asked"]["fields"]["depends_on"] = ["gap/nowhere"]
+    want = deps.plan(gaps, parsed, own)
+    assert want["gap/remote-systems"]["depends_on"] == ["gap/warm-workers"]   # by the branch its entry names
+    assert "'nosuch'" in want["gap/remote-systems"]["problems"][0]            # no gap: said, not dropped
+    assert want["gap/layout-rules"]["depends_on"] == ["gap/remote-systems"]
+    assert want["gap/loop-a"]["depends_on"] == ["gap/loop-b"]                  # the first link of the cycle stands
+    assert want["gap/loop-b"]["depends_on"] == [] and "cycle" in want["gap/loop-b"]["problems"][0]
+    assert "no gap" in want["gap/asked"]["problems"][0]
+    assert "parked: per-item state leaked" in want["gap/remote-systems"]["blocked_reason"]
+    assert "remote-systems" in deps.tree({k: {**g, "fields": {**g["fields"], "depends_on": want[k]["depends_on"]}}
+                                          for k, g in gaps.items()})
+
+
+def test_a_gap_is_taken_only_once_its_dependencies_merged_the_critical_first(tmp_path):
+    from ergostat import model as mdl
+    from ergostat import precedence as pr
+    from ergostat.spec import items as its
+    from ergostat.store import Project
+    root = tmp_path / "m"
+    root.mkdir()
+    (root / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
+    (root / "dev").symlink_to(ROOT / "dev")
+    m = mdl.load(root)
+    (tmp_path / "state").mkdir()
+    p = Project(m, directory=tmp_path / "state")
+    ev, spec = p.events, m.spec
+    t = time.time() - 6000
+    steps = ("gap.found", "gap.defined", "gap.started", "gap.built", "gap.review-started", "gap.approved",
+             "gap.queued", "gap.merged")
+    for n in range(4):                                     # a history: each state an hour, so the path is long
+        for k, e in enumerate(steps):
+            ev.add(e, item=f"gap/old{n}", at=t - 40000 + n + 3600 * k)
+    for g in ("base", "lone", "mid", "top", "other"):
+        ev.add("gap.found", item=f"gap/{g}", data={"source": "gaps"}, at=t)
+        ev.add("gap.defined", item=f"gap/{g}", at=t + 1)
+    ev.add("gap.dependencies", item="gap/mid", data={"depends_on": {"set": ["gap/base"]}}, at=t + 2)
+    ev.add("gap.dependencies", item="gap/top", data={"depends_on": {"set": ["gap/mid"]}}, at=t + 2)
+    ev.add("gap.dependencies", item="gap/other", data={"depends_on": {"set": ["gap/base"]}}, at=t + 2)
+    take = spec.blocks["implementor"]
+    ready = lambda now: [i for i in sorted(its.project(ev, spec, "gap"), key=lambda i: i.first)  # noqa: E731
+                         if i.state in take.takes.at]
+    got = [i.id for i in pr.order_ready(ev, spec, "gap", ready(t + 3), t + 3)]
+    assert got == ["gap/base", "gap/lone"]                                     # unblocked only; the critical first
+    for e in ("gap.started", "gap.built", "gap.review-started", "gap.approved", "gap.queued", "gap.merged"):
+        ev.add(e, item="gap/base", at=t + 10)
+    got = [i.id for i in pr.order_ready(ev, spec, "gap", ready(t + 11), t + 11)]
+    assert got[0] == "gap/mid" and set(got) == {"gap/mid", "gap/other", "gap/lone"}   # merged: its dependents ready
+    ev.add("gap.parked", item="gap/mid", at=t + 12)
+    got = [i.id for i in pr.order_ready(ev, spec, "gap", ready(t + 13), t + 13)]
+    assert "gap/top" not in got                                                # a parked dependency still blocks

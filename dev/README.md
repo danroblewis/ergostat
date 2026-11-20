@@ -87,6 +87,13 @@ ergostat event --add gap.requested --item gap/my-change \
   --data '{"title": "My change", "source": "request", "branch": "my-change", "definition": "run/defs/my-change.md"}'
 ```
 
+**Dependencies.** A gap waits on others named by `depends-on: [name, ...]` in its definition (the template is
+`dev/prompts/definition.md`), `"depends_on": ["gap/..."]` in its request, or `after `name``, `needs `name` first` and a
+"Depends on" table column in GAPS.md. It is built only once each is merged; the implementor takes the unblocked first,
+the critical first. A name that is no gap, or a link that would close a cycle, is refused and said (the goal
+`dependencies-sound`); a gap waiting on a parked one says so (`blocked_reason`). The Items page's Graph and Timeline
+draw the tree; `python3 dev/bin/deps.py` prints it as mermaid.
+
 Then: the implementor commits the definition first and builds; the reviewer approves, sends it back (`fix`, with its
 findings) or parks it; the second failed gate parks it with where it stopped; the queue lands it. `ergostat item
 gap/NAME` shows each round, its reviews, the context each session was given and what it cost.

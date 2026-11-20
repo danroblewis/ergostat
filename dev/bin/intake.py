@@ -18,6 +18,7 @@ import time
 
 sys.dont_write_bytecode = True
 import brief  # noqa: E402
+import deps  # noqa: E402
 import fac  # noqa: E402
 
 ENTRY = re.compile(r"^- \*\*(.+?)\*\*\s*(\((?:[^()]|\([^()]*\))*\))?")
@@ -59,13 +60,33 @@ def definition(cfg: dict, gap: dict) -> str | None:
     return None
 
 
+def dependencies(cfg: dict, known: dict[str, dict], text: str) -> int:
+    """Each gap's dependencies from GAPS.md, its definition's `depends-on:` line and what was asked: said as
+    gap.dependencies where they changed (deps.py)."""
+    parsed, own = deps.from_gaps(text)
+    for gid, g in known.items():
+        where = str(g["fields"].get("definition") or "")
+        if where:
+            try:
+                names = deps.from_definition(brief.definition_text(cfg, where, fac.branch_of(g)))
+            except ValueError:
+                names = []
+            parsed.setdefault(gid, []).extend((n, f"its definition ({where})") for n in names)
+    n = 0
+    for gid, data in deps.changes(known, deps.plan(known, parsed, own)):
+        fac.say("gap.dependencies", gid, **data)
+        n += 1
+    return n
+
+
 def main() -> int:
     cfg = fac.config()
     repo = fac.path(cfg, "checkout")
     known = {g["id"]: g for g in fac.items("gap")}
     now = time.time()
     found = 0
-    for e in gaps_md(fac.git(repo, "show", f"{cfg['git']['base']}:docs/GAPS.md")):
+    text = fac.git(repo, "show", f"{cfg['git']['base']}:docs/GAPS.md")
+    for e in gaps_md(text):
         if e["id"] not in known:
             gid = e.pop("id")
             fac.say("gap.found", gid, **e, source="gaps", branch=fac.slug(gid.split("/", 1)[1], 32), open_at=now)
@@ -78,8 +99,10 @@ def main() -> int:
         where = definition(cfg, g)
         if where:
             fac.say("gap.defined", g["id"], definition=where, ready_at=now, branch=fac.branch_of(g))
+            g["fields"]["definition"] = where
             defined += 1
-    print(f"intake: {found} found, {defined} defined", file=sys.stderr)
+    linked = dependencies(cfg, known, text)
+    print(f"intake: {found} found, {defined} defined, {linked} with their dependencies changed", file=sys.stderr)
     return 0
 
 
