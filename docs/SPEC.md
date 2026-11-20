@@ -3547,13 +3547,16 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   on with (not its remedies: generic, they led haiku to add a goal and a controller for
   every class, and its change sets stopped compiling; `docs/redesign-bench.md`); a class is the system's when its block, or a part its cause names, is in it; at most 8, 2,500 characters.
   The guide says never to propose again what was dismissed or judged not better unless the record now answers the
-  reason given, and to read each recurring intervention as a loop the model lacks.
+  reason given, and to read each recurring intervention as a loop the model lacks, with a lookup from symptom to
+  structure (a queue that builds only in bursts: a capacity; items seen twice: rework; a part that lags another: a
+  delay or a stock between; a level that settles whatever its start: a balancing flow).
 - **The benchmark** (`scripts/redesign_bench.py`, `docs/redesign-bench.md`): models of known structure
   (`tests/redesign_cases/`) each cut (a capacity limit, a rework loop, a delay, a goal gap, a stock merged away, an
   outflow), the record made from the whole model, the redesigner asked to repair the cut one (nothing submitted), and
   each case scored: the missing structure found again (by place and shape, a rename followed by `formerly:`, and
   working on the truth's record: the flow moves something, the limit binds, the goal's sign closes the gap, the delay
-  delays what leaves the stock before; necessary for a repair, not sufficient), the parts added beyond the known
+  takes what leaves the stock before (how long it delays is not checked: a DELAY3 of near-zero time passes);
+  necessary for a repair, not sufficient), the parts added beyond the known
   repair's, the fit before and after, compiled, the verdict, the cost; `--without memory,interventions` for an
   ablation; haiku by default under a cap for the run ($3), `--stand-in` for the
   harness alone; one JSON row a case appended to `docs/redesign-bench.jsonl`.

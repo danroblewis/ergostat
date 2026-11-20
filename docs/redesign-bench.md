@@ -32,7 +32,7 @@ none).
 |---|---|---|---|
 | `capacity` | a ticket queue (ticket-factory's making step) started at `MIN(rate × waiting, capacity)` | the capacity | an outflow of `waiting` has a `MIN` that binds on the record (the flow differs from each of its arguments alone by more than 5%) |
 | `rework` | ladder 012: a → b, with rework b → a | the rework flow | a flow from b to a that moves at least 1% of b an hour |
-| `delay` | ladder 063: a DELAY3 supply line into b | the delay | a DELAY or SMOOTH into b of what leaves a, or a stock between a and b, each flow moving |
+| `delay` | ladder 063: a DELAY3 supply line into b | the delay | a DELAY or SMOOTH into b of what leaves a, or a stock between a and b, each flow moving (how long it delays is not checked: a DELAY3 of near-zero time passes) |
 | `goal` | ladder 011: orders = base − k × inventory | the goal gap (orders constant) | a flow into p that reads stock i and falls when i is higher (the gap closes) |
 | `merged` | ladder 004: a → b → c | stock b merged away | a stock between a and c (or a delay of what leaves a, into c), each flow moving |
 | `outflow` | ladder 003: a → b → out | b's outflow | a flow out of b that moves at least 1% of b an hour |
@@ -77,8 +77,15 @@ The ablation, with the found test above and the notes as they are now:
 Found per case, with the extra parts its four change sets added together in brackets; every change set compiled in
 every arm. "Neither" is the redesigner with the guide as it is now and no memory or interventions in its prompt.
 
-- **Both help, interventions more**: 5 of 24 found with neither, 12 with the memory alone, 16 with the interventions
-  alone, 17 with both. The two overlap (both carry notes about the same symptom), so they do not add up.
+- **The guide's wording matches the cases' wording.** The redesigner's guide (`redesigner.md`, *Interventions*)
+  gives a lookup from symptom to structure ("a queue that only builds in bursts is a capacity", "a part that lags
+  another is a delay or a stock between them", "a level that settles whatever its start is a balancing flow") that
+  mirrors five of the six cases' notes almost word for word. So the memory and interventions arms partly measure that
+  match, not only the redesigner reading evidence: their gain is an **upper bound** for real notes, written by people
+  who never read the guide.
+- **Within that bound, both help, interventions more**: 5 of 24 found with neither, 12 with the memory alone, 16 with
+  the interventions alone, 17 with both. The two overlap (both carry notes about the same symptom), so they do not add
+  up.
 - **Case by case the noise is large**: goal is 4 of 4 with the interventions alone and 1 of 4 with both; four runs
   a case cannot tell such differences apart. Rework is hardly ever found: its note, rewritten as a symptom, no longer
   leads haiku to the loop.
