@@ -110,3 +110,11 @@ Tests: `test_calls_on_an_earlier_version_do_not_count_toward_giving_up` (the cha
 `test_two_holds_at_once_never_share_one_remainder`; each fails with the code it guards put back as it was (`since=`
 ordering; the raw `review` in memory, then in counts; the hold not recorded), checked by hand. SPEC §12e says the
 tries, the memory and the misses are of the version as it stands. Size: 450 net lines (484 added, 34 removed).
+
+## Where it stopped
+
+Parked by the factory (review/modelreview-3, 2026-11-20 12:48).
+
+Failed its gates 3 times (the kill rule). Blocking findings:
+- docs/ADDING.md:237 (lesson-12): still says 'the `reviewer` block' although the block is `model-reviewer` (renamed in 38757b6). This was a review/modelreview-2 finding, and round 3's notes ('answering every finding of review/modelreview-1 and -2 still open') neither fix nor mention it. Name the block `model-reviewer`.
+- docs/SPEC.md:3718-3720 and docs/GAPS.md:136-139 (lesson-8, lesson-12): they still say neither block 'starts a call that could cost more than is left', priced at 'the most it could write', 'worst-case cost', 'never pass it'. The figure is md.unsaid's estimate (prompt/3 + SYSTEM_IN 20,000 tokens in, MOST_OUT 16,000 out; ergostat/numbers/modeller.py:161-172), and md.call (modeller.py:144-158) sets no output-token or cost limit on claude, so a call can cost more than it and the cap can be passed. This is review/modelreview-2's finding, unanswered and unmentioned in round 3. Either say 'its estimated most' and drop 'never', or cap the call's output so the bound really holds, with a test.
