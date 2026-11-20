@@ -46,6 +46,9 @@ def test_residual_life_is_conditioned_on_age():
     assert tail.quantile(0.9, age=400) > 0 and tail.S(1000) < tail.S(400)
     rnd = random.Random(1)
     assert all(km.sample(rnd, 25) <= 25 for _ in range(200))
+    # older than every stay seen, none censored: the tail (the longest tenth's mean excess, else every stay's mean)
+    assert km.quantile(0.5, age=60) == pytest.approx(30 * math.log(2))
+    assert km.mean_residual(60) == pytest.approx(30, rel=0.05)
 
 
 def test_fundamental_matrix_counts_rework_visits():
@@ -70,7 +73,7 @@ def inputs(n=20, pool=2, durs=(600.0,), fail=0.0, at=T0, review=None, shared=())
     atts = [Attempt(d, "ack", "review" if review else "done") for d in durs]
     k_fail = round(fail * 100)
     atts = atts * (100 - k_fail) + [Attempt(d, "nack", None, 0.0, True) for d in durs] * k_fail
-    b = BlockIn("dev", "t", ["todo"], pool, list(shared), False, 99, atts, KM([a.dur for a in atts]))
+    b = BlockIn("dev", "t", ["todo"], pool, list(shared), False, 99, attempts=atts, run=KM([a.dur for a in atts]))
     items = {f"t/{i}": ItemAt(f"t/{i}", "t", "todo", at - 1000 + i, at - 1000 + i) for i in range(n)}
     return Inputs(at, {"t": k}, [b], items)
 
@@ -152,6 +155,13 @@ def test_a_leased_item_is_conditioned_on_its_lease_age():
     assert g["items"]["t/1"]["p50"] - T0 > 400
     why = eta.reasons(inp)
     assert why["t/0"]["waits_in"] == "dev" and "running in dev for 15m" in why["t/0"]["why"]
+    past = inputs(n=1, pool=1, durs=(100.0, 200.0))                      # held past every run, its TTL 600 s:
+    past.blocks[0].ttl = 600.0
+    past.items["t/0"].lease = ("dev", T0 - 550)
+    run = eta._Run(past, eta.Flags(), random.Random(2), {}, {}, False)
+    a = run.attempt(0, 550.0)
+    assert a.how in ("expired", "ack") and 0 < a.dur <= 50.0              # never at once, never past its TTL
+    assert sum(run.attempt(0, 550.0).how == "expired" for _ in range(200)) > 100
 
 
 def test_whatif_pool_and_failure_change_the_estimates():
@@ -159,6 +169,16 @@ def test_whatif_pool_and_failure_change_the_estimates():
     base = eta.simulate(inp, runs=20)["kinds"]["t"]["p50"] - T0
     assert eta.simulate(inp, runs=20, pools={"dev": 6})["kinds"]["t"]["p50"] - T0 == pytest.approx(base / 3, rel=0.05)
     assert eta.simulate(inp, runs=20, failures={"dev": 0.5})["kinds"]["t"]["p50"] - T0 > base * 1.5
+    held = inputs(n=8, pool=4)                                            # a pool lowered under the leases held:
+    for i in range(4):
+        held.items[f"t/{i}"].lease = ("dev", T0 - 10)
+    g = eta.simulate(held, runs=20, pools={"dev": 1}, failures={"dev": 0.5})
+    assert g["capacity"]["dev"] == 4 and g["limit"]["dev"] == 1          # their lanes kept until they end, none new
+    starts = sorted(s[1] for segs in g["schedule"].values() for s in segs if s[3] == "dev")
+    assert all(t >= T0 for t in starts) and len([t for t in starts if t == T0]) == 4
+    assert eta.simulate(held, runs=0)["items"] == {}                     # no run: not worked out, never "beyond"
+    few = eta.simulate(held, runs=5)
+    assert all(x["p90"] is None and x["runs"] == 5 for x in few["items"].values())
     why = eta.reasons(inp)
     assert why["t/5"]["why"].startswith("0 of 2 busy in dev; 5 ahead of it") and why["t/5"]["position"] == 6
 
@@ -166,11 +186,11 @@ def test_whatif_pool_and_failure_change_the_estimates():
 # ---- from a record
 
 
-def owners_record(tmp_path):
+def owners_record(tmp_path, seed: int = 0):
     """A day at 2 tickets an hour (the history), then 100 brought in at once; the dev pool is 6."""
     p = project(tmp_path, pool=6)
-    generate(p, T0, 24, rate=2, pool=6, backlog=0, fail=0.1, rework=0.1, seed=3, prefix="h")
-    generate(p, T0 + 86400, 30, rate=0, pool=6, backlog=100, fail=0.1, rework=0.1, seed=4, prefix="b")
+    generate(p, T0, 24, rate=2, pool=6, backlog=0, fail=0.1, rework=0.1, seed=3 + seed, prefix="h", stop_arrivals=20)
+    generate(p, T0 + 86400, 30, rate=0, pool=6, backlog=100, fail=0.1, rework=0.1, seed=4 + seed, prefix="b")
     return p
 
 
@@ -193,11 +213,22 @@ def test_the_owners_case_100_tickets_6_leases(tmp_path):
 
 
 def test_backtest_p90_coverage_on_a_synthetic_record(tmp_path):
-    p = owners_record(tmp_path)
-    cuts = [T0 + 86400 + h * 3600 for h in (0.25, 2, 4)]
-    got = backtest(p, p.model.spec, ["ticket"], cuts, {"path": eta.ABLATIONS["path"], "all": eta.Flags()},
-                           runs=60, budget=6)
-    assert got["all"]["items"] >= 250
-    assert 0.8 <= got["all"]["coverage"] <= 1.0               # about 90% finish before their p90 (one realisation: correlated)
-    assert got["path"]["coverage"] < 0.6                      # a median path with no pool: the owner's 17:43
-    assert got["all"]["mae"] < got["path"]["mae"] * 0.75
+    # three truths of the owner's case, each cut 15 min, 2 h and 4 h after the batch: the p90 covers about 90%, the
+    # estimates' mean is not biased (a small share of the error), and the median path is far worse
+    got = {"all": [], "path": []}
+    for seed in range(3):
+        (tmp_path / str(seed)).mkdir()
+        p = owners_record(tmp_path / str(seed), seed)
+        cuts = [T0 + 86400 + h * 3600 for h in (0.25, 2, 4)]
+        res = backtest(p, p.model.spec, ["ticket"], cuts, {"path": eta.ABLATIONS["path"], "all": eta.Flags()}, runs=60,
+                       budget=6)
+        for k in got:
+            got[k].append(res[k])
+            assert res[k]["unresolved"] == 0
+    mean = lambda k, f: sum(r[f] for r in got[k]) / 3                 # noqa: E731
+    assert sum(r["items"] for r in got["all"]) >= 700
+    assert 0.85 <= mean("all", "coverage") <= 1.0                     # about 90% finish before their p90
+    assert abs(mean("all", "bias")) < 0.25 * mean("all", "mae")        # unbiased: the estimate's mean against what happened
+    assert 0.3 <= mean("all", "p50") <= 0.7
+    assert mean("path", "coverage") < 0.6                             # a median path with no pool: the owner's 17:43
+    assert mean("all", "mae") < mean("path", "mae") * 0.6
