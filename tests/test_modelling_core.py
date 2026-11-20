@@ -456,5 +456,8 @@ def test_a_redesign_of_a_system_changes_only_that_system(tmp_path):
     out = rd.submit(p, "redesigner", {"title": "x", "system": "front",
                                       "edits": [{"part": "stock.investigate", "set": {"description": "elsewhere"}}]})
     assert out["status"] == "not-proposed" and "outside system front" in out["why"] and "stock.investigate" in out["why"]
-    ok = rd.submit(p, "redesigner", {"title": "y", "system": "front", "edits": [CHAIN[0]]})   # a rename others follow
+    ok = rd.submit(p, "redesigner", {"title": "y", "system": "front", "edits": [CHAIN[0], {
+        "add": "auxiliaries", "name": "triage-load", "why": "a new part, placed in no system: the redesign's to place",
+        "set": {"unit": "alerts", "description": "what waits", "driven-by": ["+stock.new-alerts"],
+                "equation": "stock.new-alerts"}}]})                      # a rename others follow, and a new part
     assert ok["status"] == "proposed", ok["why"]
