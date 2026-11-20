@@ -113,7 +113,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
     base_sha = fac.git(work, "rev-parse", f"origin/{cfg['git']['base']}")
     definition, held = definition_first(cfg, gap, work)
     conflicts = merge_main(work, base_sha)
-    agents.publish(cfg, work, branch)                 # (in a merge left in progress: the branch as it was before it)
+    was = agents.publish(cfg, work, branch)           # (in a merge left in progress: the branch as it was before it)
     text, context = brief.assemble(cfg, "implementor", gap, work, definition=definition)
     text += conflict_brief(base_sha, conflicts) if conflicts else ""
     context["brief"] = brief.save(cfg, "implementor", gap, text)
@@ -132,8 +132,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
             fac.nack(f"budget: {e}", after="1h", count=False)
             return 0
         cost, sessions = cost + float(got.get("total_cost_usd") or 0), sessions + 1
-        head = agents.finish(cfg, home, branch, base_sha, held, base_sha)    # (main merged in: refused before the
-        fac.wait_quiet(cfg)                                                # drop's branch moves, when it is not)
+        head = was = agents.finish(cfg, home, branch, base_sha, held, base_sha, was=was)   # (main merged in, and
+        fac.wait_quiet(cfg)                                     # the branch where it was given: refused when not)
         suites = agents.suites(cfg, home, ("ruff", "unit"), logs, f"{fac.run_tag(branch, began)}-{i}")
         if not suites.get("failed"):
             break

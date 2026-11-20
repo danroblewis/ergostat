@@ -240,19 +240,22 @@ def clone(cfg: dict, branch: str, role: str, at: str | None = None) -> tuple[Pat
     return home, work
 
 
-def publish(cfg: dict, work: Path, branch: str) -> None:
+def publish(cfg: dict, work: Path, branch: str) -> str:
     """Before the session: what this program committed in the work (the definition) to the drop, then the remote
-    removed, so nothing in the container names a host path."""
+    removed, so nothing in the container names a host path. The sha published: `finish` moves the drop's branch only
+    from it."""
     ref = fac.git_branch(branch)
     fac.git(work, "push", "-q", "origin", f"{ref}:refs/heads/{ref}")
     fac.git(work, "remote", "remove", "origin")
+    return fac.git(work, "rev-parse", ref)
 
 
-def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str, *also: str) -> str:
+def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str, *also: str, was: str) -> str:
     """After the implementor's session: what it left committed, and bundled, in a container with no network (git is
     never run here on a folder a session had); the bundle fetched into the drop, to a side ref first: the branch moves
-    only when the new head holds the definition's commit and each of `also` (main, when it was merged in). The new
-    head."""
+    only when the new head holds the definition's commit and each of `also` (main, when it was merged in), and only
+    from `was`, the sha the session was given (update-ref's old value): a branch another writer moved meanwhile is
+    refused, not overwritten. The new head."""
     ref = fac.git_branch(branch)
     out = home / "out"
     out.mkdir(exist_ok=True)
@@ -282,7 +285,8 @@ def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str, *a
         for sha, what in [(must_hold, "its definition's commit"), *((a, "main, merged in before it") for a in also)]:
             if not fac.git_ok(d, "merge-base", "--is-ancestor", sha, head):
                 raise RuntimeError(f"the branch no longer holds {what} {sha[:12]}: refused (the drop's branch kept)")
-        fac.git(d, "update-ref", f"refs/heads/{ref}", head)
+        if not fac.git_ok(d, "update-ref", f"refs/heads/{ref}", head, was):
+            raise RuntimeError(f"the drop's branch moved from {was[:12]} during the session: refused (theirs kept)")
     finally:
         fac.git(d, "update-ref", "-d", side)
     return head
