@@ -1559,8 +1559,9 @@ long run's findings land one by one.
 - **Built-in blocks** (9.2) are executed by ergostat itself, on every reading of their inputs:
   no program, no machine. They are how ergostat closes loops by itself.
 - **Machine blocks** (9.3) run a program, an AI prompt or a request to a person. They run:
-  - when an input commands them (the input becomes nonzero, or a new command arrives); or
-  - on their own schedule (`every`, `cron`), when nothing commands them: an open loop.
+  - when an input commands them (the input becomes nonzero, or a new command arrives);
+  - on their own schedule (`every`, `cron`), when nothing commands them: an open loop; or
+  - when an event of a type they name is recorded (`on:`, section 9.3): a run for each.
 
   A machine block never runs twice at once. A command that arrives while it is running is held,
   not queued (anti-windup): the latest command is used when it finishes. Without an `agent`, a
@@ -1850,7 +1851,7 @@ More (filters, rate of change, latches) can be added when a case needs them.
 Common to machine blocks: `agent` (optional: the shared machine it runs on, section 10), `max`
 and `min` (limits on one run's amount), `timeout`, `every`/`cron` (its schedule when nothing commands it; when something does, `every`
 is the least time between runs), `takes`, `pool` and `lease` (the items it works, a run for each, and its leases' terms:
-section 9.5),
+section 9.5), `on` (the event types that start it, a run for each: *Started by an event*, below),
 `mode` (`auto`, or `advise`: its commands wait for a person to approve), and its control law's
 constants when it says them: `gain` (for a block that steps a setting by its goal's error, the step
 per unit of error, acting at once on the error it has just read, u_k = u_(k−1) + gain × e_k: integral
@@ -1884,6 +1885,67 @@ blocks:
     run: ./process.sh
     out: flow.processed
 ```
+
+**Started by an event.** `on: {event: TYPE, where: {...}, emits: [TYPES], max-age: 1h, most: 60}` on a `program` or
+`ai` block runs it once for each event of that type recorded (`event:` a type, a list of them, or a prefix, `ticket.*`;
+`on: TYPE` alone is the same) whose `data` matches `where:` (typed, as a sensor's: section 6; `a.b` reads a field's
+field), however it arrived: a block's line, a push or a webhook (section 5c), `ergostat event --add`. It is what a state
+change cannot say: a comment, a review, a webhook that moves nothing. `emits:` is the block's **declared output set**:
+the event types its runs may say, as lines or by `$ERGOSTAT_CMD event --add` (none, by default, which `check` notes:
+`trigger-no-emits`).
+
+```yaml
+blocks:
+  triage:
+    type: ai
+    on: {event: ticket.opened, where: {team: core}, emits: [ticket.triaged]}
+    prompt: prompts/triage.md
+    out: flow.triaged
+```
+
+- **One run at a time, in the record's order.** The record is the queue: an event recorded while a run is under way
+  waits for it to end, then starts the next. The engine's loop is woken by the write itself (section 9.1), so a run
+  starts within milliseconds of its event, and no clock looks for them. One look takes at most 100 of a block's events
+  (the rest at the next). Started again, ergostat goes on after the event the block's last run was for: what was
+  recorded while it was stopped runs then, nothing twice.
+- **Too old.** An event older than `max-age:` (1h by default; its own `time` against this machine's clock) when it is
+  looked at is passed over, and that is recorded, once per look (`trigger.skipped`: how many, the first and last `seq`).
+- **Its cause.** The run's `agent.started` is caused by (`causedby`) the event, and everything it prints is caused by
+  the run, so its events name what started it (and the Process view draws the line, §5b). Its input carries
+  `"trigger": "event"` and `event` (the event: `id`, `type`, `item`, `source`, `time`, `causedby`, `data`); its
+  environment `ERGOSTAT_EVENT` (its id).
+- **No loops, when the model is read.** The blocks started by events and their `emits:` make a graph: an edge from a
+  block to each block whose `on:` one of its `emits:` types can match (`where:` is not read, so an edge that `where:`
+  would rule out still counts). A cycle in it, of any length, a block that starts itself among them, is an error
+  naming it (`check`: `trigger-loop`, `a → b → c → a`). What a triggered run says outside its `emits:` is refused: a
+  line (`agent.refused`), or `$ERGOSTAT_CMD event --add` (by the engine's socket or without it: the run is named by
+  `ERGOSTAT_RUN` and `ERGOSTAT_BLOCK`).
+- **A budget carried on the record.** The graph cannot see what blocks that are not started by events say (one that
+  takes the items a triggered block moves, one it commands). So **every** run's `agent.started` carries what led to
+  it, inherited from what caused it, whatever started it (an event, an item it takes, a command): `depth`, how many
+  runs started by events in a row led to it, and `chain`, the blocks whose runs did (the newest 16, this one last). It
+  is read from the run among its causes, each looked up by its id (at most four causes back, never a scan of the
+  record); a cause not found, or further back, is recorded `unknown` (its depth counted 0: the breaker below still
+  holds). A goal's crossing (`loop.*`) begins afresh: a control loop closes through a measurement, which paces it. An
+  event that 8 runs started by events led to starts nothing, and is recorded once (`trigger.stopped`: the event, its
+  depth and chain), so a loop of any length, through any blocks, runs at most 8 triggered hops.
+  (An event looked up by id, here and by `ergostat event ID`, is the one with exactly that id when there is one, else
+  the first, in id order, whose id starts with it, both by the index; before, any one starting with it could come.)
+- **A breaker per block.** More than `most:` (60) of its runs started by events within a minute trips it: recorded
+  (`trigger.tripped`), and an entry in the inbox (section 12o); its events then wait, starting nothing, until the
+  owner resets it (approving the entry, or `ergostat block NAME --reset`: `trigger.reset`). It bounds a fan-out, and a
+  loop through anything the budget cannot follow (a relay outside ergostat that drops `causedby`).
+- **Advised.** In `mode: advise` each event is asked about before it runs (`block.advised`, caused by the event, its
+  `data` naming it: `event`, `event_type`, `event_seq`), one at a time, in the inbox (section 12o); the events after
+  it wait. An answer names the ask it answers (`data.ask`, the `seq` of its `block.advised`; the inbox and
+  `ergostat block NAME --approve` say it), and an answer to any other ask changes nothing. Approved
+  (`block.approved`), it runs on that event, and keeps trying until it can start; denied (`block.denied`), it goes on to
+  the next. Started again, an ask not answered stands (it is not asked again), and one approved meanwhile runs.
+- **Gated** like any machine block: while what commands it (`goal:`, `in: block.x`) is off, its events wait.
+- **Alone, and on what blocks say.** A block started by events has no `every:`, `cron:` or `takes:`, and neither its
+  `on:` nor its `emits:` names a type of ergostat's own record (`agent.*`, `block.*`, `person.*`, `trigger.*`,
+  `loop.*`, `ergostat.*`, ...: which no block may say) (`check`: `bad-trigger`); a block that works items one by one,
+  each needing doing until done, takes them (section 9.5) instead.
 
 **How a commanded block runs.** While its command is nonzero it runs, once per fresh reading:
 after each run it waits for a new reading of the system before running again, so it never

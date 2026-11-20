@@ -126,6 +126,27 @@ def _connect(path: Path, schema: str) -> sqlite3.Connection:
     return c
 
 
+def _after(p: str) -> str:
+    """The least string after every string starting with ``p``: ``p`` read as a range, which an index serves."""
+    return p[:-1] + chr(ord(p[-1]) + 1)
+
+
+def _types(type: str, args: list) -> str:
+    """Types joined by commas, each exact or a prefix ending in ``*`` (as written: no ``_`` or ``%`` wildcards), as an
+    indexed condition."""
+    ors = []
+    for t in (x.strip() for x in type.split(",") if x.strip()):
+        if t == "*":
+            ors.append("1")
+        elif t.endswith("*"):
+            ors.append("(type >= ? and type < ?)")
+            args += [t[:-1], _after(t[:-1])]
+        else:
+            ors.append("type = ?")
+            args.append(t)
+    return "(" + " or ".join(ors) + ")"
+
+
 def _skipping(skip: tuple[str, ...], where: list[str], args: list) -> None:
     """Leave out these types; one ending in ``*`` is a prefix (``claude.*``)."""
     exact = [t for t in skip if not t.endswith("*")]
@@ -307,11 +328,7 @@ class Events:
             where.append("id not in (select j.value from events f, json_each(f.data, '$.voids') j "
                          "where f.type = 'ergostat.forgotten')")
         if type:
-            ors = []
-            for t in (x.strip() for x in type.split(",") if x.strip()):
-                ors.append("type like ?" if t.endswith("*") else "type = ?")
-                args.append(t[:-1] + "%" if t.endswith("*") else t)
-            where.append("(" + " or ".join(ors) + ")")
+            where.append(_types(type, args))
         if machine:
             where.append("(source = ? or source like ?)")
             args += [machine, machine + "/%"]
@@ -341,20 +358,19 @@ class Events:
 
     def get(self, id: str) -> dict | None:
         with self._c() as c:
-            r = c.execute("select * from events where id = ? or id like ?", (id, id + "%")).fetchone()
+            r = c.execute("select * from events where id = ?", (id,)).fetchone() or (id and c.execute(
+                "select * from events where id >= ? and id < ? order by id limit 1", (id, _after(id))).fetchone())
         return self._row(r) if r else None
 
     def times(self, items: list[str], type: str, since: float, until: float) -> dict[str, list[tuple[float, str, int]]]:
         """For each of ``items``, (time, type, seq) of its events of ``type`` in the span, in seq order."""
         out: dict[str, list] = {i: [] for i in items}
-        ors, args = [], []
-        for t in (x.strip() for x in type.split(",") if x.strip()):
-            ors.append("type like ?" if t.endswith("*") else "type = ?")
-            args.append(t[:-1] + "%" if t.endswith("*") else t)
+        args: list = []
+        ors = _types(type, args)
         for i in range(0, len(items), 500):
             part = items[i:i + 500]
             with self._c() as c:
-                for it, t, ty, q in c.execute(f"select item, time, type, seq from events where ({' or '.join(ors)}) and "
+                for it, t, ty, q in c.execute(f"select item, time, type, seq from events where {ors} and "
                                               f"time >= ? and time <= ? and item in ({','.join('?' * len(part))}) order by seq",
                                               (*args, since, until, *part)):
                     out[it].append((t, ty, q))

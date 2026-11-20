@@ -1563,6 +1563,9 @@
         "takes": {
           "$ref": "#/$defs/takes"
         },
+        "on": {
+          "$ref": "#/$defs/trigger"
+        },
         "pool": {
           "type": "integer",
           "minimum": 1,
@@ -2783,6 +2786,53 @@
             "$ref": "#/$defs/name"
           },
           "minItems": 1
+        }
+      ]
+    },
+    "trigger": {
+      "description": "What starts a program or ai block (SPEC section 9.3, Started by an event): a run for each recorded event of these types whose data matches where:, one at a time, caused by the event; emits: the types its runs say (a loop among such blocks is refused)",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "event"
+          ],
+          "properties": {
+            "event": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                }
+              ]
+            },
+            "where": {
+              "type": "object"
+            },
+            "emits": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ]
+            }
+          }
         }
       ]
     }

@@ -180,6 +180,7 @@ def build() -> argparse.ArgumentParser:
     bk = topic("block", cmd_block, "The blocks (YAML model), or one; a person reports on theirs")
     bk.add_argument("--done", type=float, metavar="N", help="a person's report: what they moved")
     bk.add_argument("--approve", action="store_true", help="approve an advised command (mode: advise)")
+    bk.add_argument("--reset", action="store_true", help="reset the breaker of a block started by events (it tripped)")
     bk.add_argument("--stop", action="store_true", help="stop its run under way (one a model change left to finish, "
                     "say); it starts again only as the model says")
     bk.add_argument("--restart", action="store_true", help="start its daemon (or the daemon of this name) afresh: one "
