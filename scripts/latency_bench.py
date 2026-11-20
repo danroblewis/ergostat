@@ -1,7 +1,7 @@
 """How long a workflow's steps take, hop by hop (docs/proposals/latency.md).
 
     uv run python scripts/latency_bench.py synth 1 50 100 500 --label before     # a 5-step workflow whose steps do no work
-    uv run python scripts/latency_bench.py synth 100 --warm 20 --label warm      # each step a warm daemon (SPEC §9.7)
+    uv run python scripts/latency_bench.py synth 100 --warm 10 --label warm      # each step a warm daemon (SPEC §9.7)
     uv run python scripts/latency_bench.py synth 50 --intake collector            # arrivals by a polling collector (3 s)
     uv run python scripts/latency_bench.py factory --tickets 3 --label before     # ticket-factory offline (fakes, stand-in)
     uv run python scripts/latency_bench.py calls --label before                   # what one call from a step costs

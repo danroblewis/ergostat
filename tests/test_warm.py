@@ -40,10 +40,10 @@ while (m := q.get())["op"] != "stop":
         say(done=0.0, run=r); say(done=True, run=r); say(done=0, run=r, extra=1)
     if "stateful" in mode:                       # keeps what it saw: the promise broken
         f = {**f, "seen": len(seen)}
-    if "envleak" in mode:
-        os.environ.update(env)
     say(event="ticket.started", run=r, data={"pid": 0 if "quiet" in mode else os.getpid(), "keys": sorted(env), "seen": f.get("seen"),
         "env_item": env.get("ERGOSTAT_ITEM"), "proc": sorted(k for k in os.environ if k.startswith("ERGOSTAT_I"))})
+    if "envleak" in mode:                        # writes its item's env where the next item will see it
+        os.environ.update(env)
     if "burn" in mode:                           # a child that burns CPU, reaped before done
         subprocess.run([sys.executable, "-c", "import time\nt = time.process_time()\n"
                         "while time.process_time() - t < 0.6: pass"])
@@ -74,7 +74,7 @@ while (m := q.get())["op"] != "stop":
 def block(daemon: str, lease: str = "{ttl: 1m}", pool: int = 6) -> str:
     return KIND + f"""
 blocks:
-  worker:
+  triage:
     type: program
     takes: {{kind: ticket, at: ready}}
     pool: {pool}
@@ -146,7 +146,7 @@ def test_a_late_or_loose_done_never_ends_the_next_item_and_recycles_the_process(
     assert why and all("no run it holds" in w for w in why), why
     assert len(starts(tmp_path)) >= 2
     from ergostat import runner
-    text = runner.log_path(p, "daemon-block.worker#1").read_text()
+    text = runner.log_path(p, "daemon-block.triage#1").read_text()
     assert '"done": 0.0' in text and '"done": true' in text, "loose dones dropped, never taken as exit 0"
 
 
@@ -157,8 +157,8 @@ def test_the_owners_stop_is_said_only_on_the_run_it_stopped(tmp_path):
     e = start(p)
     try:
         assert wait_for(lambda: item(p, "ticket/0").state == "done" and item(p, "ticket/1").state == "doing", 10)
-        p.events.add(STOP_ASKED, item="worker", source="person", data={"note": ""})
-        e.stop_run("worker")
+        p.events.add(STOP_ASKED, item="triage", source="person", data={"note": ""})
+        e.stop_run("triage")
         assert wait_for(lambda: len(events(p, "agent.ran") + events(p, "agent.failed")) >= 2, 10)
         assert wait_for(lambda: len(starts(tmp_path)) == 3, 5), "the stopped run's process replaced"
     finally:
@@ -198,17 +198,18 @@ def test_the_check_finds_state_kept_between_items(tmp_path):
     given = tmp_path / "input.json"
     given.write_text(json.dumps({"item": {"id": "ticket/1", "fields": {}}}))
     out = {}
-    for mode in ("quiet", "quiet-stateful"):
+    for mode in ("quiet", "quiet-stateful", "quiet-envleak"):   # (envleak: writes an item's env into os.environ)
         project(tmp_path, block(f"{{run: python3 w.py {mode}, warm: true, concurrency: 1}}"))
-        r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "block", "worker", "--check-warm",
+        r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "block", "triage", "--check-warm",
                             str(given)], capture_output=True, text=True, timeout=60,
                            env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")})
         out[mode] = (r.returncode, r.stdout)
     assert out["quiet"][0] == 0 and "no state kept" in out["quiet"][1], out
     assert out["quiet-stateful"][0] == 1 and "state kept between runs" in out["quiet-stateful"][1], out
+    assert out["quiet-envleak"][0] == 1 and "state kept between runs" in out["quiet-envleak"][1], out
     assert "four times" in out["quiet"][1]
     project(tmp_path, block("{run: python3 w.py, warm: true, concurrency: 1}"))      # (its pid in what it prints)
-    r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "block", "worker", "--check-warm",
+    r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "block", "triage", "--check-warm",
                         str(given)], capture_output=True, text=True, timeout=60,
                        env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")})
     assert r.returncode == 2 and "not deterministic" in r.stdout
@@ -299,7 +300,7 @@ def test_a_run_held_but_drained_before_its_hand_over_is_given_back_never_failed(
     monkeypatch.setattr(proc.usage, "snapshot", snapshot)
     e = start(p)
     try:
-        assert wait_for(lambda: len(starts(tmp_path)) == 1 and e.daemons.free("block.worker") == 1, 10)
+        assert wait_for(lambda: len(starts(tmp_path)) == 1 and e.daemons.free("block.triage") == 1, 10)
         p.events.add("ticket.opened", item="ticket/0", source="t")
         assert wait_for(lambda: item(p, "ticket/0").state == "done", 20)
     finally:
@@ -317,14 +318,14 @@ def test_a_run_cancelled_before_its_hand_over_is_never_sent(tmp_path, monkeypatc
 
     def snapshot(pgid):                              # between the hold and the hand-over: the owner's stop
         if not stopped and e is not None:
-            stopped.append(e.daemons.stop_block("worker"))
+            stopped.append(e.daemons.stop_block("triage"))
         return real(pgid)
     monkeypatch.setattr(proc.usage, "snapshot", snapshot)
     send = proc.Process.send
     monkeypatch.setattr(proc.Process, "send", lambda self, obj: sent.append((obj.get("op"), obj.get("run"))) or send(self, obj))
     e = start(p)
     try:
-        assert wait_for(lambda: len(starts(tmp_path)) == 1 and e.daemons.free("block.worker") == 1, 10)
+        assert wait_for(lambda: len(starts(tmp_path)) == 1 and e.daemons.free("block.triage") == 1, 10)
         p.events.add("ticket.opened", item="ticket/0", source="t", data={"sleep": 30})
         assert wait_for(lambda: events(p, "agent.ran") + events(p, "agent.failed"), 10)
     finally:
@@ -359,7 +360,7 @@ def test_revive_never_has_more_warm_processes_alive_than_the_cap(tmp_path, monke
         return len(pids) == 4 and all(item(p, f"ticket/{i}").state == "done" for i in range(4))
     try:
         assert wait_for(lambda: all(item(p, f"ticket/{i}").state == "doing" for i in range(2)), 10)
-        assert e.daemons.revive("block.worker")
+        assert e.daemons.revive("block.triage")
         for i in (2, 3):
             p.events.add("ticket.opened", item=f"ticket/{i}", source="t")
         assert wait_for(live, 30)
@@ -375,11 +376,11 @@ def test_one_alarm_when_a_warm_daemons_processes_are_given_up(tmp_path):
     e = start(p)
     try:
         assert wait_for(lambda: all(s.state == "failed" for s in e.daemons.slots.values()), 10)
-        st = of_daemon(e.daemons.status(), "block.worker")
+        st = of_daemon(e.daemons.status(), "block.triage")
     finally:
         e.close()
     failed = events(p, "ergostat.daemon.failed")
-    assert len(failed) == 1 and failed[0]["item"] == "block.worker", failed
+    assert len(failed) == 1 and failed[0]["item"] == "block.triage", failed
     assert st["failed"] == 2 and "2 failed (of 2 warm processes)" in st["state"] and len(st["processes"]) == 2
 
 
