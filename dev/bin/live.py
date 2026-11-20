@@ -6,7 +6,8 @@ into and resets: each version is its own worktree, detached at its commit, with 
     <live>/instance/     the instance's own folder, the same across versions (so its record is: ergostat keys a
                          record by the model's folder, where its files really are): copies of the current version's
                          ergostat.yaml and dev/ (made at each switch; what was edited in them since is kept as a
-                         patch in run/model-edits/ first), run/ (briefs, logs, the cost ledger), factory.local.toml
+                         patch in run/model-edits/ first), run/ (briefs, logs, the cost ledger), factory.local.toml,
+                         ergostat.local.yaml (the instance's web:, this machine's: never placed, compared or a gap)
 
     live.py install REF       make the version (worktree, environment) and check the model with its own code
     live.py init [SHA]        make the instance's folder, on SHA (after the first install)
@@ -89,7 +90,9 @@ def install(cfg: dict, ref: str) -> dict:
 
 def edits(cfg: dict, was: str | None) -> Path | None:
     """What was changed in the instance's copy of the model since it was placed (an accepted change to the model, an
-    edit by hand), kept as a patch in run/model-edits/ before a switch replaces it: bring it to the repository as a gap."""
+    edit by hand), kept as a patch in run/model-edits/ before a switch replaces it: bring it to the repository as a gap.
+    Only ergostat.yaml and dev/ are compared: the instance's ergostat.local.yaml (this machine's web:, never in the
+    repository) is neither placed nor compared, so a switch keeps it and never makes a gap of it."""
     inst, lv = instance(cfg), live(cfg)
     if not was or not (inst / "ergostat.yaml").is_file():
         return None
