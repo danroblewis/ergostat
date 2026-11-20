@@ -32,6 +32,9 @@ PLANTED = ["jira_token", ".claude.json", ".claude/.credentials.json", ".ssh/id_r
 @pytest.fixture
 def box(tmp_path, monkeypatch):
     """A temporary HOME full of fake secrets, and a work copy beside it."""
+    if sandbox.backend() == "bwrap" and subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "true"],
+                                                       capture_output=True).returncode:
+        pytest.skip("bwrap cannot make its namespaces here (in the dev container: scripts/in_container.sh --sandbox)")
     home = tmp_path / "home"
     for rel in PLANTED:
         f = home / rel

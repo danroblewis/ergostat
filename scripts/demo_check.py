@@ -81,9 +81,22 @@ def snapshot_errors(demo: Path) -> list[str]:
     return errs
 
 
+def first_diff(now: dict, was: dict) -> str:
+    """The first key (sorted) whose value differs between two folds, as ``key: now X, before Y``; a key one lacks
+    shows as missing."""
+    for k in sorted(set(now) | set(was)):
+        if now.get(k, ...) != was.get(k, ...):
+            a, b = (json.dumps(d[k])[:120] if k in d else "missing" for d in (now, was))
+            more = sum(1 for j in set(now) | set(was) if now.get(j, ...) != was.get(j, ...)) - 1
+            return f"{k}: now {a}, before {b}" + (f" (and {more} more keys)" if more else "")
+    return "no key differs"
+
+
 def items_as_before(url: str, spec) -> list[str]:
     """Each item of a kind with no fold rules, whose events carry plain data, folds as it did before
-    changesets (SPEC §5a): each key's latest value."""
+    changesets (SPEC §5a): each key's latest value. The page folds an item as it stood at the engine's latest snapshot
+    (``until``), while the record goes on (a workspace acquired again since), so the item is read first and its
+    events up to its newest one (``last``, the newest before the snapshot) are what it is compared with."""
     from urllib.parse import quote
     out = []
     kinds = getattr(spec, "items", None) or {}
@@ -91,11 +104,11 @@ def items_as_before(url: str, spec) -> list[str]:
         k = kinds.get(it["kind"] or "")
         if k is not None and k.fold:
             continue
-        evs = get(f"{url}/api/events?item={quote(it['id'], safe='')}&n=5000&runs=1")
-        if any(e.get("patch") is not None or e.get("set") is not None for e in evs):
-            continue
         d = get(f"{url}/api/items/{quote(it['id'], safe='')}")
-        if d.get("refused"):                                  # refused on purpose (a late run's line, fenced)
+        if not d or d.get("refused"):                         # refused on purpose (a late run's line, fenced)
+            continue
+        evs = [e for e in get(f"{url}/api/events?item={quote(it['id'], safe='')}&n=5000&runs=1") if e["time"] <= d["last"]]
+        if any(e.get("patch") is not None or e.get("set") is not None for e in evs):
             continue
         was: dict = {}
         for e in evs:
@@ -103,7 +116,7 @@ def items_as_before(url: str, spec) -> list[str]:
                 was.update(e.get("data") or {})
         now = {k: v for k, v in d["fields"].items() if not (k == "lease" and isinstance(v, dict))}   # an item's own lease
         if now != was:
-            out.append(f"item {it['id']}: folds to {json.dumps(now)[:200]}, not {json.dumps(was)[:200]} as before")
+            out.append(f"item {it['id']}: folds differently than before: {first_diff(now, was)}")
     return out
 
 

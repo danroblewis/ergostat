@@ -392,6 +392,7 @@ def _more_files() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from ..goodmodel import ReadOnlyRecord
     _more_files()
     ap = build()
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -414,6 +415,10 @@ def main(argv: list[str] | None = None) -> int:
         return args.fn(args)
     except DurationError as e:
         print(e, file=sys.stderr)
+        return 2
+    except ReadOnlyRecord as e:                         # (an acting path the flags did not tell: refused all the same)
+        print(f"ergostat {args.topic or ''} would write to the record ({e}): fix the YAML first (ergostat check shows "
+              f"the errors)", file=sys.stderr)
         return 2
     except BrokenPipeError:
         return 0

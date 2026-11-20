@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from ..durations import DurationError, parse_duration
+from . import files
 from .equation import FUNCS as FUNCTIONS
 from .ir import (
     ACTION,
@@ -1408,7 +1409,7 @@ class Compiler:
                 params.pop("table", None)
         if t == "ai" and m.get("prompt") is not None:
             p = str(m["prompt"])
-            if "\n" not in p and p.endswith((".md", ".txt")) and not (self.doc.root / p).is_file():
+            if "\n" not in p and p.endswith((".md", ".txt")) and not files.is_file(self.doc.root / p):
                 self.err(f"{what}.prompt: {p} is not a file here", m.at("prompt"), "prompt-missing")
         signs: dict[str, int] = {}
         ins = self.refs(m, "in", what, ("stock", "flow", "auxiliary", "goal", "block"), signs if t in MACHINE or t == "judge" else None)

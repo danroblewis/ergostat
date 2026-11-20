@@ -8,6 +8,7 @@ import re
 
 from ..decisions.context import budget_of
 from ..durations import DurationError, parse_duration
+from ..spec import files as fs
 from .ir import DEFAULT_BUDGET, PARTS, RESERVED, Part, Recipe
 
 RECIPE_KEYS = {"version", "description", "budget", "parts", "outcome"}
@@ -124,7 +125,7 @@ def part(c, x, what: str, w, spec) -> Part | None:
                 if f.startswith("/") or ".." in f.split("/"):
                     bad("files", f"{f}: a path inside the model's folder, written from it")
                     break
-                if not any(spec.root.glob(f)) and not (spec.root / f).exists():
+                if not fs.glob(spec.root, f) and not (fs.is_file(spec.root / f) or fs.is_dir(spec.root / f)):
                     c.err(f"{what}.files: {f} is not a file here", w, "docs-missing")
     if kind == "model" and "parts" in params:
         ps = params["parts"]
