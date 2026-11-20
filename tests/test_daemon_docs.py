@@ -136,6 +136,16 @@ class Daemon:
                 pass
 
 
+def explain(p, e) -> str:
+    """What a failing engine run says of its daemons: their supervision and sensor events, their slots, their logs."""
+    evs = [f"{x['type']} {x.get('item')} {x['data']}" for x in p.events.query(n=None)
+           if x["type"].startswith(("ergostat.daemon.", "sensor."))]
+    slots = {n: {"state": s.state, "why": s.why, "spawning": s.spawning, "restarts": len(s.restarts),
+                 "pid": s.proc.pid if s.proc else None} for n, s in e.daemons.slots.items()}
+    logs = {f.name: f.read_text()[-1500:] for f in sorted((p.dir / "logs").glob("daemon-*.log"))}
+    return f"\nevents: {evs}\nslots: {slots}\nlogs: {logs}"
+
+
 def item_line(run: str, seconds: float) -> dict:
     return {"op": "item", "run": run, "item": f"job/{run}", "lease": {"fence": 1},
             "input": {"item": {"id": f"job/{run}", "fields": {"seconds": seconds}}},
@@ -203,7 +213,9 @@ def test_each_example_records_readings_and_finishes_items_under_the_engine(tmp_p
                     opened.append((f"{b.takes.kind}/{n}", b.takes.to))
                     p.events.add(ev, item=opened[-1][0], source="t", data={"seconds": 1})
     takers = [b for b in spec.blocks.values() if b.takes]
-    e = Engine(p, say=lambda s: None)
+    said: list[str] = []
+    e = Engine(p, say=lambda s: said.append(f"{time.time() - t0:.2f}s {s}"))
+    t0 = time.time()
     e.start_all()
 
     def state(i):
@@ -219,15 +231,17 @@ def test_each_example_records_readings_and_finishes_items_under_the_engine(tmp_p
             if read and worked:
                 break
             time.sleep(0.2)
+        why = explain(p, e) + f"\nsaid: {said[-20:]}"   # (before close: the slots as they were)
     finally:
         e.close()
-    assert all(p.measurements.latest(s, time.time()) for s in series), [s for s in series if not p.measurements.latest(s, time.time())]
-    assert all(state(i) in to for i, to in opened), [(i, state(i)) for i, _ in opened]
+    missing = [s for s in series if not p.measurements.latest(s, time.time())]
+    assert not missing, f"{missing}{why}"
+    assert all(state(i) in to for i, to in opened), f"{[(i, state(i)) for i, _ in opened]}{why}"
     if takers:
         ran = [r for r in p.events.query(n=None, type="agent.ran") if r["data"].get("daemon")]
-        assert ran and all(r["data"]["exit"] == 0 for r in ran), ran[:3]
-    assert not p.events.query(n=None, type="ergostat.daemon.restarted"), "no daemon restarted"
-    assert not p.events.query(n=None, type="sensor.failed"), [x["data"] for x in p.events.query(n=None, type="sensor.failed")][:3]
+        assert ran and all(r["data"]["exit"] == 0 for r in ran), f"{ran[:3]}{why}"
+    assert not p.events.query(n=None, type="ergostat.daemon.restarted"), f"no daemon restarted{why}"
+    assert not p.events.query(n=None, type="sensor.failed"), f"a sensor failed{why}"
 
 
 def test_the_demo_is_built_from_the_docs_own_files(tmp_path):
