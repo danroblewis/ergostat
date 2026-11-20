@@ -191,10 +191,19 @@ def cmd_block(args) -> int:
             return 2
         from ..daemons.warmcheck import check
         from ..spec.engine import callback_env
+        try:
+            given = json.loads(Path(args.check_warm).read_text())
+        except (OSError, ValueError) as e:
+            print(f"--check-warm {args.check_warm}: cannot be read as JSON ({e})", file=sys.stderr)
+            return 2
+        if not isinstance(given, dict):
+            print(f"--check-warm {args.check_warm}: a run's input is a JSON object, not {type(given).__name__}",
+                  file=sys.stderr)
+            return 2
         print(f"running {d.run} for real, four times: twice on one process, once on each of two others; without what "
               f"the engine prepares for a run (no workdir or workspace, no action policy) and with only ERGOSTAT_RUN and "
               f"ERGOSTAT_ITEM in each item's env")
-        rc, why = check(d, spec.root, callback_env(spec, p.dir), json.loads(Path(args.check_warm).read_text()))
+        rc, why = check(d, spec.root, callback_env(spec, p.dir), given)
         print(why)
         return rc
     if args.done is not None:

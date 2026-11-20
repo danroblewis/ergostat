@@ -5,7 +5,8 @@ macOS: ``proc_listpgrppids`` and ``proc_pid_rusage`` (libproc); Linux: ``/proc``
 A run is charged the group's total now less its total at hand-over: a member that ended meanwhile and was reaped
 inside the group moved its whole life into its parent, and its part before the run is in the hand-over total. Not
 charged: a child that left the group (``setsid``) or was orphaned and reaped outside it, and a member whose usage
-cannot be read (EPERM). CPU used after ``done`` falls into the next run's charge."""
+cannot be read (EPERM). CPU used after ``done`` and before the next hand-over is no run's: it is the process's own,
+left over with its start-up. Only what is used after the next hand-over's total was taken is that run's."""
 
 from __future__ import annotations
 
