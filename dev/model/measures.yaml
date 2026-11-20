@@ -91,7 +91,7 @@ goals:
 blocks:
   factory-off:
     type: expr
-    description: any of the factory's own measures off
+    description: any of the factory's own measures off, or a dependency problem
     in:
       firstpass: goal.first-pass-good.off
       fixes: goal.few-fix-rounds.off
@@ -99,12 +99,13 @@ blocks:
       wait: goal.queue-wait-short.off
       flakes: goal.flakes-rare.off
       cost: goal.merged-gap-cost.off
-    expr: max(firstpass, fixes, suites, wait, flakes, cost)
+      deps: goal.dependencies-sound.off
+    expr: max(firstpass, fixes, suites, wait, flakes, cost, deps)
     out: block.improve-factory
   improve-factory:
     type: person
     agent: coordinator
     description: the coordinator requests a gap about the factory itself when one of its measures is off
-    ask: "One of the factory's measures is off (ergostat explain block.factory-off): request a gap that removes its cause - ergostat event --add gap.requested --item gap/NAME --data '{\"title\": ..., \"source\": \"request\"}'."
+    ask: "One of the factory's measures is off, or a dependency names no gap or goes round (ergostat explain block.factory-off): correct the dependency where it was written, or request a gap that removes the cause - ergostat event --add gap.requested --item gap/NAME --data '{\"title\": ..., \"source\": \"request\"}'."
     in: block.factory-off
     out: flow.gaps-requested

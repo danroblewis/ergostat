@@ -73,12 +73,24 @@ def park(cfg: dict, gap: dict, why: str, by: str, where: str = "review") -> None
             fac.git(work, "-c", "user.name=factory", "-c", "user.email=factory@localhost", "commit", "-q", "-am",
                     f"{branch}: where it stopped\n\n{fac.TRAILER}")
             agents.publish(cfg, work, branch)
-    fac.say("gap.parked", parked_at=time.time(), where_it_stopped=why[:4000], parked_by=by, parked_in=where)
+    fac.say("gap.parked", gap["id"], parked_at=time.time(), where_it_stopped=why[:4000], parked_by=by, parked_in=where)
 
 
 def main() -> int:
+    fac.stop_on_term()
     cfg = fac.config()
-    gap = fac.read_input()["item"]
+    given = fac.read_input()
+    began = time.time()
+    try:
+        return judge(cfg, given["item"], began)
+    except agents.Refused as e:
+        fac.nack(str(e), after="1h", count=False)
+        return 0
+    except Exception:  # noqa: BLE001 - parked on its last attempt, never a dead letter
+        return fac.guarded(given, began, "review_hours", lambda why: park(cfg, given["item"], why, "reviewer"))
+
+
+def judge(cfg: dict, gap: dict, began: float) -> int:
     f = gap["fields"]
     refused = fac.may_spend(cfg, float(cfg["ai"]["reviewer_session_usd"]))
     if refused:
@@ -90,7 +102,6 @@ def main() -> int:
     branch, base = fac.branch_of(gap), f"origin/{cfg['git']['base']}"       # (in the clone made from the drop)
     n = int(f.get("reviews_n") or 0) + 1
     rid = f"review/{branch}-{n}"
-    began = time.time()
     fac.say("gap.review-started", review_at=began, reviews_n=1)
     head = str(f.get("head") or "")
     if not re.fullmatch(r"[0-9a-f]{40}", head):

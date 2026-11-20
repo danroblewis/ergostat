@@ -31,7 +31,18 @@ stocks:
     description: gaps the reviewer is judging
     sensor: {items: gap, state: in-review, every: 1m}
 
+  gaps-dead:
+    unit: gaps
+    description: gaps whose runs failed past their attempts in a way their block did not catch (killed, lost)
+    sensor: {items: gap, state: dead, every: 1m}
+
 auxiliaries:
+  dependency-problems:
+    system: intake
+    unit: gaps
+    description: gaps naming a dependency that is no gap, or one refused because it would close a cycle
+    driven-by: [+flow.gaps-found, +flow.gaps-requested]
+    sensor: {items: gap, where: {dependency_problem: true}, every: 1m}
   intake-open:
     unit: switch
     exogenous: true
@@ -99,6 +110,13 @@ flows:
     equation: park-share * stock.gaps-in-review / review-time
     sensor: {items: gap, entering: parked, where: {parked_in: review}, over: 1d}
 
+  dead-letters-parked:
+    from: gaps-dead
+    description: dead letters parked with where they stopped, so none is left stuck
+    driven-by: [+stock.gaps-dead]
+    equation: stock.gaps-dead / take-time
+    sensor: {items: gap, entering: parked, where: {parked_in: dead-letter}, over: 1d}
+
 parameters:
   define-time:
     system: intake
@@ -131,6 +149,17 @@ parameters:
     description: the share of reviews that park the gap
 
 goals:
+  dependencies-sound:
+    system: intake
+    auxiliary: dependency-problems
+    hold: "<= 0"
+    tolerance: 0
+    description: every dependency names a gap, and none goes round
+  no-dead-letters:
+    stock: gaps-dead
+    hold: "<= 0"
+    tolerance: 0
+    description: no gap left a dead letter
   ready-gaps-taken:
     stock: gaps-ready
     hold: "<= 0"
@@ -175,7 +204,8 @@ blocks:
     description: a headless Claude Code session per gap in its own worktree (~/ergostat-wt/<branch>) - the definition committed first, the work, the fast suites
     run: python3 dev/bin/implement.py
     prompt: dev/prompts/implementor.md
-    takes: {kind: gap, at: [fix, ready], to: [built]}
+    takes: {kind: gap, at: [fix, ready], to: [built], unblocked: true, where: {waits_on_parked: null}}
+    # (its dependencies finished, none of them parked; the critical first)
     pool: 4                          # the most: the pool now is implementor-pool (dev/model/pools.yaml)
     lease: {ttl: 90m, attempts: 2}
     timeout: 6h
@@ -204,3 +234,11 @@ blocks:
     timeout: 2h
     in: block.review-when
     out: [flow.reviews-started, flow.gaps-approved, flow.sent-back-by-review, flow.parked-in-review]
+
+  dead-letters:
+    type: program
+    description: parks each dead letter with where it stopped (its lease's history)
+    run: python3 dev/bin/dead.py
+    goal: no-dead-letters
+    timeout: 5m
+    out: flow.dead-letters-parked
