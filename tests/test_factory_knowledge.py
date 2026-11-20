@@ -34,6 +34,10 @@ depends-on: []
 
 It works.
 
+## Files to touch
+
+- `app.py`, and `fresh.py` (new)
+
 ## Risks
 
 - lesson-3: a ledger it cannot read.
@@ -190,7 +194,8 @@ def test_planner_writes_plan_and_review_makes_ready(tmp_path):
     assert said == ["gap.defined"]
     gap = f.item(gid)
     assert gap["state"] == "ready" and gap["fields"]["defined_by"] == "plan"
-    assert (f.model / "run" / "defs" / "alpha-thing.md").read_text() == plan    # the plan as it was reviewed
+    assert (f.model / "run" / "defs" / "alpha-thing.md").read_text() == (    # the plan as it was reviewed, and its notes
+        plan + "\n## Notes from the plan review (answer each)\n\n- a stand-in's note\n")
     assert gap["fields"]["contexts"][-1]["role"] == "plan_reviewer"
     said, _ = f.run("implement.py", gid)
     assert said == ["gap.started", "gap.built"]
@@ -210,6 +215,7 @@ def test_a_written_definition_skips_the_planner(tmp_path):
 
 def test_plan_review_sends_back_then_parks(tmp_path):
     f = Instance(tmp_path)
+    f.config.write_text(f.config.read_text().replace("[gates]\n", "[gates]\nplan_kill_after = 2\n"))
     gid = f.opened()
     f.run("plan.py", gid)
     said, _ = f.run("plan.py", gid, argv=("review",), FACTORY_STANDIN_VERDICT="fix")
@@ -244,7 +250,9 @@ def test_planner_splits_into_sub_gaps(tmp_path):
     assert f.item("gap/alpha-one")["fields"]["parent"] == [gid]
     f.fold([{"event": "gap.found", "item": "gap/a-long-title", "data": {"branch": "short"}}], None)
     said, _ = f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=PLAN.format(b="short") + PLAN.format(b="new"))
-    assert said[-1] == "gap.parked" and "'short'" in json.dumps(f.item("gap/delta")["fields"]["plan_findings"])
+    delta = f.item("gap/delta")["fields"]                       # (the lint's: never counted by the plan kill rule)
+    assert said == ["gap.plan-sent-back"] and "'short'" in json.dumps(delta["plan_findings"])
+    assert delta["plan_lint_failures"] == 2 and not delta.get("plan_failures")
     plan = f.py("import plan; print(json.dumps([plan.problems([(n, '', b) for n, b in json.loads(sys.argv[1])], "
                 "'big', {'gap/old'})]))", json.dumps(
                     [[f"p{i}", ""] for i in range(7)] + [["Bad_Name", ""], ["late", "depends-on: [later]"],
@@ -499,3 +507,153 @@ def test_knowledge_entries_counts_the_items():
     sensor = spec.stocks["knowledge-entries"].sensors["main"]
     assert sensor.run is None and (sensor.items["kind"], sensor.items["state"]) == ("knowledge", ["active"])
     assert spec.items["knowledge"].states == ["active", "retired"] and spec.blocks["knowledge-sync"].type == "program"
+
+
+LINT = "import fac, plan; print(json.dumps(plan.lint(fac.config(), sys.argv[1], tuple(sys.argv[2:]))))"
+GOOD = PLAN.format(b="alpha-thing").split(">\n", 1)[1].rsplit("</definition>", 1)[0]
+
+
+def test_the_lint_catches_each_missing_piece(tmp_path):
+    f = Instance(tmp_path)
+    f.opened()
+    assert f.py(LINT, GOOD) == []
+    assert f.py(LINT, GOOD.replace("depends-on: []", "depends-on: [alpha-thing, sib, nowhere]"), "sib") == [
+        "depends-on 'nowhere': no gap, sub-gap of this plan or branch merged into main"]   # a gap, a sibling: fine
+    git(f.checkout, "branch", "landed")                        # a branch merged into main: fine
+    assert f.py(LINT, GOOD.replace("depends-on: []", "depends-on: [landed]")) == []
+    for section in ("Definition of done", "Files to touch", "Risks", "Acceptance tests", "Size budget"):
+        assert f"no `## {section}` section" in f.py(LINT, GOOD.replace(f"## {section}", "## Other"))
+    cases = {"depends-on: []\n": ("", "no `depends-on"),
+             "- `tests/test_x.py::test_unreadable_ledger_refuses`": ("- the ledger test", "not named as `tests/"),
+             "100 net lines.": ("small.", "names no number"),
+             "100 net lines": ("900 net lines", "900 net lines: at most 600"),
+             "lesson-3:": ("lesson-999:", "lesson-999 under Risks is no review lesson"),
+             "`fresh.py` (new)": ("`fresh.py`", "`fresh.py` under Files to touch is not on main"),
+             "- `app.py`, and `fresh.py` (new)": ("- the app", "no file named under Files to touch")}
+    for old, (new, found) in cases.items():
+        got = f.py(LINT, GOOD.replace(old, new))
+        assert len(got) == 1 and found in got[0], (old, got)   # each piece missing: exactly its finding
+
+
+def test_a_lint_failure_goes_back_uncounted(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    bad = PLAN.format(b="alpha-thing").replace("## Risks", "## Worries")
+    for n in range(1, 6):
+        said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=bad)
+        gap = f.item(gid)["fields"]
+        assert said == ["gap.plan-sent-back"] and gap["plan_sent_back_by"] == "lint" and gap["plan_lint_failures"] == n
+        assert gap["plan_findings"] == ["no `## Risks` section"] and not gap.get("plan_failures")
+    assert not (f.model / "run" / "plans" / "alpha-thing.md").exists()        # never planned, never reviewed
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=bad)              # the 6th: a planner that cannot
+    assert said[-1] == "gap.parked" and f.item(gid)["fields"]["parked_in"] == "plan"
+    g = Instance(tmp_path / "two")                             # a plan changed on disk after it was linted:
+    gid = g.opened()
+    g.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+    plans = g.model / "run" / "plans" / "alpha-thing.md"
+    plans.write_text(plans.read_text().replace("## Size budget", "## Size"))
+    said, _ = g.run("plan.py", gid, argv=("review",))          # the review lints it first, and spends nothing
+    assert said == ["gap.plan-sent-back"] and g.item(gid)["fields"]["plan_findings"] == ["no `## Size budget` section"]
+    assert [c["role"] for c in g.item(gid)["fields"]["contexts"]] == ["planner"]
+    g.fold([{"event": "gap.planned", "item": gid, "data": {}}], None)          # planned before the lint: the sweep
+    assert g.run("plan.py", argv=("lint",))[0] == ["gap.plan-sent-back"] and g.item(gid)["state"] == "replan"
+    plans.write_text(GOOD + "\nMended by hand.\n")
+    g.fold([{"event": "gap.planned", "item": gid, "data": {}}], None)
+    assert g.run("plan.py", argv=("lint",))[0] == ["gap.measured"] and g.item(gid)["fields"]["plan_linted"]
+    assert g.run("plan.py", argv=("lint",))[0] == []           # once
+
+
+def graph_fixture(f: Instance, n_ready: int = 1) -> None:
+    """A merged gap (its merge commit in the checkout), an active one and ready ones, each with its files."""
+    (f.checkout / "merged_mod.py").write_text("x = 1\n")
+    git(f.checkout, "checkout", "-q", "-b", "landed")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "landed")
+    git(f.checkout, "checkout", "-q", "main")
+    git(f.checkout, "merge", "-q", "--no-ff", "-m", "Merge landed", "landed")
+    sha = git(f.checkout, "rev-parse", "HEAD")
+    defs = f.model / "run" / "defs"
+    defs.mkdir(parents=True, exist_ok=True)
+    now = __import__("time").time()
+    lines = [{"event": "gap.merged", "item": "gap/landed", "data": {"title": "Landed work", "branch": "landed",
+                                                                    "merged_at": now - 3600, "main_sha": sha}},
+             {"event": "gap.merged", "item": "gap/old", "data": {"title": "Old", "branch": "old", "merged_at": now - 9e5}}]
+    for name, event in [("busy", "gap.started")] + [(f"next-{i}", "gap.defined") for i in range(n_ready)]:
+        (defs / f"{name}.md").write_text(GOOD.replace("`app.py`, and `fresh.py` (new)", f"`{name}_mod.py` (new)"))
+        lines.append({"event": event, "item": f"gap/{name}", "data": {
+            "title": name.title(), "branch": name, "definition": f"run/defs/{name}.md", "depends_on": ["gap/landed"]}})
+    f.fold(lines, None)
+
+
+GRAPH = "import fac, brief; print(json.dumps(brief.graph(fac.config(), {'id': sys.argv[1]})))"
+
+
+def test_the_graph_brief_lists_merged_active_and_ready(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    graph_fixture(f)
+    text = f.py(GRAPH, gid)
+    merged, active, ready = text.split("### ")[1:]
+    assert "gap/landed (merged, `landed`): Landed work. Changed: merged_mod.py" in merged and "gap/old" not in text
+    assert "gap/busy (building, `busy`): Busy. Touches: busy_mod.py" in active
+    assert "gap/next-0 (ready, `next-0`): Next-0. Touches: next-0_mod.py. Depends on: gap/landed" in ready
+    assert gid not in text                                     # never the gap itself
+
+
+def test_the_graph_brief_stays_bounded(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    graph_fixture(f, n_ready=60)
+    text = f.py(GRAPH, gid)
+    lines = text.splitlines()
+    assert len(lines) <= 40 and "gap/landed" in text and "gap/busy" in text      # every section keeps its share
+    assert lines[-1].startswith("- ... and ") and lines[-1].endswith(" more not shown")
+
+
+def test_the_reviewer_sees_overlap_in_its_brief(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    graph_fixture(f)
+    dup = PLAN.format(b="alpha-thing").replace("`app.py`, and `fresh.py` (new)", "`merged_mod.py`, `busy_mod.py` (new)")
+    assert f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=dup)[0] == ["gap.planned"]
+    planner = (f.model / f.item(gid)["fields"]["contexts"][-1]["brief"][5:]).read_text()
+    f.run("plan.py", gid, argv=("review",))
+    context = f.item(gid)["fields"]["contexts"][-1]
+    reviewer = (f.model / context["brief"][5:]).read_text()
+    for brief_ in (planner, reviewer):                         # what landed and what is active, with their files
+        assert "Changed: merged_mod.py" in brief_ and "gap/busy (building, `busy`): Busy. Touches: busy_mod.py" in brief_
+    assert "`merged_mod.py`, `busy_mod.py` (new)" in reviewer and "{graph}" not in reviewer
+    assert "A program has already checked its format" in reviewer
+
+
+def test_non_blocking_notes_are_appended(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+    verdict = '```json\n{"verdict": "merge", "blocking": [], "non_blocking": ["test the empty ledger", "name it"]}\n```'
+    assert f.run("plan.py", gid, argv=("review",), FACTORY_STANDIN_PLAN_REVIEWER=verdict)[0] == ["gap.defined"]
+    text = (f.model / "run" / "defs" / "alpha-thing.md").read_text()
+    assert text.endswith("## Notes from the plan review (answer each)\n\n- test the empty ledger\n- name it\n")
+
+
+@pytest.mark.parametrize("kill", [3, None])
+def test_the_plan_kill_rule_reads_the_setting(kill, tmp_path):
+    f = Instance(tmp_path)
+    if kill:
+        f.config.write_text(f.config.read_text().replace("[gates]\n", f"[gates]\nplan_kill_after = {kill}\n"))
+    gid = f.opened()
+    for n in range(1, (kill or 4) + 1):
+        f.run("plan.py", gid)
+        said, _ = f.run("plan.py", gid, argv=("review",), FACTORY_STANDIN_VERDICT="fix")
+        assert (said[-1] == "gap.parked") == (n == (kill or 4)), n
+    assert f.item(gid)["fields"]["plan_failures"] == (kill or 4) - 1 and f.item(gid)["state"] == "parked"
+
+
+def test_plan_first_pass_yield(tmp_path):
+    f = Instance(tmp_path)
+    now = __import__("time").time()
+    rev = lambda *vs: [{"verdict": v, "at": now - 60} for v in vs]  # noqa: E731
+    f.fold([{"event": "gap.requested", "item": f"gap/{n}", "data": {"plan_reviews": r}} for n, r in [
+        ("a", rev("merge")), ("b", rev("fix", "merge")), ("c", rev("fix", "fix")),
+        ("d", [{"verdict": "fix", "at": now - 30 * 86400}]), ("e", [])]], None)
+    assert f.py("import plan; print(plan.first_pass())") == 0.333      # the first review only, in 14 days
