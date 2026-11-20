@@ -87,6 +87,13 @@ ergostat event --add gap.requested --item gap/my-change \
   --data '{"title": "My change", "source": "request", "branch": "my-change", "definition": "run/defs/my-change.md"}'
 ```
 
+**Dependencies.** A gap waits on others named by `depends-on: [name, ...]` in its definition (the template is
+`dev/prompts/definition.md`), `"depends_on": ["gap/..."]` in its request, or `after `name``, `needs `name` first` and a
+"Depends on" table column in GAPS.md. It is built only once each is merged (a parked one holds it, with `blocked_reason`); the implementor takes the unblocked first,
+the critical first. A name that is no gap, or a link that would close a cycle, is refused and said (the goal
+`dependencies-sound`); a gap waiting on a parked one says so (`blocked_reason`). The Items page's Graph and Timeline
+draw the tree; `python3 dev/bin/deps.py` prints it as mermaid.
+
 Then: the implementor commits the definition first and builds; the reviewer approves, sends it back (`fix`, with its
 findings) or parks it; the second failed gate parks it with where it stopped; the queue lands it. `ergostat item
 gap/NAME` shows each round, its reviews, the context each session was given and what it cost.
@@ -125,6 +132,15 @@ A green merge asks for `push-main` (exactly that commit to origin's main), held 
 ergostat inbox                                  # the push and the switch wait here
 ergostat inbox action/<id> --approve --as coordinator
 ```
+
+One merge waits for its push at a time. If you deny the push, the queue undoes that merge (`git reset --keep`) and
+sends the gap back. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
+(`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
+`ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
+
+A gap is never left a dead letter: a run that fails on its last attempt parks the gap with where it stopped, and the
+`dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
+`ergostat-factory-*`, killed when its run ends or is stopped, and swept by `main-watch` once past its time.
 
 ## Record an intervention
 

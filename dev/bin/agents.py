@@ -36,7 +36,10 @@ TOOLS = {
                     "Bash(mkdir:*)"],
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
-LIMITS = ["--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
+PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
+TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600, "planner": 3600,
+            "plan_reviewer": 1200, "researcher": 3600, "librarian": 600}   # seconds, each below its block's
+LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
 TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=["Read"], librarian=["Read"],   # all read-only: only the
              researcher=TOOLS["reviewer"] + ["WebSearch"])      # implementor writes; WebSearch is run by the API itself
@@ -79,7 +82,18 @@ def docker(*args: str, check: bool = True, timeout: int = 120) -> subprocess.Com
 
 
 def egress(cfg: dict) -> None:
-    """The internal network and the egress proxy on it, started when not running."""
+    """The internal network and the egress proxy on it, started when not running (under a lock: two sessions starting
+    together never race to create them)."""
+    import fcntl
+    with open(fac.run_dir(cfg) / "egress.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            _egress(cfg)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _egress(cfg: dict) -> None:
     if docker("network", "inspect", NET, check=False).returncode:
         docker("network", "create", "--internal", NET)
     got = docker("inspect", "-f", "{{.State.Running}}", PROXY, check=False)
@@ -113,11 +127,51 @@ def run_args(cfg: dict, role: str, work: Path, name: str) -> list[str]:
             settings(cfg)["image"], *claude_args(cfg, role)]
 
 
-def session(cfg: dict, role: str, brief: str, work: Path, timeout: int = 3 * 3600) -> dict:
-    """One session in its container; Claude Code's result message. Raises on a failure (a timeout kills it)."""
+RUNNING: set[str] = set()                # this process's containers, killed on any way out (killed())
+
+
+def killed(name: str) -> None:
+    docker("kill", name, check=False, timeout=60)
+    docker("rm", "-f", name, check=False, timeout=60)
+    RUNNING.discard(name)
+
+
+def kill_all(*_) -> None:
+    for name in list(RUNNING):
+        killed(name)
+
+
+def container(role: str) -> str:
+    name = f"{PREFIX}{role}-{uuid.uuid4().hex[:10]}"
+    RUNNING.add(name)
+    return name
+
+
+def sweep(cfg: dict) -> list[str]:
+    """Containers of the factory's left past their time (a run killed before its finally): removed. Their names."""
+    got = docker("ps", "-a", "--filter", f"name={PREFIX}", "--format", "{{.Names}}\t{{.CreatedAt}}", check=False)
+    gone = []
+    for line in got.stdout.splitlines():
+        name, _, created = line.partition("\t")
+        role = name[len(PREFIX):].rsplit("-", 1)[0]
+        try:
+            t = time.mktime(time.strptime(created[:19], "%Y-%m-%d %H:%M:%S"))
+        except ValueError:
+            continue
+        if name not in RUNNING and time.time() - t > TIMEOUTS.get(role, 7200) + 600:
+            killed(name)
+            gone.append(name)
+    return gone
+
+
+def session(cfg: dict, role: str, brief: str, work: Path, timeout: int | None = None) -> dict:
+    """One session in its container; Claude Code's result message. Raises on a failure (a timeout kills it; so does
+    any way out of this process: the container is killed in a finally)."""
+    timeout = timeout or TIMEOUTS[role]
     tok = token(cfg)
+    sweep(cfg)
     egress(cfg)
-    name = f"ergostat-{role}-{uuid.uuid4().hex[:10]}"
+    name = container(role)
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "DOCKER_HOST", "DOCKER_CONFIG",
                                                         "DOCKER_CONTEXT", "TMPDIR")}
     env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
@@ -125,10 +179,10 @@ def session(cfg: dict, role: str, brief: str, work: Path, timeout: int = 3 * 360
         r = subprocess.run(["docker", *run_args(cfg, role, work, name)], input=brief, capture_output=True, text=True,
                            timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
-        docker("kill", name, check=False)
         raise RuntimeError(f"the {role} session ran past {timeout}s and was killed") from None
     finally:
         del env["CLAUDE_CODE_OAUTH_TOKEN"]
+        killed(name)
     said = scrub(r.stdout, tok)
     try:
         out = json.loads(said.strip().splitlines()[-1]) if said.strip() else None
@@ -209,8 +263,13 @@ def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str) ->
         subprocess.run(["sh", "-c", script.replace("/out/", f"{out}/")], cwd=home / "work", check=True,
                        capture_output=True)
     else:
-        docker("run", "--rm", "--network", "none", *LIMITS, "-v", f"{home / 'work'}:/work", "-v", f"{out}:/out",
-               "-w", "/work", settings(cfg)["image"], "sh", "-c", script, timeout=600)
+        name = container("finish")
+        try:
+            docker("run", "--rm", "--name", name, "--network", "none", *LIMITS, "-v", f"{home / 'work'}:/work",
+                   "-v", f"{out}:/out", "-w", "/work", settings(cfg)["image"], "sh", "-c", script,
+                   timeout=TIMEOUTS["finish"])
+        finally:
+            killed(name)
     d = drop(cfg)
     fac.git(d, "bundle", "verify", "-q", str(out / "out.bundle"))
     fac.git(d, "fetch", "-q", str(out / "out.bundle"), f"+refs/heads/{ref}:refs/heads/{ref}")
@@ -221,19 +280,34 @@ def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str) ->
 
 
 def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str) -> dict:
-    """The fast suites on a session's work, in a container with no network, each in a machine-wide slot."""
+    """The fast suites on a session's work, each in a named container with no network, in a machine-wide slot."""
     out: dict = {}
-    for name in names:
-        cmd = cfg["suites"][name]
+    for n in names:
+        cmd, name = cfg["suites"][n], None
         if cfg["ai"]["mode"] != "standin":
-            cmd = " ".join(["docker", "run", "--rm", "--network", "none", *LIMITS, "-v", f"{home / 'work'}:/work",
-                            "-w", "/work", settings(cfg)["image"], "sh", "-c", shlex.quote(cmd)])
-        log = logs / f"{tag}-{name}.txt"
-        rc, secs = fac.suite(cfg, name, home / "work", log, command=cmd)
-        out[name] = {"rc": rc, "seconds": round(secs)}
+            name = container("suite")
+            cmd = " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *LIMITS,
+                            "-v", f"{home / 'work'}:/work", "-w", "/work", settings(cfg)["image"], "sh", "-c",
+                            shlex.quote(cmd)])
+        log = logs / f"{tag}-{n}.txt"
+        try:
+            rc, secs = fac.suite(cfg, n, home / "work", log, command=cmd)
+        finally:
+            if name:
+                killed(name)
+        out[n] = {"rc": rc, "seconds": round(secs)}
         if rc:
             text = log.read_text()
-            out.update(failed=name, tail=text[-3000:], tests=fac.failed_tests(text))
+            out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
             break
     return out
 
+
+def suite_containers() -> int:
+    """The factory's suite containers running now (the load interlock counts them: their processes are in Docker's VM)."""
+    try:
+        got = subprocess.run(["docker", "ps", "-q", "--filter", f"name={PREFIX}suite-"], capture_output=True,
+                             text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return 0
+    return len(got.stdout.split())

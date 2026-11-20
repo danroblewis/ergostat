@@ -16,6 +16,7 @@ branch that moved since. A conflict is a failed gate (the second parks).
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 import time
@@ -56,6 +57,81 @@ def suites(cfg: dict, repo, branch: str, logs, n: int) -> dict:
     return out
 
 
+# ---- the queue's own state: the merge whose push is not settled yet, and a block the coordinator must lift
+
+def state(cfg: dict) -> dict:
+    p = fac.run_dir(cfg) / "queue.json"
+    return json.loads(p.read_text()) if p.exists() else {}
+
+
+def save(cfg: dict, st: dict) -> None:
+    p = fac.run_dir(cfg) / "queue.json"
+    tmp = p.with_suffix(".new")
+    tmp.write_text(json.dumps(st, indent=1))
+    tmp.replace(p)
+
+
+def block(cfg: dict, st: dict, why: str) -> str:
+    """Stop the queue and ask the coordinator: an intervention, open until they record it remedied."""
+    iid = f"intervention/queue-{time.strftime('%Y%m%d-%H%M%S')}"
+    fac.say("intervention.recorded", iid, reason=f"the merge queue stopped: {why}", recorded_at=time.time(),
+            **{"class": "queue"})
+    st["blocked"] = {"why": why, "intervention": iid, "at": time.time()}
+    save(cfg, st)
+    return why
+
+
+def action_state(aid: str) -> str:
+    try:
+        return json.loads(fac.ergostat("item", aid, "--json").stdout).get("state") or "unknown"
+    except (RuntimeError, ValueError, FileNotFoundError):
+        return "unknown"
+
+
+def settle(cfg: dict, repo) -> str | None:
+    """Before a merge: what became of the last merge's push. None when the queue may go on; else why it waits.
+    Pushed: done. Held: wait (one unpushed merge at a time, so a denial undoes only its own). Denied: the merge undone
+    (`reset --keep` to before it) and its gap sent back. Failed, or an undo that fails: the queue blocked, with an
+    intervention, until the coordinator records it remedied."""
+    st = state(cfg)
+    if st.get("blocked"):
+        iid = st["blocked"]["intervention"]
+        if action_state(iid) != "remedied":
+            return f"blocked until {iid} is remedied: {st['blocked']['why']}"
+        st.pop("blocked")
+        p = st.pop("pending", None)                    # the coordinator's remedy settled that merge, whatever its push
+        if p:
+            fac.say("gap.push-settled", p["gap"], push="settled by the coordinator", settled_by=iid,
+                    settled_at=time.time())
+        save(cfg, st)
+        return None
+    p = st.get("pending")
+    if not p:
+        return None
+    now = action_state(p["action"]) if p.get("action") else p.get("known") or "unknown"
+    if now == "held" and not p.get("action"):
+        return block(cfg, st, f"the push of {p['sha'][:12]} is held, and its action's id was not said: "
+                              f"it cannot be followed")
+    if now == "ran":
+        fac.say("gap.pushed", p["gap"], pushed_at=time.time(), push="pushed")
+        st.pop("pending")
+        save(cfg, st)
+        return None
+    if now == "denied":
+        head = fac.git(repo, "rev-parse", "HEAD")
+        if head != p["sha"] or not fac.git_ok(repo, "reset", "-q", "--keep", p["pre"]):
+            return block(cfg, st, f"the push of {p['sha'][:12]} was denied, and its merge could not be undone "
+                                  f"(main at {head[:12]})")
+        fac.say("gap.sent-back", p["gap"], sent_back_by="queue", push="denied",
+                findings=[f"the push of its merge ({p['sha'][:12]}) was denied: the merge is undone"])
+        st.pop("pending")
+        save(cfg, st)
+        return None
+    if now in ("held", "requested", "approved"):
+        return f"the push of {p['sha'][:12]} ({p['gap']}) is {now}"
+    return block(cfg, st, f"the push of {p['sha'][:12]} is {now}" + (f": {p['said'][-200:]}" if p.get("said") else ""))
+
+
 def reviewed(cfg: dict, repo, gap: dict) -> tuple[str | None, str]:
     """The commit the reviewer approved, fetched from the drop into the checkout: (its id, or None; why not)."""
     branch, f = fac.branch_of(gap), gap["fields"]
@@ -83,7 +159,7 @@ def main() -> int:
     approved = float(f.get("approved_at") or time.time())
     fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
     with fac.queue_lock(cfg):
-        why = clean_main(cfg, repo)
+        why = clean_main(cfg, repo) or settle(cfg, repo)
         if why:
             fac.nack(f"queue: {why}", after="10m", count=False)
             return 0
@@ -126,14 +202,22 @@ def main() -> int:
         finally:
             if not done:                                   # failed, raised or stopped: main as it was
                 fac.git(repo, "merge", "--abort", check=False)
-                fac.git(repo, "reset", "-q", "--keep", pre, check=False)
+                if not fac.git_ok(repo, "reset", "-q", "--keep", pre):
+                    block(cfg, state(cfg), f"a failed merge of {branch} could not be undone (reset --keep to {pre[:12]})")
     fac.say("gap.merged", merged_at=time.time(), main_sha=merged, pre=pre, **timing)
     try:
         rc, said = fac.act("push-main", key=merged, sha=merged)
         push = {0: "pushed", 1: "failed", 3: "held", 4: "denied"}.get(rc, f"refused ({rc})")
     except FileNotFoundError:
         push, said = "not asked: not run by ergostat", ""
-    fac.say("gap.push-asked", push=push, push_said=said[-300:])
+    fac.say("gap.push-asked", push=push, push_said=said[-600:])
+    if push != "pushed":
+        m = re.search(r"ergostat\.action/[0-9a-f]+", said)
+        save(cfg, {**state(cfg), "pending": {"sha": merged, "pre": pre, "gap": gap["id"], "branch": branch,
+                                             "action": m.group(0) if m else "", "known": push.split(" ")[0],
+                                             "said": said[-600:], "at": time.time()}})
+        with fac.queue_lock(cfg):
+            settle(cfg, repo)                             # a push denied or failed at once is handled now
     return 0
 
 

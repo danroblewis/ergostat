@@ -92,7 +92,11 @@ items:
       gap.retried: approved          # triage: a flake, back to the queue
       gap.merged: merged
       gap.parked: parked             # the kill rule, or a park verdict: where it stopped
-    show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push]
+    show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
+    relations:
+      depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
+                                     # one waiting on a parked gap is held by its field waits_on_parked (takes: where)
+      parent: gap                    # a sub-gap of a split (plan.py)
     fold:
       rounds: sum
       reviews_n: sum
@@ -111,8 +115,6 @@ items:
       plan_failures: sum
       plan_reviews: append
       research: union
-    relations:
-      parent: gap                    # a sub-gap of a split (plan.py)
     join:
       - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
     lease: {attempts: 2}
@@ -197,7 +199,7 @@ items:
 
 messages:
   done: {gap: [merged, parked], upgrade: [healthy, reverted, superseded, failed], research: [answered],
-         lesson: [requested, retired]}
+         lesson: [requested, retired]}   # (finished, for the estimates)
 
 agents:
   opus:

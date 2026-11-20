@@ -81,3 +81,14 @@ Each of these is tested by an attack (`tests/test_sandbox_attacks.py`), with fak
   still read most of the machine (SPEC §12k, *Not enforced*).
 - **What happens after you approve.** Once a fix is approved and merged, it runs as your code always does, with your
   permissions. The sandbox protects the time before anyone has looked.
+
+## The page from elsewhere
+
+The page answers only requests addressed to `127.0.0.1:PORT` on this machine. Behind a cloudflared tunnel it answers a
+public name only when the model declares it with a Cloudflare Access login (`web:`, SPEC §4d; the how-to is
+AGENT-GUIDE §3j): every request there, reads included, needs a valid Access token for an allowed email, writes are
+recorded as that email, and the state directory's files (the push and remote tokens) are never served there. Any
+request that came through Cloudflare without that declaration is refused, even one whose Host the tunnel rewrote.
+A name declared `open: read` instead is public: anyone who reaches it reads everything the page shows, though nothing
+can be written there. What it does not stop: anyone on the allowlist can read everything the page shows, and an allowlisted account taken
+over is the owner on the page.
