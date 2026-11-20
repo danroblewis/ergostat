@@ -174,6 +174,33 @@ A gap is never left a dead letter: a run that fails on its last attempt parks th
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
 `ergostat-factory-*`, killed when its run ends or is stopped, and swept by `main-watch` once past its time.
 
+## Time in each state
+
+Every ten minutes the `timer` block (`dev/bin/times.py`) reads the record of each gap whose events grew since it was
+last timed (at most 50 a run) and writes `gap.timed` on it, for any gap whatever its end (merged, parked, dead or still
+open). Each is counted from the record alone:
+
+- `time_in`: per state, the hours of its visits summed and how many (`visits`), and when it last left (`left`). A
+  visit runs from the move into the state to the next move, in the record's order (the fold's moves, the lease's own
+  `leased` and `dead` among them); the visit a gap is in now counts once it ends (`status.py` shows it apart).
+- `loop_rounds`, `loop_hours`, `loop_ended`: the build-review loop as one span, from the first time the gap is taken to
+  build (leased from ready or fix) to the first approval, park or dead letter after its last build; its rounds are its
+  builds. A queue send-back (a conflict, a denied push, a real failure) is part of the loop: it ends at the last
+  approval. While it still goes round, `loop_ended` is empty and its span runs to its latest move.
+- `gates`: the minutes of each gate, summed over its rounds, and when it last ran: `implementor` (its runs,
+  `build_hours`), `fast` (its ruff and unit suites, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
+  `browser` and `demo` (`suites_queue`, failed runs too), and `push-wait` (a merge to `gap.pushed`, a push said pushed
+  at once, or the coordinator settling it).
+
+The measures (`dev/model/times.yaml`, the system `times`) are `in-STATE-hours`, `loop-hours`, `loop-rounds` and
+`gate-GATE-minutes`, each the median and with `-p90` the 90th percentile (nearest rank) over the last 14 days, of the
+gaps that left the state, ended the loop or passed the gate in the window, not only the merged ones; 0 with none.
+Each has a goal (`hold:`) to set; the shipped ones are first guesses, and `python3 dev/bin/times.py setpoints` in the
+instance's folder sets each to today's reading (one with nothing in the window keeps its own). `status.py` prints them
+as a table, the waiting states first (open, ready, fix, built, approved, queued: time spent waiting on someone else,
+the cheapest to remove; queued counts the wait for the lock and a quiet machine with the queue's run), then the working
+ones, the loop and the gates, with how many gaps are in each state now and the oldest of them.
+
 ## Record an intervention
 
 Each time you step in by hand, say so: it is evidence of a loop the factory lacks.

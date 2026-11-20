@@ -52,6 +52,10 @@ systems:
     within: oversight
     description: how well the factory works - cycle time, first-pass yield, fix rounds, the queue, flakes, cost
     show: [auxiliary.first-pass-yield, auxiliary.cycle-hours, auxiliary.cost-per-merged]
+  times:
+    within: oversight
+    description: how long each gap spends in each state, in the build-review loop and at each gate, held by goals
+    show: [auxiliary.loop-hours, auxiliary.in-ready-hours, auxiliary.gate-unit-minutes]
   interventions:
     within: oversight
     description: the coordinator's interventions, each evidence of a loop the factory lacks
@@ -92,7 +96,8 @@ items:
       gap.retried: approved          # triage: a flake, back to the queue
       gap.merged: merged
       gap.parked: parked             # the kill rule, or a park verdict: where it stopped
-    show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
+    show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason, loop_rounds, loop_hours]
+    # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended and gates (dev/bin/times.py)
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
                                      # one waiting on a parked gap is held by its field waits_on_parked (takes: where)
