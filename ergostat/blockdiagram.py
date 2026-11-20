@@ -629,7 +629,8 @@ class _Diagram:
             loop_T = self.loop_period(var)
             sampled = not dyn and period > 0 and period >= loop_T / 10
             Tw = sensing.every_words(period)
-            rows = [["measures", name], ["reads", reads], ["command", ex.run or ""], ["sensors", ", ".join(x.name for x in sensors)],
+            rows = [["measures", name], ["reads", reads], ["command", sensing.command(self.s, ex)],
+                    ["sensors", ", ".join(x.name for x in sensors)],
                     ["collected by", ", ".join(sensing.reads(self.s, c) for c in cols)], ["now", self.now(var)]]
             ym = eq(sym("y", f"m,{name}"), row(sym("H", name, "s" if dyn or sampled else None), sym("y", name)))
             if dyn:
@@ -695,7 +696,7 @@ class _Diagram:
         kinds = sorted(k for k, cs in self.collectors.items() if any(c is x for c in cs))
         if cid not in self.nodes:
             title = x.description if x.description and len(x.description) <= 40 else (
-                sensing.what(self.s, x) if x.query else sensing.short(sensing._command(x.run or "")) or x.name)
+                sensing.what(self.s, x) if x.query else sensing.short(sensing._command(sensing.command(self.s, x))) or x.name)
             what = f"records {' and '.join(kinds)} items" + (f", {sensing.how_often(x)}" if sensing.how_often(x) else "")
             self.node(cid, kind="block", role="collector", system=self.s.owner(x.of), label=title,
                       fn={"name": title, "kind": "collector", "reads": what, "linear": False},
