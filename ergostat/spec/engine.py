@@ -951,6 +951,8 @@ class Engine:
                     note = refused or f"could not start: {e}"
                 else:
                     old.LIVE.add(proc)
+                    if old.STOPPING.is_set():                    # ergostat stopped as it started: kill_all missed it
+                        old._kill(proc)
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
@@ -1744,7 +1746,10 @@ class Engine:
         old.kill_all()
         self.daemons.close()
         deadline = time.monotonic() + 5
-        while self.running and time.monotonic() < deadline:
+        while time.monotonic() < deadline:
+            with self.lock:                                      # (read under the lock a lease's run is counted under)
+                if not self.running:
+                    break
             time.sleep(0.05)
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
 

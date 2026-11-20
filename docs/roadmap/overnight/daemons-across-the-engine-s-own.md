@@ -158,3 +158,23 @@ docstrings included), so no overrun. All six acceptance tests are in `tests/test
 - If the failure is a real cost in `refused_expiries` or the item index under load, and not a timing flake, it
   needs its own gap. I could not profile it here: this session was only allowed to run pytest, so no ad hoc
   script could be run.
+
+**The factory's second unit run.** 1 failed, 1908 passed, 69 skipped, rc 1:
+`tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`. A lease was still held after
+`second.close()`. The factory asked for the code to be fixed (not the test's bounds), so it is fixed here. The fix is
+outside this gap's files (`ergostat/leases/dispatch.py`, `ergostat/spec/engine.py`). The test has no daemons, and the
+race is on main as well. That is the reason for going past the budget: about 15 net lines more.
+- *The race.* The test closes the engine as soon as it sees a new lease. That run could be between
+  `Dispatch.take` writing `lease.taken` and spawning its process. (1) `take` added the run to `Engine.running` only
+  after the event was written and folded, so `close()` could find `running` empty and return at once. (2)
+  `runner.kill_all()` kills only what is in `runner.LIVE`. A run that spawned after it was not killed: `sleep 30`
+  outlived `close()`, and its lease stayed held (the holder in the failure is that run's id).
+- *The fix (lesson-1, lesson-6).* `take` checks `stop` and adds the run to `running` under `Engine.lock` before
+  writing the lease. It removes the run again if the fold refuses the lease or the write raises. `close()` reads
+  `running` under the same lock, so a lease is either never taken after `stop` or waited for. `run_block` checks
+  `runner.STOPPING` after `LIVE.add(proc)` and kills the new group if it is set. The add comes before the check, and
+  `kill_all` sets the flag before it reads `LIVE`, so either `kill_all` sees the process or the process sees the flag.
+  The run then ends as "stopped with ergostat", and `finish` gives the lease back uncounted.
+- *Not run.* This session was denied the shell. The fix has not been run (not the failing test, not ruff, not the
+  suites) and has not been committed. Both are still owed: `uv run python -m pytest -q tests/test_leases.py`, the
+  daemon and engine files, ruff, then a commit.
