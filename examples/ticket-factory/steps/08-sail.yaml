@@ -38,7 +38,7 @@ blocks:
   sail:
     type: program
     goal: approved-sailed
-    run: python3 bin/step.py sail
+    daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
     takes: {kind: ticket, at: approved, to: [sailed, stopped]}
     pool: 3
     actions: [pr-label]

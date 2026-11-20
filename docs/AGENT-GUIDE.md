@@ -194,7 +194,10 @@ You are not done when the YAML loads. Do this every time you change the model:
 
 (Edit freely while `ergostat run` runs: it takes your edits once the files have been still for about 1.5 s, and
 while they have errors it keeps running the last good model, saying so, with each error's file and line, in its log,
-`ergostat status` and the page's header. Nothing half written is ever taken.)
+`ergostat status` and the page's header. Nothing half written is ever taken. Meanwhile the commands that only read,
+`ergostat status`, `item`, `event`, `fit`, `residual`, the parts and the like, still answer from the last model the
+engine took, with one line on stderr naming the first error; anything that acts (`event --add`, `block --now`,
+`accept`, `run`, ...) refuses until the YAML is fixed, so fix it before you act.)
 
 1. **`ergostat check`** (or the MCP `check` tool). It reports errors with file and line, then what
    the model is missing. Treat every finding as something to fix or to explain to the person.

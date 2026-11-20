@@ -38,7 +38,7 @@ blocks:
   pick-up:
     type: program
     goal: new-picked-up
-    run: python3 bin/step.py pick-up
+    daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
     takes: {kind: ticket, at: new, to: [picked, stopped]}
     pool: 3
     actions: [jira-transition]

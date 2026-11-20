@@ -8,6 +8,8 @@ command it stands for, answered as that command's ``--json`` answers.
   a call that has to wait for an answer is parked (``server.py``);
 - ``lease``: ``{"how": "renew" | "nack", "why", "after", "count", "env"}``: ``ergostat lease --renew`` / ``--nack``;
 - ``item``: ``{"id"}``: ``ergostat item ID --json``;
+- ``items``: ``{"kind", "state", "offset"}``: ``ergostat item --kind K --state S --json`` (each optional), so a daemon
+  reads the items without starting a process: a page of them from ``offset``, and ``total``, how many match;
 - ``ping``: whether it listens, and for which project."""
 
 from __future__ import annotations
@@ -48,6 +50,12 @@ def item(eng, req: dict) -> dict:
     if d is None:
         raise Refused(f"no item {req.get('id')!r}")
     return {"item": d}
+
+
+def items(eng, req: dict) -> dict:
+    from ..spec import items as its
+    return its.listing(eng.p.events, eng.spec, kind=req.get("kind") or None, state=req.get("state") or None,
+                       offset=max(0, int(req.get("offset") or 0)))
 
 
 def lease(eng, req: dict) -> dict:

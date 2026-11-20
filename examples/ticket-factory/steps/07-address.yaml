@@ -31,7 +31,7 @@ blocks:
     goal: changes-answered
     agent: ai
     prompt: prompts/review.md
-    run: python3 bin/step.py address
+    run: python3 bin/step.py address       # a process per run: an AI session of minutes, its CPU and cost its own
     takes: {kind: ticket, at: changes-asked, to: [review-asked, stopped]}
     pool: 1
     lease: {ttl: 20m, attempts: 2}

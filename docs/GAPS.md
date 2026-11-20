@@ -54,6 +54,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Running code ergostat does not trust
 
+- **The Linux sandbox's attack suite asserts macOS behaviour in five places** (open; `devcontainer`, 2026-11-19).
+  On Linux (bwrap, in the dev container) 26 of 31 pass; the five failures were probed by hand and none is an escape:
+  UDP to 127.0.0.1 "sends" but only to the sandbox's own loopback (the outer listener got nothing); the process list
+  and another process's environment are probed with macOS `sysctl` (inside, only pids 1 and 2 are visible and the
+  neighbour's `/proc/PID/environ` is absent), and the environment test is a strict xfail for a macOS-only leak, so
+  Linux's pass fails it; listing the toolchain's parents shows bwrap's mount-point stubs (`/usr/local`: `bin`, `lib`
+  with only libpython) where macOS denies; the pid hopper is contained but the run's exit when its supervisor is
+  killed differs. Each needs a Linux form of its assertion (on `linuxfix`; until then in `LINUX_KNOWN`,
+  tests/conftest.py). They run only under `scripts/in_container.sh --sandbox`.
 - **An allowlist sandbox** (done on `sandbox`, SPEC §12q, `docs/SECURITY.md`): `ergostat/sandbox/`, reads only the
   copy, the toolchain and declared paths; writes only the copy (not `.git`) and a private temporary folder; network
   only through a filtering proxy (listed hosts, SNI checked, methods for plain HTTP, every connection logged), no DNS;
@@ -175,6 +184,16 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Runtime, scale and latency
 
+- **Linux: two bugs the dev container found** (open; `devcontainer`, 2026-11-19, docs/DEVELOPMENT.md). (1) The
+  segmented event log (`ergostat/segments.py`, `_sync`) notices new sealed segments by the directory's mtime, and
+  Linux timestamps are coarse (one jiffy: 50 file creates on tmpfs gave one mtime; ext4 is the same before
+  multigrain timestamps), so a seal within the same tick is missed and its events vanish from queries: 5 to 6
+  `[segments]` cases in `tests/test_store_conformance.py` fail on `/tmp`, by timing. (2) `shell=True` runs `/bin/sh`,
+  which on Debian is dash, and dash forks for `sh -c CMD` where macOS's bash execs: the pid ergostat records for a
+  daemon (`ergostat/daemons/proc.py`) is the shell's, not the program's (`tests/test_daemons.py::
+  test_daemons_on_the_agents_api`). Being fixed on `linuxfix`; until then the failing tests (9 `[segments]` cases,
+  each failed at least once in 10 runs, and the daemon one) are expected failures on Linux (`LINUX_KNOWN`,
+  tests/conftest.py).
 - **Warm workers instead of a process per item**: superseded by daemons (branch `daemons`, SPEC §9.7,
   `docs/RUNTIME.md`): long-lived processes for blocks and sensors, many items at once, every line tagged with its run
   or request, env per item in its line, supervised (crash, silence, stdin backpressure, restart storms, cancel on a
@@ -186,6 +205,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
   not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
   ends.
+- **Daemons across the engine's own restarts** (follow-up, found in `tf-daemons`' review): the paths that start the
+  engine's process again in place (`_restart` and `_restart_hard` in `ergostat/cli/running.py`: an exec for a new
+  model's name or store, and the watchdog's last resort after `runner.kill_all()`) do not stop the daemons first. A
+  daemon reading its standard input sees it end when the old process goes and exits, but nothing waits for that,
+  drains its runs or ends its process group, so a daemon that ignores the end of its input, or a child it started,
+  can outlive the engine.
 - **Daemon YAML schema review** (open; owner, 2026-11-19): the functionality landed (`daemons`, `daemons2`; how to
   use and write daemons: `docs/DAEMONS.md`, the skill's `daemons.md`), but the owner is not sure the YAML is the
   best yet, and it may change. Alternatives worth considering:
@@ -226,9 +251,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   - **Block logs, `threads.txt`, `transcripts.json` and `run.log` grow without limit; old project folders pile up**
     (done, 3e106ee: `storage: logs:`; `ergostat compact --projects`).
   - **The CLI refuses to run while the YAML is broken**, so every `$ERGOSTAT_CMD` call fails while an agent edits
-    (in progress, parked on branch `resilience`: its fallback to the engine's last good model settled includes
-    against the live files, so it could load a model that never existed; it needs includes settled against the kept
-    files, or the fallback refused when the live include set differs).
+    (done on branch `cli-fallback`, `docs/roadmap/overnight/cli-fallback.md`: the engine keeps the model it takes as
+    one content-addressed snapshot of every file its loading read; commands that read load that snapshot alone,
+    never running anything; commands that act, `event --add` among them, refuse naming the YAML's error).
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per

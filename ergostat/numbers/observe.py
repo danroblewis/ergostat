@@ -228,7 +228,7 @@ def measured(p, grid: Grid, spec: Spec | None = None) -> Data:
         if q:
             moves = _item_moves(p, spec, q, g.since, g.until)
             how = f"items {'entering ' + q['entering'] if q.get('entering') else 'leaving ' + str(q.get('leaving'))}, counted as they moved"
-        elif not any(s.run or s.query or s.manual for s in sensors) and valves.get(name):
+        elif not any(s.commands or s.query or s.manual for s in sensors) and valves.get(name):
             moves = [(e["time"], float(e["data"].get("amount", 1) or 0)) for v in valves[name]
                      for e in p.events.query(n=None, type="valve.opened", item=v, since=g.since, until=g.until)]
             how = f"opened by {', '.join(valves[name])}, as it opened"
@@ -244,7 +244,7 @@ def measured(p, grid: Grid, spec: Spec | None = None) -> Data:
             d.values[ref] = [c.between(edges[i], edges[i + 1]) * 3600.0 / w for i in range(g.n)]
             d.how[ref] = how
             continue
-        read = [s for s in sensors if s.run or s.query or s.manual]
+        read = [s for s in sensors if s.commands or s.query or s.manual]
         if read:
             sums, counts = [0.0] * g.n, [0] * g.n
             for s in read:

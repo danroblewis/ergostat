@@ -82,14 +82,15 @@ class Supervisor(Hands):
                     self._drain(slot, "its definition changed" if n in used else "nothing uses it now")
                     del self.slots[n]
             for n in used - set(self.slots):
-                self.slots[n] = Slot(spec.daemons[n])
-                start.append(self.slots[n])
+                self.slots[n] = slot = Slot(spec.daemons[n])
+                slot.spawning = True                 # claimed before the loop runs: spawned here, never by its tick
+                start.append(slot)
             self.push = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon and s.push}
             if self.slots and (self.thread is None or not self.thread.is_alive()):
                 self.thread = threading.Thread(target=self._loop, name="ergostat-daemons", daemon=True)
                 self.thread.start()
-        for slot in start:                           # at once: the first readings asked find it there
-            self._start(slot)
+        for slot in start:                           # at once, before sync returns: the first readings asked find it
+            self._spawn_claimed(slot)                # running (not "starting", a failure until the sensor is next due)
 
     def revive(self, name: str) -> bool:
         """The owner's ``block NAME --restart``: a daemon given up (or any) started afresh, its restarts forgotten."""
@@ -99,9 +100,10 @@ class Supervisor(Hands):
                 return False
             self._drain(slot, "the owner asked for a restart")
             slot = self.slots[name] = Slot(slot.d)
+            slot.spawning = True                     # (as in sync: spawned here, before revive returns)
             self._release(name)
         self.e.say(f"daemon {name}: restarted, as the owner asked")
-        self._start(slot)
+        self._spawn_claimed(slot)
         return True
 
     def _release(self, name: str) -> None:
@@ -186,6 +188,10 @@ class Supervisor(Hands):
             if self.slots.get(slot.d.name) is not slot or slot.state not in ("starting", "backoff") or slot.spawning:
                 return
             slot.spawning = True
+        self._spawn_claimed(slot)
+
+    def _spawn_claimed(self, slot: Slot) -> None:
+        """A slot this caller claimed (``spawning``, set under the lock) spawned, and the claim let go."""
         try:
             self._spawn(slot)
         finally:
