@@ -53,3 +53,10 @@ the owner started it, and the branch was rebased onto origin/main (145d00e) and 
   dash's fork makes a daemon's recorded pid the shell's; the sandbox attack suite passes 26 of 31 under bwrap, and the
   five failures assert macOS behaviour (probed: no escape). Fixing them is ergostat's work, not this branch's.
 - **Not done:** the benchmarks and the layout corpus were not run inside (documented, not measured).
+- **Gate review fixes (merge after fixes):** the benchmarks, load tests and corpus are "preferred" in the container,
+  not "always", since they were not run there, with the host under the watchdog when Docker is down; the Linux
+  failures are `xfail(strict=False)` on Linux by exact id (`LINUX_KNOWN`) instead of a "green with 12 failures" rule;
+  seccomp and the masked paths are off only in the `sandbox` service (`--sandbox`), and the attack suite skips
+  without it; DEVELOPMENT.md says the container is not a security boundary; the base image is pinned to
+  3.12.16; uid 0 runs as 1000 inside. After them: container unit rc 0 (1682 passed, 34 skipped, 8 xfailed,
+  2 xpassed, 162 s); `--sandbox` attack suite 26 passed, 4 xfailed, 1 xpassed; the `SPLIT_SHOTS` test 5 of 5.

@@ -61,7 +61,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   neighbour's `/proc/PID/environ` is absent), and the environment test is a strict xfail for a macOS-only leak, so
   Linux's pass fails it; listing the toolchain's parents shows bwrap's mount-point stubs (`/usr/local`: `bin`, `lib`
   with only libpython) where macOS denies; the pid hopper is contained but the run's exit when its supervisor is
-  killed differs. Each needs a Linux form of its assertion.
+  killed differs. Each needs a Linux form of its assertion (on `linuxfix`; until then in `LINUX_KNOWN`,
+  tests/conftest.py). They run only under `scripts/in_container.sh --sandbox`.
 - **An allowlist sandbox** (done on `sandbox`, SPEC §12q, `docs/SECURITY.md`): `ergostat/sandbox/`, reads only the
   copy, the toolchain and declared paths; writes only the copy (not `.git`) and a private temporary folder; network
   only through a filtering proxy (listed hosts, SNI checked, methods for plain HTTP, every connection logged), no DNS;
@@ -191,7 +192,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `[segments]` cases in `tests/test_store_conformance.py` fail on `/tmp`, by timing. (2) `shell=True` runs `/bin/sh`,
   which on Debian is dash, and dash forks for `sh -c CMD` where macOS's bash execs: the pid ergostat records for a
   daemon (`ergostat/daemons/proc.py`) is the shell's, not the program's (`tests/test_daemons.py::
-  test_daemons_on_the_agents_api`).
+  test_daemons_on_the_agents_api`). Being fixed on `linuxfix`; until then the failing tests (9 `[segments]` cases,
+  each failed at least once in 10 runs, and the daemon one) are expected failures on Linux (`LINUX_KNOWN`,
+  tests/conftest.py).
 - **Warm workers instead of a process per item**: superseded by daemons (branch `daemons`, SPEC §9.7,
   `docs/RUNTIME.md`): long-lived processes for blocks and sensors, many items at once, every line tagged with its run
   or request, env per item in its line, supervised (crash, silence, stdin backpressure, restart storms, cancel on a

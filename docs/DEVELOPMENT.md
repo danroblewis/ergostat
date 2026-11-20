@@ -29,7 +29,17 @@ runs `CMD` in the `dev` service (`compose.yaml`) with this checkout, or any work
 
 An init process reaps whatever a test leaves behind, and the container is removed when the command ends.
 `ERGOSTAT_WORK=DIR` mounts another checkout or worktree; a worktree's git directory is mounted at its own path,
-so git works inside. `--print` shows the command without running it.
+so git works inside. `--print` shows the command without running it. You run inside as your own uid; as root
+(`ERGOSTAT_UID=0`, or uid 0 outside), the container runs as uid 1000 instead, an ordinary user all the same.
+
+`--sandbox` uses the `sandbox` service instead: the same, with Docker's syscall filter (seccomp) and its masked
+`/proc` paths turned off, which bubblewrap needs for its namespaces. Use it only for the Linux sandbox's tests; in
+the ordinary service those tests skip, saying so.
+
+**The container limits resources; it is not a security boundary.** Your checkout and its git directory are
+mounted read-write, so whatever a command inside writes there (a git hook, a `.git/config` setting, a script in
+the tree) runs on your computer the next time you use git or the file. Run nothing inside that you would not run
+on your computer.
 
 The image holds Python 3.12, uv, the locked dependencies (in `/opt/venv`, not your checkout's `.venv`),
 Playwright 1.63.0 with Chromium, git, zsh and bubblewrap, and runs as an ordinary user. It holds no secrets: the
@@ -51,6 +61,8 @@ scripts/in_container.sh uv run --with playwright==1.63.0 python scripts/demo_che
 scripts/in_container.sh uv run python scripts/scale_bench.py check 10 100 300 1000 --work /work/.out/scale
 scripts/in_container.sh uv run python scripts/latency_bench.py synth 1 50 100 500 --label container
 scripts/in_container.sh uv run python scripts/daemon_bench.py 20 170 --mode daemon --minutes 6.5 --work /work/.out/daemon
+# the Linux sandbox's attack suite (bubblewrap; needs --sandbox)
+scripts/in_container.sh --sandbox uv run python -m pytest -q tests/test_sandbox_attacks.py
 # the layout corpus
 scripts/in_container.sh uv run --with playwright==1.63.0 python -m tests.layout_corpus /work/.out/corpus --generated 300
 ```
@@ -67,8 +79,8 @@ build took 74 s).
 | Run | In the container | On the host |
 |---|---|---|
 | unit, `-n 8` | 1698 passed, 12 failed, 14 skipped; 164 s; peak 376 threads, 1.6 GB | 1623 passed, 13 skipped, 1 xfailed; 150 s; peak 385 threads, 2.6 GB (\*) |
-| browser, `-n 4` | 217 passed, 1 failed (fixed since: `SPLIT_SHOTS`), no skips; 565 s; peak 556 threads, 4.1 GB | 200 passed, no skips; 463 s; peak 632 threads, 3.7 GB (\*) |
-| `tests/test_sandbox_attacks.py` | 26 passed, 5 failed (bwrap) | 30 passed, 1 xfailed (seatbelt) |
+| browser, `-n 4` | 217 passed, 1 failed (fixed since: `SPLIT_SHOTS`; that test then passed 5 runs of 5), no skips; 565 s; peak 556 threads, 4.1 GB | 200 passed, no skips; 463 s; peak 632 threads, 3.7 GB (\*) |
+| `tests/test_sandbox_attacks.py` (`--sandbox`) | 26 passed, 5 failed (bwrap); now 26 passed, 4 xfailed, 1 xpassed | 30 passed, 1 xfailed (seatbelt) |
 
 (\*) On main at 214d864, before the rebase brought 87 unit and 18 browser tests: the host stayed busy with the merge
 queue's suites, so it was not rerun beside them. Inside, every collected test ran (1,718 collected, plus 6
@@ -82,15 +94,16 @@ The bind mount is not the bottleneck (the venv and the uv cache live in the imag
 1,792 MB held. The host's threads meanwhile: 2,818 before, 2,856 at the peak, 2,807 after (other agents' suites
 were running; nothing of the bomb reached the host).
 
-**Known failures on Linux** (docs/GAPS.md), so the unit suite is not yet rc 0 in the container:
+**Known failures on Linux.** Fifteen tests fail on Linux for reasons in docs/GAPS.md: 9 `[segments]` cases in
+`tests/test_store_conformance.py`, by timing (the segmented log watches its directory's mtime, which Linux keeps to
+a jiffy; each failed at least once in 10 runs), `tests/test_daemons.py::test_daemons_on_the_agents_api` (Debian's
+`/bin/sh`, dash, forks where macOS's execs, so a daemon's recorded pid is the shell's), and 5 in
+`tests/test_sandbox_attacks.py` that assert macOS behaviour (probed by hand: none is an escape). Until the
+`linuxfix` branch lands, `LINUX_KNOWN` in tests/conftest.py names each by its exact id and marks it expected to fail
+on Linux (xfail, not strict): a run is rc 0 when those fail, and any other failure shows.
 
-- 5 or 6 `[segments]` cases in `tests/test_store_conformance.py`, by timing: the segmented log watches its
-  directory's mtime, which Linux keeps to a jiffy (a real bug, not the container's);
-- `tests/test_daemons.py::test_daemons_on_the_agents_api`: Debian's `/bin/sh` (dash) forks where macOS's execs, so
-  the daemon's recorded pid is the shell's (a real bug);
-- 5 in `tests/test_sandbox_attacks.py` that assert macOS behaviour; probed by hand on Linux, none is an escape.
-
-Until they are fixed, compare a container run with this list; a failure outside it is yours.
+When Docker is down, run the same commands on your computer, without `scripts/in_container.sh`, under
+`scripts/suite_watch.py` as always.
 
 ## What stays on your computer
 

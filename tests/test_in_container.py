@@ -42,6 +42,20 @@ def test_settings_and_net_pass_through():
     assert cmd.endswith(" dev true")
 
 
+def test_only_the_sandbox_service_turns_dockers_filters_off():
+    services = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
+    assert "security_opt" not in services["dev"]
+    assert services["sandbox"]["extends"] == "dev"
+    assert services["sandbox"]["security_opt"] == ["seccomp=unconfined", "systempaths=unconfined"]
+    _, cmd = printed("--sandbox", "true", ERGOSTAT_CPUS="1")
+    assert cmd.endswith(" sandbox true")
+
+
+def test_root_runs_as_an_ordinary_user_inside():
+    env, _ = printed("true", ERGOSTAT_UID="0", ERGOSTAT_CPUS="1")
+    assert env["ERGOSTAT_UID"] == "1000"
+
+
 def test_a_worktree_gets_its_git_directory_mounted_at_the_same_path(tmp_path):
     main, wt = tmp_path / "main", tmp_path / "wt"
     git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
