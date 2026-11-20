@@ -221,17 +221,54 @@ def test_a_change_carried_and_passed_again_during_its_review_is_not_passed_by_it
 
 
 def test_the_redesigner_never_calls_past_its_cap(tmp_path):
+    from ergostat.numbers import changeset as cs
     p = judged(tmp_path)
+    dear = md.unsaid(rdr.prompt(p, cs.Scratch(p), "model", [], [], None, "redesigner"), "haiku")["usd"]   # any price table
     calls = []
 
-    def call(text, model, timeout=None):                                 # the first costs most of the cap; its dearest
-        calls.append(md.unsaid(text, model)["usd"])                     # (~$0.01 on haiku, claude's system prompt
-        return {"result": "", "usd": 0.012}                             # with it) would pass what is left
-    out = rdr.run(p, "model", budget=0.02, rounds=3, call=call)
-    assert len(calls) == 1 and 0.008 < calls[0] <= 0.02 and out["cost"]["usd"] == 0.012
+    def call(text, model, timeout=None):                                 # the first costs its dearest; the next
+        calls.append(md.unsaid(text, model)["usd"])                     # round's dearest would pass what is left
+        return {"result": "", "usd": dear}
+    out = rdr.run(p, "model", budget=1.5 * dear, rounds=3, call=call)
+    assert len(calls) == 1 and calls[0] == pytest.approx(dear) and out["cost"]["usd"] == pytest.approx(dear)
     assert "spent" in out["rounds"][-1]["stopped"]
-    out = rdr.run(p, "model", budget=0.01, call=lambda *a, **k: pytest.fail("called past the cap"))
+    out = rdr.run(p, "model", budget=0.5 * dear, call=lambda *a, **k: pytest.fail("called past the cap"))
     assert out["cost"]["calls"] == 0
+
+
+def test_the_reviewer_and_the_redesigner_running_at_once_stay_within_the_daily_cap(tmp_path, monkeypatch):
+    from ergostat.library.run import modelling
+    p = judged(tmp_path)
+    passed_redesign(p)
+    im.submit(p, "modeller", DESCRIBE)
+    jd.run(p, "judge")
+    assert len(rv.due(p, p.model.spec)) == 2
+    monkeypatch.setattr(modelling, "project", lambda: p)
+    calls = []
+
+    def reviewing(text, model, timeout=None):                            # the redesigner spends while it reads
+        dear = md.unsaid(text, model)["usd"]
+        calls.append(dear)
+        assert rd.spent(p) >= dear                                       # this call's dearest is held while it runs
+        rd.charge(p, "model", {"usd": 0.99 - dear / 2})                  # what is left: half the next one's dearest
+        return {"result": json.dumps({"review": PASS}), "usd": 0.01}
+    monkeypatch.setattr(md, "call", reviewing)
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("{}"))
+    assert modelling.review(["--daily", "1"]) == 0
+    assert len(calls) == 1 and rd.spent(p) == pytest.approx(1 - calls[0] / 2)   # the hold let go; no second call
+    q = judged(tmp_path / "q")
+    monkeypatch.setattr(modelling, "project", lambda: q)
+    monkeypatch.setattr(rd, "plan", lambda p, when: {"system": "model", "why": ["asked"]})
+    calls.clear()
+
+    def redesigning(text, model, timeout=None):                          # the reviewer spends while it redesigns
+        calls.append(md.unsaid(text, model)["usd"])
+        q.events.add(rv.RAN, source="reviewer", data={"usd": 0.99 - calls[-1] / 2})
+        return {"result": "", "usd": 0.01}
+    monkeypatch.setattr(md, "call", redesigning)
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("{}"))
+    assert modelling.redesign(["--daily", "1", "--rounds", "3"]) == 0
+    assert len(calls) == 1 and rd.spent(q) == pytest.approx(1 - calls[0] / 2)
 
 
 def test_the_authors_prompts_carry_the_reviewers_recent_verdicts(tmp_path, monkeypatch):

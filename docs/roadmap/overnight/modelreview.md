@@ -76,3 +76,18 @@ only if the change is still the one it read (else `stale`, nothing recorded, rea
 $0.005 (which allowed the overshoot it now forbids) to $0.02. Tests:
 `test_a_change_carried_and_passed_again_during_its_review_is_not_passed_by_it`,
 `test_the_redesigner_never_calls_past_its_cap`.
+
+Continued, round 2 (2026-11-20). (a) The shared daily cap was read once at the start of each block's run, so the
+reviewer and the redesigner running at once could each spend most of the same remainder. Now each re-reads what is
+left before every call (`room()`), and `redesign.held` checks the call's dearest against it and records a hold
+(`ergostat.model.ai-held`, +usd) under `pr.locked`, then lets it go (-usd) once the real cost is charged; a call that
+raises keeps its hold for the day (fails closed). `redesign.spent` counts the holds (the reviewer's own only in the
+total, not in the redesigner's three quarters). The SPEC §12e *Cost* sentence says this. (b) GAPS no longer says the
+reviewer is parked on the two fixed findings. (c) The earlier review's non-blocking finding (the cap test pinned
+haiku's price, `0.008 < calls[0]`) is answered: the test now sets its budgets from the prompt's own dearest (1.5× and
+0.5×), on any price table. Test: `test_the_reviewer_and_the_redesigner_running_at_once_stay_within_the_daily_cap`,
+which charges the other block's spending inside each call; with the `room` wiring removed from `modelling.py` it fails
+(the reviewer: no hold while its call runs; the redesigner: 3 calls instead of 1), checked by hand.
+Size: 448 net lines outside tests, docs and dev against main (482 added, 34 removed), within the 450. Narrowing the
+SPEC claim instead was the smaller option, but would have left a daily cap that does not fail closed, against the
+owner's rule.

@@ -3686,8 +3686,10 @@ review queue at any time (the owner asks; the review queue shows the reviewer's 
 **Cost:** each call is recorded (`ergostat.model.review-ran`, its dollars) and counted with the redesigner's against the
 template's one daily cap (`redesign.daily`): neither the reviewer nor the redesigner starts a call that could cost more
 than is left of its share (each priced at the most it could cost: its prompt, claude's own system prompt and the most
-it could write), and what waits for a review stays unwritten. A quarter of the cap is kept for the reviewer: the
-redesigner stops at three quarters of it.
+it could write), and what waits for a review stays unwritten. What is left is read again before each call, and the
+call's most is held against the cap while it runs (`ergostat.model.ai-held`, checked and held under one lock, let go
+once its real cost is charged, kept for the day if the call fails), so the two running at once never both spend one
+remainder. A quarter of the cap is kept for the reviewer: the redesigner stops at three quarters of it.
 **Measured:** `ergostat.model.reviews-passed`, `-revised`, `-rejected` and `review-misses` (changes it passed that the
 prediction check later flagged for revert, §12f); the template's flow `changes-sent-back` counts what it rejected or
 sent back from the passed changes. The template's parameter: `review: {when: auto|off, model: haiku, kinds: structure

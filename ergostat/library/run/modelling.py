@@ -145,9 +145,11 @@ def redesign(argv: list[str]) -> int:
         note("redesigner: off")
         return 0
     from ...numbers import reviewer as rv
-    # the reviewer's share of the cap is kept for it
-    left = round(min(a.daily - rd.spent(p), a.daily * (1 - rv.RESERVE) - rd.spent(p, reviewer=False)), 6)
-    if left <= 0:                                 # the daily cap, before anything is planned: nothing runs past it
+    def room() -> float:                          # read again before each call: the reviewer may spend meanwhile
+        # the reviewer's share of the cap is kept for it
+        return round(min(a.daily - rd.spent(p), a.daily * (1 - rv.RESERVE) - rd.spent(p, reviewer=False)), 6)
+    left = room()
+    if left <= 0:                                # the daily cap, before anything is planned: nothing runs past it
         note(f"redesigner: the day's ${a.daily:.2f} is spent; nothing is reviewed until tomorrow's allowance")
         return 0
     plan = rd.plan(p, a.when)
@@ -164,7 +166,7 @@ def redesign(argv: list[str]) -> int:
         _said(got)
         rd.charge(p, plan["system"], got)
     out = rdr.run(p, plan["system"], plan["why"], model=a.model, budget=min(a.budget, left), rounds=a.rounds, by="redesigner",
-                  timeout=a.timeout, on_call=charged)
+                  timeout=a.timeout, on_call=charged, room=room)
     rd.ran(p, plan["system"], {"by": "redesigner", "result": out.get("result"), "id": out.get("id"), "total": out["cost"],
                                "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"], "unit_sig": sig,
                                **({"why_not": out["why_not"]} if out.get("why_not") else {})})
@@ -198,7 +200,8 @@ def review(argv: list[str]) -> int:
     if left <= 0:                                 # the cap, before any call: what waits for review stays unwritten
         note(f"reviewer: the day's ${a.daily:.2f} is spent; nothing is reviewed until tomorrow's allowance")
         return 0
-    out = rv.run(p, a.model, a.most, left, md.per_call(a.timeout, a.most), on_call=_said)
+    out = rv.run(p, a.model, a.most, left, md.per_call(a.timeout, a.most), on_call=_said,
+                 room=lambda: round(a.daily - rd.spent(p), 6))     # read again before each call: the redesigner may spend
     said = ", ".join(f"{v['id']} {v['verdict'] or 'no verdict: ' + v['why']}" for v in out["verdicts"]) or "nothing waits"
     note(f"reviewer ({a.model}): {said}; ${out['cost']['usd']:.4f}, {out['cost']['calls']} call(s)")
     return 0
