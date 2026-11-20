@@ -85,3 +85,25 @@ Run here, one file at a time, on the merged tree: `tests/test_factory.py` (31 pa
 `tests/test_review.py` (43 passed); ruff clean. Not run here: the whole unit suite and the browser files (the factory
 runs the fast suites after this session), and the lease/workspace tests (refused to this session; those files are
 identical to main's).
+
+## Where it stopped
+
+Round 1, after the factory's fast suites: `unit` failed one test,
+`tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (1 failed, 1850 passed: history
+`['expired', 'ack']`, where `['ack']` was expected). No code was changed for it here, which is the reversible choice:
+- The code it tests is main's own. `git diff main --name-only` lists only dev/README.md, dev/bin (agents, fac,
+  implement, intake, queue, review), tests/test_factory.py and the two definition files: nothing under `ergostat/`,
+  and not tests/test_leases.py.
+- Alone it passes: the test by itself (1 passed), and the whole of tests/test_leases.py (20 passed).
+- Why it may fail under load (lesson-10), from reading dispatch.py, not proven: the lease's TTL is 1s. The watchdog
+  renews it only from activity since the last renewal (`activity`, dispatch.py:331), and each activity is a fresh
+  `$ERGOSTAT_CMD event` process started 0.4s after the last. Under `-n 8` with other suites running, if starting that
+  process takes more than about 0.6s, the watchdog's next pass finds the holder silent past its TTL. By the
+  watchdog's rule that expiry is correct, and a second lease then finishes the item, which explains the
+  `['expired', 'ack']` history.
+  The fix is either in the test (a TTL that does not race a CLI's start-up) or in the watchdog (counting a holder's live
+  process as activity). Either one is a change to main's lease behaviour or to a main test. Review/continue-branch-2
+  blocked exactly that kind of change on this branch (finding 4: "take it off this branch and make it a gap of its own"),
+  so it is left for a gap of its own.
+- Left: that lease gap, and the factory's fast suites run again on this branch. If the flake recurs, the coordinator
+  should judge it against main: the same test on main's tree under the same load.
