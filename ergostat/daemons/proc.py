@@ -15,6 +15,7 @@ import threading
 import time
 
 from ..costs.sampler import Measured
+from . import usage
 
 QUEUE = 1000                 # lines waiting for its standard input, at most
 SHARED = {"ERGOSTAT_CMD", "ERGOSTAT_PROJECT", "ERGOSTAT_STATE_DIR", "ERGOSTAT_SOCKET", "ERGOSTAT_HOME"}
@@ -64,6 +65,8 @@ class Handle:
         self.requeue = False             # given back uncounted: its daemon restarted for something else's fault
         self.cancelled: float | None = None
         self.asked = False               # the owner's stop
+        self.sent = False                # its line queued for the daemon (a cancel is sent only after it)
+        self.resources: dict | None = None   # a warm process's run: the CPU its group used while it held it
 
     def answer(self, v, why: str) -> None:
         if not self.done.is_set():
@@ -89,6 +92,9 @@ class Process:
         self.idle_since: float | None = None      # (draining: when its last run ended)
         self.served = 0
         self.ended = threading.Event()
+        self.before: dict[int, float] = {}       # (warm) its group's CPU when it was handed its run
+        self.recycle: tuple[str, bool] | None = None   # (warm) why it is replaced once it holds nothing; counted?
+        self.stopping = False                    # ``stop`` queued: nothing more is handed to it
         log.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} starting: {d.run}\n")
         log.flush()
         env = {k: v for k, v in env.items() if not k.startswith("ERGOSTAT_") or k in SHARED}   # (an item's: in its line)
@@ -128,11 +134,13 @@ class Process:
 
     def stop(self) -> None:
         """Asked to finish what it holds and end: ``stop``, then its standard input closed."""
-        self.send({"op": "stop"})
-        try:
-            self.q.put_nowait(None)
-        except queue.Full:
-            pass
+        with self.lock:                              # (with ``hand``'s: a run's line is queued before it, or never)
+            self.stopping = True
+            self.send({"op": "stop"})
+            try:
+                self.q.put_nowait(None)
+            except queue.Full:
+                pass
 
     # ---- out
 
@@ -142,13 +150,16 @@ class Process:
             try:
                 self.line(raw.decode(errors="replace").strip())
             except Exception as err:                 # (a run ended meanwhile, its log closed): never the reader's end
-                self.stray(raw.decode(errors="replace").strip(), f"{type(err).__name__}: {err}")
+                self.stray(raw.decode(errors="replace").strip(), f"{type(err).__name__}: {err}", False)
         self.proc.wait()
         self.ended.set()
 
-    def stray(self, text: str, why: str) -> None:
+    def stray(self, text: str, why: str, fault: bool = True) -> None:
         self.log.write(f"dropped ({why}): {text[:500]}\n")
         self.log.flush()
+        if fault and self.d.warm:                    # it said something no run of its own: not to be trusted
+            with self.lock:
+                self.recycle = self.recycle or (f"printed a line for no run it holds ({why})", True)
 
     def line(self, text: str) -> None:
         if not text:
@@ -170,6 +181,8 @@ class Process:
             if "done" in obj:                        # strict: exactly {"done": EXIT, "run": ID}, EXIT a whole number
                 if set(obj) != {"done", "run"} or type(obj["done"]) is not int:
                     return self.stray(text, 'done is exactly {"done": EXIT, "run": ID}, EXIT a whole number')
+                if self.d.warm:
+                    self.charge(h)
                 with self.lock:
                     self.runs.pop(run, None)
                     self.served += 1
@@ -193,11 +206,48 @@ class Process:
 
     # ---- runs and readings
 
-    def hold(self, run: str, h: Handle, line: dict) -> bool:
+    def charge(self, h: Handle) -> None:
+        """(warm) The CPU its group used while it held the run; what it left running, or a cancelled run, and it is
+        replaced before it is handed another (it holds one run at a time, so nothing else's CPU is in it)."""
+        cpu, left, dead = usage.charge(self.before, self.pid)
+        h.resources = {**({"cpu": round(cpu, 3)} if cpu is not None else
+                          {"unmeasured": "its group's CPU could not be read when it was handed the run"}),
+                       "method": "warm", **({"left_running": len(left)} if left else {}),
+                       **({"unreaped": len(dead)} if dead else {})}
+        why = (f"left {len(left)} process(es) of its group running after its run", True) if left else \
+            ("its run was cancelled", False) if h.cancelled is not None else \
+            (f"served {self.served + 1} runs (recycle: {self.d.recycle})", False) if self.served + 1 >= self.d.recycle \
+            else None
+        with self.lock:
+            self.recycle = self.recycle or why
+
+    def hold(self, run: str, h: Handle, line: dict | None) -> bool:
+        """The run held; its line sent now, or (None: a warm process's) by ``hand``, outside the supervisor's lock."""
         with self.lock:
             self.runs[run] = h
             self.idle_since = None
-        return self.send(line)
+            h.sent = line is not None
+            return self.send(line) if line is not None else True
+
+    def hand(self, run: str, line: dict) -> bool:
+        """(warm) Its group's CPU noted, then the run's line sent: what it uses from here is the run's. Refused once
+        it was asked to stop (drained, replaced, ergostat stopping) after the run was held: the run given back,
+        uncounted, never left held by a process that will not be sent it. Refused too once it was cancelled (the
+        owner's stop, its lease killed) before it was sent: ended so, never sent, the process not blamed."""
+        before = usage.snapshot(self.pid)
+        with self.lock:
+            h = self.runs.get(run)
+            if h is not None and not self.stopping and h.cancelled is None:
+                self.before, h.sent = before, True
+                return self.send(line)
+            self.runs.pop(run, None)
+            if not self.runs:
+                self.idle_since = time.monotonic()
+        if h is not None and h.cancelled is not None:
+            h.end(None, "stopped as the owner asked" if h.asked else "cancelled before it was handed over")
+        elif h is not None:
+            h.end(None, f"its daemon {self.d.name} was stopping before the run was handed over", requeue=True)
+        return False
 
     def ask(self, request: str, h: Handle, line: dict) -> bool:
         with self.lock:
