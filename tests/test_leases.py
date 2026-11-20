@@ -531,6 +531,34 @@ def test_a_run_whose_thread_starts_after_the_stop_is_not_started(tmp_path):
     assert (h["how"], h["why"], h["counted"]) == ("nack", "stopped with ergostat", False)
 
 
+def test_close_returns_when_its_locks_are_held_for_good(tmp_path):
+    """A pass or a look wedged with the engine's or the dispatcher's lock held (the watchdog's case): close still stops
+    and returns, at most its wait for each lock later, and nothing is taken after."""
+    import threading
+    p = project(tmp_path, model('sleep 30'))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+    e.lock_wait = 0.3
+    held, done = threading.Event(), threading.Event()
+
+    def wedged():
+        with e.lock, e.dispatch.lock:
+            held.set()
+            done.wait(30)
+    threading.Thread(target=wedged, daemon=True).start()
+    assert held.wait(5)
+    closing = threading.Thread(target=e.close, daemon=True)
+    closing.start()
+    closing.join(10)
+    try:
+        assert not closing.is_alive(), "close waited for good on a lock held by something wedged"
+        assert e.stop.is_set() and p.events.query(n=None, type="ergostat.stopped")
+    finally:
+        done.set()
+    e.dispatch.tick()                               # the wedge let go: what was waiting for the lock sees the stop
+    assert not p.events.query(n=None, type=TAKEN)
+
+
 def test_another_engines_run_survives_this_engines_close(tmp_path):
     """One engine's stop is its own: an engine closing (runner.STOPPING set, process-wide) kills no run another engine
     starts afterwards."""

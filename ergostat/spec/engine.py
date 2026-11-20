@@ -94,6 +94,7 @@ def every_pass(b: Block) -> bool:
 
 class Engine:
     incremental = True                                 # a pass works out only what changed (False: everything, each pass)
+    lock_wait = 5.0                                    # seconds ``close`` waits for a lock it stops under, at most
 
     def __init__(self, project, say=print):
         self.p, self.say = project, say
@@ -1736,8 +1737,14 @@ class Engine:
                                                              "record": round(time.monotonic() - took, 3)}}
 
     def close(self) -> None:
-        with self.lock:                              # (under the lock: a lease taken past this waits in ``running``)
+        # Set under the lock: a lease taken past this waits in ``running``. Never waited on for good (a lock held by
+        # something wedged, as the watchdog allows): a take needs the same lock to pass its check, so it sees the stop.
+        got = self.lock.acquire(timeout=self.lock_wait)
+        try:
             self.stop.set()
+        finally:
+            if got:
+                self.lock.release()
         self.wake.set()
         if self.calls is not None:
             self.calls.close()
