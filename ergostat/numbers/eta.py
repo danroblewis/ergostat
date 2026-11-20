@@ -27,7 +27,7 @@ from ..spec.ir import DEAD, LEASED
 from .etamodel import Attempt, Inputs
 
 RUNS = 200
-BUDGET = 8.0
+BUDGET = 5.0
 HORIZON = 90 * 86400.0
 
 

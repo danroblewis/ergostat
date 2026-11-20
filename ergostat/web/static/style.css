@@ -926,7 +926,7 @@ td.bad, b.bad, .lease .bad { color: var(--bad); }
 .rg-gantt .rg-p50 { stroke: var(--ink); stroke-width: 1.6; }
 .rg-gantt .rg-whisker { fill: none; stroke: var(--ink-2); stroke-width: 1; }
 .rg-gantt .rg-lanebar { fill-opacity: 0.55; stroke-dasharray: none; cursor: pointer; }
-.rg-gantt .rg-inbar { pointer-events: none; font-size: 10px; }
+.rg-gantt .rg-inbar { pointer-events: none; font-size: var(--text-sm); }
 .rg-gantt .rg-critical .rg-summary { stroke: var(--bad); }
 .rg-gantt .rg-edge path { stroke-width: 1; }
 .rg-gantt .rg-now line { stroke: var(--accent); stroke-width: 1.4; }

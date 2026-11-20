@@ -9,7 +9,7 @@ from __future__ import annotations
 import threading
 import time
 
-EVERY = 10.0
+EVERY = 30.0
 KEPT = 120.0
 _CACHE: dict = {}
 _BUSY: set = set()
