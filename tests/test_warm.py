@@ -34,6 +34,8 @@ while (m := q.get())["op"] != "stop":
     r, f, env = m["run"], m["input"]["item"]["fields"], m["env"]
     count += 1
     seen.append(m["item"])
+    if "carry" in mode and count == 2:           # the spin started after the first done goes on 0.6 s into this run
+        handed.set(); spin.join()
     if "late" in mode and last:                  # the item before's done, again, late
         say(done=0, run=last)
     if "loose" in mode:
@@ -71,6 +73,14 @@ while (m := q.get())["op"] != "stop":
         while time.process_time() - t < 0.6:
             pass
         open(f"spun{count}", "w").close()
+    if "carry" in mode and count == 1:           # CPU still in use after done, until 0.6 s past the next hand-over
+        handed = threading.Event()
+        def spinning():
+            handed.wait()
+            t = time.process_time()
+            while time.process_time() - t < 0.6:
+                pass
+        spin = threading.Thread(target=spinning); spin.start()
     if "once" in mode or asked:
         break
 '''
@@ -282,6 +292,22 @@ def test_cpu_used_after_done_and_before_the_next_hand_over_is_no_runs(tmp_path):
     assert len(starts(tmp_path)) == 1, "one process served both"
     for r in events(p, "agent.ran"):
         assert r["data"]["resources"]["cpu"] < 0.4, f"the 0.6 s while idle is the process's own: {r['data']}"
+
+
+def test_cpu_still_in_use_after_the_next_hand_over_is_that_runs(tmp_path):
+    p = setup(tmp_path, "{run: python3 w.py carry, warm: true, concurrency: 1}")
+    e = start(p)
+    try:
+        p.events.add("ticket.opened", item="ticket/0", source="t")
+        assert wait_for(lambda: len(events(p, "agent.ran")) == 1, 20)
+        p.events.add("ticket.opened", item="ticket/1", source="t")
+        assert wait_for(lambda: len(events(p, "agent.ran")) == 2, 20)
+    finally:
+        e.close()
+    assert len(starts(tmp_path)) == 1, "one process served both"
+    cpu = {r["data"]["item"]: r["data"]["resources"]["cpu"] for r in events(p, "agent.ran")}
+    assert cpu["ticket/0"] < 0.4, cpu
+    assert cpu["ticket/1"] >= 0.5, f"the 0.6 s spent after the second hand-over is the second run's: {cpu}"
 
 
 def test_an_unreaped_child_is_said_not_held_against_the_process(tmp_path):
