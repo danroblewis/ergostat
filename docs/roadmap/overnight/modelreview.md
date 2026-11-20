@@ -49,3 +49,20 @@ the examples that use the modelling template.
 ## Size budget
 
 450 net lines outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Parked under the kill rule after the final re-review (2026-11-20). The gate's first findings 1 and 3, and the
+reviewer's side of the cap, are fixed (38f6ddc). Left:
+
+- **(1) A stale review still applies to a new version through time ordering.** `reviewer.py:43` compares
+  `review.at >= verdict.at`. The judge stamps its verdicts with its pass's start time (`judge.py:323/346/356/407`). The
+  reviewer stamps at record time, after a call that can take up to 600 s, outside `pr.locked`, and checks nothing again.
+  A redesign carried and passed again while it is under review gets the old pass, and the judge writes code nobody
+  reviewed. **Fix:** stamp the review with the verdict it read (its seq or `at`) and compare for equality; or record
+  under `pr.locked` after checking again.
+- **(2) The redesigner overshoots into the reviewer's quarter and past `daily`.** `redesigner.py:234` checks
+  `cost >= budget`, then calls. **Fix:** check `cost + md.unsaid(...) > budget` before the call at :240.
+- Note: `md.unsaid` ignores claude's own system prompt.
+
+Tests needed: a change carried and passed again during a review; the redesigner at a cap of $0.01.

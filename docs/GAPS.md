@@ -130,6 +130,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `accept: {redesign: auto}` (and never one that removes, rewires or changes control). Runs on its own a system at a
   time when it is due (the owner's decision, 2026-11-19: `when: auto` by default), or when the owner asks. Open: removed parts are named, not drawn as ghosts; splitting a model into systems is
   in the guide but not scored; the judge scores a redesign on the record it has when it takes it up.
+- **A reviewer in the modelling template** (parked on `modelreview`, `docs/roadmap/overnight/modelreview.md`, *Where
+  it stopped*; owner: "I don't see a reviewer"): an `ai` block that reads each structural change and redesign the judge
+  passed, and passes it, sends it back to its author, or rejects it, with the authors' prompts carrying its verdicts.
+  Left: a stale review can still apply to a new version through time ordering (stamp the review with the verdict it
+  read), and the redesigner can overshoot its budget into the reviewer's quarter of the cap (check the worst-case cost
+  before each call).
 - **Craft notes in `check`** (done, `modelling-core`): a part with no description, a stock with no unit, a flow
   between stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
   tolerance (a step whose goal never goes off), a `process:` with no `identified:` (`spec/craft.py`, notes, not
