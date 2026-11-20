@@ -102,22 +102,31 @@ def _identified(monkeypatch):
 
 @pytest.mark.slow
 def test_a_worse_change_on_a_slow_record_is_never_passed(tmp_path):
-    """On main a fifth larger drain was passed in about a quarter of seeds (each window one noisy draw)."""
+    """On main a fifth larger drain was passed in about a quarter of seeds (each window one noisy draw); a drain twice
+    too fast is failed."""
     got = []
     for seed in range(12):
         for shape, (k, worse, base) in {"queue": (0.05, 0.06, 2.0), "few": (0.1, 0.15, 0.2)}.items():
             p, made = slow_world(tmp_path / f"{shape}{seed}", seed, k, k, base=base)
             got.append(judged(p, made, k, worse)[0])
-    assert "passed" not in got, got
-    assert got.count("failed") >= 4             # it fails some within the week; most need more record than that holds
+    assert "passed" not in got, got             # most of these need more than a week of record to tell: undecided
+    twice = []                                  # one twice too fast is failed within a week, nearly always
+    for seed in range(6):
+        p, made = slow_world(tmp_path / f"twice{seed}", seed, 0.05, 0.05)
+        twice.append(judged(p, made, 0.05, 0.1)[0])
+    assert "passed" not in twice and twice.count("failed") >= 5, twice
 
 
 @pytest.mark.slow
 def test_a_better_change_on_a_slow_record_is_passed_within_a_bounded_record(tmp_path):
+    """A drain written twice too fast, put right: passed within a week of record (a median of two days), nearly always,
+    and never failed. On main 19 of 20 such changes passed, in about a day, but so did a quarter of worse ones."""
+    got = []
     for seed in range(6):
-        p, made = slow_world(tmp_path / str(seed), seed, 0.05, 0.1, hours=120)
-        verdict, hours, _ = judged(p, made, 0.1, 0.05, hours=120)
-        assert verdict == "passed", (seed, verdict, hours)                  # within five days of record, each
+        p, made = slow_world(tmp_path / str(seed), seed, 0.05, 0.1)
+        got.append(judged(p, made, 0.1, 0.05))
+    assert "failed" not in [v for v, _, _ in got] and [v for v, _, _ in got].count("passed") >= 5, got
+    assert sorted(h for v, h, _ in got if v == "passed")[2] <= 72, got
 
 
 def test_an_undecided_change_says_how_much_more_record_it_needs(tmp_path):
