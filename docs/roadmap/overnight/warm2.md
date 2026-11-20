@@ -59,3 +59,22 @@ again against a process per item. SPEC §9.7 and the agent guide say all of the 
 ## Size budget
 
 400 net lines outside `tests/` and `docs/` (code, schema, scripts).
+
+## Where it stopped
+
+Parked under the kill rule (the second failed gate: the final re-review, 2026-11-20). The first review's three
+blocking findings are fixed (846ced4: the CPU charged as the group's total at `done` less its total at hand-over; the
+caps of 32 per warm daemon and 64 in all; `--check-warm` strict about `done`), but moving the hand-over snapshot
+outside the supervisor's lock opened a race:
+
+- **Blocking: a run held but never handed over.** `daemons/work.py` holds the run under the lock (line 47), then
+  takes the snapshot and calls `hand(line)` outside it (lines 61-62). A `_drain` in between (`daemons/supervise.py`
+  144-152) queues `stop` and the sentinel, the writer thread exits, the run's line is never sent, and the tick's
+  "ended while draining" fails the run uncounted (not requeued). Either fix closes it: `hand` refuses when `stop` was
+  already queued, and the run is given back (requeued); or `stop()` requeues the runs it holds that were never
+  handed over.
+- **Non-blocking:** a failed hand-over snapshot (`before` empty) charges the group's whole life: guard when `pgid` is
+  not in `before` (charge nothing, or say so). `revive` and `_restart` can briefly exceed the 64-process cap while the
+  old processes die.
+- **Tests needed:** the hold/hand gap with a drain in between (the run requeued, never failed); and revive at the cap
+  (never more than 64 warm processes alive at once).
