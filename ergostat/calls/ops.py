@@ -22,6 +22,10 @@ class Refused(Exception):
 def event(eng, req: dict) -> dict:
     from ..intake import envelope
     from ..spec import items as its
+    from ..spec.triggers import undeclared
+    why = undeclared(eng.spec, req.get("block"), [e.get("event") for e in req.get("events") or [] if isinstance(e, dict)])
+    if why:                                              # a run started by events says only what it declares (SPEC §9.3)
+        raise Refused(f"not recorded: {why}")
     try:
         got = envelope.record(eng.p, envelope.parse(req.get("events")), source=str(req.get("source") or "user"),
                               causedby=req.get("causedby") or None)

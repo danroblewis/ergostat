@@ -11,7 +11,7 @@ import time
 
 from ..spec.ir import MODELLING_REQUEST
 
-KINDS = ("action", "person", "advise", "steptest", "change", "request")
+KINDS = ("action", "person", "advise", "steptest", "change", "request", "breaker")
 _CACHE: dict = {}
 
 
@@ -80,6 +80,21 @@ def _blocks(p, spec, now: float) -> list[dict]:
     return out
 
 
+def _breakers(p, spec, now: float) -> list[dict]:
+    """Blocks started by events whose breaker tripped (SPEC §9.3), each waiting for the owner to reset it."""
+    out = []
+    for b in spec.blocks.values():
+        last = p.events.query(n=1, item=b.name, type="trigger.tripped,trigger.reset") if b.on is not None else []
+        if last and last[0]["type"] == "trigger.tripped":
+            x = last[0]
+            out.append({"id": f"breaker/{b.name}@{x['seq']}", "kind": "breaker", "block": b.name, "seq": x["seq"],
+                        "time": x["time"], "link": f"/diagram?view=blocks&around=block/{b.name}", "verbs": ["approve"],
+                        "class": f"breaker:{b.name}", "why": "",
+                        "summary": f"{b.name}'s runs from events stopped: {x['data'].get('runs')} in a minute (the most "
+                                   f"{x['data'].get('most')}); approve to reset its breaker"})
+    return out
+
+
 def offers(p, now: float | None = None) -> dict[str, dict]:
     """Step tests offered (``steptest.offered``), by id: the proposal as the loop's analysis made it."""
     return {e["data"]["id"]: {**e["data"], "time": e["time"]} for e in p.events.query(n=50, type="steptest.offered",
@@ -137,7 +152,7 @@ def entries(p, spec=None, now: float | None = None) -> list[dict]:
     got = _CACHE.get(key)
     if got is None:
         got = []
-        for part in (_actions, _blocks, _steptests, _changes, _requests):
+        for part in (_actions, _blocks, _steptests, _changes, _requests, _breakers):
             try:
                 got += part(p, spec, now)
             except Exception:                               # one kind that cannot be read leaves the others

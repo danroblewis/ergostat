@@ -858,11 +858,11 @@ class Engine:
         ctx = {**self.context(b, why), **(extra or {})}
         ev = self.p.events
         commander = (ctx.get("command") or {}).get("from")          # caused by the decision or run that commanded it
-        begun = ev.add("agent.started", item=b.name, source=SOURCE, id=run_id,
-                       causedby=cause or (self.cause.get(commander) if commander else None),
+        cause = cause or (self.cause.get(commander) if commander else None)
+        begun = ev.add("agent.started", item=b.name, source=SOURCE, id=run_id, causedby=cause,
                        data={"trigger": why, "command": ctx.get("command"), "model": version,
-                             **({"event_seq": ctx["event"].get("seq"), "chain": ctx.get("chain") or []}
-                                if isinstance(ctx.get("event"), dict) else {}),   # what started it (SPEC §9.3)
+                             **({"event_seq": ctx["event"].get("seq")} if isinstance(ctx.get("event"), dict) else {}),
+                             **self.triggers.of_run(b, ctx, cause),          # what led to it, carried (SPEC §9.3)
                              **({"timeout": b.timeout} if b.timeout else {}),
                              **({"item": item, "lease": fence} if item else {})})
         if outcome is not None:
@@ -1508,7 +1508,7 @@ class Engine:
         while not self.stop.is_set():
             try:
                 top = self.p.events.last_seq()                # (what is written while it looks is looked at next time)
-                new = sorted(self.p.events.query(n=None, after_seq=seq, type="block.approved,block.denied") +
+                new = sorted(self.p.events.query(n=None, after_seq=seq, type="block.approved,block.denied,trigger.reset") +
                              self.p.events.query(n=None, after_seq=seq, type="ergostat.action.approved") +
                              self.p.events.query(n=None, after_seq=seq, type="steptest.approved") +
                              self.p.events.query(n=None, after_seq=seq, type=STOP_ASKED) +
@@ -1532,8 +1532,10 @@ class Engine:
                     steptest.begin(self, e)
                     continue
                 b = self.spec.blocks.get(e.get("item") or "")
-                if b and b.machine and b.on is not None:          # an ask about an event (SPEC §9.3): it, or the next
-                    self.triggers.answered(b, e["type"] == "block.approved")
+                if e["type"] == "trigger.reset":                  # a block's breaker, reset by the owner (SPEC §9.3)
+                    self.triggers.reset(e.get("item") or "")
+                elif b and b.machine and b.on is not None:        # an ask about an event (SPEC §9.3): it, or the next
+                    self.triggers.answered(b, e["type"] == "block.approved", (e.get("data") or {}).get("ask"))
                 elif b and b.machine and e["type"] == "block.approved":
                     cmd, _ = self.command_of(b)
                     if cmd == 0:                                # nothing to approve: its command fell back meanwhile
