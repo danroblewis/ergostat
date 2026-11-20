@@ -83,3 +83,19 @@ continue-branch3, round 1: no code changed. Every finding above is already answe
   knows no `continues`) will find it is not first. Fixing that means rewriting the branch's history, which was not
   done (the reversible choice). Once this branch is on main, a gap with `continues: continue-branch` reads the original
   definition, as this gap's definition asks.
+
+## Where it stopped
+
+continue-branch3, round 2: no code changed. Both findings of review/continue-branch3-1 are answered:
+
+- docs/GAPS.md (blocking): the entry now names `factory/continue-branch3`, says main (1f013ba) is merged in (acd1d72),
+  and keeps as left only the factory's fast suites on the merged tree and the coordinator's hand judgment of gate 1.
+- Gate 1 (the definition is not the branch's first commit): unchanged, by choice. The branch's first own commit is
+  19b9998 (`continue-branch.md`, the original definition, whose acceptance tests and budget this file repeats). Making
+  `continue-branch3.md` first means rewriting the branch's history, which cannot be undone in the drop's copy, and was
+  not done (nobody to ask; the reversible option). This is the case the gap itself fixes: once it is on main, a gap with
+  `continues: continue-branch` has gate 1 read the original definition.
+- The reviewer's own limit (it could not run tests): re-run here, one file at a time, on the merged tree:
+  `tests/test_factory.py` (32 passed, 2 skipped for want of Docker); `tests/test_review.py` with
+  `tests/test_intake.py` (43 passed); ruff clean on ergostat, tests, scripts and dev. Main is still 1f013ba in this
+  clone, so there was nothing new to merge. The whole unit suite was not run here: that is the factory's fast-suite run.
