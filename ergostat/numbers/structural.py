@@ -155,7 +155,8 @@ class Ctx:
     def add(self, change: str, code: str, about: str, title: str, parts: list[str], why: str, method: str,
             edits: list[ye.Edit], touched: list[str] | None = None, finding: str | None = None, **more) -> None:
         try:
-            pid = _id("structure", code, about, _joined(edits)["diff"])
+            from .proposals import masked
+            pid = _id("structure", code, about, change, masked(_joined(edits)["diff"]))   # what it does, not its numbers
             edits = stamp(edits, pid)                 # what it adds says so: inferred: ergostat.model-change/<pid>
             joined = _joined(edits)
             spec = tr.spec_after(self.p, edits)
