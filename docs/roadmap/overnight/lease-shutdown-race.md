@@ -148,3 +148,29 @@ Round 1, built; one acceptance check not run here (below).
 - **Ran serially:** `test_leases` (25 passed), `test_lease_kill`, `test_leased_workspaces`, `test_daemons` (39
   passed). Ruff is clean. There is no remote, and local `main` is already merged (485cc0e), so there is nothing newer
   to merge.
+
+### After round 3's unit run (failed)
+
+- **What the tail showed: nothing to go on.** The output stops right after `uv`'s install line. No test progress, no
+  failure and no summary were printed, so it names no test. Collection is fine (1958 tests, run here). The likeliest
+  reading is a run killed while its output was still buffered: a hang, as in round 1.
+- **What could hang that this branch added.** Two waits with no limit, both in `close`: round 1 made it set `stop`
+  under the engine's lock (`with self.lock`), and `give_back` takes the dispatcher's lock. The watchdog is written
+  for an engine whose lock is held for good (`new_pool` takes it with a timeout, `running.py` avoids `close` on a
+  wedged engine), and a look holds the dispatcher's lock while it takes. So a pass or a look wedged in any test made
+  `close` (and so the test's teardown) wait for good, where on main `close` never waited on either lock.
+- **What changed (code).** `close` waits for the engine's lock at most `Engine.lock_wait` (5 s), and sets `stop`
+  either way. `give_back` does the same for the dispatcher's lock; when it times out it says so and leaves the
+  leases to the next engine's watchdog, as SPEC §9.5 already says. The race stays closed: a take must hold the
+  engine's lock to pass its stop check, so a take queued behind a wedged holder sees the stop once it gets the lock.
+- **Test.** `test_close_returns_when_its_locks_are_held_for_good`: a thread holds both locks for good. `close`
+  returns, `stop` is set, `ergostat.stopped` is written, and a look after the wedge lets go takes nothing. Seen to
+  fail (lesson-9) with `close` waiting on the engine's lock with no limit, and again with `give_back` waiting on the
+  dispatcher's lock with no limit.
+- **Not shown to be the factory's cause.** No hang was reproduced here, serially. The suite was not run whole: the
+  rules say it runs through the slot script under `suite_watch.py`, and that is the factory's run. The 30 loaded
+  `-n 8` runs of the restart test are still not run, and are still a blocker for "done" (see Round 3).
+- **Size:** 53 net lines outside `tests/` and `docs/` (comments included), of the 120 budget.
+- **Ran serially:** `test_leases` (26 passed); `test_lease_kill`, `test_leased_workspaces`, `test_daemons`,
+  `test_watchdog`, `test_resilience`, `test_reload_in_place`, `test_runner_and_state`, `test_streamed_output` (130
+  passed). Ruff is clean.

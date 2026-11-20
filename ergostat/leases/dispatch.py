@@ -281,9 +281,14 @@ class Dispatcher:
     def give_back(self, block: str | None = None, item: str | None = None) -> None:
         """Ergostat stopping: each lease taken here and still going (or the one named) is given back, not counted, so
         that after a restart no item is left leased by a run that never ran, or never ended (the engine's ``close``)."""
-        with self.lock:                                        # claimed under the lock (as _work does), ended outside it
+        if not self.lock.acquire(timeout=self.e.lock_wait):    # (a look wedged: close never waits for good; the
+            self.e.say("leases: not given back (the dispatcher is busy); they expire")   # next watchdog expires them)
+            return
+        try:                                                   # claimed under the lock (as _work does), ended outside it
             back = [(name, i, runs.pop(i)) for name, runs in self.going.items() for i in list(runs)
                     if (block, item) in ((None, None), (name, i))]
+        finally:
+            self.lock.release()
         for name, i, g in back:
             try:
                 self.finish(g["block"], i, g["fence"], g["run"], {"stopped": True})
