@@ -3355,16 +3355,28 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   finding, a mismatch, the scorecard) is given back for the next, up to `rounds`; the best round's copy is proposed.
   No call starts once `budget` dollars are spent; every call's cost is kept on the change and printed as a Claude Code
   result line, so the run's cost is the run's (`ergostat.cost.*`, `run/redesigner/cost_usd`).
-- **When**: the owner asks (`ergostat improve --redesign [SYSTEM]`, or the Model page's Redesign button), recorded as
-  `ergostat.model.redesign-asked`; the redesigner block takes the ask up on its next run (nothing runs in the page
-  server or the command). Each run is recorded (`ergostat.model.redesign-ran`: started, then what it made and cost).
-  At most one redesign waits for each system, and the runs stop for the day once they have spent `daily` dollars.
+- **When**: with `when: auto` (the default), on its own, a **system** at a time (`numbers/redesign_due.py`): the
+  model's systems (its own, not a once template's), each of at most 40 parts, else its subsystems; a system too large
+  with none to split into is held for the owner as a request (`too-large`: split it), never attempted whole; a model
+  with no systems of its own is one unit. A system is due when its replay is worse than its mean (a stock's scaled
+  error over 1) on at least 30 minutes of record; when a finding says its structure is wrong (`measured-not-caused`,
+  `loop-not-identifiable`), or a structural one (a kind's chain, the boundary, a coherence mismatch) has been held for
+  an hour; when refinement stalled on it (its last 4 changes turned away); on the first run; and once a day. Bounds:
+  at most one redesign waits for each system; after one judged not better, refused, or that made nothing, the system
+  rests 6 hours unless the model changed since; the runs stop for the day once they have spent `daily` dollars,
+  each call charged as it is spent (one that never says its cost charged the most it could have). And when the owner
+  asks (`ergostat improve --redesign [SYSTEM]`, or the Model page's Redesign button), recorded as
+  `ergostat.model.redesign-asked` and taken up first; `when: ask` takes only those, `off` none. Each run is recorded
+  (`ergostat.model.redesign-ran`: started, each call's cost, then what it made), and its trigger and result are held as
+  a modelling request about the system (`source: redesign`, on the Items tab; `ergostat status` says the last). What
+  it makes is written only with the owner's approval (the review queue, the inbox, its notifications), unless
+  `accept: {redesign: auto}`.
 - **Drawn as proposed**: `GET /api/graph?proposal=ID&view=dynamics|blocks` draws the model as the change would leave it
   (nothing written), with `proposed: {added, changed, renamed, removed}`; the page draws the new parts dashed and
   tinted, the changed and renamed dashed, and names what it takes away; the review section's Dynamics and Blocks
   buttons open it.
 
-The template's parameter: `redesign: {when: ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2}` (and
+The template's parameter: `redesign: {when: auto|ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2}` (and
 `redesign-every`, 10m).
 
 ### The loop, in the model
