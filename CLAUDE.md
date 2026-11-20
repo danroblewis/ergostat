@@ -77,6 +77,20 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
   and fixed; one whose time bound holds only on a quiet machine is marked `@pytest.mark.serial`, and the parallel run
   holds everything else back while it runs (tests/conftest.py). Never raise a time bound to pass under load. `scripts/demo_check.py` runs every demo in
   `~/ergostat-demos/` and checks its pages (with Playwright when installed).
+- **The container.** When Docker is up, heavy work runs inside it, under hard limits the kernel enforces (4096
+  processes and threads, 12 GB, half the CPUs, no network but localhost): `scripts/in_container.sh CMD ...`, e.g.
+  `scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal`
+  (docs/DEVELOPMENT.md has every standard run). **Preferred** there: the benchmarks (`scale_bench`, `latency_bench`,
+  `daemon_bench`, `loadtest`), load and soak tests, the layout corpus, the unit and browser suites and `demo_check`
+  (the benchmarks and the corpus are documented but not yet measured inside). The Linux sandbox's tests need
+  `scripts/in_container.sh --sandbox` (Docker's syscall filter off, for bwrap; only for them). On Linux, the tests
+  with a known Linux bug are expected to fail (`LINUX_KNOWN` in tests/conftest.py, each with its GAPS entry), so
+  any other failure is real. **When Docker is down:** the same commands on the host, under `scripts/suite_watch.py`
+  as always. **On the host only:** the macOS sandbox tests (`tests/test_sandbox_attacks.py` exercises `sandbox-exec`
+  only on macOS; run it on both when the sandbox changes), and anything that needs the owner's real credentials or
+  services. This Mac has kernel-panicked three times from development work (two thread exhaustions in benchmarks,
+  one `sandbox-exec` profile bug); the watchdog alone is not a hard limit. The container limits resources; it is
+  not a security boundary (docs/DEVELOPMENT.md).
 - The repository is on GitHub (danroblewis/ergostat); main must always work, since people install from it.
 - Never write an employer's names (systems, services, metrics, labels, ticket types, people) into
   tracked files; use generic stand-ins.
