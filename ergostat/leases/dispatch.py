@@ -214,16 +214,19 @@ class Dispatcher:
             now = its.one(self.p.events, self.spec, it.id)
             got = held(now.fields) if now else None
         except BaseException:
-            self.e.running.discard(key)
+            with self.e.lock:
+                self.e.running.discard(key)
             raise
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
-            self.e.running.discard(key)
+            with self.e.lock:
+                self.e.running.discard(key)
             return None
         self.resources(ev)
         self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence, "block": b}
         if self.e.stop.is_set():                                  # it raced the stop: given back, not counted, not run
             self.give_back(b.name, it.id)
-            self.e.running.discard(key)
+            with self.e.lock:
+                self.e.running.discard(key)
             return None
         self.e.say(f"{b.name}: took {it.id} (lease {fence}, {t['ttl'] / 60:g} min)")
         item = {"id": it.id, "kind": it.kind, "state": it.state, "fields": {k: v for k, v in it.fields.items() if k != "lease"}}
