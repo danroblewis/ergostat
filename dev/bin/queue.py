@@ -38,7 +38,7 @@ def suites(cfg: dict, repo, branch: str, logs, n: int) -> dict:
     out = {}
     for name in ("ruff", "unit", "browser", "demo"):
         log = logs / f"{branch}-{n}-{name}.txt"
-        rc, secs = fac.suite(cfg, name, repo, log)
+        rc, secs = fac.suite(cfg, name, repo, log, slot=False)        # the queue's lock is its slot
         text = log.read_text()
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
         out[name] = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {})}

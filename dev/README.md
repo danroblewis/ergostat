@@ -31,6 +31,8 @@ cd ~/ergostat-live/instance
 cat > factory.local.toml <<'EOF'
 [paths]
 queue_lock = "/path/to/the/coordinator's/queue.lock"   # the same lock as queue-fast.sh, while both are in use
+[suites]
+slot = "/path/to/suite-slot.sh"      # the machine-wide suite slots every agent's suites share
 EOF
 uv run --project ~/ergostat ergostat -C ~/ergostat-dev run --stop      # the old observe-only instance, on 8798
 python3 dev/bin/live.py start                  # the engine of current, on port 8798
@@ -49,7 +51,8 @@ ergostat sensor intake-open.main --read 1      # the implementor may take ready 
 
 The reviewer, the queue and triage work on what is already in the pipe whatever the intake says. Each AI session is
 held to the daily cap (fails closed: a spend not read stops them), each costs at most its `*_session_usd`, and the
-merge queue and triage hold while any other suite runs on the machine (the load interlock).
+merge queue and triage hold while the machine's suite slots are all taken; the implementor's and triage's suites each
+hold a slot (`[suites] slot`), the queue's lock being its own (the load interlock).
 
 ## Submit a gap
 
