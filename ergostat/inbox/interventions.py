@@ -179,7 +179,8 @@ def remedies(spec, cls: str, rec: dict | None) -> list[str]:
                 "until its claims hold", "add the missing loop that makes the request unnecessary (a goal on what they "
                 "are asked to restore)", "change the software so the step is not needed"]
     if kind == "alarm":
-        return [f"add the missing loop: a goal and a controller on what {name} watches, acting before it rises",
+        return [f"add the structure that explains what {name} watches (a capacity, rework, a delay, a balancing flow), "
+                "and a goal and a controller on it only where something should act before it rises",
                 "change the software so what it watches no longer drifts", "an AI or program block that answers the "
                 "alarm, the person reviewing until it holds"]
     ev = f" (this week: {record_said(rec)})" if rec else ""
