@@ -46,3 +46,32 @@ noise of three draws, with no error rate at all.
 
 Judging a change that cannot move the replay (structure, wiring) by structural measures, and a change carrying over
 edits elsewhere: the GAPS entry's other two parts, left open.
+
+## Where it stopped
+
+Done, all four suites green (unit 1804 passed; the four browser files 218 passed, none skipped; ruff on `ergostat`
+and `tests`: the 14 errors `ruff check` reports are in example scripts and on main as well). 112 net lines of code.
+
+Measured: the synthetic world (the acceptance tests' `slow_world`; a week of record after each change, the judge
+every hour, 20 seeds each), and the fast bench (`ergostat bench judge --seeds 10`, 120 trials, judged at 2, 4 and
+6 hours).
+
+| case (truth k; change) | before: passed / failed / other, median hours | after |
+|---|---|---|
+| queue (~40 jobs, 15-min readings), k 0.1 → 0.05 (better, twice off) | 19 / 1 / 0, 20 h | 20 / 0 / 0, 60 h |
+| queue, k 0.06 → 0.05 (better by a fifth) | 9 / **11** / 0, 24 h | 5 / 0 / 15 undecided after a week, 72 h |
+| queue, k 0.05 → 0.06 (worse by a fifth) | **6** / 14 / 0, 24 h | 0 / 5 / 15 undecided, 72 h |
+| queue, k 0.05 → 0.0501 (no difference) | 0 / 0 / 20 inconclusive | 0 / 0 / 20 inconclusive |
+| a few items (~2), k 0.15 → 0.1 (better) | 6 / **14** / 0, 14 h | 3 / 0 / 17 inconclusive, 42 h |
+| a few items, k 0.1 → 0.15 (worse) | **3** / 17 / 0, 21 h | 0 / 2 / 18 inconclusive, 60 h |
+| a few items, hourly readings, better | 6 / **14** / 0, 14 h | 3 / **1** / 16 inconclusive, 42 h |
+| a few items, hourly readings, worse | **3** / 17 / 0, 40 h | 0 / 1 / 19 inconclusive, 100 h |
+| fast bench (120 trials) | 0 false accepts, 0 false rejects, 70 decided, median 2 h | 0, 0, 50 decided, median 2 h |
+
+Before, the judge decided almost everything on the slow world, and wrongly about a third of the time (false passes
+15-30%). Now it never passed a worse change (0 of 60) and failed one better change in 80 (the stated 5% each way);
+a change twice off is decided within a week, a change a fifth off mostly needs more than a week of this record
+(stated as "needs about N more record"). The information is the limit: a day-long drain read every 15 minutes
+holds about one independent draw a day.
+
+Left: judging changes that cannot move the replay by structural measures; carrying a change over edits elsewhere.
