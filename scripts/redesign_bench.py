@@ -251,7 +251,8 @@ def extra(after, added: list[str], v: dict) -> int:
 def commit() -> str:
     def git(*a):
         return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True).stdout.strip()
-    return git("rev-parse", "--short", "HEAD") + ("-dirty" if git("status", "--porcelain", "--untracked-files=no") else "")
+    return git("rev-parse", "--short", "HEAD") + ("-dirty" if git("status", "--porcelain", "--untracked-files=no", "--", ".",
+                                                                    f":!{RESULTS.relative_to(ROOT)}") else "")
 
 
 def bench(names=None, model="haiku", cap=3.0, budget=0.5, rounds=3, use_stand_in=False, repeat=1, hours=HOURS,
