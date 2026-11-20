@@ -2219,6 +2219,25 @@ Its state is written to `<state>/daemons.json` every 2 s (running, backoff, fail
 last line, runs in flight, what it serves, CPU and memory): the Agents page lists the daemons, and an agent's panel
 names its daemon.
 
+**Warm** (`warm: true`; `recycle: M`, default 1,000, only with it). The owner's declared promise that the program
+keeps no state between runs: a process per item without its start-up, for a program that holds one item at a time.
+A warm daemon is `concurrency` processes of its command (`NAME#1` ... `NAME#N`, each supervised as a daemon of its
+own: restarts, back-off, given up), each holding **one run at a time**; the dispatcher's room is its idle processes.
+It serves blocks only (a sensor naming one is an error). The protocol is the one above. Because a process holds one
+run, the run is charged its CPU (`resources: {cpu, method: warm}`): what its process group used between hand-over
+and `done`, each member's own CPU and that of every descendant it reaped (read from outside: `proc_pid_rusage` on
+macOS, `/proc` on Linux; elsewhere none), plus any member still alive. Everything outside a run (start-up, idle) is
+the process's own. A process is **restarted** (counted toward giving up) once its run has ended when it misbehaved:
+a line for a run it does not hold (a late `done`), a line tagged with nothing, or a member of its group still alive
+at `done` (`left_running` on the run; killed with the group). It is **replaced**, uncounted, after a cancelled run
+(its state may be half-changed) and after `recycle` runs. Neither is handed another run in between.
+`ergostat block NAME --check-warm FILE` checks the promise on one input (FILE: a run's input, as JSON): it runs it
+twice on one fresh process and once on each of two others, for real, and compares what each run printed (its run's
+id put back as `RUN`) and its exit: the same, rc 0; the second run on one process differing from a fresh one, state
+was kept, rc 1; the fresh runs differing, the program is not deterministic for that input and nothing is concluded,
+rc 2. A program started for a run reads its `env` from the line and passes `{**os.environ, **env}` to what it starts;
+it never writes its own environment, and it reaps what it starts before `done`.
+
 ## 10. Agents
 
 A machine shared by several blocks. Declare one only to say something true across them; whatever

@@ -176,6 +176,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Runtime, scale and latency
 
+- **Warm processes for blocks** (branch `warm2`, `docs/roadmap/overnight/warm2.md`): `warm: true` on a daemon, a
+  declared promise that the program keeps no state between runs: `concurrency` processes, one run each at a time,
+  each run charged its process group's CPU (its reaped children's included); a process that misbehaves is restarted,
+  one cancelled or past `recycle:` replaced; `ergostat block NAME --check-warm FILE` tests the promise on one input.
+  Measured: 100 items through five steps at `pool: 10`, end to end p50 0.57-0.81 s warm against 1.31-1.34 s a
+  process per item (89-116 against 49-56 items a second).
 - **Warm workers instead of a process per item**: superseded by daemons (branch `daemons`, SPEC §9.7,
   `docs/RUNTIME.md`): long-lived processes for blocks and sensors, many items at once, every line tagged with its run
   or request, env per item in its line, supervised (crash, silence, stdin backpressure, restart storms, cancel on a

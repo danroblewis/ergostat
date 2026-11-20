@@ -24,9 +24,10 @@ class Hands:
             return [s.proc for s in self.slots.values() if s.proc] + [p for _, p in self.draining]
 
     def run_item(self, b, run: str, ctx: dict, env: dict, take, timeout: float | None,
-                 item: str | None, fence: int | None) -> tuple[int | None, str, dict | None]:
+                 item: str | None, fence: int | None) -> tuple[int | None, str, dict | None, dict | None]:
         """One run of ``b`` handed to its daemon, waited for on the run's own thread. Returns its exit (None when it
-        never said ``done``), its note, and how its item is given back when that is not by its exit (a nack)."""
+        never said ``done``), its note, how its item is given back when that is not by its exit (a nack), and its
+        resources (a warm process's run only)."""
         name, h = b.params["daemon"], Handle(take, block=b.name)
         limit = time.monotonic() + (timeout or 300.0)
         line = {"op": "item", "run": run, "item": item, "lease": ctx.get("lease"), "input": ctx,
@@ -34,31 +35,38 @@ class Hands:
         checked = not item
         while True:
             with self.lock:
-                slot = self.slots.get(name)
-                if slot is None or slot.state == "failed":
+                subs = self.subs(name)
+                if not subs or all(s.state == "failed" for s in subs):
+                    slot = subs[0] if subs else None
                     why = f"its daemon {name} " + ("has given up: " + slot.why if slot else "is not running")
                     if item and slot is not None:    # (due again at once when it is revived: supervise.py)
-                        self.put_off[item] = name
-                    return None, why, {"why": why, "count": False, "after": FAILED_AFTER}
-                ready = slot.state == "running" and slot.proc is not None and len(slot.proc.runs) < slot.d.concurrency
+                        self.put_off[item] = slot.d.name
+                    return None, why, {"why": why, "count": False, "after": FAILED_AFTER}, None
+                slot = next((s for s in subs if self._room(s)), subs[0])     # (warm: an idle process of its own)
+                ready = self._room(slot)
                 if ready and checked:
                     slot.proc.hold(run, h, line)
                     break
             if ready and not checked:                # its lease still its own (read outside the lock), then held
                 if not self._leased(item, run, fence):
-                    return None, "its lease ended before it was handed over", None
+                    return None, "its lease ended before it was handed over", None, None
                 checked = True
                 continue
             if time.monotonic() > limit:
-                return None, f"its daemon {name} took no run within its timeout ({slot.state})", {"why": "", "count": False}
+                return None, f"its daemon {name} took no run within its timeout ({slot.state})", {"why": "", "count": False}, None
             slot.up.wait(min(0.2, max(0.0, limit - time.monotonic())))   # (a restart, a swap, room: looked at again)
             time.sleep(0.02)
             checked = not item                       # (after a wait its lease is read again before it is held)
         if not h.done.wait(max(0.0, limit - time.monotonic())):
             self.cancel(run, "its timeout")
             h.done.wait(grace() + 7)
-            return h.code, h.note or f"stopped after its timeout of {timeout:g}s", self._back(h)
-        return h.code, "stopped as the owner asked" if h.asked and h.code else h.note, self._back(h)
+            return h.code, h.note or f"stopped after its timeout of {timeout:g}s", self._back(h), h.resources
+        return h.code, "stopped as the owner asked" if h.asked and h.code else h.note, self._back(h), h.resources
+
+    @staticmethod
+    def _room(slot) -> bool:
+        p = slot.proc
+        return slot.state == "running" and p is not None and len(p.runs) < slot.d.concurrency and not p.recycle
 
     @staticmethod
     def _back(h: Handle) -> dict | None:
@@ -74,10 +82,8 @@ class Hands:
     def free(self, name: str) -> int:
         """How many more runs the daemon may hold, whichever block hands them (the dispatcher's room)."""
         with self.lock:
-            slot = self.slots.get(name)
-            if slot is None or slot.state == "failed":
-                return 0
-            return slot.d.concurrency - (len(slot.proc.runs) if slot.proc else 0)
+            return sum(s.d.concurrency - (len(s.proc.runs) if s.proc else 0) for s in self.subs(name)
+                       if s.state != "failed" and not (s.proc and s.proc.recycle))
 
     def _held(self, run: str) -> tuple[Process, Handle] | None:
         for p in self._procs():

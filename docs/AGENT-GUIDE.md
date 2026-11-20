@@ -453,6 +453,10 @@ The rules in brief:
 - honour `cancel` within 10 s; heartbeat at a third of the declared `heartbeat:`;
 - fail hard (exit non-zero) on what you cannot handle; answer `{"error": WHY}` for one reading you could not take;
 - an item's `env` goes to what you start for that item, never into the daemon's own environment;
+- a block whose program keeps no state between items and does one at a time (a script that is slow to start): add
+  `warm: true` to its daemon (SPEC §9.7, *Warm*) and its runs are charged their CPU again; reap what you start
+  before `done`, never write `os.environ`, and run `ergostat block NAME --check-warm input.json` on a typical input
+  (it runs the program four times, for real: use a scratch copy when it acts) before you call it done;
 - done means: `check` passes, a pipe test by hand passes, a short run on a scratch copy records readings and
   moves items with no restarts, and replaced `run:` sensors read the same.
 

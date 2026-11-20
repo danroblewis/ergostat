@@ -13,6 +13,7 @@ import threading
 import time
 
 from ..costs.sampler import Measured
+from . import usage
 
 QUEUE = 1000                 # lines waiting for its standard input, at most
 SHARED = {"ERGOSTAT_CMD", "ERGOSTAT_PROJECT", "ERGOSTAT_STATE_DIR", "ERGOSTAT_SOCKET", "ERGOSTAT_HOME"}
@@ -29,6 +30,7 @@ class Handle:
         self.requeue = False             # given back uncounted: its daemon restarted for something else's fault
         self.cancelled: float | None = None
         self.asked = False               # the owner's stop
+        self.resources: dict | None = None   # a warm process's run: the CPU its group used while it held it
 
     def answer(self, v, why: str) -> None:
         if not self.done.is_set():
@@ -54,6 +56,8 @@ class Process:
         self.idle_since: float | None = None      # (draining: when its last run ended)
         self.served = 0
         self.ended = threading.Event()
+        self.before: dict[int, float] = {}       # (warm) its group's CPU when it was handed its run
+        self.recycle: tuple[str, bool] | None = None   # (warm) why it is replaced once it holds nothing; counted?
         log.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} starting: {d.run}\n")
         log.flush()
         env = {k: v for k, v in env.items() if not k.startswith("ERGOSTAT_") or k in SHARED}   # (an item's: in its line)
@@ -106,13 +110,15 @@ class Process:
             try:
                 self.line(raw.decode(errors="replace").strip())
             except Exception as err:                 # (a run ended meanwhile, its log closed): never the reader's end
-                self.stray(raw.decode(errors="replace").strip(), f"{type(err).__name__}: {err}")
+                self.stray(raw.decode(errors="replace").strip(), f"{type(err).__name__}: {err}", False)
         self.proc.wait()
         self.ended.set()
 
-    def stray(self, text: str, why: str) -> None:
+    def stray(self, text: str, why: str, fault: bool = True) -> None:
         self.log.write(f"dropped ({why}): {text[:500]}\n")
         self.log.flush()
+        if fault and self.d.warm and self.recycle is None:     # it said something no run of its own: not to be trusted
+            self.recycle = (f"printed a line for no run it holds ({why})", True)
 
     def line(self, text: str) -> None:
         if not text:
@@ -134,6 +140,8 @@ class Process:
             if "done" in obj:                        # strict: exactly {"done": EXIT, "run": ID}, EXIT a whole number
                 if set(obj) != {"done", "run"} or type(obj["done"]) is not int:
                     return self.stray(text, 'done is exactly {"done": EXIT, "run": ID}, EXIT a whole number')
+                if self.d.warm:
+                    self.charge(h)
                 with self.lock:
                     self.runs.pop(run, None)
                     self.served += 1
@@ -157,7 +165,21 @@ class Process:
 
     # ---- runs and readings
 
+    def charge(self, h: Handle) -> None:
+        """(warm) The CPU its group used while it held the run; what it left running, or a cancelled run, and it is
+        replaced before it is handed another (it holds one run at a time, so nothing else's CPU is in it)."""
+        cpu, left = usage.charge(self.before, self.pid)
+        h.resources = {"cpu": round(cpu, 3), "method": "warm", **({"left_running": len(left)} if left else {})}
+        if left:
+            self.recycle = self.recycle or (f"left {len(left)} process(es) of its group running after its run", True)
+        elif h.cancelled is not None:
+            self.recycle = self.recycle or ("its run was cancelled", False)
+        elif self.served + 1 >= self.d.recycle:
+            self.recycle = self.recycle or (f"served {self.served + 1} runs (recycle: {self.d.recycle})", False)
+
     def hold(self, run: str, h: Handle, line: dict) -> bool:
+        if self.d.warm:
+            self.before = usage.snapshot(self.pid)
         with self.lock:
             self.runs[run] = h
             self.idle_since = None
