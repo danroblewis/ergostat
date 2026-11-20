@@ -164,3 +164,17 @@ Failed its gates twice (the kill rule). Blocking findings:
   even preview conflicts). I did not work around that by hand. `main` is 56 commits ahead. The factory's merge, and
   the four suites run after it under the watchdog, remain before this branch is done. I did not run the four suites
   myself (the factory runs them).
+
+## Where it stopped (warm3, round 2, 2026-11-20)
+
+- **Blocking, still open: `main` is not merged in.** This session was refused `git merge` for the third time. I
+  could not even run `git log` to list main's commits. Copying main's 56 commits in by hand would be a merge that git
+  does not know about, and hard to undo, so I did not do it. The factory must merge `main` and then run the four
+  suites under the watchdog. The likely conflicts are docs/SPEC.md, docs/GAPS.md, docs/AGENT-GUIDE.md,
+  ergostat/spec/ir.py, ergostat/web/server.py, schema/ergostat.schema.json, and the daemon code.
+- **Gate 1 ("the definition is not the branch's first commit"):** `warm3.md` is 7dda276. It is the first commit
+  after warm2's own history, which this branch continues. Rewriting that history with a rebase is hard to undo and
+  was not asked for, so I left it. The factory decides whether that is acceptable.
+- **docs/GAPS.md (fixed):** the entry now names `warm3`, says it is not done, and says why.
+- Run after this round: `tests/test_warm.py` 20 passed, `tests/test_daemons.py` 26 passed, ruff clean. No code
+  changed this round.
