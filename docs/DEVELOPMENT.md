@@ -95,13 +95,11 @@ The bind mount is not the bottleneck (the venv and the uv cache live in the imag
 1,792 MB held. The host's threads meanwhile: 2,818 before, 2,856 at the peak, 2,807 after (other agents' suites
 were running; nothing of the bomb reached the host).
 
-**Known failures on Linux.** Fifteen tests fail on Linux for reasons in docs/GAPS.md: 9 `[segments]` cases in
-`tests/test_store_conformance.py`, by timing (the segmented log watches its directory's mtime, which Linux keeps to
-a jiffy; each failed at least once in 10 runs), `tests/test_daemons.py::test_daemons_on_the_agents_api` (Debian's
-`/bin/sh`, dash, forks where macOS's execs, so a daemon's recorded pid is the shell's), and 5 in
-`tests/test_sandbox_attacks.py` that assert macOS behaviour (probed by hand: none is an escape). Until the
-`linuxfix` branch lands, `LINUX_KNOWN` in tests/conftest.py names each by its exact id and marks it expected to fail
-on Linux (xfail, not strict): a run is rc 0 when those fail, and any other failure shows.
+**No known failures on Linux.** The fifteen the container first found (docs/GAPS.md) are fixed: 9 `[segments]` cases
+in `tests/test_store_conformance.py` (the segmented log watched its directory's mtime, which Linux keeps to a jiffy;
+it now keeps a layout token), `tests/test_daemons.py::test_daemons_on_the_agents_api` (Debian's `/bin/sh`, dash,
+forks where macOS's execs; a daemon's simple command now runs with `exec`), and 5 in `tests/test_sandbox_attacks.py`
+that asserted macOS behaviour (each has a Linux form now). A failure in the container is real.
 
 When Docker is down, run the same commands on your computer, without `scripts/in_container.sh`, under
 `scripts/suite_watch.py` as always.

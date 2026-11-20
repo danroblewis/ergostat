@@ -62,7 +62,9 @@ Each of these is tested by an attack (`tests/test_sandbox_attacks.py`), with fak
   to its port and reach the listed hosts. It cannot reach anything else through it.
 - **Bugs in the operating system's sandbox**, or a process that escapes it through one. macOS's `sandbox-exec` is
   marked deprecated by Apple, though still shipped and used (Chrome and Claude Code use the same mechanism).
-- **Linux**: built and its command line tested, but the attack suite has been run on macOS only so far.
+- **Linux**: the attack suite runs on both (in the dev container on Linux, `docs/DEVELOPMENT.md`); where the two
+  sandboxes differ (DNS, the process list, other processes' environments, the toolchain's folders, the pid hopper)
+  each test has a form of its own for each.
 - **A known macOS kernel bug.** On macOS 15.5 a sandbox profile with a long list of filters in one rule (seen with a
   list of about twenty `sysctl` names) panics the kernel instead of being refused: the machine restarts. Ergostat's
   profile keeps every rule to five filters or fewer and allows sysctl reads with a single small deny, and a test holds

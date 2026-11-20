@@ -83,9 +83,8 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
   (docs/DEVELOPMENT.md has every standard run). **Preferred** there: the benchmarks (`scale_bench`, `latency_bench`,
   `daemon_bench`, `loadtest`), load and soak tests, the layout corpus, the unit and browser suites and `demo_check`
   (the benchmarks and the corpus are documented but not yet measured inside). The Linux sandbox's tests need
-  `scripts/in_container.sh --sandbox` (Docker's syscall filter off, for bwrap; only for them). On Linux, the tests
-  with a known Linux bug are expected to fail (`LINUX_KNOWN` in tests/conftest.py, each with its GAPS entry), so
-  any other failure is real. **When Docker is down:** the same commands on the host, under `scripts/suite_watch.py`
+  `scripts/in_container.sh --sandbox` (Docker's syscall filter off, for bwrap; only for them). On Linux no test is
+  expected to fail: a failure there is real. **When Docker is down:** the same commands on the host, under `scripts/suite_watch.py`
   as always. **On the host only:** the macOS sandbox tests (`tests/test_sandbox_attacks.py` exercises `sandbox-exec`
   only on macOS; run it on both when the sandbox changes), and anything that needs the owner's real credentials or
   services. This Mac has kernel-panicked three times from development work (two thread exhaustions in benchmarks,

@@ -54,15 +54,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Running code ergostat does not trust
 
-- **The Linux sandbox's attack suite asserts macOS behaviour in five places** (open; `devcontainer`, 2026-11-19).
-  On Linux (bwrap, in the dev container) 26 of 31 pass; the five failures were probed by hand and none is an escape:
-  UDP to 127.0.0.1 "sends" but only to the sandbox's own loopback (the outer listener got nothing); the process list
-  and another process's environment are probed with macOS `sysctl` (inside, only pids 1 and 2 are visible and the
-  neighbour's `/proc/PID/environ` is absent), and the environment test is a strict xfail for a macOS-only leak, so
-  Linux's pass fails it; listing the toolchain's parents shows bwrap's mount-point stubs (`/usr/local`: `bin`, `lib`
-  with only libpython) where macOS denies; the pid hopper is contained but the run's exit when its supervisor is
-  killed differs. Each needs a Linux form of its assertion (on `linuxfix`; until then in `LINUX_KNOWN`,
-  tests/conftest.py). They run only under `scripts/in_container.sh --sandbox`.
+- **The Linux sandbox's attack suite asserted macOS behaviour in five places** (done; `linuxfix`, 2026-11-19). Each
+  has a Linux form beside the macOS one, which is unchanged: DNS fails and nothing reaches a listener outside on both,
+  and on Linux a send to 127.0.0.1 is allowed only because the run has a network namespace of its own (checked, with
+  no route out); the process list and environment are read from the run's /proc, which shows only its own pid
+  namespace (the environment test is a strict xfail on macOS only); listing the toolchain's parents shows only the
+  folders bwrap made to mount what is allowed; the pid hopper's parent on Linux is bwrap's init, which a signal from
+  inside never ends, so the run reports the program's own exit. 31 of 31 pass in the dev container (they run only
+  under `scripts/in_container.sh --sandbox`).
 - **An allowlist sandbox** (done on `sandbox`, SPEC §12q, `docs/SECURITY.md`): `ergostat/sandbox/`, reads only the
   copy, the toolchain and declared paths; writes only the copy (not `.git`) and a private temporary folder; network
   only through a filtering proxy (listed hosts, SNI checked, methods for plain HTTP, every connection logged), no DNS;
@@ -71,8 +70,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
   repair and libraries reviews, and the branch's own review (pid hopping, a ClientHello split across records, wide
   toolchain reads, the process table). *Left*: on macOS another process's argv and environment stay readable
   (`kern.procargs2` is not mediated by the sandbox for the same user; closing it needs a uid per run, an
-  administrator's setup), recorded as a strict expected failure; the suite has run on macOS only (Linux's bwrap
-  command is tested, not run); no CPU, memory or disk limit beyond the time limit and `RLIMIT_NPROC`; neither caller
+  administrator's setup), recorded as a strict expected failure; the suite runs on macOS and, in the dev container, on Linux; no CPU, memory or disk limit beyond the time limit and `RLIMIT_NPROC`; neither caller
   uses it yet.
 - **Repair** (parked on `repair`, `docs/roadmap/overnight/repair.md`, *Where it stopped*): a failing program caught,
   fixed by an AI agent, tested, approved and verified. **Unblocked on the sandbox side**: X1 (git running the fixer's
@@ -185,16 +183,16 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Runtime, scale and latency
 
-- **Linux: two bugs the dev container found** (open; `devcontainer`, 2026-11-19, docs/DEVELOPMENT.md). (1) The
-  segmented event log (`ergostat/segments.py`, `_sync`) notices new sealed segments by the directory's mtime, and
-  Linux timestamps are coarse (one jiffy: 50 file creates on tmpfs gave one mtime; ext4 is the same before
-  multigrain timestamps), so a seal within the same tick is missed and its events vanish from queries: 5 to 6
-  `[segments]` cases in `tests/test_store_conformance.py` fail on `/tmp`, by timing. (2) `shell=True` runs `/bin/sh`,
-  which on Debian is dash, and dash forks for `sh -c CMD` where macOS's bash execs: the pid ergostat records for a
-  daemon (`ergostat/daemons/proc.py`) is the shell's, not the program's (`tests/test_daemons.py::
-  test_daemons_on_the_agents_api`). Being fixed on `linuxfix`; until then the failing tests (9 `[segments]` cases,
-  each failed at least once in 10 runs, and the daemon one) are expected failures on Linux (`LINUX_KNOWN`,
-  tests/conftest.py).
+- **Linux: two bugs the dev container found** (done; `linuxfix`, 2026-11-19). (1) The segmented event log
+  (`ergostat/segments.py`, `_sync`) noticed new sealed segments by the directory's mtime alone, and Linux timestamps
+  are coarse (one jiffy: 50 file creates on tmpfs gave one mtime), so a seal within the same tick was missed and its
+  events vanished from queries. Now every seal, roll-up and prune replaces a `layout` token atomically under the lock,
+  and a reader that sees it change lists the segments again and reads the head from its start (the head's inode is
+  not trusted either: a file system reuses it). The mtime is still compared, for a writer that keeps no token.
+  Tested with seals forced into one mtime with `os.utime`. (2) `shell=True` runs `/bin/sh`, which on Debian is dash,
+  and dash forks for `sh -c CMD` where macOS's bash execs: the pid recorded for a daemon was the shell's. Now a
+  daemon's command that is one simple command is run with `exec` (`daemons/proc.py`, `execd`); anything else keeps
+  its shell, and either way the pid leads the daemon's session, so kills reach the program through its group.
 - **Warm workers instead of a process per item**: superseded by daemons (branch `daemons`, SPEC §9.7,
   `docs/RUNTIME.md`): long-lived processes for blocks and sensors, many items at once, every line tagged with its run
   or request, env per item in its line, supervised (crash, silence, stdin backpressure, restart storms, cancel on a
