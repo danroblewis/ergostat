@@ -264,6 +264,8 @@ function relTimeline(open) {
     const step = steps.find((x) => ((x1 - x0) / ((b - a) / x)) >= 80) || steps[steps.length - 1];
     const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", ...(step < 60 ? { second: "2-digit" } : {}) });
     const nx = X(d.now);
+    const stamp = (t) => (new Date(t * 1000).toDateString() === new Date(d.now * 1000).toDateString() ? clock(t)
+      : new Date(t * 1000).toLocaleString([], { hour12: false, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }));
     for (let t = Math.ceil(a / step) * step; t <= b; t += step) {
       const x = X(t);
       parts.push(s("line", { class: "rg-grid", x1: x, x2: x, y1: RG.AXIS - 4, y2: H }));
@@ -272,6 +274,21 @@ function relTimeline(open) {
     const at = {};                                         // where each row's bar starts and ends, for the arrows
     rows.forEach((x, i) => {
       const y = Y(i);
+      if (x.lane) {                                        // a block's lane: the projected runs in it, one at a time
+        const row = s("g", { class: "rg-row rg-lane", "data-block": x.block, "data-lane": x.k });
+        if (i % 2) row.append(s("rect", { class: "rg-band", x: 0, y: y - RG.ROW / 2, width, height: RG.ROW }));
+        row.append(s("g", { class: "rg-label" }, s("title", {}, `${x.block}: lane ${x.k + 1} of ${x.cap} (its capacity: pool, seats, daemon)`),
+          s("text", { class: "rg-id", x: 10, y: y + 4 }, rgClip(x.block, 22)), s("text", { class: "rg-sub", x: 10 + Math.min(22, x.block.length) * 6.6 + 6, y: y + 4 }, `${x.k + 1}/${x.cap}`)));
+        for (const [id, kind, st, t0, t1] of x.bars) {
+          const xa = Math.max(x0, X(t0)), xb = Math.min(x1, X(t1));
+          if (xb - xa < 0.5) continue;
+          row.append(s("rect", { class: "rg-proj rg-lanebar", x: xa, y: y - RG.BAR / 2, width: xb - xa, height: RG.BAR, fill: rgShade(kinds, kind, st), "data-id": id,
+                                 onclick: () => open(id) }, s("title", {}, `${id}: ${st} in ${x.block} (projected), ${clock(t0)} to ${clock(t1)} (${dur(t1 - t0)})`)));
+          if (xb - xa > 46) row.append(s("text", { class: "rg-sub rg-inbar", x: xa + 3, y: y + 4 }, rgClip(id.split("/").pop(), Math.floor((xb - xa) / 6.5))));
+        }
+        parts.push(row);
+        return;
+      }
       const row = s("g", { class: `rg-row rg-${x.status}${x.critical && x.status !== "done" ? " rg-critical" : ""}`, "data-id": x.id });
       if (i % 2) row.append(s("rect", { class: "rg-band", x: 0, y: y - RG.ROW / 2, width, height: RG.ROW }));
       const lab = s("g", { class: "rg-label", role: "link", tabindex: 0, onclick: () => open(x.id), onkeydown: (ev) => { if (ev.key === "Enter") open(x.id); } },
@@ -289,7 +306,20 @@ function relTimeline(open) {
           s("title", {}, `${x.id}: ${st}${proj ? " (projected)" : ""}, ${clock(t0)} to ${clock(t1)} (${dur(t1 - t0)})`)));
       };
       for (const [st, t0, t1] of x.segments || []) seg(st, t0, t1, false);
-      for (const [st, t0, t1] of x.projected || []) seg(st, t0, t1, true);
+      for (const [st, t0, t1, , lane] of x.projected || []) {
+        if (lane === "wait") {                             // waiting in a block's queue: a thin line, not work
+          const xa = Math.max(x0, X(t0)), xb = Math.min(x1, X(t1));
+          lo = Math.min(lo, X(t0)); hi = Math.max(hi, X(t1));
+          if (xb - xa >= 0.5) row.append(s("line", { class: "rg-wait", x1: xa, x2: xb, y1: y, y2: y }, s("title", {}, `${x.id}: queued in ${st}, ${clock(t0)} to ${clock(t1)} (${dur(t1 - t0)})`)));
+        } else seg(st, t0, t1, true);
+      }
+      if (x.eta?.p50 != null && x.status !== "done") {   // the estimate: a tick at the p50, a whisker to the p90
+        const xa = X(x.eta.p50), xb = x.eta.p90 != null ? X(x.eta.p90) : x1;
+        if (xa >= x0 && xa <= x1) row.append(s("line", { class: "rg-p50", x1: xa, x2: xa, y1: y - RG.BAR / 2 - 2, y2: y + RG.BAR / 2 + 2 }));
+        if (xb > xa) row.append(s("path", { class: "rg-whisker", d: `M${Math.max(x0, xa)},${y} H${Math.min(x1, xb)}${xb <= x1 ? ` M${xb},${y - 4} V${y + 4}` : ""}` },
+          s("title", {}, `${x.id}: done by ${stamp(x.eta.p50)} (p50), ${x.eta.p90 != null ? stamp(x.eta.p90) : x.eta.runs < 20 ? "no p90 under 20 runs" : "beyond the horizon"} (p90)\n${x.eta.why || ""}`)));
+        hi = Math.max(hi, Math.min(x1, xb));
+      }
       if (x.summary && x.es != null) {                     // a parent: a bracket over its children's span
         const xa = Math.max(x0, X(x.es)), xb = Math.min(x1, X(x.ef));
         if (xb > xa) row.append(s("path", { class: "rg-summary", d: `M${xa},${y + 6} V${y - 3} H${xb} V${y + 6}` }));
@@ -311,7 +341,8 @@ function relTimeline(open) {
     svg.setAttribute("width", width); svg.setAttribute("height", H); svg.setAttribute("viewBox", `0 0 ${width} ${H}`);
     svg.replaceChildren(...parts);
   }
-  el.draw = (m, d) => {
+  el.draw = (m, d, lanes = false) => {
+    if (lanes && d.eta) return drawLanes(m, d);
     // the rows: a parent, then its children under it; the rest in the order they start (projected or actual)
     const ids = m.nodes.map((n) => n.id).filter((id) => m.byId[id]);
     const key = (x) => (x.segments?.[0]?.[1] ?? x.es ?? x.first);
@@ -327,12 +358,35 @@ function relTimeline(open) {
     const lo = Math.max(d.since, Math.min(d.now, ...ts)), hi = Math.max(d.now, ...ts);
     const pad = (hi - lo) * 0.03 || 60;
     const edges = d.edges.filter((e) => e.kind === "precedence");
-    cur = { rows: shown, kinds: m.kinds, d, edges, fit: [lo - pad, hi + pad] };
+    const p90s = shown.map((x) => x.eta?.p90).filter((t) => t != null);
+    const top = Math.max(hi, ...p90s);
+    cur = { rows: shown, kinds: m.kinds, d, edges, fit: [lo - pad, top + pad] };
     setText(note, (rows.length > RG.BARS ? `${RG.BARS} of ${rows.length} items drawn: narrow it with the search, or choose a kind. ` : "")
-      + (d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : ""));
+      + (d.eta ? `Projected bars: one of ${d.eta.runs} runs of the simulation (levelled: no block more at once than its capacity); the tick its p50, the whisker its p90. Not modelled: a goal that switches a block off, a capacity no block declares.`
+        + (Object.keys(d.eta.assumed || {}).length ? ` Assumed: ${Object.entries(d.eta.assumed).map(([b, w]) => `${b}, ${w}`).join("; ")}.` : "")
+        : d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : ""));
     draw();
     el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
   };
+  /* by lanes: each block that takes items, a row a lane (at most its capacity), the projected runs in them */
+  function drawLanes(m, d) {
+    const bars = {};
+    for (const n of m.nodes) {
+      const x = m.byId[n.id];
+      for (const [st, t0, t1, block, lane] of x?.projected || []) if (block && Number.isInteger(lane)) (bars[`${block}\n${lane}`] ||= []).push([x.id, x.kind, st, t0, t1]);
+    }
+    const rows = [];
+    for (const [block, cap] of Object.entries(d.eta.capacity || {})) {
+      if (!Object.keys(bars).some((b) => b.startsWith(block + "\n"))) continue;        // (a block with no run ahead: no rows)
+      for (let k = 0; k < cap; k++) if (bars[`${block}\n${k}`] || cap <= 12) rows.push({ lane: true, block, k, cap, id: `${block}:${k}`, bars: bars[`${block}\n${k}`] || [] });
+    }
+    const ts = rows.flatMap((r) => r.bars.flatMap((b) => [b[3], b[4]]));
+    const lo = d.now, hi = Math.max(d.now + 60, ...ts);
+    cur = { rows, kinds: m.kinds, d, edges: [], fit: [lo - (hi - lo) * 0.02, hi + (hi - lo) * 0.03] };
+    setText(note, rows.length ? `Each block's lanes, at most its capacity at once (leases held over a lowered pool keep theirs until they end): one of ${d.eta.runs} runs of the simulation, levelled. A bar is an item's run; a click opens it. Not modelled: a goal that switches a block off, a capacity no block declares.` : "No block takes these items.");
+    draw();
+    el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
+  }
   return el;
 }
 
@@ -343,7 +397,11 @@ function relLegend(m, d) {
   return h("div", { class: "rg-legend" },
     ...RG_STATUS.filter((st) => n[st]).map((st) => h("span", { class: `rg-key rg-${st}`, key: st }, h("i", {}), `${n[st]} ${RG_WORD[st]}`)),
     crit ? h("span", { class: "rg-key rg-critkey", key: "crit", title: "The longest chain of unfinished work, by the kinds' median times: nothing on it can slip without moving the end" },
-      h("i", {}), `critical path ${crit} item${crit === 1 ? "" : "s"}, done in about ${dur(Math.max(0, d.end - d.now))}`) : null,
+      h("i", {}), `critical path ${crit} item${crit === 1 ? "" : "s"}` + (d.eta ? "" : `, done in about ${dur(Math.max(0, d.end - d.now))}`)) : null,
+    ...Object.entries(d.eta?.kinds || {}).map(([k, e]) => h("span", { class: "rg-key rg-eta", key: `eta:${k}`, title: `When the last open ${k} is done: the p50 and the p90 of ${d.eta.runs} runs of a simulation of every open item, each block at most its capacity at once (pool, seats, daemon), from the record's run times, failures and rework; not modelled: a goal that switches a block off, a capacity no block declares`
+        + (e.visits && Object.keys(e.visits).length ? `\nExpected visits per state, from the first: ${Object.entries(e.visits).map(([st, v]) => `${st} ${v.toFixed(2)}`).join(", ")}` : "") },
+      `last of ${e.open} ${k} done ${e.p50 == null ? "beyond the horizon" : "in about " + dur(e.p50 - d.now)}${e.p90 != null ? ` (p90 ${dur(e.p90 - d.now)})` : d.eta.runs < 20 ? ` (${d.eta.runs} runs: no p90)` : ""}`)),
+    d.eta?.whatif?.length ? h("span", { class: "rg-key whatif-said", key: "whatif" }, `what if ${d.eta.whatif.join(" and ")} (not saved)`) : null,
     d.cycles.length ? h("span", { class: "rg-key bad", key: "cycle" }, `${d.cycles.length} cycle${d.cycles.length > 1 ? "s" : ""}: ${d.cycles.map((c) => c.join(" → ")).join("; ")}`) : null,
     Object.keys(d.capped || {}).length ? h("span", { class: "muted", key: "capped" }, "(the newest drawn: " + Object.keys(d.capped).join(", ") + " capped)") : null);
 }
