@@ -101,3 +101,13 @@ is still not named. After the merge, `tests/test_factory.py` (41 passed, 2 skipp
 `ergostat.yaml`. If the cut-off run comes from load (lesson-10) or from a test this branch does not touch (lesson-13),
 it belongs outside this gap. Left: one full `unit` run (and the browser files) by the factory, with the whole output,
 or with `-o faulthandler_timeout=300` if it hangs again.
+
+Round 3: the `unit` tail given this time ends right after `uv` installed the package. There is no pytest output at all
+(not a dot, not a collection error) and no `suite_watch` JSON line. `suite_watch` prints that line on any exit it
+lives through, SIGTERM included. So the run was killed from outside its container (a timeout or SIGKILL) before the
+xdist workers reported; no test failed it. Here, collection is clean (`pytest --collect-only`: 1953 tests in 15 s, no
+errors), `tests/test_factory.py` and `tests/test_factory_knowledge.py` pass (63 passed, 2 skipped), and ruff is clean
+(`ergostat tests scripts dev/bin`). This session refused the whole-suite run again, so no code was changed: nothing
+names a fault to fix. Left, as before: one full `unit` run by the factory that lasts long enough to print pytest's
+summary, and the browser files. If the run is killed at the start again, the cause is the suite container or its
+slot (lesson-13), not this branch.
