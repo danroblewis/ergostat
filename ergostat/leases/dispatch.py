@@ -194,13 +194,12 @@ class Dispatcher:
         cause = it.moves[-1]["event"] if it.moves else None      # what brought it to the state it is taken from
         key = f"{b.name} {it.id}"
         with self.e.lock:                  # counted as running before it is taken, then stop looked at: close waits for
-            self.e.running.add(key)        # it, or it sees close began and takes nothing (no lease after the stop)
-        if self.e.stop.is_set():
-            with self.e.lock:
-                self.e.running.discard(key)
-            return None
+            mine = key not in self.e.running   # it, or it sees close began and takes nothing (no lease after the stop);
+            self.e.running.add(key)            # a key another run holds is never taken away by this one
         got = None
         try:
+            if self.e.stop.is_set():
+                return None
             ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
                                    data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
                                          "max": t["attempts"],
@@ -208,7 +207,7 @@ class Dispatcher:
             now = its.one(self.p.events, self.spec, it.id)
             got = held(now.fields) if now else None
         finally:
-            if not got or got.get("holder") != run:
+            if mine and (not got or got.get("holder") != run):
                 with self.e.lock:
                     self.e.running.discard(key)
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
