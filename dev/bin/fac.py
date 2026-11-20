@@ -138,6 +138,11 @@ def act(name: str, key: str, **args) -> tuple[int, str]:
 
 # ---- git
 
+def ids(v) -> list[str]:
+    """A relation's ids (a field holding one id, or the list the record folds it to)."""
+    return [v] if isinstance(v, str) else list(v or [])
+
+
 def rel(p: Path) -> str:
     """A path as the record keeps it: from the model's folder when it is inside it."""
     try:

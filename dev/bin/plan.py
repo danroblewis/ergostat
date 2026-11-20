@@ -105,7 +105,7 @@ def planner(cfg: dict, gap: dict) -> int:
         p.write_text(body)
         if name != branch:
             fac.say("gap.requested", f"gap/{name}", title=title or name, source="plan", branch=name,
-                    parent=gap["id"], depends_on=deps_of(body), requested_at=now)
+                    parent=[gap["id"]], depends_on=deps_of(body), requested_at=now)
         fac.say("gap.planned", f"gap/{name}", plan=fac.rel(p), planned_at=now, risks=sorted(set(re.findall(
             r"\blesson-\d+\b", body))), replanned=name == branch and bool(f.get("plan_failures")),
             **(record if name == branch else {}))

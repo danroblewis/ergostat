@@ -27,8 +27,8 @@ def first(text) -> str:
 
 def blocked_on(g: dict, by: dict) -> str:
     f = g["fields"]
-    kids = [i for i, x in by.items() if x["fields"].get("parent") == g["id"]] if g["state"] == "split" else []
-    waits = [d for d in [*(f.get("depends_on") or []), *kids] if by.get(d, {}).get("state") != "merged"]
+    kids = [i for i, x in by.items() if g["id"] in fac.ids(x["fields"].get("parent"))] if g["state"] == "split" else []
+    waits = [d for d in [*fac.ids(f.get("depends_on")), *kids] if by.get(d, {}).get("state") != "merged"]
     research = [r for r in f.get("research") or [] if g["state"] in ("open", "replan")]
     return "; ".join(x for x in (f.get("blocked_reason"), ", ".join(f"{d} ({by.get(d, {}).get('state', 'unknown')})"
                                                                      for d in waits), ", ".join(research)) if x)
