@@ -205,7 +205,8 @@ def test_a_lease_that_expires_while_its_run_goes_on_fences_its_workspace(tmp_pat
     asked = gate.request(p, spec, "push", {}, {"block": "dev", "run": run, "item": "ticket/2", "workdir": got["dir"],
                                                "branch": got["branch"], "lease": 1})
     assert asked["state"] == "requested"
-    e.dispatch.watch(now=time.time() + 5)                          # silent past its TTL: expired, its run still going
+    e.dispatch.watch(now=time.time() + 5, mono=100.0)              # silent past its TTL: found overdue,
+    e.dispatch.watch(now=time.time() + 6, mono=101.0)              # and on a second look expired, its run still going
     exp = p.events.query(n=None, type=EXPIRED, item="ticket/2")
     assert exp and exp[-1]["data"]["terminal"] is False
     s = slot(p)

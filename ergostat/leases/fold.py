@@ -17,7 +17,9 @@ The item's field ``lease`` (ergostat's own: an event's data never replaces it):
   stays where the work moved it); nack, given back: to ``back``, its attempt counted unless ``count`` is false, and not
   taken again before ``after`` seconds, or, with ``news``, before the first event about it its own runs did not cause
   (a webhook's: the review it waits for);
-- ``expired`` (run, fence, silent): silent past its TTL: to ``back``, its attempt counted;
+- ``expired`` (run, fence, silent, expires): silent past its TTL: to ``back``, its attempt counted. Refused when the
+  lease was renewed after the watchdog judged it (its ``expires`` now later than the one the event names): a renewal
+  recorded between the watchdog's look and its write wins;
 - ``redriven`` (to, why): a dead letter given another go: to ``to`` (else ``back``), its attempts from nothing.
 
 A counted attempt that reaches ``max`` moves the item to ``dead`` instead. An event about the item caused by a run
@@ -81,6 +83,8 @@ def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | N
             last = next((h for h in reversed(cur.get("history") or []) if h.get("fence") == d.get("fence")), None)
             return None, (f"lease {d.get('fence')} is not held: it ended ({last.get('how')})" if last and last.get("how")
                           else f"lease {d.get('fence')} is not the one held ({cur.get('fence') or 'none'})")
+        if t == EXPIRED and d.get("expires") is not None and float(cur.get("expires") or 0) > float(d["expires"]):
+            return None, f"renewed since it was judged expired: it expires at {cur['expires']:.1f} now, not {float(d['expires']):.1f}"
         if t == RENEWED:
             lease["renewed"] = max(now, float(cur.get("renewed") or 0))
             lease["expires"] = lease["renewed"] + float(cur.get("ttl") or 0)
