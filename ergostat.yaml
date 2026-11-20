@@ -95,7 +95,8 @@ items:
     show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
-                                     # one waiting on a parked gap is held by its field waits_on_parked (takes: where)
+                                     # one waiting on a parked gap is held by its field waits_on_parked (takes: where);
+                                     # one whose fast suites failed only on main's own failures, by waits_on_main
       parent: gap                    # a sub-gap of a split (plan.py)
     fold:
       rounds: sum
@@ -155,12 +156,13 @@ items:
 
   flake:
     id: flake/*
-    description: a test that failed in the merge queue and passed alone - counted each time, until fixed
-    states: [seen, fixed]
+    description: a test that failed in a suite and passed alone (seen) - counted each time, until fixed; or one that fails on main too (main-broken, the implementor's triage, dev/bin/onmain.py)
+    states: [seen, main-broken, fixed]
     on:
       flake.seen: seen
+      flake.main-broken: main-broken   # failed on a branch and on clean main: main's, not the gap's
       flake.fixed: fixed
-    show: [test, times]
+    show: [test, times, main]
     fold: {times: sum, gaps: union}
 
   intervention:
@@ -171,6 +173,7 @@ items:
       intervention.recorded: open
       intervention.remedied: remedied
     show: [reason, class, remedy]
+    fold: {tests: union, gaps: union}  # (class main-broken: one per main commit, every gap held by it)
 
   pool:
     id: pool/*
