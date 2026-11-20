@@ -797,14 +797,14 @@ the record measured before now (`numbers/etamodel.py`: two weeks, each kind's la
 - **Arrivals:** new items at the record's rate per kind (a batch brought in at one moment is not a rate), into the
   states they arrive in, competing for the same capacity.
 
-200 runs at most, within eight seconds, a fixed seed (each run its own, so the same record gives the same
+200 runs at most, within five seconds, a fixed seed (each run its own, so the same record gives the same
 estimates), 90 days ahead at most (past that: "beyond the horizon"). Per item: its **p50** and **p90** finish, its
 expected start, what it waits in now (a block, or a state), its place in that block's queue, and why, in words ("6
 of 6 busy in dev; 34 ahead of it; a run takes 18m (median)"); per kind, when its last open item finishes (p50, p90).
 The schedule the Timeline draws is the run whose last finish is the median's: never more runs in a block at once
 than its capacity, each in a lane. The Items page's list gives each open item's p50 (**done by**, the p90 beside it
 and why in its title), and an item's page its estimate and why. Worked out in a thread, never on a page's request: a
-page is given the latest, and the next is worked out when the record changed (at most every ten seconds, and every
+page is given the latest, and the next is worked out when the record changed (at most every thirty seconds, and every
 two minutes regardless); of now only (a moment travelled to has none), and not in a snapshot. The owner's what-if
 (`block.NAME.pool`, `block.NAME.failure`: a share of its runs given back, `0.2` or `20%`; typed beside each block's
 identified model) is worked out the same way, apart, and drawn on the same pages.

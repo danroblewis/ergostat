@@ -62,3 +62,48 @@ a new `block.NAME.failure`) changes the estimates.
 800 net non-test lines (outside `tests/` and `docs/`), raised from 600 by the coordinator when the owner refined the
 brief (survival analysis, a semi-Markov path, measured rates and the ablation backtest on top of the queueing
 simulation).
+
+## Where it stopped
+
+Built as defined, with one component dropped by the backtest, and over the budget (below).
+
+**The backtest with ablations** (`tests/eta_backtest.py`: at past moments, each open item's finish estimated from the
+record before it alone, against when it finished; MAE of the p50 in minutes, bias = p50 − actual, coverage = the
+share finished by their p90). Each row adds a component to the one above; the last takes arrivals out of the full set.
+
+| components | owner's case: items, MAE, bias, p90 | steady, overloaded (6/h, pool 3) | steady, ρ ≈ 0.7 (3/h) | ticket-factory record (47 tickets) |
+|---|---|---|---|---|
+| path (semi-Markov, ended stays drawn whole) | 256, 173, −169, **0.36** | 298, 317, −28, 0.74 | 109, 209, −10, 0.91 | 33, 1.0, +0.1, 0.88 |
+| + survival (Kaplan–Meier, residual given age) | 256, 152, −128, 0.59 | 280, 285, −161, 0.85 | 109, 213, −64, 0.97 | 33, 1.6, +1.4, 1.00 |
+| + queues (capacity, recorded runs that succeeded) | 256, 62, −46, 0.81 | 278, 214, −129, 0.91 | 109, 214, −170, 0.81 | 33, 5.9, +5.7, 0.91 |
+| + leases (lease age, failed and expired runs) | 256, 65, −50, **0.84** | 259, 242, −85, 0.99 | 109, 211, −85, 0.90 | 33, 1.1, +1.1, 1.00 |
+| all but arrivals | 256, 64, −51, 0.80 | 300, 221, −114, 0.75 | 109, 212, −112, 0.74 | 33, 11.0, +11.0, 1.00 |
+
+The owner's case is a synthetic record (`tests/eta_synthetic.py`, a truth simulated apart): a day at 2 tickets an
+hour, then 100 brought in at once, a dev pool of 6, runs lognormal (median 20 min), 10% failing, 10% sent back by
+review; cuts 15 min, 2 h and 4 h after the batch. The steady records are 48 h at 6 and 3 an hour, a pool of 3, 15%
+failing, 30% sent back; cuts at 8, 16, 24 and 32 h. The ticket-factory record is the offline demo's (47 tickets over
+15 minutes, its fakes; cuts at 20 to 65% of it).
+
+**What stays:** queues (they halve the error and lift the p90's coverage from a third to 0.81 where capacity binds,
+the owner's case), leases (rework: coverage back to about 0.9 everywhere, the ticket-factory record's error back to
+the path's), survival (better where items wait long, the owner's and the overloaded case; even elsewhere), and
+arrivals (coverage falls without them in two of four). **Dropped:** a cap on a block's servers from its throughput
+measured while it had a backlog (Little's law): it changed no estimate in any of the four (its rows were identical to
+the queues'), so its code went. The coordinator's record could not be backtested: its `work` items go round
+(`ready → reported → accepted → ready`) and finish only as dead letters (1 of 192 open items finished after the cut).
+
+**The owner's case** (`test_the_owners_case_100_tickets_6_leases`): 100 tickets, a pool of 6: the last finish is
+within 0.85 to 1.35 of 100 / 6 × the mean run (24 min) × the runs each needs (1 / 0.9 / 0.9) ≈ 8.2 h; on the demo the
+legend said "last of 102 ticket done in about 9.1h (p90 11h)" where the critical path's projection said 56 min.
+**Erlang C:** an M/M/c queue (c = 3, ρ = 0.8) waits within 12% of Erlang C's Wq.
+
+**Size: 886 net lines, 86 over the 800.** The refined brief's survival curves (68), the path's fundamental matrix
+(23) and the levelled Timeline's Lanes (about 60 in relations.js) came on top of the queueing simulation; the backtest
+itself was moved into `tests/`, and the measured-rate cap was removed. Nothing else is left to cut without dropping
+part of the definition of done.
+
+**Left:** a goal that gates a block is not simulated (it takes whenever it has room); ticket-factory's workspace pool
+(held from `work` to `close`) is a capacity no block declares, and its record's `work` gives tickets back every ten
+seconds while the AI seat is busy, which the simulation replays as rework: a run on that record is slow, and the
+budget cut it to 3 runs on the screenshot's page (`eta-shots/ticket-factory-item.png`).
