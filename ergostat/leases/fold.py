@@ -120,16 +120,30 @@ def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | N
     return to, None
 
 
-def refused_expiries(events, spec, evs: list[dict]) -> set[str]:
+def refused_expiries(events, spec, evs: list[dict], items: dict | None = None, ix=None) -> set[str]:
     """Of these events, the ``expired`` ones the fold refused (the lease renewed after the watchdog judged it, written
     in the moment between its last look and its write): not expiries, for whatever reads the record raw (the
-    workspaces, the measures, the estimates). Each item with one is folded once."""
+    workspaces, the measures, the estimates). What each item refused is read from ``items`` (folds the caller already
+    has, by id), else from the item index (``ix``, or the record's: it keeps each item's ``refused``, caught up), and
+    only an item neither holds is folded, its transcript left out (a lease's fold never reads one)."""
     from ..spec import items as its
-    out: set[str] = set()
-    for item in sorted({e.get("item") for e in evs if e["type"] == EXPIRED and e.get("item")}):
-        it = its.one(events, spec, item)
-        out.update(r["event"] for r in (it.refused if it else []) if r.get("type") == EXPIRED)
-    return out
+    want = sorted({e.get("item") for e in evs if e["type"] == EXPIRED and e.get("item")})
+    if not want:
+        return set()
+    got: dict = {i: items[i] for i in want if items and i in items}
+    rest = [i for i in want if i not in got]
+    if rest:
+        ix = ix if ix is not None else its._index(events, spec, False)
+        if ix is not None:
+            with ix.lock:
+                got.update({it.id: it for it in ix.items(ids=rest, moves=False)})
+    for item in want:
+        if item not in got:
+            got_evs = events.query(n=None, item=item, skip=(its.TRANSCRIPT_TYPES,))
+            got[item] = its.fold(item, got_evs, its.kind_of(spec, item), transcript=False) if got_evs else None
+    ids = {e["id"] for e in evs if e["type"] == EXPIRED}
+    return {r["event"] for it in got.values() if it is not None for r in it.refused
+            if r.get("type") == EXPIRED and r.get("event") in ids}
 
 
 def fenced(it, e: dict) -> str | None:
