@@ -140,7 +140,7 @@ params:
     description: 'the longest before each window its replay starts (the judge''s own default: 6h)'
   accept:
     type: any
-    description: 'who writes a change the judge passed: owner or auto, or a map of kind (parameter, equation, structure, description, unit, rename, redesign) to either (the judge''s own default: owner for every kind; a change that rewires a chain or removes a part always waits for the owner; a redesign is written by the judge only when named, redesign: auto, never by accept: auto)'
+    description: 'who writes a change the judge passed: owner or auto, or a map of kind (parameter, equation, structure, description, unit, rename, redesign) to either (the judge''s own default: owner for every kind; accept: auto promotes parameter, equation, structure, description and unit; a rename and a redesign only when named, rename: auto, redesign: auto; a change that rewires a chain or removes a part, and a redesign that changes control, always wait for the owner; a redesign is judged on the record it has, its fit allowed 10% worse)'
 items:
   session:
     if: ${sessions}
