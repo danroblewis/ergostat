@@ -205,23 +205,28 @@ def spent(p, now: float | None = None) -> float:
     return round(sum(float((e.get("data") or {}).get("usd") or 0.0) for e in p.events.query(n=None, type=RAN, since=now - DAY)), 6)
 
 
-def run(p, model: str = "haiku", most: int = 3, left: float = 1.0, timeout: float = 600.0, call=None, on_call=None) -> dict:
+def run(p, model: str = "haiku", most: int = 3, left: float = 1.0, timeout: float = 600.0, call=None, on_call=None,
+        room=None) -> dict:
     """One pass: each change waiting for a review, while the day's allowance ``left`` lasts (no call starts that could cost
-    more than is left). Returns ``{"verdicts", "cost"}``."""
+    more than is left). ``room()``, if given, is what is left of the day's cap, read again before each call and held
+    against it while the call runs (``redesign.held``). Returns ``{"verdicts", "cost"}``."""
     from . import modeller as md
+    from . import redesign as rd
     call = call or md.call
     spec: Spec = p.model.spec
     out = {"verdicts": [], "cost": {"usd": 0.0, "calls": 0}}
     for x in due(p, spec)[:most]:
         text = prompt(p, spec, x)
-        if out["cost"]["usd"] + md.unsaid(text, model)["usd"] > left:     # its dearest: never past the cap
-            out["verdicts"].append({"id": x["id"], "verdict": None, "why": "the day's allowance is spent"})
-            break
-        got = call(text, model, timeout)
-        usd = float(got.get("usd") or 0.0)
-        out["cost"]["usd"] = round(out["cost"]["usd"] + usd, 6)
-        out["cost"]["calls"] += 1
-        p.events.add(RAN, source="reviewer", data={"change": x["id"], "usd": usd, "model": model})
+        dearest = md.unsaid(text, model)["usd"]
+        with rd.held(p, dearest, room, by="reviewer") as fits:
+            if not fits or out["cost"]["usd"] + dearest > left:     # its dearest: never past the cap
+                out["verdicts"].append({"id": x["id"], "verdict": None, "why": "the day's allowance is spent"})
+                break
+            got = call(text, model, timeout)
+            usd = float(got.get("usd") or 0.0)
+            out["cost"]["usd"] = round(out["cost"]["usd"] + usd, 6)
+            out["cost"]["calls"] += 1
+            p.events.add(RAN, source="reviewer", data={"change": x["id"], "usd": usd, "model": model})
         if on_call is not None:
             on_call(got)
         v = parse(got.get("result") or "")

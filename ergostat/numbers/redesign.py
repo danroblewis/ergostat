@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import contextmanager
 
 from ..spec.ir import Spec
 from . import changeset as cs
@@ -25,6 +26,7 @@ from . import version as ver
 KIND = "redesign"
 ASKED = "ergostat.model.redesign-asked"
 RAN = "ergostat.model.redesign-ran"
+HELD = "ergostat.model.ai-held"         # a call's dearest, held against the daily cap while it runs (+usd, then -usd)
 
 
 def settings(spec: Spec) -> dict:
@@ -357,7 +359,27 @@ def spent(p, now: float | None = None, reviewer: bool = True) -> float:
     from . import reviewer as rv
     now = now or time.time()
     return round(sum(float(((e.get("data") or {}).get("cost") or {}).get("usd") or 0.0)
-                     for e in p.events.query(n=None, type=RAN, since=now - DAY)) + (rv.spent(p, now) if reviewer else 0.0), 6)
+                     for e in p.events.query(n=None, type=RAN, since=now - DAY)) + (rv.spent(p, now) if reviewer else 0.0)
+                 + sum(float(d.get("usd") or 0.0) for d in (e.get("data") or {} for e in p.events.query(n=None, type=HELD, since=now - DAY))
+                       if reviewer or d.get("by") != "reviewer"), 6)
+
+
+@contextmanager
+def held(p, usd: float, room=None, by: str = "redesigner"):
+    """A call's dearest (``usd``) checked against what is left of the day (``room()``, read again now) and held against
+    the cap under one lock, so the reviewer and the redesigner running at once never both spend one remainder. Yields
+    whether it fits; the hold is let go once the call is over and charged, and kept for the day if the call raises
+    (failing closed). Without ``room`` nothing is held."""
+    if room is None:
+        yield True
+        return
+    with pr.locked(p):
+        ok = usd <= room()
+        if ok:
+            p.events.add(HELD, source=by, data={"usd": usd, "by": by})
+    yield ok
+    if ok:
+        p.events.add(HELD, source=by, data={"usd": -usd, "by": by})
 
 
 def last(p) -> dict | None:
