@@ -54,18 +54,19 @@ while (m := q.get())["op"] != "stop":
     if "leave" in mode and count == 1:
         k = subprocess.Popen(["sleep", "600"]); open("kid.pid", "w").write(str(k.pid))
     end = time.time() + float(f.get("sleep", 0.05))
-    stopped = False
+    stopped = asked = False
     while time.time() < end and not stopped:
         try:
             c = q.get(timeout=0.02)
             stopped = c.get("op") == "cancel" and c.get("run") == r
+            asked = asked or c.get("op") == "stop"   # (asked to stop during the run: it ends after this one)
         except queue.Empty:
             pass
     if not stopped:
         say(event="ticket.done", run=r)
     say(done=1 if stopped else 0, run=r)
     last = r
-    if "once" in mode:
+    if "once" in mode or asked:
         break
 '''
 
