@@ -4771,32 +4771,45 @@ each open failure, leased (section 9.5), and:
    nothing else is ever written) and commits it;
 4. **tests** it in `ergostat.sandbox` (section 12q) on a throwaway copy of the clone's files without `.git`: reads only
    the copy and the toolchain, writes only the copy and its temporary folder, an environment with no ergostat or test
-   marker, every process it started killed. A block that says `read-only: true` (its program changes nothing outside)
+   variable, every process it started killed. A fix can still tell it is sandboxed (its home folder is unreadable, it
+   has no DNS), so a test shows only that it ran well there, not how it behaves outside. A block that says `read-only: true` (its program changes nothing outside)
    is re-run with the input that failed; its `network:` hosts are reachable through the sandbox's proxy for `GET` and
    `HEAD` only (an HTTPS host gets no tunnel, its methods unchecked inside TLS). Any other block runs the template's
-   `test:`; without one the fix is **untested**, said. The output is scrubbed and kept (`test`, `tests`).
+   `test:`; without one the fix is **untested**, said. The output is scrubbed and kept (`test`, `tests`), and what it
+   showed is said as it is: "exited 0 on the input that failed, in the sandbox", or "its test (CMD) exited 0 in the
+   sandbox", never "tests passed".
 5. A fix that failed its test is recorded (`fix-failed`) and the failure **given back** (a lease attempt: the fixer is
    told what its last fix did; a dead letter after `tries`). Passed or untested: the **impact report** (section 12n) is
    worked out for the failure (at most 20 seconds) and kept with it (`impact`, `risk`, the report as `repair/NAME.impact.json`),
-   and the gated action **`apply-fix`** is asked for (section 12k): the fix proposed as a gated change, in the inbox
-   (section 12o) with its impact sentence and its tests.
+   and the gated action **`apply-fix`** is asked for (section 12k), its `key` naming the failure and the fix's commit:
+   the fix proposed as a gated change, in the inbox (section 12o). The inbox says it plainly: "Approving merges this
+   code into your repository; it then runs with your rights, outside the sandbox", then the link to the diff (the
+   failure's page), what the test showed and the impact sentence; the action's description says the same.
 
-A failure the AI cannot fix, a refused proposal, or git refusing is given back with why.
+A failure the AI cannot fix, a refused proposal, git refusing, or an AI call not answered within its time is given
+back with why.
 
 **The ladder's first two rungs** (invariant 5; the rest are left for later). `approver: person`: `apply-fix` is held for
 the owner, answered from the inbox, the CLI or the failure's page. `approver: ai`: the **AI approver** (the same model,
-no tools, the prompt `ergostat/repair/approver.md`) reads the diff, the explanation, the test and the impact report, and
-answers approve or not, with reasons. A **guard** comes first: it may approve only a fix whose tests passed and whose
-risk is not high (with no impact report, the risk is high); else it is not asked. Its answer and the guard's are the
-**approval record** (`ergostat.failure.reviewed`: `approval: {by, model, verdict, reasons, guard, action}`). It sees the
-whole diff, never a cut one. Approved, and only while the action is still held (a person's answer first stands), the
-action is approved `by: "ai approver (MODEL)"` and run by the engine's sweep; escalated, it stays held for the
+no tools, a system prompt of its own and the prompt `ergostat/repair/approver.md`) is given **only the program's path,
+the whole diff and whether the test passed**: never the test's output, the fixer's explanation or its prompt, which a
+fix could use to steer it. It answers approve or not, with reasons. A **guard** in code comes first
+(`ergostat/repair/guard.py`), and the AI is not asked when it finds anything: a test that did not pass, a high risk
+(with no impact report the risk is high), more than 40 lines changed, a program that is not Python (its changes cannot
+be read so), or, comparing the program's syntax before and after, anything the fix adds of: an import; a use of
+`subprocess`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `os.environ`, `os.getenv`, `socket`, `eval`, `exec`,
+`compile`, `__import__`, `getattr`, `importlib`, `shutil`, `urllib`, `requests`, `http`, `ctypes`, `pickle`, `open`,
+`write_text`, `write_bytes`, file removal or renaming; a string literal that is a URL or a path. Its answer and the guard's are the
+**approval record** (`ergostat.failure.reviewed`: `approval: {by, model, verdict, reasons, guard, action}`). Approved,
+and only while the action is still held, the action is approved `by: "ai approver (MODEL)"` and run by the engine's sweep; escalated, it stays held for the
 person. The inbox's record counts an AI approver's answers apart (`by_agent`), never as a person's, and never in the
 approvals asked of a person in a day. What an approved fix then does runs with the owner's rights, as the program it
-replaces did: the approver is told to escalate anything that adds network, files, credentials or commands.
+replaces did. **A denial is final** (section 12k's fold, `actions/record.py`): an approval recorded after an
+action's denial, whoever wrote it and however the two raced, is ignored and listed as such (`ignored`), the action
+stays denied, and it is never run.
 
 **Applying** (`python -m ergostat.repair apply`, the approved action, in the model's folder): the failure must be
-awaiting approval with a tested fix; the clone's metadata must be what ergostat made and its `HEAD` the tested commit;
+awaiting approval with a tested fix; the approved action's `key` must name that fix; the clone's metadata must be what ergostat made and its `HEAD` the tested commit;
 the owner's `HEAD` must still be the commit the fix was made on (else refused: fixed again on the new one). Then the
 tested commit is fetched from the clone and fast-forwarded (`git merge --ff-only`, which refuses atomically when the
 branch moved or a local change would be overwritten), and the clone removed. Refused, the failure goes back to open
@@ -4807,7 +4820,7 @@ removes the clones of failures applied, dismissed or dead.
 run's, section 9.1, and nothing the AI wrote is read as one of the run's lines). Before every call the loop's ledger
 (`repair/spend.jsonl`, under a lock) is read: the day's spend plus the call's `budget` must not pass `daily`; a ledger
 that cannot be read means no call (it fails closed). The whole budget is written before the call and corrected after
-it to what it said it cost, so a run killed mid-call still counts it, and a call whose cost is not said counts whole.
+it by the difference to what it said it cost (either way), so a run killed mid-call still counts it, and a call whose cost is not said counts whole.
 Each AI call and the test get a quarter of the block's `timeout`, so the three end before the run is killed. A
 capped failure is given back for an hour, not counted as an attempt. `repair-spend` charts the fixer's cost.
 

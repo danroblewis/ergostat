@@ -93,3 +93,22 @@ time, rc 0, no skips; `uv run ruff check ergostat tests scripts`.
 ## Size budget
 
 **600 net lines outside `tests/` and `docs/`** (the template's YAML and the prompts counted).
+
+## Where it stopped / overrun
+
+Built as defined, then two review rounds. The first (Opus, before the gate) found B1 (an AI approval landing over a
+person's denial), B2 (a diff cut at 20,000 characters, hiding a payload past the cut), B3 (a run killed mid-call left
+its spend unrecorded) and two mediums (an uncommitted program re-fixed for ever; a program not given whole), each fixed
+with a test (`test_r1_...` to `test_r4_...`). The gate review (merge after fixes, its one round) asked for: the AI
+approver shown only the diff and pass or fail, behind a guard in code comparing the program's syntax before and after
+(`ergostat/repair/guard.py`: new imports, processes, network, environment, writes, URL and path literals, over 40
+lines, not Python), each with a malicious fix (`test_g1_...`); a denial final in the action fold, tested with a denial
+written between the check and the write (`test_g2_...`); the approval point saying plainly that approving merges code
+that then runs with the owner's rights, and the test described as what it showed; the ledger corrected either way, a
+timed-out AI call a nack, apply checking the action's key against the fix; tests for a committed `.gitattributes`
+filter, a symlinked folder and a call over budget (`test_g3_...` to `test_g5_...`).
+
+**Overrun: 667 net lines against 600.** 579 before the gate review; its round added about 90 (the guard, 42; the AI
+approver's narrowed input and its own system prompt; the final denial in the action fold; the inbox's sentence; the
+key check, the ledger's correction and the timeout's nack), none of it optional: each closes a way to apply code the
+owner did not see or decide on.
