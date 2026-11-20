@@ -72,3 +72,9 @@ Round 2, answering review/state-times-1, every finding:
   round; the gate sums those. Builds recorded before this have only their last try (`suites_fast`); the README says so.
 - **The setpoints (not blocking).** Still first guesses: there is still no instance record in this clone. The step
   left is the same: `python3 dev/bin/times.py setpoints` once in the instance's folder.
+
+Round 2, the fast suites: the `unit` run after round 2 stopped part way through 92% with no failure, no pytest summary
+and no line from `suite_watch.py`. Something outside the suite stopped it (the container or the slot); no test failed
+in the output. Run alone here, `tests/test_factory_times.py`, `tests/test_factory.py`, `tests/test_factory_knowledge.py`
+and `tests/test_ticket_factory_daemons.py` pass (70 passed, 2 skipped). This session was not allowed to run the whole
+unit suite again, so the code was not changed. The step left is the factory's own unit run, under the watchdog.
