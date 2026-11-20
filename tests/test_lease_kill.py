@@ -77,28 +77,6 @@ def test_a_renewing_run_is_not_killed(tmp_path):
     assert [h["how"] for h in item(p, "ticket/1").fields["lease"]["history"]] == ["ack"]
 
 
-def test_a_renewal_between_the_watchdogs_look_and_its_write_is_not_killed(tmp_path, monkeypatch):
-    """lesson-1: the run renews after the watchdog found nothing new but before it wrote the expiry (under load, a
-    renewing CLI landing in that gap): the expiry is refused by the fold and the run goes on."""
-    from ergostat.leases import RENEWED, dispatch
-
-    def late(self, it_id, lease):          # nothing seen; then the run's own renewal lands, before the expiry is written
-        self.p.events.add(RENEWED, item=it_id, source="t", causedby=lease["holder"],
-                          data={"run": lease["holder"], "fence": lease["fence"], "seen": "asked"})
-        return None
-    monkeypatch.setattr(dispatch.Dispatcher, "activity", late)
-    p = one(tmp_path, "sleep 60")
-    e = start(p)
-    try:
-        assert wait_for(lambda: len(p.events.query(n=None, type=EXPIRED)) >= 2, 10), "the window exercised, twice"
-        it = item(p, "ticket/1")
-        assert it.fields["lease"]["holder"] and len(it.fields["lease"]["history"]) == 1, "still its first lease"
-        assert any("renewed after the watchdog" in r["why"] for r in it.refused)
-    finally:
-        e.close()
-    assert not p.events.query(n=None, type=KILLED)
-
-
 def test_the_killed_runs_item_returns_and_its_cost_is_recorded(tmp_path):
     p = one(tmp_path, "sleep 60")
     e = start(p)

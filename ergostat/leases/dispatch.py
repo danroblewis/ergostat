@@ -314,17 +314,15 @@ class Dispatcher:
                                       data={"run": lease["holder"], "fence": lease["fence"], "seen": "activity"})
                     continue
                 silent = now - float(lease.get("renewed") or lease.get("taken") or now)
-                ev = self.p.events.add(EXPIRED, item=it.id, source=SOURCE,   # (refused by the fold if renewed since)
-                                       data={"run": lease["holder"], "fence": lease["fence"],
-                                             "renewed": lease.get("renewed"), "block": lease.get("block"),
-                                             "silent": round(silent, 1), "ttl": ttl, **self.after(it, lease, True)})
+                self.resources(self.p.events.add(EXPIRED, item=it.id, source=SOURCE,
+                                                 data={"run": lease["holder"], "fence": lease["fence"],
+                                                       "block": lease.get("block"), "silent": round(silent, 1), "ttl": ttl,
+                                                       **self.after(it, lease, True)}))
                 after = its.one(self.p.events, self.spec, it.id)
                 last = ((after.fields.get("lease") or {}).get("history") or [{}])[-1] if after else {}
-                if not (last.get("fence") == lease["fence"] and last.get("how") == "expired"):
-                    continue                                     # renewed between the look and the write: it holds on
-                self.resources(ev)
-                kill(self.e, lease["holder"], f"its lease on {it.id} expired: silent {silent:.0f}s, its TTL {ttl:g}s",
-                     it.id, lease["fence"], lease.get("block"))
+                if last.get("fence") == lease["fence"] and last.get("how") == "expired":   # (not renewed meanwhile)
+                    kill(self.e, lease["holder"], f"its lease on {it.id} expired: silent {silent:.0f}s, its TTL {ttl:g}s",
+                         it.id, lease["fence"], lease.get("block"))
                 dead = after is not None and after.state == DEAD
                 self.e.say(f"{lease.get('block')}: the lease on {it.id} expired (silent {silent / 60:.1f} min)"
                            + (": a dead letter now" if dead else ""))

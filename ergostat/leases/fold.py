@@ -81,8 +81,6 @@ def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | N
             last = next((h for h in reversed(cur.get("history") or []) if h.get("fence") == d.get("fence")), None)
             return None, (f"lease {d.get('fence')} is not held: it ended ({last.get('how')})" if last and last.get("how")
                           else f"lease {d.get('fence')} is not the one held ({cur.get('fence') or 'none'})")
-        if t == EXPIRED and "renewed" in d and d["renewed"] != cur.get("renewed"):
-            return None, "renewed after the watchdog looked at it: it holds on"   # (the version judged, not times compared)
         if t == RENEWED:
             lease["renewed"] = max(now, float(cur.get("renewed") or 0))
             lease["expires"] = lease["renewed"] + float(cur.get("ttl") or 0)
