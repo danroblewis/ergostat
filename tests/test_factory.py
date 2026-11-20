@@ -579,9 +579,9 @@ def test_containers_reach_only_the_api_and_return_a_bundle(tmp_path):
     f = Factory(tmp_path)
     code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac, agents; cfg = fac.config(); "
             "cfg['ai']['mode'] = 'container'; home, work = agents.clone(cfg, 'alpha-thing', 'implementor'); "
-            "base = fac.git(work, 'rev-parse', 'origin/main'); agents.publish(cfg, work, 'alpha-thing'); "
+            "base = fac.git(work, 'rev-parse', 'origin/main'); was = agents.publish(cfg, work, 'alpha-thing'); "
             "(work / 'made-inside.txt').write_text('x'); "
-            "print(json.dumps([agents.finish(cfg, home, 'alpha-thing', base, base), str(home)]))")
+            "print(json.dumps([agents.finish(cfg, home, 'alpha-thing', base, base, was=was), str(home)]))")
     r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True,
                        timeout=600)
     assert r.returncode == 0, r.stderr[-800:]
@@ -978,6 +978,28 @@ def test_a_conflicted_merge_is_handed_to_the_session_with_its_conflicts(tmp_path
     head = f.item(gid)["fields"]["head"]
     assert subprocess.run(["git", "-C", str(drop), "merge-base", "--is-ancestor", main, head]).returncode == 0
     assert git(drop, "show", f"{head}:app.py") == "print('main')"             # the session's resolution kept
+
+
+def test_a_branch_moved_by_another_writer_during_the_session_is_not_overwritten(tmp_path):
+    f = Factory(tmp_path)
+    drop = tmp_path / "live" / "drop.git"
+    code = ("import sys, json, subprocess; sys.path[:0] = [sys.argv[1]]; import fac, agents; cfg = fac.config(); "
+            "home, work = agents.clone(cfg, 'alpha-thing', 'implementor'); "
+            "base = fac.git(work, 'rev-parse', 'origin/main'); was = agents.publish(cfg, work, 'alpha-thing'); "
+            "d = agents.drop(cfg); tree = fac.git(d, 'rev-parse', was + '^{tree}'); "
+            "other = fac.git(d, 'commit-tree', tree, '-p', was, '-m', 'another writer'); "
+            "fac.git(d, 'update-ref', 'refs/heads/factory/alpha-thing', other); "   # (in the session's gap)
+            "(work / 'made-inside.txt').write_text('x'); out = [other]\n"
+            "try:\n    out.append(agents.finish(cfg, home, 'alpha-thing', base, base, was=was))\n"
+            "except RuntimeError as e:\n    out.append(str(e))\n"
+            "print(json.dumps(out))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True,
+                       timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    other, said = json.loads(r.stdout.strip().splitlines()[-1])
+    assert "moved" in said and "refused" in said                                # not moved over the other write
+    assert git(drop, "rev-parse", "factory/alpha-thing") == other              # the other writer's commit kept
+    assert git(drop, "for-each-ref", "refs/incoming/") == ""
 
 
 def test_gate_one_accepts_a_continued_branch_definition(tmp_path):
