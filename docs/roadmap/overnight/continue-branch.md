@@ -40,3 +40,15 @@ code was found. Run alone, one file at a time: `tests/test_factory.py` (30 passe
 `tests/test_review.py` (43): all pass. The whole suite was not run here (the session was refused it). Left: the
 factory's run of the fast suites again, and main (e1bf9ed) merged into the branch: this session was refused
 `git merge`, which is this gap's own subject (implement.py merges main before a session once this is on main).
+
+Round 3: no code changed. Both earlier findings were already answered in round 2 (1e3b6d9): reviews are numbered
+past the highest review/<branch>-N in the record (review.py `next_review`) and run logs are named by when the run began
+(fac.py `run_tag`); `agents.finish` fetches the session's head to `refs/incoming/...` and moves the drop's branch only
+when the head holds the definition's commit and main (the stand-in test that aborts the merge and commits covers it).
+This session was refused `git merge main` again, so the branch is still based on 1845203. Main is now 3908bc2 (adds
+local-settings and the $80 cap). Its overlap with this branch is `dev/README.md` and `tests/test_factory.py`, in
+different hunks; no merge was tried, so no conflict is known. Re-run here, one file at a time: `tests/test_factory.py`
+(30 passed, 2 skipped for want of Docker); `tests/test_factory_knowledge.py`, `tests/test_ticket_factory_daemons.py`,
+`tests/test_intake.py` and `tests/test_review.py` (69 passed); ruff clean. Left, and outside this session's reach: main
+merged in by a session or person allowed to run `git merge`, then the factory's fast suites on the merged tree. The
+round-2 `unit` run that was cut off has not been run again.
