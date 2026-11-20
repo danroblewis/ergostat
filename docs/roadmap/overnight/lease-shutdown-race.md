@@ -315,3 +315,19 @@ FAILED tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessio
   stopped before its summary.
 - **Still open:** a green unit run, and the 30 loaded `-n 8` runs of the restart test (the DoD's last acceptance
   line). The gap is not done.
+
+### Round 6 (no code changed; the one open line is still the loaded runs)
+
+- **The findings in the brief, each answered (lesson-12).** *The restart test's fixed sleep:* fixed in round 3, and
+  still fixed. The test has no `sleep`, judges the record by `seq`, and was seen to fail with the pool count broken.
+  *The 30 loaded `-n 8` runs:* still not run (below).
+- **The 30 loaded runs: refused again.** This session's harness refused one watchdogged run
+  (`scripts/suite_watch.py -- pytest -n 8 tests/test_leases.py`), as it did in rounds 1 to 5. I did not get around
+  that. Every implementor round has hit the same refusal, so another implementor round cannot clear this line.
+  **Decision taken alone (reversible):** no code changed, because there is no measurement to act on. The factory
+  should either record the 30-run counts here from its own watched run, or park the gap with this line as the only
+  thing left.
+- **The merge of main (213339b, `main-broken`) touches nothing in `ergostat/`,** so the branch's code is the same as
+  it was in round 5.
+- **Ran serially:** `tests/test_leases.py` (26 passed); `test_lease_kill`, `test_leased_workspaces`, `test_daemons`,
+  `test_factory` (80 passed, 2 skipped). Ruff is clean. There is no remote, and local `main` is already merged.
