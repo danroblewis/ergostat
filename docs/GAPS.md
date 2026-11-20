@@ -219,7 +219,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   lease's expiry, drained on a swap). The `warm` branch stays parked as reference (its definition file,
   `docs/roadmap/overnight/leasekill.md`, says where it stopped); its review's findings were taken as lessons: B4 (a
   `done` for another item) by tagging, B1 (env leaking between items) by env in the line, B3 (a child's CPU never
-  charged) by charging no item CPU at all (the daemon's own CPU and memory are sampled and shown).
+  charged) by charging no item CPU at all (the daemon's own CPU and memory are sampled and shown); a `warm: true`
+  daemon now charges it per item (*Done recently*).
 - **A renewing run killed because the engine was busy recording its renewal** (parked on `leaserenew`,
   `docs/roadmap/overnight/leaserenew.md`, *Where it stopped*). A renewal through the engine's socket is recorded only
   when the engine gets the GIL; the watchdog could expire the lease first and kill a run that asked in time (16 of 32
@@ -355,6 +356,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
   tree, and gate 1 for this salvage, which the coordinator judges by hand (its first commit is continue-branch.md).
 
 ## Done recently
+
+- **Warm processes for blocks** (done on `factory/warm3`, finishing `warm2` and `warm3`, each parked after two failed
+  gates; SPEC §9.7, `docs/roadmap/overnight/warm2.md`): `warm: true` on a daemon, a declared promise that the program
+  keeps no state between runs: `concurrency` processes, one run each at a time, each run charged its process group's
+  CPU (its reaped children's included); a process that misbehaves is restarted, one cancelled or past `recycle:`
+  replaced; `ergostat block NAME --check-warm FILE` tests the promise on one input. `main` (f158e00) was merged in on
+  2026-11-20 (2ca24c7), and the factory's gates ran the four suites on the merged tree (f2f1891) and passed them, as
+  review/warm3-3 reports. Measured: 100 items through five steps at `pool: 10`, end to end p50 0.57-0.81 s warm
+  against 1.31-1.34 s a process per item (89-116 against 49-56 items a second).
 
 - **The Blocks view crashed on a stock with no flows** (`IndexError` at the integrator's summing junction): drawn as an
   integrator with no inputs (8148f5f and e46dc45, `smallgaps`).
