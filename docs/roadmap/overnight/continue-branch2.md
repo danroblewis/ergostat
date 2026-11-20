@@ -192,3 +192,20 @@ want of Docker); `tests/test_factory_knowledge.py`, `tests/test_ticket_factory_d
 `tests/test_review.py` together (69 passed); ruff clean on ergostat, tests, scripts and dev/bin. Left: main (1f013ba)
 merged in by the factory or a person, then the fast suites on the merged tree; and gate 1 for this salvage, by the
 coordinator.
+
+## Where it stopped
+
+Round 3, after the factory's fast suites: `unit` failed
+`tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` again (1 failed, 1851 passed,
+69 skipped), the third time. No code was changed here. The fix for it is already on main, and the only way to bring it
+in is the merge this session was refused (the fifth refusal of `git merge main`).
+- The code it tests (ergostat/leases/dispatch.py) is identical on this branch to the merge base 553b955. Main's
+  leaserenew (05edbe5, a1fb62f; merged as 1f013ba) changes dispatch.py, fold.py, measures.py and terms.py
+  (116+/39-). With it, the watchdog expires a lease only after a second look, at least 1s later. That covers the race
+  rounds 1 and 2 found: a 1s TTL against a CLI's start-up.
+- Copying those files onto this branch by hand would put lease core code back on a branch whose review
+  (review/continue-branch-2, finding 4) required it removed. It would also be a hand copy of main rather than a merge
+  (inbox-dismiss-3's finding). So this was not done. The reversible step is the merge itself.
+- Left: someone allowed to run `git merge` merges main (1f013ba) into this branch. The merge base and main share no
+  changed file with this branch (see round 3 above), so the merge should be clean, though that has not been tried.
+  Then the fast suites run again on the merged tree. Gate 1 for this salvage is still the coordinator's.
