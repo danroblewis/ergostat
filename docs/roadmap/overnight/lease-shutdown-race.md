@@ -114,3 +114,37 @@ Round 1, built; one acceptance check not run here (below).
   together), and `test_streamed_output`, `test_runner_and_state`, `test_resilience`, `test_watchdog`,
   `test_reload_in_place` (91 passed). Ruff is clean. origin/main: there is no remote in this worktree, and local `main`
   is already merged (9427544).
+
+### Round 3 (review lease-shutdown-race-2)
+
+- **Blocking: the restart test's fixed sleep. Fixed.** `test_leases_survive_a_restart_the_fold_is_the_truth` no
+  longer sleeps 0.6 s and then reads the item. It waits for the expiry, then checks the record in `seq` order, which
+  holds however late a look comes (lesson-2, lesson-10):
+  - the first engine's lease ended only by its expiry (`how == "expired"`, the dead run's id), on the `expires` it was
+    taken with: the new engine read the lease and kept it;
+  - every take by the new engine has a higher `seq` than that expiry: the lease held counted against the pool until
+    it expired. This cannot pass by luck under load. The new engine's first pass looks before it takes, and that look
+    only marks the lease overdue. The expiry needs a second look a grace later, so a take that ignored the held lease
+    would land before the expiry.
+  - Seen to fail (lesson-9): with the pool count ignoring held leases (`mine = set()` in `tick`), the test fails on
+    the pool assertion. With the code restored, it passes.
+  - The TTL and timeouts were not raised. The only waits left (`wait_for`, up to 10 s and 5 s) are ceilings on events
+    that must come, not sleeps that decide the result.
+- **Blocking: the 30 loaded `-n 8` runs. Still not run, and still a blocker for "done".** In this session the
+  harness refused `scripts/suite_watch.py -- pytest -n 8` again, even a single run. I did not get around that. The
+  DoD's last acceptance line can only be met by the factory's watched run, which should record its counts here:
+  `suite_watch.py -- pytest -n 8 tests/test_leases.py`, 30 times with the CPU loaded. I make no claim that the test
+  no longer flakes under load. What changed: the one timing-dependent read it had (the fixed sleep) is gone, so
+  the expiry and pool assertions no longer depend on timing.
+- **Round 2's non-blocking findings, each answered (lesson-12):**
+  - *SPEC §9.5's "no item is left leased" (lesson-8).* Narrowed: a lease that could not be given back (the write
+    failed, or ergostat was killed) is expired by the next engine's watchdog on its TTL. The restart test covers
+    that path.
+  - *`take`'s `running.discard` outside `e.lock`.* All three discards in `take` are now under the engine's lock.
+  - *`give_back` after `close`'s wait ends the lease of a run that may still be going.* A comment at the call in
+    `engine.close` now says why this is safe for a new engine in the same process: once the lease ended, the fence
+    refuses that run's later lines about the item. No code change.
+- **Size:** 41 net lines outside `tests/` and `docs/` (comments included), of the 120 budget.
+- **Ran serially:** `test_leases` (25 passed), `test_lease_kill`, `test_leased_workspaces`, `test_daemons` (39
+  passed). Ruff is clean. There is no remote, and local `main` is already merged (485cc0e), so there is nothing newer
+  to merge.

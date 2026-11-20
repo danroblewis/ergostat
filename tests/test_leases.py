@@ -419,16 +419,21 @@ def test_leases_survive_a_restart_the_fold_is_the_truth(tmp_path):
     old.kill_all()
     held = item(p, "ticket/1").fields["lease"]
     second = start(Project(mdl.load(tmp_path)))
-    try:
-        time.sleep(0.6)
-        assert item(p, "ticket/1").fields["lease"]["holder"] == held["holder"], "the new engine reads the lease, and keeps it"
-        assert item(p, "ticket/2").state == "ready", "the pool is full: the lease held counts"
-        assert wait_for(lambda: item(p, "ticket/1").fields["lease"]["history"][0].get("how") == "expired", 5), \
-            "expired on its TTL"
-        assert wait_for(lambda: item(p, "ticket/2").state == "leased" or item(p, "ticket/1").state == "leased", 5)
+    try:                     # (no fixed sleep: what the record says, in its order, holds however late a look comes)
+        assert wait_for(lambda: p.events.query(n=None, type=EXPIRED, item="ticket/1"), 10), "expired on its TTL"
+        assert wait_for(lambda: len(p.events.query(n=None, type=TAKEN)) >= 2, 5), "then the next is taken"
     finally:
         second.close()
         old.STOPPING.clear()
+    ended = item(p, "ticket/1").fields["lease"]["history"][0]
+    assert ended.get("run") == held["holder"] and ended.get("how") == "expired", \
+        "the new engine reads the lease, and keeps it: nothing ends it but its expiry"
+    expired = p.events.query(n=None, type=EXPIRED, item="ticket/1")[0]
+    assert expired["data"]["expires"] == held["expires"], "expired on the expiry it was taken with"
+    # The second engine's first pass looks (and only marks it overdue) before its first take; the expiry needs a second
+    # look a grace later. So a take that ignored the lease held would come before the expiry in the record.
+    taken = [ev["seq"] for ev in p.events.query(n=None, type=TAKEN) if ev["data"]["run"] != held["holder"]]
+    assert taken and min(taken) > expired["seq"], "the pool is full: the lease held counts, till it expired"
     for i in (1, 2):                                         # stopped with ergostat: given back, not counted
         lease = item(p, f"ticket/{i}").fields["lease"]
         assert lease["holder"] is None

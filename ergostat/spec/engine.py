@@ -1749,7 +1749,10 @@ class Engine:
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:
             time.sleep(0.05)
-        self.dispatch.give_back()                    # a run still going: its lease given back, not counted (SPEC §9.5)
+        # A run still going: its lease given back, not counted (SPEC §9.5). Its process outlived kill_all (or a daemon
+        # still holds it): once its lease has ended, the fence refuses any line it still writes about the item, so a
+        # new engine in this same process (tests, a reload) that leases the item again is not moved by it.
+        self.dispatch.give_back()
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
 
 
