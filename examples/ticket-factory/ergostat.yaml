@@ -67,8 +67,8 @@ intake:
 # line of JSON instead of starting a process for it (README, "Daemons"). The short steps share one: their runs are
 # frequent (a ticket that waits on a reviewer or CI is looked at again every few seconds) and over in a moment. The
 # record's measures (factory/oversight.yaml), the Jira watcher (factory/intake.yaml) and the teammate
-# (factory/world.yaml) have theirs. `ergostat block steps --restart` after editing bin/ (factory.conf is read again
-# by itself); the Agents page shows each one, its restarts, CPU and memory, and its log is logs/daemon-NAME.log.
+# (factory/world.yaml) have theirs. `ergostat block steps --restart` after editing bin/ (README, "What changes with
+# them"); the Agents page shows each one, its restarts, CPU and memory, and its log is logs/daemon-NAME.log.
 daemons:
   steps:
     run: python3 bin/step.py serve

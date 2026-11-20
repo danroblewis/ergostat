@@ -17,8 +17,6 @@ flows:
     to: new
     description: issues labelled for the factory, as they appear in Jira
     sensor:
-      daemon:                        # its own: the one sensor that reads Jira, so Jira down takes nothing else with it
-        run: python3 bin/watch.py serve
-        restart: {max: 5, within: 10m, backoff: [2s, 5m]}   # rides out a short outage (it says why each reading)
+      daemon: {run: python3 bin/watch.py serve}   # its own: the one sensor that reads Jira (Jira down fails its readings only)
       every: 10s
       averages: 10m

@@ -84,7 +84,7 @@ SESSIONS = RUN / "sessions"              # each AI session's answer, linked from
 
 CURRENT: contextvars.ContextVar[dict | None] = contextvars.ContextVar("CURRENT", default=None)   # in a daemon: {run, env}
 _out = threading.Lock()
-_ended: set[str] = set()                 # a daemon's runs that said done (or were cancelled): their lines dropped
+_open: set[str] = set()                  # a daemon's runs under way, not yet done: only their lines are said
 
 
 def env(key: str) -> str | None:
@@ -99,27 +99,29 @@ def say(line: dict) -> None:
     """A line for ergostat on standard output: what a block moved, or an event about an item. In a daemon, tagged
     with the run it belongs to, and dropped once that run has ended."""
     run = CURRENT.get()
-    if run is not None:
-        if run["run"] in _ended:
-            return
-        line = {**line, "run": run["run"]}
     with _out:
+        if run is not None:
+            if run["run"] not in _open:
+                return
+            line = {**line, "run": run["run"]}
         print(json.dumps(line), flush=True)
 
 
-def finish(run: str, code: int) -> None:
-    """A daemon's run ended: {"done": EXIT, "run": ID}, exactly once."""
+def begin(run: str) -> None:
+    """A daemon's run under way."""
     with _out:
-        if run in _ended:
-            return
-        _ended.add(run)
+        _open.add(run)
+
+
+def finish(run: str, code: int) -> bool:
+    """A daemon's run ended, or was cancelled: {"done": EXIT, "run": ID}, once, and only for a run under way (a cancel
+    that crossed its done says nothing). False when it had ended already."""
+    with _out:
+        if run not in _open:
+            return False
+        _open.discard(run)
         print(json.dumps({"done": code, "run": run}), flush=True)
-
-
-def forget(run: str) -> None:
-    """A daemon's run whose thread has ended: nothing more can come from it."""
-    with _out:
-        _ended.discard(run)
+        return True
 
 
 def log(*words) -> None:
@@ -183,9 +185,13 @@ def record(type: str, item: str, data: dict | None = None, by: str = "ticket-fac
 
 
 def items(kind: str, state: str | None = None) -> list[dict]:
-    got = engine("items", kind=kind, state=state)          # the running engine's, without a process (its socket)
-    if got is not None:
-        return got.get("items", [])
+    got = engine("items", kind=kind, state=state)          # the running engine's, without a process (its socket),
+    if got is not None:                                    # page by page (500 a page), every one of them
+        out = got.get("items", [])
+        while got.get("items") and len(out) < got.get("total", 0):
+            got = engine("items", kind=kind, state=state, offset=len(out)) or {}
+            out += got.get("items", [])
+        return out
     args = ["item", "--kind", kind, "-n", "2000", "--json"]
     if state:
         args += ["--state", state]
@@ -220,9 +226,19 @@ def key_of(ticket: dict) -> str:
     return ticket["id"].split("/", 1)[1]
 
 
+def timeout() -> float:
+    """How long a call outside (git, gh) may take before it is given up: GIT_TIMEOUT, 5 minutes. A hung fetch must
+    never hold a step, or the lock it took, for ever."""
+    return seconds(conf("GIT_TIMEOUT", "5m"))
+
+
 def git(*args: str, cwd: Path, check: bool = True) -> str:
     who = ["-c", "user.name=ticket-factory", "-c", "user.email=ticket-factory@example.invalid"] if OFFLINE else []
-    r = subprocess.run(["git", *who, "-c", "advice.detachedHead=false", *args], cwd=cwd, capture_output=True, text=True)
+    try:
+        r = subprocess.run(["git", *who, "-c", "advice.detachedHead=false", *args], cwd=cwd, capture_output=True,
+                           text=True, timeout=timeout())
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"git {' '.join(args[:2])}: no answer in {timeout():g}s (GIT_TIMEOUT)") from None
     if check and r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args[:2])}: {r.stderr.strip()}")
     return r.stdout.strip()

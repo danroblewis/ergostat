@@ -7,8 +7,11 @@
                        with what fn returns (None: 0), or 1 when it raises (as a run's exit 1: the attempt counts)
 
 The reader only hands lines on and never waits, so a slow Jira, GitHub or step never keeps it from the next line or a
-cancel. A cancel is answered at once (done 1), and whatever that run says after it is dropped: its lease is gone
-(anything it still asks of ergostat is refused, fencing). A source that fails says why on each reading, and the daemon
+cancel. A cancel (its lease expired, its timeout, the owner's stop) is answered at once (done 1), and whatever that
+run says after it is dropped: its lease is gone (anything it still asks of ergostat is refused, fencing). A thread
+cannot be stopped from outside, so a cancelled run still going after CANCEL_GRACE (10 s) is stuck (a hung call, a
+lock never let go): the daemon says so and ends, ergostat starts it again, and the stuck thread goes with the process
+(the other runs it held fail, and are taken again). A source that fails says why on each reading, and the daemon
 carries on: it keeps no connection that could be left broken (each call to Jira, GitHub or ergostat is made afresh).
 A line it cannot read, or a bug in the daemon itself, ends it, and ergostat starts it again.
 """
@@ -27,6 +30,7 @@ import tf
 
 BATCH = 0.05                 # readings asked within 50 ms of each other share one look at the source
 BEAT = 10.0                  # a heartbeat this often (the steps' daemon declares heartbeat: 30s)
+GRACE = tf.seconds(tf.conf("CANCEL_GRACE", "10s"))   # a cancelled run still going after this: the daemon ends
 
 
 def fail_hard(args) -> None:
@@ -63,8 +67,14 @@ def _run(work, m: dict) -> None:
     except Exception:                                      # noqa: BLE001: as a run that crashed: exit 1
         tf.log(traceback.format_exc())
         code = 1
-    tf.finish(m["run"], code)
-    tf.forget(m["run"])                                    # (nothing more of it can come: its id is let go)
+    tf.finish(m["run"], code)                              # (nothing, when it was cancelled: done was said then)
+
+
+def _cancelled(run: str, t: threading.Thread) -> None:
+    t.join(GRACE)
+    if t.is_alive():                                       # stuck: only the process's end stops it
+        tf.log(f"run {run[:8]} still going {GRACE:g}s after its cancel: ending, to be started again")
+        os._exit(1)
 
 
 def _beat() -> None:
@@ -89,10 +99,11 @@ def serve(read=None, work=None) -> int:
         elif m["op"] == "item" and work:
             for r in [r for r, t in runs.items() if not t.is_alive()]:
                 del runs[r]
+            tf.begin(m["run"])                             # (under way from now: a cancel that follows finds it)
             runs[m["run"]] = threading.Thread(target=_run, args=(work, m), daemon=True)
             runs[m["run"]].start()
-        elif m["op"] == "cancel" and m["run"] in runs:
-            tf.finish(m["run"], 1)                         # at once; what the run says after this is dropped
+        elif m["op"] == "cancel" and m["run"] in runs and tf.finish(m["run"], 1):   # at once; its lines after: dropped
+            threading.Thread(target=_cancelled, args=(m["run"], runs[m["run"]]), daemon=True).start()
         elif m["op"] == "stop":
             break
     if answering:                                          # stop, or the end of its input: what was asked is answered
