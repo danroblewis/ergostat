@@ -1,0 +1,78 @@
+{
+ "capacity": {
+  "title": "a ticket queue without its capacity limit",
+  "truth": "ticket-queue.yaml",
+  "inputs": {"auxiliary.arrivals": {"base": 3.0, "pulses": [[2.0, 1.5, 12.0], [8.0, 1.5, 12.0]], "every": 12.0}},
+  "start": {"waiting": 0.0, "working": 1.5},
+  "cut": [{"set": "flows.start", "with": {"equation": "pick-per-waiting * stock.waiting"}}],
+  "expect": {"limit": "waiting"},
+  "stand_in": [
+   {"add": "parameters", "name": "capacity", "set": {"value": 6, "unit": "tickets/h", "estimate": true, "description": "the most tickets started an hour: the workspaces"}},
+   {"part": "flow.start", "set": {"equation": "MIN(pick-per-waiting * stock.waiting, capacity)"}}],
+  "seed": {
+   "history": [{"title": "Re-estimate how fast waiting tickets are started", "summary": "pick-per-waiting fitted lower so the waiting queue's level matches the record", "edits": ["pick-per-waiting from 10 to 3: the queue is larger than the model says"], "state": "failed", "verdict": "no better: the fit is worse in the hours with no burst"}],
+   "interventions": [{"class": "alarm:waiting-high", "cause": "stock.waiting", "count": 6, "hours": 9.0, "note": "it fires only when tickets arrive in a burst; between bursts the queue empties within minutes"}]}
+ },
+ "rework": {
+  "title": "a chain without its rework loop",
+  "truth": "bench:012-rework",
+  "cut": [{"kind": "flow-removed", "flow": "rework"}],
+  "expect": {"flow": ["b", "a"]},
+  "stand_in": [
+   {"add": "parameters", "name": "rework-per-b", "set": {"value": 2, "unit": "1/h", "estimate": true, "description": "the share of b sent back an hour: a first guess"}},
+   {"add": "flows", "name": "rework", "set": {"from": "b", "to": "a", "driven-by": ["+stock.b"], "equation": "rework-per-b * stock.b"}}],
+  "seed": {
+   "history": [{"title": "A faster drain from b", "summary": "b-out-per-b raised so b empties as the record shows", "edits": ["b-out-per-b from 4 to 6"], "state": "dismissed", "note": "a is fuller than its inflow explains; changing b's drain does not touch that"}],
+   "interventions": [{"class": "person:recount", "cause": "stock.a", "count": 4, "hours": 3.0, "note": "the recount found items in a that had already been through b once"}]}
+ },
+ "delay": {
+  "title": "a supply line without its delay",
+  "truth": "bench:063-delay3-supply-line",
+  "cut": [{"kind": "delay-missing", "flow": "b-arrives"}],
+  "expect": {"between": ["a", "b"]},
+  "stand_in": [
+   {"add": "parameters", "name": "a-to-b-delay", "set": {"value": "18m", "estimate": true, "description": "how long what leaves a takes to reach b: a first guess"}},
+   {"part": "flow.b-arrives", "set": {"equation": "DELAY3(flow.a-leaves, a-to-b-delay)"}}],
+  "seed": {
+   "history": [{"title": "b fed in proportion to a", "summary": "b-arrives made a share of stock a", "edits": ["b-arrives: a-to-b-per-a * stock.a"], "state": "failed", "verdict": "no better: b's replay rises before the record does"}],
+   "interventions": [{"class": "alarm:b-low", "cause": "stock.b", "count": 5, "hours": 4.0, "note": "after each surge into a, b stays flat for a while before it climbs"}]}
+ },
+ "goal": {
+  "title": "a goal-seeking order loop without its goal gap",
+  "truth": "bench:011-goal-gap",
+  "cut": [{"set": "flows.orders", "with": {"equation": "orders-base", "driven_by": []}}],
+  "expect": {"names": ["p", "i"]},
+  "stand_in": [
+   {"add": "parameters", "name": "orders-per-i", "set": {"value": 4, "unit": "1/h", "estimate": true, "description": "orders cut back per unit of inventory: a first guess"}},
+   {"part": "flow.orders", "set": {"equation": "orders-base - orders-per-i * stock.i", "driven-by": ["-stock.i"]}}],
+  "seed": {
+   "history": [{"title": "Re-estimate the orders", "summary": "orders-base fitted to the record's mean", "edits": ["orders-base from 1200 to 400"], "state": "dismissed", "note": "the inventory settles at the same level whatever it starts from; a constant does not do that"}],
+   "interventions": [{"class": "advise:reorder", "cause": "stock.i", "count": 5, "hours": 2.0, "note": "denied: the inventory is already near where we hold it"}]}
+ },
+ "merged": {
+  "title": "a chain of three with its middle stock merged away",
+  "truth": "bench:004-chain-3",
+  "cut": [{"kind": "stock-merged", "stock": "b"}],
+  "expect": {"between": ["a", "c"]},
+  "stand_in": [
+   {"add": "stocks", "name": "b", "set": {"unit": "units", "description": "what has left a and not yet reached c", "sensor": {"manual": true}}},
+   {"part": "flow.a-to-b", "set": {"to": "b"}},
+   {"add": "parameters", "name": "b-to-c-per-b", "set": {"value": 5, "unit": "1/h", "estimate": true, "description": "the share of b moving to c an hour: a first guess"}},
+   {"add": "flows", "name": "b-to-c", "set": {"from": "b", "to": "c", "driven-by": ["+stock.b"], "equation": "b-to-c-per-b * stock.b"}}],
+  "seed": {
+   "history": [{"title": "A faster move from a", "summary": "a-to-b-per-a raised", "edits": ["a-to-b-per-a from 10 to 14"], "state": "failed", "verdict": "no better: c's replay leads the record"}],
+   "interventions": [{"class": "alarm:c-late", "cause": "stock.c", "count": 4, "hours": 3.0, "note": "what leaves a reaches c only after a stage in between"}]}
+ },
+ "outflow": {
+  "title": "a chain whose last stock has lost its outflow",
+  "truth": "bench:003-chain-2",
+  "cut": [{"kind": "flow-removed", "flow": "b-out"}],
+  "expect": {"flow": ["b", null]},
+  "stand_in": [
+   {"add": "parameters", "name": "b-out-per-b", "set": {"value": 4, "unit": "1/h", "estimate": true, "description": "the share of b leaving an hour: a first guess"}},
+   {"add": "flows", "name": "b-out", "set": {"from": "b", "driven-by": ["+stock.b"], "equation": "b-out-per-b * stock.b"}}],
+  "seed": {
+   "history": [{"title": "Rename b to done", "summary": "b named for what it holds", "edits": ["rename stock.b to done"], "state": "dismissed", "note": "b does not keep growing in the record; a name does not fix that"}],
+   "interventions": [{"class": "alarm:b-full", "cause": "stock.b", "count": 3, "hours": 1.0, "note": "b levels off on its own; something takes items out of it"}]}
+ }
+}

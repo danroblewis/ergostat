@@ -1,0 +1,46 @@
+# A ticket-factory's making step (examples/ticket-factory: a pool of workspaces), as stocks and flows, in hours:
+# tickets arrive in bursts and wait; they are started as fast as they are picked up, but never faster than the
+# workspaces allow (the capacity); started tickets are worked, and finish.
+name: ticket-queue
+parameters:
+  pick-per-waiting:
+    value: 10
+    unit: 1/h
+    estimate: true
+  capacity:
+    value: 6
+    unit: tickets/h
+    estimate: true
+  finish-per-working:
+    value: 2
+    unit: 1/h
+    estimate: true
+stocks:
+  waiting:
+    unit: tickets
+    sensor:
+      manual: true
+  working:
+    unit: tickets
+    sensor:
+      manual: true
+auxiliaries:
+  arrivals:
+    unit: tickets/h
+    exogenous: true
+    sensor:
+      manual: true
+flows:
+  arrive:
+    to: waiting
+    driven-by: [+auxiliary.arrivals]
+    equation: auxiliary.arrivals
+  start:
+    from: waiting
+    to: working
+    driven-by: [+stock.waiting]
+    equation: "MIN(pick-per-waiting * stock.waiting, capacity)"
+  finish:
+    from: working
+    driven-by: [+stock.working]
+    equation: finish-per-working * stock.working
