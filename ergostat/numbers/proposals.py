@@ -160,6 +160,12 @@ def _decider(x: dict, state: str) -> str:
 
 
 def supersede(p, spec: Spec, why: str = "the model changed since it was made") -> list[str]:
+    """``_supersede`` under the proposals' lock: a carry never reopens an item being accepted or judged."""
+    with locked(p):
+        return _supersede(p, spec, why)
+
+
+def _supersede(p, spec: Spec, why: str = "the model changed since it was made") -> list[str]:
     """Every change still open that was made against a model version that has since changed: superseded, unless it is
     carried to the version now, keeping its history: one of ergostat's own, not yet under test, whose subject
     (``subject``) the change left as it was and whose edit still applies (``revised``, ``rebased``); or a change of words
@@ -787,6 +793,13 @@ def dismiss(p, pid: str, reason: str | None = None, by: str = "owner") -> dict:
 
 def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None, why: str | None = None,
            policy: str | None = None) -> dict:
+    """``_accept`` under the proposals' lock: what is written, and what is carried or superseded after it, as one."""
+    with locked(p):
+        return _accept(p, pid, snap, by, expect, why, policy)
+
+
+def _accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None, why: str | None = None,
+            policy: str | None = None) -> dict:
     """Apply the proposal's edit, check the model still compiles (else put the file back), record the
     change with the fit before and after, and return what was done. ``expect`` is the hash of the diff the
     owner was shown (``review.diff_of``): refused unless what would be written is exactly that."""
@@ -856,7 +869,7 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
     save(p, props)                                  # ergostat.model-change.accepted, from whoever decided
     written(p, x, by)
     rebase(p, edits, x["id"])                        # the lines of the others waiting move with what was written
-    supersede(p, p.model.spec)                      # what was made against the version before is made again, or not
+    _supersede(p, p.model.spec)                     # what was made against the version before is carried, or let go
     return x
 
 
@@ -888,9 +901,16 @@ def _carried(p, spec: Spec, x: dict) -> str | None:
         if im.governs(spec, after):
             return "on the model as it is, it would change who decides"
         from . import redesign as rd
-        more = {"rewires": False, "control": False, **rd.owners(spec, after)}
+        from .changeset import parts_changed
+        parts = parts_changed(spec, after)            # its scope again, on the model as it is
+        beyond = rd.outside(spec, after, x.get("system") or "model", parts)
+        if beyond:
+            return f"on the model as it is, it changes parts outside system {x.get('system')}: {', '.join(beyond[:6])}"
+        more = {"rewires": False, "control": False, **rd.owners(spec, after), "rescoring": True,
+                "new_parts": parts["added"], "gone_parts": parts["removed"],
+                "parts": [*parts["added"], *parts["changed"], *(r.split(" → ")[1] for r in parts["renamed"])][:60]}
     v = ver.version(spec)
-    event(p, x["id"], "checked" if x["kind"] == "redesign" else x["state"],
+    event(p, x["id"], "checked",                     # words and redesigns alike: judged again on the model as it is
           {"version": v, "structure": ver.structure(spec), "carried": {"from": x.get("version"), "to": v}, **more})
     return None
 

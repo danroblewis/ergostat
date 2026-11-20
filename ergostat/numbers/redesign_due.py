@@ -97,7 +97,7 @@ def triggers(p, spec: Spec, unit: str, now: float, fit: dict | None = None, reqs
         elif (r["code"] in stc.CHAIN_CODES or r["code"] in STRUCTURAL or r.get("source") == "coherence") and \
                 now - float(r.get("raised") or now) >= STALE:
             why.append(f"{r['code']} on {r['about']}, unresolved for {round((now - float(r['raised'])) / 3600, 1)} h")
-    changes = changes if changes is not None else pr.stored(p)
+    changes = changes if changes is not None else _changes(p)
     mine = sorted((x for x in changes.values() if x.get("kind") != rd.KIND and x.get("made_by") in REFINERS
                    and any(_in(spec, unit, t) for t in (x.get("parts") or x.get("touched") or []))
                    and x["state"] not in pr.OPEN), key=lambda x: x.get("made") or x.get("created") or 0)[-STALL:]
@@ -136,7 +136,6 @@ def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None, chang
     """Why this unit is not to be redesigned now, whatever is due: a redesign waiting, or the rest after one that was
     no better, dismissed, superseded, made nothing, or never ended, while the unit's own parts have not changed
     since (``signature``)."""
-    from . import proposals as pr
     from . import redesign as rd
     if rd.waiting(p, spec, unit) is not None:
         return "a redesign of it is waiting already"
@@ -151,7 +150,7 @@ def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None, chang
             return "resting: its last run never ended"
         if d.get("result") not in ("proposed", "started") and now - last["time"] <= COOL and d.get("unit_sig") == sig:
             return f"resting: its last redesign was {d.get('result')}, and its parts have not changed since"
-    for x in (changes if changes is not None else pr.stored(p)).values():
+    for x in (changes if changes is not None else _changes(p)).values():
         if x.get("kind") == rd.KIND and (x.get("system") or "model") == unit and x["state"] in ENDED \
                 and now - float(x.get("decided") or x.get("made") or 0) <= COOL and x.get("unit_sig") == sig:
             return f"resting: its last redesign was {x['state']}"
@@ -176,6 +175,12 @@ def unfinished(p, ran: list, now: float) -> None:
                 rq.event(p, k, "answered", {"why": "its run never ended (it crashed, or its block timed out)"})
 
 
+def _changes(p) -> dict:
+    """Every change to the model, whatever its state (superseded and dismissed ones too), with its state."""
+    from . import proposals as pr
+    return {k: {**f, "id": k, "state": st} for k, (st, f) in pr.changes(p).items()}
+
+
 def _ran(p, now: float) -> list:
     """The redesigner's runs over the last day and the rest after them (bounded: never the whole record)."""
     from . import redesign as rd
@@ -187,7 +192,6 @@ def next_due(p, now: float | None = None) -> dict:
     """The unit to redesign now, ``{"system", "why", "trigger", "unit_sig"}``, or ``{"system": None, "why"}``; units
     too large are held for the owner as requests (``too-large``) on the way. Among units equally due, the one reviewed
     longest ago (or never) comes first: they take turns."""
-    from . import proposals as pr
     from . import redesign as rd
     from . import requests as rq
     spec = p.model.spec
@@ -196,7 +200,7 @@ def next_due(p, now: float | None = None) -> dict:
     for u in big:
         hold(p, u, "too-large", f"system {u} is too large to redesign in one pass (more than {MOST_PARTS} parts, and no "
              f"subsystems to take one at a time): split it into systems", owner=True)
-    ran, reqs, changes = _ran(p, now), rq.stored(p), pr.stored(p)     # read once for every unit
+    ran, reqs, changes = _ran(p, now), rq.stored(p), _changes(p)      # read once for every unit
     ever = bool(ran) or bool(p.events.query(n=1, type=rd.RAN))
     unfinished(p, ran, now)
     fit = _fit(p, spec)

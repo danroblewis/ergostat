@@ -131,6 +131,9 @@ def outside(before: Spec, after: Spec, system: str, parts: dict) -> list[str]:
 
     def inside(spec: Spec, ref: str) -> bool:
         kind, _, name = ref.partition(".")
+        if kind == "parameter":                       # a parameter is the system's when its parts use it
+            from .proposals import users_of
+            return any(inside(spec, u) for u in users_of(spec, name))
         return kind not in ("stock", "flow", "auxiliary", "goal", "block") or spec.inside(Ref(kind, name), system)
 
     def same_but_names(ref: str) -> bool:
@@ -141,12 +144,14 @@ def outside(before: Spec, after: Spec, system: str, parts: dict) -> list[str]:
             return False
         names = {o.split(".", 1)[1]: n.split(".", 1)[1] for o, n in renames.items()}
 
-        def follow(x, key=None):                      # the names it refers to, renamed (its words left as they are)
+        def follow(x, key=None):                      # the names it refers to, renamed: reference fields only
+            if key in NOT_REFERENCES:                 # (its words, its sensors' selectors, labels and commands as written)
+                return x
             if isinstance(x, dict):
                 return {k: follow(v, k) for k, v in x.items()}
             if isinstance(x, list):
-                return [follow(v) for v in x]
-            if isinstance(x, str) and key != "description":
+                return [follow(v, key) for v in x]
+            if isinstance(x, str):
                 for o, n in names.items():
                     x = re.sub(rf'(?<![\w-]){re.escape(o)}(?![\w-])', n, x)
             return x
@@ -159,6 +164,10 @@ def outside(before: Spec, after: Spec, system: str, parts: dict) -> list[str]:
     out += [r for r in parts.get("changed") or [] if r not in renames.values() and not inside(before, r)
             and not same_but_names(r)]
     return out
+
+
+NOT_REFERENCES = {"description", "sensors", "sensor", "run", "query", "items", "label", "labels", "title", "ask", "prompt",
+                  "where", "parse", "builtin"}
 
 
 def _system_of(spec: Spec, ref: str) -> str | None:
