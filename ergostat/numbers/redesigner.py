@@ -73,7 +73,15 @@ def _files(s: cs.Scratch, spec: Spec, system: str) -> list[str]:
     return out
 
 
-def _check(problems) -> list[str]:
+def _mine(spec: Spec, system: str, about: str | None) -> bool:
+    """A finding about a part of this system (or about no part): what this system's redesign may answer."""
+    if system == "model" or not about or about == "model":
+        return True
+    from . import redesign_due as due
+    return due._in(spec, system, about)
+
+
+def _check(problems, spec: Spec | None = None, system: str = "model") -> list[str]:
     out = []
     for x in problems:
         if x.level == "error":
@@ -81,7 +89,7 @@ def _check(problems) -> list[str]:
     for lv in ("finding", "note"):
         for x in problems:
             if x.level == lv or (lv == "finding" and x.level not in ("error", "note")):
-                if template_made(x):
+                if template_made(x) or (spec is not None and not _mine(spec, system, x.about)):
                     continue
                 out.append(f"{'note' if x.level == 'note' else 'finding'} {x.code}@{x.about}: {str(x.message)[:400]}")
     return out
@@ -114,6 +122,18 @@ def _record(p, spec: Spec) -> list[str]:
     for r, s in sorted((f.get("equations") or {}).items()):
         if s and s.get("r2") is not None:
             out.append(f"  {r} equation: R² {s['r2']:.2f}")
+    levels = []                                       # each stock's level, as the record moved it: a queue building up
+    for n, st in sorted(spec.stocks.items()):
+        for sn in st.sensors.values():
+            pts = p.measurements.range(sn.series, 0.0)
+            if len(pts) >= 2:
+                vs = [v for _, v in pts]
+                levels.append(f"  stock.{n}: {vs[0]:.3g} at first, {vs[-1]:.3g} now, {max(vs):.3g} at most, over "
+                              f"{(pts[-1][0] - pts[0][0]) / 60:.0f} min")
+            break
+    if levels:
+        out.append("each stock's level on the record (first, now, most):")
+        out += levels
     try:
         from collections import Counter
         types = Counter(e["type"] for e in p.events.query(n=4000) if not str(e["type"]).startswith(("ergostat.", "agent.", "valve.",
@@ -129,11 +149,13 @@ def prompt(p, s: cs.Scratch, system: str, why: list[str], feedback: list[str] | 
     spec, problems = s.compiled()
     shown = spec or s.base
     lines = [guides(), "", "## The task", "",
-             f"Redesign {'the whole model' if system == 'model' else 'system ' + system}. Why now: {'; '.join(why) or 'asked'}.",
+             f"Redesign {'the whole model' if system == 'model' else 'system ' + system + ' (change only its parts)'}. "
+             f"Why now: {'; '.join(why) or 'asked'}.",
              f"Files: {', '.join(s.rel(f) for f in s.files)}.", "",
              "## The model, as it is now" + (" (with your edits so far)" if s.done else ""), ""]
     lines += _files(s, shown, system)
-    lines += ["", "## What check finds", ""] + (_check(problems) or ["nothing"])
+    lines += ["", f"## What check finds{'' if system == 'model' else f' in system {system}'}", ""] + \
+        (_check(problems, shown, system) or ["nothing"])
     if spec is not None:
         lines += ["", "## Coherence: the three views held against the record", ""]
         lines += _coherence(p, spec, problems) or ["nothing to compare"]
@@ -248,7 +270,8 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
             log.append({"round": r, "made": made, "not_made": len(feedback), "compiles": False, **took})
         elif s.changed():
             card = sc.score(p, spec, before_problems, after, problems, fit_before=fit_b)
-            left = [f"{x.code}@{x.about}" for x in problems if x.level not in ("error", "note") and not sc._skip(x)]
+            left = [f"{x.code}@{x.about}" for x in problems if x.level not in ("error", "note") and not sc._skip(x)
+                    and _mine(after, system, x.about)]
             if left:
                 feedback.append("check still finds: " + "; ".join(left[:12]))
             if card["coherence"]["mismatches_after"]:
