@@ -61,3 +61,10 @@ The factory's model measures the machine and holds the sessions to what it fits:
 ## Size budget
 
 350 net lines of code outside `tests/` and `docs/` (all of it is in `dev/`).
+
+**Over budget, with the reason:** it came to about 640 net lines, all in `dev/` (none of ergostat's core:
+`fac.net_lines` counts 0). About 170 are the model (`dev/model/resources.yaml`: nineteen sensed auxiliaries, seven
+goals and three blocks, five lines each, the owner having named each reading), about 120 the cleanup (its name
+checks are the safety), and about 320 the sensors, parsers for two platforms and Docker, the shared snapshot, the
+per-session sampling and the headroom. Nothing in it is optional to what was asked; cutting further would mean fewer
+of the readings the owner listed.

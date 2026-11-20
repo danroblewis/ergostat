@@ -48,6 +48,10 @@ systems:
     within: oversight
     description: the load interlock - the suites running on the machine, their threads and memory
     show: [auxiliary.suites-running, auxiliary.suite-threads, auxiliary.suite-memory]
+  resources:
+    within: oversight
+    description: the machine's CPU, memory, disk and threads, the Docker VM's, and how many more sessions fit
+    show: [auxiliary.cpu-utilisation, auxiliary.memory-utilisation, auxiliary.disk-free, auxiliary.session-headroom]
   measures:
     within: oversight
     description: how well the factory works - cycle time, first-pass yield, fix rounds, the queue, flakes, cost
@@ -116,6 +120,7 @@ items:
       plan_reviews: append
       research: union
       research_waits: sum
+      resources: append              # each session's and suite's CPU and memory, peak and mean (dev/bin/resources.py)
     join:
       - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
     lease: {attempts: 2}
