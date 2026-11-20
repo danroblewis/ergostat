@@ -358,3 +358,18 @@ FAILED tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessio
   stack, which names it) and unbuffered output (`PYTHONUNBUFFERED=1`), plus main's unit suite run in the same slot.
 - **Still open:** a green unit run, and the 30 loaded `-n 8` runs of the restart test (the DoD's last acceptance
   line). The gap is not done.
+
+### After round 6's second unit run (stopped before its first test; no code changed)
+
+- **What the tail showed.** Only the slot line and `uv`'s build and install lines. There were no progress dots, no
+  failure, no summary and no `suite_watch` closing line. This looks the same as round 3's stop: the run was ended from
+  outside before pytest printed anything. A buffered log could hide some progress, so this does not prove that no test
+  ran. Collection is fine here (1964 tests collected in 13 s).
+- **Decision taken alone (reversible).** No code change. There is no named test and no cause, and a blind change would
+  go against lesson-10 and lesson-13. The seven unit runs so far: six stopped (before the first test twice, and at 51%,
+  73%, 80%, 99% and about 3 results short of the end), and one ran to its end with this code. That fits the slot or its
+  container being stopped from outside better than a test in this branch hanging, though it is not proven. The factory
+  side should find out why its container is stopped, or run main's unit suite in the same slot. Another implementor
+  round cannot settle it.
+- **Still open:** a green unit run, and the 30 loaded `-n 8` runs of the restart test. The gap is not done.
+- **Ran serially:** `tests/test_leases.py` (26 passed), and collection of the whole suite. Ruff is clean.
