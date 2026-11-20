@@ -66,6 +66,11 @@ while (m := q.get())["op"] != "stop":
         say(event="ticket.done", run=r)
     say(done=1 if stopped else 0, run=r)
     last = r
+    if "idlespin" in mode:                       # 0.6 s of its own CPU after done, while it holds no run
+        t = time.process_time()
+        while time.process_time() - t < 0.6:
+            pass
+        open(f"spun{count}", "w").close()
     if "once" in mode or asked:
         break
 '''
@@ -212,7 +217,22 @@ def test_the_check_finds_state_kept_between_items(tmp_path):
     r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "block", "triage", "--check-warm",
                         str(given)], capture_output=True, text=True, timeout=60,
                        env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")})
-    assert r.returncode == 2 and "not deterministic" in r.stdout
+    assert r.returncode == 3 and "not deterministic" in r.stdout, "nothing concluded: rc 3, never a usage error's 2"
+
+
+def test_the_check_says_what_is_wrong_with_its_file(tmp_path):
+    (tmp_path / "w.py").write_text(WARM)
+    project(tmp_path, block("{run: python3 w.py quiet, warm: true, concurrency: 1}"))
+    (tmp_path / "bad.json").write_text("{not json")
+    (tmp_path / "list.json").write_text("[1, 2]")
+    for name, says in (("missing.json", "cannot be read as JSON"), ("bad.json", "cannot be read as JSON"),
+                       ("list.json", "a JSON object, not list")):
+        r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "block", "triage", "--check-warm",
+                            str(tmp_path / name)], capture_output=True, text=True, timeout=60,
+                           env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")})
+        assert r.returncode == 2 and name in r.stderr and says in r.stderr and "Traceback" not in r.stderr, r.stderr
+        assert "four times" not in r.stdout, "nothing run"
+    assert not (tmp_path / "starts.log").exists()
 
 
 def test_warm_is_checked(tmp_path):
@@ -247,6 +267,21 @@ def test_a_member_that_ends_during_a_run_charges_only_its_part_since(tmp_path):
         e.close()
     res = events(p, "agent.ran")[0]["data"]["resources"]
     assert res["cpu"] < 0.4, f"its 1 s before the run is not the run's: {res}"
+
+
+def test_cpu_used_after_done_and_before_the_next_hand_over_is_no_runs(tmp_path):
+    p = setup(tmp_path, "{run: python3 w.py idlespin, warm: true, concurrency: 1}")
+    e = start(p)
+    try:
+        p.events.add("ticket.opened", item="ticket/0", source="t")
+        assert wait_for(lambda: (tmp_path / "spun1").exists(), 20), "its 0.6 s spent after the first done"
+        p.events.add("ticket.opened", item="ticket/1", source="t")
+        assert wait_for(lambda: len(events(p, "agent.ran")) == 2, 20)
+    finally:
+        e.close()
+    assert len(starts(tmp_path)) == 1, "one process served both"
+    for r in events(p, "agent.ran"):
+        assert r["data"]["resources"]["cpu"] < 0.4, f"the 0.6 s while idle is the process's own: {r['data']}"
 
 
 def test_an_unreaped_child_is_said_not_held_against_the_process(tmp_path):
@@ -391,4 +426,4 @@ def test_the_check_concludes_nothing_unless_every_run_says_done(tmp_path):
     given = {"item": {"id": "ticket/1", "fields": {}}}
     for mode, says in (("crash", "did not end with its own done"), ("quiet-once", "did not end with its own done")):
         rc, why = check(Daemon("w", f"python3 w.py {mode}", warm=True), tmp_path, dict(os.environ), given, timeout=10)
-        assert rc == 2 and says in why and "exits:" in why, (mode, why)
+        assert rc == 3 and says in why and "exits:" in why, (mode, why)

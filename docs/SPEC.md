@@ -2321,8 +2321,9 @@ It serves blocks only (a sensor naming one is an error). The protocol is the one
 run, the run is charged its CPU (`resources: {cpu, method: warm}`): what its process group used between hand-over
 and `done`, each member's own CPU and that of every descendant it reaped (read from outside: `proc_pid_rusage` on
 macOS, `/proc` on Linux; elsewhere none): the group's total at `done` less its total at hand-over, so a member that
-ended during the run and was reaped inside the group is charged only its part since. Everything outside a run
-(start-up, idle) is the process's own; CPU used after `done` falls into the next run's charge. Not charged: a child
+ended during the run and was reaped inside the group is charged only its part since. Everything outside a run is
+the process's own, left over with its start-up: CPU used after `done` and before the next hand-over is no run's;
+only what is used after the next hand-over's total was taken is that run's. Not charged: a child
 that left the group (`setsid`) or was orphaned and reaped outside it, and a member whose usage cannot be read. At
 most 32 processes per warm daemon and 64 warm processes in all (an error in `check`; at run time, draining ones
 counted, a process waits to start until one ends). A process is **restarted** (counted toward giving up) once its run has ended when it misbehaved:
@@ -2336,9 +2337,10 @@ give-up shown), and `block NAME --restart` revives them all. It is **replaced**,
 twice on one fresh process and once on each of two others, for real, and compares what each run printed (its run's
 id put back as `RUN`) and its exit, without what the engine prepares for a run (no workdir, workspace or action
 policy; only `ERGOSTAT_RUN` and `ERGOSTAT_ITEM` in its env). Unless every run ended with its own strict `done`, rc
-2; the same, rc 0; the second run on one process differing from a fresh one, state
+3; the same, rc 0; the second run on one process differing from a fresh one, state
 was kept, rc 1; the fresh runs differing, the program is not deterministic for that input and nothing is concluded,
-rc 2. A program started for a run reads its `env` from the line and passes `{**os.environ, **env}` to what it starts;
+rc 3. A daemon that is not warm, or a FILE that is missing, not JSON or not a JSON object, is a usage error (rc 2,
+the file named, nothing run). A program started for a run reads its `env` from the line and passes `{**os.environ, **env}` to what it starts;
 it never writes its own environment, and it reaps what it starts before `done`.
 
 ## 10. Agents
