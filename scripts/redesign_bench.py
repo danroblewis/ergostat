@@ -74,8 +74,7 @@ def cut(c: tt.Case, v: dict) -> dict:
 # ---- what the repair must have: by structure, and working on the record
 
 def _rms(xs) -> float:
-    xs = [float(x or 0.0) for x in xs or []]
-    return (sum(x * x for x in xs) / len(xs)) ** 0.5 if xs else 0.0
+    return (sum(float(x or 0.0) ** 2 for x in xs) / len(xs)) ** 0.5 if xs else 0.0
 
 
 def _flows(spec, data, extra=None) -> dict:
@@ -232,18 +231,10 @@ def run_case(c: tt.Case, v: dict, work: Path, model: str = "haiku", budget: floa
 
 def extra(after, added: list[str], v: dict) -> int:
     """The parts a change set adds beyond what the known repair adds (each template it uses counted once: one line)."""
-    own, uses = 0, set()
-    tables = {"stock": "stocks", "flow": "flows", "auxiliary": "auxiliaries", "parameter": "parameters", "goal": "goals",
-              "block": "blocks"}
-    for r in added:
-        kind, _, name = r.partition(".")
-        x = getattr(after, tables.get(kind, "stocks"), {}).get(name)
-        t = getattr(getattr(x, "where", None), "template", None)
-        if t:
-            uses.add(str(t))
-        else:
-            own += 1
-    return max(0, own + len(uses) - sum(1 for e in v["stand_in"] if "add" in e))
+    tables = {"auxiliary": "auxiliaries"}
+    made = [getattr(getattr(getattr(after, tables.get(k, k + "s"), {}).get(n), "where", None), "template", None)
+            for k, _, n in (r.partition(".") for r in added)]
+    return max(0, sum(1 for t in made if not t) + len({str(t) for t in made if t}) - sum(1 for e in v["stand_in"] if "add" in e))
 
 
 # ---- the run
