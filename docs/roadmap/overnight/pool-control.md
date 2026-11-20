@@ -203,3 +203,13 @@ path), while line 178's exact mount list passes. That looks like this container'
 (`agents.py`, `sessions.py`), untouched by this branch; this session could not look at HOME to confirm. Left: the
 factory's unit run on the merged tree (expected to pass once the lease test is fixed in its own gap, or on a quieter
 run), and the browser files.
+
+Round 6 (main bccf2e5 already merged in 37a7827; no conflict left in `dev/bin/status.py`): the factory's unit run
+failed only on `tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessions_own_folder`, line 179.
+Confirmed here: the suite container's `HOME` is `/home/dev`, and the mount's container side is `sessions.Session.HOME`
+= `/home/dev/.claude/projects` (the agent image's user), so `str(Path.home()) in m` matches the path inside the
+container, not a host folder; the host side (`keep.raw`, under tmp) is not in the home. `dev/bin/agents.py`,
+`dev/bin/sessions.py` and the test are unchanged by this branch (`git diff main...HEAD` is empty for them), so main's
+own tree fails the same way in this container. Following lesson-13, it is not fixed here. The fix (check only the host
+side of each `-v`, before the last `:`) belongs in its own gap. Left, as before: a unit run on the merged tree once
+that test (and the lease restart test) is fixed on main, and the browser files.
