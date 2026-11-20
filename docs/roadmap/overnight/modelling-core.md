@@ -67,23 +67,34 @@ verification harness and the craft bench in `scripts/`.
 
 ## Where it stopped
 
-Final state, 2026-11-19 evening, rebased on main b46ade7 (layout4, mended, daemons, interventions and the rest).
+After the final gate review's fixes, on main 214d864.
 
-- The split, every blocking fix and the "also" list are done (the commits name each). After the rebase, modelling's
-  requests are the built-in kind `ergostat.modelling-request`: main's interventions had taken
-  `ergostat.model-request` for a class of intervention, with other states. Architecture notes leave out the parts
-  a template made. The modelling-request kind sits under the modelling system on the Items page, as mended places
-  built-in kinds.
-- Diagram fixtures were recorded again from main's. Every example's sizes now include its modelling system drawn,
-  and satellite-far ceilings rose for model-fits' and requests-handled's long links. The valve-orientation
-  ceilings and ops open=backups are kept as main has them.
-- The craft bench went (it stays on `selfimprove`), so it is no longer in `scripts/` as the definition says above.
-  Net lines outside `tests/` and `docs/`: +3,974.
-- Suites (fast commands, under `scripts/suite_watch.py`, one at a time):
-  - unit: rc 0, 1,623 passed. The 13 skips are 6 page files without playwright (they run in the browser suite) and
-    7 VictoriaMetrics conformance tests;
+- B1: a rename keeps every number and item kind as they were (`version.renamed_parts`). A value, a rate or an item
+  kind changed with a rename makes it no rename; the rename test has the three cases.
+- B2: each AI call's cost is printed and charged as it is spent (`modeller.answer` / `redesigner.run` `on_call`;
+  `redesign.charge`). A call that never says its cost is charged the most it could have cost (`modeller.unsaid`).
+  Calls are timed to fit the block's timeout (`--timeout`, `modeller.per_call`). The daily cap fails closed.
+- The smaller points:
+  - a rename's fit after is measured once its history is kept;
+  - files are written whole or not at all (written beside, then renamed over);
+  - a carried redesign is held to who-decides and its owner flags again;
+  - a rename is kept out of plain `accept: auto`; SPEC names what `accept: auto` promotes, what the judge never
+    writes, and how each kind is judged (a redesign on the record it has, its fit allowed 10% worse);
+  - an open redesign holds its lines only when the judge may write it;
+  - held modelling requests are in the inbox, and they have an Items-page title;
+  - the template skip is scoped to once library templates, with one helper for what a template made.
+- Cuts:
+  - the verification harness went back to `selfimprove` (the thirteen stocks are kept in the tests);
+  - the review screenshot and the redesigner's transcript dump went;
+  - in the changeset code: `Scratch.unified` and its own section map;
+  - `version()` now uses `_numbers`; there is one `WORDING`; the redesigner's settings come from `use: modelling`;
+  - a queue's goal and a guessed process are now control requests held for the owner, and the rule tier keeps
+    units only.
+- Net lines outside `tests/` and `docs/`: +3,667.
+- Suites (fast commands under `suite_watch`, one at a time):
+  - unit: rc 0, 1,667 passed, 1 xfailed. The 13 skips are page files without playwright (they run in the browser
+    suite) and VictoriaMetrics;
   - ruff: rc 0;
-  - `demo_check` on image-squeeze, alert-triage, ticket-factory and the-job: rc 0;
-  - browser: 216 passed, 1 failed. The coordinator's `open=*` routing takes 19.1 to 20.0 s alone against a 20 s
-    bound (main: 18.0 s); the template's request parts add about 1 to 2 s. Not fixed: the bound is not raised, and
-    the router's time is the layout's.
+  - `demo_check` on the four: rc 0;
+  - browser: 216 passed, 1 failed, only the coordinator's `open=*` routing at the 20 s bound (20.0 s), which
+    `fastroute` is fixing.
