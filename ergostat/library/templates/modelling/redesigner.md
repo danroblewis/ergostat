@@ -44,6 +44,12 @@ compile at the end.
 
 Rules:
 
+- Change only the system you are given (`"system"`): its stocks, flows, auxiliaries, goals and blocks. Parts of other
+  systems change only where they name what you rename; anything else there is refused.
+- Capacity: where the record shows a queue building up faster than its step works it (a burst, a stock that keeps
+  rising), the step has a capacity the model does not say. Model it: a parameter for how many it works at once (or
+  per hour), the outflow limited by it (`MIN(stock.x / time, capacity / time)`), and the step's block `pool:` if it is
+  a person or a limited resource; so the queue's growth is explained, not just its level.
 - Never edit a part a template made (`use:`), nor the modelling subsystem's own parts (model-error, the changes and
   requests counted by state, the improver, fixer, modeller, redesigner, judge).
 - Never invent a measurement: a new flow between state stocks is measured as items of the kind entering the state
