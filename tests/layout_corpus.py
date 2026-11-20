@@ -190,7 +190,8 @@ def worker(args) -> list[dict]:
 def tree_use(me: int) -> tuple[int, float, int]:
     """This run's threads and memory (GB), its process and all below it; and the machine's threads."""
     per: dict[int, int] = {}
-    for line in subprocess.run(["ps", "-M", "-A"], capture_output=True, text=True).stdout.splitlines()[1:]:
+    flag = "-L" if sys.platform.startswith("linux") else "-M"      # one line per thread
+    for line in subprocess.run(["ps", flag, "-A"], capture_output=True, text=True).stdout.splitlines()[1:]:
         t = line.split()
         if t:
             pid = t[0] if t[0].isdigit() else (t[1] if len(t) > 1 and t[1].isdigit() else None)

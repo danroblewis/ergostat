@@ -21,16 +21,34 @@ TAG = "ERGOSTAT_SUITE_WATCH"
 WORKER = "exec(eval(sys.stdin.readline()))"     # (how execnet starts an xdist worker)
 
 
+def processes(tag: str):
+    """Every process: (pid, ppid, RSS in KB, carries the run's tag, is an xdist worker). macOS: ps; Linux: /proc."""
+    if not sys.platform.startswith("linux"):
+        out = subprocess.run(["ps", "-A", "-E", "-ww", "-o", "pid=,ppid=,rss=,command="], capture_output=True, text=True).stdout
+        for line in out.splitlines():
+            parts = line.split(None, 3)
+            if len(parts) >= 3 and parts[0].isdigit():
+                cmd = parts[3] if len(parts) > 3 else ""
+                yield int(parts[0]), int(parts[1]), int(parts[2]), f"{TAG}={tag}" in cmd, WORKER in cmd
+        return
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            with open(f"/proc/{pid}/status") as f:
+                st = dict(line.split(":", 1) for line in f if ":" in line)
+            with open(f"/proc/{pid}/environ", "rb") as f:
+                env = f.read().split(b"\0")
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmd = f.read().replace(b"\0", b" ").decode(errors="replace")
+        except OSError:
+            continue
+        yield int(pid), int(st["PPid"]), int(st.get("VmRSS", "0").split()[0]), f"{TAG}={tag}".encode() in env, WORKER in cmd
+
+
 def members(root: int, tag: str) -> tuple[dict[int, int], list[set[int]]]:
     """The run's processes (pid -> RSS in KB), and each xdist worker's own tree."""
-    out = subprocess.run(["ps", "-A", "-E", "-ww", "-o", "pid=,ppid=,rss=,command="], capture_output=True, text=True).stdout
     rows, kids = {}, {}
-    for line in out.splitlines():
-        parts = line.split(None, 3)
-        if len(parts) < 3 or not parts[0].isdigit():
-            continue
-        pid, ppid, rss, cmd = int(parts[0]), int(parts[1]), int(parts[2]), parts[3] if len(parts) > 3 else ""
-        rows[pid] = (rss, f"{TAG}={tag}" in cmd, WORKER in cmd)
+    for pid, ppid, rss, tagged, worker in processes(tag):
+        rows[pid] = (rss, tagged, worker)
         kids.setdefault(ppid, []).append(pid)
 
     def tree(top: int) -> set[int]:
@@ -48,7 +66,8 @@ def members(root: int, tag: str) -> tuple[dict[int, int], list[set[int]]]:
 def threads(pids) -> int:
     if not pids:
         return 0
-    out = subprocess.run(["ps", "-M", "-p", ",".join(map(str, pids))], capture_output=True, text=True).stdout
+    flag = "-L" if sys.platform.startswith("linux") else "-M"      # one line per thread
+    out = subprocess.run(["ps", flag, "-p", ",".join(map(str, pids))], capture_output=True, text=True).stdout
     return max(0, len(out.splitlines()) - 1)
 
 
