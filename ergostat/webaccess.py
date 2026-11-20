@@ -139,6 +139,9 @@ def key(team: str, kid: str, now: float | None = None) -> tuple[int, int] | None
     keeps the keys there were, for STALE at most."""
     now = time.time() if now is None else now
     fetched, tried, ks = _keys.get(team, (0.0, 0.0, {}))
+    if not ks and _fetching.acquire(timeout=6):        # no keys yet: a fetch under way is waited for, not refused
+        _fetching.release()
+        fetched, tried, ks = _keys.get(team, (0.0, 0.0, {}))
     if (now - fetched > REFRESH or kid not in ks) and now - tried >= RETRY and _fetching.acquire(blocking=False):
         try:
             _keys[team] = (fetched, now, ks)
