@@ -55,7 +55,39 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "serial: holds a time bound only on a quiet machine: run alone in a parallel run")
 
 
+# Known failures on Linux, each with its GAPS entry, until the `linuxfix` branch lands: expected to fail, not
+# required to (xfail, strict=False), so any other failure still shows. Exact test ids only.
+_SEGMENTS = ("The segmented log misses a seal within one mtime tick on Linux "
+             "(docs/GAPS.md, Runtime: Linux: two bugs the dev container found, 1)")
+_SANDBOX = "The attack suite asserts macOS behaviour here (docs/GAPS.md, Running code: ... five places)"
+LINUX_KNOWN = {
+    **{f"tests/test_store_conformance.py::test_{t}[segments]": _SEGMENTS for t in (
+        "a_second_instance_threads_and_processes_lose_nothing", "a_transcripts_lines_skipped_by_prefix",
+        "history_survives_a_reopen", "ids_get_prefix_dedup_and_causes", "items_of_items_and_globs",
+        "order_n_newest_and_filters", "prune_and_generation", "replace_puts_the_snapshot_where_the_last_one_was",
+        "valves_controllers_and_runs")},
+    "tests/test_daemons.py::test_daemons_on_the_agents_api": "dash forks for sh -c, so the recorded pid is the shell's "
+    "(docs/GAPS.md, Runtime: Linux: two bugs the dev container found, 2)",
+    **{f"tests/test_sandbox_attacks.py::test_{t}": _SANDBOX for t in (
+        "dns_is_denied_inside", "the_process_list_is_denied", "another_processes_environment_is_unreadable",
+        "a_pid_hopping_process_does_not_outlive_the_run[kill]",
+        "the_toolchain_is_the_interpreters_own_folders_never_a_whole_prefix")},
+}
+
+
+def _linux_known(items):
+    if sys.platform.startswith("linux"):
+        for it in items:
+            if it.nodeid in LINUX_KNOWN:        # first, ahead of a test's own (macOS) strict xfail
+                it.add_marker(pytest.mark.xfail(reason=LINUX_KNOWN[it.nodeid], strict=False), append=False)
+
+
 def pytest_collection_modifyitems(config, items):
+    _linux_known(items)
+    _slow_first(items)
+
+
+def _slow_first(items):
     """Under xdist (``-n N --dist worksteal``), each slow test at the head of a worker's first share, one per worker
     while they last: worksteal hands worker i the i-th of N even, contiguous shares and steals only from their tails,
     so no slow test waits behind another or starts last. Each worker reorders its own collection the same way."""

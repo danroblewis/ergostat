@@ -14,10 +14,6 @@ services:
     cpus: ${ERGOSTAT_CPUS:-4}
     shm_size: 2g
     network_mode: ${ERGOSTAT_NET:-none}
-    # bwrap (the Linux sandbox) needs user namespaces and its own /proc
-    security_opt:
-      - seccomp=unconfined
-      - systempaths=unconfined
     tmpfs:
       - /tmp:rw,exec,nosuid,nodev,size=${ERGOSTAT_TMP:-4g},mode=1777
     volumes:
@@ -25,3 +21,10 @@ services:
     working_dir: /work
     environment:
       SPLIT_SHOTS: /tmp/split-shots     # tests/test_diagram_rendering.py's pictures go beside the checkout: / here
+  # The same with Docker's syscall filter and masked /proc paths off, which bwrap (the Linux sandbox) needs for its
+  # namespaces and its own /proc. Only for the sandbox's tests: scripts/in_container.sh --sandbox.
+  sandbox:
+    extends: dev
+    security_opt:
+      - seccomp=unconfined
+      - systempaths=unconfined

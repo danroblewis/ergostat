@@ -2,7 +2,7 @@
 # (docs/DEVELOPMENT.md). The build context is only pyproject.toml and uv.lock (.dockerignore): no secrets.
 FROM ghcr.io/astral-sh/uv:0.12.19 AS uv
 
-FROM python:3.12-slim-trixie
+FROM python:3.12.16-slim-trixie
 ARG UID=1000
 ENV DEBIAN_FRONTEND=noninteractive \
     UV_PYTHON=/usr/local/bin/python3 UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_FROZEN=1 \
