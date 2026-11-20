@@ -45,7 +45,8 @@ class Hands:
                 slot = next((s for s in subs if self._room(s)), subs[0])     # (warm: an idle process of its own)
                 ready = self._room(slot)
                 if ready and checked:
-                    slot.proc.hold(run, h, line)
+                    held = slot.proc
+                    held.hold(run, h, None if slot.d.warm else line)
                     break
             if ready and not checked:                # its lease still its own (read outside the lock), then held
                 if not self._leased(item, run, fence):
@@ -57,6 +58,8 @@ class Hands:
             slot.up.wait(min(0.2, max(0.0, limit - time.monotonic())))   # (a restart, a swap, room: looked at again)
             time.sleep(0.02)
             checked = not item                       # (after a wait its lease is read again before it is held)
+        if slot.d.warm:                              # (its CPU noted outside the lock: /proc on Linux is slow)
+            held.hand(line)
         if not h.done.wait(max(0.0, limit - time.monotonic())):
             self.cancel(run, "its timeout")
             h.done.wait(grace() + 7)
@@ -82,8 +85,8 @@ class Hands:
     def free(self, name: str) -> int:
         """How many more runs the daemon may hold, whichever block hands them (the dispatcher's room)."""
         with self.lock:
-            return sum(s.d.concurrency - (len(s.proc.runs) if s.proc else 0) for s in self.subs(name)
-                       if s.state != "failed" and not (s.proc and s.proc.recycle))
+            return sum(int(self._room(s)) if s.d.warm else s.d.concurrency - (len(s.proc.runs) if s.proc else 0)
+                       for s in self.subs(name) if s.state != "failed")    # (warm: only a process running, idle)
 
     def _held(self, run: str) -> tuple[Process, Handle] | None:
         for p in self._procs():
