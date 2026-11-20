@@ -159,13 +159,15 @@ def call(text: str, model: str, timeout: float = 600.0) -> dict:
 
 
 MOST_OUT = 16000            # output tokens a call that said nothing of its cost is charged for, besides its prompt
+SYSTEM_IN = 20000           # input tokens of claude's own system prompt, read on every call besides ours
 
 
 def unsaid(text: str, model: str) -> dict:
     """The cost charged for a call that never said its own (killed, timed out, or answered no JSON): its prompt read
-    and the most it could have written, at the model's price; dear rather than free, so a cap fails closed."""
+    (with claude's own system prompt) and the most it could have written, at the model's price; dear rather than free,
+    so a cap fails closed."""
     from ..costs import prices
-    tin = len(text) // 3 + 1
+    tin = len(text) // 3 + 1 + SYSTEM_IN
     usd = prices.estimate(model, {"input": tin, "output": MOST_OUT})
     return {"usd": round(usd if usd is not None else 1.0, 6), "tokens_in": tin, "tokens_out": MOST_OUT, "estimated": True}
 

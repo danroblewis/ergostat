@@ -66,3 +66,13 @@ reviewer's side of the cap, are fixed (38f6ddc). Left:
 - Note: `md.unsaid` ignores claude's own system prompt.
 
 Tests needed: a change carried and passed again during a review; the redesigner at a cap of $0.01.
+
+Continued (gap/modelreview-continued, round 1, 2026-11-20): (1) a review is stamped with what it read (`read`, a
+fingerprint of the judge's verdict and the edit; `reviewer.seen`), held by equality, and recorded under `pr.locked`
+only if the change is still the one it read (else `stale`, nothing recorded, read again). (2) The redesigner checks
+`cost + md.unsaid(text) > budget` before each call. The note: `md.unsaid` now counts claude's own system prompt
+(20,000 input tokens, `SYSTEM_IN`), so on haiku 5.5 one call's dearest is about $0.0105: the cap test runs at $0.02
+(one call, not two) and at $0.01 (none) instead of the $0.01 named above, and `test_redesign`'s budget test moves from
+$0.005 (which allowed the overshoot it now forbids) to $0.02. Tests:
+`test_a_change_carried_and_passed_again_during_its_review_is_not_passed_by_it`,
+`test_the_redesigner_never_calls_past_its_cap`.
