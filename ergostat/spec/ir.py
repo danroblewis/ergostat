@@ -242,7 +242,7 @@ def is_measure(name: str) -> bool:
 
 
 CHANGE_CLASSES = ("parameter", "equation", "structure", "description", "unit", "rename", "redesign")   # what accept: names (SPEC §12e)
-NAMED_ONLY = ("redesign",)   # promoted only by name (accept: {redesign: auto}), never by accept: auto for every kind
+NAMED_ONLY = ("rename", "redesign")   # promoted only by name (accept: {rename: auto}), never by accept: auto for every kind
 
 
 @dataclass
@@ -256,6 +256,20 @@ class Improve:
     windows: list[int] = field(default_factory=lambda: [1, 2, 4])
     warm_up: float = 6 * 3600.0     # each window replayed from this long before it, its stocks and delays warm
     block: str | None = None
+
+
+def template_made(x) -> bool:
+    """A part (or a finding about one) that a template made: its ``use:`` line stands for it, and only the instance's
+    ``with:`` or the template changes it."""
+    return bool(getattr(getattr(x, "where", x), "template", None))
+
+
+def once_made(spec, x) -> bool:
+    """A part a ``once`` library template made (``use: modelling``): the template's own system and boundary, never
+    the model's."""
+    w = getattr(x, "where", None)
+    u = (getattr(spec, "uses", None) or {}).get(getattr(w, "instance", None)) if w is not None else None
+    return bool(u and u.get("once") and not u.get("owners"))
 
 
 def modelling_request_kind() -> ItemKind:

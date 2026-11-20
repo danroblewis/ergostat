@@ -28,6 +28,7 @@ import fcntl
 import hashlib
 import json
 import math
+import os
 import time
 from pathlib import Path
 
@@ -817,7 +818,7 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
     ft.record(p, fit_before, snap["window"], force=True)             # the version it leaves, as it fitted at the end
     try:                                             # every file written, or (on any failure) every one put back
         for f, text in new_text.items():
-            Path(f).write_text(text, encoding="utf-8")
+            _write(Path(f), text)
         _, problems = read(p.model.path)
         errors = [str(e) for e in problems if e.level == "error"]
         if errors:
@@ -826,11 +827,12 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
     except BaseException:
         for f, text in old_text.items():
             try:
-                Path(f).write_text(text, encoding="utf-8")
+                _write(Path(f), text)
             except OSError:
                 pass
         raise
-    _, _, fit_after = ft.compute(p, snap)
+    history = keep_history(p, x["renames"], v_before) if x.get("renames") else None   # before the fit after: a renamed
+    _, _, fit_after = ft.compute(p, snap)           # part is read under its new name, with its history
     ft.record(p, fit_after, snap["window"], force=True)
     x["status"], x["state"], x["decided"], x["by"] = "accepted", "accepted", time.time(), by
     x["applied"] = {"version_before": v_before, "version_after": ver.version(p.model.spec),
@@ -842,14 +844,21 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
         x["applied"]["why"] = why
     if policy:
         x["applied"]["policy"] = policy
-    if x.get("renames"):                            # what the renamed parts' history became, kept with it
-        x["applied"]["history"] = keep_history(p, x["renames"], v_before)
+    if history is not None:                         # what the renamed parts' history became, kept with it
+        x["applied"]["history"] = history
     props[x["id"]] = x
     save(p, props)                                  # ergostat.model-change.accepted, from whoever decided
     written(p, x, by)
     rebase(p, edits, x["id"])                        # the lines of the others waiting move with what was written
     supersede(p, p.model.spec)                      # what was made against the version before is made again, or not
     return x
+
+
+def _write(f: Path, text: str) -> None:
+    """A file written whole or not at all, even if the process dies part way: a file beside it, then renamed over."""
+    tmp = f.with_name(f".{f.name}.ergostat-tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, f)
 
 
 CARRIED = ("description", "unit", "redesign")        # kept across a change to the model, if its edit still applies
@@ -875,8 +884,14 @@ def carry(p, ids: list[str]) -> list[str]:
             continue
         if y["kind"] != "redesign" and im.kind_of(spec, after, y["kind"]) != y["kind"]:
             continue
-        state = "checked" if y["kind"] == "redesign" else y["state"]   # a redesign is scored again on the model as it is
-        event(p, qid, state, {"version": v, "structure": st, "carried": {"from": y.get("version"), "to": v}})
+        more = {}
+        if y["kind"] == "redesign":                  # scored again on the model as it is, and held to the same rules
+            if im.governs(spec, after):
+                continue                             # (superseded with the rest: who decides is the owner's)
+            from . import redesign as rd
+            more = {"rewires": False, "control": False, **rd.owners(spec, after)}
+        state = "checked" if y["kind"] == "redesign" else y["state"]
+        event(p, qid, state, {"version": v, "structure": st, "carried": {"from": y.get("version"), "to": v}, **more})
         out.append(qid)
     return out
 

@@ -26,7 +26,7 @@ import hashlib
 import time
 from pathlib import Path
 
-from ..spec.ir import MODELLING_REQUEST, Spec
+from ..spec.ir import MODELLING_REQUEST, Spec, template_made
 from . import proposals as pr
 from . import version as ver
 
@@ -60,10 +60,6 @@ def _where(w) -> str | None:
     return f"{Path(w.file).name}:{w.line}" if w is not None else None
 
 
-def _made(w) -> bool:
-    return bool(getattr(w, "template", None))
-
-
 def gather(p, spec: Spec, coherence: bool = True, extremes: bool = True) -> list[dict]:
     """What check finds now, each as the request it raises: its findings and notes (not about a part a template made,
     nor one no change to the model answers) and, with ``coherence``, the coherence mismatches no finding already
@@ -72,7 +68,7 @@ def gather(p, spec: Spec, coherence: bool = True, extremes: bool = True) -> list
     _, problems = read(p.model.path, extremes=extremes)
     out: dict[str, dict] = {}
     for x in problems:
-        if x.level == "error" or x.code in NOT_MODELLING or _made(x.where) or not x.code:
+        if x.level == "error" or x.code in NOT_MODELLING or template_made(x.where) or not x.code:
             continue
         source = "craft" if x.level == "note" else "check"
         k = rid(source, x.code, x.about)

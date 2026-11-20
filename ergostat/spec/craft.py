@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 
 from .ir import Spec
+from .ir import template_made as _made
 
 CODES = ("no-description", "no-unit", "no-equation", "collector-undescribed", "event-names-mixed",
          "queue-goal-tolerance", "process-not-identified")
@@ -32,9 +33,6 @@ IRREGULAR = {"done", "sent", "made", "taken", "begun", "written", "given", "run"
              "came", "gave", "took", "wrote", "rose", "fell", "sat", "spoke", "chose", "drove", "began", "grew", "knew"}
 
 
-def _made(x) -> bool:
-    """A part a template made (its use: line stands for it)."""
-    return bool(getattr(getattr(x, "where", None), "template", None))
 
 
 def _said(x) -> bool:
