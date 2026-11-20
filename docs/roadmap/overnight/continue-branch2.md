@@ -290,3 +290,39 @@ and main is 1f013ba. The gap's title says "main merged in by the coordinator", b
 - Left, outside any implementor session's reach: someone allowed to run `git merge` merges main (1f013ba) into this
   branch. The only file both sides changed is docs/GAPS.md, in different hunks. Then the fast suites run again on the
   merged tree. Gate 1 for this salvage is still the coordinator's (continue-branch.md, 19b9998, is the first commit).
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-20 09:19).
+
+Its fast suites failed 2 times (the kill rule); the last: the fast suites failed (unit: tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere).
+
+```
+p/pytest-of-dev/pytest-0/popen-gw3/test_the_watchdog_renews_from_0')
+
+    def test_the_watchdog_renews_from_what_the_holder_does_elsewhere(tmp_path):
+        """A run working in a session of its own (another item) keeps its lease on its item."""
+        run = ('for i in 1 2 3 4 5; do $ERGOSTAT_CMD event --add session.said --item session/$ERGOSTAT_LEASE '
+               '--data "{\\"n\\": $i}"; sleep 0.4; done; echo "{\\"event\\": \\"ticket.done\\"}"')
+        p = project(tmp_path, model(run, "{ttl: 1s}"))
+        p.events.add("ticket.opened", item="ticket/1", source="t")
+        e = start(p)
+        try:
+            assert wait_for(lambda: item(p, "ticket/1").state == "done", 15)
+        finally:
+            e.close()
+        lease = item(p, "ticket/1").fields["lease"]
+>       assert [h["how"] for h in lease["history"]] == ["ack"]
+E       AssertionError: assert ['expired', 'expired', 'ack'] == ['ack']
+E         
+E         At index 0 diff: 'expired' != 'ack'
+E         Left contains 2 more items, first extra item: 'expired'
+E         Use -v to get more diff
+
+tests/test_leases.py:380: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere
+1 failed, 1851 passed, 69 skipped in 256.73s (0:04:16)
+{"rc": 1, "wall_s": 257.2, "peak": {"threads": 341, "rss_mb": 1751.6, "procs": 120, "worker_mb": 637.5}, "killed": null, "workers_killed": 0, "left_behind": 0}
+
+```
