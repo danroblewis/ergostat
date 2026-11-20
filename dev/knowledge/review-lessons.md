@@ -81,3 +81,9 @@ Seen as: warm2: two non-blocking findings of round 1 (a stale SPEC sentence, a t
 ignored in the fix round, then blocking in round 2, parking the gap.
 **Check:** list every finding of the review you are answering, blocking and not, and for each say in the report what
 changed or why it stays; a non-blocking finding left unanswered becomes blocking in the next round.
+
+## 13. Stay inside the gap: an unrelated failure is reported, not fixed in the branch
+Seen as: continue-branch: a lease-renewal test failed under load; the implementor wrote its own lease fix into the
+branch, and the review failed the gap on it.
+**Check:** when a suite fails on something your change did not touch, name the test and why it is unrelated in your
+report and stop there; a fix outside the definition of done belongs in its own gap
