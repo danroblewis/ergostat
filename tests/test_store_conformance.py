@@ -7,6 +7,7 @@ project label."""
 
 from __future__ import annotations
 
+import json
 import multiprocessing
 import os
 import threading
@@ -14,7 +15,7 @@ import uuid
 
 import pytest
 
-from ergostat.segments import Segments
+from ergostat.segments import Segments, _Head
 from ergostat.store import ChangesetError, Events, Measurements
 
 T = 1_700_000_000.0
@@ -213,6 +214,73 @@ def test_seals_within_one_mtime_tick_are_seen(tmp_path):
     assert writer.prune(T + n) == n              # a rewrite within the tick: what went stays gone
     os.utime(d, ns=(frozen, frozen))
     assert reader.count() == total - n and {e["type"] for e in reader.query(n=None)} == {"y"}
+
+
+def _seen(reader) -> list[int]:
+    return [e["data"]["i"] for e in reader.query(n=None) if e["type"] == "x"]
+
+
+def test_a_reader_between_a_seal_and_its_head_misses_nothing(tmp_path, monkeypatch):
+    """A seal writes its segment, says so (the layout token), then rewrites the head: a reader that syncs just before
+    or just after the head is rewritten, the folder's mtime frozen, sees every event, and so does a follower going by
+    seq. (With the token said after the head, a reader between saw the new head, the old token, and lost the seal.)"""
+    writer, reader = Segments(tmp_path, seal=7), Segments(tmp_path, seal=7)
+    d = writer.dir
+    frozen = os.stat(d).st_mtime_ns
+    n, peeks, follower = 0, [], []
+    real = Segments._rewrite_head
+
+    def peek():
+        os.utime(d, ns=(frozen, frozen))
+        peeks.append((n, _seen(reader)))
+        last = follower[-1] if follower else 0
+        follower.extend(e["seq"] for e in reader.query(n=None, after_seq=last))
+
+    def rewrite(self, evs):
+        if self is writer:
+            peek()
+        real(self, evs)
+        if self is writer:
+            peek()
+    monkeypatch.setattr(Segments, "_rewrite_head", rewrite)
+    for step in (3, 5, 9, 1, 14, 2, 21):         # (all of a step is in the head before it seals: peeks see it all)
+        n += step
+        writer.add_many([{"type": "x", "data": {"i": i}, "at": T + i} for i in range(n - step, n)])
+        peek()
+    assert len(peeks) > 10 and peeks[-1] == (n, list(range(n)))
+    before = 0
+    for upto, got in peeks:                      # (an add_many appends a seal's worth at a time: a peek sees a prefix)
+        assert got == list(range(len(got))) and before <= len(got) <= upto, (upto, got)
+        before = len(got)
+    assert follower == [e["seq"] for e in writer.query(n=None)]
+    n0 = n                                                   # a prune's rewrite: the same window
+    writer.add_many([{"type": "x", "item": "o/1", "data": {"i": i}, "at": T + 1000 + i} for i in range(n, n + 3)])
+    n += 3
+    assert writer.prune(T + 1000) == n0
+    os.utime(d, ns=(frozen, frozen))
+    assert _seen(reader) == list(range(n0, n))
+
+
+def test_a_head_rewritten_in_the_place_of_the_readers_inode_is_read_again(tmp_path, monkeypatch):
+    """A file system reuses inodes: a head rewritten while a reader looked away can have the inode the reader last read,
+    and the folder's mtime the same. Rewritten here in place, so the inode is the same for certain."""
+    writer, reader = Segments(tmp_path, seal=7), Segments(tmp_path, seal=7)
+    d = writer.dir
+    frozen = os.stat(d).st_mtime_ns
+
+    def in_place(self, evs):
+        with open(self.head_path, "r+b") as f:
+            f.truncate(0)
+            f.write("".join(json.dumps(e, separators=(",", ":")) + "\n" for e in evs).encode())
+        self._head, self._head_off, self._head_ino = _Head(evs), self.head_path.stat().st_size, os.stat(self.head_path).st_ino
+    monkeypatch.setattr(Segments, "_rewrite_head", in_place)
+    n, ino = 0, os.stat(writer.head_path).st_ino
+    for step in (5, 4, 12, 3, 20):                       # the reader reads after each, never during
+        writer.add_many([{"type": "x", "data": {"i": i}, "at": T + i} for i in range(n, n + step)])
+        n += step
+        os.utime(d, ns=(frozen, frozen))
+        assert os.stat(writer.head_path).st_ino == ino
+        assert _seen(reader) == list(range(n))
 
 
 # ---- measurements

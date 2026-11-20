@@ -24,7 +24,8 @@ SHARED = {"ERGOSTAT_CMD", "ERGOSTAT_PROJECT", "ERGOSTAT_STATE_DIR", "ERGOSTAT_SO
 _NOT_PROGRAMS = {"!", "{", "}", "[[", "case", "for", "function", "if", "select", "until", "while", "time", ".", ":",
                  "alias", "bg", "break", "builtin", "cd", "command", "continue", "eval", "exec", "exit", "export",
                  "fg", "jobs", "local", "readonly", "return", "set", "shift", "source", "trap", "ulimit", "umask",
-                 "unalias", "unset", "wait"}
+                 "unalias", "unset", "wait", "read", "pushd", "popd", "let", "getopts", "type", "hash", "declare",
+                 "typeset", "dirs", "disown", "enable", "shopt", "suspend", "times", "caller", "mapfile", "readarray"}
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 
 
@@ -35,11 +36,13 @@ def execd(run: str) -> str:
     several lines, a command that begins with an assignment) is left as it is: its shell stays, and the pid is the
     shell's. Either way that pid leads a session of its own, so signals reach the whole group, the program in it
     (``supervise.killpg``)."""
+    run = run.strip()                                # (a YAML block scalar ends in a newline)
     if "\n" in run or "`" in run:
         return run
     try:
         lex = shlex.shlex(run, posix=True, punctuation_chars=True)
         lex.whitespace_split = True
+        lex.commenters = ""                          # (``prog a#b; other``: never a comment that hides the ``;``)
         words = list(lex)
     except ValueError:                               # (unbalanced quotes: the shell's to report)
         return run
