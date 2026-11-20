@@ -313,3 +313,37 @@ Budget: about 145 net lines in ergostat/ and diagram.js, within 250. Run here, e
 `test_modelling_template.py` with `test_redesign_memory.py`, `test_interventions.py` with `test_notify.py`,
 `test_self_improve.py`, and `test_leases.py` (as main's). All pass, and ruff is clean. Not run: the whole unit suite
 and the browser files (`test_inbox_page.py`).
+
+## Where it stopped
+
+Continued, round 3. After round 2, the factory's `unit` run failed on one test,
+`tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth` (1 failed, 1873 passed, 69 skipped). Every
+other test passed, including all of this gap's. The factory asked for the code to be fixed. **I did not change the
+code in this round, and I want to say plainly why.**
+
+- **The failure is in main's code, not this branch's.** `git diff main` is empty for `ergostat/leases/`,
+  `ergostat/spec/engine.py`, `ergostat/runner.py` and `tests/test_leases.py`. The branch's changes outside the inbox
+  and the modelling requests are a new `dismissed` state on the modelling-request kind (`spec/ir.py`), the
+  `name` argument of `proposals.locked` and the status line's command (`state.py`). The test's model has no modelling
+  requests, takes no proposals lock and never reads the status line. The assertion that fails, a lease still held
+  after `second.close()`, is the shutdown race this record describes in round 3: a run whose process joins
+  `runner.LIVE` just after `kill_all()` is never killed, and `close()` stops waiting after 5 s.
+- **The fix for that race was in this branch, and review/inbox-dismiss-4 blocked the branch for carrying it**
+  (lesson-13: "Take it out into its own gap (merged first if the unit run needs it)"). Round 2 took it out. Putting it
+  back would bring that blocking finding straight back. That is the less reversible choice, because the fix would then
+  reach main as part of an inbox change that no review has accepted for this.
+- **What this gap needs first:** a gap of its own for the engine's shutdown race. The fix and its two tests are
+  already written and were reviewed as code. They are in this branch's history: commit 6bb0affb has
+  `ergostat/leases/dispatch.py::take` (counted in `running` before the lease is written, then `stop` checked, and only
+  a key it added is removed), `ergostat/spec/engine.py` (a process that joins `LIVE` while stopping is killed there)
+  and `tests/test_leases.py::test_a_run_started_as_ergostat_stops_is_killed_and_gives_its_lease_back` and
+  `::test_nothing_is_taken_once_ergostat_is_stopping`. 4a2ffd61 is the commit that took them out, so reverting just
+  its hunks for those three files gives them back. Once that gap is merged into main and main is merged here, this
+  branch's unit run no longer depends on the race. I have not opened that gap from here. It is the coordinator's
+  decision.
+- **Not done here:** I tried to show the race on this tree by running round 3's deterministic test from a scratch
+  file, but running it was refused, so the claim that it fails on main's code rests on reading the code and on round
+  3's record (it was seen failing then, with the fix disabled). No code, test or bound was changed in this round.
+
+If the coordinator would rather have the fix in this branch after all, despite lesson-13, the revert above is the
+whole change (about 20 net lines, about 165 in all, within 250).
