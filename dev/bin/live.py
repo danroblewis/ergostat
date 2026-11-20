@@ -36,7 +36,7 @@ import fac  # noqa: E402
 
 HEALTH_WAIT = 120            # seconds a new version has to show it is healthy
 PASS_FRESH = 30              # a pass at most this old
-CHECKS = ("load-suites.main", "intake-open.main")
+SENSOR = "suites-running.main"     # the load interlock's, read every 15 s
 
 
 def live(cfg: dict) -> Path:
@@ -78,7 +78,7 @@ def install(cfg: dict, ref: str) -> dict:
     r = run(["uv", "sync", "--frozen", "--quiet"], cwd=d)
     if r.returncode:
         raise RuntimeError(f"uv sync in {d}: {r.stderr[-400:]}")
-    home = d / ".check-home"                           # check with a record of its own, thrown away
+    home = live(cfg) / ".check" / sha                  # check with a record of its own, outside the version
     r = run([ergostat_of(cfg, sha), "-C", d, "check"], env={**os.environ, "ERGOSTAT_HOME": str(home)}, timeout=600)
     errors = re.search(r"(\d+) errors?", r.stdout)
     ok = r.returncode == 0 or (errors is not None and errors.group(1) == "0")
@@ -142,7 +142,7 @@ def health(cfg: dict, since: float = 0.0) -> dict:
         out["engine"] = out["pass_age_s"] <= PASS_FRESH and float(beat["pass"]) >= since
     except (OSError, ValueError, KeyError) as e:
         out["engine"], out["engine_said"] = False, str(e)
-    got = engine(cfg, sha, "sensor", CHECKS[0], "--json")
+    got = engine(cfg, sha, "sensor", SENSOR, "--json")
     readings = json.loads(got.stdout).get("now", {}).get("readings", []) if got.returncode == 0 else []
     out["sensors"] = any(float(r["at"]) >= since for r in readings)
     got = engine(cfg, sha, "item", "--kind", "gap", "--json", "-n", "1")
