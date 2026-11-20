@@ -1676,6 +1676,24 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
   not load at all) and in the page's header, from `<state>/reload.json`, until the files are fixed. The same files
   are not read again until they change. `run --stop` and `run --service --uninstall` work while they do not load
   (the state folder found without the model).
+- **The command line on the last good model.** Every file the model's loading reads goes through one place
+  (`ergostat/spec/files.py`): the main file, its includes and what each glob matched, prompt files, the library's
+  templates (ergostat's own too), remotes' cached models, and every file it looked for and did not find. When the
+  engine takes a model (at start, and at each change it takes) it keeps that model whole as one snapshot, in
+  `<state>/good/`: each file's bytes once, by their SHA-256 (`objects/`), and `manifest.json` (replaced atomically)
+  naming every path with its hash, every path found missing and every glob with its matches. A snapshot is kept only
+  when it reads back clean from itself. While the files do not load, a command that only reads (`status`, `item`,
+  `event`, `lease`, `loop`, `system`, `explain`, `findings`, `residual`, `fit`, `claims`, `messages`, `agent`,
+  `block`, `inbox` and the parts) loads that snapshot **alone**: every read, glob and existence check answered from
+  the manifest, never from disk, so it is the model the engine took and never a mix with files edited since; a path
+  the snapshot does not hold, or a kept file whose bytes no longer match its hash, fails the fallback; and while it
+  loads, nothing may be opened or globbed in the model's folders and no process or connection started (a Python audit
+  hook refuses them). The model keeps its real paths, so the project is the repository's. One line on standard error
+  names the YAML's first error and when the model was taken; `status` also shows "the edited model has errors
+  (`file:line`); shown with the last good version". A command that acts (every other topic, and these with an acting
+  flag: `event --add`, `block --now`, `lease --nack`, `inbox --approve`, `sensor --read`, ...) refuses with the
+  YAML's errors and "ergostat TOPIC acts, so it never runs on the last good model". With no snapshot kept, a broken
+  YAML is refused as before; `check` always reports the edited model's errors.
 - **Atomic.** The new model is worked out whole (its built-ins made, its version hashed) before anything of the
   running one is touched: a change that cannot be taken leaves the last one running as it was.
 - **Timed.** The log gives each change's time; one slower than 2 s says where it went (reading and checking the
