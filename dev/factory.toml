@@ -1,0 +1,39 @@
+# The factory's settings (dev/README.md). A file `factory.local.toml` in the instance's folder (the model's folder,
+# never tracked) overrides any of these, key by key; FACTORY_CONFIG names another file to read instead of this one
+# (the tests' fixtures). THE DAILY DOLLAR CAP is not here: it is the goal `ai-budget` in dev/model/budget.yaml, which
+# both the engine's gate and these programs read.
+
+[paths]
+checkout = "~/ergostat"              # where the queue merges and pushes from; never the instance's code
+worktrees = "~/ergostat-wt"          # each gap's worktree: <worktrees>/<branch>
+live = "~/ergostat-live"             # installed versions: <live>/<sha>, <live>/current, <live>/instance
+queue_lock = "~/ergostat-live/queue.lock"   # set it to the coordinator's queue-fast.sh lock during the switch-over
+run = "run"                          # briefs, logs, the cost ledger (from the model's folder)
+
+[git]
+base = "main"                        # what a gap's branch starts from, and what the queue merges into
+remote = "origin"
+
+[ai]
+mode = "claude"                      # claude, or standin (free, scripted: the dry run)
+implementor_model = "opus"
+reviewer_model = "opus"
+implementor_session_usd = 15.0       # the most one implementor session may spend (claude --max-budget-usd)
+reviewer_session_usd = 5.0
+suite_fix_rounds = 1                 # sessions the implementor gets to make its failing fast suites pass
+
+[instance]
+port = 8798
+
+[load]
+threads = 1500                       # the hard rule (scripts/suite_watch.py kills past these)
+memory_gb = 6.0
+wait = true                          # wait for a quiet machine before each suite (the tests turn it off)
+wait_poll = 20                       # seconds between looks while another suite runs
+
+[suites]                             # run in the checkout (queue) or the gap's worktree (implementor)
+ruff = "uv run ruff check ergostat tests scripts"
+unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal"
+browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
+demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-factory image-squeeze the-job roadmap"
+rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -p no:randomly {tests}"
