@@ -147,13 +147,28 @@ python3 dev/bin/ask.py "How does the queue decide a flake?"  # answered in run/r
 python3 dev/bin/lesson.py add "Title" --check "the check"   # or: retire N "why"; proposals wait in the inbox
 ```
 
-## The pools: one at a time, raised on good results
+## The pools: sized by risk, against your tolerance
 
 One implementor and one reviewer to start (`run/pools.json`; the blocks' `pool:` is only the most, 4 and 2, in
-`[pools]`). After three gaps in a row are approved within one fix round and none was reverted after merging, the pool
-tuner asks for `raise-pool` (the implementor first), held in the inbox; a park, a second fix round or a reverted merge
-lowers the pools by one at once. Say a merge was reverted on main with
-`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`. By hand:
+`[pools]`). The pool tuner measures **risk** in expected interventions a day at each implementor pool size: factory-
+caused interventions per gap given a verdict, plus escapes per merged gap, times the gaps a day at that size (from the
+measured cycle time). Each rate is a Gamma posterior per pool size with a weak prior; a size never run starts with a
+higher, wide prior, so its 90% bound is high until it has been run (`dev/bin/risk.py`). The **target** is the largest
+pool whose 90% bound is within your **risk tolerance** and not above the ready and fix gaps. The tuner asks for
+`raise-pool` one step at a time (held in the inbox), only after `[pools] probation` gaps had a verdict since the last
+raise; it lowers the pool by one at once when the bound at the pool now crosses the tolerance (the reviewer pool
+follows the implementor's, up to its most). Each decision is a `pool.*` event carrying its evidence; `status.py` prints
+the risk, its bound, the tolerance and the target.
+
+**The tolerance is yours**: the parameter `risk-tolerance` in `dev/model/pools.yaml` (interventions a day, 2 to
+start). Raising it trades risk for velocity: edit the value, and the next tune's target uses it.
+
+**For an intervention to count**, record it (below) with a `class` the factory caused: `environment-defect`,
+`self-reference`, `factory-missing-capability` or `queue-interleaving`, or `"factory": true`. Review findings and a
+reviewer's park are not harm and do not count. Escapes count against the pools too: a merge reverted on main
+(`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`), main broken by it
+(`ergostat event --add gap.measured --item gap/NAME --data '{"broke_main": true}'`), or a later gap or intervention
+naming it as its cause (`"caused_by": "gap/NAME"` in its data). By hand:
 `python3 dev/bin/pools.py set implementor 2 "why"`.
 
 ## Approve the push
@@ -176,7 +191,8 @@ A gap is never left a dead letter: a run that fails on its last attempt parks th
 
 ## Record an intervention
 
-Each time you step in by hand, say so: it is evidence of a loop the factory lacks.
+Each time you step in by hand, say so: it is evidence of a loop the factory lacks. One the factory itself caused (its
+`class` one of those under the pools, above, or `"factory": true`) counts against the pools' risk.
 
 ```sh
 ergostat event --add intervention.recorded --item intervention/2026-11-20-unstick-alpha \

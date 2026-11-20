@@ -44,10 +44,12 @@ proxy_image = "ergostat-dev:latest"  # runs the egress proxy, dev/agent/egress.p
 hosts = ["api.anthropic.com"]        # the only hosts a session can reach, on 443
 token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude setup-token`; mode 600, or no session
 
-[pools]                              # the AI pools start at 1 and ramp up on good results (dev/bin/pools.py)
-implementor_max = 4                  # the most each may reach (the blocks' pool: in the model is this cap)
+[pools]                              # the AI pools start at 1, sized by risk (dev/bin/pools.py; the owner's tolerance is
+                                     # the parameter risk-tolerance in dev/model/pools.yaml)
+implementor_max = 4                  # the most each may reach (the blocks' pool: in the model is this cap; at most 8)
 reviewer_max = 2
-streak = 3                           # good gaps in a row before an increase is asked for
+probation = 3                        # gaps given a verdict after a raise before the next raise is asked for
+cycle_hours = 2                      # the cycle time assumed before one is measured (short: more gaps a day, more risk)
 
 [instance]
 port = 8798

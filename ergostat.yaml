@@ -35,8 +35,8 @@ systems:
     show: [stock.gaps-approved, stock.gaps-queued, stock.upgrades-installed]
   pools:
     within: factory
-    description: the AI pools - one implementor and one reviewer to start, raised on a streak of good gaps, lowered on a bad one
-    show: [stock.implementor-pool, stock.reviewer-pool, auxiliary.good-streak]
+    description: the AI pools - one implementor and one reviewer to start, sized by measured risk against the owner's risk tolerance
+    show: [stock.implementor-pool, stock.reviewer-pool, auxiliary.pool-risk-bound, auxiliary.pool-target]
   oversight:
     within: factory
     description: what the factory may spend, the machine's load, how well it works, and the coordinator's interventions
@@ -119,7 +119,8 @@ items:
     join:
       - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
     lease: {attempts: 2}
-    # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
+    # gap.reverted (no state): the coordinator says a merge was reverted on main - an escape, evidence against the
+    # pools (dev/bin/risk.py); so is broke_main, or a later gap or intervention naming it as its caused_by
 
   review:
     id: review/*
@@ -161,7 +162,7 @@ items:
       pool.measured: held
       pool.raise-asked: held
       pool.lowered: held
-    show: [pool, most, streak, why]
+    show: [pool, most, decision, risk_bound, tolerance, target, why]
 
   upgrade:
     id: upgrade/*

@@ -1,8 +1,11 @@
-# The AI pools, ramped up on good results (the owner, 2026-11-20): one implementor and one reviewer to start. Each pool
-# is a setting with memory (a stock), stepped by the pool tuner: after three good gaps in a row (approved within one
-# fix round, not reverted after merging) it asks the coordinator to raise one by one (the gated action raise-pool);
-# a park, a second fix round or a reverted merge lowers them by one at once. The blocks' pool: is only the most each
-# may reach; the gates (implement-when, review-when) and each run hold the rest to the pool now (dev/bin/pools.py).
+# The AI pools, sized by measured risk against the owner's risk tolerance (docs/roadmap/overnight/pool-control.md).
+# One implementor and one reviewer to start. The risk is in expected interventions a day: factory-caused interventions
+# per gap processed plus escapes per merged gap, times the gaps a day at a pool size, each rate a Gamma posterior per
+# size (a size never run has a wide prior). The pool tuner's target is the largest pool whose 90% risk bound is within
+# risk-tolerance and not above the ready demand; it asks the coordinator to raise one step at a time (the gated action
+# raise-pool), after a probation of [pools] probation gaps, and lowers by one at once when the bound crosses the
+# tolerance. The blocks' pool: is only the most each may reach; the gates (implement-when, review-when) and each run
+# hold the rest to the pool now (dev/bin/pools.py, dev/bin/risk.py).
 defaults:
   system: pools
 
@@ -13,49 +16,96 @@ stocks:
     sensor: {run: python3 dev/bin/pools.py read implementor, every: 1m, timeout: 30s, description: the pools file}
   reviewer-pool:
     unit: sessions
-    description: how many reviewer sessions may run at once now (1 to start; at most the block's pool, 2)
+    description: how many reviewer sessions may run at once now (follows the implementor pool; at most the block's pool, 2)
     sensor: {run: python3 dev/bin/pools.py read reviewer, every: 1m, timeout: 30s, description: the pools file}
+  factory-interventions:
+    unit: interventions
+    cumulative: true
+    description: interventions the factory itself caused (environment-defect, self-reference, factory-missing-capability, queue-interleaving, or factory true) - review findings are not harm
+    sensor: {run: python3 dev/bin/pools.py read factory-interventions, every: 10m, timeout: 1m, description: the pools' evidence}
+  escapes:
+    unit: gaps
+    cumulative: true
+    description: merged gaps that let low-quality work through - reverted, main broken after them, or named as a later cause
+    sensor: {run: python3 dev/bin/pools.py read escapes, every: 10m, timeout: 1m, description: the pools' evidence}
 
 auxiliaries:
-  good-streak:
-    unit: gaps
-    description: gaps approved within one fix round, and not reverted, in a row since the pools last changed
-    driven-by: [+flow.gaps-approved, -flow.sent-back-by-review, -flow.parked-in-review]
-    sensor: {run: python3 dev/bin/pools.py streak, every: 5m, timeout: 1m, description: the pools' evidence}
+  pool-risk:
+    unit: interventions
+    description: expected interventions a day at the implementor pool now - (factory rate + escape rate) x gaps a day
+    driven-by: [+stock.factory-interventions, +stock.escapes, +stock.implementor-pool]
+    sensor: {run: python3 dev/bin/pools.py read risk, every: 10m, timeout: 1m, description: the pools' risk}
+  pool-risk-bound:
+    unit: interventions
+    description: the 90% upper bound of the pool's risk (each rate's posterior bound), in interventions a day, wide for a pool size never run
+    driven-by: [+auxiliary.pool-risk]
+    sensor: {run: python3 dev/bin/pools.py read bound, every: 10m, timeout: 1m, description: the pools' risk}
+  risk-over-tolerance:
+    unit: interventions
+    description: the risk bound less the owner's tolerance, in interventions a day (above 0, the pool drops by one at once)
+    driven-by: [+auxiliary.pool-risk-bound]
+    equation: auxiliary.pool-risk-bound - risk-tolerance
+    sensor: {run: python3 dev/bin/pools.py read over, every: 10m, timeout: 1m, description: the pools' risk}
+  pool-target:
+    unit: sessions
+    description: the largest implementor pool whose risk bound is within the tolerance, and not above the ready and fix gaps
+    driven-by: [-auxiliary.risk-over-tolerance, +stock.gaps-ready, +stock.gaps-fix]
+    sensor: {run: python3 dev/bin/pools.py read target, every: 10m, timeout: 1m, description: the pools' target}
 
 flows:
+  factory-harm:
+    to: factory-interventions
+    description: an intervention the factory caused recorded (intervention.recorded with a factory class) - more likely the more sessions run at once
+    driven-by: [+stock.implementor-pool]
+  escapes-found:
+    to: escapes
+    description: a merged gap found to have let low-quality work through (reverted, main broken, or named as a cause)
+    driven-by: [+stock.implementor-pool]
   implementor-pool-steps:
     to: implementor-pool
     two-way: true
-    description: the implementor pool raised by one (the coordinator approved) or lowered by one (a bad result)
+    description: the implementor pool moved one step toward its target (a raise the coordinator approved, after probation) or down at once
+    driven-by: [+auxiliary.pool-target, -stock.implementor-pool]
+    equation: (auxiliary.pool-target - stock.implementor-pool) / probation-time
   reviewer-pool-steps:
     to: reviewer-pool
     two-way: true
-    description: the reviewer pool raised by one (the coordinator approved) or lowered by one (a bad result)
+    description: the reviewer pool raised or lowered by one, following the implementor pool
+    driven-by: [+stock.implementor-pool, -stock.reviewer-pool]
+
+parameters:
+  risk-tolerance:
+    value: 2
+    unit: interventions
+    description: the owner's risk tolerance - the expected interventions a day the owner accepts for velocity; raising it is the owner's decision to trade risk for larger pools (change it here)
+  probation-time:
+    value: 1d
+    estimate: true
+    description: how long a raise takes to be earned - the probation of a few gaps after each raise
 
 goals:
-  pools-earned:
-    auxiliary: good-streak
-    hold: "<= 2"
+  risk-within-tolerance:
+    auxiliary: risk-over-tolerance
+    hold: "<= 0"
     tolerance: 0
-    description: a pool is raised once three gaps in a row came out well (the streak starts again at each change)
+    description: the pools' risk bound within the owner's tolerance (over it, the pool drops by one at once)
 
 actions:
   raise-pool:
-    run: python3 dev/bin/pools.py set {role} {to} {why}
+    run: python3 dev/bin/pools.py raise {role} {was} {to} {why}
     in: .
     gate: approve
     class: pool
-    args: {role: implementor or reviewer, to: the pool asked for, why: the evidence}
-    description: Raise an AI pool by one, on a streak of good gaps - the coordinator approves
+    args: {role: implementor or reviewer, was: the pool it was asked from, to: the pool asked for, why: the evidence}
+    description: Raise an AI pool by one, its risk bound within the tolerance - the coordinator approves
 
 blocks:
   pool-tuner:
     type: program
-    description: raises a pool (asked of the coordinator) after a streak of good gaps; lowers them at once on a park, a second fix round or a reverted merge
+    description: sizes the pools by risk - asks the coordinator to raise one step toward the largest pool within the risk tolerance and demand (after probation); lowers by one at once when the risk bound crosses it
     run: python3 dev/bin/pools.py tune
     every: 10m
     timeout: 2m
     actions: [raise-pool]
-    in: [goal.pools-earned.error, +auxiliary.first-pass-yield, -auxiliary.fix-rounds]
+    in: [goal.risk-within-tolerance.error, +auxiliary.pool-target]
     out: [flow.implementor-pool-steps, flow.reviewer-pool-steps]

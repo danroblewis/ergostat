@@ -118,7 +118,7 @@ class Factory:
             [pools]
             implementor_max = 4
             reviewer_max = 2
-            streak = 3
+            probation = 3
             [instance]
             port = 0
             [load]
@@ -217,6 +217,9 @@ def test_the_factory_model_loads():
     assert {"ai-budget", "machine-quiet", "first-pass-good", "suites-in-time"} <= set(spec.goals)
     assert spec.blocks["implementor"].takes.at == ["fix", "ready"] and spec.blocks["implementor"].pool == 4
     assert {"implementor-pool", "reviewer-pool"} <= set(spec.stocks) and "raise-pool" in spec.actions
+    assert {"factory-interventions", "escapes"} <= set(spec.stocks) and "risk-tolerance" in spec.parameters
+    assert {"pool-risk", "pool-risk-bound", "pool-target"} <= set(spec.auxiliaries)        # the pools' loop
+    assert [str(p) for p in problems if "pools.yaml" in str(p.where)] == []
     assert spec.blocks["merge-queue"].pool == 1
     assert set(spec.items["upgrade"].states) >= {"installed", "switched", "healthy", "reverted"}
 
@@ -360,39 +363,126 @@ def test_flake_retried(tmp_path):
 
 
 def pools_module():
-    sys.modules.setdefault("fac", module("fac"))       # (pools.py imports fac from beside it)
+    sys.modules.setdefault("fac", module("fac"))       # (pools.py imports fac and risk from beside it)
+    sys.modules.setdefault("risk", module("risk"))
     return module("pools")
 
 
-def gap(n: int, state: str = "approved", fixes: int = 0, at: float = 100.0, **f) -> dict:
+def gap(n: int, state: str = "approved", at: float = 100.0, **f) -> dict:
+    """A gap: approved or merged (approved first), parked, or with no verdict yet (ready, fix)."""
+    times = {"approved": ["approved_at"], "merged": ["approved_at", "merged_at"], "parked": ["parked_at"]}
     return {"id": f"gap/g{n}", "state": state, "last": at + n,
-            "fields": {"approved_at": at + n, "fix_rounds": fixes, **f}}
+            "fields": {**{k: at + n for k in times.get(state, [])}, **f}}
 
 
-def test_pools_raise_only_after_the_streak():
+def intervention(n: int, at: float = 100.0, **f) -> dict:
+    return {"id": f"intervention/i{n}", "state": "open", "fields": {"recorded_at": at + n, **f}}
+
+
+def clean(n: int, at: float = 100.0) -> list[dict]:
+    """n gaps merged with nothing wrong, the first at ``at``."""
+    return [gap(i, "merged", at=at) for i in range(n)]
+
+
+def test_risk_counts_factory_caused_interventions_and_escapes_not_review_findings():
+    risk = module("risk")
+    gaps = [gap(1), gap(2, "parked", parked_by="review"), gap(3, "merged", reverted=True),
+            gap(4, "merged", broke_main=True), gap(5, "merged"), gap(6, "merged"), gap(7, "merged"),
+            gap(8, "fix", findings=["a blocking finding"]),                  # sent back: no verdict yet, not processed
+            gap(9, "ready", caused_by="gap/g6")]                             # a later gap names g6 as its cause
+    ivs = [intervention(1, **{"class": "environment-defect"}), intervention(2, factory=True),
+           intervention(3, **{"class": "queue-interleaving"}), intervention(4, **{"class": "review-finding"}),
+           intervention(5, **{"class": "park"}), intervention(6, **{"class": "worktree"}, caused_by="gap/g5")]
+    upgrades = [{"state": "reverted", "fields": {"gap": "gap/g7"}}]
+    ev = risk.evidence(gaps, ivs, upgrades, [])
+    assert ev == {1: [3, 7, 5, 5]}       # 3 factory-caused of 7 processed; escapes g3, g4, g5, g6, g7 of 5 merged
+    assert risk.evidence(gaps, ivs[3:], [], [])[1][0] == 0                  # findings and parks are no harm
+    quiet = risk.evidence([*clean(7), gaps[1]], [], [], [])
+    assert quiet == {1: [0, 8, 0, 7]}
+    hurt, calm = risk.table(ev, 2, 6)[1], risk.table(quiet, 2, 6)[1]
+    assert hurt["risk"] > calm["risk"] and hurt["bound"] > calm["bound"]
+    assert hurt["per_day"] == 4 and hurt["risk"] == round(sum(r[0] for r in hurt["rates"].values()) * 4, 3)
+    assert ivs[0]["fields"]["class"] in risk.FACTORY and not risk.factory_caused(ivs[3])
+
+
+def test_an_untried_pool_size_has_a_wide_bound_and_is_not_jumped_to():
+    risk = module("risk")
+    ev = risk.evidence(clean(40), [], [], [])                  # 40 clean gaps, all at a pool of 1
+    tab = risk.table(ev, 4, 24)
+    per_gap = {n: sum(r[1] for r in tab[n]["rates"].values()) for n in tab}
+    assert per_gap[1] < per_gap[2] < per_gap[3]               # each size above the largest tried: a wider bound
+    assert risk.target(tab, 100, 10) == 4
+    assert risk.step(1, tab, 100, 10, 99, 3)[:2] == ("raise", 2)            # one step, never straight to the target
+    tried = risk.evidence([*clean(40), *clean(40, at=1000)], [], [], [[500, 2]])   # 40 more, run at 2
+    assert sum(r[1] for r in risk.table(tried, 4, 24)[2]["rates"].values()) < per_gap[2] / 2   # evidence narrows it
+    assert risk.size_at([[500, 2], [900, 3]], 700) == 2 and risk.size_at([[500, 2]], 10) == 1
+
+
+def test_target_is_the_largest_pool_within_tolerance_and_demand():
+    risk = module("risk")
+    tab = {n: {"bound": b} for n, b in {1: 0.5, 2: 1.5, 3: 1.9, 4: 2.5}.items()}
+    assert risk.target(tab, 2, 10) == 3
+    assert risk.target(tab, 2, 2) == 2 and risk.target(tab, 2, 0) == 1    # not above the ready and fix gaps
+    assert risk.target(tab, 0.1, 10) == 1                                   # at least 1
+    assert risk.target({**tab, 2: {"bound": 9}}, 2, 10) == 1                # every step on the way within it
+    real = risk.table(risk.evidence(clean(60), [], [], []), 4, 2)
+    within = [n for n in real if real[n]["bound"] <= 2]
+    assert risk.target(real, 2, 10) == max(within) and real[max(within) + 1]["bound"] > 2
+
+
+def test_raising_the_tolerance_raises_the_target(tmp_path):
+    risk = module("risk")
+    assert risk.tolerance() == 2                                             # the model's, the owner's default
+    model = tmp_path / "pools.yaml"
+    model.write_text("parameters:\n  risk-tolerance:\n    value: 6\n    unit: interventions/day\n")
+    assert risk.tolerance(model) == 6
+    assert risk.tolerance(tmp_path / "missing.yaml") == 0                    # not read: the pools go down to 1
+    tab = risk.table(risk.evidence(clean(60), [], [], []), 4, 2)          # a gap every 2 hours
+    assert risk.target(tab, risk.tolerance(), 10) < risk.target(tab, risk.tolerance(model), 10)
+
+
+def test_risk_over_tolerance_lowers_the_pool_at_once(tmp_path):
+    risk = module("risk")
+    tab = {n: {"bound": b} for n, b in {1: 0.5, 2: 1.5, 3: 2.1}.items()}
+    assert risk.step(3, tab, 2, 10, 0, 3)[:2] == ("lower", 2)               # at once: no probation for a drop
+    assert risk.step(3, tab, 2.2, 10, 0, 3)[0] is None                      # within it: held
+    assert risk.step(3, tab, 2.2, 1, 0, 3)[:2] == ("lower", 2)              # the demand fell: toward the target
+    f = Factory(tmp_path)
+    for role in ("implementor", "reviewer"):
+        subprocess.run([sys.executable, str(BIN / "pools.py"), "set", role, "2", "test"], cwd=f.model, env=f.env,
+                       check=True, capture_output=True)
+    f.fold([{"event": "intervention.recorded", "item": "intervention/x",
+             "data": {"class": "environment-defect", "recorded_at": time.time()}}], None)
+    said, lines = f.run("pools.py", argv=("tune",))
+    assert said[0] == "pool.lowered" and f.item("pool/implementor")["fields"]["pool"] == 1
+    got = json.loads((f.model / "run" / "pools.json").read_text())
+    assert (got["implementor"], got["reviewer"]) == (1, 1)                  # the reviewer follows it down
+    low = next(x["data"] for x in lines if x.get("event") == "pool.lowered")
+    assert low["risk_bound"] > low["tolerance"] == 2 and {"rates", "demand", "target"} <= set(low)   # its evidence
+    assert "acts" not in f.db()                                              # a drop asks no one
+    r = subprocess.run([sys.executable, str(BIN / "pools.py"), "raise", "implementor", "2", "3", "stale"],
+                       cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 1 and json.loads((f.model / "run" / "pools.json").read_text())["implementor"] == 1
+
+
+def test_probation_after_a_raise(tmp_path):
+    risk = module("risk")
+    tab = {n: {"bound": 0.1} for n in (1, 2, 3, 4)}
+    assert risk.step(2, tab, 2, 10, 2, 3) == (None, 2, "on probation: 2 of 3 gaps since the last raise")
+    assert risk.step(2, tab, 2, 10, 3, 3)[:2] == ("raise", 3)
+    assert risk.processed_since([gap(1), gap(5, "parked"), gap(9, "fix")], 103) == 1   # verdicts since the raise
+    f = Factory(tmp_path)
+    run = lambda *a: subprocess.run([sys.executable, str(BIN / "pools.py"), *a], cwd=f.model, env=f.env,  # noqa: E731
+                                    capture_output=True, text=True)
+    assert run("raise", "implementor", "1", "2", "approved").returncode == 0
+    got = json.loads((f.model / "run" / "pools.json").read_text())
+    assert got["implementor"] == 2 and got["raised_at"] > 0 and got["history"][-1][1] == 2   # the probation starts
+    assert run("raise", "implementor", "2", "4", "a jump").returncode == 1                # one step at a time
+
+
+def test_pools_set_by_hand_keeps_the_cap(tmp_path):
     pools = pools_module()
-    cfg = {"pools": {"implementor_max": 4, "reviewer_max": 2, "streak": 3}}
-    one = {"since": 0, "implementor": 1, "reviewer": 1}
-    two_good = pools.outcomes([gap(1), gap(2, fixes=1)], [])
-    assert pools.decide(two_good, 0, one, cfg)[0] is None                       # two in a row: not yet
-    three = pools.outcomes([gap(1), gap(2, fixes=1), gap(3)], [])
-    assert pools.decide(three, 0, one, cfg)[:1] == ("raise",)
-    assert pools.decide(three, 102.5, one, cfg)[0] is None                      # only what came since the last change
-    broken = pools.outcomes([gap(1), gap(2, state="parked", parked_at=101.5), gap(3), gap(4)], [])
-    assert pools.decide(broken, 0, one, cfg)[0] is None                         # a park at 1: the streak starts again
-    reverted = pools.outcomes([gap(1), gap(2), gap(3)], [{"state": "reverted", "fields": {"gap": "gap/g2"}}])
-    assert pools.decide(reverted, 0, one, cfg)[0] is None                       # a merge reverted is not good
-    full = {"since": 0, "implementor": 4, "reviewer": 2}
-    assert pools.decide(three, 0, full, cfg)[0] is None                         # the cap
-
-
-def test_pools_drop_on_a_park_and_keep_the_cap(tmp_path):
-    pools = pools_module()
-    cfg = {"pools": {"implementor_max": 4, "reviewer_max": 2, "streak": 3}}
-    two = {"since": 0, "implementor": 2, "reviewer": 1}
-    bad = pools.outcomes([gap(1), gap(2, state="parked", parked_at=101.5)], [])
-    assert pools.decide(bad, 0, two, cfg)[0] == "lower"
-    assert pools.decide(pools.outcomes([gap(1, fixes=2)], []), 0, two, cfg)[0] == "lower"   # a second fix round
+    assert pools.most({"pools": {"implementor_max": 5000}}, "implementor") == pools.HARD
     f = Factory(tmp_path)
     for want, asked in ((4, "9"), (1, "0"), (2, "2")):
         r = subprocess.run([sys.executable, str(BIN / "pools.py"), "set", "implementor", asked, "test"],
