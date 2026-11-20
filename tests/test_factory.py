@@ -36,12 +36,12 @@ if args[0] == "item" and "--kind" in args:
     print(json.dumps({"items": got, "total": len(got)}))
 elif args[0] == "act":
     db.setdefault("acts", []).append(args)
-    rec.write_text(json.dumps(db))
+    reply = db.get("act_reply") or {"rc": 3, "id": True}          # (as gated.py answers: held, with its id)
     aid = "ergostat.action/" + format(len(db["acts"]), "010x")
-    db.setdefault("actions", {})[aid] = "held"
+    db.setdefault("actions", {})[aid] = {3: "held", 4: "denied", 1: "failed", 0: "ran"}.get(reply["rc"], "refused")
     rec.write_text(json.dumps(db))
-    print(f"{args[1]}: held for the owner's approval ({aid}): ergostat actions ID --approve", file=sys.stderr)
-    sys.exit(3)
+    print(f"{args[1]}: " + (f"({aid}) " if reply["id"] else "") + "x" * reply.get("noise", 0), file=sys.stderr)
+    sys.exit(reply["rc"])
 elif args[0] == "item" and "/" in args[1]:
     if args[1] in db["items"]:
         print(json.dumps(db["items"][args[1]]))
@@ -156,7 +156,7 @@ class Factory:
             iid = line.get("item") or about
             kind = next(k for k in self.kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
             assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
-                                                                                ".dependencies")), line
+                                                                                ".dependencies", ".push-settled")), line
             it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
             for k, v in (line.get("data") or {}).items():
                 rule = "relation" if k in kind.relations else kind.fold.get(k, "replace")
@@ -657,9 +657,9 @@ def test_a_failed_push_blocks_the_queue_until_the_coordinator_looks(tmp_path):
     iid = next(i for i in f.db()["items"] if i.startswith("intervention/"))
     assert "blocked until" in settle(f)[1]                                     # still blocked
     f.fold([{"event": "intervention.remedied", "item": iid, "data": {"remedy": "pushed by hand"}}], None)
-    set_action(f, "ran")
-    said, why = settle(f)
-    assert why is None and said == ["gap.pushed"]
+    said, why = settle(f)                                                      # (the action stays failed: it is)
+    assert why is None and said == ["gap.push-settled"]                        # the remedy settles that merge
+    assert settle(f) == ([], None)                                             # and the queue goes on, unblocked
 
 
 def test_no_dead_letters(tmp_path):
@@ -816,5 +816,42 @@ def test_a_gap_is_taken_only_once_its_dependencies_merged_the_critical_first(tmp
     got = [i.id for i in pr.order_ready(ev, spec, "gap", ready(t + 11), t + 11)]
     assert got[0] == "gap/mid" and set(got) == {"gap/mid", "gap/other", "gap/lone"}   # merged: its dependents ready
     ev.add("gap.parked", item="gap/mid", at=t + 12)
-    got = [i.id for i in pr.order_ready(ev, spec, "gap", ready(t + 13), t + 13)]
-    assert "gap/top" not in got                                                # a parked dependency still blocks
+    ev.add("gap.dependencies", item="gap/top", data={"waits_on_parked": True, "blocked_reason": "waits on gap/mid"},
+           at=t + 12)
+    takeable = [i for i in ready(t + 13) if its.matches(i, take.takes.where)]
+    got = [i.id for i in pr.order_ready(ev, spec, "gap", takeable, t + 13)]
+    assert "gap/top" not in got and "gap/other" in got                         # a parked dependency still holds it
+    from ergostat.spec.itemindex import index_for
+    assert "parked" in pr.Kinds(spec, index_for(ev, spec, False))["gap"]["finished"]   # never open in the estimates
+
+
+def test_a_push_without_an_action_id_never_stalls_silently(tmp_path):
+    f = Factory(tmp_path)
+    db = f.db()
+    db["act_reply"] = {"rc": 4, "id": False}                                   # denied at once, no id said
+    f.record.write_text(json.dumps(db))
+    gid = ready(f)
+    f.run("implement.py", gid)
+    f.run("review.py", gid)
+    said, _ = f.run("queue.py", gid)
+    assert said[-1] == "gap.sent-back" and f.item(gid)["state"] == "fix"      # undone at once
+    assert git(f.checkout, "log", "-1", "--format=%s", "main") == "start"
+    g = Factory(tmp_path / "g")
+    db = g.db()
+    db["act_reply"] = {"rc": 3, "id": False}                                   # held, and no id to follow it by
+    g.record.write_text(json.dumps(db))
+    gid = ready(g)
+    g.run("implement.py", gid)
+    g.run("review.py", gid)
+    said, _ = g.run("queue.py", gid)
+    assert said[-1] == "intervention.recorded"                                 # blocked, asking the coordinator
+    assert "blocked until" in settle(g)[1]
+    h = Factory(tmp_path / "h")
+    db = h.db()
+    db["act_reply"] = {"rc": 3, "id": True, "noise": 5000}                     # a long answer: the id is still read
+    h.record.write_text(json.dumps(db))
+    gid = ready(h)
+    h.run("implement.py", gid)
+    h.run("review.py", gid)
+    h.run("queue.py", gid)
+    assert "is held" in settle(h)[1]

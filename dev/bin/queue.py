@@ -99,11 +99,19 @@ def settle(cfg: dict, repo) -> str | None:
         if action_state(iid) != "remedied":
             return f"blocked until {iid} is remedied: {st['blocked']['why']}"
         st.pop("blocked")
+        p = st.pop("pending", None)                    # the coordinator's remedy settled that merge, whatever its push
+        if p:
+            fac.say("gap.push-settled", p["gap"], push="settled by the coordinator", settled_by=iid,
+                    settled_at=time.time())
         save(cfg, st)
+        return None
     p = st.get("pending")
     if not p:
         return None
-    now = action_state(p["action"]) if p.get("action") else "unknown"
+    now = action_state(p["action"]) if p.get("action") else p.get("known") or "unknown"
+    if now == "held" and not p.get("action"):
+        return block(cfg, st, f"the push of {p['sha'][:12]} is held, and its action's id was not said: "
+                              f"it cannot be followed")
     if now == "ran":
         fac.say("gap.pushed", p["gap"], pushed_at=time.time(), push="pushed")
         st.pop("pending")
@@ -119,9 +127,9 @@ def settle(cfg: dict, repo) -> str | None:
         st.pop("pending")
         save(cfg, st)
         return None
-    if now == "failed":
-        return block(cfg, st, f"the push of {p['sha'][:12]} failed")
-    return f"the push of {p['sha'][:12]} ({p['gap']}) is {now}"
+    if now in ("held", "requested", "approved"):
+        return f"the push of {p['sha'][:12]} ({p['gap']}) is {now}"
+    return block(cfg, st, f"the push of {p['sha'][:12]} is {now}" + (f": {p['said'][-200:]}" if p.get("said") else ""))
 
 
 def reviewed(cfg: dict, repo, gap: dict) -> tuple[str | None, str]:
@@ -202,11 +210,12 @@ def main() -> int:
         push = {0: "pushed", 1: "failed", 3: "held", 4: "denied"}.get(rc, f"refused ({rc})")
     except FileNotFoundError:
         push, said = "not asked: not run by ergostat", ""
-    fac.say("gap.push-asked", push=push, push_said=said[-300:])
+    fac.say("gap.push-asked", push=push, push_said=said[-600:])
     if push != "pushed":
         m = re.search(r"ergostat\.action/[0-9a-f]+", said)
         save(cfg, {**state(cfg), "pending": {"sha": merged, "pre": pre, "gap": gap["id"], "branch": branch,
-                                             "action": m.group(0) if m else "", "at": time.time()}})
+                                             "action": m.group(0) if m else "", "known": push.split(" ")[0],
+                                             "said": said[-600:], "at": time.time()}})
         with fac.queue_lock(cfg):
             settle(cfg, repo)                             # a push denied or failed at once is handled now
     return 0

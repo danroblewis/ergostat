@@ -121,7 +121,7 @@ def act(name: str, key: str, **args) -> tuple[int, str]:
     """Ask for a gated action ($ERGOSTAT_CMD act); (exit, what it said): 0 ran, 1 failed, 3 held, 4 denied, 2 refused."""
     a = ["act", name, "--key", key] + [x for k, v in args.items() for x in ("--arg", f"{k}={v}")]
     r = ergostat(*a, check=False)
-    return r.returncode, (r.stdout + r.stderr).strip()[-600:]
+    return r.returncode, (r.stdout + "\n" + r.stderr).strip()        # whole: the action's id is said first
 
 
 # ---- git
