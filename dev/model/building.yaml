@@ -53,10 +53,10 @@ flows:
     system: intake
     from: gaps-open
     to: gaps-ready
-    description: a definition of done found for an open gap (the coordinator writes it)
+    description: a definition of done found for an open gap (the coordinator writes it; a planned one is plans-approved)
     driven-by: [+stock.gaps-open]
     equation: stock.gaps-open / define-time
-    sensor: {items: gap, entering: ready, over: 1d}
+    sensor: {items: gap, entering: ready, where: {defined_by: coordinator}, over: 1d}
   gaps-started:
     from: gaps-ready
     to: gaps-building

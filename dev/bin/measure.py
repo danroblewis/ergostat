@@ -12,7 +12,13 @@ own measures do).
   fix-rounds          mean rounds sent back to the implementor per merged gap
   flake-rate          flaky retries per queue run
   cost-per-merged     dollars of AI sessions per merged gap (every round, implementor and reviewer)
-  interventions-trend the coordinator's interventions over the last 7 days less the 7 before"""
+  interventions-trend the coordinator's interventions over the last 7 days less the 7 before
+  lessons-per-brief   review lessons carried per first implementor brief (knowledge.py)
+  first-pass-with-lessons  first-pass-yield, of the gaps whose first brief carried review lessons
+  plan-risks-held     of planned gaps first reviewed, the share whose review found none of the lesson classes their
+                      plan named as risks (the librarian's classes)
+  splits-clean        of sub-gaps merged, the share approved on their first review
+The last three, like first-pass-yield, have no value with nothing to measure."""
 
 from __future__ import annotations
 
@@ -46,6 +52,8 @@ def reading(name: str, now: float | None = None) -> float:
         if not first:
             raise SystemExit("first-pass-yield: no value yet (no first review in the window)")   # not 0: unknown
         return round(sum(r["fields"].get("verdict") == "merge" for r in first) / len(first), 3)
+    if name in KNOWLEDGE:
+        return knowledge_reading(name, since)
     gaps = fac.items("gap")
     merged = [g["fields"] for g in recent(gaps, "merged_at", since) if g["state"] == "merged"]
     f = lambda k: [float(g.get(k) or 0) for g in merged]  # noqa: E731
@@ -68,6 +76,34 @@ def reading(name: str, now: float | None = None) -> float:
         runs = sum(int(g.get("queue_attempts") or 0) for g in queued)
         return round(sum(int(g.get("retries") or 0) for g in queued) / runs, 3) if runs else 0.0
     raise SystemExit(f"measure.py: no measure {name!r}")
+
+
+KNOWLEDGE = ("lessons-per-brief", "first-pass-with-lessons", "plan-risks-held", "splits-clean")
+
+
+def share(xs: list[bool], name: str) -> float:
+    if not xs:
+        raise SystemExit(f"{name}: no value yet (nothing to measure in the window)")
+    return round(sum(xs) / len(xs), 3)
+
+
+def knowledge_reading(name: str, since: float) -> float:
+    gaps = {g["id"]: g for g in fac.items("gap")}
+    carried = {i: next((len([k for k in c.get("knowledge") or [] if k.startswith("lesson-")])
+                        for c in g["fields"].get("contexts") or [] if c.get("role") == "implementor"), None)
+               for i, g in gaps.items()}
+    if name == "lessons-per-brief":
+        n = [carried[i] for i, g in gaps.items() if carried[i] is not None
+             and float(g["fields"].get("building_at") or 0) >= since]
+        return round(statistics.mean(n), 2) if n else 0.0
+    if name == "splits-clean":
+        return share([bool(g["fields"].get("first_pass")) for g in recent(list(gaps.values()), "merged_at", since)
+                      if g["fields"].get("parent")], name)
+    first = [r for r in recent(fac.items("review"), "written_at", since) if r["fields"].get("round") == 1]
+    if name == "first-pass-with-lessons":
+        return share([r["fields"].get("verdict") == "merge" for r in first if carried.get(r["fields"].get("gap"))], name)
+    risks = {r["id"]: set(gaps.get(r["fields"].get("gap"), {}).get("fields", {}).get("risks") or []) for r in first}
+    return share([not (risks[r["id"]] & set(r["fields"].get("classes") or [])) for r in first if risks[r["id"]]], name)
 
 
 if __name__ == "__main__":
