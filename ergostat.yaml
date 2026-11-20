@@ -115,6 +115,7 @@ items:
       plan_failures: sum
       plan_reviews: append
       research: union
+      research_waits: sum
     join:
       - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
     lease: {attempts: 2}

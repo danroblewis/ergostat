@@ -54,6 +54,7 @@ class Instance(Factory):
         self.config.write_text(self.config.read_text().replace("[ai]\n", "[ai]\n" + "".join(
             f'{r}_model = "opus"\n{r}_session_usd = 1.0\n' for r in ("planner", "plan_reviewer", "researcher",
                                                                      "librarian"))))
+        self.config.write_text(self.config.read_text() + "[knowledge]\nlibrarian = true\n")
         self.fake.write_text(FAKE_MORE)
 
     def drain(self) -> list[str]:
@@ -259,7 +260,7 @@ def test_researcher_answers(tmp_path):
     rid = f.item(gid)["fields"]["research"][0]
     assert f.item(rid)["fields"]["question"] == "How does the queue decide?" and f.item(gid)["state"] == "open"
     said, lines = f.run("plan.py", gid)
-    assert said == [] and "waits for its research" in json.dumps(lines)          # no plan before its answer
+    assert said == ["gap.measured"] and "waits for its research" in json.dumps(lines)   # no plan before its answer
     said, _ = f.run("research.py", rid)
     assert said == ["research.answered"]
     r = f.item(rid)
@@ -369,3 +370,64 @@ def test_the_knowledge_model_loads():
         assert spec.blocks[name].pool == 1
     assert spec.blocks["planner"].takes.at == ["open", "replan"] and spec.blocks["plan-review"].takes.at == ["planned"]
     assert {"knowledge-entries", "gaps-planned", "lessons-proposed"} <= set(spec.stocks)
+
+
+LONG = "A gap whose title runs on well past thirty-two characters"
+
+
+def test_a_gap_whose_id_is_not_its_branch_is_one_item(tmp_path):
+    f = Instance(tmp_path)
+    gaps = f.checkout / "docs" / "GAPS.md"
+    gaps.write_text(gaps.read_text().replace("## Done recently", f"- **{LONG}** (open): long.\n\n## Done recently"))
+    git(f.checkout, "commit", "-qam", "a long one")
+    f.run("intake.py")
+    gid = [i for i in f.db()["items"] if i.startswith("gap/a-gap-whose")][0]
+    branch = f.item(gid)["fields"]["branch"]
+    assert gid != f"gap/{branch}"                                   # (60 characters of the title; the branch, 32)
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b=branch))
+    assert said == ["gap.planned"] and f.item(gid)["state"] == "planned"
+    said, _ = f.run("plan.py", gid, argv=("review",))
+    assert said == ["gap.defined"] and f.item(gid)["state"] == "ready"
+    f.run("intake.py")
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]
+    mine = [i for i in f.db()["items"].values() if i["kind"] == "gap" and i["fields"].get("branch") == branch]
+    assert [i["id"] for i in mine] == [gid] and f"gap/{branch}" not in f.db()["items"]     # one item, taken once
+    assert [i["id"] for i in f.db()["items"].values() if i["state"] == "ready"] == []
+
+
+def test_a_split_whose_sub_gap_parks_is_parked(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two"))
+    assert f.run("plan.py", argv=("splits",))[0] == []                # nothing stopped: it waits on
+    f.fold([{"event": "gap.parked", "item": "gap/alpha-two", "data": {"where_it_stopped": "The lock order."}}], None)
+    said, _ = f.run("plan.py", argv=("splits",))
+    gap = f.item(gid)
+    assert said == ["gap.parked"] and gap["state"] == "parked" and gap["fields"]["parked_in"] == "split"
+    assert "gap/alpha-two (parked): The lock order." in gap["fields"]["where_it_stopped"]
+    assert f.run("plan.py", argv=("splits",))[0] == []                # once
+
+
+def test_a_dead_or_unanswered_question_is_planned_without(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER="<research>One?</research><research>Two?</research>")
+    one, two = f.item(gid)["fields"]["research"]
+    db = f.db()
+    db["items"][one]["state"] = "dead"                               # a dead letter
+    f.record.write_text(json.dumps(db))
+    said, _ = f.run("plan.py", gid)
+    assert said == ["gap.measured"] and f.item(gid)["fields"]["research_waits"] == 1     # two still waits
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"research_waits": 11}}], None)
+    said, _ = f.run("plan.py", gid)
+    assert said == ["gap.planned"]                                   # after 12 waits: planned without
+    brief = (f.model / f.item(gid)["fields"]["contexts"][-1]["brief"][5:]).read_text()
+    assert f"### {one}\n\n(no answer: the question is a dead letter" in brief
+    assert f"### {two}\n\n(no answer: the question was not answered in 12 waits)" in brief
+
+
+def test_the_librarian_ships_off(tmp_path):
+    f = Instance(tmp_path)
+    f.config.write_text(f.config.read_text().replace("librarian = true", "librarian = false"))
+    assert librarian(f, "review/a-1", ["x"], [{"finding": 1, "class": "lesson-1", "shape": "s", "new_shape": True}]) == []

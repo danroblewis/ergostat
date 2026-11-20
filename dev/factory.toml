@@ -33,6 +33,7 @@ librarian_session_usd = 0.25
 [knowledge]                          # what a brief may carry beyond the house rules and the review lessons (always)
 chars = 24000                        # the whole knowledge section, in characters, unless the role has its own
 plan_reviewer_chars = 12000          # (the lessons alone)
+librarian = false                    # ships off: true runs the librarian after each review (an AI step on haiku)
 
 [agents]                             # the sessions' containers (dev/bin/agents.py, dev/agent/)
 image = "ergostat-agent:latest"      # docker build -t ergostat-agent:latest dev/agent (after the dev image)

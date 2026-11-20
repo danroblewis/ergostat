@@ -4,8 +4,10 @@
                       definition of done (acceptance tests by name, a budget, the review lessons that apply as risks,
                       the files to touch) to run/plans/<branch>.md: planned. Or it splits the gap into sub-gaps (each
                       planned, `depends-on` among them, `parent:` the gap, which waits in split until every one is
-                      merged), or asks research questions and waits for their answers. A gap whose definition the
+                      merged), or asks research questions and waits for their answers (a question dead, or unanswered after 12
+                      waits, is planned without, and the brief says so). A gap whose definition the
                       coordinator wrote is made ready as the intake does.
+    plan.py splits    a split gap whose sub-gap parked (or died) parked too, saying which (a program, every 5m)
     plan.py review    the plan review: takes a gap at planned; a cheap session given the plan and the lessons only.
                       Approved, the plan as it read it becomes run/defs/<branch>.md and the gap is ready; sent back,
                       the planner takes it again with the findings; a second failure, or a park, parks it."""
@@ -23,7 +25,7 @@ import agents  # noqa: E402
 import brief  # noqa: E402
 import fac  # noqa: E402
 
-MOST_SPLIT, MOST_RESEARCH, KILL = 6, 3, 2
+MOST_SPLIT, MOST_RESEARCH, KILL, MOST_WAITS = 6, 3, 2, 12      # 12 waits of 30 minutes
 TAG = re.compile(r'<definition branch="([^"]*)"(?: title="([^"]*)")?>\n?(.*?)</definition>', re.S)
 DEPS = re.compile(r"^depends-on:\s*\[([^\]]*)\]", re.M)
 
@@ -73,13 +75,19 @@ def planner(cfg: dict, gap: dict) -> int:
         return 0
     research = {r["id"]: r for r in fac.items("research")}
     asked = list(f.get("research") or [])
-    if waiting := [r for r in asked if research.get(r, {}).get("state") != "answered"]:
+    waiting = [r for r in asked if research.get(r, {}).get("state") not in ("answered", "dead", None)]
+    if waiting and int(f.get("research_waits") or 0) < MOST_WAITS:
+        fac.say("gap.measured", research_waits=1)
         fac.nack(f"waits for its research: {', '.join(waiting)}", after="30m", count=False)
         return 0
+    unanswered = lambda r: "(no answer: the question " + ("is a dead letter or not recorded" if r not in waiting  # noqa: E731
+                                                         else f"was not answered in {MOST_WAITS} waits") + ")"
     _, work = agents.clone(cfg, branch, "planner", at=f"origin/{cfg['git']['base']}")
+    reports = [rs.report(cfg, research[r])[:4000] if r in research else "" for r in asked]
     text, context = brief.assemble(cfg, "planner", gap, work, definition="", branch=branch, plan_findings=brief.
                                    findings_text(f.get("plan_findings") or []), research="\n\n".join(
-                                       f"### {r}\n\n{rs.report(cfg, research[r])[:4000]}" for r in asked) or "(none)")
+                                       f"### {r}\n\n{x or unanswered(r)}" for r, x in zip(asked, reports, strict=True))
+                                   or "(none)")
     context["brief"] = brief.save(cfg, "planner", gap, text)
     got = fac.attempt(cfg, "planner", text, work)
     if got is None:
@@ -106,7 +114,7 @@ def planner(cfg: dict, gap: dict) -> int:
         if name != branch:
             fac.say("gap.requested", f"gap/{name}", title=title or name, source="plan", branch=name,
                     parent=[gap["id"]], depends_on=deps_of(body), requested_at=now)
-        fac.say("gap.planned", f"gap/{name}", plan=fac.rel(p), planned_at=now, risks=sorted(set(re.findall(
+        fac.say("gap.planned", gap["id"] if name == branch else f"gap/{name}", plan=fac.rel(p), planned_at=now, risks=sorted(set(re.findall(
             r"\blesson-\d+\b", body))), replanned=name == branch and bool(f.get("plan_failures")),
             **(record if name == branch else {}))
     if defs[0][0] != branch:
@@ -145,6 +153,22 @@ def review_plan(cfg: dict, gap: dict) -> int:
     return 0
 
 
+def splits(cfg: dict) -> int:
+    """Each split gap one of whose sub-gaps parked: parked too, saying which and where it stopped (the join only moves
+    it on once every sub-gap is merged)."""
+    import review
+    gaps = fac.items("gap")
+    for g in (g for g in gaps if g["state"] == "split"):
+        stopped = [c for c in gaps if g["id"] in fac.ids(c["fields"].get("parent")) and c["state"] in ("parked", "dead")]
+        if stopped:
+            review.park(cfg, g, "Its sub-gaps stopped:\n" + "\n".join(
+                f"- {c['id']} ({c['state']}): {str(c['fields'].get('where_it_stopped') or '').strip()[:600]}"
+                for c in stopped), "split-watch", where="split")
+    return 0
+
+
 if __name__ == "__main__":
     fac.stop_on_term()
+    if sys.argv[1:] == ["splits"]:
+        sys.exit(splits(fac.config()))
     sys.exit((review_plan if sys.argv[1:] == ["review"] else planner)(fac.config(), fac.read_input()["item"]))

@@ -47,6 +47,9 @@ def classify(cfg: dict, rid: str, found: list[str], lessons: dict) -> list[dict]
 
 def main() -> int:
     cfg = fac.config()
+    if not (cfg.get("knowledge") or {}).get("librarian"):
+        print("librarian: off ([knowledge] librarian = true turns it on)", file=sys.stderr)
+        return 0
     ev = (json.loads(sys.stdin.read() or "{}") or {}).get("event") or {}
     rid, d = ev.get("item"), ev.get("data") or {}
     if not rid:
