@@ -54,8 +54,20 @@ def park(cfg: dict, gap: dict, why: str) -> None:
 
 
 def main() -> int:
+    fac.stop_on_term()
     cfg = fac.config()
     given = fac.read_input()
+    began = time.time()
+    try:
+        return build(cfg, given, began)
+    except agents.Refused as e:                       # no token: not the gap's fault, and not a dead letter
+        fac.nack(str(e), after="1h", count=False)
+        return 0
+    except Exception:  # noqa: BLE001 - every other failure: parked on its last attempt, never a dead letter
+        return fac.guarded(given, began, "build_hours", lambda why: park(cfg, given["item"], why))
+
+
+def build(cfg: dict, given: dict, began: float) -> int:
     gap = given["item"]
     f = gap["fields"]
     refused = fac.may_spend(cfg, float(cfg["ai"]["implementor_session_usd"]))
@@ -72,7 +84,6 @@ def main() -> int:
         park(cfg, gap, f"Building took {float(f['build_hours']):.1f} hours over its rounds, past the kill rule's "
                        f"{KILL_HOURS:g}: stopped. Its last findings: {f.get('findings') or 'none'}")
         return 0
-    began = time.time()
     fac.say("gap.started", branch=branch, rework=rework, building_at=began)
     home, work = agents.clone(cfg, branch, "implementor")
     base_sha = fac.git(work, "rev-parse", f"origin/{cfg['git']['base']}")

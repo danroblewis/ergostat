@@ -109,6 +109,15 @@ ergostat inbox                                  # the push and the switch wait h
 ergostat inbox action/<id> --approve --as coordinator
 ```
 
+One merge waits for its push at a time. If you deny the push, the queue undoes that merge (`git reset --keep`) and
+sends the gap back. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
+(`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
+`ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
+
+A gap is never left a dead letter: a run that fails on its last attempt parks the gap with where it stopped, and the
+`dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
+`ergostat-factory-*`, killed when its run ends or is stopped, and swept by `main-watch` once past its time.
+
 ## Record an intervention
 
 Each time you step in by hand, say so: it is evidence of a loop the factory lacks.

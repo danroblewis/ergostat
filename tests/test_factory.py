@@ -29,7 +29,7 @@ from pathlib import Path
 rec = Path(__file__).with_name("record.json")
 db = json.loads(rec.read_text())
 args = sys.argv[1:]
-if args[0] == "item":
+if args[0] == "item" and "--kind" in args:
     kind = args[args.index("--kind") + 1]
     state = args[args.index("--state") + 1] if "--state" in args else None
     got = [i for i in db["items"].values() if i["kind"] == kind and (state is None or i["state"] == state)]
@@ -37,8 +37,18 @@ if args[0] == "item":
 elif args[0] == "act":
     db.setdefault("acts", []).append(args)
     rec.write_text(json.dumps(db))
-    print("held for the owner: ergostat actions ID --approve", file=sys.stderr)
+    aid = "ergostat.action/" + format(len(db["acts"]), "010x")
+    db.setdefault("actions", {})[aid] = "held"
+    rec.write_text(json.dumps(db))
+    print(f"{args[1]}: held for the owner's approval ({aid}): ergostat actions ID --approve", file=sys.stderr)
     sys.exit(3)
+elif args[0] == "item" and "/" in args[1]:
+    if args[1] in db["items"]:
+        print(json.dumps(db["items"][args[1]]))
+    elif args[1] in db.get("actions", {}):
+        print(json.dumps({"id": args[1], "state": db["actions"][args[1]]}))
+    else:
+        sys.exit(f"no item {args[1]}")
 elif args[0] == "lease":
     pass
 else:
@@ -145,7 +155,7 @@ class Factory:
                 continue
             iid = line.get("item") or about
             kind = next(k for k in self.kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
-            assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked")), line
+            assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed")), line
             it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
             for k, v in (line.get("data") or {}).items():
                 rule = kind.fold.get(k, "replace")
@@ -164,14 +174,17 @@ class Factory:
         self.record.write_text(json.dumps(db))
         return said
 
-    def run(self, program: str, iid: str | None = None, argv: tuple = (), **env) -> tuple[list[str], list[dict]]:
-        """A run of a block: (the events it said, every JSON line it printed)."""
+    def run(self, program: str, iid: str | None = None, argv: tuple = (), lease: dict | None = None, fails: bool = False,
+            **env) -> tuple[list[str], list[dict]]:
+        """A run of a block: (the events it said, every JSON line it printed). ``lease``: more of its lease (its
+        attempt); ``fails``: it is expected to exit non-zero (a counted attempt)."""
         it = self.item(iid) if iid else None
-        given = {"trigger": "item", "item": it, "lease": {"fence": 1, "back": it["state"]} if it else None}
+        given = {"trigger": "item", "item": it,
+                 "lease": {"fence": 1, "back": it["state"], **(lease or {})} if it else None}
         r = subprocess.run([sys.executable, str(BIN / program), *argv], input=json.dumps(given), cwd=self.model,
                            capture_output=True, text=True, timeout=120,
                            env={**self.env, **({"ERGOSTAT_ITEM": iid, "ERGOSTAT_LEASE": "1"} if iid else {}), **env})
-        assert r.returncode == 0, r.stderr
+        assert (r.returncode != 0) == fails, r.stderr
         lines = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
         return self.fold(lines, iid), lines
 
@@ -575,3 +588,135 @@ def test_containers_reach_only_the_api_and_return_a_bundle(tmp_path):
                         "ergostat-agent:latest", "python3", "/c/egress_check.py"], capture_output=True, text=True,
                        timeout=120)
     assert r.stdout.strip() == "[True, False, False, False]", r.stderr[-400:]   # the API alone
+
+
+def test_an_overshoot_is_charged_on_the_sessions_day(tmp_path, monkeypatch):
+    fac = fac_module(tmp_path, monkeypatch)
+    cfg = {"paths": {"run": str(tmp_path / "run")}}
+    at = fac.reserve(cfg, 1.0, role="implementor")
+    fac.settle(cfg, 1.0, 1.5, at, role="implementor")
+    assert fac.spent_today(cfg) == 1.5                                         # spent past the reservation: charged
+    at = fac.reserve(cfg, 1.0, role="reviewer")
+    fac.settle(cfg, 1.0, 0.25, at, role="reviewer")
+    assert fac.spent_today(cfg) == 1.75
+    rows = [json.loads(x) for x in (tmp_path / "run" / "costs.jsonl").read_text().splitlines()]
+    assert rows[1]["at"] == rows[0]["at"] and rows[3]["at"] == rows[2]["at"]   # dated with its reservation
+
+
+def merged(f: Factory) -> str:
+    gid = ready(f)
+    f.run("implement.py", gid)
+    f.run("review.py", gid)
+    said, _ = f.run("queue.py", gid)
+    assert said == ["gap.queued", "gap.merged", "gap.push-asked"]
+    return gid
+
+
+def settle(f: Factory) -> tuple[list[str], str]:
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac, queue; cfg = fac.config(); "
+            "print(json.dumps({'why': queue.settle(cfg, fac.path(cfg, 'checkout'))}))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    lines = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
+    return f.fold([x for x in lines if "event" in x], None), lines[-1]["why"]
+
+
+def set_action(f: Factory, state: str) -> None:
+    db = f.db()
+    aid = next(iter(db["actions"]))
+    db["actions"][aid] = state
+    f.record.write_text(json.dumps(db))
+
+
+def test_a_denied_push_undoes_its_merge(tmp_path):
+    f = Factory(tmp_path)
+    gid = merged(f)
+    said, why = settle(f)
+    assert said == [] and "is held" in why                                     # one unpushed merge at a time
+    set_action(f, "denied")
+    said, why = settle(f)
+    assert said == ["gap.sent-back"] and why is None and f.item(gid)["state"] == "fix"
+    assert git(f.checkout, "log", "-1", "--format=%s", "main") == "start"     # the merge undone
+
+
+def test_a_failed_push_blocks_the_queue_until_the_coordinator_looks(tmp_path):
+    f = Factory(tmp_path)
+    merged(f)
+    set_action(f, "failed")
+    said, why = settle(f)
+    assert said == ["intervention.recorded"] and "failed" in why
+    iid = next(i for i in f.db()["items"] if i.startswith("intervention/"))
+    assert "blocked until" in settle(f)[1]                                     # still blocked
+    f.fold([{"event": "intervention.remedied", "item": iid, "data": {"remedy": "pushed by hand"}}], None)
+    set_action(f, "ran")
+    said, why = settle(f)
+    assert why is None and said == ["gap.pushed"]
+
+
+def test_no_dead_letters(tmp_path):
+    f = Factory(tmp_path)
+    gid = ready(f)
+    db = f.db()
+    db["items"][gid]["fields"]["definition"] = "run/defs/missing.md"           # its definition gone: it cannot build
+    db["items"][gid]["fields"]["branch"] = "gone-def"
+    f.record.write_text(json.dumps(db))
+    f.run("implement.py", gid, fails=True)                                     # not its last attempt: counted
+    said, _ = f.run("implement.py", gid, lease={"attempt": 2, "attempts": 2})  # its last: parked, not a dead letter
+    assert said[-1] == "gap.parked" and "Stopped on its last attempt" in f.item(gid)["fields"]["where_it_stopped"]
+    assert f.item(gid)["fields"]["build_hours"] >= 0
+    g = Factory(tmp_path / "g")
+    gid = ready(g)
+    g.run("implement.py", gid)
+    said, _ = g.run("review.py", gid, lease={"attempt": 2, "attempts": 2}, FACTORY_STANDIN_VERDICT="nonsense")
+    assert said[-1] == "gap.parked"                                            # an unparsable verdict, last attempt
+    g.fold([{"event": "gap.requested", "item": "gap/lost", "data": {"source": "request"}}], None)
+    db = g.db()
+    db["items"]["gap/lost"]["state"] = "dead"
+    g.record.write_text(json.dumps(db))
+    said, _ = g.run("dead.py")
+    assert said == ["gap.parked"] and g.item("gap/lost")["fields"]["parked_in"] == "dead-letter"
+
+
+def test_a_revert_puts_back_the_instances_model_and_says_when_it_cannot(tmp_path):
+    f = Factory(tmp_path)
+    live = tmp_path / "live"
+    fake_version(live, "a" * 40, starts=True)
+    fake_version(live, "b" * 40, starts=False)
+    with f.config.open("a") as c:
+        c.write("health_wait = 1\n")
+    env = {**f.env, "ERGOSTAT_HOME": str(tmp_path / "home")}
+    live_py = [sys.executable, str(BIN / "live.py")]
+    inst = live / "instance"
+    inst.mkdir(parents=True)
+    (live / "current").symlink_to("a" * 40)
+    subprocess.run([*live_py, "init"], cwd=inst, env=env, check=True, capture_output=True)
+    (inst / "dev" / "accepted-change.yaml").write_text("an edit made in the instance\n")
+    r = subprocess.run([*live_py, "switch", "b" * 40], cwd=inst, env=env, capture_output=True, text=True)
+    assert r.returncode == 1 and os.readlink(live / "current") == "a" * 40
+    assert (inst / "dev" / "accepted-change.yaml").is_file()                   # the instance's model as it ran
+    assert "gap.requested" in (live / "calls.log").read_text()                 # its edit is a gap all the same
+    (live / ("a" * 40) / ".venv" / "bin" / "ergostat").write_text(
+        (live / ("b" * 40) / ".venv" / "bin" / "ergostat").read_text().replace("b" * 40, "a" * 40))
+    r = subprocess.run([*live_py, "switch", "b" * 40], cwd=inst, env=env, capture_output=True, text=True)
+    assert r.returncode != 0 and "did not start" in r.stderr                   # the revert's start failed twice
+    calls = (live / "calls.log").read_text()
+    assert "upgrade.failed" in calls and "intervention.recorded" in calls
+
+
+@pytest.mark.skipif(not docker_ready(), reason="needs Docker and the agent image (dev/agent/Dockerfile)")
+def test_the_factorys_containers_are_counted_and_swept(tmp_path, monkeypatch):
+    sys.modules.setdefault("fac", module("fac"))
+    agents, load = module("agents"), module("load")
+    name = "ergostat-factory-suite-testsweep"
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    before = load.docker_suites()
+    subprocess.run(["docker", "run", "-d", "--init", "--name", name, "--network", "none", "ergostat-agent:latest",
+                    "sleep", "300"], check=True, capture_output=True)
+    try:
+        assert load.docker_suites() == before + 1                              # the interlock counts it
+        assert "--init" in agents.LIMITS
+        monkeypatch.setitem(agents.TIMEOUTS, "suite", -1200)                   # (as if it ran past its time)
+        assert name in agents.sweep({})
+        assert subprocess.run(["docker", "inspect", name], capture_output=True).returncode != 0
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
