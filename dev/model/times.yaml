@@ -1,0 +1,112 @@
+# Time in each state, the build-review loop and the gates, per gap, whatever its end (dev/README.md, *Time in each
+# state*): the timer writes them on each gap (time_in, loop_rounds, loop_hours, gates), and each state and gate has a
+# measure, its median and its p90 over the gaps that left it in the last 14 days (dev/bin/measure.py, times.py), with
+# a goal the owner sets (hold:). The holds here are first guesses: `python3 dev/bin/times.py setpoints`, run in the
+# instance's folder, sets each to today's reading. Waiting states (open, ready, fix, built, approved, queued) are the
+# cheapest time to remove.
+defaults:
+  system: times
+
+auxiliaries:
+  in-open-hours: {unit: hours, description: median hours a gap waited open for its definition (summed over its visits), sensor: {run: python3 dev/bin/measure.py in-open-hours, every: 30m, timeout: 1m}}
+  in-open-hours-p90: {unit: hours, description: p90 hours a gap waited open, sensor: {run: python3 dev/bin/measure.py in-open-hours-p90, every: 30m, timeout: 1m}}
+  in-ready-hours: {unit: hours, description: median hours a gap waited ready for the implementor, sensor: {run: python3 dev/bin/measure.py in-ready-hours, every: 30m, timeout: 1m}}
+  in-ready-hours-p90: {unit: hours, description: p90 hours a gap waited ready, sensor: {run: python3 dev/bin/measure.py in-ready-hours-p90, every: 30m, timeout: 1m}}
+  in-fix-hours: {unit: hours, description: median hours a gap waited at fix for the implementor, sensor: {run: python3 dev/bin/measure.py in-fix-hours, every: 30m, timeout: 1m}}
+  in-fix-hours-p90: {unit: hours, description: p90 hours a gap waited at fix, sensor: {run: python3 dev/bin/measure.py in-fix-hours-p90, every: 30m, timeout: 1m}}
+  in-built-hours: {unit: hours, description: median hours a gap waited built for the reviewer, sensor: {run: python3 dev/bin/measure.py in-built-hours, every: 30m, timeout: 1m}}
+  in-built-hours-p90: {unit: hours, description: p90 hours a gap waited built, sensor: {run: python3 dev/bin/measure.py in-built-hours-p90, every: 30m, timeout: 1m}}
+  in-approved-hours: {unit: hours, description: median hours a gap waited approved for the queue, sensor: {run: python3 dev/bin/measure.py in-approved-hours, every: 30m, timeout: 1m}}
+  in-approved-hours-p90: {unit: hours, description: p90 hours a gap waited approved, sensor: {run: python3 dev/bin/measure.py in-approved-hours-p90, every: 30m, timeout: 1m}}
+  in-queued-hours: {unit: hours, description: median hours a gap spent queued (the lock and a quiet machine and the merge and the suites), sensor: {run: python3 dev/bin/measure.py in-queued-hours, every: 30m, timeout: 1m}}
+  in-queued-hours-p90: {unit: hours, description: p90 hours a gap spent queued, sensor: {run: python3 dev/bin/measure.py in-queued-hours-p90, every: 30m, timeout: 1m}}
+  in-replan-hours: {unit: hours, description: median hours a gap spent sent back to the planner, sensor: {run: python3 dev/bin/measure.py in-replan-hours, every: 30m, timeout: 1m}}
+  in-replan-hours-p90: {unit: hours, description: p90 hours a gap spent at replan, sensor: {run: python3 dev/bin/measure.py in-replan-hours-p90, every: 30m, timeout: 1m}}
+  in-planned-hours: {unit: hours, description: median hours a gap spent planned (its plan in review), sensor: {run: python3 dev/bin/measure.py in-planned-hours, every: 30m, timeout: 1m}}
+  in-planned-hours-p90: {unit: hours, description: p90 hours a gap spent planned, sensor: {run: python3 dev/bin/measure.py in-planned-hours-p90, every: 30m, timeout: 1m}}
+  in-split-hours: {unit: hours, description: median hours a split gap spent until its sub-gaps were merged, sensor: {run: python3 dev/bin/measure.py in-split-hours, every: 30m, timeout: 1m}}
+  in-split-hours-p90: {unit: hours, description: p90 hours a gap spent split, sensor: {run: python3 dev/bin/measure.py in-split-hours-p90, every: 30m, timeout: 1m}}
+  in-leased-hours: {unit: hours, description: median hours a gap spent leased (taken by a run before it said it started), sensor: {run: python3 dev/bin/measure.py in-leased-hours, every: 30m, timeout: 1m}}
+  in-leased-hours-p90: {unit: hours, description: p90 hours a gap spent leased, sensor: {run: python3 dev/bin/measure.py in-leased-hours-p90, every: 30m, timeout: 1m}}
+  in-building-hours: {unit: hours, description: median hours a gap spent building (summed over its rounds), sensor: {run: python3 dev/bin/measure.py in-building-hours, every: 30m, timeout: 1m}}
+  in-building-hours-p90: {unit: hours, description: p90 hours a gap spent building, sensor: {run: python3 dev/bin/measure.py in-building-hours-p90, every: 30m, timeout: 1m}}
+  in-in-review-hours: {unit: hours, description: median hours a gap spent in review (summed over its reviews), sensor: {run: python3 dev/bin/measure.py in-in-review-hours, every: 30m, timeout: 1m}}
+  in-in-review-hours-p90: {unit: hours, description: p90 hours a gap spent in review, sensor: {run: python3 dev/bin/measure.py in-in-review-hours-p90, every: 30m, timeout: 1m}}
+  in-queue-failed-hours: {unit: hours, description: median hours a gap spent queue-failed (waiting for triage), sensor: {run: python3 dev/bin/measure.py in-queue-failed-hours, every: 30m, timeout: 1m}}
+  in-queue-failed-hours-p90: {unit: hours, description: p90 hours a gap spent queue-failed, sensor: {run: python3 dev/bin/measure.py in-queue-failed-hours-p90, every: 30m, timeout: 1m}}
+  in-dead-hours: {unit: hours, description: median hours a gap spent a dead letter before it was parked, sensor: {run: python3 dev/bin/measure.py in-dead-hours, every: 30m, timeout: 1m}}
+  in-dead-hours-p90: {unit: hours, description: p90 hours a gap spent a dead letter, sensor: {run: python3 dev/bin/measure.py in-dead-hours-p90, every: 30m, timeout: 1m}}
+  loop-hours: {unit: hours, description: median span of the build-review loop (first taken to build to approved or parked or dead), sensor: {run: python3 dev/bin/measure.py loop-hours, every: 30m, timeout: 1m}}
+  loop-hours-p90: {unit: hours, description: p90 span of the build-review loop, sensor: {run: python3 dev/bin/measure.py loop-hours-p90, every: 30m, timeout: 1m}}
+  loop-rounds: {unit: rounds, description: median rounds of the build-review loop (its builds), sensor: {run: python3 dev/bin/measure.py loop-rounds, every: 30m, timeout: 1m}}
+  loop-rounds-p90: {unit: rounds, description: p90 rounds of the build-review loop, sensor: {run: python3 dev/bin/measure.py loop-rounds-p90, every: 30m, timeout: 1m}}
+  gate-implementor-minutes: {unit: minutes, description: median minutes of the implementor's runs per gap (every round), sensor: {run: python3 dev/bin/measure.py gate-implementor-minutes, every: 30m, timeout: 1m}}
+  gate-implementor-minutes-p90: {unit: minutes, description: p90 minutes of the implementor's runs per gap, sensor: {run: python3 dev/bin/measure.py gate-implementor-minutes-p90, every: 30m, timeout: 1m}}
+  gate-fast-minutes: {unit: minutes, description: median minutes of the implementor's fast suites (ruff and unit) per gap, sensor: {run: python3 dev/bin/measure.py gate-fast-minutes, every: 30m, timeout: 1m}}
+  gate-fast-minutes-p90: {unit: minutes, description: p90 minutes of the fast suites per gap, sensor: {run: python3 dev/bin/measure.py gate-fast-minutes-p90, every: 30m, timeout: 1m}}
+  gate-review-minutes: {unit: minutes, description: median minutes of the reviews per gap, sensor: {run: python3 dev/bin/measure.py gate-review-minutes, every: 30m, timeout: 1m}}
+  gate-review-minutes-p90: {unit: minutes, description: p90 minutes of the reviews per gap, sensor: {run: python3 dev/bin/measure.py gate-review-minutes-p90, every: 30m, timeout: 1m}}
+  gate-unit-minutes: {unit: minutes, description: median minutes of the queue's unit suite per gap, sensor: {run: python3 dev/bin/measure.py gate-unit-minutes, every: 30m, timeout: 1m}}
+  gate-unit-minutes-p90: {unit: minutes, description: p90 minutes of the queue's unit suite per gap, sensor: {run: python3 dev/bin/measure.py gate-unit-minutes-p90, every: 30m, timeout: 1m}}
+  gate-browser-minutes: {unit: minutes, description: median minutes of the queue's browser suite per gap, sensor: {run: python3 dev/bin/measure.py gate-browser-minutes, every: 30m, timeout: 1m}}
+  gate-browser-minutes-p90: {unit: minutes, description: p90 minutes of the queue's browser suite per gap, sensor: {run: python3 dev/bin/measure.py gate-browser-minutes-p90, every: 30m, timeout: 1m}}
+  gate-demo-minutes: {unit: minutes, description: median minutes of the queue's demo check per gap, sensor: {run: python3 dev/bin/measure.py gate-demo-minutes, every: 30m, timeout: 1m}}
+  gate-demo-minutes-p90: {unit: minutes, description: p90 minutes of the queue's demo check per gap, sensor: {run: python3 dev/bin/measure.py gate-demo-minutes-p90, every: 30m, timeout: 1m}}
+  gate-push-wait-minutes: {unit: minutes, description: median minutes from a merge to its push, sensor: {run: python3 dev/bin/measure.py gate-push-wait-minutes, every: 30m, timeout: 1m}}
+  gate-push-wait-minutes-p90: {unit: minutes, description: p90 minutes from a merge to its push, sensor: {run: python3 dev/bin/measure.py gate-push-wait-minutes-p90, every: 30m, timeout: 1m}}
+
+goals:
+  open-short: {auxiliary: in-open-hours, hold: "<= 24", tolerance: 6, description: a gap waits open a day at most (median)}
+  open-short-p90: {auxiliary: in-open-hours-p90, hold: "<= 72", tolerance: 12, description: a gap waits open three days at most (p90)}
+  ready-short: {auxiliary: in-ready-hours, hold: "<= 2", tolerance: 0.5, description: a ready gap is taken within two hours (median)}
+  ready-short-p90: {auxiliary: in-ready-hours-p90, hold: "<= 8", tolerance: 2, description: a ready gap is taken within eight hours (p90)}
+  fix-short: {auxiliary: in-fix-hours, hold: "<= 1", tolerance: 0.25, description: a gap sent back is taken within an hour (median)}
+  fix-short-p90: {auxiliary: in-fix-hours-p90, hold: "<= 4", tolerance: 1, description: a gap sent back is taken within four hours (p90)}
+  built-short: {auxiliary: in-built-hours, hold: "<= 1", tolerance: 0.25, description: a built gap is reviewed within an hour (median)}
+  built-short-p90: {auxiliary: in-built-hours-p90, hold: "<= 4", tolerance: 1, description: a built gap is reviewed within four hours (p90)}
+  approved-short: {auxiliary: in-approved-hours, hold: "<= 1", tolerance: 0.25, description: an approved gap is queued within an hour (median)}
+  approved-short-p90: {auxiliary: in-approved-hours-p90, hold: "<= 2", tolerance: 0.5, description: an approved gap is queued within two hours (p90)}
+  queued-short: {auxiliary: in-queued-hours, hold: "<= 0.5", tolerance: 0.1, description: a queue run within half an hour (median)}
+  queued-short-p90: {auxiliary: in-queued-hours-p90, hold: "<= 1", tolerance: 0.25, description: a queue run within an hour (p90)}
+  replan-short: {auxiliary: in-replan-hours, hold: "<= 4", tolerance: 1, description: a plan sent back is replanned within four hours (median)}
+  replan-short-p90: {auxiliary: in-replan-hours-p90, hold: "<= 12", tolerance: 3, description: a plan sent back is replanned within twelve hours (p90)}
+  planned-short: {auxiliary: in-planned-hours, hold: "<= 2", tolerance: 0.5, description: a plan is reviewed within two hours (median)}
+  planned-short-p90: {auxiliary: in-planned-hours-p90, hold: "<= 8", tolerance: 2, description: a plan is reviewed within eight hours (p90)}
+  split-short: {auxiliary: in-split-hours, hold: "<= 48", tolerance: 12, description: a split gap is joined within two days (median)}
+  split-short-p90: {auxiliary: in-split-hours-p90, hold: "<= 168", tolerance: 24, description: a split gap is joined within a week (p90)}
+  leased-short: {auxiliary: in-leased-hours, hold: "<= 0.25", tolerance: 0.1, description: a run says it started within a quarter hour (median)}
+  leased-short-p90: {auxiliary: in-leased-hours-p90, hold: "<= 1", tolerance: 0.25, description: a run says it started within an hour (p90)}
+  building-short: {auxiliary: in-building-hours, hold: "<= 2", tolerance: 0.5, description: building takes two hours at most (median)}
+  building-short-p90: {auxiliary: in-building-hours-p90, hold: "<= 4", tolerance: 1, description: building takes four hours at most (p90)}
+  in-review-short: {auxiliary: in-in-review-hours, hold: "<= 0.5", tolerance: 0.1, description: a review takes half an hour at most (median)}
+  in-review-short-p90: {auxiliary: in-in-review-hours-p90, hold: "<= 1", tolerance: 0.25, description: a review takes an hour at most (p90)}
+  queue-failed-short: {auxiliary: in-queue-failed-hours, hold: "<= 0.5", tolerance: 0.1, description: a queue failure is triaged within half an hour (median)}
+  queue-failed-short-p90: {auxiliary: in-queue-failed-hours-p90, hold: "<= 2", tolerance: 0.5, description: a queue failure is triaged within two hours (p90)}
+  dead-short: {auxiliary: in-dead-hours, hold: "<= 0.5", tolerance: 0.1, description: a dead letter is parked within half an hour (median)}
+  dead-short-p90: {auxiliary: in-dead-hours-p90, hold: "<= 1", tolerance: 0.25, description: a dead letter is parked within an hour (p90)}
+  loop-short: {auxiliary: loop-hours, hold: "<= 4", tolerance: 1, description: the build-review loop within four hours (median)}
+  loop-short-p90: {auxiliary: loop-hours-p90, hold: "<= 12", tolerance: 3, description: the build-review loop within twelve hours (p90)}
+  loop-few-rounds: {auxiliary: loop-rounds, hold: "<= 1", tolerance: 0.5, description: one build (median)}
+  loop-few-rounds-p90: {auxiliary: loop-rounds-p90, hold: "<= 2", tolerance: 0.5, description: two builds at most (p90)}
+  implementor-in-time: {auxiliary: gate-implementor-minutes, hold: "<= 90", tolerance: 15, description: the implementor's runs within an hour and a half (median)}
+  implementor-in-time-p90: {auxiliary: gate-implementor-minutes-p90, hold: "<= 180", tolerance: 30, description: the implementor's runs within three hours (p90)}
+  fast-suites-in-time: {auxiliary: gate-fast-minutes, hold: "<= 5", tolerance: 1, description: the fast suites within five minutes (median)}
+  fast-suites-in-time-p90: {auxiliary: gate-fast-minutes-p90, hold: "<= 10", tolerance: 2, description: the fast suites within ten minutes (p90)}
+  review-in-time: {auxiliary: gate-review-minutes, hold: "<= 20", tolerance: 5, description: the reviews within twenty minutes (median)}
+  review-in-time-p90: {auxiliary: gate-review-minutes-p90, hold: "<= 45", tolerance: 10, description: the reviews within forty-five minutes (p90)}
+  unit-in-time: {auxiliary: gate-unit-minutes, hold: "<= 3", tolerance: 1, description: the queue's unit suite within three minutes (median)}
+  unit-in-time-p90: {auxiliary: gate-unit-minutes-p90, hold: "<= 5", tolerance: 1, description: the queue's unit suite within five minutes (p90)}
+  browser-in-time: {auxiliary: gate-browser-minutes, hold: "<= 7", tolerance: 1, description: the queue's browser suite within seven minutes (median)}
+  browser-in-time-p90: {auxiliary: gate-browser-minutes-p90, hold: "<= 10", tolerance: 2, description: the queue's browser suite within ten minutes (p90)}
+  demo-in-time: {auxiliary: gate-demo-minutes, hold: "<= 3", tolerance: 1, description: the queue's demo check within three minutes (median)}
+  demo-in-time-p90: {auxiliary: gate-demo-minutes-p90, hold: "<= 5", tolerance: 1, description: the queue's demo check within five minutes (p90)}
+  push-wait-short: {auxiliary: gate-push-wait-minutes, hold: "<= 60", tolerance: 15, description: a merge pushed within an hour (median)}
+  push-wait-short-p90: {auxiliary: gate-push-wait-minutes-p90, hold: "<= 240", tolerance: 60, description: a merge pushed within four hours (p90)}
+
+blocks:
+  timer:
+    type: program
+    description: writes on each gap whose record grew its time in each state, its build-review loop and its gates (gap.timed)
+    run: python3 dev/bin/times.py
+    every: 10m
+    timeout: 5m

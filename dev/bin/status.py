@@ -1,7 +1,7 @@
 """One screen of the factory for the coordinator, from its record; run in the instance's folder.
 
     status.py      in flight, blocked (on what), failed (why), the queue, research, proposed lessons, spend today and
-                   first-pass yield"""
+                   first-pass yield, and the time in each state, the loop and the gates (median and p90, with goals)"""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import time
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import measure  # noqa: E402
+import times  # noqa: E402
 
 FLIGHT = ("planned", "building", "in-review", "queued")
 WAITING = ("open", "replan", "ready", "fix", "built", "approved")
@@ -68,6 +69,8 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001 - said, as the sessions would refuse
         spend = f"cannot be told ({type(e).__name__}: {e}): sessions refuse"
     out.append(f"Spend today {spend}; first-pass yield (14 days) {fpy}")
+    out.append("Time in each state, the build-review loop and the gates (14 days; dev/bin/times.py)")
+    out.extend(times.table(gaps, time.time() - measure.WINDOW, time.time()))
     print("\n".join(out))
     return 0
 
