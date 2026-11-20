@@ -217,7 +217,11 @@ def test_cleanup_deletes_only_the_factorys_folders(tmp_path, monkeypatch):
     (gone / "work" / ".git" / "objects").mkdir(parents=True)
     (gone / "work" / ".git" / "objects" / "pack").write_text("x")
     os.chmod(gone / "work" / ".git" / "objects" / "pack", 0o444)     # (read-only, as git's objects are)
+    claude_old = sessions / "warm3-implementor-2-claude-0a1b2c3d"     # Claude Code's folder for a session
+    (claude_old / "-work").mkdir(parents=True)
     keep = [sessions / f"warm3-reviewer-{young_stamp}-0a1b2c",          # young
+            sessions / "warm3-reviewer-1-claude-0a1b2c3d",              # young
+            sessions / "warm3-reviewer-1-claude-0a1b2c3",               # seven hex
             sessions / f"warm_3-implementor-{stamp}-0a1b2c",            # not lowercase words and dashes
             sessions / f"warm3-implementor-{stamp}-0a1b2",              # five hex
             sessions / f"warm3-implementor-{stamp}-0a1b2c.bak",         # a suffix
@@ -229,17 +233,17 @@ def test_cleanup_deletes_only_the_factorys_folders(tmp_path, monkeypatch):
     elsewhere.mkdir()
     (sessions / f"y-implementor-{stamp}-abcdef").symlink_to(elsewhere)
     for p in [*sessions.iterdir(), *(live / h for h in shas.values() if (live / h).exists())]:
-        if "reviewer" not in p.name and p.name != shas[13] and not p.is_symlink():
+        if "reviewer" not in p.name and p.name != shas[13] and not p.is_symlink() or p.name.endswith("c3"):
             os.utime(p, (old, old))
     cfg = {"paths": {"live": str(live), "checkout": str(checkout), "run": str(tmp_path / "run")},
            "resources": {"session_keep_hours": 24}}
-    assert cleanup.sessions(cfg) == [gone]
+    assert cleanup.sessions(cfg) == [claude_old, gone]
     assert cleanup.installs(cfg) == [installs["old"]]
     assert set(cleanup.installs(cfg, every=True)) == {installs["old"], installs["young"]}   # what the measure counts
     monkeypatch.setattr(cleanup.fac, "config", lambda: cfg)
     assert cleanup.main(["--dry-run"]) == 0 and gone.exists()
     assert cleanup.main([]) == 0
-    assert not gone.exists() and not installs["old"].exists()
+    assert not gone.exists() and not claude_old.exists() and not installs["old"].exists()
     assert all(d.exists() for d in keep) and (plain / "keep.txt").exists() and elsewhere.exists()
     assert all(installs[k].exists() for k in ("current", "previous", "young"))
     assert (sessions / f"x-implementor-{stamp}-abcdef").is_file()

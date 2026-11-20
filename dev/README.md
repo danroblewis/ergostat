@@ -29,6 +29,13 @@ the egress proxy (`dev/agent/egress.py`, container `ergostat-egress`), which rea
 one secret, the session token, and nothing else of this machine. Claude Code inside still runs `--restricted` with the
 role's narrow tools.
 
+**Each session's conversation is kept.** Claude Code's own session file (from a folder of its own mounted as its
+projects folder, `/home/dev/.claude/projects`, and nothing else of this machine's home) is copied as it grows, the
+session token scrubbed, into `run/sessions/<gap>-<role>-<n>.jsonl` (at most 20 MB; a last line says when the rest was
+cut), and recorded as the item `session/<gap>-<role>-<n>` (`dev/bin/sessions.py`): its role, round, model, cost, turns,
+tools and time, related to its gap (the gap's page lists its sessions), its page showing the conversation while it
+runs. In a terminal: `python3 dev/bin/status.py session GAP [ROLE] [N]`.
+
 **What it needs from the owner:** the token file `~/.config/ergostat/claude-token` (one line, mode 600, from
 `claude setup-token` in your own terminal). Without it, or with any other mode, sessions refuse to start. Then, once:
 

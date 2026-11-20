@@ -139,6 +139,26 @@ items:
     relations:
       gap: gap
 
+  session:
+    id: session/*
+    description: one AI session of the factory's (implementor, reviewer, planner, researcher, librarian) - its conversation, live while it runs, and what it cost (dev/bin/sessions.py)
+    states: [running, done, failed]
+    on:
+      session.started: running
+      session.ended: done
+      session.errored: failed        # no result, an error result, a timeout or a crash
+    show: [role, round, gap, model, cost, turns, seconds, transcript]
+    # resources (no fold: one container's): its CPU and memory, peak and mean (dev/bin/resources.py)
+    relations:
+      gap: gap                       # the gap it worked on: the gap's page lists its sessions
+      research: research
+      review: review                 # (the librarian's step on a review)
+    formats:
+      transcript: claude-session     # Claude Code's own session file, the token scrubbed: shown as the conversation,
+                                     # each line recorded as a claude.* event about the session (SPEC 5a)
+    fold: {messages: append, tool_calls: append, tool_results: append, thinking: append, tokens_in: sum,
+           tokens_out: sum}
+
   flake:
     id: flake/*
     description: a test that failed in the merge queue and passed alone - counted each time, until fixed

@@ -22,7 +22,7 @@ The factory's model measures the machine and holds the sessions to what it fits:
   as its peak and mean: on the gap item (`resources`, appended; the implementor's session and its suites, the
   reviewer's session) and in `run/resources/sessions.jsonl`.
 - **Goals with setpoints**, written once in `dev/model/resources.yaml` and read from there by the program (as the
-  daily cap is): CPU utilisation <= 0.8, memory utilisation <= 0.8, disk free >= 50 GB, Docker VM memory <= 0.85,
+  daily cap is): CPU utilisation <= 0.8, memory utilisation <= 0.8, disk free >= 25 GB (the coordinator: this Mac has 36 GB free), Docker VM memory <= 0.85,
   the machine's threads <= 10,000, and the factory's own folders within their size.
 - **Capacity headroom** (`session-headroom`): how many more sessions fit, the least over host CPU, host memory, VM
   CPU and VM memory of (setpoint x capacity - in use) / per-session use (the median measured peak of a session plus
