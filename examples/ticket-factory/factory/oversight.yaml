@@ -3,6 +3,11 @@
 defaults:
   system: oversight
 
+daemons:
+  measures:                          # one process for the three sensors that read the record: asked together, one read
+    run: python3 bin/measure.py serve
+    description: ai-spend, repings and cycle-hours, read from the record (over ergostat's socket)
+
 stocks:
   done:
     unit: tickets
@@ -31,14 +36,14 @@ stocks:
     cumulative: true
     description: what the AI sessions cost, in dollars (haiku, recorded per session)
     sensor:
-      run: python3 bin/measure.py ai-spend
+      daemon: measures
       every: 10s
   repings:
     unit: pings
     cumulative: true
     description: reviewers asked again
     sensor:
-      run: python3 bin/measure.py repings
+      daemon: measures
       every: 10s
   reports:
     unit: reports
@@ -59,7 +64,7 @@ auxiliaries:
     description: the median time from found to Done, of the last ten tickets done (the waits make it)
     driven-by: [+stock.review-asked, +stock.sailed, +stock.actions-waiting]
     sensor:
-      run: python3 bin/measure.py cycle-hours
+      daemon: measures
       every: 30s
 
 flows:

@@ -38,7 +38,7 @@ blocks:
   ask-review:
     type: program
     goal: opened-asked
-    run: python3 bin/step.py ask-review
+    daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
     takes: {kind: ticket, at: pr-open, to: [review-asked, stopped]}
     pool: 3
     actions: [request-review, pr-comment]

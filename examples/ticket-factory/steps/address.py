@@ -2,18 +2,17 @@
 workspace, committed and pushed, and a reply on the pull request saying what was done. Back to review-asked:
 the reviewers look again."""
 
-import os
 from pathlib import Path
 
 import agent
 from gated import act
 from step import Move
-from tf import key_of, now, once
+from tf import env, key_of, now, once
 
 
 def run(ticket):
     f = ticket["fields"]
-    key, ws, repo, pr = key_of(ticket), Path(os.environ["ERGOSTAT_WORKSPACE"]), f["repo"], f["pr"]
+    key, ws, repo, pr = key_of(ticket), Path(env("ERGOSTAT_WORKSPACE")), f["repo"], f["pr"]
     comments = f.get("comments") or []
     text = "\n\n".join(f"{c['who']}: {c['body']}" for c in comments)
     def answer():

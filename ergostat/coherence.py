@@ -193,7 +193,7 @@ class Chain:
                 return "block", bl.name
         if f.source in self.c.stages:
             return "lease", ""
-        if any(s.run or s.query for s in f.sensors.values()) and (f.source is None or f.target is None):
+        if any(s.commands or s.query for s in f.sensors.values()) and (f.source is None or f.target is None):
             return "outside", "a collector"
         if f.sensors:
             return "outside", "observed by its sensor"

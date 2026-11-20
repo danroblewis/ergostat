@@ -1877,8 +1877,8 @@ directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's 
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
 (`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
 block, or the AI agent it starts, to read and record items while it works; and `ERGOSTAT_SOCKET`, the running
-engine's socket, which answers `event --add`, `act`, `lease --renew` / `--nack` and `item ID --json` without
-loading the model (section 5c). An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
+engine's socket, which answers `event --add`, `act`, `lease --renew` / `--nack`, `item ID --json` and the listing
+`item --kind K --state S --json` (`{"op": "items"}`) without loading the model (section 5c). An `ai` block without `run` is given to `claude -p` (or `$ERGOSTAT_AI`),
 with its prompt, the JSON above, and how to answer, in the model's folder unless it names its own (`workdir:`, or a `workspace:` per item), and gated
 when it names its `tools:` or `actions:` (section 12k). Any block, whatever its type, may also propose a change to
 the model, `{"propose": {...}}` (section 12e); `agent.ran` counts what it proposed and what was not taken. And any

@@ -97,9 +97,10 @@ def notes(spec: Spec, say) -> None:
             if _made(x):
                 continue
             for s in x.sensors.values():
-                if (s.run or s.query) and not (s.description or "").strip():
+                if (s.commands or s.query) and not (s.description or "").strip():
                     say("collector-undescribed", f"{kind} {n}: its sensor {s.name} reads the outside "
-                        f"({'a command' if s.run else 'a query'}) with no description, so the Blocks view titles the "
+                        f"({'a command' if s.run else 'a daemon' if s.daemon else 'a query'}) with no description, so the "
+                        f"Blocks view titles the "
                         f"collector with its command: say what it reads in 40 characters or fewer", s.where or x.where,
                         f"{kind}.{n}")
     for kind, k in spec.items.items():
