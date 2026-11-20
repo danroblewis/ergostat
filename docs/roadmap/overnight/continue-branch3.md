@@ -130,3 +130,11 @@ round 2 left unanswered, with what changed:
 - Run here, one file at a time: `tests/test_factory.py` (33 passed, 2 skipped for want of Docker); `tests/test_review.py`
   with `tests/test_intake.py` (43 passed); ruff clean on ergostat, tests, scripts and dev. The whole unit suite was not
   run here: that is the factory's fast-suite run.
+
+## Where it stopped
+
+Parked by the factory (review/continue-branch3-3, 2026-11-20 10:15).
+
+Failed its gates 3 times (the kill rule). Blocking findings:
+- gate 1: docs/roadmap/overnight/continue-branch3.md is not the branch's first commit
+- dev/bin/intake.py:67-86 with dev/bin/queue.py:133-147 and dev/bin/agents.py:281-291 (lesson-1, lesson-8, lesson-12): review/continue-branch3-2's finding that a gap continuing NAME is handed factory/NAME while another gap on that branch is still open/building/built/approved is left unfixed, and round 3's reason ('two gaps on one branch cost a refused finish, not a lost commit') does not hold. No concurrent session is needed: gap A approved and waiting in the queue; gap B continues NAME and builds sequentially; B's finish succeeds (nothing moved during B's own session) and moves factory/NAME; queue.reviewed then finds tip != A's reviewed_head and sends A back; A's fix round clones factory/NAME holding B's unreviewed commits and is reviewed against A's definition. Two gaps' work is mixed on one branch and the approved one is blocked. The side ref refs/incoming/factory/NAME is also one per branch, so two overlapping finishes on the branch can read each other's head and record it as their own. Refuse in continued() unless every other known gap with branch_of == NAME is parked or merged (say why on stderr, as for the other refusals), and add a test with a live gap on the branch whose continuing gap stays open.
