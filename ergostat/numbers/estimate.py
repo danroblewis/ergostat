@@ -536,7 +536,9 @@ def judged(e: dict, declared: float | None) -> str | None:
                     (f" (were it that far off, about {dur(more)} more record would tell)" if more else ""))
         if abs(e["value"] - declared) <= CHANGED * max(abs(declared), 1e-12):
             return f"it moves the value written by less than {CHANGED:.0%}"
-    if e.get("held_before") is not None and e.get("held_after") is not None and not e["held_after"] < e["held_before"]:
+    if e.get("held_before") is None or e.get("held_after") is None:
+        return "no record held out to test it on: nothing supports it out of sample yet"
+    if not e["held_after"] < e["held_before"]:
         return "it fits the record held out (its last fifth) no better than the value written"
     return None
 

@@ -70,3 +70,7 @@ blocks:
     goal: reviews-flowing
     ask: Review and merge the open dependency-update PRs.
     out: flow.update-merged               # they report: ergostat block review --done N
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

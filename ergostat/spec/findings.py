@@ -39,7 +39,7 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
         moves = [t for t in b.targets() if t.kind == "flow"]
         commanded = spec.commanders_of(name) or [r for r in b.inputs.values() if r.kind in ("goal", "stock", "flow", "auxiliary")] \
             or b.takes                                   # the items it takes start it: the queue commands it (SPEC §9.5)
-        if moves and not commanded and spec.role(b) == "actuator":
+        if moves and not commanded and spec.role(b) == "actuator" and b.type != "judge":   # the judge's clock is its own
             say("acting-on-its-own", f"block {name}: moves {', '.join(str(t) for t in moves)} on its own schedule; nothing "
                 f"commands it (an open loop)", b.where, f"block.{name}")
         cmd = [c for c in spec.commanders_of(name) if spec.role(c) == "controller"]
@@ -93,6 +93,8 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
     numbers(spec, say)
     from .architecture import findings as architecture  # how it is divided into systems: notes (SPEC §12)
     architecture(spec, lambda code, msg, where, about: out.append(Problem("note", msg, where, code, about)))
+    from .craft import notes as craft  # the craft of a model (docs/MODELLING-WELL.md): notes
+    craft(spec, lambda code, msg, where, about: out.append(Problem("note", msg, where, code, about)))
     if extremes:
         out += late(spec)
     return out

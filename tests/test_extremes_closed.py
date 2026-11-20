@@ -139,12 +139,14 @@ def test_the_check_status_says_extremes_running_until_they_are_done(tmp_path, mo
     m = mdl.load(tmp_path)
     first = mdl.check(m)
     assert any(lv == "info" and msg.startswith("extremes: running (") for lv, msg in first), first
+    def running(got):                                   # (craft notes are info lines too: only the extremes' status)
+        return any(lv == "info" and msg.startswith("extremes:") for lv, msg in got)
     for _ in range(400):
-        if not any(lv == "info" for lv, _ in mdl.check(m)):
+        if not running(mdl.check(m)):
             break
         time.sleep(0.02)
     done = mdl.check(m)
-    assert not any(lv == "info" for lv, _ in done) and any("falls below empty" in msg for lv, msg in done if lv == "warn")
+    assert not running(done) and any("falls below empty" in msg for lv, msg in done if lv == "warn")
     fresh_process()                                     # with a state directory: in a process of its own, at a low priority
     Project(mdl.load(tmp_path))
     (tmp_path / "ergostat.yaml").write_text((tmp_path / "ergostat.yaml").read_text().replace("k * 5", "k * 6"))

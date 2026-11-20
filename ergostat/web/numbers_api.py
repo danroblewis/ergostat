@@ -267,6 +267,7 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
             if band and max(b - a for a, b in zip(band["p25"], band["p75"], strict=True)) > 0:
                 s["fan"] = {k: _round(v) for k, v in band.items()}
     if any("replay" in s or "projection" in s for s in out["series"]):
+        honest(live, p, snap, spec, out)
         out["projection_times"] = [round(t, 3) for t in proj.times]
         out["horizon"] = mr["horizon"]
         out["inputs"] = "; ".join(mr["projection"].notes)
@@ -308,6 +309,36 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
             out["fan"] = {"samples": fn["samples"], "invalid": fn["invalid"], "tails": fn["samples"] >= sens.TAILS,
                           "parameters": [{k: v for k, v in u.items() if k != "corr"} for u in sampled], "joint": sens.joint_said(sampled)}
     return out
+
+
+def honest(live, p, snap: dict, spec, out: dict) -> None:
+    """A projection resting on parts that fit badly says so in front (``low_confidence``), as the impact report does, and
+    is drawn with a wider band: each charted stock that fits worse than its mean (skill < 0, on the reference window), and
+    each goal on them whose loop the record does not identify (``loop-not-identifiable``)."""
+    from ..control.proposals import unidentified
+    mine = {s["ref"] for s in out["series"]}
+    mine |= {f"stock.{x}" for r in list(mine) if r.startswith("flow.") and (f := spec.flows.get(r[5:])) for x in (f.source, f.target) if x}
+    rf = reference(live, p, snap) or {}
+    said = [f"the model fits {r[6:]} worse than its mean (skill {st['skill']:.2g})"
+            for r, st in sorted(((rf.get("fit") or {}).get("stocks") or {}).items())
+            if r in mine and st.get("skill") is not None and st["skill"] < 0]
+    said += [f"{g}'s model {x['poor'][0]}" for g, x in sorted(unidentified(p, spec).items())
+             if str(spec.goals[g].of) in mine and x.get("poor")]
+    if not said:
+        return
+    out["low_confidence"] = "; ".join(said)
+    for s in out["series"]:
+        pj, got = s.get("projection") or [], [(a, b) for a, b in zip(s.get("values") or [], s.get("replay") or [], strict=False)
+                                               if a is not None and b is not None]
+        if not pj or not got:
+            continue
+        e = (sum((a - b) ** 2 for a, b in got) / len(got)) ** 0.5    # the replay's own error, about the projection
+        fan, wide = s.get("fan") or {}, {}                          # its own spread, if any, widened by that error
+        for k, m in (("p5", -2), ("p25", -0.67), ("p75", 0.67), ("p95", 2)):
+            fk = fan.get(k) or []
+            wide[k] = [None if v is None else (fk[i] if i < len(fk) and fk[i] is not None else v) + m * e for i, v in enumerate(pj)]
+        s["fan"] = wide
+        s["fan_wide"] = True
 
 
 def whatif_fit(live, p, snap: dict, whatif: str | None) -> dict:
@@ -501,6 +532,7 @@ def fit_page(live, p, snap: dict) -> dict | None:
             "judged_by_stock": fit["judged_by_stock"], "invalid": fit["invalid"],
             "notes": rf["run"].notes, "words": ft.WORDS, "min_points": ft.MIN_POINTS,
             "history": ft.versions(p), "accepted": pr.accepted(p), "proposals": pr.pending(p, spec),
+            "modelling": _modelling(p),
             "estimated_at": max((e.get("when") or 0 for got in kept.values() for e in got.values()), default=None) or None,
             "to_estimate": names,
             "open_loops": es.open_loops(spec), "open_said": es.open_said(es.open_loops(spec)),
@@ -532,6 +564,14 @@ def readiness(spec, rf: dict, names: list[str]) -> dict:
         out[n] = {"parts": uses, "span": span, "points": points, "points_needed": es.PROPOSE, "slowest": tc * 3600 if tc else None,
                   "needs": ft.COVER * tc * 3600 if tc else None, "range": bool(spec.parameters[n].range)}
     return out
+
+
+def _modelling(p) -> dict | None:
+    try:
+        from ..numbers import modelling_status as mst
+        return mst.of(p)
+    except Exception:
+        return None
 
 
 def _structural(live, p, snap: dict) -> list[dict]:
@@ -591,9 +631,56 @@ def queue(live, p, snap: dict) -> dict:
     not_made += [{"title": x["title"], "why": f"{x['state']}: {x['why']}" + (f"; {x['held_back']}" if x["held_back"] else ""),
                   "code": "turned-away", "by": x["by"], "item": x["item"]}
                  for x in mem.turned(p, spec) if x["by"] == "ergostat"][:12]
+    from ..numbers import redesign as rd
     return {"queue": rv.entries(p, spec, control), "not_made": not_made,
+            "redesigns": {"systems": ["model", *sorted(spec.systems)], "asked": rd.asked(p), "last": rd.last(p),
+                          "settings": rd.settings(spec), "on": "redesigner" in spec.blocks},
             "loops_analysed": sum(1 for g in goals if (LOOPS_SEEN.get(g) or (None,))[0] == live.mtime), "loops": len(goals),
             "can": [{"what": a, "how": b} for a, b in rv.stc.CAN], "cannot": rv.stc.CANNOT}
+
+
+_PROPOSED: dict = {}             # (change, model files' mtime) → the model it would leave
+
+
+def proposed_graph(live, p, q: dict, pid: str, draw) -> dict:
+    """``GET /api/graph?proposal=ID&view=...``: the diagram of the model as a change waiting would leave it (its edit
+    applied in memory, nothing written), with what it adds, changes and takes away (``proposed``), so the page draws
+    the new and changed parts dashed and names the parts it takes away. Its views are the model's: dynamics and
+    blocks."""
+    from .. import model as mdl
+    from ..numbers import changeset as cs
+    from ..numbers import trial as tr
+    from ..spec.load import texts as override
+    x = pr.stored(p).get(pid)
+    if x is None:
+        return {"error": f"no change {pid}"}
+    key = (pid, live.mtime)
+    got = _PROPOSED.get(key)
+    if got is None:
+        try:
+            texts = tr.texts_after(tr.edits_of(x))
+            with override(texts):
+                m2 = mdl.load(p.model.path.parent)
+        except (tr.TrialError, Exception) as e:          # an edit that no longer applies draws nothing
+            return {"error": f"it cannot be drawn: {e}", "nodes": [], "edges": []}
+        if m2.spec is None or [e for e in m2.problems if e.level == "error"]:
+            return {"error": "the model it leaves does not compile", "nodes": [], "edges": []}
+        marks = cs.parts_changed(p.model.spec, m2.spec)
+        if len(_PROPOSED) > 8:
+            _PROPOSED.clear()
+        got = _PROPOSED[key] = (m2, marks)
+    m2, marks = got
+    out = draw(m2)
+    if isinstance(out, dict):
+        renamed = [r.split(" → ")[1] for r in marks.get("renamed") or []]
+        said = ("drawn as the change would leave the model; what needs attention is said of the model as it is (the "
+                "diagram without it)")
+        out = {**out, "_model": m2, "attention": [{"level": "hint", "what": "a proposal", "says": said}],
+               "proposed": {"id": pid, "title": x.get("title"), "kind": x.get("kind"),
+                                                 "state": x.get("state"), "added": marks["added"],
+                                                 "changed": sorted(set(marks["changed"]) | set(renamed)),
+                                                 "renamed": marks["renamed"], "removed": marks["removed"]}}
+    return out
 
 
 def effect(live, p, snap: dict, ids: str | None) -> dict:
@@ -621,6 +708,23 @@ def effect(live, p, snap: dict, ids: str | None) -> dict:
     got = rv.effect(p, spec, xs, None, base or None, most=rv.CHARTS if len(xs) == 1 else rv.CHARTS_ALL)
     live.keep(key, got)
     return got
+
+
+def redesign_asked(live, p, system: str) -> tuple[int, dict]:
+    """The owner asks for a redesign: recorded (``ergostat.model.redesign-asked``), for the redesigner block to take
+    up on its next run; what it makes joins the review queue. Nothing runs in the page server."""
+    from ..numbers import redesign as rd
+    try:
+        s = rd.system_of(p.model.spec, system)
+    except ValueError as e:
+        return 400, {"error": str(e)}
+    w = rd.waiting(p, p.model.spec, s)
+    if w is not None:
+        return 409, {"error": f"a redesign of {s} is waiting already: in the queue below", "id": w["id"]}
+    if "redesigner" not in p.model.spec.blocks:
+        return 409, {"error": "no redesigner in the model: use: modelling with ai: true has one"}
+    got = rd.ask(p, s)
+    return 200, {"asked": got["asked"], **rd.settings(p.model.spec)}
 
 
 def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, dict]:
@@ -652,6 +756,8 @@ def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, di
                 raw = dict(x.split(":", 1) for x in q["whatif"][0].split(",") if ":" in x)
                 return 200, pr.propose_values(p, {k.strip(): v.strip() for k, v in raw.items()}, snap)
             return 200, pr.propose_value(p, (q.get("parameter") or [""])[0], (q.get("value") or [""])[0], snap)
+        if parts == ["redesign"]:                    # the owner asks for a redesign (the Model page's button)
+            return redesign_asked(live, p, (q.get("system") or ["model"])[0])
         if len(parts) == 3 and parts[0] == "proposals" and parts[2] in ("accept", "dismiss"):
             reason = (q.get("reason") or [""])[0] or None
             expect = (q.get("expect") or [""])[0] or None

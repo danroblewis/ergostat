@@ -52,3 +52,7 @@ blocks:
     run: bin/develop.sh
     every: 2s
     out: [flow.branched, flow.merged]
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

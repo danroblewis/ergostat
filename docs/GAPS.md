@@ -102,18 +102,43 @@ review into *Done recently*). Newest decisions from the owner first within each 
   record's paths, dependencies and arrivals); the Timeline's lanes, the list's *done by*, the item's why. Left: a
   goal's gate on a block is not simulated, and a capacity no block declares is not modelled (a block's `workspace:`
   pool is: held from the item's first take until it finishes).
-- **Craft findings in `check`** (in progress, `selfimprove`; from `docs/MODELLING-WELL.md`): `check` is silent on a
-  part with no `description`, a stock with no `unit`, a flow between stocks with no equation, a `process:` with no
-  `identified:`, a sensor (a collector) with no description, and event types of one kind in mixed forms. Each is a
-  review-checklist item an agent has to remember; a note-level finding would teach it.
-- **A step whose goal never goes off** (in progress, `selfimprove`): a `takes:` block runs only while its goal is
-  off, so a queue goal with a tolerance (or a setpoint above 0) lets items wait unseen; nothing says so. Found when
-  the example's first goals had tolerances and nothing ran.
-- **Proposals superseded by any edit** (open; owner, 2026-11-19): a model change made against a version since
-  changed, even only in its numbers, is superseded and never written (SPEC section 12e). With an agent editing the
-  YAML, or modelling accepting its own changes, nearly every open proposal goes stale before it is judged. Rebase
-  instead: carry a change to the new version when the parts it touches are unchanged and its diff still applies,
-  keeping its evidence; supersede only when its own neighbourhood changed.
+- **Modelling improves the model** (landing, `modelling-core`; `docs/proposals/self-improvement.md`): what `check`
+  finds is held as requests (`ergostat.modelling-request`); the rule tier (units, a queue's goal, a process nobody
+  identified) and the AI tier (off unless `ai: true`), each a block of `use: modelling`, answer them with ordinary
+  changes, checked in the tier's own process; the judge decides by class (description, unit, rename judged by check;
+  values, equations and structure by the record). Every example uses it. Parked on `selfimprove` (its definition file
+  says why): the rule tier's first-order equations, event-type renames that edit programs, the rule tier's copies of
+  the chain fixes.
+- **Redesign beside refinement** (landing, `modelling-core`; `docs/proposals/redesign.md`): one change set of many
+  coordinated edits for a whole system, made over a few rounds on a scratch copy by the redesigner (an `ai` block,
+  haiku by default, within a budget a run and a cap a day), judged as a whole by a scorecard, one
+  `ergostat.model-change` of kind `redesign`, drawn dashed on both diagrams, never written without the owner unless
+  `accept: {redesign: auto}` (and never one that removes, rewires or changes control). Runs on its own a system at a
+  time when it is due (the owner's decision, 2026-11-19: `when: auto` by default), or when the owner asks. Open: removed parts are named, not drawn as ghosts; splitting a model into systems is
+  in the guide but not scored; the judge scores a redesign on the record it has when it takes it up.
+- **Craft notes in `check`** (done, `modelling-core`): a part with no description, a stock with no unit, a flow
+  between stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
+  tolerance (a step whose goal never goes off), a `process:` with no `identified:` (`spec/craft.py`, notes, not
+  counted as findings).
+- **Proposals superseded by any edit** (partly done, `churn`; owner, 2026-11-19): a model change made against a version
+  since changed, even only in its numbers, was superseded and never written (SPEC section 12e); and every pass of a
+  finder made a new change for the same thing, letting the last go ("let go: found again otherwise, or no longer
+  found"), the estimator letting go of loops' processes too. **Done:** ergostat's own changes are what they are about,
+  revised in place when found again with new numbers; carried to a new version when their subject is unchanged (a
+  value's or an equation's edit made again on the files as they are); superseded only when their subject was edited or
+  removed, their edit cannot be made again, or their finder no longer finds them, saying which. `modelling-core` makes it one
+  mechanism: `rebase` moves the waiting edits' lines, and `supersede` carries ergostat's own (subject unchanged) and a
+  description, unit or redesign whoever made it (its edit still applies). **Left:** a block's other proposals (values,
+  equations, structure) are still superseded by any change of version; a structural change whose lines moved is superseded and made again on the same item
+  by the next structural pass rather than carried.
+- **Poor identifications proposed, projections drawn as sure** (done, `churn`; owner, 2026-11-19: a loop's process that
+  followed 2% held out was proposed, and the projections after a burst of 130 tickets were far off): a process is
+  proposed only past a quality floor (what it follows held out, white errors in closed loop, independent of u), else
+  the goal says `loop-not-identifiable` and what would identify it; the process is identified around a large outside
+  step (a burst of arrivals), closer to the truth than from the loop working; the strip leads with "Low confidence"
+  and widens the band where the parts it rests on fit badly. **Left:** a burst's window is chosen from y's own
+  excursion (where it comes half way back), not from the process; several outside steps are not yet fitted together as
+  experiments; the projections do not yet suggest the missing structure (capacity) themselves.
 - **The judge almost never decides on a slow model** (open; owner, 2026-11-19: on the work model nearly every
   change is inconclusive, a few refused, none accepted): a change must gain 2% in every window of at least twice
   its stock's time constant, on record after it was made; a model whose flows run per day rarely has that, and a

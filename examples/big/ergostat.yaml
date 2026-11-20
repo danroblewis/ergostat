@@ -2,3 +2,7 @@
 # each queue a loop (24 loops). Every system is one file; tick.py is the one script.
 name: big
 include: systems/*.yaml
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

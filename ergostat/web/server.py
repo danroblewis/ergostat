@@ -378,17 +378,31 @@ def api(live: Live, path: str, q: dict):
     got = _answer(live, path, q)
     if path.strip("/") == "graph" and isinstance(got, dict):
         from ..correspond import table
-        got["corr"] = table(got, live.get().model)
+        shown = got.pop("_model", None) or live.get().model       # a proposal drawn: its model's parts
+        got["corr"] = table(got, shown)
         if q.get("have"):                             # a page polling: only the values, when it holds this structure
             from .graph_poll import answer
             return answer(got, q["have"][0])
     return got
 
 
-def _answer(live: Live, path: str, q: dict):
-    p = live.get()
+def _answer_with(live: Live, path: str, q: dict, model):
+    """The answer drawn from another model (a proposal's), as if it were the project's."""
+    import copy
+    q2 = {k: v for k, v in q.items() if k not in ("proposal", "have")}
+    p = copy.copy(live.get())                       # the project as it is, its model the proposal's: never shared
+    p.model = model
+    return _answer(live, path, q2, p)
+
+
+def _answer(live: Live, path: str, q: dict, project=None):
+    p = project or live.get()
     m = p.model
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
+    # a change waiting, drawn as it would leave the model (not written); the process map is the record's, the same
+    if path.strip("/") == "graph" and one("proposal") and one("view") not in ("process", "wiring"):
+        from .numbers_api import proposed_graph
+        return proposed_graph(live, p, q, one("proposal"), lambda m2: _answer_with(live, path, q, m2))
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
     at = None

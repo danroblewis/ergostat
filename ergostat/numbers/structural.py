@@ -155,7 +155,8 @@ class Ctx:
     def add(self, change: str, code: str, about: str, title: str, parts: list[str], why: str, method: str,
             edits: list[ye.Edit], touched: list[str] | None = None, finding: str | None = None, **more) -> None:
         try:
-            pid = _id("structure", code, about, _joined(edits)["diff"])
+            from .proposals import masked
+            pid = _id("structure", code, about, change, masked(_joined(edits)["diff"]))   # what it does, not its numbers
             edits = stamp(edits, pid)                 # what it adds says so: inferred: ergostat.model-change/<pid>
             joined = _joined(edits)
             spec = tr.spec_after(self.p, edits)
@@ -202,6 +203,22 @@ def _section_file(spec: Spec, near) -> Path:
 
 CHAIN_CODES = ("outflow-not-chained", "inflow-not-chained", "state-stock-without-inflow", "move-without-flow",
                "state-stocks-disconnected", "loops-not-connected", "kind-enters-many-times")
+
+
+def _chain_edges(spec: Spec, renamed: dict[str, str] | None = None) -> set[tuple[str, str]]:
+    """The flows between two state stocks (stocks that count a kind's items in a state), as ``(from, to)``, their
+    names as ``renamed`` maps them."""
+    ss = {n for n, st in spec.stocks.items() if any((x.items or {}).get("state") for x in st.sensors.values())}
+    r = renamed or {}
+    return {(r.get(f.source, f.source), r.get(f.target, f.target)) for f in spec.flows.values()
+            if f.source in ss and f.target in ss}
+
+
+def rewired(before: Spec, after: Spec) -> bool:
+    """Whether a change rewires a kind's chain: a flow between two state stocks re-pointed, added or taken away
+    (a part renamed, saying ``formerly:`` its old name, is the same part). Such a change is the owner's to write."""
+    renamed = {w: n for n, st in after.stocks.items() for w in (getattr(st, "formerly", None) or [])}
+    return _chain_edges(before, renamed) != _chain_edges(after)
 
 
 def chain_edits(spec: Spec, fixes) -> list[ye.Edit]:

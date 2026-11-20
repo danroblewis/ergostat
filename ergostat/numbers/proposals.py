@@ -28,6 +28,7 @@ import fcntl
 import hashlib
 import json
 import math
+import os
 import time
 from pathlib import Path
 
@@ -117,10 +118,10 @@ DECIDED = {"accepted", "dismissed", "refused", "failed", "superseded", "inconclu
 LOCAL = ("id", "status", "state")
 
 
-def save(p, props: dict[str, dict]) -> None:
+def save(p, props: dict[str, dict], why: str = "no longer found by the finder that made it") -> None:
     """What changed in ``props`` since ``stored``, recorded as events: a new change made (by its ``made_by``, else
-    ergostat) and checked; one left out superseded; a status or state moved, with the fields that changed; fields
-    alone changed, as its state again."""
+    ergostat) and checked; one left out superseded; one found again with new numbers ``revised`` (its ``revisions``
+    counted); a status or state moved, with the fields that changed; fields alone changed, as its state again."""
     now = stored(p)
     for pid, x in props.items():
         was = now.get(pid)
@@ -137,12 +138,15 @@ def save(p, props: dict[str, dict]) -> None:
                    json.dumps(was.get(k), sort_keys=True, default=str)}
         target = x.get("state") if x.get("state") and x.get("state") != was["state"] else \
             (x["status"] if x.get("status") in DECIDED and x["status"] != was["status"] else None)
+        if (x.get("revisions") or 0) != (was.get("revisions") or 0):
+            event(p, pid, "revised", changed)        # the same change, its numbers and evidence as found now
+            changed = {}
         if target:
             event(p, pid, target, changed, source=_decider(x, target))
         elif changed:
             event(p, pid, was["state"], changed, source="ergostat")
     for pid in set(now) - set(props):
-        event(p, pid, "superseded", {"why": "let go: found again otherwise, or no longer found"})
+        event(p, pid, "superseded", {"why": why})
 
 
 def _decider(x: dict, state: str) -> str:
@@ -156,14 +160,74 @@ def _decider(x: dict, state: str) -> str:
 
 
 def supersede(p, spec: Spec, why: str = "the model changed since it was made") -> list[str]:
-    """Every change still open that was made against a model version that has since changed: superseded."""
-    v = ver.version(spec)
+    """Every change still open that was made against a model version that has since changed: superseded, unless it is
+    carried to the version now, keeping its history: one of ergostat's own, not yet under test, whose subject
+    (``subject``) the change left as it was and whose edit still applies (``revised``, ``rebased``); or a change of words
+    or a redesign, whoever made it, whose edit still applies (``_carried``). One mechanism, after ``rebase`` has moved
+    the waiting edits' lines."""
+    from . import trial as tr
+    v, st = ver.version(spec), ver.structure(spec)
     out = []
     for pid, x in stored(p).items():
-        if x["state"] in OPEN and x.get("version") and x["version"] != v and x.get("kind") not in ("process", "tuning"):
-            event(p, pid, "superseded", {"why": why, "version_now": v})
-            out.append(pid)
+        if not (x["state"] in OPEN and x.get("version") and x["version"] != v and x.get("kind") not in ("process", "tuning")):
+            continue
+        sub, said = x.get("subject") or {}, why
+        if x.get("kind") in CARRIED:                 # words and redesigns, whoever made them: carried when they apply
+            said = _carried(p, spec, x)
+            if said is None:
+                continue
+        elif sub and x["state"] == "checked" and not candidate(x):
+            now = subject(spec, sub["refs"])
+            if now["sig"] == sub["sig"]:
+                edit = x["edit"]
+                try:
+                    try:
+                        tr.spec_after(p, tr.edits_of(x))
+                    except tr.TrialError:            # its lines moved: made again from the model as it is, if it can be
+                        edit = _edit_now(spec, x)
+                        tr.spec_after(p, tr.edits_of({"edit": edit}))
+                    event(p, pid, "revised", {"version": v, "structure": st, "edit": edit,
+                                              "rebased": {"from": x["version"], "to": v}})
+                    continue
+                except (tr.TrialError, ye.EditError, KeyError) as e:
+                    said = f"its edit no longer applies ({e})"
+            else:
+                gone = [r for r in sub["refs"] if _part(spec, r) is None]
+                said = f"what it is about changed: {', '.join(gone)} removed" if gone else \
+                    f"what it is about changed: {', '.join(sub['refs'])} edited since it was made"
+        event(p, pid, "superseded", {"why": said, "version_now": v})
+        out.append(pid)
     return out
+
+
+def _edit_now(spec: Spec, x: dict) -> dict | None:
+    """A value's or an equation's edit, made again on the files as they are now."""
+    if x.get("kind") == "parameter":
+        return _joined([_value_edit(spec.parameters[n], v) for n, v in x["parameters"].items()])
+    if x.get("kind") == "equation":
+        params = {k: (v["value"], v["unit"]) for k, v in x["parameters"].items()}
+        return _equation_edit(spec, spec.flows[x["target"][5:]], x["equation"], params, x["id"])
+    return None
+
+
+def _part(spec: Spec, ref: str):
+    kind, _, name = ref.partition(".")
+    table = {"parameter": spec.parameters, "goal": spec.goals, "block": spec.blocks}.get(kind)
+    return (table if table is not None else spec.measured(kind) or {}).get(name)
+
+
+def subject(spec: Spec, refs) -> dict:
+    """What a change is about, as the model has it now: its parts' references and a hash of each as written (a value,
+    an equation, what it connects; not where it is written, nor its words). Found again for the same subject, a change is
+    the same change whatever its numbers; one whose subject an edit changed or removed is let go."""
+    refs = sorted({r for r in refs if r})
+    return {"refs": refs, "sig": ver._hash([ver._plain(_part(spec, r)) for r in refs])}
+
+
+def masked(text: str) -> str:
+    """A text with its numbers taken out: what an edit does, not the values it writes."""
+    import re
+    return re.sub(r"(?<![\w.-])-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", "#", text)
 
 
 def current(x: dict, spec: Spec) -> bool:
@@ -229,9 +293,9 @@ def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts"
     structure, are let go; accepted and dismissed ones are kept. An estimate the record does not support
     is kept with why (``estimate.judged``), shown beside its parameter, and proposes nothing."""
     spec: Spec = p.model.spec
+    supersede(p, spec)                               # made against another version: carried, or let go if its subject went
     data = ob.measured(p, ob.reference(p, (snap or {}).get("at"), n))
     estimates = es.estimate(p, snap, n, which)
-    st = ver.structure(spec)
     base = sim.plan(spec)
     before = _total(spec, data, base)
     now = time.time()
@@ -285,7 +349,7 @@ def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts"
                           if left else "calibrated on the whole model's replay (every stock integrated from its flows), ")}
                .get(scope, f"calibrated on {e.get('scope_words') or scope}, its stocks integrated from its flows, "))
         found.append({
-            "id": _id("parameter", st, sorted(moved.items())) if scope == "parts" else _id("parameter", st, scope, sorted(moved.items())),
+            "id": _id("parameter", scope, subject(spec, [f"parameter.{n}" for n in moved])),
             "kind": "parameter", "scope": scope, "scope_words": e.get("scope_words") or es.SCOPE_WORDS["parts"],
             "target": ", ".join(f"parameter.{n}" for n in moved), "parameters": moved,
             "previous": {n: spec.parameters[n].value for n in moved},
@@ -309,9 +373,10 @@ def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts"
     if which == "parts":
         found += _equations(spec, data, before)
     props = stored(p)
-    for k in [k for k, x in props.items() if x["status"] == "pending" and not candidate(x) and
-              (x.get("structure") != st or _calibration(x) == which)]:
-        del props[k]
+    mine = {x["id"] for x in found}
+    for k in [k for k, x in props.items() if x["status"] == "pending" and not candidate(x) and k not in mine
+              and x.get("kind") in ("parameter", "equation") and x.get("scope") != "what-if" and _calibration(x) == which]:
+        del props[k]                                  # its own, no longer found; a loop's or a structural change is not its
     admit(p, spec, props, found, now, data.grid.until - data.grid.since)
     save(p, props)
     return pending(p, spec)
@@ -326,24 +391,35 @@ def admit(p, spec: Spec, props: dict, found: list[dict], now: float, window: flo
     from . import memory as mem
     st, v = ver.structure(spec), ver.version(spec)
     for x in found:
-        if x["id"] in props:                       # dismissed (or accepted) already: not made again
-            continue
+        was = props.get(x["id"])
+        if was is not None and (was["status"] in ("accepted", "dismissed") or candidate(was) or
+                                (was["state"] == "checked" and _said(x) == _said(was))):
+            continue                               # decided, under the judge, or found again as it was: left as it is
         x = {**x, "made_by": x.get("made_by") or "ergostat", "window": window}
         x["key"] = mem.key(x)
         h = mem.held(p, spec, x["key"], now)
         if h is not None:
             props[h["prior"]["id"]] = mem.repeat(p, h, x.get("title") or "", x.get("title") or "")
             continue
-        refs = [*(x.get("parts") or []), *(x.get("touched") or []), *str(x.get("target") or "").split(", ")]
-        g = gt.check(spec, x.get("fit_before"), x.pop("gate_fit", None) or x.get("fit_after"), [r for r in refs if r])
+        refs = [r for r in [*(x.get("parts") or []), *(x.get("touched") or []), *str(x.get("target") or "").split(", ")] if r]
+        g = gt.check(spec, x.get("fit_before"), x.pop("gate_fit", None) or x.get("fit_after"), refs)
         x["gate"] = {"whole": g["whole"], "local": g["local"], "said": gt.summary(g)}
         x["neighbourhood"] = g["neighbourhood"]
-        state = {"status": "pending"}
+        x["subject"] = subject(spec, [r for r in refs if _part(spec, r) is not None])
+        state = {"status": "pending", "created": now}
+        if was is not None:                        # found again with new numbers: the same change, revised in place
+            state = {"status": "pending", "created": was.get("created") or now, "revisions": (was.get("revisions") or 0) + 1,
+                     **({} if was["state"] == "checked" else {"state": "checked"})}
         if g["worse"]:
             fitted = _fitted_said(x)
-            state = {"status": "refused", "state": "refused", "gated": True, "decided": now,
-                     "why": f"it clearly worsens the fit: {g['worse']}" + (f", though {fitted}" if fitted else "")}
-        props[x["id"]] = {**x, **state, "created": now, "structure": st, "version": v}
+            state.update(status="refused", state="refused", gated=True, decided=now,
+                         why=f"it clearly worsens the fit: {g['worse']}" + (f", though {fitted}" if fitted else ""))
+        props[x["id"]] = {**x, **state, "made": now, "structure": st, "version": v}
+
+
+def _said(x: dict) -> str:
+    """What a change says, less the fit around it: found again saying the same, it is not revised."""
+    return json.dumps([x.get(k) for k in ("title", "edit", "parameters", "equation")], sort_keys=True, default=str)
 
 
 def _fitted_said(x: dict) -> str | None:
@@ -455,7 +531,7 @@ def _equations(spec: Spec, data: ob.Data, before: dict) -> list[dict]:
         tree = eq.parse(text, spec.parameters)
         e = Equation(text, tree, eq.refs(tree), eq.names(tree))
         after = _with_extra(spec, data, {target: e}, {k: (v, u) for k, (v, u) in params.items()})
-        pid = _id("equation", ver.structure(spec), f.name, text)
+        pid = _id("equation", f.name, subject(spec, [target]))
         try:
             edit = _equation_edit(spec, f, text, params, pid)
         except ye.EditError as err:
@@ -746,16 +822,23 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
         except Exception:                                            # a prediction is a help, never a reason to refuse
             x["predicted"] = None
     ft.record(p, fit_before, snap["window"], force=True)             # the version it leaves, as it fitted at the end
-    for f, text in new_text.items():
-        Path(f).write_text(text, encoding="utf-8")
-    _, problems = read(p.model.path)
-    errors = [str(e) for e in problems if e.level == "error"]
-    if errors:
+    try:                                             # every file written, or (on any failure) every one put back
+        for f, text in new_text.items():
+            _write(Path(f), text)
+        _, problems = read(p.model.path)
+        errors = [str(e) for e in problems if e.level == "error"]
+        if errors:
+            raise ProposalError("the edit would leave the model with errors, so it was not made:\n  " + "\n  ".join(errors))
+        p.model = mdl.load(p.model.path.parent)
+    except BaseException:
         for f, text in old_text.items():
-            Path(f).write_text(text, encoding="utf-8")
-        raise ProposalError("the edit would leave the model with errors, so it was not made:\n  " + "\n  ".join(errors))
-    p.model = mdl.load(p.model.path.parent)
-    _, _, fit_after = ft.compute(p, snap)
+            try:
+                _write(Path(f), text)
+            except OSError:
+                pass
+        raise
+    history = keep_history(p, x["renames"], v_before) if x.get("renames") else None   # before the fit after: a renamed
+    _, _, fit_after = ft.compute(p, snap)           # part is read under its new name, with its history
     ft.record(p, fit_after, snap["window"], force=True)
     x["status"], x["state"], x["decided"], x["by"] = "accepted", "accepted", time.time(), by
     x["applied"] = {"version_before": v_before, "version_after": ver.version(p.model.spec),
@@ -767,11 +850,130 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
         x["applied"]["why"] = why
     if policy:
         x["applied"]["policy"] = policy
+    if history is not None:                         # what the renamed parts' history became, kept with it
+        x["applied"]["history"] = history
     props[x["id"]] = x
     save(p, props)                                  # ergostat.model-change.accepted, from whoever decided
     written(p, x, by)
+    rebase(p, edits, x["id"])                        # the lines of the others waiting move with what was written
     supersede(p, p.model.spec)                      # what was made against the version before is made again, or not
     return x
+
+
+def _write(f: Path, text: str) -> None:
+    """A file written whole or not at all, even if the process dies part way: a file beside it, then renamed over."""
+    tmp = f.with_name(f".{f.name}.ergostat-tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, f)
+
+
+CARRIED = ("description", "unit", "redesign")        # kept across a change to the model, if its edit still applies
+
+
+def _carried(p, spec: Spec, x: dict) -> str | None:
+    """A change of words (a description, a unit) or a redesign, made by anyone against the version before: carried to the
+    version now when its edit applies to the files as they are (its lines moved, ``rebase``) and a change of words is
+    still one; a redesign goes back to checked, for the judge to score again, held to who-decides and its owner flags
+    again. None when carried, else why not."""
+    from . import improve as im
+    from . import trial as tr
+    try:
+        after = tr.spec_after(p, tr.edits_of(x))
+    except tr.TrialError as e:
+        return f"its edit no longer applies ({e})"
+    if x["kind"] != "redesign" and im.kind_of(spec, after, x["kind"]) != x["kind"]:
+        return f"it is no longer a {x['kind']} change on the model as it is"
+    more = {}
+    if x["kind"] == "redesign":
+        if im.governs(spec, after):
+            return "on the model as it is, it would change who decides"
+        from . import redesign as rd
+        more = {"rewires": False, "control": False, **rd.owners(spec, after)}
+    v = ver.version(spec)
+    event(p, x["id"], "checked" if x["kind"] == "redesign" else x["state"],
+          {"version": v, "structure": ver.structure(spec), "carried": {"from": x.get("version"), "to": v}, **more})
+    return None
+
+
+def rebase(p, written_edits: list, pid: str) -> list[str]:
+    """Every change still waiting whose edit is to a file just written, its hunks moved by the lines the written edit
+    added or took away above them (``ergostat.model-change.<its state>`` with the edit as it now stands); one whose
+    lines the written edit changed is left as it is (Accept refuses it, and it is made again)."""
+    shifts: dict[str, list[tuple[int, int, int]]] = {}
+    for e in written_edits:
+        for h in e.hunks:
+            shifts.setdefault(str(Path(e.file).resolve()), []).append((h.line, len(h.old), len(h.new) - len(h.old)))
+    out = []
+    for qid, y in stored(p).items():
+        if qid == pid or y["state"] not in OPEN or "error" in (y.get("edit") or {"error": 1}):
+            continue
+        files = []
+        moved = False
+        for d in y["edit"].get("files") or []:
+            f = str(Path(d["file"]).resolve())
+            mine = shifts.get(f)
+            if not mine:
+                files.append(d)
+                continue
+            hunks = []
+            for h in d["hunks"]:
+                line, n = int(h["line"]), len(h.get("old") or [])
+                how = [_relation(a, m, line, n) for a, m, _ in mine]
+                if "clash" in how:
+                    hunks = None                         # the same lines: it cannot be moved
+                    break
+                delta = sum(dl for (a, m, dl), r in zip(mine, how, strict=True) if r == "shift")
+                hunks.append({**h, "line": line + delta})
+                moved = moved or bool(delta)
+            if hunks is None:
+                moved = False
+                files = None
+                break
+            e = ye.Edit(d["file"], [ye.Hunk(int(h["line"]), list(h.get("old") or []), list(h.get("new") or [])) for h in hunks])
+            files.append(e.as_dict())
+        if not files or not moved:
+            continue
+        edit = {**y["edit"], "files": files, "diff": "\n".join(ye.Edit.from_dict({k: v for k, v in f_.items() if k != "diff"}).diff()
+                                                             for f_ in files)}
+        event(p, qid, y["state"], {"edit": edit})
+        out.append(qid)
+    return out
+
+
+def _relation(a: int, m: int, line: int, n: int) -> str:
+    """How a hunk written at ``a`` (replacing ``m`` lines) stands to one waiting at ``line`` (replacing ``n``; 0: put
+    in before it): ``shift`` (it is above: the waiting one moves by what it added), ``keep`` (below) or ``clash``."""
+    if m == 0:
+        if a <= line:
+            return "shift"
+        return "clash" if n and line < a < line + n else "keep"
+    if a + m <= line:
+        return "shift"
+    if (n and line + n <= a) or (not n and line <= a):
+        return "keep"
+    return "clash"
+
+
+def keep_history(p, renames: dict[str, str], version_before: str) -> dict:
+    """A part renamed keeps its history: each of its old sensors' readings written again under the new name's series
+    (the old series stay as they were: the record is never edited). Returns the readings copied, by series."""
+    spec = p.model.spec
+    out = {}
+    for old, new in renames.items():
+        kind, _, oname = old.partition(".")
+        _, _, nname = new.partition(".")
+        x = spec.measured(kind).get(nname)
+        if x is None:
+            continue
+        for s in x.sensors.values():
+            was = f"sensor/{oname}.{s.name}"
+            pts = p.measurements.range(was, 0.0)
+            have = {t for t, _ in p.measurements.range(s.series, 0.0)}
+            rows = [(s.series, t, v) for t, v in pts if t not in have]
+            if rows:
+                p.measurements.add_many(rows)
+            out[s.series] = {"from": was, "readings": len(rows)}
+    return out
 
 
 def written(p, x: dict, by: str) -> dict:

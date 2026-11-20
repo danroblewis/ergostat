@@ -17,7 +17,8 @@ const AV = { mode: null, loading: null, core: null, worker: null, seq: 0, waitin
    for a part moved, the routes that changed. Self-contained: the worker gets it as source text */
 function avoidCore(A) {
   const D = A.ConnDirFlag, dirs = { up: D.ConnDirUp, down: D.ConnDirDown, left: D.ConnDirLeft, right: D.ConnDirRight };
-  let router = null, shapes = {}, labels = {}, conns = {}, pos = {};
+  // (one router per group of lines: each open system's own lines, and the rest; every one has every part in its way)
+  let routers = [], conns = {}, pos = {};
   const dirty = new Set();
   const take = () => {
     const out = {};
@@ -142,21 +143,13 @@ function avoidCore(A) {
   };
   return {
     route(spec) {
-      if (router) { try { router.delete(); } catch (e) { /* gone */ } }
-      router = new A.Router(A.RouterFlag.OrthogonalRouting);
-      shapes = {}; labels = {}; conns = {}; pos = {}; dirty.clear();
+      for (const r of routers) { try { r.router.delete(); } catch (e) { /* gone */ } }
+      routers = []; conns = {}; pos = {}; dirty.clear();
       const P = A.RoutingParameter, O = A.RoutingOption;
-      router.setRoutingParameter(P.shapeBufferDistance, 5);
-      router.setRoutingParameter(P.idealNudgingDistance, 7);
-      router.setRoutingParameter(P.segmentPenalty, 60);
-      router.setRoutingParameter(P.crossingPenalty, spec.crossingPenalty);
-      router.setRoutingParameter(P.fixedSharedPathPenalty, 0);
-      router.setRoutingParameter(P.portDirectionPenalty, 100);
-      router.setRoutingOption(O.nudgeOrthogonalSegmentsConnectedToShapes, true);
-      router.setRoutingOption(O.nudgeSharedPathsWithCommonEndPoint, !!spec.nudgeCommon);   // lines from one point share their way
-      router.setRoutingOption(O.penaliseOrthogonalSharedPathsAtConnEnds, true);
-      router.setRoutingOption(O.performUnifyingNudgingPreprocessingStep, true);
+      const tf = performance.now();
       const turns = (spec.flows || []).length ? firstPass(spec) : {};
+      const prof = { first: performance.now() - tf };      // (where the time goes: the tests and AV.prof read it)
+      const tb = performance.now();
       const slides = turns.__slides || {};
       delete turns.__slides;
       for (const s of spec.shapes) if (slides[s.id]) {   // a valve slid along its pipe, off the corner by it (and its name)
@@ -167,46 +160,132 @@ function avoidCore(A) {
       }
       for (const s of spec.shapes) {
         if (s.pinsBy && turns[s.id]) { s.pins = s.pinsBy[turns[s.id]]; if (s.labelsBy) s.labels = s.labelsBy[turns[s.id]]; }
-        const sh = router.addShape({ x: s.x, y: s.y, width: s.w, height: s.h });
-        shapes[s.id] = sh; pos[s.id] = { x: s.x, y: s.y };
-        for (const p of s.pins) {
-          const pin = sh.addPin({ classId: p.cls, x: p.x, y: p.y, proportional: !p.abs, directions: dirs[p.dir] });
-          if (p.shared) pin.setExclusive(false);
+        pos[s.id] = { x: s.x, y: s.y };
+      }
+      // the lines in groups (spec.groups: a line's group, else one for all): a crossing is weighed only between lines
+      // of one group, which is most of the routing's time, and grows fast with how many lines there are together
+      const groups = {};
+      for (const c of spec.conns) (groups[spec.groups?.[c.id] ?? ""] ||= []).push(c);
+      for (const list of Object.values(groups)) {
+        const router = new A.Router(A.RouterFlag.OrthogonalRouting);
+        router.setRoutingParameter(P.shapeBufferDistance, 5);
+        router.setRoutingParameter(P.idealNudgingDistance, 7);
+        router.setRoutingParameter(P.segmentPenalty, 60);
+        router.setRoutingParameter(P.crossingPenalty, spec.crossingPenalty);
+        router.setRoutingParameter(P.fixedSharedPathPenalty, 0);
+        router.setRoutingParameter(P.portDirectionPenalty, 100);
+        router.setRoutingOption(O.nudgeOrthogonalSegmentsConnectedToShapes, true);
+        router.setRoutingOption(O.nudgeSharedPathsWithCommonEndPoint, !!spec.nudgeCommon);   // lines from one point share their way
+        router.setRoutingOption(O.penaliseOrthogonalSharedPathsAtConnEnds, true);
+        router.setRoutingOption(O.performUnifyingNudgingPreprocessingStep, true);
+        const shapes = {}, labels = {};
+        for (const s of spec.shapes) {
+          const sh = router.addShape({ x: s.x, y: s.y, width: s.w, height: s.h });
+          shapes[s.id] = sh;
+          for (const p of s.pins) {
+            const pin = sh.addPin({ classId: p.cls, x: p.x, y: p.y, proportional: !p.abs, directions: dirs[p.dir] });
+            if (p.shared) pin.setExclusive(false);
+          }
+          labels[s.id] = (s.labels || []).map((l) => router.addShape({ x: l.x, y: l.y, width: l.w, height: l.h }));
         }
-        labels[s.id] = (s.labels || []).map((l) => router.addShape({ x: l.x, y: l.y, width: l.w, height: l.h }));
+        for (const c of list) {
+          const cr = router.addConnector({ shape: shapes[c.s], pin: c.sp }, { shape: shapes[c.t], pin: c.tp });
+          conns[c.id] = cr;
+          cr.setCallback(() => dirty.add(c.id));
+        }
+        routers.push({ router, shapes, labels });
       }
-      for (const c of spec.conns) {
-        const cr = router.addConnector({ shape: shapes[c.s], pin: c.sp }, { shape: shapes[c.t], pin: c.tp });
-        conns[c.id] = cr;
-        cr.setCallback(() => dirty.add(c.id));
-      }
+      prof.build = performance.now() - tb;
       const t0 = performance.now();
-      router.processTransaction();
+      for (const r of routers) r.router.processTransaction();
       const ms = performance.now() - t0;
+      prof.route = ms; prof.groups = routers.length;
       const invalid = Object.values(conns).filter((c) => !c.hasValidRoute()).length;
-      return { routes: take(), ms, invalid, turns, slides };
+      const routes = take();
+      // in groups, lines of two groups may run on one track: all of them once more, together, each kept to its group's
+      // way (its corners as checkpoints) with no weight on crossings (that was the groups'), so they are spaced apart
+      // as one routing would have them; a drag still reroutes in its group (moves above)
+      // (only the lines that run on one track with another line take the spaced way: the rest keep their own)
+      const along = (p, q, r, t) => (Math.abs(p[1] - q[1]) < 0.5 && Math.abs(r[1] - t[1]) < 0.5 && Math.abs(p[1] - r[1]) < 3
+        ? Math.min(Math.max(p[0], q[0]), Math.max(r[0], t[0])) - Math.max(Math.min(p[0], q[0]), Math.min(r[0], t[0]))
+        : Math.abs(p[0] - q[0]) < 0.5 && Math.abs(r[0] - t[0]) < 0.5 && Math.abs(p[0] - r[0]) < 3
+          ? Math.min(Math.max(p[1], q[1]), Math.max(r[1], t[1])) - Math.max(Math.min(p[1], q[1]), Math.min(r[1], t[1])) : 0);
+      const shared = new Set();
+      if (routers.length > 1) {
+        const list = spec.conns.filter((c) => routes[c.id]);
+        for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+          const a = list[i], b = list[j];
+          if (a.s === b.s || a.t === b.t) continue;
+          const pa = routes[a.id], pb = routes[b.id];
+          if (pa.slice(1).some((q, k) => pb.slice(1).some((t, l) => along(pa[k], q, pb[l], t) > 20))) { shared.add(a.id); shared.add(b.id); }
+        }
+      }
+      // (and a line its group bent much, routed alone among the others: once more, free, it may find a plainer way)
+      if (routers.length > 1) for (const c of spec.conns) if ((routes[c.id] || []).length > (spec.bent ?? 1e9) + 2) shared.add(c.id);
+      // (and two lines from one point, or to one, that cross: the page would trade their stretches, a bend each time)
+      const crosses = (pa, pb) => pa.slice(1).some((q, k) => pb.slice(1).some((t, l) => {
+        const hv = (p, q, r, t) => Math.abs(p[1] - q[1]) < 1 && Math.abs(r[0] - t[0]) < 1 && r[0] > Math.min(p[0], q[0]) + 2 &&
+          r[0] < Math.max(p[0], q[0]) - 2 && p[1] > Math.min(r[1], t[1]) + 2 && p[1] < Math.max(r[1], t[1]) - 2;
+        return hv(pa[k], q, pb[l], t) || hv(pb[l], t, pa[k], q); }));
+      if (routers.length > 1) {
+        const ends = {};
+        for (const c of spec.conns) if (routes[c.id]) { (ends[`s${c.s}`] ||= []).push(c.id); (ends[`t${c.t}`] ||= []).push(c.id); }
+        for (const ids of Object.values(ends)) for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++)
+          if (crosses(routes[ids[i]], routes[ids[j]])) { shared.add(ids[i]); shared.add(ids[j]); }
+      }
+      if (shared.size) {
+        const tn = performance.now();
+        const r = new A.Router(A.RouterFlag.OrthogonalRouting);
+        setUp(r, { ...spec, crossingPenalty: 0 });
+        r.setRoutingOption(O.nudgeOrthogonalSegmentsConnectedToShapes, true);
+        r.setRoutingOption(O.nudgeSharedPathsWithCommonEndPoint, !!spec.nudgeCommon);
+        r.setRoutingOption(O.penaliseOrthogonalSharedPathsAtConnEnds, true);
+        r.setRoutingOption(O.performUnifyingNudgingPreprocessingStep, true);
+        const sh = {};
+        for (const s of spec.shapes) {
+          const x = r.addShape({ x: s.x, y: s.y, width: s.w, height: s.h });
+          sh[s.id] = x;
+          for (const p of s.pins) {
+            const pin = x.addPin({ classId: p.cls, x: p.x, y: p.y, proportional: !p.abs, directions: dirs[p.dir] });
+            if (p.shared) pin.setExclusive(false);
+          }
+          for (const l of s.labels || []) r.addShape({ x: l.x, y: l.y, width: l.w, height: l.h });
+        }
+        const all = {};
+        for (const c of spec.conns) {
+          const cr = r.addConnector({ shape: sh[c.s], pin: c.sp }, { shape: sh[c.t], pin: c.tp });
+          const way = routes[c.id] || [];
+          // (its inner corners, each where two of its stretches meet: the way it takes, wherever nudging moves it)
+          // (a line that shares a track goes free, to be spaced from it; a pinned corner would hold it on that track)
+          if (way.length > 2 && !shared.has(c.id)) cr.setRoutingCheckpoints(way.slice(1, -1).map(([x, y]) => ({ x, y, arrival: D.ConnDirAll, departure: D.ConnDirAll })));
+          all[c.id] = cr;
+        }
+        r.processTransaction();
+        for (const [id, cr] of Object.entries(all)) if (shared.has(id) && cr.hasValidRoute()) routes[id] = cr.displayRoute().map((q) => [q.x, q.y]);
+        try { r.delete(); } catch (e) { /* gone */ }
+        prof.spacing = performance.now() - tn; prof.spaced = shared.size;
+      }
+      return { routes, ms, invalid, turns, slides, prof };
     },
     moveMany(list) {                                    // several parts moved together (an open system dragged): one routing
-      if (!router) return {};
+      if (!routers.length) return {};
       for (const [id, x, y] of list) {
-        if (!shapes[id]) continue;
+        if (!pos[id]) continue;
         const dx = x - pos[id].x, dy = y - pos[id].y;
         if (!dx && !dy) continue;
         pos[id] = { x, y };
-        router.moveShape(shapes[id], dx, dy);
-        for (const l of labels[id]) router.moveShape(l, dx, dy);
+        for (const r of routers) { r.router.moveShape(r.shapes[id], dx, dy); for (const l of r.labels[id]) r.router.moveShape(l, dx, dy); }
       }
-      router.processTransaction();
+      for (const r of routers) r.router.processTransaction();
       return take();
     },
     move(id, x, y) {
-      if (!router || !shapes[id]) return {};
+      if (!routers.length || !pos[id]) return {};
       const dx = x - pos[id].x, dy = y - pos[id].y;
       if (!dx && !dy) return {};
       pos[id] = { x, y };
-      router.moveShape(shapes[id], dx, dy);
-      for (const l of labels[id]) router.moveShape(l, dx, dy);
-      router.processTransaction();
+      for (const r of routers) { r.router.moveShape(r.shapes[id], dx, dy); for (const l of r.labels[id]) r.router.moveShape(l, dx, dy); }
+      for (const r of routers) r.router.processTransaction();
       return take();
     },
   };
@@ -300,6 +379,9 @@ function avoidLoad() {                                  // once: the worker, els
 }
 
 const PIN = { IN: 3, OUT: 4, STEM: 5, TELL: 6, PIPE: 7, ANY: 8, NET: 1000, PORT: 100 };   // pin classes (NET + i: a part's i-th net)
+const GROUP_OVER = 150, GROUP_CAP = 100, BENT = 5;                // lines a view has past which they are routed in groups; the
+                                                         // most the lines between systems take with them; the bends
+                                                         // past which a line is routed again, free
 const PIPE_ALONG = [0.15, 0.3, 0.5, 0.7, 0.85];   // where pipes may meet a stock's sides: apart enough (9px on a 44px stock) for a track each
 const CROSSING_PENALTY = (lines) => (lines <= 100 ? 200 : lines <= 600 ? 50 : 20);   // a crossing costs; less where there are
                                                                                       // many lines: its search is most of the time
@@ -501,15 +583,37 @@ function avoidSpec(lay, g) {
                                   tx: far?.x, ty: far?.y, pinned: !!S.pins?.[c.id] || !!c.slid,   // (slid once a layout: no drift)
                                   level: !!(near && far && Math.abs(far.x - near.x) >= Math.abs(far.y - near.y)) });
   }
+  // (a large view's lines routed in groups: each open system's own lines (both ends in it) together, the rest together;
+  // a crossing is weighed only within a group, and that weighing is most of the routing's time)
+  const groups = conns.length > GROUP_OVER ? Object.fromEntries(conns.map((c) => {
+    const a = (byId[c.s].systems || [])[0], b = (byId[c.t].systems || [])[0];
+    return [c.id, a && a === b ? a : ""]; })) : null;
+  if (groups) {                                          // (the systems the lines between them reach most go with them, while
+    const size = {}, reach = {};                         // they stay few enough: where most of the crossings would be)
+    for (const g of Object.values(groups)) size[g] = (size[g] || 0) + 1;
+    for (const c of conns) if (groups[c.id] === "") for (const id of [c.s, c.t]) for (const sys of byId[id].systems || []) reach[sys] = (reach[sys] || 0) + 1;
+    let total = size[""] || 0;
+    for (const sys of Object.keys(size).filter((x) => x).sort((x, y) => (reach[y] || 0) - (reach[x] || 0))) {
+      if (!reach[sys] || total + size[sys] > GROUP_CAP) continue;
+      total += size[sys];
+      for (const id in groups) if (groups[id] === sys) groups[id] = "";
+    }
+    // (a net, the lines leaving one point or reaching one, is put in order as one: never split between groups)
+    const nets = {};
+    for (const c of conns) { const k = edgeOf[c.id].kind; (nets[`s|${k}|${c.s}`] ||= []).push(c.id); (nets[`t|${k}|${c.t}`] ||= []).push(c.id); }
+    for (const ids of Object.values(nets)) if (new Set(ids.map((id) => groups[id])).size > 1) for (const id of ids) groups[id] = "";
+  }
   // (in the dynamics view a flow's pipe reads best short and straight: a crossing there costs less than a long way round)
-  return { shapes, conns, flows, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length) * (conns.length > 150 ? 0.6 : 1)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
+  return { shapes, conns, flows, groups, bent: BENT, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length) * (conns.length > 150 ? 0.6 : 1)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
 }
 
 /* the lines routed: in the worker (the page keeps ELK's lines meanwhile and redraws when they come), or on
    the page. lay.routing is true until then; lay.whenRouted resolves when it is done (or given up) */
 function avoidStart(lay, g) {
   if (!AV.mode) return;
+  const ts = performance.now();
   const spec = avoidSpec(lay, g), seq = ++AV.seq;
+  const specMs = performance.now() - ts;
   const byKind = Object.fromEntries(g.nodes.map((n) => [n.id, n.kind]));
   const done = (m) => {
     if (m && !m.skipped) {
@@ -520,6 +624,7 @@ function avoidStart(lay, g) {
       }
       if (m.turns) turnValves(lay, g, m.turns);           // each valve facing the way its flow runs through it (valves.js)
       for (const [id, pts] of Object.entries(m.routes)) setRoute(byLe[id], pts.map(([x, y]) => ({ x, y })));
+      const tp = performance.now();
       straightenPipes(lay, g);
       // the lines that share a point (every pin but a part's own single ones), put in order
       const groups = {};
@@ -530,7 +635,8 @@ function avoidStart(lay, g) {
       uncross(lay, g);
       if (g.kind === "dynamics") { sdSeparate(lay, g); uncross(lay, g); sdAroundSatellites(lay, g); }   // (dynamics.js)
       unjog(lay, g);                                     // (last: the lines are where they stay)
-      AV.ms = m.ms; AV.invalid = m.invalid;               // (how long it took, and lines it found no way for: the tests read them)
+      AV.prof = { ...(m.prof || {}), after: performance.now() - tp, spec: specMs };
+      AV.raw = m.routes; AV.ms = m.ms; AV.invalid = m.invalid;               // (how long it took, and lines it found no way for: the tests read them)
       AV.routed = { lay, seq };
     }
     lay.routing = false;

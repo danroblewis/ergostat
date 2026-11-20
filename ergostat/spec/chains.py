@@ -733,8 +733,9 @@ MANY_CLOUDS = 5            # inflows from clouds, beyond each kind's one arrival
 def boundary(spec: Spec, moves: dict[str, Counter] | None = None) -> Found | None:
     """``many-cloud-inflows``: more inflows from clouds than half the model's stocks (and at least ``MANY_CLOUDS``), not
     counting each item kind's arrival into the state it arrives in (the boundary, rightly crossed once per kind) nor a
-    two-way flow (a setting stepped, a measure smoothed: an adjustment, not an arrival). Most stocks then fill from
-    outside, so they pass little to each other and the model explains little of what comes in."""
+    two-way flow (a setting stepped, a measure smoothed: an adjustment, not an arrival), nor the parts a template made
+    (its own boundary). Most stocks then fill from outside, so they pass little to each other and the model explains
+    little of what comes in."""
     if not spec.stocks:
         return None
     moves = moves or {}
@@ -746,12 +747,16 @@ def boundary(spec: Spec, moves: dict[str, Counter] | None = None) -> Found | Non
         entered = entries(spec, c, ix)
         if entered:
             proper |= {f.name for f in entered[_first(c, entered, moves.get(k) or Counter())]}
-    extra = [f.name for f in ix.out_of.get(None, ()) if f.target and not f.two_way and f.name not in proper]
-    if len(extra) < MANY_CLOUDS or 2 * len(extra) <= len(spec.stocks):
+
+    from .ir import once_made  # a once template's part: its boundary, not the model's
+    extra = [f.name for f in ix.out_of.get(None, ()) if f.target and not f.two_way and f.name not in proper
+             and not once_made(spec, f)]
+    stocks = [st for st in spec.stocks.values() if not once_made(spec, st)]
+    if len(extra) < MANY_CLOUDS or 2 * len(extra) <= len(stocks):
         return None
     from .load import Where
     return Found("many-cloud-inflows", "model", Where(spec.files[0], 1) if spec.files else None,
-                 f"the model has {len(extra)} inflows from outside (clouds) for its {len(spec.stocks)} stocks, beyond each item "
+                 f"the model has {len(extra)} inflows from outside (clouds) for its {len(stocks)} stocks, beyond each item "
                  f"kind's one arrival: {', '.join(extra)}. A cloud is the model's boundary: what comes from it is "
                  f"taken as given, not explained. Draw the boundary chart (Sterman, ch. 3: what the model explains, what "
                  f"it takes as given, what it leaves out) and decide what is really outside: something that leaves one "

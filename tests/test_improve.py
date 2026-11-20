@@ -276,7 +276,7 @@ def test_the_measures_read_the_model_against_the_record(tmp_path):
     assert ms.measure(p, "ergostat.model.fit") == pytest.approx(got["total"]["nmse"], rel=1e-4)
     assert ms.measure(p, "fit") == pytest.approx(ms.measure(p, "ergostat.model.fit"), rel=1e-4)    # by hand, short
     assert 0.0 <= ms.measure(p, "ergostat.model.unexplained") <= 1.0
-    assert ms.measure(p, "ergostat.model.open-findings") == sum(1 for x in read(p.model.path)[1] if x.level != "error")
+    assert ms.measure(p, "ergostat.model.open-findings") == sum(1 for x in read(p.model.path)[1] if x.level == "finding")
     assert ms.measure(p, "ergostat.model.unidentified-loops") == 0         # the goal's loop does not close: nothing to identify
     with pytest.raises(ms.MeasureError):
         ms.measure(p, "vibes")
@@ -296,14 +296,16 @@ def test_the_policy_is_the_judge_blocks(tmp_path):
         (tmp_path / "ergostat.yaml").write_text(QUEUE + extra)
         return read(tmp_path / "ergostat.yaml")
     spec, _ = policy("")
-    assert spec.improve.accept == {"parameter": "owner", "equation": "owner", "structure": "owner"}   # nothing automatic
+    assert set(spec.improve.accept.values()) == {"owner"} and set(spec.improve.accept) == {   # nothing automatic
+        "parameter", "equation", "structure", "description", "unit", "rename", "redesign"}
     assert spec.improve.block is None
     spec, probs = policy(judge_block(accept="{parameter: auto}", threshold="5%", **{"hold-out": "3m"}, windows="[1, 3]"))
     assert not [x for x in probs if x.level == "error"], probs
     assert spec.improve.block == "judge" and spec.blocks["judge"].builtin
     assert spec.improve.accept["parameter"] == "auto" and spec.improve.accept["structure"] == "owner"
     assert spec.improve.threshold == pytest.approx(0.05) and spec.improve.hold_out == 180 and spec.improve.windows == [1, 3]
-    assert policy(judge_block(accept="auto"))[0].improve.accept == dict.fromkeys(("parameter", "equation", "structure"), "auto")
+    every = policy(judge_block(accept="auto"))[0].improve.accept
+    assert {k for k, v in every.items() if v != "auto"} == {"rename", "redesign"}   # promoted only by name
     for bad in (judge_block(accept="always"), judge_block(accept="{loops: auto}"), judge_block(threshold="150%"),
                 judge_block(windows="[0]"), judge_block(run="echo"), judge_block(out="{kept: flow.arrivals}"),
                 judge_block() + "  judge-2:\n    type: judge\n"):
