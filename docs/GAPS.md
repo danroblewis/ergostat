@@ -194,7 +194,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Runtime, scale and latency
 
-- **Warm processes for blocks** (branch `warm2`, `docs/roadmap/overnight/warm2.md`): `warm: true` on a daemon, a
+- **Warm processes for blocks** (parked on branch `warm2` after its second failed gate: a run held but never handed
+  over when its process is drained between the two; its definition file, `docs/roadmap/overnight/warm2.md`, says where
+  it stopped and the fixes it needs): `warm: true` on a daemon, a
   declared promise that the program keeps no state between runs: `concurrency` processes, one run each at a time,
   each run charged its process group's CPU (its reaped children's included); a process that misbehaves is restarted,
   one cancelled or past `recycle:` replaced; `ergostat block NAME --check-warm FILE` tests the promise on one input.
