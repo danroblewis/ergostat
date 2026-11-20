@@ -89,8 +89,11 @@ Work through these steps in order. Ask the person only what you cannot infer.
    is off (only `program` and `ai` blocks take items one at a time). A step started by something that
    happens rather than by a state (a comment, a review, a webhook that moves nothing) is
    `on: {event: TYPE, where: {...}, emits: [TYPES]}`: a run per event, caused by it. List in `emits:` every event
-   type its runs print (others are refused); `check` refuses blocks that would start each other in a loop, so
-   end each chain of them in a type nothing is `on:`.
+   type its runs print, as lines or by `event --add` (others are refused); `check` refuses blocks that would
+   start each other in a loop, so end each chain of them in a type nothing is `on:`. Loops through other blocks
+   stop after 8 triggered runs (`trigger.stopped`), and more than `most:` (60) a minute trips the block's
+   breaker until the owner resets it (`ergostat block NAME --reset`); events older than `max-age:` (1h) are
+   passed over.
 6. **Goals on what matters**: how long the oldest item has waited in a state
    (`measure: oldest` on a stock's sensor, `hold: "<= 4"` hours), how many are waiting, throughput.
    A goal is what makes a block's work a feedback loop; give each step's queue one. A limit on each item
