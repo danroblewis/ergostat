@@ -416,7 +416,8 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
     if rd.running(p, now, rd.HOLD_FOR):          # a redesign being made: the model it reads held still, for a while
         return out
     first = [y for y in sets if y["state"] == "passed" and pol.accept.get(REDESIGN) == "auto" and not owners(y)][:1]
-    held = sets if pol.accept.get(REDESIGN) == "auto" else []   # a redesign the judge may write holds its lines; one
+    held = [y for y in sets if not rv.read_for_owner(spec, y)] if pol.accept.get(REDESIGN) == "auto" else []
+    # a redesign the judge may write holds its lines (not one the reviewer left to the owner); one
     # only the owner writes holds nothing (it is carried, or superseded, as the model moves)
     todo = first + [y for y in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0) if y not in first]
     for x in todo:                                   # a redesign the owner promoted and the judge passed is written first,

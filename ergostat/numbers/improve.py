@@ -814,6 +814,9 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
         x, err = None, None
         try:
             x = validate(p, spec, by, raw, data)
+            x.update(rv.asked(p, by, x.get("parts")))   # sent back by the reviewer: this is its next round
+            if x.get("review_held"):
+                raise ProposeError(x["review_held"])
             same = next((y for y in pr.stored(p).values() if y["id"] != pid and y.get("version") == made["version"] and
                          unstamped((y.get("edit") or {}).get("diff")) == unstamped(x["edit"]["diff"])
                          and y["state"] != "refused"), None)
@@ -838,7 +841,6 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
                                          **({"gated": True, "key": k} if gated else {})})
             return {"status": "not-proposed", "id": pid, "title": title, "why": err.args[0] if gated else str(err)}
         x["edit"] = stamped(x["edit"], pid)
-        x.update(rv.asked(p, by, x.get("parts")))   # sent back by the reviewer: this is its next round
         x.update({"made_by_rung": _rung(spec, by), "window": data.grid.until - data.grid.since if data else None,
                   "method": f"made by {by} ({_rung(spec, by) or 'a block'}); checked by ergostat on a scratch copy: "
                             f"compiled, checked, replayed and refitted on the reference window"})

@@ -144,7 +144,9 @@ def redesign(argv: list[str]) -> int:
     if a.when == "off":
         note("redesigner: off")
         return 0
-    left = round(a.daily - rd.spent(p), 6)
+    from ...numbers import reviewer as rv
+    # the reviewer's share of the cap is kept for it
+    left = round(min(a.daily - rd.spent(p), a.daily * (1 - rv.RESERVE) - rd.spent(p, reviewer=False)), 6)
     if left <= 0:                                 # the daily cap, before anything is planned: nothing runs past it
         note(f"redesigner: the day's ${a.daily:.2f} is spent; nothing is reviewed until tomorrow's allowance")
         return 0

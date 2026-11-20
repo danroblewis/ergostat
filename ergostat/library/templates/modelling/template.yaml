@@ -104,7 +104,7 @@ params:
   review:
     type: any
     default: {when: auto, model: haiku, kinds: structure redesign, most: 3}
-    description: 'the reviewer, with ai: true (SPEC §12e, The reviewer): an AI agent that reads each change of these kinds (structure and redesign; add equation if you like) after the judge passes it, deliberately disagreeable, through the review checklists of MODELLING-WELL.md, and passes it, sends it back to its author with findings (twice is a reject), or rejects it. With it on, the judge writes those kinds only after its pass, and the inbox offers them only after it (the review queue still lets the owner accept). when: auto, or off; model (haiku); most (changes read a run, 3). Its calls count against redesign.daily, the template''s one daily cap'
+    description: 'the reviewer, with ai: true (SPEC §12e, The reviewer): an AI agent that reads each change of these kinds (structure and redesign; add equation if you like) after the judge passes it, deliberately disagreeable, through the review checklists of MODELLING-WELL.md, and passes it, sends it back to its author with findings (twice is a reject), or rejects it. With it on, the judge writes those kinds only after its pass, and the inbox offers them only after it (the review queue still lets the owner accept). when: auto, or off; model (haiku); most (changes read a run, 3). Its calls count against redesign.daily, the template''s one daily cap, a quarter of which is kept for it; a change it cannot decide on in 3 tries, or sends back with no author to take it, goes to the owner'
   review-every:
     type: duration
     default: 2m
