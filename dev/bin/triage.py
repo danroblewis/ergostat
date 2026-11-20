@@ -13,7 +13,6 @@ sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import review  # noqa: E402
 
-KILL = 2
 RETRIES = 2
 
 
@@ -57,8 +56,8 @@ def main() -> int:
         return 0
     again = f"failed again alone: {', '.join(got.get('tests') or tests)}" if "seconds" in got else got["why"]
     findings = list(f.get("findings") or [])[-1:] + [again]
-    if int(f.get("failed_gates") or 0) + 1 >= KILL:
-        why = "Failed its gates twice (the kill rule); the last, in the merge queue:\n" + "\n".join(
+    if int(f.get("failed_gates") or 0) + 1 >= fac.kill_after(cfg):
+        why = f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, in the merge queue:\n" + "\n".join(
             f"- {x}" for x in findings)
         fac.say("gap.measured", failed_gates=1, findings=findings, triage=got)
         review.park(cfg, gap, why, f"queue run {n}", where="triage")
