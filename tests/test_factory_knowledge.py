@@ -5,8 +5,10 @@ coordinator's tools, on the fixture of tests/test_factory.py with the free stand
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -431,3 +433,69 @@ def test_the_librarian_ships_off(tmp_path):
     f = Instance(tmp_path)
     f.config.write_text(f.config.read_text().replace("librarian = true", "librarian = false"))
     assert librarian(f, "review/a-1", ["x"], [{"finding": 1, "class": "lesson-1", "shape": "s", "new_shape": True}]) == []
+
+
+RULES = "---\nkind: rules\n---\n# House rules\n\n**Process**\n- Define it first.\n\n**Code**\n- Keep it small.\n"
+LESSONS = "---\nkind: lessons\n---\n# Lessons\n\n## 1. Failing open\nIt fails open.\n**Check:** fail closed.\n"
+DECISIONS = ("---\nkind: decisions\n---\n# Decisions\n\n- **One model, three drawings.** Each its own style. *Areas: "
+             "diagram, view.*\n")
+
+
+def sync(f: Instance, dev: Path) -> list[dict]:
+    """A run of the collector on the knowledge files of ``dev`` (a copy of dev/bin beside them): its event lines, folded."""
+    r = subprocess.run([sys.executable, str(dev / "bin" / "knowledge.py"), "sync"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    lines = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
+    f.fold(lines, None)
+    return lines
+
+
+def test_knowledge_sync_says_each_change_once(tmp_path):
+    f = Instance(tmp_path)
+    dev = tmp_path / "running" / "dev"
+    shutil.copytree(BIN, dev / "bin", ignore=shutil.ignore_patterns("__pycache__"))
+    k = dev / "knowledge"
+    k.mkdir()
+    for name, text in (("house-rules", RULES), ("review-lessons", LESSONS), ("decisions", DECISIONS)):
+        (k / f"{name}.md").write_text(text)
+    f.fold([{"event": "gap.started", "item": "gap/a", "data": {"contexts": [
+        {"role": "implementor", "knowledge": ["rules-process", "lesson-1"]}, {"role": "reviewer", "knowledge": [
+            "lesson-1", "lesson-1"]}]}}], None)
+    lines = sync(f, dev)
+    assert sorted(x["item"] for x in lines) == ["knowledge/decision-one-model-three-drawings", "knowledge/lesson-1",
+                                                "knowledge/rules-code", "knowledge/rules-process"]
+    assert {x["event"] for x in lines} == {"knowledge.found"}
+    lesson = f.item("knowledge/lesson-1")
+    assert lesson["state"] == "active" and lesson["fields"]["kind"] == "lesson"
+    assert lesson["fields"]["title"] == "Failing open" and lesson["fields"]["file"] == "dev/knowledge/review-lessons.md"
+    assert lesson["fields"]["text"].startswith("## 1. Failing open It fails open.") and lesson["fields"]["carried"] == 2
+    decision = f.item("knowledge/decision-one-model-three-drawings")["fields"]
+    assert decision["kind"] == "decision" and decision["areas"] == ["diagram", "view"] and decision["carried"] == 0
+    assert f.item("knowledge/rules-process")["fields"]["kind"] == "rule"
+    assert sync(f, dev) == []                                                       # idempotent: nothing said twice
+    (k / "review-lessons.md").write_text(LESSONS.replace("It fails open.", "It fails open, quietly."))
+    (k / "house-rules.md").write_text(RULES.split("**Code**")[0])
+    f.fold([{"event": "gap.built", "item": "gap/a", "data": {"contexts": [
+        {"role": "implementor", "knowledge": ["decision-one-model-three-drawings"]}]}}], None)
+    lines = sync(f, dev)
+    assert sorted((x["event"], x["item"]) for x in lines) == [
+        ("knowledge.changed", "knowledge/decision-one-model-three-drawings"), ("knowledge.changed", "knowledge/lesson-1"),
+        ("knowledge.retired", "knowledge/rules-code")]
+    changed = {x["item"]: x["data"] for x in lines if x["event"] == "knowledge.changed"}
+    assert set(changed["knowledge/lesson-1"]) == {"text", "changed_at"}             # only what changed
+    assert changed["knowledge/decision-one-model-three-drawings"]["carried"] == 1
+    assert "quietly" in f.item("knowledge/lesson-1")["fields"]["text"] and f.item("knowledge/rules-code")["state"] == "retired"
+    assert sync(f, dev) == []
+    (k / "house-rules.md").write_text(RULES)                                         # back in the files: found again
+    assert [(x["event"], x["item"]) for x in sync(f, dev)] == [("knowledge.found", "knowledge/rules-code")]
+    assert f.item("knowledge/rules-code")["state"] == "active"
+
+
+def test_knowledge_entries_counts_the_items():
+    from ergostat.spec import read
+    from tests.test_factory import ROOT
+    spec, _ = read(ROOT / "ergostat.yaml")
+    sensor = spec.stocks["knowledge-entries"].sensors["main"]
+    assert sensor.run is None and (sensor.items["kind"], sensor.items["state"]) == ("knowledge", ["active"])
+    assert spec.items["knowledge"].states == ["active", "retired"] and spec.blocks["knowledge-sync"].type == "program"

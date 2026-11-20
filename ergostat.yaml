@@ -137,6 +137,25 @@ items:
     relations:
       gap: gap
 
+  session:
+    id: session/*
+    description: one AI session of the factory's (implementor, reviewer, planner, researcher, librarian) - its conversation, live while it runs, and what it cost (dev/bin/sessions.py)
+    states: [running, done, failed]
+    on:
+      session.started: running
+      session.ended: done
+      session.errored: failed        # no result, an error result, a timeout or a crash
+    show: [role, round, gap, model, cost, turns, seconds, transcript]
+    relations:
+      gap: gap                       # the gap it worked on: the gap's page lists its sessions
+      research: research
+      review: review                 # (the librarian's step on a review)
+    formats:
+      transcript: claude-session     # Claude Code's own session file, the token scrubbed: shown as the conversation,
+                                     # each line recorded as a claude.* event about the session (SPEC 5a)
+    fold: {messages: append, tool_calls: append, tool_results: append, thinking: append, tokens_in: sum,
+           tokens_out: sum}
+
   flake:
     id: flake/*
     description: a test that failed in the merge queue and passed alone - counted each time, until fixed
@@ -201,9 +220,19 @@ items:
     show: [kind, lesson, name, text, times, gap]
     fold: {times: sum, reviews: union, findings: append}
 
+  knowledge:
+    id: knowledge/*
+    description: one entry of dev/knowledge/ in the running version (a house rule, a review lesson, a decision) - what the briefs carry, kept by the collector knowledge-sync
+    states: [active, retired]
+    on:
+      knowledge.found: active        # knowledge-sync: an entry in the files (or back in them)
+      knowledge.changed: active      # knowledge-sync: its title, text, areas or how many briefs carried it changed
+      knowledge.retired: retired     # knowledge-sync: no longer in the files
+    show: [kind, title, file, areas, carried, text]
+
 messages:
   done: {gap: [merged, closed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
-         lesson: [requested, retired]}   # (finished, for the estimates)
+         lesson: [requested, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
 
