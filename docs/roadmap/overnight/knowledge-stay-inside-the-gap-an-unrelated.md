@@ -36,3 +36,11 @@ that belongs in a separate gap and is not built here.
 
 Not done: merging origin/main into the branch and running the suites again. This session's permissions refused
 `git merge`, so the factory has to do the merge and the re-run.
+
+The fast suites after the build: `unit` was reported as failed, but its tail names no failing test. It stops partway
+through the progress dots, with no pytest summary, no `suite_watch` JSON line, and no watchdog "killing" message. So
+the run was cut off from outside, not failed by a test. The branch changes no code: one knowledge file, three numbers in
+`tests/test_factory_knowledge.py`, and this file. `tests/test_factory_knowledge.py` passes alone (20 passed). It is the
+only test file that reads the knowledge files (checked by grep for `knowledge` and `lesson` in `tests/`). Ruff is clean.
+Following § 13, I changed nothing outside the definition: there was no failure to fix. Left for the factory: run `unit`
+again to the end, then the merge of main and the re-run noted above.
