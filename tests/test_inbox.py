@@ -455,7 +455,64 @@ def test_a_dismissed_finding_returns_when_its_part_changes(tmp_path):
                                          "sensor: {run: python3 bin/watch.py, every: 5s}"))
     q = Project(mdl.load(tmp_path))                                       # its own part changed: raised again
     assert rq.sync(q)["reopened"] >= 1
-    assert rq.stored(q)[r["id"]]["state"] in ("open", "held")              # raised again, for the tiers
+    x = rq.stored(q)[r["id"]]                                             # a new finding: untried, the tier's again
+    assert x["state"] == "open" and r["id"] in {w["id"] for w in rq.for_ai(q, 2)}
+    assert not x["owner"] and x["tried"] == {} and x["tier"] == "ai"
+    assert all(x.get(k) is None for k in rq.DISMISSAL)                   # no dismissal shown on an open request
+    rq.mark(q, x, "held", "the ai tier: nothing", tried={"ai": 2})       # the tier holds it again: in the inbox
+    assert eid in {e["id"] for e in entries.entries(q)}
+
+
+def test_a_dismissal_made_while_the_ai_tier_works_stands(tmp_path):
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)
+    rq.mark(p, rq.stored(p)[r["id"]], "held", "tries left", tried={"ai": 1})
+    read = next(w for w in rq.for_ai(p, 2) if w["id"] == r["id"])        # the ai tier reads it, then calls the model
+    answer.answer(p, p.model.spec, eid, "deny", note="not a modelling matter")
+    assert rq.mark(p, read, "held", "the ai tier: nothing", tried={"ai": 2}) is False
+    assert rq.mark(p, read, "held", tried={"ai": 2}, cost_usd=0.01) is False
+    assert rq.stored(p)[r["id"]]["state"] == "dismissed" and eid not in {e["id"] for e in entries.entries(p)}
+
+
+def test_a_request_is_answered_under_the_lock(tmp_path, monkeypatch):
+    import threading
+
+    from ergostat.numbers import requests as rq
+    from ergostat.numbers import version as ver
+    p, r, eid = held_request(tmp_path)
+    read, real, seen = rq.stored(p)[r["id"]], ver.part, {}
+
+    def gap(spec, about):                                 # between the answer's read and its write: a tier marks it
+        t = threading.Thread(target=lambda: seen.update(wrote=rq.mark(p, read, "held", "the ai tier: nothing")))
+        t.start()
+        t.join(0.5)
+        seen["waited"] = t.is_alive()
+        seen["thread"] = t
+        return real(spec, about)
+    monkeypatch.setattr(ver, "part", gap)
+    answer.answer(p, p.model.spec, eid, "deny", note="mine to decide")
+    seen["thread"].join(10)
+    assert seen["waited"] and seen["wrote"] is False                      # it waited for the answer, then stood down
+    assert rq.stored(p)[r["id"]]["state"] == "dismissed"
+
+
+def test_the_collector_moves_requests_under_the_lock(tmp_path, monkeypatch):
+    import threading
+
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)
+    real, seen = rq._citing, {}
+
+    def gap(changes):                                     # between sync's read of the requests and its moves: the owner
+        t = threading.Thread(target=lambda: answer.answer(p, p.model.spec, eid, "deny", note="no"))
+        t.start()
+        t.join(0.5)
+        seen.update(waited=t.is_alive(), thread=t)
+        return real(changes)
+    monkeypatch.setattr(rq, "_citing", gap)
+    rq.sync(p)
+    seen["thread"].join(10)
+    assert seen["waited"] and rq.stored(p)[r["id"]]["state"] == "dismissed"
 
 
 def test_a_held_modelling_request_approved_goes_back_to_the_loop(tmp_path):

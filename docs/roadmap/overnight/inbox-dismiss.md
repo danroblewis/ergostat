@@ -219,3 +219,52 @@ Failed its gates twice (the kill rule). Blocking findings:
 - ergostat/numbers/requests.py:169-172 with ergostat/numbers/requests.py:383-386 and ergostat/library/run/modelling.py:99,110-117 (lesson-5, lesson-9): when a dismissed request's part changes, sync writes `reopened` with only gather's fields (tier, says, ...). The fold keeps the old `tried` (usually tried.ai == 2, the usual way a request reaches the inbox) and `owner` (True when it was held because the owner dismissed its change). for_ai skips it (tried.ai >= tries, or owner set). Only the AI tier's run holds a request again, and sync holds one only when a citing change ends. So the request stays `open` forever, taken by no tier and missing from the inbox. This is round 1's finding again, on the new dismissed->reopened path, against the definition's 'raised again' and SPEC §12e's dismissed row. tests/test_inbox.py:446-461 builds exactly this case (fixture tried={'ai': 2}) but asserts state in ('open','held'), which the bug passes. Fix: when a dismissal is reopened, reset tried/owner/tier as approval does (or hold it again for the inbox when no tier would take it). Assert that the request is in rq.for_ai or back in the inbox, and watch the test fail without the fix.
 - ergostat/numbers/requests.py:360-375 (lesson-1): answer() reads the request as held, then writes `dismissed` or `reopened` with no lock. The record (docs/roadmap/overnight/inbox-dismiss.md, round 4) says this is 'like the other inbox answers'. That is false: numbers/proposals.py accept/dismiss run under locked(p) (proposals.py:94-104,163,796). A real writer races it. for_ai takes `held` requests whose tries are left (the rules tier hands them on as held, tier ai, modelling.py:81), and these are in the inbox too. A modeller run in flight then writes `held` (rq.mark, modelling.py:116) or its read state (modelling.py:113) after the owner's dismissal, and the dismissal is silently undone. sync (the collector's sensor) is a second writer. Hold one lock across the read and the write in answer(), the AI tier's marking and sync, or re-read inside the lock and refuse a stale write. Add a test that monkeypatches the competing write into the gap.
 - docs/roadmap/overnight/inbox-dismiss.md (round 4, 'Main merged: not done as a merge') (lesson-7): the merge base is still 0a4c92b, and origin/main is now 39 commits ahead. Main's changes to the touched files were copied by hand, and they match main's exactly. Main has since changed docs/SPEC.md, ergostat/spec/ir.py (also changed here) and spec/itemindex.py (a lock now taken around every index read, which this branch's new stats scan of every request event goes through). The house rule's done condition is a real merge and the suites run on the merged tree; neither has been done.
+
+## Where it stopped
+
+Continued (gap/inbox-dismiss-continued, round 1). Every finding of review/inbox-dismiss-3 is answered here (lesson-12):
+
+- **A dismissal raised again is a new finding** (lesson-5). When `sync` reopens a dismissed request because its part
+  changed, it now also writes `tried: {}`, `owner: false` and `None` for each dismissal field (`requests.DISMISSAL`:
+  `note`, `dismissed_by`, `dismissed`, `part`, `approved_by`). The tier comes from gather, as before. So the AI tier
+  takes the request up again, and if it holds it again after its tries, the request is back in the inbox. An `OWNER`
+  code is still held for the owner at once, as before. `test_a_dismissed_finding_returns_when_its_part_changes` now
+  checks these things. The state is `open`. The request is in `rq.for_ai`. `tried`, `owner` and `tier` are reset, and
+  no dismissal field is left. Once it is held again, it is back in the inbox. With the reset disabled, the test fails
+  at the `for_ai` check (lesson-9).
+- **The non-blocking finding (stale dismissal fields on a reopened request)** is fixed by the same clearing, and the
+  same test covers it.
+- **Answering under the lock** (lesson-1). Requests have their own lock now: `requests.locked(p)`. It is the same
+  flock as `proposals.locked`, on its own file `requests.lock`, so the two are never nested. I used a separate file
+  because flock is not re-entrant. These hold the lock:
+  - `answer()` holds it across its read and its write.
+  - `sync()` holds it from its read of the stored requests to its last move. Check's own `gather` stays outside the
+    lock, because it is slow.
+  - The tiers cannot hold a lock across a model call. Instead, `requests.mark` re-reads the request under the lock
+    and writes only if the request is still in the state the tier read. It returns False if not. The AI tier's
+    "answered: tried and cost" write now goes through `mark` too, as does the rules tier's handing on.
+
+  Tests, each seen to fail with its part disabled (lesson-9):
+  - `test_a_dismissal_made_while_the_ai_tier_works_stands`: the tier reads, the owner dismisses, then the tier's
+    write is refused. It fails without the re-read.
+  - `test_a_request_is_answered_under_the_lock`: a tier's mark is put in the gap between the answer's read and its
+    write (by monkeypatching `version.part`). The mark has to wait, and is then refused. It fails without the lock
+    in `answer`, and without the re-read.
+  - `test_the_collector_moves_requests_under_the_lock`: the owner's answer is put in the gap inside `sync` (by
+    monkeypatching `_citing`). The answer has to wait. It fails without the lock in `sync`.
+
+  Not covered: `numbers/redesign_due.py` still writes redesign requests with plain `rq.event`, outside the lock. Those
+  requests are answered when their redesign is decided. This gap leaves them as they were.
+- **Main merged** (lesson-7). This is now a real merge. The branch's HEAD at the start of this round was a merge of
+  main f158e00 into the branch (dcd6db6), and `git merge-base HEAD main` is f158e00. The suites after the merge were
+  run here per file only (below). The whole unit suite and the browser files are left to the factory.
+
+Also in the branch, from round 3: the leases and engine fix (`leases/dispatch.py`, `spec/engine.py`). That is outside
+this gap's definition (lesson-13). It stays because it is what un-parked round 3's unit run, and no review has asked
+for it to be taken out. If the owner wants it in its own gap, it can be reverted from this branch on its own.
+
+Budget: about 125 net lines outside tests/ and docs/, within 250. Run here, each file alone, on the merged tree:
+`test_inbox.py` (26), `test_modelling_core.py`, `test_modelling_core2.py`, `test_modelling_template.py`,
+`test_interventions.py`, `test_self_improve.py`, and `test_notify.py` with `test_relations.py` and
+`test_extremes_closed.py`. All pass, and ruff is clean. Not run: the whole unit suite, the browser files
+(`test_inbox_page.py`) and `test_leases.py`.

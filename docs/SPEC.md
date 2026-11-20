@@ -3524,12 +3524,16 @@ ergostat's own kinds are left out). Each records what it is about (`about`), why
 | proposed | a change waiting cites it (its finding, `finding:CODE@ABOUT` or `coherence:CODE@ABOUT`, among its evidence) |
 | held | no tier enabled has a change for it, or its change was turned away (with why); left to the owner (no tier takes it up) when the owner dismissed its change, or its finding is control; opened again when the model's version changes (unless left to the owner). It is in the inbox (§12o) |
 | answered | check no longer finds it |
-| dismissed | the owner denied it from the inbox with why (`--deny --note WHY`; the note and who are kept): not raised again while the part it is about is unchanged (its definition and description, hashed; a finding about the model, or about no part found, waits on the whole model); raised again (`reopened`) once that part changes. Counted as an answered intervention (denied), never a suppressed one |
+| dismissed | the owner denied it from the inbox with why (`--deny --note WHY`; the note and who are kept): not raised again while the part it is about is unchanged (its definition and description, hashed; a finding about the model, or about no part found, waits on the whole model); raised again (`reopened`) once that part changes, as a new finding: untried, not the owner's, its tier the finding's, its dismissal's note and who cleared. Counted as an answered intervention (denied), never a suppressed one |
 
 A held request **approved** from the inbox is `reopened`: open again, for the AI tier (`tier: ai`, its tries given
 back, `approved_by` kept); if the AI tier holds it again after its tries, it is back in the inbox. Approval is offered
 only when the model has the AI tier and the finding is not one only the owner changes; otherwise the owner's own change
 citing it answers it, or a dismissal.
+
+The owner's answer, the collector's moves and a tier's word on a request are each read and written under one lock
+(`requests.lock` in the project's state). A tier that read a request before calling its model writes its word only if
+the request is still in the state it read: an answer the owner gave meanwhile stands.
 
 The **request collector** (`modelling requests`, the sensor of the template's `requests-raised`) reads check, raises
 what is new, answers what is gone and moves each to where its changes say it is. **The tiers**, each an ordinary

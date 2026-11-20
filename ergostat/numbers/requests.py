@@ -44,6 +44,7 @@ NOT_MODELLING = {              # said by check, but no change to the model answe
 OPEN = ("open", "proposed", "held")
 LIVE = pr.OPEN                 # a change waiting: checked, testing or passed
 ENDED = ("refused", "failed", "dismissed", "inconclusive")
+DISMISSAL = ("note", "dismissed_by", "dismissed", "part", "approved_by")   # cleared when it is raised again
 
 
 class RequestError(ValueError):
@@ -157,6 +158,17 @@ def sync(p, spec: Spec | None = None, now: float | None = None, coherence: bool 
     spec = spec or p.model.spec
     now = now or time.time()
     found = {r["id"]: r for r in gather(p, spec, coherence, extremes)}
+    with locked(p):                                       # what it read is what it moves: no answer lands between
+        return _moved(p, spec, now, found)
+
+
+def locked(p):
+    """Held while a request is read, decided on and written: the owner's answer, the collector's moves, a tier's
+    word. Never taken inside ``proposals.locked``, nor that inside it."""
+    return pr.locked(p, "requests")
+
+
+def _moved(p, spec: Spec, now: float, found: dict[str, dict]) -> dict:
     have = stored(p)
     changes = pr.changes(p)
     cites = _citing(changes)
@@ -167,11 +179,12 @@ def sync(p, spec: Spec | None = None, now: float | None = None, coherence: bool 
         if x is not None and x["state"] == "dismissed" and x.get("part") == ver.part(spec, r["about"]):
             continue                                      # the owner dismissed it, and its part is as it was
         if x is None or x["state"] in ("answered", "dismissed"):
-            event(p, k, "raised" if x is None else "reopened",
+            fresh = {"tried": {}, "owner": False, **dict.fromkeys(DISMISSAL)} if x and x["state"] == "dismissed" else {}
+            event(p, k, "raised" if x is None else "reopened",   # a dismissal's part changed: a new finding, untried
                   {**{a: b for a, b in r.items() if a != "id"}, **({"raised": now} if x is None else {}), "since": now,
-                   "version": v, "change": None, "why": None})
+                   "version": v, "change": None, "why": None, **fresh})
             moved["raised" if x is None else "reopened"] += 1
-            x = {**(x or {}), **r, "state": "open", "since": now, "version": v}
+            x = {**(x or {}), **r, **fresh, "state": "open", "since": now, "version": v}
             have[k] = x
             if r["code"] in OWNER:                        # control: no tier changes it; it waits for the owner
                 event(p, k, "held", {"why": OWNER[r["code"]], "owner": True, "tier": "owner", "version": v})
@@ -233,7 +246,12 @@ def answer(p, spec: Spec, x: str, yes: bool, note: str | None = None, by: str = 
     """The owner's answer to a held request (the inbox): approved, it is open again for the ai tier, with its tries
     given back (the tier skips a request whose tries are used, or held for the owner); denied, it is dismissed with
     ``note``, until the part it is about changes. Approval is refused when no tier would take it up: it is then the
-    owner's own change (citing it) that answers it, or a dismissal."""
+    owner's own change (citing it) that answers it, or a dismissal. Read and written under ``locked``."""
+    with locked(p):
+        return _answer(p, spec, x, yes, note, by)
+
+
+def _answer(p, spec: Spec, x: str, yes: bool, note: str | None, by: str) -> str:
     r = stored(p).get(x)
     if r is None or r["state"] != "held":
         raise RequestError(f"request {x} is not held (it is {r and r['state']})")
@@ -271,9 +289,16 @@ def current(p, states=OPEN) -> list[dict]:
     return sorted((x for x in stored(p).values() if x["state"] in states), key=lambda x: x.get("raised") or 0.0)
 
 
-def mark(p, x: dict, what: str, why: str, **more) -> None:
-    """A tier's word on a request: held (it has nothing it can make), with why."""
-    event(p, x["id"], what, {"why": why, **more})
+def mark(p, x: dict, what: str, why: str | None = None, **more) -> bool:
+    """A tier's word on a request as it read it (``x``): held (it has nothing it can make), with why; or its tries
+    and cost, in the state it was in. Written only if the request is still in the state the tier read (under
+    ``locked``): the owner's answer, or the collector's move, made while the tier was working, stands."""
+    with locked(p):
+        now = stored(p).get(x["id"])
+        if now is None or now["state"] != x["state"]:
+            return False
+        event(p, x["id"], what, {**({"why": why} if why is not None else {}), **more})
+        return True
 
 
 def counts(p) -> dict[str, int]:

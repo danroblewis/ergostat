@@ -110,8 +110,8 @@ def ai(argv: list[str]) -> int:
     for r in group:
         tried = {**(r.get("tried") or {}), "ai": int((r.get("tried") or {}).get("ai") or 0) + 1}
         if rq.evidence_of(r) in answered:
-            rq.event(p, r["id"], r["state"], {"tried": tried, "cost_usd": round(float(r.get("cost_usd") or 0) + share, 6)})
-            continue
+            rq.mark(p, r, r["state"], tried=tried, cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
+            continue                                     # (each mark refused if the owner answered it meanwhile)
         why = cannot.get(r["id"]) or "the ai tier proposed nothing that would be proposed"
         rq.mark(p, r, "held", f"the ai tier ({a.model}): {why}", tried=tried,
                 cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
