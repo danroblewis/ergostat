@@ -11,6 +11,11 @@ import time
 WEEK, DAY = 7 * 86400.0, 86400.0
 PROMOTE = 5                         # approved this many times, none denied: suggested up the ladder
 BY_AGENT = "owner via mcp"          # who an answer given through the MCP is recorded as
+BY_AI = "ai approver"               # the ladder's second rung (the repair loop's, SPEC §12r): an agent, never the person
+
+
+def by_agent(x: dict) -> bool:
+    return x.get("by") == BY_AGENT or str(x.get("by") or "").startswith(BY_AI)
 
 
 def asked(p, spec, since: float, until: float) -> list[dict]:
@@ -72,7 +77,7 @@ def by_class(p, spec, now: float | None = None) -> dict[str, dict]:
         if x["answered"] is None:
             r["waiting"] += 1
         elif x["verdict"] != "superseded":
-            r["by_agent" if x.get("by") == BY_AGENT else "denied" if x["verdict"] == "denied" else "approved"] += 1
+            r["by_agent" if by_agent(x) else "denied" if x["verdict"] == "denied" else "approved"] += 1
             r["times"].append(x["answered"] - x["time"])
     for cls, r in out.items():
         t = sorted(r.pop("times"))
@@ -100,7 +105,7 @@ def suggest(cls: str, r: dict) -> str | None:
 def asked_today(p, spec, now: float | None = None) -> list[str]:
     """The class of each thing asked of a person over the last day (ergostat's own notifications left out)."""
     now = time.time() if now is None else now
-    return [x["class"] for x in asked(p, spec, now - DAY, now) if x["class"] != "notify"]
+    return [x["class"] for x in asked(p, spec, now - DAY, now) if x["class"] != "notify" and not str(x.get("by") or "").startswith(BY_AI)]
 
 
 def record_said(r: dict) -> str:

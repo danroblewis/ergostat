@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 
 from ..spec import items as its
-from ..spec.ir import DEAD, LEASES, Spec
+from ..spec.ir import DEAD, LEASES, Spec, own_kind
 from . import EXPIRED
 from .fold import held
 
@@ -16,7 +16,7 @@ DAY = 86400.0
 
 
 def _kinds(spec: Spec, who: str | None) -> list[str]:
-    own = [k for k in spec.items if not k.startswith("ergostat.")]
+    own = [k for k in spec.items if own_kind(k)]
     if who in spec.items:
         return [who]
     if who in spec.blocks and spec.blocks[who].takes:

@@ -1,0 +1,73 @@
+template: repair
+once: true
+description: A program that fails is triaged, fixed by an AI in a disposable clone, tested in the sandbox and proposed as a gated change with its impact report (SPEC §12r).
+reading: |
+  System dynamics: an aging chain of failures (the built-in kind ergostat.failure, one item a signature), filled as
+  programs fail (failures-found) and drained through a fix, its test and its approval; a fix that fails its test flows
+  back (rework), one denied leaves (fixes-dismissed).
+  Control: no-open-failures holds the open failures at 0 through the fixer (an AI, haiku by default, no tools: a clone
+  of its own, the fix tested in the sandbox, apply-fix asked for with its impact report); fixes-answered holds the
+  fixes waiting at 0 through their approver, the ladder's first rung (the person) or second (an AI within a guard).
+  It is used once a model, and its parts keep the names written here.
+example: |
+  uses:
+    repair:
+      use: repair
+      with:
+        approver: person              # or ai: an AI approves within its guard, else the person
+        daily: 2                      # dollars a day, at most, for every AI call of the loop
+params:
+  model: {default: haiku, description: "the fixer's and the AI approver's model"}
+  budget: {type: number, default: 0.25, description: "the most one AI call may cost, in dollars (claude --max-budget-usd)"}
+  daily: {type: number, default: 2, description: "the most the loop's AI calls may cost in a day, in dollars: past it, none starts"}
+  approver: {default: person, choices: [person, ai], description: "who answers apply-fix: the person, or an AI approver within its guard"}
+  approve: {default: approve, choices: [approve, deny], description: "the gate on apply-fix (auto is not offered: approval is the ladder's)"}
+  test: {type: command, description: "the project's tests, run in the sandbox for a program that is not read-only"}
+  timeout: {type: duration, default: 5m, description: how long one AI call, or one test, may take}
+  tries: {type: integer, default: 3, description: how many fixes are tried for one failure before it is a dead letter}
+  count-every: {type: duration, default: 10s, description: how often the failures are counted by state}
+actions:
+  apply-fix:
+    run: ${python} -m ergostat.repair apply
+    gate: ${approve}
+    in: .
+    description: "Fast-forward the project onto the tested fix: only when its HEAD is still the commit the fix was made on"
+stocks:
+  open-failures: {unit: failures, description: failures waiting for a fix, sensor: {items: ergostat.failure, state: open, every: "${count-every}"}}
+  fixing: {unit: failures, description: failures the fixer holds, each in a clone of its own, sensor: {items: ergostat.failure, state: leased, every: "${count-every}"}}
+  awaiting-approval: {unit: failures, description: fixes that passed their test, waiting for their approver, sensor: {items: ergostat.failure, state: awaiting-approval, every: "${count-every}"}}
+  applied-fixes: {unit: failures, cumulative: true, description: fixes fast-forwarded into the project, sensor: {items: ergostat.failure, state: applied, every: "${count-every}"}}
+auxiliaries:
+  repair-spend:
+    unit: USD
+    driven-by: +flow.fixes-started
+    description: what the loop's AI calls cost
+    sensor: {builtin: ergostat.cost.usd@repair-fix, every: 1m}
+flows:
+  failures-found: {to: open-failures, description: "programs failing in a way not open already (new, or again after a fix)", sensor: {items: ergostat.failure, entering: open, over: 1h}}
+  fixes-started: {from: open-failures, to: fixing, driven-by: +stock.open-failures, sensor: {items: ergostat.failure, entering: leased, over: 1h}}
+  fixes-proposed: {from: fixing, to: awaiting-approval, driven-by: +stock.fixing, sensor: {items: ergostat.failure, entering: awaiting-approval, over: 1h}}
+  fixes-failed: {from: fixing, to: open-failures, driven-by: +stock.fixing, description: a fix that failed its test, given back (rework), sensor: {items: ergostat.failure, entering: open, where: {lease.back: open}, over: 1h}}
+  fixes-applied: {from: awaiting-approval, to: applied-fixes, driven-by: +stock.awaiting-approval, sensor: {items: ergostat.failure, entering: applied, over: 1h}}
+  fixes-dismissed: {from: awaiting-approval, driven-by: +stock.awaiting-approval, description: fixes their approver denied, sensor: {items: ergostat.failure, entering: dismissed, over: 1h}}
+goals:
+  no-open-failures: {stock: open-failures, hold: "<= 0", description: every failure is being fixed}
+  fixes-answered: {stock: awaiting-approval, hold: "<= 0", description: every fix tested is answered by its approver}
+blocks:
+  repair-fix:
+    type: ai
+    goal: no-open-failures
+    takes: {kind: ergostat.failure, at: open, to: [awaiting-approval, dismissed]}
+    lease: {attempts: "${tries}"}
+    actions: [apply-fix]
+    model: ${model}
+    prompt: "ergostat's own fixer (python -m ergostat.repair fix, its prompt ergostat/repair/fixer.md; SPEC §12r)"
+    run: ${python} -m ergostat.repair fix --model ${model} --budget ${budget} --daily ${daily} --timeout ${timeout:seconds} --approver ${approver} ${test:arg}
+    timeout: ${timeout}
+    out: [flow.fixes-started, flow.fixes-proposed, flow.fixes-failed]
+  repair-settle:
+    type: program
+    goal: fixes-answered
+    every: 30s
+    run: ${python} -m ergostat.repair settle
+    out: [flow.fixes-dismissed]
