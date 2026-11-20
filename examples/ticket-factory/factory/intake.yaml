@@ -1,5 +1,5 @@
-# Arrivals: the Jira issues labelled for the factory, as the watcher sees them (bin/watch.py, a sensor: it
-# reads Jira and records each new issue as a ticket, and never acts).
+# Arrivals: the Jira issues labelled for the factory, as the watcher sees them (bin/watch.py, a sensor's daemon:
+# it reads Jira and records each new issue as a ticket, and never acts).
 defaults:
   system: intake
 
@@ -17,6 +17,6 @@ flows:
     to: new
     description: issues labelled for the factory, as they appear in Jira
     sensor:
-      run: python3 bin/watch.py
+      daemon: {run: python3 bin/watch.py serve}   # its own: the one sensor that reads Jira (Jira down fails its readings only)
       every: 10s
       averages: 10m

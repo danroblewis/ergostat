@@ -62,7 +62,7 @@ blocks:
   ci:
     type: program
     goal: ci-watched
-    run: python3 bin/step.py ci
+    daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
     takes: {kind: ticket, at: sailed, to: [ci-green, ci-failed, stopped]}
     pool: 3
     out: [flow.ci, flow.ci-failing]

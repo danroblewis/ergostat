@@ -1,0 +1,30 @@
+# One service: the dev image with hard limits the kernel enforces (docs/DEVELOPMENT.md).
+# Run through scripts/in_container.sh, which sets the CPUs and mounts a worktree's git directory.
+services:
+  dev:
+    build:
+      context: .
+      args:
+        UID: "${ERGOSTAT_UID:-1000}"
+    image: ergostat-dev:latest
+    init: true
+    pids_limit: ${ERGOSTAT_PIDS:-4096}
+    mem_limit: ${ERGOSTAT_MEM:-12g}
+    memswap_limit: ${ERGOSTAT_MEM:-12g}
+    cpus: ${ERGOSTAT_CPUS:-4}
+    shm_size: 2g
+    network_mode: ${ERGOSTAT_NET:-none}
+    tmpfs:
+      - /tmp:rw,exec,nosuid,nodev,size=${ERGOSTAT_TMP:-4g},mode=1777
+    volumes:
+      - ${ERGOSTAT_WORK:-.}:/work
+    working_dir: /work
+    environment:
+      SPLIT_SHOTS: /tmp/split-shots     # tests/test_diagram_rendering.py's pictures go beside the checkout: / here
+  # The same with Docker's syscall filter and masked /proc paths off, which bwrap (the Linux sandbox) needs for its
+  # namespaces and its own /proc. Only for the sandbox's tests: scripts/in_container.sh --sandbox.
+  sandbox:
+    extends: dev
+    security_opt:
+      - seccomp=unconfined
+      - systempaths=unconfined

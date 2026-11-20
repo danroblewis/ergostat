@@ -31,8 +31,15 @@ def open_project(args):
               file=sys.stderr)
         raise SystemExit(2) from None
     except (mdl.ModelError, DurationError) as e:
+        from .. import goodmodel as good
+        if good.reads(args) and (p := good.fallback(here, e)) is not None:
+            return p                                    # the engine's last good model, said on stderr
         found = mdl.find(here)
         print(f"{found.name if found else mdl.FILE}: {e}", file=sys.stderr)
+        if not good.reads(args):
+            flag = next((f" --{a.replace('_', '-')}" for a in good.ACTS if getattr(args, a, None) not in (None, False)), "")
+            print(f"ergostat {getattr(args, 'topic', None)}{flag} acts, so it never runs on the last good model: fix "
+                  f"the YAML first (ergostat check shows the errors)", file=sys.stderr)
         raise SystemExit(2) from None
     return Project(m)
 

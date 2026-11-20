@@ -11,6 +11,7 @@ import os
 import time
 from pathlib import Path
 
+from ..spec import files
 from . import client
 
 MODEL, STATUS = "model.json", "status.json"
@@ -27,7 +28,7 @@ def folder(project: str, root: Path, remote: str) -> Path:
 
 def _read(f: Path) -> dict | None:
     try:
-        got = json.loads(f.read_text())
+        got = json.loads(files.read_text(f))
         return got if isinstance(got, dict) else None
     except (OSError, ValueError):
         return None

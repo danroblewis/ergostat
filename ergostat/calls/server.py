@@ -144,13 +144,15 @@ class Server:
                 return self._answer(conn, ops.event(self.e, req))
             if op == "item":
                 return self._answer(conn, ops.item(self.e, req))
+            if op == "items":
+                return self._answer(conn, ops.items(self.e, req))
             if op == "lease":
                 return self._answer(conn, ops.lease(self.e, req))
             if op == "act":
                 return self._act(conn, req)
         except ops.Refused as e:
             return self._answer(conn, {"error": str(e), "code": e.code})
-        return self._answer(conn, {"error": f"no call {op!r} (event, act, lease, item, ping)"})
+        return self._answer(conn, {"error": f"no call {op!r} (event, act, lease, item, items, ping)"})
 
     def _act(self, conn, req: dict) -> None:
         from ..actions import program
