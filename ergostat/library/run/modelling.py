@@ -96,8 +96,7 @@ def ai(argv: list[str]) -> int:
     from ...numbers import modeller as md
     from ...numbers import requests as rq
     p = project()
-    mine = [r for r in rq.waiting(p, ("open", "held")) if r.get("tier") == "ai" and not r.get("owner")
-            and int((r.get("tried") or {}).get("ai") or 0) < a.tries]
+    mine = rq.for_ai(p, a.tries)
     if not mine:
         note("modeller: no request waiting for the ai tier")
         return 0

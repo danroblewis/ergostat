@@ -99,9 +99,7 @@ def cmd_inbox(args) -> int:
             if line:
                 print(c(f"    {line}", "dim"))
         if e["verbs"]:                                   # a kind with none is not shown as answerable
-            print(c(f"    ergostat inbox {e['id']} " + " | ".join(
-                "--done N" if v == "done" else "--deny --note WHY" if (v, e["kind"]) == ("deny", "request")
-                else f"--{v}" for v in e["verbs"]), "dim"))
+            print(c(f"    {entries.command(e)}", "dim"))
     return 0
 
 

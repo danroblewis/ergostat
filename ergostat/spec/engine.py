@@ -950,7 +950,8 @@ class Engine:
                     note = refused or f"could not start: {e}"
                 else:
                     old.LIVE.add(proc)
-                    if self.stop.is_set():                       # closed as it started: kill_all missed it, so killed here
+                    cut = self.stop.is_set()                     # closed as it started: kill_all missed it, so killed here
+                    if cut:
                         old._kill(proc)
                     with self.lock:
                         self.procs[b.name] = proc
@@ -973,7 +974,7 @@ class Engine:
                     if killed:                                       # its lease expired: stopped (leases/kill.py)
                         note = f"killed: {killed}"
                     elif code and not note:
-                        stopped = old.STOPPING.is_set() or self.stop.is_set()
+                        stopped = old.STOPPING.is_set() or cut       # (only a run killed by the stop, not any that failed)
                         note = old.STOPPED_WITH_US if stopped else STOPPED_BY_OWNER if asked else f"exited {code}"
         if code == 0 and not note:                               # a bare number only from a run that finished well
             said.finish()

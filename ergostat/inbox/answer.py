@@ -57,7 +57,7 @@ def answer(p, spec, eid: str, verb: str, n: float | None = None, note: str | Non
             p.events.add("trigger.reset", item=e["block"], source=by, data={"note": note or "", "tripped": e["seq"]})
             said = "reset: its events start it again"
         elif kind == "request":
-            said = rq.answer(p, spec, key, yes, note, by=by)
+            said = rq.answer(p, spec if spec is not None else p.model.spec, key, yes, note, by=by)
         elif kind == "steptest" or e.get("control"):
             x = {k: v for k, v in en.offers(p)[key].items() if k != "time"} if kind == "steptest" else None
             said = (cp.accept(p, key, by=by, offer=x) if yes else cp.dismiss(p, key, note, offer=x, by=by))["status"]
