@@ -205,7 +205,7 @@ function avoidCore(A) {
       // in groups, lines of two groups may run on one track: all of them once more, together, each kept to its group's
       // way (its corners as checkpoints) with no weight on crossings (that was the groups'), so they are spaced apart
       // as one routing would have them; a drag still reroutes in its group (moves above)
-      // (only the lines that run on one track with a line of another group take the spaced way: the rest keep their own)
+      // (only the lines that run on one track with another line take the spaced way: the rest keep their own)
       const along = (p, q, r, t) => (Math.abs(p[1] - q[1]) < 0.5 && Math.abs(r[1] - t[1]) < 0.5 && Math.abs(p[1] - r[1]) < 3
         ? Math.min(Math.max(p[0], q[0]), Math.max(r[0], t[0])) - Math.max(Math.min(p[0], q[0]), Math.min(r[0], t[0]))
         : Math.abs(p[0] - q[0]) < 0.5 && Math.abs(r[0] - t[0]) < 0.5 && Math.abs(p[0] - r[0]) < 3
@@ -215,10 +215,23 @@ function avoidCore(A) {
         const list = spec.conns.filter((c) => routes[c.id]);
         for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
           const a = list[i], b = list[j];
-          if ((spec.groups[a.id] ?? "") === (spec.groups[b.id] ?? "") || a.s === b.s || a.t === b.t) continue;
+          if (a.s === b.s || a.t === b.t) continue;
           const pa = routes[a.id], pb = routes[b.id];
           if (pa.slice(1).some((q, k) => pb.slice(1).some((t, l) => along(pa[k], q, pb[l], t) > 20))) { shared.add(a.id); shared.add(b.id); }
         }
+      }
+      // (and a line its group bent much, routed alone among the others: once more, free, it may find a plainer way)
+      if (routers.length > 1) for (const c of spec.conns) if ((routes[c.id] || []).length > (spec.bent ?? 1e9) + 2) shared.add(c.id);
+      // (and two lines from one point, or to one, that cross: the page would trade their stretches, a bend each time)
+      const crosses = (pa, pb) => pa.slice(1).some((q, k) => pb.slice(1).some((t, l) => {
+        const hv = (p, q, r, t) => Math.abs(p[1] - q[1]) < 1 && Math.abs(r[0] - t[0]) < 1 && r[0] > Math.min(p[0], q[0]) + 2 &&
+          r[0] < Math.max(p[0], q[0]) - 2 && p[1] > Math.min(r[1], t[1]) + 2 && p[1] < Math.max(r[1], t[1]) - 2;
+        return hv(pa[k], q, pb[l], t) || hv(pb[l], t, pa[k], q); }));
+      if (routers.length > 1) {
+        const ends = {};
+        for (const c of spec.conns) if (routes[c.id]) { (ends[`s${c.s}`] ||= []).push(c.id); (ends[`t${c.t}`] ||= []).push(c.id); }
+        for (const ids of Object.values(ends)) for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++)
+          if (crosses(routes[ids[i]], routes[ids[j]])) { shared.add(ids[i]); shared.add(ids[j]); }
       }
       if (shared.size) {
         const tn = performance.now();
@@ -243,7 +256,8 @@ function avoidCore(A) {
           const cr = r.addConnector({ shape: sh[c.s], pin: c.sp }, { shape: sh[c.t], pin: c.tp });
           const way = routes[c.id] || [];
           // (its inner corners, each where two of its stretches meet: the way it takes, wherever nudging moves it)
-          if (way.length > 2) cr.setRoutingCheckpoints(way.slice(1, -1).map(([x, y]) => ({ x, y, arrival: D.ConnDirAll, departure: D.ConnDirAll })));
+          // (a line that shares a track goes free, to be spaced from it; a pinned corner would hold it on that track)
+          if (way.length > 2 && !shared.has(c.id)) cr.setRoutingCheckpoints(way.slice(1, -1).map(([x, y]) => ({ x, y, arrival: D.ConnDirAll, departure: D.ConnDirAll })));
           all[c.id] = cr;
         }
         r.processTransaction();
@@ -365,8 +379,9 @@ function avoidLoad() {                                  // once: the worker, els
 }
 
 const PIN = { IN: 3, OUT: 4, STEM: 5, TELL: 6, PIPE: 7, ANY: 8, NET: 1000, PORT: 100 };   // pin classes (NET + i: a part's i-th net)
-const GROUP_OVER = 150, GROUP_CAP = 100;                // lines a view has past which they are routed in groups; the
-                                                         // most the lines between systems take with them
+const GROUP_OVER = 150, GROUP_CAP = 100, BENT = 5;                // lines a view has past which they are routed in groups; the
+                                                         // most the lines between systems take with them; the bends
+                                                         // past which a line is routed again, free
 const PIPE_ALONG = [0.15, 0.3, 0.5, 0.7, 0.85];   // where pipes may meet a stock's sides: apart enough (9px on a 44px stock) for a track each
 const CROSSING_PENALTY = (lines) => (lines <= 100 ? 200 : lines <= 600 ? 50 : 20);   // a crossing costs; less where there are
                                                                                       // many lines: its search is most of the time
@@ -583,9 +598,13 @@ function avoidSpec(lay, g) {
       total += size[sys];
       for (const id in groups) if (groups[id] === sys) groups[id] = "";
     }
+    // (a net, the lines leaving one point or reaching one, is put in order as one: never split between groups)
+    const nets = {};
+    for (const c of conns) { const k = edgeOf[c.id].kind; (nets[`s|${k}|${c.s}`] ||= []).push(c.id); (nets[`t|${k}|${c.t}`] ||= []).push(c.id); }
+    for (const ids of Object.values(nets)) if (new Set(ids.map((id) => groups[id])).size > 1) for (const id of ids) groups[id] = "";
   }
   // (in the dynamics view a flow's pipe reads best short and straight: a crossing there costs less than a long way round)
-  return { shapes, conns, flows, groups, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length) * (conns.length > 150 ? 0.6 : 1)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
+  return { shapes, conns, flows, groups, bent: BENT, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length) * (conns.length > 150 ? 0.6 : 1)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
 }
 
 /* the lines routed: in the worker (the page keeps ELK's lines meanwhile and redraws when they come), or on
@@ -617,7 +636,7 @@ function avoidStart(lay, g) {
       if (g.kind === "dynamics") { sdSeparate(lay, g); uncross(lay, g); sdAroundSatellites(lay, g); }   // (dynamics.js)
       unjog(lay, g);                                     // (last: the lines are where they stay)
       AV.prof = { ...(m.prof || {}), after: performance.now() - tp, spec: specMs };
-      AV.ms = m.ms; AV.invalid = m.invalid;               // (how long it took, and lines it found no way for: the tests read them)
+      AV.raw = m.routes; AV.ms = m.ms; AV.invalid = m.invalid;               // (how long it took, and lines it found no way for: the tests read them)
       AV.routed = { lay, seq };
     }
     lay.routing = false;
