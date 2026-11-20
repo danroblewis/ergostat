@@ -64,3 +64,7 @@ blocks:
     run: bin/drop.sh
     every: 2s
     out: flow.drops
+
+uses:
+  modelling:
+    use: modelling                    # the model improved as a loop of its own: what check finds is its work (SPEC §12e)

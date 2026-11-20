@@ -15,7 +15,8 @@ from ergostat.spec.item_systems import groups, kind_systems
 from ergostat.store import Project
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-BUILT_IN = ["ergostat.model-change", "ergostat.claim", "ergostat.message", "ergostat.verdict", "ergostat.decision",
+BUILT_IN = ["ergostat.model-change", "ergostat.modelling-request",
+            "ergostat.claim", "ergostat.message", "ergostat.verdict", "ergostat.decision",
             "ergostat.correction", "ergostat.context", "ergostat.report"]
 
 
@@ -28,18 +29,19 @@ def systems_of(demo: str) -> tuple[dict, list]:
 @pytest.mark.parametrize("demo, expected, order", [
     ("image-squeeze",
      {"hypothesis": "lab", "release": "lab", "session": "lab", "case": "benchmark", "ergostat.model-change": "modelling",
-      "ergostat.claim": "lab", "ergostat.message": "lab", "ergostat.decision": "lab"},
+      "ergostat.modelling-request": "modelling", "ergostat.claim": "lab", "ergostat.message": "lab", "ergostat.decision": "lab"},
      ["lab", "benchmark", "modelling", "ergostat"]),
     ("the-job",
      {"mention": "awareness", "secret": "awareness", "pr": "delivery", "doc": "documents", "alert": "incidents",
       "outage": "incidents", "action": "incidents", "note": "messages", "session": "modelling", "day": "rhythm",
       "ramp": "safety", "ci": "safety", "review": "stewardship", "ticket": "support", "team-pr": "team", "update": "team",
-      "ergostat.model-change": "modelling", "ergostat.message": "messages"},
+      "ergostat.model-change": "modelling", "ergostat.modelling-request": "modelling", "ergostat.message": "messages"},
      ["delivery", "stewardship", "documents", "awareness", "incidents", "safety", "support", "team", "rhythm", "messages",
       "modelling", "ergostat"]),
     ("software-factory",
-     {"ticket": "factory", "pr": "other", "release": "other"},
-     ["factory", "ergostat", "other"]),
+     {"ticket": "factory", "pr": "other", "release": "other", "ergostat.model-change": "modelling",
+      "ergostat.modelling-request": "modelling"},
+     ["factory", "modelling", "ergostat", "other"]),
 ])
 def test_each_demos_kinds_are_in_their_systems(demo, expected, order):
     got, grouped = systems_of(demo)

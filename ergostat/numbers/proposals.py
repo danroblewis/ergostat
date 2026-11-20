@@ -28,6 +28,7 @@ import fcntl
 import hashlib
 import json
 import math
+import os
 import time
 from pathlib import Path
 
@@ -160,8 +161,10 @@ def _decider(x: dict, state: str) -> str:
 
 def supersede(p, spec: Spec, why: str = "the model changed since it was made") -> list[str]:
     """Every change still open that was made against a model version that has since changed: superseded, unless it is
-    one of ergostat's own, not yet under test, whose subject (``subject``) the change left as it was and whose edit still
-    applies: that one is carried to the version now (``revised``, ``rebased``), keeping its history."""
+    carried to the version now, keeping its history: one of ergostat's own, not yet under test, whose subject
+    (``subject``) the change left as it was and whose edit still applies (``revised``, ``rebased``); or a change of words
+    or a redesign, whoever made it, whose edit still applies (``_carried``). One mechanism, after ``rebase`` has moved
+    the waiting edits' lines."""
     from . import trial as tr
     v, st = ver.version(spec), ver.structure(spec)
     out = []
@@ -169,7 +172,11 @@ def supersede(p, spec: Spec, why: str = "the model changed since it was made") -
         if not (x["state"] in OPEN and x.get("version") and x["version"] != v and x.get("kind") not in ("process", "tuning")):
             continue
         sub, said = x.get("subject") or {}, why
-        if sub and x["state"] == "checked" and not candidate(x):
+        if x.get("kind") in CARRIED:                 # words and redesigns, whoever made them: carried when they apply
+            said = _carried(p, spec, x)
+            if said is None:
+                continue
+        elif sub and x["state"] == "checked" and not candidate(x):
             now = subject(spec, sub["refs"])
             if now["sig"] == sub["sig"]:
                 edit = x["edit"]
@@ -815,16 +822,23 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
         except Exception:                                            # a prediction is a help, never a reason to refuse
             x["predicted"] = None
     ft.record(p, fit_before, snap["window"], force=True)             # the version it leaves, as it fitted at the end
-    for f, text in new_text.items():
-        Path(f).write_text(text, encoding="utf-8")
-    _, problems = read(p.model.path)
-    errors = [str(e) for e in problems if e.level == "error"]
-    if errors:
+    try:                                             # every file written, or (on any failure) every one put back
+        for f, text in new_text.items():
+            _write(Path(f), text)
+        _, problems = read(p.model.path)
+        errors = [str(e) for e in problems if e.level == "error"]
+        if errors:
+            raise ProposalError("the edit would leave the model with errors, so it was not made:\n  " + "\n  ".join(errors))
+        p.model = mdl.load(p.model.path.parent)
+    except BaseException:
         for f, text in old_text.items():
-            Path(f).write_text(text, encoding="utf-8")
-        raise ProposalError("the edit would leave the model with errors, so it was not made:\n  " + "\n  ".join(errors))
-    p.model = mdl.load(p.model.path.parent)
-    _, _, fit_after = ft.compute(p, snap)
+            try:
+                _write(Path(f), text)
+            except OSError:
+                pass
+        raise
+    history = keep_history(p, x["renames"], v_before) if x.get("renames") else None   # before the fit after: a renamed
+    _, _, fit_after = ft.compute(p, snap)           # part is read under its new name, with its history
     ft.record(p, fit_after, snap["window"], force=True)
     x["status"], x["state"], x["decided"], x["by"] = "accepted", "accepted", time.time(), by
     x["applied"] = {"version_before": v_before, "version_after": ver.version(p.model.spec),
@@ -836,11 +850,130 @@ def accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = None
         x["applied"]["why"] = why
     if policy:
         x["applied"]["policy"] = policy
+    if history is not None:                         # what the renamed parts' history became, kept with it
+        x["applied"]["history"] = history
     props[x["id"]] = x
     save(p, props)                                  # ergostat.model-change.accepted, from whoever decided
     written(p, x, by)
+    rebase(p, edits, x["id"])                        # the lines of the others waiting move with what was written
     supersede(p, p.model.spec)                      # what was made against the version before is made again, or not
     return x
+
+
+def _write(f: Path, text: str) -> None:
+    """A file written whole or not at all, even if the process dies part way: a file beside it, then renamed over."""
+    tmp = f.with_name(f".{f.name}.ergostat-tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, f)
+
+
+CARRIED = ("description", "unit", "redesign")        # kept across a change to the model, if its edit still applies
+
+
+def _carried(p, spec: Spec, x: dict) -> str | None:
+    """A change of words (a description, a unit) or a redesign, made by anyone against the version before: carried to the
+    version now when its edit applies to the files as they are (its lines moved, ``rebase``) and a change of words is
+    still one; a redesign goes back to checked, for the judge to score again, held to who-decides and its owner flags
+    again. None when carried, else why not."""
+    from . import improve as im
+    from . import trial as tr
+    try:
+        after = tr.spec_after(p, tr.edits_of(x))
+    except tr.TrialError as e:
+        return f"its edit no longer applies ({e})"
+    if x["kind"] != "redesign" and im.kind_of(spec, after, x["kind"]) != x["kind"]:
+        return f"it is no longer a {x['kind']} change on the model as it is"
+    more = {}
+    if x["kind"] == "redesign":
+        if im.governs(spec, after):
+            return "on the model as it is, it would change who decides"
+        from . import redesign as rd
+        more = {"rewires": False, "control": False, **rd.owners(spec, after)}
+    v = ver.version(spec)
+    event(p, x["id"], "checked" if x["kind"] == "redesign" else x["state"],
+          {"version": v, "structure": ver.structure(spec), "carried": {"from": x.get("version"), "to": v}, **more})
+    return None
+
+
+def rebase(p, written_edits: list, pid: str) -> list[str]:
+    """Every change still waiting whose edit is to a file just written, its hunks moved by the lines the written edit
+    added or took away above them (``ergostat.model-change.<its state>`` with the edit as it now stands); one whose
+    lines the written edit changed is left as it is (Accept refuses it, and it is made again)."""
+    shifts: dict[str, list[tuple[int, int, int]]] = {}
+    for e in written_edits:
+        for h in e.hunks:
+            shifts.setdefault(str(Path(e.file).resolve()), []).append((h.line, len(h.old), len(h.new) - len(h.old)))
+    out = []
+    for qid, y in stored(p).items():
+        if qid == pid or y["state"] not in OPEN or "error" in (y.get("edit") or {"error": 1}):
+            continue
+        files = []
+        moved = False
+        for d in y["edit"].get("files") or []:
+            f = str(Path(d["file"]).resolve())
+            mine = shifts.get(f)
+            if not mine:
+                files.append(d)
+                continue
+            hunks = []
+            for h in d["hunks"]:
+                line, n = int(h["line"]), len(h.get("old") or [])
+                how = [_relation(a, m, line, n) for a, m, _ in mine]
+                if "clash" in how:
+                    hunks = None                         # the same lines: it cannot be moved
+                    break
+                delta = sum(dl for (a, m, dl), r in zip(mine, how, strict=True) if r == "shift")
+                hunks.append({**h, "line": line + delta})
+                moved = moved or bool(delta)
+            if hunks is None:
+                moved = False
+                files = None
+                break
+            e = ye.Edit(d["file"], [ye.Hunk(int(h["line"]), list(h.get("old") or []), list(h.get("new") or [])) for h in hunks])
+            files.append(e.as_dict())
+        if not files or not moved:
+            continue
+        edit = {**y["edit"], "files": files, "diff": "\n".join(ye.Edit.from_dict({k: v for k, v in f_.items() if k != "diff"}).diff()
+                                                             for f_ in files)}
+        event(p, qid, y["state"], {"edit": edit})
+        out.append(qid)
+    return out
+
+
+def _relation(a: int, m: int, line: int, n: int) -> str:
+    """How a hunk written at ``a`` (replacing ``m`` lines) stands to one waiting at ``line`` (replacing ``n``; 0: put
+    in before it): ``shift`` (it is above: the waiting one moves by what it added), ``keep`` (below) or ``clash``."""
+    if m == 0:
+        if a <= line:
+            return "shift"
+        return "clash" if n and line < a < line + n else "keep"
+    if a + m <= line:
+        return "shift"
+    if (n and line + n <= a) or (not n and line <= a):
+        return "keep"
+    return "clash"
+
+
+def keep_history(p, renames: dict[str, str], version_before: str) -> dict:
+    """A part renamed keeps its history: each of its old sensors' readings written again under the new name's series
+    (the old series stay as they were: the record is never edited). Returns the readings copied, by series."""
+    spec = p.model.spec
+    out = {}
+    for old, new in renames.items():
+        kind, _, oname = old.partition(".")
+        _, _, nname = new.partition(".")
+        x = spec.measured(kind).get(nname)
+        if x is None:
+            continue
+        for s in x.sensors.values():
+            was = f"sensor/{oname}.{s.name}"
+            pts = p.measurements.range(was, 0.0)
+            have = {t for t, _ in p.measurements.range(s.series, 0.0)}
+            rows = [(s.series, t, v) for t, v in pts if t not in have]
+            if rows:
+                p.measurements.add_many(rows)
+            out[s.series] = {"from": was, "readings": len(rows)}
+    return out
 
 
 def written(p, x: dict, by: str) -> dict:

@@ -58,7 +58,8 @@ def check_yaml(args, path: Path) -> int:
     findings = [p for p in problems if p.level != "error"]
     if args.json:
         coh = coherence_of(args, spec, findings) if not errors else None
-        return out_json({"ok": not errors, "errors": len(errors), "findings": len(findings),
+        return out_json({"ok": not errors, "errors": len(errors), "findings": sum(1 for p in findings if p.level != "note"),
+                         "notes": sum(1 for p in findings if p.level == "note"),
                          "found": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
                                     **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
                                     "file": str(p.where.file) if p.where else None,
@@ -87,9 +88,20 @@ def check_yaml(args, path: Path) -> int:
     loops = spec.loops()
     closed = [lp for lp in loops if lp.closes]
     print(c(f"{len(closed)} of {n(len(loops), 'goal')} closed by a loop ergostat can see", "dim"))
+    notes = [p for p in findings if p.level == "note"]
     for p in findings:
-        print(f"{c(p.code or 'finding', 'warn')}  {p}")
-    coh = coherence_of(args, spec, findings)
+        if p.level != "note":
+            print(f"{c(p.code or 'finding', 'warn')}  {p}")
+    if notes:                                   # the craft (docs/MODELLING-WELL.md): work for modelling, not wrong
+        print(c(f"\n{n(len(notes), 'note')} on the craft (docs/MODELLING-WELL.md; ergostat check --json lists each, "
+                f"and the modelling loop takes them up)", "dim"))
+        by: dict[str, list] = {}
+        for p in notes:
+            by.setdefault(p.code, []).append(p)
+        for code, ps in by.items():
+            names = ", ".join(x.about.split(".", 1)[-1] for x in ps[:8]) + (f" and {len(ps) - 8} more" if len(ps) > 8 else "")
+            print(f"{c(code, 'dim')}  {len(ps)}: {names}" if len(ps) > 1 else f"{c(code, 'dim')}  {ps[0]}")
+    coh = coherence_of(args, spec, [p for p in findings if p.level != "note"])
     if coh is not None and coh["kinds"]:
         from ..coherence import lines
         print(c("\nCoherence: the Process, Dynamics and Blocks views held against each other, over the record", "dim"))

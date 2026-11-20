@@ -277,6 +277,9 @@ def build() -> argparse.ArgumentParser:
                                                                "and measured as a block's would be, and kept nowhere")
     im.add_argument("--edit-value", metavar="NAME=VALUE", help="the edit that sets a parameter's value, in the form a "
                                                               "propose line takes (a time with its unit: 20s); writes nothing")
+    im.add_argument("--redesign", nargs="?", const="model", metavar="SYSTEM",
+                    help="ask for a redesign of a system (or the whole model): one change set, judged by its scorecard; "
+                         "the template's redesigner takes it up on its next run and puts what it makes in the review queue")
     for t in PART_TOPICS:
         sp = topic(t, cmd_part, f"The {t}s, or one")
         sp.set_defaults(fn=cmd_part, topic=t)

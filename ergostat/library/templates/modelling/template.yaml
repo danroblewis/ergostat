@@ -1,6 +1,6 @@
 template: modelling
 once: true
-description: The model improved as a loop of its own (SPEC §12e) - its fit a stock held by a goal, an improver that proposes changes while it is off, and ergostat's judge that tests each on the record after it.
+description: The model improved as a loop of its own (SPEC §12e) - its fit a stock held by a goal, everything check finds held as requests, tiers that answer them (the fixer, a program of mechanical fixes, then an AI agent when asked), an improver for the fit, and ergostat's judge that tests each change and writes what the policy allows.
 reading: |
   System dynamics: the model's error is a stock (model-error, read by ergostat's built-in measure
   ergostat.model.fit, the Fit page's total), drained as changes are written (model-mended) and moved either way by
@@ -13,13 +13,20 @@ reading: |
   finders alike), counted by state as an aging chain: made and checked (pending-changes), under test
   (changes-testing), passed (passed-changes), written (accepted-changes, a running total); a change made against a
   version of the model since changed leaves as superseded, one the judge fails leaves as failed.
-  Control: one balancing loop that closes the long way. The goal model-fits holds model-error at or under `fit`;
+  What check finds (its findings, a kind's chain, the craft notes, the coherence mismatches once there is record) is
+  work for it too: each a request (ergostat.modelling-request), raised by a collector (requests-raised), counted while it
+  is not answered (unanswered-requests) and answered when check no longer finds it. The tiers answer them, the
+  cheapest first: the rule tier (fixer, a program: units carried along a flow) and, when asked (ai: true), the AI tier (modeller, an AI agent given
+  each request with the model near it and the modelling guides). Both propose ordinary changes; the judge decides.
+  Control: two balancing loops that close the long way. The goal model-fits holds model-error at or under `fit`;
   while it is off the improver runs (an AI agent reading the model as a senior modeller would, a program, or a
   person) and proposes changes with their evidence; the judge (a built-in block, at most one a model) replays each
   beside the model as it is on the record that comes after it, in several windows, passes it only when it is better
   in every one, and writes what `accept` allows (nothing by default: the owner accepts in the review queue on the
-  Fit page). What is written lowers the error, which the measure then sees.
-  It is used once a model, and its parts keep the names written here (model-error, model-fits, improver, judge),
+  Fit page). What is written lowers the error, which the measure then sees. The goal requests-handled holds the
+  unanswered requests at 0: while it is off the tiers run, their changes are judged, and what is written answers them.
+  It is used once a model, and its parts keep the names written here (model-error, model-fits, improver, fixer,
+  modeller, judge),
   in a system named for the use (modelling, by convention).
 example: |
   uses:
@@ -27,9 +34,12 @@ example: |
       use: modelling
       with:
         fit: 0.05                     # the model's replay may be off by a scaled error of at most 0.05
-        run: ""                       # give the prompt to claude -p (else a free stand-in runs)
+        ai: true                      # the AI tier answers what the rule tier cannot (haiku by default; it costs)
         accept:
-          parameter: auto             # a value the judge passes is written at once; the structure waits for the owner
+          parameter: auto             # a value the judge passes is written at once
+          description: auto           # so is a description, a unit and an equation; the structure waits for the owner
+          unit: auto
+          equation: auto
 params:
   rung:
     type: rung
@@ -61,6 +71,41 @@ params:
     type: bool
     default: false
     description: keep each run of the improver as an item of kind session (session/*, its role, model, cost, turns and time), for an improver that reports session.ran, session.failed and session.lost
+  rules:
+    type: bool
+    default: true
+    description: the rule tier, a program that answers the requests a mechanical change answers safely and certainly
+  rules-every:
+    type: duration
+    default: 1m
+    description: the least time between the rule tier's runs while requests wait
+  ai:
+    type: bool
+    default: false
+    description: the AI tier, an AI agent (claude -p) given the requests the rule tier cannot answer, with the model near each and the modelling guides; off by default, so a fresh model costs nothing
+  ai-model:
+    default: haiku
+    description: the model the AI tier's session uses
+  ai-every:
+    type: duration
+    default: 10m
+    description: the least time between the AI tier's runs while requests wait for it
+  ai-most:
+    type: number
+    default: 8
+    description: the requests given to one AI call
+  redesign:
+    type: any
+    default: {when: auto, model: haiku, budget: 0.5, rounds: 3, daily: 2}
+    description: 'the redesigner, with ai: true (SPEC §12e, Redesign): one change set of many edits for a system, judged by a scorecard. when: auto (the default) reviews each system on its own when it is due (its replay worse than its mean for 30 minutes, a finding that says the structure is wrong, refinement stalled, the first run, and once a day), a system of more than 40 parts a subsystem at a time; ask: only when the owner asks (ergostat improve --redesign, the Model page); off. model (haiku), budget (dollars a run, 0.5), rounds (3), daily (dollars a day at most, 2: past it nothing runs). What it makes is never written without the owner: it waits in the review queue and the inbox, unless accept: {redesign: auto}, and even then not one that takes a part away, rewires a chain or changes control'
+  redesign-every:
+    type: duration
+    default: 10m
+    description: the least time between the redesigner's runs (each looks for a system that is due, or one the owner asked for, and does nothing else)
+  requests-every:
+    type: duration
+    default: 2m
+    description: how often check is read again for requests (each a finding, a craft note, or a coherence mismatch)
   fit:
     type: number
     default: 0.05
@@ -94,7 +139,7 @@ params:
     description: 'the longest before each window its replay starts (the judge''s own default: 6h)'
   accept:
     type: any
-    description: 'who writes a change the judge passed: owner or auto, or a map of kind (parameter, equation, structure) to either (the judge''s own default: owner for every kind)'
+    description: 'who writes a change the judge passed: owner or auto, or a map of kind (parameter, equation, structure, description, unit, rename, redesign) to either (the judge''s own default: owner for every kind; accept: auto promotes parameter, equation, structure, description and unit; a rename and a redesign only when named, rename: auto, redesign: auto; a change that rewires a chain or removes a part, and a redesign that changes control, always wait for the owner; a redesign is judged on the record it has, its fit allowed 10% worse)'
 items:
   session:
     if: ${sessions}
@@ -133,6 +178,21 @@ stocks:
       items: ergostat.model-change
       state: passed
       every: ${count-every}
+  unanswered-requests:
+    unit: requests
+    description: what check finds that modelling is still working on (open, or with a change waiting); one held for the owner or more record leaves the count, so requests-handled can be met
+    sensor:
+      items: ergostat.modelling-request
+      state: [open, proposed]
+      every: ${count-every}
+  answered-requests:
+    unit: requests
+    description: requests answered, check no longer finding them
+    cumulative: true
+    sensor:
+      items: ergostat.modelling-request
+      state: answered
+      every: ${count-every}
   accepted-changes:
     unit: changes
     description: changes accepted and written into the model
@@ -163,9 +223,60 @@ flows:
       over: ${over}
   changes-made:
     to: pending-changes
+    description: changes made by the improver and ergostat's own finders (each checked at once, or refused)
     sensor:
       items: ergostat.model-change
-      entering: checked
+      entering: made
+      where: {made_by: [improver, improver-by-hand, ergostat, owner]}
+      over: ${over}
+  changes-made-by-fixer:
+    if: ${rules}
+    to: pending-changes
+    description: changes the rule tier made for the requests (each checked at once, or refused)
+    driven-by: +stock.unanswered-requests
+    sensor:
+      items: ergostat.model-change
+      entering: made
+      where: {made_by: fixer}
+      over: ${over}
+  changes-made-by-redesigner:
+    if: ${ai}
+    unless: ${redesign.when|auto} == off
+    to: pending-changes
+    description: change sets the redesigner made, each many edits judged together (or refused)
+    driven-by: +stock.unanswered-requests
+    sensor:
+      items: ergostat.model-change
+      entering: made
+      where: {made_by: redesigner}
+      over: ${over}
+  changes-made-by-modeller:
+    if: ${ai}
+    to: pending-changes
+    description: changes the AI tier made for the requests (each checked at once, or refused)
+    driven-by: +stock.unanswered-requests
+    sensor:
+      items: ergostat.model-change
+      entering: made
+      where: {made_by: modeller}
+      over: ${over}
+  requests-raised:
+    to: unanswered-requests
+    description: what check finds, raised as requests (and those found again)
+    sensor:
+      run: ${lib} modelling requests --window ${over:seconds}
+      every: ${requests-every}
+      description: check, read for requests
+  requests-answered:
+    from: unanswered-requests
+    to: answered-requests
+    description: requests check no longer finds, most often as a change is written
+    driven-by:
+      - +stock.unanswered-requests
+      - {cause: +flow.changes-accepted, instant: true}
+    sensor:
+      items: ergostat.modelling-request
+      entering: answered
       over: ${over}
   changes-superseded:                 # made against a version of the model since changed
     from: pending-changes
@@ -206,6 +317,11 @@ flows:
       entering: accepted
       over: ${over}
 goals:
+  requests-handled:
+    stock: unanswered-requests
+    hold: "<= 0"
+    tolerance: 0
+    description: everything check finds answered (no request left unanswered)
   model-fits:
     stock: model-error
     hold: "<= ${fit}"
@@ -231,6 +347,41 @@ blocks:
     goal: model-fits
     ask: ${ask}
     out: flow.changes-made
+  fixer:
+    if: ${rules}
+    type: program
+    description: the rule tier, answering the requests a mechanical change answers safely and certainly
+    goal: requests-handled
+    run: ${lib} modelling rules
+    every: ${rules-every}
+    timeout: ${timeout}
+    in: +stock.unanswered-requests
+    out: flow.changes-made-by-fixer
+  modeller:
+    if: ${ai}
+    type: ai
+    description: the AI tier, answering the requests the rule tier cannot, with the model near each and the modelling guides
+    goal: requests-handled
+    prompt: ${folder}/modeller.md
+    run: ${lib} modelling ai --model ${ai-model} --most ${ai-most} --timeout ${timeout:seconds}
+    model: ${ai-model}
+    every: ${ai-every}
+    timeout: ${timeout}
+    in: +stock.unanswered-requests
+    out: flow.changes-made-by-modeller
+  redesigner:
+    if: ${ai}
+    unless: ${redesign.when|auto} == off
+    type: ai
+    description: the redesigner, proposing one change set for a system when it is due or the owner asks; written only with the owner's approval
+    goal: requests-handled
+    prompt: ${folder}/redesigner.md
+    run: ${lib} modelling redesign --when ${redesign.when|auto} --model ${redesign.model|haiku} --budget ${redesign.budget|0.5} --rounds ${redesign.rounds|3} --daily ${redesign.daily|2} --timeout ${timeout:seconds}
+    model: ${redesign.model|haiku}
+    every: ${redesign-every}
+    timeout: ${timeout}
+    in: +stock.unanswered-requests
+    out: flow.changes-made-by-redesigner
   judge:
     type: judge                       # ergostat's judge (SPEC §12e): each change replayed on the record after it
     every: ${judge-every}
