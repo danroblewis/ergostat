@@ -64,7 +64,7 @@ each round says how long its prompt, call and scoring took, and the run's cost i
 
 **When it runs**: on its own, a system at a time when it is due (`when: auto`, SPEC §12e), or when the owner asks
 (`ergostat improve --redesign [SYSTEM]`, the Model page's Redesign button), taken up by the redesigner block. At most one redesign waits per system. Template parameters:
-`redesign: {when: ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2}` and `redesign-every` (10m).
+`redesign: {when: auto|ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2}` and `redesign-every` (10m).
 
 **On the page**: the review queue's entry for a redesign shows what it changes and why (the summary, each edit with its
 why, the parts), the scorecard, and buttons that draw the model as it would leave it, in Dynamics or Blocks: new parts
