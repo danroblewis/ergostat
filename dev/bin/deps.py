@@ -95,9 +95,11 @@ def reaches(graph: dict[str, set[str]], start: str, goal: str) -> list[str] | No
     return None
 
 
-def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: dict[str, set[str]]) -> dict[str, dict]:
+def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: dict[str, set[str]],
+         merged: set[str] = frozenset()) -> dict[str, dict]:
     """Each gap's dependencies as they should be: {gap id: {depends_on, sources, problems, blocked_reason}}. Links are
-    added one at a time; one that would close a cycle is refused and said."""
+    added one at a time; one that would close a cycle is refused and said. A name that is no gap but a branch already
+    merged into main (``merged``) is work done: satisfied, kept as a source, no link."""
     find = resolver(gaps, own)
     graph = {gid: set(g["fields"].get("depends_on") or []) for gid, g in gaps.items()}
     out = {gid: {"sources": [], "problems": []} for gid in gaps}
@@ -112,7 +114,9 @@ def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: d
             continue
         for name, where in links:
             dep = find(name)
-            if dep is None:
+            if dep is None and name in merged:
+                out[gid]["sources"].append({"on": name, "from": where, "satisfied": "merged into main"})
+            elif dep is None:
                 out[gid]["problems"].append(f"depends on {name!r} ({where}), which is no gap")
             elif dep == gid:
                 continue

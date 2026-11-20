@@ -768,6 +768,7 @@ def test_dependencies_are_read_conservatively_with_where_they_came_from(tmp_path
     gaps["gap/warm-workers"]["state"] = "parked"
     gaps["gap/warm-workers"]["fields"]["where_it_stopped"] = "per-item state leaked"
     gaps["gap/asked"]["fields"]["depends_on"] = ["gap/nowhere"]
+    assert "'nosuch'" not in str(deps.plan(gaps, parsed, own, {"nosuch"})["gap/remote-systems"]["problems"])
     want = deps.plan(gaps, parsed, own)
     assert want["gap/remote-systems"]["depends_on"] == ["gap/warm-workers"]   # by the branch its entry names
     assert "'nosuch'" in want["gap/remote-systems"]["problems"][0]            # no gap: said, not dropped

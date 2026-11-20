@@ -73,7 +73,10 @@ def dependencies(cfg: dict, known: dict[str, dict], text: str) -> int:
                 names = []
             parsed.setdefault(gid, []).extend((n, f"its definition ({where})") for n in names)
     n = 0
-    for gid, data in deps.changes(known, deps.plan(known, parsed, own)):
+    repo = fac.path(cfg, "checkout")
+    merged = set(fac.git(repo, "branch", "--format=%(refname:short)", "--merged", cfg["git"]["base"],
+                         check=False).split())
+    for gid, data in deps.changes(known, deps.plan(known, parsed, own, merged)):
         fac.say("gap.dependencies", gid, **data)
         n += 1
     return n
