@@ -30,7 +30,7 @@ RAN = "ergostat.model.redesign-ran"
 def settings(spec: Spec) -> dict:
     """The redesigner's settings, as the model's ``use: modelling`` gave them (``redesign: {when, model, budget, rounds,
     daily}``), else the defaults."""
-    out = {"when": "ask", "model": "haiku", "budget": 0.5, "rounds": 3, "daily": 2.0}
+    out = {"when": "auto", "model": "haiku", "budget": 0.5, "rounds": 3, "daily": 2.0}
     for u in (spec.uses or {}).values():
         got = (u.get("values") or {}).get("redesign") if u.get("template") == "modelling" else None
         if isinstance(got, dict):
@@ -254,9 +254,10 @@ def running(p, now: float | None = None, within: float = RUNNING_FOR) -> bool:
     return any(r == "started" for r in last.values())
 
 
-def plan(p, when: str = "ask") -> dict:
+def plan(p, when: str = "auto") -> dict:
     """What a run of the redesigner should do now: ``{"system", "why"}`` or ``{"system": None, "why"}`` (nothing).
-    It takes up what the owner asked, the oldest first, one a run."""
+    It takes up what the owner asked, the oldest first, one a run; with ``when: auto``, else the first system that is
+    due (``redesign_due``)."""
     spec = p.model.spec
     for s in asked(p):
         w = waiting(p, spec, s)
@@ -264,6 +265,9 @@ def plan(p, when: str = "ask") -> dict:
             ran(p, s, {"result": "waiting", "why": f"asked, but a redesign of {s} is waiting already ({w['id']})"})
             continue
         return {"system": s, "why": ["the owner asked"], "asked": True}
+    if when == "auto":
+        from . import redesign_due as due
+        return due.next_due(p)
     return {"system": None, "why": [f"when: {when}, and nothing asked"]}
 
 
@@ -289,6 +293,8 @@ def last(p) -> dict | None:
     for e in reversed(p.events.query(n=50, type=RAN)):
         d = e.get("data") or {}
         if d.get("result") not in (None, "started", "call"):
+            trigger = d.get("why")
             return {"system": d.get("system") or "model", "result": d.get("result"), "id": d.get("id"),
-                    "why": d.get("why_not") or (d.get("why") if isinstance(d.get("why"), str) else None), "at": e["time"]}
+                    "why": d.get("why_not"), "trigger": "; ".join(trigger) if isinstance(trigger, list) else trigger,
+                    "at": e["time"]}
     return None

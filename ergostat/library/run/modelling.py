@@ -125,7 +125,7 @@ def ai(argv: list[str]) -> int:
 
 def redesign(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="modelling redesign")
-    ap.add_argument("--when", default="ask", choices=("ask", "off"))
+    ap.add_argument("--when", default="auto", choices=("auto", "ask", "off"))
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--budget", type=float, default=0.5)
     ap.add_argument("--rounds", type=int, default=3)
@@ -149,8 +149,10 @@ def redesign(argv: list[str]) -> int:
     if left <= 0:                                 # the daily cap: the ask waits for tomorrow's allowance
         note(f"redesigner: the day's ${a.daily:.2f} is spent; {plan['system']} waits")
         return 0
+    from ...numbers import redesign_due as due
     rd.ran(p, plan["system"], {"by": "redesigner", "result": "started", "why": plan["why"],
                                "version": rd.ver.version(p.model.spec)})
+    req = due.hold(p, plan["system"], "redesign-due", "; ".join(plan["why"]), state="open")   # its trigger, said
 
     def charged(got: dict) -> None:               # each call charged as it is spent, so a run cut short still counts
         _said(got)
@@ -160,6 +162,11 @@ def redesign(argv: list[str]) -> int:
     rd.ran(p, plan["system"], {"by": "redesigner", "result": out.get("result"), "id": out.get("id"), "total": out["cost"],
                                "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"],
                                **({"why_not": out["why_not"]} if out.get("why_not") else {})})
+    from ...numbers import requests as rq
+    if out.get("result") == "proposed":
+        rq.event(p, req, "proposed", {"change": out.get("id"), "why": None})
+    else:
+        rq.event(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")})
     for r in out.get("reports") or []:                        # what ergostat could not express: drafted for the owner
         print(json.dumps({"report": r}), flush=True)
     c = out["cost"]
