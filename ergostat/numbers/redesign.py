@@ -259,7 +259,8 @@ def running(p, now: float | None = None, within: float = RUNNING_FOR) -> bool:
     now = now or time.time()
     last: dict = {}
     for e in p.events.query(n=None, type=RAN, since=now - within):
-        last[(e.get("data") or {}).get("system") or "model"] = (e.get("data") or {}).get("result")
+        if (e.get("data") or {}).get("result") != "call":           # (a call charged: the run goes on)
+            last[(e.get("data") or {}).get("system") or "model"] = (e.get("data") or {}).get("result")
     return any(r == "started" for r in last.values())
 
 
@@ -279,8 +280,15 @@ def plan(p, when: str = "ask") -> dict:
 DAY = 24 * 3600.0
 
 
+def charge(p, system: str, got: dict) -> None:
+    """One of the redesigner's calls charged as it is spent (``result: call``); a call that never said its cost is
+    charged the most it could have cost (``modeller.unsaid``)."""
+    ran(p, system, {"result": "call", "cost": {"usd": float(got.get("usd") or 0.0)},
+                    **({"estimated": True} if got.get("estimated") else {})})
+
+
 def spent(p, now: float | None = None) -> float:
-    """What the redesigner's runs cost over the last day, in dollars."""
+    """What the redesigner's calls cost over the last day, in dollars (each charged as it was spent)."""
     now = now or time.time()
     return round(sum(float(((e.get("data") or {}).get("cost") or {}).get("usd") or 0.0)
                      for e in p.events.query(n=None, type=RAN, since=now - DAY)), 6)
@@ -290,7 +298,7 @@ def last(p) -> dict | None:
     """The redesigner's last run that ended: its system, result, change and why (for the Model page's line)."""
     for e in reversed(p.events.query(n=50, type=RAN)):
         d = e.get("data") or {}
-        if d.get("result") not in (None, "started"):
+        if d.get("result") not in (None, "started", "call"):
             return {"system": d.get("system") or "model", "result": d.get("result"), "id": d.get("id"),
                     "why": d.get("why_not") or (d.get("why") if isinstance(d.get("why"), str) else None), "at": e["time"]}
     return None

@@ -185,8 +185,9 @@ def items(spec: Spec) -> str:
 
 def renamed_parts(before: Spec, after: Spec) -> dict[str, str] | None:
     """The parts a change renames (``{"stock.old": "stock.new"}``): each new part says ``formerly:`` its old name, and
-    the model is the same but for the names: its structure, its control and every sensor (what each part reads). None
-    when it is not a rename."""
+    the model is the same but for the names: its structure, its control, every sensor (what each part reads), every
+    number (parameters' values and tables, declared rates) and every item kind (states and the events that move them).
+    None when it is not a rename."""
     out: dict[str, str] = {}
     for kind, a, b in (("stock", before.stocks, after.stocks), ("flow", before.flows, after.flows),
                        ("auxiliary", before.auxiliaries, after.auxiliaries)):
@@ -226,5 +227,5 @@ def renamed_parts(before: Spec, after: Spec) -> dict[str, str] | None:
     def sensors_of(s: Spec) -> dict:                 # what each part reads, under the part's name: a rename keeps it
         return {f"{k}.{n}": _plain(x.sensors) for k, t in (("stock", s.stocks), ("flow", s.flows),
                                                            ("auxiliary", s.auxiliaries)) for n, x in t.items()}
-    same = all(renamed(f(before)) == plain(f(after)) for f in (_structure, control_of, sensors_of))
+    same = all(renamed(f(before)) == plain(f(after)) for f in (_structure, control_of, sensors_of, _numbers, _kinds))
     return out if same else None

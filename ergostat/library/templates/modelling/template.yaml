@@ -364,7 +364,7 @@ blocks:
     description: the AI tier, answering the requests the rule tier cannot, with the model near each and the modelling guides
     goal: requests-handled
     prompt: ${folder}/modeller.md
-    run: ${lib} modelling ai --model ${ai-model} --most ${ai-most}
+    run: ${lib} modelling ai --model ${ai-model} --most ${ai-most} --timeout ${timeout:seconds}
     model: ${ai-model}
     every: ${ai-every}
     timeout: ${timeout}
@@ -377,7 +377,7 @@ blocks:
     description: the redesigner, proposing one change set for a whole system when the owner asks
     goal: requests-handled
     prompt: ${folder}/redesigner.md
-    run: ${lib} modelling redesign --when ${redesign.when|ask} --model ${redesign.model|haiku} --budget ${redesign.budget|0.5} --rounds ${redesign.rounds|3} --daily ${redesign.daily|2}
+    run: ${lib} modelling redesign --when ${redesign.when|ask} --model ${redesign.model|haiku} --budget ${redesign.budget|0.5} --rounds ${redesign.rounds|3} --daily ${redesign.daily|2} --timeout ${timeout:seconds}
     model: ${redesign.model|haiku}
     every: ${redesign-every}
     timeout: ${timeout}
