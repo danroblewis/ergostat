@@ -322,7 +322,9 @@ def test_cli_tools_on_a_fixture_instance(tmp_path):
     f.tool("lesson.py", "request", "lesson/seen-lesson-1-abc")
     assert f.drain() == ["gap.requested", "lesson.requested"]
     assert f.item("lesson/seen-lesson-1-abc")["state"] == "requested"
-    f.tool("lesson.py", "request", "lesson/seen-lesson-1-abc", ok=False)          # no longer proposed
+    f.fold([{"event": "lesson.seen", "item": "lesson/new-once", "data": {"kind": "entry", "name": "Once"}}], None)
+    f.tool("lesson.py", "request", "lesson/new-once", ok=False)                    # only a proposal is requested
+    assert not (f.model / "run" / "defs" / "knowledge-new-once.md").exists()
     f.tool("lesson.py", "retire", "9", "carried for a month to no effect")
     assert f.drain() == ["gap.requested", "lesson.retired"]
     f.fold([{"event": "gap.parked", "item": "gap/delta", "data": {"where_it_stopped": "Stopped: the lock order."}},
@@ -347,3 +349,16 @@ def test_new_roles_read_only_in_their_containers(role, tmp_path):
     allowed = args[args.index("--allowedTools") + 1].split(",")
     assert not [t for t in allowed if t in ("Edit", "Write") or "commit" in t]
     assert ("WebSearch" in allowed) == (role == "researcher")
+
+
+def test_the_knowledge_model_loads():
+    from ergostat.spec import read
+    from tests.test_factory import ROOT
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    assert {"research", "lesson"} <= set(spec.items) and "knowledge-change" in spec.actions
+    assert {"planned", "replan", "split"} <= set(spec.items["gap"].states)
+    for name in ("planner", "plan-review", "researcher"):
+        assert spec.blocks[name].pool == 1
+    assert spec.blocks["planner"].takes.at == ["open", "replan"] and spec.blocks["plan-review"].takes.at == ["planned"]
+    assert {"knowledge-entries", "gaps-planned", "lessons-proposed"} <= set(spec.stocks)
