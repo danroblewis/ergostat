@@ -98,7 +98,7 @@ the critical first. A name that is no gap, or a link that would close a cycle, i
 draw the tree; `python3 dev/bin/deps.py` prints it as mermaid.
 
 Then: the implementor commits the definition first and builds; the reviewer approves, sends it back (`fix`, with its
-findings) or parks it; the second failed gate parks it with where it stopped; the queue lands it. `ergostat item
+findings) or parks it; the third failed gate (`[gates] kill_after`) parks it with where it stopped; the queue lands it. `ergostat item
 gap/NAME` shows each round, its reviews, the context each session was given and what it cost.
 
 ## Plans, research and what the factory knows

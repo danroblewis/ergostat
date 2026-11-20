@@ -24,7 +24,6 @@ import brief  # noqa: E402
 import fac  # noqa: E402
 import pools  # noqa: E402
 
-KILL = 2                     # the failed gates that park a gap
 VERDICT_EVENT = {"merge": "review.approved", "fix": "review.sent-back", "park": "review.parked"}
 VERDICT = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
 
@@ -138,8 +137,8 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
     if v["verdict"] == "merge":
         fac.say("gap.approved", approved_at=time.time(), approved_by="review", first_pass=n == 1, reviewed_head=head,
                 **record)
-    elif v["verdict"] == "park" or failed >= KILL:
-        why = v["where_it_stopped"] or "Failed its gates twice (the kill rule). Blocking findings:\n" + "\n".join(
+    elif v["verdict"] == "park" or failed >= fac.kill_after(cfg):
+        why = v["where_it_stopped"] or f"Failed its gates {fac.kill_after(cfg)} times (the kill rule). Blocking findings:\n" + "\n".join(
             f"- {b}" for b in v["blocking"])
         fac.say("gap.measured", failed_gates=int(v["verdict"] == "fix"), findings=v["blocking"], **record)
         park(cfg, gap, why, rid)
